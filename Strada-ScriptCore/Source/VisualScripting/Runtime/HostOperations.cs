@@ -34,8 +34,14 @@ internal sealed partial class VisualScriptRuntime
 	// single Error InvalidDocument. references is the bundle of the other graphs the document's nodes refer to (spec-slice3
 	// section 2.4), empty for none: any bytes, a bundle that is not of its form holding no graph. The libraries it holds are
 	// analyzed once for every document that calls them (spec-slice3 section 4.4.3).
-	internal HostReply AnalyzeDocument(ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default) =>
-		HostReply.Success(AnalysisWriter.Write(GraphAnalyzer.Analyze(m_Library(), document, GraphReferences.Parse(references), m_LibraryAnalyses)));
+	internal HostReply AnalyzeDocument(ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default)
+	{
+		AnalyzedDocument analyzed = GraphAnalyzer.Analyze(m_Library(), document, GraphReferences.Parse(references), m_LibraryAnalyses, timings: Timings);
+		long start = AnalysisTimings.Now();
+		byte[] text = AnalysisWriter.Write(analyzed);
+		Timings?.Lap(AnalysisPhase.Write, start);
+		return HostReply.Success(text);
+	}
 
 	// VisualScriptLoad: stores a program for the handle whatever the document holds and answers its diagnostics array.
 	// references as for AnalyzeDocument; the program keeps it, so it compiles again with the same bundle.
@@ -45,9 +51,17 @@ internal sealed partial class VisualScriptRuntime
 	// VisualScriptDescribeInstanceVariables: the stored-map JSON of the instance's public variables (spec section 5.4).
 	internal HostReply DescribeVariables(ulong entity) => DescribeInstanceVariables(entity) is { } text ? HostReply.Success(text) : HostReply.NotFound;
 
+	// VisualScriptTakeLiveEvents (spec-slice4 section 8.4): the live log's receipts and runtime problems whose serial is after
+	// `after`, as JSON; NotFound when there are none.
+	internal HostReply TakeLiveEvents(ulong after) => m_Live.Write(after) is { } text ? HostReply.Success(text) : HostReply.NotFound;
+
+	// VisualScriptClearLiveEvents: a play session starts, so the live log's receipts, problems and Dropped go and problems
+	// count from 1 again (spec-slice4 sections 8.2 and 8.5, ClearLiveLog). Serials go on growing.
+	internal void ClearLiveEvents() => m_Live.Clear();
+
 	// Before the game assembly unloads nothing may reference its types (spec section 5.6): the instances go (no events run),
-	// every program is reduced to its name, document and references, and the members' invokers and the libraries' analyses
-	// are dropped. Graph instances block
+	// every program is reduced to its name, document and references, and the members' invokers and the libraries' and the
+	// loaded documents' analyses are dropped. Graph instances block
 	// assembly loads, so the engine has none then.
 	internal void OnGameAssemblyUnloading()
 	{
@@ -69,9 +83,12 @@ internal sealed partial class VisualScriptRuntime
 			entry.Latest = null;
 			entry.Effective = null;
 			entry.IsStale = true;
+			entry.SwapFrom = null;
+			entry.Deferred = null;
 		}
 		m_PendingSwaps.Clear();
 		m_LibraryAnalyses.Clear();
+		m_RootAnalyses.Clear();
 		m_Invokers.Clear();
 		m_Makers.Clear();
 		m_Breakers.Clear();

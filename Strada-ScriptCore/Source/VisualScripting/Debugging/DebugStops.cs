@@ -178,45 +178,56 @@ internal sealed class DebugSnapshot
 
 	// What changed in the live values a stopped execution reads since the snapshot (spec-slice4 section 4.7): its instance's
 	// variables and the outputs of event and impure nodes of the instance's event-graph frame. Values compare by their bits,
-	// objects by reference. After a live edit (section 4.8) the snapshot's values are read across it as the edit carried them:
-	// variables by ID, then name and type, outputs by node ID and type and by pin name and type; what the edit added or reset
-	// is no change made elsewhere. Each change is listed once (members of one instance see the same ones), at most max; more
-	// counts the others.
+	// objects by reference. After a live edit (section 4.8) the snapshot's values are read across it as the edit carried them,
+	// through the carry plan of the two programs (section 8.3): variables by ID, then name and type, outputs by node ID and
+	// type and by pin name and type; what the edit added or reset is no change made elsewhere. Each change is listed once
+	// (members of one instance see the same ones), at most max; more counts the others.
 	internal static void AddChanges(DebugSnapshotMember member, GraphInstance instance, List<DebugChange> changes, int max, ref int more)
 	{
 		CompiledVariable[] variables = instance.Program.Variables;
-		// Null while no edit replaced the program: the variables are where they were.
-		int[]? matches = ReferenceEquals(member.Program, instance.Program) ? null
-			: VisualScriptRuntime.MatchVariables(member.Program, instance.Program);
+		DebugSnapshotFrame events = member.Frames[0];
+		Slot[] live = instance.Frame.Slots;
+		if (ReferenceEquals(member.Program, instance.Program))
+		{
+			for (int index = 0; index < variables.Length; index++)
+			{
+				if (!SameSlot(member.Variables[index], instance.Variables[index]))
+				{
+					Add(changes, new DebugChange(instance.Entity, 0, variables[index].Name), max, ref more);
+				}
+			}
+			foreach (CompiledNode node in instance.Frame.Graph.Nodes)
+			{
+				if (node.Pure || node.IsSplit)
+				{
+					continue;
+				}
+				for (int output = 0; output < node.OutputCount; output++)
+				{
+					if (!SameSlot(events.Slots[node.OutputBase + output], live[node.OutputBase + output]))
+					{
+						Add(changes, new DebugChange(instance.Entity, node.Id, node.OutputPins[output]), max, ref more);
+					}
+				}
+			}
+			return;
+		}
+		// The snapshot's event frame is a frame of its program's event graph, which the plan carries from.
+		CarryPlan plan = CarryPlan.Make(member.Program, instance.Program);
 		for (int index = 0; index < variables.Length; index++)
 		{
-			int old = matches?[index] ?? index;
-			if (old >= 0 && old < member.Variables.Length && !SameSlot(member.Variables[old], instance.Variables[index]))
+			int old = plan.VariableSources[index];
+			if (old >= 0 && !SameSlot(member.Variables[old], instance.Variables[index]))
 			{
 				Add(changes, new DebugChange(instance.Entity, 0, variables[index].Name), max, ref more);
 			}
 		}
-		DebugSnapshotFrame events = member.Frames[0];
-		Slot[] live = instance.Frame.Slots;
-		bool edited = !ReferenceEquals(events.Graph, instance.Frame.Graph);
-		foreach (CompiledNode node in instance.Frame.Graph.Nodes)
+		foreach (OutputCarry output in plan.Events.Outputs)
 		{
-			if (node.Pure || node.IsSplit)
+			if (!SameSlot(events.Slots[output.From], live[output.To]))
 			{
-				continue;
-			}
-			CompiledNode? before = edited ? VisualScriptRuntime.Find(events.Graph, node) : node;
-			if (before == null)
-			{
-				continue;
-			}
-			for (int output = 0; output < node.OutputCount; output++)
-			{
-				int match = edited ? VisualScriptRuntime.MatchOutput(before, node, output) : output;
-				if (match >= 0 && !SameSlot(events.Slots[before.OutputBase + match], live[node.OutputBase + output]))
-				{
-					Add(changes, new DebugChange(instance.Entity, node.Id, node.OutputPins[output]), max, ref more);
-				}
+				CompiledNode node = instance.Frame.Graph.Nodes[output.Node];
+				Add(changes, new DebugChange(instance.Entity, node.Id, node.OutputPins[output.Output]), max, ref more);
 			}
 		}
 	}

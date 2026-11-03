@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -71,91 +72,134 @@ public sealed class PerformanceTests
 
 	// A formula is one node (spec-slice3 sections 3.2 and 3.3.8): ten additions cost one step against the ten its graph of
 	// Add nodes costs, run as ten instructions without allocating. Only an optimized build with STRADA_PERFORMANCE_TESTS=1
-	// measures the time: then the formula runs at least 3 times faster than the graph.
+	// measures the time: the figure is printed against the target of 3 times faster (spec-slice4 section 21), and the bound
+	// asserted is a third of the figure measured, as section 21 sets bounds.
 	[Fact]
 	public void AFormulaIsOneStepAndRunsFasterThanItsGraph()
 	{
-		// Each iteration of the counting loop: the loop, the Set, its Get and the counter's computation; 2 steps more for the
-		// event and the loop.
-		// formula: null copies the counter (the loop's own cost), true adds through a formula, false through Add nodes.
-		static TestRuntime Counting(int count, bool? formula, string name = "Event.Create")
-		{
-			DocumentBuilder document = new();
-			uint counter = document.Variable("Counter", "int", "0");
-			GraphBuilder graph = document.Graph;
-			uint loop = graph.Node("Flow.ForLoop", inputs: FormattableString.Invariant($$"""{ "First": 1, "Last": {{count}} }"""));
-			uint set = graph.Set(counter);
-			uint get = graph.Get(counter);
-			if (formula == null)
-			{
-				graph.Link(get, "Value", set, "Value");
-			}
-			else if (formula.Value)
-			{
-				uint add = graph.Node("Expression", """{ "Formula": "c + 1 + 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0" }""");
-				graph.Link(get, "Value", add, "c");
-				graph.Link(add, "Result", set, "Value");
-			}
-			else
-			{
-				uint previous = get;
-				for (int index = 0; index < 10; index++)
-				{
-					uint add = graph.Node("Operator.Add", inputs: index == 0 ? """{ "B": 1 }""" : """{ "B": 0 }""");
-					graph.Link(previous, previous == get ? "Value" : "Result", add, "A");
-					previous = add;
-				}
-				graph.Link(previous, "Result", set, "Value");
-			}
-			graph.Flow(graph.Node(name), loop);
-			graph.Flow(loop, set, "Body");
-			TestRuntime runtime = TestRuntime.Start(document);
-			if (formula == true)
-			{
-				GraphProgram program = ProgramCompiler.Compile(GraphAnalyzer.Analyze(RuntimeTesting.Library, Encoding.UTF8.GetBytes(document.Build())), "Count");
-				Assert.Equal(10, program.EventGraph.Nodes.Single(static node => node.Op == Opcode.Expression).Expression!.Code.Length);
-			}
-			return runtime;
-		}
 		Assert.Equal(VisualScriptStatus.Success, Counting(249_999, true).Invoke(ScriptEvent.Create));
 		Assert.Equal(VisualScriptStatus.Failure, Counting(250_000, true).Invoke(ScriptEvent.Create));
 		Assert.Equal(VisualScriptStatus.Success, Counting(76_922, false).Invoke(ScriptEvent.Create));
 		Assert.Equal(VisualScriptStatus.Failure, Counting(76_923, false).Invoke(ScriptEvent.Create));
 
-		TestRuntime formulas = Counting(10_000, true, "Event.Update");
-		TestRuntime graphs = Counting(10_000, false, "Event.Update");
-		TestRuntime copies = Counting(10_000, null, "Event.Update");
+		// The timed loops chain ChainLength formulas (or groups of ten Add nodes) per iteration, so that the evaluations are
+		// most of what an Update does.
+		TestRuntime formulas = Counting(TimedIterations, true, "Event.Update", ChainLength);
+		TestRuntime graphs = Counting(TimedIterations, false, "Event.Update", ChainLength);
 		formulas.Invoke(ScriptEvent.Update);
+		graphs.Invoke(ScriptEvent.Update);
 		Assert.Equal(0, formulas.FewestBytesPerUpdate(3));
+		Assert.Equal(0, graphs.FewestBytesPerUpdate(3));
 		Assert.Empty(formulas.Environment.Logs);
+		Assert.Empty(graphs.Environment.Logs);
+		Assert.Equal(formulas.Variable("Counter"), graphs.Variable("Counter"));
 
-		bool optimized = typeof(VisualScriptRuntime).Assembly.GetCustomAttribute<DebuggableAttribute>()?.IsJITOptimizerDisabled != true;
-		if (!optimized || System.Environment.GetEnvironmentVariable("STRADA_PERFORMANCE_TESTS") != "1")
+		if (!PerformanceTesting.IsRequested)
 		{
 			return;
 		}
-		static TimeSpan Fastest(TestRuntime runtime)
+		FormulaFigures figures = MeasureFormulas(formulas, graphs);
+		TestContext.Current.TestOutputHelper?.WriteLine(figures.Describe());
+		if (PerformanceTesting.IsMeasured)
 		{
-			for (int update = 0; update < 40; update++)
-			{
-				runtime.Invoke(ScriptEvent.Update);
-			}
-			TimeSpan fastest = TimeSpan.MaxValue;
-			for (int update = 0; update < 20; update++)
-			{
-				long start = Stopwatch.GetTimestamp();
-				runtime.Invoke(ScriptEvent.Update);
-				TimeSpan elapsed = Stopwatch.GetElapsedTime(start);
-				fastest = elapsed < fastest ? elapsed : fastest;
-			}
-			return fastest;
+			Assert.True(figures.Ratio >= MeasuredFormulaRatio / 3.0, figures.Describe());
 		}
-		// The evaluations alone: what the loop costs without them is subtracted.
-		TimeSpan loop = Fastest(copies);
-		TimeSpan formula = Fastest(formulas) - loop;
-		TimeSpan graph = Fastest(graphs) - loop;
-		TestContext.Current.TestOutputHelper?.WriteLine(FormattableString.Invariant(
-			$"10 additions, 10,000 times: {formula.TotalMilliseconds:F3} ms as a formula, {graph.TotalMilliseconds:F3} ms as a graph"));
-		Assert.True(formula.Ticks * 3 <= graph.Ticks, $"the formula took {formula.TotalMilliseconds:F3} ms and its graph {graph.TotalMilliseconds:F3} ms");
+	}
+
+	// The target of the graph's Update over the formulas' (spec-slice4 section 21), and the lowest median measured in Release
+	// once the typed operations landed (track V2, Ryzen 5 7535HS), whose third is the bound asserted.
+	private const double FormulaRatioTarget = 3.0;
+	private const double MeasuredFormulaRatio = 3.0;
+
+	// Iterations of the timed loops, and the formulas each iteration chains: a graph Update stays inside one execution's
+	// budget (ChainLength * 10 additions, the loop, the Get and the Set per iteration).
+	private const int TimedIterations = 2_000;
+	private const int ChainLength = 10;
+
+	// Updates of each runtime measured, after the warm-up that lets tiered compilation finish.
+	private const int WarmUpdates = 60;
+	private const int MeasuredUpdates = 101;
+
+	// A counting loop over First 1 to count: each iteration reads the counter, adds 1 through chain formulas of
+	// "c + 1 + 0 + ... + 0" (formula: true) or chain groups of ten Add nodes (false), and sets it.
+	private static TestRuntime Counting(int count, bool formula, string name = "Event.Create", int chain = 1)
+	{
+		DocumentBuilder document = new();
+		uint counter = document.Variable("Counter", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint loop = graph.Node("Flow.ForLoop", inputs: FormattableString.Invariant($$"""{ "First": 1, "Last": {{count}} }"""));
+		uint set = graph.Set(counter);
+		uint previous = graph.Get(counter);
+		string output = "Value";
+		for (int link = 0; link < chain; link++)
+		{
+			if (formula)
+			{
+				string first = link == 0 ? "1" : "0";
+				uint add = graph.Node("Expression", $$"""{ "Formula": "c + {{first}} + 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0 + 0" }""");
+				graph.Link(previous, output, add, "c");
+				previous = add;
+				output = "Result";
+				continue;
+			}
+			for (int index = 0; index < 10; index++)
+			{
+				uint add = graph.Node("Operator.Add", inputs: link == 0 && index == 0 ? """{ "B": 1 }""" : """{ "B": 0 }""");
+				graph.Link(previous, output, add, "A");
+				previous = add;
+				output = "Result";
+			}
+		}
+		graph.Link(previous, output, set, "Value");
+		graph.Flow(graph.Node(name), loop);
+		graph.Flow(loop, set, "Body");
+		TestRuntime runtime = TestRuntime.Start(document);
+		if (formula)
+		{
+			GraphProgram program = ProgramCompiler.Compile(GraphAnalyzer.Analyze(RuntimeTesting.Library, Encoding.UTF8.GetBytes(document.Build())), "Count");
+			Assert.All(program.EventGraph.Nodes.Where(static node => node.Op == Opcode.Expression), static node => Assert.Equal(10, node.Expression!.Code.Length));
+		}
+		return runtime;
+	}
+
+	// The formula against its graph measured steadily (S4-R5.3): Updates of the two runtimes alternate, so that the machine's
+	// state changes both alike, and each pair gives the ratio of the graph's Update to the formula's. Whole Updates are compared,
+	// never a difference that the loop's own cost could make negative: the loop costs both the same, so the ratio of the
+	// evaluations alone is at least the ratio reported.
+	private static FormulaFigures MeasureFormulas(TestRuntime formulas, TestRuntime graphs)
+	{
+		for (int update = 0; update < WarmUpdates; update++)
+		{
+			formulas.Invoke(ScriptEvent.Update);
+			graphs.Invoke(ScriptEvent.Update);
+		}
+		double[] formulaTimes = new double[MeasuredUpdates];
+		double[] graphTimes = new double[MeasuredUpdates];
+		double[] ratios = new double[MeasuredUpdates];
+		for (int update = 0; update < MeasuredUpdates; update++)
+		{
+			long start = Stopwatch.GetTimestamp();
+			formulas.Invoke(ScriptEvent.Update);
+			formulaTimes[update] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+			start = Stopwatch.GetTimestamp();
+			graphs.Invoke(ScriptEvent.Update);
+			graphTimes[update] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+			ratios[update] = graphTimes[update] / formulaTimes[update];
+		}
+		return new FormulaFigures(formulaTimes, graphTimes, ratios);
+	}
+
+	private sealed record FormulaFigures(double[] Formulas, double[] Graphs, double[] Ratios)
+	{
+		// The median of the pairs' ratios.
+		internal double Ratio => PerformanceTesting.Median(Ratios);
+
+		internal string Describe()
+		{
+			static string Spread(double[] values, string format) => FormattableString.Invariant(
+				$"median {PerformanceTesting.Median(values).ToString(format, CultureInfo.InvariantCulture)} (10th to 90th percentile {PerformanceTesting.Percentile(values, 0.1).ToString(format, CultureInfo.InvariantCulture)} to {PerformanceTesting.Percentile(values, 0.9).ToString(format, CultureInfo.InvariantCulture)})");
+			return FormattableString.Invariant(
+				$"{ChainLength * 10} additions per iteration, {TimedIterations:N0} iterations, {Ratios.Length} alternating Updates{(PerformanceTesting.IsOptimized ? string.Empty : ", unoptimized")}: as formulas {Spread(Formulas, "F3")} ms, as a graph {Spread(Graphs, "F3")} ms, the graph's Update over the formulas' {Spread(Ratios, "F2")}x (target {FormulaRatioTarget:F1}x{(Ratio >= FormulaRatioTarget ? ", met" : ", missed")})");
+		}
 	}
 }

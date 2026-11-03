@@ -21,6 +21,7 @@ internal sealed class AnalysisContext
 	private readonly List<AnalyzedFunction> m_Functions = [];
 	private readonly Dictionary<AnalyzedNode, LibraryCall?> m_Calls = [];
 	private readonly Dictionary<ulong, GraphFingerprint> m_Reads = [];
+	private readonly HashSet<ulong> m_DocumentReads = [];
 	private readonly Dictionary<ulong, LinkedLibrary> m_Links = [];
 	private GraphTarget? m_SelfTarget;
 	private int m_SuggestionSearches;
@@ -49,19 +50,37 @@ internal sealed class AnalysisContext
 
 	internal string? SelfName { get; }
 
+	// Where the analysis adds the time of each phase (spec-slice4 section 9.0); null when nobody measures it. The libraries the
+	// document calls are analyzed without it, inside the phase that needs them.
+	internal AnalysisTimings? Timings { get; init; }
+
 	// What the analysis read of each other graph (its fingerprint when read), and the libraries its calls link: a cached
 	// analysis of a library is reused only while both are what they were (spec-slice3 section 4.4.3).
 	internal IReadOnlyDictionary<ulong, GraphFingerprint> Reads => m_Reads;
 
 	internal IReadOnlyDictionary<ulong, LinkedLibrary> Links => m_Links;
 
+	// The graphs whose documents nodes other than library calls read (a Send's events, a remote variable, a RunsGraph): what
+	// the analysis read of a library it links only through calls is its interface (spec-slice4 section 9.4), of these graphs
+	// their documents.
+	internal IReadOnlySet<ulong> DocumentReads => m_DocumentReads;
+
 	// The document itself as a Graph setting names it ("this graph" when its asset path is unknown).
 	internal GraphTarget SelfTarget => m_SelfTarget ??= new GraphTarget(Self, true, SelfName ?? ThisGraph,
 		SelfName != null ? ReferencedGraph.Stem(SelfName) : ThisGraph, ReferenceForm.Full, Document, null);
 
 	// The graph a Graph setting names: the document itself, the analyzed document of the outermost analysis (which the bundle
-	// has no entry for), or a graph of the bundle, present or absent. Other graphs are recorded as read.
+	// has no entry for), or a graph of the bundle, present or absent. Other graphs are recorded as read, as documents.
 	internal GraphTarget FindGraph(ulong graph)
+	{
+		if (graph != Self)
+		{
+			m_DocumentReads.Add(graph);
+		}
+		return Find(graph);
+	}
+
+	private GraphTarget Find(ulong graph)
 	{
 		if (graph == Self)
 		{
@@ -108,7 +127,7 @@ internal sealed class AnalysisContext
 		{
 			return new LibraryCall(LibraryCallStatus.Self, SelfTarget, null, "Graph: this graph's own functions are called without a Graph setting");
 		}
-		GraphTarget target = FindGraph(graph);
+		GraphTarget target = Find(graph);
 		if (target.Document == null)
 		{
 			return new LibraryCall(LibraryCallStatus.Absent, target, null, $"Graph: {target.Error}");

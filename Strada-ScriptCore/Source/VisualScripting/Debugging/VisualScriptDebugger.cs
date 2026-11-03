@@ -484,7 +484,7 @@ internal sealed class VisualScriptDebugger : IVisualScriptDebugger
 			return;
 		}
 		IReadOnlyList<Execution> running = m_Runtime.Running;
-		Add(DebugStopReason.Error, DebugPlace.Error, execution, false, error.Message, null,
+		Add(DebugStopReason.Error, DebugPlace.Error, execution, false, error.Text, null,
 			DebugSnapshot.Take(execution, DebugPlace.Error, running, running.Count - 1));
 	}
 

@@ -14,19 +14,28 @@ internal static class GraphAnalyzer
 	// A document without references: every Graph setting names a graph that is absent.
 	internal static AnalyzedDocument Analyze(NodeLibrary library, ReadOnlySpan<byte> utf8) => Analyze(library, utf8, GraphReferences.Empty, new LibraryAnalyses());
 
-	// name is the document's asset path when known (a load), which messages then use for it.
+	// name is the document's asset path when known (a load), which messages then use for it. timings, when given, gets the
+	// time of each phase added (spec-slice4 section 9.0).
 	internal static AnalyzedDocument Analyze(NodeLibrary library, ReadOnlySpan<byte> utf8, GraphReferences references, LibraryAnalyses libraries,
-		string? name = null)
+		string? name = null, AnalysisTimings? timings = null) => AnalyzeRoot(library, utf8, references, libraries, name, timings).Analysis;
+
+	// The analysis with the context it was made in: what it read of other graphs and the libraries it links (null for a
+	// document that is not a JSON object, which reads nothing).
+	internal static RootAnalysis AnalyzeRoot(NodeLibrary library, ReadOnlySpan<byte> utf8, GraphReferences references, LibraryAnalyses libraries,
+		string? name, AnalysisTimings? timings)
 	{
+		long start = AnalysisTimings.Now();
 		List<Diagnostic> diagnostics = [];
 		GraphDocument? document = DocumentReader.Read(utf8, diagnostics);
+		timings?.Lap(AnalysisPhase.Read, start);
 		if (document == null)
 		{
-			return new AnalyzedDocument(library, diagnostics, [], [], new AnalyzedGraph(0, null));
+			return new RootAnalysis(new AnalyzedDocument(library, diagnostics, [], [], new AnalyzedGraph(0, null)), null);
 		}
 		// Only libraries of the bundle read the analyzed document's text (to cache what they read of it).
 		ReferenceScope scope = new(library, references, libraries, name, document, references.Count > 0 ? utf8.ToArray() : []);
-		return Analyze(new AnalysisContext(library, document, diagnostics, scope, references.Self, name));
+		AnalysisContext context = new(library, document, diagnostics, scope, references.Self, name) { Timings = timings };
+		return new RootAnalysis(Analyze(context), context);
 	}
 
 	internal static AnalyzedDocument Analyze(AnalysisContext context)
@@ -34,8 +43,11 @@ internal static class GraphAnalyzer
 		GraphDocument document = context.Document;
 		List<Diagnostic> diagnostics = context.Diagnostics;
 		NodeLibrary library = context.Library;
+		AnalysisTimings? timings = context.Timings;
+		long mark = AnalysisTimings.Now();
 		DeclareVariables(context);
 		DeclareFunctions(context);
+		mark = timings?.Lap(AnalysisPhase.Declare, mark) ?? mark;
 		AnalyzedGraph eventGraph = new(0, null);
 		List<(AnalyzedGraph Graph, DocumentGraph Source)> graphs = [];
 		for (int index = 0; index < document.Functions.Count; index++)
@@ -48,6 +60,7 @@ internal static class GraphAnalyzer
 		{
 			CreateNodes(context, graph, source);
 		}
+		mark = timings?.Lap(AnalysisPhase.Create, mark) ?? mark;
 		if (document.Kind == DocumentKind.Library)
 		{
 			CheckLibrary(context, eventGraph);
@@ -76,10 +89,12 @@ internal static class GraphAnalyzer
 				}
 			}
 		}
+		mark = timings?.Lap(AnalysisPhase.Shape, mark) ?? mark;
 		foreach ((AnalyzedGraph graph, DocumentGraph source) in graphs)
 		{
 			AttachLinks(context, graph, source);
 		}
+		mark = timings?.Lap(AnalysisPhase.Links, mark) ?? mark;
 		TypeResolution types = new(context, convertTargets, formulas, node => SplitResolved(context, node));
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
@@ -90,6 +105,7 @@ internal static class GraphAnalyzer
 				AttachDeferred(context, graph, link);
 			}
 		}
+		mark = timings?.Lap(AnalysisPhase.Types, mark) ?? mark;
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			MarkDisabledNodes(context, graph);
@@ -105,6 +121,7 @@ internal static class GraphAnalyzer
 				CheckTargets(context, graph);
 			}
 		}
+		mark = timings?.Lap(AnalysisPhase.Checks, mark) ?? mark;
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			foreach (AnalyzedNode node in graph.Nodes)
@@ -112,8 +129,10 @@ internal static class GraphAnalyzer
 				DecodeInputs(context, node);
 			}
 		}
+		mark = timings?.Lap(AnalysisPhase.Decode, mark) ?? mark;
 		GraphRules.Check(context, context.Functions, eventGraph);
 		DemoteDisabledNodeDiagnostics(diagnostics, graphs);
+		timings?.Lap(AnalysisPhase.Rules, mark);
 		return new AnalyzedDocument(library, diagnostics, context.Variables, context.Functions, eventGraph)
 		{
 			Kind = document.Kind,
@@ -122,7 +141,7 @@ internal static class GraphAnalyzer
 	}
 
 	// The libraries the document's calls reach: those it calls, and theirs.
-	private static Dictionary<ulong, LinkedLibrary> Link(IReadOnlyDictionary<ulong, LinkedLibrary> links)
+	internal static Dictionary<ulong, LinkedLibrary> Link(IReadOnlyDictionary<ulong, LinkedLibrary> links)
 	{
 		Dictionary<ulong, LinkedLibrary> linked = [];
 		foreach (KeyValuePair<ulong, LinkedLibrary> link in links)
@@ -751,3 +770,6 @@ internal static class GraphAnalyzer
 		}
 	}
 }
+
+// An analysis of a document and the context it was made in (null when the document is not a JSON object).
+internal sealed record RootAnalysis(AnalyzedDocument Analysis, AnalysisContext? Context);

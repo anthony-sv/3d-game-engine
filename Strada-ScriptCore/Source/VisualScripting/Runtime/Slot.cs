@@ -27,7 +27,11 @@ internal enum SlotKind : byte
 
 // A value of a running graph: an output, a staged input, a variable, a local or the state of a node. Booleans, numbers,
 // enums and the math structs of up to 16 bytes are held in place, so evaluating them never allocates; every other value is
-// the object at offset 16. Writing a slot always writes all of it, so a value never keeps a stale object alive.
+// the object at offset 16. Writing a slot always writes all of it, so a value never keeps a stale object alive. The one
+// exception is the slots a formula writes (its temporaries and its node's output): ExpressionMachine's typed operations
+// (spec-slice4 section 9.5) write only the Int, Float or Bool field. Those slots never hold objects, but a temporary may keep
+// an earlier temporary's bytes beyond the field written, so they are read only at their kind: nothing compares them as bytes
+// (the debugger's Changed compare skips pure nodes, and a formula node is pure).
 [StructLayout(LayoutKind.Explicit, Size = 24)]
 internal struct Slot
 {

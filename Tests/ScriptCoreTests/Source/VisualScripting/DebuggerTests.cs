@@ -60,7 +60,7 @@ public sealed class DebuggerTests
 
 		public void OnAborted(Execution execution)
 		{
-			Aborted.Add(execution.Error!.Message);
+			Aborted.Add(execution.Error!.Text);
 		}
 
 		public void OnStoppedReleased(Execution execution, string reason)

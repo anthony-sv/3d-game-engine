@@ -59,12 +59,14 @@ internal static class ProgramCompiler
 				sources.Add((function, new CompiledFunction(function, graph), library.Name));
 			}
 		}
-		Dictionary<AnalyzedFunction, CompiledFunction> functions = [];
+		// Calls find their callees by graph and function ID (spec-slice4 section 9.4), never by the analyzed function: an
+		// analysis reused with a library's new analysis calls the new analysis' functions.
+		Dictionary<(ulong Graph, uint Id), CompiledFunction> functions = [];
 		CompiledFunction[] compiledFunctions = new CompiledFunction[sources.Count];
 		for (int index = 0; index < compiledFunctions.Length; index++)
 		{
 			compiledFunctions[index] = sources[index].Function;
-			functions[sources[index].Source] = sources[index].Function;
+			functions[(sources[index].Function.Graph, sources[index].Source.ID)] = sources[index].Function;
 		}
 		Context context = new(document.Library, variableIndexes, functions);
 		foreach ((AnalyzedFunction source, CompiledFunction function, string graphName) in sources)
@@ -117,7 +119,7 @@ internal static class ProgramCompiler
 		return new GraphProgram(document.Library, name, variables, compiledFunctions, eventGraph, events, [.. inputEvents]);
 	}
 
-	private sealed record Context(NodeLibrary Library, Dictionary<AnalyzedVariable, int> Variables, Dictionary<AnalyzedFunction, CompiledFunction> Functions);
+	private sealed record Context(NodeLibrary Library, Dictionary<AnalyzedVariable, int> Variables, Dictionary<(ulong Graph, uint Id), CompiledFunction> Functions);
 
 	private sealed class GraphCompiler
 	{
@@ -845,7 +847,9 @@ internal static class ProgramCompiler
 					break;
 				case Opcode.FunctionCall:
 				case Opcode.PureCall:
-					node.Function = m_Context.Functions[((FunctionBinding)source.Binding!).Function];
+					// A call without a Graph setting calls a function of the document the graph belongs to.
+					FunctionBinding call = (FunctionBinding)source.Binding!;
+					node.Function = m_Context.Functions[(call.Graph != 0 ? call.Graph : m_Source, call.Function.ID)];
 					break;
 				case Opcode.Literal:
 					LiteralBinding literal = (LiteralBinding)source.Binding!;
