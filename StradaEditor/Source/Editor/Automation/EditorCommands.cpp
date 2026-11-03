@@ -3204,9 +3204,10 @@ namespace Strada
 				};
 				context.FindGraphName = [](AssetHandle other) -> std::string
 				{
-					std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(other);
-					return metadata && !metadata->Path.empty() ? FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem())
-					                                           : std::string();
+					std::optional<AssetMetadata> const otherMetadata = AssetManager::GetMetadata(other);
+					return otherMetadata && !otherMetadata->Path.empty()
+					           ? FileSystem::PathToUtf8(FileSystem::PathFromUtf8(otherMetadata->Path).stem())
+					           : std::string();
 				};
 				context.StoredAnalysis = storedAnalysis;
 				context.StoredAnalysisDocument = stored;
