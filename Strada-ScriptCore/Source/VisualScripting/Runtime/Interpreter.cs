@@ -15,19 +15,28 @@ internal sealed partial class VisualScriptRuntime
 	private const string DepthMessage = "call depth exceeded 64";
 	private const string NoTarget = "Target is None";
 	private const string NoArray = Intrinsics.NoArray;
+	// The run modes that report flow to the debugger.
+	private const DebugMode ReportModes = DebugMode.Record | DebugMode.Values;
 
-	// Runs an execution until it ends, suspends or aborts. freshBudget starts the steps of an outermost execution; nested
-	// executions share the steps of the one they run in. Active executions and their function frames count towards the
-	// depth while they run.
-	private ExecutionResult Execute(Execution execution, bool freshBudget)
+	// Runs an execution until it ends, suspends, aborts or stops. freshBudget starts the steps of an outermost execution;
+	// nested executions share the steps of the one they run in. Active executions and their function frames count towards
+	// the depth while they run.
+	private ExecutionResult Execute(Execution execution, bool freshBudget) => Execute(execution, freshBudget, MaxSteps);
+
+	// budget: the steps a fresh budget starts with (a stopped execution continues with the steps it had left).
+	private ExecutionResult Execute(Execution execution, bool freshBudget, int budget)
 	{
 		int depth = m_Depth;
 		int steps = m_StepsRemaining;
 		if (freshBudget)
 		{
-			m_StepsRemaining = MaxSteps;
+			m_StepsRemaining = budget;
 		}
 		execution.IsRunning = true;
+		// Spec-slice4 section 4.4: only an execution with no VM execution below it on the host stack can stop, and a receiver
+		// whose sender can: the sender then waits inside its Send.
+		execution.CanStop = execution.Parent is { } parent ? parent.CanStop : m_Depth == 0;
+		m_Running.Add(execution);
 		try
 		{
 			if (m_Depth + 1 + execution.FunctionDepth > MaxDepth)
@@ -38,11 +47,23 @@ internal sealed partial class VisualScriptRuntime
 				return ExecutionResult.Aborted;
 			}
 			m_Depth += 1 + execution.FunctionDepth;
-			return Run(execution);
+			ExecutionResult result = execution.Mode == DebugMode.None ? Run<Untraced>(execution) : Run<Traced>(execution);
+			if (result == ExecutionResult.Stopped)
+			{
+				// Spec-slice4 section 4.2: what the execution continues with.
+				execution.SavedSteps = m_StepsRemaining;
+				execution.SavedDeltaTime = m_Environment.GetDeltaTime();
+			}
+			return result;
 		}
 		finally
 		{
+			m_Running.RemoveAt(m_Running.Count - 1);
 			execution.IsRunning = false;
+			// Spec-slice4 section 4.1: only the run a resume started passes its first stop point. A run that met no stop point
+			// with the Break mode (an untraced or Record run, or one that suspended first) must not carry the pass into a later
+			// run of the execution.
+			execution.SkipStop = false;
 			m_Depth = depth;
 			if (freshBudget)
 			{
@@ -51,15 +72,31 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
-	private ExecutionResult Run(Execution execution)
+	// The interpreter loop, compiled once per trace mode (spec-slice4 section 7.3): the Untraced instantiation has no
+	// debugger code at all.
+	private ExecutionResult Run<TMode>(Execution execution)
+		where TMode : struct, ITraceMode
 	{
 		try
 		{
+			// A sender whose receiver stopped continues inside its Send or Broadcast (spec-slice4 section 4.3).
+			if (execution.Delivery != null)
+			{
+				ExecutionResult delivered = FinishDelivery<TMode>(execution);
+				if (delivered != ExecutionResult.Ended)
+				{
+					return delivered;
+				}
+			}
 			while (true)
 			{
+				if (TMode.IsTraced && (execution.Mode & DebugMode.Break) != 0 && IsStopping(execution))
+				{
+					return ExecutionResult.Stopped;
+				}
 				if (execution.Node < 0)
 				{
-					if (!ContinueAfterChain(execution))
+					if (!ContinueAfterChain<TMode>(execution))
 					{
 						return ExecutionResult.Ended;
 					}
@@ -70,134 +107,138 @@ internal sealed partial class VisualScriptRuntime
 				int entry = execution.Entry;
 				Slot[] slots = frame.Slots;
 				Step(execution, node);
+				if (TMode.IsTraced)
+				{
+					frame.StampsOrNew[node.Index] = execution.Serial;
+				}
 				switch (node.Op)
 				{
 					case Opcode.Event:
 					case Opcode.FunctionEntry:
 					case Opcode.ExecReroute:
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.Branch:
-						Evaluate(execution, node, frame);
-						Follow(execution, node, slots[node.InputBase].Bool ? 0 : 1);
+						Evaluate<TMode>(execution, node, frame);
+						Follow<TMode>(execution, node, slots[node.InputBase].Bool ? 0 : 1);
 						break;
 					case Opcode.Sequence:
 						if (node.Count > 1)
 						{
 							execution.PushFlow(new FlowEntry { Kind = FlowKind.Sequence, Node = node.Index, Index = 1 });
 						}
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.Switch:
-						Evaluate(execution, node, frame);
-						Follow(execution, node, SwitchExit(node, slots[node.InputBase]));
+						Evaluate<TMode>(execution, node, frame);
+						Follow<TMode>(execution, node, SwitchExit(node, slots[node.InputBase]));
 						break;
 					case Opcode.ForLoop:
 						if (entry == 1)
 						{
-							BreakLoop(execution, node);
+							BreakLoop<TMode>(execution, node);
 							break;
 						}
-						Evaluate(execution, node, frame);
+						Evaluate<TMode>(execution, node, frame);
 						int first = slots[node.InputBase].Int;
 						int last = slots[node.InputBase + 1].Int;
 						if (first > last)
 						{
-							Follow(execution, node, 1);
+							Follow<TMode>(execution, node, 1);
 							break;
 						}
 						execution.PushFlow(new FlowEntry { Kind = FlowKind.ForLoop, Node = node.Index, Index = first, Last = last });
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.ForEach:
 						if (entry == 1)
 						{
-							BreakLoop(execution, node);
+							BreakLoop<TMode>(execution, node);
 							break;
 						}
-						Evaluate(execution, node, frame);
+						Evaluate<TMode>(execution, node, frame);
 						Array array = slots[node.InputBase].Object as Array ?? throw new VisualScriptException(NoArray);
 						if (array.Length == 0)
 						{
-							Follow(execution, node, 1);
+							Follow<TMode>(execution, node, 1);
 							break;
 						}
 						execution.PushFlow(new FlowEntry { Kind = FlowKind.ForEach, Node = node.Index, Items = (Array)array.Clone() });
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.While:
-						Evaluate(execution, node, frame);
+						Evaluate<TMode>(execution, node, frame);
 						if (slots[node.InputBase].Bool)
 						{
 							execution.PushFlow(new FlowEntry { Kind = FlowKind.While, Node = node.Index });
-							Follow(execution, node, 0);
+							Follow<TMode>(execution, node, 0);
 						}
 						else
 						{
-							Follow(execution, node, 1);
+							Follow<TMode>(execution, node, 1);
 						}
 						break;
 					case Opcode.DoOnce:
 						if (entry == 1)
 						{
 							slots[node.StateSlot] = Slot.FromBool(true);
-							EndChain(execution, node);
+							EndChain<TMode>(execution, node);
 						}
 						else if (slots[node.StateSlot].Bool)
 						{
 							slots[node.StateSlot] = Slot.FromBool(false);
-							Follow(execution, node, 0);
+							Follow<TMode>(execution, node, 0);
 						}
 						else
 						{
-							EndChain(execution, node);
+							EndChain<TMode>(execution, node);
 						}
 						break;
 					case Opcode.DoN:
 						if (entry == 1)
 						{
 							slots[node.StateSlot] = Slot.FromInt(0);
-							EndChain(execution, node);
+							EndChain<TMode>(execution, node);
 							break;
 						}
-						Evaluate(execution, node, frame);
+						Evaluate<TMode>(execution, node, frame);
 						int counter = slots[node.StateSlot].Int;
 						if (counter < slots[node.InputBase].Int)
 						{
 							slots[node.StateSlot] = Slot.FromInt(counter + 1);
-							Follow(execution, node, 0);
+							Follow<TMode>(execution, node, 0);
 						}
 						else
 						{
-							EndChain(execution, node);
+							EndChain<TMode>(execution, node);
 						}
 						break;
 					case Opcode.FlipFlop:
 						bool isA = !slots[node.StateSlot].Bool;
 						slots[node.StateSlot] = Slot.FromBool(isA);
-						Follow(execution, node, isA ? 0 : 1);
+						Follow<TMode>(execution, node, isA ? 0 : 1);
 						break;
 					case Opcode.Gate:
 						bool open = slots[node.StateSlot].Bool;
 						if (entry == 0 && open)
 						{
-							Follow(execution, node, 0);
+							Follow<TMode>(execution, node, 0);
 							break;
 						}
 						if (entry > 0)
 						{
 							slots[node.StateSlot] = Slot.FromBool(entry == 1 || (entry == 3 && !open));
 						}
-						EndChain(execution, node);
+						EndChain<TMode>(execution, node);
 						break;
 					case Opcode.Latent:
-						if (Wait(execution, node, frame, entry))
+						if (Wait<TMode>(execution, node, frame, entry))
 						{
 							return ExecutionResult.Suspended;
 						}
 						break;
 					case Opcode.VariableSet:
-						Evaluate(execution, node, frame);
+						Evaluate<TMode>(execution, node, frame);
 						Slot value = slots[node.InputBase];
 						if (node.IsLocal)
 						{
@@ -208,55 +249,59 @@ internal sealed partial class VisualScriptRuntime
 							execution.Instance.Variables[node.Count] = value;
 						}
 						slots[node.OutputBase] = value;
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.FunctionCall:
-						Evaluate(execution, node, frame);
-						Call(execution, node, frame);
+						Evaluate<TMode>(execution, node, frame);
+						Call<TMode>(execution, node, frame);
 						break;
 					case Opcode.FunctionReturn:
-						Evaluate(execution, node, frame);
-						Return(execution, node);
+						Evaluate<TMode>(execution, node, frame);
+						Return<TMode>(execution, node);
 						break;
 					case Opcode.Member:
-						Evaluate(execution, node, frame);
+						Evaluate<TMode>(execution, node, frame);
 						InvokeMember(execution, node, slots);
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.Send:
-						Evaluate(execution, node, frame);
-						if (Send(execution, node, slots) == ExecutionResult.Aborted)
+						Evaluate<TMode>(execution, node, frame);
+						ExecutionResult sent = Send(execution, node, slots);
+						if (sent != ExecutionResult.Ended)
 						{
-							return ExecutionResult.Aborted;
+							// Aborted, or Stopped: the receiver stopped, and this execution waits inside its Send with its
+							// position unchanged.
+							return sent;
 						}
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.Broadcast:
-						Evaluate(execution, node, frame);
-						if (Broadcast(execution, node, slots) == ExecutionResult.Aborted)
+						Evaluate<TMode>(execution, node, frame);
+						ExecutionResult broadcast = Broadcast(execution, node, slots);
+						if (broadcast != ExecutionResult.Ended)
 						{
-							return ExecutionResult.Aborted;
+							return broadcast;
 						}
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.RemoteSet:
-						Evaluate(execution, node, frame);
+						Evaluate<TMode>(execution, node, frame);
 						(GraphInstance receiver, int variable) = FindRemoteVariable(execution, node, slots);
 						Slot written = slots[node.InputBase + 1];
 						receiver.Variables[variable] = written;
 						slots[node.OutputBase] = written;
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.PassThrough:
-						Evaluate(execution, node, frame);
+						Evaluate<TMode>(execution, node, frame);
 						PassThrough(node, frame);
 						if (node.Exits.Length > 0)
 						{
-							Follow(execution, node, 0);
+							Follow<TMode>(execution, node, 0);
 						}
 						else
 						{
-							EndChain(execution, node);
+							EndChain<TMode>(execution, node);
 						}
 						break;
 					default:
@@ -284,35 +329,61 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
+	// Whether a Break run stops before the instruction at its position (spec-slice4 section 4.1): at a stop point (an Enter
+	// or a Continue position) the breakpoint tables of the frame's graph are read, and only when they match does the
+	// debugger decide. A resumed execution passes its first stop point.
+	private static bool IsStopping(Execution execution)
+	{
+		bool enter = execution.Node >= 0;
+		if (enter ? execution.Entry < 0 : execution.FlowCount <= execution.Top.FlowBase)
+		{
+			// A Special position (a fiber resumes, a WaitUntil rechecks, a Tick starts), a Return or the End.
+			return false;
+		}
+		if (execution.SkipStop)
+		{
+			execution.SkipStop = false;
+			return false;
+		}
+		IVisualScriptDebugger debugger = execution.Debugger!;
+		// A step or a Break asks at every stop point; otherwise only the breakpoint tables' matches do.
+		bool candidate = debugger.Armed || (execution.TopFrame.Graph.Debug is { } trace && ReferenceEquals(trace.Owner, debugger) &&
+			(enter ? trace.Breaks[execution.Node] : trace.ContinueBreaks[execution.Flow[execution.FlowCount - 1].Node]));
+		return candidate && debugger.ShouldStop(execution);
+	}
+
 	// The flow leaves the node through an exec output and goes where its link leads (nowhere: the chain ends). Every
-	// instruction ends here or in EndChain, so a traced execution reports each one exactly once.
+	// instruction ends here or in EndChain, so a Record or Values run reports each one exactly once.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private static void Follow(Execution execution, CompiledNode node, int exit)
+	private static void Follow<TMode>(Execution execution, CompiledNode node, int exit)
+		where TMode : struct, ITraceMode
 	{
 		ExecLink link = node.Exits[exit];
 		execution.Node = link.Node;
 		execution.Entry = link.Entry;
-		if (execution.Debugger is { } debugger)
+		if (TMode.IsTraced && (execution.Mode & ReportModes) != 0)
 		{
-			debugger.OnStep(execution.Instance, node.Owner.Graph, node.Id, node.ExitPins[exit]);
+			execution.Debugger!.OnStep(execution, node, exit);
 		}
 	}
 
 	// The node ends its chain without leaving through an output (or the execution suspends in it).
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private static void EndChain(Execution execution, CompiledNode node)
+	private static void EndChain<TMode>(Execution execution, CompiledNode node)
+		where TMode : struct, ITraceMode
 	{
 		execution.Node = -1;
-		if (execution.Debugger is { } debugger)
+		if (TMode.IsTraced && (execution.Mode & ReportModes) != 0)
 		{
-			debugger.OnStep(execution.Instance, node.Owner.Graph, node.Id, null);
+			execution.Debugger!.OnStep(execution, node, -1);
 		}
 	}
 
 	// The chain ended: the top frame's continuations run first, then a function call returns (as if Function.Return set
 	// nothing); false when the execution is over. The continuation on top of the flow stack advances in place and is
 	// popped when it is done.
-	private bool ContinueAfterChain(Execution execution)
+	private bool ContinueAfterChain<TMode>(Execution execution)
+		where TMode : struct, ITraceMode
 	{
 		int top = execution.FlowCount - 1;
 		if (top >= execution.Top.FlowBase)
@@ -321,6 +392,10 @@ internal sealed partial class VisualScriptRuntime
 			Frame frame = execution.TopFrame;
 			CompiledNode node = frame.Graph.Nodes[entry.Node];
 			Step(execution, node);
+			if (TMode.IsTraced)
+			{
+				frame.StampsOrNew[node.Index] = execution.Serial;
+			}
 			switch (entry.Kind)
 			{
 				case FlowKind.Sequence:
@@ -333,41 +408,41 @@ internal sealed partial class VisualScriptRuntime
 					{
 						execution.PopFlow();
 					}
-					Follow(execution, node, output);
+					Follow<TMode>(execution, node, output);
 					break;
 				case FlowKind.ForLoop:
 					// The index stops at Last, so a loop up to int.MaxValue does not overflow.
 					if (entry.Break || entry.Index == entry.Last)
 					{
 						execution.PopFlow();
-						Follow(execution, node, 1);
+						Follow<TMode>(execution, node, 1);
 						break;
 					}
 					entry.Index++;
-					Follow(execution, node, 0);
+					Follow<TMode>(execution, node, 0);
 					break;
 				case FlowKind.ForEach:
 					if (entry.Break || entry.Index + 1 >= entry.Items!.Length)
 					{
 						execution.PopFlow();
-						Follow(execution, node, 1);
+						Follow<TMode>(execution, node, 1);
 						break;
 					}
 					entry.Index++;
-					Follow(execution, node, 0);
+					Follow<TMode>(execution, node, 0);
 					break;
 				default:
 					// While: plans push call frames, never flow entries, so the entry stays on top while the condition is
 					// evaluated.
-					Evaluate(execution, node, frame);
+					Evaluate<TMode>(execution, node, frame);
 					if (frame.Slots[node.InputBase].Bool)
 					{
-						Follow(execution, node, 0);
+						Follow<TMode>(execution, node, 0);
 					}
 					else
 					{
 						execution.PopFlow();
-						Follow(execution, node, 1);
+						Follow<TMode>(execution, node, 1);
 					}
 					break;
 			}
@@ -375,7 +450,7 @@ internal sealed partial class VisualScriptRuntime
 		}
 		if (execution.CallCount > 1)
 		{
-			Return(execution, null);
+			Return<TMode>(execution, null);
 			return true;
 		}
 		return false;
@@ -383,14 +458,15 @@ internal sealed partial class VisualScriptRuntime
 
 	// Break: the innermost active loop of the node in the current frame exits after its current body; the chain that
 	// reached Break ends.
-	private static void BreakLoop(Execution execution, CompiledNode node)
+	private static void BreakLoop<TMode>(Execution execution, CompiledNode node)
+		where TMode : struct, ITraceMode
 	{
 		int loop = execution.FindLoop(node.Index);
 		if (loop >= 0)
 		{
 			execution.Flow[loop].Break = true;
 		}
-		EndChain(execution, node);
+		EndChain<TMode>(execution, node);
 	}
 
 	private static int SwitchExit(CompiledNode node, in Slot selection)
@@ -421,11 +497,12 @@ internal sealed partial class VisualScriptRuntime
 	// instance, unless a WaitUntil's condition holds already. Stop cancels a pending Tween or Interval. A fiber runs the
 	// node again when it resumes (Execution.ResumeEntry) or when its WaitUntil is checked (Execution.RecheckEntry). An
 	// instance that was destroyed owns no fibers: the chain ends there with a Warning. True when the execution suspended.
-	private bool Wait(Execution execution, CompiledNode node, Frame frame, int entry)
+	private bool Wait<TMode>(Execution execution, CompiledNode node, Frame frame, int entry)
+		where TMode : struct, ITraceMode
 	{
 		if (node.Builtin == BuiltinNode.FlowTimeline)
 		{
-			TimelineInput(execution, node, frame, entry);
+			TimelineInput<TMode>(execution, node, frame, entry);
 			return false;
 		}
 		Slot[] slots = frame.Slots;
@@ -433,23 +510,23 @@ internal sealed partial class VisualScriptRuntime
 		{
 			case Execution.ResumeEntry:
 				StopPending(execution, node, frame);
-				Follow(execution, node, node.ContinuationExit);
+				Follow<TMode>(execution, node, node.ContinuationExit);
 				return false;
 			case Execution.RecheckEntry:
 				// An error here is aborting and discards the fiber. The fiber is still in its place among the instance's fibers
 				// (Continue): it leaves when the condition holds, and keeps the place while the condition is still false.
 				StopPending(execution, node, frame);
-				Evaluate(execution, node, frame);
+				Evaluate<TMode>(execution, node, frame);
 				if (slots[node.InputBase].Bool)
 				{
 					execution.Instance.RemoveFiber(execution);
-					Follow(execution, node, node.ContinuationExit);
+					Follow<TMode>(execution, node, node.ContinuationExit);
 					return false;
 				}
-				Suspend(execution, node, frame, execution.Since);
+				Suspend<TMode>(execution, node, frame, execution.Since);
 				return true;
 			case Execution.TickEntry:
-				Follow(execution, node, node.TickExit);
+				Follow<TMode>(execution, node, node.TickExit);
 				return false;
 			case 0:
 				break;
@@ -459,20 +536,20 @@ internal sealed partial class VisualScriptRuntime
 				{
 					Discard(run);
 				}
-				EndChain(execution, node);
+				EndChain<TMode>(execution, node);
 				return false;
 		}
 		Execution? pending = PendingAt(frame, node);
 		if (pending != null && node.Builtin != BuiltinNode.FlowRetriggerableDelay)
 		{
-			EndChain(execution, node);
+			EndChain<TMode>(execution, node);
 			return false;
 		}
-		Evaluate(execution, node, frame);
+		Evaluate<TMode>(execution, node, frame);
 		if (!execution.Instance.IsAlive)
 		{
 			Warn(execution, node, "the graph's instance was destroyed, so nothing can wait here: the chain ends");
-			EndChain(execution, node);
+			EndChain<TMode>(execution, node);
 			return false;
 		}
 		int input = node.InputBase;
@@ -481,7 +558,7 @@ internal sealed partial class VisualScriptRuntime
 			case BuiltinNode.FlowWaitUntil:
 				if (slots[input].Bool)
 				{
-					Follow(execution, node, node.ContinuationExit);
+					Follow<TMode>(execution, node, node.ContinuationExit);
 					return false;
 				}
 				break;
@@ -507,18 +584,19 @@ internal sealed partial class VisualScriptRuntime
 			execution.Instance.ReplaceFiber(pending, execution);
 			Discard(pending);
 		}
-		Suspend(execution, node, frame, execution.Instance.Updates);
+		Suspend<TMode>(execution, node, frame, execution.Instance.Updates);
 		return true;
 	}
 
 	// The execution suspends in the latent node, which is pending while the node's state slot holds it.
-	private static void Suspend(Execution execution, CompiledNode node, Frame frame, ulong since)
+	private static void Suspend<TMode>(Execution execution, CompiledNode node, Frame frame, ulong since)
+		where TMode : struct, ITraceMode
 	{
 		execution.SuspendedAt = node.Index;
 		execution.Current = node;
 		execution.Since = since;
 		frame.Slots[node.StateSlot] = Slot.FromObject(execution);
-		EndChain(execution, node);
+		EndChain<TMode>(execution, node);
 	}
 
 	// A resumed fiber's latent node stops being pending.
@@ -537,14 +615,15 @@ internal sealed partial class VisualScriptRuntime
 
 	// An impure function call: the call frame (the inputs, the locals and outputs of the function's nodes at their initial
 	// values, fresh node states) goes on the call stack, and the flow enters the function at its Entry.
-	private void Call(Execution execution, CompiledNode node, Frame frame)
+	private void Call<TMode>(Execution execution, CompiledNode node, Frame frame)
+		where TMode : struct, ITraceMode
 	{
 		PushFrame(execution, node, frame, null, 0);
 		execution.Node = node.Function!.EntryNode;
 		execution.Entry = 0;
-		if (execution.Debugger is { } debugger)
+		if (TMode.IsTraced && (execution.Mode & ReportModes) != 0)
 		{
-			debugger.OnStep(execution.Instance, node.Owner.Graph, node.Id, null);
+			execution.Debugger!.OnStep(execution, node, -1);
 		}
 	}
 
@@ -566,7 +645,8 @@ internal sealed partial class VisualScriptRuntime
 
 	// Ends the top call: its pending continuations are discarded, the call node's outputs take the Return node's inputs
 	// (the type defaults when the chain ended without one), and the caller continues at the call's Then.
-	private void Return(Execution execution, CompiledNode? returnNode)
+	private void Return<TMode>(Execution execution, CompiledNode? returnNode)
+		where TMode : struct, ITraceMode
 	{
 		CallRecord record = execution.PopCall();
 		m_Depth--;
@@ -583,16 +663,21 @@ internal sealed partial class VisualScriptRuntime
 		{
 			Array.Copy(function.OutputDefaults, 0, caller.Slots, call.OutputBase, call.OutputCount);
 		}
+		if (TMode.IsTraced && (execution.Mode & DebugMode.Record) != 0)
+		{
+			execution.Debugger!.OnFrameReleasing(execution, callee);
+		}
 		function.ReleaseFrame(callee);
-		Follow(execution, call, 0);
+		Follow<TMode>(execution, call, 0);
 	}
 
 	// Evaluates the pure nodes the node's inputs depend on, then stages its inputs. Errors from then on are the node's own.
-	private void Evaluate(Execution execution, CompiledNode node, Frame frame)
+	private void Evaluate<TMode>(Execution execution, CompiledNode node, Frame frame)
+		where TMode : struct, ITraceMode
 	{
 		if (node.PureSources.Length > 0)
 		{
-			EvaluatePlan(execution, node.Plan ??= Plans.Of(frame.Graph, node), frame);
+			EvaluatePlan<TMode>(execution, node.Plan ??= Plans.Of(frame.Graph, node), frame);
 			execution.Current = node;
 		}
 		Load(execution, node, frame.Slots);
@@ -600,7 +685,8 @@ internal sealed partial class VisualScriptRuntime
 
 	// Evaluates a plan's pure nodes in order, each once. A pure function call pushes its frame and evaluates the function's
 	// Return plan in it, then the caller's plan continues where it was: no host recursion.
-	private void EvaluatePlan(Execution execution, int[] plan, Frame frame)
+	private void EvaluatePlan<TMode>(Execution execution, int[] plan, Frame frame)
+		where TMode : struct, ITraceMode
 	{
 		int floor = execution.CallCount;
 		int index = 0;
@@ -612,7 +698,7 @@ internal sealed partial class VisualScriptRuntime
 				Step(execution, node);
 				if (node.Op != Opcode.PureCall)
 				{
-					EvaluatePure(execution, node, frame);
+					EvaluatePure<TMode>(execution, node, frame);
 					continue;
 				}
 				Load(execution, node, frame.Slots);
@@ -636,11 +722,15 @@ internal sealed partial class VisualScriptRuntime
 			Frame caller = execution.TopFrame;
 			CompiledNode call = caller.Graph.Nodes[record.CallNode];
 			Array.Copy(frame.Slots, returned.InputBase, caller.Slots, call.OutputBase, call.OutputCount);
-			function.ReleaseFrame(frame);
-			if (execution.Debugger is { } debugger)
+			if (TMode.IsTraced)
 			{
-				ReportValues(debugger, execution, call, caller.Slots);
+				if ((execution.Mode & DebugMode.Record) != 0)
+				{
+					execution.Debugger!.OnFrameReleasing(execution, frame);
+				}
+				Evaluated(execution, call, caller);
 			}
+			function.ReleaseFrame(frame);
 			frame = caller;
 			plan = record.ResumePlan!;
 			index = record.ResumeIndex;
@@ -649,12 +739,13 @@ internal sealed partial class VisualScriptRuntime
 
 	// Evaluates one input of a node that evaluates its inputs one at a time (Flow.Timeline): the pure nodes it depends on,
 	// then its load. Errors from then on are the node's own.
-	private void EvaluateInput(Execution execution, CompiledNode node, Frame frame, int input)
+	private void EvaluateInput<TMode>(Execution execution, CompiledNode node, Frame frame, int input)
+		where TMode : struct, ITraceMode
 	{
 		int[] sources = node.InputSources[input];
 		if (sources.Length > 0)
 		{
-			EvaluatePlan(execution, node.InputPlans[input] ??= Plans.Of(frame.Graph, sources), frame);
+			EvaluatePlan<TMode>(execution, node.InputPlans[input] ??= Plans.Of(frame.Graph, sources), frame);
 			execution.Current = node;
 		}
 		int target = node.InputBase + input;
@@ -705,7 +796,8 @@ internal sealed partial class VisualScriptRuntime
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	private void EvaluatePure(Execution execution, CompiledNode node, Frame frame)
+	private void EvaluatePure<TMode>(Execution execution, CompiledNode node, Frame frame)
+		where TMode : struct, ITraceMode
 	{
 		Slot[] slots = frame.Slots;
 		Load(execution, node, slots);
@@ -800,19 +892,20 @@ internal sealed partial class VisualScriptRuntime
 			default:
 				throw new InvalidOperationException($"{node} is impure: a plan never evaluates it");
 		}
-		if (execution.Debugger is { } debugger)
+		if (TMode.IsTraced)
 		{
-			ReportValues(debugger, execution, node, slots);
+			Evaluated(execution, node, frame);
 		}
 	}
 
-	// The values a pure node of a traced execution computed (spec section 5.5).
-	private static void ReportValues(IVisualScriptDebugger debugger, Execution execution, CompiledNode node, Slot[] slots)
+	// A traced run evaluated a pure node in the frame: it stamps the node (spec-slice4 section 5.2), and a Record or Values
+	// run reports its outputs.
+	private static void Evaluated(Execution execution, CompiledNode node, Frame frame)
 	{
-		for (int index = 0; index < node.OutputCount; index++)
+		frame.StampsOrNew[node.Index] = execution.Serial;
+		if ((execution.Mode & ReportModes) != 0)
 		{
-			object? value = SlotValues.ToValue(slots[node.OutputBase + index], node.OutputTypes[index]);
-			debugger.OnValue(execution.Instance, node.Owner.Graph, node.Id, node.OutputPins[index], value);
+			execution.Debugger!.OnEvaluated(execution, node, frame.Slots);
 		}
 	}
 
@@ -862,7 +955,8 @@ internal sealed partial class VisualScriptRuntime
 	// Event.Send: the matching Event.Custom of the Target's instance runs as a nested execution with the parameter inputs as
 	// its outputs; it returns when that execution ends or suspends (the suspended part is a fiber of the Target's instance).
 	// Without a receiver a Warning is logged, once per node per instance; a typed Send (spec-slice3 section 4.3) has no
-	// receiver in an instance of another graph. An abort in the nested execution aborts this one.
+	// receiver in an instance of another graph. An abort in the nested execution aborts this one; when it stops, this one
+	// stops inside the Send (Stopped).
 	private ExecutionResult Send(Execution execution, CompiledNode node, Slot[] slots)
 	{
 		Entity? target = node.TargetIsSelf ? m_Environment.GetEntity(execution.Instance.Entity) : (Entity?)slots[node.InputBase].Object;
@@ -889,25 +983,35 @@ internal sealed partial class VisualScriptRuntime
 				$"the graph of {m_Environment.GetEntityName(target.ID)} ({target.ID}) has no custom event {node.EventName}({string.Join(", ", (object[])node.EventParameters)})");
 			return ExecutionResult.Ended;
 		}
-		return Deliver(execution, receiver, custom, slots, node.InputBase + 1);
+		return Deliver(execution, node, receiver, custom, slots, node.InputBase + 1);
 	}
 
 	// Runs the custom event node custom of the receiver's event graph as a nested execution of the one running, its outputs
 	// set from the staged inputs from arguments on: Ended when it ends or suspends (the suspended part is a fiber of the
-	// receiver), Aborted (with the nested execution's error) when it aborts.
-	private ExecutionResult Deliver(Execution execution, GraphInstance receiver, int custom, Slot[] slots, int arguments)
+	// receiver), Aborted (with the nested execution's error) when it aborts, Stopped when it stopped (spec-slice4 section
+	// 4.3: this execution then waits for it, execution.Delivery). sender is the Send or Broadcast node.
+	private ExecutionResult Deliver(Execution execution, CompiledNode sender, GraphInstance receiver, int custom, Slot[] slots, int arguments)
 	{
 		if (m_Depth >= MaxDepth)
 		{
 			throw new VisualScriptException(DepthMessage);
 		}
-		GraphProgram program = receiver.Program;
-		CompiledNode eventNode = program.EventGraph.Nodes[custom];
+		CompiledNode eventNode = receiver.Program.EventGraph.Nodes[custom];
 		Array.Copy(slots, arguments, receiver.Frame.Slots, eventNode.OutputBase, eventNode.OutputCount);
+		ExecutionStart start = new(StartKind.Delivery, eventNode, -1, sender.Id, DocumentOf(execution.Instance, sender));
+		Execution nested = Acquire(receiver, custom, 0, start, execution);
+		return RunReceiver(execution, sender.Index, nested);
+	}
+
+	// Runs a receiver nested in its sender, as a delivery runs it first and as a continued sender finishes it, with the
+	// receiver's program active while it runs. A receiver that stops is a debug fiber, and the sender waits for it at the
+	// Send or Broadcast node sender of its top frame.
+	private ExecutionResult RunReceiver(Execution execution, int sender, Execution nested)
+	{
+		GraphProgram program = nested.Program;
 		Enter(program);
 		try
 		{
-			Execution nested = Acquire(receiver, custom, 0);
 			ExecutionResult result = Execute(nested, false);
 			switch (result)
 			{
@@ -915,9 +1019,17 @@ internal sealed partial class VisualScriptRuntime
 					Park(nested);
 					return ExecutionResult.Ended;
 				case ExecutionResult.Aborted:
+					m_Debugger?.OnAborted(nested);
 					execution.Error = nested.Error;
 					Release(nested);
 					return ExecutionResult.Aborted;
+				case ExecutionResult.Stopped:
+					nested.Instance.AddDebugFiber(nested);
+					if (execution.Delivery is not { } waiting || !ReferenceEquals(waiting.Receiver, nested))
+					{
+						execution.Delivery = new PendingDelivery(sender, nested);
+					}
+					return ExecutionResult.Stopped;
 				default:
 					Release(nested);
 					return ExecutionResult.Ended;
@@ -953,43 +1065,107 @@ internal sealed partial class VisualScriptRuntime
 					receivers.Add(instance);
 				}
 			}
-			receivers.Sort(s_ByCreation);
-			if (scratch.Arguments.Length < argumentCount)
+		}
+		catch (VisualScriptException)
+		{
+			ReleaseScratch(scratch);
+			throw;
+		}
+		receivers.Sort(s_ByCreation);
+		if (scratch.Arguments.Length < argumentCount)
+		{
+			scratch.Arguments = new Slot[argumentCount];
+		}
+		Array.Copy(slots, node.InputBase, scratch.Arguments, 0, argumentCount);
+		return DeliverBroadcast(execution, node, slots, scratch, 0, 0);
+	}
+
+	// Delivers a broadcast to its receivers from next on, count of them having received it already. A receiver that stops
+	// stops the broadcast inside its node (spec-slice4 section 4.3): execution.Delivery keeps the scratch, the next receiver
+	// and the count (the stopped receiver included), and the broadcast continues from there. Otherwise the scratch goes back
+	// to its pool, and Count is written when every receiver ran.
+	private ExecutionResult DeliverBroadcast(Execution execution, CompiledNode node, Slot[] slots, BroadcastScratch scratch, int next, int count)
+	{
+		bool kept = false;
+		try
+		{
+			List<GraphInstance> receivers = scratch.Receivers;
+			for (int index = next; index < receivers.Count; index++)
 			{
-				scratch.Arguments = new Slot[argumentCount];
-			}
-			Array.Copy(slots, node.InputBase, scratch.Arguments, 0, argumentCount);
-			int count = 0;
-			foreach (GraphInstance receiver in receivers)
-			{
+				GraphInstance receiver = receivers[index];
 				int custom = receiver.IsAlive ? FindReceiver(receiver.Program, node) : -1;
 				if (custom < 0)
 				{
 					continue;
 				}
-				if (Deliver(execution, receiver, custom, scratch.Arguments, 0) == ExecutionResult.Aborted)
+				ExecutionResult result = Deliver(execution, node, receiver, custom, scratch.Arguments, 0);
+				if (result == ExecutionResult.Aborted)
 				{
 					return ExecutionResult.Aborted;
 				}
 				count++;
+				if (result == ExecutionResult.Stopped)
+				{
+					PendingDelivery delivery = execution.Delivery!;
+					delivery.Scratch = scratch;
+					delivery.NextReceiver = index + 1;
+					delivery.Count = count;
+					kept = true;
+					return ExecutionResult.Stopped;
+				}
 			}
 			slots[node.OutputBase] = Slot.FromInt(count);
 			return ExecutionResult.Ended;
 		}
 		finally
 		{
-			receivers.Clear();
-			// Pooled arguments must not keep the objects they held alive.
-			Array.Clear(scratch.Arguments);
-			m_BroadcastScratches.Push(scratch);
+			if (!kept)
+			{
+				ReleaseScratch(scratch);
+			}
 		}
 	}
 
-	// What one running Event.Broadcast node keeps apart from its frame: its receiver snapshot and a copy of its arguments.
-	private sealed class BroadcastScratch
+	// A broadcast's scratch goes back to its pool; pooled arguments must not keep the objects they held alive.
+	private void ReleaseScratch(BroadcastScratch scratch)
 	{
-		internal List<GraphInstance> Receivers { get; } = [];
-		internal Slot[] Arguments { get; set; } = [];
+		scratch.Receivers.Clear();
+		Array.Clear(scratch.Arguments);
+		m_BroadcastScratches.Push(scratch);
+	}
+
+	// A sender continues while it waits inside its Send or Broadcast (spec-slice4 section 4.3): its receiver continues nested
+	// first (it may stop again, and so does the sender then), unless it was released meanwhile, which counts as delivered; a
+	// Broadcast then delivers to its remaining receivers and writes Count; then the flow leaves the node through Then. Ended:
+	// the sender goes on with its next instruction.
+	private ExecutionResult FinishDelivery<TMode>(Execution execution)
+		where TMode : struct, ITraceMode
+	{
+		PendingDelivery delivery = execution.Delivery!;
+		if (delivery.IsWaiting)
+		{
+			Execution receiver = delivery.Receiver;
+			receiver.Instance.RemoveDebugFiber(receiver);
+			Trace(receiver);
+			ExecutionResult result = RunReceiver(execution, delivery.Node, receiver);
+			if (result != ExecutionResult.Ended)
+			{
+				return result;
+			}
+		}
+		Frame frame = execution.TopFrame;
+		CompiledNode node = frame.Graph.Nodes[delivery.Node];
+		execution.Delivery = null;
+		if (delivery.Scratch is { } scratch)
+		{
+			ExecutionResult result = DeliverBroadcast(execution, node, frame.Slots, scratch, delivery.NextReceiver, delivery.Count);
+			if (result != ExecutionResult.Ended)
+			{
+				return result;
+			}
+		}
+		Follow<TMode>(execution, node, 0);
+		return ExecutionResult.Ended;
 	}
 
 	// The Event.Custom node of a program that receives what a Send or Broadcast node raises: of its name and with exactly its

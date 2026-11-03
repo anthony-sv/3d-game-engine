@@ -251,6 +251,18 @@ internal sealed class CompiledNode
 
 	internal VisualType[] OutputTypes { get; set; } = [];
 
+	// The names and staging types of the staged data inputs, by slot (InputBase onwards).
+	internal string[] InputPins { get; set; } = [];
+
+	internal VisualType[] InputTypes { get; set; } = [];
+
+	// The names of the exec inputs, by entry (Execution.Entry 0 and up).
+	internal string[] EntryPins { get; set; } = [];
+
+	// The node's first flow counter in its graph's (spec-slice4 section 6.1): one per exit, then one for leaving without an
+	// exit.
+	internal int ExitBase { get; set; }
+
 	// The node's own state (DoOnce and Gate: open; DoN: the counter; FlipFlop: IsA; latent nodes: the fiber waiting in
 	// them while they are pending, a Timeline's run while it plays).
 	internal int StateSlot { get; set; } = -1;
@@ -456,14 +468,18 @@ internal sealed class CompiledGraph
 		Function = function;
 		Graph = graph;
 		Name = name;
+		int counters = 0;
 		foreach (CompiledNode node in nodes)
 		{
 			node.Owner = this;
+			node.ExitBase = counters;
+			counters += node.Exits.Length + 1;
 			if (!node.IsSplit)
 			{
 				m_IndexById[node.Id] = node.Index;
 			}
 		}
+		CounterCount = counters;
 	}
 
 	// The handle of the library the graph comes from; 0 for the program's own document.
@@ -480,11 +496,19 @@ internal sealed class CompiledGraph
 	// Null for the event graph.
 	internal CompiledFunction? Function { get; }
 
+	// The flow counters of the graph's nodes (CompiledNode.ExitBase).
+	internal int CounterCount { get; }
+
+	// What the attached debugger checks and counts in the graph (spec-slice4 section 7.2): a cache the running program owns,
+	// which carries its debugger and configuration version, so a stale one is never used.
+	internal GraphTrace? Debug { get; set; }
+
 	internal int FindNode(uint id) => m_IndexById.TryGetValue(id, out int index) ? index : -1;
 }
 
-// A local of a function and the slot it has in the function's frames.
-internal readonly record struct LocalSlot(uint Id, VisualType Type, int Slot);
+// A local of a function, its name (breakpoint conditions read locals by name, spec-slice4 section 2.3) and the slot it has in
+// the function's frames.
+internal readonly record struct LocalSlot(uint Id, string Name, VisualType Type, int Slot);
 
 // A function of the document, or of a function library the document calls (Graph, its handle; 0 for the document's own).
 // Frames of impure calls come from a pool, so calls do not allocate once it holds enough.
@@ -537,10 +561,14 @@ internal sealed class CompiledFunction
 		return new Frame(Body);
 	}
 
-	// Resets the frame to the template, so pooled frames hold no values of finished calls.
+	// Resets the frame to the template, so pooled frames hold no values (and no stamps) of finished calls.
 	internal void ReleaseFrame(Frame frame)
 	{
 		Array.Copy(Body.Template, frame.Slots, frame.Slots.Length);
+		if (frame.Stamps is { } stamps)
+		{
+			Array.Clear(stamps);
+		}
 		m_Pool.Push(frame);
 	}
 
@@ -585,8 +613,8 @@ internal sealed class CompiledVariable
 internal readonly record struct InputEvent(int Node, BuiltinNode Kind, int Value, int Gamepad);
 
 // A program: a compiled document, or a broken one that says why it cannot run (spec section 5.1). Programs never change
-// once compiled, except for the members' invokers and the plans, which nodes create the first time they need them, and
-// the count of their activity.
+// once compiled, except for the members' invokers and the plans, which nodes create the first time they need them, the
+// count of their activity and the debugger's caches.
 internal sealed class GraphProgram
 {
 	private readonly Dictionary<string, int> m_CustomEvents = new(StringComparer.Ordinal);
@@ -642,8 +670,14 @@ internal sealed class GraphProgram
 	internal CompiledGraph EventGraph { get; }
 
 	// The dispatches and executions of the program now running (on the host stack, not suspended): a live edit swaps the
-	// program of its instances only while this is 0 (spec section 5.6).
+	// program of its instances only while this is 0 (spec section 5.6). A stopped execution holds none.
 	internal int Activity { get; set; }
+
+	// What the attached debugger knows of the program (spec-slice4 section 7.2), a cache like CompiledGraph.Debug.
+	internal ProgramTrace? Debug { get; set; }
+
+	// The program's functions: the document's and those of the libraries it calls.
+	internal IEnumerable<CompiledFunction> Functions => m_Functions.Values;
 
 	// The event node of each ScriptEvent (Create to Click), -1 when the graph has none.
 	internal int[] Events { get; } = [];

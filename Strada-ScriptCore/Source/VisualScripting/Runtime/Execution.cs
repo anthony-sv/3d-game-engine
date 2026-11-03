@@ -16,6 +16,14 @@ internal sealed class Frame
 	internal CompiledGraph Graph { get; }
 
 	internal Slot[] Slots { get; }
+
+	// By node index: the Serial of the execution whose traced run last evaluated the node in this frame (spec-slice4 section
+	// 5.2), 0 for none. Made by the first traced run that uses the frame; null while no traced run did. A pooled call frame
+	// clears it when it returns to its pool.
+	internal ulong[]? Stamps { get; set; }
+
+	// The stamps of the frame, made on first use.
+	internal ulong[] StampsOrNew => Stamps ??= new ulong[Graph.Nodes.Length];
 }
 
 // The kinds of flow-stack entries (spec section 5.3): the continuations Sequence and the loops push.
@@ -72,10 +80,73 @@ internal enum ExecutionResult
 	Suspended,
 	// An aborting error stopped it (the error is in Execution.Error).
 	Aborted,
+	// The debugger stopped it before an instruction (spec-slice4 section 7.1): it is a debug fiber of its instance now, and
+	// only the debugger resumes it.
+	Stopped,
 }
+
+// What started an execution (spec-slice4 section 5.1).
+internal enum StartKind : byte
+{
+	// An event node: a lifecycle, input or custom event the engine dispatched.
+	Event,
+	// A Tween's or Interval's Tick output.
+	Tick,
+	// An exec output of a Timeline (an event track, Update or Finished).
+	Timeline,
+	// A fiber resumed at its latent node: Origin is the start of the execution that suspended.
+	Resume,
+	// VisualScriptComponent.SendEvent from C#.
+	SendEvent,
+	// An Event.Send or Event.Broadcast of another execution: Origin is that node.
+	Delivery,
+}
+
+// The start of an execution: its kind, the node it started at (an event node, the Tween, Interval or Timeline whose exit
+// Exit fired, the latent node a fiber resumed in) and, for a resume or a delivery, the node it came from (its ID and the
+// handle of its document; 0 when unknown).
+internal readonly record struct ExecutionStart(StartKind Kind, CompiledNode? Node, int Exit, uint OriginNode, ulong OriginDocument);
 
 // An aborting error, ready to be logged once (spec section 5.3, Errors).
 internal sealed record ExecutionError(string Message);
+
+// What one running Event.Broadcast node keeps apart from its frame: its receiver snapshot and a copy of its arguments. A
+// broadcast whose receiver stopped keeps it until the broadcast ends (spec-slice4 section 4.3).
+internal sealed class BroadcastScratch
+{
+	internal List<GraphInstance> Receivers { get; } = [];
+
+	internal Slot[] Arguments { get; set; } = [];
+}
+
+// What a sender waits for inside its Event.Send or Event.Broadcast while the receiver it runs nested is stopped (spec-slice4
+// section 4.3): the Send or Broadcast node (an index of the sender's top frame's graph), the receiver and its serial (it is
+// the receiver only while both match and it is still a debug fiber), and for a Broadcast its kept scratch, the receiver it
+// delivers to next and how many received the event so far, the stopped one included.
+internal sealed class PendingDelivery
+{
+	internal PendingDelivery(int node, Execution receiver)
+	{
+		Node = node;
+		Receiver = receiver;
+		ReceiverSerial = receiver.Serial;
+	}
+
+	internal int Node { get; set; }
+
+	internal Execution Receiver { get; }
+
+	internal ulong ReceiverSerial { get; }
+
+	internal BroadcastScratch? Scratch { get; set; }
+
+	internal int NextReceiver { get; set; }
+
+	internal int Count { get; set; }
+
+	// Whether the receiver still waits to continue: it was not released (its instance died, an edit cancelled it) meanwhile.
+	internal bool IsWaiting => Receiver.Serial == ReceiverSerial && Receiver.IsDebugFiber;
+}
 
 // One execution (spec section 5.3): its own flow stack and call stack, and the position of the flow. All of it lives on
 // the heap, so an execution can stop at any node and continue later, as a fiber, exactly where it was. Executions are
@@ -109,8 +180,41 @@ internal sealed class Execution
 	// as it suspends: whatever runs meanwhile never releases or advances a running execution.
 	internal bool IsRunning { get; set; }
 
-	// The debugger tracing the execution; null when it is not traced (spec section 5.5).
+	// How the current run is traced (spec-slice4 section 3.2), and the debugger tracing it: non-null exactly when Mode is not
+	// None.
+	internal DebugMode Mode { get; set; }
+
 	internal IVisualScriptDebugger? Debugger { get; set; }
+
+	// The execution whose Event.Send or Event.Broadcast runs this one nested (a receiver); null for one the engine started or
+	// one nested through native code.
+	internal Execution? Parent { get; set; }
+
+	// The Serial of the outermost execution of the receivers' chain: the execution's own for one without a Parent.
+	internal ulong RootSerial { get; set; }
+
+	// Whether the execution may stop at a breakpoint in its current run (spec-slice4 section 4.4): it is outermost on the host
+	// stack, or a receiver whose sender can stop (they stop together, as a chain). One that cannot stop passes its
+	// breakpoints, snapshotted.
+	internal bool CanStop { get; set; }
+
+	// A stopped execution: the steps its budget had left and Time.DeltaTime as it read it (spec-slice4 section 4.2), both
+	// restored when it continues.
+	internal int SavedSteps { get; set; }
+
+	internal float SavedDeltaTime { get; set; }
+
+	// The first stop point of the run passes: every resume runs at least one instruction (spec-slice4 section 4.1).
+	internal bool SkipStop { get; set; }
+
+	internal ExecutionStart Start { get; set; }
+
+	// A sender stopped inside its Send or Broadcast because its receiver stopped (spec-slice4 section 4.3): the run that
+	// continues it finishes the delivery first.
+	internal PendingDelivery? Delivery { get; set; }
+
+	// Whether the execution is one of its instance's debug fibers now (GraphInstance.AddDebugFiber).
+	internal bool IsDebugFiber { get; set; }
 
 	internal GraphInstance Instance { get; set; } = null!;
 
@@ -258,7 +362,17 @@ internal sealed class Execution
 		WaitIndex = 0;
 		Error = null;
 		TickExit = -1;
+		Mode = DebugMode.None;
 		Debugger = null;
+		Parent = null;
+		RootSerial = 0;
+		CanStop = false;
+		SavedSteps = 0;
+		SavedDeltaTime = 0.0f;
+		SkipStop = false;
+		Start = default;
+		Delivery = null;
+		IsDebugFiber = false;
 		Instance = null!;
 		Program = null!;
 	}

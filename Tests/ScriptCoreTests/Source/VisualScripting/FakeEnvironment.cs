@@ -57,6 +57,7 @@ internal sealed class FakeEnvironment : IVisualScriptEnvironment
 	public Entity? GetEntity(ulong id)
 	{
 		EntityLookups++;
+		DeltaTimeAtLookup = DeltaTime;
 		if (id == 0)
 		{
 			return null;
@@ -84,10 +85,15 @@ internal sealed class FakeEnvironment : IVisualScriptEnvironment
 		return view;
 	}
 
+	// Time.DeltaTime as the last GetEntity saw it: what a graph's Self node read it as.
+	internal float? DeltaTimeAtLookup { get; private set; }
+
 	public void SetDeltaTime(float timeStep)
 	{
 		DeltaTime = timeStep;
 	}
+
+	public float GetDeltaTime() => DeltaTime ?? 0.0f;
 
 	public bool IsKeyPressed(KeyCode key) => PressedKeys.Contains(key);
 

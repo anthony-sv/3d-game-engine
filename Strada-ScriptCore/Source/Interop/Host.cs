@@ -355,6 +355,36 @@ internal static unsafe class Host
 		}
 	}
 
+	// The debugger's protocol (spec-slice4 sections 7.7 and 7.8): passes the reply JSON to receive for any request (UTF-8
+	// JSON; refused requests are error replies). Failure only when the runtime itself failed.
+	[UnmanagedCallersOnly]
+	internal static int VisualScriptDebug(byte* request, int requestLength, void* context, delegate* unmanaged<void*, byte*, int, void> receive)
+	{
+		try
+		{
+			return Deliver(VisualScripts.Debug(Bytes(request, requestLength)), context, receive);
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
+	// The flow counted in watched graphs since the last take (spec-slice4 sections 6.2 and 7.7): passes the binary trace block
+	// to receive while a debugger is attached; NotFound (receive not called) otherwise.
+	[UnmanagedCallersOnly]
+	internal static int VisualScriptTakeTrace(void* context, delegate* unmanaged<void*, byte*, int, void> receive)
+	{
+		try
+		{
+			return Deliver(VisualScripts.TakeTrace(), context, receive);
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
 	private static void ResetVisualScripts()
 	{
 		VisualScripts = new VisualScriptRuntime(new EngineEnvironment());

@@ -49,7 +49,7 @@ internal sealed partial class VisualScriptRuntime
 		try
 		{
 			values.CopyTo(instance.Frame.Slots, node.OutputBase);
-			Execution execution = Acquire(instance, custom, 0);
+			Execution execution = Acquire(instance, custom, 0, new ExecutionStart(StartKind.SendEvent, node, -1, 0, 0));
 			ExecutionResult result = Execute(execution, !IsExecuting);
 			string? error = result == ExecutionResult.Aborted ? execution.Error!.Message : null;
 			Finish(execution, result);
