@@ -860,31 +860,41 @@ TEST_CASE("VisualScript: damaged files are refused or load and save again")
 TEST_CASE("VisualScript: damaged graphs that load also run")
 {
 	Json const features = Testing::LoadFeatureTestDocument("Assets/Scripts/Features.sgraph");
-	// The editor's fixture document in a file of version 3: disabled, development-only and split nodes.
-	Result<std::string> const text =
-		FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Documents" / "Editor.json");
-	REQUIRE(text.IsOk());
-	Result<Json> const content = ParseJson(text.GetValue());
-	REQUIRE(content.IsOk());
-	std::vector<std::string> warnings;
-	std::vector<VisualScriptIssue> issues;
-	Result<VisualScriptDocument> editor =
-		VisualScriptSerializer::DeserializeDocument(content.GetValue(), Testing::MakeTolerantContext(warnings), &issues);
-	REQUIRE_MESSAGE(editor.IsOk(), (editor ? std::string() : editor.GetError()));
-	REQUIRE(issues.empty());
-	Json const seeds[] = {features, VisualScriptSerializer::Serialize(editor.GetValue())};
-	REQUIRE(seeds[1]["Strada"]["Version"] == 3);
+	// The editor's fixture document (disabled, development-only and split nodes) and the language fixture (formulas, arrays,
+	// strings, generics and a timeline) in files of version 3.
+	auto const readFixture = [](std::string_view name)
+	{
+		Result<std::string> const text = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" /
+		                                                          "Documents" / FileSystem::PathFromUtf8(name));
+		REQUIRE(text.IsOk());
+		Result<Json> const content = ParseJson(text.GetValue());
+		REQUIRE(content.IsOk());
+		std::vector<std::string> warnings;
+		std::vector<VisualScriptIssue> issues;
+		Result<VisualScriptDocument> document =
+			VisualScriptSerializer::DeserializeDocument(content.GetValue(), Testing::MakeTolerantContext(warnings), &issues);
+		REQUIRE_MESSAGE(document.IsOk(), (document ? std::string() : document.GetError()));
+		REQUIRE(issues.empty());
+		Json file = VisualScriptSerializer::Serialize(document.GetValue());
+		REQUIRE(file["Strada"]["Version"] == 3);
+		return file;
+	};
+	std::array<Json, 3> const seeds = {features, readFixture("Editor.json"), readFixture("Language.json")};
+	// Features.sgraph calls the project's library, sends to and reads its other graphs and uses its scripts' members: the
+	// project's graphs are the assets (a copy, which the directory holds) and its scripts the game's.
+	Testing::TemporaryDirectory directory;
 	Testing::AssetManagerScope assets;
-	Testing::ScriptEngineScope scripting;
+	Testing::OpenVisualScriptsCopy(FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR) / "Assets", directory.GetPath());
+	Testing::ScriptEngineScope scripting(Testing::GetFeatureTestScriptsPath());
 
 	// Each document that loads runs on an entity of a scene that starts, updates and stops: whatever the runtime makes of
-	// it, including failures, nothing crashes or hangs. The seeds take turns.
+	// it, including failures, nothing crashes or hangs. The seeds take turns: every third round is Language.json's.
 	Testing::DocumentMutator mutator(10100);
-	std::array<int, 2> ran{};
+	std::array<int, 3> ran{};
 	for (int round = 0, rounds = Testing::GetFuzzRounds(100); round < rounds; round++)
 	{
 		CAPTURE(round);
-		size_t const seed = static_cast<size_t>(round % 2);
+		size_t const seed = static_cast<size_t>(round % 3);
 		std::optional<VisualScriptDocument> document = LoadDamagedFile(mutator.Damage(seeds[seed], round));
 		if (!document)
 		{
@@ -910,6 +920,7 @@ TEST_CASE("VisualScript: damaged graphs that load also run")
 	}
 	CHECK(ran[0] > 0);
 	CHECK(ran[1] > 0);
+	CHECK(ran[2] > 0);
 }
 
 TEST_CASE("VisualScript: the text writer writes what the Json writer writes")

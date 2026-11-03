@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Script/ScriptEngine.h"
@@ -18,6 +20,35 @@ namespace Strada::Testing
 	inline std::filesystem::path GetTestScriptsPath()
 	{
 		return FileSystem::GetExecutableDirectory() / "TestScripts" / "Strada.TestScripts.dll";
+	}
+
+	// The scripts of Projects/FeatureTest, which CMake builds next to the test executable.
+	inline std::filesystem::path GetFeatureTestScriptsPath()
+	{
+		return FileSystem::GetExecutableDirectory() / "FeatureTest" / "FeatureTest.dll";
+	}
+
+	// Opens a copy of a project's asset registry and visual scripts (the files of its Assets directory) in the directory as
+	// the asset directory, so that graphs naming other graphs find them by handle. A copy, because opening a directory saves
+	// its registry; the project's other files are missing from it, which the asset manager records without failing. Needs
+	// an initialized AssetManager; the directory must outlive what the asset manager has open.
+	inline void OpenVisualScriptsCopy(std::filesystem::path const& assets, std::filesystem::path const& directory)
+	{
+		Result<AssetRegistry> registry = AssetRegistry::LoadFromFile(assets / AssetRegistry::FileName, DeserializationContext{});
+		REQUIRE_MESSAGE(registry.IsOk(), (registry ? std::string() : registry.GetError()));
+		REQUIRE(FileSystem::CreateDirectories(directory).IsOk());
+		REQUIRE(FileSystem::Copy(assets / AssetRegistry::FileName, directory / AssetRegistry::FileName, false).IsOk());
+		for (AssetMetadata const& asset : registry.GetValue().GetAll())
+		{
+			if (asset.Type == AssetType::VisualScript)
+			{
+				std::filesystem::path const target = directory / FileSystem::PathFromUtf8(asset.Path);
+				REQUIRE(FileSystem::CreateDirectories(target.parent_path()).IsOk());
+				REQUIRE(FileSystem::Copy(assets / FileSystem::PathFromUtf8(asset.Path), target, false).IsOk());
+			}
+		}
+		Result<AssetRefreshResult> const opened = AssetManager::OpenAssetDirectory(directory);
+		REQUIRE_MESSAGE(opened.IsOk(), (opened ? std::string() : opened.GetError()));
 	}
 
 	// Initializes the ScriptEngine with game scripts loaded (the test scripts unless told otherwise) for as long as it lives.

@@ -48,6 +48,11 @@
 			"Handle": "10572961384733210271",
 			"Type": "VisualScript",
 			"Path": "Scripts/FormatSample.sgraph"
+		},
+		{
+			"Handle": "10281408888408808806",
+			"Type": "VisualScript",
+			"Path": "Scripts/MathLibrary.sgraph"
 		}
 	]
 }

@@ -4,6 +4,8 @@ using System.Globalization;
 
 namespace Strada.Tests;
 
+// Also a type of visual scripts ([VisualNode] on an enum): a graph holds an array of it across a game-assembly reload.
+[VisualNode]
 public enum Difficulty
 {
 	Easy,
