@@ -400,6 +400,22 @@ internal static unsafe class Host
 		}
 	}
 
+	// A play session starts (spec-slice4 section 8.5, ClearLiveLog): the live log drops its receipts and runtime problems, and
+	// problems count from 1 again. Serials go on growing, so the engine keeps reading after the last serial it took.
+	[UnmanagedCallersOnly]
+	internal static int VisualScriptClearLiveEvents()
+	{
+		try
+		{
+			VisualScripts.ClearLiveEvents();
+			return Success;
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
 	private static void ResetVisualScripts()
 	{
 		VisualScripts = new VisualScriptRuntime(new EngineEnvironment());

@@ -32,6 +32,7 @@ public sealed class HostProtocolTests
 		("VisualScriptDebug", ["byte*", "int", "void*", "receive"]),
 		("VisualScriptTakeTrace", ["void*", "receive"]),
 		("VisualScriptTakeLiveEvents", ["ulong", "void*", "receive"]),
+		("VisualScriptClearLiveEvents", []),
 	];
 
 	public static TheoryData<string> EntryPoints => [.. s_EntryPoints.Select(static entryPoint => entryPoint.Name)];
@@ -151,7 +152,7 @@ public sealed class HostProtocolTests
 	}
 
 	// VisualScriptTakeLiveEvents (spec-slice4 section 8.4): Success with the events JSON while an event has a serial after the
-	// one given, NotFound, receiving nothing, otherwise.
+	// one given, NotFound, receiving nothing, otherwise. VisualScriptClearLiveEvents empties the log; serials go on.
 	[Fact]
 	public void TheLiveEventsEntryPointAnswersItsStatuses()
 	{
@@ -172,6 +173,14 @@ public sealed class HostProtocolTests
 		(int taken, List<byte[]> again) = Deliver(host.TakeLiveEvents(last));
 		Assert.Equal(Host.NotFound, taken);
 		Assert.Empty(again);
+
+		host.ClearLiveEvents();
+		Assert.Equal(Host.NotFound, Deliver(host.TakeLiveEvents(last)).Status);
+		runtime.LoadWorking(document.Build());
+		(int later, List<byte[]> next) = Deliver(host.TakeLiveEvents(last));
+		Assert.Equal(Host.Success, later);
+		using JsonDocument cleared = JsonDocument.Parse(Assert.Single(next));
+		Assert.Equal(last + 1, Assert.Single(cleared.RootElement.GetProperty("Edits").EnumerateArray()).GetProperty("Serial").GetUInt64());
 	}
 
 	[Fact]

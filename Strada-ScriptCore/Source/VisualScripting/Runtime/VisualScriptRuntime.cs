@@ -204,8 +204,8 @@ internal sealed partial class VisualScriptRuntime
 		return VisualScriptStatus.Success;
 	}
 
-	// Removes every instance; no events run. The run is over: runtime problems that happen from now on are counted anew
-	// (spec-slice4 section 8.2).
+	// Removes every instance; no events run. The live log keeps its problems: a scene load during play destroys every
+	// instance too, and only the engine knows when a play session starts (ClearLiveEvents).
 	internal void DestroyAllInstances()
 	{
 		List<GraphInstance> instances = [.. m_Instances.Values];
@@ -214,7 +214,6 @@ internal sealed partial class VisualScriptRuntime
 		{
 			Kill(instance);
 		}
-		m_Live.EndRun();
 	}
 
 	internal GraphInstance? FindInstance(ulong entity) => m_Instances.GetValueOrDefault(entity);

@@ -55,6 +55,10 @@ internal sealed partial class VisualScriptRuntime
 	// `after`, as JSON; NotFound when there are none.
 	internal HostReply TakeLiveEvents(ulong after) => m_Live.Write(after) is { } text ? HostReply.Success(text) : HostReply.NotFound;
 
+	// VisualScriptClearLiveEvents: a play session starts, so the live log's receipts, problems and Dropped go and problems
+	// count from 1 again (spec-slice4 sections 8.2 and 8.5, ClearLiveLog). Serials go on growing.
+	internal void ClearLiveEvents() => m_Live.Clear();
+
 	// Before the game assembly unloads nothing may reference its types (spec section 5.6): the instances go (no events run),
 	// every program is reduced to its name, document and references, and the members' invokers and the libraries' and the
 	// loaded documents' analyses are dropped. Graph instances block

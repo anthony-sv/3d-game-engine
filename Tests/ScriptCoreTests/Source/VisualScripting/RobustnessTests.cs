@@ -867,6 +867,14 @@ public sealed class RobustnessTests
 
 		internal void Run(string context, byte[] text, byte[]? repair, Tally tally)
 		{
+			// Now and then a play session starts: the log empties, and nothing is after the serial read last.
+			if ((m_Rounds + 1) % 50 == 0)
+			{
+				m_Runtime.ClearLiveEvents();
+				Assert.Equal(0, m_Runtime.LiveEvents.ProblemCount);
+				Assert.Equal(0, m_Runtime.LiveEvents.Dropped);
+				Assert.Null(m_Runtime.LiveEvents.Write(m_Taken));
+			}
 			Assert.True(m_Runtime.LoadDocument(Graph, Name, text).Status == VisualScriptStatus.Success, $"{context}: live Load");
 			if (repair != null)
 			{

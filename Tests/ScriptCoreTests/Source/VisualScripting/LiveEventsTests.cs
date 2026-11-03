@@ -127,24 +127,57 @@ public sealed class LiveEventsTests
 		Assert.Null(log.Write(7));
 	}
 
-	// Problems are counted per run: once every instance was destroyed, a problem that happens again counts from 1, and what the
-	// reader took of the ended run leaves the log.
+	// A problem that finds the log full is a change: Dropped grows with a serial of its own, so a reader that took everything
+	// reads the new count, with no edits and no problems.
 	[Fact]
-	public void AProblemOfANewRunCountsFromOne()
+	public void ADroppedProblemTakesASerial()
 	{
 		LiveEventLog log = new();
+		for (uint node = 0; node < LiveEventLog.MaxProblems; node++)
+		{
+			AddProblem(log, Key(node));
+		}
+		ulong last = Read(log, 0).GetProperty("Last").GetUInt64();
+		Assert.Equal((ulong)LiveEventLog.MaxProblems, last);
+
+		AddProblem(log, Key(LiveEventLog.MaxProblems));
+		JsonElement events = Read(log, last);
+		Assert.Equal((last + 1, 1), (events.GetProperty("Last").GetUInt64(), events.GetProperty("Dropped").GetInt32()));
+		Assert.Empty(Edits(events));
+		Assert.Empty(Problems(events));
+		AddProblem(log, Key(LiveEventLog.MaxProblems));
+		Assert.Equal(2, Read(log, last + 1).GetProperty("Dropped").GetInt32());
+		Assert.Equal(LiveEventLog.MaxProblems, log.ProblemCount);
+	}
+
+	// Clearing the log starts a play session: its receipts, problems and Dropped go, a problem that happens again counts from 1,
+	// and serials go on from the last one, so the reader reads after the serial it took.
+	[Fact]
+	public void ClearingTheLogStartsTheCountsAgain()
+	{
+		LiveEventLog log = new();
+		log.AddEdit(Receipt());
+		for (uint node = 0; node <= LiveEventLog.MaxProblems; node++)
+		{
+			AddProblem(log, Key(node));
+		}
 		AddProblem(log, Key(1));
+		ulong last = Read(log, 0).GetProperty("Last").GetUInt64();
+		Assert.Equal(1, log.Dropped);
+
+		log.Clear();
+		Assert.Equal((0, 0, last), (log.ProblemCount, log.Dropped, log.LastSerial));
+		Assert.Null(log.Write(last));
+		// A reader from an earlier serial learns the last one and that nothing is left.
+		JsonElement empty = Read(log, 0);
+		Assert.Equal((last, 0), (empty.GetProperty("Last").GetUInt64(), empty.GetProperty("Dropped").GetInt32()));
+		Assert.Empty(Edits(empty));
+		Assert.Empty(Problems(empty));
 		AddProblem(log, Key(1));
-		AddProblem(log, Key(2));
-		Read(log, 0);
-		AddProblem(log, Key(3));
-		log.EndRun();
-		// The problem the reader did not take yet stays until it does.
-		Assert.Equal(1, log.ProblemCount);
-		AddProblem(log, Key(1));
-		JsonElement[] problems = Problems(Read(log, 3));
-		Assert.Equal([(3u, 1), (1u, 1)], problems.Select(static problem => (problem.GetProperty("Node").GetUInt32(), problem.GetProperty("Count").GetInt32())));
-		Assert.Equal(1, log.ProblemCount);
+		JsonElement events = Read(log, last);
+		JsonElement problem = Assert.Single(Problems(events));
+		Assert.Equal((last + 1, 1, 0), (Serial(problem), problem.GetProperty("Count").GetInt32(), events.GetProperty("Dropped").GetInt32()));
+		Assert.Empty(Edits(events));
 	}
 
 	// An abort of a library's node is a problem of the document holding the node and of the graph the instance runs, with the
@@ -249,9 +282,10 @@ public sealed class LiveEventsTests
 		Assert.Equal(2, runtime.Environment.Errors.Count());
 	}
 
-	// Destroying every instance ends the run: the scene stopped, and the next run's problems count anew.
+	// Destroying every instance is no boundary: a scene load during play destroys them and creates them again for the same
+	// entities, and the session's problems count on. Only VisualScriptClearLiveEvents, when play starts, counts them anew.
 	[Fact]
-	public void DestroyingEveryInstanceEndsTheRun()
+	public void ASceneLoadKeepsCountingAndClearingTheLiveEventsCountsAnew()
 	{
 		DocumentBuilder document = new();
 		uint divisor = document.Variable("Divisor", "int", "0");
@@ -264,11 +298,20 @@ public sealed class LiveEventsTests
 		ulong last = Serial(Problems(Read(runtime.Runtime.LiveEvents, 0)).Single());
 
 		runtime.Runtime.DestroyAllInstances();
-		Assert.Equal(0, runtime.Runtime.LiveEvents.ProblemCount);
+		Assert.Equal(1, runtime.Runtime.LiveEvents.ProblemCount);
 		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
 		runtime.Invoke(ScriptEvent.Update);
 		JsonElement problem = Assert.Single(Problems(Read(runtime.Runtime.LiveEvents, last)));
-		Assert.Equal(1, problem.GetProperty("Count").GetInt32());
+		Assert.Equal(3, problem.GetProperty("Count").GetInt32());
+		last = Serial(problem);
+
+		runtime.Runtime.DestroyAllInstances();
+		runtime.Runtime.ClearLiveEvents();
+		Assert.Equal(0, runtime.Runtime.LiveEvents.ProblemCount);
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		runtime.Invoke(ScriptEvent.Update);
+		problem = Assert.Single(Problems(Read(runtime.Runtime.LiveEvents, last)));
+		Assert.Equal((last + 1, 1), (Serial(problem), problem.GetProperty("Count").GetInt32()));
 	}
 
 	// What a receipt says reaches the JSON of section 8.4 member for member.

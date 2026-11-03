@@ -91,23 +91,23 @@ internal readonly record struct LiveCallFrame(ulong Document, uint Function, uin
 
 // What live edits did and what went wrong at run time, for the editor: a bounded log that the engine reads with
 // VisualScriptTakeLiveEvents (spec-slice4 sections 8.2 and 8.4). Serials grow with every change; a problem that recurs is
-// updated in place (Count, Message, Calls) and takes a new serial. Problems are counted per run: once every instance was
-// destroyed (EndRun, the scene stopped), a problem that happens again counts from 1. Main thread only, like the runtime.
+// updated in place (Count, Message, Calls) and takes a new serial. Problems are counted until the engine clears the log
+// (VisualScriptClearLiveEvents, when play starts), so a play session's counts run on across the scene loads it makes, which
+// destroy every instance and create them again for the same entities. Main thread only, like the runtime.
 internal sealed class LiveEventLog
 {
 	// The receipts kept; the oldest goes first.
 	internal const int MaxEdits = 64;
-	// The distinct problems kept; beyond, new ones are counted in Dropped.
+	// The distinct problems kept; beyond, the occurrences of problems the log does not hold are counted in Dropped.
 	internal const int MaxProblems = 512;
 
 	private readonly Queue<LiveEditReceipt> m_Edits = new();
 	private readonly Dictionary<LiveProblemKey, LiveProblem> m_Problems = [];
-	private ulong m_Run;
-	// The last serial a Write gave out: what the reader has.
-	private ulong m_Written;
 
 	internal ulong LastSerial { get; private set; }
 
+	// Occurrences of problems that found the log full since it was last cleared. Each one is a change, with its serial, so
+	// that a reader that took everything sees the count grow.
 	internal int Dropped { get; private set; }
 
 	internal int ProblemCount => m_Problems.Count;
@@ -129,35 +129,35 @@ internal sealed class LiveEventLog
 		{
 			if (m_Problems.Count == MaxProblems)
 			{
-				Dropped++;
+				// Counts saturate: a long session that drops problems every frame never shows a negative count.
+				Dropped = Math.Min(Dropped, int.MaxValue - 1) + 1;
+				++LastSerial;
 				return;
 			}
 			problem = new LiveProblem(key);
 			m_Problems[key] = problem;
-		}
-		if (problem.Run != m_Run)
-		{
-			problem.Run = m_Run;
-			problem.Count = 0;
 		}
 		problem.Serial = ++LastSerial;
 		problem.Function = function;
 		problem.Title = title;
 		problem.Message = message;
 		problem.Calls = calls.ToArray();
-		problem.Count++;
+		problem.Count = Math.Min(problem.Count, int.MaxValue - 1) + 1;
 	}
 
-	// The run ends (every instance was destroyed): the problems the reader has leave the log, and the others leave once it
-	// read them; any problem that happens from now on counts from 1.
-	internal void EndRun()
+	// A new play session starts (the engine clears its own copy of the log at the same time): the receipts, the problems and
+	// Dropped go, and a problem that happens from now on counts from 1. Serials go on growing, so the reader's last serial
+	// stays the one to read after.
+	internal void Clear()
 	{
-		m_Run++;
-		RemoveEarlierRuns(m_Written);
+		m_Edits.Clear();
+		m_Problems.Clear();
+		Dropped = 0;
 	}
 
 	// The events whose serial is after `after`, as JSON (spec-slice4 section 8.4), receipts and problems each by serial; null
-	// when there are none.
+	// when no serial is after it. A change that left no entry (a problem dropped, or entries cleared since) still answers, with
+	// the last serial and Dropped.
 	internal byte[]? Write(ulong after)
 	{
 		if (LastSerial <= after)
@@ -196,25 +196,7 @@ internal sealed class LiveEventLog
 			writer.WriteEndArray();
 			writer.WriteEndObject();
 		}
-		m_Written = LastSerial;
-		RemoveEarlierRuns(m_Written);
 		return buffer.WrittenSpan.ToArray();
-	}
-
-	private void RemoveEarlierRuns(ulong written)
-	{
-		List<LiveProblemKey>? gone = null;
-		foreach ((LiveProblemKey key, LiveProblem problem) in m_Problems)
-		{
-			if (problem.Run != m_Run && problem.Serial <= written)
-			{
-				(gone ??= []).Add(key);
-			}
-		}
-		foreach (LiveProblemKey key in gone ?? [])
-		{
-			m_Problems.Remove(key);
-		}
 	}
 
 	private static void WriteEdit(Utf8JsonWriter writer, LiveEditReceipt edit)
@@ -382,9 +364,6 @@ internal sealed class LiveEventLog
 		internal LiveProblemKey Key { get; }
 
 		internal ulong Serial { get; set; }
-
-		// The run it was counted in.
-		internal ulong Run { get; set; }
 
 		internal uint Function { get; set; }
 

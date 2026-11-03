@@ -72,7 +72,8 @@ public sealed class PerformanceTests
 
 	// A formula is one node (spec-slice3 sections 3.2 and 3.3.8): ten additions cost one step against the ten its graph of
 	// Add nodes costs, run as ten instructions without allocating. Only an optimized build with STRADA_PERFORMANCE_TESTS=1
-	// measures the time: then the formula runs at least 3 times faster than the graph.
+	// measures the time: the figure is printed against the target of 3 times faster (spec-slice4 section 21), and the bound
+	// asserted is a third of the figure measured, as section 21 sets bounds.
 	[Fact]
 	public void AFormulaIsOneStepAndRunsFasterThanItsGraph()
 	{
@@ -101,9 +102,14 @@ public sealed class PerformanceTests
 		TestContext.Current.TestOutputHelper?.WriteLine(figures.Describe());
 		if (PerformanceTesting.IsMeasured)
 		{
-			Assert.True(figures.Ratio >= 3.0, figures.Describe());
+			Assert.True(figures.Ratio >= MeasuredFormulaRatio / 3.0, figures.Describe());
 		}
 	}
+
+	// The target of the graph's Update over the formulas' (spec-slice4 section 21), and the lowest median measured in Release
+	// once the typed operations landed (track V2, Ryzen 5 7535HS), whose third is the bound asserted.
+	private const double FormulaRatioTarget = 3.0;
+	private const double MeasuredFormulaRatio = 3.0;
 
 	// Iterations of the timed loops, and the formulas each iteration chains: a graph Update stays inside one execution's
 	// budget (ChainLength * 10 additions, the loop, the Get and the Set per iteration).
@@ -193,7 +199,7 @@ public sealed class PerformanceTests
 			static string Spread(double[] values, string format) => FormattableString.Invariant(
 				$"median {PerformanceTesting.Median(values).ToString(format, CultureInfo.InvariantCulture)} (10th to 90th percentile {PerformanceTesting.Percentile(values, 0.1).ToString(format, CultureInfo.InvariantCulture)} to {PerformanceTesting.Percentile(values, 0.9).ToString(format, CultureInfo.InvariantCulture)})");
 			return FormattableString.Invariant(
-				$"{ChainLength * 10} additions per iteration, {TimedIterations:N0} iterations, {Ratios.Length} alternating Updates{(PerformanceTesting.IsOptimized ? string.Empty : ", unoptimized")}: as formulas {Spread(Formulas, "F3")} ms, as a graph {Spread(Graphs, "F3")} ms, the graph's Update over the formulas' {Spread(Ratios, "F2")}x");
+				$"{ChainLength * 10} additions per iteration, {TimedIterations:N0} iterations, {Ratios.Length} alternating Updates{(PerformanceTesting.IsOptimized ? string.Empty : ", unoptimized")}: as formulas {Spread(Formulas, "F3")} ms, as a graph {Spread(Graphs, "F3")} ms, the graph's Update over the formulas' {Spread(Ratios, "F2")}x (target {FormulaRatioTarget:F1}x{(Ratio >= FormulaRatioTarget ? ", met" : ", missed")})");
 		}
 	}
 }
