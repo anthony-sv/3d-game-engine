@@ -73,6 +73,11 @@ internal sealed class AnalyzedDocument
 	// are compiled into the document's program (spec-slice3 section 4.4.4).
 	internal IReadOnlyDictionary<ulong, LinkedLibrary> Linked { get; init; } = new Dictionary<ulong, LinkedLibrary>();
 
+	// The same analysis linking other analyses of its libraries (spec-slice4 section 9.4): a document whose analysis reads
+	// nothing that changed in them. The analysis is shared, never changed: compiling reads it only.
+	internal AnalyzedDocument WithLinked(IReadOnlyDictionary<ulong, LinkedLibrary> linked) =>
+		new(Library, Diagnostics, Variables, Functions, EventGraph) { Kind = Kind, Linked = linked };
+
 	internal AnalyzedFunction? FindFunction(uint id)
 	{
 		foreach (AnalyzedFunction function in Functions)

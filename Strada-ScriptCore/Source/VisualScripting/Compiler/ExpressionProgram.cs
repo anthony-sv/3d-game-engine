@@ -38,6 +38,18 @@ internal enum ExpressionOp : byte
 	JumpIfTrue,
 	// Continue at Jump.
 	Jump,
+	// The typed forms of the hot operations (spec-slice4 section 9.5): what Arithmetic and Compare compute at Int and Float,
+	// without the switches over their kind and operator. AddInt32 to MultiplyInt32 wrap as the int operators do; Detail of
+	// CompareInt32 and CompareFloat is the OperatorKind of the comparison.
+	AddInt32,
+	SubtractInt32,
+	MultiplyInt32,
+	AddFloat,
+	SubtractFloat,
+	MultiplyFloat,
+	DivideFloat,
+	CompareInt32,
+	CompareFloat,
 }
 
 // The fixed functions of formulas (spec-slice3 section 3.3.6).
@@ -241,9 +253,38 @@ internal sealed class ExpressionCompiler
 			? expression.Kind2
 			: expression.Type;
 		SlotKind kind2 = expression.Kind is TypedExpressionKind.Cast or TypedExpressionKind.Call ? expression.Kind2 : expression.Type;
-		Add(op, expression, result, kind, kind2, expression.Detail, Read(slots, operands.Length, 0), Read(slots, operands.Length, 1),
-			Read(slots, operands.Length, 2), Read(slots, operands.Length, 3));
+		Add(Typed(op, kind, expression.Detail), expression, result, kind, kind2, expression.Detail, Read(slots, operands.Length, 0),
+			Read(slots, operands.Length, 1), Read(slots, operands.Length, 2), Read(slots, operands.Length, 3));
 		return result;
+	}
+
+	// The typed form of an Arithmetic or Compare instruction at Int or Float, when it has one; else op itself.
+	private static ExpressionOp Typed(ExpressionOp op, SlotKind kind, byte detail)
+	{
+		if (op == ExpressionOp.Compare)
+		{
+			return kind switch
+			{
+				SlotKind.Int => ExpressionOp.CompareInt32,
+				SlotKind.Float => ExpressionOp.CompareFloat,
+				_ => op,
+			};
+		}
+		if (op != ExpressionOp.Arithmetic)
+		{
+			return op;
+		}
+		return (kind, (OperatorKind)detail) switch
+		{
+			(SlotKind.Int, OperatorKind.Add) => ExpressionOp.AddInt32,
+			(SlotKind.Int, OperatorKind.Subtract) => ExpressionOp.SubtractInt32,
+			(SlotKind.Int, OperatorKind.Multiply) => ExpressionOp.MultiplyInt32,
+			(SlotKind.Float, OperatorKind.Add) => ExpressionOp.AddFloat,
+			(SlotKind.Float, OperatorKind.Subtract) => ExpressionOp.SubtractFloat,
+			(SlotKind.Float, OperatorKind.Multiply) => ExpressionOp.MultiplyFloat,
+			(SlotKind.Float, OperatorKind.Divide) => ExpressionOp.DivideFloat,
+			_ => op,
+		};
 	}
 
 	// a && b: a → r; JumpIfFalse r → end; b → r; end. a || b likewise with JumpIfTrue. A chain of them (a && b || c ...,

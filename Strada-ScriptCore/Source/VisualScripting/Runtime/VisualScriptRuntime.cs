@@ -44,6 +44,9 @@ internal sealed partial class VisualScriptRuntime
 	private readonly HashSet<ulong> m_PendingSwaps = [];
 	// The analyses of the function libraries the documents call, shared by analyses and loads (spec-slice3 section 4.4.3).
 	private readonly LibraryAnalyses m_LibraryAnalyses = new();
+	// The analyses of the documents loads compiled that call libraries, reused when only a library's body changed
+	// (spec-slice4 section 9.4).
+	private readonly RootAnalyses m_RootAnalyses = new();
 	// What live edits did and what went wrong at run time (spec-slice4 section 8.2): always on, bounded.
 	private readonly LiveEventLog m_Live = new();
 	private IVisualScriptDebugger? m_Debugger;
@@ -81,6 +84,8 @@ internal sealed partial class VisualScriptRuntime
 	// The analyses of function libraries kept for the documents that call them.
 	internal LibraryAnalyses LibraryAnalyses => m_LibraryAnalyses;
 
+	internal RootAnalyses RootAnalyses => m_RootAnalyses;
+
 	internal LiveEventLog LiveEvents => m_Live;
 
 	// The carry plans live edits made (spec-slice4 section 8.3): one per pair of programs a swap carries instances between.
@@ -95,11 +100,13 @@ internal sealed partial class VisualScriptRuntime
 	// section 8.4). name is the display name in messages (the asset path).
 	// references is the bundle of the other graphs the document's nodes refer to (spec-slice3 section 2.4; empty for none):
 	// the functions of the libraries it calls are compiled into the program, and the program is its document and the bundle
-	// it was compiled with.
+	// it was compiled with. A document loaded again unchanged, whose libraries changed only in what no caller reads (their
+	// bodies), keeps its analysis and is only compiled again (spec-slice4 section 9.4).
 	internal IReadOnlyList<Diagnostic> Load(ulong graph, string name, ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default)
 	{
 		ProgramSource source = new(name, document.ToArray(), references.ToArray());
-		AnalyzedDocument analyzed = Analyze(source, Timings);
+		AnalyzedDocument analyzed = m_RootAnalyses.Analyze(graph, m_Library(), name, source.Document, GraphReferences.Parse(source.References),
+			m_LibraryAnalyses, Timings);
 		long start = AnalysisTimings.Now();
 		GraphProgram program = ProgramCompiler.Compile(analyzed, name, analyzed.Linked);
 		start = Timings?.Lap(AnalysisPhase.Compile, start) ?? start;
@@ -151,6 +158,7 @@ internal sealed partial class VisualScriptRuntime
 	internal VisualScriptStatus Unload(ulong graph)
 	{
 		m_PendingSwaps.Remove(graph);
+		m_RootAnalyses.Remove(graph);
 		return m_Graphs.Remove(graph) ? VisualScriptStatus.Success : VisualScriptStatus.NotFound;
 	}
 
@@ -547,8 +555,8 @@ internal sealed partial class VisualScriptRuntime
 		return ProgramCompiler.Compile(analyzed, source.Name, analyzed.Linked);
 	}
 
-	private AnalyzedDocument Analyze(ProgramSource source, AnalysisTimings? timings = null) =>
-		GraphAnalyzer.Analyze(m_Library(), source.Document, GraphReferences.Parse(source.References), m_LibraryAnalyses, source.Name, timings);
+	private AnalyzedDocument Analyze(ProgramSource source) =>
+		GraphAnalyzer.Analyze(m_Library(), source.Document, GraphReferences.Parse(source.References), m_LibraryAnalyses, source.Name);
 
 	private void LogRecompiled(GraphProgram program)
 	{

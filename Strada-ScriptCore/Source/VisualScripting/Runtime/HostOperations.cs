@@ -56,8 +56,8 @@ internal sealed partial class VisualScriptRuntime
 	internal HostReply TakeLiveEvents(ulong after) => m_Live.Write(after) is { } text ? HostReply.Success(text) : HostReply.NotFound;
 
 	// Before the game assembly unloads nothing may reference its types (spec section 5.6): the instances go (no events run),
-	// every program is reduced to its name, document and references, and the members' invokers and the libraries' analyses
-	// are dropped. Graph instances block
+	// every program is reduced to its name, document and references, and the members' invokers and the libraries' and the
+	// loaded documents' analyses are dropped. Graph instances block
 	// assembly loads, so the engine has none then.
 	internal void OnGameAssemblyUnloading()
 	{
@@ -84,6 +84,7 @@ internal sealed partial class VisualScriptRuntime
 		}
 		m_PendingSwaps.Clear();
 		m_LibraryAnalyses.Clear();
+		m_RootAnalyses.Clear();
 		m_Invokers.Clear();
 		m_Makers.Clear();
 		m_Breakers.Clear();

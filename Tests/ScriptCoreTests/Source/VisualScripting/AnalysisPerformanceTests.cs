@@ -12,6 +12,7 @@ namespace Strada.ScriptCore.Tests;
 // The managed analysis measured by phase (spec-slice4 section 9.0) on the grid of the performance guards: GridDocuments.Make
 // is pinned to the engine tests' generator through Benchmarks/Grid-4x5.json, and the phases of an analysis and a load of the
 // 2,000-node grid are printed on request (STRADA_PERFORMANCE_TESTS=1), medians of 7.
+[Collection(ProcessStaticsCollection.Name)]
 public sealed class AnalysisPerformanceTests
 {
 	private const int Runs = 7;
