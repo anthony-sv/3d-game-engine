@@ -228,6 +228,84 @@ TEST_CASE("VisualScriptEditor: the toolbar fits windows of 784 and 1102 pixels a
 	}
 }
 
+TEST_CASE("VisualScriptEditor: the breadcrumb shows the script's and the sub-graph's names whole while the toolbar has room for "
+          "them, at every UI scale")
+{
+	// Names of many lengths, so the rooms the toolbar gives each name, exactly its width, round both ways.
+	std::array<std::string_view, 6> const scripts = {"Orb", "Beacon", "Hud", "Motion", "Spinner", "Door"};
+	std::array<std::string_view, 4> const functions = {"Orbit", "Bob", "AddScore", "Swell"};
+	VisualScriptDocument document = MakeDocument();
+	for (size_t index = 0; index < functions.size(); index++)
+	{
+		VisualScriptFunction function;
+		function.ID = 40 + static_cast<uint32_t>(index) * 10;
+		function.Name = std::string(functions[index]);
+		function.Graph.Nodes = {MakeNode(function.ID + 1, "Function.Entry", glm::vec2(0.0f, 0.0f))};
+		document.Functions.push_back(function);
+	}
+	for (float const scale : {1.0f, 1.25f, 1.5f, 1.75f, 2.0f})
+	{
+		CAPTURE(scale);
+		PanelFixture fixture(document);
+		fixture.WindowSize = ImVec2(1600.0f * scale, 700.0f * scale);
+		if (scale != 1.0f)
+		{
+			fixture.SetUIScale(scale);
+		}
+		fixture.CheckDrawingChangesNothing();
+		size_t const undo = fixture.GetUndoCount();
+		for (std::string_view const name : scripts)
+		{
+			std::string const script(name);
+			CAPTURE(script);
+			std::filesystem::path const file = AssetManager::GetAssetDirectory() / "Scripts" / (script + ".sgraph");
+			REQUIRE(VisualScriptSerializer::SaveToFile(document, file).IsOk());
+			REQUIRE(fixture.Operations.RefreshAssets().IsOk());
+			AssetHandle const graph = AssetManager::FindByPath("Scripts/" + script + ".sgraph");
+			REQUIRE(graph.IsValid());
+			fixture.Reopen(graph);
+			// The panel invariant for the reopened window: opening it and going through its sub-graphs changes no undo
+			// count, no byte of its file and no version of its asset.
+			CHECK(fixture.GetUndoCount() == undo);
+			Result<std::string> const bytes = FileSystem::ReadTextFile(file);
+			REQUIRE(bytes.IsOk());
+			uint64_t const version = AssetManager::GetAsset<VisualScriptAsset>(graph)->GetVersion();
+			for (size_t index = 0; index <= functions.size(); index++)
+			{
+				std::string const shownName = index == 0 ? std::string("Event Graph") : std::string(functions[index - 1]);
+				CAPTURE(shownName);
+				VisualScriptOpenRequest request;
+				request.Graph = graph;
+				request.Function = index == 0 ? 0u : 40u + static_cast<uint32_t>(index - 1) * 10u;
+				fixture.Panel->Apply(request);
+				fixture.Frames(2);
+				// The buttons' IDs hash the text they show: the whole names, in the toolbar's ID scope.
+				ImGuiWindow const* window = ImGui::FindWindowByName(VisualScriptEditorPanel::GetWindowName(graph, script).c_str());
+				REQUIRE(window != nullptr);
+				ImGuiID const toolbar = ImHashStr("##toolbar", 0, window->ID);
+				ImGuiID const scriptButton = ImHashStr((script + "##script").c_str(), 0, toolbar);
+				ImGuiID const graphButton = ImHashStr((shownName + "##graph").c_str(), 0, toolbar);
+				VisualScriptRect const breadcrumb = fixture.ItemRect(Item::Breadcrumb);
+				bool scriptHovered = false;
+				bool graphHovered = false;
+				for (float x = breadcrumb.Min.x + 1.0f; x < breadcrumb.Max.x && !(scriptHovered && graphHovered); x += 3.0f * scale)
+				{
+					fixture.MoveMouse(glm::vec2(x, breadcrumb.GetCenter().y));
+					scriptHovered = scriptHovered || GImGui->HoveredId == scriptButton;
+					graphHovered = graphHovered || GImGui->HoveredId == graphButton;
+				}
+				CHECK(scriptHovered);
+				CHECK(graphHovered);
+			}
+			CHECK(fixture.GetUndoCount() == undo);
+			Result<std::string> const after = FileSystem::ReadTextFile(file);
+			REQUIRE(after.IsOk());
+			CHECK(after.GetValue() == bytes.GetValue());
+			CHECK(AssetManager::GetAsset<VisualScriptAsset>(graph)->GetVersion() == version);
+		}
+	}
+}
+
 TEST_CASE("VisualScriptEditor: an auto-hidden Details opens over the canvas from its toggle and from a double-click on a node "
           "header, and Escape closes it")
 {

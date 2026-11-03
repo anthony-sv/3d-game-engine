@@ -57,6 +57,23 @@ Add a row to the command tables in `Docs/Automation.md`. `EditorCommands: every 
 Name the command in the MCP server's `Instructions` (`StradaTool/Source/Mcp/McpServer.cs`) and the `strada-make-game`
 skill when agents should know it exists.
 
+## Commands and operations of the visual script editor
+
+- Every editing operation of the visual script editor (`VisualScriptEditing`, `VisualScriptLanguageEditing`,
+  `VisualScriptCrossGraph`) is an operation of `graph.edit` too, in the same change: a row of `BatchOperations` in
+  `VisualScriptBatch.cpp` (its name, a field list where `*` marks a required field, and a handler that calls the editing
+  function), its route in `BatchExecutor::SetSetting` when a setting belongs to it, its fields in
+  `MakeGraphOperationSchema`, its name in `graph.edit`'s description (a test checks every operation is named), its entry
+  in the batch generators of `GraphEditFuzzTests.cpp` and `AutomationFuzzTests.cpp`, and its row in the graph.edit
+  operations table of `Docs/Automation.md`. Handlers that need pins call `Require` first; those that move or frame nodes
+  call `RequirePlaced`; those that rename what titles show record `TitleLevel`; those that delete or create elements
+  record it (`RecordRemovals`, `RecordCreated`).
+- Fuzz seeds name other graphs: the automation fuzz's seed script holds a typed Send, a library call and a remote Get
+  naming `Scripts/FuzzLibrary.sgraph` and itself, and `ReseedGraph` rebuilds both. A new cross-graph kind or setting gets
+  a node there.
+- Every new reader of a node's `Variable`, `Function` or `Name` settings checks `IsLocalVisualScriptReference` first: a
+  node whose `Graph` names another script names that script's elements, never a local one of the same ID.
+
 ## 4. Test it
 
 `Tests/StradaEditorTests/Source/EditorCommandsTests.cpp`: success path, every error code it can return, and undo/redo

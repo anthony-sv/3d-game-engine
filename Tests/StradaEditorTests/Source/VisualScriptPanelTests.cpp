@@ -2278,3 +2278,62 @@ TEST_CASE("VisualScriptEditor: a commit that breaks other scripts' nodes tells i
 					  }));
 	fixture.Panel->SetProjectIndex(nullptr);
 }
+
+TEST_CASE("VisualScriptEditor: an offer toast that a later commit repeats shows once, for the time of the later one")
+{
+	// Player is a function library whose Clamp01 (10) Door calls, as above. Commits of one interaction at the widget cadence
+	// each describe the same change; here two deletions of Clamp01, with an undo between them, do.
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 10;
+	clamp.Name = "Clamp01";
+	library.Functions = {clamp};
+	VisualScriptProjectIndex index;
+	PanelFixture fixture(library);
+	VisualScriptDocument door;
+	door.Graph.Nodes = {
+		MakeNode(1, "Function.Call", glm::vec2(0.0f), Json::object({{"Function", 10}, {"Graph", fixture.Graph.ToString()}}))};
+	REQUIRE(VisualScriptSerializer::SaveToFile(door, AssetManager::GetAssetDirectory() / "Scripts" / "Door.sgraph").IsOk());
+	REQUIRE(fixture.Operations.RefreshAssets().IsOk());
+	index.Refresh();
+	fixture.Panel->SetProjectIndex(&index);
+	fixture.CheckDrawingChangesNothing();
+
+	std::string const deleted = "Deleted Clamp01: 1 call in 1 other script show errors";
+	auto const countToasts = [&fixture, &deleted]
+	{
+		std::vector<std::string> const toasts = fixture.Panel->GetState().Toasts;
+		return std::count(toasts.begin(), toasts.end(), deleted);
+	};
+	auto const deleteClamp = [&fixture]
+	{
+		fixture.Click(RowPoint(fixture, {VisualScriptElementKind::Function, 10}));
+		fixture.Frames(1);
+		fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+		fixture.Frames(2);
+		REQUIRE(fixture.Panel->GetSidebar().GetPendingDelete().has_value());
+		fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+		fixture.Frames(2);
+		REQUIRE(fixture.GetDocument().Functions.empty());
+	};
+
+	size_t const undo = fixture.GetUndoCount();
+	deleteClamp();
+	CHECK(countToasts() == 1);
+	// Three seconds on, the toast still shows when Clamp01 comes back and goes again.
+	fixture.Frames(1, 3.0f);
+	REQUIRE(countToasts() == 1);
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	fixture.Frames(2);
+	REQUIRE(fixture.GetDocument().Functions.size() == 1);
+	deleteClamp();
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(countToasts() == 1);
+	// It shows for the full time of the second deletion: past the first one's end, and no longer.
+	fixture.Frames(1, 2.0f);
+	CHECK(countToasts() == 1);
+	fixture.Frames(1, 3.0f);
+	fixture.Frames(1);
+	CHECK(countToasts() == 0);
+	fixture.Panel->SetProjectIndex(nullptr);
+}

@@ -1,5 +1,6 @@
 #include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
+#include "Script/VisualScriptTestGraphs.h"
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -218,22 +219,28 @@ namespace
 		return document;
 	}
 
-	DeserializationContext MakeStrictContext()
+	// Holds an array of a game enum (Levels, private) and calls a game member: on Event.Create the entity's Mover nudges it 2
+	// units, and Count (public) becomes the array's length.
+	VisualScriptDocument MakeNudgeDocument()
 	{
-		DeserializationContext context;
-		context.UnknownFields = UnknownFieldPolicy::Warn;
-		return context;
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Levels", "Strada.Tests.Difficulty[]", Json::array({"Easy", "Hard"}), false));
+		document.Variables.push_back(MakeVariable(2, "Count", "int", 0, true));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Create"));
+		document.Graph.Nodes.push_back(
+			MakeNode(11, "Call:Strada.Tests.Mover.Nudge(float)", Json::object(), Json::object({{"Distance", 2.0}})));
+		document.Graph.Nodes.push_back(MakeNode(12, "Variable.Set", Json::object({{"Variable", 2}})));
+		document.Graph.Nodes.push_back(MakeNode(13, "Array.Length"));
+		document.Graph.Nodes.push_back(MakeNode(14, "Variable.Get", Json::object({{"Variable", 1}})));
+		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		document.Graph.Links.push_back(MakeLink(11, "Then", 12, "Execute"));
+		document.Graph.Links.push_back(MakeLink(14, "Value", 13, "Array"));
+		document.Graph.Links.push_back(MakeLink(13, "Length", 12, "Value"));
+		return document;
 	}
 
-	std::string DescribeIssues(std::vector<VisualScriptIssue> const& issues)
-	{
-		std::string described;
-		for (VisualScriptIssue const& issue : issues)
-		{
-			described += (described.empty() ? "" : "; ") + issue.Path + ": " + issue.Message;
-		}
-		return described;
-	}
+	using Testing::DescribeIssues;
+	using Testing::MakeStrictContext;
 
 	// A shared fixture document (Tests/Data/VisualScripting/Documents), loaded as automation loads documents.
 	VisualScriptDocument ReadFixture(std::string_view name)
@@ -3055,11 +3062,10 @@ TEST_CASE("VisualScriptEngine: the shared fixture documents run on entities with
 	scene.OnRuntimeStart();
 	SceneContextScope context(scene);
 
-	// Editor.json has disabled, development-only and split nodes.
-	constexpr std::array<std::string_view, 7> Documents = {"Data.json",      "Editor.json",    "Events.json",   "Flow.json",
-	                                                       "Functions.json", "Reflected.json", "Variables.json"};
+	// Editor.json has disabled, development-only and split nodes; Language.json formulas, arrays, strings, generics and a
+	// timeline.
 	uint64_t const logStart = Log::GetNextEntryIndex();
-	for (std::string_view const name : Documents)
+	for (std::string_view const name : Testing::SharedVisualScriptFixtures)
 	{
 		CAPTURE(name);
 		AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(ReadFixture(name)), std::string(name));
@@ -3114,6 +3120,17 @@ TEST_CASE("VisualScriptEngine: graph instances block game-assembly loads, and a 
 	VisualScriptEngine::InvokeOnCreate(id);
 	// The graph found the entity's Mover script and kept it in a variable of the game's type.
 	CHECK(ReadVariable(id, "IsMover") == ScriptFieldValue::FromBool(true));
+
+	// A graph that calls a member of the game's scripts and holds an array of a game enum, which the reload must drop too.
+	Entity nudged = scene.CreateEntity("Nudged");
+	AssetHandle const nudge = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeNudgeDocument()), "Nudge");
+	REQUIRE(ScriptEngine::CreateInstance(nudged.GetUUID(), "Strada.Tests.Mover", {}).IsOk());
+	REQUIRE(VisualScriptEngine::CreateInstance(nudged.GetUUID(), nudge, {}).IsOk());
+	VisualScriptEngine::InvokeOnCreate(nudged.GetUUID());
+	CHECK(ReadVariable(nudged.GetUUID(), "Count") == ScriptFieldValue::FromInt32(2));
+	CHECK(nudged.GetComponent<TransformComponent>().Translation == glm::vec3(2.0f, 0.0f, 0.0f));
+	VisualScriptEngine::DestroyInstance(nudged.GetUUID());
+	ScriptEngine::DestroyInstance(nudged.GetUUID());
 
 	// A graph instance alone keeps the game's scripts in place.
 	CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsError());
@@ -3265,85 +3282,141 @@ TEST_CASE("VisualScriptEngine: a graph that needs the game's types runs once the
 	CHECK(host.Exceptions == 3);
 }
 
-TEST_CASE("VisualScriptEngine: the projects' scene graphs load strictly, analyze cleanly and resolve exactly or by redirect")
+namespace
 {
-	std::filesystem::path const projectsDirectory = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR);
-	std::vector<std::filesystem::path> projects;
-	for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(projectsDirectory))
-	{
-		if (FileSystem::Exists(entry.path() / "Assets" / AssetRegistry::FileName))
-		{
-			projects.push_back(entry.path());
-		}
-	}
-	std::sort(projects.begin(), projects.end());
-	REQUIRE_FALSE(projects.empty());
+	using Testing::RunSetGraph;
 
+	// The projects of Projects/ that have assets.
+	std::vector<std::filesystem::path> FindProjects()
+	{
+		std::filesystem::path const projectsDirectory = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR);
+		std::vector<std::filesystem::path> projects;
+		for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(projectsDirectory))
+		{
+			if (FileSystem::Exists(entry.path() / "Assets" / AssetRegistry::FileName))
+			{
+				projects.push_back(entry.path());
+			}
+		}
+		std::sort(projects.begin(), projects.end());
+		REQUIRE_FALSE(projects.empty());
+		return projects;
+	}
+
+	// The project's run set (Testing::FindVisualScriptRunSet), with a copy of its registry and graphs in the directory as the
+	// asset directory, where graphs that refer to other graphs find them. Needs an initialized AssetManager.
+	std::vector<RunSetGraph> OpenRunSet(std::filesystem::path const& project, std::filesystem::path const& directory)
+	{
+		Testing::OpenVisualScriptsCopy(project / "Assets", directory / "Assets");
+		return Testing::FindVisualScriptRunSet(project / "Assets");
+	}
+
+	// Loads the project's game assembly, as CMake builds it, for as long as it lives (when the project has scripts): graphs
+	// may use its types and members.
+	class ProjectScriptsScope
+	{
+	public:
+		explicit ProjectScriptsScope(std::filesystem::path const& project)
+		{
+			std::string const name = FileSystem::PathToUtf8(project.filename());
+			if (!FileSystem::Exists(project / "Scripts" / (name + ".csproj")))
+			{
+				return;
+			}
+			Result<void> const loaded =
+				ScriptEngine::LoadGameAssembly(FileSystem::GetExecutableDirectory() / project.filename() / (name + ".dll"));
+			REQUIRE_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
+			m_Loaded = true;
+		}
+
+		~ProjectScriptsScope()
+		{
+			if (m_Loaded)
+			{
+				ScriptEngine::UnloadGameAssembly();
+			}
+		}
+
+		ProjectScriptsScope(ProjectScriptsScope const&) = delete;
+		ProjectScriptsScope& operator=(ProjectScriptsScope const&) = delete;
+
+	private:
+		bool m_Loaded = false;
+	};
+
+	// What the nodes of a run set hold, for the feature-test check: the node types (those of enabled nodes apart), whether
+	// an inferred generic method appears without and with TypeArguments, and the types of the timelines' tracks.
+	struct RunSetUses
+	{
+		std::set<std::string> Types;
+		std::set<std::string> EnabledTypes;
+		bool InferredWithoutTypeArguments = false;
+		bool InferredWithTypeArguments = false;
+		std::set<std::string> TrackTypes;
+
+		void Add(VisualScriptLibrary const& library, VisualScriptNode const& node)
+		{
+			Types.insert(node.Type);
+			if (node.Enabled == VisualScriptNodeEnabled::Enabled)
+			{
+				EnabledTypes.insert(node.Type);
+			}
+			// An inferred generic method: its TypeArguments setting is optional and takes any type.
+			if (VisualScriptNodeTemplate const* const kind = library.FindNode(node.Type))
+			{
+				auto const isInferred = [](VisualScriptSetting const& setting)
+				{
+					return setting.Name == "TypeArguments" && setting.Kind == "TypeList" && !setting.Required &&
+					       setting.Constraint == "Any";
+				};
+				if (std::any_of(kind->Settings.begin(), kind->Settings.end(), isInferred))
+				{
+					(node.Settings.contains("TypeArguments") ? InferredWithTypeArguments : InferredWithoutTypeArguments) = true;
+				}
+			}
+			auto const timeline = node.Settings.find("Timeline");
+			if (node.Type != "Flow.Timeline" || timeline == node.Settings.end() || !timeline->is_object())
+			{
+				return;
+			}
+			auto const tracks = timeline->find("Tracks");
+			if (tracks == timeline->end() || !tracks->is_array())
+			{
+				return;
+			}
+			for (Json const& track : *tracks)
+			{
+				if (auto const type = track.find("Type"); track.is_object() && type != track.end() && type->is_string())
+				{
+					TrackTypes.insert(type->get<std::string>());
+				}
+			}
+		}
+	};
+}
+
+TEST_CASE("VisualScriptEngine: the projects' scene graphs and the libraries they reach load strictly, analyze cleanly and resolve "
+          "exactly or by redirect")
+{
 	Testing::ScriptRuntimeScope runtime;
 	size_t checked = 0;
-	for (std::filesystem::path const& project : projects)
+	for (std::filesystem::path const& project : FindProjects())
 	{
-		std::string const name = FileSystem::PathToUtf8(project.filename());
-		CAPTURE(name);
-		std::filesystem::path const assetsDirectory = project / "Assets";
-		Result<AssetRegistry> registry = AssetRegistry::LoadFromFile(assetsDirectory / AssetRegistry::FileName, DeserializationContext{});
-		REQUIRE_MESSAGE(registry.IsOk(), registry.GetError());
-		AssetRegistry const& assets = registry.GetValue();
-
-		// The graphs of the scenes' VisualScript components, by path.
-		std::set<std::string> graphs;
-		for (AssetMetadata const& scene : assets.GetAll())
-		{
-			if (scene.Type != AssetType::Scene)
-			{
-				continue;
-			}
-			CAPTURE(scene.Path);
-			Result<std::string> text = FileSystem::ReadTextFile(assetsDirectory / FileSystem::PathFromUtf8(scene.Path));
-			REQUIRE(text.IsOk());
-			Result<Json> document = ParseJson(text.GetValue());
-			REQUIRE_MESSAGE(document.IsOk(), document.GetError());
-			for (Json const& entity : document.GetValue().at("Entities"))
-			{
-				auto const component = entity.at("Components").find("VisualScript");
-				if (component == entity.at("Components").end())
-				{
-					continue;
-				}
-				AssetHandle handle;
-				REQUIRE(JsonTraits<AssetHandle>::FromJson(component->at("Graph"), handle, DeserializationContext{}).IsOk());
-				if (!handle.IsValid())
-				{
-					continue;
-				}
-				AssetMetadata const* graph = assets.Find(handle);
-				REQUIRE_MESSAGE(graph != nullptr, handle.ToString());
-				CHECK(graph->Type == AssetType::VisualScript);
-				graphs.insert(graph->Path);
-			}
-		}
+		CAPTURE(FileSystem::PathToUtf8(project.filename()));
+		// The copy outlives the asset manager that opens it.
+		Testing::TemporaryDirectory directory;
+		Testing::AssetManagerScope assets;
+		std::vector<RunSetGraph> const graphs = OpenRunSet(project, directory.GetPath());
 		if (graphs.empty())
 		{
 			continue;
 		}
-
-		// Graphs may use the project's script classes as types: analyze with its scripts, as CMake builds them.
-		std::filesystem::path const scripts = FileSystem::GetExecutableDirectory() / project.filename() / (name + ".dll");
-		bool const hasScripts = FileSystem::Exists(project / "Scripts" / (name + ".csproj"));
-		if (hasScripts)
+		ProjectScriptsScope scripts(project);
+		for (RunSetGraph const& graph : graphs)
 		{
-			Result<void> const loaded = ScriptEngine::LoadGameAssembly(scripts);
-			REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
-		}
-		for (std::string const& path : graphs)
-		{
-			CAPTURE(path);
-			std::vector<VisualScriptIssue> issues;
-			Result<VisualScriptDocument> document =
-				VisualScriptSerializer::LoadFromFile(assetsDirectory / FileSystem::PathFromUtf8(path), MakeStrictContext(), &issues);
-			REQUIRE_MESSAGE(document.IsOk(), document.GetError());
-			CHECK_MESSAGE(issues.empty(), DescribeIssues(issues));
-			Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(document.GetValue());
+			CAPTURE(graph.Path);
+			// Analyzed as the graph itself, which its nodes may name, with the other graphs read from the copy.
+			Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(graph.Document, graph.Handle);
 			REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
 			for (VisualScriptDiagnostic const& diagnostic : analysis.GetValue().Diagnostics)
 			{
@@ -3359,11 +3432,81 @@ TEST_CASE("VisualScriptEngine: the projects' scene graphs load strictly, analyze
 			}
 			checked++;
 		}
-		if (hasScripts)
-		{
-			ScriptEngine::UnloadGameAssembly();
-		}
 	}
 	// The feature-test project runs one at least.
 	CHECK(checked > 0);
+}
+
+// The graph counterpart of the feature-test project's API and component coverage (AGENTS.md): FormatSample.sgraph, which no
+// scene runs, does not count.
+TEST_CASE("VisualScriptEngine: the feature-test graphs use every built-in node kind, every node of the feature-test scripts, both "
+          "forms of an inferred generic and every timeline track type")
+{
+	Testing::ScriptRuntimeScope runtime;
+	std::filesystem::path const project = FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR);
+	Testing::TemporaryDirectory directory;
+	Testing::AssetManagerScope assets;
+	std::vector<RunSetGraph> const graphs = OpenRunSet(project, directory.GetPath());
+	ProjectScriptsScope scripts(project);
+	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
+	REQUIRE(library != nullptr);
+
+	RunSetUses uses;
+	for (RunSetGraph const& graph : graphs)
+	{
+		for (VisualScriptFunction const& function : graph.Document.Functions)
+		{
+			for (VisualScriptNode const& node : function.Graph.Nodes)
+			{
+				uses.Add(*library, node);
+			}
+		}
+		for (VisualScriptNode const& node : graph.Document.Graph.Nodes)
+		{
+			uses.Add(*library, node);
+		}
+	}
+
+	std::vector<std::string> missing;
+	size_t gameNodes = 0;
+	for (VisualScriptNodeTemplate const& node : library->GetNodes())
+	{
+		if (node.Type.find(':') == std::string::npos && !uses.EnabledTypes.contains(node.Type))
+		{
+			missing.push_back(fmt::format("an enabled node of the built-in kind {}", node.Type));
+		}
+		if (node.Game)
+		{
+			gameNodes++;
+			if (!uses.Types.contains(node.Type))
+			{
+				missing.push_back(fmt::format("a node of the game member {}", node.Type));
+			}
+		}
+	}
+	if (!uses.InferredWithoutTypeArguments)
+	{
+		missing.push_back("a node of an inferred generic method without TypeArguments");
+	}
+	if (!uses.InferredWithTypeArguments)
+	{
+		missing.push_back("a node of an inferred generic method with TypeArguments");
+	}
+	for (std::string_view const type : {"float", "Strada.Vector2", "Strada.Vector3", "Strada.Vector4", "Strada.Color", "exec"})
+	{
+		if (!uses.TrackTypes.contains(std::string(type)))
+		{
+			missing.push_back(fmt::format("a Flow.Timeline with a track of type {}", type));
+		}
+	}
+	std::sort(missing.begin(), missing.end());
+	std::string described = "the graphs Projects/FeatureTest's scenes run, and the libraries they call, lack (add each to "
+							"build_features in Projects/FeatureTest/Tools/AuthorGraphs.py):";
+	for (std::string const& item : missing)
+	{
+		described += "\n  " + item;
+	}
+	CHECK_MESSAGE(missing.empty(), described);
+	// The feature-test scripts mark members of each form ([VisualNode] on a class, a struct and members of a script).
+	CHECK(gameNodes > 0);
 }

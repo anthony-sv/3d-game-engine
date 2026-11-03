@@ -213,15 +213,119 @@ namespace
 		return document;
 	}
 
-	// Writes a checks graph into the open asset directory and adds an entity running it to the scene.
-	void AddChecksGraph(Scene& scene, VisualScriptDocument const& document = MakeChecksDocument())
+	// Writes a graph into Scripts of the open asset directory and registers it.
+	AssetHandle AddGraphAsset(VisualScriptDocument const& document, std::string const& name)
 	{
-		std::filesystem::path const file = AssetManager::GetAssetDirectory() / "Scripts" / "Checks.sgraph";
+		std::filesystem::path const file = AssetManager::GetAssetDirectory() / "Scripts" / FileSystem::PathFromUtf8(name + ".sgraph");
 		REQUIRE(VisualScriptSerializer::SaveToFile(document, file).IsOk());
 		Result<AssetHandle> graph = AssetManager::ImportFile(file);
 		REQUIRE(graph.IsOk());
 		REQUIRE(AssetManager::SaveRegistry().IsOk());
-		scene.CreateEntity("Checker").AddComponent<VisualScriptComponent>().Graph = graph.GetValue();
+		return graph.GetValue();
+	}
+
+	// Writes a checks graph into the open asset directory and adds an entity running it to the scene.
+	void AddChecksGraph(Scene& scene, VisualScriptDocument const& document = MakeChecksDocument())
+	{
+		scene.CreateEntity("Checker").AddComponent<VisualScriptComponent>().Graph = AddGraphAsset(document, "Checks");
+	}
+
+	VisualScriptNode MakeSetNode(uint32_t id, std::string type, Json settings, Json inputs = Json::object())
+	{
+		VisualScriptNode node = MakeNode(id, std::move(type), std::move(inputs));
+		node.Settings = std::move(settings);
+		return node;
+	}
+
+	// The parameters of the custom event Ping: Amount, an int.
+	Json MakePingParameters()
+	{
+		return Json::array({Json::object({{"Name", "Amount"}, {"Type", "int"}})});
+	}
+
+	// A function library: Twice (1, pure: Value * 2 by a formula) and Note (2, impure: a check that passes only where
+	// development-only nodes run).
+	VisualScriptDocument MakeMathsLibrary()
+	{
+		VisualScriptDocument document;
+		document.Kind = VisualScriptDocumentKind::Library;
+		VisualScriptFunction twice;
+		twice.ID = 1;
+		twice.Name = "Twice";
+		twice.Pure = true;
+		twice.Inputs = {VisualScriptParameter("Value", "int")};
+		twice.Outputs = {VisualScriptParameter("Result", "int")};
+		twice.Graph.Nodes.push_back(MakeNode(10, "Function.Entry"));
+		twice.Graph.Nodes.push_back(MakeSetNode(11, "Expression", Json::object({{"Formula", "value * 2"}})));
+		twice.Graph.Nodes.push_back(MakeNode(12, "Function.Return"));
+		twice.Graph.Links.push_back({{10, "Value"}, {11, "value"}});
+		twice.Graph.Links.push_back({{11, "Result"}, {12, "Result"}});
+		VisualScriptFunction note;
+		note.ID = 2;
+		note.Name = "Note";
+		note.Graph.Nodes.push_back(MakeNode(20, "Function.Entry"));
+		VisualScriptNode development =
+			MakeNode(21, "Call:Strada.Testing.TestReporter.Pass(string)", Json::object({{"Name", "library development node ran"}}));
+		development.Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+		note.Graph.Nodes.push_back(std::move(development));
+		note.Graph.Links.push_back({{20, "Then"}, {21, "Execute"}});
+		document.Functions = {std::move(twice), std::move(note)};
+		return document;
+	}
+
+	// Each receiver passes a check named after its entity when its Ping carries 42.
+	VisualScriptDocument MakeReceiverDocument()
+	{
+		VisualScriptDocument document;
+		document.Graph.Nodes.push_back(
+			MakeSetNode(1, "Event.Custom", Json::object({{"Name", "Ping"}, {"Parameters", MakePingParameters()}})));
+		document.Graph.Nodes.push_back(MakeSetNode(2, "Expression", Json::object({{"Formula", "amount == 42"}})));
+		document.Graph.Nodes.push_back(MakeNode(3, "Flow.Branch"));
+		document.Graph.Nodes.push_back(MakeNode(4, "Get:Strada.Entity.Name"));
+		document.Graph.Nodes.push_back(MakeNode(5, "Call:Strada.Testing.TestReporter.Pass(string)"));
+		document.Graph.Nodes.push_back(
+			MakeNode(6, "Call:Strada.Testing.TestReporter.Fail(string,string)", Json::object({{"Message", "another amount came"}})));
+		document.Graph.Links.push_back({{1, "Then"}, {3, "Execute"}});
+		document.Graph.Links.push_back({{1, "Amount"}, {2, "amount"}});
+		document.Graph.Links.push_back({{2, "Result"}, {3, "Condition"}});
+		document.Graph.Links.push_back({{3, "True"}, {5, "Execute"}});
+		document.Graph.Links.push_back({{3, "False"}, {6, "Execute"}});
+		document.Graph.Links.push_back({{4, "Value"}, {5, "Name"}});
+		document.Graph.Links.push_back({{4, "Value"}, {6, "Name"}});
+		return document;
+	}
+
+	// In its first update: calls the library's Note, broadcasts Ping with Twice(21), checks that both receivers got it and
+	// finishes the test run.
+	VisualScriptDocument MakeBroadcasterDocument(AssetHandle library)
+	{
+		Json const graph = library.ToString();
+		VisualScriptDocument document;
+		document.Graph.Nodes.push_back(MakeNode(1, "Event.Update"));
+		document.Graph.Nodes.push_back(MakeSetNode(2, "Function.Call", Json::object({{"Graph", graph}, {"Function", 2}})));
+		document.Graph.Nodes.push_back(
+			MakeSetNode(3, "Function.Call", Json::object({{"Graph", graph}, {"Function", 1}}), Json::object({{"Value", 21}})));
+		document.Graph.Nodes.push_back(
+			MakeSetNode(4, "Event.Broadcast", Json::object({{"Name", "Ping"}, {"Parameters", MakePingParameters()}})));
+		document.Graph.Nodes.push_back(MakeSetNode(5, "Expression", Json::object({{"Formula", "count == 2"}})));
+		document.Graph.Nodes.push_back(MakeNode(6, "Flow.Branch"));
+		document.Graph.Nodes.push_back(
+			MakeNode(7, "Call:Strada.Testing.TestReporter.Pass(string)", Json::object({{"Name", "the broadcast reached both receivers"}})));
+		document.Graph.Nodes.push_back(
+			MakeNode(8, "Call:Strada.Testing.TestReporter.Fail(string,string)",
+		             Json::object({{"Name", "the broadcast reached both receivers"}, {"Message", "another number received it"}})));
+		document.Graph.Nodes.push_back(MakeNode(9, "Call:Strada.Testing.TestReporter.Finish()"));
+		document.Graph.Links.push_back({{1, "Then"}, {2, "Execute"}});
+		document.Graph.Links.push_back({{2, "Then"}, {4, "Execute"}});
+		document.Graph.Links.push_back({{3, "Result"}, {4, "Amount"}});
+		document.Graph.Links.push_back({{4, "Then"}, {6, "Execute"}});
+		document.Graph.Links.push_back({{4, "Count"}, {5, "count"}});
+		document.Graph.Links.push_back({{5, "Result"}, {6, "Condition"}});
+		document.Graph.Links.push_back({{6, "True"}, {7, "Execute"}});
+		document.Graph.Links.push_back({{6, "False"}, {8, "Execute"}});
+		document.Graph.Links.push_back({{7, "Then"}, {9, "Execute"}});
+		document.Graph.Links.push_back({{8, "Then"}, {9, "Execute"}});
+		return document;
 	}
 
 	// A copy of Projects/<name> (its project file named after it) in the directory, with the scripts CMake built for it
@@ -662,6 +766,70 @@ TEST_CASE("Runtime: an exported game skips the development-only nodes of its vis
 	CHECK_FALSE(Contains(game.Output, "development node ran"));
 	CHECK(Contains(game.Output, "Test passed: graph created"));
 	CHECK(Contains(game.Output, "Tests passed: 2 checks in 1 frame"));
+}
+
+TEST_CASE("Runtime: an exported game of graphs calls a function library and broadcasts, and skips the library's development-only "
+          "nodes, which its project runs")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path projectFile;
+	std::filesystem::path player;
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> created = Project::Create(directory.GetPath() / "Project", "Library Test", *MakeScene("Main", std::nullopt));
+		REQUIRE(created.IsOk());
+		Ref<Project> const project = created.GetValue();
+		AssetHandle const library = AddGraphAsset(MakeMathsLibrary(), "Maths");
+		AssetHandle const receiver = AddGraphAsset(MakeReceiverDocument(), "Receiver");
+		AssetHandle const broadcaster = AddGraphAsset(MakeBroadcasterDocument(library), "Broadcaster");
+		Ref<Scene> const main = MakeScene("Main", std::nullopt);
+		main->CreateEntity("Broadcaster").AddComponent<VisualScriptComponent>().Graph = broadcaster;
+		for (char const* name : {"Receiver A", "Receiver B"})
+		{
+			main->CreateEntity(name).AddComponent<VisualScriptComponent>().Graph = receiver;
+		}
+		REQUIRE(SceneSerializer::SaveToFile(*main, project->GetAssetDirectory() / "Scenes" / "Main.sscene").IsOk());
+		projectFile = project->GetFilePath();
+
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*project, directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		CHECK(prepared.GetValue().UsesVisualScripts);
+		CHECK(prepared.GetValue().ScriptProjectFile.empty());
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		if (player.extension() == ".app")
+		{
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+	}
+	char const* const checks[] = {"Test passed: Receiver A", "Test passed: Receiver B",
+	                              "Test passed: the broadcast reached both receivers"};
+
+	// The project runs the library's development-only node.
+	ProcessResult const project = RunPlayer({"--project", Native(projectFile), "--test"});
+	CAPTURE(project.Output);
+	CHECK(project.ExitCode == 0);
+	CHECK(Contains(project.Output, "Test passed: library development node ran"));
+	for (char const* check : checks)
+	{
+		CAPTURE(check);
+		CHECK(Contains(project.Output, check));
+	}
+	CHECK(Contains(project.Output, "Tests passed: 4 checks in 1 frame"));
+
+	// The exported game passes the flow through it, and the library's functions run in the graph that calls them.
+	ProcessResult const game = RunProgram(player, {"--test"});
+	CAPTURE(game.Output);
+	CHECK(game.ExitCode == 0);
+	CHECK_FALSE(Contains(game.Output, "development node ran"));
+	for (char const* check : checks)
+	{
+		CAPTURE(check);
+		CHECK(Contains(game.Output, check));
+	}
+	CHECK(Contains(game.Output, "Tests passed: 3 checks in 1 frame"));
 }
 
 TEST_CASE("Runtime: the feature-test project passes its test run")

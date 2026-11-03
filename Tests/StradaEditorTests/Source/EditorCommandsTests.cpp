@@ -182,6 +182,30 @@ TEST_CASE("EditorCommands: every command is documented in Docs/Automation.md")
 	}
 }
 
+TEST_CASE("EditorCommands: the docs and the game-making skill show graph.edit's example batch as the graph tests run it")
+{
+	// Tests/Data/VisualScripting/Agents/Spinner.json is the batch GraphCommandsTests runs on a graph of the Events template.
+	auto const read = [](std::filesystem::path const& path)
+	{
+		Result<std::string> text = FileSystem::ReadTextFile(path);
+		REQUIRE_MESSAGE(text.IsOk(), FileSystem::PathToUtf8(path));
+		std::string content = text.TakeValue();
+		std::erase(content, '\r');
+		return content;
+	};
+	std::string batch = read(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Agents" / "Spinner.json");
+	while (!batch.empty() && (batch.back() == '\n' || batch.back() == ' ' || batch.back() == '\t'))
+	{
+		batch.pop_back();
+	}
+	REQUIRE(batch.starts_with("{ \"graph\": \"asset://Scripts/Spinner.sgraph\""));
+	for (char const* const document : {STRADA_AUTOMATION_DOC_PATH, STRADA_SCRIPTING_DOC_PATH, STRADA_MAKE_GAME_SKILL_PATH})
+	{
+		CAPTURE(document);
+		CHECK(read(FileSystem::PathFromUtf8(document)).find("```json\n" + batch + "\n```") != std::string::npos);
+	}
+}
+
 TEST_CASE("EditorCommands: entities can be created, inspected, edited and undone")
 {
 	CommandFixture fixture;

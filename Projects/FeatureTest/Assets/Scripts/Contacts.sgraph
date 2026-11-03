@@ -4,7 +4,7 @@
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
-		"Description": "Counts its entity's contacts: collisions and triggers that begin and end. At the first contact that ends, it checks that every contact that ended had begun (Checks counts it) and sets Done. The feature test's falling box and ball run it next to their C# CollisionProbe.",
+		"Description": "Counts its entity's contacts: collisions and triggers that begin and end. At the first contact that ends, it checks that every contact that ended had begun (Checks counts it) and sets Done. The feature test's falling box and ball run it next to their C# CollisionProbe. Its custom event Ping adds its Amount to Pings: Features.sgraph sends it to the box, broadcasts it to both and reads and writes Pings from there.",
 		"Variables": [
 			{
 				"ID": 1,
@@ -58,66 +58,69 @@
 				"ID": 7,
 				"Name": "LastOther",
 				"Type": "Strada.Entity"
+			},
+			{
+				"ID": 8,
+				"Name": "Pings",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "What the custom event Ping added"
 			}
 		],
 		"Functions": [],
 		"Graph": {
 			"Nodes": [
 				{
-					"ID": 8,
-					"Type": "Event.CollisionEnter",
+					"ID": 9,
+					"Type": "Event.Custom",
 					"Position": [
 						0.0,
 						0.0
-					]
+					],
+					"Settings": {
+						"Name": "Ping",
+						"Parameters": [
+							{
+								"Name": "Amount",
+								"Type": "int"
+							}
+						]
+					}
 				},
 				{
-					"ID": 9,
+					"ID": 10,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
 						160.0
 					],
 					"Settings": {
-						"Variable": 1
-					}
-				},
-				{
-					"ID": 10,
-					"Type": "Operator.Add",
-					"Position": [
-						320.0,
-						0.0
-					],
-					"Inputs": {
-						"B": 1
+						"Variable": 8
 					}
 				},
 				{
 					"ID": 11,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						0.0
+					]
+				},
+				{
+					"ID": 12,
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
 						0.0
 					],
 					"Settings": {
-						"Variable": 1
-					}
-				},
-				{
-					"ID": 12,
-					"Type": "Variable.Set",
-					"Position": [
-						960.0,
-						0.0
-					],
-					"Settings": {
-						"Variable": 7
+						"Variable": 8
 					}
 				},
 				{
 					"ID": 13,
-					"Type": "Event.TriggerEnter",
+					"Type": "Event.CollisionEnter",
 					"Position": [
 						0.0,
 						400.0
@@ -131,7 +134,7 @@
 						560.0
 					],
 					"Settings": {
-						"Variable": 3
+						"Variable": 1
 					}
 				},
 				{
@@ -153,7 +156,7 @@
 						400.0
 					],
 					"Settings": {
-						"Variable": 3
+						"Variable": 1
 					}
 				},
 				{
@@ -169,141 +172,141 @@
 				},
 				{
 					"ID": 18,
-					"Type": "Flow.DoOnce",
+					"Type": "Event.TriggerEnter",
 					"Position": [
-						960.0,
+						0.0,
 						800.0
 					]
 				},
 				{
 					"ID": 19,
-					"Type": "Event.CollisionExit",
-					"Position": [
-						0.0,
-						800.0
-					]
-				},
-				{
-					"ID": 20,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
 						960.0
-					],
-					"Settings": {
-						"Variable": 2
-					}
-				},
-				{
-					"ID": 21,
-					"Type": "Operator.Add",
-					"Position": [
-						320.0,
-						800.0
-					],
-					"Inputs": {
-						"B": 1
-					}
-				},
-				{
-					"ID": 22,
-					"Type": "Variable.Set",
-					"Position": [
-						640.0,
-						800.0
-					],
-					"Settings": {
-						"Variable": 2
-					}
-				},
-				{
-					"ID": 23,
-					"Type": "Event.TriggerExit",
-					"Position": [
-						0.0,
-						1120.0
-					]
-				},
-				{
-					"ID": 24,
-					"Type": "Variable.Get",
-					"Position": [
-						0.0,
-						1280.0
-					],
-					"Settings": {
-						"Variable": 4
-					}
-				},
-				{
-					"ID": 25,
-					"Type": "Operator.Add",
-					"Position": [
-						320.0,
-						960.0
-					],
-					"Inputs": {
-						"B": 1
-					}
-				},
-				{
-					"ID": 26,
-					"Type": "Variable.Set",
-					"Position": [
-						640.0,
-						960.0
-					],
-					"Settings": {
-						"Variable": 4
-					}
-				},
-				{
-					"ID": 27,
-					"Type": "Variable.Get",
-					"Position": [
-						0.0,
-						1440.0
-					],
-					"Settings": {
-						"Variable": 1
-					}
-				},
-				{
-					"ID": 28,
-					"Type": "Variable.Get",
-					"Position": [
-						0.0,
-						1600.0
 					],
 					"Settings": {
 						"Variable": 3
 					}
 				},
 				{
-					"ID": 29,
+					"ID": 20,
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						1120.0
+						800.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 21,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						800.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 22,
+					"Type": "Variable.Set",
+					"Position": [
+						960.0,
+						800.0
+					],
+					"Settings": {
+						"Variable": 7
+					}
+				},
+				{
+					"ID": 23,
+					"Type": "Flow.DoOnce",
+					"Position": [
+						960.0,
+						1200.0
 					]
 				},
 				{
-					"ID": 30,
+					"ID": 24,
+					"Type": "Event.CollisionExit",
+					"Position": [
+						0.0,
+						1200.0
+					]
+				},
+				{
+					"ID": 25,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1760.0
+						1360.0
 					],
 					"Settings": {
 						"Variable": 2
 					}
 				},
 				{
-					"ID": 31,
+					"ID": 26,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						1200.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 27,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						1200.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 28,
+					"Type": "Event.TriggerExit",
+					"Position": [
+						0.0,
+						1520.0
+					]
+				},
+				{
+					"ID": 29,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1920.0
+						1680.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 30,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						1360.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 31,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						1360.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -311,129 +314,181 @@
 				},
 				{
 					"ID": 32,
-					"Type": "Operator.Add",
-					"Position": [
-						320.0,
-						1280.0
-					]
-				},
-				{
-					"ID": 33,
-					"Type": "Operator.GreaterOrEqual",
-					"Position": [
-						640.0,
-						1120.0
-					]
-				},
-				{
-					"ID": 34,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						2080.0
+						1840.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 33,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2000.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 34,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						1520.0
+					]
+				},
+				{
+					"ID": 35,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2160.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 36,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2320.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 37,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						1680.0
+					]
+				},
+				{
+					"ID": 38,
+					"Type": "Operator.GreaterOrEqual",
+					"Position": [
+						640.0,
+						1520.0
+					]
+				},
+				{
+					"ID": 39,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2480.0
 					],
 					"Settings": {
 						"Variable": 7
 					}
 				},
 				{
-					"ID": 35,
+					"ID": 40,
 					"Type": "IsValid",
 					"Position": [
 						320.0,
-						1440.0
+						1840.0
 					]
 				},
 				{
-					"ID": 36,
+					"ID": 41,
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						960.0
+						1360.0
 					]
 				},
 				{
-					"ID": 37,
+					"ID": 42,
 					"Type": "Flow.Branch",
 					"Position": [
 						1280.0,
-						800.0
+						1200.0
 					]
 				},
 				{
-					"ID": 38,
+					"ID": 43,
 					"Type": "Self",
 					"Position": [
 						0.0,
-						2240.0
+						2640.0
 					]
 				},
 				{
-					"ID": 39,
+					"ID": 44,
 					"Type": "Get:Strada.Entity.Name",
 					"Position": [
 						320.0,
-						1600.0
+						2000.0
 					]
 				},
 				{
-					"ID": 40,
+					"ID": 45,
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						1280.0
+						1680.0
 					],
 					"Settings": {
 						"Format": "Contacts: {Name}: every contact that ended had begun"
 					}
 				},
 				{
-					"ID": 41,
+					"ID": 46,
 					"Type": "Call:Strada.Testing.TestReporter.Pass(string)",
 					"Position": [
 						1600.0,
-						800.0
+						1200.0
 					]
 				},
 				{
-					"ID": 42,
+					"ID": 47,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						2400.0
+						2800.0
 					],
 					"Settings": {
 						"Variable": 5
 					}
 				},
 				{
-					"ID": 43,
+					"ID": 48,
 					"Type": "Operator.Add",
 					"Position": [
 						320.0,
-						1760.0
+						2160.0
 					],
 					"Inputs": {
 						"B": 1
 					}
 				},
 				{
-					"ID": 44,
+					"ID": 49,
 					"Type": "Variable.Set",
 					"Position": [
 						1920.0,
-						800.0
+						1200.0
 					],
 					"Settings": {
 						"Variable": 5
 					}
 				},
 				{
-					"ID": 45,
+					"ID": 50,
 					"Type": "Variable.Set",
 					"Position": [
 						2240.0,
-						800.0
+						1200.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -443,50 +498,50 @@
 					}
 				},
 				{
-					"ID": 46,
+					"ID": 51,
 					"Type": "FormatString",
 					"Position": [
 						640.0,
-						1440.0
+						1840.0
 					],
 					"Settings": {
 						"Format": "{Began} began, {Ended} ended"
 					}
 				},
 				{
-					"ID": 47,
+					"ID": 52,
 					"Type": "Call:Strada.Testing.TestReporter.Fail(string,string)",
 					"Position": [
 						1600.0,
-						960.0
+						1360.0
 					]
 				}
 			],
 			"Links": [
 				{
 					"From": [
-						9,
+						10,
 						"Value"
 					],
 					"To": [
-						10,
+						11,
 						"A"
 					]
 				},
 				{
 					"From": [
-						10,
-						"Result"
+						9,
+						"Amount"
 					],
 					"To": [
 						11,
-						"Value"
+						"B"
 					]
 				},
 				{
 					"From": [
-						8,
-						"Other"
+						11,
+						"Result"
 					],
 					"To": [
 						12,
@@ -495,17 +550,7 @@
 				},
 				{
 					"From": [
-						8,
-						"Then"
-					],
-					"To": [
-						11,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						11,
+						9,
 						"Then"
 					],
 					"To": [
@@ -565,18 +610,28 @@
 				},
 				{
 					"From": [
-						20,
+						19,
 						"Value"
 					],
 					"To": [
-						21,
+						20,
 						"A"
 					]
 				},
 				{
 					"From": [
-						21,
+						20,
 						"Result"
+					],
+					"To": [
+						21,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Other"
 					],
 					"To": [
 						22,
@@ -585,7 +640,17 @@
 				},
 				{
 					"From": [
-						19,
+						18,
+						"Then"
+					],
+					"To": [
+						21,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						21,
 						"Then"
 					],
 					"To": [
@@ -595,291 +660,321 @@
 				},
 				{
 					"From": [
-						22,
-						"Then"
+						25,
+						"Value"
 					],
 					"To": [
-						18,
-						"Execute"
+						26,
+						"A"
+					]
+				},
+				{
+					"From": [
+						26,
+						"Result"
+					],
+					"To": [
+						27,
+						"Value"
 					]
 				},
 				{
 					"From": [
 						24,
-						"Value"
-					],
-					"To": [
-						25,
-						"A"
-					]
-				},
-				{
-					"From": [
-						25,
-						"Result"
-					],
-					"To": [
-						26,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						23,
 						"Then"
 					],
 					"To": [
-						26,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						26,
-						"Then"
-					],
-					"To": [
-						18,
+						27,
 						"Execute"
 					]
 				},
 				{
 					"From": [
 						27,
-						"Value"
+						"Then"
 					],
 					"To": [
-						29,
-						"A"
+						23,
+						"Execute"
 					]
 				},
 				{
 					"From": [
-						28,
+						29,
 						"Value"
 					],
 					"To": [
-						29,
-						"B"
+						30,
+						"A"
 					]
 				},
 				{
 					"From": [
 						30,
-						"Value"
+						"Result"
 					],
 					"To": [
-						32,
-						"A"
+						31,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						28,
+						"Then"
+					],
+					"To": [
+						31,
+						"Execute"
 					]
 				},
 				{
 					"From": [
 						31,
-						"Value"
+						"Then"
 					],
 					"To": [
-						32,
-						"B"
+						23,
+						"Execute"
 					]
 				},
 				{
 					"From": [
-						29,
-						"Result"
+						32,
+						"Value"
 					],
 					"To": [
-						33,
+						34,
 						"A"
 					]
 				},
 				{
 					"From": [
-						32,
-						"Result"
+						33,
+						"Value"
 					],
 					"To": [
-						33,
+						34,
+						"B"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Value"
+					],
+					"To": [
+						37,
+						"A"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Value"
+					],
+					"To": [
+						37,
 						"B"
 					]
 				},
 				{
 					"From": [
 						34,
-						"Value"
-					],
-					"To": [
-						35,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						33,
 						"Result"
 					],
 					"To": [
-						36,
+						38,
 						"A"
 					]
 				},
 				{
 					"From": [
-						35,
+						37,
 						"Result"
 					],
 					"To": [
-						36,
+						38,
 						"B"
 					]
 				},
 				{
 					"From": [
-						36,
-						"Result"
+						39,
+						"Value"
 					],
 					"To": [
-						37,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						18,
-						"Completed"
-					],
-					"To": [
-						37,
-						"Execute"
+						40,
+						"Value"
 					]
 				},
 				{
 					"From": [
 						38,
-						"Self"
-					],
-					"To": [
-						39,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						39,
-						"Value"
-					],
-					"To": [
-						40,
-						"Name"
-					]
-				},
-				{
-					"From": [
-						40,
 						"Result"
 					],
 					"To": [
 						41,
-						"Name"
-					]
-				},
-				{
-					"From": [
-						42,
-						"Value"
-					],
-					"To": [
-						43,
 						"A"
 					]
 				},
 				{
 					"From": [
-						43,
-						"Result"
-					],
-					"To": [
-						44,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						37,
-						"True"
-					],
-					"To": [
-						41,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						41,
-						"Then"
-					],
-					"To": [
-						44,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						44,
-						"Then"
-					],
-					"To": [
-						45,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						29,
-						"Result"
-					],
-					"To": [
-						46,
-						"Began"
-					]
-				},
-				{
-					"From": [
-						32,
-						"Result"
-					],
-					"To": [
-						46,
-						"Ended"
-					]
-				},
-				{
-					"From": [
 						40,
 						"Result"
 					],
 					"To": [
-						47,
+						41,
+						"B"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Result"
+					],
+					"To": [
+						42,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Completed"
+					],
+					"To": [
+						42,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						43,
+						"Self"
+					],
+					"To": [
+						44,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						44,
+						"Value"
+					],
+					"To": [
+						45,
 						"Name"
 					]
 				},
 				{
 					"From": [
-						46,
+						45,
 						"Result"
 					],
 					"To": [
+						46,
+						"Name"
+					]
+				},
+				{
+					"From": [
 						47,
-						"Message"
+						"Value"
+					],
+					"To": [
+						48,
+						"A"
+					]
+				},
+				{
+					"From": [
+						48,
+						"Result"
+					],
+					"To": [
+						49,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						42,
+						"True"
+					],
+					"To": [
+						46,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						46,
+						"Then"
+					],
+					"To": [
+						49,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						49,
+						"Then"
+					],
+					"To": [
+						50,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						34,
+						"Result"
+					],
+					"To": [
+						51,
+						"Began"
 					]
 				},
 				{
 					"From": [
 						37,
+						"Result"
+					],
+					"To": [
+						51,
+						"Ended"
+					]
+				},
+				{
+					"From": [
+						45,
+						"Result"
+					],
+					"To": [
+						52,
+						"Name"
+					]
+				},
+				{
+					"From": [
+						51,
+						"Result"
+					],
+					"To": [
+						52,
+						"Message"
+					]
+				},
+				{
+					"From": [
+						42,
 						"False"
 					],
 					"To": [
-						47,
+						52,
 						"Execute"
 					]
 				}

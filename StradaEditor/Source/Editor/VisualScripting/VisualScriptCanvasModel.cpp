@@ -2197,6 +2197,17 @@ namespace Strada
 			{
 				node.Size = node.ExpandedSize;
 			}
+			// The subtitle (a member's target, an Expression's formula) does not widen the node: it is ellipsized to the row
+			// under the title, from the title's left edge to the padding on the right, as the node is drawn.
+			if (node.Subtitle.Length > 0)
+			{
+				float const subtitleLeft = Metrics::HorizontalPadding + (kindGlyph ? Metrics::KindGlyphSlot : 0.0f);
+				float const subtitleRoom = std::max(node.Size.x - subtitleLeft - Metrics::HorizontalPadding, 0.0f);
+				if (node.Subtitle.Width > subtitleRoom)
+				{
+					Fit(m_Model.GetText(node.Subtitle), Metrics::SubtitleTextSize, subtitleRoom, node.Subtitle);
+				}
+			}
 		}
 
 		VisualScriptAnalyzedNode const* FindEntry(VisualScriptNodeVisual const& node) const

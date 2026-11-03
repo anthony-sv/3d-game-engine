@@ -512,6 +512,32 @@ namespace Strada
 			return prefix > 0 && SaysMoreThanResolution(rest) ? rest : std::string_view();
 		}
 
+		std::string FitText(std::string_view text, float maxWidth)
+		{
+			if (ImGui::CalcTextSize(text.data(), text.data() + text.size()).x <= maxWidth)
+			{
+				return std::string(text);
+			}
+			std::string const ellipsis = GetEllipsis();
+			float const available = maxWidth - ImGui::CalcTextSize(ellipsis.c_str()).x;
+			size_t length = 0;
+			while (length < text.size())
+			{
+				// UTF-8 continuation bytes (10xxxxxx) start no character.
+				size_t end = length + 1;
+				while (end < text.size() && (static_cast<unsigned char>(text[end]) & 0xC0u) == 0x80u)
+				{
+					end++;
+				}
+				if (ImGui::CalcTextSize(text.data(), text.data() + end).x > available)
+				{
+					break;
+				}
+				length = end;
+			}
+			return std::string(text.substr(0, length)) + ellipsis;
+		}
+
 		std::string FitPath(std::string_view path, float maxWidth)
 		{
 			auto const measure = [](std::string_view part)

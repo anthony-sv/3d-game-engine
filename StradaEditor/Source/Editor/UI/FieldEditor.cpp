@@ -678,6 +678,19 @@ namespace Strada
 			return components == 4 ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_None;
 		}
 
+		// A colour edit as wide as the next item: its channels' fields while each has room for "255" beside its colour marker,
+		// else its swatch alone (its tooltip shows the values, its click opens the picker), so a narrow row never shows clipped
+		// numbers. The widths are ColorEdit4's: the swatch a frame high after the fields, ItemInnerSpacing between them.
+		ImGuiColorEditFlags GetColorEditFlags(int components)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			float const fields = ImGui::CalcItemWidth() - ImGui::GetFrameHeight() - style.ItemInnerSpacing.x;
+			float const perChannel =
+				std::floor((fields - style.ItemInnerSpacing.x * static_cast<float>(components - 1)) / static_cast<float>(components));
+			float const needed = ImGui::CalcTextSize("255").x + style.FramePadding.x * 2.0f + style.ColorMarkerSize;
+			return GetColorFlags(components) | (perChannel < needed ? ImGuiColorEditFlags_NoInputs : ImGuiColorEditFlags_None);
+		}
+
 		// A frame drawn like a closed combo box (the text, then the arrow box), as wide as the next item: compact widgets draw
 		// it in place of a combo and report its click instead of opening a popup. Returns true when clicked.
 		bool DrawChoiceFrame(std::string const& text)
@@ -1148,8 +1161,8 @@ namespace Strada
 					return EditColor(field, value, change,
 					                 [](float* display, int components)
 					                 {
-										 return components == 4 ? ImGui::ColorEdit4("##value", display, GetColorFlags(components))
-						                                        : ImGui::ColorEdit3("##value", display, GetColorFlags(components));
+										 return components == 4 ? ImGui::ColorEdit4("##value", display, GetColorEditFlags(components))
+						                                        : ImGui::ColorEdit3("##value", display, GetColorEditFlags(components));
 									 });
 				}
 

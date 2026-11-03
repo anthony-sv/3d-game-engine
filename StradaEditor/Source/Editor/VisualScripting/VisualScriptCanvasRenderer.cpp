@@ -53,9 +53,18 @@ namespace Strada
 		constexpr float BypassAlpha = 0.60f;
 		constexpr float CommentRounding = 6.0f;
 		constexpr float CommentGripSize = 12.0f;
+		// Screen pixels: above what rounding loses from screen coordinates below 65536 (1/128 of a pixel), far below a glyph.
+		constexpr float CommentTitleFitTolerancePixels = 1.0f / 32.0f;
 
 		// Pins.
 		constexpr float HoveredPinScale = 1.3f;
+
+		// The radius of a pin's dot at Overview, for screen pixels per canvas unit (a hovered pin's scale included): its glyph's
+		// radius, and at least 1.5 logical pixels.
+		float GetOverviewPinDotRadius(float pixelsPerUnit, float uiScale)
+		{
+			return std::max(Metrics::PinGlyphRadius * pixelsPerUnit, 1.5f * uiScale);
+		}
 		constexpr float CompatiblePinScale = 1.15f;
 		constexpr float SnappedPinScale = 1.4f;
 		constexpr float HoveredGlowAlpha = 0.35f;
@@ -1308,7 +1317,9 @@ namespace Strada
 		float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(frame.PixelsPerUnit, frame.UIScale);
 		float const available = title.Max.x - title.Min.x;
 		float const layoutWidth = comment.Title.Width * titlePixels / Metrics::CommentTitleTextSize;
-		if (layoutWidth <= available)
+		// A title that fits has a rectangle exactly its width, held as two screen coordinates: reading the width back from them
+		// can lose a fraction of a pixel to rounding, which must not ellipsize a title that fits.
+		if (layoutWidth <= available + CommentTitleFitTolerancePixels)
 		{
 			DrawLadderText(frame, titlePixels, title.Min, comment.BarTextColor, frame.Canvas.GetVisibleText(comment.Title),
 			               comment.Title.IsEllipsized());
@@ -1758,10 +1769,19 @@ namespace Strada
 		drawList->AddRectFilled(ToIm(state.Screen.Min), ToIm(state.Screen.Max), box, rounding);
 		item.Elements |= Elements::Body;
 
-		// The title centred, at a readable floor; shortened again to the box, and left out when fewer than a few glyphs fit.
+		// The title centred, at a readable floor; shortened again to the box, and left out when fewer than a few glyphs fit. A
+		// pill's title has the room left of its output's dot, as GetTitleRect's pill rule gives it at Detail.
 		float const pixels =
 			Metrics::LadderFloor(std::max(Metrics::TitleTextSize * frame.Zoom, Metrics::OverviewTitleMinLogicalPixels) * s);
-		float const available = (state.Screen.Max.x - state.Screen.Min.x) - 2.0f * std::max(4.0f * s, Metrics::HorizontalPadding * k);
+		float const padding = std::max(4.0f * s, Metrics::HorizontalPadding * k);
+		float const roomLeft = state.Screen.Min.x + padding;
+		float roomRight = state.Screen.Max.x - padding;
+		if (node.Shape == VisualScriptNodeShape::Pill)
+		{
+			roomRight = state.Screen.Max.x - Metrics::PinGlyphInset * k - GetOverviewPinDotRadius(k, s) -
+			            std::max(Metrics::PinLabelGap * k, 2.0f * s);
+		}
+		float const available = roomRight - roomLeft;
 		if (pixels > 0.0f && node.Title.Length > 0 && available > 0.0f && state.Screen.Max.y - state.Screen.Min.y >= pixels)
 		{
 			std::string_view const title = frame.Canvas.GetText(node.Title);
@@ -1789,7 +1809,7 @@ namespace Strada
 			}
 			if (glyphs >= static_cast<size_t>(Metrics::OverviewTitleMinGlyphs) || (!ellipsis && glyphs > 0))
 			{
-				glm::vec2 const center = state.Screen.GetCenter();
+				glm::vec2 const center((roomLeft + roomRight) * 0.5f, state.Screen.GetCenter().y);
 				DrawLadderText(frame, pixels, glm::floor(glm::vec2(center.x - width * 0.5f, center.y - pixels * 0.5f)), frame.Theme.Text,
 				               shown, ellipsis);
 				item.Elements |= Elements::Title;
@@ -2297,7 +2317,7 @@ namespace Strada
 		if (frame.Level == VisualScriptDetailLevel::Overview)
 		{
 			// Dots: every pin's place and type colour, nothing more.
-			drawList->AddCircleFilled(ToIm(anchor), std::max(Metrics::PinGlyphRadius * k, 1.5f * frame.UIScale), color, 8);
+			drawList->AddCircleFilled(ToIm(anchor), GetOverviewPinDotRadius(k, frame.UIScale), color, 8);
 			return;
 		}
 		float const line = std::max(1.0f, std::round(1.5f * frame.PixelsPerUnit));

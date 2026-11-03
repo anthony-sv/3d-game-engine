@@ -97,15 +97,28 @@ public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testi
   `Equals`, `GetHashCode`, `ToString`, operators (they feed the operator and `Convert` nodes) and indexers; the members
   of enums, interfaces, delegates, attributes, exceptions, generic types and `Component` itself; methods with `ref`,
   `in` or `params` parameters (`out` parameters become outputs) and members whose types are no library types (pointers,
-  delegates, generic types other than arrays, `Nullable<T>`); generic methods unless every type parameter is
-  constrained to exactly `Component`, `Asset` or `Script` (they get a `TypeArguments` setting); the methods of
-  `VisualScriptComponent` (graphs use `Event.Send` and the variable nodes; its properties are nodes).
+  delegates, generic types other than arrays, `Nullable<T>`, ref structs); generic methods unless every type parameter
+  is unconstrained, or every one constrained to exactly `Component`, `Asset` or `Script` (those get a required
+  `TypeArguments` setting); the methods of `VisualScriptComponent` (graphs use `Event.Send` and the variable nodes; its
+  properties are nodes).
+- Generic methods whose type parameters are unconstrained (`Assert.AreEqual<T>`) are inferred from their links: an input
+  of `T[]` decides `T` as its element type, else the inputs of `T` join as `Select`'s do, and an output of `T[]` is the
+  array of that type; their `TypeArguments` setting is optional, and required only when `T` appears in no input. A new
+  one needs no node code, but check that its pins analyze in a graph (the coverage test below does).
+- Every type with values has its array type in graphs (`T[]`); a parameter or result of an array type is an array pin,
+  and the VM gives graphs an empty array where C# returns null. An enum the API adds is a type of graphs as it is
+  (`TimelineDirection`, the `Direction` output of `Flow.Timeline`, is one); add it to the API coverage of the FeatureTest
+  scripts like any type.
 - Pins: `Execute` and `Then` on impure nodes; `Target` on instance members (an `Entity` that defaults to the graph's
   own entity for `Entity` and component members); a pin per parameter, its name's first letter upper-cased, with the
   suffix `Parameter` when it would clash with a fixed pin; `Result` for a return value, `Value` for setters, getters and
   constructors. An optional parameter's default is the pin's default (an enum by its name; a struct declared
   `= default` gives `default(T)`, except a `Quaternion`, which keeps the identity). Titles come from the names,
-  categories from the declaring types and descriptions from the XML documentation's summaries.
+  categories from the declaring types and descriptions from the XML documentation's summaries. Members of games' scripts
+  marked `[VisualNode]` (`Strada.VisualNodeAttribute`) follow the same rules, with the attribute's `Title`, `Category`,
+  `Description`, `Keywords`, `Pure` (instead of `[PureNode]`) and `FormerNames` (instead of redirect entries): an optional
+  parameter's default is its pin's default, a re-signed member resolves as the only overload that accepts the stored
+  pins, and a renamed one needs its former name. Marked members without a node form become the library's notes.
 - Purity: getters and struct constructors are pure; so is every method of `Mathf`, `Random`, the vectors, `Quaternion`,
   `Matrix4` and `Color`, and a method marked `[PureNode]` (the internal attribute in
   `Strada-ScriptCore/Source/VisualScripting/PureNodeAttribute.cs`; not `System.Diagnostics.Contracts.Pure`, which never
@@ -124,6 +137,17 @@ public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testi
   exactly or by a redirect ("VisualScriptEngine: the projects' scene graphs load strictly, analyze cleanly and resolve
   exactly or by redirect"), and ScriptCoreTests analyze the shared documents of `Tests/Data/VisualScripting` (their
   reflected nodes and where they come from are in `Documents/Reflected.sources.txt`).
+- Every node of the library must analyze and run in the generated test
+  `Tests/StradaTests/Source/Script/VisualScriptNodeCoverageTests.cpp`, so a new API member is a new case of it. When it
+  does not run on its defaults (it needs a component, an input other than the default, a held key, a child to act on,
+  ...), add a recipe there (`Recipe(type)` with `WithInputs`, `WithSettings`, `WithComponents`, `WithTargetsChild`,
+  `WithHeldKeys`, `WithHeldMouseButtons`, `WithHeldGamepadButtons`, `WithFrames`, `WithRanFrom`, `WithAlone`,
+  `WithExpectedError` or `WithExpectedLog`), a `MemberTypeRecipes` entry for what every member of its type needs, or a
+  checked exclusion naming a graph the FeatureTest scenes run (or a shared fixture document) that holds an enabled node of
+  that type linked into flow. The test fails naming the node and its first error until one of them covers it. A new
+  built-in node kind (or a `[VisualNode]` member of the FeatureTest scripts) also fails "the feature-test graphs use
+  every built-in node kind ..." until `build_features` in `Projects/FeatureTest/Tools/AuthorGraphs.py` uses it: run that
+  tool and update `FeaturesChecks` in `Projects/FeatureTest/Scripts/Source/VisualScriptTests.cs`.
 - The visual script editor's tests read a copy of part of the node library,
   `Tests/Data/VisualScripting/Editor/Library.json` (the members its README lists). A change to a public member it covers
   (a pin, a default, a description, a type's fields) fails StradaEditorTests' parity test ("the fixture library is the

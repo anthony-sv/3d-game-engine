@@ -3899,12 +3899,11 @@ namespace Strada
 				              "warnings (the analysis' problems), view { center, zoom, level (Detail, Compact, Overview or Far) }, "
 				              "selection { nodes, comments }, contextEntity, palette { open, query }, notices, card, toasts, live, save, "
 				              "drawer (Closed, Problems, Find or Timeline, with timeline { node } when Timeline), find { open, text, index, "
-				              "count }, bookmarks (the slots stored), minimap (shown), panes { sidebar, "
-				              "details }, shortcuts (the shortcut sheet is open), canGoBack and canGoForward (Back and Forward have "
-				              "a view to go to, in this window or, after opening a node that names another graph, in that graph's "
-				              "window) }. A window opened since the last frame reports its "
-				              "state before its first draw (not visible, nothing selected). Unavailable without the editor's UI "
-				              "(headless).",
+				              "count }, bookmarks (the slots stored), minimap (shown), panes { sidebar, details, stacked (both shown in one "
+				              "column beside the canvas) }, shortcuts (the shortcut sheet is open), canGoBack and canGoForward (Back and "
+				              "Forward have a view to go to, in this window or, after opening a node that names another graph, in that "
+				              "graph's window) }. A window opened since the last frame reports its state before its first draw (not "
+				              "visible, nothing selected). Unavailable without the editor's UI (headless).",
 				              Json(), true,
 				              [this](Json const&) -> CommandResult
 				              {

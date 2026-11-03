@@ -1417,6 +1417,23 @@ TEST_CASE("UI: asset references read as paths in the asset directory, and long o
 				CAPTURE(fitted);
 				CHECK((fitted == ellipsis || ImGui::CalcTextSize(fitted.c_str()).x <= room));
 			}
+
+			// Plain texts keep their start: whole when they fit, else the longest start of whole characters with the ellipsis.
+			std::string const formula = "sin(Time * 2) * Height";
+			CHECK(UI::FitText(formula, width(formula)) == formula);
+			CHECK(UI::FitText(formula, width("sin(Time" + ellipsis)) == "sin(Time" + ellipsis);
+			CHECK(UI::FitText(formula, width(ellipsis)) == ellipsis);
+			CHECK(UI::FitText(formula, 0.0f) == ellipsis);
+			CHECK(UI::FitText("", 0.0f).empty());
+			CHECK(UI::FitText("\xC3\x96\xC3\x96\xC3\x96\xC3\x96", width("\xC3\x96\xC3\x96" + ellipsis)) == "\xC3\x96\xC3\x96" + ellipsis);
+			for (float room = 0.0f; room <= width(formula); room += 1.0f)
+			{
+				std::string const fitted = UI::FitText(formula, room);
+				CAPTURE(room);
+				CAPTURE(fitted);
+				CHECK((fitted == ellipsis || ImGui::CalcTextSize(fitted.c_str()).x <= room));
+				CHECK((fitted == formula || fitted.ends_with(ellipsis)));
+			}
 		});
 }
 

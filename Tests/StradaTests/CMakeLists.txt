@@ -95,6 +95,8 @@ add_executable(StradaTests
     Source/Script/ScriptTestUtilities.h
     Source/Script/VisualScriptEngineTests.cpp
     Source/Script/VisualScriptLiteralsTests.cpp
+    Source/Script/VisualScriptNodeCoverageTests.cpp
+    Source/Script/VisualScriptTestGraphs.h
     Source/Script/VisualScriptVariablesTests.cpp
     Source/Serialization/JsonSerializationTests.cpp
     Source/Serialization/JsonTextWriterTests.cpp

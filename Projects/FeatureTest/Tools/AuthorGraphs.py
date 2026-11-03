@@ -1,16 +1,21 @@
 """Writes the FeatureTest project's visual scripts through `strada mcp`, the way an agent does, then runs the project's tests:
 
-- Scripts/Features.sgraph checks every built-in node kind but the contact and click events (on 'Visual Script Tests'),
-- Scripts/Contacts.sgraph counts the contacts of the falling box and ball,
-- Scripts/Clicks.sgraph counts the clicks that reach the UI canvas.
+- Scripts/MathLibrary.sgraph, a function library whose pure and latent functions Features calls,
+- Scripts/Contacts.sgraph counts the contacts of the falling box and ball, and adds what its custom event Ping gets,
+- Scripts/Clicks.sgraph counts the clicks that reach the UI canvas,
+- Scripts/Features.sgraph checks every built-in node kind but the contact and click events (on 'Visual Script Tests'), and
+  every [VisualNode] member of the project's scripts (Scripts/Source/GameNodes.cs and VisualScriptTests.cs); it calls
+  MathLibrary, sends Ping to the box, reads and writes its Pings and broadcasts Ping to every Contacts graph.
 
     python Projects/FeatureTest/Tools/AuthorGraphs.py [strada executable]
 
 Each graph is checked with graph_check (valid, analyzed, no Error diagnostic, every node resolved exactly) and written with
-graph_set, which keeps the file canonical and places the nodes. The scene's VisualScript components already reference the
-graphs, so only the three graph files change. A new built-in node kind gets a check in build_features, and FeaturesChecks
-in Scripts/Source/VisualScriptTests.cs must equal the number of checks Features reports (this tool stops when it does not).
-Without an executable, strada runs from the repository (dotnet run).
+graph_set, which keeps the file canonical and places the nodes, in that order: the analysis reads the stored graphs a
+document refers to, so a graph is written before the graphs that use it are checked (a missing graph is created first).
+The scenes' VisualScript components already reference the scripts, so only graph files (and the asset registry, for a
+created one) change. A new built-in node kind or [VisualNode] member gets a check in build_features (StradaTests fails until
+a graph of the scenes uses it), and FeaturesChecks in Scripts/Source/VisualScriptTests.cs must equal the number of checks
+Features reports (this tool stops when it does not). Without an executable, strada runs from the repository (dotnet run).
 """
 import json
 import os
@@ -64,8 +69,9 @@ class McpClient:
 # Nodes are made in the order they are needed and numbered in that order; data sources are (node, output pin) pairs.
 
 class Document:
-    def __init__(self, description):
+    def __init__(self, description, kind="Script"):
         self.description = description
+        self.kind = kind
         self.variables = []
         self.functions = []
         self.next_id = 1
@@ -107,8 +113,11 @@ class Document:
             entry = dict(function)
             entry["Graph"] = graph.content()
             functions.append(entry)
-        return {"Description": self.description, "Variables": self.variables, "Functions": functions,
-                "Graph": self.graph.content()}
+        content = {"Description": self.description, "Variables": self.variables, "Functions": functions,
+                   "Graph": self.graph.content()}
+        if self.kind != "Script":
+            content = {"Kind": self.kind, **content}
+        return content
 
 
 class Graph:
@@ -193,10 +202,14 @@ FEATURES_DESCRIPTION = (
     "Checks counts the passed ones and Done is set after the last. The waiting kinds come last, since each suspends the "
     "checks after it. The input events count into InputEvents (test runs have no input). The custom event Add adds its "
     "Amount to Score: the graph raises it with Event.Send, VisualScriptTests from C#. The custom event Retrigger enters a "
-    "RetriggerableDelay, which the graph raises twice.")
+    "RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library "
+    "MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes "
+    "its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it "
+    "before Done.")
 
 
-def build_features():
+def build_features(references):
+    """references: the handles and IDs of the other graphs Features uses (see write_graphs)."""
     doc = Document(FEATURES_DESCRIPTION)
     checks = doc.variable("Checks", "int", 0, True, "Checks that passed")
     done = doc.variable("Done", "bool", False, True, "Whether every check has run")
@@ -220,6 +233,10 @@ def build_features():
     retrigger_start = doc.variable("RetriggerStart", "float", 0.0)
     retrigger_waited = doc.variable("RetriggerWaited", "float", 0.0)
     nobody = doc.variable("Nobody", "Strada.Entity")
+    weights = doc.variable("Weights", "float[]", [0.5, 1.5])
+    seen_pings = doc.variable("SeenPings", "int", 0)
+    beats = doc.variable("Beats", "int", 0)
+    timeline_done = doc.variable("TimelineDone", "bool", False)
 
     # Check(Name, Passed, Message): reports "Features: <Name>" as passed, and counts it, or as failed with the message.
     check, fg = doc.function("Check", False, [("Name", "string"), ("Passed", "bool"), ("Message", "string")])
@@ -523,6 +540,151 @@ def build_features():
                                         g.format("it let {Count} through", Count=count_now)))
     groups.append(reset)
 
+    # Expressions: an int formula, a float one with functions and unlinked inputs (floats), and a vector one with a
+    # component.
+    whole = (g.node("Expression", {"Formula": "a * b + 2"}, a=g.literal("int", 4), b=g.literal("int", 5)), "Result")
+    real = (g.node("Expression", {"Formula": "lerp(a, b, 0.25) + sqrt(c)"}, {"a": 2.0, "b": 6.0, "c": 9.0}), "Result")
+    vector = (g.node("Expression", {"Formula": "pos + dir * speed"}, {"speed": 2.0},
+                     pos=g.literal("Strada.Vector3", [1.0, 2.0, 3.0]), dir=g.literal("Strada.Vector3", [0.0, 1.0, 0.0])),
+              "Result")
+    height = (g.node("Expression", {"Formula": "v.y * 2 > 7 && v.x < 2"}, v=vector), "Result")
+    passed = g.all_of(g.equal(whole, 22), g.equal(real, 6.0), g.op("Equal", vector, g.literal("Strada.Vector3", [1.0, 4.0, 3.0])),
+                      height)
+    groups.append(call_check("Expression computes formulas of ints, floats and vectors", passed,
+                             g.format("{Int}, {Float}, {Vector}", Int=whole, Float=real, Vector=vector)))
+
+    # Every String node, on "  Strada, Engine  " and a list.
+    padded = g.literal("string", "  Strada, Engine  ")
+    trimmed = (g.node("String.Trim", Text=padded), "Result")
+
+    def text_node(kind, output="Result", inputs=None, **sources):
+        return (g.node("String." + kind, None, inputs, Text=trimmed, **sources), output)
+
+    parts = (g.node("String.Split", None, {"Text": "a,b,,c", "RemoveEmpty": True}), "Parts")
+    joined = (g.node("String.Join", None, {"Separator": "+"}, Parts=parts), "Result")
+    whole_number = g.node("String.ToInt", None, {"Text": "42"})
+    real_number = g.node("String.ToFloat", None, {"Text": "2.5"})
+    results = {"Upper": text_node("ToUpper"), "Lower": text_node("ToLower"), "Length": text_node("Length", "Length"),
+               "Comma": text_node("IndexOf", "Index", {"Substring": ","}),
+               "Word": text_node("Substring", "Result", {"Start": 8, "Length": 6}),
+               "Joined": text_node("Replace", "Result", {"Old": ", ", "New": "-"}), "List": joined}
+    expected = {"Upper": "STRADA, ENGINE", "Lower": "strada, engine", "Length": 14, "Comma": 6, "Word": "Engine",
+                "Joined": "Strada-Engine", "List": "a+b+c"}
+    passed = g.all_of(*[g.equal(results[key], expected[key]) for key in results],
+                      text_node("Contains", "Result", {"Substring": "Eng"}), text_node("StartsWith", "Result", {"Prefix": "Str"}),
+                      text_node("EndsWith", "Result", {"Suffix": "ine"}), (g.node("String.IsEmpty", None, {"Text": ""}), "Result"),
+                      g.op("Not", (g.node("String.IsEmpty", Text=trimmed), "Result")), g.equal((whole_number, "Value"), 42),
+                      (whole_number, "Success"), g.equal((real_number, "Value"), 2.5), (real_number, "Success"))
+    groups.append(call_check("the String nodes trim, case, measure, search, cut, replace, split, join and parse", passed,
+                             g.format("{Upper}|{Lower}|{Length}|{Comma}|{Word}|{Joined}|{List}", **results)))
+
+    # Every Array node: a typed Make changed step by step, an inferred Make, and an array variable.
+    made = (g.node("Array.Make", {"Type": "int", "Count": 3}, {"Element0": 3, "Element1": 1, "Element2": 4}), "Array")
+    changed = (g.node("Array.Set", None, {"Index": 1, "Value": 5}, Array=made), "Result")
+    added = (g.node("Array.Add", None, {"Value": 9}, Array=changed), "Result")
+    removed = (g.node("Array.RemoveAt", None, {"Index": 0}, Array=added), "Result")
+    inserted = (g.node("Array.Insert", None, {"Index": 1, "Value": 7}, Array=removed), "Result")
+    tail = (g.node("Array.Make", {"Type": "int"}, {"Element0": 1, "Element1": 2}), "Array")
+    appended = (g.node("Array.Append", A=inserted, B=tail), "Result")
+    numbers = (g.node("String.Join", None, {"Separator": ","}, Parts=appended), "Result")
+    halves = (g.node("Array.Make", Element0=g.literal("float", 1.5), Element1=g.literal("float", 2.5)), "Array")
+    passed = g.all_of(g.equal(numbers, "5,7,4,9,1,2"), (g.node("Array.Contains", None, {"Value": 9}, Array=appended), "Result"),
+                      g.op("Not", (g.node("Array.Contains", None, {"Value": 3}, Array=appended), "Result")),
+                      g.equal((g.node("Array.IndexOf", None, {"Value": 4}, Array=appended), "Index"), 2),
+                      g.equal((g.node("Array.Get", None, {"Index": 1}, Array=halves), "Element"), 2.5),
+                      (g.node("Array.Contains", None, {"Value": 1.5}, Array=g.get(weights)), "Result"),
+                      g.equal((g.node("Array.Length", Array=g.get(weights)), "Length"), 2))
+    groups.append(call_check("the Array nodes make, set, add, remove, insert, append and search arrays", passed, numbers))
+
+    # A generic method of the game, its T inferred from the links and named in TypeArguments.
+    either = "Call:FeatureTest.GameChoices.Either<T>(T,T,bool)"
+    inferred = (g.node(either, None, {"TakeSecond": True}, First=g.literal("string", "first"), Second=g.literal("string", "second")),
+                "Result")
+    named = (g.node(either, {"TypeArguments": ["int"]}, {"First": 1, "Second": 2, "TakeSecond": False}), "Result")
+    groups.append(call_check("a generic method takes the type of its links or of TypeArguments",
+                             g.all_of(g.equal(inferred, "second"), g.equal(named, 1)),
+                             g.format("{Inferred} and {Named}", Inferred=inferred, Named=named)))
+
+    # The game's [VisualNode] members: a marked static class, a struct with a constructor and the script running beside the
+    # graph (its field, a pure method and a method with every option), which reads what the graph did.
+    points = g.node("Call:FeatureTest.GameRules.Points(int)", None, {"Strength": 6})
+    limit = (g.node("Get:FeatureTest.GameRules.Limit"), "Value")
+    tally = (g.node("New:FeatureTest.Tally(int,int)", None, {"Hits": 3}, Points=(points, "Result")), "Value")
+    visited = g.node("Set:FeatureTest.VisualScriptTests.GraphVisits",
+                      Value=g.op("Add", (g.node("Get:FeatureTest.VisualScriptTests.GraphVisits"), "Value"), B=1))
+    awarded = g.node("Call:FeatureTest.VisualScriptTests.Award(FeatureTest.Tally)", Tally=tally)
+    visits = (g.node("Call:FeatureTest.VisualScriptTests.VisitsAnd(int)", None, {"More": 2}), "Result")
+    hits = (g.node("Get:FeatureTest.Tally.Hits", Target=tally), "Value")
+    scored = (g.node("Get:FeatureTest.Tally.Points", Target=tally), "Value")
+    medal = (g.node("Get:FeatureTest.Tally.Medal", Target=tally), "Value")
+    passed = g.all_of(g.equal(scored, 10), g.equal(limit, 10), g.equal(hits, 3), g.equal(medal, "Gold"),
+                      g.equal((awarded, "Result"), "Gold"), g.equal(visits, 3))
+    g.chain(points, visited, awarded,
+            call_check("the game's members are nodes: rules, a struct and the script beside the graph", passed,
+                       g.format("{Points} of {Limit} points, {Hits} hits, {Medal}, {Visits} visits and more", Points=scored,
+                                Limit=limit, Hits=hits, Medal=medal, Visits=visits)))
+    groups.append(points)
+
+    # A pure function of the library MathLibrary.sgraph.
+    library = references["MathLibrary"]
+    lerped = (g.node("Function.Call", {"Function": library["Lerp"], "Graph": library["Handle"]}, {"A": 2.0, "B": 6.0, "T": 0.25}),
+              "Value")
+    groups.append(call_check("a pure function of a library returns its result", g.equal(lerped, 3.0),
+                             g.format("Lerp gave {Value}", Value=lerped)))
+
+    # Other graphs: a typed Send to the falling box's Contacts.sgraph, its public variable read and written there (guarded by
+    # RunsGraph), and a Broadcast to every entity that runs Contacts.sgraph (the box and the ball).
+    contacts = references["Contacts"]
+    box = (g.node("Call:Strada.Entity.FindByName(string)", None, {"Name": "Falling Box"}), "Result")
+    pinged = g.node("Event.Send", {"Name": "Ping", "Parameters": [{"Name": "Amount", "Type": "int"}], "Graph": contacts["Handle"]},
+                    {"Amount": 2}, Target=box)
+    runs = g.node("Flow.Branch", Condition=(g.node("RunsGraph", {"Graph": contacts["Handle"]}, Target=box), "Result"))
+    g.flow(pinged, runs)
+
+    def remote_pings():
+        return (g.node("Variable.Get", {"Variable": contacts["Pings"], "Graph": contacts["Handle"]}, Target=box), "Value")
+
+    seen = g.set(seen_pings, remote_pings())
+    written = g.node("Variable.Set", {"Variable": contacts["Pings"], "Graph": contacts["Handle"]}, {"Value": 10}, Target=box)
+    broadcast = g.node("Event.Broadcast",
+                       {"Name": "Ping", "Parameters": [{"Name": "Amount", "Type": "int"}], "Graph": contacts["Handle"]},
+                       {"Amount": 1})
+    pings_now = remote_pings()
+    title = "graphs send to, read and write other graphs, and broadcast to every entity running one"
+    g.chain((runs, "True"), seen, written, broadcast,
+            call_check(title, g.all_of(g.equal(g.get(seen_pings), 2), g.equal((broadcast, "Count"), 2), g.equal(pings_now, 11)),
+                       g.format("the box had {Seen} pings, then {Now}; {Count} received the broadcast", Seen=g.get(seen_pings),
+                                Now=pings_now, Count=(broadcast, "Count"))))
+    g.flow((runs, "False"), report(title, False, "the falling box does not run Contacts.sgraph"))
+    groups.append(pinged)
+
+    # A Timeline with a track of each type: it plays beside the checks after it (PlayFromStart ends its chain), and its
+    # Finished checks the event track's keys and the curves' values at the end; the checks wait for it before Done.
+    def track(name, type_id, end):
+        start = 0.0 if type_id == "float" else ([1.0, 1.0, 1.0, 1.0] if type_id == "Strada.Color" else [0.0] * len(end))
+        return {"Name": name, "Type": type_id, "Keys": [{"Time": 0.0, "Value": start}, {"Time": 0.2, "Value": end}]}
+
+    timeline = g.node("Flow.Timeline", {"Timeline": {"Length": 0.2, "Loop": False, "Tracks": [
+        track("Lift", "float", 2.5), track("Slide", "Strada.Vector2", [1.0, 2.0]), track("Move", "Strada.Vector3", [1.0, 2.0, 3.0]),
+        track("Turn", "Strada.Vector4", [0.0, 0.0, 1.0, 1.0]), track("Tint", "Strada.Color", [1.0, 0.5, 0.25, 1.0]),
+        {"Name": "Beat", "Type": "exec", "Keys": [{"Time": 0.05}, {"Time": 0.1}, {"Time": 0.15}]}]}})
+    reset = g.set(beats, literal=0)
+    g.flow(reset, timeline, "PlayFromStart")
+    g.flow((timeline, "Beat"), g.increment(beats))
+    beats_now = g.get(beats)
+    passed = g.all_of(g.equal(beats_now, 3), g.equal((timeline, "Lift"), 2.5),
+                      g.op("Equal", (timeline, "Slide"), g.literal("Strada.Vector2", [1.0, 2.0])),
+                      g.op("Equal", (timeline, "Move"), g.literal("Strada.Vector3", [1.0, 2.0, 3.0])),
+                      g.op("Equal", (timeline, "Turn"), g.literal("Strada.Vector4", [0.0, 0.0, 1.0, 1.0])),
+                      g.op("Equal", (timeline, "Tint"), g.literal("Strada.Color", [1.0, 0.5, 0.25, 1.0])),
+                      g.equal((timeline, "Time"), 0.2))
+    g.chain((timeline, "Finished"),
+            call_check("Timeline plays its curves to their last keys and fires its event keys", passed,
+                       g.format("{Beats} beats, Lift {Lift}, Move {Move} at {Time}", Beats=beats_now, Lift=(timeline, "Lift"),
+                                Move=(timeline, "Move"), Time=(timeline, "Time"))),
+            g.set(timeline_done, literal=True))
+    groups.append(reset)
+
     # The waiting kinds: each suspends the whole execution of Event.Create, and the checks after it with it.
     def waited(seconds):
         seconds_waited = g.op("Subtract", g.get(elapsed), g.get(start))
@@ -617,6 +779,16 @@ def build_features():
     g.flow(paused, call_check("a latent function suspends its caller", *waited(0.049)))
     groups.append(marked)
 
+    marked = g.set(start, g.get(elapsed))
+    settled = g.node("Function.Call", {"Function": library["Settle"], "Graph": library["Handle"]}, {"Seconds": 0.05})
+    g.flow(marked, settled)
+    g.flow(settled, call_check("a latent function of a library suspends its caller", *waited(0.049)))
+    groups.append(marked)
+
+    # The timeline started above has finished before the last checks (no check of its own).
+    waits = [g.node("Flow.WaitUntil", Condition=g.get(timeline_done))]
+    groups.append(waits[0])
+
     # By now the scene has updated and stepped physics.
     frames_now = g.get(frames)
     steps_now = g.get(fixed_steps)
@@ -628,6 +800,7 @@ def build_features():
     finished = g.set(done, literal=True)
     g.flow(finished, g.node("Call:Strada.Log.Info(string)", Message=g.format("Features: {Checks} checks passed", Checks=g.get(checks))))
     groups.append(finished)
+    waits.append(finished)
 
     create = g.node("Event.Create")
     sequence = g.node("Flow.Sequence", {"Count": len(groups)})
@@ -641,8 +814,8 @@ def build_features():
     g.flow(destroy, g.node("Function.Call", {"Function": check["ID"]},
                            {"Name": "the checks ran before the graph ended", "Message": "the scene stopped first"},
                            Passed=g.get(done)))
-    # Every group but the last (setting Done) is one check.
-    return doc, len(groups) - 1
+    # Every group but the waits (for the timeline, and setting Done) is one check.
+    return doc, len(groups) - len(waits), {}
 
 
 # --- Contacts.sgraph: the contact events, on the falling box and ball (which also run the C# CollisionProbe) ---------------
@@ -650,10 +823,11 @@ def build_features():
 CONTACTS_DESCRIPTION = (
     "Counts its entity's contacts: collisions and triggers that begin and end. At the first contact that ends, it checks "
     "that every contact that ended had begun (Checks counts it) and sets Done. The feature test's falling box and ball run "
-    "it next to their C# CollisionProbe.")
+    "it next to their C# CollisionProbe. Its custom event Ping adds its Amount to Pings: Features.sgraph sends it to the "
+    "box, broadcasts it to both and reads and writes Pings from there.")
 
 
-def build_contacts():
+def build_contacts(references):
     doc = Document(CONTACTS_DESCRIPTION)
     collisions_entered = doc.variable("CollisionsEntered", "int", 0, True, "Collisions that began")
     collisions_exited = doc.variable("CollisionsExited", "int", 0, True, "Collisions that ended")
@@ -662,7 +836,12 @@ def build_contacts():
     checks = doc.variable("Checks", "int", 0, True, "Checks that passed")
     done = doc.variable("Done", "bool", False, True, "Whether a contact has ended")
     last_other = doc.variable("LastOther", "Strada.Entity")
+    pings = doc.variable("Pings", "int", 0, True, "What the custom event Ping added")
     g = doc.graph
+
+    # Ping(Amount): Pings += Amount.
+    pinged = g.node("Event.Custom", {"Name": "Ping", "Parameters": [{"Name": "Amount", "Type": "int"}]})
+    g.flow(pinged, g.set(pings, g.op("Add", g.get(pings), (pinged, "Amount"))))
 
     for kind, counter in [("Event.CollisionEnter", collisions_entered), ("Event.TriggerEnter", triggers_entered)]:
         event = g.node(kind)
@@ -685,7 +864,7 @@ def build_contacts():
     failed = g.node("Call:Strada.Testing.TestReporter.Fail(string,string)", Name=name,
                     Message=g.format("{Began} began, {Ended} ended", Began=began, Ended=ended))
     g.flow((branch, "False"), failed)
-    return doc, 1
+    return doc, 1, {"Pings": pings}
 
 
 # --- Clicks.sgraph: Event.Click, on the UI canvas (an ancestor of the button UITests clicks) -------------------------------
@@ -695,7 +874,7 @@ CLICKS_DESCRIPTION = (
     "(Checks counts it) and sets Done. The feature test's UI canvas runs it next to the C# UITests.")
 
 
-def build_clicks():
+def build_clicks(references):
     doc = Document(CLICKS_DESCRIPTION)
     clicks = doc.variable("Clicks", "int", 0, True, "Buttons clicked")
     checks = doc.variable("Checks", "int", 0, True, "Checks that passed")
@@ -717,11 +896,33 @@ def build_clicks():
     failed = g.node("Call:Strada.Testing.TestReporter.Fail(string,string)", Name=name,
                     Message=g.format("{Button} has no UIButton component", Button=button_name))
     g.flow((branch, "False"), failed)
-    return doc, 1
+    return doc, 1, {}
 
 
-GRAPHS = [("Scripts/Features.sgraph", build_features), ("Scripts/Contacts.sgraph", build_contacts),
-          ("Scripts/Clicks.sgraph", build_clicks)]
+# --- MathLibrary.sgraph: a function library, whose functions Features.sgraph calls ------------------------------------------
+
+MATH_LIBRARY_DESCRIPTION = (
+    "The feature test's function library: Lerp, a pure function computed by an Expression, and Settle, a latent function "
+    "that waits Seconds. Features.sgraph calls both; a library runs on no entity.")
+
+
+def build_math_library(references):
+    doc = Document(MATH_LIBRARY_DESCRIPTION, "Library")
+    lerp, lg = doc.function("Lerp", True, [("A", "float"), ("B", "float"), ("T", "float")], [("Value", "float")])
+    entry = lg.node("Function.Entry")
+    value = (lg.node("Expression", {"Formula": "a + (b - a) * t"}, a=(entry, "A"), b=(entry, "B"), t=(entry, "T")), "Result")
+    lg.node("Function.Return", Value=value)
+    settle, sg = doc.function("Settle", False, [("Seconds", "float")])
+    entry = sg.node("Function.Entry")
+    delay = sg.node("Flow.Delay", Duration=(entry, "Seconds"))
+    sg.chain(entry, delay)
+    sg.flow((delay, "Completed"), sg.node("Function.Return"))
+    return doc, 0, {"Lerp": lerp["ID"], "Settle": settle["ID"]}
+
+
+# In the order they use each other: a graph is stored before the graphs that refer to it are checked.
+GRAPHS = [("MathLibrary", "Scripts/MathLibrary.sgraph", build_math_library), ("Contacts", "Scripts/Contacts.sgraph", build_contacts),
+          ("Clicks", "Scripts/Clicks.sgraph", build_clicks), ("Features", "Scripts/Features.sgraph", build_features)]
 
 
 def expected_features_checks():
@@ -733,11 +934,24 @@ def expected_features_checks():
     return int(found.group(1))
 
 
+def find_graph(client, path):
+    """The handle of the project's graph at the path, created (empty) when the project has none."""
+    with open(os.path.join(PROJECT, "Assets", "AssetRegistry.sreg"), encoding="utf-8") as file:
+        for asset in json.load(file)["Assets"]:
+            if asset["Path"] == path:
+                return asset["Handle"]
+    created = client.call("graph_create", {"path": path, "template": "Empty"})
+    print(f"{path}: created")
+    return str(created["asset"])
+
+
 def write_graphs(client):
-    # Every graph is built and checked before the first is written: a tool that stops leaves the project as it was.
-    checked_graphs = []
-    for path, builder in GRAPHS:
-        document, checks = builder()
+    # The analysis reads the stored graphs a document refers to, so each graph is checked and written before the graphs
+    # that use it are built: a graph that does not check stops the tool before it is written.
+    references = {}
+    for name, path, builder in GRAPHS:
+        handle = find_graph(client, path)
+        document, checks, ids = builder(references)
         content = document.content()
         reference = "asset://" + path
         checked = client.call("graph_check", {"graph": reference, "document": content})
@@ -745,12 +959,11 @@ def write_graphs(client):
         inexact = [node for node in checked.get("nodes", []) if node["Resolved"] != "Exact"]
         if not checked["valid"] or not checked["analyzed"] or errors or inexact:
             raise SystemExit(f"{path} does not check: {json.dumps({'issues': checked['issues'], 'errors': errors, 'inexact': inexact})}")
-        if path.endswith("Features.sgraph") and checks != expected_features_checks():
+        if name == "Features" and checks != expected_features_checks():
             raise SystemExit(f"Features reports {checks} checks: set FeaturesChecks in Scripts/Source/VisualScriptTests.cs to it")
-        checked_graphs.append((path, reference, content, checks))
-    for path, reference, content, checks in checked_graphs:
         written = client.call("graph_set", {"graph": reference, "document": content})
         print(f"{path}: {checks} checks, {'written' if written['changed'] else 'unchanged'}")
+        references[name] = {"Handle": handle, **ids}
 
 
 def main():

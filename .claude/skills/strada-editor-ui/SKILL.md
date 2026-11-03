@@ -63,9 +63,17 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   included) and go to `ContentBrowserPanel::DropFiles`; what an import does lives in `ProjectImport`, and the browser's
   `ImportDropped` (which `asset.drop` calls for agents) selects what came in and shows a notice of what did not.
 - Global shortcuts use `ImGui::Shortcut(chord, ImGuiInputFlags_RouteGlobal)` in `EditorLayer::HandleShortcuts` and skip
-  editing keys while `io.WantTextInput`; show the chord in the matching menu item. A panel with its own meaning for a
-  key (Delete or F2 in the content browser) registers `ImGuiInputFlags_RouteFocused` every frame while it is focused,
-  even when it has nothing to act on, so the key never falls through to the global shortcut.
+  editing keys while `io.WantTextInput`; show the chord in the matching menu item. The editing keys and the Edit menu's
+  editing items live in `EditorEditingKeys` (`HandleEditorEditingKeys(operations, visualScripts,
+  FindClaimedEditingChords(keyboardWindow))`, `DrawEditorEditingMenuItems`, and Undo and Redo in
+  `HandleEditorHistoryKeys`, `UndoEditorStep` and `RedoEditorStep`), which the editor and the tests both run: they act on
+  the Edit menu's target (a graph window through `VisualScriptEditors::HandleGlobalEditingKey`, else the entities). A
+  panel with its own meaning for a key registers `ImGuiInputFlags_RouteFocused` every frame while it is drawn, even with
+  nothing to act on, from a `static constexpr` chord list (`ContentBrowserPanel::FocusedChords`) that
+  `FindClaimedEditingChords` also returns: the editing keys never run a claimed chord, and the Edit menu drops that
+  item's shortcut text (`GetEditShortcutText`) while the panel has the keyboard (`FindKeyboardWindow`). While a modal
+  popup is open (`ImGui::GetTopMostPopupModal() != nullptr`) no editing key runs, Undo and Redo included, so nothing
+  changes what the dialog acts on.
 - While the game has the input (`GameInputRouter`, the ImGui layer's input filter), ImGui receives no key presses but
   the play shortcuts and no clicks over the game view: global shortcuts need no play-mode checks, and a new shortcut that
   must work while the game has the input goes into `GameInputRouter::RouteKeyPress` too. While the game also locks the
@@ -110,6 +118,12 @@ for windows that exist once per open asset (Docs/Architecture.md §11.1):
 - Own Escape: while the canvas is focused and no text field is, call `ImGui::SetKeyOwner(ImGuiKey_Escape, ownerId)` every
   frame and read it with `IsKeyPressed(ImGuiKey_Escape, 0, ownerId)`; otherwise ImGui's keyboard navigation cancels the
   active item or moves the focus to the parent window.
+- A part of a window that owns keys of its own while it has the keyboard (the Timeline drawer) is a route class of its
+  own (`VisualScriptKeyRoute::Timeline`, its rows a group of `VisualScriptShortcuts`): it takes the focused chords it
+  shares with the window (Delete, Ctrl+A) through the window's claim of them, matches its other keys exactly under a key
+  owner of its own, and gives the keyboard back to the canvas with Escape when no drag is in progress (a drag's Escape
+  cancels it). Its pure model (`VisualScriptCurveView`: the view, hit testing and the gestures as intents) is tested
+  without ImGui beside its L4 editor (`VisualScriptCurveEditor`).
 - Match raw keys as exact chords with `ImGui::IsKeyChordPressed(chord, flags, ownerId)` (a plain `IsKeyPressed(C)`
   also fires on Ctrl+C). Claim editing keys that share a global chord (Delete, Ctrl+D, Ctrl+A) with
   `ImGui::Shortcut(chord, ImGuiInputFlags_RouteFocused)` every frame the window is drawn. Keep the keys and gestures in
@@ -119,6 +133,19 @@ for windows that exist once per open asset (Docs/Architecture.md §11.1):
   the clicked one active in the frame the first releases, so `IsAnyItemActive()` never turns false between them. End
   the step when the active ID changes (`EditSession::Update(activeId != 0 && activeId == previousActiveId, history)`),
   after the widget committed its last value in the frame it was deactivated.
+- Drags are computed from the state the interaction started with (the timeline, the length, the positions), never by
+  accumulating per-frame deltas into the document, so a drag back to its start leaves nothing changed and a refusal
+  midway cannot drift.
+- A text field whose text names pins (an Expression's formula) commits like a name field (once, when left, on
+  Ctrl+Enter or Enter; Escape cancels), against the text the interaction started from, so inputs renamed in order keep
+  their links. A block of messages that selects part of the field's text when clicked (the formula's caret blocks) sets
+  the selection through the field's `ImGuiInputTextFlags_CallbackAlways` callback, whose `SelectionStart` and
+  `SelectionEnd` are writable on every frame the field is active (imgui.h:1348, :2808-2809).
+- Values being edited survive edits made elsewhere: `VisualScriptWidgetCommits` rebases a pending value over an outside
+  change (`RebaseVisualScriptEdit`, a pure function) and drops it with a note only when the change touched the same
+  element; a canvas gesture an outside change ends shows a toast.
+- A window whose panes do not fit side by side stacks them (`VisualScriptWindowLayout::Stacked`: one column, My Script
+  above Details at a share of the column, a splitter between them) before it hides any; both report Shown.
 - Drawing: emit layers in order into one draw list (no `ImDrawListSplitter`: with 16-bit indices and `VtxOffset` every
   64K vertices and clip change makes a draw command anyway). Draw text only at whole pixel sizes from a fixed ladder
   (`VisualScriptTextLadder`), so it stays crisp and the atlas bakes few sizes. `ImDrawList::AddText` takes the final

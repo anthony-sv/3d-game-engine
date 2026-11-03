@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptEditorTypes.h"
+
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptReferences.h"
@@ -15,23 +17,6 @@
 
 namespace Strada
 {
-	// What one visual script of the project offers other graphs, read from its document without the scripting runtime.
-	struct VisualScriptProjectGraph
-	{
-		AssetHandle Graph;
-		// The asset path ("Scripts/Door.sgraph"); empty for memory assets.
-		std::string Path;
-		// The file stem ("Door"); a memory asset's name.
-		std::string DisplayName;
-		VisualScriptDocumentKind Kind = VisualScriptDocumentKind::Script;
-		// Null when it does not load (its file is missing or broken).
-		Ref<VisualScriptDocument const> Document;
-		// Why it does not load; empty when it does.
-		std::string LoadError;
-		// CollectVisualScriptReferences of the document: the graphs its nodes name.
-		std::vector<VisualScriptGraphReference> References;
-	};
-
 	// The visual scripts of the project, what each offers and who refers to whom, kept from the asset manager's registry and
 	// the assets' shared documents: an unchanged project costs one lookup per script (the registry's version, then each
 	// script's document pointer). The first refresh loads every visual script of the project; a file that does not load is

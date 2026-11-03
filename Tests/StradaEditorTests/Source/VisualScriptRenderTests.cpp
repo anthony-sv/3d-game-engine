@@ -180,6 +180,91 @@ TEST_CASE("VisualScriptEditor: each level of detail draws its elements of a node
 	}
 }
 
+TEST_CASE("VisualScriptEditor: at Overview a variable pill's title is fitted to the room left of its output's dot, at every zoom and "
+          "UI scale")
+{
+	// Names of several lengths, so some fit their pills at Overview, some are shortened and some are left out.
+	constexpr std::array<std::string_view, 6> Names = {"Speed", "Radius", "Angle", "Phase", "Start", "Amplitude"};
+	VisualScriptDocument document;
+	for (uint32_t index = 0; index < Names.size(); index++)
+	{
+		VisualScriptVariable variable;
+		variable.ID = 100 + index;
+		variable.Name = std::string(Names[index]);
+		variable.Type = "float";
+		document.Variables.push_back(variable);
+		VisualScriptNode get = MakeNode(1 + index, "Variable.Get", glm::vec2(0.0f, 80.0f * static_cast<float>(index)));
+		get.Settings = Json::object({{"Variable", variable.ID}});
+		document.Graph.Nodes.push_back(get);
+	}
+	Testing::CanvasRenderFixture fixture(document, glm::vec2(1600.0f, 900.0f), true);
+	ImFont* const font = ImGui::GetIO().FontDefault;
+	REQUIRE(font != nullptr);
+	fixture.Measure.Measure = [font](std::string_view text, float sizeCu)
+	{
+		return font->CalcTextSizeA(sizeCu, FLT_MAX, 0.0f, text.data(), text.data() + text.size()).x;
+	};
+	fixture.Measure.Signature = 1;
+	fixture.Frame();
+	uint32_t titles = 0;
+	for (float const scale : {1.0f, 1.25f, 1.5f, 1.75f, 2.0f})
+	{
+		CAPTURE(scale);
+		fixture.SetUIScale(scale);
+		for (int step = 0; step < 24; step++)
+		{
+			float const zoom = 0.2f + 0.0125f * static_cast<float>(step);
+			CAPTURE(zoom);
+			fixture.SetView(glm::vec2(60.0f, 200.0f), zoom);
+			VisualScriptView const& view = fixture.Model.GetView();
+			if (view.GetDetailLevel() != VisualScriptDetailLevel::Overview)
+			{
+				continue;
+			}
+			float const k = view.GetPixelsPerUnit();
+			float const s = view.GetUIScale();
+			ImDrawList const* const drawList = fixture.Draw.DrawList;
+			ImVec2 const white = drawList->_Data->TexUvWhitePixel;
+			for (uint32_t index = 0; index < Names.size(); index++)
+			{
+				CAPTURE(Names[index]);
+				std::optional<uint32_t> const node = fixture.Model.GetCanvas().FindNode(1 + index);
+				REQUIRE(node.has_value());
+				VisualScriptNodeVisual const visual = fixture.Model.GetCanvas().GetNodes()[*node];
+				REQUIRE(visual.Shape == VisualScriptNodeShape::Pill);
+				VisualScriptDrawRecordItem const& item = fixture.Item(VisualScriptDrawItemKind::Node, 1 + index);
+				if (!item.Has(Elements::Title))
+				{
+					continue;
+				}
+				// The output's dot is centred PinGlyphInset inside the right edge.
+				glm::vec2 const min = view.ToScreen(visual.Position);
+				glm::vec2 const max = view.ToScreen(visual.Position + visual.Size);
+				float const dotLeft = max.x - VisualScriptCanvasMetrics::PinGlyphInset * k -
+				                      std::max(VisualScriptCanvasMetrics::PinGlyphRadius * k, 1.5f * s);
+				float textMin = FLT_MAX;
+				float textMax = -FLT_MAX;
+				REQUIRE(static_cast<int>(item.VertexEnd) <= drawList->VtxBuffer.Size);
+				for (uint32_t vertex = item.VertexBegin; vertex < item.VertexEnd; vertex++)
+				{
+					ImDrawVert const& drawn = drawList->VtxBuffer[static_cast<int>(vertex)];
+					if (drawn.uv.x != white.x || drawn.uv.y != white.y)
+					{
+						textMin = std::min(textMin, drawn.pos.x);
+						textMax = std::max(textMax, drawn.pos.x);
+					}
+				}
+				REQUIRE(textMin <= textMax);
+				CHECK(textMin >= min.x);
+				CHECK(textMax <= dotLeft);
+				titles++;
+			}
+		}
+	}
+	CHECK(titles >= 40);
+	ImGui::GetStyle().FontScaleDpi = 1.0f;
+}
+
 TEST_CASE("VisualScriptEditor: the canvas draws what its view shows, and wires that cross it")
 {
 	VisualScriptDocument document;
@@ -1426,6 +1511,87 @@ TEST_CASE("VisualScriptEditor: a title whose first glyphs are wider than its ave
 		text += drawList->VtxBuffer[static_cast<int>(vertex)].col == visual.BarTextColor ? 1u : 0u;
 	}
 	CHECK(text == 4);
+}
+
+TEST_CASE("VisualScriptEditor: a comment title that fits its box is drawn whole at every zoom and UI scale, wherever its box is on "
+          "the screen")
+{
+	// Laid out with the font the canvas draws with, as the editor's measurer measures, so a title that fits its box fits its
+	// rectangle exactly: the box leaves it a pixel more, and its glyphs must all be drawn however the rectangle's edges round.
+	constexpr std::string_view Title = "A point on the circle of Radius, Angle degrees round";
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Event.Create", glm::vec2(0.0f, 600.0f))};
+	VisualScriptComment comment;
+	comment.ID = 30;
+	comment.Text = std::string(Title);
+	comment.Position = glm::vec2(0.0f);
+	comment.Size = glm::vec2(600.0f, 100.0f);
+	document.Graph.Comments = {comment};
+	Testing::CanvasRenderFixture fixture(document, glm::vec2(1600.0f, 900.0f), true);
+	ImFont* const font = ImGui::GetIO().FontDefault;
+	REQUIRE(font != nullptr);
+	fixture.Measure.Measure = [font](std::string_view text, float sizeCu)
+	{
+		return font->CalcTextSizeA(sizeCu, FLT_MAX, 0.0f, text.data(), text.data() + text.size()).x;
+	};
+	fixture.Measure.Signature = 1;
+	fixture.Frame();
+	// Spaces draw no quad: every other glyph draws one, four vertices in the title's colour.
+	uint32_t const glyphs = static_cast<uint32_t>(std::count_if(Title.begin(), Title.end(),
+	                                                            [](char glyph)
+	                                                            {
+																	return glyph != ' ';
+																}));
+	uint32_t checked = 0;
+	for (float const scale : {1.0f, 1.25f, 1.5f, 1.75f, 2.0f})
+	{
+		CAPTURE(scale);
+		fixture.SetUIScale(scale);
+		for (int step = 0; step < 24; step++)
+		{
+			float const zoom = 0.25f + 0.0325f * static_cast<float>(step);
+			CAPTURE(zoom);
+			// The box's middle at the canvas's: its title bar is in view at every zoom.
+			fixture.SetView(glm::vec2(300.0f + 0.37f * static_cast<float>(step), 50.0f), zoom);
+			std::optional<uint32_t> const index = fixture.Model.GetCanvas().FindComment(30);
+			REQUIRE(index.has_value());
+			VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments()[*index];
+			REQUIRE_FALSE(visual.Title.IsEllipsized());
+			VisualScriptView const& view = fixture.Model.GetView();
+			uint32_t const visibleGlyphs = VisualScriptGeometry::CountGlyphs(fixture.Model.GetCanvas().GetVisibleText(visual.Title));
+			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(visual, view, visual.Title.Width, visibleGlyphs);
+			if (VisualScriptGeometry::IsEmpty(title))
+			{
+				continue;
+			}
+			float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(view.GetPixelsPerUnit(), view.GetUIScale());
+			float const width = visual.Title.Width * titlePixels / VisualScriptCanvasMetrics::CommentTitleTextSize;
+			float const inset = std::max(VisualScriptCanvasMetrics::HorizontalPadding * view.GetPixelsPerUnit(), 4.0f * view.GetUIScale());
+			glm::vec2 const boxMin = view.ToScreen(visual.Rect.Min);
+			glm::vec2 const boxMax = view.ToScreen(visual.Rect.Max);
+			float const left = std::max(boxMin.x, view.GetCanvasMin().x);
+			float const right = std::min(boxMax.x, view.GetCanvasMin().x + view.GetCanvasSize().x);
+			if (right - left - 2.0f * inset < width + 1.0f)
+			{
+				continue;
+			}
+			VisualScriptDetailLevel const level = view.GetDetailLevel();
+			bool const plate = level == VisualScriptDetailLevel::Far || level == VisualScriptDetailLevel::Overview;
+			VisualScriptDrawRecordItem const& item =
+				fixture.Item(plate ? VisualScriptDrawItemKind::CommentLabel : VisualScriptDrawItemKind::Comment, 30);
+			ImDrawList const* drawList = fixture.Draw.DrawList;
+			REQUIRE(static_cast<int>(item.VertexEnd) <= drawList->VtxBuffer.Size);
+			uint32_t text = 0;
+			for (uint32_t vertex = item.VertexBegin; vertex < item.VertexEnd; vertex++)
+			{
+				text += drawList->VtxBuffer[static_cast<int>(vertex)].col == visual.BarTextColor ? 1u : 0u;
+			}
+			CHECK(text == 4 * glyphs);
+			checked++;
+		}
+	}
+	CHECK(checked >= 60);
+	ImGui::GetStyle().FontScaleDpi = 1.0f;
 }
 
 TEST_CASE("VisualScriptEditor: the plates of nested comments are drawn outer first, so an inner title lies above its outer one")

@@ -4,14 +4,16 @@ using Strada.Testing;
 namespace FeatureTest;
 
 /// <summary>Visual scripts and their C# API. This test's entity also runs Scripts/Features.sgraph, which checks every
-/// built-in node kind itself; the falling box and ball run Scripts/Contacts.sgraph next to their CollisionProbe, and the UI
-/// canvas runs Scripts/Clicks.sgraph next to UITests. Each graph counts its passed checks in Checks and sets Done after its
-/// last; this test waits for all of them, then checks what they counted and uses them from C#.</summary>
+/// built-in node kind itself, calls the library Scripts/MathLibrary.sgraph and this script's [VisualNode] members; the
+/// falling box and ball run Scripts/Contacts.sgraph next to their CollisionProbe (Features messages them and changes their
+/// variables), and the UI canvas runs Scripts/Clicks.sgraph next to UITests. Each graph counts its passed checks in Checks
+/// and sets Done after its last; this test waits for all of them, then checks what they counted and did, and uses them from
+/// C#.</summary>
 public sealed class VisualScriptTests : FeatureTestScript
 {
 	private const int FrameLimit = 600;
 	// The checks each graph passes before it sets Done (Tools/AuthorGraphs.py writes the graphs and compares Features').
-	private const int FeaturesChecks = 28;
+	private const int FeaturesChecks = 37;
 	private const int ContactsChecks = 1;
 	private const int ClicksChecks = 1;
 	// The graphs, in messages.
@@ -20,7 +22,28 @@ public sealed class VisualScriptTests : FeatureTestScript
 	private const string BallGraph = "Contacts.sgraph on Falling Ball";
 	private const string CanvasGraph = "Clicks.sgraph on UI Canvas";
 
+	/// <summary>How often Features.sgraph visited this script: a field that graphs get and set as nodes.</summary>
+	[VisualNode(Category = "Feature Test/Visual Script Tests")]
+	public int GraphVisits;
+
 	private VisualScriptComponent? m_Holder;
+	private Medal m_Awarded = Medal.None;
+	private int m_AwardedHits;
+
+	/// <summary>The visits so far and some more: a pure method of a script, which graphs run on the entity's own
+	/// instance.</summary>
+	[VisualNode(Pure = true, Category = "Feature Test/Visual Script Tests")]
+	public int VisitsAnd(int more) => GraphVisits + more;
+
+	/// <summary>Records the medal a tally earns and returns it: a method with every option of [VisualNode].</summary>
+	[VisualNode(Title = "Award Medal", Category = "Feature Test/Awards", Description = "Records the medal the tally earns on the test.",
+		Keywords = ["medal", "award", "prize"], Pure = false, FormerNames = ["GiveMedal"])]
+	public Medal Award(Tally tally)
+	{
+		m_Awarded = tally.Medal;
+		m_AwardedHits = tally.Hits;
+		return m_Awarded;
+	}
 
 	protected override void Start()
 	{
@@ -65,8 +88,20 @@ public sealed class VisualScriptTests : FeatureTestScript
 			Assert.IsTrue(ballGraph.GetVariable<int>("TriggersEntered") > 0, $"{BallGraph}: it never entered the trigger");
 			Assert.IsTrue(ballGraph.GetVariable<int>("TriggersExited") > 0, $"{BallGraph}: it never left the trigger");
 		});
+		Check("the Features graph sent to, wrote and broadcast to the Contacts graphs", () =>
+		{
+			// Sent 2, written 10, then the broadcast's 1 to both.
+			Assert.AreEqual(11, Expect(box, BoxGraph, ContactsChecks).GetVariable<int>("Pings"), $"{BoxGraph}: pings");
+			Assert.AreEqual(1, Expect(ball, BallGraph, ContactsChecks).GetVariable<int>("Pings"), $"{BallGraph}: pings");
+		});
 		Check("the Clicks graph counts the clicks its canvas hears", () =>
 			Assert.IsTrue(Expect(canvas, CanvasGraph, ClicksChecks).GetVariable<int>("Clicks") > 0, $"{CanvasGraph}: no click reached it"));
+		Check("the Features graph used the game's [VisualNode] members on this script", () =>
+		{
+			Assert.AreEqual(1, GraphVisits, $"{FeaturesGraph}: visits");
+			Assert.AreEqual(Medal.Gold, m_Awarded, $"{FeaturesGraph}: the medal awarded");
+			Assert.AreEqual(3, m_AwardedHits, $"{FeaturesGraph}: the hits of the awarded tally");
+		});
 		Check("C# reads and writes a graph's variables", () =>
 		{
 			VisualScriptComponent graph = Expect(features, FeaturesGraph, FeaturesChecks);

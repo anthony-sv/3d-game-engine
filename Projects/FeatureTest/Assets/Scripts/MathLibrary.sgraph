@@ -1,0 +1,192 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Kind": "Library",
+		"Description": "The feature test's function library: Lerp, a pure function computed by an Expression, and Settle, a latent function that waits Seconds. Features.sgraph calls both; a library runs on no entity.",
+		"Variables": [],
+		"Functions": [
+			{
+				"ID": 1,
+				"Name": "Lerp",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "A",
+						"Type": "float"
+					},
+					{
+						"Name": "B",
+						"Type": "float"
+					},
+					{
+						"Name": "T",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Value",
+						"Type": "float"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 2,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 3,
+							"Type": "Expression",
+							"Position": [
+								320.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "a + (b - a) * t"
+							}
+						},
+						{
+							"ID": 4,
+							"Type": "Function.Return",
+							"Position": [
+								640.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								2,
+								"A"
+							],
+							"To": [
+								3,
+								"a"
+							]
+						},
+						{
+							"From": [
+								2,
+								"B"
+							],
+							"To": [
+								3,
+								"b"
+							]
+						},
+						{
+							"From": [
+								2,
+								"T"
+							],
+							"To": [
+								3,
+								"t"
+							]
+						},
+						{
+							"From": [
+								3,
+								"Result"
+							],
+							"To": [
+								4,
+								"Value"
+							]
+						}
+					],
+					"Comments": []
+				}
+			},
+			{
+				"ID": 5,
+				"Name": "Settle",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Seconds",
+						"Type": "float"
+					}
+				],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 6,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 7,
+							"Type": "Flow.Delay",
+							"Position": [
+								320.0,
+								0.0
+							]
+						},
+						{
+							"ID": 8,
+							"Type": "Function.Return",
+							"Position": [
+								640.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								6,
+								"Seconds"
+							],
+							"To": [
+								7,
+								"Duration"
+							]
+						},
+						{
+							"From": [
+								6,
+								"Then"
+							],
+							"To": [
+								7,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								7,
+								"Completed"
+							],
+							"To": [
+								8,
+								"Execute"
+							]
+						}
+					],
+					"Comments": []
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [],
+			"Links": [],
+			"Comments": []
+		}
+	}
+}

@@ -34,10 +34,14 @@ internal sealed class McpServer
 		"Entities are UUIDs written as strings; component fields use the scene-file format (asset references " +
 		"\"asset://<path in Assets>\" or \"builtin://<name>\", rotations as quaternions [x, y, z, w] or \"RotationEuler\" in " +
 		"degrees). editor_status shows the open project and scene, component_types lists the components and their fields, and " +
-		"log_read reads the editor's log. Visual scripts are graphs of nodes that a VisualScript component runs on its entity: " +
-		"graph_create makes one, graph_library and graph_types list the kinds of nodes (with their pins) and the types graphs " +
-		"use, graph_check checks a document without saving it and graph_set saves it; graph_open shows a graph to the user in its " +
-		"window in the editor (graph_editors then reports what each window shows) and graph_find searches the scripts. " +
+		"log_read reads the editor's log. Visual scripts are graphs of nodes that a VisualScript component runs on its entity. " +
+		"graph_create makes one (or a function library); graph_library and graph_types list the kinds of nodes, with their pins " +
+		"and settings, and the types. graph_edit applies a list of operations (add nodes, connect pins, set values and " +
+		"settings, variables, functions, comments, arrange) as one undo step: name new nodes with \"$labels\", and read the " +
+		"diagnostics it returns with the quick fixes that repair them. graph_arrange lays a graph out; graph_interface shows " +
+		"what a graph offers other graphs. graph_get reads a graph, graph_set replaces a whole document and graph_check checks " +
+		"one without saving. graph_open shows a graph in its window (graph_editors then reports what each window shows), " +
+		"graph_copy copies nodes for graph_edit's Paste, and graph_find searches the scripts. " +
 		"polyhaven_search_hdris and polyhaven_import_hdri bring CC0 skies from Poly Haven into the project for a SkyLight.";
 
 	private readonly EditorSession m_Session;
