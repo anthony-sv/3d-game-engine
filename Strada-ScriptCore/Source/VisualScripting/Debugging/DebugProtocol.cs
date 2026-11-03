@@ -693,6 +693,21 @@ internal static partial class DebugProtocol
 			writer.WriteString("Title", string.Empty);
 			writer.WriteString("Pin", string.Empty);
 		}
+		// A resumed fiber also names the start of the execution that suspended (spec-slice4 sections 5.1 and 14.1: "resumed from
+		// Delay (node 5); started by Event Create (node 2)"); its title is "" when an edit removed the node since.
+		if (start.Kind == StartKind.Resume && start.OriginNode != 0)
+		{
+			writer.WriteStartObject("Origin");
+			WriteHandle(writer, "Document", start.OriginDocument);
+			writer.WriteNumber("Node", start.OriginNode);
+			(CompiledGraph, CompiledNode Node)? origin = BreakpointConditions.Find(member.Program, member.Graph, start.OriginDocument, start.OriginNode);
+			writer.WriteString("Title", origin?.Node.Title ?? string.Empty);
+			writer.WriteEndObject();
+		}
+		else
+		{
+			writer.WriteNull("Origin");
+		}
 		writer.WriteEndObject();
 	}
 

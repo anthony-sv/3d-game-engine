@@ -57,6 +57,9 @@ internal sealed class DebugStepRequest
 
 	internal bool Waiting { get; set; }
 
+	// The latent node the root last parked in while the step waits.
+	internal CompiledNode? ParkedIn { get; set; }
+
 	// The latent node the waiting root waits in; null while it does not wait.
 	internal CompiledNode? WaitsIn => Waiting && Root.Serial == RootSerial && Root.SuspendedAt >= 0 ? Root.TopFrame.Graph.Nodes[Root.SuspendedAt] : null;
 }
@@ -424,6 +427,30 @@ internal sealed class VisualScriptDebugger : IVisualScriptDebugger
 		return block;
 	}
 
+	// The runtime detached the debugger or replaced it (spec-slice4 section 7.8, Detach), after releasing its debug fibers:
+	// what it still holds is dropped, so nothing of the ended session (read-only stops and their snapshots, the recording, the
+	// last frames, the counted flow, the step and the armed Break and Run to Node) stays reachable through it.
+	internal void Detached()
+	{
+		m_Stops.Clear();
+		Current = null;
+		Passed = 0;
+		Stepping = null;
+		m_BreakArmed = false;
+		m_BreakDocument = 0;
+		m_RunTo = null;
+		m_Changes.Clear();
+		m_Reached = null;
+		m_LastError = null;
+		Recording = null;
+		m_LastFrames.Clear();
+		m_Counted.Clear();
+		m_Sequence = 0;
+		m_Entries = 0;
+		m_Dropped = 0;
+		m_Version++;
+	}
+
 	// Record Start: a recording replaces the one armed before (whose steps are dropped); Values runs report to it from the
 	// next execution start or resume on.
 	internal void StartRecording(DebugRecordingSettings settings)
@@ -521,9 +548,17 @@ internal sealed class VisualScriptDebugger : IVisualScriptDebugger
 	{
 		if (Stepping is { } step && execution.Serial == step.RootSerial)
 		{
-			// The step's chain waits in a latent node (section 4.6): it goes on when the fiber resumes.
+			// The step's chain waits in a latent node (section 4.6): it goes on when the fiber resumes. StopRevision changes
+			// when the step starts waiting and when it waits in another latent node, never when a WaitUntil whose condition is
+			// still false parks it again in its place (section 6.2): the step request is unchanged then.
+			bool waited = step.Waiting;
+			CompiledNode? parkedIn = step.ParkedIn;
 			step.Waiting = true;
-			StopRevision++;
+			step.ParkedIn = step.WaitsIn;
+			if (!waited || !ReferenceEquals(parkedIn, step.ParkedIn))
+			{
+				StopRevision++;
+			}
 		}
 	}
 

@@ -60,6 +60,10 @@ internal sealed partial class VisualScriptRuntime
 		{
 			m_Running.RemoveAt(m_Running.Count - 1);
 			execution.IsRunning = false;
+			// Spec-slice4 section 4.1: only the run a resume started passes its first stop point. A run that met no stop point
+			// with the Break mode (an untraced or Record run, or one that suspended first) must not carry the pass into a later
+			// run of the execution.
+			execution.SkipStop = false;
 			m_Depth = depth;
 			if (freshBudget)
 			{

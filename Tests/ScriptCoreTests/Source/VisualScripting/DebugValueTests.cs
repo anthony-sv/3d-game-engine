@@ -393,4 +393,43 @@ public sealed class DebugValueTests
 		Assert.Equal(("NotFound", "Function: the graph has no function 77"), session.Refused(FormattableString.Invariant(
 			$$"""{ "Command": "Values", "Entity": "{{TestRuntime.Hero}}", "Function": 77 }""")));
 	}
+
+	// A linked input that converts to text calls the source value's ToString, which is game code: at an Enter stop, Describe
+	// shows it unconverted when it throws, and answers (spec-slice4 sections 5.3 and 7.5: the protocol never throws).
+	[Fact]
+	public void DescribeShowsAnInputWhoseConversionThrowsUnconverted()
+	{
+		NodeLibrary library = NodeLibraryBuilder.Build(new NodeLibrarySources
+		{
+			ApiTypes = [.. NodeLibrarySources.GetApiTypes(), typeof(Probe), typeof(Brittle)],
+		});
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint make = graph.Node("Call:Strada.ScriptCore.Tests.Brittle.Make()");
+		uint write = graph.Write(make, "Result");
+		graph.Flow(graph.Node("Event.Create"), make);
+		graph.Flow(make, write);
+		TestRuntime runtime = new(() => library);
+		runtime.LoadWorking(document.Build());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		DebugSession session = new(runtime);
+		session.Break(write);
+		runtime.Invoke(ScriptEvent.Create);
+		JsonElement stop = session.SingleStop();
+		Assert.Equal("Enter", DebugSession.Text(stop, "Place"));
+
+		JsonElement input = Assert.Single(session.Describe(DebugSession.IdOf(stop)).GetProperty("Node").GetProperty("Inputs").EnumerateArray());
+		Assert.Equal("Text", DebugSession.Text(input, "Name"));
+		Assert.Equal("Strada.ScriptCore.Tests.Brittle", DebugSession.Text(input, "Type"));
+		Assert.Equal("Brittle (its ToString threw InvalidOperationException)", DebugSession.Text(input, "Text"));
+		Assert.Equal("Current", DebugSession.Text(input, "Currency"));
+	}
+}
+
+// A class whose ToString throws, as game code may: what the debugger shows of it must not throw.
+public sealed class Brittle
+{
+	public static Brittle Make() => new();
+
+	public override string ToString() => throw new InvalidOperationException("no text");
 }

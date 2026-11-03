@@ -49,6 +49,11 @@ public sealed class DebugProtocolTests
 		Assert.Empty(runtime.Instance().DebugFibers);
 		Assert.Empty(runtime.Records);
 		Assert.Equal("""{"Released":0}""", session.Send("""{ "Command": "Detach" }"""));
+		// Nothing keeps the detached debugger: neither the traces it built for the programs nor what it held.
+		GraphProgram program = runtime.Instance().Program;
+		Assert.Null(program.Debug);
+		Assert.All(BreakpointConditions.GraphsOf(program), static graph => Assert.Null(graph.Debug));
+		Assert.Empty(debugger.Stops);
 		// Executions run untraced again; a new Attach starts with no configuration.
 		runtime.Invoke(ScriptEvent.Update);
 		Assert.Equal(["update"], runtime.Records);
@@ -96,7 +101,8 @@ public sealed class DebugProtocolTests
 		Assert.Equal(["Kind", "Entity", "Graph", "Document", "Function", "FunctionName", "Node", "Title", "Pin", "Note"],
 			stop.GetProperty("Frames")[0].EnumerateObject().Select(static member => member.Name));
 		Assert.Equal("Execute", stop.GetProperty("Frames")[0].GetProperty("Pin").GetString());
-		Assert.Equal(["Kind", "Graph", "Document", "Node", "Title", "Pin"], stop.GetProperty("Start").EnumerateObject().Select(static member => member.Name));
+		Assert.Equal(["Kind", "Graph", "Document", "Node", "Title", "Pin", "Origin"], stop.GetProperty("Start").EnumerateObject().Select(static member => member.Name));
+		Assert.Equal(JsonValueKind.Null, stop.GetProperty("Start").GetProperty("Origin").ValueKind);
 		Assert.Equal(["Document", "Node", "Hits", "Reached", "Active", "Reason", "Error"],
 			state.GetProperty("Breakpoints")[0].EnumerateObject().Select(static member => member.Name));
 
@@ -131,7 +137,7 @@ public sealed class DebugProtocolTests
 		Assert.Equal("{}", session.Send(FormattableString.Invariant($$"""{ "Command": "RunTo", "Document": "100", "Node": {{delay}} }""")));
 		JsonElement checkedReply = session.CheckCondition(delay, "Duration > 0.5");
 		Assert.Equal(["Checked", "Error", "Reads", "Scope"], checkedReply.EnumerateObject().Select(static member => member.Name));
-		Assert.Equal("unknown name Duration", checkedReply.GetProperty("Error").GetString());
+		Assert.Equal("line 1, column 1: unknown name Duration", checkedReply.GetProperty("Error").GetString());
 		JsonElement scoped = session.CheckCondition(delay, "DeltaTime > 0.5");
 		Assert.Equal(JsonValueKind.Null, scoped.GetProperty("Error").ValueKind);
 		Assert.Equal(["Name", "Form", "Type", "Source", "Node"], scoped.GetProperty("Scope")[0].EnumerateObject().Select(static member => member.Name));
@@ -326,7 +332,7 @@ public sealed class DebugProtocolTests
 		Assert.Equal("""[{"Name":"Health","Type":"int","Value":10,"Currency":"Current","ID":1,"Public":true}]""", inner.GetProperty("Variables").GetRawText());
 		Assert.Empty(inner.GetProperty("Loops").EnumerateArray());
 		Assert.Equal(
-			"""[{"Formula":"Amount + Left","Value":{"Type":"int","Value":2}},{"Formula":"Amount > 0","Value":{"Type":"bool","Value":true}},{"Formula":"Missing","Error":"unknown name Missing"}]""",
+			"""[{"Formula":"Amount + Left","Value":{"Type":"int","Value":2}},{"Formula":"Amount > 0","Value":{"Type":"bool","Value":true}},{"Formula":"Missing","Error":"line 1, column 1: unknown name Missing"}]""",
 			inner.GetProperty("Evaluated").GetRawText());
 		Assert.Equal(0, inner.GetProperty("Truncated").GetInt32());
 
@@ -463,6 +469,66 @@ public sealed class DebugProtocolTests
 		Assert.Equal(("InvalidRequest", "Limit: 1 to 500 instances"), session.Refused("""{ "Command": "Instances", "Limit": 0 }"""));
 		session.Send("""{ "Command": "Detach" }""");
 		Assert.Equal("[]", session.Expect("""{ "Command": "Instances", "Entity": "8" }""").GetProperty("Instances")[0].GetProperty("Stops").GetRawText());
+	}
+
+	// Detach and a replacing debugger drop what the old one held: read-only stops and their snapshots, the recording, the
+	// last frames of watched functions and the traces of the programs, and the fibers it traced no longer name it.
+	[Fact]
+	public void DetachKeepsNothingOfTheDetachedDebugger()
+	{
+		DocumentBuilder document = new();
+		uint divisor = document.Variable("Divisor", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint divide = graph.Node("Operator.Divide", inputs: """{ "A": 10 }""");
+		graph.Link(graph.Get(divisor), "Value", divide, "B");
+		graph.Flow(graph.Node("Event.Update"), graph.Write(divide, "Result"));
+		uint delay = graph.Node("Flow.Delay", inputs: """{ "Duration": 5.0 }""");
+		graph.Flow(graph.Node("Event.Create"), delay);
+		TestRuntime runtime = TestRuntime.Start(document);
+		DebugSession session = new(runtime);
+		VisualScriptDebugger debugger = session.Debugger;
+		session.Configure(breakOnErrors: true, watches: [FormattableString.Invariant($$"""{ "Document": "{{TestRuntime.Graph}}", "Function": 0 }""")]);
+		session.StartRecording();
+		runtime.Invoke(ScriptEvent.Create);
+		Assert.Equal(VisualScriptStatus.Failure, runtime.Invoke(ScriptEvent.Update));
+		Assert.Single(debugger.Stops);
+		GraphProgram program = runtime.Instance().Program;
+		Assert.Same(debugger, program.Debug!.Owner);
+		Execution fiber = Assert.Single(runtime.Instance().Fibers);
+		Assert.Same(debugger, fiber.Debugger);
+
+		Assert.Equal("""{"Released":0}""", session.Send("""{ "Command": "Detach" }"""));
+		Assert.Empty(debugger.Stops);
+		Assert.Null(debugger.Current);
+		Assert.Null(debugger.Recording);
+		Assert.Null(program.Debug);
+		Assert.All(BreakpointConditions.GraphsOf(program), static compiled => Assert.Null(compiled.Debug));
+		Assert.Null(fiber.Debugger);
+		Assert.Equal(DebugMode.None, fiber.Mode);
+		// The fiber runs on untraced when its Delay completes.
+		runtime.Invoke(ScriptEvent.Update, 5.0f);
+		Assert.Empty(runtime.Instance().Fibers);
+	}
+
+	// An instance is Stopped only while it holds a stopped execution: an error stop made on it is listed, but it ran on.
+	[Fact]
+	public void AnInstanceWithOnlyReadOnlyStopsIsNotStopped()
+	{
+		DocumentBuilder document = new();
+		uint divisor = document.Variable("Divisor", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint divide = graph.Node("Operator.Divide", inputs: """{ "A": 10 }""");
+		graph.Link(graph.Get(divisor), "Value", divide, "B");
+		graph.Flow(graph.Node("Event.Update"), graph.Write(divide, "Result"));
+		TestRuntime runtime = TestRuntime.Start(document);
+		DebugSession session = new(runtime);
+		session.Configure(breakOnErrors: true);
+		Assert.Equal(VisualScriptStatus.Failure, runtime.Invoke(ScriptEvent.Update));
+		int stop = DebugSession.IdOf(session.SingleStop());
+
+		JsonElement instance = session.Expect("""{ "Command": "Instances" }""").GetProperty("Instances")[0];
+		Assert.Equal("Idle", DebugSession.Text(instance, "State"));
+		Assert.Equal(FormattableString.Invariant($"[{stop}]"), instance.GetProperty("Stops").GetRawText());
 	}
 
 	// Record takes one of Start, Frame and Stop: Start's members are all required, the caps within their range, Nodes only with

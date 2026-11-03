@@ -257,4 +257,95 @@ public sealed class DebugLiveEditTests
 		session.Continue();
 		Assert.Equal(["pinged", "edited done", "edited after"], runtime.Records);
 	}
+
+	// What changed elsewhere is read across a live edit as the edit carried the values (spec-slice4 sections 4.7 and 4.8):
+	// variables by ID, so an edit that reorders them or adds one changes nothing by itself, and a variable written meanwhile
+	// is still listed under its own name; event outputs by node and pin, so a delivery that overwrote a receiver's parameter is
+	// listed although the edit made a new event graph.
+	[Fact]
+	public void ChangesElsewhereAreReadAcrossALiveEdit()
+	{
+		// Alpha and Beta are variables 1 and 2; Update (node 3) writes "first" (node 4) then the text (node 5). The edit writes
+		// "edited" instead, swaps the variables' order and, with added, adds Gamma; the IDs stay.
+		static string Variables(bool edited, bool added = false)
+		{
+			DocumentBuilder document = new();
+			uint alpha = document.Variable("Alpha", "int", "5");
+			uint beta = document.Variable("Beta", "int", "7");
+			GraphBuilder graph = document.Graph;
+			uint update = graph.Node("Event.Update");
+			uint first = graph.Write("first");
+			uint second = graph.Write(edited ? "edited" : "second");
+			graph.Flow(update, first);
+			graph.Flow(first, second);
+			string text = document.Build();
+			if (!edited)
+			{
+				return text;
+			}
+			string alphaText = FormattableString.Invariant($$"""{ "ID": {{alpha}}, "Name": "Alpha", "Type": "int", "Value": 5 }""");
+			string betaText = FormattableString.Invariant($$"""{ "ID": {{beta}}, "Name": "Beta", "Type": "int", "Value": 7 }""");
+			Assert.Contains(alphaText + ", " + betaText, text, StringComparison.Ordinal);
+			string gamma = added ? """, { "ID": 90, "Name": "Gamma", "Type": "int", "Value": 1 }""" : string.Empty;
+			return text.Replace(alphaText + ", " + betaText, betaText + ", " + alphaText + gamma, StringComparison.Ordinal);
+		}
+
+		const uint firstWrite = 4;
+		const uint secondWrite = 5;
+		TestRuntime runtime = TestRuntime.Start(Variables(edited: false));
+		DebugSession session = new(runtime);
+		session.Break(firstWrite, secondWrite);
+		runtime.Invoke(ScriptEvent.Update);
+		int stop = DebugSession.IdOf(session.SingleStop());
+		runtime.LoadWorking(Variables(edited: true));
+		Assert.True(session.SingleStop().GetProperty("Migrated").GetBoolean());
+		Assert.Equal(7, (int)runtime.Variable("Beta")!);
+		session.Continue(stop);
+		Assert.Empty(session.SingleStop().GetProperty("Changed").EnumerateArray());
+		session.Configure();
+		session.Continue();
+		Assert.Equal(["first", "edited"], runtime.Records);
+
+		// A variable written while stopped is listed by its name, although the edit added one.
+		runtime = TestRuntime.Start(Variables(edited: false));
+		session = new(runtime);
+		session.Break(firstWrite, secondWrite);
+		runtime.Invoke(ScriptEvent.Update);
+		stop = DebugSession.IdOf(session.SingleStop());
+		runtime.Runtime.SetVariable(TestRuntime.Hero, "Beta", typeof(int), 8);
+		runtime.LoadWorking(Variables(edited: true, added: true));
+		session.Continue(stop);
+		Assert.Equal("""[{"Node":0,"Name":"Beta"}]""", session.SingleStop().GetProperty("Changed").GetRawText());
+
+		// Section 4.7's delivery: the next Hit overwrites Row while the first receiver is stopped, and an edit elsewhere in the
+		// graph makes a new event graph before it continues.
+		static string Receiver(string text)
+		{
+			DocumentBuilder document = new();
+			GraphBuilder graph = document.Graph;
+			uint hit = graph.Node("Event.Custom", """{ "Name": "Hit", "Parameters": [{ "Name": "Row", "Type": "int" }] }""");
+			uint first = graph.Write("first");
+			uint second = graph.Write(text);
+			graph.Flow(hit, first);
+			graph.Flow(first, second);
+			return document.Build();
+		}
+
+		// Hit is node 1, its writes nodes 2 and 3.
+		runtime = TestRuntime.Start(Receiver("second"));
+		session = new(runtime);
+		session.Break(2, 3);
+		Assert.True(runtime.Runtime.SendEvent(TestRuntime.Hero, "Hit", [1]));
+		stop = DebugSession.IdOf(session.SingleStop());
+		Assert.True(runtime.Runtime.SendEvent(TestRuntime.Hero, "Hit", [5]));
+		Assert.Equal(2, session.Stops().Length);
+		CompiledGraph before = runtime.Instance().Frame.Graph;
+		runtime.LoadWorking(Receiver("edited"));
+		Assert.NotSame(before, runtime.Instance().Frame.Graph);
+		JsonElement resumed = session.Continue(stop);
+		JsonElement next = session.Stops().Single(other => DebugSession.IdOf(other) == resumed.GetProperty("Stop").GetInt32());
+		Assert.Equal(3u, DebugSession.NodeOf(next));
+		Assert.Equal("""[{"Node":1,"Name":"Row"}]""", next.GetProperty("Changed").GetRawText());
+		Assert.True(session.Describe(DebugSession.IdOf(next)).GetProperty("Event")[0].GetProperty("Changed").GetBoolean());
+	}
 }

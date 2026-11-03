@@ -148,6 +148,12 @@ internal sealed class ConditionScope
 		{
 			scope.AddEventOutputs(graph, node);
 		}
+		// A library has no variables: its functions run for the graph that calls them, so a condition on a library node reads
+		// the same names whichever program calls it (the analysis refuses variables in libraries).
+		if (graph.Graph != 0)
+		{
+			return scope;
+		}
 		List<ConditionName> variables = [];
 		for (int index = 0; index < program.Variables.Length; index++)
 		{
@@ -462,7 +468,7 @@ internal sealed class CompiledCondition
 			ExpressionParserOptions.Condition);
 		if (formula.Error is { } parseError)
 		{
-			return new CompiledCondition(scope, parseError.Message);
+			return new CompiledCondition(scope, At(text, parseError.Start, parseError.Message));
 		}
 		HashSet<int> values = ValueInputs(formula.Root!);
 		ConditionName?[] inputs = new ConditionName?[formula.Inputs.Count];
@@ -473,7 +479,7 @@ internal sealed class CompiledCondition
 			ConditionName? name = scope.Find(formula.Inputs[index], out string? error);
 			if (name == null)
 			{
-				return new CompiledCondition(scope, error);
+				return new CompiledCondition(scope, At(text, StartOf(formula, index), error!));
 			}
 			reads.Add(name.Name);
 			if (!values.Contains(index))
@@ -483,7 +489,7 @@ internal sealed class CompiledCondition
 			}
 			if (ExpressionChecker.KindOf(name.Type) is not { } kind)
 			{
-				return new CompiledCondition(scope, Refused(name));
+				return new CompiledCondition(scope, At(text, StartOf(formula, index), Refused(name)));
 			}
 			inputs[index] = name;
 			kinds.Add(kind);
@@ -495,7 +501,7 @@ internal sealed class CompiledCondition
 			ConditionName name = scope.Find(formula.Inputs[comparison.Name], out _)!;
 			if (Lower(name, comparison, out string? error) is not { } lowered)
 			{
-				return new CompiledCondition(scope, error);
+				return new CompiledCondition(scope, At(text, comparison.Start, error!));
 			}
 			comparisons[index] = lowered;
 			kinds.Add(SlotKind.Bool);
@@ -503,15 +509,17 @@ internal sealed class CompiledCondition
 		(TypedExpression? root, ExpressionError? checkError) = ExpressionChecker.Check(library, formula, kinds);
 		if (root == null)
 		{
-			return new CompiledCondition(scope, checkError!.Message);
+			return new CompiledCondition(scope, At(text, checkError!.Start, checkError.Message));
 		}
 		if (condition && root.Type != SlotKind.Bool)
 		{
-			return new CompiledCondition(scope, $"the condition must be true or false, not {Article(ExpressionChecker.Name(root.Type))}");
+			string kind = Article(ExpressionChecker.Name(root.Type));
+			return new CompiledCondition(scope, At(text, root.Start, $"the condition must be true or false, not {kind}"));
 		}
 		if (ExpressionChecker.TypeOf(library, root.Type) is not { } type)
 		{
-			return new CompiledCondition(scope, $"the formula gives a {ExpressionChecker.Name(root.Type)}, a type this node library does not have");
+			string kind = ExpressionChecker.Name(root.Type);
+			return new CompiledCondition(scope, At(text, root.Start, $"the formula gives a {kind}, a type this node library does not have"));
 		}
 		// The scratch frame: the inputs, the comparisons' results, the value, then the formula's constants and temporaries.
 		int output = kinds.Count;
@@ -543,6 +551,37 @@ internal sealed class CompiledCondition
 		}
 		ExpressionMachine.Run(m_Program!, m_Scratch);
 		return m_Scratch[m_Output];
+	}
+
+	// A compile error with where it is, as the analysis names places in formulas: "line 1, column 1: unknown name angle: did you
+	// mean Angle?" (spec-slice4 section 17.2).
+	private static string At(string text, int index, string message) => $"{ExpressionParser.Position(text, index)}: {message}";
+
+	// Where the formula first names an input: its first reading as a value, else the first comparison of it.
+	private static int StartOf(ParsedFormula formula, int input)
+	{
+		int start = int.MaxValue;
+		Stack<ExpressionSyntax> pending = new();
+		pending.Push(formula.Root!);
+		while (pending.TryPop(out ExpressionSyntax? syntax))
+		{
+			if (syntax.Kind == ExpressionSyntaxKind.Input && syntax.Input == input)
+			{
+				start = Math.Min(start, syntax.Start);
+			}
+			foreach (ExpressionSyntax operand in syntax.Operands)
+			{
+				pending.Push(operand);
+			}
+		}
+		foreach (ExpressionComparison comparison in formula.Comparisons)
+		{
+			if (start == int.MaxValue && comparison.Name == input)
+			{
+				start = comparison.Start;
+			}
+		}
+		return start == int.MaxValue ? 0 : start;
 	}
 
 	// The inputs the formula reads as values, not only through comparisons.

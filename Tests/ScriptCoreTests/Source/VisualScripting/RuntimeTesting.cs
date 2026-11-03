@@ -35,9 +35,15 @@ internal sealed class TestRuntime
 	internal const string Name = "Assets/Test.sgraph";
 
 	internal TestRuntime()
+		: this(static () => RuntimeTesting.Library)
+	{
+	}
+
+	// A runtime over another node library (tests of members the runtime tests' library does not have).
+	internal TestRuntime(Func<NodeLibrary> library)
 	{
 		Probe.Reset();
-		Runtime = new VisualScriptRuntime(Environment, () => RuntimeTesting.Library);
+		Runtime = new VisualScriptRuntime(Environment, library);
 		Environment.Add(Hero, "Hero");
 	}
 

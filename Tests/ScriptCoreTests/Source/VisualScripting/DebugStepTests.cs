@@ -274,6 +274,63 @@ public sealed class DebugStepTests
 		Assert.Equal(JsonValueKind.Null, session.State().GetProperty("Stepping").ValueKind);
 	}
 
+	// The step request changes StopRevision when it starts waiting and when it waits in another latent node (spec-slice4
+	// section 6.2), never while a WaitUntil whose condition stays false parks the fiber again each update.
+	[Fact]
+	public void AWaitingStepChangesTheStopRevisionOnlyWhenItsWaitChanges()
+	{
+		DocumentBuilder document = new();
+		uint ready = document.Variable("Ready", "bool", "false");
+		GraphBuilder graph = document.Graph;
+		uint wait = graph.Node("Flow.WaitUntil");
+		graph.Link(graph.Get(ready), "Value", wait, "Condition");
+		uint after = graph.Write("after");
+		graph.Flow(graph.Node("Event.Create"), wait);
+		graph.Flow(wait, after, "Completed");
+		(TestRuntime runtime, DebugSession session) = Started(document, wait);
+		Assert.Equal("Waiting", DebugSession.Text(session.Resume("StepOver"), "Outcome"));
+		ulong revision = session.StopRevision;
+		for (int update = 0; update < 5; update++)
+		{
+			runtime.Invoke(ScriptEvent.Update, 0.25f);
+			Assert.Equal(revision, session.StopRevision);
+			Assert.Equal(wait, session.State().GetProperty("Stepping").GetProperty("WaitsIn").GetProperty("Node").GetUInt32());
+		}
+		Assert.Empty(session.Stops());
+		runtime.Runtime.SetVariable(TestRuntime.Hero, "Ready", typeof(bool), true);
+		runtime.Invoke(ScriptEvent.Update, 0.25f);
+		Assert.Equal(At(after), session.Position());
+		Assert.True(session.StopRevision > revision);
+		session.Continue();
+		Assert.Equal(["after"], runtime.Records);
+
+		// Step Out of a latent function waits in its first Delay, then in its second: the wait moved.
+		document = new();
+		FunctionBuilder pause = document.Function("Pause");
+		uint first = pause.Graph.Node("Flow.Delay", inputs: """{ "Duration": 0.25 }""");
+		uint second = pause.Graph.Node("Flow.Delay", inputs: """{ "Duration": 0.25 }""");
+		pause.Graph.Flow(pause.Entry, first);
+		pause.Graph.Flow(first, second, "Completed");
+		graph = document.Graph;
+		uint call = graph.Node("Function.Call", pause.Settings);
+		uint returned = graph.Write("returned");
+		graph.Flow(graph.Node("Event.Create"), call);
+		graph.Flow(call, returned);
+		(runtime, session) = Started(document, first);
+		Assert.Equal("Waiting", DebugSession.Text(session.Resume("StepOut"), "Outcome"));
+		revision = session.StopRevision;
+		runtime.Invoke(ScriptEvent.Update, 0.25f);
+		Assert.Empty(session.Stops());
+		Assert.True(session.StopRevision > revision);
+		JsonElement waits = session.State().GetProperty("Stepping").GetProperty("WaitsIn");
+		Assert.Equal(second, waits.GetProperty("Node").GetUInt32());
+		Assert.Equal(pause.Id, waits.GetProperty("Function").GetUInt32());
+		revision = session.StopRevision;
+		runtime.Invoke(ScriptEvent.Update, 0.25f);
+		Assert.Equal(At(returned), session.Position());
+		Assert.True(session.StopRevision > revision);
+	}
+
 	// A receiver that suspends ends its synchronous part: the step goes on in its sender, where Over stops after the Send.
 	// A Tween's ticks run as executions of their own, never followed.
 	[Fact]

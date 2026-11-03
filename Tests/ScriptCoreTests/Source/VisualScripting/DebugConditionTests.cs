@@ -154,13 +154,13 @@ public sealed class DebugConditionTests
 
 		foreach ((uint node, string condition, string error) in new[]
 		{
-			(shared, "DeltaTime > 0", $"DeltaTime is an output of {Title(update)} (node {update}), but {Title(fixedUpdate)} (node {fixedUpdate}) also leads here: a condition reads event outputs only when one event leads to the node"),
-			(both, "Index == 0", $"Index is ambiguous here: {Title(left)} (node {left}) or {Title(right)} (node {right})"),
-			(both, "Speed_Limit > 0.0", "Speed_Limit is ambiguous here: the variable Speed Limit or the variable Speed_Limit"),
-			(both, "angle > 1.0", "unknown name angle: did you mean Angle?"),
-			(both, "Max_Healt > 1.0", "unknown name Max_Healt: did you mean Max_Health?"),
-			(both, "Index +", "expected a value after '+'"),
-			(both, "Max_Health + 1.0", "the condition must be true or false, not a float"),
+			(shared, "DeltaTime > 0", $"line 1, column 1: DeltaTime is an output of {Title(update)} (node {update}), but {Title(fixedUpdate)} (node {fixedUpdate}) also leads here: a condition reads event outputs only when one event leads to the node"),
+			(both, "Index == 0", $"line 1, column 1: Index is ambiguous here: {Title(left)} (node {left}) or {Title(right)} (node {right})"),
+			(both, "Speed_Limit > 0.0", "line 1, column 1: Speed_Limit is ambiguous here: the variable Speed Limit or the variable Speed_Limit"),
+			(both, "angle > 1.0", "line 1, column 1: unknown name angle: did you mean Angle?"),
+			(both, "Max_Healt > 1.0", "line 1, column 1: unknown name Max_Healt: did you mean Max_Health?"),
+			(both, "Index +", "line 1, column 7: expected a value after '+'"),
+			(both, "Max_Health + 1.0", "line 1, column 1: the condition must be true or false, not a float"),
 		})
 		{
 			session.Configure([session.Breakpoint(node, condition: condition)]);
@@ -211,15 +211,15 @@ public sealed class DebugConditionTests
 
 		foreach ((string condition, string error) in new[]
 		{
-			("Mode == \"Impuls\"", "Force Mode has no value Impuls: Force, Impulse, Acceleration, VelocityChange"),
-			("State == None", "State is a string: None compares only with entities"),
-			("Target == \"Hero\"", "Target is an Entity: an entity compares only with None"),
-			("State + 1 > 2", "State is a string: compare it with == or != to a string literal, as in State == \"Serve\""),
-			("Rotation == None", "Rotation is a Quaternion: string literals compare only with strings and enums, and None only with entities"),
-			("Rotation.X > 0.0", "Rotation is a Quaternion: conditions read numbers, booleans and vectors, and compare strings, enums and entities"),
-			("\"Serve\" == \"Serve\"", "a string literal is compared with a name, as in State == \"Serve\""),
-			("-\"Serve\" > 1", "a string literal is only compared with == or != to a name, as in State == \"Serve\""),
-			("State == \"open", "the string literal is not closed: end it with \""),
+			("Mode == \"Impuls\"", "line 1, column 1: Force Mode has no value Impuls: Force, Impulse, Acceleration, VelocityChange"),
+			("State == None", "line 1, column 1: State is a string: None compares only with entities"),
+			("Target == \"Hero\"", "line 1, column 1: Target is an Entity: an entity compares only with None"),
+			("State + 1 > 2", "line 1, column 1: State is a string: compare it with == or != to a string literal, as in State == \"Serve\""),
+			("Rotation == None", "line 1, column 1: Rotation is a Quaternion: string literals compare only with strings and enums, and None only with entities"),
+			("Rotation.X > 0.0", "line 1, column 1: Rotation is a Quaternion: conditions read numbers, booleans and vectors, and compare strings, enums and entities"),
+			("\"Serve\" == \"Serve\"", "line 1, column 1: a string literal is compared with a name, as in State == \"Serve\""),
+			("-\"Serve\" > 1", "line 1, column 2: a string literal is only compared with == or != to a name, as in State == \"Serve\""),
+			("State == \"open", "line 1, column 10: the string literal is not closed: end it with \""),
 		})
 		{
 			session.Configure([session.Breakpoint(write, condition: condition)]);
@@ -310,7 +310,7 @@ public sealed class DebugConditionTests
 		// The variable Index is shadowed by the loop's.
 		Assert.Equal([("Index", "Index", "int", "Loop", loop), ("Row", "Row", "int", "Event", hit), ("Max Health", "Max_Health", "float", "Variable", 0u)], scope);
 		JsonElement failed = session.CheckCondition(body, "Rows == 1");
-		Assert.Equal("unknown name Rows: did you mean Row?", DebugSession.Text(failed, "Error"));
+		Assert.Equal("line 1, column 1: unknown name Rows: did you mean Row?", DebugSession.Text(failed, "Error"));
 		JsonElement only = session.CheckCondition(body, "");
 		Assert.Equal(JsonValueKind.Null, only.GetProperty("Error").ValueKind);
 		Assert.Equal(3, only.GetProperty("Scope").GetArrayLength());
@@ -319,6 +319,33 @@ public sealed class DebugConditionTests
 		Assert.Empty(unknown.GetProperty("Scope").EnumerateArray());
 		Assert.Equal(("InvalidRequest", "Condition: a condition has at most 1024 bytes"),
 			session.Refused($$"""{ "Command": "CheckCondition", "Document": "100", "Node": {{body}}, "Condition": "{{new string('1', 1025)}}" }"""));
+	}
+
+	// A library has no variables: a condition on a library's node reads its loops, locals and parameters, never the variables
+	// of the graph that calls it, so it compiles alike for every caller (spec-slice4 section 2.3, step 4).
+	[Fact]
+	public void AConditionOnALibraryNodeReadsNoCallersVariables()
+	{
+		MotionLibrary library = new();
+		DocumentBuilder document = new();
+		document.Variable("Health", "float", "10.0");
+		GraphBuilder graph = document.Graph;
+		uint call = graph.Node("Function.Call", CrossGraphTesting.Call(library.Report, CrossGraphTesting.Motion), """{ "Text": "hello" }""");
+		graph.Flow(graph.Node("Event.Create"), call);
+		TestRuntime runtime = new();
+		runtime.LoadWorking(document.Build(), references: library.Bundle());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		DebugSession session = new(runtime);
+		uint write = library.Report.Entry + 1;
+
+		JsonElement reply = session.CheckCondition(write, "Health > 0.0", CrossGraphTesting.Motion);
+		Assert.True(reply.GetProperty("Checked").GetBoolean());
+		Assert.StartsWith("line 1, column 1: unknown name Health", DebugSession.Text(reply, "Error"), StringComparison.Ordinal);
+		Assert.Equal(["Text"], reply.GetProperty("Scope").EnumerateArray().Select(static name => DebugSession.Text(name, "Name")));
+		session.Configure([session.Breakpoint(write, CrossGraphTesting.Motion, condition: "Text == \"hello\"")]);
+		runtime.Invoke(ScriptEvent.Create);
+		Assert.Single(session.Stops());
+		Assert.Equal(JsonValueKind.Null, BreakpointOf(session, write).GetProperty("Error").ValueKind);
 	}
 
 	// Evaluate: formulas read-only against a stop's frame, in the scope of its node; any result type, or the formula's error.
@@ -343,7 +370,7 @@ public sealed class DebugConditionTests
 		Assert.Null(type);
 		Assert.Equal("integer division by zero in Counter / 0", error);
 		(_, _, error) = BreakpointConditions.Evaluate("Missing + 1", member, 0);
-		Assert.Equal("unknown name Missing", error);
+		Assert.Equal("line 1, column 1: unknown name Missing", error);
 		session.Continue();
 		Assert.Equal(6, runtime.Records.Count);
 	}

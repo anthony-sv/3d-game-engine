@@ -99,6 +99,21 @@ internal sealed partial class VisualScriptRuntime
 	// in a new instance (spec section 5.1): at their Value, else at the type default.
 	private static Slot[] CarryVariables(GraphProgram source, Slot[] values, GraphProgram target)
 	{
+		int[] matches = MatchVariables(source, target);
+		CompiledVariable[] variables = target.Variables;
+		Slot[] carried = new Slot[variables.Length];
+		for (int index = 0; index < variables.Length; index++)
+		{
+			carried[index] = matches[index] >= 0 ? values[matches[index]] : variables[index].Initial;
+		}
+		return carried;
+	}
+
+	// For each variable of the target program, the index of the source program's variable it continues (by ID with the same
+	// type, then by name and type, each source variable continued once), or -1 for a new one. The debugger's Changed compare
+	// (spec-slice4 section 4.7) reads variables across a live edit by the same rule.
+	internal static int[] MatchVariables(GraphProgram source, GraphProgram target)
+	{
 		Dictionary<uint, int> byId = [];
 		Dictionary<string, int> byName = new(StringComparer.Ordinal);
 		for (int index = 0; index < source.Variables.Length; index++)
@@ -117,7 +132,6 @@ internal sealed partial class VisualScriptRuntime
 				taken[matches[index]] = true;
 			}
 		}
-		Slot[] carried = new Slot[variables.Length];
 		for (int index = 0; index < variables.Length; index++)
 		{
 			if (matches[index] < 0 && byName.TryGetValue(variables[index].Name, out int old) && !taken[old] &&
@@ -126,9 +140,8 @@ internal sealed partial class VisualScriptRuntime
 				matches[index] = old;
 				taken[old] = true;
 			}
-			carried[index] = matches[index] >= 0 ? values[matches[index]] : variables[index].Initial;
 		}
-		return carried;
+		return matches;
 	}
 
 	private static bool SameType(CompiledVariable a, CompiledVariable b) => a.Type.Id == b.Type.Id;
@@ -147,12 +160,10 @@ internal sealed partial class VisualScriptRuntime
 			{
 				continue;
 			}
-			int index = source.FindNode(node.Id);
-			if (index < 0 || !IsSameNode(source.Nodes[index], node))
+			if (Find(source, node) is not { } old)
 			{
 				continue;
 			}
-			CompiledNode old = source.Nodes[index];
 			if (node.Op != Opcode.Latent && node.StateSlot >= 0 && old.StateSlot >= 0)
 			{
 				to.Slots[node.StateSlot] = from.Slots[old.StateSlot];
@@ -168,13 +179,20 @@ internal sealed partial class VisualScriptRuntime
 			}
 			for (int output = 0; output < node.OutputCount; output++)
 			{
-				int match = Array.IndexOf(old.OutputPins, node.OutputPins[output]);
-				if (match >= 0 && old.OutputTypes[match].Id == node.OutputTypes[output].Id)
+				int match = MatchOutput(old, node, output);
+				if (match >= 0)
 				{
 					to.Slots[node.OutputBase + output] = from.Slots[old.OutputBase + match];
 				}
 			}
 		}
+	}
+
+	// The output of the old node a new node's output continues: the one of the same pin name and type; -1 when there is none.
+	internal static int MatchOutput(CompiledNode old, CompiledNode node, int output)
+	{
+		int match = Array.IndexOf(old.OutputPins, node.OutputPins[output]);
+		return match >= 0 && old.OutputTypes[match].Id == node.OutputTypes[output].Id ? match : -1;
 	}
 
 	// Why the fiber or debug fiber cannot continue in the new program: a node its position (a fiber's latent node, a stopped
@@ -258,8 +276,8 @@ internal sealed partial class VisualScriptRuntime
 	private static int MapEntry(CompiledNode old, CompiledNode moved, int entry) =>
 		entry < old.EntryPins.Length ? Array.IndexOf(moved.EntryPins, old.EntryPins[entry]) : entry;
 
-	// The node of the new graph with the ID and type of an old one, enabled or disabled as it was; null when there is none.
-	private static CompiledNode? Find(CompiledGraph graph, CompiledNode old)
+	// The node of the other graph with the ID and type of a node, enabled or disabled as it was; null when there is none.
+	internal static CompiledNode? Find(CompiledGraph graph, CompiledNode old)
 	{
 		int index = graph.FindNode(old.Id);
 		return index >= 0 && IsSameNode(graph.Nodes[index], old) ? graph.Nodes[index] : null;
@@ -333,6 +351,12 @@ internal sealed partial class VisualScriptRuntime
 			newCaller = moved.Graph;
 		}
 		fiber.Program = target;
+		// The start names the new program's node of its ID while the edit kept it (Describe reads a stopped execution's start
+		// event in its moved frame, spec-slice4 section 5.3); a removed one stays as it was, which only names it.
+		if (fiber.Start.Node is { } started && GraphOf(target, started.Owner) is { } startGraph && Find(startGraph, started) is { } start)
+		{
+			fiber.Start = fiber.Start with { Node = start };
+		}
 		if (fiber.SuspendedAt >= 0)
 		{
 			CompiledNode latent = newCaller.Nodes[newCaller.FindNode(caller.Nodes[fiber.SuspendedAt].Id)];
@@ -354,6 +378,11 @@ internal sealed partial class VisualScriptRuntime
 		}
 		fiber.Current = StopNode(fiber);
 	}
+
+	// The new program's graph of an old compiled graph: the event graph, or the body of the function of the same document and
+	// ID; null when the edit removed the function.
+	private static CompiledGraph? GraphOf(GraphProgram target, CompiledGraph old) =>
+		old.Function is { } function ? target.FindFunction(function.Graph, function.Id)?.Body : target.EventGraph;
 
 	// Locals of a surviving call frame match by ID.
 	private static void CarryLocals(CompiledFunction function, Frame from, CompiledFunction newFunction, Frame to)

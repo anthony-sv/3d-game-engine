@@ -32,19 +32,64 @@ internal sealed partial class VisualScriptRuntime
 	}
 
 	// Attaches the debugger that traces executions from now on; null detaches it. Replacing or detaching a debugger releases
-	// every debug fiber without running it (spec-slice4 section 4.11). Answers how many it released.
+	// every debug fiber without running it (spec-slice4 section 4.11), and nothing keeps the old debugger after: the traces it
+	// built for the programs, the fibers it traced and what it holds are dropped. Answers how many debug fibers it released.
 	internal int AttachDebugger(IVisualScriptDebugger? debugger)
 	{
 		int released = 0;
-		if (m_Debugger != null && !ReferenceEquals(debugger, m_Debugger))
+		if (m_Debugger is { } old && !ReferenceEquals(debugger, old))
 		{
 			foreach (GraphInstance instance in m_Instances.Values)
 			{
 				released += ReleaseDebugFibers(instance, "the debugger detached");
 			}
+			Forget(old);
 		}
 		m_Debugger = debugger;
 		return released;
+	}
+
+	// Drops every reference the runtime's programs and fibers hold to a debugger that leaves. A fiber's run mode is decided
+	// again when it resumes (Continue), so an untraced fiber loses nothing.
+	private void Forget(IVisualScriptDebugger old)
+	{
+		foreach (GraphInstance instance in m_Instances.Values)
+		{
+			ForgetTraces(instance.Program, old);
+			foreach (Execution fiber in instance.Fibers)
+			{
+				if (ReferenceEquals(fiber.Debugger, old))
+				{
+					fiber.Mode = DebugMode.None;
+					fiber.Debugger = null;
+				}
+			}
+		}
+		foreach (GraphEntry entry in m_Graphs.Values)
+		{
+			ForgetTraces(entry.Latest, old);
+			ForgetTraces(entry.Effective, old);
+		}
+		(old as VisualScriptDebugger)?.Detached();
+	}
+
+	private static void ForgetTraces(GraphProgram? program, IVisualScriptDebugger old)
+	{
+		if (program == null)
+		{
+			return;
+		}
+		if (program.Debug is { } trace && ReferenceEquals(trace.Owner, old))
+		{
+			program.Debug = null;
+		}
+		foreach (CompiledGraph graph in BreakpointConditions.GraphsOf(program))
+		{
+			if (graph.Debug is { } graphTrace && ReferenceEquals(graphTrace.Owner, old))
+			{
+				graph.Debug = null;
+			}
+		}
 	}
 
 	// What the debugger's replies read: entity names and validity, and the node library that names types.
@@ -61,9 +106,10 @@ internal sealed partial class VisualScriptRuntime
 
 	// Continues a stopped chain from its root (spec-slice4 sections 4.3, 4.5 and 4.12): with the budget it had left,
 	// Time.DeltaTime as it read it and the run modes of each member decided again as it continues. The leaf passes the stop
-	// point it stands at, so every resume runs at least one instruction; a leaf that waits inside its Send (its receiver was
-	// released) is inside its instruction already. The chain may stop again (debug fibers again), suspend, end or abort (the
-	// error logged once); the root must not be used after.
+	// point it stands at, so every resume runs at least one instruction (in this run only: Execute clears the pass when the
+	// leaf's run ends); a leaf that waits inside its Send (its receiver was released) is inside its instruction already. The
+	// chain may stop again (debug fibers again), suspend, end or abort (the error logged once); the root must not be used
+	// after.
 	internal ExecutionResult ContinueStopped(Execution root, Execution leaf)
 	{
 		root.Instance.RemoveDebugFiber(root);

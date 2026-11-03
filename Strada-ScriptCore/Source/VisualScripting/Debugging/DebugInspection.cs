@@ -243,7 +243,8 @@ internal static partial class DebugProtocol
 			writer.WriteStartObject();
 			WriteHandle(writer, "Entity", instance.Entity);
 			WriteHandle(writer, "Graph", instance.Graph);
-			writer.WriteString("State", stops.Count > 0 || instance.DebugFibers.Count > 0 ? "Stopped" : instance.FiberCount > 0 ? "Waiting" : "Idle");
+			// Stopped only while it holds a stopped execution: a passed or error stop made on it is listed, but it ran on.
+			writer.WriteString("State", instance.DebugFibers.Count > 0 ? "Stopped" : instance.FiberCount > 0 ? "Waiting" : "Idle");
 			writer.WriteStartArray("Waits");
 			foreach (Execution fiber in instance.Fibers)
 			{
@@ -627,9 +628,10 @@ internal static partial class DebugProtocol
 					Conversions.Apply(ref converted, operand.Conversion, operand.From);
 					return (converted, type, currency);
 				}
-				catch (VisualScriptException)
+				catch (Exception)
 				{
-					// The conversion fails when the node runs: the source's value shows as it is.
+					// The conversion fails when the node runs (a VisualScriptException), or game code it calls throws (a ToString
+					// of the game's): the source's value shows as it is, and nothing reaches past the protocol.
 					return (value, operand.From, currency);
 				}
 			}

@@ -752,4 +752,63 @@ public sealed class DebugStopTests
 		session.Continue();
 		Assert.Equal(serial, runtime.Instance().Frame.Stamps![eventGraph.FindNode(second)]);
 	}
+
+	// Only the run a resume starts passes its first stop point (spec-slice4 section 4.1). A Continue whose run is not a Break
+	// run (the user removed the breakpoint first, or only a watch traces it, or nothing does) passes nothing later: the
+	// execution that suspends in a Delay stops at the breakpoint after it, and an armed Break at the first stop point after it.
+	[Theory]
+	[InlineData("removed")]
+	[InlineData("watched")]
+	[InlineData("armed")]
+	public void AResumedRunPassesOnlyItsOwnFirstStopPoint(string variant)
+	{
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint a = graph.Write("a");
+		uint delay = graph.Node("Flow.Delay", inputs: """{ "Duration": 0.25 }""");
+		uint b = graph.Write("b");
+		uint c = graph.Write("c");
+		uint create = graph.Node("Event.Create");
+		graph.Flow(create, a);
+		graph.Flow(a, delay);
+		graph.Flow(delay, b, "Completed");
+		graph.Flow(b, c);
+		TestRuntime runtime = TestRuntime.Start(document);
+		DebugSession session = new(runtime);
+		session.Break(a);
+		runtime.Invoke(ScriptEvent.Create);
+		Assert.Equal(a, DebugSession.NodeOf(session.SingleStop()));
+
+		string watch = FormattableString.Invariant($$"""{ "Document": "{{TestRuntime.Graph}}", "Function": 0 }""");
+		session.Configure(watches: variant == "watched" ? [watch] : null);
+		Assert.Equal("Ended", DebugSession.Text(session.Continue(), "Outcome"));
+		Assert.Equal(["a"], runtime.Records);
+		Execution fiber = Assert.Single(runtime.Instance().Fibers);
+		Assert.False(fiber.SkipStop);
+
+		if (variant == "armed")
+		{
+			session.BreakNext();
+		}
+		else
+		{
+			session.Configure([session.Breakpoint(b)], watches: variant == "watched" ? [watch] : null);
+		}
+		runtime.Invoke(ScriptEvent.Update, 0.25f);
+		JsonElement stop = session.SingleStop();
+		Assert.Equal(b, DebugSession.NodeOf(stop));
+		Assert.Equal(variant == "armed" ? "Break" : "Breakpoint", DebugSession.Text(stop, "Reason"));
+		Assert.Equal(["a"], runtime.Records);
+		// The resumed fiber started at its Delay, and names the start of the execution that suspended (section 5.1).
+		CompiledGraph events = runtime.Instance().Program.EventGraph;
+		JsonElement start = stop.GetProperty("Start");
+		Assert.Equal("Resume", DebugSession.Text(start, "Kind"));
+		Assert.Equal(delay, start.GetProperty("Node").GetUInt32());
+		Assert.Equal("Completed", DebugSession.Text(start, "Pin"));
+		Assert.Equal(FormattableString.Invariant($$"""{"Document":"{{TestRuntime.Graph}}","Node":{{create}},"Title":"{{events.Nodes[events.FindNode(create)].Title}}"}"""),
+			start.GetProperty("Origin").GetRawText());
+		session.Configure();
+		session.Continue();
+		Assert.Equal(["a", "b", "c"], runtime.Records);
+	}
 }
