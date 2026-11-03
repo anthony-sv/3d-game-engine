@@ -100,8 +100,11 @@ namespace Strada
 	void EditorContext::FinishEdit()
 	{
 		m_Scene->FlushPendingDestruction();
-		// Edits of a running scene's script fields and visual script variables reach its scripts at once, also while paused.
+		// Edits of a running scene's script fields, visual scripts and visual script variables reach its scripts at once, also
+		// while paused and into stopped executions: the graphs first, so that the values edited meanwhile reach the programs
+		// the instances run now.
 		m_Scene->ApplyScriptFieldChanges();
+		m_Scene->ApplyVisualScriptEdits();
 		m_Scene->ApplyVisualScriptVariableChanges();
 		PruneSelection();
 	}

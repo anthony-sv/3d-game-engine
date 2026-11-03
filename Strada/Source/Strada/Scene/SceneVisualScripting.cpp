@@ -37,8 +37,12 @@ namespace Strada
 		}
 	}
 
-	void Scene::CollectVisualScriptChanges(std::vector<entt::entity>& replaced, std::vector<PendingVisualScriptInstance>& pending)
+	void Scene::ApplyVisualScriptEdits()
 	{
+		if (!m_RunsScripts)
+		{
+			return;
+		}
 		// Each graph once, in the same order everywhere. Loading runs managed code, so the graphs are collected first.
 		std::vector<AssetHandle> graphs;
 		for (entt::entity const handle : m_Registry.view<VisualScriptComponent>())
@@ -59,7 +63,11 @@ namespace Strada
 			// A graph that is absent is reported by the entities it keeps from starting; its running instances run on.
 			static_cast<void>(VisualScriptEngine::EnsureLoaded(graph));
 		}
+	}
 
+	void Scene::CollectVisualScriptChanges(std::vector<entt::entity>& replaced, std::vector<PendingVisualScriptInstance>& pending)
+	{
+		ApplyVisualScriptEdits();
 		for (auto const [handle, id, component] : m_Registry.view<IDComponent, VisualScriptComponent>().each())
 		{
 			auto const current = m_VisualScriptInstances.find(handle);

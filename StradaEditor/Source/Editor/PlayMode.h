@@ -11,9 +11,52 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <string>
 
 namespace Strada
 {
+	// What a play run starts with.
+	struct PlayStartOptions
+	{
+		// test.run's runs: no debugger is attached, so breakpoints are ignored.
+		bool TestRun = false;
+		// The running scene is paused before its first update, in the start's own frame (play.start's paused): its scripts'
+		// OnCreate have run, nothing else has.
+		bool Paused = false;
+	};
+
+	// What play.state reports of the visual-script debugger.
+	struct PlayDebugSummary
+	{
+		// "Detached", "Running", "Stopped", "Stepping" or "StepEnded".
+		std::string State = "Detached";
+		uint32_t Stops = 0;
+		std::optional<uint64_t> Current;
+		// The debugger paused the scene for a stop and has not resumed it (it outlives a stop that ends without a resume).
+		bool PauseHeld = false;
+	};
+
+	// Is told what play mode does, and may hold it back: the editor's visual-script debug session. Main thread.
+	class PlayModeObserver
+	{
+	public:
+		virtual ~PlayModeObserver() = default;
+
+		// Before the running scene starts (its scripts' OnCreate run inside the start).
+		virtual void OnPlayStarting(EditorPlayState state, PlayStartOptions const& options) = 0;
+		// After the scene started (with a zero time step), and after each frame Update and Advance ran, with that frame's
+		// time step before the time scale: true pauses the scene, and Advance stops early.
+		virtual bool OnPlayFrame(Timestep timestep) = 0;
+		// Before the running scene stops (its scripts' OnDestroy run inside the stop).
+		virtual void OnPlayStopping() = 0;
+		// Before a paused scene resumes (PlayMode::Resume): the stopped executions continue first; true when one stopped
+		// again, and the scene then stays paused.
+		virtual bool OnPlayResuming() = 0;
+		// Why scene frames must not run or be stepped now (an execution is stopped at a breakpoint); none when they may.
+		virtual std::optional<std::string> GetFrameStepRefusal() const = 0;
+		virtual PlayDebugSummary GetDebugSummary() const = 0;
+	};
+
 	// The editor's play mode. It runs a copy of the edited scene (Play: scripts, physics and audio; Simulate: physics only)
 	// through a SceneRunner and makes it the scene the panels and automation show and edit (EditorContext::BeginPlay).
 	// Stopping discards the copy and every change made to it. Scenes the scripts load replace the copy, and
@@ -30,24 +73,46 @@ namespace Strada
 		PlayMode(PlayMode const&) = delete;
 		PlayMode& operator=(PlayMode const&) = delete;
 
+		// The observer is told of every start, frame, resume and stop, and may hold frames back; null for none. It must stay
+		// alive while set: clear it before destroying it.
+		void SetObserver(PlayModeObserver* observer) { m_Observer = observer; }
+
 		// Starts Play or Simulate with a copy of the edited scene, or with the given scene (a test scene loaded from its file)
-		// when one is passed, rendering to a view of the given size. Fails while playing.
-		[[nodiscard]] Result<void> Start(EditorPlayState state, uint32_t viewportWidth, uint32_t viewportHeight,
-		                                 Ref<Scene> scene = nullptr);
-		// Stops the running scene (its scripts get OnDestroy) and returns to the edited scene. Game input is released.
+		// when one is passed, rendering to a view of the given size. Fails while playing. The observer is told before the
+		// scene starts, and after it started (OnPlayFrame with a zero time step, which may pause it).
+		[[nodiscard]] Result<void> Start(EditorPlayState state, uint32_t viewportWidth, uint32_t viewportHeight, Ref<Scene> scene = nullptr,
+		                                 PlayStartOptions const& options = {});
 		// Starts like Start once the scripts are built: Play builds changed scripts first and does not start when they fail
 		// to build. The callback learns whether playing started (at once, or after the build); requests made while one waits
 		// for its build fail.
 		void RequestStart(EditorPlayState state, uint32_t viewportWidth, uint32_t viewportHeight, Ref<Scene> scene = nullptr,
-		                  StartCallback callback = {});
+		                  StartCallback callback = {}, PlayStartOptions const& options = {});
 		bool IsStartPending() const { return m_StartPending; }
+		// Stops the running scene (its scripts get OnDestroy) and returns to the edited scene. Game input is released. The
+		// observer is told before the scene stops.
 		void Stop();
 		bool IsPlaying() const { return m_Runner != nullptr; }
 
-		// Pausing holds the running scene and its sounds; steps advance it a frame at a time while paused.
-		void SetPaused(bool paused);
+		// Pausing holds the running scene and its sounds; steps advance it a frame at a time while paused. Unpausing is
+		// refused (false) while the observer refuses frames: a scene never resumes past a stopped execution (Resume continues
+		// it first). False when not playing; true otherwise.
+		bool SetPaused(bool paused);
 		bool IsPaused() const;
+		// Resumes a paused scene as the play controls do: the observer continues the stopped executions first
+		// (OnPlayResuming), and the scene stays paused when one stopped again. True when the scene runs afterwards.
+		bool Resume();
+		// Queues frames for a paused scene; nothing while the observer refuses frames.
 		void Step(uint32_t frames = 1);
+		// Drops the frames Step queued that have not run yet.
+		void CancelSteps();
+		// Why scene frames must not run or be stepped now (the observer's reason); none when they may, and without an
+		// observer.
+		std::optional<std::string> GetFrameStepRefusal() const;
+		// The observer's summary; Detached without one.
+		PlayDebugSummary GetDebugSummary() const;
+		// Acts on what script code that ran between frames asked for, as the end of a frame does: loads the scene it asked
+		// for (SceneRunner::ApplyRequests) and shows it, and stops playing when it quit.
+		void FollowScripts();
 
 		// Whether the game's UI follows the mouse (Scene::SetUIPointerEnabled), applied to the running scene before each of its
 		// updates, scenes the scripts load included. On by default; the editor turns it off while its game view does not have
@@ -55,11 +120,13 @@ namespace Strada
 		void SetUIPointerEnabled(bool enabled) { m_UIPointerEnabled = enabled; }
 		bool IsUIPointerEnabled() const { return m_UIPointerEnabled; }
 
-		// Advances the running scene by the editor's frame time, then follows what its scripts asked for.
+		// Advances the running scene by the editor's frame time, then follows what its scripts asked for and tells the
+		// observer when a frame ran. Runs no frame while the observer refuses frames, whatever frames are queued.
 		void Update(Timestep timestep);
 		// Runs frames at once with a fixed time step (paused scenes too), each ending like an editor frame ends (input
 		// pressed in a frame is seen by that frame only): deterministic play for automation and tests. Stops early when the
-		// scripts quit. Returns the number of frames run.
+		// scripts quit and when the observer pauses the scene after a frame; runs none while it refuses frames. Returns the
+		// number of frames run.
 		uint32_t Advance(uint32_t frames, Timestep timestep);
 
 		// The test results and script exceptions of the current run, or of the last one once it stopped (the scripts may end
@@ -69,9 +136,12 @@ namespace Strada
 	private:
 		// Stops when the scripts quit; shows the scene the scripts loaded.
 		void FollowRunner();
+		// Tells the observer that a frame ran (or the scene started) and pauses the running scene when it asks to; true then.
+		bool NotifyFrame(Timestep timestep);
 
 		EditorContext& m_Context;
 		EditorScripts& m_Scripts;
+		PlayModeObserver* m_Observer = nullptr;
 		bool m_StartPending = false;
 		Scope<SceneRunner> m_Runner;
 		uint64_t m_RunnerSceneVersion = 0;

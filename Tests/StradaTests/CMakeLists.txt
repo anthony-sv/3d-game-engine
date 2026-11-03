@@ -93,6 +93,7 @@ add_executable(StradaTests
     Source/Script/ScriptEngineTests.cpp
     Source/Script/ScriptFieldTests.cpp
     Source/Script/ScriptTestUtilities.h
+    Source/Script/VisualScriptDebuggerTests.cpp
     Source/Script/VisualScriptEngineTests.cpp
     Source/Script/VisualScriptGridGraph.h
     Source/Script/VisualScriptLiteralsTests.cpp

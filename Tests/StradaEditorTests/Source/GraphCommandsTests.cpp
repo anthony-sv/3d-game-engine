@@ -1034,7 +1034,8 @@ TEST_CASE("GraphCommands: graph.set while playing reaches the running graph, and
 	fixture.Play.Advance(12, Timestep(FrameTime));
 	CHECK(done() == false);
 
-	// An edit that leaves the Delay alone: the running graph takes it at its next update, and the Delay keeps waiting.
+	// An edit that leaves the Delay alone: the running graph takes it in the call that made it (spec-slice4 section 8.1), and
+	// the Delay keeps waiting.
 	VisualScriptDocument edited = MakeDelayDocument();
 	edited.Description = "Waits half a second";
 	uint64_t const logStart = Log::GetNextEntryIndex();
@@ -1134,7 +1135,7 @@ TEST_CASE("GraphCommands: while playing, visual script variables are the running
 	      Json::object({{"Speed", StoredInt(2)}}));
 }
 
-TEST_CASE("GraphCommands: while paused, a graph.set that renames a variable and an edit of it before the next update both reach the graph")
+TEST_CASE("GraphCommands: while paused, a graph.set that renames a variable reaches the graph at once, and so does an edit of it")
 {
 	Testing::ScriptRuntimeScope runtime;
 	GraphFixture fixture;
@@ -1155,17 +1156,19 @@ TEST_CASE("GraphCommands: while paused, a graph.set that renames a variable and 
 	fixture.Play.SetPaused(true);
 	CHECK(variable("Updates") == ScriptFieldValue::FromInt32(4));
 
-	// The rename keeps Speed as a former name; the running graph takes it at its next update. The renamed variable edited
-	// before then takes the edit with it.
+	// The rename keeps Speed as a former name; the running graph takes it in the call that made it (spec-slice4 section 8.1),
+	// paused as it is, and the renamed variable keeps the value it carried. An edit of the renamed variable reaches it at once.
 	VisualScriptDocument renamed = MakeCounterDocument();
 	renamed.Variables[0].Name = "Velocity";
 	Json const set =
 		fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", VisualScriptSerializer::SerializeDocument(renamed)}}));
 	CHECK(set["warnings"] == Json::array({"variable renamed: Speed → Velocity (Speed is kept in FormerNames)"}));
+	CHECK(variable("Velocity") == ScriptFieldValue::FromInt32(2));
 	fixture.Ok("component.set", Json::object({{"entity", counter},
 	                                          {"component", "VisualScript"},
 	                                          {"fields", Json::object({{"Variables", Json::object({{"Velocity", StoredInt(50)}})}})}}));
-	CHECK(variable("Speed") == ScriptFieldValue::FromInt32(2));
+	CHECK(variable("Velocity") == ScriptFieldValue::FromInt32(50));
+	CHECK(variable("Updates") == ScriptFieldValue::FromInt32(4));
 	fixture.Play.Advance(1, Timestep(FrameTime));
 	CHECK(variable("Velocity") == ScriptFieldValue::FromInt32(50));
 	CHECK(variable("Updates") == ScriptFieldValue::FromInt32(54));

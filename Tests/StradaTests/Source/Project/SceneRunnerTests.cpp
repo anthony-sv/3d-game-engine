@@ -10,6 +10,7 @@
 #include "Strada/Project/SceneRunner.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Script/VisualScriptDebugger.h"
 #include "Strada/Script/VisualScriptEngine.h"
 
 #include <doctest/doctest.h>
@@ -195,4 +196,72 @@ TEST_CASE("SceneRunner: simulating runs no visual scripts")
 	CHECK(VisualScriptEngine::HasInstance(ball.GetUUID()));
 	player.Stop();
 	CHECK(VisualScriptEngine::GetInstanceCount() == 0);
+}
+
+TEST_CASE("SceneRunner: ApplyRequests loads the scene a script asked for between frames, as Update would after its frame")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const scenes = directory.GetPath() / "Scenes";
+	REQUIRE(FileSystem::CreateDirectories(scenes).IsOk());
+	Scene second("Second");
+	second.CreateEntity("Arrival");
+	REQUIRE(SceneSerializer::SaveToFile(second, scenes / "Second.sscene").IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+
+	// Loads the second scene on every update, at node 11, where the debugger stops it.
+	VisualScriptDocument loader;
+	VisualScriptNode update;
+	update.ID = 10;
+	update.Type = "Event.Update";
+	VisualScriptNode load;
+	load.ID = 11;
+	load.Type = "Call:Strada.SceneManager.LoadScene(string)";
+	load.Inputs = Json::object({{"Path", "Scenes/Second.sscene"}});
+	loader.Graph.Nodes = {update, load};
+	loader.Graph.Links.push_back({{10, "Then"}, {11, "Execute"}});
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(std::move(loader)), "Loader");
+	Ref<Scene> const first = CreateRef<Scene>("First");
+	first->CreateEntity("Loader").AddComponent<VisualScriptComponent>().Graph = graph;
+	REQUIRE(VisualScriptDebugger::Attach().IsOk());
+	VisualScriptDebugConfiguration configuration;
+	configuration.Revision = 1;
+	VisualScriptBreakpointSetting breakpoint;
+	breakpoint.Document = graph;
+	breakpoint.Node = 11;
+	breakpoint.Type = "Call:Strada.SceneManager.LoadScene(string)";
+	configuration.Breakpoints.push_back(breakpoint);
+	REQUIRE(VisualScriptDebugger::Configure(configuration).IsOk());
+
+	SceneRunner runner({});
+	first->OnViewportResize(320, 240);
+	runner.Start(first);
+	// Nothing asked: nothing happens.
+	uint64_t const version = runner.GetSceneVersion();
+	runner.ApplyRequests();
+	CHECK(runner.GetSceneVersion() == version);
+
+	// The frame stopped the loader before it asked; continuing between frames asks, and the request waits for the runner.
+	runner.Update(Timestep(1.0f / 60.0f));
+	CHECK(runner.GetScene()->GetName() == "First");
+	Result<VisualScriptResumeOutcome> const resumed = VisualScriptDebugger::Resume(std::nullopt, VisualScriptDebugAction::Continue);
+	REQUIRE_MESSAGE(resumed.IsOk(), resumed.GetError());
+	CHECK(resumed.GetValue().Result == VisualScriptResumeResult::Ended);
+	CHECK(runner.GetScene()->GetName() == "First");
+	CHECK(runner.GetSceneVersion() == version);
+
+	// Applying the requests loads it as the end of the frame that ran the call would have: the first scene stops, the second
+	// runs in the same view.
+	runner.ApplyRequests();
+	REQUIRE(runner.IsRunning());
+	CHECK(runner.GetScene()->GetName() == "Second");
+	CHECK(runner.GetScene()->IsRunning());
+	CHECK_FALSE(first->IsRunning());
+	CHECK(runner.GetSceneVersion() != version);
+	CHECK(runner.GetScene()->GetViewportWidth() == 320);
+	uint64_t const loaded = runner.GetSceneVersion();
+	runner.ApplyRequests();
+	CHECK(runner.GetSceneVersion() == loaded);
+	runner.Stop();
 }

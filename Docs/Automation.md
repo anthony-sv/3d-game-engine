@@ -787,16 +787,16 @@ release `Left` a frame apart. Scene and project file commands (`scene.new`, `sce
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `play.start` | `mode` (`play` (default): scripts, physics, audio; `simulate`: physics only) | Play state; asynchronous: Play builds changed scripts first and fails when they do not build |
+| `play.start` | `mode` (`play` (default): scripts, physics, audio; `simulate`: physics only), `paused` (default false: the scene starts, its scripts' `OnCreate` run, and it is paused before its first frame, for sessions that advance it with fixed steps) | Play state; asynchronous: Play builds changed scripts first and fails when they do not build |
 | `play.stop` | — | Play state (the copy and every change to it are discarded; steps that edited asset files stay undoable) |
-| `play.pause` | `paused` (default true) | Play state |
-| `play.step` | `frames` (default 1) | Play state; advances the paused scene one frame per editor frame |
-| `play.advance` | `frames`*, `timestep` (seconds, default 1/60) | Play state plus `framesRun`; runs the frames at once (pause first for deterministic runs); stops early when the scripts quit |
-| `play.state` | — | `state` (`edit`, `play`, `simulate`), `paused`, `startPending`, `scene`, `frame` and `time` while playing, `tests` (the run's test report or null) |
+| `play.pause` | `paused` (default true) | Play state; resuming while an execution is stopped at a breakpoint continues every stopped execution first, and the scene stays paused when one stops again (`debug` tells) |
+| `play.step` | `frames` (default 1) | Play state; advances the paused scene one frame per editor frame; InvalidOperation while an execution is stopped at a breakpoint |
+| `play.advance` | `frames`*, `timestep` (seconds, default 1/60) | Play state plus `framesRun`; runs the frames at once (pause first for deterministic runs); stops early when the scripts quit and after a frame in which an execution stopped at a breakpoint; InvalidOperation while one is stopped |
+| `play.state` | — | `state` (`edit`, `play`, `simulate`), `paused`, `startPending`, `scene`, `frame` and `time` while playing, `tests` (the run's test report or null), `debug` (the visual-script debugger: `state` (`Detached`, `Running`, `Stopped`, `Stepping`, `StepEnded`), `stops`, `current` (the current stop's ID or null), `pauseHeld`) |
 | `input.set` | `keys` (name -> down), `mouseButtons` (name -> down), `mousePosition` ([x, y] in game-view pixels), `scroll` | `keys`, `mouseButtons` down and `mousePosition`; key and button names are KeyCode and MouseButton names; pressed and released last one frame |
 | `input.release` | — | Same as `input.set`; releases every key and mouse button (gamepads keep their polled state), as the window losing the focus does: a UI button held is not clicked |
 | `ui.layout` | `entity` (one UI element) | Where the screen-space UI is in the game view, laid out as the game lays it out to draw it and to find what the mouse is over (the running scene while playing, else the edited one, at the game view's size): `width`, `height`, `pointerOverUI` (an element that takes clicks was under the mouse at the latest update), `elements`: `[{ id, name, canvas, min, max, center, opacity, hitTarget, button, state }]` in drawing order (topmost last). `min`, `max` and `center` are game-view pixels from the top-left corner, as `input.set`'s `mousePosition`; `hitTarget` says whether the element takes clicks, `button` is the button its clicks go to (or null) and `state` (buttons only) is `normal`, `hovered`, `pressed` or `disabled`. InvalidParams when `entity` is not on the screen (outside every canvas, or hidden) |
-| `test.run` | `scene` (scene file relative to Assets; default a copy of the edited scene), `timeout` (game seconds, default 60), `timestep` (default 1/60) | `finished`, `timedOut`, `frames`, `passed`, `failed`, `exceptions`, `failures`, `results`: `[{ name, passed, message }]`; asynchronous; plays until the scripts call `TestReporter.Finish`, quit or time out |
+| `test.run` | `scene` (scene file relative to Assets; default a copy of the edited scene), `timeout` (game seconds, default 60), `timestep` (default 1/60) | `finished`, `timedOut`, `frames`, `passed`, `failed`, `exceptions`, `failures`, `results`: `[{ name, passed, message }]`; asynchronous; plays until the scripts call `TestReporter.Finish`, quit or time out; breakpoints are ignored (no debugger is attached) |
 
 ### log and viewport
 

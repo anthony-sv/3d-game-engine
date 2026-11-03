@@ -425,14 +425,16 @@ TEST_CASE("VisualScriptEditor: while playing, moving a node sends nothing and a 
 	CHECK(fixture.Window.Panel->GetSidebar().GetLiveValues().contains("Done"));
 	CHECK(fixture.Window.Panel->GetActivity().LiveValueReads - reads == second);
 
-	// A move: one step, the same program.
+	// A move: one step, the same program, before and after the next frame.
 	glm::vec2 const header = Testing::CanvasPoint(fixture.Model(), 12, glm::vec2(0.5f, 0.06f));
 	fixture.Window.Gui.DragPath(ToImVec2(header), ToImVec2(header + glm::vec2(64.0f, 64.0f)), fixture.Window.Drawer());
 	REQUIRE(fixture.Window.GetUndoCount() == undo + 1);
+	CHECK(VisualScriptEngine::GetProgramGeneration(fixture.Window.Graph) == generation);
 	fixture.Play.Advance(1, Timestep(FrameTime));
 	CHECK(VisualScriptEngine::GetProgramGeneration(fixture.Window.Graph) == generation);
 
-	// The Log's message typed in its chip's live widget: one step, a new program, and the waiting Delay survives it.
+	// The Log's message typed in its chip's live widget: one step, and a new program the running graph takes in the commit's
+	// own frame (spec-slice4 section 8.1), before any update; the waiting Delay survives it.
 	VisualScriptCanvasModel const& canvas = fixture.Model().GetCanvas();
 	std::optional<uint32_t> const log = canvas.FindNode(13);
 	REQUIRE(log.has_value());
@@ -453,9 +455,9 @@ TEST_CASE("VisualScriptEditor: while playing, moving a node sends nothing and a 
 	fixture.Window.Frames(2);
 	REQUIRE(fixture.Window.GetUndoCount() == undo + 2);
 	CHECK(fixture.Window.FindNode(13)->Inputs["Message"] == "Bye");
-	fixture.Play.Advance(1, Timestep(FrameTime));
 	CHECK(VisualScriptEngine::GetProgramGeneration(fixture.Window.Graph) > generation);
-	fixture.Play.Advance(30, Timestep(FrameTime));
+	CHECK(fixture.GetVariable(waiter, "Done") == ScriptFieldValue::FromBool(false));
+	fixture.Play.Advance(31, Timestep(FrameTime));
 	CHECK(fixture.GetVariable(waiter, "Done") == ScriptFieldValue::FromBool(true));
 
 	// An edit that breaks the graph: the game keeps the last working version, and the pill says so.

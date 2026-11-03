@@ -83,6 +83,10 @@ namespace Strada::ScriptEngineInternal
 		int32_t (*VisualScriptInvoke)(uint64_t entity, int32_t scriptEvent, float timeStep, uint64_t other) = nullptr;
 		int32_t (*VisualScriptDescribeInstanceVariables)(uint64_t entity, void* context, ReceiveFunction receive) = nullptr;
 		int32_t (*VisualScriptSetInstanceVariables)(uint64_t entity, char const* variables, int32_t variablesLength) = nullptr;
+		// The visual-script debugger (VisualScriptDebugger): a JSON request whose JSON reply comes through receive (error
+		// replies included), and the binary trace block (NotFound, receive not called, while no debugger is attached).
+		int32_t (*VisualScriptDebug)(char const* request, int32_t requestLength, void* context, ReceiveFunction receive) = nullptr;
+		int32_t (*VisualScriptTakeTrace)(void* context, ReceiveFunction receive) = nullptr;
 	};
 
 	// A graph a sent document refers to, with what was sent for it (the full document of a library, the interface of the
@@ -174,6 +178,8 @@ namespace Strada::ScriptEngineInternal
 		bool IsLibraryUnavailable = false;
 		// The last generation given to a program record.
 		uint64_t LastProgramGeneration = 0;
+		// VisualScriptDebugger::Attach succeeded and Detach has not since; the runtime's debugger goes with Shutdown, as this.
+		bool VisualScriptDebuggerAttached = false;
 		// Whether DevelopmentOnly nodes run (VisualScriptEngine::SetDevelopmentNodesEnabled): when they do not, the runtime
 		// receives every document with them Disabled.
 		bool DevelopmentNodesEnabled = true;

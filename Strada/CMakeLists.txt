@@ -218,6 +218,8 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/ScriptFieldSerialization.cpp
     Source/Strada/Script/ScriptFieldSerialization.h
     Source/Strada/Script/ScriptGlue.h
+    Source/Strada/Script/VisualScriptDebugger.cpp
+    Source/Strada/Script/VisualScriptDebugger.h
     Source/Strada/Script/VisualScriptEngine.cpp
     Source/Strada/Script/VisualScriptEngine.h
     Source/Strada/Script/VisualScriptLibrary.cpp
