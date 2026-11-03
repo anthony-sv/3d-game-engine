@@ -541,6 +541,22 @@ namespace
 				operation["fix"] = "Use Value";
 				operation["node"] = Node();
 			}
+			else if (kind == "Retarget")
+			{
+				// Untyped again, a graph the project does not have, or a node naming another element: most nodes are of no
+				// cross-graph kind (InvalidParams).
+				operation["node"] = Node();
+				size_t const form = m_Random.Pick(4);
+				operation["settings"] = form == 0   ? Json::object({{"Graph", nullptr}})
+				                        : form == 1 ? Json::object({{"Graph", "8146390251172604461"}})
+				                        : form == 2 && !m_Document.Variables.empty()
+				                            ? Json::object({{"Variable", Pick(m_Document.Variables).Name}})
+				                            : Json::object({{"Name", "Hit"}});
+			}
+			else if (kind == "SetKind")
+			{
+				operation["kind"] = m_Random.Pick(2) == 0 ? "Script" : "Library";
+			}
 			else
 			{
 				// Kinds a later track adds: a node, so that a refusal names the operation.

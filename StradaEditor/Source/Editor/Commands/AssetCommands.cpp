@@ -324,6 +324,12 @@ namespace Strada
 		{
 			AssetManager::RecordFileWrite(m_Graph);
 		}
+		else
+		{
+			// The asset shows a document the bytes put back do not load as. Their write may share the edit's write time (file
+			// systems keep coarse times), so a different time cannot be what tells the next refresh to load them.
+			AssetManager::MarkFileChanged(m_Graph);
+		}
 		return {};
 	}
 

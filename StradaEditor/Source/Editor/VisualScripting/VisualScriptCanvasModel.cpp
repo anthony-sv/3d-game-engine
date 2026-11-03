@@ -902,12 +902,30 @@ namespace Strada
 
 		VisualScriptNode const& GetDocumentNode(uint32_t visual) const { return m_Graph->Nodes[m_Scratch.VisualNodes[visual]]; }
 
-		// A Variable.Get's variable: a local of the shown function, else a variable of the document.
+		// A Variable.Get's variable: a local of the shown function, else a variable of the document; for a node naming another
+		// graph, that graph's variable (none when the resolver does not give the graph).
 		std::string_view FindVariableName(VisualScriptNode const& node) const
 		{
 			std::optional<uint32_t> const id = ReadID(node.Settings, "Variable");
 			if (!id)
 			{
+				return {};
+			}
+			if (!IsLocalVisualScriptReference(node))
+			{
+				std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(node);
+				VisualScriptDocument const* const target = graph && m_Source.Resolve ? m_Source.Resolve(*graph) : nullptr;
+				if (target == nullptr)
+				{
+					return {};
+				}
+				for (VisualScriptVariable const& variable : target->Variables)
+				{
+					if (variable.ID == *id)
+					{
+						return variable.Name;
+					}
+				}
 				return {};
 			}
 			VisualScriptDocument const& document = *m_Source.Display;
@@ -970,7 +988,7 @@ namespace Strada
 				}
 				else
 				{
-					source.Title = DeriveVisualScriptNodeTitle(node, *m_Source.Display);
+					source.Title = DeriveVisualScriptNodeTitle(node, *m_Source.Display, m_Source.Resolve);
 				}
 			}
 			if (node.Type == "Variable.Get")
@@ -2392,6 +2410,7 @@ namespace Strada
 		m_Theme = theme;
 		m_MeasureSignature = measure.Signature;
 		m_AssetVersion = source.AssetVersion;
+		m_GraphsRevision = source.GraphsRevision;
 		m_ShowsAssetNames = std::any_of(m_NodeRecords.begin(), m_NodeRecords.end(),
 		                                [](NodeRecord const& record)
 		                                {
@@ -2433,7 +2452,7 @@ namespace Strada
 	{
 		bool const namesChanged = m_ShowsAssetNames && source.AssetVersion != m_AssetVersion;
 		if (!m_HasSynced || source.Display == nullptr || source.Function != m_Function || source.Library != m_Library ||
-		    !(theme == m_Theme) || measure.Signature != m_MeasureSignature || namesChanged)
+		    !(theme == m_Theme) || measure.Signature != m_MeasureSignature || namesChanged || source.GraphsRevision != m_GraphsRevision)
 		{
 			return std::nullopt;
 		}

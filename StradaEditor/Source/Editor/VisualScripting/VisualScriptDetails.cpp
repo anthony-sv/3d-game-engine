@@ -3,12 +3,14 @@
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptCrossGraph.h"
 #include "Editor/VisualScripting/VisualScriptCurveEditor.h"
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Math/Math.h"
@@ -755,6 +757,7 @@ namespace Strada
 			DrawScript(frame);
 		}
 		ImGui::EndDisabled();
+		DrawKindModal(frame);
 		if (m_Subject != VisualScriptDetailsSubject::Comment)
 		{
 			// A comment drag that the selection ended does not go on when a comment is shown again.
@@ -777,6 +780,7 @@ namespace Strada
 		VisualScriptDocument const& document = frame.Document;
 		VisualScriptEditorModel const& model = frame.Context.Model;
 		ImGui::TextUnformatted(frame.Context.ScriptName.data(), frame.Context.ScriptName.data() + frame.Context.ScriptName.size());
+		DrawKind(frame);
 		Track(frame, "Description",
 		      [&]() -> std::optional<Edit>
 		      {
@@ -812,9 +816,324 @@ namespace Strada
 		}
 	}
 
+	void VisualScriptDetails::DrawKind(Frame& frame)
+	{
+		VisualScriptDocument const& document = frame.Document;
+		bool const library = document.Kind == VisualScriptDocumentKind::Library;
+		BeginRow("Kind");
+		std::optional<VisualScriptDocumentKind> chosen;
+		if (ImGui::BeginCombo("##kind", library ? "Function Library" : "Script"))
+		{
+			if (ImGui::Selectable("Script", !library) && library)
+			{
+				chosen = VisualScriptDocumentKind::Script;
+			}
+			EndRow("Kind/Script");
+			if (ImGui::Selectable("Function Library", library) && !library)
+			{
+				chosen = VisualScriptDocumentKind::Library;
+			}
+			EndRow("Kind/Function Library");
+			ImGui::EndCombo();
+		}
+		EndRow("Kind");
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+		{
+			ImGui::SetTooltip("A script runs on entities; a function library's functions are called by other graphs");
+		}
+		if (!chosen)
+		{
+			return;
+		}
+		// What a library cannot hold becomes an error, and so does every node of another script that names what the graph
+		// offered as the other kind (spec-slice3 §10.3): ask first.
+		bool const toLibrary = *chosen == VisualScriptDocumentKind::Library;
+		size_t const variables = toLibrary ? document.Variables.size() : 0;
+		size_t const events = toLibrary ? document.Graph.Nodes.size() : 0;
+		VisualScriptDocument switched = document;
+		switched.Kind = *chosen;
+		VisualScriptOtherUses const others =
+			CountVisualScriptRemovedReferrers(frame.Context.Graph, document, switched, frame.Context.Model.GetProjectGraphs());
+		if (variables == 0 && events == 0 && others.Nodes == 0)
+		{
+			SwitchKind(frame, *chosen);
+			return;
+		}
+		std::string question = fmt::format("Make {} {}?", frame.Context.ScriptName, toLibrary ? "a function library" : "a script");
+		if (variables > 0 || events > 0)
+		{
+			std::string held;
+			if (variables > 0)
+			{
+				held = CountOf(variables, "variable", "variables");
+			}
+			if (events > 0)
+			{
+				held += (held.empty() ? "" : " and ") + CountOf(events, "event node", "event nodes");
+			}
+			question += fmt::format(" Its {} cannot stay in a library: they will show as errors until you remove them.", held);
+		}
+		if (others.Nodes > 0)
+		{
+			bool const one = others.Nodes == 1;
+			question += fmt::format(" {} {}: they will show errors until fixed.", DescribeVisualScriptOtherUses(others, "node", "nodes"),
+			                        toLibrary ? (one ? "uses it as a script" : "use it as a script")
+			                                  : (one ? "calls its functions" : "call its functions"));
+		}
+		m_KindSwitch = chosen;
+		m_KindQuestion = std::move(question);
+		m_OpenKindModal = true;
+	}
+
+	void VisualScriptDetails::SwitchKind(Frame& frame, VisualScriptDocumentKind kind)
+	{
+		VisualScriptDocument edited = frame.Document;
+		if (Result<void> const set = VisualScriptEditing::SetDocumentKind(edited, kind); !set)
+		{
+			frame.Result.Notes.push_back(fmt::format("The kind stays: {}", set.GetError()));
+			return;
+		}
+		std::string const action = fmt::format("Make {} a {}", frame.Context.ScriptName,
+		                                       kind == VisualScriptDocumentKind::Library ? "Function Library" : "Script");
+		m_Commits.Commit(frame.Context, std::move(edited), action, 0, frame.Result);
+	}
+
+	void VisualScriptDetails::DrawKindModal(Frame& frame)
+	{
+		if (m_OpenKindModal)
+		{
+			ImGui::OpenPopup(KindModalId);
+			m_OpenKindModal = false;
+		}
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		bool const toLibrary = m_KindSwitch != VisualScriptDocumentKind::Script;
+		std::string const title = std::string(toLibrary ? "Make a Function Library" : "Make a Script") + KindModalId;
+		if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+		{
+			// Closed without an answer (the window was hidden): the kind stays.
+			m_KindSwitch.reset();
+			return;
+		}
+		ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+		ImGui::TextUnformatted(m_KindQuestion.c_str());
+		ImGui::PopTextWrapPos();
+		ImGui::Spacing();
+		bool const confirm = ImGui::Button(toLibrary ? "Make Function Library" : "Make Script") ||
+		                     ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+		ImGui::SameLine();
+		bool const cancel = ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+		if (confirm || cancel)
+		{
+			ImGui::CloseCurrentPopup();
+			std::optional<VisualScriptDocumentKind> const kind = std::exchange(m_KindSwitch, std::nullopt);
+			if (confirm && kind && !frame.ReadOnly)
+			{
+				SwitchKind(frame, *kind);
+			}
+		}
+		ImGui::EndPopup();
+	}
+
+	std::optional<VisualScriptDetails::Edit> VisualScriptDetails::MakeRetargetEdit(Frame& frame, VisualScriptNode const& node,
+	                                                                               std::string const& title, std::string_view label,
+	                                                                               Json settings) const
+	{
+		Edit edit{frame.Document, {}};
+		Result<uint32_t> const removed = VisualScriptEditing::RetargetVisualScriptNode(edit.Document, node.ID, std::move(settings),
+		                                                                               frame.Context.Model.MakeGraphResolver());
+		if (!removed)
+		{
+			frame.Result.Notes.push_back(fmt::format("{} keeps its {}: {}", title, label, removed.GetError()));
+			return std::nullopt;
+		}
+		edit.Action = fmt::format("Set {} on {}{}", label, title, RemovesLinks(removed.GetValue()));
+		return edit;
+	}
+
+	void VisualScriptDetails::DrawGraphSetting(Frame& frame, VisualScriptNode const& node, std::string const& title,
+	                                           VisualScriptSetting const& setting)
+	{
+		VisualScriptPaneContext& context = frame.Context;
+		VisualScriptEditorModel const& model = context.Model;
+		std::string const label = UI::FormatDisplayName(setting.Name);
+		std::optional<AssetHandle> const current = ReadVisualScriptGraphSetting(node);
+		bool const sender = node.Type == "Event.Send" || node.Type == "Event.Broadcast";
+		std::string const none = sender ? "None (any receiver, by name)" : "None (this script)";
+		VisualScriptDocumentKind const wanted =
+			setting.Constraint == "Library" ? VisualScriptDocumentKind::Library : VisualScriptDocumentKind::Script;
+		// The graphs the setting may name: the project's of that kind; this script too unless it is a call (a graph's own
+		// functions are called without the setting).
+		std::vector<std::pair<AssetHandle, std::string>> items;
+		for (VisualScriptProjectGraph const& graph : model.GetProjectGraphs())
+		{
+			bool const self = graph.Graph == context.Graph;
+			VisualScriptDocumentKind const kind = self ? frame.Document.Kind : graph.Kind;
+			if (kind != wanted || (self && node.Type == "Function.Call"))
+			{
+				continue;
+			}
+			std::string const name = graph.DisplayName.empty() ? graph.Graph.ToString() : graph.DisplayName;
+			items.emplace_back(graph.Graph, graph.Path.empty() ? name : fmt::format("{} \xC2\xB7 {}", name, graph.Path));
+		}
+		bool missing = false;
+		std::string preview = none;
+		if (current)
+		{
+			auto const found = std::find_if(items.begin(), items.end(),
+			                                [&current](auto const& item)
+			                                {
+												return item.first == *current;
+											});
+			if (found != items.end())
+			{
+				preview = found->second;
+			}
+			else if (VisualScriptProjectGraph const* const graph = model.FindProjectGraph(*current))
+			{
+				preview = graph->DisplayName.empty() ? graph->Graph.ToString() : graph->DisplayName;
+			}
+			else
+			{
+				std::string const digits = current->ToString();
+				preview = fmt::format("Missing ({}\xE2\x80\xA6)", digits.substr(0, 4));
+				missing = true;
+			}
+		}
+		else if (node.Settings.is_object() && node.Settings.contains("Graph"))
+		{
+			preview = "Invalid";
+			missing = true;
+		}
+		m_RowTexts.emplace_back(label, preview);
+		Track(frame, label,
+		      [&]() -> std::optional<Edit>
+		      {
+				  if (missing)
+				  {
+					  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(VisualScriptErrorColor));
+				  }
+				  bool const open = ImGui::BeginCombo("##value", preview.c_str());
+				  if (missing)
+				  {
+					  ImGui::PopStyleColor();
+				  }
+				  std::optional<Edit> edit;
+				  if (!open)
+				  {
+					  return edit;
+				  }
+				  if (!setting.Required)
+				  {
+					  if (ImGui::Selectable(none.c_str(), !current && !missing))
+					  {
+						  edit = MakeRetargetEdit(frame, node, title, label, Json::object({{"Graph", nullptr}}));
+					  }
+					  EndRow(fmt::format("{}/{}", label, none));
+				  }
+				  for (auto const& [graph, text] : items)
+				  {
+					  ImGui::PushID(text.c_str());
+					  if (ImGui::Selectable(text.c_str(), current && *current == graph))
+					  {
+						  edit = MakeRetargetEdit(frame, node, title, label, Json::object({{"Graph", graph.ToString()}}));
+					  }
+					  EndRow(fmt::format("{}/{}", label, text));
+					  ImGui::PopID();
+				  }
+				  if (items.empty())
+				  {
+					  ImGui::TextDisabled("%s", wanted == VisualScriptDocumentKind::Library ? "The project has no function library"
+				                                                                            : "The project has no other script");
+				  }
+				  ImGui::EndCombo();
+				  return edit;
+			  });
+	}
+
+	void VisualScriptDetails::DrawTargetEvents(Frame& frame, VisualScriptNode const& node, std::string const& title)
+	{
+		std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(node);
+		VisualScriptDocument const* const target = graph ? frame.Context.Model.ResolveGraph(*graph) : nullptr;
+		if (target == nullptr || target->Kind != VisualScriptDocumentKind::Script)
+		{
+			return;
+		}
+		std::vector<std::string> events;
+		for (VisualScriptNode const& candidate : target->Graph.Nodes)
+		{
+			auto const name = candidate.Type == "Event.Custom" && candidate.Settings.is_object() ? candidate.Settings.find("Name")
+			                                                                                     : Json::const_iterator();
+			if (candidate.Type == "Event.Custom" && candidate.Settings.is_object() && name != candidate.Settings.end() &&
+			    name->is_string() && std::find(events.begin(), events.end(), name->get_ref<std::string const&>()) == events.end())
+			{
+				events.push_back(name->get<std::string>());
+			}
+		}
+		std::string const current = GetString(node.Settings, "Name");
+		bool const known = std::find(events.begin(), events.end(), current) != events.end();
+		Track(frame, "Event",
+		      [&]() -> std::optional<Edit>
+		      {
+				  std::optional<Edit> edit;
+				  if (!ImGui::BeginCombo("##event", known ? current.c_str() : "Choose an Event"))
+				  {
+					  return edit;
+				  }
+				  for (std::string const& event : events)
+				  {
+					  ImGui::PushID(event.c_str());
+					  if (ImGui::Selectable(event.c_str(), event == current))
+					  {
+						  Result<Json> const parameters = VisualScriptEditing::FindVisualScriptEventParameters(*target, event);
+						  Json settings = Json::object({{"Name", event}});
+						  if (parameters)
+						  {
+							  settings["Parameters"] = parameters.GetValue();
+						  }
+						  edit = MakeRetargetEdit(frame, node, title, "Event", std::move(settings));
+					  }
+					  EndRow("Event/" + event);
+					  ImGui::PopID();
+				  }
+				  if (events.empty())
+				  {
+					  ImGui::TextDisabled("The script has no custom events");
+				  }
+				  ImGui::EndCombo();
+				  return edit;
+			  });
+	}
+
+	void VisualScriptDetails::DrawOtherUses(Frame& frame, VisualScriptElementKind kind, uint32_t id)
+	{
+		VisualScriptOtherUses const uses =
+			CountVisualScriptOtherUses(frame.Context.Model.GetProjectGraphs(), frame.Context.Graph, kind, id);
+		std::string const text =
+			kind == VisualScriptElementKind::Function
+				? fmt::format("Called by {} in {}", CountOf(uses.Nodes, "node", "nodes"), CountOf(uses.Scripts, "script", "scripts"))
+				: fmt::format("Used by {} in {}", CountOf(uses.Nodes, "node", "nodes"),
+		                      CountOf(uses.Scripts, "other script", "other scripts"));
+		ImGui::TextDisabled("%s", text.c_str());
+		m_RowTexts.emplace_back(kind == VisualScriptElementKind::Function ? "Called by" : "Used by", text);
+		if (kind == VisualScriptElementKind::Function && uses.Nodes > 0)
+		{
+			// The callers in every script, the drawer's references of the function (spec-slice3 §10.3).
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Find Callers"))
+			{
+				VisualScriptReference reference;
+				reference.ReferenceKind = VisualScriptReference::Kind::Function;
+				reference.ID = id;
+				reference.Graph = frame.Context.Graph;
+				frame.Result.FindReferences = std::move(reference);
+			}
+			EndRow("Find Callers");
+		}
+	}
+
 	void VisualScriptDetails::DrawNode(Frame& frame, VisualScriptNode const& node)
 	{
-		std::string const title = GetVisualScriptNodeTitle(frame.Document, frame.Analysis, node);
+		std::string const title = GetVisualScriptNodeTitle(frame.Document, frame.Analysis, node, frame.Context.Model.MakeGraphResolver());
 		ImGui::PushID(static_cast<int>(node.ID));
 		DrawNodeHeader(frame, node, title);
 		DrawGeneral(frame, node, title);
@@ -1012,6 +1331,11 @@ namespace Strada
 		std::string const action = fmt::format("Set {} on {}", label, title);
 		auto const setSetting = [&](Json newValue) -> std::optional<Edit>
 		{
+			// A setting that names another graph's elements changes the node's pins: they follow it.
+			if (VisualScriptEditing::FindVisualScriptSettingOperation(node, setting.Name) == "RetargetNode")
+			{
+				return MakeRetargetEdit(frame, node, title, label, Json::object({{setting.Name, std::move(newValue)}}));
+			}
 			Edit edit{document, action};
 			if (!VisualScriptEditing::SetSetting(edit.Document, node.ID, setting.Name, std::move(newValue)))
 			{
@@ -1078,7 +1402,8 @@ namespace Strada
 						return fmt::format("a custom event is named {} already", name);
 					}
 					VisualScriptDocument copy = document;
-					Result<uint32_t> const renamed = VisualScriptEditing::RenameCustomEvent(copy, node.ID, std::string(name));
+					Result<uint32_t> const renamed =
+						VisualScriptEditing::RenameCustomEvent(copy, node.ID, std::string(name), frame.Context.Graph);
 					return renamed ? std::nullopt : std::optional<std::string>(renamed.GetError());
 				},
 				focus);
@@ -1086,7 +1411,8 @@ namespace Strada
 			if (outcome.Committed)
 			{
 				VisualScriptDocument edited = document;
-				Result<uint32_t> const senders = VisualScriptEditing::RenameCustomEvent(edited, node.ID, *outcome.Committed);
+				Result<uint32_t> const senders =
+					VisualScriptEditing::RenameCustomEvent(edited, node.ID, *outcome.Committed, frame.Context.Graph);
 				if (senders)
 				{
 					std::string description = fmt::format("Rename Event {} to {}", current, *outcome.Committed);
@@ -1102,9 +1428,15 @@ namespace Strada
 				frame.Result.Notes.push_back(fmt::format("{} keeps its name: {}", current, *outcome.Refused));
 			}
 		}
+		else if (setting.Kind == "Graph")
+		{
+			DrawGraphSetting(frame, node, title, setting);
+		}
 		else if (setting.Kind == "String")
 		{
 			bool const format = node.Type == "FormatString" && setting.Name == "Format";
+			bool const typedSender = (node.Type == "Event.Send" || node.Type == "Event.Broadcast") && setting.Name == "Name" &&
+			                         !IsLocalVisualScriptReference(node);
 			if (focus)
 			{
 				ImGui::SetKeyboardFocusHere(0);
@@ -1119,6 +1451,10 @@ namespace Strada
 				                                  : ImGui::InputText("##value", &text);
 					  return changed ? setSetting(std::move(text)) : std::nullopt;
 				  });
+			if (typedSender)
+			{
+				DrawTargetEvents(frame, node, title);
+			}
 			if (format && frame.Analysis != nullptr)
 			{
 				// The inputs the runtime made of its placeholders.
@@ -1196,14 +1532,25 @@ namespace Strada
 		}
 		else if (setting.Kind == "Variable")
 		{
-			// The variables, and the locals of the function whose graph holds the node.
+			// The variables, and the locals of the function whose graph holds the node; of a node naming another graph, that
+			// graph's public variables (every one of this graph's own, read on another entity).
 			std::vector<std::pair<uint32_t, std::string>> items;
-			for (VisualScriptVariable const& variable : document.Variables)
+			bool const remote = !IsLocalVisualScriptReference(node);
+			std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(node);
+			VisualScriptDocument const* const target = !remote ? &document : graph ? context.Model.ResolveGraph(*graph) : nullptr;
+			bool const own = graph && *graph == context.Graph;
+			std::span<VisualScriptVariable const> const variables =
+				target != nullptr ? std::span<VisualScriptVariable const>(target->Variables) : std::span<VisualScriptVariable const>();
+			for (VisualScriptVariable const& variable : variables)
 			{
+				if (remote && !own && !variable.Public)
+				{
+					continue;
+				}
 				items.emplace_back(variable.ID,
 				                   fmt::format("{} \xC2\xB7 {}", variable.Name, DescribeVisualScriptType(frame.Library, variable.Type)));
 			}
-			if (std::optional<uint32_t> const owner = FindVisualScriptElementGraph(document, node.ID); owner && *owner != 0)
+			if (std::optional<uint32_t> const owner = FindVisualScriptElementGraph(document, node.ID); !remote && owner && *owner != 0)
 			{
 				if (VisualScriptFunction const* const function = FindFunction(document, *owner))
 				{
@@ -1234,6 +1581,7 @@ namespace Strada
 							  {
 								  edit = setSetting(id);
 							  }
+							  EndRow(fmt::format("{}/{}", label, text));
 							  ImGui::PopID();
 						  }
 						  ImGui::EndCombo();
@@ -1265,18 +1613,29 @@ namespace Strada
 						  }
 						  return text;
 					  };
-					  VisualScriptFunction const* const selected = FindFunction(document, static_cast<uint32_t>(current));
+					  // A call naming a library lists the library's functions.
+					  std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(node);
+					  VisualScriptDocument const* const target = IsLocalVisualScriptReference(node) ? &document
+				                                                 : graph                            ? context.Model.ResolveGraph(*graph)
+				                                                                                    : nullptr;
+					  std::span<VisualScriptFunction const> const functions = target != nullptr
+				                                                                  ? std::span<VisualScriptFunction const>(target->Functions)
+				                                                                  : std::span<VisualScriptFunction const>();
+					  VisualScriptFunction const* const selected =
+						  target != nullptr ? FindFunction(*target, static_cast<uint32_t>(current)) : nullptr;
 					  std::string const preview = selected != nullptr ? describe(*selected) : std::string("None");
 					  std::optional<Edit> edit;
 					  if (ImGui::BeginCombo("##value", preview.c_str()))
 					  {
-						  for (VisualScriptFunction const& function : document.Functions)
+						  for (VisualScriptFunction const& function : functions)
 						  {
 							  ImGui::PushID(static_cast<int>(function.ID));
-							  if (ImGui::Selectable(describe(function).c_str(), function.ID == current))
+							  std::string const text = describe(function);
+							  if (ImGui::Selectable(text.c_str(), function.ID == current))
 							  {
 								  edit = setSetting(function.ID);
 							  }
+							  EndRow(fmt::format("{}/{}", label, text));
 							  ImGui::PopID();
 						  }
 						  ImGui::EndCombo();
@@ -2120,9 +2479,10 @@ namespace Strada
 					}
 				}
 				VisualScriptNode const* const source = link ? FindVisualScriptNode(frame.Document, link->From.Node) : nullptr;
-				std::string const text =
-					fmt::format("{} \xE2\x86\x90 {}", label,
-				                source != nullptr ? GetVisualScriptNodeTitle(frame.Document, frame.Analysis, *source) : "?");
+				std::string const text = fmt::format("{} \xE2\x86\x90 {}", label,
+				                                     source != nullptr ? GetVisualScriptNodeTitle(frame.Document, frame.Analysis, *source,
+				                                                                                  frame.Context.Model.MakeGraphResolver())
+				                                                       : "?");
 				ImVec2 const size = UI::CalcArrowTextSize(text);
 				ImVec2 const position = ImGui::GetCursorScreenPos();
 				ViewScope const view(frame.ReadOnly, frame.ViewDepth);
@@ -2429,7 +2789,8 @@ namespace Strada
 		ImGui::TextUnformatted(fmt::format("{} selected", what).c_str());
 		if (!nodes.empty())
 		{
-			std::string const nodeWords = nodes.size() == 1 ? GetVisualScriptNodeTitle(document, frame.Analysis, *selectedNodes.front())
+			std::string const nodeWords = nodes.size() == 1 ? GetVisualScriptNodeTitle(document, frame.Analysis, *selectedNodes.front(),
+			                                                                           frame.Context.Model.MakeGraphResolver())
 			                                                : fmt::format("{} Nodes", nodes.size());
 			// The Enabled states act on the nodes that offer them (spec §9.5); the others keep theirs.
 			std::vector<uint32_t> enableable;
@@ -2466,7 +2827,8 @@ namespace Strada
 			else if (!enableable.empty())
 			{
 				std::string const enableableWords = enableable.size() == 1
-				                                        ? GetVisualScriptNodeTitle(document, frame.Analysis, *enableableNodes.front())
+				                                        ? GetVisualScriptNodeTitle(document, frame.Analysis, *enableableNodes.front(),
+				                                                                   frame.Context.Model.MakeGraphResolver())
 				                                        : fmt::format("{} Nodes", enableable.size());
 				bool const sameEnabled = std::all_of(enableableNodes.begin(), enableableNodes.end(),
 				                                     [&enableableNodes](VisualScriptNode const* node)
@@ -2818,6 +3180,10 @@ namespace Strada
 		{
 			frame.Result.FindReferences = VisualScriptReference{VisualScriptReference::Kind::Variable, variable.ID, {}};
 		}
+		if (variable.Public && document.Kind == VisualScriptDocumentKind::Script)
+		{
+			DrawOtherUses(frame, VisualScriptElementKind::Variable, variable.ID);
+		}
 		DrawElementProblems(frame, variable.ID, std::nullopt);
 		ImGui::PopID();
 	}
@@ -3018,6 +3384,10 @@ namespace Strada
 		if (ImGui::SmallButton(fmt::format("Called by {}", CountOf(calls, "node", "nodes")).c_str()))
 		{
 			frame.Result.FindReferences = VisualScriptReference{VisualScriptReference::Kind::Function, function.ID, {}};
+		}
+		if (document.Kind == VisualScriptDocumentKind::Library)
+		{
+			DrawOtherUses(frame, VisualScriptElementKind::Function, function.ID);
 		}
 		DrawElementProblems(frame, std::nullopt, function.ID);
 		ImGui::PopID();

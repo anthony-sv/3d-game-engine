@@ -291,6 +291,13 @@ namespace Strada
 			m_DocumentReads++;
 			changed = true;
 		}
+		// The other graphs' entries (spec-slice3 §10.2), read again when the project's scripts changed.
+		if (model.GetProjectRevision() != m_IndexedProjectRevision)
+		{
+			m_IndexedProjectRevision = model.GetProjectRevision();
+			m_Index.SetProjectGraphs(model.GetProjectGraphs(), context.Graph, model.GetProjectRevision());
+			changed = true;
+		}
 		if (!changed)
 		{
 			return;

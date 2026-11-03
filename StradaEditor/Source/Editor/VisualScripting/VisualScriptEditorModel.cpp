@@ -2,6 +2,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptLayout.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Timer.h"
 
@@ -436,8 +437,13 @@ namespace Strada
 		}
 		if (m_OutsideChange)
 		{
-			// The gesture was made on what is no longer there: it ends without an edit.
+			// The gesture was made on what is no longer there: it ends without an edit. Panning and the minimap edit nothing.
 			m_OutsideChange = false;
+			if (m_Gesture != VisualScriptGesture::Idle && m_Gesture != VisualScriptGesture::Panning &&
+			    m_Gesture != VisualScriptGesture::MinimapDrag)
+			{
+				result.InterruptedGesture = m_Gesture;
+			}
 			CancelGesture();
 		}
 		if (m_Function != 0 && FindGraph(GetDrawnDocument(), m_Function) == nullptr)
@@ -558,6 +564,8 @@ namespace Strada
 			std::sort(state.Bookmarks.begin(), state.Bookmarks.end());
 		}
 		state.MinimapVisible = m_Minimap.Alpha > 0.0f;
+		state.CanGoBack = CanGoBack();
+		state.CanGoForward = CanGoForward();
 		return state;
 	}
 
@@ -842,9 +850,10 @@ namespace Strada
 		}
 		Ref<VisualScriptDocument const> const& drawn = GetDrawnDocumentRef();
 		// Made with the library of now: a library seen first in a frame whose analysis was put off still counts as new later.
-		bool const current = m_AnalyzedDocument != nullptr && !m_AnalysisStale && m_AnalyzedLibrary == m_Library &&
+		// Other graphs it read that changed what it read of them make it out of date too (spec-slice3 §10.8).
+		bool const current = m_AnalyzedDocument != nullptr && !m_AnalysisStale && !m_OtherGraphsChanged && m_AnalyzedLibrary == m_Library &&
 		                     (drawn == m_AnalyzedDocument || HaveSameVisualScriptProgram(*drawn, *m_AnalyzedDocument));
-		if (current || (m_FailedLibrary == m_Library && drawn == m_FailedDocument))
+		if (current || (m_FailedLibrary == m_Library && drawn == m_FailedDocument && !m_OtherGraphsChanged))
 		{
 			// The program the analysis describes (only positions, comments or collapsing changed), or the very document the
 			// runtime could not analyze. The analysis describes the drawn document as well as the one it was made from (their
@@ -868,6 +877,7 @@ namespace Strada
 		m_HasAnalyzed = true;
 		m_LastAnalysisTime = time;
 		m_AnalysisPending = false;
+		m_OtherGraphsChanged = false;
 		if (analysis)
 		{
 			m_Analysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
@@ -895,8 +905,20 @@ namespace Strada
 		// shows an asset's name.
 		uint64_t const assetVersion = AssetManager::IsInitialized() ? AssetManager::GetVersion() : 0;
 		bool const assetNamesChanged = assetVersion != m_AssetVersion && m_Canvas.ShowsAssetNames();
+		// The project index's revision moves at every commit of any script, this window's own included: only a graph the drawn
+		// document names that now resolves to another document lays the canvas out again.
+		bool projectChanged = false;
+		if (m_ProjectRevision != m_CanvasProjectRevision)
+		{
+			m_CanvasProjectRevision = m_ProjectRevision;
+			if (!ResolvesCanvasGraphs())
+			{
+				projectChanged = true;
+				m_CanvasGraphsRevision++;
+			}
+		}
 		bool const stale = m_CanvasStale || result.DocumentChanged || result.AnalysisChanged || !(theme == m_Theme) || assetNamesChanged ||
-		                   m_Function != m_CanvasFunction;
+		                   m_Function != m_CanvasFunction || projectChanged;
 		if (!stale)
 		{
 			m_AssetVersion = assetVersion;
@@ -918,6 +940,13 @@ namespace Strada
 		source.ShowDiagnostics = !m_AnalysisStale;
 		source.AssetNames = DescribeAsset;
 		source.AssetVersion = assetVersion;
+		// The canvas's own graph is the document it shows (a preview included).
+		VisualScriptDocument const* const drawn = source.Display;
+		source.Resolve = [this, drawn](AssetHandle graph) -> VisualScriptDocument const*
+		{
+			return graph == m_Graph ? drawn : ResolveGraph(graph);
+		};
+		source.GraphsRevision = m_CanvasGraphsRevision;
 		std::optional<bool> synced;
 		{
 			PhaseTimer const timer(m_SyncTimings.Canvas);
@@ -931,6 +960,8 @@ namespace Strada
 			if (!synced)
 			{
 				synced = m_Canvas.Sync(source, m_Measure, theme);
+				// A layout-only commit changes no node's settings, so what its document names stays as recorded.
+				RecordCanvasGraphs();
 			}
 		}
 		m_LayoutOnlyFrom.reset();
@@ -988,6 +1019,134 @@ namespace Strada
 							 return a.first < b.first;
 						 });
 		IndexNodes(*m_AnalyzedDocument, m_AnalyzedNodes);
+	}
+
+	void VisualScriptEditorModel::SetProjectGraphs(std::span<VisualScriptProjectGraph const> graphs, uint64_t revision)
+	{
+		// Pointers only: the index lists the same graphs and documents while its revision stays.
+		bool const changed =
+			revision != m_ProjectRevision || !std::equal(graphs.begin(), graphs.end(), m_ProjectGraphs.begin(), m_ProjectGraphs.end(),
+		                                                 [](VisualScriptProjectGraph const& given, VisualScriptProjectGraph const& kept)
+		                                                 {
+															 return given.Graph == kept.Graph && given.Document == kept.Document;
+														 });
+		if (!changed)
+		{
+			return;
+		}
+		m_ProjectGraphs.assign(graphs.begin(), graphs.end());
+		m_ProjectRevision = revision;
+		// The other graphs the analysis read are compared only when the index changed (spec-slice3 §10.8): one lookup and a
+		// pointer comparison per graph, then the equality its use needs, so a neighbour reloaded unchanged costs no analysis.
+		if (changed && !m_OtherGraphsChanged && m_Analysis != nullptr && m_AnalyzedDocument != nullptr && !ReadsCurrentGraphs())
+		{
+			m_OtherGraphsChanged = true;
+			m_AnalysisPending = true;
+		}
+	}
+
+	bool VisualScriptEditorModel::ReadsCurrentGraphs() const
+	{
+		if (m_Analysis->Graphs.empty())
+		{
+			return true;
+		}
+		std::vector<VisualScriptGraphReference> const references = CollectVisualScriptReferences(*m_AnalyzedDocument);
+		for (auto const& [graph, read] : m_Analysis->Graphs)
+		{
+			if (graph == m_Graph)
+			{
+				// The window's own graph is the analyzed document itself.
+				continue;
+			}
+			VisualScriptProjectGraph const* const found = FindProjectGraph(graph);
+			VisualScriptDocument const* const current = found != nullptr ? found->Document.get() : nullptr;
+			if (current == read.get())
+			{
+				continue;
+			}
+			if (current == nullptr || read == nullptr)
+			{
+				return false;
+			}
+			auto const reference = std::find_if(references.begin(), references.end(),
+			                                    [graph](VisualScriptGraphReference const& candidate)
+			                                    {
+													return candidate.Graph == graph;
+												});
+			// A library the document calls, or a graph reached only through one, is read whole; the others for their interface,
+			// events included (a typed send's verification reads them).
+			bool const library = reference == references.end() || reference->Use == VisualScriptReferenceUse::Library;
+			bool const same = library ? HaveSameVisualScriptProgram(*read, *current)
+			                          : HaveSameVisualScriptProgram(MakeVisualScriptInterface(*read), MakeVisualScriptInterface(*current));
+			if (!same)
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool VisualScriptEditorModel::ResolvesCanvasGraphs() const
+	{
+		return std::all_of(m_CanvasGraphs.begin(), m_CanvasGraphs.end(),
+		                   [this](std::pair<AssetHandle, Ref<VisualScriptDocument const>> const& read)
+		                   {
+							   VisualScriptProjectGraph const* const found = FindProjectGraph(read.first);
+							   return (found != nullptr ? found->Document.get() : nullptr) == read.second.get();
+						   });
+	}
+
+	void VisualScriptEditorModel::RecordCanvasGraphs()
+	{
+		m_CanvasGraphs.clear();
+		if (GetDrawnDocumentRef() == nullptr)
+		{
+			return;
+		}
+		for (VisualScriptGraphReference const& reference : CollectVisualScriptReferences(GetDrawnDocument()))
+		{
+			// The window's own graph resolves to the drawn document, which a change of lays the canvas out anyway.
+			if (reference.Graph != m_Graph)
+			{
+				VisualScriptProjectGraph const* const found = FindProjectGraph(reference.Graph);
+				m_CanvasGraphs.emplace_back(reference.Graph, found != nullptr ? found->Document : nullptr);
+			}
+		}
+	}
+
+	VisualScriptProjectGraph const* VisualScriptEditorModel::FindProjectGraph(AssetHandle graph) const
+	{
+		auto const found = std::find_if(m_ProjectGraphs.begin(), m_ProjectGraphs.end(),
+		                                [graph](VisualScriptProjectGraph const& candidate)
+		                                {
+											return candidate.Graph == graph;
+										});
+		return found != m_ProjectGraphs.end() ? &*found : nullptr;
+	}
+
+	VisualScriptDocument const* VisualScriptEditorModel::ResolveGraph(AssetHandle graph) const
+	{
+		if (graph == m_Graph)
+		{
+			return &GetDisplayDocument();
+		}
+		VisualScriptProjectGraph const* const found = FindProjectGraph(graph);
+		return found != nullptr ? found->Document.get() : nullptr;
+	}
+
+	VisualScriptGraphResolver VisualScriptEditorModel::MakeGraphResolver() const
+	{
+		return [this](AssetHandle graph)
+		{
+			return ResolveGraph(graph);
+		};
+	}
+
+	std::string VisualScriptEditorModel::GetGraphName(AssetHandle graph) const
+	{
+		VisualScriptProjectGraph const* const found = FindProjectGraph(graph);
+		return found != nullptr && !found->DisplayName.empty() ? found->DisplayName : graph.ToString();
 	}
 
 	VisualScriptDocument const& VisualScriptEditorModel::GetDrawnDocument() const
@@ -1218,9 +1377,36 @@ namespace Strada
 	{
 		PendingOpen pending;
 		pending.Request = request;
+		if (request.Origin && request.Origin->Graph.IsValid() && request.Origin->Graph != m_Graph)
+		{
+			VisualScriptOrigin const& origin = *request.Origin;
+			HistoryEntry entry{VisualScriptViewState{origin.Function, origin.Center, origin.Zoom}, origin.Graph};
+			switch (origin.Step)
+			{
+				case VisualScriptHistoryStep::Jump:
+					PushHistory(std::move(entry));
+					break;
+				case VisualScriptHistoryStep::Back:
+					m_Forward.push_back(std::move(entry));
+					if (m_Forward.size() > MaxHistory)
+					{
+						m_Forward.erase(m_Forward.begin());
+					}
+					break;
+				case VisualScriptHistoryStep::Forward:
+					m_Back.push_back(std::move(entry));
+					if (m_Back.size() > MaxHistory)
+					{
+						m_Back.erase(m_Back.begin());
+					}
+					break;
+			}
+			// The view left is not pushed: Back goes to the window the request came from.
+			pending.Pushed = true;
+		}
 		if (request.Function && *request.Function != m_Function && (m_Display == nullptr || HasFunction(*request.Function)))
 		{
-			if (m_HasShownView)
+			if (m_HasShownView && !pending.Pushed)
 			{
 				PushHistory(m_View.GetTargetState());
 				pending.Pushed = true;
@@ -1835,7 +2021,9 @@ namespace Strada
 				{
 					return false;
 				}
-				if (node->Type == "Function.Call")
+				// A node naming another graph opens there: the controller's OpenNode asks the window manager.
+				bool const local = IsLocalVisualScriptReference(*node);
+				if (node->Type == "Function.Call" && local)
 				{
 					std::optional<uint32_t> const function = ReadIdSetting(*node, "Function");
 					if (function && *function != 0 && HasFunction(*function))
@@ -1844,7 +2032,7 @@ namespace Strada
 						return true;
 					}
 				}
-				if (node->Type == "Event.Send" && GoToCustomEvent(*node))
+				if (node->Type == "Event.Send" && local && GoToCustomEvent(*node))
 				{
 					return true;
 				}
@@ -3631,7 +3819,12 @@ namespace Strada
 
 	void VisualScriptEditorModel::PushHistory(VisualScriptViewState const& view)
 	{
-		m_Back.push_back(view);
+		PushHistory(HistoryEntry{view, {}});
+	}
+
+	void VisualScriptEditorModel::PushHistory(HistoryEntry entry)
+	{
+		m_Back.push_back(std::move(entry));
 		if (m_Back.size() > MaxHistory)
 		{
 			m_Back.erase(m_Back.begin());
@@ -3639,19 +3832,37 @@ namespace Strada
 		m_Forward.clear();
 	}
 
+	void VisualScriptEditorModel::RequestOtherGraph(HistoryEntry const& entry, VisualScriptHistoryStep step)
+	{
+		VisualScriptViewState const current = m_View.GetTargetState();
+		VisualScriptOpenRequest request;
+		request.Graph = entry.Graph;
+		request.Function = entry.View.Function;
+		request.Center = entry.View.Center;
+		request.Zoom = entry.View.Zoom;
+		request.Origin = VisualScriptOrigin{m_Graph, current.Function, current.Center, current.Zoom, step};
+		m_OtherGraphRequests.push_back(std::move(request));
+	}
+
 	void VisualScriptEditorModel::GoBack(double time)
 	{
 		while (!m_Back.empty())
 		{
-			VisualScriptViewState const target = m_Back.back();
+			HistoryEntry const target = m_Back.back();
 			m_Back.pop_back();
-			if (!HasFunction(target.Function))
+			if (target.Graph.IsValid())
+			{
+				// Another graph's window shows that view, and keeps this one for its Forward.
+				RequestOtherGraph(target, VisualScriptHistoryStep::Back);
+				return;
+			}
+			if (!HasFunction(target.View.Function))
 			{
 				// A function deleted since: its views are skipped.
 				continue;
 			}
-			m_Forward.push_back(m_View.GetTargetState());
-			GoTo(target, time);
+			m_Forward.push_back(HistoryEntry{m_View.GetTargetState(), {}});
+			GoTo(target.View, time);
 			return;
 		}
 	}
@@ -3660,14 +3871,19 @@ namespace Strada
 	{
 		while (!m_Forward.empty())
 		{
-			VisualScriptViewState const target = m_Forward.back();
+			HistoryEntry const target = m_Forward.back();
 			m_Forward.pop_back();
-			if (!HasFunction(target.Function))
+			if (target.Graph.IsValid())
+			{
+				RequestOtherGraph(target, VisualScriptHistoryStep::Forward);
+				return;
+			}
+			if (!HasFunction(target.View.Function))
 			{
 				continue;
 			}
-			m_Back.push_back(m_View.GetTargetState());
-			GoTo(target, time);
+			m_Back.push_back(HistoryEntry{m_View.GetTargetState(), {}});
+			GoTo(target.View, time);
 			return;
 		}
 	}

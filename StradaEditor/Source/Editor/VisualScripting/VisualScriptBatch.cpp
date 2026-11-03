@@ -3,6 +3,7 @@
 #include "Editor/VisualScripting/VisualScriptArrange.h"
 #include "Editor/VisualScripting/VisualScriptCanvasPins.h"
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
+#include "Editor/VisualScripting/VisualScriptCrossGraph.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptHeadlessCanvas.h"
 #include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
@@ -424,6 +425,8 @@ namespace Strada
 			bool SetArrayElements(Json& result);
 			bool SetFormula(Json& result);
 			bool SetTimeline(Json& result);
+			bool SetKind(Json& result);
+			bool Retarget(Json& result);
 			bool SetNodeComment(Json& result);
 			bool SetCollapsed(Json& result);
 			bool SetEnabled(Json& result);
@@ -1734,12 +1737,16 @@ namespace Strada
 						value = handle->ToString();
 					}
 				}
-				// The graph the node names, from the settings given, else those it has.
+				// The graph the node names, from the settings given (a null one removed), else those it has.
 				VisualScriptNode probe;
 				probe.Settings = settings;
 				if (existing != nullptr && !settings.contains("Graph") && existing->is_object() && existing->contains("Graph"))
 				{
 					probe.Settings["Graph"] = (*existing)["Graph"];
+				}
+				if (probe.Settings.contains("Graph") && probe.Settings["Graph"].is_null())
+				{
+					probe.Settings.erase("Graph");
 				}
 				bool const local = IsLocalVisualScriptReference(probe);
 				std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(probe);
@@ -1787,6 +1794,102 @@ namespace Strada
 						}
 					}
 				}
+				return true;
+			}
+
+			// The document of a graph a node names: the working document for the edited script itself (spec §7.3 rule 3), else
+			// the context's; null when none is at hand.
+			VisualScriptDocument const* ResolveGraphDocument(AssetHandle graph) const
+			{
+				if (m_Context.Graph.IsValid() && graph == m_Context.Graph)
+				{
+					return &m_Working;
+				}
+				return m_Context.FindDocument ? m_Context.FindDocument(graph) : nullptr;
+			}
+
+			VisualScriptGraphResolver MakeGraphResolver() const
+			{
+				return [this](AssetHandle graph)
+				{
+					return ResolveGraphDocument(graph);
+				};
+			}
+
+			// The other graphs for the quick fixes: their documents, this script's being the working document, and their names.
+			VisualScriptQuickFixGraphs MakeFixGraphs() const
+			{
+				return VisualScriptQuickFixGraphs{MakeGraphResolver(), m_Context.FindGraphName};
+			}
+
+			// A typed Event.Send or Event.Broadcast given a Graph and a Name but no Parameters takes those of that graph's custom
+			// event (spec §4.3): settings (the members given, a null one removed) over existing (the node's, when it has some).
+			// A graph not at hand leaves them out (the analysis then says UncheckedGraph); a graph without the event fails at
+			// "<field>.Name" with its custom events' names.
+			bool FillEventParameters(std::string_view type, Json& settings, std::string_view field, Json const* existing = nullptr)
+			{
+				if ((type != "Event.Send" && type != "Event.Broadcast") || !settings.is_object())
+				{
+					return true;
+				}
+				VisualScriptNode patched;
+				patched.Settings = existing != nullptr && existing->is_object() ? *existing : Json::object();
+				for (auto const& [name, value] : settings.items())
+				{
+					if (value.is_null())
+					{
+						patched.Settings.erase(name);
+					}
+					else
+					{
+						patched.Settings[name] = value;
+					}
+				}
+				std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(patched);
+				auto const name = patched.Settings.find("Name");
+				if (!graph || patched.Settings.contains("Parameters") || name == patched.Settings.end() || !name->is_string())
+				{
+					return true;
+				}
+				VisualScriptDocument const* const target = ResolveGraphDocument(*graph);
+				if (target == nullptr)
+				{
+					return true;
+				}
+				Result<Json> parameters = Editing::FindVisualScriptEventParameters(*target, name->get_ref<std::string const&>());
+				if (!parameters)
+				{
+					std::vector<std::string> names;
+					for (VisualScriptNode const& node : target->Graph.Nodes)
+					{
+						auto const eventName =
+							node.Type == "Event.Custom" && node.Settings.is_object() ? node.Settings.find("Name") : Json::const_iterator();
+						if (node.Type == "Event.Custom" && node.Settings.is_object() && eventName != node.Settings.end() &&
+						    eventName->is_string() &&
+						    std::find(names.begin(), names.end(), eventName->get_ref<std::string const&>()) == names.end())
+						{
+							names.push_back(eventName->get<std::string>());
+						}
+					}
+					std::sort(names.begin(), names.end());
+					return FailField(fmt::format("{}.Name", field), parameters.GetError(), Json::object({{"names", std::move(names)}}));
+				}
+				settings["Parameters"] = std::move(parameters.GetValue());
+				return true;
+			}
+
+			// Retargets a node with settings already converted (Retarget, and SetSetting's route).
+			bool ApplyRetarget(uint32_t node, Json settings, Json& result)
+			{
+				Result<uint32_t> const removed =
+					Editing::RetargetVisualScriptNode(m_Working, node, std::move(settings), MakeGraphResolver());
+				if (!removed)
+				{
+					return FailEdit(removed.GetError());
+				}
+				result["removedLinks"] = removed.GetValue();
+				RecordChange(PinLevel);
+				RecordRemovals();
 				return true;
 			}
 
@@ -2115,7 +2218,7 @@ namespace Strada
 			std::optional<VisualScriptBatchError> m_Error;
 		};
 
-		constexpr std::array<BatchOperation, 49> BatchOperations = {{
+		constexpr std::array<BatchOperation, 51> BatchOperations = {{
 			{"AddNode", "type* function position settings literals collapsed enabled as", &BatchExecutor::AddNode},
 			{"Delete", "elements* bridge", &BatchExecutor::Delete},
 			{"Duplicate", "elements* labels", &BatchExecutor::Duplicate},
@@ -2144,6 +2247,7 @@ namespace Strada
 			{"AddComment", "text* function elements position size color as", &BatchExecutor::AddComment},
 			{"SetComment", "comment* text position size color", &BatchExecutor::SetComment},
 			{"SetDescription", "description*", &BatchExecutor::SetDescription},
+			{"SetKind", "kind*", &BatchExecutor::SetKind},
 			{"AddVariable", "name* type* value public tooltip range as", &BatchExecutor::AddVariable},
 			{"SetVariable", "variable* name type value public tooltip range formerNames", &BatchExecutor::SetVariable},
 			{"DeleteVariable", "variable* removeNodes", &BatchExecutor::DeleteVariable},
@@ -2160,6 +2264,7 @@ namespace Strada
 			{"DuplicateFunction", "function* name", &BatchExecutor::DuplicateFunction},
 			{"PromoteToVariable", "node* pin* direction* name as", &BatchExecutor::PromoteToVariable},
 			{"PromoteToFunctionInput", "node* pin* name", &BatchExecutor::PromoteToFunctionInput},
+			{"Retarget", "node* settings*", &BatchExecutor::Retarget},
 			{"Arrange", "function scope nodes extents", &BatchExecutor::Arrange},
 			{"Align", "elements* alignment* extents", &BatchExecutor::Align},
 			{"Distribute", "elements* axis* extents", &BatchExecutor::Distribute},
@@ -2333,7 +2438,7 @@ namespace Strada
 					return FailField("settings", "expected an object of settings");
 				}
 				settings = *given;
-				if (!ConvertSettings(type, settings, *function, "settings"))
+				if (!ConvertSettings(type, settings, *function, "settings") || !FillEventParameters(type, settings, "settings"))
 				{
 					return false;
 				}
@@ -2946,7 +3051,7 @@ namespace Strada
 				{
 					return FailField("value", "the Name of a custom event is a string");
 				}
-				Result<uint32_t> const renamed = Editing::RenameCustomEvent(m_Working, id, value.get<std::string>());
+				Result<uint32_t> const renamed = Editing::RenameCustomEvent(m_Working, id, value.get<std::string>(), m_Context.Graph);
 				if (!renamed)
 				{
 					return FailEdit(renamed.GetError());
@@ -2987,6 +3092,19 @@ namespace Strada
 				{
 					return false;
 				}
+			}
+			else if (route == "RetargetNode")
+			{
+				// The setting names the other graph's elements, whose declarations give the pins (a Send's Parameters copied
+				// from the target's event as AddNode copies them).
+				Json settings = Json::object({{name, std::move(value)}});
+				Json const existing = place->Node->Settings;
+				if (!ConvertSettings(place->Node->Type, settings, place->Function, "value", &existing, true) ||
+				    !FillEventParameters(place->Node->Type, settings, "value", &existing))
+				{
+					return false;
+				}
+				return ApplyRetarget(id, std::move(settings), result);
 			}
 			else if (!route.empty())
 			{
@@ -3085,7 +3203,7 @@ namespace Strada
 			{
 				return false;
 			}
-			Result<uint32_t> const renamed = Editing::RenameCustomEvent(m_Working, node, name);
+			Result<uint32_t> const renamed = Editing::RenameCustomEvent(m_Working, node, name, m_Context.Graph);
 			if (!renamed)
 			{
 				return FailEdit(renamed.GetError());
@@ -3482,6 +3600,52 @@ namespace Strada
 			RecordChange(LayoutLevel);
 			static_cast<void>(result);
 			return true;
+		}
+
+		bool BatchExecutor::SetKind(Json& result)
+		{
+			std::string kind;
+			if (!Read("kind", kind))
+			{
+				return false;
+			}
+			std::optional<VisualScriptDocumentKind> const parsed = VisualScriptDocumentKindFromString(kind);
+			if (!parsed)
+			{
+				return FailField("kind", fmt::format("{} is no kind of visual script: Script or Library", kind));
+			}
+			if (Result<void> const set = Editing::SetDocumentKind(m_Working, *parsed); !set)
+			{
+				return FailEdit(set.GetError());
+			}
+			// What the analysis finds of every element changes with the kind.
+			RecordChange(PinLevel);
+			static_cast<void>(result);
+			return true;
+		}
+
+		bool BatchExecutor::Retarget(Json& result)
+		{
+			uint32_t id = 0;
+			std::optional<ElementPlace> const place = ResolveNodeField("node", id);
+			if (!place)
+			{
+				return false;
+			}
+			Json const* const given = Find("settings");
+			if (given == nullptr || !given->is_object())
+			{
+				return FailField("settings",
+				                 "expected an object of settings: Graph, Function, Variable, Name or Parameters (null removes one)");
+			}
+			Json settings = *given;
+			Json const existing = place->Node->Settings;
+			if (!ConvertSettings(place->Node->Type, settings, place->Function, "settings", &existing) ||
+			    !FillEventParameters(place->Node->Type, settings, "settings", &existing))
+			{
+				return false;
+			}
+			return ApplyRetarget(id, std::move(settings), result);
 		}
 
 		// --- Variables and locals ---
@@ -4382,6 +4546,11 @@ namespace Strada
 				}
 				case VisualScriptFixKind::GoTo:
 					return "Delete";
+				case VisualScriptFixKind::OpenGraph:
+					return "a graph.edit of the graph it names";
+				case VisualScriptFixKind::Retarget:
+				case VisualScriptFixKind::UpdateParameters:
+				case VisualScriptFixKind::DeleteVariable:
 				case VisualScriptFixKind::ChangeNodeType:
 				case VisualScriptFixKind::UsePin:
 				case VisualScriptFixKind::RemoveInput:
@@ -4551,7 +4720,9 @@ namespace Strada
 				            Json::object({{"candidates", std::move(candidates)}}));
 			}
 			VisualScriptDiagnostic const& diagnostic = *matches.front();
-			std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(m_Working, *m_Analysis, diagnostic, *m_Library);
+			VisualScriptQuickFixGraphs const graphs = MakeFixGraphs();
+			std::vector<VisualScriptQuickFix> const fixes =
+				GetVisualScriptQuickFixes(m_Working, *m_Analysis, diagnostic, *m_Library, &graphs);
 			auto const chosen = std::find_if(fixes.begin(), fixes.end(),
 			                                 [&label](VisualScriptQuickFix const& candidate)
 			                                 {
@@ -4575,7 +4746,7 @@ namespace Strada
 				                                    GetNavigatingFixOperation(*chosen, m_Working)));
 			}
 			uint32_t const largest = Editing::GetLargestVisualScriptID(m_Working);
-			if (Result<void> const applied = ApplyVisualScriptQuickFix(m_Working, *m_Analysis, diagnostic, *chosen); !applied)
+			if (Result<void> const applied = ApplyVisualScriptQuickFix(m_Working, *m_Analysis, diagnostic, *chosen, &graphs); !applied)
 			{
 				return FailEdit(applied.GetError());
 			}
@@ -4600,10 +4771,11 @@ namespace Strada
 	}
 
 	Json GetVisualScriptFixOperations(VisualScriptDocument const& document, VisualScriptAnalysis const& analysis,
-	                                  VisualScriptDiagnostic const& diagnostic, VisualScriptLibrary const& library)
+	                                  VisualScriptDiagnostic const& diagnostic, VisualScriptLibrary const& library,
+	                                  VisualScriptQuickFixGraphs const* graphs)
 	{
 		Json operations = Json::array();
-		for (VisualScriptQuickFix const& fix : GetVisualScriptQuickFixes(document, analysis, diagnostic, library))
+		for (VisualScriptQuickFix const& fix : GetVisualScriptQuickFixes(document, analysis, diagnostic, library, graphs))
 		{
 			if (fix.Navigates)
 			{

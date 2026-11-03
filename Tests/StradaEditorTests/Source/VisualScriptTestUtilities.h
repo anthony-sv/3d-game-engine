@@ -14,6 +14,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/FileSystem.h"
@@ -141,6 +142,11 @@ namespace Strada::Testing
 			{
 				json["Span"] = Json::array({diagnostic.Span->first, diagnostic.Span->second});
 			}
+			// A cross-graph finding names the other graph by its handle, as a string.
+			if (diagnostic.Graph.IsValid())
+			{
+				json["Graph"] = diagnostic.Graph.ToString();
+			}
 			json["Message"] = diagnostic.Message;
 			if (!diagnostic.Suggestions.empty())
 			{
@@ -158,9 +164,13 @@ namespace Strada::Testing
 		class FixtureAnalyzer
 		{
 		public:
-			FixtureAnalyzer(VisualScriptLibrary const& library, VisualScriptDocument const& document)
+			// graphs gives the documents of other graphs the nodes name (the document analyzed for its own handle): Get, Set
+			// and Function.Call naming one are shaped from its declarations, as the runtime shapes them; without it they have
+			// their templates' pins, incomplete.
+			FixtureAnalyzer(VisualScriptLibrary const& library, VisualScriptDocument const& document, VisualScriptGraphResolver graphs = {})
 				: m_Library(library),
-				  m_Document(document)
+				  m_Document(document),
+				  m_Graphs(std::move(graphs))
 			{
 			}
 
@@ -387,9 +397,10 @@ namespace Strada::Testing
 															{
 																return true;
 															}
-															std::optional<uint32_t> const callee = node.Type == "Function.Call"
-							                                                                           ? ReadIDSetting(node, "Function")
-							                                                                           : std::nullopt;
+															std::optional<uint32_t> const callee =
+																node.Type == "Function.Call" && IsLocalVisualScriptReference(node)
+																	? ReadIDSetting(node, "Function")
+																	: std::nullopt;
 															return callee && m_LatentFunctions.contains(*callee);
 														});
 						if (latent)
@@ -421,7 +432,12 @@ namespace Strada::Testing
 				shape.Pure = kind.Pure;
 				shape.Latent = kind.Latent;
 				std::string_view const type = kind.Type;
-				if (type == "Variable.Get" || type == "Variable.Set")
+				if ((type == "Variable.Get" || type == "Variable.Set" || type == "Function.Call") &&
+				    !IsLocalVisualScriptReference(*shape.Node))
+				{
+					ShapeRemote(shape);
+				}
+				else if (type == "Variable.Get" || type == "Variable.Set")
 				{
 					ShapeVariable(shape, type == "Variable.Set");
 				}
@@ -509,6 +525,80 @@ namespace Strada::Testing
 				{
 					shape.Title = (set ? "Set " : "Get ") + *name;
 				}
+			}
+
+			// A Get, Set or call naming another graph: shaped from that graph's declarations (MakeVisualScriptCrossGraphPins's
+			// rules: a script's variable with the Target entity, a library's function), titled after them; incomplete when
+			// the graph is not at hand or lacks what the node names.
+			void ShapeRemote(Shape& shape) const
+			{
+				std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(*shape.Node);
+				VisualScriptDocument const* const target = graph && m_Graphs ? m_Graphs(*graph) : nullptr;
+				bool const call = shape.Node->Type == "Function.Call";
+				std::optional<uint32_t> const id = ReadIDSetting(*shape.Node, call ? "Function" : "Variable");
+				if (target == nullptr || !id)
+				{
+					shape.PinsComplete = false;
+					return;
+				}
+				if (call)
+				{
+					auto const function = std::find_if(target->Functions.begin(), target->Functions.end(),
+					                                   [&id](VisualScriptFunction const& candidate)
+					                                   {
+														   return candidate.ID == *id;
+													   });
+					if (target->Kind != VisualScriptDocumentKind::Library || function == target->Functions.end())
+					{
+						shape.PinsComplete = false;
+						return;
+					}
+					if (!function->Pure)
+					{
+						shape.Pins.push_back(MakeExecIn());
+					}
+					for (VisualScriptParameter const& input : function->Inputs)
+					{
+						shape.Pins.push_back(MakeDeclaredPin(input.Name, VisualScriptPinDirection::In, ResolveDeclaredType(input.Type)));
+					}
+					if (!function->Pure)
+					{
+						shape.Pins.push_back(MakeExecOut());
+					}
+					for (VisualScriptParameter const& output : function->Outputs)
+					{
+						shape.Pins.push_back(MakeDeclaredPin(output.Name, VisualScriptPinDirection::Out, ResolveDeclaredType(output.Type)));
+					}
+					shape.Title = function->Name;
+					shape.Pure = function->Pure;
+					return;
+				}
+				auto const variable = std::find_if(target->Variables.begin(), target->Variables.end(),
+				                                   [&id](VisualScriptVariable const& candidate)
+				                                   {
+													   return candidate.ID == *id;
+												   });
+				if (target->Kind != VisualScriptDocumentKind::Script || variable == target->Variables.end())
+				{
+					shape.PinsComplete = false;
+					return;
+				}
+				bool const set = shape.Node->Type == "Variable.Set";
+				std::optional<std::string> const type = ResolveDeclaredType(variable->Type);
+				Json entity = MakeAnalysisPin("Target", VisualScriptPinDirection::In, "Strada.Entity");
+				entity["DefaultsToSelf"] = true;
+				if (set)
+				{
+					shape.Pins.push_back(MakeExecIn());
+				}
+				shape.Pins.push_back(std::move(entity));
+				if (set)
+				{
+					shape.Pins.push_back(MakeDeclaredPin("Value", VisualScriptPinDirection::In, type));
+					shape.Pins.push_back(MakeExecOut());
+				}
+				shape.Pins.push_back(MakeDeclaredPin("Value", VisualScriptPinDirection::Out, type));
+				shape.Title = (set ? "Set " : "Get ") + variable->Name;
 			}
 
 			// The signature of the function whose graph holds the node: Entry outputs its inputs, Return takes its outputs.
@@ -985,6 +1075,7 @@ namespace Strada::Testing
 
 			VisualScriptLibrary const& m_Library;
 			VisualScriptDocument const& m_Document;
+			VisualScriptGraphResolver m_Graphs;
 			std::set<uint32_t> m_LatentFunctions;
 		};
 	}
@@ -993,9 +1084,9 @@ namespace Strada::Testing
 	// given diagnostics after its own.
 	[[nodiscard]] inline Result<VisualScriptAnalysis>
 	AnalyzeWithFixtureTemplates(VisualScriptLibrary const& library, VisualScriptDocument const& document,
-	                            std::span<VisualScriptDiagnostic const> extraDiagnostics = {})
+	                            std::span<VisualScriptDiagnostic const> extraDiagnostics = {}, VisualScriptGraphResolver graphs = {})
 	{
-		Json analysis = Detail::FixtureAnalyzer(library, document).Analyze();
+		Json analysis = Detail::FixtureAnalyzer(library, document, std::move(graphs)).Analyze();
 		for (VisualScriptDiagnostic const& diagnostic : extraDiagnostics)
 		{
 			analysis["Diagnostics"].push_back(Detail::SerializeDiagnostic(diagnostic));
@@ -1018,8 +1109,10 @@ namespace Strada::Testing
 			return m_Available ? m_Library : nullptr;
 		}
 
-		// Fails while the runtime is stopped. The fixture analyzer reads no other graph, so the graph analyzed does not matter.
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle) override
+		// Fails while the runtime is stopped. The nodes naming another graph are shaped from the graphs SetGraphs gave (self,
+		// the graph analyzed, is the document itself), and the analysis lists those it read with their documents (Graphs), as
+		// the engine's does.
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
 			m_AnalyzeCallCount++;
 			if (!m_Available)
@@ -1030,9 +1123,27 @@ namespace Strada::Testing
 			{
 				return Error{"the scripting runtime failed to analyze the visual script"};
 			}
-			Result<VisualScriptAnalysis> analysis = AnalyzeWithFixtureTemplates(*m_Library, document, m_InjectedDiagnostics);
+			VisualScriptGraphResolver const graphs = [this, &document, self](AssetHandle graph) -> VisualScriptDocument const*
+			{
+				if (self.IsValid() && graph == self)
+				{
+					return &document;
+				}
+				auto const found = m_Graphs.find(graph);
+				return found != m_Graphs.end() ? found->second.get() : nullptr;
+			};
+			Result<VisualScriptAnalysis> analysis = AnalyzeWithFixtureTemplates(*m_Library, document, m_InjectedDiagnostics, graphs);
 			if (analysis)
 			{
+				for (VisualScriptGraphReference const& reference : CollectVisualScriptReferences(document))
+				{
+					if (reference.Graph == self)
+					{
+						continue;
+					}
+					auto const found = m_Graphs.find(reference.Graph);
+					analysis.GetValue().Graphs.emplace_back(reference.Graph, found != m_Graphs.end() ? found->second : nullptr);
+				}
 				for (VisualScriptAnalyzedNode& node : analysis.GetValue().Nodes)
 				{
 					auto const passThrough = m_InjectedPassThroughs.find(node.ID);
@@ -1043,6 +1154,16 @@ namespace Strada::Testing
 				}
 			}
 			return analysis;
+		}
+
+		// The other graphs analyses read (the engine's from the asset manager): each handle's shared document.
+		void SetGraphs(std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs)
+		{
+			m_Graphs.clear();
+			for (auto const& [graph, document] : graphs)
+			{
+				m_Graphs[graph] = document;
+			}
 		}
 
 		// The runtime stops (GetLibrary gives null, Analyze fails) or starts again.
@@ -1092,6 +1213,7 @@ namespace Strada::Testing
 		}
 
 		Ref<VisualScriptLibrary const> m_Library;
+		std::unordered_map<AssetHandle, Ref<VisualScriptDocument const>> m_Graphs;
 		std::vector<VisualScriptDiagnostic> m_InjectedDiagnostics;
 		std::unordered_map<uint32_t, std::string> m_InjectedPassThroughs;
 		uint64_t m_LibraryCallCount = 0;

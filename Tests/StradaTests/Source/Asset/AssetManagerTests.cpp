@@ -399,6 +399,86 @@ TEST_CASE("AssetManager: a refresh does not reload a file whose writing was reco
 	CHECK(refreshed.GetValue().Modified.empty());
 }
 
+TEST_CASE("AssetManager: a file marked changed is reloaded by the next refresh whatever its write time")
+{
+	AssetManagerScope scope;
+	TestProject project;
+	std::filesystem::path const file = project.Assets / "Counter.sgraph";
+	VisualScriptDocument const original = MakeVisualScriptTemplate(VisualScriptTemplate::Events);
+	REQUIRE(VisualScriptSerializer::SaveToFile(original, file).IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(project.Assets).IsOk());
+	AssetHandle const graph = Find("Counter.sgraph");
+	Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+	REQUIRE(asset != nullptr);
+	AssetManager::RecordFileWrite(graph);
+	REQUIRE(AssetManager::IsFileAsLastRecorded(graph));
+
+	// Rewritten with its write time restored, as two writes in one tick of the clock: a refresh cannot see it.
+	std::error_code error;
+	std::filesystem::file_time_type const written = std::filesystem::last_write_time(file, error);
+	REQUIRE_FALSE(error);
+	VisualScriptDocument const other = MakeVisualScriptTemplate(VisualScriptTemplate::Empty);
+	REQUIRE(VisualScriptSerializer::SaveToFile(other, file).IsOk());
+	std::filesystem::last_write_time(file, written, error);
+	REQUIRE_FALSE(error);
+	Result<AssetRefreshResult> refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified.empty());
+	CHECK(AssetManager::GetAsset<VisualScriptAsset>(graph) == asset);
+
+	// Marked changed: no longer as last recorded, and the next refresh reloads it, once.
+	uint64_t const version = AssetManager::GetVersion();
+	AssetManager::MarkFileChanged(graph);
+	CHECK(AssetManager::GetVersion() == version);
+	CHECK_FALSE(AssetManager::IsFileAsLastRecorded(graph));
+	CHECK(AssetManager::IsLoaded(graph));
+	refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified == std::vector<AssetHandle>{graph});
+	CHECK_FALSE(AssetManager::IsLoaded(graph));
+	Ref<VisualScriptAsset> const reloaded = AssetManager::GetAsset<VisualScriptAsset>(graph);
+	REQUIRE(reloaded != nullptr);
+	CHECK(reloaded->GetDocument() == other);
+	refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified.empty());
+
+	// A write recorded after the mark clears it: the file holds what the asset shows again.
+	AssetManager::MarkFileChanged(graph);
+	AssetManager::RecordFileWrite(graph);
+	CHECK(AssetManager::IsFileAsLastRecorded(graph));
+	refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified.empty());
+	CHECK(AssetManager::GetAsset<VisualScriptAsset>(graph) == reloaded);
+
+	// No effect on an unloaded asset, a memory asset, a built-in or an invalid handle.
+	AssetHandle const wood = Find("Textures/Wood.png");
+	REQUIRE_FALSE(AssetManager::IsLoaded(wood));
+	AssetManager::MarkFileChanged(wood);
+	AssetHandle const memory = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(), "Scratch");
+	AssetManager::MarkFileChanged(memory);
+	AssetManager::MarkFileChanged(GetBuiltInHandle(BuiltInAsset::WhiteTexture));
+	AssetManager::MarkFileChanged(AssetHandle());
+	refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified.empty());
+	CHECK(AssetManager::IsLoaded(memory));
+	// The texture loads later and shows its file: the mark made before it loaded is no mark.
+	REQUIRE(AssetManager::GetAsset<TextureAsset>(wood) != nullptr);
+	refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified.empty());
+
+	// Unloading forgets the mark.
+	AssetManager::MarkFileChanged(graph);
+	AssetManager::UnloadAsset(graph);
+	REQUIRE(AssetManager::GetAsset<VisualScriptAsset>(graph) != nullptr);
+	refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified.empty());
+}
+
 TEST_CASE("AssetManager: a visual script remembers how many repairs its file needed when it loaded")
 {
 	AssetManagerScope scope;

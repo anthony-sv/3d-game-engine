@@ -11,6 +11,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -63,8 +64,13 @@ namespace Strada
 		// modal says.
 		std::optional<VisualScriptElement> GetPendingDelete() const;
 		std::string const& GetDeleteMessage() const { return m_DeleteMessage; }
+		// The screen rectangle of a button of the delete modal ("Delete", "Find References", "Cancel") in the last Draw.
+		std::optional<std::pair<glm::vec2, glm::vec2>> FindDeleteButton(std::string_view label) const;
 		// The live values shown, by variable name (literals); empty while not playing.
 		std::map<std::string, Json> const& GetLiveValues() const { return m_LiveValues; }
+		// A function library's header line in the last Draw ("Function library · used by 5 nodes in 3 scripts"); empty for a
+		// script.
+		std::string const& GetLibraryLine() const { return m_LibraryLine; }
 
 	private:
 		struct Frame;
@@ -124,9 +130,13 @@ namespace Strada
 		std::optional<VisualScriptElement> m_Delete;
 		std::string m_DeleteTitle;
 		std::string m_DeleteMessage;
+		// What the modal's [Find References] lists: the element's uses in other scripts (none when they have none).
+		std::optional<VisualScriptReference> m_DeleteReferences;
+		std::vector<std::pair<std::string, std::pair<glm::vec2, glm::vec2>>> m_DeleteButtons;
 		bool m_OpenDelete = false;
 		// Live values: when they were read last, and what they read.
 		double m_LiveTime = -1.0e30;
 		std::map<std::string, Json> m_LiveValues;
+		std::string m_LibraryLine;
 	};
 }

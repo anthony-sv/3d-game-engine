@@ -115,6 +115,8 @@ namespace Strada
 		// Find: the text or the reference, the scope, and whether the field takes the keyboard.
 		std::string m_Text;
 		std::optional<VisualScriptReference> m_Reference;
+		// The reference named no graph: it is the window's own element.
+		bool m_ReferenceOwnGraph = false;
 		VisualScriptFindScope m_Scope = VisualScriptFindScope::ThisScript;
 		bool m_FocusText = false;
 		// What the rows were found in: the query, and each script's document object (null for one that could not be read).
@@ -142,7 +144,10 @@ namespace Strada
 	// What choosing a quick fix of a diagnostic of the model's analysis does: a fix that navigates shows its target (GoTo
 	// selects and frames the node; EditSetting also gives the keyboard to the setting in Details; Rename opens the name of
 	// the variable, local or function in My Script, or a custom event's Name in Details); the others apply to a copy of the
-	// document (ApplyVisualScriptQuickFix) and commit it in one step, "Fix: <Label>". A fix that fails adds a note.
+	// document (ApplyVisualScriptQuickFix) and commit it in one step, "Fix: <Label>". A fix that fails adds a note. A fix that
+	// opens another graph asks for its window (VisualScriptPaneResult::Open).
+	// The other graphs a window's quick fixes read: the model's (ResolveGraph, GetGraphName), valid while it lives.
+	[[nodiscard]] VisualScriptQuickFixGraphs MakeVisualScriptQuickFixGraphs(VisualScriptEditorModel const& model);
 	void ApplyVisualScriptQuickFixChoice(VisualScriptPaneContext& context, VisualScriptDiagnostic const& diagnostic,
 	                                     VisualScriptQuickFix const& fix, VisualScriptWidgetCommits& commits,
 	                                     VisualScriptPaneResult& result);

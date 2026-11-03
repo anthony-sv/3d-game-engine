@@ -2,6 +2,7 @@
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 #include "Strada/Serialization/JsonSerialization.h"
@@ -38,6 +39,23 @@ namespace Strada
 		// values the format takes.
 		[[nodiscard]] Result<uint32_t> RetargetNode(VisualScriptDocument& document, uint32_t node, Json settings,
 		                                            std::span<VisualScriptPin const> newPins);
+
+		// The pins a node of a cross-graph kind has with the settings it holds, as RetargetNode takes them. With a Graph
+		// setting: a Send's or a Broadcast's from its own Parameters (Execute, a Send's Target, the parameters, Then, a
+		// Broadcast's Count), as the scripting runtime gives them whatever the target's event says (a mismatch is a warning
+		// there); the others' from the graph the resolver gives (MakeVisualScriptCrossGraphPins; none when it gives nothing).
+		// Without one: a call's from the document's function, a Get's or a Set's from the document's variable or a local of
+		// the function (0: the event graph) whose graph holds the node, and a sender's from its Parameters. RunsGraph always
+		// has Target and Result. A node of another type has none.
+		[[nodiscard]] std::vector<VisualScriptPin> MakeVisualScriptRetargetPins(VisualScriptDocument const& document, uint32_t function,
+		                                                                        VisualScriptNode const& node,
+		                                                                        VisualScriptGraphResolver const& resolver);
+		// RetargetNode with the pins the node has once the settings are applied (MakeVisualScriptRetargetPins): what Details,
+		// the quick fixes and graph.edit's Retarget do. An Event.Send or Event.Broadcast that then names a graph and a Name but
+		// holds no Parameters takes those of the custom event of that name in the graph the resolver gives, when it has one
+		// (FindVisualScriptEventParameters). Returns how many links it removed.
+		[[nodiscard]] Result<uint32_t> RetargetVisualScriptNode(VisualScriptDocument& document, uint32_t node, Json settings,
+		                                                        VisualScriptGraphResolver const& resolver);
 
 		// Sets the document's Kind. Changes nothing else: a library's variables and event-graph nodes become errors the user
 		// removes.

@@ -14,11 +14,13 @@
 #include "Editor/VisualScripting/VisualScriptLiteralEditor.h"
 #include "Editor/VisualScripting/VisualScriptPalettePopup.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 #include "Editor/VisualScripting/VisualScriptSidebar.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/VisualScriptLibrary.h"
@@ -3445,4 +3447,693 @@ TEST_CASE("VisualScriptEditor: an array element's handle dropped on another arra
 	REQUIRE(edits.size() == 1);
 	CHECK(edits[0].Action == VisualScriptArrayLiteralAction::Move);
 	CHECK(edits[0].Literal == Json::array({3, 1, 2}));
+}
+
+namespace
+{
+	AssetHandle const PaneDoor(UUID(7600001ull));
+	AssetHandle const PaneMotion(UUID(7600002ull));
+	AssetHandle const PaneEnemy(UUID(7600003ull));
+
+	VisualScriptProjectGraph MakeProjectGraph(AssetHandle graph, std::string name, VisualScriptDocument const& document)
+	{
+		VisualScriptProjectGraph made;
+		made.Graph = graph;
+		made.Path = "Scripts/" + name + ".sgraph";
+		made.DisplayName = std::move(name);
+		made.Kind = document.Kind;
+		made.Document = CreateRef<VisualScriptDocument const>(document);
+		return made;
+	}
+
+	VisualScriptVariable MakePaneVariable(uint32_t id, std::string name, std::string type, bool isPublic)
+	{
+		VisualScriptVariable variable;
+		variable.ID = id;
+		variable.Name = std::move(name);
+		variable.Type = std::move(type);
+		variable.Public = isPublic;
+		return variable;
+	}
+
+	// Door (the public Health 5 and Armor 9, the private Secret 6, the events Hit (Damage: float) and Open), Motion (a library:
+	// Clamp01 (7, Value: float), Push (8)) and Enemy (a script), as the window manager's index gives them.
+	std::vector<VisualScriptProjectGraph> MakePaneGraphs()
+	{
+		VisualScriptDocument door;
+		door.Variables = {MakePaneVariable(5, "Health", "float", true), MakePaneVariable(9, "Armor", "int", true),
+		                  MakePaneVariable(6, "Secret", "float", false)};
+		door.Graph.Nodes = {
+			MakeNode(1, "Event.Custom", glm::vec2(0.0f),
+		             Json::object({{"Name", "Hit"}, {"Parameters", Json::array({{{"Name", "Damage"}, {"Type", "float"}}})}})),
+			MakeNode(2, "Event.Custom", glm::vec2(0.0f, 240.0f), Json::object({{"Name", "Open"}}))};
+		VisualScriptDocument motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+		VisualScriptFunction clamp;
+		clamp.ID = 7;
+		clamp.Name = "Clamp01";
+		clamp.Pure = true;
+		clamp.Inputs = {{"Value", "float"}};
+		VisualScriptFunction push;
+		push.ID = 8;
+		push.Name = "Push";
+		motion.Functions = {clamp, push};
+		return {MakeProjectGraph(PaneDoor, "Door", door), MakeProjectGraph(PaneMotion, "Motion", motion),
+		        MakeProjectGraph(PaneEnemy, "Enemy", VisualScriptDocument())};
+	}
+
+	// The centre of a Details row's widget, or of an item a Details combo lists ("<row>/<item>").
+	ImVec2 GetRowCenter(VisualScriptDetails const& details, std::string_view label)
+	{
+		std::optional<std::pair<glm::vec2, glm::vec2>> const row = details.FindRow(label);
+		REQUIRE_MESSAGE(row, "no Details row " << label);
+		return ImVec2((row->first.x + row->second.x) * 0.5f, (row->first.y + row->second.y) * 0.5f);
+	}
+
+	// Opens a combo of Details and picks one of its items.
+	void PickDetailsItem(PaneFixture& fixture, std::string_view row, std::string_view item)
+	{
+		fixture.ImGui.Click(fixture.DetailsRow(row), fixture.Drawer());
+		fixture.Frames(2);
+		fixture.ImGui.Click(GetRowCenter(fixture.Details, fmt::format("{}/{}", row, item)), fixture.Drawer());
+		fixture.Frames(2);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: Details' Graph picker lists the graphs its setting allows and retargets the node in one step")
+{
+	std::string const door = PaneDoor.ToString();
+	VisualScriptDocument document = MakeScriptDocument();
+	Json const damage = Json::array({{{"Name", "Damage"}, {"Type", "float"}}});
+	document.Graph.Nodes.push_back(
+		MakeNode(20, "Event.Send", glm::vec2(0.0f, 800.0f), Json::object({{"Name", "Hit"}, {"Parameters", damage}})));
+	document.Graph.Nodes.push_back(MakeNode(21, "Get:Strada.Time.DeltaTime", glm::vec2(-320.0f, 800.0f)));
+	document.Graph.Nodes.push_back(MakeNode(22, "Function.Call", glm::vec2(0.0f, 1040.0f), Json::object({{"Function", 7}})));
+	document.Graph.Links.push_back(MakeLink(21, "Value", 20, "Damage"));
+	PaneFixture fixture(document, {FixturePane::Details});
+	std::vector<VisualScriptProjectGraph> const graphs = MakePaneGraphs();
+	fixture.Model->SetProjectGraphs(graphs, 1);
+	fixture.CheckDrawingChangesNothing();
+
+	// A Send names scripts: Door and Enemy, after None; no library.
+	fixture.SelectElements({20});
+	fixture.ImGui.Click(fixture.DetailsRow("Graph"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.Details.FindRow("Graph/None (any receiver, by name)"));
+	CHECK(fixture.Details.FindRow("Graph/Door \xC2\xB7 Scripts/Door.sgraph"));
+	CHECK(fixture.Details.FindRow("Graph/Enemy \xC2\xB7 Scripts/Enemy.sgraph"));
+	CHECK_FALSE(fixture.Details.FindRow("Graph/Motion \xC2\xB7 Scripts/Motion.sgraph"));
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+
+	// Typing it keeps its parameters and their links: one step.
+	size_t const undo = fixture.GetUndoCount();
+	PickDetailsItem(fixture, "Graph", "Door \xC2\xB7 Scripts/Door.sgraph");
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Graph on Send Hit in Graph");
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 20)->Settings ==
+	      Json::object({{"Name", "Hit"}, {"Parameters", damage}, {"Graph", door}}));
+	// The target's events are offered beside Name: Open has no parameters, so the Damage link goes.
+	CHECK(fixture.Details.FindRow("Event"));
+	PickDetailsItem(fixture, "Event", "Open");
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Event on Send Hit (removes 1 link) in Graph");
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 20)->Settings ==
+	      Json::object({{"Name", "Open"}, {"Parameters", Json::array()}, {"Graph", door}}));
+	CHECK(fixture.GetDocument().Graph.Links.size() == document.Graph.Links.size() - 1);
+	// None untypes it and keeps its parameters.
+	PickDetailsItem(fixture, "Graph", "None (any receiver, by name)");
+	CHECK(fixture.GetUndoCount() == undo + 3);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 20)->Settings == Json::object({{"Name", "Open"}, {"Parameters", Json::array()}}));
+
+	// A call names libraries only, "None (this script)" first; with one, its functions.
+	fixture.SelectElements({22});
+	fixture.ImGui.Click(fixture.DetailsRow("Graph"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.Details.FindRow("Graph/None (this script)"));
+	CHECK(fixture.Details.FindRow("Graph/Motion \xC2\xB7 Scripts/Motion.sgraph"));
+	CHECK_FALSE(fixture.Details.FindRow("Graph/Door \xC2\xB7 Scripts/Door.sgraph"));
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	PickDetailsItem(fixture, "Graph", "Motion \xC2\xB7 Scripts/Motion.sgraph");
+	VisualScriptLibrary const& library = fixture.Semantics.GetFixtureLibrary();
+	std::string const clamp = fmt::format("Clamp01 ({})", DescribeVisualScriptType(&library, "float"));
+	fixture.ImGui.Click(fixture.DetailsRow("Function"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.Details.FindRow("Function/" + clamp));
+	CHECK(fixture.Details.FindRow("Function/Push ()"));
+	// The document's own AddScore is not Motion's.
+	CHECK_FALSE(fixture.Details.FindRow("Function/AddScore ()"));
+	fixture.ImGui.Click(GetRowCenter(fixture.Details, "Function/" + clamp), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 22)->Settings == Json::object({{"Function", 7}, {"Graph", PaneMotion.ToString()}}));
+
+	// A graph the project does not have shows as missing.
+	VisualScriptDocument missing = fixture.GetDocument();
+	missing.Graph.Nodes.push_back(MakeNode(23, "RunsGraph", glm::vec2(0.0f, 1280.0f), Json::object({{"Graph", "81460000"}})));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, missing).IsOk());
+	fixture.Frames(2);
+	fixture.SelectElements({23});
+	fixture.ImGui.Click(fixture.DetailsRow("Graph"), fixture.Drawer());
+	fixture.Frames(2);
+	// RunsGraph needs one: no None.
+	CHECK_FALSE(fixture.Details.FindRow("Graph/None (this script)"));
+	CHECK(fixture.Details.FindRow("Graph/Door \xC2\xB7 Scripts/Door.sgraph"));
+	// The picker shows the handle it holds, in the Error colour.
+	CHECK(fixture.Details.GetRowText("Graph") == std::optional<std::string>("Missing (8146\xE2\x80\xA6)"));
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	// A graph the project knows shows by its name.
+	fixture.SelectElements({22});
+	fixture.Frames(1);
+	CHECK(fixture.Details.GetRowText("Graph") == std::optional<std::string>("Motion \xC2\xB7 Scripts/Motion.sgraph"));
+}
+
+TEST_CASE("VisualScriptEditor: Details' Variable and Function of a node naming another graph list that graph's elements")
+{
+	std::string const door = PaneDoor.ToString();
+	VisualScriptDocument document = MakeScriptDocument();
+	// The document's own Speed must not be listed for the remote Get.
+	document.Graph.Nodes.push_back(MakeNode(20, "Variable.Get", glm::vec2(0.0f, 800.0f), Json::object({{"Variable", 5}, {"Graph", door}})));
+	PaneFixture fixture(document, {FixturePane::Details});
+	std::vector<VisualScriptProjectGraph> const graphs = MakePaneGraphs();
+	fixture.Model->SetProjectGraphs(graphs, 1);
+	fixture.Semantics.SetGraphs({{PaneDoor, graphs[0].Document}});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({20});
+	VisualScriptLibrary const& library = fixture.Semantics.GetFixtureLibrary();
+	std::string const health = fmt::format("Health \xC2\xB7 {}", DescribeVisualScriptType(&library, "float"));
+	std::string const armor = fmt::format("Armor \xC2\xB7 {}", DescribeVisualScriptType(&library, "int"));
+	fixture.ImGui.Click(fixture.DetailsRow("Variable"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.Details.FindRow("Variable/" + health));
+	CHECK(fixture.Details.FindRow("Variable/" + armor));
+	// Private variables of another graph, and the document's own, are not offered.
+	CHECK_FALSE(fixture.Details.FindRow(fmt::format("Variable/Secret \xC2\xB7 {}", DescribeVisualScriptType(&library, "float"))));
+	CHECK_FALSE(fixture.Details.FindRow(fmt::format("Variable/Speed \xC2\xB7 {}", DescribeVisualScriptType(&library, "float"))));
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(GetRowCenter(fixture.Details, "Variable/" + armor), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 20)->Settings == Json::object({{"Variable", 9}, {"Graph", door}}));
+	// The node's title follows the other graph: "Get Armor".
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Variable on Get Health in Graph");
+}
+
+TEST_CASE("VisualScriptEditor: switching a script with variables or events to a function library asks first, in one step")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Script);
+	size_t const undo = fixture.GetUndoCount();
+	PickDetailsItem(fixture, "Kind", "Function Library");
+	// The modal asks; nothing changed yet.
+	REQUIRE(fixture.Details.GetKindQuestion().has_value());
+	CHECK(*fixture.Details.GetKindQuestion() ==
+	      "Make Graph a function library? Its 2 variables and 7 event nodes cannot stay in a library: they will show as errors "
+	      "until you remove them.");
+	CHECK(fixture.GetUndoCount() == undo);
+	SUBCASE("Cancel keeps the kind")
+	{
+		fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+		fixture.Frames(2);
+		CHECK_FALSE(fixture.Details.GetKindQuestion().has_value());
+		CHECK(fixture.GetUndoCount() == undo);
+		CHECK(fixture.GetDocument().Kind == VisualScriptDocumentKind::Script);
+	}
+	SUBCASE("Enter makes it a library, and back to a script needs no question")
+	{
+		fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+		fixture.Frames(2);
+		CHECK(fixture.GetUndoCount() == undo + 1);
+		CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Make Graph a Function Library in Graph");
+		CHECK(fixture.GetDocument().Kind == VisualScriptDocumentKind::Library);
+		// Nothing else changed: its variables and event graph show as errors until removed.
+		CHECK(fixture.GetDocument().Variables.size() == 2);
+		PickDetailsItem(fixture, "Kind", "Script");
+		CHECK_FALSE(fixture.Details.GetKindQuestion().has_value());
+		CHECK(fixture.GetUndoCount() == undo + 2);
+		CHECK(fixture.GetDocument().Kind == VisualScriptDocumentKind::Script);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: Details counts the uses of a public variable and a library's function in other scripts")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	std::string const self = fixture.Graph.ToString();
+	// Door reads variable 100 of this graph twice, Enemy once; Enemy's own Get names its own variable.
+	VisualScriptDocument door;
+	door.Graph.Nodes = {MakeNode(1, "Variable.Get", glm::vec2(0.0f), Json::object({{"Variable", 100}, {"Graph", self}})),
+	                    MakeNode(2, "Variable.Set", glm::vec2(0.0f, 240.0f), Json::object({{"Variable", 100}, {"Graph", self}}))};
+	VisualScriptDocument enemy;
+	enemy.Graph.Nodes = {MakeNode(1, "Variable.Get", glm::vec2(0.0f), Json::object({{"Variable", 100}, {"Graph", self}})),
+	                     MakeNode(2, "Variable.Get", glm::vec2(0.0f, 240.0f), Json::object({{"Variable", 100}}))};
+	std::vector<VisualScriptProjectGraph> const graphs = {MakeProjectGraph(PaneDoor, "Door", door),
+	                                                      MakeProjectGraph(PaneEnemy, "Enemy", enemy)};
+	CHECK(CountVisualScriptOtherUses(graphs, fixture.Graph, VisualScriptElementKind::Variable, 100) == VisualScriptOtherUses{3, 2});
+	CHECK(CountVisualScriptOtherUses(graphs, fixture.Graph, VisualScriptElementKind::Function, 100) == VisualScriptOtherUses{});
+	fixture.Model->SetProjectGraphs(graphs, 1);
+	// A private variable shows no such row.
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 100};
+	fixture.Frames(2);
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Variable);
+	CHECK_FALSE(fixture.Details.GetRowText("Used by").has_value());
+	VisualScriptDocument publicSpeed = fixture.GetDocument();
+	publicSpeed.Variables[0].Public = true;
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, publicSpeed).IsOk());
+	fixture.Frames(2);
+	CHECK(fixture.Details.GetRowText("Used by") == std::optional<std::string>("Used by 3 nodes in 2 other scripts"));
+
+	// A library's function: called by the scripts that name it.
+	VisualScriptDocument library = fixture.GetDocument();
+	library.Kind = VisualScriptDocumentKind::Library;
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, library).IsOk());
+	VisualScriptDocument caller;
+	caller.Graph.Nodes = {MakeNode(1, "Function.Call", glm::vec2(0.0f), Json::object({{"Function", 10}, {"Graph", self}}))};
+	std::vector<VisualScriptProjectGraph> const callers = {MakeProjectGraph(PaneDoor, "Door", caller)};
+	fixture.Model->SetProjectGraphs(callers, 2);
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Function, 10};
+	fixture.Frames(2);
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Function);
+	CHECK(fixture.Details.GetRowText("Called by") == std::optional<std::string>("Called by 1 node in 1 script"));
+}
+
+namespace
+{
+	// A project graph whose references are its document's, as the project index lists them.
+	VisualScriptProjectGraph MakeReferringGraph(AssetHandle graph, std::string name, VisualScriptDocument const& document)
+	{
+		VisualScriptProjectGraph made = MakeProjectGraph(graph, std::move(name), document);
+		made.References = CollectVisualScriptReferences(document);
+		return made;
+	}
+
+	VisualScriptNode MakeRemoteNode(uint32_t id, char const* type, AssetHandle graph, char const* key, Json value)
+	{
+		return MakeNode(id, type, glm::vec2(0.0f, static_cast<float>(id) * 240.0f),
+		                Json::object({{key, std::move(value)}, {"Graph", graph.ToString()}}));
+	}
+
+	bool HasNote(std::vector<VisualScriptPaneResult> const& results, std::string_view note)
+	{
+		return std::any_of(results.begin(), results.end(),
+		                   [note](VisualScriptPaneResult const& result)
+		                   {
+							   return std::find(result.Notes.begin(), result.Notes.end(), note) != result.Notes.end();
+						   });
+	}
+
+	bool HasFindReferences(std::vector<VisualScriptPaneResult> const& results, VisualScriptReference const& reference)
+	{
+		return std::any_of(results.begin(), results.end(),
+		                   [&reference](VisualScriptPaneResult const& result)
+		                   {
+							   return result.FindReferences == std::optional<VisualScriptReference>(reference);
+						   });
+	}
+}
+
+TEST_CASE("VisualScriptEditor: My Script's delete modal counts the nodes of other scripts that use what goes, and lists them")
+{
+	VisualScriptDocument document = MakeScriptDocument();
+	document.Variables[0].Public = true;
+	PaneFixture fixture(document, {FixturePane::Sidebar});
+	// Door reads Speed (100) twice, Enemy once.
+	VisualScriptDocument door;
+	door.Graph.Nodes = {MakeRemoteNode(1, "Variable.Get", fixture.Graph, "Variable", 100),
+	                    MakeRemoteNode(2, "Variable.Set", fixture.Graph, "Variable", 100)};
+	VisualScriptDocument enemy;
+	enemy.Graph.Nodes = {MakeRemoteNode(1, "Variable.Get", fixture.Graph, "Variable", 100)};
+	std::vector<VisualScriptProjectGraph> const graphs = {MakeReferringGraph(PaneDoor, "Door", door),
+	                                                      MakeReferringGraph(PaneEnemy, "Enemy", enemy)};
+	fixture.Model->SetProjectGraphs(graphs, 1);
+	fixture.CheckDrawingChangesNothing();
+
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 100};
+	fixture.Frames(1);
+	REQUIRE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Delete, fixture.Shared));
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetDeleteMessage() ==
+	      "2 nodes here use it (they are deleted too). 3 nodes in 2 other scripts use it: they will show errors until fixed.");
+	// [Find References] lists them in the drawer and deletes nothing.
+	size_t const undo = fixture.GetUndoCount();
+	std::optional<std::pair<glm::vec2, glm::vec2>> const find = fixture.Sidebar.FindDeleteButton("Find References");
+	REQUIRE(find);
+	fixture.ImGui.Click(ImVec2((find->first.x + find->second.x) * 0.5f, (find->first.y + find->second.y) * 0.5f), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Sidebar.GetPendingDelete());
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(HasFindReferences(fixture.Results, VisualScriptReference{VisualScriptReference::Kind::Variable, 100, {}, fixture.Graph}));
+
+	// A variable this script reads only on another entity (Graph naming itself): counted with the other scripts, and kept.
+	VisualScriptDocument own = fixture.GetDocument();
+	own.Graph.Nodes.push_back(MakeRemoteNode(30, "Variable.Get", fixture.Graph, "Variable", 101));
+	own.Variables[1].Public = true;
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, own).IsOk());
+	fixture.Frames(2);
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 101};
+	fixture.Frames(1);
+	REQUIRE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Delete, fixture.Shared));
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetDeleteMessage() == "1 node in 1 script uses it: they will show errors until fixed.");
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 30) != nullptr);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Delete Variable Alive in Graph");
+}
+
+TEST_CASE("VisualScriptEditor: an edit of what a graph offers tells what it does to the other scripts that use it")
+{
+	AssetHandle const library(UUID(7700001ull));
+	AssetHandle const script(UUID(7700002ull));
+	VisualScriptDocument motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 7;
+	clamp.Name = "Clamp01";
+	clamp.Inputs = {{"Value", "float"}, {"Speed", "float"}};
+	motion.Functions = {clamp};
+	// Door calls Clamp01 twice and links Speed in one; Enemy calls it once.
+	VisualScriptDocument door;
+	door.Graph.Nodes = {MakeRemoteNode(1, "Function.Call", library, "Function", 7),
+	                    MakeRemoteNode(2, "Function.Call", library, "Function", 7),
+	                    MakeNode(3, "Get:Strada.Time.DeltaTime", glm::vec2(-320.0f, 0.0f))};
+	door.Graph.Links = {MakeLink(3, "Value", 1, "Speed")};
+	VisualScriptDocument enemy;
+	enemy.Graph.Nodes = {MakeRemoteNode(1, "Function.Call", library, "Function", 7)};
+	std::vector<VisualScriptProjectGraph> const graphs = {MakeReferringGraph(PaneDoor, "Door", door),
+	                                                      MakeReferringGraph(PaneEnemy, "Enemy", enemy)};
+	auto const describe = [&graphs](VisualScriptDocument const& before, VisualScriptDocument const& after, AssetHandle graph)
+	{
+		std::vector<std::string> texts;
+		for (VisualScriptOfferToast const& toast : DescribeVisualScriptOfferChange(graph, before, after, graphs))
+		{
+			texts.push_back(toast.Text + (toast.Find ? " [" + toast.FindLabel + "]" : std::string()));
+		}
+		return texts;
+	};
+
+	// A rename recorded in the parameter's former names: every caller follows it.
+	VisualScriptDocument renamed = motion;
+	renamed.Functions[0].Inputs[0] = VisualScriptParameter("Amount", "float", {"Value"});
+	CHECK(describe(motion, renamed, library) == std::vector<std::string>{"Renamed Value to Amount: 3 calls in 2 other scripts follow it"});
+	// Removed and retyped: the calls that link it.
+	VisualScriptDocument removed = motion;
+	removed.Functions[0].Inputs.pop_back();
+	CHECK(describe(motion, removed, library) ==
+	      std::vector<std::string>{"Removed Speed: 1 call in 1 other script lose links [Find Callers]"});
+	VisualScriptDocument retyped = motion;
+	retyped.Functions[0].Inputs[1].Type = "int";
+	CHECK(describe(motion, retyped, library) ==
+	      std::vector<std::string>{"Changed Speed to int: 1 call in 1 other script may not fit [Find Callers]"});
+	VisualScriptDocument deleted = motion;
+	deleted.Functions.clear();
+	std::vector<VisualScriptOfferToast> const gone = DescribeVisualScriptOfferChange(library, motion, deleted, graphs);
+	REQUIRE(gone.size() == 1);
+	CHECK(gone[0].Text == "Deleted Clamp01: 3 calls in 2 other scripts show errors");
+	CHECK(gone[0].Find ==
+	      std::optional<VisualScriptReference>(VisualScriptReference{VisualScriptReference::Kind::Function, 7, {}, library}));
+	CHECK(gone[0].FindLabel == "Find Callers");
+	VisualScriptDocument pure = motion;
+	pure.Functions[0].Pure = true;
+	CHECK(describe(motion, pure, library) ==
+	      std::vector<std::string>{"Made Clamp01 pure: 3 calls in 2 other scripts lose links [Find Callers]"});
+	// What changes nothing other scripts use tells nothing.
+	VisualScriptDocument described = motion;
+	described.Description = "Clamps";
+	CHECK(describe(motion, described, library).empty());
+	CHECK(DescribeVisualScriptOfferChange(library, motion, removed, {}).empty());
+
+	// A script's public variable made private, and a custom event renamed while senders elsewhere still send its old name.
+	VisualScriptDocument player = MakeScriptDocument();
+	player.Variables[0].Public = true;
+	VisualScriptDocument reader;
+	reader.Graph.Nodes = {MakeRemoteNode(1, "Variable.Get", script, "Variable", 100),
+	                      MakeNode(2, "Event.Send", glm::vec2(0.0f, 480.0f), Json::object({{"Name", "Hit"}})),
+	                      MakeNode(3, "Event.Broadcast", glm::vec2(0.0f, 720.0f), Json::object({{"Name", "Hit"}}))};
+	std::vector<VisualScriptProjectGraph> const readers = {MakeReferringGraph(PaneDoor, "Door", reader)};
+	VisualScriptDocument hidden = player;
+	hidden.Variables[0].Public = false;
+	std::vector<VisualScriptOfferToast> const privacy = DescribeVisualScriptOfferChange(script, player, hidden, readers);
+	REQUIRE(privacy.size() == 1);
+	CHECK(privacy[0].Text == "Made Speed private: 1 node in 1 other script show errors");
+	CHECK(privacy[0].FindLabel == "Find References");
+	VisualScriptDocument damaged = player;
+	Result<uint32_t> const renamedEvent = VisualScriptEditing::RenameCustomEvent(damaged, 5, "Damaged", script);
+	REQUIRE_MESSAGE(renamedEvent.IsOk(), renamedEvent.GetError());
+	std::vector<VisualScriptOfferToast> const events = DescribeVisualScriptOfferChange(script, player, damaged, readers);
+	REQUIRE(events.size() == 1);
+	CHECK(events[0].Text == "Renamed Hit to Damaged (and 2 senders). 2 senders in 1 other script still send Hit");
+	CHECK(events[0].Find ==
+	      std::optional<VisualScriptReference>(VisualScriptReference{VisualScriptReference::Kind::CustomEvent, 0, "Hit", script}));
+	CHECK(events[0].FindLabel == "Find Senders");
+}
+
+TEST_CASE("VisualScriptEditor: My Script shows a function library's functions and says how many nodes of other scripts call them")
+{
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 10;
+	clamp.Name = "Clamp01";
+	library.Functions = {clamp};
+	PaneFixture fixture(library, {FixturePane::Sidebar});
+	VisualScriptDocument door;
+	door.Graph.Nodes = {MakeRemoteNode(1, "Function.Call", fixture.Graph, "Function", 10),
+	                    MakeRemoteNode(2, "Function.Call", fixture.Graph, "Function", 10)};
+	VisualScriptDocument enemy;
+	enemy.Graph.Nodes = {MakeRemoteNode(1, "Function.Call", fixture.Graph, "Function", 10)};
+	std::vector<VisualScriptProjectGraph> const graphs = {MakeReferringGraph(PaneDoor, "Door", door),
+	                                                      MakeReferringGraph(PaneEnemy, "Enemy", enemy)};
+	fixture.Model->SetProjectGraphs(graphs, 1);
+	fixture.CheckDrawingChangesNothing();
+	CHECK(fixture.Sidebar.GetLibraryLine() == "Function library \xC2\xB7 used by 3 nodes in 2 scripts");
+	// Its functions, no event graph, no variables or custom events, and nothing to add but functions.
+	CHECK(fixture.Sidebar.FindRow({VisualScriptElementKind::Function, 10}));
+	CHECK_FALSE(fixture.Sidebar.FindRow({VisualScriptElementKind::Function, 0}));
+	CHECK(fixture.Sidebar.FindAddButton(VisualScriptElementKind::Function));
+	CHECK_FALSE(fixture.Sidebar.FindAddButton(VisualScriptElementKind::Variable));
+	CHECK_FALSE(fixture.Sidebar.FindAddButton(VisualScriptElementKind::CustomEvent));
+
+	// What cannot stay in a library shows until it is deleted, and nothing new of it can be added.
+	VisualScriptDocument leftovers = fixture.GetDocument();
+	leftovers.Variables = {MakeVariable(100, "Speed", "float")};
+	leftovers.Graph.Nodes = {MakeNode(1, "Event.Custom", glm::vec2(0.0f), Json::object({{"Name", "Hit"}}))};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, leftovers).IsOk());
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.FindRow({VisualScriptElementKind::Variable, 100}));
+	CHECK(fixture.Sidebar.FindRow({VisualScriptElementKind::CustomEvent, 1}));
+	CHECK(fixture.Sidebar.FindRow({VisualScriptElementKind::Function, 0}));
+	CHECK_FALSE(fixture.Sidebar.FindAddButton(VisualScriptElementKind::Variable));
+	CHECK_FALSE(fixture.Sidebar.FindAddButton(VisualScriptElementKind::CustomEvent));
+
+	// Unused, it says so; a script's My Script has no such line.
+	fixture.Model->SetProjectGraphs({}, 2);
+	fixture.Frames(1);
+	CHECK(fixture.Sidebar.GetLibraryLine() == "Function library \xC2\xB7 used by no script yet");
+	VisualScriptDocument script = fixture.GetDocument();
+	script.Kind = VisualScriptDocumentKind::Script;
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, script).IsOk());
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetLibraryLine().empty());
+	CHECK(fixture.Sidebar.FindAddButton(VisualScriptElementKind::Variable));
+}
+
+TEST_CASE("VisualScriptEditor: Details' Find Callers of a library function lists its calls in every script")
+{
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 10;
+	clamp.Name = "Clamp01";
+	library.Functions = {clamp};
+	PaneFixture fixture(library, {FixturePane::Details});
+	VisualScriptDocument door;
+	door.Graph.Nodes = {MakeRemoteNode(1, "Function.Call", fixture.Graph, "Function", 10)};
+	std::vector<VisualScriptProjectGraph> const graphs = {MakeReferringGraph(PaneDoor, "Door", door)};
+	fixture.Model->SetProjectGraphs(graphs, 1);
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Function, 10};
+	fixture.CheckDrawingChangesNothing();
+	REQUIRE(fixture.Details.FindRow("Find Callers"));
+	fixture.ImGui.Click(fixture.DetailsRow("Find Callers"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(HasFindReferences(fixture.Results, VisualScriptReference{VisualScriptReference::Kind::Function, 10, {}, fixture.Graph}));
+}
+
+TEST_CASE("VisualScriptEditor: a value dragged in Details survives an outside change of another node, and is dropped with a toast "
+          "over one of its own")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(4, "Flow.Delay", glm::vec2(400.0f, 300.0f)));
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({4});
+	size_t const undo = fixture.GetUndoCount();
+	ImVec2 const start = fixture.DetailsRow("Duration", 0.3f);
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(start.x, start.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	// The first change commits at once, the next waits for the cadence: a value is pending when the agent's edit lands.
+	io.AddMousePosEvent(start.x + 8.0f, start.y);
+	fixture.Frames(1);
+	io.AddMousePosEvent(start.x + 16.0f, start.y);
+	fixture.Frames(1);
+	REQUIRE(fixture.Details.HasPendingEdit());
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+
+	auto const agentEdit = [&fixture](uint32_t node, std::string comment)
+	{
+		VisualScriptDocument edited = fixture.GetDocument();
+		for (VisualScriptNode& candidate : edited.Graph.Nodes)
+		{
+			if (candidate.ID == node)
+			{
+				candidate.Comment = comment;
+			}
+		}
+		REQUIRE(
+			fixture.Operations.EditVisualScript(fixture.Graph, CreateRef<VisualScriptDocument const>(std::move(edited)), "Agent").IsOk());
+	};
+
+	SUBCASE("another node: the value is kept, and the drag goes on in a step after the agent's")
+	{
+		agentEdit(2, "Logs");
+		fixture.Frames(1);
+		CHECK(fixture.Details.HasPendingEdit());
+		io.AddMousePosEvent(start.x + 24.0f, start.y);
+		fixture.Frames(1);
+		io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+		fixture.Frames(3);
+		VisualScriptDocument const& after = fixture.GetDocument();
+		CHECK(FindVisualScriptNode(after, 2)->Comment == "Logs");
+		CHECK(FindVisualScriptNode(after, 4)->Inputs.value("Duration", Json()).is_number());
+		// The drag before the agent's edit, the agent's, and the drag after it.
+		CHECK(fixture.GetUndoCount() == undo + 3);
+		CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Duration on Delay in Graph");
+		REQUIRE(fixture.Operations.Undo().IsOk());
+		CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Agent");
+		CHECK_FALSE(HasNote(fixture.Results, "Your edit of Duration was replaced by a change made elsewhere"));
+	}
+	SUBCASE("the dragged node: the value is dropped, and the toast says so")
+	{
+		agentEdit(4, "Waits");
+		fixture.Frames(1);
+		CHECK(HasNote(fixture.Results, "Your edit of Duration was replaced by a change made elsewhere"));
+		io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+		fixture.Frames(3);
+		CHECK(FindVisualScriptNode(fixture.GetDocument(), 4)->Comment == "Waits");
+	}
+	SUBCASE("the dragged node, flushed between draws: nothing is committed, and the next draw says so")
+	{
+		agentEdit(4, "Waits");
+		// The window synced its model with the agent's edit, and the window manager flushes before the panes draw again.
+		fixture.Model->Sync(*fixture.ActiveSemantics, fixture.Measure, fixture.Theme, false, fixture.Time);
+		CHECK_FALSE(fixture.Details.TakePendingEdit().has_value());
+		CHECK_FALSE(fixture.Details.HasPendingEdit());
+		CHECK_FALSE(HasNote(fixture.Results, "Your edit of Duration was replaced by a change made elsewhere"));
+		fixture.Frames(1);
+		CHECK(HasNote(fixture.Results, "Your edit of Duration was replaced by a change made elsewhere"));
+		io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+		fixture.Frames(3);
+		CHECK(FindVisualScriptNode(fixture.GetDocument(), 4)->Comment == "Waits");
+		// The drag's first step and the agent's.
+		CHECK(fixture.GetUndoCount() == undo + 2);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a Kind switch that breaks other scripts' nodes asks first, in both directions, and tells after it")
+{
+	// An empty script: nothing of its own stays behind in a library. Door runs it on another entity.
+	PaneFixture fixture(VisualScriptDocument(), {FixturePane::Details});
+	VisualScriptDocument door;
+	door.Graph.Nodes = {MakeNode(1, "RunsGraph", glm::vec2(0.0f), Json::object({{"Graph", fixture.Graph.ToString()}}))};
+	std::vector<VisualScriptProjectGraph> const runners = {MakeReferringGraph(PaneDoor, "Door", door)};
+	fixture.Model->SetProjectGraphs(runners, 1);
+	fixture.CheckDrawingChangesNothing();
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Script);
+	size_t const undo = fixture.GetUndoCount();
+
+	PickDetailsItem(fixture, "Kind", "Function Library");
+	REQUIRE(fixture.Details.GetKindQuestion().has_value());
+	CHECK(*fixture.Details.GetKindQuestion() ==
+	      "Make Graph a function library? 1 node in 1 other script uses it as a script: they will show errors until fixed.");
+	CHECK(fixture.GetUndoCount() == undo);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.GetDocument().Kind == VisualScriptDocumentKind::Library);
+
+	// Back to a script while Door and Enemy call its function: asked again, the other way.
+	VisualScriptDocument library = fixture.GetDocument();
+	VisualScriptFunction clamp;
+	clamp.ID = 10;
+	clamp.Name = "Clamp01";
+	library.Functions = {clamp};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, library).IsOk());
+	VisualScriptDocument caller;
+	caller.Graph.Nodes = {MakeRemoteNode(1, "Function.Call", fixture.Graph, "Function", 10),
+	                      MakeRemoteNode(2, "Function.Call", fixture.Graph, "Function", 10)};
+	VisualScriptDocument enemy;
+	enemy.Graph.Nodes = {MakeRemoteNode(1, "Function.Call", fixture.Graph, "Function", 10)};
+	std::vector<VisualScriptProjectGraph> const callers = {MakeReferringGraph(PaneDoor, "Door", caller),
+	                                                       MakeReferringGraph(PaneEnemy, "Enemy", enemy)};
+	fixture.Model->SetProjectGraphs(callers, 2);
+	fixture.Frames(2);
+	size_t const before = fixture.GetUndoCount();
+	PickDetailsItem(fixture, "Kind", "Script");
+	REQUIRE(fixture.Details.GetKindQuestion().has_value());
+	CHECK(*fixture.Details.GetKindQuestion() ==
+	      "Make Graph a script? 3 nodes in 2 other scripts call its functions: they will show errors until fixed.");
+	SUBCASE("Escape keeps it a library")
+	{
+		fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+		fixture.Frames(2);
+		CHECK(fixture.GetUndoCount() == before);
+		CHECK(fixture.GetDocument().Kind == VisualScriptDocumentKind::Library);
+	}
+	SUBCASE("Enter makes it a script in one step")
+	{
+		fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+		fixture.Frames(2);
+		CHECK(fixture.GetUndoCount() == before + 1);
+		CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Make Graph a Script in Graph");
+		CHECK(fixture.GetDocument().Kind == VisualScriptDocumentKind::Script);
+	}
+
+	// After the switch, the window's toast says the same (its index lists this graph too, by name).
+	std::vector<VisualScriptProjectGraph> named = callers;
+	named.push_back(MakeReferringGraph(fixture.Graph, "Motion", library));
+	VisualScriptDocument script = library;
+	script.Kind = VisualScriptDocumentKind::Script;
+	std::vector<VisualScriptOfferToast> const toasts = DescribeVisualScriptOfferChange(fixture.Graph, library, script, named);
+	REQUIRE(toasts.size() == 1);
+	CHECK(toasts[0].Text == "Made Motion a script: 3 nodes in 2 other scripts show errors");
+	CHECK(CountVisualScriptRemovedReferrers(fixture.Graph, library, script, named) == VisualScriptOtherUses{3, 2});
+	// A switch no other script notices tells nothing.
+	CHECK(DescribeVisualScriptOfferChange(fixture.Graph, library, script, {}).empty());
+}
+
+TEST_CASE("VisualScriptEditor: a library whose event graph holds only comment boxes offers it in My Script, to delete them")
+{
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 10;
+	clamp.Name = "Clamp01";
+	library.Functions = {clamp};
+	CHECK_FALSE(OffersVisualScriptEventGraph(library));
+	PaneFixture fixture(library, {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	CHECK_FALSE(fixture.Sidebar.FindRow({VisualScriptElementKind::Function, 0}));
+	VisualScriptDocument boxed = fixture.GetDocument();
+	VisualScriptComment box;
+	box.ID = 1;
+	box.Text = "Old notes";
+	box.Position = glm::vec2(0.0f);
+	box.Size = glm::vec2(400.0f, 200.0f);
+	boxed.Graph.Comments = {box};
+	CHECK(OffersVisualScriptEventGraph(boxed));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, boxed).IsOk());
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.FindRow({VisualScriptElementKind::Function, 0}));
+	// A script always offers its event graph.
+	CHECK(OffersVisualScriptEventGraph(VisualScriptDocument()));
 }

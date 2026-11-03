@@ -18,6 +18,7 @@ namespace Strada
 		constexpr std::string_view ReturnType = "Function.Return";
 		constexpr std::string_view CustomEventType = "Event.Custom";
 		constexpr std::string_view SendEventType = "Event.Send";
+		constexpr std::string_view BroadcastEventType = "Event.Broadcast";
 		constexpr std::string_view CallType = "Function.Call";
 		constexpr std::string_view GetVariableType = "Variable.Get";
 		constexpr std::string_view SetVariableType = "Variable.Set";
@@ -693,23 +694,36 @@ namespace Strada
 			facts.HasReturn = HasNodeOfType(shown->Graph, ReturnType);
 			facts.Locals = shown->Locals;
 		}
+		facts.Kind = document.Kind;
 		facts.Variables = document.Variables;
 		for (VisualScriptFunction const& candidate : document.Functions)
 		{
 			facts.Functions.push_back({candidate.ID, candidate.Name, candidate.Pure, candidate.Inputs, candidate.Outputs});
 		}
-		std::unordered_set<std::string> eventNames;
 		for (VisualScriptNode const& node : document.Graph.Nodes)
 		{
-			if (!node.Type.starts_with(EventPrefix) || !node.Settings.is_object())
-			{
-				continue;
-			}
-			if (facts.Function == 0)
+			if (facts.Function == 0 && node.Type.starts_with(EventPrefix) && node.Settings.is_object())
 			{
 				facts.EventNodes.push_back({node.ID, node.Type, node.Settings});
 			}
-			if (node.Type != CustomEventType)
+		}
+		facts.CustomEvents = ReadCustomEvents(document);
+		if (facts == m_Document && !m_Entries.empty())
+		{
+			return;
+		}
+		m_Document = std::move(facts);
+		Compose();
+	}
+
+	std::vector<VisualScriptPaletteIndex::DocumentFacts::CustomEvent>
+	VisualScriptPaletteIndex::ReadCustomEvents(VisualScriptDocument const& document)
+	{
+		std::vector<DocumentFacts::CustomEvent> events;
+		std::unordered_set<std::string> eventNames;
+		for (VisualScriptNode const& node : document.Graph.Nodes)
+		{
+			if (node.Type != CustomEventType || !node.Settings.is_object())
 			{
 				continue;
 			}
@@ -729,14 +743,246 @@ namespace Strada
 					event.Parameters = *stored;
 				}
 			}
-			facts.CustomEvents.push_back(std::move(event));
+			events.push_back(std::move(event));
 		}
-		if (facts == m_Document && !m_Entries.empty())
+		return events;
+	}
+
+	void VisualScriptPaletteIndex::SetProjectGraphs(std::span<VisualScriptProjectGraph const> graphs, AssetHandle self, uint64_t revision)
+	{
+		if (m_HasGraphs && revision == m_GraphsRevision && self == m_GraphsSelf)
 		{
 			return;
 		}
-		m_Document = std::move(facts);
-		Compose();
+		m_HasGraphs = true;
+		m_GraphsRevision = revision;
+		m_GraphsSelf = self;
+		std::vector<GraphFacts> facts;
+		for (VisualScriptProjectGraph const& graph : graphs)
+		{
+			if (graph.Document == nullptr)
+			{
+				continue;
+			}
+			GraphFacts read;
+			read.Graph = graph.Graph;
+			read.Name = graph.DisplayName.empty() ? graph.Graph.ToString() : graph.DisplayName;
+			read.Kind = graph.Document->Kind;
+			read.Self = graph.Graph == self;
+			if (read.Kind == VisualScriptDocumentKind::Library)
+			{
+				if (read.Self)
+				{
+					continue;
+				}
+				for (VisualScriptFunction const& function : graph.Document->Functions)
+				{
+					read.Functions.push_back({function.ID, function.Name, function.Pure, function.Inputs, function.Outputs});
+				}
+			}
+			else
+			{
+				for (VisualScriptVariable const& variable : graph.Document->Variables)
+				{
+					if (variable.Public || read.Self)
+					{
+						read.Variables.push_back({variable.ID, variable.Name, variable.Type});
+					}
+				}
+				if (!read.Self)
+				{
+					read.CustomEvents = ReadCustomEvents(*graph.Document);
+				}
+			}
+			facts.push_back(std::move(read));
+		}
+		if (facts == m_Graphs)
+		{
+			return;
+		}
+		m_Graphs = std::move(facts);
+		if (!m_Entries.empty())
+		{
+			Compose();
+		}
+	}
+
+	void VisualScriptPaletteIndex::AddGraphEntries()
+	{
+		auto const titleOfType = [this](std::string_view type)
+		{
+			return TitleOfType(type);
+		};
+		auto const targetPin = []()
+		{
+			VisualScriptPin target = MakePin("Target", VisualScriptPinDirection::In, std::string(EntityType));
+			target.DefaultsToSelf = true;
+			return target;
+		};
+		auto const addSender =
+			[&](std::string_view type, DocumentFacts::CustomEvent const& event, Json settings, std::string category, std::string subtitle)
+		{
+			EntryFacts facts;
+			facts.Pure = false;
+			if (!IsShown(facts))
+			{
+				return;
+			}
+			bool const broadcast = type == BroadcastEventType;
+			VisualScriptPaletteEntry entry;
+			entry.Title = fmt::format("{} {}", broadcast ? "Broadcast" : "Send", event.Name);
+			entry.Subtitle = std::move(subtitle);
+			if (!event.ParameterList.empty())
+			{
+				entry.Subtitle +=
+					fmt::format("{}({})", entry.Subtitle.empty() ? "" : " \xC2\xB7 ", DescribeParameters(event.ParameterList, titleOfType));
+			}
+			entry.Category = std::move(category);
+			entry.NodeType = std::string(type);
+			entry.Settings = std::move(settings);
+			entry.Settings["Name"] = event.Name;
+			if (!event.Parameters.is_null())
+			{
+				entry.Settings["Parameters"] = event.Parameters;
+			}
+			entry.Kind = VisualScriptNodeKind::Call;
+			entry.Pins.push_back(ExecPin("Execute", VisualScriptPinDirection::In));
+			if (!broadcast)
+			{
+				entry.Pins.push_back(targetPin());
+			}
+			for (VisualScriptParameter const& parameter : event.ParameterList)
+			{
+				entry.Pins.push_back(MakePin(parameter.Name, VisualScriptPinDirection::In, parameter.Type));
+			}
+			entry.Pins.push_back(ExecPin("Then", VisualScriptPinDirection::Out));
+			if (broadcast)
+			{
+				entry.Pins.push_back(MakePin("Count", VisualScriptPinDirection::Out, "int"));
+			}
+			Add(std::move(entry), std::move(facts));
+		};
+		auto const addVariable = [&](GraphFacts const& graph, GraphFacts::VariableFacts const& variable, std::string const& category)
+		{
+			for (bool const set : {false, true})
+			{
+				EntryFacts facts;
+				facts.Pure = !set;
+				if (!IsShown(facts))
+				{
+					continue;
+				}
+				VisualScriptPaletteEntry entry;
+				entry.Title = graph.Self ? fmt::format("{} {} of another {}", set ? "Set" : "Get", variable.Name, graph.Name)
+				                         : fmt::format("{} {}", set ? "Set" : "Get", variable.Name);
+				entry.Subtitle =
+					graph.Self ? TitleOfType(variable.Type) : fmt::format("of {} \xC2\xB7 {}", graph.Name, TitleOfType(variable.Type));
+				entry.Category = category;
+				entry.NodeType = std::string(set ? SetVariableType : GetVariableType);
+				entry.Settings = Json::object({{"Variable", variable.ID}, {"Graph", graph.Graph.ToString()}});
+				entry.Kind = VisualScriptNodeKind::Variable;
+				if (set)
+				{
+					entry.Pins.push_back(ExecPin("Execute", VisualScriptPinDirection::In));
+				}
+				entry.Pins.push_back(targetPin());
+				if (set)
+				{
+					entry.Pins.push_back(MakePin("Value", VisualScriptPinDirection::In, variable.Type));
+					entry.Pins.push_back(ExecPin("Then", VisualScriptPinDirection::Out));
+				}
+				entry.Pins.push_back(MakePin("Value", VisualScriptPinDirection::Out, variable.Type));
+				Add(std::move(entry), std::move(facts));
+			}
+		};
+
+		for (GraphFacts const& graph : m_Graphs)
+		{
+			if (graph.Self)
+			{
+				// This script, when it is one: its own events broadcast to every script, its variables read on other entities.
+				if (m_Document.Kind != VisualScriptDocumentKind::Script)
+				{
+					continue;
+				}
+				for (DocumentFacts::CustomEvent const& event : m_Document.CustomEvents)
+				{
+					addSender(BroadcastEventType, event, Json::object(), "Events", {});
+				}
+				for (GraphFacts::VariableFacts const& variable : graph.Variables)
+				{
+					addVariable(graph, variable, fmt::format("Scripts/{}", graph.Name));
+				}
+				continue;
+			}
+			if (graph.Kind == VisualScriptDocumentKind::Library)
+			{
+				for (DocumentFacts::FunctionFacts const& function : graph.Functions)
+				{
+					EntryFacts facts;
+					facts.Pure = function.Pure;
+					if (!IsShown(facts))
+					{
+						continue;
+					}
+					VisualScriptPaletteEntry entry;
+					entry.Title = function.Name;
+					entry.Subtitle = fmt::format("{} \xC2\xB7 ({})", graph.Name, DescribeParameters(function.Inputs, titleOfType));
+					if (!function.Outputs.empty())
+					{
+						entry.Subtitle += fmt::format(" returns {}", DescribeParameters(function.Outputs, titleOfType));
+					}
+					entry.Category = fmt::format("Libraries/{}", graph.Name);
+					entry.NodeType = std::string(CallType);
+					entry.Settings = Json::object({{"Function", function.ID}, {"Graph", graph.Graph.ToString()}});
+					entry.Kind = VisualScriptNodeKind::Function;
+					if (!function.Pure)
+					{
+						entry.Pins.push_back(ExecPin("Execute", VisualScriptPinDirection::In));
+					}
+					for (VisualScriptParameter const& input : function.Inputs)
+					{
+						entry.Pins.push_back(MakePin(input.Name, VisualScriptPinDirection::In, input.Type));
+					}
+					if (!function.Pure)
+					{
+						entry.Pins.push_back(ExecPin("Then", VisualScriptPinDirection::Out));
+					}
+					for (VisualScriptParameter const& output : function.Outputs)
+					{
+						entry.Pins.push_back(MakePin(output.Name, VisualScriptPinDirection::Out, output.Type));
+					}
+					Add(std::move(entry), std::move(facts));
+				}
+				continue;
+			}
+			std::string const category = fmt::format("Scripts/{}", graph.Name);
+			for (DocumentFacts::CustomEvent const& event : graph.CustomEvents)
+			{
+				Json const settings = Json::object({{"Graph", graph.Graph.ToString()}});
+				addSender(SendEventType, event, settings, category, fmt::format("to {}", graph.Name));
+				addSender(BroadcastEventType, event, settings, category, fmt::format("to every {}", graph.Name));
+			}
+			for (GraphFacts::VariableFacts const& variable : graph.Variables)
+			{
+				addVariable(graph, variable, category);
+			}
+			EntryFacts facts;
+			facts.Pure = true;
+			if (IsShown(facts))
+			{
+				VisualScriptPaletteEntry entry;
+				entry.Title = fmt::format("Runs {}", graph.Name);
+				entry.Subtitle = "Whether an entity runs this script";
+				entry.Category = category;
+				entry.NodeType = "RunsGraph";
+				entry.Settings = Json::object({{"Graph", graph.Graph.ToString()}});
+				entry.Kind = VisualScriptNodeKind::Data;
+				entry.Pins.push_back(targetPin());
+				entry.Pins.push_back(MakePin("Result", VisualScriptPinDirection::Out, "bool"));
+				Add(std::move(entry), std::move(facts));
+			}
+		}
 	}
 
 	std::string VisualScriptPaletteIndex::TitleOfType(std::string_view type) const
@@ -885,6 +1131,7 @@ namespace Strada
 			Add(std::move(goTo), indexed.Facts);
 		}
 		AddDocumentEntries();
+		AddGraphEntries();
 		AddActions();
 	}
 
@@ -925,7 +1172,10 @@ namespace Strada
 				Add(std::move(entry), std::move(facts));
 			}
 		};
-		for (VisualScriptVariable const& variable : m_Document.Variables)
+		// A library has no variables (they are errors there, spec-slice3 §4.4.1): it offers none.
+		for (VisualScriptVariable const& variable : m_Document.Kind == VisualScriptDocumentKind::Library
+		                                                ? std::span<VisualScriptVariable const>()
+		                                                : std::span<VisualScriptVariable const>(m_Document.Variables))
 		{
 			addVariable(variable.ID, variable.Name, variable.Type, TitleOfType(variable.Type), variable.Tooltip);
 		}
@@ -1037,7 +1287,10 @@ namespace Strada
 		{
 			EntryFacts facts;
 			facts.Event = action.Kind == VisualScriptPaletteAction::AddCustomEvent;
-			if (!IsShown(facts))
+			// A library holds no variables or event graph of its own.
+			bool const library = m_Document.Kind == VisualScriptDocumentKind::Library;
+			if (!IsShown(facts) || (library && (action.Kind == VisualScriptPaletteAction::AddVariable ||
+			                                    action.Kind == VisualScriptPaletteAction::AddCustomEvent)))
 			{
 				continue;
 			}

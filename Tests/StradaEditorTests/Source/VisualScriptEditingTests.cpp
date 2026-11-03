@@ -2,9 +2,11 @@
 #include "VisualScriptTestDocuments.h"
 
 #include "Editor/VisualScripting/VisualScriptCommit.h"
+#include "Editor/VisualScripting/VisualScriptCrossGraph.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Hash.h"
@@ -1354,7 +1356,7 @@ TEST_CASE("VisualScriptEditing: an event's parameters keep, rename and remove th
 		CheckRefused(document, setParameters(1, {{"A", "float"}, {"A", "int"}}), "two parameters named A");
 		CheckRefused(document, setParameters(1, {{"A", "exec"}}), "a parameter cannot have the type exec");
 		CheckRefused(document, setParameters(1, {{"A.B", "float"}}), "expected a name of 1 to 64 bytes");
-		CheckRefused(document, setParameters(2, {}), "node 2 is no Event.Custom or Event.Send: its type is Variable.Set");
+		CheckRefused(document, setParameters(2, {}), "node 2 is no Event.Custom, Event.Send or Event.Broadcast: its type is Variable.Set");
 		std::vector<VisualScriptParameter> many;
 		for (int index = 0; index < 65; index++)
 		{
@@ -2608,4 +2610,278 @@ TEST_CASE("VisualScriptEditing: stripped of their layout, two documents are writ
 		CHECK(same > 0);
 		CHECK(different > 0);
 	}
+}
+
+TEST_CASE("VisualScriptEditing: the settings that name another graph's elements are set by retargeting the node")
+{
+	std::string const door = AssetHandle(UUID(7300001ull)).ToString();
+	struct Row
+	{
+		std::string_view Type;
+		std::string_view Setting;
+		bool Remote = false;
+		std::string_view Operation;
+	};
+	std::vector<Row> const rows = {
+		// A Graph setting, given or removed, decides the pins of every kind that can name another graph.
+		{"Event.Send", "Graph", false, "RetargetNode"},
+		{"Event.Broadcast", "Graph", true, "RetargetNode"},
+		{"Function.Call", "Graph", false, "RetargetNode"},
+		{"Variable.Get", "Graph", true, "RetargetNode"},
+		{"Variable.Set", "Graph", false, "RetargetNode"},
+		{"RunsGraph", "Graph", true, "RetargetNode"},
+		// With one, the elements of that graph.
+		{"Function.Call", "Function", true, "RetargetNode"},
+		{"Variable.Get", "Variable", true, "RetargetNode"},
+		{"Variable.Set", "Variable", true, "RetargetNode"},
+		{"Event.Send", "Name", true, "RetargetNode"},
+		{"Event.Broadcast", "Name", true, "RetargetNode"},
+		{"Event.Broadcast", "Parameters", false, "SetEventParameters"},
+		{"Event.Broadcast", "Parameters", true, "SetEventParameters"},
+		// Without one, the document's own; and settings of other kinds.
+		{"Function.Call", "Function", false, ""},
+		{"Variable.Get", "Variable", false, ""},
+		{"Event.Send", "Name", false, ""},
+		{"Event.Broadcast", "Name", false, ""},
+		{"Event.Broadcast", "IncludeSelf", true, ""},
+		{"RunsGraph", "Name", true, ""},
+		{"Flow.Branch", "Graph", false, ""},
+	};
+	for (Row const& row : rows)
+	{
+		CAPTURE(row.Type);
+		CAPTURE(row.Setting);
+		CAPTURE(row.Remote);
+		VisualScriptNode const node =
+			MakeNode(1, std::string(row.Type), glm::vec2(0.0f), row.Remote ? Json::object({{"Graph", door}}) : Json::object());
+		CHECK(VisualScriptEditing::FindVisualScriptSettingOperation(node, row.Setting) == row.Operation);
+	}
+
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Event.Send", glm::vec2(0.0f), {{"Name", "Hit"}}),
+	                        MakeNode(2, "Variable.Get", glm::vec2(0.0f), {{"Variable", 5}, {"Graph", door}})};
+	VisualScriptDocument const before = document;
+	Result<void> const graph = VisualScriptEditing::SetSetting(document, 1, "Graph", door);
+	REQUIRE(graph.IsError());
+	CHECK(graph.GetError() == "Graph of node 1 (Event.Send) changes its pins or its senders: set it with RetargetNode");
+	CHECK(VisualScriptEditing::SetSetting(document, 2, "Variable", 9).IsError());
+	CHECK(VisualScriptEditing::SetSetting(document, 2, "Graph", Json()).IsError());
+	CHECK(document == before);
+	// The Name of an untyped Send is set as it is.
+	RequireOk(VisualScriptEditing::SetSetting(document, 1, "Name", "Damaged"));
+}
+
+TEST_CASE("VisualScriptEditing: a Broadcast's parameters keep, rename and remove their input pins as a Send's")
+{
+	VisualScriptDocument document;
+	Json const parameters = Json::array({{{"Name", "Amount"}, {"Type", "float"}}, {{"Name", "Source"}, {"Type", "Strada.Entity"}}});
+	document.Graph.Nodes = {
+		MakeNode(1, "Event.Broadcast", glm::vec2(0.0f), {{"Name", "Hit"}, {"Parameters", parameters}}, {{"Amount", 2.5}}),
+		MakeNode(2, "Get:Strada.Time.DeltaTime")};
+	document.Graph.Links = {MakeLink(2, "Value", 1, "Source")};
+	CHECK(RequireOk(VisualScriptEditing::SetEventParameters(document, 1, {{"Damage", "float"}, {"Source", "Strada.Entity"}})) == 0);
+	CHECK(document.Graph.Nodes[0].Inputs == Json::object({{"Damage", 2.5}}));
+	CHECK(RequireOk(VisualScriptEditing::SetEventParameters(document, 1, {{"Damage", "float"}})) == 1);
+	CHECK(document.Graph.Links.empty());
+	CheckDocument(document);
+}
+
+TEST_CASE("VisualScriptEditing: retargeting a node gives it the pins of what it names, keeping the links those pins keep")
+{
+	AssetHandle const door(UUID(7300001ull));
+	AssetHandle const motion(UUID(7300002ull));
+	VisualScriptDocument target;
+	VisualScriptVariable health;
+	health.ID = 5;
+	health.Name = "Health";
+	health.Type = "float";
+	health.Public = true;
+	VisualScriptVariable armor = health;
+	armor.ID = 9;
+	armor.Name = "Armor";
+	armor.Type = "int";
+	target.Variables = {health, armor};
+	Json const damage = Json::array({{{"Name", "Damage"}, {"Type", "float"}}});
+	target.Graph.Nodes = {MakeNode(1, "Event.Custom", glm::vec2(0.0f), {{"Name", "Hit"}, {"Parameters", damage}})};
+	VisualScriptDocument library;
+	library.Kind = VisualScriptDocumentKind::Library;
+	VisualScriptFunction clamp;
+	clamp.ID = 7;
+	clamp.Name = "Clamp01";
+	clamp.Inputs = {{"Height", "float"}};
+	library.Functions = {clamp};
+	VisualScriptGraphResolver const resolver = [&](AssetHandle graph) -> VisualScriptDocument const*
+	{
+		return graph == door ? &target : graph == motion ? &library : nullptr;
+	};
+
+	VisualScriptDocument document;
+	VisualScriptFunction local;
+	local.ID = 3;
+	local.Name = "Local";
+	local.Inputs = {{"A", "float"}};
+	document.Functions = {local};
+	document.Graph.Nodes = {MakeNode(10, "Event.Send", glm::vec2(0.0f), {{"Name", "Hit"}}),
+	                        MakeNode(11, "Variable.Get", glm::vec2(0.0f), {{"Variable", 5}, {"Graph", door.ToString()}}),
+	                        MakeNode(12, "Function.Call", glm::vec2(0.0f), {{"Function", 7}, {"Graph", motion.ToString()}}),
+	                        MakeNode(13, "Get:Strada.Time.DeltaTime"),
+	                        MakeNode(14, "Call:Strada.Log.Info(string)"),
+	                        MakeNode(15, "Flow.Branch")};
+	document.Graph.Links = {MakeLink(13, "Value", 10, "Damage"), MakeLink(11, "Value", 12, "Height"), MakeLink(14, "Then", 12, "Execute")};
+
+	SUBCASE("a Send typed with a graph takes its event's parameters, and keeps them when it is untyped again")
+	{
+		CHECK(VisualScriptEditing::MakeVisualScriptRetargetPins(document, 0, document.Graph.Nodes[0], resolver).size() == 3);
+		CHECK(RequireOk(
+				  VisualScriptEditing::RetargetVisualScriptNode(document, 10, Json::object({{"Graph", door.ToString()}}), resolver)) == 0);
+		CHECK(document.Graph.Nodes[0].Settings == Json::object({{"Name", "Hit"}, {"Graph", door.ToString()}, {"Parameters", damage}}));
+		CHECK(RequireOk(VisualScriptEditing::RetargetVisualScriptNode(document, 10, Json::object({{"Graph", nullptr}}), resolver)) == 0);
+		CHECK(document.Graph.Nodes[0].Settings == Json::object({{"Name", "Hit"}, {"Parameters", damage}}));
+		CHECK(document.Graph.Links.size() == 3);
+	}
+
+	SUBCASE("another variable keeps the links of the pins it has")
+	{
+		CHECK(RequireOk(VisualScriptEditing::RetargetVisualScriptNode(document, 11, Json::object({{"Variable", 9}}), resolver)) == 0);
+		CHECK(document.Graph.Nodes[1].Settings["Variable"] == 9);
+		// A graph that is not at hand gives no pins: the links go.
+		CHECK(RequireOk(VisualScriptEditing::RetargetVisualScriptNode(document, 11, Json::object({{"Graph", "77"}}), resolver)) == 1);
+	}
+
+	SUBCASE("a call made local takes its function's signature")
+	{
+		CHECK(RequireOk(VisualScriptEditing::RetargetVisualScriptNode(document, 12, Json::object({{"Graph", nullptr}, {"Function", 3}}),
+		                                                              resolver)) == 1);
+		CHECK(document.Graph.Nodes[2].Settings == Json::object({{"Function", 3}}));
+		CHECK(document.Graph.Links ==
+		      std::vector<VisualScriptLink>{MakeLink(13, "Value", 10, "Damage"), MakeLink(14, "Then", 12, "Execute")});
+	}
+
+	CHECK(VisualScriptEditing::RetargetVisualScriptNode(document, 15, Json::object({{"Graph", door.ToString()}}), resolver).IsError());
+	CHECK(VisualScriptEditing::MakeVisualScriptRetargetPins(document, 0, document.Graph.Nodes[5], resolver).empty());
+	CheckDocument(document);
+}
+
+namespace
+{
+	// Speed (1) and a function (2) with a local Step (3); in the event graph a Delay (10) and a Branch (11), linked.
+	VisualScriptDocument MakeRebaseDocument()
+	{
+		VisualScriptDocument document;
+		VisualScriptVariable speed;
+		speed.ID = 1;
+		speed.Name = "Speed";
+		speed.Type = "float";
+		speed.Value = 1.0;
+		document.Variables = {speed};
+		VisualScriptFunction function;
+		function.ID = 2;
+		function.Name = "Jump";
+		VisualScriptLocal step;
+		step.ID = 3;
+		step.Name = "Step";
+		step.Type = "int";
+		function.Locals = {step};
+		VisualScriptNode entry;
+		entry.ID = 4;
+		entry.Type = "Function.Entry";
+		function.Graph.Nodes = {entry};
+		document.Functions = {function};
+		VisualScriptNode delay;
+		delay.ID = 10;
+		delay.Type = "Flow.Delay";
+		delay.Inputs = Json::object({{"Duration", 1.0}});
+		VisualScriptNode branch;
+		branch.ID = 11;
+		branch.Type = "Flow.Branch";
+		branch.Position = glm::vec2(300.0f, 0.0f);
+		document.Graph.Nodes = {delay, branch};
+		document.Graph.Links = {{{10, "Then"}, {11, "Execute"}}};
+		return document;
+	}
+
+	VisualScriptNode& EditNode(VisualScriptDocument& document, uint32_t id)
+	{
+		auto const found = std::find_if(document.Graph.Nodes.begin(), document.Graph.Nodes.end(),
+		                                [id](VisualScriptNode const& node)
+		                                {
+											return node.ID == id;
+										});
+		REQUIRE(found != document.Graph.Nodes.end());
+		return *found;
+	}
+}
+
+TEST_CASE("VisualScriptEditing: a value being edited is rebased over an outside change of other elements, and nothing else is")
+{
+	VisualScriptDocument const base = MakeRebaseDocument();
+
+	// The Delay's Duration is being dragged while an agent moves the Branch and renames Speed's neighbour.
+	VisualScriptDocument pending = base;
+	EditNode(pending, 10).Inputs["Duration"] = 2.5;
+	VisualScriptDocument current = base;
+	EditNode(current, 11).Position = glm::vec2(600.0f, 40.0f);
+	current.Description = "Edited by an agent";
+	std::optional<VisualScriptDocument> rebased = VisualScriptEditing::RebaseVisualScriptEdit(base, pending, current);
+	REQUIRE(rebased.has_value());
+	VisualScriptDocument expected = current;
+	EditNode(expected, 10).Inputs["Duration"] = 2.5;
+	CHECK(*rebased == expected);
+
+	// A variable's and a local's fields, a setting, and a node of a function's graph rebase alike.
+	VisualScriptDocument fields = base;
+	fields.Variables[0].Value = 4.0;
+	fields.Functions[0].Locals[0].Value = 7;
+	fields.Functions[0].Graph.Nodes[0].Comment = "Kept";
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, fields, current).has_value());
+	fields.Functions[0].Graph.Nodes[0].Comment.clear();
+	EditNode(fields, 10).Settings = Json::object({{"Note", "x"}});
+	rebased = VisualScriptEditing::RebaseVisualScriptEdit(base, fields, current);
+	REQUIRE(rebased.has_value());
+	CHECK(rebased->Variables[0].Value == Json(4.0));
+	CHECK(rebased->Functions[0].Locals[0].Value == Json(7));
+	CHECK(EditNode(*rebased, 10).Settings == Json::object({{"Note", "x"}}));
+	CHECK(EditNode(*rebased, 11).Position == glm::vec2(600.0f, 40.0f));
+	// The agent moved the Branch, whose setting is being edited.
+	VisualScriptDocument branchSetting = base;
+	EditNode(branchSetting, 11).Settings = Json::object({{"Note", "x"}});
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, branchSetting, current).has_value());
+
+	// An outside change of the edited node, of its variable, or one that removes it: nothing.
+	VisualScriptDocument overlap = base;
+	EditNode(overlap, 10).Inputs["Duration"] = 9.0;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, pending, overlap).has_value());
+	VisualScriptDocument removed = base;
+	removed.Graph.Nodes.erase(removed.Graph.Nodes.begin());
+	removed.Graph.Links.clear();
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, pending, removed).has_value());
+	VisualScriptDocument renamed = base;
+	renamed.Variables[0].Name = "Pace";
+	VisualScriptDocument variable = base;
+	variable.Variables[0].Value = 3.0;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, variable, renamed).has_value());
+	// The integer 1 is another program than 1.0: an outside change of a value's representation touches it.
+	VisualScriptDocument integer = base;
+	EditNode(integer, 10).Inputs["Duration"] = 1;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, pending, integer).has_value());
+
+	// A pending change of anything but values: nothing, whatever the outside change.
+	VisualScriptDocument linked = pending;
+	linked.Graph.Links.clear();
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, linked, current).has_value());
+	VisualScriptDocument added = pending;
+	added.Variables.push_back(added.Variables[0]);
+	added.Variables.back().ID = 20;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, added, current).has_value());
+	VisualScriptDocument moved = pending;
+	EditNode(moved, 10).Position = glm::vec2(5.0f);
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, moved, current).has_value());
+	VisualScriptDocument kind = pending;
+	kind.Kind = VisualScriptDocumentKind::Library;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, kind, current).has_value());
+
+	// Nothing pending: the current document.
+	rebased = VisualScriptEditing::RebaseVisualScriptEdit(base, base, current);
+	REQUIRE(rebased.has_value());
+	CHECK(*rebased == current);
 }
