@@ -391,7 +391,7 @@ TEST_CASE("Serialization: a text JsonScanner delimits whose every part parses is
 				}
 				continue;
 			}
-			for (std::pair<uint32_t, uint32_t> const element : member.Elements)
+			for (std::pair<uint32_t, uint32_t> const& element : member.Elements)
 			{
 				Result<Json> value = ParseJson(Slice(text, element));
 				partsParse = partsParse && value.IsOk();

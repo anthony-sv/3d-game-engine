@@ -415,6 +415,8 @@ public sealed class TimelineTests
 		},
 	};
 
+	// Every finding of the reader is the Timeline setting's (spec-slice4 section 16.4), whatever its code: the editor offers to
+	// edit the setting and to open the Timeline drawer. The message names the path; the setting is an object, so no span.
 	[Theory]
 	[MemberData(nameof(Settings))]
 	public void SettingsAreValidatedWithTheirPath(string setting, string code, string message)
@@ -422,7 +424,25 @@ public sealed class TimelineTests
 		AnalyzedDocument document = VisualScriptTesting.Analyze(VisualScriptTesting.Document($$"""{ "ID": 1, "Type": "Flow.Timeline", "Settings": { "Timeline": {{setting}} } }"""));
 		Diagnostic diagnostic = Assert.Single(document.Diagnostics);
 		Assert.Equal((code, DiagnosticSeverity.Error, 1u, message), (diagnostic.Code.ToString(), diagnostic.Severity, diagnostic.Node, diagnostic.Message));
+		Assert.Equal("Timeline", diagnostic.Setting);
+		Assert.Null(diagnostic.Span);
 		Assert.False(VisualScriptTesting.Node(document, 1).PinsComplete);
+	}
+
+	// The analysis' JSON writes the setting of every finding the reader made, and no span.
+	[Fact]
+	public void TheAnalysisWritesTheSettingOfEveryFinding()
+	{
+		AnalyzedDocument document = VisualScriptTesting.Analyze(VisualScriptTesting.Document(
+			"""{ "ID": 1, "Type": "Flow.Timeline", "Settings": { "Timeline": { "Length": 0, "Tracks": [{ "Name": "a.b", "Type": "exec" }] } } }"""));
+		Assert.Equal([DiagnosticCode.InvalidSetting, DiagnosticCode.InvalidName], document.Diagnostics.Select(static diagnostic => diagnostic.Code));
+		JsonElement[] written = [.. VisualScriptTesting.ParseObject(AnalysisWriter.Write(document)).GetProperty("Diagnostics").EnumerateArray()];
+		Assert.Equal(2, written.Length);
+		Assert.All(written, static diagnostic =>
+		{
+			Assert.Equal("Timeline", diagnostic.GetProperty("Setting").GetString());
+			Assert.False(diagnostic.TryGetProperty("Span", out _));
+		});
 	}
 
 	// A setting with problems keeps the pins of its valid tracks, so links to them stay.

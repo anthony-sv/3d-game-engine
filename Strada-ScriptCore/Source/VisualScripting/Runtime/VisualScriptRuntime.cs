@@ -44,6 +44,11 @@ internal sealed partial class VisualScriptRuntime
 	private readonly HashSet<ulong> m_PendingSwaps = [];
 	// The analyses of the function libraries the documents call, shared by analyses and loads (spec-slice3 section 4.4.3).
 	private readonly LibraryAnalyses m_LibraryAnalyses = new();
+	// The analyses of the documents loads compiled that call libraries, reused when only a library's body changed
+	// (spec-slice4 section 9.4).
+	private readonly RootAnalyses m_RootAnalyses = new();
+	// What live edits did and what went wrong at run time (spec-slice4 section 8.2): always on, bounded.
+	private readonly LiveEventLog m_Live = new();
 	private IVisualScriptDebugger? m_Debugger;
 	// Active executions plus the function frames on their call stacks.
 	private int m_Depth;
@@ -79,17 +84,32 @@ internal sealed partial class VisualScriptRuntime
 	// The analyses of function libraries kept for the documents that call them.
 	internal LibraryAnalyses LibraryAnalyses => m_LibraryAnalyses;
 
+	internal RootAnalyses RootAnalyses => m_RootAnalyses;
+
+	internal LiveEventLog LiveEvents => m_Live;
+
+	// The carry plans live edits made (spec-slice4 section 8.3): one per pair of programs a swap carries instances between.
+	internal int CarryPlansMade { get; private set; }
+
+	// Where analyses and loads add the time of their phases (spec-slice4 section 9.0); null when nobody measures them.
+	internal AnalysisTimings? Timings { get; set; }
+
 	// Analyzes and compiles a document for a graph handle and returns its diagnostics. A program is stored whatever the
 	// document holds; a broken one keeps the handle's working program running (spec section 5.1), a working one swaps the
-	// program of the handle's instances (spec section 5.6). name is the display name in messages (the asset path).
+	// program of the handle's instances (spec section 5.6). Either way the live log gets the load's receipt (spec-slice4
+	// section 8.4). name is the display name in messages (the asset path).
 	// references is the bundle of the other graphs the document's nodes refer to (spec-slice3 section 2.4; empty for none):
 	// the functions of the libraries it calls are compiled into the program, and the program is its document and the bundle
-	// it was compiled with.
+	// it was compiled with. A document loaded again unchanged, whose libraries changed only in what no caller reads (their
+	// bodies), keeps its analysis and is only compiled again (spec-slice4 section 9.4).
 	internal IReadOnlyList<Diagnostic> Load(ulong graph, string name, ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default)
 	{
 		ProgramSource source = new(name, document.ToArray(), references.ToArray());
-		AnalyzedDocument analyzed = Analyze(source);
+		AnalyzedDocument analyzed = m_RootAnalyses.Analyze(graph, m_Library(), name, source.Document, GraphReferences.Parse(source.References),
+			m_LibraryAnalyses, Timings);
+		long start = AnalysisTimings.Now();
 		GraphProgram program = ProgramCompiler.Compile(analyzed, name, analyzed.Linked);
+		start = Timings?.Lap(AnalysisPhase.Compile, start) ?? start;
 		bool stale = false;
 		if (m_Graphs.TryGetValue(graph, out GraphEntry? entry))
 		{
@@ -105,19 +125,30 @@ internal sealed partial class VisualScriptRuntime
 		entry.IsStale = false;
 		if (!program.IsBroken)
 		{
+			// The program the instances run now is the one the receipt reports the edit against: the effective one, or the one a
+			// pending swap still waits to leave.
+			if (!m_PendingSwaps.Contains(graph))
+			{
+				entry.SwapFrom = entry.Effective;
+			}
 			entry.Effective = program;
 			entry.EffectiveSource = source;
 			m_PendingSwaps.Add(graph);
-			ApplySwaps();
+			ApplySwaps(graph);
+			Timings?.Lap(AnalysisPhase.Swap, start);
 		}
-		else if (stale)
+		else
 		{
-			// The game assembly changed since the working program compiled: it keeps running if it still compiles.
-			entry.Effective = entry.EffectiveSource is { } working ? Recompile(working) : null;
-			if (entry.Effective == null)
+			if (stale)
 			{
-				entry.EffectiveSource = null;
+				// The game assembly changed since the working program compiled: it keeps running if it still compiles.
+				entry.Effective = entry.EffectiveSource is { } working ? Recompile(working) : null;
+				if (entry.Effective == null)
+				{
+					entry.EffectiveSource = null;
+				}
 			}
+			m_Live.AddEdit(new LiveEditReceipt { Graph = graph, Name = name, Outcome = LiveOutcome.Kept, Errors = DescribeErrors(program) });
 		}
 		return analyzed.Diagnostics;
 	}
@@ -127,6 +158,7 @@ internal sealed partial class VisualScriptRuntime
 	internal VisualScriptStatus Unload(ulong graph)
 	{
 		m_PendingSwaps.Remove(graph);
+		m_RootAnalyses.Remove(graph);
 		return m_Graphs.Remove(graph) ? VisualScriptStatus.Success : VisualScriptStatus.NotFound;
 	}
 
@@ -172,7 +204,8 @@ internal sealed partial class VisualScriptRuntime
 		return VisualScriptStatus.Success;
 	}
 
-	// Removes every instance; no events run.
+	// Removes every instance; no events run. The live log keeps its problems: a scene load during play destroys every
+	// instance too, and only the engine knows when a play session starts (ClearLiveEvents).
 	internal void DestroyAllInstances()
 	{
 		List<GraphInstance> instances = [.. m_Instances.Values];
@@ -349,7 +382,10 @@ internal sealed partial class VisualScriptRuntime
 				return false;
 			case ExecutionResult.Aborted:
 				m_Debugger?.OnAborted(execution);
-				m_Environment.Log(VisualScriptLogLevel.Error, execution.Error!.Message);
+				ExecutionError error = execution.Error!;
+				m_Environment.Log(VisualScriptLogLevel.Error, error.Text);
+				m_Live.AddProblem(new LiveProblemKey(error.Graph, error.Document, error.Node, error.Entity, LiveSeverity.Error), error.Function, error.Title,
+					error.Message, error.Calls);
 				Release(execution);
 				return true;
 			default:
@@ -583,5 +619,11 @@ internal sealed partial class VisualScriptRuntime
 
 		// The game assembly changed since the programs compiled: they were dropped and compile again when next used.
 		internal bool IsStale { get; set; }
+
+		// While a swap is pending: the program the instances ran before it (null when the handle had no working program), and
+		// what the swap did after the load's receipt, for the receipt of the deferred swap (spec-slice4 section 8.3).
+		internal GraphProgram? SwapFrom { get; set; }
+
+		internal SwapProgress? Deferred { get; set; }
 	}
 }

@@ -1,11 +1,14 @@
 using System;
+using System.Runtime.CompilerServices;
 
 namespace Strada.VisualScripting;
 
 // Runs a formula's program over the slots of a frame (spec-slice3 section 3.3.8): one loop with one switch of slot
 // operations, which allocates nothing. Values are computed as the nodes that compute them in graphs do (Operators,
 // Conversions and the vector operators of the scripting API), so a formula and the same computation built from nodes give
-// the same bits.
+// the same bits. The typed operations (spec-slice4 section 9.5) write their result's field alone, not the whole slot: the
+// slots a formula writes (its temporaries and its node's output) hold numbers, booleans and vectors only, never an object
+// that a stale reference could keep alive, and every reader reads a slot at its kind.
 internal static class ExpressionMachine
 {
 	// An aborting error of an operator (an integer division or modulo by zero, the smallest value divided by -1) is thrown
@@ -21,6 +24,33 @@ internal static class ExpressionMachine
 				ref readonly ExpressionInstruction instruction = ref code[index];
 				switch (instruction.Op)
 				{
+					case ExpressionOp.AddInt32:
+						slots[instruction.Target].Int = unchecked(slots[instruction.A].Int + slots[instruction.B].Int);
+						break;
+					case ExpressionOp.SubtractInt32:
+						slots[instruction.Target].Int = unchecked(slots[instruction.A].Int - slots[instruction.B].Int);
+						break;
+					case ExpressionOp.MultiplyInt32:
+						slots[instruction.Target].Int = unchecked(slots[instruction.A].Int * slots[instruction.B].Int);
+						break;
+					case ExpressionOp.AddFloat:
+						slots[instruction.Target].Float = slots[instruction.A].Float + slots[instruction.B].Float;
+						break;
+					case ExpressionOp.SubtractFloat:
+						slots[instruction.Target].Float = slots[instruction.A].Float - slots[instruction.B].Float;
+						break;
+					case ExpressionOp.MultiplyFloat:
+						slots[instruction.Target].Float = slots[instruction.A].Float * slots[instruction.B].Float;
+						break;
+					case ExpressionOp.DivideFloat:
+						slots[instruction.Target].Float = slots[instruction.A].Float / slots[instruction.B].Float;
+						break;
+					case ExpressionOp.CompareInt32:
+						slots[instruction.Target].Bool = CompareInt32((OperatorKind)instruction.Detail, slots[instruction.A].Int, slots[instruction.B].Int);
+						break;
+					case ExpressionOp.CompareFloat:
+						slots[instruction.Target].Bool = CompareFloat((OperatorKind)instruction.Detail, slots[instruction.A].Float, slots[instruction.B].Float);
+						break;
 					case ExpressionOp.Copy:
 						slots[instruction.Target] = slots[instruction.A];
 						break;
@@ -91,6 +121,26 @@ internal static class ExpressionMachine
 			throw new VisualScriptException($"{exception.Message} in {program.TextOf(code[index].Span)}");
 		}
 	}
+
+	// The comparisons as Operators.Compare makes them at Int and Float: by order for integers, IEEE for floats (every
+	// comparison with NaN is false).
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static bool CompareInt32(OperatorKind op, int a, int b) => op switch
+	{
+		OperatorKind.Less => a < b,
+		OperatorKind.LessOrEqual => a <= b,
+		OperatorKind.Greater => a > b,
+		_ => a >= b,
+	};
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static bool CompareFloat(OperatorKind op, float a, float b) => op switch
+	{
+		OperatorKind.Less => a < b,
+		OperatorKind.LessOrEqual => a <= b,
+		OperatorKind.Greater => a > b,
+		_ => a >= b,
+	};
 }
 
 // The vector operations and functions of formulas (spec-slice3 sections 3.3.5 and 3.3.6). Vectors are read through the

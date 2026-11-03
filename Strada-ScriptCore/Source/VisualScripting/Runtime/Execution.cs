@@ -107,8 +107,14 @@ internal enum StartKind : byte
 // handle of its document; 0 when unknown).
 internal readonly record struct ExecutionStart(StartKind Kind, CompiledNode? Node, int Exit, uint OriginNode, ulong OriginDocument);
 
-// An aborting error, ready to be logged once (spec section 5.3, Errors).
-internal sealed record ExecutionError(string Message);
+// An aborting error (spec section 5.3, Errors; spec-slice4 section 8.2): the graph the instance runs and the entity, the
+// failing node (the document holding it, the function it is in, 0 for the event graph, its ID and title), the bare message
+// and the calls that led to the node (innermost last, at most MaxCalls), and Text, the line logged once.
+internal sealed record ExecutionError(ulong Graph, ulong Entity, ulong Document, uint Function, uint Node, string Title, string Message,
+	LiveCallFrame[] Calls, string Text)
+{
+	internal const int MaxCalls = 8;
+}
 
 // What one running Event.Broadcast node keeps apart from its frame: its receiver snapshot and a copy of its arguments. A
 // broadcast whose receiver stopped keeps it until the broadcast ends (spec-slice4 section 4.3).
