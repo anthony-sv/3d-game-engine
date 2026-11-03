@@ -357,7 +357,8 @@ namespace Strada
 		return found;
 	}
 
-	std::string DescribeVisualScriptValueEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending)
+	std::string DescribeVisualScriptValueEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending,
+	                                          VisualScriptGraphResolver const& resolver)
 	{
 		// The first variable or local whose fields differ, else the first node whose values differ: its input when one alone
 		// differs, else its title.
@@ -377,7 +378,7 @@ namespace Strada
 			}
 			return std::nullopt;
 		};
-		auto const node = [&base](VisualScriptGraph const& graph) -> std::optional<std::string>
+		auto const node = [&base, &resolver](VisualScriptGraph const& graph) -> std::optional<std::string>
 		{
 			for (VisualScriptNode const& edited : graph.Nodes)
 			{
@@ -402,7 +403,7 @@ namespace Strada
 						return changed.front();
 					}
 				}
-				return DeriveVisualScriptNodeTitle(*old, base);
+				return DeriveVisualScriptNodeTitle(*old, base, resolver);
 			}
 			return std::nullopt;
 		};
@@ -466,8 +467,23 @@ namespace Strada
 				m_Referrers = VisualScriptEditing::FindVisualScriptBrokenReferrers(graph, before, after, m_Scripts);
 			}
 
+			// The referrers left naming nothing the graph has, whatever they name.
+			VisualScriptOtherUses CountRemoved() const
+			{
+				return CountReferrers(VisualScriptEditing::VisualScriptReferrerProblem::Removed,
+				                      [](VisualScriptNode const&)
+				                      {
+										  return true;
+									  });
+			}
+
 			std::vector<VisualScriptOfferToast> Describe()
 			{
+				if (m_Before.Kind != m_After.Kind)
+				{
+					DescribeKind();
+					return std::move(m_Toasts);
+				}
 				if (m_Before.Kind == VisualScriptDocumentKind::Library && m_After.Kind == VisualScriptDocumentKind::Library)
 				{
 					for (VisualScriptFunction const& function : m_Before.Functions)
@@ -536,6 +552,25 @@ namespace Strada
 					}
 				}
 				return uses;
+			}
+
+			// A switch of the Kind: every node of another script that names an element of the graph as the other kind offered it.
+			void DescribeKind()
+			{
+				VisualScriptOtherUses const removed = CountRemoved();
+				if (removed.Nodes == 0)
+				{
+					return;
+				}
+				auto const self = std::find_if(m_Graphs.begin(), m_Graphs.end(),
+				                               [this](VisualScriptProjectGraph const& candidate)
+				                               {
+												   return candidate.Graph == m_Graph;
+											   });
+				std::string const name = self != m_Graphs.end() && !self->DisplayName.empty() ? self->DisplayName : "this graph";
+				Add(fmt::format("Made {} a {}: {} show errors", name,
+				                m_After.Kind == VisualScriptDocumentKind::Library ? "function library" : "script",
+				                DescribeVisualScriptOtherUses(removed, "node", "nodes")));
 			}
 
 			void DescribeFunction(VisualScriptFunction const& function)
@@ -755,6 +790,22 @@ namespace Strada
 		return OfferChange(graph, before, after, graphs).Describe();
 	}
 
+	VisualScriptOtherUses CountVisualScriptRemovedReferrers(AssetHandle graph, VisualScriptDocument const& before,
+	                                                        VisualScriptDocument const& after,
+	                                                        std::span<VisualScriptProjectGraph const> graphs)
+	{
+		if (graphs.empty())
+		{
+			return {};
+		}
+		return OfferChange(graph, before, after, graphs).CountRemoved();
+	}
+
+	bool OffersVisualScriptEventGraph(VisualScriptDocument const& document)
+	{
+		return document.Kind != VisualScriptDocumentKind::Library || !document.Graph.Nodes.empty() || !document.Graph.Comments.empty();
+	}
+
 	std::string DescribeVisualScriptLibraryUse(std::span<VisualScriptProjectGraph const> graphs, AssetHandle graph)
 	{
 		uint32_t nodes = 0;
@@ -936,7 +987,8 @@ namespace Strada
 			}
 		}
 		// The value no longer applies.
-		std::string const what = m_PendingBase != nullptr ? DescribeVisualScriptValueEdit(*m_PendingBase, *m_Pending) : "a value";
+		std::string const what =
+			m_PendingBase != nullptr ? DescribeVisualScriptValueEdit(*m_PendingBase, *m_Pending, model.MakeGraphResolver()) : "a value";
 		notes.push_back(fmt::format("Your edit of {} was replaced by a change made elsewhere", what));
 		m_Pending.reset();
 		m_PendingBase.reset();

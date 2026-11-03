@@ -1076,7 +1076,7 @@ namespace
 	};
 }
 
-TEST_CASE("VisualScriptEditor: the palette offers other graphs' functions, events and variables with their graph")
+TEST_CASE("VisualScriptPalette: the palette offers other graphs' functions, events and variables with their graph")
 {
 	Scope<VisualScriptLibrary> const library = ParseLibrary();
 	ProjectGraphsFixture const project;
@@ -1132,7 +1132,7 @@ TEST_CASE("VisualScriptEditor: the palette offers other graphs' functions, event
 	CHECK(health.front() == "Get Health");
 }
 
-TEST_CASE("VisualScriptEditor: the palette hides the other graphs' entries a graph cannot use, and recomposes on the index revision only")
+TEST_CASE("VisualScriptPalette: the palette hides the other graphs' entries a graph cannot use, and recomposes on the index revision only")
 {
 	Scope<VisualScriptLibrary> const library = ParseLibrary();
 	ProjectGraphsFixture const project;

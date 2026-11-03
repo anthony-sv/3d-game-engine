@@ -627,10 +627,11 @@ namespace Strada
 		AssetHandle GetGraph() const { return m_Graph; }
 		// The project's visual scripts (spec-slice3 §10.1), as the window manager's index holds them (GetGraphs and
 		// GetRevision): the nodes that name other graphs take their titles and variable names from them, and the panes their
-		// pickers, palette entries and quick fixes. The span and the documents it holds must stay valid until the next call
-		// (the index keeps them while its revision stays); a new revision lays such nodes out again at the next Sync, and
-		// analyzes again when a graph the analysis read changed what it read of it (spec-slice3 §10.8). Empty: no other graph
-		// is known.
+		// pickers, palette entries and quick fixes. The model keeps its own copy of the list (sharing the documents), taken when
+		// the revision or a graph's document changed, so nothing it reads dangles when the index lists the scripts again between
+		// draws. A change lays the canvas out again only when a graph the drawn document names now resolves to another document,
+		// and analyzes again when a graph the analysis read changed what it read of it (spec-slice3 §10.8). Empty: no other
+		// graph is known.
 		void SetProjectGraphs(std::span<VisualScriptProjectGraph const> graphs, uint64_t revision);
 		std::span<VisualScriptProjectGraph const> GetProjectGraphs() const { return m_ProjectGraphs; }
 		uint64_t GetProjectRevision() const { return m_ProjectRevision; }
@@ -831,6 +832,10 @@ namespace Strada
 		// Whether every other graph the analysis read still holds, in the project's index, the shared document it read or one
 		// equal for the analyzed document's use of it (the whole program of a library, the interface of the others).
 		bool ReadsCurrentGraphs() const;
+		// Whether every other graph the last layout resolved still resolves to the same document (m_CanvasGraphs).
+		bool ResolvesCanvasGraphs() const;
+		// What the drawn document's nodes resolve of other graphs now, for the next ResolvesCanvasGraphs.
+		void RecordCanvasGraphs();
 		void SyncCanvas(VisualScriptThemeAnchors const& theme, VisualScriptSyncResult& result);
 		// After the visual model changed: what is kept by ID mapped to its indices again.
 		void OnCanvasChanged();
@@ -1002,10 +1007,15 @@ namespace Strada
 		bool m_HasMeasure = false;
 		uint64_t m_AssetVersion = 0;
 		uint32_t m_CanvasFunction = 0;
-		// The project's scripts (SetProjectGraphs), and the revision the visual model was last laid out with.
-		std::span<VisualScriptProjectGraph const> m_ProjectGraphs;
+		// The project's scripts (SetProjectGraphs), and the revision the visual model last checked.
+		std::vector<VisualScriptProjectGraph> m_ProjectGraphs;
 		uint64_t m_ProjectRevision = 0;
 		uint64_t m_CanvasProjectRevision = 0;
+		// The documents of the other graphs the drawn document's nodes named at the last layout (null: not known or not
+		// loading), held so that a document freed and another made at its address never compare equal; and the revision the
+		// canvas was given for them (VisualScriptCanvasSource::GraphsRevision), raised only when one resolves differently.
+		std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> m_CanvasGraphs;
+		uint64_t m_CanvasGraphsRevision = 0;
 		// Counts the visual model's layouts, so classes kept by pin index know when they are stale.
 		uint64_t m_CanvasRevision = 0;
 		std::optional<VisualScriptRect> m_ContentBounds;

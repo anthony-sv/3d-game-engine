@@ -845,10 +845,22 @@ namespace Strada
 		{
 			return;
 		}
-		// What a library cannot hold becomes an error: ask first.
-		size_t const variables = document.Variables.size();
-		size_t const events = document.Graph.Nodes.size();
-		if (*chosen == VisualScriptDocumentKind::Library && (variables > 0 || events > 0))
+		// What a library cannot hold becomes an error, and so does every node of another script that names what the graph
+		// offered as the other kind (spec-slice3 §10.3): ask first.
+		bool const toLibrary = *chosen == VisualScriptDocumentKind::Library;
+		size_t const variables = toLibrary ? document.Variables.size() : 0;
+		size_t const events = toLibrary ? document.Graph.Nodes.size() : 0;
+		VisualScriptDocument switched = document;
+		switched.Kind = *chosen;
+		VisualScriptOtherUses const others =
+			CountVisualScriptRemovedReferrers(frame.Context.Graph, document, switched, frame.Context.Model.GetProjectGraphs());
+		if (variables == 0 && events == 0 && others.Nodes == 0)
+		{
+			SwitchKind(frame, *chosen);
+			return;
+		}
+		std::string question = fmt::format("Make {} {}?", frame.Context.ScriptName, toLibrary ? "a function library" : "a script");
+		if (variables > 0 || events > 0)
 		{
 			std::string held;
 			if (variables > 0)
@@ -859,14 +871,18 @@ namespace Strada
 			{
 				held += (held.empty() ? "" : " and ") + CountOf(events, "event node", "event nodes");
 			}
-			m_KindSwitch = chosen;
-			m_KindQuestion = fmt::format("Make {} a function library? Its {} cannot stay in a library: they will show as errors "
-			                             "until you remove them.",
-			                             frame.Context.ScriptName, held);
-			m_OpenKindModal = true;
-			return;
+			question += fmt::format(" Its {} cannot stay in a library: they will show as errors until you remove them.", held);
 		}
-		SwitchKind(frame, *chosen);
+		if (others.Nodes > 0)
+		{
+			bool const one = others.Nodes == 1;
+			question += fmt::format(" {} {}: they will show errors until fixed.", DescribeVisualScriptOtherUses(others, "node", "nodes"),
+			                        toLibrary ? (one ? "uses it as a script" : "use it as a script")
+			                                  : (one ? "calls its functions" : "call its functions"));
+		}
+		m_KindSwitch = chosen;
+		m_KindQuestion = std::move(question);
+		m_OpenKindModal = true;
 	}
 
 	void VisualScriptDetails::SwitchKind(Frame& frame, VisualScriptDocumentKind kind)
@@ -890,7 +906,8 @@ namespace Strada
 			m_OpenKindModal = false;
 		}
 		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-		std::string const title = std::string("Make a Function Library") + KindModalId;
+		bool const toLibrary = m_KindSwitch != VisualScriptDocumentKind::Script;
+		std::string const title = std::string(toLibrary ? "Make a Function Library" : "Make a Script") + KindModalId;
 		if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
 		{
 			// Closed without an answer (the window was hidden): the kind stays.
@@ -901,8 +918,8 @@ namespace Strada
 		ImGui::TextUnformatted(m_KindQuestion.c_str());
 		ImGui::PopTextWrapPos();
 		ImGui::Spacing();
-		bool const confirm = ImGui::Button("Make Function Library") || ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
-		                     ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+		bool const confirm = ImGui::Button(toLibrary ? "Make Function Library" : "Make Script") ||
+		                     ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
 		ImGui::SameLine();
 		bool const cancel = ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 		if (confirm || cancel)
@@ -987,6 +1004,7 @@ namespace Strada
 			preview = "Invalid";
 			missing = true;
 		}
+		m_RowTexts.emplace_back(label, preview);
 		Track(frame, label,
 		      [&]() -> std::optional<Edit>
 		      {
@@ -2461,9 +2479,10 @@ namespace Strada
 					}
 				}
 				VisualScriptNode const* const source = link ? FindVisualScriptNode(frame.Document, link->From.Node) : nullptr;
-				std::string const text =
-					fmt::format("{} \xE2\x86\x90 {}", label,
-				                source != nullptr ? GetVisualScriptNodeTitle(frame.Document, frame.Analysis, *source) : "?");
+				std::string const text = fmt::format("{} \xE2\x86\x90 {}", label,
+				                                     source != nullptr ? GetVisualScriptNodeTitle(frame.Document, frame.Analysis, *source,
+				                                                                                  frame.Context.Model.MakeGraphResolver())
+				                                                       : "?");
 				ImVec2 const size = UI::CalcArrowTextSize(text);
 				ImVec2 const position = ImGui::GetCursorScreenPos();
 				ViewScope const view(frame.ReadOnly, frame.ViewDepth);
@@ -2770,7 +2789,8 @@ namespace Strada
 		ImGui::TextUnformatted(fmt::format("{} selected", what).c_str());
 		if (!nodes.empty())
 		{
-			std::string const nodeWords = nodes.size() == 1 ? GetVisualScriptNodeTitle(document, frame.Analysis, *selectedNodes.front())
+			std::string const nodeWords = nodes.size() == 1 ? GetVisualScriptNodeTitle(document, frame.Analysis, *selectedNodes.front(),
+			                                                                           frame.Context.Model.MakeGraphResolver())
 			                                                : fmt::format("{} Nodes", nodes.size());
 			// The Enabled states act on the nodes that offer them (spec §9.5); the others keep theirs.
 			std::vector<uint32_t> enableable;
@@ -2807,7 +2827,8 @@ namespace Strada
 			else if (!enableable.empty())
 			{
 				std::string const enableableWords = enableable.size() == 1
-				                                        ? GetVisualScriptNodeTitle(document, frame.Analysis, *enableableNodes.front())
+				                                        ? GetVisualScriptNodeTitle(document, frame.Analysis, *enableableNodes.front(),
+				                                                                   frame.Context.Model.MakeGraphResolver())
 				                                        : fmt::format("{} Nodes", enableable.size());
 				bool const sameEnabled = std::all_of(enableableNodes.begin(), enableableNodes.end(),
 				                                     [&enableableNodes](VisualScriptNode const* node)

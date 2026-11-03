@@ -11,6 +11,7 @@
 #include "Editor/PlayMode.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
 #include "Editor/VisualScripting/VisualScriptArrange.h"
+#include "Editor/VisualScripting/VisualScriptBatch.h"
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
@@ -37,6 +38,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -2486,6 +2488,30 @@ TEST_CASE("GraphCommands: graph.copy writes the clipboard text of elements as th
 	      WriteVisualScriptClipboard(stacked, 0, std::vector<uint32_t>{10}, memory, nullptr));
 }
 
+TEST_CASE("GraphCommands: graph.edit's description names every operation, so an agent can use it from the description alone")
+{
+	GraphFixture fixture;
+	CommandDefinition const* const command = fixture.Registry.Find("graph.edit");
+	REQUIRE(command != nullptr);
+	std::string const& description = command->Description;
+	// Each name as a word of its own: "Delete" is not found in "DeleteVariable".
+	auto const isWordCharacter = [](char character)
+	{
+		return std::isalnum(static_cast<unsigned char>(character)) != 0;
+	};
+	for (std::string_view const operation : GetVisualScriptBatchOperations())
+	{
+		CAPTURE(operation);
+		bool named = false;
+		for (size_t at = description.find(operation); at != std::string::npos && !named; at = description.find(operation, at + 1))
+		{
+			size_t const end = at + operation.size();
+			named = (at == 0 || !isWordCharacter(description[at - 1])) && (end == description.size() || !isWordCharacter(description[end]));
+		}
+		CHECK(named);
+	}
+}
+
 TEST_CASE("GraphCommands: graph.edit applies a batch as one undo step through the commit pipeline")
 {
 	{
@@ -3876,8 +3902,25 @@ TEST_CASE("GraphCommands: with the scripting runtime, each family of cross-graph
 	GraphFixture fixture;
 	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
 	std::string const script = fixture.CreateGraph("Scripts/Player.sgraph", VisualScriptDocument());
-	// A Send of an event Door lacks, one whose parameters differ, one to a graph that is absent, a Get of a variable Door lacks
-	// and a call naming its own graph.
+	// Motion: a library with what a library cannot hold, a variable and an event-graph node, beside its function Clamp01 (7).
+	VisualScriptDocument motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptVariable leftover;
+	leftover.ID = 2;
+	leftover.Name = "Speed";
+	leftover.Type = "float";
+	motion.Variables = {leftover};
+	motion.Graph.Nodes = {MakeNode(1, "Event.Update")};
+	VisualScriptFunction clamp;
+	clamp.ID = 7;
+	clamp.Name = "Clamp01";
+	clamp.Pure = true;
+	clamp.Graph.Nodes = {MakeNode(8, "Function.Entry"), MakeNode(9, "Function.Return")};
+	motion.Functions = {clamp};
+	std::string const library =
+		fixture.Ok("graph.create", Json::object({{"path", "Scripts/Motion.sgraph"}, {"template", "Library"}}))["asset"].get<std::string>();
+	fixture.Ok("graph.set", Json::object({{"graph", library}, {"document", VisualScriptSerializer::SerializeDocument(motion)}}));
+	// A Send of an event Door lacks, one whose parameters differ, one to a graph that is absent, a Get of a variable Door lacks,
+	// a call naming its own graph and a call of a function Motion lacks.
 	VisualScriptDocument document;
 	document.Graph.Nodes.push_back(MakeNode(1, "Event.Update"));
 	document.Graph.Nodes.push_back(MakeNode(2, "Event.Send", Json::object({{"Name", "Hti"}, {"Graph", door}})));
@@ -3897,50 +3940,58 @@ TEST_CASE("GraphCommands: with the scripting runtime, each family of cross-graph
 	helper.Graph.Nodes.push_back(MakeNode(12, "Function.Return"));
 	document.Functions.push_back(helper);
 	document.Graph.Nodes.push_back(MakeNode(7, "Function.Call", Json::object({{"Function", 10}, {"Graph", script}})));
+	document.Graph.Nodes.push_back(MakeNode(8, "Function.Call", Json::object({{"Function", 70}, {"Graph", library}})));
 	fixture.Ok("graph.set", Json::object({{"graph", script}, {"document", VisualScriptSerializer::SerializeDocument(document)}}));
-	auto const edit = [&script](Json operations)
+	auto const edit = [](std::string const& graph, Json operations)
 	{
-		return Json::object({{"graph", script}, {"operations", std::move(operations)}});
+		return Json::object({{"graph", graph}, {"operations", std::move(operations)}});
 	};
 
+	// The library's findings are its own analysis': a variable's has a Variable and no Node.
 	struct Family
 	{
 		std::string_view Code;
+		std::string const& Graph;
 		uint32_t Node = 0;
+		uint32_t Variable = 0;
 		std::string_view Fix;
 	};
-	for (Family const& family : {Family{"UnknownEvent", 2, "Use Hit"}, Family{"EventSignatureMismatch", 3, "Update Parameters from Door"},
-	                             Family{"UncheckedGraph", 4, "Send by Name"}, Family{"UnknownVariable", 5, "Use Health"},
-	                             Family{"InvalidSetting", 7, "Remove Setting"}})
+	for (Family const& family :
+	     {Family{"UnknownEvent", script, 2, 0, "Use Hit"}, Family{"EventSignatureMismatch", script, 3, 0, "Update Parameters from Door"},
+	      Family{"UncheckedGraph", script, 4, 0, "Send by Name"}, Family{"UnknownVariable", script, 5, 0, "Use Health"},
+	      Family{"InvalidSetting", script, 7, 0, "Remove Setting"}, Family{"UnknownFunction", script, 8, 0, "Use Clamp01"},
+	      Family{"LibraryVariable", library, 0, 2, "Delete Variable"}, Family{"LibraryEventGraph", library, 1, 0, "Delete This Node"}})
 	{
 		CAPTURE(family.Code);
-		Json const current = fixture.Ok("graph.edit", edit(Json::array()));
+		auto const matches = [&family](Json const& candidate)
+		{
+			return candidate.value("Node", 0u) == family.Node && candidate.value("Variable", 0u) == family.Variable;
+		};
+		Json const current = fixture.Ok("graph.edit", edit(family.Graph, Json::array()));
 		std::vector<Json> const found = FindDiagnostics(current, family.Code);
-		auto const diagnostic = std::find_if(found.begin(), found.end(),
-		                                     [&family](Json const& candidate)
-		                                     {
-												 return candidate.value("Node", 0u) == family.Node;
-											 });
-		REQUIRE(diagnostic != found.end());
+		auto const diagnostic = std::find_if(found.begin(), found.end(), matches);
+		REQUIRE_MESSAGE(diagnostic != found.end(), current["diagnostics"].dump());
 		Json operation;
 		for (Json const& fix : (*diagnostic)["Fixes"])
 		{
 			operation = fix["label"] == std::string(family.Fix) ? fix["operation"] : operation;
 		}
 		REQUIRE_MESSAGE(operation.is_object(), (*diagnostic).dump());
-		Json const fixed = fixture.Ok("graph.edit", edit(Json::array({operation})));
+		Json const fixed = fixture.Ok("graph.edit", edit(family.Graph, Json::array({operation})));
 		std::vector<Json> const left = FindDiagnostics(fixed, family.Code);
-		CHECK(std::none_of(left.begin(), left.end(),
-		                   [&family](Json const& candidate)
-		                   {
-							   return candidate.value("Node", 0u) == family.Node;
-						   }));
+		CHECK(std::none_of(left.begin(), left.end(), matches));
 	}
-	// What the fixes wrote: Door's event and variable, and no graph for the Send by name.
+	// What the fixes wrote: Door's event and variable, no graph for the Send by name, Motion's function, and a library holding
+	// its function only.
 	VisualScriptDocument const fixedDocument = fixture.GetDocument(script);
 	CHECK(FindVisualScriptNode(fixedDocument, 2)->Settings["Name"] == "Hit");
 	CHECK(FindVisualScriptNode(fixedDocument, 5)->Settings["Variable"] == 1);
 	CHECK_FALSE(FindVisualScriptNode(fixedDocument, 4)->Settings.contains("Graph"));
+	CHECK(FindVisualScriptNode(fixedDocument, 8)->Settings["Function"] == 7);
+	VisualScriptDocument const fixedLibrary = fixture.GetDocument(library);
+	CHECK(fixedLibrary.Variables.empty());
+	CHECK(fixedLibrary.Graph.Nodes.empty());
+	CHECK(fixedLibrary.Functions.size() == 1);
 }
 
 TEST_CASE("GraphCommands: graph.find lists references across graphs: remote variables, library callers, typed and untyped senders")

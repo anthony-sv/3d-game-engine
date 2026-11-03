@@ -2812,7 +2812,7 @@ namespace
 	}
 }
 
-TEST_CASE("VisualScriptEditor: a value being edited is rebased over an outside change of other elements, and nothing else is")
+TEST_CASE("VisualScriptEditing: a value being edited is rebased over an outside change of other elements, and nothing else is")
 {
 	VisualScriptDocument const base = MakeRebaseDocument();
 

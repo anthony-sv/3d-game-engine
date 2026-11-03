@@ -143,8 +143,7 @@ namespace Strada
 				function = 0;
 			}
 			// A function library opens on its first function: it has no event graph to show (spec-slice3 §10.9).
-			if (!request.Function && function == 0 && document->Kind == VisualScriptDocumentKind::Library &&
-			    document->Graph.Nodes.empty() && document->Graph.Comments.empty() && !document->Functions.empty())
+			if (!request.Function && function == 0 && !OffersVisualScriptEventGraph(*document) && !document->Functions.empty())
 			{
 				function = document->Functions.front().ID;
 				graph = &document->Functions.front().Graph;

@@ -578,3 +578,109 @@ TEST_CASE(
 	CHECK(revealed.Open->Origin == std::optional<VisualScriptOrigin>(VisualScriptOrigin{fixture.Project.Graph, view.Function, view.Center,
 	                                                                                    view.Zoom, VisualScriptHistoryStep::Jump}));
 }
+
+TEST_CASE("VisualScriptEditor: a double click on a typed Send's header asks to open the other graph, never this script's event")
+{
+	SweepWindowFixture fixture;
+	fixture.Model->SetProjectGraphs(fixture.Graphs, 1);
+	fixture.Frame();
+	fixture.Frame();
+	using Action = VisualScriptEditorAction;
+	auto const findOpen = [](std::vector<VisualScriptEditorIntent> const& intents)
+	{
+		return std::find_if(intents.begin(), intents.end(),
+		                    [](VisualScriptEditorIntent const& intent)
+		                    {
+								VisualScriptActionIntent const* const action = std::get_if<VisualScriptActionIntent>(&intent);
+								return action != nullptr && action->Action == Action::OpenNode;
+							});
+	};
+
+	// Send 16 names Hit in Door, and this script has an Event.Custom Hit of its own (node 2): the model's own jump to an event
+	// would select node 2 and frame it, with no Open request.
+	std::vector<VisualScriptEditorIntent> const clicked =
+		fixture.DoubleClick(Testing::CanvasPoint(*fixture.Model, 16, glm::vec2(0.5f, 0.05f)));
+	fixture.Frame();
+	std::vector<uint32_t> const selection(fixture.Model->GetSelection().begin(), fixture.Model->GetSelection().end());
+	CHECK(selection == std::vector<uint32_t>{16});
+	auto const opened = findOpen(clicked);
+	REQUIRE(opened != clicked.end());
+	VisualScriptControllerResult const send = fixture.Resolve(*opened);
+	REQUIRE(send.Open.has_value());
+	CHECK(send.Open->Graph == Door);
+	CHECK(send.Open->Select == std::vector<uint32_t>{1});
+
+	// Send 20 is typed with this script itself: the controller goes to its own event.
+	std::vector<VisualScriptEditorIntent> const own = fixture.DoubleClick(Testing::CanvasPoint(*fixture.Model, 20, glm::vec2(0.5f, 0.05f)));
+	auto const ownOpened = findOpen(own);
+	REQUIRE(ownOpened != own.end());
+	VisualScriptControllerResult const ownSend = fixture.Resolve(*ownOpened);
+	REQUIRE(ownSend.Open.has_value());
+	CHECK(ownSend.Open->Graph == fixture.Project.Graph);
+	CHECK(ownSend.Open->Select == std::vector<uint32_t>{2});
+}
+
+TEST_CASE("VisualScriptEditor: a remote Get whose graph is not at hand or lacks its variable reveals nothing of this script")
+{
+	SweepWindowFixture fixture;
+	fixture.Frame();
+	fixture.Frame();
+	using Action = VisualScriptEditorAction;
+	auto const openLabel = [&fixture](uint32_t node)
+	{
+		std::vector<uint32_t> const selection = {node};
+		fixture.Model->Select(selection);
+		fixture.Frame();
+		std::vector<VisualScriptMenuItem> const menu = BuildVisualScriptNodeMenu(fixture.Context());
+		auto const open = std::find_if(menu.begin(), menu.end(),
+		                               [](VisualScriptMenuItem const& item)
+		                               {
+										   return item.Action == Action::OpenNode;
+									   });
+		return open != menu.end() ? open->Label : std::string();
+	};
+
+	// No project index yet: nothing names this script's Speed (variable 5 too); the node shows in Details.
+	for (uint32_t const node : {11u, 12u})
+	{
+		CAPTURE(node);
+		CHECK(openLabel(node).empty());
+		VisualScriptControllerResult const opened = fixture.Act(Action::OpenNode, node);
+		CHECK_FALSE(opened.Open.has_value());
+		REQUIRE(opened.Reveal.has_value());
+		CHECK(opened.Reveal->Kind == VisualScriptRevealKind::Node);
+		CHECK(opened.Reveal->ID == node);
+	}
+	// A call of a library the project does not know shows in Details too.
+	CHECK(openLabel(14).empty());
+	CHECK(fixture.Act(Action::OpenNode, 14).Reveal->Kind == VisualScriptRevealKind::Node);
+
+	// Door without variable 5 and Motion without function 7: their windows open, with nothing to reveal or show.
+	VisualScriptDocument door = MakeDoor();
+	door.Variables.erase(door.Variables.begin());
+	VisualScriptDocument motion = MakeMotion();
+	motion.Functions.clear();
+	std::vector<VisualScriptProjectGraph> const lacking = {
+		SweepWindowFixture::MakeGraph(Door, "Door", CreateRef<VisualScriptDocument const>(std::move(door))),
+		SweepWindowFixture::MakeGraph(Motion, "Motion", CreateRef<VisualScriptDocument const>(std::move(motion)))};
+	fixture.Model->SetProjectGraphs(lacking, 1);
+	fixture.Frame();
+	for (uint32_t const node : {11u, 12u})
+	{
+		CAPTURE(node);
+		CHECK(openLabel(node) == "Open Door");
+		VisualScriptControllerResult const opened = fixture.Act(Action::OpenNode, node);
+		CHECK_FALSE(opened.Reveal.has_value());
+		REQUIRE(opened.Open.has_value());
+		CHECK(opened.Open->Graph == Door);
+		CHECK_FALSE(opened.Open->Reveal.has_value());
+	}
+	CHECK(openLabel(14) == "Open Motion");
+	VisualScriptControllerResult const call = fixture.Act(Action::OpenNode, 14);
+	REQUIRE(call.Open.has_value());
+	CHECK(call.Open->Graph == Motion);
+	CHECK_FALSE(call.Open->Function.has_value());
+	CHECK_FALSE(call.ShowFunction.has_value());
+	// The local Get still selects this script's Speed.
+	CHECK(openLabel(10) == "Select Variable Speed");
+}

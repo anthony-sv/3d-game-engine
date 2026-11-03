@@ -10,6 +10,7 @@
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 #include "Editor/VisualScripting/VisualScriptTimeline.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
@@ -601,11 +602,40 @@ TEST_CASE("VisualScriptEditor: a change made elsewhere during a drag cancels the
 	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, changed).IsOk());
 	fixture.MoveMouse(from + glm::vec2(120.0f, 90.0f));
 	CHECK(fixture.Model().GetGesture().Kind == VisualScriptGesture::Idle);
+	// The user learns why the move ended (spec-slice3 §10.11).
+	std::vector<std::string> const toasts = fixture.Panel->GetState().Toasts;
+	CHECK(std::count(toasts.begin(), toasts.end(), std::string("Your move was interrupted by a change made elsewhere")) == 1);
 	fixture.SetButton(ImGuiMouseButton_Left, false);
 	fixture.Frames(1);
 	CHECK(fixture.GetUndoCount() == undo + 1);
 	CHECK(*fixture.FindNode(2)->Position == before);
 	CHECK(*fixture.FindNode(3)->Position == glm::vec2(800.0f, 160.0f));
+}
+
+TEST_CASE("VisualScriptEditor: a change made elsewhere during a wire ends it with a toast, and makes no edit")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	glm::vec2 const logThen = Testing::CanvasPoint(fixture.Model(), 3, "Then", VisualScriptPinDirection::Out);
+	fixture.MoveMouse(logThen);
+	fixture.SetButton(ImGuiMouseButton_Left, true);
+	fixture.MoveMouse(logThen + glm::vec2(60.0f, 40.0f));
+	fixture.MoveMouse(logThen + glm::vec2(120.0f, 80.0f));
+	REQUIRE(fixture.Model().GetGesture().Kind == VisualScriptGesture::Wiring);
+
+	VisualScriptDocument changed = fixture.GetDocument();
+	changed.Graph.Nodes[0].Comment = "Starts";
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, changed).IsOk());
+	size_t const undo = fixture.GetUndoCount();
+	fixture.MoveMouse(logThen + glm::vec2(160.0f, 100.0f));
+	CHECK(fixture.Model().GetGesture().Kind == VisualScriptGesture::Idle);
+	std::vector<std::string> const toasts = fixture.Panel->GetState().Toasts;
+	CHECK(std::find(toasts.begin(), toasts.end(), std::string("Your wire was interrupted by a change made elsewhere")) != toasts.end());
+	fixture.SetButton(ImGuiMouseButton_Left, false);
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK_FALSE(fixture.Panel->GetState().PaletteOpen);
+	CHECK(fixture.GetDocument().Graph.Links == changed.Graph.Links);
 }
 
 TEST_CASE("VisualScriptEditor: without the scripting runtime nodes still move and delete, and wires and the palette are refused")
@@ -2196,4 +2226,55 @@ TEST_CASE("VisualScriptEditor: the Timeline drawer opens on curves of huge value
 		CHECK(editor.GetDrawRecord().Curves == 1);
 		fixture.CheckDrawingChangesNothing();
 	}
+}
+
+TEST_CASE("VisualScriptEditor: a commit that breaks other scripts' nodes tells it in a toast whose button lists them in the drawer")
+{
+	// Player is a function library whose Clamp01 (10) Door calls; the window reads the project's scripts from an index.
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 10;
+	clamp.Name = "Clamp01";
+	library.Functions = {clamp};
+	VisualScriptProjectIndex index;
+	PanelFixture fixture(library);
+	VisualScriptDocument door;
+	door.Graph.Nodes = {
+		MakeNode(1, "Function.Call", glm::vec2(0.0f), Json::object({{"Function", 10}, {"Graph", fixture.Graph.ToString()}}))};
+	REQUIRE(VisualScriptSerializer::SaveToFile(door, AssetManager::GetAssetDirectory() / "Scripts" / "Door.sgraph").IsOk());
+	REQUIRE(fixture.Operations.RefreshAssets().IsOk());
+	AssetHandle const doorGraph = AssetManager::FindByPath("Scripts/Door.sgraph");
+	REQUIRE(doorGraph.IsValid());
+	index.Refresh();
+	fixture.Panel->SetProjectIndex(&index);
+	fixture.CheckDrawingChangesNothing();
+
+	// Deleting Clamp01 from My Script: one step, and the toast after it.
+	size_t const undo = fixture.GetUndoCount();
+	fixture.Click(RowPoint(fixture, {VisualScriptElementKind::Function, 10}));
+	fixture.Frames(1);
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.Panel->GetSidebar().GetPendingDelete().has_value());
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.GetDocument().Functions.empty());
+	std::vector<std::string> const toasts = fixture.Panel->GetState().Toasts;
+	CHECK(std::count(toasts.begin(), toasts.end(), std::string("Deleted Clamp01: 1 call in 1 other script show errors")) == 1);
+
+	// Its button lists Door's call in the find drawer and changes nothing.
+	std::optional<VisualScriptRect> const find = fixture.Panel->GetItemRect(VisualScriptPanelItem::ToastFind);
+	REQUIRE(find.has_value());
+	fixture.Click(find->GetCenter());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Find);
+	std::span<VisualScriptDrawerFindRow const> const rows = fixture.Panel->GetDrawer().GetFindRows();
+	CHECK(std::any_of(rows.begin(), rows.end(),
+	                  [doorGraph](VisualScriptDrawerFindRow const& row)
+	                  {
+						  return row.Graph == doorGraph && row.Match.Node == 1;
+					  }));
+	fixture.Panel->SetProjectIndex(nullptr);
 }

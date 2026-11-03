@@ -905,7 +905,18 @@ namespace Strada
 		// shows an asset's name.
 		uint64_t const assetVersion = AssetManager::IsInitialized() ? AssetManager::GetVersion() : 0;
 		bool const assetNamesChanged = assetVersion != m_AssetVersion && m_Canvas.ShowsAssetNames();
-		bool const projectChanged = m_ProjectRevision != m_CanvasProjectRevision;
+		// The project index's revision moves at every commit of any script, this window's own included: only a graph the drawn
+		// document names that now resolves to another document lays the canvas out again.
+		bool projectChanged = false;
+		if (m_ProjectRevision != m_CanvasProjectRevision)
+		{
+			m_CanvasProjectRevision = m_ProjectRevision;
+			if (!ResolvesCanvasGraphs())
+			{
+				projectChanged = true;
+				m_CanvasGraphsRevision++;
+			}
+		}
 		bool const stale = m_CanvasStale || result.DocumentChanged || result.AnalysisChanged || !(theme == m_Theme) || assetNamesChanged ||
 		                   m_Function != m_CanvasFunction || projectChanged;
 		if (!stale)
@@ -935,8 +946,7 @@ namespace Strada
 		{
 			return graph == m_Graph ? drawn : ResolveGraph(graph);
 		};
-		source.GraphsRevision = m_ProjectRevision;
-		m_CanvasProjectRevision = m_ProjectRevision;
+		source.GraphsRevision = m_CanvasGraphsRevision;
 		std::optional<bool> synced;
 		{
 			PhaseTimer const timer(m_SyncTimings.Canvas);
@@ -950,6 +960,8 @@ namespace Strada
 			if (!synced)
 			{
 				synced = m_Canvas.Sync(source, m_Measure, theme);
+				// A layout-only commit changes no node's settings, so what its document names stays as recorded.
+				RecordCanvasGraphs();
 			}
 		}
 		m_LayoutOnlyFrom.reset();
@@ -1011,9 +1023,18 @@ namespace Strada
 
 	void VisualScriptEditorModel::SetProjectGraphs(std::span<VisualScriptProjectGraph const> graphs, uint64_t revision)
 	{
+		// Pointers only: the index lists the same graphs and documents while its revision stays.
 		bool const changed =
-			revision != m_ProjectRevision || graphs.data() != m_ProjectGraphs.data() || graphs.size() != m_ProjectGraphs.size();
-		m_ProjectGraphs = graphs;
+			revision != m_ProjectRevision || !std::equal(graphs.begin(), graphs.end(), m_ProjectGraphs.begin(), m_ProjectGraphs.end(),
+		                                                 [](VisualScriptProjectGraph const& given, VisualScriptProjectGraph const& kept)
+		                                                 {
+															 return given.Graph == kept.Graph && given.Document == kept.Document;
+														 });
+		if (!changed)
+		{
+			return;
+		}
+		m_ProjectGraphs.assign(graphs.begin(), graphs.end());
 		m_ProjectRevision = revision;
 		// The other graphs the analysis read are compared only when the index changed (spec-slice3 §10.8): one lookup and a
 		// pointer comparison per graph, then the equality its use needs, so a neighbour reloaded unchanged costs no analysis.
@@ -1064,6 +1085,34 @@ namespace Strada
 			}
 		}
 		return true;
+	}
+
+	bool VisualScriptEditorModel::ResolvesCanvasGraphs() const
+	{
+		return std::all_of(m_CanvasGraphs.begin(), m_CanvasGraphs.end(),
+		                   [this](std::pair<AssetHandle, Ref<VisualScriptDocument const>> const& read)
+		                   {
+							   VisualScriptProjectGraph const* const found = FindProjectGraph(read.first);
+							   return (found != nullptr ? found->Document.get() : nullptr) == read.second.get();
+						   });
+	}
+
+	void VisualScriptEditorModel::RecordCanvasGraphs()
+	{
+		m_CanvasGraphs.clear();
+		if (GetDrawnDocumentRef() == nullptr)
+		{
+			return;
+		}
+		for (VisualScriptGraphReference const& reference : CollectVisualScriptReferences(GetDrawnDocument()))
+		{
+			// The window's own graph resolves to the drawn document, which a change of lays the canvas out anyway.
+			if (reference.Graph != m_Graph)
+			{
+				VisualScriptProjectGraph const* const found = FindProjectGraph(reference.Graph);
+				m_CanvasGraphs.emplace_back(reference.Graph, found != nullptr ? found->Document : nullptr);
+			}
+		}
 	}
 
 	VisualScriptProjectGraph const* VisualScriptEditorModel::FindProjectGraph(AssetHandle graph) const

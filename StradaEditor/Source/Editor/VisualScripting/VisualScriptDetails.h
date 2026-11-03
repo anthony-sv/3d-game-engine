@@ -90,8 +90,8 @@ namespace Strada
 		// Graph, Variable, Function or Event combo records its items as "<label>/<item>" ("Graph/Door · Scripts/Door.sgraph").
 		// Tests and automation find widgets by it.
 		std::optional<std::pair<glm::vec2, glm::vec2>> FindRow(std::string_view label, size_t occurrence = 0) const;
-		// The text a row that shows text drew in the last Draw ("Placeholders", "Default Value", an input's "Self", ...);
-		// nothing when no such row was drawn.
+		// The text a row that shows text drew in the last Draw ("Placeholders", "Default Value", an input's "Self", the preview
+		// of a Graph picker, "Missing (8146…)" for a graph the project lacks, ...); nothing when no such row was drawn.
 		std::optional<std::string> GetRowText(std::string_view label) const;
 		// The type IDs the type picker listed in the last Draw, in their order; empty while it is closed.
 		std::span<std::string const> GetPickerTypes() const { return m_PickerTypes; }

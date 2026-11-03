@@ -1934,7 +1934,8 @@ namespace Strada
 
 			// What opening a node naming another graph does there (spec-slice3 §10.7): the request for the window manager and the
 			// menu item's label. A typed sender or a Get or Set naming this graph itself opens as a node of its own elements
-			// would. Nothing for a local node, or when what it names is not in the other graph.
+			// would. When the other graph lacks what the node names, or does not load, the project's graph opens as a whole;
+			// nothing for a local node, or for a graph the project does not know.
 			struct RemoteOpen
 			{
 				VisualScriptOpenRequest Request;
@@ -1949,14 +1950,19 @@ namespace Strada
 				}
 				RemoteOpen open;
 				open.Request.Graph = target->Graph;
+				// RunsGraph, and a node whose element the other graph lacks (or whose graph does not load) while the project
+				// knows that graph: its window, where the problem shows.
+				RemoteOpen graphOnly = open;
+				graphOnly.Label = "Open " + target->Name;
+				bool const known = m_Model.FindProjectGraph(target->Graph) != nullptr;
+				std::optional<RemoteOpen> const fallback = known ? std::optional<RemoteOpen>(graphOnly) : std::nullopt;
 				if (node.Type == "RunsGraph")
 				{
-					open.Label = "Open " + target->Name;
-					return open;
+					return graphOnly;
 				}
 				if (target->Document == nullptr)
 				{
-					return std::nullopt;
+					return fallback;
 				}
 				VisualScriptDocument const& document = *target->Document;
 				if (node.Type == "Function.Call")
@@ -1965,7 +1971,7 @@ namespace Strada
 					VisualScriptFunction const* const function = id ? FindFunction(document, *id) : nullptr;
 					if (function == nullptr)
 					{
-						return std::nullopt;
+						return fallback;
 					}
 					open.Request.Function = function->ID;
 					open.Request.Frame = VisualScriptFrame::All;
@@ -1977,7 +1983,7 @@ namespace Strada
 					std::optional<std::string> const name = ReadString(node.Settings, "Name");
 					if (!name)
 					{
-						return std::nullopt;
+						return fallback;
 					}
 					for (VisualScriptNode const& event : document.Graph.Nodes)
 					{
@@ -1990,7 +1996,7 @@ namespace Strada
 							return open;
 						}
 					}
-					return std::nullopt;
+					return fallback;
 				}
 				if (node.Type == "Variable.Get" || node.Type == "Variable.Set")
 				{
@@ -2008,7 +2014,14 @@ namespace Strada
 						}
 					}
 				}
-				return std::nullopt;
+				return fallback;
+			}
+
+			// Whether a node's Graph setting names this graph itself (another entity running it); false for a local node, another
+			// graph or a malformed setting.
+			bool NamesThisGraph(VisualScriptNode const& node) const
+			{
+				return ReadVisualScriptGraphSetting(node) == std::optional<AssetHandle>(m_Context.Graph);
 			}
 
 			// The custom event of this graph a sender typed with this graph's own handle, or untyped, names; none otherwise.
@@ -2133,7 +2146,7 @@ namespace Strada
 					std::optional<std::string> const name = ReadString(stored->Settings, "Name");
 					return name && FindSentEvent(*stored) ? std::optional<std::string>("Go to Event " + *name) : std::nullopt;
 				}
-				if (!IsLocalVisualScriptReference(*stored) && (stored->Type == "Variable.Get" || stored->Type == "Variable.Set"))
+				if (NamesThisGraph(*stored) && (stored->Type == "Variable.Get" || stored->Type == "Variable.Set"))
 				{
 					// Another entity running this graph: its own variable.
 					std::optional<uint32_t> const id = ReadId(stored->Settings, "Variable");
@@ -2262,7 +2275,7 @@ namespace Strada
 					m_Result.Reveal = element;
 					return {};
 				}
-				if (!IsLocalVisualScriptReference(*stored) && (stored->Type == "Variable.Get" || stored->Type == "Variable.Set"))
+				if (NamesThisGraph(*stored) && (stored->Type == "Variable.Get" || stored->Type == "Variable.Set"))
 				{
 					// Another entity running this graph: the graph's own variable.
 					std::optional<uint32_t> const id = ReadId(stored->Settings, "Variable");

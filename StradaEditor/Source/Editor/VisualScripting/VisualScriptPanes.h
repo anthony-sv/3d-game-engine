@@ -247,6 +247,10 @@ namespace Strada
 
 		bool operator==(VisualScriptOtherUses const& other) const = default;
 	};
+	// Whether the window offers a document's event graph (My Script's row, the breadcrumb's list, the script button): a
+	// script's always; a library's only while it still holds nodes or comment boxes, so that they can be reached and deleted
+	// (spec-slice3 §10.9). A library that offers none opens on its first function.
+	[[nodiscard]] bool OffersVisualScriptEventGraph(VisualScriptDocument const& document);
 	// A function library's line in My Script (spec-slice3 §10.9): "Function library · used by 5 nodes in 3 scripts", from the
 	// other graphs whose nodes name it; "Function library · used by no script yet" when none does.
 	[[nodiscard]] std::string DescribeVisualScriptLibraryUse(std::span<VisualScriptProjectGraph const> graphs, AssetHandle graph);
@@ -256,8 +260,10 @@ namespace Strada
 	// graph itself), which a deletion keeps (spec-slice3 §10.6).
 	[[nodiscard]] uint32_t CountVisualScriptSelfUses(VisualScriptDocument const& document, AssetHandle graph, uint32_t variable);
 	// What a value being edited changes, as "Your edit of <it> was replaced" names it: a variable's or local's name, a node's
-	// input (the one input it changed), else the node's title; "a value" when nothing differs.
-	[[nodiscard]] std::string DescribeVisualScriptValueEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending);
+	// input (the one input it changed), else the node's title (a node naming another graph titled from the resolver's
+	// document); "a value" when nothing differs.
+	[[nodiscard]] std::string DescribeVisualScriptValueEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending,
+	                                                        VisualScriptGraphResolver const& resolver = {});
 	// "3 nodes in 2 other scripts": a count of nodes (calls, senders) and of the scripts that hold them.
 	[[nodiscard]] std::string DescribeVisualScriptOtherUses(VisualScriptOtherUses uses, std::string_view noun, std::string_view nouns);
 
@@ -280,11 +286,18 @@ namespace Strada
 	// it", a rename recorded in FormerNames), removed ("Removed Speed: 2 calls in 1 other script lose links") or retyped
 	// ("Changed Speed to int: 2 calls in 1 other script may not fit"); a public variable deleted, made private or retyped; a
 	// custom event renamed or deleted while untyped senders of its old name remain elsewhere ("Renamed Hit to Damaged (and 2
-	// senders). 3 senders in 2 other scripts still send Hit"). Only what other scripts' nodes use is told; nothing when the
-	// offer is the same (VisualScriptEditing::HaveSameVisualScriptOffer).
+	// senders). 3 senders in 2 other scripts still send Hit"); a switch of the graph's Kind that breaks other scripts' nodes
+	// ("Made Motion a script: 3 nodes in 2 other scripts show errors"). Only what other scripts' nodes use is told; nothing
+	// when the offer is the same (VisualScriptEditing::HaveSameVisualScriptOffer).
 	[[nodiscard]] std::vector<VisualScriptOfferToast> DescribeVisualScriptOfferChange(AssetHandle graph, VisualScriptDocument const& before,
 	                                                                                  VisualScriptDocument const& after,
 	                                                                                  std::span<VisualScriptProjectGraph const> graphs);
+	// The nodes of the project's other scripts an edit of a graph leaves naming nothing it has (FindVisualScriptBrokenReferrers'
+	// Removed referrers), counted by node and script: what a switch of its Kind breaks (spec-slice3 §10.3), a library's calls
+	// when it becomes a script, the Gets, Sets, typed sends and RunsGraph of other scripts when a script becomes a library.
+	[[nodiscard]] VisualScriptOtherUses CountVisualScriptRemovedReferrers(AssetHandle graph, VisualScriptDocument const& before,
+	                                                                      VisualScriptDocument const& after,
+	                                                                      std::span<VisualScriptProjectGraph const> graphs);
 
 	// Whether a node offers the Enabled states (spec §9.5): nodes with an exec input and an exec output, and event nodes other
 	// than Event.Send, do; pure nodes show them disabled; Function.Entry and Function.Return do not show them.

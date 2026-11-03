@@ -1904,7 +1904,7 @@ namespace Strada
 			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
 			// A function library shows its first function: it has no event graph to show.
 			VisualScriptDocument const& shown = m_Model.GetDisplayDocument();
-			bool const library = shown.Kind == VisualScriptDocumentKind::Library && shown.Graph.Nodes.empty() && !shown.Functions.empty();
+			bool const library = !OffersVisualScriptEventGraph(shown) && !shown.Functions.empty();
 			if (ImGui::Button(fmt::format("{}##script", scriptShown).c_str()))
 			{
 				m_Model.ShowFunction(library ? shown.Functions.front().ID : 0);
@@ -2348,8 +2348,8 @@ namespace Strada
 				m_Model.ShowFunction(function);
 			}
 		};
-		// A function library lists its functions; its event graph only while nodes are still there to delete.
-		if (document.Kind != VisualScriptDocumentKind::Library || !document.Graph.Nodes.empty())
+		// A function library lists its functions; its event graph only while nodes or comment boxes are still there to delete.
+		if (OffersVisualScriptEventGraph(document))
 		{
 			item("Event Graph", 0);
 		}
@@ -3227,7 +3227,7 @@ namespace Strada
 		std::optional<VisualScriptPin> const libraryPin =
 			FindVisualScriptCanvasPin(m_Model, library, node, pin, VisualScriptPinDirection::In);
 		data.Fallback = libraryPin ? libraryPin->Default : Json();
-		data.Title = GetVisualScriptNodeTitle(document, analysis, *found);
+		data.Title = GetVisualScriptNodeTitle(document, analysis, *found, m_Model.MakeGraphResolver());
 		return data.Editable ? &data : nullptr;
 	}
 

@@ -556,9 +556,10 @@ namespace Strada
 		}
 		ImGui::PushID("graphs");
 		float const right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x;
-		// The event graph: its problems are those of no function. A library has none, unless nodes are still there to delete.
+		// The event graph: its problems are those of no function. A library has none, unless nodes or comment boxes are still
+		// there to delete.
 		std::string const eventGraph = library ? "Event Graph (not used in a library)" : "Event Graph";
-		if ((!library || !document.Graph.Nodes.empty()) && Matches(eventGraph))
+		if (OffersVisualScriptEventGraph(document) && Matches(eventGraph))
 		{
 			ImGui::PushID(0);
 			if (DrawRow(frame, {VisualScriptElementKind::Function, 0}, eventGraph, false))

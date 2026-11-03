@@ -311,14 +311,14 @@ namespace Strada
 
 		// "AddScore > Set Score": the sub-graph and the element a diagnostic names.
 		std::string DescribePlace(VisualScriptDocument const& document, VisualScriptAnalysis const* analysis,
-		                          VisualScriptDiagnostic const& diagnostic)
+		                          VisualScriptDiagnostic const& diagnostic, VisualScriptGraphResolver const& resolver)
 		{
 			std::string place = GetVisualScriptGraphName(document, diagnostic.Function);
 			if (std::optional<uint32_t> const node = GetDiagnosticNode(diagnostic))
 			{
 				if (VisualScriptNode const* const found = FindVisualScriptNode(document, *node))
 				{
-					place += " \xE2\x80\xBA " + GetVisualScriptNodeTitle(document, analysis, *found);
+					place += " \xE2\x80\xBA " + GetVisualScriptNodeTitle(document, analysis, *found, resolver);
 				}
 			}
 			else if (diagnostic.Variable)
@@ -471,6 +471,7 @@ namespace Strada
 		}
 		SortProblems(model, *analysis);
 		VisualScriptDocument const& document = model.GetDisplayDocument();
+		VisualScriptGraphResolver const resolver = model.MakeGraphResolver();
 		if (m_Problems.empty())
 		{
 			ImGui::TextDisabled("No problems");
@@ -524,7 +525,7 @@ namespace Strada
 				ImGui::SameLine();
 				ImGui::TextUnformatted(diagnostic.Message.c_str());
 				ImGui::SameLine();
-				ImGui::TextDisabled("%s", DescribePlace(document, analysis, diagnostic).c_str());
+				ImGui::TextDisabled("%s", DescribePlace(document, analysis, diagnostic, resolver).c_str());
 				ImGui::SameLine();
 				// In a group, which ends the row's line whether it has buttons or not.
 				std::optional<std::pair<glm::vec2, glm::vec2>> firstFix;

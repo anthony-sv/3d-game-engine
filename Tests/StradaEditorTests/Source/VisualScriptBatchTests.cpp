@@ -1772,3 +1772,48 @@ TEST_CASE("VisualScriptBatch: Fix applies the quick fixes of cross-graph finding
 	CAPTURE(navigating.Message);
 	CHECK(navigating.Message.find("a graph.edit of the graph it names") != std::string::npos);
 }
+
+TEST_CASE("VisualScriptBatch: Duplicate and Paste of an Event.Broadcast in a function graph keep it, with no note")
+{
+	// A Broadcast sends: it is no event, so neither operation leaves it out of a function graph (spec-slice3 §6.4.4), with
+	// the runtime's library and without it.
+	for (bool const available : {true, false})
+	{
+		CAPTURE(available);
+		BatchFixture fixture;
+		fixture.Semantics.SetAvailable(available);
+		VisualScriptDocument document = MakeDocument();
+		document.Functions[0].Graph.Nodes.push_back(
+			MakeNode(24, "Event.Broadcast", glm::vec2(240.0f, 160.0f), Json::object({{"Name", "Hit"}})));
+		VisualScriptLibrary const* const library = available ? fixture.Semantics.GetLibrary().get() : nullptr;
+		std::string const clipboard = WriteVisualScriptClipboard(document, 20, std::vector<uint32_t>{24}, AssetHandle(), library);
+		VisualScriptBatchResult const result = ExpectApplied(
+			document,
+			Json::array(
+				{Json::object({{"op", "Duplicate"}, {"elements", Json::array({24})}, {"labels", Json::array({"$copy"})}}),
+		         Json::object({{"op", "Paste"}, {"clipboard", clipboard}, {"function", "Push"}, {"labels", Json::array({"$pasted"})}})}),
+			fixture.Context);
+		REQUIRE(result.Results.size() == 2);
+		for (size_t index = 0; index < result.Results.size(); index++)
+		{
+			CAPTURE(index);
+			Json const& done = result.Results[index];
+			CHECK(done["ids"].size() == 1);
+			CHECK((!done.contains("notes") || done["notes"].empty()));
+		}
+		std::vector<VisualScriptNode> const& nodes = result.Document.Functions[0].Graph.Nodes;
+		for (std::string_view const label : {"$copy", "$pasted"})
+		{
+			CAPTURE(label);
+			uint32_t const id = GetLabel(result, label);
+			auto const found = std::find_if(nodes.begin(), nodes.end(),
+			                                [id](VisualScriptNode const& node)
+			                                {
+												return node.ID == id;
+											});
+			REQUIRE(found != nodes.end());
+			CHECK(found->Type == "Event.Broadcast");
+			CHECK(found->Settings["Name"] == "Hit");
+		}
+	}
+}
