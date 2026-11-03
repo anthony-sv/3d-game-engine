@@ -104,7 +104,7 @@ namespace
 				}
 			}
 			m_Types.insert({"Flow.Branch", "Flow.Sequence", "Flow.Switch", "Operator.Add", "Event.Custom", "Variable.Get",
-			                "Call:Strada.Log.Info(string)", "Flow.Brnach"});
+			                "Call:Strada.Log.Info(string)", "Flow.Brnach", "Expression", "Array.Make", "Flow.Timeline"});
 		}
 
 		// The parameters of one call: graph is the caller's.
@@ -159,6 +159,18 @@ namespace
 				if (type == "Call:Strada.Log.Info(string)")
 				{
 					operation["literals"] = Json::object({{"Message", "Fuzz"}});
+				}
+				if (type == "Expression")
+				{
+					operation["settings"] = Json::object({{"Formula", Formula()}});
+				}
+				if (type == "Flow.Timeline" && m_Random.Pick(2) == 0)
+				{
+					operation["settings"] = Json::object({{"Timeline", Timeline()}});
+				}
+				if (type == "Array.Make" && m_Random.Pick(2) == 0)
+				{
+					operation["settings"] = Json::object({{"Type", Pick(s_ValueTypes)}, {"Count", m_Random.Pick(4)}});
 				}
 				Label(operation, "as", m_ElementLabels);
 			}
@@ -261,12 +273,20 @@ namespace
 			else if (kind == "SetSetting")
 			{
 				operation["node"] = Node();
-				std::string const name =
-					Pick(std::vector<std::string>{"Count", "Cases", "Variable", "Function", "Name", "Parameters", "Type"});
+				std::string const name = Pick(std::vector<std::string>{"Count", "Cases", "Variable", "Function", "Name", "Parameters",
+				                                                       "Type", "Formula", "Timeline"});
 				operation["name"] = name;
 				if (name == "Count")
 				{
 					operation["value"] = 2 + m_Random.Pick(4);
+				}
+				else if (name == "Formula")
+				{
+					operation["value"] = Formula();
+				}
+				else if (name == "Timeline")
+				{
+					operation["value"] = Timeline();
 				}
 				else if (name == "Variable" && !m_Document.Variables.empty())
 				{
@@ -288,6 +308,21 @@ namespace
 				if (m_Random.Pick(2) == 0)
 				{
 					operation[m_Random.Pick(2) == 0 ? "insertAt" : "removeAt"] = m_Random.Pick(3);
+				}
+			}
+			else if (kind == "SetFormula")
+			{
+				operation["node"] = Node();
+				operation["formula"] = Formula();
+			}
+			else if (kind == "SetTimeline")
+			{
+				operation["node"] = Node();
+				operation["timeline"] = Timeline();
+				if (m_Random.Pick(3) == 0)
+				{
+					operation["renames"] =
+						Json::array({Json::object({{"old", "Lift"}, {"new", Pick(std::vector<std::string>{"Height", "Lift", "Step"})}})});
 				}
 			}
 			else if (kind == "SetSwitchCases")
@@ -662,6 +697,30 @@ namespace
 			std::array<Json, 7> const values = {
 				Json(1), Json(2.5), Json(true), Json("Fuzz"), Json::array({1.0, 2.0, 3.0}), Json(), Json::object({{"Unexpected", 1}})};
 			return values[m_Random.Pick(values.size())];
+		}
+
+		// A formula: valid, renaming or adding inputs, or broken (a broken formula is stored too; the analysis reports it).
+		std::string Formula()
+		{
+			return Pick(std::vector<std::string>{"a * b + sin(t)", "speed * dt", "velocity * dt", "a * b * c", "2 * pi", "x + (",
+			                                     "Self + 1", "v.X + v.Y", ""});
+		}
+
+		// A Timeline setting: tracks kept, renamed, retyped or removed, or a damaged one (refused).
+		Json Timeline()
+		{
+			std::vector<std::string> const timelines = {
+				R"({"Length": 2, "Loop": false, "Tracks": [{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, )"
+				R"({"Time": 1, "Value": 2.5, "Interpolation": "Linear"}]}, {"Name": "Step", "Type": "exec", "Keys": [{"Time": 0.5}]}]})",
+				R"({"Length": 1, "Loop": true, "Tracks": [{"Name": "Height", "Type": "float", "Keys": [{"Time": 0, "Value": 1}]}]})",
+				R"({"Length": 3, "Tracks": [{"Name": "Lift", "Type": "Strada.Vector3", "Keys": [{"Time": 0, "Value": [0, 1, 0]}]}]})",
+				R"({"Length": 1})",
+				R"({"Length": 0})",
+				R"({"Tracks": [{"Name": "Update", "Type": "float"}]})",
+			};
+			Result<Json> parsed = ParseJson(Pick(timelines));
+			REQUIRE(parsed.IsOk());
+			return parsed.TakeValue();
 		}
 
 		// Defines a new label for what the operation creates, half the time.

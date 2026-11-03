@@ -501,6 +501,14 @@ namespace Strada
 					return MakeInvalid(literal);
 				case VisualScriptTypeKind::Enum:
 					return FormatEnum(literal, typeId, enumLookup);
+				case VisualScriptTypeKind::Array:
+					// Its length, as Strada.Matrix4 shows its name: Details edits the elements (spec-slice3 §9.4). Arrays of types
+					// without literals have none.
+					if (type->HasLiteral && (literal.is_null() || literal.is_array()))
+					{
+						return {VisualScriptChipKind::Matrix, fmt::format("[{}]", literal.is_array() ? literal.size() : 0), 0, false};
+					}
+					break;
 				default:
 					break;
 			}

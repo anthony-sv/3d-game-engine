@@ -426,7 +426,9 @@ namespace Strada
 	{
 		Closed = 0,
 		Problems,
-		Find
+		Find,
+		// A Flow.Timeline's tracks and curves (spec-slice3 §9.5).
+		Timeline
 	};
 
 	enum class VisualScriptPaneState : uint8_t
@@ -472,6 +474,8 @@ namespace Strada
 		// The toolbar's save status.
 		VisualScriptSaveState Save = VisualScriptSaveState::Saved;
 		VisualScriptDrawerMode Drawer = VisualScriptDrawerMode::Closed;
+		// The Flow.Timeline node the drawer shows in Timeline mode.
+		std::optional<uint32_t> TimelineNode;
 		// The find bar.
 		bool FindOpen = false;
 		std::string FindText;

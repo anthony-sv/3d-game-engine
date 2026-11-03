@@ -139,12 +139,15 @@ namespace Strada
 					result.Open = MakeVisualScriptJump(context.Graph, owner, {fix.Target});
 					if (fix.Kind == VisualScriptFixKind::EditSetting)
 					{
-						result.FocusSetting = VisualScriptSettingFocus{fix.Target, fix.Argument};
+						// A fix about a setting's text (a formula's) selects the part the diagnostic is about.
+						std::optional<std::pair<uint32_t, uint32_t>> const span =
+							diagnostic.Setting == fix.Argument ? diagnostic.Span : std::nullopt;
+						result.FocusSetting = VisualScriptSettingFocus{fix.Target, fix.Argument, span};
 					}
 					else if (fix.Kind == VisualScriptFixKind::Rename)
 					{
 						// A node is renamed by its setting: a custom event by its Name.
-						result.FocusSetting = VisualScriptSettingFocus{fix.Target, "Name"};
+						result.FocusSetting = VisualScriptSettingFocus{fix.Target, "Name", std::nullopt};
 					}
 					break;
 				case ElementKind::Variable:
@@ -372,6 +375,12 @@ namespace Strada
 		m_Reference = reference;
 	}
 
+	void VisualScriptDrawer::ShowTimeline(uint32_t node, std::optional<uint32_t> track)
+	{
+		m_Mode = VisualScriptDrawerMode::Timeline;
+		m_Timeline.Open(node, track);
+	}
+
 	std::optional<std::pair<glm::vec2, glm::vec2>> VisualScriptDrawer::FindProblemRow(size_t index) const
 	{
 		return FindRect(m_ProblemRows, index);
@@ -399,7 +408,11 @@ namespace Strada
 			ImGui::TextDisabled("No script is shown.");
 			return result;
 		}
-		if (m_Mode == VisualScriptDrawerMode::Find)
+		if (m_Mode == VisualScriptDrawerMode::Timeline)
+		{
+			m_Timeline.Draw(context, m_Commits, result, m_Timeline.GetNode());
+		}
+		else if (m_Mode == VisualScriptDrawerMode::Find)
 		{
 			DrawFind(context, result);
 		}

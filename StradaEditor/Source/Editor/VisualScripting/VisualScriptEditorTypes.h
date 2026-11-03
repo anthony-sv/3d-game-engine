@@ -55,6 +55,8 @@ namespace Strada
 		bool ShowProblems = false;
 		// Opens the find bar with this text when not empty.
 		std::string Find;
+		// Opens the drawer in Timeline mode on this Flow.Timeline node of the sub-graph shown.
+		std::optional<uint32_t> Timeline;
 		bool Focus = true;
 
 		bool operator==(VisualScriptOpenRequest const& other) const = default;
@@ -136,7 +138,10 @@ namespace Strada
 		GoToBookmark6,
 		GoToBookmark7,
 		GoToBookmark8,
-		GoToBookmark9
+		GoToBookmark9,
+		// The Timeline drawer's Shift+Left and Shift+Right: its selected keys nudged ten time steps.
+		NudgeLeftCoarse,
+		NudgeRightCoarse
 	};
 
 	// A variable, function or custom event whose references find looks for.

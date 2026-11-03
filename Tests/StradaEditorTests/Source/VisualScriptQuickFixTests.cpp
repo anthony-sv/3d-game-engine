@@ -785,3 +785,102 @@ TEST_CASE("VisualScriptQuickFix: problems whose message says what to do have no 
 	CHECK(fixture.Fixes(MakeDiagnostic("UnknownNodeType", 0, 9999, {}, {"Flow.Branch"})).empty());
 	CHECK(fixture.Fixes(MakeDiagnostic("MissingEntry", 9999, std::nullopt)).empty());
 }
+
+TEST_CASE("VisualScriptQuickFix: a formula's problems are edited in its field, and an unknown function uses a suggestion in place")
+{
+	Scope<VisualScriptLibrary> const library = ParseLibrary();
+	VisualScriptDocument document;
+	VisualScriptNode expression;
+	expression.ID = 1;
+	expression.Type = "Expression";
+	expression.Position = glm::vec2(0.0f);
+	expression.Settings = Json::object({{"Formula", "a * b + sni(t)"}});
+	expression.Inputs = Json::object({{"a", 2}});
+	VisualScriptNode time;
+	time.ID = 2;
+	time.Type = "Get:Strada.Time.DeltaTime";
+	time.Position = glm::vec2(-320.0f, 0.0f);
+	document.Graph.Nodes = {expression, time};
+	document.Graph.Links = {MakeLink(2, "Value", 1, "t")};
+	VisualScriptAnalysis const analysis;
+
+	VisualScriptDiagnostic unknown =
+		MakeDiagnostic("InvalidExpression", 0, 1, "unknown function sni: did you mean sin?", {"sin", "sign", "min"});
+	unknown.Setting = "Formula";
+	unknown.Span = std::pair<uint32_t, uint32_t>(8, 11);
+	std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(document, analysis, unknown, *library);
+	REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Edit Formula", "Use sin", "Use sign", "Use min"});
+	CHECK(fixes[0].Kind == VisualScriptFixKind::EditSetting);
+	CHECK(fixes[0].Navigates);
+	CHECK(fixes[0].Argument == "Formula");
+	CHECK(fixes[0].Target == 1);
+	CHECK(fixes[1].Kind == VisualScriptFixKind::ReplaceInFormula);
+	CHECK_FALSE(fixes[1].Navigates);
+	CHECK(fixes[1].Argument == "sin");
+	CHECK(fixes[1].Replaces == "sni");
+
+	// Use sin replaces the span's bytes through SetFormula: the inputs, their link and their literal stay.
+	VisualScriptDocument fixed = document;
+	REQUIRE(ApplyVisualScriptQuickFix(fixed, analysis, unknown, fixes[1]).IsOk());
+	CHECK(fixed.Graph.Nodes[0].Settings == Json::object({{"Formula", "a * b + sin(t)"}}));
+	CHECK(fixed.Graph.Nodes[0].Inputs == Json::object({{"a", 2}}));
+	CHECK(fixed.Graph.Links == document.Graph.Links);
+	Testing::ExpectStrictRoundTrip(fixed);
+	// A formula changed since no longer holds what the fix replaces: refused, the document unchanged.
+	VisualScriptDocument changed = document;
+	changed.Graph.Nodes[0].Settings["Formula"] = "a + b";
+	VisualScriptDocument const before = changed;
+	CHECK(ApplyVisualScriptQuickFix(changed, analysis, unknown, fixes[1]).IsError());
+	CHECK(changed == before);
+
+	// Other findings about the formula's text, and a reserved input name, only edit it; a span without suggestions too.
+	VisualScriptDiagnostic syntax = MakeDiagnostic("InvalidExpression", 0, 1, "expected a value after '+'");
+	syntax.Setting = "Formula";
+	syntax.Span = std::pair<uint32_t, uint32_t>(6, 7);
+	CHECK(GetLabels(GetVisualScriptQuickFixes(document, analysis, syntax, *library)) == std::vector<std::string>{"Edit Formula"});
+	VisualScriptDiagnostic reserved = MakeDiagnostic("ReservedName", 0, 1, "Self is a reserved pin name: name the input otherwise");
+	reserved.Setting = "Formula";
+	reserved.Span = std::pair<uint32_t, uint32_t>(0, 4);
+	std::vector<VisualScriptQuickFix> const reservedFixes = GetVisualScriptQuickFixes(document, analysis, reserved, *library);
+	REQUIRE(GetLabels(reservedFixes) == std::vector<std::string>{"Edit Formula"});
+	CHECK(reservedFixes[0].Argument == "Formula");
+
+	// InvalidSetting and MissingSetting edit the setting the diagnostic names, before the one the message names.
+	VisualScriptDiagnostic missing =
+		MakeDiagnostic("MissingSetting", 0, 1, "Expression needs the setting Formula: a formula such as a * b");
+	missing.Setting = "Formula";
+	std::vector<VisualScriptQuickFix> const missingFixes = GetVisualScriptQuickFixes(document, analysis, missing, *library);
+	REQUIRE(GetLabels(missingFixes) == std::vector<std::string>{"Edit in Details"});
+	CHECK(missingFixes[0].Argument == "Formula");
+	VisualScriptDiagnostic invalid = MakeDiagnostic("InvalidSetting", 0, 1, "expected a string, not 3");
+	invalid.Setting = "Formula";
+	CHECK(GetVisualScriptQuickFixes(document, analysis, invalid, *library)[0].Argument == "Formula");
+}
+
+TEST_CASE("VisualScriptQuickFix: an invalid type is replaced by an array type for a private variable, never for a public one")
+{
+	Scope<VisualScriptLibrary> const library = ParseLibrary();
+	VisualScriptDocument document;
+	VisualScriptVariable flow;
+	flow.ID = 1;
+	flow.Name = "Flow";
+	flow.Type = "exec";
+	VisualScriptVariable targets;
+	targets.ID = 2;
+	targets.Name = "Targets";
+	targets.Type = "Strada.Entity[]";
+	targets.Public = true;
+	document.Variables = {flow, targets};
+	VisualScriptAnalysis const analysis;
+
+	VisualScriptDiagnostic const pinType =
+		MakeVariableDiagnostic("InvalidType", 0, 1, "Flow: exec is a pin type: variables hold values", {"Strada.Entity[]", "int"});
+	CHECK(GetLabels(GetVisualScriptQuickFixes(document, analysis, pinType, *library)) ==
+	      std::vector<std::string>{"Use Entity Array", "Use Int"});
+	// A public array is what is invalid there, and no array replaces it.
+	VisualScriptDiagnostic const publicArray =
+		MakeVariableDiagnostic("InvalidType", 0, 2, "Targets: Strada.Entity[] cannot be public", {"Strada.Entity[]", "Strada.Entity"});
+	std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(document, analysis, publicArray, *library);
+	REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Use Entity"});
+	CHECK(fixes[0].Replaces == "Strada.Entity[]");
+}

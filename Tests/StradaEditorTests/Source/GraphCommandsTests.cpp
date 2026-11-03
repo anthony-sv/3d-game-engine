@@ -16,6 +16,7 @@
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptHeadlessCanvas.h"
 #include "Editor/VisualScripting/VisualScriptPalette.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -1827,6 +1828,37 @@ TEST_CASE("GraphCommands: graph.palette checks its parameters in order, then lis
 	CHECK(fixture.GetDocument(graph) == document);
 }
 
+TEST_CASE("GraphCommands: graph.palette lists the Expression of a formula typed after =")
+{
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	auto const params = [&graph](Json extra)
+	{
+		extra["graph"] = graph;
+		return extra;
+	};
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Frames(2);
+	Json listed;
+	// A query of = and a formula: the Expression entry alone, titled with the formula, its settings setting it (spec-slice3 §9.3).
+	listed = fixture.Ok("graph.palette", params(Json::object({{"query", "=a*b"}})));
+	CHECK(listed["query"] == "=a*b");
+	CHECK(listed["total"] == 1);
+	REQUIRE(listed["entries"].size() == 1);
+	CHECK(listed["entries"][0]["title"] == "Expression: a*b");
+	CHECK(listed["entries"][0]["type"] == "Expression");
+	CHECK(listed["entries"][0]["settings"] == Json::object({{"Formula", "a*b"}}));
+
+	// Each call a frame after the one before opens the palette again with its own query (ImGui keeps a popup reopened in
+	// the frame after its opening, with the search field's text).
+	listed = fixture.Ok("graph.palette", params(Json::object({{"query", "br"}})));
+	CHECK(listed["query"] == "br");
+	CHECK(listed["total"] > 1);
+	listed = fixture.Ok("graph.palette", params(Json::object({{"query", "=x"}})));
+	CHECK(listed["query"] == "=x");
+	CHECK(listed["total"] == 1);
+}
+
 TEST_CASE("GraphCommands: graph.palette answers for a window graph.open opened in the same frame, and refuses windows that show no "
           "palette")
 {
@@ -2558,6 +2590,170 @@ TEST_CASE("GraphCommands: graph.edit applies a batch as one undo step through th
 	CHECK(staleProgram.Code == AutomationErrorCode::InvalidOperation);
 	CHECK(staleProgram.Data["path"] == "programRevision");
 	CHECK(fixture.Ok("graph.edit", both(afterMove["revision"], afterMove["programRevision"]))["changed"] == false);
+}
+
+TEST_CASE("GraphCommands: graph.edit's SetFormula and SetSetting of Formula rename an Expression's inputs with their links")
+{
+	GraphFixture fixture;
+	VisualScriptDocument document;
+	VisualScriptVariable speed;
+	speed.ID = 1;
+	speed.Name = "Speed";
+	speed.Type = "float";
+	document.Variables.push_back(speed);
+	document.Graph.Nodes.push_back(MakeNode(10, "Variable.Get", Json::object({{"Variable", 1}})));
+	document.Graph.Nodes.push_back(MakeNode(11, "Expression", Json::object({{"Formula", "speed * dt"}}), Json::object({{"dt", 0.5}})));
+	for (VisualScriptNode& node : document.Graph.Nodes)
+	{
+		node.Position = glm::vec2(0.0f, 0.0f);
+	}
+	document.Graph.Links.push_back(MakeLink(10, "Value", 11, "speed"));
+	std::string const graph = fixture.CreateGraph("Scripts/Formula.sgraph", document);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	// No pins are needed: the formulas say which inputs the node has, so this runs without the scripting runtime.
+	Json const edited = fixture.Ok(
+		"graph.edit",
+		Json::object({{"graph", graph},
+	                  {"operations", Json::array({Json::object({{"op", "SetFormula"}, {"node", 11}, {"formula", "velocity * dt"}})})},
+	                  {"description", "Rename Speed"}}));
+	CHECK(edited["changed"] == true);
+	CHECK(edited["results"] ==
+	      Json::array({Json::object(
+			  {{"renamedInputs", Json::array({Json::object({{"old", "speed"}, {"new", "velocity"}})})}, {"removedLinks", 0}})}));
+	VisualScriptDocument const renamed = fixture.GetDocument(graph);
+	CHECK(renamed.Graph.Links == std::vector<VisualScriptLink>{MakeLink(10, "Value", 11, "velocity")});
+	CHECK(renamed.Graph.Nodes[1].Settings == Json::object({{"Formula", "velocity * dt"}}));
+	CHECK(renamed.Graph.Nodes[1].Inputs == Json::object({{"dt", 0.5}}));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(fixture.Ok("editor.status")["undo"] == "Rename Speed in Formula");
+
+	// SetSetting of Formula goes the same way; one that drops an input removes its link.
+	Json const routed = fixture.Ok(
+		"graph.edit",
+		Json::object(
+			{{"graph", graph},
+	         {"operations", Json::array({Json::object({{"op", "SetSetting"}, {"node", 11}, {"name", "Formula"}, {"value", "dt * 2"}})})}}));
+	CHECK(routed["results"] == Json::array({Json::object({{"renamedInputs", Json::array()}, {"removedLinks", 1}})}));
+	CHECK(fixture.GetDocument(graph).Graph.Links.empty());
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Visual Script in Formula");
+	CHECK(fixture.GetDocument(graph).Graph.Links == renamed.Graph.Links);
+
+	// A node of another type is refused, naming the operation.
+	CommandError const refused = fixture.Fails(
+		"graph.edit", Json::object({{"graph", graph},
+	                                {"operations", Json::array({Json::object({{"op", "SetFormula"}, {"node", 10}, {"formula", "a"}})})}}));
+	CHECK(refused.Code == AutomationErrorCode::InvalidParams);
+	CHECK(refused.Data["op"] == "SetFormula");
+	CHECK(refused.Message.find("node 10 is no Expression") != std::string::npos);
+}
+
+TEST_CASE("GraphCommands: graph.edit's SetTimeline and SetSetting of Timeline set a Timeline's tracks, renamed tracks keeping their links")
+{
+	GraphFixture fixture;
+	VisualScriptDocument document;
+	Json const timeline = Json::parse(R"({"Length": 2, "Loop": false, "Tracks": [
+		{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, {"Time": 2, "Value": 1}]},
+		{"Name": "Step", "Type": "exec", "Keys": [{"Time": 1}]}]})");
+	document.Graph.Nodes.push_back(MakeNode(10, "Flow.Timeline", Json::object({{"Timeline", timeline}})));
+	document.Graph.Nodes.push_back(MakeNode(11, "Call:Strada.Log.Info(string)"));
+	for (VisualScriptNode& node : document.Graph.Nodes)
+	{
+		node.Position = glm::vec2(0.0f, 0.0f);
+	}
+	document.Graph.Links.push_back(MakeLink(10, "Lift", 11, "Message"));
+	document.Graph.Links.push_back(MakeLink(10, "Step", 11, "Execute"));
+	std::string const graph = fixture.CreateGraph("Scripts/Timeline.sgraph", document);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	// The setting says which pins the node has, so this runs without the scripting runtime.
+	Json renamed = timeline;
+	renamed["Tracks"][0]["Name"] = "Height";
+	Json const edited = fixture.Ok(
+		"graph.edit",
+		Json::object(
+			{{"graph", graph},
+	         {"operations", Json::array({Json::object({{"op", "SetTimeline"},
+	                                                   {"node", 10},
+	                                                   {"timeline", renamed},
+	                                                   {"renames", Json::array({Json::object({{"old", "Lift"}, {"new", "Height"}})})}})})},
+	         {"description", "Rename Lift"}}));
+	CHECK(edited["changed"] == true);
+	CHECK(edited["results"] == Json::array({Json::object({{"removedLinks", 0}})}));
+	VisualScriptDocument const stored = fixture.GetDocument(graph);
+	CHECK(stored.Graph.Links == std::vector<VisualScriptLink>{MakeLink(10, "Height", 11, "Message"), MakeLink(10, "Step", 11, "Execute")});
+	CHECK(stored.Graph.Nodes[0].Settings["Timeline"] == WriteVisualScriptTimeline(ParseVisualScriptTimeline(renamed).GetValue()));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(fixture.Ok("editor.status")["undo"] == "Rename Lift in Timeline");
+
+	// SetSetting of Timeline goes the same way, renaming nothing: the event track removed takes its link.
+	Json removed = renamed;
+	removed["Tracks"].erase(1);
+	Json const routed = fixture.Ok(
+		"graph.edit",
+		Json::object(
+			{{"graph", graph},
+	         {"operations", Json::array({Json::object({{"op", "SetSetting"}, {"node", 10}, {"name", "Timeline"}, {"value", removed}})})}}));
+	CHECK(routed["results"] == Json::array({Json::object({{"removedLinks", 1}})}));
+	CHECK(fixture.GetDocument(graph).Graph.Links == std::vector<VisualScriptLink>{MakeLink(10, "Height", 11, "Message")});
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Visual Script in Timeline");
+	CHECK(fixture.GetDocument(graph).Graph.Links == stored.Graph.Links);
+
+	// A node of another type, and a damaged timeline, are refused, naming the operation and the field.
+	CommandError const refused = fixture.Fails(
+		"graph.edit",
+		Json::object({{"graph", graph},
+	                  {"operations", Json::array({Json::object({{"op", "SetTimeline"}, {"node", 11}, {"timeline", timeline}})})}}));
+	CHECK(refused.Code == AutomationErrorCode::InvalidParams);
+	CHECK(refused.Data["op"] == "SetTimeline");
+	CHECK(refused.Message.find("node 11 is no Flow.Timeline") != std::string::npos);
+	CommandError const damaged = fixture.Fails(
+		"graph.edit",
+		Json::object({{"graph", graph},
+	                  {"operations",
+	                   Json::array({Json::object({{"op", "SetTimeline"}, {"node", 10}, {"timeline", Json::object({{"Length", -1}})}})})}}));
+	CHECK(damaged.Code == AutomationErrorCode::InvalidParams);
+	CHECK(damaged.Data["path"] == "operations[0].timeline");
+	CHECK(damaged.Message.find("Timeline.Length: expected a number greater than 0 and at most 3600") != std::string::npos);
+}
+
+TEST_CASE("GraphCommands: graph.open's timeline opens the drawer on a Timeline's curves, which graph.editors reports")
+{
+	GraphWindowFixture fixture;
+	VisualScriptDocument document = MakeWindowDocument();
+	VisualScriptNode timeline = MakeNode(50, "Flow.Timeline");
+	timeline.Position = glm::vec2(640.0f, 320.0f);
+	document.Graph.Nodes.push_back(timeline);
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", document);
+
+	Json const opened = fixture.Ok("graph.open", Json::object({{"graph", graph}, {"timeline", 50}}));
+	CHECK(opened["warnings"] == Json::array());
+	fixture.Frames(3);
+	Json editor = fixture.Editor(graph);
+	CHECK(editor["drawer"] == "Timeline");
+	CHECK(editor["timeline"] == Json::object({{"node", 50}}));
+
+	// Another drawer mode reports no timeline.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"problems", true}}));
+	fixture.Frames(2);
+	editor = fixture.Editor(graph);
+	CHECK(editor["drawer"] == "Problems");
+	CHECK_FALSE(editor.contains("timeline"));
+
+	// A node of another type, or of another sub-graph, is refused.
+	CommandError const other = fixture.Fails("graph.open", Json::object({{"graph", graph}, {"timeline", 11}}));
+	CHECK(other.Code == AutomationErrorCode::InvalidParams);
+	CHECK(other.Data["path"] == "timeline");
+	CHECK(fixture.Fails("graph.open", Json::object({{"graph", graph}, {"function", 30}, {"timeline", 50}})).Data["path"] == "timeline");
+
+	// The drawer closes once its node is gone.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"timeline", 50}}));
+	fixture.Frames(2);
+	REQUIRE(fixture.Editor(graph)["drawer"] == "Timeline");
+	fixture.Ok("graph.edit",
+	           Json::object({{"graph", graph}, {"operations", Json::array({Json::object({{"op", "Delete"}, {"elements", {50}}})})}}));
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["drawer"] == "Closed");
 }
 
 TEST_CASE("GraphCommands: graph.edit refuses what does not apply, naming the operation, and runs degraded without the runtime")

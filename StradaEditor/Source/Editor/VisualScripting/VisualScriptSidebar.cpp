@@ -473,6 +473,10 @@ namespace Strada
 		ImVec2 const max = ImGui::GetItemRectMax();
 		m_Eyes.emplace_back(variable.ID, std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
 		bool const exposable = IsVisualScriptPublicType(variable.Type, frame.Library);
+		// Why the variable cannot be made public: arrays have a reason of their own (spec-slice3 §3.4.6).
+		std::string const refusal = variable.Type.ends_with("[]")
+		                                ? std::string(VisualScriptArrayPublicRefusal)
+		                                : fmt::format("{} cannot be public: components cannot store it", variable.Type);
 		// An eye: shown in the text colour when public, faint on hover otherwise (a click makes it public).
 		if (variable.Public || hovered)
 		{
@@ -486,7 +490,7 @@ namespace Strada
 		{
 			if (!exposable && !variable.Public)
 			{
-				ImGui::Text("%s cannot be public: components cannot store it", variable.Type.c_str());
+				ImGui::TextUnformatted(refusal.c_str());
 			}
 			else
 			{
@@ -503,7 +507,7 @@ namespace Strada
 		}
 		if (!exposable && !variable.Public)
 		{
-			frame.Result.Notes.push_back(fmt::format("{} cannot be public: components cannot store it", variable.Type));
+			frame.Result.Notes.push_back(refusal);
 			return;
 		}
 		VisualScriptDocument edited = frame.Document;
@@ -982,7 +986,7 @@ namespace Strada
 				m_Commits.Commit(context, std::move(edited), "Add Custom Event", 0, frame.Result);
 				// The event graph shows it selected, and Details gives its name the keyboard.
 				frame.Result.Open = MakeVisualScriptJump(context.Graph, 0, {added.GetValue()});
-				frame.Result.FocusSetting = VisualScriptSettingFocus{added.GetValue(), "Name"};
+				frame.Result.FocusSetting = VisualScriptSettingFocus{added.GetValue(), "Name", std::nullopt};
 				return;
 			}
 		}

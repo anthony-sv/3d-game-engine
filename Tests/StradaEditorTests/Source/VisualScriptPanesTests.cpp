@@ -10,6 +10,7 @@
 #include "Editor/VisualScripting/VisualScriptDetails.h"
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
 #include "Editor/VisualScripting/VisualScriptFindBar.h"
+#include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptLiteralEditor.h"
 #include "Editor/VisualScripting/VisualScriptPalettePopup.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
@@ -1485,11 +1486,11 @@ TEST_CASE("VisualScriptEditor: the type picker of a public variable lists only t
 	CHECK_FALSE(lists(publicTypes, "Strada.RaycastHit"));
 	CHECK_FALSE(lists(publicTypes, "Strada.Entity[]"));
 	CHECK_FALSE(lists(publicTypes, "exec"));
-	// Alive is private: any type with values but arrays.
+	// Alive is private: any type with values, arrays included (spec-slice3 §3.4.3).
 	std::vector<std::string> const privateTypes = pickerTypes(101);
 	CHECK(lists(privateTypes, "Strada.Matrix4"));
 	CHECK(lists(privateTypes, "Strada.RaycastHit"));
-	CHECK_FALSE(lists(privateTypes, "Strada.Entity[]"));
+	CHECK(lists(privateTypes, "Strada.Entity[]"));
 	CHECK_FALSE(lists(privateTypes, "exec"));
 	CHECK(fixture.GetVersion() == AssetManager::GetAsset<VisualScriptAsset>(fixture.Graph)->GetVersion());
 }
@@ -2938,4 +2939,510 @@ TEST_CASE("VisualScriptEditor: compact enum and asset frames show the text of th
 	asset.Kind = FieldKind::Asset;
 	CHECK(FieldEditor::DescribeCompactText(asset, Json(fixture.Graph.ToString())) == "Graph.sgraph");
 	CHECK(FieldEditor::DescribeCompactText(asset, Json()) == "None");
+}
+
+namespace
+{
+	// An Expression (2) of speed * dt with Speed's Get (1) linked into speed, and dt stored.
+	VisualScriptDocument MakeFormulaDocument(std::string formula = "speed * dt")
+	{
+		VisualScriptDocument document;
+		document.Variables = {MakeVariable(100, "Speed", "float")};
+		VisualScriptNode expression = MakeNode(2, "Expression", glm::vec2(400.0f, 0.0f), Json::object({{"Formula", std::move(formula)}}));
+		expression.Inputs = Json::object({{"dt", 0.5}});
+		document.Graph.Nodes = {MakeNode(1, "Variable.Get", glm::vec2(0.0f), Json::object({{"Variable", 100}})), expression};
+		document.Graph.Links = {{{1, "Value"}, {2, "speed"}}};
+		return document;
+	}
+
+	std::string GetFormula(VisualScriptDocument const& document)
+	{
+		VisualScriptNode const* const node = FindNode(document, "Expression");
+		REQUIRE(node != nullptr);
+		return node->Settings.value("Formula", std::string());
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a formula retyped in Details commits once, as one rename that keeps the link into the input")
+{
+	PaneFixture fixture(MakeFormulaDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Node);
+	// The field is several lines high.
+	std::optional<std::pair<glm::vec2, glm::vec2>> const row = fixture.Details.FindRow("Formula");
+	REQUIRE(row);
+	CHECK(row->second.y - row->first.y > ImGui::GetFrameHeight() * 2.0f);
+	size_t const undo = fixture.GetUndoCount();
+	uint64_t const version = fixture.GetVersion();
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("velocity * dt");
+	fixture.Frames(12);
+	// While the inputs differ from the start's, nothing reaches the document: no intermediate formula is committed.
+	CHECK(fixture.GetVersion() == version);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Formula on Expression (renames 1 input) in Graph");
+	CHECK(GetFormula(fixture.GetDocument()) == "velocity * dt");
+	CHECK(HasLink(fixture.GetDocument(), {{1, "Value"}, {2, "velocity"}}));
+	CHECK(FindNode(fixture.GetDocument(), "Expression")->Inputs == Json::object({{"dt", 0.5}}));
+	// graph.edit's operation for the same edit writes the same document (one implementation).
+	VisualScriptDocument const after = fixture.GetDocument();
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	Json const operations = Json::array({Json::object({{"op", "SetFormula"}, {"node", 2}, {"formula", "velocity * dt"}})});
+	CHECK(after == Testing::ApplyBatchAsGraphEdit(fixture.GetDocument(), operations, fixture.Semantics, fixture.Graph));
+}
+
+TEST_CASE("VisualScriptEditor: a formula's field commits when it is left, and Escape cancels it")
+{
+	PaneFixture fixture(MakeFormulaDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	size_t const undo = fixture.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+	// Escape: nothing changes.
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("x");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.ReadFile() == bytes);
+	// Left with a click elsewhere: committed, the input that went with its link (the list's length changed).
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("2 * dt");
+	fixture.Frames(2);
+	fixture.ImGui.Click(GetDetailsVoid(), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Formula on Expression (removes 1 link) in Graph");
+	CHECK(GetFormula(fixture.GetDocument()) == "2 * dt");
+	CHECK(fixture.GetDocument().Graph.Links.empty());
+}
+
+TEST_CASE("VisualScriptEditor: changing a formula's numbers commits at the widget cadence, in one step")
+{
+	PaneFixture fixture(MakeFormulaDocument("speed * 2"), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	size_t const undo = fixture.GetUndoCount();
+	uint64_t const version = fixture.GetVersion();
+	// The cursor at the end: the 2 becomes a 3, and the inputs stay those of the start.
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_End, fixture.Drawer());
+	fixture.ImGui.Press(ImGuiKey_Backspace, fixture.Drawer());
+	fixture.ImGui.Type("3");
+	fixture.Frames(8);
+	// Committed while the field still has the keyboard, so a running game gets it within 0.1 s.
+	CHECK(fixture.GetVersion() > version);
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 3");
+	fixture.ImGui.Type("0");
+	fixture.Frames(12);
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 30");
+	fixture.ImGui.Click(GetDetailsVoid(), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Formula on Expression in Graph");
+	CHECK(HasLink(fixture.GetDocument(), {{1, "Value"}, {2, "speed"}}));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 2");
+}
+
+TEST_CASE("VisualScriptEditor: a formula's problems show under it as caret blocks, and a click selects the part in the field")
+{
+	PaneFixture fixture(MakeFormulaDocument("a * b + sni(t)"), {FixturePane::Details});
+	VisualScriptDiagnostic unknown = MakeDiagnostic("InvalidExpression", 0, 2, "unknown function sni: did you mean sin?");
+	unknown.Setting = "Formula";
+	unknown.Span = std::pair<uint32_t, uint32_t>(8, 11);
+	fixture.Semantics.InjectDiagnostic(unknown);
+	// A span past the formula's end has no line to mark.
+	VisualScriptDiagnostic outside = MakeDiagnostic("InvalidExpression", 0, 2, "expected ')'", VisualScriptSeverity::Warning);
+	outside.Setting = "Formula";
+	outside.Span = std::pair<uint32_t, uint32_t>(15, 15);
+	fixture.Semantics.InjectDiagnostic(outside);
+	fixture.Semantics.InjectDiagnostic(MakeDiagnostic("Unused", 0, 2, "Result is read by nothing", VisualScriptSeverity::Warning));
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	CHECK(fixture.Details.GetRowText("Formula Problem 0") ==
+	      std::optional<std::string>("a * b + sni(t)\n        ^^^ unknown function sni: did you mean sin?"));
+	CHECK_FALSE(fixture.Details.GetRowText("Formula Problem 1").has_value());
+	// Without the formula's inputs in the analysis (the fixture derives none), the inputs are listed untyped.
+	CHECK(fixture.Details.GetRowText("Inputs") == std::optional<std::string>("a, b, t"));
+
+	fixture.ImGui.Click(fixture.DetailsRow("Formula Problem 0"), fixture.Drawer());
+	fixture.Frames(2);
+	ImGuiInputTextState const* const state = ImGui::GetInputTextState(GImGui->ActiveId);
+	REQUIRE(state != nullptr);
+	CHECK(state->GetSelectionStart() == 8);
+	CHECK(state->GetSelectionEnd() == 11);
+	// Typing replaces the part.
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Type("sin");
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(GetFormula(fixture.GetDocument()) == "a * b + sin(t)");
+}
+
+TEST_CASE("VisualScriptEditor: a caret block marks the line of its span with tabs as four columns, and Edit Formula selects the span")
+{
+	PaneFixture fixture(MakeFormulaDocument("a +\n\tb * #"), {FixturePane::Details});
+	VisualScriptDiagnostic character = MakeDiagnostic("InvalidExpression", 0, 2, "unexpected '#'");
+	character.Setting = "Formula";
+	character.Span = std::pair<uint32_t, uint32_t>(9, 10);
+	fixture.Semantics.InjectDiagnostic(character);
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	CHECK(fixture.Details.GetRowText("Formula Problem 0") == std::optional<std::string>("    b * #\n        ^ unexpected '#'"));
+	// What the problems' Edit Formula asks: the field with the keyboard and the span selected.
+	fixture.Shared.FocusSetting = VisualScriptSettingFocus{2, "Formula", std::pair<uint32_t, uint32_t>(9, 10)};
+	fixture.Frames(3);
+	ImGuiInputTextState const* const state = ImGui::GetInputTextState(GImGui->ActiveId);
+	REQUIRE(state != nullptr);
+	CHECK(state->GetSelectionStart() == 9);
+	CHECK(state->GetSelectionEnd() == 10);
+	CHECK_FALSE(fixture.Shared.FocusSetting.has_value());
+}
+
+TEST_CASE("VisualScriptEditor: an array's elements are added, removed and moved in Details, one step each, and edited in one")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptVariable speeds = MakeVariable(102, "Speeds", "float[]");
+	speeds.Value = Json::array({1.5, 2});
+	document.Variables.push_back(speeds);
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 102};
+	fixture.Frames(2);
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Variable);
+	size_t const undo = fixture.GetUndoCount();
+	auto const value = [&fixture]
+	{
+		return FindVariable(fixture.GetDocument(), 102)->Value;
+	};
+
+	// + Add Element appends the element type's default.
+	fixture.ImGui.Click(fixture.DetailsRow("Default Value Add"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Add Element to Speeds in Graph");
+	CHECK(value() == Json::array({1.5, 2, 0}));
+
+	fixture.ImGui.Click(fixture.DetailsRow("Default Value 2 Remove"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Remove Element 2 of Speeds in Graph");
+	CHECK(value() == Json::array({1.5, 2}));
+	CHECK_FALSE(fixture.Details.FindRow("Default Value 2"));
+
+	// A handle dropped on another element's handle moves the element there.
+	fixture.ImGui.Drag(fixture.DetailsRow("Default Value 0 Handle"), fixture.DetailsRow("Default Value 1 Handle"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 3);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Move Element of Speeds in Graph");
+	CHECK(value() == Json::array({2, 1.5}));
+
+	// An element's value typed into its widget: one step however many commits.
+	fixture.ImGui.Click(fixture.DetailsRow("Default Value 0"), fixture.Drawer(), 2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("7");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 4);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Default Value of Speeds in Graph");
+	CHECK(value() == Json::array({7, 1.5}));
+}
+
+namespace
+{
+	// A graph with a Timeline (node 4) of 2 s: a float track Lift with keys at 0, 1 and 2 s linked into the log's Message, and
+	// an event track Step with a key at 1.5 s.
+	VisualScriptDocument MakeTimelineDocument()
+	{
+		VisualScriptDocument document = MakeDocument();
+		Result<Json> timeline = ParseJson(R"({"Length": 2, "Loop": false, "Tracks": [
+			{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, {"Time": 1, "Value": 1}, {"Time": 2, "Value": 0}]},
+			{"Name": "Step", "Type": "exec", "Keys": [{"Time": 1.5}]}]})");
+		REQUIRE(timeline.IsOk());
+		document.Graph.Nodes.push_back(
+			MakeNode(4, "Flow.Timeline", glm::vec2(400.0f, 300.0f), Json::object({{"Timeline", timeline.GetValue()}})));
+		document.Graph.Links.push_back({{4, "Lift"}, {2, "Message"}});
+		return document;
+	}
+
+	VisualScriptTimeline ReadTimeline(VisualScriptDocument const& document)
+	{
+		VisualScriptNode const* node = FindNode(document, "Flow.Timeline");
+		REQUIRE(node != nullptr);
+		Result<VisualScriptTimeline> timeline = ReadVisualScriptTimeline(*node);
+		REQUIRE_MESSAGE(timeline.IsOk(), timeline.GetError());
+		return timeline.TakeValue();
+	}
+
+	std::vector<float> GetKeyTimes(VisualScriptTimeline const& timeline, size_t track)
+	{
+		std::vector<float> times;
+		for (VisualScriptTimelineKey const& key : timeline.Tracks[track].Keys)
+		{
+			times.push_back(key.Time);
+		}
+		return times;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: Details edits a Timeline's length, loop and tracks, one step each")
+{
+	PaneFixture fixture(MakeTimelineDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({4});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Node);
+	REQUIRE(fixture.Details.FindRow("Track 0 Name"));
+	REQUIRE(fixture.Details.FindRow("Track 1 Preview"));
+	CHECK_FALSE(fixture.Details.FindRow("Track 2 Name"));
+	size_t const undo = fixture.GetUndoCount();
+
+	// A length typed below the last keys moves them onto it, in the same step.
+	fixture.ImGui.Click(fixture.DetailsRow("Length"), fixture.Drawer(), 2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("0.5");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Length on Timeline (moves 3 keys) in Graph");
+	VisualScriptTimeline shorter = ReadTimeline(fixture.GetDocument());
+	CHECK(shorter.Length == 0.5f);
+	CHECK(GetKeyTimes(shorter, 0) == std::vector<float>{0.0f, 0.5f, 0.5f});
+	CHECK(GetKeyTimes(shorter, 1) == std::vector<float>{0.5f});
+
+	// Loop.
+	fixture.ImGui.Click(fixture.DetailsRow("Loop", 0.1f), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Loop Timeline in Graph");
+	CHECK(ReadTimeline(fixture.GetDocument()).Loop);
+
+	// A track renamed in its name field keeps its link.
+	fixture.ImGui.Click(fixture.DetailsRow("Track 0 Name"), fixture.Drawer(), 2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("Height");
+	fixture.Frames(1);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 3);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Rename Track Lift to Height on Timeline (and 1 link) in Graph");
+	CHECK(HasLinkIn(GetGraph(fixture.GetDocument(), 0), MakeLink(4, "Height", 2, "Message")));
+
+	// Remove.
+	fixture.ImGui.Click(fixture.DetailsRow("Track 1 Remove"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 4);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Remove Track Step from Timeline in Graph");
+	CHECK(ReadTimeline(fixture.GetDocument()).Tracks.size() == 1);
+
+	// + Add Track lists the six kinds; Float is the first.
+	fixture.ImGui.Click(fixture.DetailsRow("Add Track"), fixture.Drawer());
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	ImGuiWindow const* list = GImGui->OpenPopupStack.back().Window;
+	REQUIRE(list != nullptr);
+	fixture.ImGui.Click(ImVec2(list->DC.CursorStartPos.x + 20.0f, list->DC.CursorStartPos.y + ImGui::GetTextLineHeight() * 0.5f),
+	                    fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 5);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Add Track Curve to Timeline in Graph");
+	VisualScriptTimeline const added = ReadTimeline(fixture.GetDocument());
+	REQUIRE(added.Tracks.size() == 2);
+	CHECK(added.Tracks[1].Type == "float");
+
+	// Edit opens the drawer on the track, which the window does.
+	fixture.ImGui.Click(fixture.DetailsRow("Track 1 Edit"), fixture.Drawer());
+	fixture.Frames(1);
+	bool const asked = std::any_of(fixture.Results.begin(), fixture.Results.end(),
+	                               [](VisualScriptPaneResult const& result)
+	                               {
+									   return result.ShowTimeline == VisualScriptTimelineFocus{4, 1};
+								   });
+	CHECK(asked);
+	CHECK(fixture.GetUndoCount() == undo + 5);
+}
+
+TEST_CASE("VisualScriptEditor: a Timeline's length dragged down and back up in Details leaves every key where it was")
+{
+	PaneFixture fixture(MakeTimelineDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({4});
+	VisualScriptTimeline const original = ReadTimeline(fixture.GetDocument());
+	size_t const undo = fixture.GetUndoCount();
+	ImVec2 const start = fixture.DetailsRow("Length");
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(start.x, start.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	// 0.01 s a pixel, to the left: the length goes below the last keys, which follow it.
+	float x = start.x;
+	for (int step = 1; step <= 15; step++)
+	{
+		x -= 10.0f;
+		io.AddMousePosEvent(x, start.y);
+		fixture.Frames(1);
+	}
+	fixture.Frames(8);
+	VisualScriptTimeline const shorter = ReadTimeline(fixture.GetDocument());
+	REQUIRE(shorter.Length < 1.0f);
+	CHECK(GetKeyTimes(shorter, 0) == std::vector<float>{0.0f, shorter.Length, shorter.Length});
+	CHECK(GetKeyTimes(shorter, 1) == std::vector<float>{shorter.Length});
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	// Back up to 2 s in the same drag (as the window shows it): every frame is computed from the timeline at the drag's start.
+	for (int step = 0; step < 40 && ReadTimeline(fixture.Model->GetDisplayDocument()).Length < original.Length; step++)
+	{
+		x += 10.0f;
+		io.AddMousePosEvent(x, start.y);
+		fixture.Frames(1);
+	}
+	REQUIRE(ReadTimeline(fixture.Model->GetDisplayDocument()).Length == original.Length);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	fixture.Frames(3);
+	VisualScriptTimeline const restored = ReadTimeline(fixture.GetDocument());
+	CAPTURE(WriteVisualScriptTimeline(restored).dump());
+	CHECK(restored == original);
+	// One step at most: the drag's commits merge.
+	CHECK(fixture.GetUndoCount() <= undo + 1);
+}
+
+TEST_CASE("VisualScriptEditor: an array variable cannot be made public from My Script, which says why")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Variables.push_back(MakeVariable(102, "Targets", "Strada.Entity[]"));
+	PaneFixture fixture(document, {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(GetCenter(fixture.Sidebar.FindEye(102)), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK_FALSE(FindVariable(fixture.GetDocument(), 102)->Public);
+	CHECK(std::any_of(fixture.Results.begin(), fixture.Results.end(),
+	                  [](VisualScriptPaneResult const& result)
+	                  {
+						  return std::find(result.Notes.begin(), result.Notes.end(), VisualScriptArrayPublicRefusal) != result.Notes.end();
+					  }));
+	CHECK(std::string_view(VisualScriptArrayPublicRefusal) == "Arrays cannot be public: components cannot store them");
+}
+
+TEST_CASE("VisualScriptEditor: a formula Details refuses says why, and Ctrl+Enter keeps it in the field to be fixed")
+{
+	PaneFixture fixture(MakeFormulaDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	size_t const undo = fixture.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+	auto const noted = [&fixture]
+	{
+		return std::any_of(fixture.Results.begin(), fixture.Results.end(),
+		                   [](VisualScriptPaneResult const& result)
+		                   {
+							   return std::find(result.Notes.begin(), result.Notes.end(),
+			                                    "The formula stays: a formula has at most 4096 bytes") != result.Notes.end();
+						   });
+	};
+	// One name of 4100 bytes: more than a formula may have.
+	std::string const typed(VisualScriptEditing::MaxFormulaBytes + 4, 'x');
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type(typed.c_str());
+	fixture.Frames(2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(noted());
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.ReadFile() == bytes);
+	// The field has the keyboard again, with what was typed.
+	REQUIRE(ImGui::GetIO().WantTextInput);
+	ImGuiInputTextState const* const state = ImGui::GetInputTextState(GImGui->ActiveId);
+	REQUIRE(state != nullptr);
+	CHECK(state->TextLen == static_cast<int>(typed.size()));
+
+	// Fixed and committed.
+	fixture.Results.clear();
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("speed * 3");
+	fixture.Frames(2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(noted());
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 3");
+
+	// Left with a click elsewhere, a refused formula goes with the note.
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type(typed.c_str());
+	fixture.Frames(2);
+	fixture.ImGui.Click(GetDetailsVoid(), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(noted());
+	CHECK_FALSE(ImGui::GetIO().WantTextInput);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 3");
+}
+
+TEST_CASE("VisualScriptEditor: an array element's handle dropped on another array's handle moves nothing")
+{
+	Testing::HeadlessImGui headless;
+	headless.UseEditorStyle();
+	VisualScriptLiteralEditor first;
+	VisualScriptLiteralEditor second;
+	Json const left = Json::array({1, 2, 3});
+	Json const right = Json::array({10, 20, 30});
+	VisualScriptArrayLiteralOutcome firstOutcome;
+	VisualScriptArrayLiteralOutcome secondOutcome;
+	std::vector<VisualScriptArrayLiteralEdit> edits;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 600.0f));
+		ImGui::Begin("Arrays", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		ImGui::PushID("first");
+		firstOutcome = DrawVisualScriptArrayLiteral(first, "float", left, nullptr);
+		ImGui::PopID();
+		ImGui::PushID("second");
+		secondOutcome = DrawVisualScriptArrayLiteral(second, "float", right, nullptr);
+		ImGui::PopID();
+		ImGui::End();
+		for (VisualScriptArrayLiteralOutcome const* outcome : {&firstOutcome, &secondOutcome})
+		{
+			if (outcome->Edit)
+			{
+				edits.push_back(*outcome->Edit);
+			}
+		}
+	};
+	auto const center = [](VisualScriptArrayLiteralOutcome const& outcome, std::string_view part)
+	{
+		auto const found = std::find_if(outcome.Parts.begin(), outcome.Parts.end(),
+		                                [part](auto const& candidate)
+		                                {
+											return candidate.first == part;
+										});
+		REQUIRE(found != outcome.Parts.end());
+		return ImVec2((found->second[0] + found->second[2]) * 0.5f, (found->second[1] + found->second[3]) * 0.5f);
+	};
+	headless.Frame(draw);
+	headless.Frame(draw);
+	REQUIRE(edits.empty());
+
+	// Onto the other array's handle: neither array changes.
+	headless.Drag(center(firstOutcome, "2 Handle"), center(secondOutcome, "0 Handle"), draw);
+	CHECK(edits.empty());
+	// Onto a handle of its own array: the element moves there.
+	headless.Drag(center(firstOutcome, "2 Handle"), center(firstOutcome, "0 Handle"), draw);
+	REQUIRE(edits.size() == 1);
+	CHECK(edits[0].Action == VisualScriptArrayLiteralAction::Move);
+	CHECK(edits[0].Literal == Json::array({3, 1, 2}));
 }

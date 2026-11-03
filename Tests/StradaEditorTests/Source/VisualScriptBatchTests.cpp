@@ -5,6 +5,7 @@
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -1065,6 +1066,176 @@ TEST_CASE("VisualScriptBatch: SetSwitchCases and SetSetting of Cases rename the 
 	CHECK(routed.Results[0] == Json::object({{"removedLinks", 2}}));
 	CHECK(FindNode(routed.Document, 4)->Settings["Cases"] == Json::array({1}));
 	CHECK(routed.Document.Graph.Links.size() == document.Graph.Links.size() - 2);
+}
+
+TEST_CASE("VisualScriptBatch: SetArrayElements and SetFormula renumber and rename pins with their links, also through SetSetting")
+{
+	BatchFixture fixture;
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(
+		MakeNode(4, "Array.Make", glm::vec2(0.0f, 320.0f), Json::object({{"Count", 3}}), Json::object({{"Element2", "c"}})));
+	document.Graph.Nodes.push_back(
+		MakeNode(5, "Expression", glm::vec2(0.0f, 640.0f), Json::object({{"Formula", "speed * dt"}}), Json::object({{"dt", 0.5}})));
+	document.Graph.Nodes.push_back(MakeNode(6, "Variable.Get", glm::vec2(-320.0f, 640.0f), Json::object({{"Variable", 10}})));
+	document.Graph.Links.push_back(MakeLink(6, "Value", 4, "Element0"));
+	document.Graph.Links.push_back(MakeLink(6, "Value", 5, "speed"));
+
+	SUBCASE("the operations")
+	{
+		Json const operations = Json::array({
+			Json::object({{"op", "SetArrayElements"}, {"node", 4}, {"count", 4}, {"insertAt", 0}}),
+			Json::object({{"op", "SetFormula"}, {"node", 5}, {"formula", "velocity * dt"}}),
+			Json::object({{"op", "SetArrayElements"}, {"node", 4}, {"count", 1}}),
+			Json::object({{"op", "SetFormula"}, {"node", 5}, {"formula", "2 * pi"}}),
+		});
+		VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+		CHECK(result.Results[0] == Json::object({{"removedLinks", 0}}));
+		CHECK(result.Results[1] ==
+		      Json::object({{"renamedInputs", Json::array({Json::object({{"old", "speed"}, {"new", "velocity"}})})}, {"removedLinks", 0}}));
+		// Element0 moved to Element1 first, and goes with the elements from 1 on.
+		CHECK(result.Results[2] == Json::object({{"removedLinks", 1}}));
+		CHECK(result.Results[3] == Json::object({{"renamedInputs", Json::array()}, {"removedLinks", 1}}));
+		CHECK(FindNode(result.Document, 4)->Settings["Count"] == 1);
+		CHECK(FindNode(result.Document, 4)->Inputs == Json::object());
+		CHECK(FindNode(result.Document, 5)->Settings["Formula"] == "2 * pi");
+		CHECK(FindNode(result.Document, 5)->Inputs == Json::object());
+		CHECK(result.Document.Graph.Links.size() == document.Graph.Links.size() - 2);
+	}
+
+	SUBCASE("SetSetting routes Count and Formula to them")
+	{
+		Json const operations = Json::array({
+			Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Count"}, {"value", 2}}),
+			Json::object({{"op", "SetSetting"}, {"node", 5}, {"name", "Formula"}, {"value", "velocity * dt"}}),
+		});
+		VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+		CHECK(result.Results[0] == Json::object({{"removedLinks", 0}}));
+		CHECK(result.Results[1] ==
+		      Json::object({{"renamedInputs", Json::array({Json::object({{"old", "speed"}, {"new", "velocity"}})})}, {"removedLinks", 0}}));
+		CHECK(FindNode(result.Document, 4)->Inputs == Json::object());
+		CHECK(HasLink(result.Document.Graph, MakeLink(6, "Value", 4, "Element0")));
+		CHECK(HasLink(result.Document.Graph, MakeLink(6, "Value", 5, "velocity")));
+		CHECK(FindNode(result.Document, 5)->Inputs == Json::object({{"dt", 0.5}}));
+	}
+
+	SUBCASE("what they cannot do is refused, naming the operation and the field")
+	{
+		struct Refusal
+		{
+			Json Operation;
+			std::string Path;
+			std::string Message;
+		};
+		std::vector<Refusal> const refusals = {
+			{Json::object({{"op", "SetArrayElements"}, {"node", 4}, {"count", 4}, {"insertAt", 0}, {"removeAt", 1}}),
+		     "operations[0].removeAt", "operations[0] (SetArrayElements): removeAt: SetArrayElements takes insertAt or removeAt, not both"},
+			{Json::object({{"op", "SetArrayElements"}, {"node", 5}, {"count", 1}}), "operations[0]",
+		     "operations[0] (SetArrayElements): node 5 is no Array.Make: its type is Expression"},
+			{Json::object({{"op", "SetFormula"}, {"node", 4}, {"formula", "a"}}), "operations[0]",
+		     "operations[0] (SetFormula): node 4 is no Expression: its type is Array.Make"},
+			{Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Count"}, {"value", "two"}}), "operations[0].value",
+		     "operations[0] (SetSetting): value: the Count of a Make Array is an integer from 0 to 64"},
+			{Json::object({{"op", "SetSetting"}, {"node", 5}, {"name", "Formula"}, {"value", 3}}), "operations[0].value",
+		     "operations[0] (SetSetting): value: the Formula of an Expression is a string"},
+		};
+		for (Refusal const& refusal : refusals)
+		{
+			CAPTURE(refusal.Operation.dump());
+			VisualScriptBatchError const error = ExpectRefused(document, Json::array({refusal.Operation}), fixture.Context);
+			CHECK(error.Failure == VisualScriptBatchFailure::Invalid);
+			CHECK(error.Kind == refusal.Operation["op"].get<std::string>());
+			CHECK(error.Path == refusal.Path);
+			CHECK(error.Message == refusal.Message);
+		}
+	}
+}
+
+TEST_CASE("VisualScriptBatch: SetTimeline sets a Timeline's tracks, renamed tracks keeping their links, also through SetSetting")
+{
+	BatchFixture fixture;
+	VisualScriptDocument document = MakeDocument();
+	Json const timeline = Json::parse(R"({"Length": 2, "Loop": false, "Tracks": [
+		{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, {"Time": 2, "Value": 1}]},
+		{"Name": "Step", "Type": "exec", "Keys": [{"Time": 1}]}]})");
+	document.Graph.Nodes.push_back(MakeNode(4, "Flow.Timeline", glm::vec2(0.0f, 320.0f), Json::object({{"Timeline", timeline}})));
+	document.Graph.Links.push_back(MakeLink(4, "Lift", 2, "Message"));
+	document.Graph.Links.push_back(MakeLink(4, "Step", 3, "Execute"));
+
+	SUBCASE("the operation")
+	{
+		Json renamed = timeline;
+		renamed["Tracks"][0]["Name"] = "Height";
+		renamed["Loop"] = true;
+		Json removed = renamed;
+		removed["Tracks"].erase(1);
+		Json const operations = Json::array({
+			Json::object({{"op", "SetTimeline"},
+		                  {"node", 4},
+		                  {"timeline", renamed},
+		                  {"renames", Json::array({Json::object({{"old", "Lift"}, {"new", "Height"}})})}}),
+			Json::object({{"op", "SetTimeline"}, {"node", 4}, {"timeline", removed}}),
+		});
+		VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+		CHECK(result.Results[0] == Json::object({{"removedLinks", 0}}));
+		CHECK(result.Results[1] == Json::object({{"removedLinks", 1}}));
+		CHECK(HasLink(result.Document.Graph, MakeLink(4, "Height", 2, "Message")));
+		CHECK_FALSE(HasLink(result.Document.Graph, MakeLink(4, "Step", 3, "Execute")));
+		// Written in the canonical form.
+		Json const stored = FindNode(result.Document, 4)->Settings["Timeline"];
+		CHECK(stored == WriteVisualScriptTimeline(ParseVisualScriptTimeline(removed).GetValue()));
+		CHECK(stored["Loop"] == true);
+	}
+
+	SUBCASE("SetSetting routes Timeline to it, renaming no track; null sets the default timeline")
+	{
+		Json retyped = timeline;
+		retyped["Tracks"][0]["Type"] = "Strada.Vector2";
+		retyped["Tracks"][0]["Keys"] = Json::array();
+		VisualScriptBatchResult const routed = ExpectApplied(
+			document, Json::array({Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Timeline"}, {"value", retyped}})}),
+			fixture.Context);
+		CHECK(routed.Results[0] == Json::object({{"removedLinks", 1}}));
+		CHECK(HasLink(routed.Document.Graph, MakeLink(4, "Step", 3, "Execute")));
+		VisualScriptBatchResult const cleared = ExpectApplied(
+			document, Json::array({Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Timeline"}, {"value", nullptr}})}),
+			fixture.Context);
+		CHECK(cleared.Results[0] == Json::object({{"removedLinks", 2}}));
+		CHECK(FindNode(cleared.Document, 4)->Settings["Timeline"] == WriteVisualScriptTimeline(VisualScriptTimeline{}));
+	}
+
+	SUBCASE("what it cannot do is refused, naming the operation and the field")
+	{
+		struct Refusal
+		{
+			Json Operation;
+			std::string Path;
+			std::string Message;
+		};
+		std::vector<Refusal> const refusals = {
+			{Json::object({{"op", "SetTimeline"}, {"node", 3}, {"timeline", timeline}}), "operations[0]",
+		     "operations[0] (SetTimeline): node 3 is no Flow.Timeline: its type is Flow.Delay"},
+			{Json::object({{"op", "SetTimeline"}, {"node", 4}, {"timeline", Json::object({{"Length", 0}})}}), "operations[0].timeline",
+		     "operations[0] (SetTimeline): timeline: Timeline.Length: expected a number greater than 0 and at most 3600"},
+			{Json::object({{"op", "SetTimeline"}, {"node", 4}, {"timeline", timeline}, {"renames", Json::array({"Lift"})}}),
+		     "operations[0].renames[0]", "operations[0] (SetTimeline): renames[0]: expected { \"old\", \"new\" }, both track names"},
+			{Json::object({{"op", "SetTimeline"},
+		                   {"node", 4},
+		                   {"timeline", timeline},
+		                   {"renames", Json::array({Json::object({{"old", "Drift"}, {"new", "Lift"}})})}}),
+		     "operations[0]", "operations[0] (SetTimeline): the timeline of node 4 has no track Drift to rename"},
+			{Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Timeline"}, {"value", 3}}), "operations[0].value",
+		     "operations[0] (SetSetting): value: Timeline: expected an object with Length, Loop and Tracks, not 3"},
+		};
+		for (Refusal const& refusal : refusals)
+		{
+			CAPTURE(refusal.Operation.dump());
+			VisualScriptBatchError const error = ExpectRefused(document, Json::array({refusal.Operation}), fixture.Context);
+			CHECK(error.Failure == VisualScriptBatchFailure::Invalid);
+			CHECK(error.Kind == refusal.Operation["op"].get<std::string>());
+			CHECK(error.Path == refusal.Path);
+			CHECK(error.Message == refusal.Message);
+		}
+	}
 }
 
 TEST_CASE("VisualScriptBatch: the executor's own refusals name the operation, its kind and the field")

@@ -3,8 +3,10 @@
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptCurveEditor.h"
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
+#include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -45,6 +47,118 @@ namespace Strada
 		std::string CountOf(size_t count, std::string_view singular, std::string_view plural)
 		{
 			return fmt::format("{} {}", count, count == 1 ? singular : plural);
+		}
+
+		// The Formula field shows 3 to 8 lines, growing with its text.
+		constexpr int FormulaMinLines = 3;
+		constexpr int FormulaMaxLines = 8;
+		// A tab of a formula takes this many columns in a caret block.
+		constexpr size_t FormulaTabColumns = 4;
+
+		// What a formula commit says it did: " (renames 1 input)", " (removes 2 links)", both, or nothing.
+		std::string DescribeFormulaChange(VisualScriptEditing::VisualScriptFormulaChange const& change)
+		{
+			std::vector<std::string> parts;
+			if (!change.RenamedInputs.empty())
+			{
+				parts.push_back(fmt::format("renames {}", CountOf(change.RenamedInputs.size(), "input", "inputs")));
+			}
+			if (change.RemovedLinks > 0)
+			{
+				parts.push_back(fmt::format("removes {}", CountOf(change.RemovedLinks, "link", "links")));
+			}
+			if (parts.empty())
+			{
+				return {};
+			}
+			std::string text = " (" + parts.front();
+			for (size_t index = 1; index < parts.size(); index++)
+			{
+				text += ", " + parts[index];
+			}
+			return text + ")";
+		}
+
+		bool IsContinuationByte(char byte)
+		{
+			return (static_cast<unsigned char>(byte) & 0xC0u) == 0x80u;
+		}
+
+		// The text of [begin, end) of a line with tabs as FormulaTabColumns spaces, and how many columns it takes (code points).
+		std::pair<std::string, size_t> ExpandFormulaColumns(std::string_view text)
+		{
+			std::string expanded;
+			size_t columns = 0;
+			for (char const byte : text)
+			{
+				if (byte == '\t')
+				{
+					expanded.append(FormulaTabColumns, ' ');
+					columns += FormulaTabColumns;
+					continue;
+				}
+				expanded.push_back(byte);
+				if (!IsContinuationByte(byte))
+				{
+					columns++;
+				}
+			}
+			return {std::move(expanded), columns};
+		}
+
+		// A caret block of a diagnostic about a formula (spec-slice3 §9.1): the line of the formula that holds the span's start,
+		// and under it '^' under the span's code points on that line (at least one) followed by the message. Nothing when the
+		// span lies outside the formula.
+		std::optional<std::string> MakeFormulaCaretBlock(std::string_view formula, std::pair<uint32_t, uint32_t> span,
+		                                                 std::string_view message)
+		{
+			size_t const start = span.first;
+			size_t const end = std::max<size_t>(span.second, span.first);
+			if (start > formula.size() || end > formula.size())
+			{
+				return std::nullopt;
+			}
+			size_t const lineStart = start == 0 ? 0 : formula.rfind('\n', start - 1) + 1;
+			size_t lineEnd = formula.find('\n', start);
+			lineEnd = lineEnd == std::string_view::npos ? formula.size() : lineEnd;
+			std::string_view line = formula.substr(lineStart, lineEnd - lineStart);
+			if (line.ends_with('\r'))
+			{
+				line.remove_suffix(1);
+			}
+			size_t const spanEnd = std::min(end, lineStart + line.size());
+			auto const [shown, lineColumns] = ExpandFormulaColumns(line);
+			static_cast<void>(lineColumns);
+			size_t const before =
+				ExpandFormulaColumns(formula.substr(lineStart, std::min(start, lineStart + line.size()) - lineStart)).second;
+			size_t const under = spanEnd > start ? ExpandFormulaColumns(formula.substr(start, spanEnd - start)).second : 0;
+			std::string carets(before, ' ');
+			carets.append(std::max<size_t>(under, 1), '^');
+			return fmt::format("{}\n{} {}", shown, carets, message);
+		}
+
+		// A type as the Formula row's inputs name it: the type ID without the engine's namespace ("float", "Vector3").
+		std::string_view DescribeVisualScriptFormulaType(std::string_view type)
+		{
+			constexpr std::string_view Namespace = "Strada.";
+			return type.starts_with(Namespace) ? type.substr(Namespace.size()) : type;
+		}
+
+		// Selects the bytes a focus request names once the field has the keyboard (byte offsets into the UTF-8 buffer).
+		int SelectFormulaSpan(ImGuiInputTextCallbackData* data)
+		{
+			auto* const select = static_cast<std::optional<std::pair<uint32_t, uint32_t>>*>(data->UserData);
+			if (data->EventFlag == ImGuiInputTextFlags_CallbackAlways && select != nullptr && select->has_value())
+			{
+				int const length = data->BufTextLen;
+				int const start = std::min(static_cast<int>((*select)->first), length);
+				int const end = std::clamp(static_cast<int>((*select)->second), start, length);
+				data->SelectionStart = start;
+				data->SelectionEnd = end;
+				data->CursorPos = end;
+				select->reset();
+			}
+			return 0;
 		}
 
 		bool IsNumeric(std::string_view type, VisualScriptLibrary const* library)
@@ -318,7 +432,7 @@ namespace Strada
 		switch (use)
 		{
 			case VisualScriptTypeUse::Value:
-				return type.Kind != VisualScriptTypeKind::Array;
+				return true;
 			case VisualScriptTypeUse::PublicVariable:
 				return type.Kind == VisualScriptTypeKind::Enum || IsVisualScriptPublicType(type.ID, nullptr);
 			case VisualScriptTypeUse::Setting:
@@ -905,7 +1019,7 @@ namespace Strada
 			}
 			return edit;
 		};
-		if (focus && setting.Kind != "String" && setting.Kind != "Type")
+		if (focus && setting.Kind != "String" && setting.Kind != "Type" && setting.Kind != "Expression")
 		{
 			ImGui::SetKeyboardFocusHere(0);
 		}
@@ -922,6 +1036,14 @@ namespace Strada
 		else if (setting.Kind == "Int" && node.Type == "Flow.Sequence" && setting.Name == "Count")
 		{
 			DrawSequenceOutputs(frame, node, title, setting);
+		}
+		else if (setting.Kind == "Int" && node.Type == "Array.Make" && setting.Name == "Count")
+		{
+			DrawArrayElements(frame, node, title, setting);
+		}
+		else if (setting.Kind == "Expression")
+		{
+			DrawFormula(frame, node, title, focus, focus ? context.Shared.FocusSetting->Span : std::nullopt);
 		}
 		else if (setting.Kind == "Int")
 		{
@@ -1197,9 +1319,23 @@ namespace Strada
 		else if (setting.Kind == "Value")
 		{
 			std::string const type = GetString(node.Settings, "Type");
+			std::string_view const element = GetVisualScriptArrayElementType(type);
 			if (type.empty())
 			{
 				TextRow(label, "Choose a Type first");
+			}
+			else if (!element.empty())
+			{
+				DrawArrayLiteral(frame, label, label, element, value, action, fmt::format("{} on {}", label, title),
+				                 [&](Json literal, std::string description) -> std::optional<Edit>
+				                 {
+									 std::optional<Edit> edit = setSetting(std::move(literal));
+									 if (edit)
+									 {
+										 edit->Action = std::move(description);
+									 }
+									 return edit;
+								 });
 			}
 			else
 			{
@@ -1224,9 +1360,452 @@ namespace Strada
 		{
 			DrawChoice(frame, node, title, setting);
 		}
+		else if (setting.Kind == "Timeline" && node.Type == VisualScriptTimelineNodeType)
+		{
+			DrawTimeline(frame, node, title);
+		}
 		else
 		{
 			TextRow(label, value.dump());
+		}
+	}
+
+	void VisualScriptDetails::DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title)
+	{
+		VisualScriptPaneContext& context = frame.Context;
+		Result<VisualScriptTimeline> const read = ReadVisualScriptTimeline(node);
+		if (!read)
+		{
+			TextRow("Timeline", "Cannot be edited here: " + read.GetError());
+			return;
+		}
+		VisualScriptTimeline const& timeline = read.GetValue();
+		auto const commit = [&](Result<VisualScriptTimelineEdit> edit)
+		{
+			if (!edit)
+			{
+				frame.Result.Notes.push_back(edit.GetError());
+				return;
+			}
+			m_Commits.Commit(context, std::move(edit.GetValue().Document), std::move(edit.GetValue().Action), 0, frame.Result);
+		};
+		auto const addRow = [this](std::string label)
+		{
+			ImVec2 const min = ImGui::GetItemRectMin();
+			ImVec2 const max = ImGui::GetItemRectMax();
+			m_Rows.emplace_back(std::move(label), std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
+		};
+
+		// Length, from the timeline at the interaction's start: dragged down and back up, every key is where it was.
+		BeginRow("Length");
+		ImGui::BeginGroup();
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		float length = timeline.Length;
+		bool const changed =
+			ImGui::DragFloat("##length", &length, 0.01f, 0.001f, MaxVisualScriptTimelineLength, "%.3f s", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::EndGroup();
+		bool const activated = ImGui::IsItemActivated();
+		bool const active = ImGui::IsItemActive();
+		bool const deactivated = ImGui::IsItemDeactivated();
+		EndRow("Length");
+		if (activated)
+		{
+			m_TimelineStart = std::pair(node.ID, timeline);
+		}
+		if (changed)
+		{
+			VisualScriptTimeline const& start = m_TimelineStart && m_TimelineStart->first == node.ID ? m_TimelineStart->second : timeline;
+			Result<VisualScriptTimelineEdit> edit = SetVisualScriptTimelineLengthEdit(frame.Document, node.ID, start, length, title);
+			if (edit)
+			{
+				m_Commits.Change(context, std::move(edit.GetValue().Document), std::move(edit.GetValue().Action), active, frame.Result);
+			}
+		}
+		else if (active)
+		{
+			frame.Result.WidgetActive = true;
+		}
+		if (deactivated)
+		{
+			m_TimelineStart.reset();
+			m_Commits.End(context, frame.Result);
+		}
+
+		BeginRow("Loop");
+		bool loop = timeline.Loop;
+		bool const looped = ImGui::Checkbox("##loop", &loop);
+		EndRow("Loop");
+		if (looped)
+		{
+			commit(SetVisualScriptTimelineLoopEdit(frame.Document, node.ID, timeline, loop, title));
+		}
+
+		// A row per track: its type, its name, its key count, "Edit" and remove; under it a preview of its curve.
+		float const fontSize = ImGui::GetFontSize();
+		ImGuiStyle const& style = ImGui::GetStyle();
+		for (uint32_t index = 0; index < timeline.Tracks.size(); index++)
+		{
+			VisualScriptTimelineTrack const& track = timeline.Tracks[index];
+			ImGui::PushID(static_cast<int>(index));
+			std::string const key = fmt::format("Track {}", index);
+			std::string const typeLabel(GetVisualScriptTimelineTypeLabel(track.Type));
+			ImVec2 const pillSize(ImGui::CalcTextSize(typeLabel.c_str()).x + style.FramePadding.x * 2.0f, ImGui::GetFrameHeight());
+			ImVec2 const pill = ImGui::GetCursorScreenPos();
+			ImGui::Dummy(pillSize);
+			uint32_t const color =
+				GetVisualScriptTypeColor(track.Components == 0 ? std::string(VisualScriptExecType) : track.Type, frame.Library);
+			ImDrawList* const drawList = ImGui::GetWindowDrawList();
+			drawList->AddRectFilled(ImVec2(pill.x, pill.y + style.FramePadding.y * 0.5f),
+			                        ImVec2(pill.x + pillSize.x, pill.y + pillSize.y - style.FramePadding.y * 0.5f), color,
+			                        pillSize.y * 0.5f);
+			drawList->AddText(ImVec2(pill.x + style.FramePadding.x, pill.y + style.FramePadding.y), IM_COL32(16, 18, 22, 255),
+			                  typeLabel.c_str());
+			ImGui::SameLine();
+			std::string const count = fmt::format("{} key{}", track.Keys.size(), track.Keys.size() == 1 ? "" : "s");
+			float const buttons = ImGui::CalcTextSize(count.c_str()).x + ImGui::CalcTextSize("Edit").x + ImGui::CalcTextSize("x").x +
+			                      style.FramePadding.x * 4.0f + style.ItemSpacing.x * 3.0f;
+			ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - buttons, 4.0f * fontSize));
+			VisualScriptNameField::Outcome const outcome =
+				m_Names.Draw("##trackName", track.Name,
+			                 [&timeline, index](std::string_view name) -> std::optional<std::string>
+			                 {
+								 return CheckVisualScriptTimelineTrackName(timeline, name, index);
+							 });
+			addRow(key + " Name");
+			if (outcome.Committed)
+			{
+				commit(RenameVisualScriptTimelineTrackEdit(frame.Document, node.ID, timeline, index, *outcome.Committed, title));
+			}
+			else if (outcome.Refused)
+			{
+				frame.Result.Notes.push_back(*outcome.Refused);
+			}
+			ImGui::SameLine();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextDisabled("%s", count.c_str());
+			ImGui::SameLine();
+			{
+				ViewScope const view(frame.ReadOnly, frame.ViewDepth);
+				if (ImGui::SmallButton("Edit"))
+				{
+					frame.Result.ShowTimeline = VisualScriptTimelineFocus{node.ID, index};
+				}
+			}
+			addRow(key + " Edit");
+			ImGui::SameLine();
+			if (ImGui::SmallButton("x"))
+			{
+				commit(RemoveVisualScriptTimelineTrackEdit(frame.Document, node.ID, timeline, index, title));
+			}
+			addRow(key + " Remove");
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("Remove the track and its links");
+			}
+			ImVec2 const preview = ImGui::GetCursorScreenPos();
+			float const width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
+			float const height = ImGui::GetTextLineHeight() * 2.0f;
+			ImGui::Dummy(ImVec2(width, height));
+			addRow(key + " Preview");
+			DrawVisualScriptTrackPreview(timeline, index, frame.Library, glm::vec2(preview.x, preview.y),
+			                             glm::vec2(preview.x + width, preview.y + height));
+			ImGui::PopID();
+		}
+
+		ImGui::BeginDisabled(timeline.Tracks.size() >= MaxVisualScriptTimelineTracks);
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (ImGui::BeginCombo("##addTrack", "+ Add Track", ImGuiComboFlags_NoArrowButton))
+		{
+			for (VisualScriptTimelineTrackKind const& kind : VisualScriptTimelineTrackKinds)
+			{
+				if (ImGui::Selectable(std::string(kind.Label).c_str()))
+				{
+					commit(AddVisualScriptTimelineTrackEdit(frame.Document, node.ID, timeline, kind.Type, title));
+				}
+			}
+			ImGui::EndCombo();
+		}
+		addRow("Add Track");
+		ImGui::EndDisabled();
+	}
+
+	void VisualScriptDetails::DrawArrayElements(Frame& frame, VisualScriptNode const& node, std::string const& title,
+	                                            VisualScriptSetting const& setting)
+	{
+		VisualScriptPaneContext& context = frame.Context;
+		std::string const label = UI::FormatDisplayName(setting.Name);
+		Json const value = GetSettingValue(node, setting);
+		int const current = value.is_number_integer()
+		                        ? static_cast<int>(std::clamp<int64_t>(value.get<int64_t>(), 0, VisualScriptEditing::MaxArrayElements))
+		                        : 2;
+		BeginRow(label);
+		ImGui::BeginGroup();
+		ImGui::AlignTextToFramePadding();
+		ImGui::Text("%d", current);
+		ImGui::SameLine();
+		std::optional<int> count;
+		ImGui::BeginDisabled(current <= 0);
+		if (ImGui::SmallButton("-"))
+		{
+			count = current - 1;
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::BeginDisabled(current >= VisualScriptEditing::MaxArrayElements);
+		if (ImGui::SmallButton("+"))
+		{
+			count = current + 1;
+		}
+		ImGui::EndDisabled();
+		ImGui::EndGroup();
+		EndRow(label);
+		if (!count)
+		{
+			return;
+		}
+		VisualScriptDocument edited = frame.Document;
+		Result<uint32_t> const removed = VisualScriptEditing::SetArrayElements(edited, node.ID, *count, std::nullopt, std::nullopt);
+		if (removed)
+		{
+			m_Commits.Commit(context, std::move(edited), fmt::format("Set {} on {}{}", label, title, RemovesLinks(removed.GetValue())), 0,
+			                 frame.Result);
+		}
+	}
+
+	void VisualScriptDetails::DrawFormula(Frame& frame, VisualScriptNode const& node, std::string const& title, bool focus,
+	                                      std::optional<std::pair<uint32_t, uint32_t>> span)
+	{
+		VisualScriptPaneContext& context = frame.Context;
+		VisualScriptDocument const& document = frame.Document;
+		std::string const current = GetString(node.Settings, "Formula");
+		int const frameCount = ImGui::GetFrameCount();
+		std::string const action = fmt::format("Set Formula on {}", title);
+		if (m_Formula && (m_Formula->Node != node.ID || m_Formula->DrawnFrame + 1 < frameCount))
+		{
+			// The field went (another node shown, the pane hidden): what was committed of its interaction stays.
+			m_Formula.reset();
+		}
+		if (focus)
+		{
+			m_Formula =
+				FormulaEdit{node.ID, current, VisualScriptEditing::ListVisualScriptFormulaInputs(current), current, span, true, frameCount};
+		}
+		bool const editing = m_Formula.has_value();
+		if (editing && m_Formula->Focus)
+		{
+			ImGui::SetKeyboardFocusHere();
+			m_Formula->Focus = false;
+		}
+		std::string shown = current;
+		std::string& buffer = editing ? m_Formula->Text : shown;
+		int const lines =
+			std::clamp(static_cast<int>(std::count(buffer.begin(), buffer.end(), '\n')) + 1, FormulaMinLines, FormulaMaxLines);
+		float const height = ImGui::GetTextLineHeight() * static_cast<float>(lines) + ImGui::GetStyle().FramePadding.y * 2.0f;
+		ImFont* const monospace = context.Services.MonospaceFont;
+		BeginRow("Formula");
+		if (monospace != nullptr)
+		{
+			ImGui::PushFont(monospace, 0.0f);
+		}
+		// Ctrl+Enter commits (Enter adds a line); the callback selects a requested span once the field has the keyboard.
+		bool const entered = ImGui::InputTextMultiline("##formula", &buffer, ImVec2(-FLT_MIN, height),
+		                                               ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackAlways,
+		                                               SelectFormulaSpan, editing ? &m_Formula->Select : nullptr);
+		bool const active = ImGui::IsItemActive();
+		bool const activated = ImGui::IsItemActivated();
+		bool const deactivated = ImGui::IsItemDeactivated();
+		bool const edited = ImGui::IsItemEdited();
+		if (monospace != nullptr)
+		{
+			ImGui::PopFont();
+		}
+		EndRow("Formula");
+
+		if (!editing && activated)
+		{
+			// What a click put in the field in the frame it took the keyboard is kept.
+			m_Formula = FormulaEdit{node.ID, current,   VisualScriptEditing::ListVisualScriptFormulaInputs(current), shown, std::nullopt,
+			                        false,   frameCount};
+		}
+		if (m_Formula)
+		{
+			m_Formula->DrawnFrame = frameCount;
+			if (active)
+			{
+				frame.Result.WidgetActive = true;
+			}
+			auto const setFormula = [&](std::string const& formula) -> Result<std::pair<VisualScriptDocument, std::string>>
+			{
+				VisualScriptDocument changed = document;
+				Result<VisualScriptEditing::VisualScriptFormulaChange> const change =
+					VisualScriptEditing::SetFormula(changed, node.ID, formula);
+				if (!change)
+				{
+					return Error{change.GetError()};
+				}
+				return std::pair(std::move(changed), action + DescribeFormulaChange(change.GetValue()));
+			};
+			if (deactivated && !entered && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+			{
+				// Escape cancels: what live tuning committed of the interaction goes back to the formula it started with.
+				if (current != m_Formula->Start)
+				{
+					if (Result<std::pair<VisualScriptDocument, std::string>> reverted = setFormula(m_Formula->Start))
+					{
+						m_Commits.Change(context, std::move(reverted.GetValue().first), std::move(reverted.GetValue().second), false,
+						                 frame.Result);
+					}
+				}
+				m_Commits.End(context, frame.Result);
+				m_Formula.reset();
+			}
+			else if (entered || deactivated)
+			{
+				// Committed once, computed against the formula of the interaction's start: live tuning committed only formulas
+				// with the start's inputs, so the document's current formula has them too and the renames are the same.
+				bool refused = false;
+				if (m_Formula->Text != current)
+				{
+					if (Result<std::pair<VisualScriptDocument, std::string>> committed = setFormula(m_Formula->Text))
+					{
+						m_Commits.Change(context, std::move(committed.GetValue().first), std::move(committed.GetValue().second), false,
+						                 frame.Result);
+					}
+					else
+					{
+						// Said as the in-place editor says it; Ctrl+Enter keeps the text in the field to be fixed.
+						frame.Result.Notes.push_back(fmt::format("The formula stays: {}", committed.GetError()));
+						refused = true;
+					}
+				}
+				m_Commits.End(context, frame.Result);
+				if (refused && entered)
+				{
+					m_Formula->Focus = true;
+				}
+				else
+				{
+					m_Formula.reset();
+				}
+			}
+			else if (edited && active && VisualScriptEditing::ListVisualScriptFormulaInputs(m_Formula->Text) == m_Formula->StartInputs)
+			{
+				// Live tuning: numbers and operators changed, the inputs did not, so the game gets the formula at the widget
+				// cadence, in the interaction's step.
+				if (Result<std::pair<VisualScriptDocument, std::string>> tuned = setFormula(m_Formula->Text))
+				{
+					m_Commits.Change(context, std::move(tuned.GetValue().first), std::move(tuned.GetValue().second), true, frame.Result);
+				}
+			}
+		}
+
+		// The inputs the formula names, typed as the analysis resolved them.
+		VisualScriptAnalyzedNode const* const analyzed = frame.Analysis != nullptr ? frame.Analysis->FindNode(node.ID) : nullptr;
+		std::vector<std::string> const inputs = VisualScriptEditing::ListVisualScriptFormulaInputs(current);
+		std::string text;
+		for (std::string const& input : inputs)
+		{
+			VisualScriptPin const* const pin = analyzed != nullptr ? analyzed->FindPin(input, VisualScriptPinDirection::In) : nullptr;
+			bool const typed = pin != nullptr && !pin->Type.empty() && pin->Type != VisualScriptWildcardType;
+			text += (text.empty() ? "" : ", ") +
+			        (typed ? fmt::format("{} \xC2\xB7 {}", input, DescribeVisualScriptFormulaType(pin->Type)) : input);
+		}
+		TextRow("Inputs", inputs.empty() ? std::string("None: write a name to add an input") : text);
+
+		// One caret block per diagnostic about the formula's text; a click selects its part in the field.
+		size_t block = 0;
+		for (VisualScriptDiagnostic const& diagnostic : GetVisualScriptNodeProblems(frame.Analysis, node.ID))
+		{
+			if (diagnostic.Setting != "Formula" || !diagnostic.Span)
+			{
+				continue;
+			}
+			std::optional<std::string> const caret = MakeFormulaCaretBlock(current, *diagnostic.Span, diagnostic.Message);
+			if (!caret)
+			{
+				continue;
+			}
+			std::string const key = fmt::format("Formula Problem {}", block);
+			ImGui::PushID(static_cast<int>(block));
+			block++;
+			if (monospace != nullptr)
+			{
+				ImGui::PushFont(monospace, 0.0f);
+			}
+			ImVec2 const size = ImGui::CalcTextSize(caret->c_str());
+			ImVec2 const position = ImGui::GetCursorScreenPos();
+			ViewScope const view(frame.ReadOnly, frame.ViewDepth);
+			bool const clicked = ImGui::InvisibleButton("##caret", ImVec2(std::max(size.x, 1.0f), std::max(size.y, 1.0f)));
+			uint32_t const color = diagnostic.Severity == VisualScriptSeverity::Error ? VisualScriptErrorColor : VisualScriptWarningColor;
+			ImGui::GetWindowDrawList()->AddText(position, color, caret->c_str());
+			if (monospace != nullptr)
+			{
+				ImGui::PopFont();
+			}
+			m_Rows.emplace_back(key, std::pair(glm::vec2(position.x, position.y), glm::vec2(position.x + size.x, position.y + size.y)));
+			m_RowTexts.emplace_back(key, *caret);
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+			{
+				ImGui::SetTooltip("Select it in the formula");
+			}
+			if (clicked)
+			{
+				m_Formula =
+					FormulaEdit{node.ID, current,   VisualScriptEditing::ListVisualScriptFormulaInputs(current), current, diagnostic.Span,
+				                true,    frameCount};
+			}
+			ImGui::PopID();
+		}
+	}
+
+	void VisualScriptDetails::DrawArrayLiteral(Frame& frame, std::string_view label, std::string_view key, std::string_view elementType,
+	                                           Json const& literal, std::string const& valueAction, std::string const& subject,
+	                                           std::function<std::optional<Edit>(Json, std::string)> const& makeEdit)
+	{
+		BeginRow(label);
+		ImGui::BeginGroup();
+		VisualScriptArrayLiteralOutcome outcome = DrawVisualScriptArrayLiteral(m_Literals, elementType, literal, frame.Library);
+		ImGui::EndGroup();
+		EndRow(key);
+		for (auto const& [part, rect] : outcome.Parts)
+		{
+			m_Rows.emplace_back(fmt::format("{} {}", key, part), std::pair(glm::vec2(rect[0], rect[1]), glm::vec2(rect[2], rect[3])));
+		}
+		if (outcome.Edit)
+		{
+			VisualScriptArrayLiteralEdit& change = *outcome.Edit;
+			switch (change.Action)
+			{
+				case VisualScriptArrayLiteralAction::Element:
+					if (std::optional<Edit> edit = makeEdit(std::move(change.Literal), valueAction))
+					{
+						m_Commits.Change(frame.Context, std::move(edit->Document), std::move(edit->Action), outcome.Active, frame.Result);
+					}
+					break;
+				case VisualScriptArrayLiteralAction::Add:
+				case VisualScriptArrayLiteralAction::Remove:
+				case VisualScriptArrayLiteralAction::Move:
+				{
+					std::string const action = change.Action == VisualScriptArrayLiteralAction::Add
+					                               ? fmt::format("Add Element to {}", subject)
+					                           : change.Action == VisualScriptArrayLiteralAction::Remove
+					                               ? fmt::format("Remove Element {} of {}", change.Index, subject)
+					                               : fmt::format("Move Element of {}", subject);
+					if (std::optional<Edit> edit = makeEdit(std::move(change.Literal), action))
+					{
+						m_Commits.Commit(frame.Context, std::move(edit->Document), std::move(edit->Action), 0, frame.Result);
+					}
+					break;
+				}
+			}
+		}
+		else if (outcome.Active)
+		{
+			frame.Result.WidgetActive = true;
+		}
+		if (outcome.Deactivated)
+		{
+			m_Commits.End(frame.Context, frame.Result);
 		}
 	}
 
@@ -1569,6 +2148,20 @@ namespace Strada
 			else if (pin.HasFlag(VisualScriptPinFlags::DefaultsToSelf) && literal.is_null())
 			{
 				TextRow(label, "Self: the entity running the graph");
+			}
+			else if (std::string_view const element = GetVisualScriptArrayElementType(pin.Type); !element.empty())
+			{
+				DrawArrayLiteral(frame, label, label, element, literal, fmt::format("Set {} on {}", label, title),
+				                 fmt::format("{} on {}", label, title),
+				                 [&](Json changed, std::string action) -> std::optional<Edit>
+				                 {
+									 Edit edit{frame.Document, std::move(action)};
+									 if (!VisualScriptEditing::SetInput(edit.Document, node.ID, stored, std::move(changed)))
+									 {
+										 return std::nullopt;
+									 }
+									 return edit;
+								 });
 			}
 			else if (VisualScriptLiteralEditor::CanEdit(pin.Type, frame.Library))
 			{
@@ -2164,7 +2757,18 @@ namespace Strada
 					  });
 			}
 		}
-		if (VisualScriptLiteralEditor::CanEdit(variable.Type, library))
+		if (std::string_view const element = GetVisualScriptArrayElementType(variable.Type); !element.empty())
+		{
+			DrawArrayLiteral(frame, "Default Value", "Default Value", element, variable.Value,
+			                 fmt::format("Set Default Value of {}", variable.Name), variable.Name,
+			                 [&](Json literal, std::string action) -> std::optional<Edit>
+			                 {
+								 VisualScriptVariable changed = variable;
+								 changed.Value = std::move(literal);
+								 return setVariable(changed, std::move(action));
+							 });
+		}
+		else if (VisualScriptLiteralEditor::CanEdit(variable.Type, library))
 		{
 			Track(frame, "Default Value",
 			      [&]() -> std::optional<Edit>
@@ -2265,7 +2869,18 @@ namespace Strada
 				m_Commits.Commit(context, std::move(edit->Document), std::move(edit->Action), 0, frame.Result);
 			}
 		}
-		if (VisualScriptLiteralEditor::CanEdit(local.Type, frame.Library))
+		if (std::string_view const element = GetVisualScriptArrayElementType(local.Type); !element.empty())
+		{
+			DrawArrayLiteral(frame, "Default Value", "Default Value", element, local.Value,
+			                 fmt::format("Set Default Value of {}", local.Name), local.Name,
+			                 [&](Json literal, std::string action) -> std::optional<Edit>
+			                 {
+								 VisualScriptLocal changed = local;
+								 changed.Value = std::move(literal);
+								 return setLocal(changed, std::move(action));
+							 });
+		}
+		else if (VisualScriptLiteralEditor::CanEdit(local.Type, frame.Library))
 		{
 			Track(frame, "Default Value",
 			      [&]() -> std::optional<Edit>
@@ -2489,7 +3104,18 @@ namespace Strada
 				m_Commits.Commit(context, std::move(edit->Document), std::move(edit->Action), 0, frame.Result);
 			}
 		}
-		if (VisualScriptLiteralEditor::CanEdit(local.Type, frame.Library))
+		if (std::string_view const element = GetVisualScriptArrayElementType(local.Type); !element.empty())
+		{
+			DrawArrayLiteral(frame, "Default", label + " Default", element, local.Value, fmt::format("Set Default Value of {}", local.Name),
+			                 local.Name,
+			                 [&](Json literal, std::string action) -> std::optional<Edit>
+			                 {
+								 VisualScriptLocal changed = local;
+								 changed.Value = std::move(literal);
+								 return MakeLocalEdit(frame, function, local, changed, std::move(action));
+							 });
+		}
+		else if (VisualScriptLiteralEditor::CanEdit(local.Type, frame.Library))
 		{
 			Track(frame, "Default", label + " Default",
 			      [&]() -> std::optional<Edit>

@@ -394,6 +394,18 @@ namespace Strada
 			}
 			return enumLookup(typeId);
 		}
+
+		// Whether values of the type have literals here: the exposable types, and the enums the lookup describes as the
+		// scripting runtime describes enums. Arrays of other types have no literals, not even the empty one.
+		bool HasLiterals(std::string_view typeId, VisualScriptEnumLookup const& enumLookup)
+		{
+			if (FindVisualScriptExposableType(typeId))
+			{
+				return true;
+			}
+			std::optional<VisualScriptEnumInfo> const enumInfo = FindEnum(typeId, enumLookup);
+			return enumInfo && enumInfo->IsUsable();
+		}
 	}
 
 	std::optional<VisualScriptExposableType> FindVisualScriptExposableType(std::string_view typeId)
@@ -445,6 +457,47 @@ namespace Strada
 		}
 		std::optional<VisualScriptEnumInfo> const enumInfo = FindEnum(typeId, enumLookup);
 		return enumInfo ? EncodeVisualScriptEnumLiteral(value, *enumInfo) : std::nullopt;
+	}
+
+	std::optional<std::vector<ScriptFieldValue>> DecodeVisualScriptArrayLiteral(Json const& literal, std::string_view elementType,
+	                                                                            VisualScriptEnumLookup const& enumLookup)
+	{
+		if (!literal.is_array() || literal.size() > MaxVisualScriptArrayLiteralElements || !HasLiterals(elementType, enumLookup))
+		{
+			return std::nullopt;
+		}
+		std::vector<ScriptFieldValue> values;
+		values.reserve(literal.size());
+		for (Json const& element : literal)
+		{
+			std::optional<ScriptFieldValue> value = DecodeVisualScriptLiteral(element, elementType, enumLookup);
+			if (!value)
+			{
+				return std::nullopt;
+			}
+			values.push_back(std::move(*value));
+		}
+		return values;
+	}
+
+	std::optional<Json> EncodeVisualScriptArrayLiteral(std::span<ScriptFieldValue const> values, std::string_view elementType,
+	                                                   VisualScriptEnumLookup const& enumLookup)
+	{
+		if (values.size() > MaxVisualScriptArrayLiteralElements || !HasLiterals(elementType, enumLookup))
+		{
+			return std::nullopt;
+		}
+		Json literal = Json::array();
+		for (ScriptFieldValue const& value : values)
+		{
+			std::optional<Json> element = EncodeVisualScriptLiteral(value, elementType, enumLookup);
+			if (!element)
+			{
+				return std::nullopt;
+			}
+			literal.push_back(std::move(*element));
+		}
+		return literal;
 	}
 
 	std::optional<ScriptFieldValue> DecodeVisualScriptEnumLiteral(Json const& literal, VisualScriptEnumInfo const& enumInfo)

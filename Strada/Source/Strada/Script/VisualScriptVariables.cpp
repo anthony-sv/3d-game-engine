@@ -13,6 +13,9 @@ namespace Strada
 		constexpr std::string_view EditableClassName = "Visual Script";
 		constexpr std::string_view NeedsRuntimeReason = "needs the scripting runtime";
 		constexpr std::string_view NotExposableReason = "not exposable";
+		// Arrays will be exposable once components can store them (a list field type, scene format version 2); until then a
+		// public array is read-only for a reason of its own, which tells the user to keep it private.
+		constexpr std::string_view ArrayReason = "arrays cannot be set on components";
 	}
 
 	VisualScriptVariableDescription DescribeVisualScriptVariables(VisualScriptDocument const& document,
@@ -44,7 +47,9 @@ namespace Strada
 			std::optional<VisualScriptEnumInfo> const enumInfo = mayBeEnum && enumLookup ? enumLookup(variable.Type) : std::nullopt;
 			if (!enumInfo || !enumInfo->IsUsable())
 			{
-				std::string_view const reason = mayBeEnum && !enumLookup ? NeedsRuntimeReason : NotExposableReason;
+				std::string_view const reason = variable.Type.ends_with("[]") ? ArrayReason
+				                                : mayBeEnum && !enumLookup    ? NeedsRuntimeReason
+				                                                              : NotExposableReason;
 				description.ReadOnly.push_back({variable.Name, variable.Type, std::string(reason)});
 				continue;
 			}

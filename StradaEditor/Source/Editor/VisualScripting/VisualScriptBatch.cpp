@@ -5,6 +5,7 @@
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptHeadlessCanvas.h"
+#include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -420,6 +421,9 @@ namespace Strada
 			bool SetSwitchCases(Json& result);
 			bool SetEventParameters(Json& result);
 			bool RenameCustomEvent(Json& result);
+			bool SetArrayElements(Json& result);
+			bool SetFormula(Json& result);
+			bool SetTimeline(Json& result);
 			bool SetNodeComment(Json& result);
 			bool SetCollapsed(Json& result);
 			bool SetEnabled(Json& result);
@@ -2046,6 +2050,14 @@ namespace Strada
 			// Fails with the editing operation's own message.
 			bool FailEdit(std::string const& message) { return Fail({}, message); }
 
+			// Sets an Expression's formula (SetFormula, and SetSetting's route) and fills the result with what it renamed and
+			// removed.
+			bool ApplyFormula(uint32_t node, std::string formula, Json& result);
+			// Sets a Flow.Timeline's timeline (SetTimeline, and SetSetting's route, which renames no track) and fills the result
+			// with the links it removed.
+			bool ApplyTimeline(uint32_t node, Json const& setting, std::string_view field,
+			                   std::span<Editing::VisualScriptTrackRename const> renames, Json& result);
+
 			// Fails when a node of the elements (of one sub-graph) has no position yet: moving, aligning, distributing,
 			// straightening, framing and promoting start from where nodes stand, which for a node added without a position only
 			// Arrange decides (the window shows it where the commit will place it, a place no operation can know before then).
@@ -2103,7 +2115,7 @@ namespace Strada
 			std::optional<VisualScriptBatchError> m_Error;
 		};
 
-		constexpr std::array<BatchOperation, 46> BatchOperations = {{
+		constexpr std::array<BatchOperation, 49> BatchOperations = {{
 			{"AddNode", "type* function position settings literals collapsed enabled as", &BatchExecutor::AddNode},
 			{"Delete", "elements* bridge", &BatchExecutor::Delete},
 			{"Duplicate", "elements* labels", &BatchExecutor::Duplicate},
@@ -2121,6 +2133,9 @@ namespace Strada
 			{"SetSwitchCases", "node* cases*", &BatchExecutor::SetSwitchCases},
 			{"SetEventParameters", "node* parameters*", &BatchExecutor::SetEventParameters},
 			{"RenameCustomEvent", "node* name*", &BatchExecutor::RenameCustomEvent},
+			{"SetArrayElements", "node* count* insertAt removeAt", &BatchExecutor::SetArrayElements},
+			{"SetFormula", "node* formula*", &BatchExecutor::SetFormula},
+			{"SetTimeline", "node* timeline* renames", &BatchExecutor::SetTimeline},
 			{"SetNodeComment", "nodes* text*", &BatchExecutor::SetNodeComment},
 			{"SetCollapsed", "nodes* collapsed*", &BatchExecutor::SetCollapsed},
 			{"SetEnabled", "nodes* enabled*", &BatchExecutor::SetEnabled},
@@ -2938,6 +2953,41 @@ namespace Strada
 				}
 				result["renamedSenders"] = renamed.GetValue();
 			}
+			else if (route == "SetArrayElements")
+			{
+				if (!value.is_number_integer())
+				{
+					return FailField("value", "the Count of a Make Array is an integer from 0 to 64");
+				}
+				int64_t const count = value.get<int64_t>();
+				Result<uint32_t> const removed = Editing::SetArrayElements(
+					m_Working, id, static_cast<int>(std::clamp<int64_t>(count, -1, 1000)), std::nullopt, std::nullopt);
+				if (!removed)
+				{
+					return FailEdit(removed.GetError());
+				}
+				result["removedLinks"] = removed.GetValue();
+			}
+			else if (route == "SetFormula")
+			{
+				if (!value.is_string())
+				{
+					return FailField("value", "the Formula of an Expression is a string");
+				}
+				if (!ApplyFormula(id, value.get<std::string>(), result))
+				{
+					return false;
+				}
+			}
+			else if (route == "SetTimeline")
+			{
+				// Null gives the timeline a setting holds without one: 1 s, no loop, no tracks.
+				Json const setting = value.is_null() ? WriteVisualScriptTimeline(VisualScriptTimeline{}) : value;
+				if (!ApplyTimeline(id, setting, "value", {}, result))
+				{
+					return false;
+				}
+			}
 			else if (!route.empty())
 			{
 				return FailField("name", fmt::format("{} of node {} ({}) changes its pins or its senders: set it with {}", name, id,
@@ -3042,6 +3092,120 @@ namespace Strada
 			}
 			result["renamedSenders"] = renamed.GetValue();
 			RecordChange(PinLevel);
+			return true;
+		}
+
+		bool BatchExecutor::SetArrayElements(Json& result)
+		{
+			uint32_t node = 0;
+			std::optional<int64_t> count;
+			std::optional<int64_t> insertAt;
+			std::optional<int64_t> removeAt;
+			if (!ResolveNodeField("node", node) || !Read("count", count) || !Read("insertAt", insertAt) || !Read("removeAt", removeAt))
+			{
+				return false;
+			}
+			if (insertAt && removeAt)
+			{
+				return FailField("removeAt", "SetArrayElements takes insertAt or removeAt, not both");
+			}
+			auto const toInt = [](std::optional<int64_t> value) -> std::optional<int>
+			{
+				return value ? std::optional<int>(static_cast<int>(std::clamp<int64_t>(*value, -1, 1000))) : std::nullopt;
+			};
+			Result<uint32_t> const removed =
+				Editing::SetArrayElements(m_Working, node, toInt(count).value_or(0), toInt(insertAt), toInt(removeAt));
+			if (!removed)
+			{
+				return FailEdit(removed.GetError());
+			}
+			result["removedLinks"] = removed.GetValue();
+			RecordChange(PinLevel);
+			return true;
+		}
+
+		bool BatchExecutor::SetFormula(Json& result)
+		{
+			uint32_t node = 0;
+			std::string formula;
+			if (!ResolveNodeField("node", node) || !Read("formula", formula))
+			{
+				return false;
+			}
+			if (!ApplyFormula(node, std::move(formula), result))
+			{
+				return false;
+			}
+			RecordChange(PinLevel);
+			return true;
+		}
+
+		bool BatchExecutor::SetTimeline(Json& result)
+		{
+			uint32_t node = 0;
+			if (!ResolveNodeField("node", node))
+			{
+				return false;
+			}
+			std::vector<Editing::VisualScriptTrackRename> renames;
+			if (Json const* const list = Find("renames"))
+			{
+				if (!list->is_array())
+				{
+					return FailField("renames", "expected an array of { \"old\", \"new\" } track names");
+				}
+				for (size_t index = 0; index < list->size(); index++)
+				{
+					Json const& entry = (*list)[index];
+					auto const from = entry.is_object() ? entry.find("old") : Json::const_iterator();
+					auto const to = entry.is_object() ? entry.find("new") : Json::const_iterator();
+					if (!entry.is_object() || entry.size() != 2 || from == entry.end() || to == entry.end() || !from->is_string() ||
+					    !to->is_string())
+					{
+						return FailField(fmt::format("renames[{}]", index), "expected { \"old\", \"new\" }, both track names");
+					}
+					renames.push_back({from->get<std::string>(), to->get<std::string>()});
+				}
+			}
+			if (!ApplyTimeline(node, *Find("timeline"), "timeline", renames, result))
+			{
+				return false;
+			}
+			RecordChange(PinLevel);
+			return true;
+		}
+
+		bool BatchExecutor::ApplyTimeline(uint32_t node, Json const& setting, std::string_view field,
+		                                  std::span<Editing::VisualScriptTrackRename const> renames, Json& result)
+		{
+			Result<VisualScriptTimeline> const timeline = ParseVisualScriptTimeline(setting);
+			if (!timeline)
+			{
+				return FailField(field, timeline.GetError());
+			}
+			Result<uint32_t> const removed = Editing::SetTimeline(m_Working, node, timeline.GetValue(), renames);
+			if (!removed)
+			{
+				return FailEdit(removed.GetError());
+			}
+			result["removedLinks"] = removed.GetValue();
+			return true;
+		}
+
+		bool BatchExecutor::ApplyFormula(uint32_t node, std::string formula, Json& result)
+		{
+			Result<Editing::VisualScriptFormulaChange> const change = Editing::SetFormula(m_Working, node, std::move(formula));
+			if (!change)
+			{
+				return FailEdit(change.GetError());
+			}
+			Json renamed = Json::array();
+			for (auto const& [from, to] : change.GetValue().RenamedInputs)
+			{
+				renamed.push_back({{"old", from}, {"new", to}});
+			}
+			result["renamedInputs"] = std::move(renamed);
+			result["removedLinks"] = change.GetValue().RemovedLinks;
 			return true;
 		}
 
@@ -4239,6 +4403,7 @@ namespace Strada
 				case VisualScriptFixKind::UseSetting:
 				case VisualScriptFixKind::RemoveSplit:
 				case VisualScriptFixKind::EnableNode:
+				case VisualScriptFixKind::ReplaceInFormula:
 					return {};
 			}
 			return {};

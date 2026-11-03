@@ -6,8 +6,10 @@
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
+#include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
@@ -535,6 +537,35 @@ namespace Strada
 				}
 				// The text edited in place is a widget interaction: it commits under the shared edit session's key.
 				return Commit(std::move(document), action, m_Context.MergeKey);
+			}
+
+			Result<void> Resolve(VisualScriptFormulaEdit const& edit)
+			{
+				VisualScriptGraph const* graph = FindVisualScriptGraph(GetDisplay(), m_Function);
+				VisualScriptNode const* node = graph != nullptr ? FindNode(*graph, edit.Node) : nullptr;
+				if (node == nullptr || ReadString(node->Settings, "Formula") == edit.Formula || !CanEdit())
+				{
+					return {};
+				}
+				VisualScriptDocument document = GetDisplay();
+				Result<Editing::VisualScriptFormulaChange> const change = Editing::SetFormula(document, edit.Node, edit.Formula);
+				if (!change)
+				{
+					m_Result.Notes.push_back(fmt::format("The formula stays: {}", change.GetError()));
+					return {};
+				}
+				std::string action = fmt::format("Set Formula on {}", GetNodeTitle(edit.Node));
+				if (!change.GetValue().RenamedInputs.empty())
+				{
+					size_t const renamed = change.GetValue().RenamedInputs.size();
+					action += fmt::format(" (renames {} {})", renamed, renamed == 1 ? "input" : "inputs");
+				}
+				else if (change.GetValue().RemovedLinks > 0)
+				{
+					uint32_t const removed = change.GetValue().RemovedLinks;
+					action += fmt::format(" (removes {} {})", removed, removed == 1 ? "link" : "links");
+				}
+				return Commit(std::move(document), std::move(action));
 			}
 
 			Result<void> Resolve(VisualScriptCommentEdit const& edit)
@@ -1933,6 +1964,14 @@ namespace Strada
 					VisualScriptFunction const* function = id ? FindFunction(GetDisplay(), *id) : nullptr;
 					return function != nullptr ? std::optional<std::string>("Open " + function->Name) : std::nullopt;
 				}
+				if (stored->Type == "Expression")
+				{
+					return std::optional<std::string>("Edit Formula");
+				}
+				if (stored->Type == VisualScriptTimelineNodeType)
+				{
+					return std::optional<std::string>("Edit Timeline");
+				}
 				if (stored->Type == "Event.Send")
 				{
 					std::optional<std::string> const name = ReadString(stored->Settings, "Name");
@@ -2005,6 +2044,27 @@ namespace Strada
 						m_Result.ShowFunction = *id;
 						return {};
 					}
+				}
+				if (stored->Type == "Expression")
+				{
+					// The formula opens in place; one of several lines is typed in Details' Formula field, as a single-line
+					// field cannot show its lines.
+					std::string const formula = ReadString(stored->Settings, "Formula").value_or(std::string());
+					if (formula.find('\n') != std::string::npos)
+					{
+						m_Result.Reveal = VisualScriptReveal{VisualScriptRevealKind::Node, node, false, "Formula"};
+					}
+					else
+					{
+						m_Result.EditText = VisualScriptTextEditRequest{VisualScriptTextEditKind::Formula, node, formula};
+					}
+					return {};
+				}
+				if (stored->Type == VisualScriptTimelineNodeType)
+				{
+					// Its tracks and curves open in the drawer.
+					m_Result.ShowTimeline = node;
+					return {};
 				}
 				if (stored->Type == "Event.Send")
 				{
@@ -2172,12 +2232,6 @@ namespace Strada
 					return {};
 				}
 				std::string const label = GetPinLabel(edit.Pin.Node, edit.Pin.Pin, edit.Direction);
-				if (VisualScriptPinVisual const* visual = FindPinVisual(edit.Pin.Node, edit.Pin.Pin, edit.Direction);
-				    visual != nullptr && visual->Shape == VisualScriptPinShape::Array)
-				{
-					m_Result.Notes.emplace_back(VisualScriptRefusals::PromoteArray);
-					return {};
-				}
 				VisualScriptPinReference const pin{edit.Pin.Node, ToStored(edit.Pin.Node, edit.Pin.Pin, edit.Direction)};
 				VisualScriptDocument document = GetDisplay();
 				if (edit.Action == VisualScriptPinAction::PromoteToVariable)

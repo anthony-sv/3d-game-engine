@@ -64,8 +64,20 @@ namespace Strada
 	{
 		uint32_t Node = 0;
 		std::string Setting;
+		// The bytes of the setting's text the field selects when it takes the keyboard: a formula's part a diagnostic is about
+		// ([start, end) UTF-8 offsets, as VisualScriptDiagnostic::Span); none selects nothing.
+		std::optional<std::pair<uint32_t, uint32_t>> Span = std::nullopt;
 
 		bool operator==(VisualScriptSettingFocus const& other) const = default;
+	};
+
+	// A Flow.Timeline node whose tracks and curves the drawer shows (spec-slice3 §9.5), on one of its tracks when given.
+	struct VisualScriptTimelineFocus
+	{
+		uint32_t Node = 0;
+		std::optional<uint32_t> Track = std::nullopt;
+
+		bool operator==(VisualScriptTimelineFocus const& other) const = default;
 	};
 
 	// A comment box created with its first title still to type (spec §9.6 rule 1): the window opens its in-place title editor
@@ -134,7 +146,7 @@ namespace Strada
 
 	// What a pane asks of the window after drawing. The window applies the members in this order: Commit (executed, then the
 	// model synced in the same frame and the request's Select applied when it is not empty), EditCommentTitle, ShowFunction,
-	// Open, SelectAndFrame, FindReferences; FocusSetting is copied to VisualScriptPaneShared::FocusSetting.
+	// Open, SelectAndFrame, FindReferences, ShowTimeline; FocusSetting is copied to VisualScriptPaneShared::FocusSetting.
 	struct VisualScriptPaneResult
 	{
 		std::optional<VisualScriptCommitRequest> Commit;
@@ -153,6 +165,8 @@ namespace Strada
 		std::optional<VisualScriptSettingFocus> FocusSetting;
 		// A comment box whose first title the window's in-place editor takes next, in the creation's step.
 		std::optional<VisualScriptCommentTitleRequest> EditCommentTitle;
+		// The drawer opens in Timeline mode on a Flow.Timeline of the shown sub-graph (Details' "Edit" of a track).
+		std::optional<VisualScriptTimelineFocus> ShowTimeline;
 		// A widget interaction is in progress: its edits merge into one step until it ends.
 		bool WidgetActive = false;
 	};
@@ -234,6 +248,8 @@ namespace Strada
 		// A node the flow does not pass through (no exec input or no exec output): disabled, with VisualScriptNoFlowRefusal.
 		NoFlow
 	};
+	// Why My Script's eye does not make an array variable public (spec-slice3 §3.4.6).
+	inline constexpr char const* VisualScriptArrayPublicRefusal = "Arrays cannot be public: components cannot store them";
 	inline constexpr char const* VisualScriptPureNodesRefusal = "Pure nodes run only when a node reads them: disable that node";
 	inline constexpr char const* VisualScriptNoFlowRefusal = "Only nodes the flow passes through can be disabled";
 	// From the canvas's layout of the node when the shown sub-graph has it, else from the library's template of its type; a node

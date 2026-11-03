@@ -1,3 +1,4 @@
+#include "Fuzzing.h"
 #include "HeadlessImGui.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
@@ -16,6 +17,7 @@
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -28,8 +30,10 @@
 #include <glm/glm.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <cmath>
 #include <optional>
 #include <span>
 #include <string>
@@ -572,4 +576,201 @@ TEST_CASE("VisualScriptEditor: the problems drawer's Edit in Details of a settin
 	CHECK(center.y >= count->first.y);
 	CHECK(center.y <= count->second.y);
 	CHECK_FALSE(fixture.Window.Panel->GetPaneShared().FocusSetting.has_value());
+}
+
+TEST_CASE("VisualScriptEditor: the runtime's formula diagnostics carry their span to Details' caret block, which lists the typed inputs")
+{
+	// A for loop's Index (an int) linked into b, a unlinked (a float): Inputs list both types. The second formula calls a
+	// function the runtime does not have.
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)), MakeNode(11, "Flow.ForLoop", glm::vec2(320.0f, 0.0f)),
+	                        MakeNode(12, "Expression", glm::vec2(640.0f, 0.0f), Json::object({{"Formula", "a * b"}})),
+	                        MakeNode(13, "Expression", glm::vec2(640.0f, 320.0f), Json::object({{"Formula", "a * b + sni(t)"}}))};
+	document.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(11, "Index", 12, "b")};
+	RuntimeFixture fixture(document);
+	fixture.Window.CheckDrawingChangesNothing();
+
+	// The C++ diagnostic has the setting and the span the runtime reported.
+	VisualScriptAnalysis const* const analysis = fixture.Model().GetAnalysis();
+	REQUIRE(analysis != nullptr);
+	auto const unknown = std::find_if(analysis->Diagnostics.begin(), analysis->Diagnostics.end(),
+	                                  [](VisualScriptDiagnostic const& diagnostic)
+	                                  {
+										  return diagnostic.Code == "InvalidExpression" && diagnostic.Node == std::optional<uint32_t>(13);
+									  });
+	REQUIRE(unknown != analysis->Diagnostics.end());
+	CHECK(unknown->Setting == "Formula");
+	CHECK(unknown->Span == std::optional<std::pair<uint32_t, uint32_t>>(std::pair<uint32_t, uint32_t>(8, 11)));
+	CHECK(unknown->Message == "unknown function sni: did you mean sin?");
+
+	fixture.Window.Click(Testing::CanvasPoint(fixture.Model(), 12, glm::vec2(0.5f, 0.06f)));
+	fixture.Window.Frames(2);
+	VisualScriptDetails const& details = fixture.Window.Panel->GetDetails();
+	REQUIRE(details.GetSubject() == VisualScriptDetailsSubject::Node);
+	CHECK(details.GetRowText("Inputs") == std::optional<std::string>("a \xC2\xB7 float, b \xC2\xB7 int"));
+	CHECK_FALSE(details.GetRowText("Formula Problem 0").has_value());
+
+	fixture.Window.Click(Testing::CanvasPoint(fixture.Model(), 13, glm::vec2(0.5f, 0.06f)));
+	fixture.Window.Frames(2);
+	CHECK(details.GetRowText("Formula Problem 0") ==
+	      std::optional<std::string>("a * b + sni(t)\n        ^^^ unknown function sni: did you mean sin?"));
+}
+
+namespace
+{
+	// spec-slice3 §3.8.2's example, and the timeline of Documents/Language.json: the seeds of the Timeline parser's corpus.
+	std::vector<Json> MakeTimelineSeeds()
+	{
+		Result<Json> example = ParseJson(R"({
+			"Length": 2.0, "Loop": false,
+			"Tracks": [
+				{ "Name": "Lift", "Type": "float", "Keys": [
+					{ "Time": 0.0, "Value": 0.0 },
+					{ "Time": 1.0, "Value": 2.5, "Interpolation": "Linear" },
+					{ "Time": 2.0, "Value": 0.0, "In": 0.0, "Out": 0.0 } ] },
+				{ "Name": "Tint", "Type": "Strada.Color", "Keys": [ { "Time": 0.0, "Value": [1, 1, 1, 1] }, { "Time": 2.0, "Value": [1, 0.25, 0.25, 1] } ] },
+				{ "Name": "Step", "Type": "exec", "Keys": [ { "Time": 0.5 }, { "Time": 1.5 } ] }
+			] })");
+		REQUIRE(example.IsOk());
+		std::vector<Json> seeds = {example.TakeValue()};
+		VisualScriptDocument const language = LoadTestDocument("Language.json");
+		for (VisualScriptNode const& node : language.Graph.Nodes)
+		{
+			if (node.Type == "Flow.Timeline")
+			{
+				seeds.push_back(node.Settings["Timeline"]);
+			}
+		}
+		REQUIRE(seeds.size() == 2);
+		return seeds;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: the editor's Timeline parser accepts a setting exactly when the runtime does, and refuses it in its words")
+{
+	Testing::ScriptRuntimeScope runtime;
+	std::vector<Json> const seeds = MakeTimelineSeeds();
+	Testing::DocumentMutator mutator(10900);
+	int const rounds = Testing::GetFuzzRounds(300);
+	int accepted = 0;
+	int refused = 0;
+	for (int round = 0; round < rounds; round++)
+	{
+		Json const damaged = mutator.Damage(seeds[static_cast<size_t>(round) % seeds.size()], round);
+		CAPTURE(damaged.dump());
+		VisualScriptDocument document;
+		document.Graph.Nodes = {MakeNode(1, "Flow.Timeline", glm::vec2(0.0f), Json::object({{"Timeline", damaged}}))};
+		Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document);
+		REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
+		// The runtime's problems with the setting: its messages start with the setting's path.
+		std::vector<std::string> problems;
+		for (VisualScriptDiagnostic const& diagnostic : analysis.GetValue().Diagnostics)
+		{
+			if (diagnostic.Node == 1 && diagnostic.Message.starts_with("Timeline"))
+			{
+				problems.push_back(diagnostic.Message);
+			}
+		}
+		Result<VisualScriptTimeline> const parsed = ParseVisualScriptTimeline(damaged);
+		if (parsed)
+		{
+			accepted++;
+			CHECK_MESSAGE(problems.empty(), problems.front());
+		}
+		else
+		{
+			refused++;
+			REQUIRE_FALSE(problems.empty());
+			CHECK(parsed.GetError() == problems.front());
+		}
+	}
+	CHECK(accepted > 0);
+	CHECK(refused > 0);
+}
+
+TEST_CASE("VisualScriptEditor: a timeline the runtime plays gives the values the editor's curves draw")
+{
+	// A Timeline of 2 s whose curve has every kind of segment: cubic with auto and given tangents, linear and constant.
+	Result<Json> const setting = ParseJson(R"({"Length": 2, "Tracks": [{"Name": "Lift", "Type": "float", "Keys": [
+		{"Time": 0, "Value": 0}, {"Time": 0.5, "Value": 1.25, "Out": 3}, {"Time": 1, "Value": -0.5, "In": -1, "Interpolation": "Linear"},
+		{"Time": 1.5, "Value": 0.75, "Interpolation": "Constant"}, {"Time": 1.75, "Value": 0.25}, {"Time": 2, "Value": 2}]}]})");
+	REQUIRE(setting.IsOk());
+	Result<VisualScriptTimeline> const timeline = ParseVisualScriptTimeline(setting.GetValue());
+	REQUIRE(timeline.IsOk());
+
+	// Times at random (a fixed seed), some outside the length (SetTime clamps them).
+	Testing::FuzzRandom random(10950);
+	constexpr uint32_t Samples = 24;
+	std::vector<double> times;
+	for (uint32_t sample = 0; sample < Samples; sample++)
+	{
+		times.push_back(static_cast<double>(random.Pick(2400)) / 1000.0 - 0.2);
+	}
+
+	// Create -> Sequence: for each time, a Timeline's SetTime, then Samples = Add(Samples, its Lift); last, Text = Join(Samples).
+	VisualScriptDocument document;
+	VisualScriptVariable samples = MakeVariable(1, "Samples", "float[]", Json::array());
+	samples.Public = false;
+	document.Variables.push_back(std::move(samples));
+	document.Variables.push_back(MakeVariable(2, "Text", "string", ""));
+	document.Graph.Nodes = {MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)),
+	                        MakeNode(11, "Flow.Sequence", glm::vec2(320.0f, 0.0f), Json::object({{"Count", 2 * Samples + 1}})),
+	                        MakeNode(12, "Variable.Get", glm::vec2(320.0f, 400.0f), Json::object({{"Variable", 1}})),
+	                        MakeNode(13, "Variable.Set", glm::vec2(640.0f, 0.0f), Json::object({{"Variable", 2}})),
+	                        MakeNode(14, "String.Join", glm::vec2(640.0f, 200.0f), Json::object(), Json::object({{"Separator", " "}}))};
+	document.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(11, fmt::format("Then{}", 2 * Samples), 13, "Execute"),
+	                        MakeLink(12, "Value", 14, "Parts"), MakeLink(14, "Result", 13, "Value")};
+	for (uint32_t sample = 0; sample < Samples; sample++)
+	{
+		uint32_t const node = 100 + sample * 3;
+		auto const offset = static_cast<float>(sample) * 200.0f;
+		document.Graph.Nodes.push_back(MakeNode(node, "Flow.Timeline", glm::vec2(960.0f, offset),
+		                                        Json::object({{"Timeline", setting.GetValue()}}),
+		                                        Json::object({{"NewTime", times[sample]}})));
+		document.Graph.Nodes.push_back(MakeNode(node + 1, "Array.Add", glm::vec2(1280.0f, offset)));
+		document.Graph.Nodes.push_back(MakeNode(node + 2, "Variable.Set", glm::vec2(1600.0f, offset), Json::object({{"Variable", 1}})));
+		document.Graph.Links.push_back(MakeLink(11, fmt::format("Then{}", 2 * sample), node, "SetTime"));
+		document.Graph.Links.push_back(MakeLink(11, fmt::format("Then{}", 2 * sample + 1), node + 2, "Execute"));
+		document.Graph.Links.push_back(MakeLink(12, "Value", node + 1, "Array"));
+		document.Graph.Links.push_back(MakeLink(node, "Lift", node + 1, "Value"));
+		document.Graph.Links.push_back(MakeLink(node + 1, "Result", node + 2, "Value"));
+	}
+	RuntimeFixture fixture(document);
+	VisualScriptAnalysis const* analysis = fixture.Model().GetAnalysis();
+	REQUIRE(analysis != nullptr);
+	for (VisualScriptDiagnostic const& diagnostic : analysis->Diagnostics)
+	{
+		CAPTURE(diagnostic.Message);
+		CHECK(diagnostic.Severity != VisualScriptSeverity::Error);
+	}
+	UUID const entity = fixture.CreateRunner("Sampler");
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Advance(2, Timestep(FrameTime));
+	ScriptFieldValue const text = fixture.GetVariable(entity, "Text");
+	fixture.Play.Stop();
+	std::string const joined = text.GetString();
+	CAPTURE(joined);
+
+	std::vector<float> read;
+	for (size_t start = 0; start < joined.size();)
+	{
+		size_t const end = std::min(joined.find(' ', start), joined.size());
+		// Read as documents are (VisualScriptLiterals.cpp): std::from_chars for floats is missing from some standard libraries.
+		std::string_view const sample(joined.data() + start, end - start);
+		CAPTURE(sample);
+		Result<Json> const number = ParseJson(sample);
+		REQUIRE(number.IsOk());
+		std::optional<float> const value = VisualScriptSerializer::ReadFloat(number.GetValue());
+		REQUIRE(value.has_value());
+		read.push_back(*value);
+		start = end + 1;
+	}
+	REQUIRE(read.size() == Samples);
+	for (uint32_t sample = 0; sample < Samples; sample++)
+	{
+		double const time = std::clamp(times[sample], 0.0, 2.0);
+		CAPTURE(time);
+		float const expected = EvaluateVisualScriptTimelineTrack(timeline.GetValue().Tracks[0], time).x;
+		CHECK(std::abs(read[sample] - expected) <= 1e-6f * std::max(1.0f, std::abs(expected)));
+	}
 }

@@ -8,9 +8,13 @@
 #include "Strada/Serialization/StructSerialization.h"
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -82,4 +86,67 @@ namespace Strada
 
 		FieldEditor m_FieldEditor;
 	};
+
+	// The element type of an array type ("float" of "float[]"); empty for a type that is no array, and for arrays of arrays,
+	// which graphs do not have.
+	[[nodiscard]] std::string_view GetVisualScriptArrayElementType(std::string_view type);
+
+	// The literal a new element of an array of the type starts with: the type's default as the scripting runtime has it (0,
+	// "", the identity rotation and matrix, white, none for entities and assets, an enum's 0), canonical; nothing for types
+	// without literals.
+	[[nodiscard]] std::optional<Json> MakeVisualScriptDefaultLiteral(std::string_view type, VisualScriptLibrary const* library);
+
+	// What DrawVisualScriptArrayLiteral's user did to the array.
+	enum class VisualScriptArrayLiteralAction : uint8_t
+	{
+		// An element's value changed (its widget; at the widget cadence).
+		Element = 0,
+		// An element was appended, at Index (one step).
+		Add,
+		// The element at Index was removed (one step).
+		Remove,
+		// An element was dragged by its handle to Index (one step).
+		Move
+	};
+
+	struct VisualScriptArrayLiteralEdit
+	{
+		VisualScriptArrayLiteralAction Action = VisualScriptArrayLiteralAction::Element;
+		// The array's new literal, canonical where its elements were.
+		Json Literal;
+		size_t Index = 0;
+	};
+
+	struct VisualScriptArrayLiteralOutcome
+	{
+		// What changed this frame; nothing when nothing did.
+		std::optional<VisualScriptArrayLiteralEdit> Edit;
+		// An element's widget is in use (a drag, typing): its edits are one interaction.
+		bool Active = false;
+		// An element's widget was let go this frame.
+		bool Deactivated = false;
+		// Where its parts were drawn (screen min x, min y, max x, max y), which tests and automation find them by: "Add", and
+		// for each element "<index>" (its widget), "<index> Handle" and "<index> Remove".
+		std::vector<std::pair<std::string, std::array<float, 4>>> Parts;
+	};
+
+	// The ImGui drag and drop payload of an element's handle (a VisualScriptArrayElementDrag): an array editor accepts only its
+	// own elements, so a handle dropped on another array's moves nothing.
+	inline constexpr char const* VisualScriptArrayElementPayload = "VS_ARRAY_ELEMENT";
+	struct VisualScriptArrayElementDrag
+	{
+		// The array editor's ID (its ID scope's), and the element's index in it.
+		uint32_t List = 0;
+		uint32_t Index = 0;
+	};
+
+	// Draws an array literal (spec-slice3 §9.4) as wide as the content region: a header row "3 elements" with "+ Add Element"
+	// (which appends the element type's default), then one row per element: a drag handle (dropped on another element's handle,
+	// the element moves there), its index, the element's literal editor (Strada.Matrix4 its 4 x 4 grid) and a remove button.
+	// An element type without literals shows "None (starts empty)". literal is as documents store it (null or no array: the
+	// empty array). Returns what the user changed this frame. Main thread only, inside an ImGui frame and an ID scope of its
+	// own.
+	[[nodiscard]] VisualScriptArrayLiteralOutcome DrawVisualScriptArrayLiteral(VisualScriptLiteralEditor& editor,
+	                                                                           std::string_view elementType, Json const& literal,
+	                                                                           VisualScriptLibrary const* library);
 }

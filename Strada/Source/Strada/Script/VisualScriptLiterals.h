@@ -5,8 +5,10 @@
 #include "Strada/Script/ScriptField.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
+#include <cstddef>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -69,6 +71,24 @@ namespace Strada
 	// a number that is not finite), or is of a type without such literals.
 	[[nodiscard]] std::optional<Json> EncodeVisualScriptLiteral(ScriptFieldValue const& value, std::string_view typeId,
 	                                                            VisualScriptEnumLookup const& enumLookup);
+
+	// The most elements an array literal holds, as the scripting runtime reads them (spec-slice3 §3.4.4).
+	inline constexpr size_t MaxVisualScriptArrayLiteralElements = 4096;
+
+	// The values an array literal of the element type stands for: a JSON array of at most
+	// MaxVisualScriptArrayLiteralElements literals of the element type, each read as DecodeVisualScriptLiteral reads it ([]
+	// is the empty array). Nothing when the literal is no array, holds more elements, or holds an element that does not
+	// decode, and for element types without such literals, whose arrays have none, not even [] (arrays among them: there are
+	// no arrays of arrays). A document without a value for an array means the empty array; null is no literal.
+	[[nodiscard]] std::optional<std::vector<ScriptFieldValue>>
+	DecodeVisualScriptArrayLiteral(Json const& literal, std::string_view elementType, VisualScriptEnumLookup const& enumLookup);
+
+	// The canonical literal of an array of values of the element type: the array of their canonical literals
+	// (EncodeVisualScriptLiteral), in order, as the scripting runtime writes it. Nothing when there are more than
+	// MaxVisualScriptArrayLiteralElements values, one of them has no literal of the element type, or the element type has no
+	// literals.
+	[[nodiscard]] std::optional<Json> EncodeVisualScriptArrayLiteral(std::span<ScriptFieldValue const> values, std::string_view elementType,
+	                                                                 VisualScriptEnumLookup const& enumLookup);
 
 	// A literal of the enum: an enumerator's name, an array of names for [Flags] enums ([] is 0), or the integer of a value
 	// without an enumerator (a decimal string for 64-bit enums). Nothing for other literals and for unusable enums.

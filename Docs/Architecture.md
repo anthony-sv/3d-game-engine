@@ -1658,6 +1658,14 @@ inspector's primary entity as the context entity; without an asset directory the
   | | `Ctrl+]` | Forward |
   | Find | `Ctrl+F` | Find in this script |
   | | `Ctrl+Shift+F` | Find in the project |
+  | Timeline | `Delete` | Remove the selected keys |
+  | | `Ctrl+A` | Select every key of the visible tracks |
+  | | `Left` | Move the selected keys 0.01 s earlier |
+  | | `Right` | Move the selected keys 0.01 s later |
+  | | `Shift+Left` | Move the selected keys 0.1 s earlier |
+  | | `Shift+Right` | Move the selected keys 0.1 s later |
+  | | `F` | Frame the selected keys (everything without any) |
+  | | `Esc` | Cancel the drag; else give the keyboard back to the canvas |
   | Help | `F1` | Show these shortcuts |
 
   | Gesture | On | Action |
@@ -1689,6 +1697,16 @@ inspector's primary entity as the context entity; without an asset directory the
   | `Mouse Back` | Window | Back |
   | `Mouse Forward` | Window | Forward |
   | `Drop` | Pin or canvas | Set a value or add a node from a dropped asset, entity or My Script row |
+  | `Click` | Timeline key | Select it (Shift adds, Ctrl toggles) |
+  | `Drag` | Timeline curves | Select the keys within a rectangle (Shift adds, Ctrl removes) |
+  | `Drag` | Timeline key | Move the selected keys as a block: times snap to 0.01 s (Alt: free), Shift keeps one axis |
+  | `Drag` | Timeline tangent handle | Set the key's two tangents (Alt: this one alone) |
+  | `Double-Click` | Timeline curve or event lane | Add a key there with the curve's value, or an event |
+  | `Right-Click` | Timeline key | Interpolation, Tangents and Delete |
+  | `Wheel` | Timeline curves | Zoom time around the cursor |
+  | `Ctrl+Wheel` | Timeline curves | Zoom values around the cursor |
+  | `Right-Drag` | Timeline curves | Pan |
+  | `Middle-Drag` | Timeline curves | Pan |
 
   The scroll mode (view menu; Pan by default on macOS, where trackpads are usual, else Zoom) decides what the wheel does.
   Over the live widget the wheel still zooms and right and middle drags pan; a drop that a pin cannot take shows the

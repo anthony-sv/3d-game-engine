@@ -133,6 +133,14 @@ namespace Strada::Testing
 			{
 				json["Variable"] = *diagnostic.Variable;
 			}
+			if (!diagnostic.Setting.empty())
+			{
+				json["Setting"] = diagnostic.Setting;
+			}
+			if (diagnostic.Span)
+			{
+				json["Span"] = Json::array({diagnostic.Span->first, diagnostic.Span->second});
+			}
 			json["Message"] = diagnostic.Message;
 			if (!diagnostic.Suggestions.empty())
 			{
@@ -311,16 +319,17 @@ namespace Strada::Testing
 				return type != nullptr && accepts(*type) ? type : nullptr;
 			}
 
-			// The type a variable, local or parameter declared with the type ID has: nothing for pin types, arrays and types
-			// the library does not know.
+			// The type a variable, local or parameter declared with the type ID has: nothing for pin types and types the library
+			// does not know.
 			std::optional<std::string> ResolveDeclaredType(std::string_view typeId) const
 			{
 				if (typeId == VisualScriptExecType || typeId == VisualScriptWildcardType)
 				{
 					return std::nullopt;
 				}
+				// Arrays the library has are types of declarations, as the runtime has them (spec-slice3 §3.4.3).
 				VisualScriptTypeInfo const* type = m_Library.FindType(typeId);
-				if (type == nullptr || type->Kind == VisualScriptTypeKind::Array)
+				if (type == nullptr)
 				{
 					return std::nullopt;
 				}
@@ -1042,9 +1051,11 @@ namespace Strada::Testing
 		// The runtime runs (GetLibrary gives the library) but every analysis fails, as when the runtime throws.
 		void SetAnalyzeFails(bool fails) { m_AnalyzeFails = fails; }
 		// Reads the library again: GetLibrary then gives a new object.
-		void ReloadLibrary()
+		void ReloadLibrary() { ReloadLibrary(GetFixtureLibraryText()); }
+		// Reads another library: the fixture's changed by a test (notes about game members, more types).
+		void ReloadLibrary(std::string const& text)
 		{
-			Result<Scope<VisualScriptLibrary>> library = VisualScriptLibrary::Parse(GetFixtureLibraryText());
+			Result<Scope<VisualScriptLibrary>> library = VisualScriptLibrary::Parse(text);
 			REQUIRE_MESSAGE(library.IsOk(), library.GetError());
 			m_Library = library.TakeValue();
 		}

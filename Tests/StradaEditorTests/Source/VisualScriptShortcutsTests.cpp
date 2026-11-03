@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -74,12 +75,16 @@ namespace
 
 TEST_CASE("VisualScriptEditor: no key and no mouse gesture of the graph windows is listed twice")
 {
-	std::set<ImGuiKeyChord> chords;
+	// A chord is listed once per route class: the window's parts (the focused, canvas and owned keys) and the Timeline
+	// drawer, which has the keyboard instead of them.
+	std::set<std::pair<bool, ImGuiKeyChord>> chords;
 	for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)
 	{
 		CAPTURE(shortcut.Label);
-		CHECK(chords.insert(shortcut.Chord).second);
+		CHECK(chords.insert({shortcut.Route == VisualScriptKeyRoute::Timeline, shortcut.Chord}).second);
 		CHECK_FALSE(shortcut.Label.empty());
+		// The Timeline group's keys are the Timeline route's.
+		CHECK((shortcut.Group == VisualScriptShortcutGroup::Timeline) == (shortcut.Route == VisualScriptKeyRoute::Timeline));
 	}
 
 	std::set<VisualScriptMouseGestureId> ids;
@@ -95,7 +100,7 @@ TEST_CASE("VisualScriptEditor: no key and no mouse gesture of the graph windows 
 		CHECK((gesture.Modifiers & ~ImGuiMod_Mask_) == 0);
 	}
 	// Every gesture of the enumeration has its row.
-	CHECK(ids.size() == static_cast<size_t>(VisualScriptMouseGestureId::Drop) + 1);
+	CHECK(ids.size() == static_cast<size_t>(VisualScriptMouseGestureId::TimelinePanMiddle) + 1);
 }
 
 TEST_CASE("VisualScriptEditor: the graph windows claim only their editing chords from the editor; their canvas keys are none of its chords")
@@ -127,6 +132,11 @@ TEST_CASE("VisualScriptEditor: the graph windows claim only their editing chords
 			case VisualScriptKeyRoute::Canvas:
 			case VisualScriptKeyRoute::Owned:
 				CHECK_FALSE(IsListed(VisualScriptEditorChords, shortcut.Chord));
+				break;
+			case VisualScriptKeyRoute::Timeline:
+				// The Timeline drawer's editor chords are those the window claims (Delete, Ctrl+A), which reach it through the
+				// claim.
+				CHECK((!IsListed(VisualScriptEditorChords, shortcut.Chord) || IsListed(focused, shortcut.Chord)));
 				break;
 		}
 	}

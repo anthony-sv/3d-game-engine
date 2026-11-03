@@ -63,7 +63,10 @@ namespace Strada
 		// Removes a split pin's path (Argument) from the node's Split list, with the links and literals of its fields.
 		RemoveSplit,
 		// Enables a disabled node the runtime runs anyway.
-		EnableNode
+		EnableNode,
+		// Replaces the bytes of an Expression's formula the diagnostic's Span covers (Replaces) with a name (Argument): an
+		// unknown function's suggestion. The formula is set with SetFormula, so its inputs keep their links.
+		ReplaceInFormula
 	};
 
 	struct VisualScriptQuickFix

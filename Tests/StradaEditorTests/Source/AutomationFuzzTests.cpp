@@ -545,6 +545,14 @@ namespace
 				{
 					params.erase("programRevision");
 				}
+				// Now and then a call that is right in every part (one operation that needs no scripting runtime), so the
+				// command's work is reached whatever else the drawn batches and parameters get wrong.
+				if (!m_State.Graph.empty() && m_Random.Pick(6) == 0)
+				{
+					params =
+						Json::object({{"graph", m_State.Graph},
+					                  {"operations", Json::array({Json::object({{"op", "SetDescription"}, {"description", "Fuzzed"}})})}});
+				}
 			}
 			// graph.palette opens only in an open window: mostly one, mostly without the from and at that the schema draws, which
 			// rarely name a node and a point of the canvas, so the palette's own checks are reached (whatever the order of the
@@ -591,8 +599,9 @@ namespace
 					choices = elements->second;
 				}
 			}
-			else if (property == "node")
+			else if (property == "node" || property == "timeline")
 			{
+				// graph.open's timeline: the seed's nodes, of which those of other types answer InvalidParams.
 				choices = m_State.GraphNodes;
 			}
 			else if (property == "id")
@@ -754,10 +763,13 @@ namespace
 				return Json::array({static_cast<double>(m_Random.Pick(4000)) - 2000.0, static_cast<double>(m_Random.Pick(4000)) - 2000.0});
 			};
 			std::vector<std::string> const types = {
-				"Flow.Branch", "Flow.Sequence", "Operator.Add", "Event.Custom", "Call:Strada.Log.Info(string)", "Flow.Delay"};
+				"Flow.Branch", "Flow.Sequence", "Operator.Add", "Event.Custom", "Call:Strada.Log.Info(string)",
+				"Flow.Delay",  "Expression",    "Array.Make",   "Flow.Timeline"};
 			std::vector<std::string> const kinds = {
-				"AddNode",    "Move",        "SetPosition", "SetInput", "SetSetting",     "Disconnect",     "InsertReroute", "AddComment",
-				"SetComment", "AddVariable", "SetVariable", "Delete",   "DeleteVariable", "DeleteFunction", "Arrange",       "Paste"};
+				"AddNode",    "Move",       "SetPosition",      "SetInput",    "SetSetting", "Disconnect",     "InsertReroute",
+				"AddComment", "SetComment", "AddVariable",      "SetVariable", "Delete",     "DeleteVariable", "DeleteFunction",
+				"Arrange",    "Paste",      "SetArrayElements", "SetFormula",  "SetTimeline"};
+			std::vector<std::string> const formulas = {"a * b + sin(t)", "speed * dt", "velocity * dt", "x + (", ""};
 			Json batch = Json::array();
 			for (size_t count = 1 + m_Random.Pick(6); count > 0; count--)
 			{
@@ -766,11 +778,40 @@ namespace
 				if (kind == "AddNode")
 				{
 					operation["type"] = PickFrom(types);
+					if (operation["type"] == "Expression")
+					{
+						operation["settings"] = Json::object({{"Formula", PickFrom(formulas)}});
+					}
 					if (m_Random.Pick(2) == 0)
 					{
 						operation["position"] = point();
 					}
 					label(operation);
+				}
+				else if (kind == "SetArrayElements")
+				{
+					// A node of another type answers InvalidParams, as does a count the node cannot take.
+					operation["node"] = node();
+					operation["count"] = m_Random.Pick(6);
+					if (m_Random.Pick(3) == 0)
+					{
+						operation[m_Random.Pick(2) == 0 ? "insertAt" : "removeAt"] = m_Random.Pick(3);
+					}
+				}
+				else if (kind == "SetFormula")
+				{
+					operation["node"] = node();
+					operation["formula"] = PickFrom(formulas);
+				}
+				else if (kind == "SetTimeline")
+				{
+					// A node of another type answers InvalidParams, as does a damaged timeline.
+					std::vector<std::string> const timelines = {
+						R"({"Length": 2, "Tracks": [{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 1}]}]})",
+						R"({"Length": 1, "Loop": true, "Tracks": [{"Name": "Step", "Type": "exec", "Keys": [{"Time": 0.5}]}]})",
+						R"({"Length": 0})"};
+					operation["node"] = node();
+					operation["timeline"] = Json::parse(PickFrom(timelines));
 				}
 				else if (kind == "Move")
 				{
