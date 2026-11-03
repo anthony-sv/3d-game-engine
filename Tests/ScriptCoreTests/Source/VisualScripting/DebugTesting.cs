@@ -126,6 +126,22 @@ internal sealed class DebugSession
 	internal JsonElement CheckCondition(uint node, string condition, ulong document = TestRuntime.Graph) => Expect(FormattableString.Invariant(
 		$$"""{ "Command": "CheckCondition", "Document": "{{document}}", "Node": {{node}}, "Condition": {{RuntimeTesting.Quote(condition)}} }"""));
 
+	// Describe of a stop's frame (0: innermost), with formulas to evaluate against it.
+	internal JsonElement Describe(int stop, int frame = 0, params string[] formulas)
+	{
+		string evaluate = formulas.Length > 0 ? $", \"Evaluate\": [{string.Join(", ", formulas.Select(RuntimeTesting.Quote))}]" : string.Empty;
+		return Expect(FormattableString.Invariant($$"""{ "Command": "Describe", "Stop": {{stop}}, "Frame": {{frame}}{{evaluate}} }"""));
+	}
+
+	// Record: starts a recording (the members of Start as JSON text), sets the frame index, stops it with its reply.
+	internal JsonElement StartRecording(string? entity = null, string? documents = null, string? nodes = null, bool values = true, bool summary = false,
+		int maxSteps = 100_000, int maxValues = 100_000) => Expect(FormattableString.Invariant(
+		$$"""{ "Command": "Record", "Start": { "Entity": {{entity ?? "null"}}, "Documents": {{documents ?? "null"}}, "Nodes": {{nodes ?? "null"}}, "Values": {{(values ? "true" : "false")}}, "Summary": {{(summary ? "true" : "false")}}, "MaxSteps": {{maxSteps}}, "MaxValues": {{maxValues}} } }"""));
+
+	internal JsonElement RecordFrame(int frame) => Expect(FormattableString.Invariant($$"""{ "Command": "Record", "Frame": {{frame}} }"""));
+
+	internal JsonElement StopRecording() => Expect("""{ "Command": "Record", "Stop": true }""");
+
 	// The node of a stop's innermost frame.
 	internal static uint NodeOf(JsonElement stop) => stop.GetProperty("Frames")[0].GetProperty("Node").GetUInt32();
 

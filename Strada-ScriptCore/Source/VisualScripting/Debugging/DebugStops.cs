@@ -25,8 +25,9 @@ internal enum DebugPlace : byte
 }
 
 // A value a stopped execution reads that something else changed while it was stopped (spec-slice4 section 4.7): a variable
-// (Node 0, Name its name) or an output of an event or impure node of its instance's event graph (the node's ID and the pin).
-internal readonly record struct DebugChange(uint Node, string Name);
+// (Node 0, Name its name) or an output of an event or impure node of its instance's event graph (the node's ID and the pin),
+// of the instance of the entity.
+internal readonly record struct DebugChange(ulong Entity, uint Node, string Name);
 
 // A literal input of a stopped execution's node that a live edit changed (spec-slice4 section 4.8): the pin, its type, and its
 // literal before and after the edit.
@@ -188,7 +189,7 @@ internal sealed class DebugSnapshot
 			{
 				if (!SameSlot(member.Variables[index], instance.Variables[index]))
 				{
-					Add(changes, new DebugChange(0, variables[index].Name), max, ref more);
+					Add(changes, new DebugChange(instance.Entity, 0, variables[index].Name), max, ref more);
 				}
 			}
 		}
@@ -209,7 +210,7 @@ internal sealed class DebugSnapshot
 				int slot = node.OutputBase + output;
 				if (!SameSlot(events.Slots[slot], live[slot]))
 				{
-					Add(changes, new DebugChange(node.Id, node.OutputPins[output]), max, ref more);
+					Add(changes, new DebugChange(instance.Entity, node.Id, node.OutputPins[output]), max, ref more);
 				}
 			}
 		}

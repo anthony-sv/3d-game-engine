@@ -370,6 +370,21 @@ internal static unsafe class Host
 		}
 	}
 
+	// The flow counted in watched graphs since the last take (spec-slice4 sections 6.2 and 7.7): passes the binary trace block
+	// to receive while a debugger is attached; NotFound (receive not called) otherwise.
+	[UnmanagedCallersOnly]
+	internal static int VisualScriptTakeTrace(void* context, delegate* unmanaged<void*, byte*, int, void> receive)
+	{
+		try
+		{
+			return Deliver(VisualScripts.TakeTrace(), context, receive);
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
 	private static void ResetVisualScripts()
 	{
 		VisualScripts = new VisualScriptRuntime(new EngineEnvironment());

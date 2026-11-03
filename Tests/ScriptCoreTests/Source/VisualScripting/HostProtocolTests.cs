@@ -30,6 +30,7 @@ public sealed class HostProtocolTests
 		("VisualScriptDescribeInstanceVariables", ["ulong", "void*", "receive"]),
 		("VisualScriptSetInstanceVariables", ["ulong", "byte*", "int"]),
 		("VisualScriptDebug", ["byte*", "int", "void*", "receive"]),
+		("VisualScriptTakeTrace", ["void*", "receive"]),
 	];
 
 	public static TheoryData<string> EntryPoints => [.. s_EntryPoints.Select(static entryPoint => entryPoint.Name)];
@@ -122,6 +123,30 @@ public sealed class HostProtocolTests
 			Assert.Equal(Host.Success, status);
 			Assert.Equal(reply.Text, Assert.Single(received));
 		}
+	}
+
+	// The debugger's entry points (spec-slice4 section 7.7): VisualScriptDebug answers Success with a reply for any bytes;
+	// VisualScriptTakeTrace answers the trace block while the debugger is attached and NotFound, receiving nothing, otherwise.
+	[Fact]
+	public void TheDebuggerEntryPointsAnswerTheirStatuses()
+	{
+		TestRuntime runtime = new();
+		VisualScriptRuntime host = runtime.Runtime;
+		foreach (byte[] request in new[] { [], "not json"u8.ToArray(), """{ "Command": "State" }"""u8.ToArray(), [0xFF] })
+		{
+			(int status, List<byte[]> replies) = Deliver(host.Debug(request));
+			Assert.Equal(Host.Success, status);
+			using JsonDocument reply = JsonDocument.Parse(Assert.Single(replies));
+			Assert.Equal(JsonValueKind.Object, reply.RootElement.ValueKind);
+		}
+
+		(int missing, List<byte[]> nothing) = Deliver(host.TakeTrace());
+		Assert.Equal(Host.NotFound, missing);
+		Assert.Empty(nothing);
+		Assert.Equal("{}", Encoding.UTF8.GetString(host.Debug("""{ "Command": "Attach" }"""u8).Text!));
+		(int taken, List<byte[]> blocks) = Deliver(host.TakeTrace());
+		Assert.Equal(Host.Success, taken);
+		Assert.Equal("VSDT"u8.ToArray(), Assert.Single(blocks)[..4]);
 	}
 
 	[Fact]

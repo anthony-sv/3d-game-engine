@@ -1,5 +1,9 @@
+using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace Strada.VisualScripting;
 
@@ -95,6 +99,178 @@ internal sealed class GraphTrace
 	internal bool HasBreaks { get; set; }
 
 	internal bool IsWatched { get; set; }
+
+	// The flow counted in the graph while a window watches it (spec-slice4 section 6.1); null while none does.
+	internal FlowCounters? Counters { get; set; }
+}
+
+// The flow of one watched compiled graph since the last take (spec-slice4 section 6.1): per flow counter
+// (CompiledNode.ExitBase + exit; the node's extra counter, ExitBase + Exits.Length, counts runs without an exit and pure
+// evaluations) how often it fired and the take's sequence number of its first firing, and the counters that fired, in that
+// order, so a take walks only them. It belongs to its debugger and survives the configurations that keep the graph watched.
+internal sealed class FlowCounters
+{
+	internal FlowCounters(CompiledGraph graph, ulong document, uint function)
+	{
+		Graph = graph;
+		Document = document;
+		Function = function;
+		Counts = new uint[graph.CounterCount];
+		FirstOrder = new uint[graph.CounterCount];
+	}
+
+	internal CompiledGraph Graph { get; }
+
+	// The document holding the graph's nodes and the function it is (0: an event graph).
+	internal ulong Document { get; }
+
+	internal uint Function { get; }
+
+	internal uint[] Counts { get; }
+
+	internal uint[] FirstOrder { get; }
+
+	internal List<int> Touched { get; } = [];
+
+	// Whether the debugger lists the counters among those to take.
+	internal bool Listed { get; set; }
+
+	// Forgets what was counted (a take wrote it).
+	internal void Reset()
+	{
+		foreach (int counter in Touched)
+		{
+			Counts[counter] = 0;
+			FirstOrder[counter] = 0;
+		}
+		Touched.Clear();
+		Listed = false;
+	}
+}
+
+// The trace block of VisualScriptTakeTrace (spec-slice4 section 6.2): little-endian, a 32-byte header (the magic "VSDT",
+// Version, StopRevision, the graph and string counts, Dropped, a reserved word), then per graph (ordered by document and
+// function) its document, function and step count followed by its steps (node ID, exit as an index of the string table or
+// NoExit, count, first order; ordered by first order), then the string table (each a byte length and UTF-8 bytes): the exit
+// pin names. Compiled graphs of one document and function are merged by node ID and exit pin name.
+internal static class TraceBlock
+{
+	internal const uint Version = 1;
+	internal const uint NoExit = 0xFFFFFFFF;
+	internal const int HeaderSize = 32;
+	internal const int GraphSize = 16;
+	internal const int StepSize = 16;
+
+	internal static ReadOnlySpan<byte> Magic => "VSDT"u8;
+
+	internal static byte[] Write(ulong stopRevision, uint dropped, IEnumerable<FlowCounters> counted)
+	{
+		SortedDictionary<(ulong Document, uint Function), Dictionary<(uint Node, string? Exit), (uint Count, uint FirstOrder)>> graphs = [];
+		foreach (FlowCounters counters in counted)
+		{
+			if (counters.Touched.Count == 0)
+			{
+				continue;
+			}
+			if (!graphs.TryGetValue((counters.Document, counters.Function), out Dictionary<(uint, string?), (uint, uint)>? steps))
+			{
+				steps = [];
+				graphs[(counters.Document, counters.Function)] = steps;
+			}
+			// Only the counters that fired: a take costs what ran, never the graph's size.
+			foreach (int counter in counters.Touched)
+			{
+				CompiledNode node = NodeOf(counters.Graph, counter);
+				int exit = counter - node.ExitBase;
+				(uint, string?) key = (node.Id, exit < node.Exits.Length ? node.ExitPins[exit] : null);
+				uint count = counters.Counts[counter];
+				uint first = counters.FirstOrder[counter];
+				steps[key] = steps.TryGetValue(key, out (uint Count, uint FirstOrder) merged)
+					? (Saturate((ulong)merged.Count + count), Math.Min(merged.FirstOrder, first))
+					: (count, first);
+			}
+		}
+		Dictionary<string, uint> strings = new(StringComparer.Ordinal);
+		List<byte[]> texts = [];
+		int size = HeaderSize;
+		List<(ulong Document, uint Function, List<(uint Node, uint Exit, uint Count, uint FirstOrder)> Steps)> blocks = [];
+		foreach (((ulong document, uint function), Dictionary<(uint, string?), (uint, uint)> steps) in graphs)
+		{
+			List<(uint Node, string? Exit, uint Count, uint FirstOrder)> sorted = [.. steps.Select(static step => (step.Key.Item1, step.Key.Item2, step.Value.Item1,
+				step.Value.Item2))];
+			sorted.Sort(static (a, b) => a.FirstOrder != b.FirstOrder ? a.FirstOrder.CompareTo(b.FirstOrder) : a.Node.CompareTo(b.Node));
+			// Exit names enter the string table in the order the block names them.
+			List<(uint Node, uint Exit, uint Count, uint FirstOrder)> ordered = [];
+			foreach ((uint node, string? exit, uint count, uint first) in sorted)
+			{
+				uint index = NoExit;
+				if (exit != null && !strings.TryGetValue(exit, out index))
+				{
+					index = (uint)texts.Count;
+					strings[exit] = index;
+					texts.Add(Encoding.UTF8.GetBytes(exit));
+					size += 4 + texts[^1].Length;
+				}
+				ordered.Add((node, index, count, first));
+			}
+			blocks.Add((document, function, ordered));
+			size += GraphSize + (ordered.Count * StepSize);
+		}
+		byte[] block = new byte[size];
+		Span<byte> span = block;
+		Magic.CopyTo(span);
+		BinaryPrimitives.WriteUInt32LittleEndian(span[4..], Version);
+		BinaryPrimitives.WriteUInt64LittleEndian(span[8..], stopRevision);
+		BinaryPrimitives.WriteUInt32LittleEndian(span[16..], (uint)blocks.Count);
+		BinaryPrimitives.WriteUInt32LittleEndian(span[20..], (uint)texts.Count);
+		BinaryPrimitives.WriteUInt32LittleEndian(span[24..], dropped);
+		int offset = HeaderSize;
+		foreach ((ulong document, uint function, List<(uint Node, uint Exit, uint Count, uint FirstOrder)> steps) in blocks)
+		{
+			BinaryPrimitives.WriteUInt64LittleEndian(span[offset..], document);
+			BinaryPrimitives.WriteUInt32LittleEndian(span[(offset + 8)..], function);
+			BinaryPrimitives.WriteUInt32LittleEndian(span[(offset + 12)..], (uint)steps.Count);
+			offset += GraphSize;
+			foreach ((uint node, uint exit, uint count, uint first) in steps)
+			{
+				BinaryPrimitives.WriteUInt32LittleEndian(span[offset..], node);
+				BinaryPrimitives.WriteUInt32LittleEndian(span[(offset + 4)..], exit);
+				BinaryPrimitives.WriteUInt32LittleEndian(span[(offset + 8)..], count);
+				BinaryPrimitives.WriteUInt32LittleEndian(span[(offset + 12)..], first);
+				offset += StepSize;
+			}
+		}
+		foreach (byte[] text in texts)
+		{
+			BinaryPrimitives.WriteUInt32LittleEndian(span[offset..], (uint)text.Length);
+			text.CopyTo(span[(offset + 4)..]);
+			offset += 4 + text.Length;
+		}
+		return block;
+	}
+
+	private static uint Saturate(ulong count) => count > uint.MaxValue ? uint.MaxValue : (uint)count;
+
+	// The node a flow counter belongs to: the last one whose counters start at or before it (nodes hold them in order).
+	internal static CompiledNode NodeOf(CompiledGraph graph, int counter)
+	{
+		CompiledNode[] nodes = graph.Nodes;
+		int low = 0;
+		int high = nodes.Length - 1;
+		while (low < high)
+		{
+			int middle = low + ((high - low + 1) / 2);
+			if (nodes[middle].ExitBase <= counter)
+			{
+				low = middle;
+			}
+			else
+			{
+				high = middle - 1;
+			}
+		}
+		return nodes[low];
+	}
 }
 
 // What the debugger knows of one program for its owner's configuration version and the graph handle its instances run
@@ -138,6 +314,12 @@ internal sealed class ProgramTrace
 		{
 			GraphTrace graphTrace = new(owner, version, DocumentOf(graph, handle), graph.Function?.Id ?? 0, graph.Nodes.Length);
 			graphTrace.IsWatched = watches.Contains((graphTrace.Document, graphTrace.Function));
+			if (graphTrace.IsWatched)
+			{
+				// What was counted since the last take stays with the graph across configurations.
+				graphTrace.Counters = graph.Debug is { Counters: { } counted } previous && ReferenceEquals(previous.Owner, owner) ? counted
+					: new FlowCounters(graph, graphTrace.Document, graphTrace.Function);
+			}
 			if (breakpoints.Count > 0 || runTo != null)
 			{
 				FillBreaks(program, graph, graphTrace, closures);

@@ -64,6 +64,9 @@ public sealed class DebugLiveEditTests
 		Assert.Equal("Text", edit.Pin);
 		Assert.Equal("old", edit.Before.Object);
 		Assert.Equal("new", edit.After.Object);
+		// Describe shows the current program's literal, marked Edited with the snapshot's as Before.
+		Assert.Equal("""[{"Name":"Text","Type":"string","Value":"new","Currency":"Current","Edited":true,"Before":{"Value":"old"}}]""",
+			session.Describe(stop.Id).GetProperty("Node").GetProperty("Inputs").GetRawText());
 		Assert.Equal("Stopped", DebugSession.Text(session.Resume("StepOver"), "Outcome"));
 		Assert.Equal(["first", "new"], runtime.Records);
 		session.Continue();

@@ -47,8 +47,17 @@ internal sealed partial class VisualScriptRuntime
 		return released;
 	}
 
+	// What the debugger's replies read: entity names and validity, and the node library that names types.
+	internal IVisualScriptEnvironment Environment => m_Environment;
+
+	internal NodeLibrary Library => m_Library();
+
 	// VisualScriptDebug (spec-slice4 sections 7.7 and 7.8): the reply to any request.
 	internal HostReply Debug(System.ReadOnlySpan<byte> request) => HostReply.Success(DebugProtocol.Handle(this, request));
+
+	// VisualScriptTakeTrace (spec-slice4 sections 6.2 and 7.7): the block of the flow counted since the last take while the
+	// editor's debugger is attached; NotFound otherwise.
+	internal HostReply TakeTrace() => m_Debugger is VisualScriptDebugger debugger ? HostReply.Success(debugger.TakeTrace()) : HostReply.NotFound;
 
 	// Continues a stopped chain from its root (spec-slice4 sections 4.3, 4.5 and 4.12): with the budget it had left,
 	// Time.DeltaTime as it read it and the run modes of each member decided again as it continues. The leaf passes the stop

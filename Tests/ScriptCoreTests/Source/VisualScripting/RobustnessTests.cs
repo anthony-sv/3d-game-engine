@@ -926,6 +926,221 @@ public sealed class RobustnessTests
 		}
 	}
 
+	// Damaged documents under the debugger (spec-slice4 section 20.6): a breakpoint on every node (some with conditions and hit
+	// counts), every graph watched, errors stopping and a recording armed, through every event; between dispatches every stop's
+	// frames are described with formulas, the instance's values and the instances are read, the trace is taken and the stops are
+	// stepped and continued. No request throws, every reply is a JSON object, and every trace block reads.
+	[Fact]
+	public void DamagedDocumentsUnderTheDebuggerAnswerEveryRequestAndNeverThrow()
+	{
+		DocumentMutator mutator = new(0x4445425547524F42u);
+		DebugTally tally = new();
+		int rounds = Fuzzing.GetRounds(80);
+		IReadOnlyList<(string Name, JsonNode Document)> fixtures = FuzzLibrary.Fixtures;
+		for (int round = 0; round < rounds; round++)
+		{
+			(string fixture, JsonNode original) = fixtures[round % fixtures.Count];
+			string context = $"round {round} ({fixture})";
+			byte[] text = mutator.Write(round % 2 == 0 ? mutator.Damage(original, round / 2) : mutator.Rewire(original, round / 2));
+			try
+			{
+				new DebuggedRound(context, mutator, tally).Run(text);
+			}
+			catch (Exception exception) when (exception is not Xunit.Sdk.IAssertionException)
+			{
+				Assert.Fail($"{context}: a debugger operation threw {exception}\ndocument: {Encoding.UTF8.GetString(text[..Math.Min(text.Length, 4000)])}");
+			}
+		}
+		TestContext.Current.TestOutputHelper?.WriteLine($"{rounds} rounds: {tally}");
+		Assert.True(tally.Stops > 0, $"no execution stopped: {tally}");
+		Assert.True(tally.Described > 0, $"no frame was described: {tally}");
+		Assert.True(tally.Resumed > 0, $"no stop was resumed: {tally}");
+		Assert.True(tally.Counted > 0, $"no flow was counted: {tally}");
+	}
+
+	private sealed class DebugTally
+	{
+		internal int Stops { get; set; }
+
+		internal int Described { get; set; }
+
+		internal int Resumed { get; set; }
+
+		internal int Counted { get; set; }
+
+		public override string ToString() => FormattableString.Invariant($"{Stops} stops, {Described} frames described, {Resumed} resumes, {Counted} traces with flow");
+	}
+
+	// One damaged document run under the editor's debugger, driven through its protocol.
+	private sealed class DebuggedRound
+	{
+		// Formulas and conditions: valid ones, ones of names the fixtures may not have, and garbage.
+		private static readonly string[] s_Formulas = ["", "true", "1 + 1", "Index == 1", "Health < 0", "Count > 2", "x >", "\"a\" == 1", "Other != None"];
+
+		private static readonly string[] s_Actions = ["Continue", "StepInto", "StepOver", "StepOut"];
+
+		private readonly string m_Context;
+		private readonly DocumentMutator m_Mutator;
+		private readonly DebugTally m_Tally;
+		private readonly FakeEnvironment m_Environment = FuzzLibrary.CreateEnvironment();
+		private readonly VisualScriptRuntime m_Runtime;
+
+		internal DebuggedRound(string context, DocumentMutator mutator, DebugTally tally)
+		{
+			m_Context = context;
+			m_Mutator = mutator;
+			m_Tally = tally;
+			m_Runtime = new VisualScriptRuntime(m_Environment, () => FuzzLibrary.Library);
+		}
+
+		internal void Run(byte[] text)
+		{
+			m_Runtime.Load(Graph, Name, text);
+			if (m_Runtime.FindEffectiveProgram(Graph) is not { } program || m_Runtime.CreateInstance(Hero, Graph, []) != VisualScriptStatus.Success)
+			{
+				return;
+			}
+			Send("""{ "Command": "Attach" }""");
+			Send(Configuration(program));
+			Send(FormattableString.Invariant(
+				$$"""{ "Command": "Record", "Start": { "Entity": null, "Documents": null, "Nodes": null, "Values": true, "Summary": {{(m_Mutator.Pick(2) == 0 ? "true" : "false")}}, "MaxSteps": 200, "MaxValues": 200 } }"""));
+			int frame = 0;
+			foreach ((ScriptEvent scriptEvent, float timeStep, ulong other) in s_Events)
+			{
+				Send(FormattableString.Invariant($$"""{ "Command": "Record", "Frame": {{frame++}} }"""));
+				VisualScriptStatus status = m_Runtime.Invoke(Hero, scriptEvent, timeStep, other);
+				Check(status is VisualScriptStatus.Success or VisualScriptStatus.Failure or VisualScriptStatus.NotFound, $"Invoke {scriptEvent} answered {status}");
+				Inspect(program);
+				Resume();
+			}
+			Send("""{ "Command": "Record", "Stop": true }""");
+			m_Runtime.Invoke(Hero, ScriptEvent.Destroy, 0.0f, 0);
+			Inspect(program);
+			JsonElement detached = Send("""{ "Command": "Detach" }""");
+			Check(detached.TryGetProperty("Released", out _), $"Detach answered {detached}");
+		}
+
+		// Breakpoints on every node of the program's graphs with their Types, some disabled, some with a condition or a hit
+		// count; every graph watched; errors stop now and then; any instance.
+		private string Configuration(GraphProgram program)
+		{
+			List<string> breakpoints = [];
+			List<string> watches = [];
+			HashSet<(ulong, uint)> seen = [];
+			foreach (CompiledGraph graph in BreakpointConditions.GraphsOf(program))
+			{
+				ulong document = ProgramTrace.DocumentOf(graph, Graph);
+				watches.Add(FormattableString.Invariant($$"""{ "Document": "{{document}}", "Function": {{graph.Function?.Id ?? 0}} }"""));
+				foreach (CompiledNode node in graph.Nodes)
+				{
+					if (node.IsSplit || !seen.Add((document, node.Id)))
+					{
+						continue;
+					}
+					string condition = m_Mutator.Pick(4) == 0 ? s_Formulas[m_Mutator.Pick(s_Formulas.Length)] : string.Empty;
+					breakpoints.Add(FormattableString.Invariant(
+						$$"""{ "Document": "{{document}}", "Node": {{node.Id}}, "Type": {{RuntimeTesting.Quote(node.Type)}}, "Enabled": {{(m_Mutator.Pick(5) == 0 ? "false" : "true")}}, "Condition": {{RuntimeTesting.Quote(condition)}}, "HitCount": {{m_Mutator.Pick(3)}} }"""));
+				}
+			}
+			return FormattableString.Invariant(
+				$$"""{ "Command": "Configure", "Revision": 1, "Breakpoints": [{{string.Join(", ", breakpoints)}}], "Targets": [], "Watches": [{{string.Join(", ", watches.Distinct())}}], "BreakOnErrors": {{(m_Mutator.Pick(2) == 0 ? "true" : "false")}} }""");
+		}
+
+		// Every stop's frames described with formulas, the instance's values, the instances, the conditions' checks and the
+		// trace.
+		private void Inspect(GraphProgram program)
+		{
+			JsonElement state = Send("""{ "Command": "State" }""");
+			Check(state.TryGetProperty("Stops", out JsonElement stops), $"State answered {state}");
+			foreach (JsonElement stop in stops.EnumerateArray())
+			{
+				m_Tally.Stops++;
+				int id = stop.GetProperty("ID").GetInt32();
+				int frames = stop.GetProperty("Frames").GetArrayLength();
+				for (int frame = 0; frame <= frames; frame++)
+				{
+					string formula = s_Formulas[m_Mutator.Pick(s_Formulas.Length)];
+					JsonElement described = Send(FormattableString.Invariant(
+						$$"""{ "Command": "Describe", "Stop": {{id}}, "Frame": {{frame}}, "Evaluate": [{{RuntimeTesting.Quote(formula)}}, "Index"] }"""));
+					if (frame == frames)
+					{
+						Check(described.TryGetProperty("Code", out JsonElement code) && code.GetString() == "NotFound", $"Describe beyond the frames answered {described}");
+					}
+					else if (!described.TryGetProperty("Code", out _))
+					{
+						m_Tally.Described++;
+					}
+				}
+			}
+			string nodes = string.Join(", ", program.EventGraph.Nodes.Take(50).Select(static node => node.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+			if (m_Runtime.FindInstance(Hero) != null)
+			{
+				JsonElement values = Send($$"""{ "Command": "Values", "Entity": "{{Hero}}", "Nodes": [{{nodes}}], "Variables": true, "Timelines": true }""");
+				Check(values.TryGetProperty("Source", out _), $"Values answered {values}");
+			}
+			JsonElement instances = Send("""{ "Command": "Instances" }""");
+			Check(instances.TryGetProperty("Total", out _), $"Instances answered {instances}");
+			if (program.EventGraph.Nodes.Length > 0)
+			{
+				CompiledNode node = program.EventGraph.Nodes[m_Mutator.Pick(program.EventGraph.Nodes.Length)];
+				JsonElement check = Send(FormattableString.Invariant(
+					$$"""{ "Command": "CheckCondition", "Document": "{{Graph}}", "Node": {{node.Id}}, "Condition": {{RuntimeTesting.Quote(s_Formulas[m_Mutator.Pick(s_Formulas.Length)])}} }"""));
+				Check(check.TryGetProperty("Checked", out _), $"CheckCondition answered {check}");
+			}
+			HostReply trace = m_Runtime.TakeTrace();
+			Check(trace.Status == VisualScriptStatus.Success, $"TakeTrace answered {trace.Status}");
+			if (DebugTraceTests.Read(trace.Text!).Graphs.Length > 0)
+			{
+				m_Tally.Counted++;
+			}
+		}
+
+		// The stops resumed with random actions until none is left, within a bound (a breakpoint on every node stops often);
+		// what is left is continued all at once, then dismissed by Detach at the end.
+		private void Resume()
+		{
+			for (int resume = 0; resume < 40; resume++)
+			{
+				JsonElement state = Send("""{ "Command": "State" }""");
+				if (state.GetProperty("Current").ValueKind == JsonValueKind.Null)
+				{
+					return;
+				}
+				string action = s_Actions[m_Mutator.Pick(s_Actions.Length)];
+				JsonElement reply = Send($$"""{ "Command": "Resume", "Action": "{{action}}" }""");
+				if (reply.TryGetProperty("Outcome", out _))
+				{
+					m_Tally.Resumed++;
+				}
+				else
+				{
+					// Only a step of a read-only stop is refused.
+					Check(reply.GetProperty("Code").GetString() == "InvalidState", $"Resume {action} answered {reply}");
+					Send("""{ "Command": "Resume", "Action": "Continue" }""");
+				}
+			}
+			Send("""{ "Command": "Configure", "Revision": 2, "Breakpoints": [], "Targets": [], "Watches": [], "BreakOnErrors": false }""");
+			Send("""{ "Command": "Resume", "Action": "Continue", "All": true }""");
+		}
+
+		// The reply to a request: always a JSON object, never an exception.
+		private JsonElement Send(string request)
+		{
+			HostReply reply = m_Runtime.Debug(Encoding.UTF8.GetBytes(request));
+			Check(reply.Status == VisualScriptStatus.Success && reply.Text != null, $"{request} answered {reply.Status}");
+			using JsonDocument document = JsonDocument.Parse(reply.Text!);
+			JsonElement root = document.RootElement.Clone();
+			Check(root.ValueKind == JsonValueKind.Object, $"{request} answered {root}");
+			Check(!root.TryGetProperty("Code", out JsonElement code) || code.GetString() != "InvalidRequest", $"{request} was refused as malformed: {root}");
+			return root;
+		}
+
+		private void Check(bool condition, string what)
+		{
+			Assert.True(condition, $"{m_Context}: {what}");
+		}
+	}
+
 	private static bool IsJsonObject(byte[] text)
 	{
 		try

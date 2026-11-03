@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Strada.VisualScripting;
 
@@ -60,16 +61,39 @@ internal sealed class DebugStepRequest
 	internal CompiledNode? WaitsIn => Waiting && Root.Serial == RootSerial && Root.SuspendedAt >= 0 ? Root.TopFrame.Graph.Nodes[Root.SuspendedAt] : null;
 }
 
+// The last call frame of a watched function (spec-slice4 section 5.5): copies of its slots and stamps as the call returned,
+// its graph, and the entity whose execution made the call. Reused by the next call of the function.
+internal sealed class DebugLastFrame
+{
+	internal DebugLastFrame(CompiledGraph graph)
+	{
+		Graph = graph;
+		Slots = new Slot[graph.Template.Length];
+	}
+
+	internal CompiledGraph Graph { get; }
+
+	internal Slot[] Slots { get; }
+
+	internal ulong[]? Stamps { get; set; }
+
+	internal ulong Entity { get; set; }
+}
+
 // The editor's debugger in the VM (spec-slice4 section 7.5): the configuration and its version, the targets, the stops (at
-// most MaxStops at once) and the current one, the step request, the armed Break and Run to Node, and StopRevision, which
-// changes whenever a stop is made, resumed, migrated or ends and whenever the step request waits, ends or is cancelled. It
-// decides how each run is traced (section 3.2), stops executions at their breakpoints and steps (sections 2.2, 4.1 and 4.5),
-// snapshots them (section 5.1) and continues them (section 4.5). Main thread only, like the runtime.
+// most MaxStops at once) and the current one, the step request, the armed Break and Run to Node, the flow counted in watched
+// graphs and the last frames of watched functions, the recording, and StopRevision, which changes whenever a stop is made,
+// resumed, migrated or ends and whenever the step request waits, ends or is cancelled. It decides how each run is traced
+// (section 3.2), stops executions at their breakpoints and steps (sections 2.2, 4.1 and 4.5), snapshots them (section 5.1),
+// continues them (section 4.5) and counts the flow of Record runs (section 6.1). Main thread only, like the runtime.
 internal sealed class VisualScriptDebugger : IVisualScriptDebugger
 {
 	// Spec-slice4 section 4.7: the stops held at once, and the changes a stop lists.
 	internal const int MaxStops = 64;
 	internal const int MaxChanges = 64;
+	// Spec-slice4 section 6.1: the flow counters one graph and one take hold at most.
+	internal const int MaxGraphEntries = 8192;
+	internal const int MaxTakeEntries = 65_536;
 
 	private readonly VisualScriptRuntime m_Runtime;
 	private readonly List<DebugStop> m_Stops = [];
@@ -91,10 +115,29 @@ internal sealed class VisualScriptDebugger : IVisualScriptDebugger
 	private ulong m_BreakDocument;
 	// The armed Run to Node (section 2.5): a one-shot breakpoint in the tables.
 	private DebugBreakpoint? m_RunTo;
+	// The counters that fired since the last take, the take's sequence of first firings, its entries and the steps the caps
+	// dropped (section 6.1).
+	private readonly List<FlowCounters> m_Counted = [];
+	private readonly int m_GraphEntries;
+	private readonly int m_TakeEntries;
+	private uint m_Sequence;
+	private int m_Entries;
+	private uint m_Dropped;
+	// By document and function: the last call frame of each watched function (section 5.5).
+	private readonly Dictionary<(ulong Document, uint Function), DebugLastFrame> m_LastFrames = [];
 
 	internal VisualScriptDebugger(VisualScriptRuntime runtime)
+		: this(runtime, MaxGraphEntries, MaxTakeEntries)
+	{
+	}
+
+	// A debugger whose flow counters hold at most graphEntries per graph and takeEntries per take (the tests reach the caps
+	// with small graphs).
+	internal VisualScriptDebugger(VisualScriptRuntime runtime, int graphEntries, int takeEntries)
 	{
 		m_Runtime = runtime;
+		m_GraphEntries = graphEntries;
+		m_TakeEntries = takeEntries;
 	}
 
 	internal DebugConfiguration Configuration { get; private set; } = DebugConfiguration.Empty;
@@ -114,6 +157,9 @@ internal sealed class VisualScriptDebugger : IVisualScriptDebugger
 	internal DebugStepRequest? Stepping { get; private set; }
 
 	public bool Armed => Stepping != null || m_BreakArmed;
+
+	// graph.trace's recording while one is armed (Record Start to Stop).
+	internal DebugRecording? Recording { get; private set; }
 
 	// The configured breakpoints with their counters, in the configuration's order.
 	internal IEnumerable<DebugBreakpoint> Breakpoints
@@ -152,6 +198,11 @@ internal sealed class VisualScriptDebugger : IVisualScriptDebugger
 		m_Enabled = enabled;
 		Configuration = configuration;
 		m_Version++;
+		// The last frames of functions no window watches any more are stale from now on.
+		foreach ((ulong Document, uint Function) function in m_LastFrames.Keys.Where(key => !configuration.Watches.Contains(key)).ToList())
+		{
+			m_LastFrames.Remove(function);
+		}
 	}
 
 	public DebugMode Attach(Execution execution)
@@ -159,11 +210,16 @@ internal sealed class VisualScriptDebugger : IVisualScriptDebugger
 		// A step traces the executions of its chain whatever their instances (section 4.6, Send).
 		bool followed = Stepping != null && execution.RootSerial == Stepping.RootSerial;
 		bool tabled = m_Enabled.Count > 0 || m_RunTo != null;
-		if (!followed && !tabled && !m_BreakArmed && Configuration.Watches.Count == 0)
+		if (!followed && !tabled && !m_BreakArmed && Configuration.Watches.Count == 0 && Recording == null)
 		{
 			return DebugMode.None;
 		}
 		DebugMode mode = followed ? DebugMode.Break : DebugMode.None;
+		if (Recording != null && Recording.Admits(execution, this))
+		{
+			// A recording has a filter of its own (section 3.2, Values).
+			mode |= DebugMode.Values;
+		}
 		GraphInstance instance = execution.Instance;
 		if (!PassesTarget(instance))
 		{
@@ -274,17 +330,113 @@ internal sealed class VisualScriptDebugger : IVisualScriptDebugger
 
 	public void OnStep(Execution execution, CompiledNode node, int exit)
 	{
-		// This debugger keeps no flow: Record runs only stamp the frames they compute in.
+		if ((execution.Mode & DebugMode.Record) != 0 && node.Owner.Debug is { Counters: { } counters } && !node.IsSplit)
+		{
+			Count(counters, node.ExitBase + (exit >= 0 ? exit : node.Exits.Length));
+		}
+		if ((execution.Mode & DebugMode.Values) != 0)
+		{
+			Recording?.OnStep(execution, node, exit);
+		}
 	}
 
 	public void OnEvaluated(Execution execution, CompiledNode node, Slot[] slots)
 	{
-		// As OnStep: nothing is kept of a pure node's values but its stamp.
+		if ((execution.Mode & DebugMode.Record) != 0 && node.Owner.Debug is { Counters: { } counters } && !node.IsSplit)
+		{
+			// A pure node's evaluation counts in its extra counter.
+			Count(counters, node.ExitBase + node.Exits.Length);
+		}
+		if ((execution.Mode & DebugMode.Values) != 0)
+		{
+			Recording?.OnEvaluated(execution, node, slots);
+		}
 	}
 
+	// A watched function's call frame is copied as it returns (section 5.5): the last call wins.
 	public void OnFrameReleasing(Execution execution, Frame frame)
 	{
-		// No call frame is kept past its return.
+		CompiledGraph graph = frame.Graph;
+		if (graph.Debug is not { IsWatched: true } trace || !ReferenceEquals(trace.Owner, this))
+		{
+			return;
+		}
+		(ulong, uint) key = (trace.Document, trace.Function);
+		if (!m_LastFrames.TryGetValue(key, out DebugLastFrame? last) || !ReferenceEquals(last.Graph, graph))
+		{
+			last = new DebugLastFrame(graph);
+			m_LastFrames[key] = last;
+		}
+		Array.Copy(frame.Slots, last.Slots, last.Slots.Length);
+		if (frame.Stamps is { } stamps)
+		{
+			last.Stamps ??= new ulong[stamps.Length];
+			Array.Copy(stamps, last.Stamps, stamps.Length);
+		}
+		else if (last.Stamps != null)
+		{
+			Array.Clear(last.Stamps);
+		}
+		last.Entity = execution.Instance.Entity;
+	}
+
+	// The last call frame of a function of a document that returned since a window watched it; null when none did.
+	internal DebugLastFrame? FindLastFrame(ulong document, uint function) => m_LastFrames.GetValueOrDefault((document, function));
+
+	// A counter fired (section 6.1): its first firing in a take records the take's order and lists it, within the caps.
+	private void Count(FlowCounters counters, int counter)
+	{
+		uint[] counts = counters.Counts;
+		uint count = counts[counter];
+		if (count != 0)
+		{
+			counts[counter] = count == uint.MaxValue ? count : count + 1;
+			return;
+		}
+		if (counters.Touched.Count >= m_GraphEntries || m_Entries >= m_TakeEntries)
+		{
+			m_Dropped = m_Dropped == uint.MaxValue ? m_Dropped : m_Dropped + 1;
+			return;
+		}
+		counts[counter] = 1;
+		counters.FirstOrder[counter] = ++m_Sequence;
+		counters.Touched.Add(counter);
+		m_Entries++;
+		if (!counters.Listed)
+		{
+			counters.Listed = true;
+			m_Counted.Add(counters);
+		}
+	}
+
+	// VisualScriptTakeTrace (section 6.2): the block of what was counted since the last take, which starts the next one.
+	internal byte[] TakeTrace()
+	{
+		byte[] block = TraceBlock.Write(StopRevision, m_Dropped, m_Counted);
+		foreach (FlowCounters counters in m_Counted)
+		{
+			counters.Reset();
+		}
+		m_Counted.Clear();
+		m_Sequence = 0;
+		m_Entries = 0;
+		m_Dropped = 0;
+		return block;
+	}
+
+	// Record Start: a recording replaces the one armed before (whose steps are dropped); Values runs report to it from the
+	// next execution start or resume on.
+	internal void StartRecording(DebugRecordingSettings settings)
+	{
+		Recording = new DebugRecording(settings);
+	}
+
+	// Record Stop: the recording ends; null when none was armed.
+	internal DebugRecording? StopRecording()
+	{
+		DebugRecording? recording = Recording;
+		Recording = null;
+		return recording;
 	}
 
 	public void OnAborted(Execution execution)

@@ -323,6 +323,14 @@ public sealed class DebugChainTests
 		Assert.Equal(send, waiting.Node!.Id);
 		Assert.Null(waiting.Frames[0].Stamps);
 		Assert.NotNull(stop.Snapshot.Members[0].Frames[0].Stamps);
+		// Describe of the sender's frame: its values are of unknown currency, with nothing listed as computed.
+		JsonElement described = session.Describe(stop.Id, 1);
+		Assert.Equal(send, described.GetProperty("Node").GetProperty("ID").GetUInt32());
+		JsonElement[] inputs = [.. described.GetProperty("Node").GetProperty("Inputs").EnumerateArray()];
+		Assert.NotEmpty(inputs);
+		Assert.All(inputs, static input => Assert.Equal("Unknown", DebugSession.Text(input, "Currency")));
+		Assert.Empty(described.GetProperty("Computed").EnumerateArray());
+		Assert.Equal("Current", DebugSession.Text(session.Describe(stop.Id, 0).GetProperty("Node").GetProperty("Inputs")[0], "Currency"));
 		session.Continue();
 		Assert.Equal(["before", "pinged", "done", "after"], runtime.Records);
 	}

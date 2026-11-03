@@ -63,7 +63,11 @@ internal static class DebugRequest
 		}
 	}
 
-	internal static bool Has(JsonElement element, string name) => element.TryGetProperty(name, out _);
+	internal static bool Has(JsonElement element, string name, string path = "")
+	{
+		ExpectTextNames(element, path);
+		return element.TryGetProperty(name, out _);
+	}
 
 	internal static uint ReadUInt(JsonElement element, string name, string path)
 	{
@@ -111,6 +115,32 @@ internal static class DebugRequest
 		return value.ValueKind == JsonValueKind.Array ? value.EnumerateArray() : throw Invalid($"{Member(path, name)}: not an array");
 	}
 
+	// An array of unsigned 32-bit integers (node IDs).
+	internal static List<uint> ReadUIntArray(JsonElement element, string name, string path)
+	{
+		List<uint> numbers = [];
+		int index = 0;
+		foreach (JsonElement item in ReadArray(element, name, path))
+		{
+			string at = Index(Member(path, name), index++);
+			numbers.Add(item.ValueKind == JsonValueKind.Number && item.TryGetUInt32(out uint number) ? number
+				: throw Invalid($"{at}: not an unsigned 32-bit integer"));
+		}
+		return numbers;
+	}
+
+	// Whether a member that must be there is null.
+	internal static bool IsNull(JsonElement element, string name, string path) => Require(element, name, path).ValueKind == JsonValueKind.Null;
+
+	// A string element of an array; path names it.
+	internal static string TextOf(JsonElement element, string path) =>
+		element.ValueKind == JsonValueKind.String ? StringOf(element, path) : throw Invalid($"{path}: not a string");
+
+	// A handle element of an array; path names it.
+	internal static ulong HandleOf(JsonElement element, string path) => element.ValueKind == JsonValueKind.String &&
+		ulong.TryParse(StringOf(element, path), NumberStyles.None, CultureInfo.InvariantCulture, out ulong handle) ? handle
+		: throw Invalid($"{path}: not a decimal string of an unsigned 64-bit integer");
+
 	// The texts of the request: escapes of lone surrogates make no string (JsonElement throws InvalidOperationException).
 	private static string StringOf(JsonElement value, string member)
 	{
@@ -136,16 +166,30 @@ internal static class DebugRequest
 		}
 	}
 
-	private static JsonElement Require(JsonElement element, string name, string path) =>
-		element.TryGetProperty(name, out JsonElement value) ? value : throw Invalid($"{Member(path, name)}: missing");
+	private static JsonElement Require(JsonElement element, string name, string path)
+	{
+		ExpectTextNames(element, path);
+		return element.TryGetProperty(name, out JsonElement value) ? value : throw Invalid($"{Member(path, name)}: missing");
+	}
+
+	// A lookup by name reads every member name it passes, and throws at one that holds an escaped surrogate without its pair:
+	// an object's names are checked before any of its members is looked up.
+	private static void ExpectTextNames(JsonElement element, string path)
+	{
+		if (element.ValueKind == JsonValueKind.Object && !JsonText.HasTextNames(element))
+		{
+			throw Invalid(path.Length == 0 ? "a member's name: not valid Unicode text" : $"{path}: a member's name: not valid Unicode text");
+		}
+	}
 
 	private static DebugRequestException Invalid(string message) => new(DebugErrorCode.InvalidRequest, message);
 }
 
 // The commands of VisualScriptDebug (spec-slice4 section 7.8): a request is a JSON object { "Command": "<name>", ... }; the
 // reply is a JSON object, an error reply { "Error", "Code" } for anything refused. Handles and entities are decimal strings,
-// node, function and stop IDs integers. Commands: Attach, Detach, Configure, State, Resume, Break, RunTo and CheckCondition.
-internal static class DebugProtocol
+// node, function and stop IDs integers. Commands: Attach, Detach, Configure, State, Resume, Break, RunTo, CheckCondition,
+// and those that read values and instances (DebugInspection.cs): Describe, Values, Instances and Record.
+internal static partial class DebugProtocol
 {
 	private static readonly JsonDocumentOptions s_Options = new() { MaxDepth = 64 };
 
@@ -242,6 +286,18 @@ internal static class DebugProtocol
 				break;
 			case "CheckCondition":
 				CheckCondition(runtime, request, writer);
+				break;
+			case "Describe":
+				Describe(runtime, request, writer);
+				break;
+			case "Values":
+				Values(runtime, request, writer);
+				break;
+			case "Instances":
+				Instances(runtime, request, writer);
+				break;
+			case "Record":
+				Record(runtime, request, writer);
 				break;
 			default:
 				throw new DebugRequestException(DebugErrorCode.InvalidRequest, $"Command: unknown command {JsonText.Quote(command)}");
@@ -528,8 +584,14 @@ internal static class DebugProtocol
 		writer.WriteString("Message", stop.Message);
 		writer.WriteBoolean("Migrated", stop.Migrated);
 		writer.WriteStartArray("Changed");
+		// Variables by name and outputs by node and pin: members of several instances may have seen the same ones change.
+		HashSet<(uint, string)> listed = [];
 		foreach (DebugChange change in stop.Changed)
 		{
+			if (!listed.Add((change.Node, change.Name)))
+			{
+				continue;
+			}
 			writer.WriteStartObject();
 			writer.WriteNumber("Node", change.Node);
 			writer.WriteString("Name", change.Name);
