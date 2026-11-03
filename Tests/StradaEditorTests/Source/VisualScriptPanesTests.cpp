@@ -217,7 +217,7 @@ namespace
 								 });
 						break;
 					case FixturePane::Details:
-						DrawPane("Details", DetailsPosition, DetailsSize,
+						DrawPane("Details", DetailsPosition, DetailsWindowSize,
 						         [this](VisualScriptPaneContext& context)
 						         {
 									 return Details.Draw(context);
@@ -338,6 +338,8 @@ namespace
 		static constexpr ImVec2 FindBarSize{600.0f, 60.0f};
 		static constexpr ImVec2 DetailsPosition{760.0f, 0.0f};
 		static constexpr ImVec2 DetailsSize{440.0f, 900.0f};
+		// The size Details is drawn at (DetailsSize unless a test narrows the pane).
+		ImVec2 DetailsWindowSize = DetailsSize;
 
 		struct
 		{
@@ -3128,13 +3130,118 @@ TEST_CASE("VisualScriptEditor: a formula's problems show under it as caret block
 	REQUIRE(state != nullptr);
 	CHECK(state->GetSelectionStart() == 8);
 	CHECK(state->GetSelectionEnd() == 11);
-	// Typing replaces the part.
+	// Typing replaces the part. The typing gets a frame of its own, as keystrokes do: queued with the chord, ImGui reads the
+	// characters with Ctrl held, and ignores them, unless the field asked for text input in the frame before (it trickles them
+	// apart only then, imgui.cpp:11286), which this word-wrapped field does from the frame after it took the selection.
 	size_t const undo = fixture.GetUndoCount();
 	fixture.ImGui.Type("sin");
+	fixture.Frames(1);
 	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_Enter, fixture.Drawer());
 	fixture.Frames(2);
 	CHECK(fixture.GetUndoCount() == undo + 1);
 	CHECK(GetFormula(fixture.GetDocument()) == "a * b + sin(t)");
+}
+
+TEST_CASE("VisualScriptEditor: the Formula field wraps long lines at its width and grows with the lines it shows, up to eight")
+{
+	// One line of 36 terms, too wide for the field, and one too long for eight wrapped lines.
+	std::string longFormula = "a";
+	for (int term = 0; term < 35; term++)
+	{
+		longFormula += " + a";
+	}
+	std::string longestFormula = longFormula;
+	for (int round = 0; round < 3; round++)
+	{
+		longestFormula += " + " + longestFormula;
+	}
+	PaneFixture fixture(MakeFormulaDocument(longFormula), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	float const lineHeight = ImGui::GetTextLineHeight();
+	float const padding = ImGui::GetStyle().FramePadding.y * 2.0f;
+	auto const shownLines = [&]
+	{
+		std::optional<std::pair<glm::vec2, glm::vec2>> const row = fixture.Details.FindRow("Formula");
+		REQUIRE(row);
+		return (row->second.y - row->first.y - padding) / lineHeight;
+	};
+	float const lines = shownLines();
+	CHECK(lines > 3.5f);
+	CHECK(lines < 8.5f);
+
+	// The field wraps where the line count assumed it does, so no part of a line is out of view to the right.
+	std::optional<std::pair<glm::vec2, glm::vec2>> const row = fixture.Details.FindRow("Formula");
+	REQUIRE(row);
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_End, fixture.Drawer());
+	fixture.Frames(2);
+	ImGuiInputTextState const* const state = ImGui::GetInputTextState(GImGui->ActiveId);
+	REQUIRE(state != nullptr);
+	CHECK((state->Flags & ImGuiInputTextFlags_WordWrap) != 0);
+	ImGuiStyle const& style = ImGui::GetStyle();
+	// Within the pixel the field's frame rounds its width to.
+	CHECK(std::abs(state->WrapWidth - (row->second.x - row->first.x - style.FramePadding.x - style.ScrollbarSize)) <= 1.0f);
+	CHECK(state->Scroll.x == 0.0f);
+	// Wrapping changes no offset: the cursor at the end is at the text's last byte.
+	CHECK(state->GetCursorPos() == static_cast<int>(longFormula.size()));
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+
+	// A narrower pane wraps into more lines; a formula of more lines than eight shows eight and scrolls.
+	fixture.DetailsWindowSize = ImVec2(PaneFixture::DetailsSize.x * 0.75f, PaneFixture::DetailsSize.y);
+	fixture.Frames(2);
+	CHECK(shownLines() > lines + 0.5f);
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, MakeFormulaDocument(longestFormula)).IsOk());
+	fixture.Frames(2);
+	CHECK(shownLines() == doctest::Approx(8.0f).epsilon(0.01));
+	// Short formulas keep three lines.
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, MakeFormulaDocument("a + b")).IsOk());
+	fixture.Frames(2);
+	CHECK(shownLines() == doctest::Approx(3.0f).epsilon(0.01));
+}
+
+TEST_CASE("VisualScriptEditor: Details' node header ellipsizes a subtitle too long for the pane, and its tooltip shows it whole")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(
+		MakeNode(4, "Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)", glm::vec2(0.0f, 600.0f)));
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({4});
+	std::string const subtitle = "Target is Rigid Body";
+	CHECK(fixture.Details.GetRowText("Subtitle") == std::optional<std::string>(subtitle));
+
+	// Narrowed until the subtitle has no room for itself on the title's line: it ends at the pane's edge, ellipsized.
+	fixture.DetailsWindowSize = ImVec2(180.0f, PaneFixture::DetailsSize.y);
+	fixture.Frames(3);
+	std::optional<std::string> const shown = fixture.Details.GetRowText("Subtitle");
+	REQUIRE(shown);
+	CAPTURE(*shown);
+	CHECK(*shown != subtitle);
+	CHECK(shown->ends_with(UI::GetEllipsis()));
+	CHECK(subtitle.starts_with(shown->substr(0, shown->size() - UI::GetEllipsis().size())));
+	std::optional<std::pair<glm::vec2, glm::vec2>> const rect = fixture.Details.FindRow("Subtitle");
+	REQUIRE(rect);
+	ImGuiWindow const* const details = ImGui::FindWindowByName("Details");
+	REQUIRE(details != nullptr);
+	CHECK(rect->second.x <= details->ContentRegionRect.Max.x + 0.5f);
+	// So is the node's type on the line below, before its Copy button.
+	std::optional<std::string> const identity = fixture.Details.GetRowText("Node Type");
+	REQUIRE(identity);
+	CHECK(identity->starts_with("Node 4"));
+	CHECK(identity->ends_with(UI::GetEllipsis()));
+	std::optional<std::pair<glm::vec2, glm::vec2>> const identityRect = fixture.Details.FindRow("Node Type");
+	REQUIRE(identityRect);
+	CHECK(identityRect->second.x <= details->ContentRegionRect.Max.x + 0.5f);
+
+	// Rested on, it shows whole in the tooltip.
+	ImGui::GetIO().AddMousePosEvent((rect->first.x + rect->second.x) * 0.5f, (rect->first.y + rect->second.y) * 0.5f);
+	fixture.Frames(30);
+	ImGuiWindow const* const tooltip = ImGui::FindWindowByName("##Tooltip_00");
+	REQUIRE(tooltip != nullptr);
+	CHECK(tooltip->Active);
+	CHECK(tooltip->ContentSize.x >= ImGui::CalcTextSize(subtitle.c_str()).x - 1.0f);
 }
 
 TEST_CASE("VisualScriptEditor: a caret block marks the line of its span with tabs as four columns, and Edit Formula selects the span")

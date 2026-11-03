@@ -73,7 +73,8 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
   `BuiltInTitles` (`VisualScriptNodeTitlesTests.cpp`); a new API member that does not run on its defaults has a recipe.
 - A changed library entry, or a changed type `Tests/Data/VisualScripting/Editor/Library.json` holds, regenerates that
   fixture from the parity test's expected file in the same change.
-- No L2a file of the visual script editor includes an L3 header (but the shared `VisualScriptTimeline.h`).
+- The visual script editor's L2a and L3 include nothing of each other; the one exception is L3's
+  `VisualScriptCurveView` including L2a's `VisualScriptTimeline.h`.
 - Portability no Windows build shows: elements are removed with `std::erase_if` or `std::remove_if`, never a
   hand-written move loop, and nothing is move-assigned to itself (libstdc++ and libc++ empty a self-moved string, MSVC
   does not); a nested struct with default member initializers held in a `std::optional` member and created with
@@ -81,7 +82,9 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
   headless tests send modifiers through `HeadlessImGui::Chord` or `SetModifiers` and set the scroll mode explicitly
   (macOS swaps Ctrl and Super and defaults to Pan); no reference is bound to a result reached through a temporary (GCC 13
   `-Wdangling-reference`); numbers are read as documents are read (ParseJson, then `VisualScriptSerializer::ReadFloat`),
-  never with floating-point `std::from_chars`, which Apple's libc++ lacks at the deployment target.
+  never with floating-point `std::from_chars`, which Apple's libc++ lacks at the deployment target; a lambda's locals
+  and parameters are named apart from the locals of the function around it, captured or not (GCC `-Wshadow` warns,
+  Clang and MSVC do not: run `build/smoke/shadow_check.py` where no GCC is at hand).
 
 **Architecture**
 - Module layering from `Docs/Architecture.md` §4 is respected; public headers avoid third-party includes where

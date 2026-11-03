@@ -1548,8 +1548,9 @@ it), gives it to every selected entity as one undo step named "Create Visual Scr
 inspector's primary entity as the context entity; without an asset directory the button is disabled with a tooltip.
 
 - **Layers** (all in `StradaEditor/Source/Editor/VisualScripting/` but the panel, which is in `Editor/Panels/`; each
-  includes only layers below it, everything runs on the main thread, and L1 to L3b include no ImGui and are tested with
-  plain doctest cases):
+  includes only layers below it, everything runs on the main thread except the serializer, the text writer, `Validate`
+  and the pure document edits, which run on any thread (their headers say so), and L1 to L3b include no ImGui and are
+  tested with plain doctest cases):
 
   | Layer | What |
   |-------|------|

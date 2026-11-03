@@ -349,35 +349,6 @@ namespace Strada
 			return gesture != nullptr ? FormatVisualScriptMouseGesture(*gesture, ImGui::GetIO().ConfigMacOSXBehaviors) : std::string();
 		}
 
-		// The longest start of the text that fits the width with an ellipsis after it (whole code points), or the text itself
-		// when it fits.
-		std::string FitText(std::string_view text, float width)
-		{
-			if (ImGui::CalcTextSize(text.data(), text.data() + text.size()).x <= width)
-			{
-				return std::string(text);
-			}
-			std::string const ellipsis = UI::GetEllipsis();
-			float const available = width - ImGui::CalcTextSize(ellipsis.c_str()).x;
-			size_t length = 0;
-			size_t next = 0;
-			while (next < text.size())
-			{
-				size_t end = next + 1;
-				while (end < text.size() && (static_cast<unsigned char>(text[end]) & 0xC0u) == 0x80u)
-				{
-					end++;
-				}
-				if (ImGui::CalcTextSize(text.data(), text.data() + end).x > available)
-				{
-					break;
-				}
-				length = end;
-				next = end;
-			}
-			return std::string(text.substr(0, length)) + ellipsis;
-		}
-
 		ImVec2 ToImVec2(glm::vec2 value)
 		{
 			return ImVec2(value.x, value.y);
@@ -1902,9 +1873,10 @@ namespace Strada
 			float const textRoom = std::max(breadcrumbWidth - chevron - listWidth, 0.0f);
 			float const scriptRoom = std::max(textRoom - graphNeeded, std::min(textRoom * 0.5f, fontSize * 2.0f));
 			std::string const scriptShown =
-				whole ? scriptText : FitText(scriptText, std::max(scriptRoom - style.FramePadding.x * 2.0f, 0.0f));
+				whole ? scriptText : UI::FitText(scriptText, std::max(scriptRoom - style.FramePadding.x * 2.0f, 0.0f));
 			float const graphRoom = std::max(textRoom - textButtonWidth(scriptShown), 0.0f);
-			std::string const graphShown = whole ? graphText : FitText(graphText, std::max(graphRoom - style.FramePadding.x * 2.0f, 0.0f));
+			std::string const graphShown =
+				whole ? graphText : UI::FitText(graphText, std::max(graphRoom - style.FramePadding.x * 2.0f, 0.0f));
 			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
 			// A function library shows its first function: it has no event graph to show.
 			VisualScriptDocument const& shown = m_Model.GetDisplayDocument();
@@ -2137,7 +2109,7 @@ namespace Strada
 		};
 		std::string const full = "Instance: " + (m_ContextEntity.IsValid() ? nameOf(m_ContextEntity) : std::string("None"));
 		ImGuiStyle const& style = ImGui::GetStyle();
-		std::string const shown = FitText(full, std::max(width - ImGui::GetFrameHeight() - style.FramePadding.x * 2.0f, 0.0f));
+		std::string const shown = UI::FitText(full, std::max(width - ImGui::GetFrameHeight() - style.FramePadding.x * 2.0f, 0.0f));
 		float const comboWidth = std::max(width, ImGui::GetFrameHeight());
 		ImVec2 const lower = ImGui::GetCursorScreenPos();
 		// Recorded from the layout: an open combo's popup is the last item once BeginCombo returns.

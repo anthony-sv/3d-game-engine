@@ -1333,4 +1333,11 @@ the scripting API they run on, also without C# scripts. Players of games with C#
 - `Projects/FeatureTest`: scenes whose scripts use every component and the whole API, and graphs that use every kind of
   built-in node and every `[VisualNode]` member of its scripts (`Assets/Scripts/Features.sgraph`, which calls the function
   library `MathLibrary.sgraph`, sends to and reads the variables of `Contacts.sgraph`, and `Clicks.sgraph`), checked as a
-  test run. The engine's tests also run every node of the node library on its own (`VisualScriptNodeCoverageTests`).
+  test run. The engine's tests also run every node of the node library on its own: every node must analyze and run in
+  `Tests/StradaTests/Source/Script/VisualScriptNodeCoverageTests.cpp`. When a new API member or built-in node kind does
+  not run on its defaults, it gets a recipe there (`Recipe(type)` with the inputs, settings, components, held keys,
+  frames or expected error or log it needs), a `MemberTypeRecipes` entry for what every member of its type needs, or a
+  checked exclusion naming a graph the FeatureTest scenes run that holds an enabled node of that type linked into flow.
+  A new built-in node kind, or a new `[VisualNode]` member of the FeatureTest scripts, fails the engine's tests until
+  `build_features` in `Projects/FeatureTest/Tools/AuthorGraphs.py` uses it: run that tool and update `FeaturesChecks`
+  in `Projects/FeatureTest/Scripts/Source/VisualScriptTests.cs`.

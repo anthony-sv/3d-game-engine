@@ -252,16 +252,24 @@ TEST_CASE("VisualScriptEditor: the breadcrumb shows the script's and the sub-gra
 		{
 			fixture.SetUIScale(scale);
 		}
+		fixture.CheckDrawingChangesNothing();
+		size_t const undo = fixture.GetUndoCount();
 		for (std::string_view const name : scripts)
 		{
 			std::string const script(name);
 			CAPTURE(script);
-			REQUIRE(
-				VisualScriptSerializer::SaveToFile(document, AssetManager::GetAssetDirectory() / "Scripts" / (script + ".sgraph")).IsOk());
+			std::filesystem::path const file = AssetManager::GetAssetDirectory() / "Scripts" / (script + ".sgraph");
+			REQUIRE(VisualScriptSerializer::SaveToFile(document, file).IsOk());
 			REQUIRE(fixture.Operations.RefreshAssets().IsOk());
 			AssetHandle const graph = AssetManager::FindByPath("Scripts/" + script + ".sgraph");
 			REQUIRE(graph.IsValid());
 			fixture.Reopen(graph);
+			// The panel invariant for the reopened window: opening it and going through its sub-graphs changes no undo
+			// count, no byte of its file and no version of its asset.
+			CHECK(fixture.GetUndoCount() == undo);
+			Result<std::string> const bytes = FileSystem::ReadTextFile(file);
+			REQUIRE(bytes.IsOk());
+			uint64_t const version = AssetManager::GetAsset<VisualScriptAsset>(graph)->GetVersion();
 			for (size_t index = 0; index <= functions.size(); index++)
 			{
 				std::string const shownName = index == 0 ? std::string("Event Graph") : std::string(functions[index - 1]);
@@ -289,9 +297,15 @@ TEST_CASE("VisualScriptEditor: the breadcrumb shows the script's and the sub-gra
 				CHECK(scriptHovered);
 				CHECK(graphHovered);
 			}
+			CHECK(fixture.GetUndoCount() == undo);
+			Result<std::string> const after = FileSystem::ReadTextFile(file);
+			REQUIRE(after.IsOk());
+			CHECK(after.GetValue() == bytes.GetValue());
+			CHECK(AssetManager::GetAsset<VisualScriptAsset>(graph)->GetVersion() == version);
 		}
 	}
 }
+
 TEST_CASE("VisualScriptEditor: an auto-hidden Details opens over the canvas from its toggle and from a double-click on a node "
           "header, and Escape closes it")
 {

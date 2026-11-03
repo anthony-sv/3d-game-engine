@@ -82,6 +82,9 @@ namespace Strada
 		// to half of the room, its end with the extension ("Oak_...or.png"); never cuts a UTF-8 character. Paths that fit
 		// come back unchanged. Inside an ImGui frame.
 		std::string FitPath(std::string_view path, float maxWidth);
+		// The longest start of the text that fits maxWidth at the current font with GetEllipsis() after it (whole code points,
+		// at least the ellipsis), or the text itself when it fits. Inside an ImGui frame.
+		std::string FitText(std::string_view text, float maxWidth);
 
 		// Menu items for every entity preset (EntityPresets::GetMenu: Core's directly, the other categories as submenus);
 		// returns the preset chosen this frame. openSubmenu, a category, opens its submenu as if the user pointed at it (it

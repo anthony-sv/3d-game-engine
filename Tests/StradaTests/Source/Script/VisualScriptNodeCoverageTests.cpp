@@ -154,8 +154,11 @@ namespace
 		// Neutral values for members with global effects, which run alone: the defaults would stop the case's own scene.
 		Recipe("Set:Strada.Time.TimeScale").WithInputs(R"({"Value": 1.0})"),
 		Recipe("Set:Strada.Physics.Gravity").WithInputs(R"({"Value": [0.0, -9.81, 0.0]})"),
-		// Members that end the test run or replace the scene ask the application, which the test's host records.
+		// Members that end the test run or replace the scene ask the application, which the test's host records. Each runs
+		// alone (SceneManager's and Application's by their types), so a batch that runs again case by case to attribute a
+		// message never asks the host twice.
 		Recipe("Call:Strada.SceneManager.LoadScene(string)").WithInputs(R"({"Path": "Scenes/Second.sscene"})"),
+		Recipe("Call:Strada.Testing.TestReporter.Finish()").WithAlone(),
 		// Members that log by design, naming no entity: each runs alone, so what it logs is its own.
 		Recipe("Call:Strada.Log.Warn(string)")
 			.WithInputs(R"({"Message": "Coverage warning"})")

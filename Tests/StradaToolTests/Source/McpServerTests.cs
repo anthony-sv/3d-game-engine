@@ -38,8 +38,9 @@ public sealed class McpServerTests
 		Assert.Contains("graph_check", instructions);
 		Assert.Contains("graph_set", instructions);
 		// graph_edit is how agents author graphs, graph_arrange lays them out, graph_copy feeds graph_edit's Paste and
-		// graph_interface tells what a graph offers other graphs.
-		Assert.Contains("graph_edit", instructions);
+		// graph_interface tells what a graph offers other graphs. graph_edit is matched as a word of its own, because
+		// "graph_editors" holds it.
+		Assert.Matches(@"\bgraph_edit\b", instructions);
 		Assert.Contains("graph_arrange", instructions);
 		Assert.Contains("graph_copy", instructions);
 		Assert.Contains("graph_interface", instructions);

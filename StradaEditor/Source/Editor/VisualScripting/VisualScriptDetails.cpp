@@ -54,6 +54,35 @@ namespace Strada
 		// The Formula field shows 3 to 8 lines, growing with its text.
 		constexpr int FormulaMinLines = 3;
 		constexpr int FormulaMaxLines = 8;
+
+		// The lines a multi-line field with ImGuiInputTextFlags_WordWrap shows the text in, at the current font: each line of
+		// the text wrapped where InputTextMultiline wraps it, counted as it counts them (imgui_widgets.cpp:4660-4667 and
+		// :4694-4700). Its wrap width is the field's width less its left padding and a scrollbar's width (:4802, :4843).
+		int CountWrappedLines(std::string_view text, float wrapWidth)
+		{
+			ImGuiContext const& context = *ImGui::GetCurrentContext();
+			char const* const begin = text.data();
+			char const* const end = begin + text.size();
+			int lines = 0;
+			char const* position = begin;
+			while (position < end)
+			{
+				lines++;
+				char const* next = ImFontCalcWordWrapPositionEx(context.Font, context.FontSize, position, end, std::max(wrapWidth, 1.0f),
+				                                                ImDrawTextFlags_WrapKeepBlanks);
+				if (next <= position && *position != '\n')
+				{
+					// Always at least one character a line.
+					next = position + 1;
+				}
+				position = next < end && *next == '\n' ? next + 1 : next;
+			}
+			if (lines == 0 || end[-1] == '\n')
+			{
+				lines++;
+			}
+			return lines;
+		}
 		// A tab of a formula takes this many columns in a caret block.
 		constexpr size_t FormulaTabColumns = 4;
 
@@ -1176,10 +1205,30 @@ namespace Strada
 		ImGui::TextUnformatted(title.c_str());
 		if (!subtitle.empty())
 		{
+			// On the title's line, ellipsized to the room left of the pane's edge (an Expression's subtitle is its formula); the
+			// whole subtitle in its tooltip.
 			ImGui::SameLine();
-			ImGui::TextDisabled("%s", subtitle.c_str());
+			std::string const shown = UI::FitText(subtitle, std::max(ImGui::GetContentRegionAvail().x, 0.0f));
+			ImGui::TextDisabled("%s", shown.c_str());
+			EndRow("Subtitle");
+			m_RowTexts.emplace_back("Subtitle", shown);
+			if (shown != subtitle && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+			{
+				ImGui::SetTooltip("%s", subtitle.c_str());
+			}
 		}
-		ImGui::TextDisabled("%s", fmt::format("Node {} \xC2\xB7 {}", node.ID, node.Type).c_str());
+		// The node's type (a member's whole signature) is ellipsized to the room before Copy, whole in its tooltip.
+		ImGuiStyle const& style = ImGui::GetStyle();
+		std::string const identity = fmt::format("Node {} \xC2\xB7 {}", node.ID, node.Type);
+		float const copyWidth = ImGui::CalcTextSize("Copy").x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
+		std::string const shownIdentity = UI::FitText(identity, std::max(ImGui::GetContentRegionAvail().x - copyWidth, 0.0f));
+		ImGui::TextDisabled("%s", shownIdentity.c_str());
+		EndRow("Node Type");
+		m_RowTexts.emplace_back("Node Type", shownIdentity);
+		if (shownIdentity != identity && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+		{
+			ImGui::SetTooltip("%s", identity.c_str());
+		}
 		ImGui::SameLine();
 		ViewScope const view(frame.ReadOnly, frame.ViewDepth);
 		if (ImGui::SmallButton("Copy"))
@@ -1957,18 +2006,22 @@ namespace Strada
 		}
 		std::string shown = current;
 		std::string& buffer = editing ? m_Formula->Text : shown;
-		int const lines =
-			std::clamp(static_cast<int>(std::count(buffer.begin(), buffer.end(), '\n')) + 1, FormulaMinLines, FormulaMaxLines);
-		float const height = ImGui::GetTextLineHeight() * static_cast<float>(lines) + ImGui::GetStyle().FramePadding.y * 2.0f;
 		ImFont* const monospace = context.Services.MonospaceFont;
 		BeginRow("Formula");
 		if (monospace != nullptr)
 		{
 			ImGui::PushFont(monospace, 0.0f);
 		}
-		// Ctrl+Enter commits (Enter adds a line); the callback selects a requested span once the field has the keyboard.
+		// The field grows with the lines it shows, long lines wrapped at its width, from FormulaMinLines to FormulaMaxLines.
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const wrapWidth = ImGui::GetContentRegionAvail().x - style.FramePadding.x - style.ScrollbarSize;
+		int const lines = std::clamp(CountWrappedLines(buffer, wrapWidth), FormulaMinLines, FormulaMaxLines);
+		float const height = ImGui::GetTextLineHeight() * static_cast<float>(lines) + style.FramePadding.y * 2.0f;
+		// Ctrl+Enter commits (Enter adds a line); the callback selects a requested span once the field has the keyboard. Wrapping
+		// changes no byte offset, so the caret blocks and the selected span stay those of the text.
 		bool const entered = ImGui::InputTextMultiline("##formula", &buffer, ImVec2(-FLT_MIN, height),
-		                                               ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackAlways,
+		                                               ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackAlways |
+		                                                   ImGuiInputTextFlags_WordWrap,
 		                                               SelectFormulaSpan, editing ? &m_Formula->Select : nullptr);
 		bool const active = ImGui::IsItemActive();
 		bool const activated = ImGui::IsItemActivated();

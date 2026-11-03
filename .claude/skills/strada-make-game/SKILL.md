@@ -227,9 +227,9 @@ Errors and what to do:
   `Strada.Color`; `exec` event tracks). Set it with the `SetTimeline` operation (`renames` keeps renamed tracks' links);
   play it from `Event.Create` (`PlayFromStart`) and use its `Update`, `Finished` and track outputs.
 - Your own nodes: mark a public member of the game's C# scripts `[VisualNode]` (`Title`, `Category`, `Description`,
-  `Keywords`, `Pure`, `FormerNames`), `script_build`, then `graph_library` with `category` `Game`: its `nodes` are the
-  members that became nodes and its `notes` say why the others did not (a `ref` parameter, a `Task` result, ...). Then use
-  them with `graph_edit` like any node. Members cannot make a graph wait: give graphs a property to wait on.
+  `Keywords`, `Pure`, `FormerNames`), `script_build`, then `graph_library` with `category` `Game` (or the `Category` you
+  gave, or a `query` of the member's name): its `nodes` are the members that became nodes and its `notes` say why the
+  others did not (a `ref` parameter, a `Task` result, ...). Then use them with `graph_edit` like any node. Members cannot make a graph wait: give graphs a property to wait on.
 - Several behaviors: one graph per entity, so put further behaviors on child entities with VisualScript components of
   their own. C# scripts use `VisualScriptComponent` (`SendEvent`, `HasVariable`, `GetVariable<T>`, `SetVariable<T>`,
   `Graph`).
