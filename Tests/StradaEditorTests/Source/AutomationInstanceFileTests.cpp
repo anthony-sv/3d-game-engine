@@ -214,20 +214,34 @@ TEST_CASE("AutomationInstanceFile: the first write is retried, a change back nee
 	CHECK(CountLogged(firstLog, LogLevel::Error, FailureText) == 1);
 	CHECK(CountLogged(firstLog, LogLevel::Info, "after 1 failed attempt: it names no project") == 1);
 
-	// A change that fails, then a change back to what the file states: nothing is left to write.
+	// A change that fails, then a change back to what the file states: nothing is left to write, and the streak ends.
 	files.FailuresLeft = 1;
 	instanceFile.Update("C:/Games/B/B.sproj");
 	CHECK(instanceFile.IsPending());
+	CHECK(CountLogged(firstLog, LogLevel::Error, FailureText) == 2);
+	files.Time += std::chrono::milliseconds(30);
 	instanceFile.Update("");
 	CHECK_FALSE(instanceFile.IsPending());
-	files.Time += AutomationInstanceFile::RetryInterval;
-	instanceFile.Update("");
 	CHECK(files.Attempts.size() == 3);
 	CHECK(files.GetFileProject().empty());
+	CHECK(CountLogged(firstLog, LogLevel::Info, "names no project again after 1 failed attempt") == 1);
+
+	// The streak's deadline went with it: a later change is written at once, and its failure starts a new streak, logged again.
+	files.FailuresLeft = 1;
+	instanceFile.Update("C:/Games/D/D.sproj");
+	CHECK(files.Attempts.size() == 4);
+	CHECK(instanceFile.IsPending());
+	CHECK(CountLogged(firstLog, LogLevel::Error, FailureText) == 3);
+	files.Time += AutomationInstanceFile::RetryInterval;
+	instanceFile.Update("C:/Games/D/D.sproj");
+	CHECK(files.Attempts.size() == 5);
+	CHECK(files.GetFileProject() == "C:/Games/D/D.sproj");
+	// The recovery counts only its own streak's failure.
+	CHECK(CountLogged(firstLog, LogLevel::Info, "after 1 failed attempt: it names the project 'C:/Games/D/D.sproj'") == 1);
 
 	// Stopping while a retry waits removes the file and drops the retry.
 	files.FailuresLeft = 1;
-	instanceFile.Update("C:/Games/D/D.sproj");
+	instanceFile.Update("C:/Games/E/E.sproj");
 	REQUIRE(instanceFile.IsPending());
 	instanceFile.Stop();
 	CHECK(files.Removed == std::vector<uint32_t>{Platform::GetProcessID()});
@@ -235,8 +249,33 @@ TEST_CASE("AutomationInstanceFile: the first write is retried, a change back nee
 	CHECK_FALSE(instanceFile.IsPending());
 	CHECK_FALSE(instanceFile.GetWritten().has_value());
 	files.Time += AutomationInstanceFile::RetryInterval;
-	instanceFile.Update("C:/Games/D/D.sproj");
-	CHECK(files.Attempts.size() == 4);
+	instanceFile.Update("C:/Games/E/E.sproj");
+	CHECK(files.Attempts.size() == 6);
+	CHECK_FALSE(files.File.has_value());
+}
+
+TEST_CASE("AutomationInstanceFile: stopping before any write succeeded still removes the file")
+{
+	FakeInstanceFiles files;
+	AutomationInstanceFile instanceFile(files.MakeServices());
+
+	// A stale file of an earlier process with the same ID is what the failed first write could not replace.
+	files.File = MakeInfo("C:/Games/Stale/Stale.sproj");
+	files.FailuresLeft = 1;
+	instanceFile.Start(MakeInfo("C:/Games/A/A.sproj"));
+	REQUIRE(instanceFile.IsPending());
+	REQUIRE_FALSE(instanceFile.GetWritten().has_value());
+
+	instanceFile.Stop();
+	CHECK(files.Removed == std::vector<uint32_t>{Platform::GetProcessID()});
+	CHECK_FALSE(files.File.has_value());
+	CHECK_FALSE(instanceFile.IsStarted());
+	CHECK_FALSE(instanceFile.IsPending());
+
+	// The dropped retry never runs.
+	files.Time += AutomationInstanceFile::RetryInterval;
+	instanceFile.Update("C:/Games/A/A.sproj");
+	CHECK(files.Attempts.size() == 1);
 	CHECK_FALSE(files.File.has_value());
 }
 

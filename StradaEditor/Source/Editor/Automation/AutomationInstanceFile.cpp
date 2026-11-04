@@ -69,6 +69,14 @@ namespace Strada
 			// A change back to what the file states needs no write; otherwise a retry that waits keeps its deadline and
 			// writes the newest project.
 			m_IsPending = !m_Written || m_Written->Project != project;
+			if (!m_IsPending && m_FailedWrites > 0)
+			{
+				// The change back ends the streak: its error is closed here, a later failure starts a new one (logged again),
+				// and a later change is written at once.
+				ST_INFO("The automation instance file names {} again after {} failed {}: no write is needed", DescribeProject(project),
+				        m_FailedWrites, m_FailedWrites == 1 ? "attempt" : "attempts");
+				m_FailedWrites = 0;
+			}
 		}
 		if (!m_IsPending)
 		{

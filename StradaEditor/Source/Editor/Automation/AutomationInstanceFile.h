@@ -26,7 +26,8 @@ namespace Strada
 	// the file. A write can fail: on Windows the atomic replace fails while another process has the file open (as the strada
 	// tool's scans do). A failed write is retried on later updates, at most every RetryInterval, until one succeeds, and an
 	// update always writes the newest project. What the file states (GetWritten) changes only when a write succeeds. A
-	// streak of failures is logged once, as an error, and the success that ends it once, at info. Main thread.
+	// streak of failures is logged once, as an error, and what ends it once, at info: the success, or a change back to the
+	// project the file states. Main thread.
 	class AutomationInstanceFile
 	{
 	public:
@@ -49,7 +50,7 @@ namespace Strada
 		bool IsPending() const { return m_IsPending; }
 		// What the file states: the info of the last write that succeeded since Start; empty before one has.
 		std::optional<AutomationInstanceInfo> const& GetWritten() const { return m_Written; }
-		// When the next retry may run; meaningful while IsPending.
+		// When the next retry may run; meaningful while a failed write waits (IsPending after a failure).
 		std::chrono::steady_clock::time_point GetRetryTime() const { return m_RetryTime; }
 
 	private:
@@ -62,7 +63,7 @@ namespace Strada
 		AutomationInstanceInfo m_Wanted;
 		std::optional<AutomationInstanceInfo> m_Written;
 		std::chrono::steady_clock::time_point m_RetryTime;
-		// Writes that failed since the last success; the first one is logged.
+		// Writes that failed in the current streak, which a success or a change back ends; the first one is logged.
 		uint32_t m_FailedWrites = 0;
 	};
 }
