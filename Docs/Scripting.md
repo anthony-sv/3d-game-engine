@@ -1177,7 +1177,9 @@ them; when one entity alone runs the graph it is chosen for you.
   The view menu's Show Flow While Playing turns it off.
 - **Values on wires.** The view menu's Wire Values: While Stopped (the default) shows a value on each data wire whose
   source the stopped frame has (below); Always also shows the instance's values while it runs, read ten times a second
-  for at most 200 wires in view; Off shows none. Hovering a wire or a pin shows its value ("= 34.5") in every mode but Off.
+  for at most 200 wires in view; Off shows none. A value sits at its wire's middle, or slides along the wire to the
+  nearest place where it covers no node and no other value. Hovering a wire or a pin shows its value ("= 34.5") in every
+  mode but Off.
 - **My Script's live values.** Each variable shows the instance's value between its name and its type: colours as
   swatches, entities by name (a click selects the entity), arrays (`[3] 1, 2, 3`) and strings on one line, cut before the
   type column with the whole value in the tooltip, and a flash when the value changes. While an execution is stopped,
@@ -1246,8 +1248,8 @@ stops where an error that ends an execution happened, as a stop you read and dis
 a triangle at the input the flow enters (or after the output it is about to leave by, "next: Then1"), and the strip
 says where and why ("Stopped at Set Angle (node 8) on Spinner (…): breakpoint"). Continue (F5) runs every stopped
 execution on, then the game. Step Over (F10) runs to the next node of this function, or of its caller after a return;
-Step Into (F11, or Ctrl+F11, as macOS keeps F11 for Show Desktop) also goes into calls, library functions and the
-receivers of Sends and Broadcasts; Step Out (Shift+F11) runs to the caller. Steps run between frames, never a frame, so
+Step Into (F11, or Ctrl+F11, Cmd+F11 on macOS, which keeps F11 for Show Desktop) also goes into calls, library
+functions and the receivers of Sends and Broadcasts; Step Out (Shift+F11) runs to the caller. Steps run between frames, never a frame, so
 the game stays where it was. A step over a latent node waits for it ("Stepping: the execution waits in Delay (node 5) and
 stops when it completes"): the game plays on, and the step stops when the wait completes, or the toolbar's Break gives
 up. A step that ends its execution says so in the strip ("The execution ended. Continue (F5) resumes the game; Step (F10)
@@ -1439,7 +1441,8 @@ Node comments say why where the reason is not plain; events are named for what h
 verbs, and a formula's inputs come after the values they read. Every graph has a description and every public variable a
 tooltip. Prism Break's graphs are tested to read well: SampleGraphsTests checks that every node sits in exactly one
 titled comment box, at least 16 units from any other node; that no link crosses between boxes; and that arranging a box
-changes nothing. After a change to arranging, re-run `Tools/Author.py`.
+changes nothing. After a change to arranging, re-run `Projects/PrismBreak/Tools/Author.py` (for the Graph Garden,
+`Projects/Showcase/Tools/Author.py --exhibit GraphGarden`, never the Showcase's full rebuild).
 
 **How it was made.** `Projects/PrismBreak/Tools/Author.py` built the whole project through `strada mcp`, as an agent
 does: the project and its settings, the sounds, meshes and textures `Tools/GenerateAssets.py` makes, the materials, then
@@ -1651,6 +1654,10 @@ on the entities. A window keeps the keys it claims while it has the keyboard: th
 Ctrl+Backspace and F2 act on its selected file, and the Edit menu then shows no shortcut for Delete. While a dialog is
 open (a delete confirmation, the unsaved-changes prompt), no editing key runs, Undo and Redo included, so nothing
 changes what the dialog acts on.
+
+**Try it:** open Prism Break's `Scripts/Game.sgraph`, press Home to see every region, zoom into "Bricks: points by the
+combo and the level, then a clear" and store the view with Ctrl+Alt+1; pan to "Pause: Escape freezes the game and
+shows the pause screen", then press Ctrl+1 to come back to the bricks, and Back (Ctrl+[) to return to the pause screen.
 
 ## Testing a game
 

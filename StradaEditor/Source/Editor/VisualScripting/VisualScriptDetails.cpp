@@ -2784,22 +2784,26 @@ namespace Strada
 				  }
 				  return edit;
 			  });
+		// The swatches wrap at the column's width, so a narrow pane cuts none of them.
 		BeginRow("Colour");
+		float const swatchRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
 		ImGui::BeginGroup();
 		std::optional<glm::vec4> swatch;
+		float const swatchSize = ImGui::GetFrameHeight();
+		float const swatchSpacing = ImGui::GetStyle().ItemInnerSpacing.x;
 		for (size_t i = 0; i < VisualScriptCommentSwatches.size(); i++)
 		{
 			VisualScriptCommentSwatch const& candidate = VisualScriptCommentSwatches[i];
 			ImGui::PushID(static_cast<int>(i));
-			if (i > 0)
+			if (i > 0 && ImGui::GetItemRectMax().x + swatchSpacing + swatchSize <= swatchRight)
 			{
-				ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+				ImGui::SameLine(0.0f, swatchSpacing);
 			}
 			glm::vec4 const color = candidate.Color;
 			ImVec4 const shown(Math::LinearToSrgb(color.r), Math::LinearToSrgb(color.g), Math::LinearToSrgb(color.b), 1.0f);
 			std::string const name(candidate.Name);
 			if (ImGui::ColorButton(name.c_str(), shown, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoAlpha,
-			                       ImVec2(ImGui::GetFrameHeight(), ImGui::GetFrameHeight())))
+			                       ImVec2(swatchSize, swatchSize)))
 			{
 				swatch = color;
 			}
@@ -2807,6 +2811,7 @@ namespace Strada
 			{
 				ImGui::SetTooltip("%s", name.c_str());
 			}
+			EndRow(fmt::format("Colour/{}", name));
 			ImGui::PopID();
 		}
 		ImGui::EndGroup();

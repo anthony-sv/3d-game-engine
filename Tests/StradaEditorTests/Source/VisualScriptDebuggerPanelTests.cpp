@@ -1107,6 +1107,48 @@ TEST_CASE("VisualScriptDebug: Step Into, Step Out and the computed path from a r
 	fixture.Session.ClearBreakpoints(std::nullopt);
 }
 
+TEST_CASE("VisualScriptDebug: stepped into a function's Entry, the Values tab lists its parameters once, not again as the Entry's outputs")
+{
+	DebuggerFixture fixture;
+	VisualScriptDocument combat = MakeLibraryDocument();
+	combat.Functions.front().Inputs.push_back({"Amount", "int", {}});
+	AssetHandle const library = fixture.CreateGraph("Scripts/Combat.sgraph", combat);
+	VisualScriptDocument calling = MakeCallerDocument(library);
+	calling.Graph.Nodes[1].Inputs = Json::object({{"Amount", 5}});
+	AssetHandle const caller = fixture.CreateGraph("Scripts/Caller.sgraph", calling);
+	fixture.CreateRunner("Player", caller);
+	REQUIRE(fixture.Session.SetBreakpoint(caller, MakeBreakpoint(11)).IsOk());
+	fixture.Start();
+	fixture.FramesUntilStopped();
+	fixture.CheckDrawingChangesNothing({library, caller});
+	fixture.Gui.Press(ImGuiKey_F11, fixture.Drawer());
+	fixture.Frames(3);
+	REQUIRE(fixture.Window(library).GetState().DebugNode == std::optional<uint32_t>(31));
+	fixture.Debugger.SetTab(VisualScriptDebuggerTab::Values);
+	fixture.Frames(2);
+
+	std::vector<VisualScriptDebuggerPanel::ValueRow> const& rows = fixture.Debugger.GetValueRows();
+	auto const named = [&rows](std::string_view name, bool section)
+	{
+		return std::count_if(rows.begin(), rows.end(),
+		                     [name, section](VisualScriptDebuggerPanel::ValueRow const& row)
+		                     {
+								 return row.Name == name && row.Cell.has_value() != section;
+							 });
+	};
+	CHECK(named("Parameters", true) == 1);
+	CHECK(named("Outputs", true) == 0);
+	CHECK(named("Amount", false) == 1);
+	auto const amount = std::find_if(rows.begin(), rows.end(),
+	                                 [](VisualScriptDebuggerPanel::ValueRow const& row)
+	                                 {
+										 return row.Name == "Amount" && row.Cell;
+									 });
+	REQUIRE(amount != rows.end());
+	CHECK(amount->Cell->Text == "5");
+	fixture.Session.ClearBreakpoints(std::nullopt);
+}
+
 TEST_CASE("VisualScriptDebug: a step waiting in a Delay says so, then that the execution ended, and the keys reach the editor again")
 {
 	DebuggerFixture fixture;
@@ -1595,6 +1637,7 @@ TEST_CASE("VisualScriptDebug: in a short Debugger panel the Values tab keeps mos
 	REQUIRE(fixture.Session.SetBreakpoint(graph, MakeBreakpoint(11)).IsOk());
 	fixture.Start();
 	fixture.FramesUntilStopped();
+	fixture.CheckDrawingChangesNothing({graph});
 	fixture.Debugger.SetTab(VisualScriptDebuggerTab::Values);
 	// A panel docked low in the editor, 300 pixels tall at the top of the screen (the fixture floats it at y = 20).
 	fixture.DebuggerSize = ImVec2(900.0f, 300.0f);

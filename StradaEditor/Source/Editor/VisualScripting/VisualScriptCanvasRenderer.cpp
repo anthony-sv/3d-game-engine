@@ -701,8 +701,8 @@ namespace Strada
 		return bytes(m_Query) + bytes(m_VisibleNodes) + bytes(m_NodeOrder) + bytes(m_VisibleComments) + bytes(m_VisibleLinks) +
 		       bytes(m_HighlightedLinks) + bytes(m_LinkMarks) + bytes(m_MarkedLinks) + bytes(m_NodeStamps) + bytes(m_Polyline) +
 		       bytes(m_DashPolyline) + bytes(m_Lengths) + bytes(m_ActivePulses) + bytes(m_Pulses) + bytes(m_Flashes) + bytes(m_Glides) +
-		       bytes(m_GlideIndices) + bytes(m_MinimapCells) + bytes(m_LiveMarkPlaces) + bytes(m_LiveMarkReach) + m_Text.capacity() +
-		       m_PillText.capacity();
+		       bytes(m_GlideIndices) + bytes(m_MinimapCells) + bytes(m_LiveMarkPlaces) + bytes(m_LiveMarkReach) + bytes(m_PillRects) +
+		       bytes(m_NodeRects) + bytes(m_NearNodes) + bytes(m_NearPills) + m_Text.capacity() + m_PillText.capacity();
 	}
 
 	void VisualScriptCanvasRenderer::TakeEvents(VisualScriptEditorModel const& model, Frame& frame)
@@ -3095,6 +3095,8 @@ namespace Strada
 			return;
 		}
 		DrawLiveDiscs(frame);
+		m_PillRects.clear();
+		m_NodeRects.clear();
 		for (VisualScriptFlowNodeMark const& mark : debug->FlowNodes)
 		{
 			if (mark.Count >= 2)
@@ -3111,6 +3113,13 @@ namespace Strada
 					shift = reach != m_LiveMarkReach.end() ? reach->second : 0.0f;
 				}
 				DrawRunCount(frame, mark, shift);
+			}
+		}
+		if (!debug->Values.empty())
+		{
+			for (uint32_t const index : m_VisibleNodes)
+			{
+				m_NodeRects.push_back(GetNodeScreen(frame, index));
 			}
 		}
 		size_t pills = 0;
@@ -3322,6 +3331,7 @@ namespace Strada
 		VisualScriptRect const rect = DrawDebugPill(
 			frame, glm::vec2(screen.Max.x - shift - size.x, screen.Min.y - size.y - DebugPillGapLogicalPixels * frame.UIScale), text,
 			std::nullopt, VisualScriptFlowColor, 1.0f);
+		m_PillRects.push_back(rect);
 		if (frame.Input.Record != nullptr)
 		{
 			VisualScriptDrawRecordItem item;
@@ -3564,7 +3574,10 @@ namespace Strada
 		VisualScriptGeometry::WireFlattening const flattening =
 			VisualScriptGeometry::GetWireFlattening(frame.Level, frame.Input.Style.CurveTessellationTolerance);
 		VisualScriptGeometry::FlattenWire(points, flattening.Tolerance, flattening.SegmentCap, m_Polyline);
-		glm::vec2 const middle = VisualScriptGeometry::GetPolylinePoint(m_Polyline, 0.5f);
+		if (m_Polyline.empty())
+		{
+			return;
+		}
 		// At most ValuePillMaxGlyphs code points, then the ellipsis.
 		m_DebugText.clear();
 		size_t glyphs = 0;
@@ -3584,9 +3597,69 @@ namespace Strada
 		}
 		bool const dimmed = mark.Currency == VisualScriptValueCurrency::Earlier || mark.Currency == VisualScriptValueCurrency::Unknown;
 		glm::vec2 const size = GetDebugPillSize(frame, m_DebugText, mark.Swatch.has_value());
+		// Where along the wire the pill's centre may go, nearest the midpoint first. Pills of crossing or parallel wires and of
+		// wires that pass behind nodes would otherwise cover each other and the nodes' headers and labels.
+		static constexpr std::array<float, 7> Places = {0.5f, 0.4f, 0.6f, 0.3f, 0.7f, 0.2f, 0.8f};
+		// Only what lies near the wire can meet the pill: the wire's bounds grown by the pill's size.
+		VisualScriptRect reach{m_Polyline.front(), m_Polyline.front()};
+		for (glm::vec2 const& point : m_Polyline)
+		{
+			reach.Min = glm::min(reach.Min, point);
+			reach.Max = glm::max(reach.Max, point);
+		}
+		reach.Min -= size;
+		reach.Max += size;
+		auto const keepReached = [&reach](std::vector<VisualScriptRect> const& rects, std::vector<VisualScriptRect>& kept)
+		{
+			kept.clear();
+			for (VisualScriptRect const& other : rects)
+			{
+				if (other.Min.x < reach.Max.x && reach.Min.x < other.Max.x && other.Min.y < reach.Max.y && reach.Min.y < other.Max.y)
+				{
+					kept.push_back(other);
+				}
+			}
+		};
+		keepReached(m_NodeRects, m_NearNodes);
+		keepReached(m_PillRects, m_NearPills);
+		auto const covers = [](VisualScriptRect const& pill, std::vector<VisualScriptRect> const& rects)
+		{
+			return std::any_of(rects.begin(), rects.end(),
+			                   [&pill](VisualScriptRect const& other)
+			                   {
+								   return pill.Min.x < other.Max.x && other.Min.x < pill.Max.x && pill.Min.y < other.Max.y &&
+				                          other.Min.y < pill.Max.y;
+							   });
+		};
+		auto const placeAt = [this, &size](float along)
+		{
+			glm::vec2 const min = glm::floor(VisualScriptGeometry::GetPolylinePoint(m_Polyline, along) - size * 0.5f);
+			return VisualScriptRect{min, min + size};
+		};
+		std::optional<VisualScriptRect> clearOfPills;
+		std::optional<VisualScriptRect> clearOfAll;
+		for (float const t : Places)
+		{
+			VisualScriptRect const candidate = placeAt(t);
+			if (covers(candidate, m_NearPills))
+			{
+				continue;
+			}
+			if (!clearOfPills)
+			{
+				clearOfPills = candidate;
+			}
+			if (!covers(candidate, m_NearNodes))
+			{
+				clearOfAll = candidate;
+				break;
+			}
+		}
+		VisualScriptRect const place = clearOfAll ? *clearOfAll : clearOfPills ? *clearOfPills : placeAt(0.5f);
 		uint32_t const begin = static_cast<uint32_t>(frame.DrawList->VtxBuffer.Size);
 		VisualScriptRect const rect =
-			DrawDebugPill(frame, middle - size * 0.5f, m_DebugText, mark.Swatch, frame.Theme.Text, dimmed ? DimmedValueAlpha : 1.0f);
+			DrawDebugPill(frame, place.Min, m_DebugText, mark.Swatch, frame.Theme.Text, dimmed ? DimmedValueAlpha : 1.0f);
+		m_PillRects.push_back(rect);
 		if (frame.Input.Record != nullptr)
 		{
 			VisualScriptDrawRecordItem item;

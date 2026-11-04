@@ -3922,15 +3922,6 @@ namespace Strada
 						}
 						std::string const frame = GetString(params, "frame", select.empty() ? "Keep" : "Selection");
 						std::string const find = GetString(params, "find");
-						if (params.contains("references"))
-						{
-							CommandValue<VisualScriptReference> references = ParseReferences(params["references"], "references");
-							if (!references)
-							{
-								return references.TakeError();
-							}
-							request.References = references.TakeValue();
-						}
 
 						Result<Ref<VisualScriptAsset>> const asset = LoadGraph(request.Graph);
 						Json warnings = Json::array();
@@ -3978,6 +3969,17 @@ namespace Strada
 								                                                      VisualScriptTimelineNodeType, timeline));
 								}
 								request.Timeline = timeline;
+							}
+							// Checked only when the window's own graph loads: on its card the references are ignored, also when
+						    // they name that graph.
+							if (params.contains("references"))
+							{
+								CommandValue<VisualScriptReference> references = ParseReferences(params["references"], "references");
+								if (!references)
+								{
+									return references.TakeError();
+								}
+								request.References = references.TakeValue();
 							}
 							if (params.contains("reveal"))
 							{
@@ -4033,7 +4035,6 @@ namespace Strada
 								}
 							}
 							select.clear();
-							request.References.reset();
 						}
 						request.ShowProblems = GetBool(params, "problems", false);
 						request.DetailsRow = GetString(params, "detailsRow");
@@ -4659,7 +4660,8 @@ namespace Strada
 				    .Property("graph",
 				              SchemaBuilder::String("The visual script that has the element (a handle or \"asset://<path>.sgraph\"): "
 				                                    "required for Variable and Function; for CustomEvent it restricts the event "
-				                                    "and the typed senders to that graph's")
+				                                    "and the typed senders to that graph's, and without it every graph's event "
+				                                    "of the name and every sender of it are listed")
 				                  .MinLength(1))
 				    .Property(
 						"id",

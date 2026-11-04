@@ -33,8 +33,10 @@ In `EditorCommands.cpp` (or a new `<Domain>Commands.cpp` registered from `Regist
   that draw (`VisualScriptEditors::AfterNextDraw`).
 - A command that waits on play mode (a stop, frames, real time: `graph.wait`) completes through `CommandCompletion` on
   the main thread exactly once, also when play stops (`PlayStopped`) or the editor closes (`Cancelled`); it never blocks
-  a frame, and answers at once when nothing can happen (no frame can run). It is fuzzed: with nothing playing it answers
-  Unavailable or InvalidOperation.
+  a frame, and answers at once when nothing can happen (no frame can run): with nothing playing `graph.wait` succeeds
+  at once with reason `NotPlaying`, while a command that must run frames (`graph.trace`, `graph.step`) refuses with
+  InvalidOperation. The automation fuzz holds every debug command's errors to its parameter and state refusals
+  (InvalidParams, AssetNotFound, EntityNotFound, FileError, Unavailable, InvalidOperation).
 - Commands run back to back with no editor frame between them (one JSON-RPC batch): a command that reads or changes the
   debug session or play mode brings it up to date first (`Refresh`, `PlayMode::RefreshObserver`), and session mutators
   push the configuration in their own call, so each command sees the one before it. Report play states with

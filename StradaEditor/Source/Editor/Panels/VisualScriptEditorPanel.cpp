@@ -1242,7 +1242,8 @@ namespace Strada
 			}
 			if (request.References)
 			{
-				m_Drawer.ShowReferences(*request.References);
+				// As graph.find lists them: a custom event naming no graph is every graph's.
+				m_Drawer.ShowReferences(*request.References, VisualScriptReferenceGraph::AsGiven);
 				ShowDrawer(VisualScriptDrawerMode::Find);
 			}
 			if (!request.DetailsRow.empty())

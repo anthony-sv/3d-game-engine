@@ -3577,6 +3577,68 @@ TEST_CASE("VisualScriptEditor: Details' Align and Distribute buttons fit or wrap
 	ImGui::GetStyle().FontScaleDpi = 1.0f;
 }
 
+TEST_CASE("VisualScriptEditor: a comment box's colour swatches fit or wrap at the stacked column's narrowest width")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptComment comment;
+	comment.ID = 50;
+	comment.Text = "Multiball: two more balls from each ball in play";
+	comment.Position = glm::vec2(96.0f, 400.0f);
+	comment.Size = glm::vec2(320.0f, 160.0f);
+	document.Graph.Comments.push_back(comment);
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({50});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Comment);
+	for (float const scale : {1.0f, 1.75f})
+	{
+		CAPTURE(scale);
+		fixture.CheckDrawingChangesNothing(
+			[&fixture, scale]
+			{
+				ImGui::GetStyle().FontScaleDpi = scale;
+				float fontSize = 0.0f;
+				fixture.ImGui.Frame(
+					[&fontSize]
+					{
+						fontSize = ImGui::GetFontSize();
+					});
+				fixture.DetailsWindowSize = ImVec2(VisualScriptDetailsMinWidth * fontSize, PaneFixture::DetailsSize.y);
+			});
+		ImGuiWindow const* const details = ImGui::FindWindowByName("Details");
+		REQUIRE(details != nullptr);
+		std::optional<std::pair<glm::vec2, glm::vec2>> const row = fixture.Details.FindRow("Colour");
+		REQUIRE(row);
+		std::vector<std::pair<glm::vec2, glm::vec2>> rects;
+		for (VisualScriptCommentSwatch const& swatch : VisualScriptCommentSwatches)
+		{
+			CAPTURE(swatch.Name);
+			std::optional<std::pair<glm::vec2, glm::vec2>> const rect = fixture.Details.FindRow(fmt::format("Colour/{}", swatch.Name));
+			REQUIRE(rect);
+			// Whole within the value column and the pane, over no other swatch.
+			CHECK(rect->first.x >= std::floor(row->first.x));
+			CHECK(rect->second.x <= details->ContentRegionRect.Max.x + 0.5f);
+			for (std::pair<glm::vec2, glm::vec2> const& other : rects)
+			{
+				CHECK_FALSE((rect->first.x < other.second.x && other.first.x < rect->second.x && rect->first.y < other.second.y &&
+				             other.first.y < rect->second.y));
+			}
+			rects.push_back(*rect);
+		}
+		// At this width the swatches take more lines than one.
+		CHECK(rects.back().first.y > rects.front().first.y);
+	}
+
+	// The last swatch, on its wrapped line, recolours the comment.
+	size_t const undo = fixture.GetUndoCount();
+	std::string const last = fmt::format("Colour/{}", VisualScriptCommentSwatches.back().Name);
+	fixture.ImGui.Click(fixture.DetailsRow(last), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Recolour Comment in Graph");
+	ImGui::GetStyle().FontScaleDpi = 1.0f;
+}
+
 TEST_CASE("VisualScriptEditor: a caret block marks the line of its span with tabs as four columns, and Edit Formula selects the span")
 {
 	PaneFixture fixture(MakeFormulaDocument("a +\n\tb * #"), {FixturePane::Details});

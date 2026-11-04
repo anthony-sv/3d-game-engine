@@ -2007,7 +2007,9 @@ inspector's primary entity as the context entity; without an asset directory the
   as its graph's target, and automation's targets come back through the target listener; a window that has not chosen
   its entity adopts the target the session already has, so `graph.target` holds across the window a stop opens.
   - **The canvas**: flow lies behind the nodes (the `Flow` layer) and markers, the current instruction, callers, run
-    counts, value pills and live marks above them (the `Debug` layer). Flow decays on the flow clock: it halves every
+    counts, value pills and live marks above them (the `Debug` layer). A value pill sits at its wire's midpoint, else
+    slides along the wire to the nearest place that covers no node and no pill or run count drawn before it, else to one
+    that covers no pill. Flow decays on the flow clock: it halves every
     0.25 s of game frames and holds while no frame runs, so a paused game, a stop or an agent's frame-stepped session
     shows exactly the frames that ran. Run counts are exact and count each run once: a call or a latent node counts its
     entry and return together, while a sequence's outputs and a loop's iterations each count. At Far and Overview,
@@ -2367,7 +2369,7 @@ data directory, and compile out asserts and script debug lines.
   their variables while playing; the debug commands run against a real scripting runtime and play mode, every command,
   parameter and error, a sequence fuzz of random debug sessions (seed 11700) that must leave a consistent state, and the
   documented debugging session (`Tests/Data/VisualScripting/Agents/Debugging.json`, run headless; a test holds
-  Automation.md, Scripting.md and the game-making skill to its steps, verbatim); `graph.edit` also runs the docs' example batch
+  Automation.md, Scripting.md and the game-making skill to its steps and their answers, verbatim and in order, as one block); `graph.edit` also runs the docs' example batch
   (`Tests/Data/VisualScripting/Agents/Spinner.json`, which a test holds the docs and the game-making skill to, verbatim). `GraphEditFuzzTests` sends random
   batches drawn from a document's own nodes, pins, variables and functions, with labels and every operation kind: each
   either fails naming an operation and changes nothing, or writes one undo step that loads strictly and undoes byte for

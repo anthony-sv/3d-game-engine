@@ -30,6 +30,15 @@ namespace Strada
 		AllScripts
 	};
 
+	// The graph a reference that names none stands for in the drawer's find: the window's own (Find References of the window's
+	// element), or none, so that a custom event's events and typed senders are every graph's (graph.find's meaning, which
+	// graph.open's references keep).
+	enum class VisualScriptReferenceGraph : uint8_t
+	{
+		Window = 0,
+		AsGiven
+	};
+
 	// A row of the drawer's find results: a match in a script, or a script that could not be read.
 	struct VisualScriptDrawerFindRow
 	{
@@ -76,8 +85,8 @@ namespace Strada
 		void ShowProblems();
 		// Find with a text; its field takes the keyboard.
 		void ShowFind(std::string text = {});
-		// Find lists the references of an element.
-		void ShowReferences(VisualScriptReference const& reference);
+		// Find lists the references of an element; one naming no graph stands for the window's own unless graph says AsGiven.
+		void ShowReferences(VisualScriptReference const& reference, VisualScriptReferenceGraph graph = VisualScriptReferenceGraph::Window);
 		// Shows a Flow.Timeline node's tracks and curves, on one of its tracks when given (its row highlighted, its keys
 		// framed).
 		void ShowTimeline(uint32_t node, std::optional<uint32_t> track = std::nullopt);
@@ -150,7 +159,7 @@ namespace Strada
 		// Find: the text or the reference, the scope, and whether the field takes the keyboard.
 		std::string m_Text;
 		std::optional<VisualScriptReference> m_Reference;
-		// The reference named no graph: it is the window's own element.
+		// The reference named no graph and stands for the window's own element.
 		bool m_ReferenceOwnGraph = false;
 		VisualScriptFindScope m_Scope = VisualScriptFindScope::ThisScript;
 		bool m_FocusText = false;

@@ -190,7 +190,8 @@ public sealed class AgentWorkflowTests
 		using TemporaryDirectory directory = new();
 		await using McpTestClient client = new(TestEditor.IsolatedSession(editor, Path.Combine(directory.Path, "UserData")));
 		await client.ResultAsync("initialize", new JsonObject { ["protocolVersion"] = "2025-06-18" });
-		await ToolAsync(client, "project_create", new JsonObject { ["directory"] = Path.Combine(directory.Path, "Spinner"), ["name"] = "Spinner" });
+		JsonNode created = await ToolAsync(client, "project_create", new JsonObject { ["directory"] = Path.Combine(directory.Path, "Spinner"), ["name"] = "Spinner" });
+		string createdScene = created["scene"]!["path"]!.GetValue<string>();
 
 		// Tests/Data/VisualScripting/Agents/Debugging.json, the session Docs/Scripting.md, Docs/Automation.md and the
 		// strada-make-game skill show: the Spinner with a mistake (% 36 for % 360), stopped at a conditional breakpoint,
@@ -208,10 +209,16 @@ public sealed class AgentWorkflowTests
 
 		// The fix ships: the exported game's graph holds the formula fixed while the game played, and its player runs the
 		// graph without a problem.
-		// The scene the steps built is the project's start scene (project_create made it so), which the export runs.
+		// The scene the steps built is the one project_create made the project's start scene, which the export runs.
 		await ToolAsync(client, "scene_save");
+		JsonNode status = await ToolAsync(client, "editor_status");
+		Assert.Equal(createdScene, status["scene"]!["path"]!.GetValue<string>());
 		JsonNode info = await ToolAsync(client, "project_info");
-		Assert.NotEqual("0", info["settings"]!["StartScene"]!.GetValue<string>());
+		JsonNode startScene = await ToolAsync(client, "asset_get", new JsonObject { ["asset"] = info["settings"]!["StartScene"]!.GetValue<string>() });
+		Assert.Equal("Scene", startScene["type"]!.GetValue<string>());
+		string assetDirectory = info["project"]!["assetDirectory"]!.GetValue<string>();
+		Assert.Equal(Path.GetFullPath(createdScene), Path.GetFullPath(Path.Combine(assetDirectory, startScene["path"]!.GetValue<string>())));
+		string sceneName = status["scene"]!["name"]!.GetValue<string>();
 		JsonNode export = await ToolAsync(client, "project_export", new JsonObject { ["directory"] = Path.Combine(directory.Path, "Build") });
 		Assert.True(export["succeeded"]!.GetValue<bool>(), export.ToJsonString());
 		string executable = export["executable"]!.GetValue<string>();
@@ -225,7 +232,9 @@ public sealed class AgentWorkflowTests
 		Assert.Equal("(angle + speed * dt) % 360", fixedNode["Settings"]!["Formula"]!.GetValue<string>());
 		(int exitCode, string output) = await RunAsync(executable, "--headless", "--frames", "120");
 		Assert.True(exitCode == 0, output);
-		// A graph that does not load, an entity left without its graph and an error while running all name the graph.
+		// The player started the Spinner's scene and ran its graph without a problem: a graph that does not load, an entity
+		// left without its graph and an error while running all name the graph.
+		Assert.Contains($"Started scene '{sceneName}'", output);
 		Assert.DoesNotContain(".sgraph", output);
 		Assert.DoesNotContain("Visual script", output);
 		Assert.DoesNotContain("runs no visual script", output);

@@ -96,8 +96,9 @@ except the migration fixtures; the content form has no version.
   and `Editor/Views-v1.json` are track E's (above).
 
 - **Slice 4, track N** (StradaEditorTests and StradaToolTests): a test holds `Docs/Scripting.md` and the `strada-make-game`
-  skill to every step of `Agents/Debugging.json`, shown as the MCP tool and its compact JSON arguments, and
-  `Docs/Automation.md` to the JSON-RPC requests of the same steps; StradaToolTests copies `Agents/Debugging.json` next to
+  skill to the whole of `Agents/Debugging.json` as one block, each step shown as the MCP tool and its compact JSON
+  arguments and then its `expect`, and `Docs/Automation.md` to the JSON-RPC requests and replies of the same steps (ids
+  from 3), so a step missing, repeated, moved or answered otherwise fails; StradaToolTests copies `Agents/Debugging.json` next to
   its assembly and runs the session through `strada mcp` and a headless editor, then exports the fixed game.
 
 A fixture that contradicts the spec is corrected by the track that finds it, which records the change under "Spec

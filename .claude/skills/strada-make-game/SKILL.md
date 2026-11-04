@@ -292,7 +292,7 @@ Errors and what to do:
 - Show graphs to the user and check what they see: `graph_open` with `graph` opens (or focuses) its window in the
   editor, optionally on a function, with nodes selected and framed (`select`), at a `zoom` or `center`, with the problems
   drawer, the find bar, the drawer's Find on the references of a variable, function or custom event (`references`,
-  as `graph_find` takes them) or a Timeline's tracks (`timeline`) open, or with a variable, function or event selected
+  as `graph_find` takes and lists them, so a custom event without `graph` is every script's) or a Timeline's tracks (`timeline`) open, or with a variable, function or event selected
   (`reveal`). A frame later, `graph_editors` reports every window as the user sees it (the view, the selection, errors and
   warnings, notices such as the one for a missing scripting runtime, the LIVE pill while playing), and
   `viewport_screenshot` shows it. `graph_palette` opens the node palette with a `query` (or as if a wire were dragged

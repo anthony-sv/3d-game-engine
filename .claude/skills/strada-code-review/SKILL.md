@@ -90,8 +90,9 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
 - The debugger costs nothing untraced: debugging code runs only in the traced interpreter (`Run<Traced>`) or behind a
   debugger the editor attaches; the untraced and attached-idle performance cases keep their figures and allocate
   nothing. Breakpoints, traces and the views file never reach the player or an exported game.
-- Sample projects: their graphs pass `SampleGraphsTests` (re-run the sample's `Tools/Author.py` after a change to
-  arranging); a change to a sample updates the check counts its tests pin (`RuntimeTests.cpp`); doc fixtures
+- Sample projects: their graphs pass `SampleGraphsTests` (after a change to arranging, re-run the authoring command the
+  failure names: `python Projects/PrismBreak/Tools/Author.py`, or `python Projects/Showcase/Tools/Author.py --exhibit
+  GraphGarden` for the Showcase, never the Showcase's full rebuild, which rewrites its materials); a change to a sample updates the check counts its tests pin (`RuntimeTests.cpp`); doc fixtures
   (`Agents/Spinner.json`, `Agents/Debugging.json`) are shown verbatim where the docs show them, which their doc tests
   check. A change under `Projects/Showcase` leaves the two protected materials
   (`Assets/Materials/Gallery/Metallic100Roughness0.smat`, `Assets/Textures/rusty_metal_02/rusty_metal_02.smat`) untouched:

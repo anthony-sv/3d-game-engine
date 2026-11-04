@@ -632,7 +632,15 @@ namespace Strada
 				}
 			};
 			rows(Texts::Inputs, values->Node.Inputs, atEnter ? Texts::EvaluatedWhenItRuns : std::string_view());
-			rows(Texts::Outputs, values->Node.Outputs, {});
+			// At a function's Entry the node's outputs are the function's parameters: they are listed once, as Parameters.
+			bool const outputsAreParameters =
+				!values->Parameters.empty() &&
+				std::equal(values->Node.Outputs.begin(), values->Node.Outputs.end(), values->Parameters.begin(), values->Parameters.end(),
+			               [](VisualScriptDebugValue const& output, VisualScriptDebugValue const& parameter)
+			               {
+							   return output.Name == parameter.Name && output.Type == parameter.Type && output.Value == parameter.Value;
+						   });
+			rows(Texts::Outputs, outputsAreParameters ? std::span<VisualScriptDebugValue const>() : values->Node.Outputs, {});
 			rows(Texts::Event, values->Event, {});
 			rows(Texts::Parameters, values->Parameters, {});
 			rows(Texts::Locals, values->Locals, {});
