@@ -137,6 +137,9 @@ namespace Strada
 		// Platform::GetTime() when the graph's working program last became another program; 0 while it has none
 		// (HasWorkingProgram).
 		static double GetWorkingSince(AssetHandle graph);
+		// The graphs whose programs the engine sent to the runtime, those found absent since left out (deleted, or turned into
+		// a library), ascending by handle; empty without the runtime.
+		static std::vector<AssetHandle> GetLoadedGraphs();
 
 		// --- Graph instances of the running scene (driven by Scene) ---
 

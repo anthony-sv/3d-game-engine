@@ -455,9 +455,10 @@ namespace
 			{
 				params = Json::object({{"graph", m_State.Graph}});
 			}
-			// The debug commands that change or read one graph's breakpoints, target or values: a third of the time the state's
-			// script alone (listing and reading), which their independent members would mostly refuse together.
-			if ((m_Command == "graph.breakpoints" || m_Command == "graph.target" || m_Command == "graph.values") &&
+			// The debug commands that change or read one graph's breakpoints, target, values or live state: a third of the time the
+			// state's script alone (listing and reading), which their independent members would mostly refuse together.
+			if ((m_Command == "graph.breakpoints" || m_Command == "graph.target" || m_Command == "graph.values" ||
+			     m_Command == "graph.live") &&
 			    !m_State.Graph.empty() && m_Random.Pick(3) == 0)
 			{
 				params = Json::object({{"graph", m_State.Graph}});
@@ -1734,6 +1735,13 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 										 {
 											 findSuccesses[findKind]++;
 										 }
+										 // Graph edits say what the running game took: without the scripting runtime, nothing.
+										 if (name == "graph.edit" || name == "graph.set")
+										 {
+											 Json const& live = result.GetValue()["live"];
+											 CHECK_MESSAGE(live["edits"] == Json::array(), request);
+											 CHECK(live["playState"].is_string());
+										 }
 										 return;
 									 }
 									 outcomes[name].second++;
@@ -1801,7 +1809,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	CHECK(findSuccesses["query"] > 0);
 	CHECK(findSuccesses["references"] > 0);
 	// The debug commands that need no game work; the others are refused, for their parameters or for the state.
-	for (std::string const debugCommand : {"graph.breakpoints", "graph.target", "graph.debug"})
+	for (std::string const debugCommand : {"graph.breakpoints", "graph.target", "graph.debug", "graph.live"})
 	{
 		CAPTURE(debugCommand);
 		CHECK(outcomes[debugCommand].first > 0);
@@ -1810,7 +1818,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	                                                     AutomationErrorCode::EntityNotFound, AutomationErrorCode::FileError,
 	                                                     AutomationErrorCode::Unavailable,    AutomationErrorCode::InvalidOperation};
 	for (std::string const debugCommand : {"graph.breakpoints", "graph.target", "graph.debug", "graph.continue", "graph.step",
-	                                       "graph.break", "graph.wait", "graph.trace", "graph.values", "graph.instances"})
+	                                       "graph.break", "graph.wait", "graph.trace", "graph.values", "graph.instances", "graph.live"})
 	{
 		CAPTURE(debugCommand);
 		CHECK(outcomes[debugCommand].first + outcomes[debugCommand].second > 0);

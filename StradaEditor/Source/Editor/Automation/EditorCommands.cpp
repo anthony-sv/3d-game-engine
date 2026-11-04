@@ -1,5 +1,6 @@
 #include "Editor/Automation/EditorCommands.h"
 
+#include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/JsonSchema.h"
 #include "Editor/ComponentInspection.h"
 #include "Editor/DefaultScene.h"
@@ -933,14 +934,6 @@ namespace Strada
 			return FormatGraphRevision(Hash::FNV1a(VisualScriptSerializer::WriteText(document)));
 		}
 
-		// The program revision of a document: of what HaveSameVisualScriptProgram compares, so moves, comments, arranging and
-		// collapsing leave it unchanged.
-		std::string GetGraphProgramRevision(VisualScriptDocument const& document)
-		{
-			return FormatGraphRevision(
-				Hash::FNV1a(VisualScriptSerializer::WriteContentText(VisualScriptEditing::StripVisualScriptLayout(document))));
-		}
-
 		bool IsGraphRevision(std::string_view text)
 		{
 			return text.size() == 16 && std::all_of(text.begin(), text.end(),
@@ -1109,7 +1102,7 @@ namespace Strada
 					return error;
 				}
 				bool const program = std::string_view(parameter) == "programRevision";
-				std::string current = program ? GetGraphProgramRevision(*stored) : GetGraphRevision(*stored);
+				std::string current = program ? GetVisualScriptProgramRevision(*stored) : GetGraphRevision(*stored);
 				if (given != current)
 				{
 					CommandError error =
@@ -2392,7 +2385,7 @@ namespace Strada
 									 Json described = DescribeGraph(graph.GetValue());
 									 described["document"] = VisualScriptSerializer::SerializeDocument(document);
 									 described["revision"] = GetGraphRevision(document);
-									 described["programRevision"] = GetGraphProgramRevision(document);
+									 described["programRevision"] = GetVisualScriptProgramRevision(document);
 									 described["analyzed"] = analysis != nullptr;
 									 if (analysis)
 									 {
@@ -2412,15 +2405,17 @@ namespace Strada
 				                   "apply; with the scripting runtime, nodes resolved through a redirect or by their member's name alone "
 				                   "are stored under their exact types; nodes without a Position are laid out. One undo step "
 				                   "(editor.undo) that does not mark the scene modified; allowed while playing, where running graphs take "
-				                   "the edit at once. revision and programRevision (as graph.get returns them) make the call fail with "
-				                   "InvalidOperation, writing nothing, unless the stored document still has them. referrers lists the "
-				                   "nodes of other scripts the new document breaks (a library function they call gone or changed, a "
-				                   "variable they read gone or private, an event they send gone or retyped, untyped senders of an event "
-				                   "name that went); refuseBrokenReferrers writes nothing (InvalidOperation, data.referrers) when any is "
-				                   "broken. Returns { asset, path, changed, revision, programRevision (of the document written), "
-				                   "analyzed, warnings (what was changed besides the given document), summary ({ brokenReferrers, "
-				                   "staleSenders }), referrers ([{ asset, path, nodes: [{ id, type, problem: Removed, Private, Changed "
-				                   "or Stale, message }] }]), nodes?, diagnostics? }.",
+				                   "the edit at once (the result's live tells what the running game took). revision and programRevision "
+				                   "(as graph.get returns them) make the call fail with InvalidOperation, writing nothing, unless the "
+				                   "stored document still has them. referrers lists the nodes of other scripts the new document breaks (a "
+				                   "library function they call gone or changed, a variable they read gone or private, an event they send "
+				                   "gone or retyped, untyped senders of an event name that went); refuseBrokenReferrers writes nothing "
+				                   "(InvalidOperation, data.referrers) when any is broken. Returns { asset, path, changed, revision, "
+				                   "programRevision (of the document written), analyzed, warnings (what was changed besides the given "
+				                   "document), summary ({ brokenReferrers, staleSenders }), referrers ([{ asset, path, nodes: [{ id, "
+				                   "type, problem: Removed, Private, Changed or Stale, message }] }]), live ({ playState, paused, edits "
+				                   "}: the receipts of this call, as graph.live gives them; empty for an unchanged document and while "
+				                   "not playing), nodes?, diagnostics? }.",
 				                   SchemaBuilder::Object()
 				                       .Property("graph", graphParameter, true)
 				                       .Property("document", documentParameter, true)
@@ -2510,7 +2505,13 @@ namespace Strada
 									   bool const changed =
 										   storedDocument == nullptr || !IsSameVisualScriptDocument(*storedDocument, commit.Document);
 									   std::string revision = FormatGraphRevision(Hash::FNV1a(commit.Text));
-									   std::string programRevision = GetGraphProgramRevision(commit.Document);
+									   std::string programRevision = GetVisualScriptProgramRevision(commit.Document);
+									   // The receipts the running game gives the edit (an unchanged document sends nothing).
+									   std::optional<uint64_t> liveSerial;
+									   if (changed)
+									   {
+										   liveSerial = TakeVisualScriptLiveSerial(Context());
+									   }
 									   if (Result<void> set = m_Operations.SetVisualScriptDocument(handle, std::move(commit.Document), 0,
 					                                                                               std::move(commit.Text));
 					                       !set)
@@ -2526,6 +2527,7 @@ namespace Strada
 									   described["warnings"] = std::move(commit.Warnings);
 									   described["summary"] = std::move(summary);
 									   described["referrers"] = std::move(referrers);
+									   described["live"] = DescribeVisualScriptLiveEdits(Context(), liveSerial);
 									   if (analysis)
 									   {
 										   AddAnalysis(described, *analysis);
@@ -2642,7 +2644,9 @@ namespace Strada
 				                 "Fixes: [{ label, operation }], the quick fixes as ready Fix operations to append to a next batch; New: "
 				                 "the stored document did not have it; Label: the batch's label of its node), nodes?, hints? ([{ node, "
 				                 "kind, message }]: NeverRuns, Unused or UnlinkedInput, silent mistakes in the nodes the batch created or "
-				                 "changed and at the ends of links it removed), document? }.",
+				                 "changed and at the ends of links it removed), live ({ playState, paused, edits }: while playing, the "
+				                 "result's live tells what the running game took: the receipts of this call, as graph.live gives them; "
+				                 "empty for a dry run, an unchanged result and while not playing), document? }.",
 				                 SchemaBuilder::Object()
 				                     .Property("graph", graphParameter, true)
 				                     .Property("operations",
@@ -3001,7 +3005,7 @@ namespace Strada
 				Json described = DescribeGraph(handle);
 				described["changed"] = changed;
 				described["revision"] = FormatGraphRevision(Hash::FNV1a(request.Text));
-				described["programRevision"] = GetGraphProgramRevision(*request.Document);
+				described["programRevision"] = GetVisualScriptProgramRevision(*request.Document);
 				described["arranged"] = nodes.size();
 				described["bounds"] = Json();
 				if (VisualScriptGraph const* const result = FindVisualScriptGraph(*request.Document, function.GetValue()))
@@ -3330,7 +3334,7 @@ namespace Strada
 				described["changed"] = changed;
 				described["dryRun"] = dryRun;
 				described["revision"] = commit.has_value() ? FormatGraphRevision(Hash::FNV1a(commit->Text)) : GetGraphRevision(*stored);
-				described["programRevision"] = GetGraphProgramRevision(result);
+				described["programRevision"] = GetVisualScriptProgramRevision(result);
 				described["analyses"] = analyses;
 				Json labels = Json::object();
 				for (auto const& [label, id] : batch.Labels)
@@ -3370,6 +3374,8 @@ namespace Strada
 				{
 					described["document"] = VisualScriptSerializer::SerializeDocument(result);
 				}
+				// The receipts the running game gives the edit: none for a dry run or a result that is the stored document.
+				std::optional<uint64_t> liveSerial;
 				if (!changed)
 				{
 					// The result is the stored document again, so its analysis is the stored one's.
@@ -3380,6 +3386,7 @@ namespace Strada
 					std::string const scriptName = FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem());
 					std::string description = GetString(params, "description", "Edit Visual Script") + " in " + scriptName;
 					Ref<VisualScriptDocument const> const written = CreateRef<VisualScriptDocument const>(std::move(commit->Document));
+					liveSerial = TakeVisualScriptLiveSerial(Context());
 					if (Result<void> const edited =
 					        m_Operations.EditVisualScript(handle, written, std::move(description), 0, std::move(commit->Text));
 					    !edited)
@@ -3389,6 +3396,7 @@ namespace Strada
 					// The asset holds the document written now: its analysis is the next call's stored one.
 					RememberStoredGraphAnalysis(handle, written, library, analysis);
 				}
+				described["live"] = DescribeVisualScriptLiveEdits(Context(), liveSerial);
 				return described;
 			}
 
@@ -5607,6 +5615,12 @@ namespace Strada
 	Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations, EditorCommandEnvironment environment)
 	{
 		return CreateRef<CommandSet>(registry, operations, std::move(environment))->RegisterAll();
+	}
+
+	std::string GetVisualScriptProgramRevision(VisualScriptDocument const& document)
+	{
+		return FormatGraphRevision(
+			Hash::FNV1a(VisualScriptSerializer::WriteContentText(VisualScriptEditing::StripVisualScriptLayout(document))));
 	}
 
 	Json ListVisualScriptLibraryNotes(VisualScriptLibrary const& library, std::string_view query, std::string_view category)

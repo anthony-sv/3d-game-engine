@@ -1011,6 +1011,30 @@ namespace Strada
 		return record != data->VisualScriptPrograms.end() && record->second.HasWorkingProgram() ? record->second.WorkingTime : 0.0;
 	}
 
+	std::vector<AssetHandle> VisualScriptEngine::GetLoadedGraphs()
+	{
+		std::vector<AssetHandle> graphs;
+		ScriptEngineData const* const data = GetData();
+		if (data == nullptr)
+		{
+			return graphs;
+		}
+		graphs.reserve(data->VisualScriptPrograms.size());
+		for (auto const& [graph, record] : data->VisualScriptPrograms)
+		{
+			if (!record.IsAbsent)
+			{
+				graphs.push_back(graph);
+			}
+		}
+		std::sort(graphs.begin(), graphs.end(),
+		          [](AssetHandle a, AssetHandle b)
+		          {
+					  return a.GetUUID().GetValue() < b.GetUUID().GetValue();
+				  });
+		return graphs;
+	}
+
 	Result<void> VisualScriptEngine::CreateInstance(UUID entity, AssetHandle graph, ScriptFieldMap const& variables)
 	{
 		if (Result<void> loaded = EnsureLoaded(graph); !loaded)

@@ -1,12 +1,15 @@
 #include "Editor/Automation/GraphDebugCommands.h"
 
+#include "Editor/Automation/EditorCommands.h"
 #include "Editor/Automation/JsonSchema.h"
 #include "Editor/VisualScripting/VisualScriptBreakpoints.h"
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Platform.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -14,10 +17,12 @@
 #include "Strada/Script/VisualScriptDebugger.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -198,6 +203,67 @@ namespace Strada
 					return "Stopped";
 			}
 			return "";
+		}
+
+		std::string_view GetLiveOutcomeName(VisualScriptLiveOutcome outcome)
+		{
+			switch (outcome)
+			{
+				case VisualScriptLiveOutcome::Applied:
+					return "Applied";
+				case VisualScriptLiveOutcome::Pending:
+					return "Pending";
+				case VisualScriptLiveOutcome::KeptLastWorking:
+					return "KeptLastWorking";
+				case VisualScriptLiveOutcome::NotRunning:
+					return "NotRunning";
+			}
+			return "";
+		}
+
+		std::string_view GetSeverityName(VisualScriptSeverity severity)
+		{
+			switch (severity)
+			{
+				case VisualScriptSeverity::Error:
+					return "Error";
+				case VisualScriptSeverity::Warning:
+					return "Warning";
+			}
+			return "";
+		}
+
+		// As play.state names the play states.
+		std::string_view GetPlayStateName(EditorPlayState state)
+		{
+			switch (state)
+			{
+				case EditorPlayState::Play:
+					return "play";
+				case EditorPlayState::Simulate:
+					return "simulate";
+				case EditorPlayState::Edit:
+					break;
+			}
+			return "edit";
+		}
+
+		// Whether a game plays and its scene is paused (as play.state's paused).
+		bool IsGamePaused(EditorContext const& context)
+		{
+			return context.IsPlaying() && context.GetScene().IsPaused();
+		}
+
+		// The seconds from a Platform::GetTime() time to now; never negative.
+		double GetAge(double time, double now)
+		{
+			return std::max(0.0, now - time);
+		}
+
+		// A number JSON can hold: null for one that is not finite.
+		Json DescribeFinite(double value)
+		{
+			return std::isfinite(value) ? Json(value) : Json();
 		}
 
 		CommandError MakeParameterError(std::string_view parameter, std::string const& message)
@@ -543,7 +609,115 @@ namespace Strada
 				                     {"entity", DescribeEntity(wait.Entity)}});
 			}
 
+			// A receipt (spec-slice4 section 8.5) in camelCase: its graph and the graph that caused it with their paths, the
+			// instances' entities with their names, and age, the seconds since the engine took it, for its Platform time.
+			Json LiveEdit(VisualScriptLiveEdit const& edit, double now) const
+			{
+				Json matched = Json::array();
+				for (VisualScriptLiveVariable const& variable : edit.MatchedVariables)
+				{
+					matched.push_back(Json::object({{"name", variable.Name}, {"from", variable.Detail}}));
+				}
+				Json reset = Json::array();
+				for (VisualScriptLiveVariable const& variable : edit.ResetVariables)
+				{
+					reset.push_back(Json::object({{"name", variable.Name}, {"reason", variable.Detail}}));
+				}
+				Json states = Json::array();
+				for (VisualScriptLiveNode const& node : edit.ResetStates)
+				{
+					states.push_back(LiveNode(node));
+				}
+				Json notes = Json::array();
+				for (VisualScriptLiveInstance const& instance : edit.InstanceNotes)
+				{
+					Json cancelled = Json::array();
+					for (VisualScriptLiveNode const& node : instance.Cancelled)
+					{
+						Json described = LiveNode(node);
+						described["stopped"] = node.Stopped;
+						cancelled.push_back(std::move(described));
+					}
+					Json timelines = Json::array();
+					for (VisualScriptLiveTimeline const& timeline : instance.Timelines)
+					{
+						timelines.push_back(
+							Json::object({{"node", timeline.Node},
+						                  {"time", DescribeFinite(timeline.Time)},
+						                  {"clampedFrom", timeline.ClampedFrom ? DescribeFinite(*timeline.ClampedFrom) : Json()}}));
+					}
+					notes.push_back(Json::object({{"entity", DescribeEntity(instance.Entity)},
+					                              {"name", NameOf(instance.Entity)},
+					                              {"waitsKept", instance.WaitsKept},
+					                              {"stopsKept", instance.StopsKept},
+					                              {"cancelled", std::move(cancelled)},
+					                              {"timelines", std::move(timelines)}}));
+				}
+				return Json::object({{"serial", edit.Serial},
+				                     {"graph", DescribeHandle(edit.Graph)},
+				                     {"path", GetAssetPath(edit.Graph)},
+				                     {"name", edit.Name},
+				                     {"cause", DescribeHandle(edit.Cause)},
+				                     {"causePath", GetAssetPath(edit.Cause)},
+				                     {"outcome", GetLiveOutcomeName(edit.Outcome)},
+				                     {"deferred", edit.Deferred},
+				                     {"instances", edit.Instances},
+				                     {"pending", edit.Pending},
+				                     {"keptVariables", edit.KeptVariables},
+				                     {"matchedVariables", std::move(matched)},
+				                     {"resetVariables", std::move(reset)},
+				                     {"addedVariables", edit.AddedVariables},
+				                     {"removedVariables", edit.RemovedVariables},
+				                     {"keptStates", edit.KeptStates},
+				                     {"resetStates", std::move(states)},
+				                     {"instanceNotes", std::move(notes)},
+				                     {"moreInstances", edit.MoreInstances},
+				                     {"errors", edit.Errors},
+				                     {"age", GetAge(edit.Time, now)}});
+			}
+
+			// A runtime problem (spec-slice4 section 8.5) in camelCase: its graph and the document holding the node with their
+			// paths, the entity with its name, the calls that led to the node with their paths, and firstAge and lastAge, the
+			// seconds since the engine first and last took it.
+			Json Problem(VisualScriptRuntimeProblem const& problem, double now) const
+			{
+				Json calls = Json::array();
+				for (VisualScriptCallFrame const& call : problem.Calls)
+				{
+					calls.push_back(Json::object({{"document", DescribeHandle(call.Document)},
+					                              {"path", GetAssetPath(call.Document)},
+					                              {"function", call.Function},
+					                              {"node", call.Node}}));
+				}
+				return Json::object({{"serial", problem.Serial},
+				                     {"severity", GetSeverityName(problem.Severity)},
+				                     {"graph", DescribeHandle(problem.Graph)},
+				                     {"path", GetAssetPath(problem.Graph)},
+				                     {"document", DescribeHandle(problem.Document)},
+				                     {"documentPath", GetAssetPath(problem.Document)},
+				                     {"function", problem.Function},
+				                     {"node", problem.Node},
+				                     {"title", problem.Title},
+				                     {"entity", DescribeEntity(problem.Entity)},
+				                     {"name", NameOf(problem.Entity)},
+				                     {"message", problem.Message},
+				                     {"count", problem.Count},
+				                     {"calls", std::move(calls)},
+				                     {"firstAge", GetAge(problem.FirstTime, now)},
+				                     {"lastAge", GetAge(problem.LastTime, now)}});
+			}
+
 		private:
+			Json LiveNode(VisualScriptLiveNode const& node) const
+			{
+				return Json::object({{"document", DescribeHandle(node.Document)},
+				                     {"path", GetAssetPath(node.Document)},
+				                     {"function", node.Function},
+				                     {"node", node.Node},
+				                     {"title", node.Title},
+				                     {"reason", node.Reason}});
+			}
+
 			// An array's elements as bare values; any other value as it is.
 			Json Elements(Json const& value) const
 			{
@@ -698,7 +872,8 @@ namespace Strada
 				result = result ? RegisterWait() : result;
 				result = result ? RegisterTrace() : result;
 				result = result ? RegisterValues() : result;
-				return result ? RegisterInstances() : result;
+				result = result ? RegisterInstances() : result;
+				return result ? RegisterLive() : result;
 			}
 
 		private:
@@ -2312,6 +2487,215 @@ namespace Strada
 				return Json::object({{"instances", std::move(instances)}, {"total", listed.GetValue().Total}});
 			}
 
+			// --- graph.live ---
+
+			Result<void> RegisterLive()
+			{
+				return Add(
+					m_Registry, "graph.live",
+					"What the game runs of each visual script, what edits did to its instances (receipts) and what went wrong "
+					"while graphs ran (runtime problems, counted since play started; after play.stop, the last run's). graph: "
+					"one graph (default: every graph the game loaded or a problem names); after: only receipts and problems with "
+					"a later serial (pass the last answer's serial to read only what is new); edits and problems (default true) "
+					"leave those lists out when false. Returns { playState, paused, serial, dropped, graphs: [{ asset, path, "
+					"kind, running (Current: what is stored; LastWorking: an earlier version that worked, the stored one not "
+					"running; None), generation, runningSince (seconds before now, or null), programRevision, "
+					"runningProgramRevision, notRunning ({ nodes, links: [{ from: [node, pin], to: [node, pin] }] }: what the "
+					"stored document has that the running one has not; null when nothing runs), instances: [{ entity, name }], "
+					"users (a library's graphs: [{ asset, path, runsCurrent }]) }], edits (receipts, as graph.edit's live gives "
+					"them), problems: [{ serial, severity, graph, path, document, documentPath, function, node, title, entity, "
+					"name, message, count, calls, firstAge, lastAge }] }.",
+					SchemaBuilder::Object()
+						.Property("graph", GraphSchema("Graph handle or \"asset://<path>.sgraph\""))
+						.Property("after", SchemaBuilder::Integer("Only receipts and problems with a later serial").Minimum(0).Default(0))
+						.Property("edits", SchemaBuilder::Boolean("List the receipts").Default(true))
+						.Property("problems", SchemaBuilder::Boolean("List the runtime problems").Default(true))
+						.Build(),
+					true,
+					[self = shared_from_this()](Json const& params) -> CommandResult
+					{
+						return self->Live(params);
+					});
+			}
+
+			CommandResult Live(Json const& params)
+			{
+				std::optional<AssetHandle> only;
+				if (auto const graph = params.find("graph"); graph != params.end())
+				{
+					CommandValue<AssetHandle> parsed = ParseGraph(*graph, "graph");
+					if (!parsed)
+					{
+						return parsed.TakeError();
+					}
+					only = parsed.GetValue();
+				}
+				uint64_t const after = params.value("after", uint64_t(0));
+				Ref<VisualScriptLiveLog const> const log = VisualScriptEngine::GetLiveLog();
+				double const now = Platform::GetTime();
+				DebugJson const json(m_Context.GetScene());
+
+				// One graph, or every graph the engine loaded and every graph and document a problem names.
+				std::vector<AssetHandle> graphs = only ? std::vector<AssetHandle>{*only} : VisualScriptEngine::GetLoadedGraphs();
+				if (!only)
+				{
+					for (Ref<VisualScriptRuntimeProblem const> const& problem : log->Problems)
+					{
+						for (AssetHandle const named : {problem->Graph, problem->Document})
+						{
+							if (named.IsValid() && AssetManager::IsInitialized() && AssetManager::IsValid(named))
+							{
+								graphs.push_back(named);
+							}
+						}
+					}
+				}
+				std::sort(graphs.begin(), graphs.end(),
+				          [](AssetHandle a, AssetHandle b)
+				          {
+							  std::string const first = NameGraph(a);
+							  std::string const second = NameGraph(b);
+							  return first != second ? first < second : a.GetUUID().GetValue() < b.GetUUID().GetValue();
+						  });
+				graphs.erase(std::unique(graphs.begin(), graphs.end()), graphs.end());
+				Json described = Json::array();
+				for (AssetHandle const graph : graphs)
+				{
+					described.push_back(DescribeLiveGraph(graph, now));
+				}
+
+				Json result = Json::object({{"playState", GetPlayStateName(m_Context.GetPlayState())},
+				                            {"paused", IsGamePaused(m_Context)},
+				                            {"serial", log->Serial},
+				                            {"dropped", log->Dropped},
+				                            {"graphs", std::move(described)}});
+				if (params.value("edits", true))
+				{
+					Json edits = Json::array();
+					for (Ref<VisualScriptLiveEdit const> const& edit : log->Edits)
+					{
+						if (edit->Serial > after && (!only || edit->Graph == *only || edit->Cause == *only))
+						{
+							edits.push_back(json.LiveEdit(*edit, now));
+						}
+					}
+					result["edits"] = std::move(edits);
+				}
+				if (params.value("problems", true))
+				{
+					Json problems = Json::array();
+					for (Ref<VisualScriptRuntimeProblem const> const& problem : log->Problems)
+					{
+						if (problem->Serial > after && (!only || problem->Graph == *only || problem->Document == *only))
+						{
+							problems.push_back(json.Problem(*problem, now));
+						}
+					}
+					result["problems"] = std::move(problems);
+				}
+				return result;
+			}
+
+			// One graph of graph.live: what the game runs of it (R1.1's HasWorkingProgram, then whether that program is the
+			// stored document's), with both program revisions and what of the stored document does not run.
+			Json DescribeLiveGraph(AssetHandle graph, double now) const
+			{
+				Ref<VisualScriptDocument const> stored;
+				if (AssetManager::IsInitialized() && AssetManager::IsValid(graph) && !AssetManager::IsMissing(graph))
+				{
+					if (Result<Ref<VisualScriptAsset>> asset = AssetManager::TryGetAsset<VisualScriptAsset>(graph); asset)
+					{
+						stored = asset.GetValue()->GetSharedDocument();
+					}
+				}
+				bool const library = stored != nullptr && stored->Kind == VisualScriptDocumentKind::Library;
+				// A library has no program of its own: the graphs compiled with it run one of its versions each.
+				Ref<VisualScriptDocument const> const working = library ? nullptr : VisualScriptEngine::GetWorkingDocument(graph);
+				std::vector<VisualScriptLibraryUser> const users =
+					library ? VisualScriptEngine::DescribeLibraryUsers(graph) : std::vector<VisualScriptLibraryUser>();
+				bool const runs = VisualScriptEngine::HasWorkingProgram(graph);
+				bool current = false;
+				if (runs && library)
+				{
+					current = std::ranges::all_of(users,
+					                              [](VisualScriptLibraryUser const& user)
+					                              {
+													  return user.RunsCurrent;
+												  });
+				}
+				else if (runs)
+				{
+					current =
+						stored != nullptr && working != nullptr && (working == stored || HaveSameVisualScriptProgram(*working, *stored));
+				}
+				std::string_view const running = !runs ? "None" : current ? "Current" : "LastWorking";
+
+				// What the stored document has that the running one has not, in every sub-graph (IDs are the document's).
+				Json notRunning;
+				if (runs && !library)
+				{
+					Json nodes = Json::array();
+					Json links = Json::array();
+					if (!current && stored != nullptr && working != nullptr)
+					{
+						std::vector<uint32_t> functions = {0};
+						for (VisualScriptFunction const& function : stored->Functions)
+						{
+							functions.push_back(function.ID);
+						}
+						for (uint32_t const function : functions)
+						{
+							VisualScriptNotRunning const missing = FindVisualScriptNotRunning(*working, *stored, function);
+							for (uint32_t const node : missing.Nodes)
+							{
+								nodes.push_back(node);
+							}
+							for (VisualScriptLink const& link : missing.Links)
+							{
+								links.push_back(Json::object({{"from", Json::array({link.From.Node, link.From.Pin})},
+								                              {"to", Json::array({link.To.Node, link.To.Pin})}}));
+							}
+						}
+					}
+					notRunning = Json::object({{"nodes", std::move(nodes)}, {"links", std::move(links)}});
+				}
+
+				double const since = runs ? VisualScriptEngine::GetWorkingSince(graph) : 0.0;
+				Json described =
+					Json::object({{"asset", graph.ToString()},
+				                  {"path", GetAssetPath(graph)},
+				                  {"kind", stored != nullptr ? Json(std::string(VisualScriptDocumentKindToString(stored->Kind))) : Json()},
+				                  {"running", running},
+				                  {"generation", VisualScriptEngine::GetProgramGeneration(graph)},
+				                  {"runningSince", since > 0.0 ? Json(GetAge(since, now)) : Json()},
+				                  {"programRevision", stored != nullptr ? Json(GetVisualScriptProgramRevision(*stored)) : Json()},
+				                  {"runningProgramRevision", working != nullptr ? Json(GetVisualScriptProgramRevision(*working)) : Json()},
+				                  {"notRunning", std::move(notRunning)}});
+				Json instances = Json::array();
+				if (!library)
+				{
+					for (auto const& [id, name] : FindInstances(graph))
+					{
+						if (VisualScriptEngine::HasInstance(id))
+						{
+							instances.push_back(Json::object({{"entity", id.ToString()}, {"name", name}}));
+						}
+					}
+				}
+				described["instances"] = std::move(instances);
+				if (library)
+				{
+					Json listed = Json::array();
+					for (VisualScriptLibraryUser const& user : users)
+					{
+						listed.push_back(Json::object(
+							{{"asset", user.Graph.ToString()}, {"path", GetAssetPath(user.Graph)}, {"runsCurrent", user.RunsCurrent}}));
+					}
+					described["users"] = std::move(listed);
+				}
+				return described;
+			}
+
 			CommandRegistry& m_Registry;
 			VisualScriptDebugSession& m_Session;
 			PlayMode& m_PlayMode;
@@ -2322,6 +2706,35 @@ namespace Strada
 	Json DescribeVisualScriptStop(VisualScriptStop const& stop, Scene& scene)
 	{
 		return DebugJson(scene).Stop(stop);
+	}
+
+	std::optional<uint64_t> TakeVisualScriptLiveSerial(EditorContext const& context)
+	{
+		if (context.GetPlayState() != EditorPlayState::Play || !ScriptEngine::IsInitialized())
+		{
+			return std::nullopt;
+		}
+		return VisualScriptEngine::GetLiveLog()->Serial;
+	}
+
+	Json DescribeVisualScriptLiveEdits(EditorContext& context, std::optional<uint64_t> serial)
+	{
+		Json edits = Json::array();
+		if (serial)
+		{
+			Ref<VisualScriptLiveLog const> const log = VisualScriptEngine::GetLiveLog();
+			double const now = Platform::GetTime();
+			DebugJson const json(context.GetScene());
+			for (Ref<VisualScriptLiveEdit const> const& edit : log->Edits)
+			{
+				if (edit->Serial > *serial)
+				{
+					edits.push_back(json.LiveEdit(*edit, now));
+				}
+			}
+		}
+		return Json::object(
+			{{"playState", GetPlayStateName(context.GetPlayState())}, {"paused", IsGamePaused(context)}, {"edits", std::move(edits)}});
 	}
 
 	Result<void> RegisterGraphDebugCommands(CommandRegistry& registry, VisualScriptDebugSession& session, PlayMode& playMode,
