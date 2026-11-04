@@ -5,6 +5,7 @@
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
+#include "Editor/VisualScripting/VisualScriptGameBeside.h"
 #include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 
 #include "Strada/Asset/AssetHandle.h"
@@ -161,6 +162,23 @@ namespace Strada
 		// before DockBuilderFinish.
 		void ResetLayout(ImGuiID centerNode);
 
+		// The live game beside the graphs (spec-slice4 §15.6). Whether a window showed the game preview in the last draw: the
+		// editor then renders the game for it while the game view is hidden (WantsHiddenGameRender).
+		bool WantsGamePreview() const;
+		// Game View Beside for the graph's window: queued (outcome Queued) for the editor, which runs it at the start of the next
+		// frame (TakeGameViewBesideRequest, then OnGameViewBesidePlaced). A later request replaces one not run yet.
+		void RequestGameViewBeside(AssetHandle graph);
+		// The queued request's graph, taken; none when nothing is queued.
+		std::optional<AssetHandle> TakeGameViewBesideRequest();
+		// What the editor's docking did with the request: kept for graph.editors, toasted in the graph's window unless it was
+		// Applied (which brings the window to the front of its node).
+		void OnGameViewBesidePlaced(VisualScriptGameBesideState state);
+		// The last request and its outcome; none before the first.
+		std::optional<VisualScriptGameBesideState> const& GetGameViewBeside() const { return m_GameBeside; }
+		// The open graph window that shares the named window's dock node as the last frame drew them (the one focused last
+		// first); none when no graph window does. Inside an ImGui frame.
+		std::optional<AssetHandle> FindWindowDockedWith(char const* windowName) const;
+
 		// How long a receipt's marks stay on the nodes where it cancelled a wait or reset a state (seconds, spec-slice4 §15.3).
 		static constexpr double ReceiptMarkSeconds = 4.0;
 
@@ -250,5 +268,8 @@ namespace Strada
 		// The graph whose stop ended without a resume while the pause is held, and why (the stop-ended listener).
 		AssetHandle m_HeldGraph;
 		std::string m_HeldReason;
+		// Game View Beside: the request waiting for the next frame, and the last request's outcome.
+		std::optional<AssetHandle> m_BesideRequest;
+		std::optional<VisualScriptGameBesideState> m_GameBeside;
 	};
 }

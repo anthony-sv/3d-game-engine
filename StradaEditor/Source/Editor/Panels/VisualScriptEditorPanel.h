@@ -149,6 +149,15 @@ namespace Strada
 		PopoverInstance,
 		PopoverShowRuntime,
 		ToastBreakOnErrors,
+		// The game preview over the canvas (spec-slice4 §15.6): its whole rectangle, its header's expand, Beside and close
+		// buttons and its inner edge; the Beside hint's [Beside] and [Not now].
+		GamePreview,
+		GamePreviewExpand,
+		GamePreviewBeside,
+		GamePreviewClose,
+		GamePreviewEdge,
+		HintBeside,
+		HintNotNow,
 		Count
 	};
 
@@ -180,6 +189,11 @@ namespace Strada
 	inline constexpr double VisualScriptBlinkSeconds = 0.6;
 	// The hint shown once per user over the first canvas (VisualScriptViewSettings::IsHintSeen).
 	inline constexpr std::string_view VisualScriptCanvasHint = "Canvas";
+	// The hint shown once per user the first time Play hides a graph window behind the game view (spec-slice4 §15.6).
+	inline constexpr std::string_view VisualScriptGameViewBesideHint = "GameViewBeside";
+	// The game preview's least width (font sizes) and its largest share of the canvas's width (spec-slice4 §15.6).
+	inline constexpr float VisualScriptGamePreviewMinWidth = 12.0f;
+	inline constexpr float VisualScriptGamePreviewMaxShare = 0.6f;
 
 	// The fixed texts of a graph window: its notices, cards, pills and hints (spec §10.4, §10.6), all listed in All for the glyph
 	// test (the editor's UI font must have each character).
@@ -390,6 +404,24 @@ namespace Strada
 		inline constexpr std::string_view LiveMarkReset = " was reset by the edit";
 		inline constexpr std::string_view LiveMarkNotRunning =
 			"Not running yet: the game runs the last version that worked, which does not have this node as it is now";
+		// The game preview and Game View Beside (spec-slice4 §15.6).
+		inline constexpr std::string_view PreviewTitle = "Game";
+		inline constexpr std::string_view PreviewClickToPlay = "Game \xC2\xB7 Click to play";
+		inline constexpr std::string_view PreviewNoImage = "No camera renders the game";
+		inline constexpr std::string_view PreviewExpand = "Show the game view with the game's input";
+		inline constexpr std::string_view PreviewBeside = "Game View Beside: keep the game and this graph in view";
+		inline constexpr std::string_view PreviewClose = "Hide the preview (the view menu shows it again)";
+		inline constexpr std::string_view PreviewMove = "Drag to move to another corner; drag the inner edge to resize";
+		inline constexpr std::string_view PreviewMenu = "Game Preview";
+		inline constexpr std::string_view PreviewMenuTooltip =
+			"While the game plays and its view is hidden, the game in a corner of the canvas";
+		inline constexpr std::string_view BesideMenu = "Game View Beside";
+		inline constexpr std::string_view BesideMenuTooltip = "Dock the game view beside this window, so that both stay in view";
+		inline constexpr std::string_view BesideHint = "The game hides this graph while you play. Game View Beside keeps both in view";
+		inline constexpr std::string_view BesideHintBeside = "Beside";
+		inline constexpr std::string_view BesideHintNotNow = "Not now";
+		inline constexpr std::string_view BesideNotApplied = "Game View Beside: ";
+		inline constexpr std::string_view BesideAlreadyVisible = "the game view is in view already";
 
 		inline constexpr std::array All = std::to_array<std::string_view>({Degraded,
 		                                                                   ReadOnlyMemory,
@@ -573,7 +605,23 @@ namespace Strada
 		                                                                   LiveMarkWaitCancelled,
 		                                                                   LiveMarkStopCancelled,
 		                                                                   LiveMarkReset,
-		                                                                   LiveMarkNotRunning});
+		                                                                   LiveMarkNotRunning,
+		                                                                   PreviewTitle,
+		                                                                   PreviewClickToPlay,
+		                                                                   PreviewNoImage,
+		                                                                   PreviewExpand,
+		                                                                   PreviewBeside,
+		                                                                   PreviewClose,
+		                                                                   PreviewMove,
+		                                                                   PreviewMenu,
+		                                                                   PreviewMenuTooltip,
+		                                                                   BesideMenu,
+		                                                                   BesideMenuTooltip,
+		                                                                   BesideHint,
+		                                                                   BesideHintBeside,
+		                                                                   BesideHintNotNow,
+		                                                                   BesideNotApplied,
+		                                                                   BesideAlreadyVisible});
 	}
 
 	// The pane sizes of spec §10.1, in font sizes.
@@ -758,6 +806,18 @@ namespace Strada
 		// The Live popover (spec-slice4 §15.2): whether its last draw showed it, and its lines in order (buttons excluded).
 		bool IsLivePopoverOpen() const { return m_LivePopoverOpen; }
 		std::vector<std::string> const& GetLivePopoverLines() const { return m_LivePopoverLines; }
+		// Whether the game preview showed over the canvas in the last draw (spec-slice4 §15.6): while the window's graph plays (its
+		// live state is Live or LastWorking, or it shows a stop), the preview is on (VisualScriptGamePreviewSettings::Shown)
+		// and the game view is not visible (VisualScriptEditorServices::GamePreview). GetItemRect(GamePreview) is where.
+		bool IsGamePreviewShown() const { return m_GamePreviewShown; }
+		// The preview header's text in the last draw (VisualScriptPanelTexts::PreviewTitle, or PreviewClickToPlay while the game
+		// does not have the input); empty while it is not shown.
+		std::string_view GetGamePreviewTitle() const { return m_GamePreviewShown ? m_GamePreviewTitle : std::string_view(); }
+		// Whether the Beside hint showed over the canvas in the last draw: once per user, after Play hid the window behind the
+		// game view in its dock node, while the game plays.
+		bool IsBesideHintShown() const { return m_BesideHintShown; }
+		// Brings the window to the front at its next draw (Game View Beside keeps the graph in front of its node).
+		void RequestFocus() { m_FocusRequested = true; }
 
 		// "<title>###VisualScript<handle as decimal>": the window keeps its ID (and its dock node) when the title changes.
 		static std::string GetWindowName(AssetHandle graph, std::string_view title);
@@ -996,6 +1056,11 @@ namespace Strada
 		void DrawNotice(NoticeKind kind);
 		void DrawCard(ImVec2 canvasMin, ImVec2 canvasMax);
 		void DrawCanvasHint(ImVec2 canvasMin, ImVec2 canvasMax);
+		// The game's image in a corner of the canvas while it plays and its view is hidden (spec-slice4 §15.6), a child window over
+		// the canvas: a header with expand, Beside and close; its header drags it to another corner, its inner edge resizes it.
+		void DrawGamePreview();
+		// The one-time hint that Game View Beside keeps the game and the graph in view, along the canvas's top edge.
+		void DrawBesideHint(ImVec2 canvasMin, ImVec2 canvasMax);
 		void DrawShortcutSheet();
 		void DrawBody();
 		void DrawPane(char const* id, VisualScriptWindowPart part, ImVec2 size, bool border = false);
@@ -1300,6 +1365,24 @@ namespace Strada
 		// The Live popover: its lines as last drawn, and whether it was shown.
 		bool m_LivePopoverOpen = false;
 		std::vector<std::string> m_LivePopoverLines;
+		// The game preview (spec-slice4 §15.6): shown in the last draw; a drag of its header (Resize false: it follows the mouse
+		// and snaps to the nearest corner on release) or of its inner edge (its width), from where the drag started.
+		struct PreviewDrag
+		{
+			PreviewDrag();
+
+			bool Resize = false;
+			glm::vec2 StartMouse{0.0f};
+			glm::vec2 StartPosition{0.0f};
+			float StartWidth = 0.0f;
+		};
+		bool m_GamePreviewShown = false;
+		std::string_view m_GamePreviewTitle;
+		std::optional<PreviewDrag> m_PreviewDrag;
+		std::optional<glm::vec2> m_PreviewPosition;
+		// Play hid the window behind the game view in its dock node: the Beside hint shows when it is shown again while playing.
+		bool m_BesideHintPending = false;
+		bool m_BesideHintShown = false;
 
 		// The Bookmarks menu: the names typed in its Rename submenu, by slot.
 		std::array<std::string, 9> m_BookmarkNames;

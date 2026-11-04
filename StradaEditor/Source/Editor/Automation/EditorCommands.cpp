@@ -585,8 +585,32 @@ namespace Strada
 					return "GestureHint";
 				case VisualScriptNotice::Debug:
 					return "Debug";
+				case VisualScriptNotice::BesideHint:
+					return "BesideHint";
 			}
 			return "Degraded";
+		}
+
+		char const* GetPreviewCornerName(VisualScriptPreviewCorner corner)
+		{
+			switch (corner)
+			{
+				case VisualScriptPreviewCorner::TopLeft:
+					return "TopLeft";
+				case VisualScriptPreviewCorner::TopRight:
+					return "TopRight";
+				case VisualScriptPreviewCorner::BottomLeft:
+					return "BottomLeft";
+				case VisualScriptPreviewCorner::BottomRight:
+					return "BottomRight";
+			}
+			return "BottomRight";
+		}
+
+		// A rectangle of the editor's screen (ImGui pixels) as [x, y, width, height].
+		Json DescribeScreenRect(glm::vec2 min, glm::vec2 max)
+		{
+			return Json::array({min.x, min.y, max.x - min.x, max.y - min.y});
 		}
 
 		char const* GetWindowDebugStateName(VisualScriptWindowDebugState state)
@@ -791,7 +815,31 @@ namespace Strada
 			described["liveReceipt"] = state.LiveReceipt != nullptr ? DescribeVisualScriptLiveEdit(*state.LiveReceipt, scene) : Json();
 			described["runtimeProblems"] = Json::object({{"errors", state.RuntimeErrors}, {"warnings", state.RuntimeWarnings}});
 			described["notRunning"] = state.NotRunning;
+			// The game preview over its canvas (spec-slice4 §15.6).
+			described["gamePreview"] =
+				Json::object({{"shown", state.GamePreview.has_value()},
+			                  {"rect", state.GamePreview ? DescribeScreenRect(state.GamePreview->Min, state.GamePreview->Max) : Json()}});
 			return described;
+		}
+
+		// What graph.editors reports of the Game View: open, visible this frame, where it was drawn, and the last Game View
+		// Beside request with its outcome.
+		Json DescribeGameView(VisualScriptEditors const& windows)
+		{
+			std::optional<VisualScriptGamePreview> const view =
+				windows.GetServices().GamePreview ? windows.GetServices().GamePreview() : std::nullopt;
+			Json beside;
+			if (std::optional<VisualScriptGameBesideState> const& state = windows.GetGameViewBeside())
+			{
+				beside = Json::object({{"graph", state->Graph.ToString()},
+				                       {"outcome", GetVisualScriptGameBesideOutcomeName(state->Outcome)},
+				                       {"reason", state->Reason.empty() ? Json() : Json(state->Reason)}});
+			}
+			return Json::object(
+				{{"open", view && view->GameViewOpen},
+			     {"visible", view && view->GameViewVisible},
+			     {"rect", view && view->GameViewRect ? DescribeScreenRect(view->GameViewRect->first, view->GameViewRect->second) : Json()},
+			     {"beside", std::move(beside)}});
 		}
 
 		// What graph.editors and graph.debug-panel report of the Debugger panel.
@@ -3724,6 +3772,8 @@ namespace Strada
 				SchemaBuilder const pointParameter = SchemaBuilder::Array(SchemaBuilder::Number(), "").MinItems(2).MaxItems(2);
 				// The zoom's bounds as the decimals clients write: the float bounds widened to double (0.10000000149...) would
 				// refuse 0.1, the farthest zoom. Every number they admit narrows to a zoom within the float bounds.
+				// detailsRow names a row by its label: setting and input names are bounded far below this.
+				constexpr uint64_t MaxDetailsRowBytes = 256;
 				constexpr double MinZoom = 0.1;
 				constexpr double MaxZoom = 2.0;
 				static_assert(static_cast<float>(MinZoom) == VisualScriptMinZoom && static_cast<float>(MaxZoom) == VisualScriptMaxZoom);
@@ -3736,13 +3786,15 @@ namespace Strada
 					"the context entity whose live values the window shows while playing, opens the problems drawer, the find bar "
 					"(find, going to the first match, which becomes the selection) or a Timeline node's tracks and curves in the drawer "
 					"(timeline), and selects a variable or local, a function or a custom event (its Event.Custom node) in My Script, "
-					"which Details then shows (reveal). The view parameters apply in order: the framing, "
+					"which Details then shows (reveal), and scrolls Details to one of its rows (detailsRow). It sets the per-user "
+					"view settings wireValues, showFlow, outlineNotRunning and gamePreview, and with besideGameView docks the Game "
+					"View beside the window at the next frame. The view parameters apply in order: the framing, "
 					"then zoom around its centre, then center. Applied when the window is next drawn: graph.editors a frame later "
 					"shows the result. Works while playing. A file that is missing or does not load opens on its card (loaded false): "
 					"function, select, frame, find, timeline, reveal and show are then ignored, which warnings says. Returns { asset, "
 					"path, function (the "
 					"sub-graph shown), selection (the select given, as applied: empty without one; an empty select keeps the window's "
-					"selection), loaded, warnings }. Unavailable without the editor's UI "
+					"selection), loaded, warnings, besideGameView (Queued, when asked) }. Unavailable without the editor's UI "
 					"(headless); InvalidOperation while a dialog is open.",
 					SchemaBuilder::Object()
 						.Property("graph", graphParameter, true)
@@ -3794,6 +3846,17 @@ namespace Strada
 						.Property("outlineNotRunning",
 				                  SchemaBuilder::Boolean("Outline, while the game runs the last version that worked, the nodes and links "
 				                                         "it does not run yet (per user)"))
+						.Property("gamePreview", SchemaBuilder::Boolean("Show the game in a corner of the graph windows' canvases while "
+				                                                        "it plays and the Game View is hidden (per user)"))
+						.Property("besideGameView",
+				                  SchemaBuilder::Boolean("Dock the Game View beside the graph's window at the next frame (Game View "
+				                                         "Beside); graph.editors' gameView.beside tells the outcome"))
+						.Property("detailsRow",
+				                  SchemaBuilder::String("A row of Details to scroll to the top of the pane, by the label it shows "
+				                                        "(Formula, Settings, Length, a setting's or an input's name): with select, a "
+				                                        "row of the node selected")
+				                      .MinLength(1)
+				                      .MaxLength(MaxDetailsRowBytes))
 						.Build(),
 					false,
 					[this](Json const& params) -> CommandResult
@@ -3959,6 +4022,7 @@ namespace Strada
 							select.clear();
 						}
 						request.ShowProblems = GetBool(params, "problems", false);
+						request.DetailsRow = GetString(params, "detailsRow");
 						Result<VisualScriptEditorState> const opened = editors.Open(request);
 						if (!opened)
 						{
@@ -3980,11 +4044,23 @@ namespace Strada
 						{
 							editors.GetSettings().SetOutlineNotRunning(params["outlineNotRunning"].get<bool>());
 						}
+						if (params.contains("gamePreview"))
+						{
+							VisualScriptGamePreviewSettings preview = editors.GetSettings().GetGamePreview();
+							preview.Shown = params["gamePreview"].get<bool>();
+							editors.GetSettings().SetGamePreview(preview);
+						}
 						Json described = DescribeGraph(request.Graph);
 						described["function"] = opened.GetValue().Function;
 						described["selection"] = std::move(select);
 						described["loaded"] = asset.IsOk();
 						described["warnings"] = std::move(warnings);
+						// Docked by the editor at its next frame; graph.editors' gameView.beside tells the outcome.
+						if (GetBool(params, "besideGameView", false))
+						{
+							editors.RequestGameViewBeside(request.Graph);
+							described["besideGameView"] = GetVisualScriptGameBesideOutcomeName(VisualScriptGameBesideOutcome::Queued);
+						}
 						return described;
 					});
 				result =
@@ -4046,8 +4122,11 @@ namespace Strada
 				              "breakpoints (the graph's count), flow { drawn, held (the flow clock holds: no frame ran since) }, liveReceipt "
 				              "(the window's last receipt since it opened or Play started, in graph.live's form, or null), "
 				              "runtimeProblems { errors, warnings } (at its document's nodes), notRunning (the nodes the game does not run "
-				              "as stored, while it runs the last version that worked) }; and settings { wireValues, showFlow, "
-				              "outlineNotRunning } and debugPanel { open, visible, tab } (null without the Debugger panel). A "
+				              "as stored, while it runs the last version that worked), gamePreview { shown, rect ([x, y, width, height] "
+				              "in screen pixels, or null) } (the game in a corner of its canvas) }; and settings { wireValues, showFlow, "
+				              "outlineNotRunning, gamePreview { shown, corner, width } }, gameView { open, visible, rect, beside { graph, "
+				              "outcome (Queued, Applied, AlreadyVisible or Failed), reason } or null (the last Game View Beside) } and "
+				              "debugPanel { open, visible, tab } (null without the Debugger panel). A "
 				              "window opened since the last frame reports its state before its first draw (not visible, nothing "
 				              "selected). Unavailable without the editor's UI (headless).",
 				              Json(), true,
@@ -4064,12 +4143,18 @@ namespace Strada
 									  editors.push_back(DescribeGraphEditor(state, Context().GetScene()));
 								  }
 								  VisualScriptViewSettings const& settings = windows.GetSettings();
-								  Json settingsJson = Json::object({{"wireValues", GetWireValuesName(settings.GetWireValues())},
-					                                                {"showFlow", settings.IsShowFlow()},
-					                                                {"outlineNotRunning", settings.IsOutlineNotRunning()}});
+								  VisualScriptGamePreviewSettings const& preview = settings.GetGamePreview();
+								  Json settingsJson =
+									  Json::object({{"wireValues", GetWireValuesName(settings.GetWireValues())},
+					                                {"showFlow", settings.IsShowFlow()},
+					                                {"outlineNotRunning", settings.IsOutlineNotRunning()},
+					                                {"gamePreview", Json::object({{"shown", preview.Shown},
+					                                                              {"corner", GetPreviewCornerName(preview.Corner)},
+					                                                              {"width", preview.Width}})}});
 								  return Json::object(
 									  {{"editors", std::move(editors)},
 					                   {"settings", std::move(settingsJson)},
+					                   {"gameView", DescribeGameView(windows)},
 					                   {"debugPanel",
 					                    m_Environment.DebuggerPanel ? DescribeDebuggerPanel(m_Environment.DebuggerPanel()) : Json()}});
 							  })
@@ -5309,9 +5394,24 @@ namespace Strada
 
 				CommandDefinition screenshot;
 				screenshot.Name = "viewport.screenshot";
-				screenshot.Description = "Captures the editor window as a PNG: { mimeType, width, height, data (base64) }.";
+				screenshot.Description =
+					"Captures the editor window as a PNG, or one of its windows cut out of it (window): { mimeType, width, height, data "
+					"(base64), window, rect ([x, y, width, height]: the cut's place in the editor window's image in pixels) }. A "
+					"graph window is named by its visual script (graph, with window Graph). The cut is the window as ImGui drew it in "
+					"the frame captured, title bar and tab included. Unavailable without an editor window (headless); InvalidParams "
+					"for graph without window Graph or the reverse; InvalidOperation when the window is not open, is behind another "
+					"tab, is in a window of its own (dragged out of the editor: captures read the editor window) or has no area.";
+				screenshot.Parameters =
+					SchemaBuilder::Object()
+						.Property("window", SchemaBuilder::String("The window to capture (default Editor: the whole editor window)")
+				                                .Enum({"Editor", "SceneView", "GameView", "Hierarchy", "Inspector", "ContentBrowser",
+				                                       "Console", "Debugger", "Graph"}))
+						.Property("graph", SchemaBuilder::String("With window Graph: the visual script whose window to capture, a handle "
+				                                                 "or \"asset://<path>.sgraph\"")
+				                               .MinLength(1))
+						.Build();
 				screenshot.ReadOnly = true;
-				screenshot.AsyncHandler = [this, self = shared_from_this()](Json const&, CommandCompletion completion)
+				screenshot.AsyncHandler = [this, self = shared_from_this()](Json const& params, CommandCompletion completion)
 				{
 					if (!m_Environment.CaptureScreenshot)
 					{
@@ -5319,8 +5419,38 @@ namespace Strada
 						                                     "screenshots need an editor window (not available headless)"));
 						return;
 					}
+					ScreenshotWindow const window =
+						ParseScreenshotWindow(GetString(params, "window", "Editor")).value_or(ScreenshotWindow::Editor);
+					AssetHandle graph;
+					if (window == ScreenshotWindow::Graph && !params.contains("graph"))
+					{
+						completion.Complete(MakeParameterError("graph", "window Graph needs the graph whose window to capture"));
+						return;
+					}
+					if (params.contains("graph"))
+					{
+						if (window != ScreenshotWindow::Graph)
+						{
+							completion.Complete(MakeParameterError("graph", "a graph is captured with window Graph"));
+							return;
+						}
+						CommandValue<AssetHandle> parsed = ParseGraph(params["graph"]);
+						if (!parsed)
+						{
+							completion.Complete(parsed.TakeError());
+							return;
+						}
+						graph = parsed.GetValue();
+					}
+					if (window != ScreenshotWindow::Editor && !m_Environment.FindWindowRect)
+					{
+						completion.Complete(MakeCommandError(AutomationErrorCode::Unavailable,
+						                                     "the editor has no windows to capture apart (no editor UI)"));
+						return;
+					}
+					// Where the window lies is read in the callback, which runs after ImGui drew the frame captured.
 					m_Environment.CaptureScreenshot(
-						[completion](Result<Image> image)
+						[this, self, completion, window, graph](Result<Image> image)
 						{
 							if (!image)
 							{
@@ -5328,16 +5458,46 @@ namespace Strada
 									MakeCommandError(AutomationErrorCode::Unavailable, "screenshot failed: {}", image.GetError()));
 								return;
 							}
-							Result<std::vector<uint8_t>> png = image.GetValue().EncodePNG();
+							Image const& captured = image.GetValue();
+							ScreenshotRect rect{0, 0, captured.GetWidth(), captured.GetHeight()};
+							std::optional<Image> cut;
+							if (window != ScreenshotWindow::Editor)
+							{
+								Result<ScreenshotRect> const found = m_Environment.FindWindowRect(window, graph);
+								if (!found)
+								{
+									completion.Complete(MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", found.GetError()));
+									return;
+								}
+								// The back buffer may be smaller than the viewport ImGui laid out (a resize in flight).
+								rect.X = std::min(found.GetValue().X, captured.GetWidth());
+								rect.Y = std::min(found.GetValue().Y, captured.GetHeight());
+								rect.Width = std::min(found.GetValue().Width, captured.GetWidth() - rect.X);
+								rect.Height = std::min(found.GetValue().Height, captured.GetHeight() - rect.Y);
+								Result<Image> cropped = captured.Crop(rect.X, rect.Y, rect.Width, rect.Height);
+								if (!cropped)
+								{
+									completion.Complete(MakeCommandError(AutomationErrorCode::InvalidOperation,
+								                                         "the {} window has no area "
+								                                         "in the captured image",
+								                                         GetScreenshotWindowName(window)));
+									return;
+								}
+								cut = std::move(cropped.GetValue());
+							}
+							Image const& shown = cut ? *cut : captured;
+							Result<std::vector<uint8_t>> png = shown.EncodePNG();
 							if (!png)
 							{
 								completion.Complete(MakeCommandError(AutomationErrorCode::InternalError, "{}", png.GetError()));
 								return;
 							}
 							completion.Complete(Json::object({{"mimeType", "image/png"},
-						                                      {"width", image.GetValue().GetWidth()},
-						                                      {"height", image.GetValue().GetHeight()},
-						                                      {"data", Base64Encode(png.GetValue())}}));
+						                                      {"width", shown.GetWidth()},
+						                                      {"height", shown.GetHeight()},
+						                                      {"data", Base64Encode(png.GetValue())},
+						                                      {"window", std::string(GetScreenshotWindowName(window))},
+						                                      {"rect", Json::array({rect.X, rect.Y, rect.Width, rect.Height})}}));
 						});
 				};
 				result = m_Registry.Register(std::move(screenshot));
@@ -5831,6 +5991,45 @@ namespace Strada
 			};
 			std::unordered_map<AssetHandle, StoredGraphAnalysis> m_StoredGraphAnalyses;
 		};
+	}
+
+	namespace
+	{
+		constexpr std::array<std::pair<ScreenshotWindow, std::string_view>, 9> ScreenshotWindowNames = {{
+			{ScreenshotWindow::Editor, "Editor"},
+			{ScreenshotWindow::SceneView, "SceneView"},
+			{ScreenshotWindow::GameView, "GameView"},
+			{ScreenshotWindow::Hierarchy, "Hierarchy"},
+			{ScreenshotWindow::Inspector, "Inspector"},
+			{ScreenshotWindow::ContentBrowser, "ContentBrowser"},
+			{ScreenshotWindow::Console, "Console"},
+			{ScreenshotWindow::Debugger, "Debugger"},
+			{ScreenshotWindow::Graph, "Graph"},
+		}};
+	}
+
+	std::string_view GetScreenshotWindowName(ScreenshotWindow window)
+	{
+		for (auto const& [candidate, name] : ScreenshotWindowNames)
+		{
+			if (candidate == window)
+			{
+				return name;
+			}
+		}
+		return "Editor";
+	}
+
+	std::optional<ScreenshotWindow> ParseScreenshotWindow(std::string_view name)
+	{
+		for (auto const& [window, candidate] : ScreenshotWindowNames)
+		{
+			if (candidate == name)
+			{
+				return window;
+			}
+		}
+		return std::nullopt;
 	}
 
 	Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations, EditorCommandEnvironment environment)

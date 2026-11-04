@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace Strada::Testing
@@ -65,12 +66,19 @@ namespace Strada::Testing
 		void Frame(std::function<void()> const& draw, float seconds)
 		{
 			ImGui_ImplNull_NewFrame();
+			if (m_DisplaySize)
+			{
+				ImGui::GetIO().DisplaySize = *m_DisplaySize;
+			}
 			ImGui::GetIO().DeltaTime = seconds;
 			ImGui::NewFrame();
 			draw();
 			ImGui::Render();
 			ImGui_ImplNullRender_RenderDrawData(ImGui::GetDrawData());
 		}
+
+		// The display's size from the next frame (the null backend's is 1920 x 1080); none goes back to it.
+		void SetDisplaySize(std::optional<ImVec2> size) { m_DisplaySize = size; }
 
 		void Type(char const* text) { ImGui::GetIO().AddInputCharactersUTF8(text); }
 
@@ -221,5 +229,6 @@ namespace Strada::Testing
 		ImGuiContext* m_Context = nullptr;
 		// What the context's clipboard holds (its Platform_ClipboardUserData is this object, which never moves).
 		std::string m_Clipboard;
+		std::optional<ImVec2> m_DisplaySize;
 	};
 }

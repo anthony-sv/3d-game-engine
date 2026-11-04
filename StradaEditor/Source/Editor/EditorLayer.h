@@ -5,6 +5,7 @@
 #include "Editor/Automation/AutomationInstanceFile.h"
 #include "Editor/Automation/AutomationServer.h"
 #include "Editor/Automation/CommandRegistry.h"
+#include "Editor/Automation/EditorCommands.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorExport.h"
 #include "Editor/EditorOperations.h"
@@ -147,6 +148,11 @@ namespace Strada
 		// Wires the debug session to the UI (spec-slice4 §22.7): the views file keeps its breakpoints, the graph windows show it,
 		// its stops bring their windows and the Debugger panel forward and take the game's input back.
 		void ConnectDebugger();
+		// The game as the graph windows' preview shows it this frame (spec-slice4 §15.6); none without a game view.
+		std::optional<VisualScriptGamePreview> DescribeGamePreview() const;
+		// Where an editor window lies in the editor window's image (viewport.screenshot {window}), from the windows ImGui drew
+		// in the frame being captured.
+		Result<ScreenshotRect> FindWindowRect(ScreenshotWindow window, AssetHandle graph) const;
 
 		// Runs the action now, or after the unsaved-changes prompt when the scene has unsaved changes.
 		void RequestSceneAction(SceneAction action, std::filesystem::path path = {});

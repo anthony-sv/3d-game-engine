@@ -815,7 +815,39 @@ namespace Strada
 		{
 			m_FocusWaits = 0;
 		}
+		ScrollToRequestedRow(context);
 		return result;
+	}
+
+	void VisualScriptDetails::ScrollToRequestedRow(VisualScriptPaneContext& context)
+	{
+		std::optional<std::string>& row = context.Shared.ScrollRow;
+		if (!row)
+		{
+			m_ScrollWaits = 0;
+			return;
+		}
+		auto const found = std::find_if(m_Rows.begin(), m_Rows.end(),
+		                                [&row](auto const& drawn)
+		                                {
+											return drawn.first == *row;
+										});
+		if (found != m_Rows.end())
+		{
+			// From where the row was drawn in this frame, a line's spacing below the pane's top; ImGui clamps the scroll to what
+			// the pane holds and applies it at its next Begin (SetScrollFromPosY, imgui.cpp).
+			float const top = found->second.first.y - ImGui::GetWindowPos().y - ImGui::GetStyle().ItemSpacing.y;
+			ImGui::SetScrollFromPosY(top, 0.0f);
+			row.reset();
+			m_ScrollWaits = 0;
+			return;
+		}
+		if (++m_ScrollWaits > FocusSettingFrames)
+		{
+			// The row was never drawn (the selection the request made did not come, or the subject has no such row).
+			row.reset();
+			m_ScrollWaits = 0;
+		}
 	}
 
 	void VisualScriptDetails::DrawScript(Frame& frame)

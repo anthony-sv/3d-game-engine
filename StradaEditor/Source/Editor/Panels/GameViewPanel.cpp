@@ -131,10 +131,16 @@ namespace Strada
 		return layout;
 	}
 
-	GameViewPanel::GameViewPanel(GameInputRouter& input)
-		: m_Input(input)
+	bool WantsHiddenGameRender(bool gameViewVisible, bool previewWanted)
 	{
-		if (Renderer::IsInitialized())
+		return !gameViewVisible && previewWanted;
+	}
+
+	GameViewPanel::GameViewPanel(GameInputRouter& input, GameViewRenderFunction render)
+		: m_Input(input),
+		  m_Render(std::move(render))
+	{
+		if (!m_Render && Renderer::IsInitialized())
 		{
 			m_Renderer = CreateScope<SceneRenderer>();
 		}
@@ -159,7 +165,7 @@ namespace Strada
 		}
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		// The view never scrolls: the wheel over it is the game's.
-		bool const visible = ImGui::Begin("Game View", &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		bool const visible = ImGui::Begin(WindowName, &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 		ImGui::PopStyleVar();
 		m_Window = ImGui::GetCurrentWindow();
 		if (!visible)
@@ -169,7 +175,10 @@ namespace Strada
 			ImGui::End();
 			return;
 		}
+		m_VisibleFrame = ImGui::GetFrameCount();
+		float const toolbarTop = ImGui::GetCursorPosY();
 		DrawToolbar(context);
+		m_ToolbarHeight = ImGui::GetCursorPosY() - toolbarTop;
 
 		ImVec2 const origin = ImGui::GetCursorScreenPos();
 		glm::vec2 const available(std::max(ImGui::GetContentRegionAvail().x, 1.0f), std::max(ImGui::GetContentRegionAvail().y, 1.0f));
@@ -181,29 +190,22 @@ namespace Strada
 		Scene& scene = context.GetScene();
 		// Scripts read the game's view size (Application.WindowWidth/Height, Camera.ScreenToWorldRay).
 		scene.OnViewportResize(layout.RenderSize.x, layout.RenderSize.y);
-		bool rendered = false;
-		if (m_Renderer)
-		{
-			m_Renderer->SetViewportSize(layout.RenderSize.x, layout.RenderSize.y);
-			// The lines scripts draw are as wide as on the player's display at the editor's scale.
-			SceneRenderOptions options;
-			options.DisplayScale = ImGui::GetStyle().FontScaleDpi;
-			rendered = RenderSceneFromPrimaryCamera(scene, *m_Renderer, options);
-		}
+		std::optional<ImTextureID> const texture = Render(scene, layout.RenderSize);
 
 		ImVec2 const imageMin(origin.x + layout.ImageOffset.x, origin.y + layout.ImageOffset.y);
 		ImVec2 const imageMax(imageMin.x + layout.ImageSize.x, imageMin.y + layout.ImageSize.y);
 		// The whole area is an item, so that ImGui focuses the view with the click that gives the game the input.
 		ImGui::InvisibleButton("##GameImage", ImVec2(available.x, available.y));
 		bool const hovered = ImGui::IsItemHovered();
-		if (rendered)
+		if (texture)
 		{
-			drawList->AddImage(ImGuiRenderer::GetTextureID(m_Renderer->GetFinalImage()), imageMin, imageMax);
+			drawList->AddImage(ImTextureRef(*texture), imageMin, imageMax);
 		}
 		else
 		{
-			char const* const message = m_Renderer ? "No camera renders the game: give an entity a Camera component marked Primary."
-			                                       : "Rendering is unavailable (no GPU).";
+			char const* const message = m_Renderer || m_Render
+			                                ? "No camera renders the game: give an entity a Camera component marked Primary."
+			                                : "Rendering is unavailable (no GPU).";
 			ImVec2 const size = ImGui::CalcTextSize(message);
 			drawList->AddText(ImVec2(origin.x + (available.x - size.x) * 0.5f, origin.y + (available.y - size.y) * 0.5f),
 			                  ImGui::GetColorU32(ImGuiCol_TextDisabled), message);
@@ -232,6 +234,66 @@ namespace Strada
 			                  ImVec2(origin.x + available.x - 1.0f, origin.y + available.y - 1.0f), ActiveFrameColor, 0.0f, 2.0f);
 		}
 		ImGui::End();
+	}
+
+	void GameViewPanel::RenderHidden(EditorContext& context)
+	{
+		Render(context.GetScene(), m_RenderSize);
+	}
+
+	std::optional<ImTextureID> GameViewPanel::Render(Scene& scene, glm::uvec2 size)
+	{
+		std::optional<ImTextureID> texture;
+		if (m_Render)
+		{
+			m_RenderCount++;
+			texture = m_Render(scene, size);
+		}
+		else if (m_Renderer)
+		{
+			m_RenderCount++;
+			m_Renderer->SetViewportSize(size.x, size.y);
+			// The lines scripts draw are as wide as on the player's display at the editor's scale.
+			SceneRenderOptions options;
+			options.DisplayScale = ImGui::GetStyle().FontScaleDpi;
+			if (RenderSceneFromPrimaryCamera(scene, *m_Renderer, options))
+			{
+				texture = ImGuiRenderer::GetTextureID(m_Renderer->GetFinalImage());
+			}
+		}
+		m_Texture = texture;
+		m_TextureFrame = ImGui::GetFrameCount();
+		return texture;
+	}
+
+	std::optional<ImTextureID> GameViewPanel::GetPreviewTexture() const
+	{
+		return m_TextureFrame == ImGui::GetFrameCount() ? m_Texture : std::nullopt;
+	}
+
+	bool GameViewPanel::IsVisible() const
+	{
+		return m_VisibleFrame == ImGui::GetFrameCount();
+	}
+
+	std::optional<std::pair<glm::vec2, glm::vec2>> GameViewPanel::GetWindowRect() const
+	{
+		if (m_Window == nullptr)
+		{
+			return std::nullopt;
+		}
+		glm::vec2 const position(m_Window->Pos.x, m_Window->Pos.y);
+		return std::pair(position, position + glm::vec2(m_Window->Size.x, m_Window->Size.y));
+	}
+
+	float GameViewPanel::GetToolbarHeight() const
+	{
+		if (m_ToolbarHeight)
+		{
+			return *m_ToolbarHeight;
+		}
+		// As DrawToolbar lays it out: 4 pixels above the combo, 2 below, and the item spacing after each line.
+		return ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 6.0f;
 	}
 
 	void GameViewPanel::UpdateWindowCursors()
@@ -311,6 +373,15 @@ namespace Strada
 		}
 		ImGui::SetItemTooltip("The size the game renders at");
 		ImGui::SameLine();
+		if (m_BesideAction)
+		{
+			if (ImGui::Button(BesideLabel.data()))
+			{
+				m_BesideAction();
+			}
+			ImGui::SetItemTooltip("Show the game beside the graph window it shares this dock node with");
+			ImGui::SameLine();
+		}
 		ImGui::AlignTextToFramePadding();
 		// The state of the previous frame: the image is laid out after the toolbar.
 		ImGui::TextDisabled("%u x %u", m_RenderSize.x, m_RenderSize.y);

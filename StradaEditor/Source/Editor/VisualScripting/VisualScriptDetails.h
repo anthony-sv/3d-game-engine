@@ -124,6 +124,8 @@ namespace Strada
 		void EndRow(std::string_view label);
 		// A row that shows a text instead of a widget.
 		void TextRow(std::string_view label, std::string_view text);
+		// Scrolls the pane so that the row of VisualScriptPaneShared::ScrollRow is at its top, once this Draw drew the row.
+		void ScrollToRequestedRow(VisualScriptPaneContext& context);
 		// Draws a widget in a row and hands its edit to the commits with the widget's state (active, deactivated).
 		template<typename TDraw>
 		void Track(Frame& frame, std::string_view label, TDraw&& draw);
@@ -216,8 +218,10 @@ namespace Strada
 		std::optional<VisualScriptDocumentKind> m_KindSwitch;
 		std::string m_KindQuestion;
 		bool m_OpenKindModal = false;
-		// How many Draws the focus request has waited for its node.
+		// How many Draws the focus request has waited for its node, and the scroll request (VisualScriptPaneShared::ScrollRow)
+		// for its row.
 		int m_FocusWaits = 0;
+		int m_ScrollWaits = 0;
 		// The Formula field being typed in: its node, the formula and its inputs at the interaction's start, the text typed, the
 		// bytes to select once it has the keyboard, and the frame it was last drawn in.
 		struct FormulaEdit

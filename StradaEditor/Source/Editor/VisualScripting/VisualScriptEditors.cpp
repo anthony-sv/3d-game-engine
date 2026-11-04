@@ -496,6 +496,83 @@ namespace Strada
 		}
 	}
 
+	bool VisualScriptEditors::WantsGamePreview() const
+	{
+		return std::any_of(m_Windows.begin(), m_Windows.end(),
+		                   [](GraphWindow const& window)
+		                   {
+							   return window.Panel->IsGamePreviewShown();
+						   });
+	}
+
+	void VisualScriptEditors::RequestGameViewBeside(AssetHandle graph)
+	{
+		m_BesideRequest = graph;
+		m_GameBeside = VisualScriptGameBesideState{graph, VisualScriptGameBesideOutcome::Queued, {}};
+	}
+
+	std::optional<AssetHandle> VisualScriptEditors::TakeGameViewBesideRequest()
+	{
+		return std::exchange(m_BesideRequest, std::nullopt);
+	}
+
+	void VisualScriptEditors::OnGameViewBesidePlaced(VisualScriptGameBesideState state)
+	{
+		if (VisualScriptEditorPanel* const panel = FindPanel(state.Graph))
+		{
+			switch (state.Outcome)
+			{
+				case VisualScriptGameBesideOutcome::Applied:
+					// The game view took the other side of the node: the graph stays in front of its own.
+					panel->RequestFocus();
+					break;
+				case VisualScriptGameBesideOutcome::AlreadyVisible:
+					panel->ShowToast(
+						fmt::format("{}{}", VisualScriptPanelTexts::BesideNotApplied, VisualScriptPanelTexts::BesideAlreadyVisible));
+					break;
+				case VisualScriptGameBesideOutcome::Failed:
+					panel->ShowToast(fmt::format("{}{}", VisualScriptPanelTexts::BesideNotApplied, state.Reason));
+					break;
+				case VisualScriptGameBesideOutcome::Queued:
+					break;
+			}
+		}
+		m_GameBeside = std::move(state);
+	}
+
+	std::optional<AssetHandle> VisualScriptEditors::FindWindowDockedWith(char const* windowName) const
+	{
+		ImGuiWindow const* const other = ImGui::FindWindowByName(windowName);
+		if (other == nullptr || other->DockNode == nullptr)
+		{
+			return std::nullopt;
+		}
+		std::optional<AssetHandle> found;
+		for (GraphWindow const& window : m_Windows)
+		{
+			AssetHandle const graph = window.Panel->GetGraph();
+			ImGuiWindow const* const candidate = ImGui::FindWindowByID(GetWindowID(graph));
+			if (candidate == nullptr || candidate->DockNode != other->DockNode)
+			{
+				continue;
+			}
+			if (m_EditTarget && *m_EditTarget == graph)
+			{
+				return graph;
+			}
+			// The one focused last among them.
+			auto const rank = [this](AssetHandle handle)
+			{
+				return std::find(m_FocusOrder.begin(), m_FocusOrder.end(), handle) - m_FocusOrder.begin();
+			};
+			if (!found || rank(graph) < rank(*found))
+			{
+				found = graph;
+			}
+		}
+		return found;
+	}
+
 	std::optional<std::vector<EditorMenuItemRecord>> VisualScriptEditors::DrawEditMenuItems(std::span<ImGuiKeyChord const> claimed)
 	{
 		VisualScriptEditorPanel* target = GetEditTarget();

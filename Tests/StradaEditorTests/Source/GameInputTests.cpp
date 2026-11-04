@@ -21,6 +21,7 @@
 
 #include <array>
 #include <initializer_list>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -1347,4 +1348,67 @@ TEST_CASE("GameInput: the game's UI follows the cursor only while the game has t
 	fixture.Send(MouseButtonReleasedEvent(MouseButton::Left), At(point));
 	frame();
 	CHECK(clicks == 2);
+}
+
+TEST_CASE("GameInput: the graph windows' preview renders the hidden game view's game, and the scene renders at most once a frame")
+{
+	CHECK(WantsHiddenGameRender(false, true));
+	CHECK_FALSE(WantsHiddenGameRender(true, true));
+	CHECK_FALSE(WantsHiddenGameRender(true, false));
+	CHECK_FALSE(WantsHiddenGameRender(false, false));
+
+	// A fake renderer: it counts the renders and answers a texture, at the size the view laid out.
+	HeadlessImGui gui;
+	EditorContext context;
+	GameInputRouter router;
+	uint64_t renders = 0;
+	glm::uvec2 renderedSize(0);
+	GameViewPanel view(router,
+	                   [&renders, &renderedSize](Scene&, glm::uvec2 size) -> std::optional<ImTextureID>
+	                   {
+						   renders++;
+						   renderedSize = size;
+						   return static_cast<ImTextureID>(42);
+					   });
+	bool open = true;
+	// One editor frame as EditorLayer draws it: the game view when it is shown, then the hidden render the preview asks for,
+	// and what the graph windows would read for the preview.
+	std::optional<ImTextureID> texture;
+	auto const frame = [&](bool viewShown, bool previewWanted)
+	{
+		uint64_t const before = renders;
+		gui.Frame(
+			[&]
+			{
+				if (viewShown)
+				{
+					ImGui::SetNextWindowPos(ImVec2(100.0f, 100.0f));
+					ImGui::SetNextWindowSize(ImVec2(800.0f, 600.0f));
+					view.OnImGuiRender(context, open);
+				}
+				if (WantsHiddenGameRender(viewShown && view.IsVisible(), previewWanted))
+				{
+					view.RenderHidden(context);
+				}
+				texture = view.GetPreviewTexture();
+			});
+		CHECK(view.GetRenderCount() == renders);
+		return renders - before;
+	};
+
+	// The game view visible renders once a frame, with the preview wanted or not.
+	CHECK(frame(true, false) == 1u);
+	CHECK(frame(true, true) == 1u);
+	CHECK(texture == std::optional<ImTextureID>(42));
+	glm::uvec2 const laidOut = view.GetRenderSize();
+	CHECK(renderedSize == laidOut);
+	// Hidden (closed), the preview renders it once a frame at the size the view last laid out; neither renders nothing.
+	CHECK(frame(false, true) == 1u);
+	CHECK(renderedSize == laidOut);
+	CHECK(texture == std::optional<ImTextureID>(42));
+	CHECK(frame(false, false) == 0u);
+	CHECK_FALSE(texture.has_value());
+	// Shown again, it is the view that renders.
+	CHECK(frame(true, true) == 1u);
+	CHECK(view.IsVisible());
 }

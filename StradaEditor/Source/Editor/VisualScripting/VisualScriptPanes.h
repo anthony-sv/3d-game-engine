@@ -139,6 +139,10 @@ namespace Strada
 		// its commit when it has one). Details clears it once it shows that node, or when it has shown other subjects for
 		// FocusSettingFrames Draws (the selection a request makes reaches the model a frame or two later).
 		std::optional<VisualScriptSettingFocus> FocusSetting;
+		// A row of Details, by its label (VisualScriptDetails::FindRow's), that Details scrolls to the top of its pane once it
+		// draws it (graph.open's detailsRow, S4-R5.2), as it waits for FocusSetting: it clears it then, or when it has drawn
+		// FocusSettingFrames times without the row.
+		std::optional<std::string> ScrollRow;
 		// My Script opens this row's name for typing at its next Draw (F2 on a row, a quick fix that renames), and clears it.
 		std::optional<VisualScriptElement> Rename;
 		// The panes' creation-and-name runs so far (MakeVisualScriptPaneNameMergeKey).

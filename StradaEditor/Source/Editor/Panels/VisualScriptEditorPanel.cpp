@@ -2,9 +2,11 @@
 
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/Panels/GameViewPanel.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
+#include "Editor/VisualScripting/VisualScriptGameBeside.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
@@ -307,6 +309,14 @@ namespace Strada
 			ListArrow,
 			Close,
 			Bookmark
+		};
+
+		// The game preview's header buttons, drawn as shapes.
+		enum class PreviewSymbol : uint8_t
+		{
+			Expand = 0,
+			Beside,
+			Close
 		};
 
 		ImU32 WithAlpha(ImU32 color, float alpha)
@@ -782,6 +792,8 @@ namespace Strada
 
 	VisualScriptEditorPanel::BreakpointPopup::BreakpointPopup() = default;
 
+	VisualScriptEditorPanel::PreviewDrag::PreviewDrag() = default;
+
 	UUID VisualScriptEditorPanel::GetContextEntity() const
 	{
 		return GetPresentContextEntity();
@@ -1022,6 +1034,7 @@ namespace Strada
 		state.RuntimeWarnings = m_RuntimeWarnings;
 		state.NotRunning = m_NotRunningCount;
 		state.FlowHeld = state.FlowDrawn && m_DebugView.FlowHeld;
+		state.GamePreview = m_GamePreviewShown ? GetItemRect(VisualScriptPanelItem::GamePreview) : std::nullopt;
 		// Top to bottom: the notices under the toolbar, then the hints over the canvas.
 		std::vector<VisualScriptNotice> notices;
 		for (NoticeKind const notice : m_Notices)
@@ -1055,6 +1068,10 @@ namespace Strada
 		if (m_CanvasHintShown)
 		{
 			notices.push_back(VisualScriptNotice::FirstCanvas);
+		}
+		if (m_BesideHintShown)
+		{
+			notices.push_back(VisualScriptNotice::BesideHint);
 		}
 		notices.insert(notices.end(), state.Notices.begin(), state.Notices.end());
 		state.Notices = std::move(notices);
@@ -1108,6 +1125,10 @@ namespace Strada
 		m_CanvasHovered = false;
 		m_HintShown = false;
 		m_CanvasHintShown = false;
+		m_BesideHintShown = false;
+		m_GamePreviewShown = false;
+		m_PreviewDrag.reset();
+		m_PreviewPosition.reset();
 		m_ItemRects.fill(std::nullopt);
 		m_Model.CancelGesture();
 		m_Renderer.StopAnimations();
@@ -1151,6 +1172,16 @@ namespace Strada
 		ImGui::PopStyleVar();
 		if (!visible)
 		{
+			// Play hid the window: the game view came forward in its dock node. The Beside hint shows when it is shown again.
+			if (m_Operations.GetContext().GetPlayState() == EditorPlayState::Play && !m_Settings.IsHintSeen(VisualScriptGameViewBesideHint))
+			{
+				ImGuiWindow const* const window = ImGui::GetCurrentWindow();
+				ImGuiWindow const* const game = ImGui::FindWindowByName(GameViewPanel::WindowName);
+				if (window->DockNode != nullptr && game != nullptr && game->DockNode == window->DockNode && game->DockTabIsVisible)
+				{
+					m_BesideHintPending = true;
+				}
+			}
 			ImGui::End();
 			OnHidden();
 			// A hidden window takes what the game did silently: shown later, it toasts nothing stale.
@@ -1208,6 +1239,10 @@ namespace Strada
 			if (request.Timeline)
 			{
 				ShowTimeline(*request.Timeline);
+			}
+			if (!request.DetailsRow.empty())
+			{
+				m_PaneShared.ScrollRow = request.DetailsRow;
 			}
 		}
 		// The Timeline drawer closes when its node is no longer a Timeline of the sub-graph shown (deleted, undone, another
@@ -3665,6 +3700,21 @@ namespace Strada
 		{
 			m_Flow.ResetCounts();
 		}
+		// The live game beside the graph (spec-slice4 §15.6): the preview in a corner of the canvas, and the game view docked
+		// beside this window.
+		ImGui::Separator();
+		VisualScriptGamePreviewSettings preview = m_Settings.GetGamePreview();
+		if (ImGui::MenuItem(Texts::PreviewMenu.data(), nullptr, preview.Shown))
+		{
+			preview.Shown = !preview.Shown;
+			m_Settings.SetGamePreview(preview);
+		}
+		ImGui::SetItemTooltip("%s", Texts::PreviewMenuTooltip.data());
+		if (ImGui::MenuItem(Texts::BesideMenu.data(), nullptr, false, static_cast<bool>(m_Services.PlaceGameViewBeside)))
+		{
+			m_Services.PlaceGameViewBeside(m_Graph);
+		}
+		ImGui::SetItemTooltip("%s", Texts::BesideMenuTooltip.data());
 		if (m_ViewItemsInMenu)
 		{
 			ImGui::Separator();
@@ -4404,6 +4454,275 @@ namespace Strada
 		ImGui::PopStyleColor();
 	}
 
+	void VisualScriptEditorPanel::DrawGamePreview()
+	{
+		m_GamePreviewShown = false;
+		std::optional<VisualScriptGamePreview> const preview = m_Services.GamePreview ? m_Services.GamePreview() : std::nullopt;
+		bool const playing = m_Live == VisualScriptLiveState::Live || m_Live == VisualScriptLiveState::LastWorking ||
+		                     (m_DebugInput != nullptr && m_DebugInput->Stop.has_value());
+		VisualScriptGamePreviewSettings settings = m_Settings.GetGamePreview();
+		if (!preview || preview->GameViewVisible || !playing || !settings.Shown || m_CanvasSize.x < 1.0f || m_CanvasSize.y < 1.0f)
+		{
+			m_PreviewDrag.reset();
+			m_PreviewPosition.reset();
+			return;
+		}
+		ImGuiStyle const& style = ImGui::GetStyle();
+		ImGuiIO const& io = ImGui::GetIO();
+		float const fontSize = ImGui::GetFontSize();
+		float const margin = std::round(fontSize * 0.5f);
+		float const header = ImGui::GetFrameHeight();
+		float const aspect = preview->Size.x > 0 && preview->Size.y > 0
+		                         ? static_cast<float>(preview->Size.x) / static_cast<float>(preview->Size.y)
+		                         : VisualScriptBeside::DefaultAspect;
+		// The setting's share of the canvas, at least 12 F and at most 0.6 of the canvas (which wins on a narrow canvas); the
+		// image keeps the game's aspect ratio, as wide as the canvas's height allows.
+		float width = std::min(std::max(settings.Width * m_CanvasSize.x, VisualScriptGamePreviewMinWidth * fontSize),
+		                       VisualScriptGamePreviewMaxShare * m_CanvasSize.x);
+		float imageHeight = width / aspect;
+		float const room = m_CanvasSize.y - margin * 2.0f - header - 2.0f;
+		if (imageHeight > room)
+		{
+			imageHeight = std::max(room, 1.0f);
+			width = imageHeight * aspect;
+		}
+		width = std::max(std::round(width), 1.0f);
+		imageHeight = std::max(std::round(imageHeight), 1.0f);
+		// A 1-pixel border in the play colour around the header and the image.
+		glm::vec2 const size(width + 2.0f, header + imageHeight + 2.0f);
+		bool const left = settings.Corner == VisualScriptPreviewCorner::TopLeft || settings.Corner == VisualScriptPreviewCorner::BottomLeft;
+		bool const top = settings.Corner == VisualScriptPreviewCorner::TopLeft || settings.Corner == VisualScriptPreviewCorner::TopRight;
+		glm::vec2 const cornerPosition(left ? m_CanvasMin.x + margin : m_CanvasMin.x + m_CanvasSize.x - margin - size.x,
+		                               top ? m_CanvasMin.y + margin : m_CanvasMin.y + m_CanvasSize.y - margin - size.y);
+		glm::vec2 const position = glm::floor(
+			glm::clamp(m_PreviewPosition.value_or(cornerPosition), m_CanvasMin, glm::max(m_CanvasMin, m_CanvasMin + m_CanvasSize - size)));
+
+		ImGui::SetCursorScreenPos(ToImVec2(position));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(1.0f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_PopupBg));
+		bool const drawn = ImGui::BeginChild("##gamePreview", ToImVec2(size), ImGuiChildFlags_AlwaysUseWindowPadding,
+		                                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNav);
+		ImGui::PopStyleColor();
+		ImGui::PopStyleVar();
+		bool headerActive = false;
+		bool edgeActive = false;
+		if (drawn)
+		{
+			ImDrawList* const drawList = ImGui::GetWindowDrawList();
+			ImVec2 const origin = ImGui::GetCursorScreenPos();
+			ImU32 const textColor = ImGui::GetColorU32(ImGuiCol_Text);
+			// The header: the title, which drags the preview, then the buttons that have a service at its right end.
+			int const buttons = (m_Services.ShowGameView ? 1 : 0) + (m_Services.PlaceGameViewBeside ? 1 : 0) + 1;
+			float const titleWidth = std::max(width - header * static_cast<float>(buttons), 1.0f);
+			ImGui::SetNextItemAllowOverlap();
+			ImGui::InvisibleButton("##previewHeader", ImVec2(titleWidth, header));
+			headerActive = ImGui::IsItemActive();
+			if (ImGui::IsItemHovered() && !m_PreviewDrag)
+			{
+				ImGui::SetTooltip("%s", Texts::PreviewMove.data());
+			}
+			std::string_view const title = preview->GameHasInput ? Texts::PreviewTitle : Texts::PreviewClickToPlay;
+			m_GamePreviewTitle = title;
+			drawList->PushClipRect(origin, ImVec2(origin.x + titleWidth, origin.y + header), true);
+			drawList->AddText(ImVec2(origin.x + style.FramePadding.x, origin.y + (header - ImGui::GetTextLineHeight()) * 0.5f), textColor,
+			                  title.data(), title.data() + title.size());
+			drawList->PopClipRect();
+
+			// A square button of the header's height with a drawn symbol (the editor's fonts have none, spec-slice4 §15).
+			float const inset = std::round(header * 0.3f);
+			float const stroke = std::max(1.0f, std::round(style.FontScaleDpi));
+			float buttonX = origin.x + titleWidth;
+			auto const drawButton = [&](char const* id, VisualScriptPanelItem item, std::string_view tooltip,
+			                            PreviewSymbol const symbol) -> bool
+			{
+				ImGui::SetCursorScreenPos(ImVec2(buttonX, origin.y));
+				bool const pressed = ImGui::InvisibleButton(id, ImVec2(header, header));
+				RecordItem(item);
+				ImVec2 const lower = ImGui::GetItemRectMin();
+				ImVec2 const upper = ImGui::GetItemRectMax();
+				if (ImGui::IsItemHovered())
+				{
+					drawList->AddRectFilled(lower, upper,
+					                        ImGui::GetColorU32(ImGui::IsItemActive() ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered));
+					ImGui::SetTooltip("%s", tooltip.data());
+				}
+				ImVec2 const symbolMin(lower.x + inset, lower.y + inset);
+				ImVec2 const symbolMax(upper.x - inset, upper.y - inset);
+				if (symbol == PreviewSymbol::Close)
+				{
+					drawList->AddLine(symbolMin, symbolMax, textColor, stroke);
+					drawList->AddLine(ImVec2(symbolMin.x, symbolMax.y), ImVec2(symbolMax.x, symbolMin.y), textColor, stroke);
+				}
+				else
+				{
+					drawList->AddRect(symbolMin, symbolMax, textColor, 0.0f, stroke);
+					if (symbol == PreviewSymbol::Beside)
+					{
+						// Beside: the frame split as Game View Beside splits a dock node, the game above the graph.
+						float const split = std::round(symbolMin.y + (symbolMax.y - symbolMin.y) * VisualScriptBeside::UpShare);
+						drawList->AddLine(ImVec2(symbolMin.x, split), ImVec2(symbolMax.x, split), textColor, stroke);
+					}
+					else
+					{
+						// Expand: the frame with its title bar, as a window that comes forward.
+						drawList->AddRectFilled(symbolMin, ImVec2(symbolMax.x, symbolMin.y + stroke * 2.0f), textColor);
+					}
+				}
+				buttonX += header;
+				return pressed;
+			};
+			if (m_Services.ShowGameView &&
+			    drawButton("##previewExpand", VisualScriptPanelItem::GamePreviewExpand, Texts::PreviewExpand, PreviewSymbol::Expand))
+			{
+				m_Services.ShowGameView();
+			}
+			if (m_Services.PlaceGameViewBeside &&
+			    drawButton("##previewBeside", VisualScriptPanelItem::GamePreviewBeside, Texts::PreviewBeside, PreviewSymbol::Beside))
+			{
+				m_Services.PlaceGameViewBeside(m_Graph);
+			}
+			if (drawButton("##previewClose", VisualScriptPanelItem::GamePreviewClose, Texts::PreviewClose, PreviewSymbol::Close))
+			{
+				settings.Shown = false;
+				m_Settings.SetGamePreview(settings);
+			}
+
+			// The game's image: a click on it plays (the game takes the input only through the game view).
+			ImVec2 const imageMin(origin.x, origin.y + header);
+			ImVec2 const imageMax(imageMin.x + width, imageMin.y + imageHeight);
+			ImGui::SetCursorScreenPos(imageMin);
+			ImGui::SetNextItemAllowOverlap();
+			if (ImGui::InvisibleButton("##previewImage", ImVec2(width, imageHeight)) && m_Services.ShowGameView)
+			{
+				m_Services.ShowGameView();
+			}
+			drawList->AddRectFilled(imageMin, imageMax, IM_COL32(0, 0, 0, 255));
+			if (preview->Texture)
+			{
+				drawList->AddImage(ImTextureRef(static_cast<ImTextureID>(*preview->Texture)), imageMin, imageMax);
+			}
+			else
+			{
+				std::string_view const message = Texts::PreviewNoImage;
+				ImVec2 const textSize = ImGui::CalcTextSize(message.data(), message.data() + message.size());
+				drawList->PushClipRect(imageMin, imageMax, true);
+				drawList->AddText(ImVec2(imageMin.x + std::max((width - textSize.x) * 0.5f, style.FramePadding.x),
+				                         imageMin.y + (imageHeight - textSize.y) * 0.5f),
+				                  ImGui::GetColorU32(ImGuiCol_TextDisabled), message.data(), message.data() + message.size());
+				drawList->PopClipRect();
+			}
+
+			// The inner edge (the one towards the canvas's middle) resizes the preview.
+			float const grip = std::max(4.0f, std::round(4.0f * style.FontScaleDpi));
+			ImGui::SetCursorScreenPos(ImVec2(left ? origin.x + width - grip : origin.x, origin.y));
+			ImGui::InvisibleButton("##previewEdge", ImVec2(grip, header + imageHeight));
+			RecordItem(VisualScriptPanelItem::GamePreviewEdge);
+			edgeActive = ImGui::IsItemActive();
+			if (ImGui::IsItemHovered() || edgeActive)
+			{
+				ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+			}
+		}
+		ImGui::EndChild();
+		RecordItem(VisualScriptPanelItem::GamePreview);
+		ImGui::GetWindowDrawList()->AddRect(ToImVec2(position), ToImVec2(position + size), VisualScriptPlayColor, 0.0f, 1.0f);
+		m_GamePreviewShown = true;
+
+		// Dragging, from where the drag started: the header moves the preview until the release snaps it to the nearest corner,
+		// the inner edge changes its width (a per-user setting, never a history step).
+		glm::vec2 const mouse = ToVec2(io.MousePos);
+		if ((headerActive || edgeActive) && !m_PreviewDrag && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		{
+			PreviewDrag drag;
+			drag.Resize = edgeActive;
+			drag.StartMouse = ToVec2(io.MouseClickedPos[ImGuiMouseButton_Left]);
+			drag.StartPosition = position;
+			drag.StartWidth = width;
+			m_PreviewDrag = drag;
+		}
+		if (!m_PreviewDrag)
+		{
+			return;
+		}
+		glm::vec2 const delta = ImGui::IsMousePosValid() ? mouse - m_PreviewDrag->StartMouse : glm::vec2(0.0f);
+		if (m_PreviewDrag->Resize)
+		{
+			float const resized = m_PreviewDrag->StartWidth + (left ? delta.x : -delta.x);
+			settings.Width = resized / m_CanvasSize.x;
+			m_Settings.SetGamePreview(settings);
+		}
+		else
+		{
+			m_PreviewPosition = m_PreviewDrag->StartPosition + delta;
+		}
+		if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			return;
+		}
+		if (!m_PreviewDrag->Resize)
+		{
+			glm::vec2 const center = *m_PreviewPosition + size * 0.5f;
+			glm::vec2 const middle = m_CanvasMin + m_CanvasSize * 0.5f;
+			bool const toLeft = center.x < middle.x;
+			settings.Corner = center.y < middle.y
+			                      ? (toLeft ? VisualScriptPreviewCorner::TopLeft : VisualScriptPreviewCorner::TopRight)
+			                      : (toLeft ? VisualScriptPreviewCorner::BottomLeft : VisualScriptPreviewCorner::BottomRight);
+			m_Settings.SetGamePreview(settings);
+		}
+		m_PreviewDrag.reset();
+		m_PreviewPosition.reset();
+	}
+
+	void VisualScriptEditorPanel::DrawBesideHint(ImVec2 canvasMin, ImVec2 canvasMax)
+	{
+		bool const playing = m_Live == VisualScriptLiveState::Live || m_Live == VisualScriptLiveState::LastWorking;
+		if (m_Settings.IsHintSeen(VisualScriptGameViewBesideHint))
+		{
+			m_BesideHintPending = false;
+		}
+		m_BesideHintShown = m_BesideHintPending && playing && m_Services.PlaceGameViewBeside && m_Card != VisualScriptCard::Missing &&
+		                    m_Card != VisualScriptCard::Unloadable;
+		if (!m_BesideHintShown)
+		{
+			return;
+		}
+		ImGuiStyle const& style = ImGui::GetStyle();
+		std::string_view const text = Texts::BesideHint;
+		ImGui::SetCursorScreenPos(canvasMin);
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, WithAlpha(m_Theme.Body, HintBackgroundAlpha));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(style.FramePadding.x * 2.0f, style.FramePadding.y));
+		if (ImGui::BeginChild("##besideHint", ImVec2(canvasMax.x - canvasMin.x, 0.0f),
+		                      ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding,
+		                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		{
+			float const besideWidth = ImGui::CalcTextSize(Texts::BesideHintBeside.data()).x + style.FramePadding.x * 2.0f;
+			float const notNowWidth = ImGui::CalcTextSize(Texts::BesideHintNotNow.data()).x + style.FramePadding.x * 2.0f;
+			float const right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+			float const buttonsLeft = right - besideWidth - notNowWidth - style.ItemSpacing.x;
+			float const lineTop = ImGui::GetCursorPosY();
+			ImGui::PushTextWrapPos(buttonsLeft - style.ItemSpacing.x);
+			ImGui::SetCursorPosY(lineTop + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
+			ImGui::TextUnformatted(text.data(), text.data() + text.size());
+			ImGui::PopTextWrapPos();
+			ImGui::SetCursorPos(ImVec2(buttonsLeft, lineTop));
+			if (ImGui::Button(Texts::BesideHintBeside.data()))
+			{
+				m_Settings.SetHintSeen(VisualScriptGameViewBesideHint);
+				m_Services.PlaceGameViewBeside(m_Graph);
+			}
+			RecordItem(VisualScriptPanelItem::HintBeside);
+			ImGui::SameLine();
+			if (ImGui::Button(Texts::BesideHintNotNow.data()))
+			{
+				m_Settings.SetHintSeen(VisualScriptGameViewBesideHint);
+			}
+			RecordItem(VisualScriptPanelItem::HintNotNow);
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleVar();
+		ImGui::PopStyleColor();
+	}
+
 	void VisualScriptEditorPanel::DrawShortcutSheet()
 	{
 		constexpr char const* SheetId = "Visual Script Shortcuts###VisualScriptShortcuts";
@@ -4692,6 +5011,7 @@ namespace Strada
 		            m_SidebarOverlay);
 		drawOverlay("##detailsOverlay", VisualScriptWindowPart::Details, panes.Details, VisualScriptDetailsMinWidth, false, detailsWasOpen,
 		            m_DetailsOverlay);
+		DrawGamePreview();
 		if (!drawerOpen)
 		{
 			return;
@@ -5450,6 +5770,7 @@ namespace Strada
 		DrawHeaderTooltip();
 		DrawGestureHint(canvasMin, canvasMax);
 		DrawCanvasHint(canvasMin, canvasMax);
+		DrawBesideHint(canvasMin, canvasMax);
 		DrawToasts(canvasMin, canvasMax);
 	}
 
