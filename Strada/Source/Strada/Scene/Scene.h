@@ -190,6 +190,8 @@ namespace Strada
 		void SetPaused(bool paused);
 		// While paused, advances the given number of frames.
 		void Step(uint32_t frames = 1) { m_StepFrames += frames; }
+		// Drops the frames Step queued that have not run yet (a debugger stopping the game keeps it where it stopped).
+		void CancelSteps() { m_StepFrames = 0; }
 		uint64_t GetRuntimeFrame() const { return m_RuntimeFrame; }
 		double GetRuntimeTime() const { return m_RuntimeTime; }
 		// Seconds per physics step (and OnFixedUpdate) of the running scene: the runtime settings' step.
@@ -237,6 +239,12 @@ namespace Strada
 		// update instead. Values of variables the running program lacks wait for a live edit that adds them, and reach the
 		// instance as it takes the edit.
 		void ApplyVisualScriptVariableChanges();
+		// While the scene runs scripts: gives every visual script its VisualScript components use, as the asset holds it now,
+		// to the scripting runtime (VisualScriptEngine::EnsureLoaded, the update's own first step), so that an edit reaches the
+		// running instances at once, also while paused and into stopped executions. No graph code runs: loads, swaps and
+		// migrations only. Entities that could not run before start at the next update, as before. Editors call it after each
+		// edit, before ApplyVisualScriptVariableChanges (which then gives the instances the values edited meanwhile).
+		void ApplyVisualScriptEdits();
 
 		// Advances every particle system: emits its Burst when it starts (first update after the system appeared or the runtime
 		// started), then simulates and emits (ParticleEmitter). While running, systems with DestroyWhenFinished destroy their

@@ -26,6 +26,27 @@ namespace Strada
 		}};
 	};
 
+	template<>
+	struct EnumTraits<VisualScriptWireValues>
+	{
+		static constexpr std::array<std::pair<VisualScriptWireValues, std::string_view>, 3> Values = {{
+			{VisualScriptWireValues::Off, "Off"},
+			{VisualScriptWireValues::WhileStopped, "WhileStopped"},
+			{VisualScriptWireValues::Always, "Always"},
+		}};
+	};
+
+	template<>
+	struct EnumTraits<VisualScriptPreviewCorner>
+	{
+		static constexpr std::array<std::pair<VisualScriptPreviewCorner, std::string_view>, 4> Values = {{
+			{VisualScriptPreviewCorner::TopLeft, "TopLeft"},
+			{VisualScriptPreviewCorner::TopRight, "TopRight"},
+			{VisualScriptPreviewCorner::BottomLeft, "BottomLeft"},
+			{VisualScriptPreviewCorner::BottomRight, "BottomRight"},
+		}};
+	};
+
 	// A view's centre may reach every point a document can place something at, and no further.
 	static_assert(VisualScriptViewSettings::MaxCenter == static_cast<float>(VisualScriptSerializer::MaxCoordinate));
 
@@ -119,6 +140,32 @@ namespace Strada
 			return objectPath.empty() ? std::string(key) : fmt::format("{}.{}", objectPath, key);
 		}
 
+		template<typename T>
+		bool IsEnumerator(T value)
+		{
+			return std::any_of(EnumTraits<T>::Values.begin(), EnumTraits<T>::Values.end(),
+			                   [value](auto const& entry)
+			                   {
+								   return entry.first == value;
+							   });
+		}
+
+		// The names of an enum's values for a warning: "\"Off\", \"WhileStopped\" or \"Always\"".
+		template<typename T>
+		std::string ListEnumerators()
+		{
+			std::string list;
+			for (size_t index = 0; index < EnumTraits<T>::Values.size(); index++)
+			{
+				if (index > 0)
+				{
+					list += index + 1 == EnumTraits<T>::Values.size() ? " or " : ", ";
+				}
+				list += fmt::format("\"{}\"", EnumTraits<T>::Values[index].second);
+			}
+			return list;
+		}
+
 		std::optional<uint32_t> ReadUInt32(Json const& value)
 		{
 			if (value.is_number_unsigned())
@@ -175,8 +222,10 @@ namespace Strada
 		class ViewsReader
 		{
 		public:
-			explicit ViewsReader(std::vector<std::string>& warnings)
-				: m_Warnings(warnings)
+			// version: the file's; members later versions added are read only from files of those versions.
+			ViewsReader(std::vector<std::string>& warnings, int version)
+				: m_Warnings(warnings),
+				  m_Version(version)
 			{
 			}
 
@@ -227,6 +276,14 @@ namespace Strada
 					}
 				}
 				ReadTexts(content, "HintsSeen", Settings::MaxHintBytes, Settings::MaxHints, views.HintsSeen);
+				if (m_Version >= 2)
+				{
+					ReadBool(content, "BreakOnErrors", views.BreakOnErrors);
+					ReadEnum(content, "WireValues", views.WireValues);
+					ReadBool(content, "ShowFlow", views.ShowFlow);
+					ReadBool(content, "OutlineNotRunning", views.OutlineNotRunning);
+					ReadGamePreview(content, views.GamePreview);
+				}
 				ReadProjects(content, views.Projects);
 				return views;
 			}
@@ -278,6 +335,129 @@ namespace Strada
 					return;
 				}
 				Warn(GetMemberPath(objectPath, key), fmt::format("expected true or false; {} is used", value));
+			}
+
+			template<typename T>
+			void ReadEnum(Json const& object, char const* key, T& value, std::string_view objectPath = {})
+			{
+				Json const* member = FindMember(object, key);
+				if (member == nullptr)
+				{
+					return;
+				}
+				std::optional<T> const read = member->is_string() ? EnumFromString<T>(member->get_ref<std::string const&>()) : std::nullopt;
+				if (read)
+				{
+					value = *read;
+					return;
+				}
+				Warn(GetMemberPath(objectPath, key), fmt::format("expected {}; \"{}\" is used", ListEnumerators<T>(), EnumToString(value)));
+			}
+
+			void ReadGamePreview(Json const& content, VisualScriptGamePreviewSettings& preview)
+			{
+				Json const* member = FindMember(content, "GamePreview");
+				if (member == nullptr)
+				{
+					return;
+				}
+				if (!member->is_object())
+				{
+					Warn("GamePreview", "expected an object; the defaults are used");
+					return;
+				}
+				ReadBool(*member, "Shown", preview.Shown, "GamePreview");
+				ReadEnum(*member, "Corner", preview.Corner, "GamePreview");
+				Json const* width = FindMember(*member, "Width");
+				if (width == nullptr)
+				{
+					return;
+				}
+				bool clamped = false;
+				std::optional<float> const value =
+					ReadClamped(*width, Settings::MinGamePreviewWidth, Settings::MaxGamePreviewWidth, clamped);
+				if (!value)
+				{
+					Warn("GamePreview.Width", fmt::format("expected a part of the canvas width; {} is used", preview.Width));
+					return;
+				}
+				preview.Width = *value;
+				if (clamped)
+				{
+					Warn("GamePreview.Width",
+					     fmt::format("outside {} to {}; clamped", Settings::MinGamePreviewWidth, Settings::MaxGamePreviewWidth));
+				}
+			}
+
+			// A breakpoint entry: nothing (having warned) for one that is not valid or repeats an earlier node.
+			std::optional<VisualScriptBreakpoint> ReadBreakpoint(Json const& entry, std::string const& path,
+			                                                     std::vector<VisualScriptBreakpoint> const& breakpoints)
+			{
+				if (!entry.is_object())
+				{
+					Warn(path, "expected an object; skipped");
+					return std::nullopt;
+				}
+				VisualScriptBreakpoint breakpoint;
+				Json const* node = FindMember(entry, "Node");
+				std::optional<uint32_t> const nodeID = node != nullptr ? ReadUInt32(*node) : std::nullopt;
+				if (!nodeID || *nodeID == 0)
+				{
+					Warn(GetMemberPath(path, "Node"), "expected a node's ID; skipped");
+					return std::nullopt;
+				}
+				breakpoint.Node = *nodeID;
+				if (std::any_of(breakpoints.begin(), breakpoints.end(),
+				                [&breakpoint](VisualScriptBreakpoint const& earlier)
+				                {
+									return earlier.Node == breakpoint.Node;
+								}))
+				{
+					Warn(path, fmt::format("node {} has an earlier breakpoint; skipped", breakpoint.Node));
+					return std::nullopt;
+				}
+				Json const* type = FindMember(entry, "Type");
+				if (type == nullptr || !type->is_string())
+				{
+					Warn(GetMemberPath(path, "Type"), "expected the node's Type; skipped");
+					return std::nullopt;
+				}
+				breakpoint.Type = type->get<std::string>();
+				if (Json const* enabled = FindMember(entry, "Enabled"))
+				{
+					if (!enabled->is_boolean())
+					{
+						Warn(GetMemberPath(path, "Enabled"), "expected true or false; skipped");
+						return std::nullopt;
+					}
+					breakpoint.Enabled = enabled->get<bool>();
+				}
+				if (Json const* condition = FindMember(entry, "Condition"))
+				{
+					if (!condition->is_string())
+					{
+						Warn(GetMemberPath(path, "Condition"), "expected a formula's text; skipped");
+						return std::nullopt;
+					}
+					breakpoint.Condition = condition->get<std::string>();
+				}
+				if (Json const* hitCount = FindMember(entry, "HitCount"))
+				{
+					std::optional<uint32_t> const count = ReadUInt32(*hitCount);
+					if (!count)
+					{
+						Warn(GetMemberPath(path, "HitCount"),
+						     fmt::format("expected a count from 0 to {}; skipped", VisualScriptBreakpointStore::MaxHitCount));
+						return std::nullopt;
+					}
+					breakpoint.HitCount = *count;
+				}
+				if (Result<void> checked = VisualScriptBreakpointStore::Check(breakpoint); !checked)
+				{
+					Warn(path, fmt::format("{}; skipped", checked.GetError()));
+					return std::nullopt;
+				}
+				return breakpoint;
 			}
 
 			void ReadWidth(Json const& panes, char const* key, float minimum, float& width)
@@ -543,6 +723,19 @@ namespace Strada
 				          {
 							  return a.Slot < b.Slot;
 						  });
+				if (m_Version >= 2)
+				{
+					ReadList(entry, path, "Breakpoints", VisualScriptBreakpointStore::MaxBreakpointsPerGraph, graph.Breakpoints,
+					         [&](Json const& breakpointEntry, std::string const& breakpointPath)
+					         {
+								 return ReadBreakpoint(breakpointEntry, breakpointPath, graph.Breakpoints);
+							 });
+					std::sort(graph.Breakpoints.begin(), graph.Breakpoints.end(),
+					          [](VisualScriptBreakpoint const& a, VisualScriptBreakpoint const& b)
+					          {
+								  return a.Node < b.Node;
+							  });
+				}
 				return graph;
 			}
 
@@ -600,6 +793,7 @@ namespace Strada
 			}
 
 			std::vector<std::string>& m_Warnings;
+			int m_Version = 0;
 		};
 
 		Json SerializeView(VisualScriptViewState const& view)
@@ -627,6 +821,17 @@ namespace Strada
 				json.update(SerializeView(bookmark.View));
 				bookmarks.push_back(std::move(json));
 			}
+			Json breakpoints = Json::array();
+			for (VisualScriptBreakpoint const& breakpoint : graph.Breakpoints)
+			{
+				Json entry = Json::object();
+				entry["Node"] = breakpoint.Node;
+				entry["Type"] = breakpoint.Type;
+				entry["Enabled"] = breakpoint.Enabled;
+				entry["Condition"] = breakpoint.Condition;
+				entry["HitCount"] = breakpoint.HitCount;
+				breakpoints.push_back(std::move(entry));
+			}
 			Json json = Json::object();
 			json["Graph"] = graph.Graph.ToString();
 			json["Shown"] = graph.Shown;
@@ -636,6 +841,7 @@ namespace Strada
 			}
 			json["Views"] = std::move(views);
 			json["Bookmarks"] = std::move(bookmarks);
+			json["Breakpoints"] = std::move(breakpoints);
 			return json;
 		}
 	}
@@ -782,6 +988,15 @@ namespace Strada
 		}
 		content["LastVariableType"] = views.LastVariableType;
 		content["HintsSeen"] = views.HintsSeen;
+		content["BreakOnErrors"] = views.BreakOnErrors;
+		content["WireValues"] = JsonTraits<VisualScriptWireValues>::ToJson(views.WireValues);
+		content["ShowFlow"] = views.ShowFlow;
+		content["OutlineNotRunning"] = views.OutlineNotRunning;
+		Json preview = Json::object();
+		preview["Shown"] = views.GamePreview.Shown;
+		preview["Corner"] = JsonTraits<VisualScriptPreviewCorner>::ToJson(views.GamePreview.Corner);
+		preview["Width"] = views.GamePreview.Width;
+		content["GamePreview"] = std::move(preview);
 		content["Projects"] = std::move(projects);
 
 		Json file = Json::object();
@@ -792,7 +1007,8 @@ namespace Strada
 
 	VisualScriptViews VisualScriptViewSettings::Deserialize(Json const& file, std::vector<std::string>& warnings)
 	{
-		if (Result<int> header = ReadFileHeader(file, FileType, FormatVersion); !header)
+		Result<int> header = ReadFileHeader(file, FileType, FormatVersion);
+		if (!header)
 		{
 			warnings.push_back(fmt::format("{}; the file is ignored", header.GetError()));
 			return {};
@@ -803,7 +1019,7 @@ namespace Strada
 			warnings.push_back("expected a \"VisualScriptViews\" object; the file is ignored");
 			return {};
 		}
-		return ViewsReader(warnings).Read(*content);
+		return ViewsReader(warnings, header.GetValue()).Read(*content);
 	}
 
 	void VisualScriptViewSettings::SetPanes(VisualScriptPaneSettings const& panes)
@@ -836,6 +1052,32 @@ namespace Strada
 			return false;
 		}
 		m_Views.CommentColor = linearColor;
+		return true;
+	}
+
+	bool VisualScriptViewSettings::SetWireValues(VisualScriptWireValues wireValues)
+	{
+		if (!IsEnumerator(wireValues))
+		{
+			return false;
+		}
+		m_Views.WireValues = wireValues;
+		return true;
+	}
+
+	bool VisualScriptViewSettings::SetGamePreview(VisualScriptGamePreviewSettings const& preview)
+	{
+		if (!IsEnumerator(preview.Corner))
+		{
+			return false;
+		}
+		VisualScriptGamePreviewSettings& kept = m_Views.GamePreview;
+		kept.Shown = preview.Shown;
+		kept.Corner = preview.Corner;
+		if (std::isfinite(preview.Width))
+		{
+			kept.Width = std::clamp(preview.Width, MinGamePreviewWidth, MaxGamePreviewWidth);
+		}
 		return true;
 	}
 
@@ -1043,6 +1285,126 @@ namespace Strada
 		              {
 						  return bookmark.Slot == slot;
 					  });
+	}
+
+	std::vector<AssetHandle> VisualScriptViewSettings::GetBreakpointGraphs(std::filesystem::path const& project) const
+	{
+		std::vector<AssetHandle> graphs;
+		if (VisualScriptProjectViews const* const entry = FindProject(RecentProjects::NormalizePath(project)))
+		{
+			for (VisualScriptGraphViews const& graph : entry->Graphs)
+			{
+				if (!graph.Breakpoints.empty())
+				{
+					graphs.push_back(graph.Graph);
+				}
+			}
+		}
+		return graphs;
+	}
+
+	std::span<VisualScriptBreakpoint const> VisualScriptViewSettings::GetBreakpoints(std::filesystem::path const& project,
+	                                                                                 AssetHandle graph) const
+	{
+		VisualScriptProjectViews const* const entry = FindProject(RecentProjects::NormalizePath(project));
+		VisualScriptGraphViews const* const views = entry != nullptr ? entry->FindGraph(graph) : nullptr;
+		return views != nullptr ? std::span<VisualScriptBreakpoint const>(views->Breakpoints) : std::span<VisualScriptBreakpoint const>();
+	}
+
+	void VisualScriptViewSettings::SetBreakpoints(std::filesystem::path const& project, AssetHandle graph,
+	                                              std::span<VisualScriptBreakpoint const> breakpoints)
+	{
+		if (project.empty() || !graph.IsValid())
+		{
+			return;
+		}
+		std::vector<VisualScriptBreakpoint> kept;
+		for (VisualScriptBreakpoint const& breakpoint : breakpoints)
+		{
+			if (kept.size() == VisualScriptBreakpointStore::MaxBreakpointsPerGraph)
+			{
+				break;
+			}
+			bool const repeated = std::any_of(kept.begin(), kept.end(),
+			                                  [&breakpoint](VisualScriptBreakpoint const& earlier)
+			                                  {
+												  return earlier.Node == breakpoint.Node;
+											  });
+			if (!repeated && VisualScriptBreakpointStore::Check(breakpoint).IsOk())
+			{
+				kept.push_back(breakpoint);
+			}
+		}
+		std::sort(kept.begin(), kept.end(),
+		          [](VisualScriptBreakpoint const& a, VisualScriptBreakpoint const& b)
+		          {
+					  return a.Node < b.Node;
+				  });
+
+		std::filesystem::path const normalized = RecentProjects::NormalizePath(project);
+		std::vector<VisualScriptProjectViews>& projects = m_Views.Projects;
+		auto found = std::find_if(projects.begin(), projects.end(),
+		                          [&normalized](VisualScriptProjectViews const& entry)
+		                          {
+									  return entry.Project == normalized;
+								  });
+		if (found == projects.end())
+		{
+			if (kept.empty())
+			{
+				return;
+			}
+			// The current project stays the front entry: another one goes right after it.
+			VisualScriptProjectViews entry;
+			entry.Project = normalized;
+			size_t const position = m_Project.empty() ? 0 : 1;
+			found = projects.insert(projects.begin() + static_cast<std::ptrdiff_t>(position), std::move(entry));
+			if (projects.size() > MaxProjects)
+			{
+				projects.resize(MaxProjects);
+				found = projects.begin() + static_cast<std::ptrdiff_t>(position);
+			}
+		}
+
+		std::vector<VisualScriptGraphViews>& graphs = found->Graphs;
+		auto const existing = std::find_if(graphs.begin(), graphs.end(),
+		                                   [graph](VisualScriptGraphViews const& views)
+		                                   {
+											   return views.Graph == graph;
+										   });
+		if (existing != graphs.end())
+		{
+			MoveToFront(graphs, static_cast<size_t>(existing - graphs.begin()));
+		}
+		else
+		{
+			if (kept.empty())
+			{
+				return;
+			}
+			VisualScriptGraphViews views;
+			views.Graph = graph;
+			graphs.insert(graphs.begin(), std::move(views));
+			if (graphs.size() > MaxGraphsPerProject)
+			{
+				graphs.resize(MaxGraphsPerProject);
+			}
+		}
+		graphs.front().Breakpoints = std::move(kept);
+	}
+
+	VisualScriptProjectViews const* VisualScriptViewSettings::FindProject(std::filesystem::path const& normalized) const
+	{
+		if (normalized.empty())
+		{
+			return nullptr;
+		}
+		auto const found = std::find_if(m_Views.Projects.begin(), m_Views.Projects.end(),
+		                                [&normalized](VisualScriptProjectViews const& entry)
+		                                {
+											return entry.Project == normalized;
+										});
+		return found != m_Views.Projects.end() ? &*found : nullptr;
 	}
 
 	VisualScriptProjectViews* VisualScriptViewSettings::GetCurrentProject()

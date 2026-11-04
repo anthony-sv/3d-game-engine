@@ -60,9 +60,12 @@ namespace Strada
 		// Changes whenever the running scene is replaced (a scene load), so owners can drop state tied to it.
 		uint64_t GetSceneVersion() const { return m_SceneVersion; }
 
-		// Advances the running scene by the time step, then loads the scene the scripts asked for, if any. A scene that
-		// cannot be loaded is logged and the current one keeps running.
+		// Advances the running scene by the time step, then acts on what its scripts asked for (ApplyRequests).
 		void Update(Timestep timestep);
+		// What Update does after the frame: loads the scene the scripts asked for, if any. A scene that cannot be loaded is
+		// logged and the current one keeps running. Owners call it after script code ran between frames (a debugger
+		// resuming a stopped execution), so a load it asked for comes as the frame that ran it would have brought it.
+		void ApplyRequests();
 
 		// Application.Quit was called; the owner decides what quitting means (the editor stops playing).
 		bool IsQuitRequested() const { return m_QuitRequested; }

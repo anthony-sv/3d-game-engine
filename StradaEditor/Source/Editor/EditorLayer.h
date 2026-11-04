@@ -23,6 +23,7 @@
 #include "Editor/PlayMode.h"
 #include "Editor/RecentProjects.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
+#include "Editor/VisualScripting/VisualScriptDebugSession.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
@@ -55,13 +56,14 @@ namespace Strada
 	};
 
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
-	// and hot reload), play mode, game export, the automation command registry and server, and the UI (dockspace, menu bar,
-	// toolbar with the play controls, shortcuts, panels and the visual script windows) when ImGui is available. The Edit
-	// menu and the editing keys act on the graph window focused last while it is shown, else on the scene (EditorEditingKeys);
-	// with the UI, the assets are rescanned whenever the editor gets the focus back, and the windows' input is shared between
-	// the editor and the game in the game view (GameInputRouter, as ImGuiLayer's input filter). Playing brings the game view
-	// to the front with the input; stopping, the scene view. Replacing the scene (new or opened scenes and projects) or
-	// closing the editor with unsaved changes asks to save them first; playing stops first.
+	// and hot reload), play mode with its visual-script debug session, game export, the automation command registry and
+	// server, and the UI (dockspace, menu bar, toolbar with the play controls, shortcuts, panels and the visual script windows)
+	// when ImGui is available. The Edit menu and the editing keys act on the graph window focused last while it is shown,
+	// else on the scene (EditorEditingKeys); with the UI, the assets are rescanned whenever the editor gets the focus back,
+	// and the windows' input is shared between the editor and the game in the game view (GameInputRouter, as ImGuiLayer's
+	// input filter). Playing brings the game view to the front with the input; stopping, the scene view. Replacing the scene
+	// (new or opened scenes and projects) or closing the editor with unsaved changes asks to save them first; playing stops
+	// first.
 	class EditorLayer : public Layer
 	{
 	public:
@@ -80,6 +82,7 @@ namespace Strada
 		EditorScripts& GetScripts() { return m_Scripts; }
 		PlayMode& GetPlayMode() { return m_PlayMode; }
 		EditorExport& GetExport() { return m_Export; }
+		VisualScriptDebugSession& GetDebugSession() { return m_DebugSession; }
 		CommandRegistry const& GetCommands() const { return m_Commands; }
 		AutomationServer const& GetAutomationServer() const { return m_AutomationServer; }
 
@@ -163,6 +166,9 @@ namespace Strada
 		EditorOperations m_Operations;
 		EditorScripts m_Scripts;
 		PlayMode m_PlayMode;
+		// The visual-script debugger, play mode's observer while the layer is attached (declared after play mode, which it
+		// observes).
+		VisualScriptDebugSession m_DebugSession;
 		EditorExport m_Export;
 		AssetAutoRefresh m_AssetAutoRefresh;
 		CommandRegistry m_Commands;

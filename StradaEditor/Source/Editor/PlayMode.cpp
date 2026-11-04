@@ -17,7 +17,8 @@ namespace Strada
 		Stop();
 	}
 
-	Result<void> PlayMode::Start(EditorPlayState state, uint32_t viewportWidth, uint32_t viewportHeight, Ref<Scene> scene)
+	Result<void> PlayMode::Start(EditorPlayState state, uint32_t viewportWidth, uint32_t viewportHeight, Ref<Scene> scene,
+	                             PlayStartOptions const& options)
 	{
 		if (IsPlaying())
 		{
@@ -42,16 +43,26 @@ namespace Strada
 
 		Ref<Scene> running = scene != nullptr ? std::move(scene) : Scene::Copy(m_Context.GetScene());
 		running->OnViewportResize(viewportWidth, viewportHeight);
+		if (m_Observer != nullptr)
+		{
+			m_Observer->OnPlayStarting(state, options);
+		}
 		m_Runner = CreateScope<SceneRunner>(settings);
 		m_Runner->Start(running);
+		if (options.Paused)
+		{
+			running->SetPaused(true);
+		}
 		m_RunnerSceneVersion = m_Runner->GetSceneVersion();
 		m_Context.BeginPlay(std::move(running), state);
 		ST_INFO("{} '{}'", state == EditorPlayState::Play ? "Playing" : "Simulating", m_Context.GetScene().GetName());
+		// What the scripts' OnCreate did may hold the scene before its first frame (an execution stopped in Event.Create).
+		NotifyFrame(Timestep(0.0f));
 		return {};
 	}
 
 	void PlayMode::RequestStart(EditorPlayState state, uint32_t viewportWidth, uint32_t viewportHeight, Ref<Scene> scene,
-	                            StartCallback callback)
+	                            StartCallback callback, PlayStartOptions const& options)
 	{
 		auto const report = [&callback](Result<void> const& started)
 		{
@@ -69,19 +80,19 @@ namespace Strada
 		                        (m_Scripts.IsBuilding() || m_Scripts.IsOutOfDate());
 		if (!buildFirst)
 		{
-			report(Start(state, viewportWidth, viewportHeight, std::move(scene)));
+			report(Start(state, viewportWidth, viewportHeight, std::move(scene), options));
 			return;
 		}
 
 		m_StartPending = true;
 		ST_INFO("Playing once the scripts are built");
 		m_Scripts.Build(
-			[this, viewportWidth, viewportHeight, scene = std::move(scene),
+			[this, viewportWidth, viewportHeight, options, scene = std::move(scene),
 		     callback = std::move(callback)](ScriptBuildReport const& build) mutable
 			{
 				m_StartPending = false;
 				Result<void> started =
-					build.Succeeded ? Start(EditorPlayState::Play, viewportWidth, viewportHeight, std::move(scene))
+					build.Succeeded ? Start(EditorPlayState::Play, viewportWidth, viewportHeight, std::move(scene), options)
 									: Result<void>(Error{build.Error.empty() ? std::string("the scripts did not build: fix them to play")
 			                                                                 : build.Error});
 				if (callback)
@@ -96,6 +107,10 @@ namespace Strada
 		if (m_Runner == nullptr)
 		{
 			return;
+		}
+		if (m_Observer != nullptr)
+		{
+			m_Observer->OnPlayStopping();
 		}
 		m_Runner->Stop();
 		m_LastTestReport = m_Runner->GetTestReport();
@@ -116,12 +131,14 @@ namespace Strada
 		return m_LastTestReport ? &*m_LastTestReport : nullptr;
 	}
 
-	void PlayMode::SetPaused(bool paused)
+	bool PlayMode::SetPaused(bool paused)
 	{
-		if (m_Runner != nullptr)
+		if (m_Runner == nullptr || (!paused && GetFrameStepRefusal()))
 		{
-			m_Runner->GetScene()->SetPaused(paused);
+			return false;
 		}
+		m_Runner->GetScene()->SetPaused(paused);
+		return true;
 	}
 
 	bool PlayMode::IsPaused() const
@@ -129,42 +146,128 @@ namespace Strada
 		return m_Runner != nullptr && m_Runner->GetScene()->IsPaused();
 	}
 
+	bool PlayMode::Resume()
+	{
+		if (m_Runner == nullptr)
+		{
+			return false;
+		}
+		// The stopped executions continue first; one that stopped again keeps the scene paused.
+		if (m_Observer != nullptr && m_Observer->OnPlayResuming())
+		{
+			return false;
+		}
+		// Continuing may have ended play (a script quit) or replaced the scene (a scene load).
+		return SetPaused(false);
+	}
+
 	void PlayMode::Step(uint32_t frames)
 	{
-		if (m_Runner != nullptr)
+		RefreshObserver();
+		if (m_Runner != nullptr && !GetFrameStepRefusal())
 		{
 			m_Runner->GetScene()->Step(frames);
 		}
 	}
 
-	void PlayMode::Update(Timestep timestep)
+	void PlayMode::CancelSteps()
+	{
+		if (m_Runner != nullptr)
+		{
+			m_Runner->GetScene()->CancelSteps();
+		}
+	}
+
+	void PlayMode::RefreshObserver()
+	{
+		if (m_Observer != nullptr && m_Runner != nullptr)
+		{
+			m_Observer->Refresh();
+		}
+	}
+
+	std::optional<std::string> PlayMode::GetFrameStepRefusal() const
+	{
+		return m_Observer != nullptr ? m_Observer->GetFrameStepRefusal() : std::nullopt;
+	}
+
+	PlayDebugSummary PlayMode::GetDebugSummary() const
+	{
+		return m_Observer != nullptr ? m_Observer->GetDebugSummary() : PlayDebugSummary{};
+	}
+
+	VisualScriptStop const* PlayMode::FindDebugStop(uint64_t stop) const
+	{
+		return m_Observer != nullptr ? m_Observer->FindStop(stop) : nullptr;
+	}
+
+	void PlayMode::FollowScripts()
 	{
 		if (m_Runner == nullptr)
 		{
 			return;
 		}
-		m_Runner->GetScene()->SetUIPointerEnabled(m_UIPointerEnabled);
+		m_Runner->ApplyRequests();
+		FollowRunner();
+	}
+
+	void PlayMode::Update(Timestep timestep)
+	{
+		if (m_Runner == nullptr || GetFrameStepRefusal())
+		{
+			return;
+		}
+		// The scene that runs the frame (a scene load replaces it after the frame) says whether one ran: a paused scene
+		// without queued steps runs none.
+		Ref<Scene> const scene = m_Runner->GetScene();
+		uint64_t const frame = scene->GetRuntimeFrame();
+		scene->SetUIPointerEnabled(m_UIPointerEnabled);
 		m_Runner->Update(timestep);
 		FollowRunner();
+		if (scene->GetRuntimeFrame() != frame)
+		{
+			NotifyFrame(timestep);
+		}
 	}
 
 	uint32_t PlayMode::Advance(uint32_t frames, Timestep timestep)
 	{
+		RefreshObserver();
 		uint32_t run = 0;
-		while (run < frames && m_Runner != nullptr)
+		while (run < frames && m_Runner != nullptr && !GetFrameStepRefusal())
 		{
-			Scene& scene = *m_Runner->GetScene();
-			if (scene.IsPaused())
+			Ref<Scene> const scene = m_Runner->GetScene();
+			if (scene->IsPaused())
 			{
-				scene.Step(1);
+				scene->Step(1);
 			}
-			scene.SetUIPointerEnabled(m_UIPointerEnabled);
+			uint64_t const frame = scene->GetRuntimeFrame();
+			scene->SetUIPointerEnabled(m_UIPointerEnabled);
 			m_Runner->Update(timestep);
 			run++;
 			FollowRunner();
+			bool const held = scene->GetRuntimeFrame() != frame && NotifyFrame(timestep);
 			Input::EndFrame();
+			if (held)
+			{
+				break;
+			}
 		}
 		return run;
+	}
+
+	bool PlayMode::NotifyFrame(Timestep timestep)
+	{
+		if (m_Observer == nullptr || m_Runner == nullptr || !m_Observer->OnPlayFrame(timestep))
+		{
+			return false;
+		}
+		// An observer may stop playing from OnPlayFrame.
+		if (m_Runner != nullptr)
+		{
+			m_Runner->GetScene()->SetPaused(true);
+		}
+		return true;
 	}
 
 	void PlayMode::FollowRunner()

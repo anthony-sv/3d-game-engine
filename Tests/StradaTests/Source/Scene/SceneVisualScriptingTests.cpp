@@ -1227,3 +1227,92 @@ TEST_CASE("Scene: an execution waiting in a library function survives an edit of
 	CHECK(host.Exceptions == 0);
 	scene.OnRuntimeStop();
 }
+
+TEST_CASE("Scene: ApplyVisualScriptEdits gives edited graphs to their running instances at once, also while paused, running no "
+          "graph code")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const counting = CreateRef<VisualScriptAsset>(MakeCounterDocument());
+	AssetHandle const countingGraph = AssetManager::AddMemoryAsset(counting, "Counting");
+	Ref<VisualScriptAsset> const broken = CreateRef<VisualScriptAsset>(MakeBrokenDocument());
+	AssetHandle const brokenGraph = AssetManager::AddMemoryAsset(broken, "Broken");
+	Scene scene("Apply");
+	Entity const counter = AddVisualScript(scene.CreateEntity("Counter"), countingGraph);
+	Entity const later = AddVisualScript(scene.CreateEntity("Later"), brokenGraph);
+	scene.OnRuntimeStart();
+	CHECK(host.Exceptions == 1);
+	CHECK_FALSE(VisualScriptEngine::HasInstance(later.GetUUID()));
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(counter.GetUUID(), "Updates") == ScriptFieldValue::FromInt32(1));
+
+	// Paused, an edit that renames Updates: the instance runs the new program before any update, with the value Updates
+	// carried, which no Event.Update has changed since.
+	scene.SetPaused(true);
+	uint64_t const generation = VisualScriptEngine::GetProgramGeneration(countingGraph);
+	VisualScriptDocument renamed = MakeCounterDocument();
+	renamed.Variables[1].Name = "Count";
+	renamed.Variables[1].FormerNames = {"Updates"};
+	counting->SetDocument(renamed);
+	scene.ApplyVisualScriptEdits();
+	CHECK(VisualScriptEngine::GetProgramGeneration(countingGraph) != generation);
+	CHECK(ReadVariable(counter.GetUUID(), "Count") == ScriptFieldValue::FromInt32(1));
+	CHECK(scene.GetRuntimeFrame() == 1);
+	// Unchanged, nothing is sent again.
+	uint64_t const swapped = VisualScriptEngine::GetProgramGeneration(countingGraph);
+	scene.ApplyVisualScriptEdits();
+	CHECK(VisualScriptEngine::GetProgramGeneration(countingGraph) == swapped);
+
+	// A graph fixed meanwhile compiles at once, but its entity starts at the next update, as before.
+	broken->SetDocument(MakeCounterDocument());
+	scene.ApplyVisualScriptEdits();
+	CHECK(VisualScriptEngine::HasWorkingProgram(brokenGraph));
+	CHECK_FALSE(VisualScriptEngine::HasInstance(later.GetUUID()));
+	scene.SetPaused(false);
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(VisualScriptEngine::HasInstance(later.GetUUID()));
+	CHECK(ReadVariable(counter.GetUUID(), "Count") == ScriptFieldValue::FromInt32(2));
+	CHECK(host.Exceptions == 1);
+	scene.OnRuntimeStop();
+
+	// Simulating runs no graph: nothing is given.
+	SceneRuntimeSettings simulate;
+	simulate.RunScripts = false;
+	scene.OnRuntimeStart(simulate);
+	uint64_t const simulated = VisualScriptEngine::GetProgramGeneration(countingGraph);
+	counting->SetDocument(MakeCounterDocument());
+	scene.ApplyVisualScriptEdits();
+	CHECK(VisualScriptEngine::GetProgramGeneration(countingGraph) == simulated);
+	CHECK(VisualScriptEngine::GetInstanceCount() == 0);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: CancelSteps drops the frames a paused scene has queued")
+{
+	SceneRuntimeSettings settings;
+	settings.RunScripts = false;
+	settings.PlayAudio = false;
+	Scene scene("Steps");
+	scene.OnRuntimeStart(settings);
+	scene.SetPaused(true);
+	scene.Step(5);
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(scene.GetRuntimeFrame() == 1);
+
+	// The four frames still queued never run.
+	scene.CancelSteps();
+	for (int frame = 0; frame < 5; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(FrameTime));
+	}
+	CHECK(scene.GetRuntimeFrame() == 1);
+	CHECK(scene.IsPaused());
+
+	// Steps queued later run as before.
+	scene.Step(1);
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(scene.GetRuntimeFrame() == 2);
+	scene.OnRuntimeStop();
+}

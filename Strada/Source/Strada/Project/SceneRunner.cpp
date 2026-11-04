@@ -75,7 +75,12 @@ namespace Strada
 			return;
 		}
 		m_Scene->OnUpdateRuntime(timestep);
-		if (m_RequestedScene.IsValid())
+		ApplyRequests();
+	}
+
+	void SceneRunner::ApplyRequests()
+	{
+		if (m_Scene != nullptr && m_RequestedScene.IsValid())
 		{
 			LoadRequestedScene();
 		}

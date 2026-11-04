@@ -4,6 +4,7 @@
 #include "TestUtilities.h"
 
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/PlayCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/EditorCamera.h"
@@ -12,6 +13,7 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/Viewport/ViewportOverlays.h"
+#include "Editor/VisualScripting/VisualScriptDebugSession.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
@@ -418,7 +420,8 @@ namespace
 
 		// Parameters of the graph commands that combine as the commands expect most of the time, so their work is reached in a
 		// run's few rounds of each command: half of them name the state's script, graph.find gets one of query and references
-		// (each half the time when it had neither), graph.open selects elements of the sub-graph it shows, graph.arrange and
+		// (each half the time when it had neither), graph.open selects elements of the sub-graph it shows (and a third of the
+		// time opens the state's script with no other parameter, which its many independent ones would refuse), graph.arrange and
 		// graph.copy name nodes and elements of one sub-graph and mostly no revision, graph.set mostly no revision, and
 		// graph.close mostly closes one window.
 		void AdjustGraphParameters(Json& params)
@@ -447,6 +450,17 @@ namespace
 						params["query"] = PickFrom(texts);
 					}
 				}
+			}
+			if (m_Command == "graph.open" && !m_State.Graph.empty() && m_Random.Pick(3) == 0)
+			{
+				params = Json::object({{"graph", m_State.Graph}});
+			}
+			// The debug commands that change or read one graph's breakpoints, target or values: a third of the time the state's
+			// script alone (listing and reading), which their independent members would mostly refuse together.
+			if ((m_Command == "graph.breakpoints" || m_Command == "graph.target" || m_Command == "graph.values") &&
+			    !m_State.Graph.empty() && m_Random.Pick(3) == 0)
+			{
+				params = Json::object({{"graph", m_State.Graph}});
 			}
 			if (m_Command == "graph.open" && params.contains("select") && m_Random.Pick(5) != 0)
 			{
@@ -599,9 +613,10 @@ namespace
 					choices = elements->second;
 				}
 			}
-			else if (property == "node" || property == "timeline")
+			else if (property == "node" || property == "timeline" || property == "remove" || property == "nodes")
 			{
-				// graph.open's timeline: the seed's nodes, of which those of other types answer InvalidParams.
+				// graph.open's timeline: the seed's nodes, of which those of other types answer InvalidParams. The debug commands'
+				// breakpoint nodes (graph.breakpoints' add and remove) and nodes (graph.trace, graph.values) are the seed's too.
 				choices = m_State.GraphNodes;
 			}
 			else if (property == "id")
@@ -1049,6 +1064,23 @@ namespace
 			{
 				return Paths(siblings);
 			}
+			// The debug commands' breakpoint conditions and evaluated formulas: formulas of the seed's names, the comparisons only
+			// conditions have, and garbage.
+			if (property == "condition" || property == "evaluate")
+			{
+				std::vector<std::string> formulas = {"",     "Speed > 1", "Index == 3", "State == \"Serve\"", "Target != None",
+				                                     "true", "1 + 2"};
+				for (std::string const& name : m_State.GraphVariableNames)
+				{
+					formulas.push_back(name + " > 0");
+				}
+				return {formulas, {"((", "Speed >", "nope", std::string(1100, 'x'), "\"unterminated"}};
+			}
+			if (property == "graphs")
+			{
+				auto const graphs = m_State.AssetsByType.find("VisualScript");
+				return {graphs != m_State.AssetsByType.end() ? graphs->second : std::vector<std::string>(), invalidAssets};
+			}
 			// graph.palette's pins and graph.find's texts and custom events.
 			if (property == "pin")
 			{
@@ -1161,6 +1193,8 @@ namespace
 		VisualScriptViewSettings ViewSettings{ViewsDirectory / "VisualScriptViews.json"};
 		EngineVisualScriptSemantics Semantics;
 		VisualScriptEditors GraphEditors{Operations, Semantics, ViewSettings};
+		// The debug session, as play mode's observer, with the views settings: graph.breakpoints writes the views file.
+		VisualScriptDebugSession DebugSession{Context, Play};
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 
@@ -1205,6 +1239,9 @@ namespace
 										 })
 			            .IsOk());
 			REQUIRE(RegisterScriptCommands(Registry, Scripts, Context).IsOk());
+			REQUIRE(RegisterGraphDebugCommands(Registry, DebugSession, Play, Context).IsOk());
+			DebugSession.SetViewSettings(&ViewSettings);
+			Play.SetObserver(&DebugSession);
 
 			REQUIRE(FileSystem::CreateDirectories(Outside).IsOk());
 			REQUIRE(FileSystem::CreateDirectories(Imports).IsOk());
@@ -1257,6 +1294,16 @@ namespace
 			Ok("asset.import", Json::object({{"files", Json::array({ImportFiles()[0], ImportFiles()[1]})}, {"folder", "Imported"}}));
 			Ok("scene.save");
 		}
+
+		~FuzzFixture()
+		{
+			// The session goes before play mode, which stops playing when it goes.
+			Play.Stop();
+			Play.SetObserver(nullptr);
+		}
+
+		FuzzFixture(FuzzFixture const&) = delete;
+		FuzzFixture& operator=(FuzzFixture const&) = delete;
 
 		// The files asset.import and asset.drop are given: two that exist, one that does not and (asset.drop only) the folder
 		// holding them.
@@ -1335,11 +1382,14 @@ namespace
 			}
 		}
 
-		// One editor frame.
+		// One editor frame, from the command that ran to the next one: scripts, play mode's update and the debug session's end of
+		// the frame, then the start of the next frame's (its queued resumes).
 		void Tick()
 		{
 			Scripts.Update();
 			Play.Update(Timestep(1.0f / 60.0f));
+			DebugSession.EndFrame();
+			DebugSession.BeginFrame();
 		}
 
 		// The edited scene (or the running copy) saves and loads again.
@@ -1638,6 +1688,9 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	std::map<std::string, std::pair<int, int>> outcomes;
 	std::map<std::string, int> findSuccesses;
 	std::map<AutomationErrorCode, int> paletteErrors;
+	// The debug commands' errors: without the scripting runtime they reach their parameter checks, and are otherwise refused
+	// for the state (Unavailable, InvalidOperation).
+	std::map<std::string, std::set<AutomationErrorCode>> debugErrors;
 	// The requests since the last history check, listed when it fails, to find the step that breaks the history.
 	std::vector<std::string> recent;
 	for (int round = 0, rounds = Testing::GetFuzzRounds(1500); round < rounds; round++)
@@ -1669,8 +1722,8 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		CAPTURE(request);
 		unanswered.insert(round);
 		fixture.Registry.Execute(command.Name, params,
-		                         [&unanswered, &outcomes, &findSuccesses, &paletteErrors, &recent, name = command.Name, round, request,
-		                          findKind](CommandResult result)
+		                         [&unanswered, &outcomes, &findSuccesses, &paletteErrors, &debugErrors, &recent, name = command.Name, round,
+		                          request, findKind](CommandResult result)
 		                         {
 									 CHECK_MESSAGE(unanswered.erase(round) == 1, "answered twice: " << request);
 									 recent.push_back(request + (result.IsOk() ? " -> ok" : " -> " + result.GetError().Message));
@@ -1688,6 +1741,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 									 {
 										 paletteErrors[result.GetError().Code]++;
 									 }
+									 debugErrors[name].insert(result.GetError().Code);
 									 // InternalError means a handler threw: it relied on something it did not check.
 									 CHECK_MESSAGE(result.GetError().Code != AutomationErrorCode::InternalError,
 			                                       request << ": " << result.GetError().Message);
@@ -1746,6 +1800,26 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	}
 	CHECK(findSuccesses["query"] > 0);
 	CHECK(findSuccesses["references"] > 0);
+	// The debug commands that need no game work; the others are refused, for their parameters or for the state.
+	for (std::string const debugCommand : {"graph.breakpoints", "graph.target", "graph.debug"})
+	{
+		CAPTURE(debugCommand);
+		CHECK(outcomes[debugCommand].first > 0);
+	}
+	std::set<AutomationErrorCode> const debugRefusals = {AutomationErrorCode::InvalidParams,  AutomationErrorCode::AssetNotFound,
+	                                                     AutomationErrorCode::EntityNotFound, AutomationErrorCode::FileError,
+	                                                     AutomationErrorCode::Unavailable,    AutomationErrorCode::InvalidOperation};
+	for (std::string const debugCommand : {"graph.breakpoints", "graph.target", "graph.debug", "graph.continue", "graph.step",
+	                                       "graph.break", "graph.wait", "graph.trace", "graph.values", "graph.instances"})
+	{
+		CAPTURE(debugCommand);
+		CHECK(outcomes[debugCommand].first + outcomes[debugCommand].second > 0);
+		for (AutomationErrorCode const code : debugErrors[debugCommand])
+		{
+			CAPTURE(GetAutomationErrorCodeName(code));
+			CHECK(debugRefusals.contains(code));
+		}
+	}
 	// The palette needs the runtime, so it opens nowhere: its parameters are still checked before that.
 	CHECK(paletteErrors[AutomationErrorCode::InvalidParams] > 0);
 	CHECK(paletteErrors[AutomationErrorCode::Unavailable] > 0);

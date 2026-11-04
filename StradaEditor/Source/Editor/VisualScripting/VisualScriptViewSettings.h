@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptBreakpoints.h"
 #include "Editor/VisualScripting/VisualScriptView.h"
 
 #include "Strada/Asset/AssetHandle.h"
@@ -42,6 +43,36 @@ namespace Strada
 		bool operator==(VisualScriptRecentNode const& other) const = default;
 	};
 
+	// When data wires show their values on the canvas.
+	enum class VisualScriptWireValues : uint8_t
+	{
+		Off = 0,
+		// While an execution is stopped, the values of its frame.
+		WhileStopped,
+		// Also the live values of the context entity while the game plays.
+		Always
+	};
+
+	// The corner of a graph window's canvas the game preview sits in.
+	enum class VisualScriptPreviewCorner : uint8_t
+	{
+		TopLeft = 0,
+		TopRight,
+		BottomLeft,
+		BottomRight
+	};
+
+	// The game's image in a corner of the graph windows while the game plays and its view is hidden.
+	struct VisualScriptGamePreviewSettings
+	{
+		bool Shown = true;
+		VisualScriptPreviewCorner Corner = VisualScriptPreviewCorner::BottomRight;
+		// Of the canvas width, within VisualScriptViewSettings' MinGamePreviewWidth and MaxGamePreviewWidth.
+		float Width = 0.3f;
+
+		bool operator==(VisualScriptGamePreviewSettings const& other) const = default;
+	};
+
 	// A view kept under a slot, which Ctrl+<slot> goes back to.
 	struct VisualScriptBookmark
 	{
@@ -65,6 +96,9 @@ namespace Strada
 		std::vector<VisualScriptViewState> Views;
 		// One per slot, in slot order.
 		std::vector<VisualScriptBookmark> Bookmarks;
+		// By node ID, each one VisualScriptBreakpointStore::Check accepts, at most
+		// VisualScriptBreakpointStore::MaxBreakpointsPerGraph.
+		std::vector<VisualScriptBreakpoint> Breakpoints;
 
 		// Null when the sub-graph has no view kept.
 		VisualScriptViewState const* FindView(uint32_t function) const;
@@ -114,6 +148,14 @@ namespace Strada
 		std::string LastVariableType = "float";
 		// The one-time hints dismissed, the most recent first.
 		std::vector<std::string> HintsSeen;
+		// An aborting error of a debugged execution stops it (an error stop) while the editor plays.
+		bool BreakOnErrors = false;
+		VisualScriptWireValues WireValues = VisualScriptWireValues::WhileStopped;
+		// The flow lights the graph windows' wires and nodes while the game plays.
+		bool ShowFlow = true;
+		// Nodes the running game does not run yet are outlined.
+		bool OutlineNotRunning = true;
+		VisualScriptGamePreviewSettings GamePreview;
 		// The most recently used first.
 		std::vector<VisualScriptProjectViews> Projects;
 
@@ -121,18 +163,22 @@ namespace Strada
 	};
 
 	// The visual script editor's per-user state, in <UserData>/Editor/VisualScriptViews.json: the panes and toggles, the
-	// palette's recent nodes, recent types, the last comment colour and variable type, the hints seen, and per project the
-	// graph windows that were open with each graph's views (the sub-graph shown, a view per sub-graph, the context entity,
-	// bookmarks). It is never part of documents or of the undo history, and never exported. The editor reads it at start and
-	// writes it when graph windows close, when the project changes and at exit, never per frame; in between, the windows and
-	// panes update it here.
+	// palette's recent nodes, recent types, the last comment colour and variable type, the hints seen, the debugger's and the
+	// live game's options (break on errors, wire values, flow, outlines, the game preview), and per project the graph windows
+	// that were open with each graph's views (the sub-graph shown, a view per sub-graph, the context entity, bookmarks,
+	// breakpoints). It is never part of documents or of the undo history, and never exported. The editor reads it at start and
+	// writes it when graph windows close, when the project changes and at exit, never per frame; in between, the windows,
+	// panes and the debug session update it here.
+	//
+	// Version 2 added the debugger's members: a version-1 file reads with them at their defaults and is written as version 2
+	// at the next save. An editor that reads only version 1 ignores a version-2 file whole and starts with default views.
 	//
 	// Everything kept is valid: setters clamp numbers into their ranges and ignore what cannot be kept, and the per-project
 	// lists keep the most recently used entries within their limits. Main thread only.
 	class VisualScriptViewSettings
 	{
 	public:
-		static constexpr int FormatVersion = 1;
+		static constexpr int FormatVersion = 2;
 		static constexpr size_t MaxProjects = 32;
 		static constexpr size_t MaxGraphsPerProject = 256;
 		// The sub-graphs most recently shown keep their views.
@@ -150,6 +196,9 @@ namespace Strada
 		static constexpr float MinSidebarWidth = 10.0f;
 		static constexpr float MinDetailsWidth = 14.0f;
 		static constexpr float MaxPaneWidth = 1000.0f;
+		// The game preview's width, of the canvas width.
+		static constexpr float MinGamePreviewWidth = 0.15f;
+		static constexpr float MaxGamePreviewWidth = 0.6f;
 
 		// Starts with the defaults and no project; Load reads the file.
 		explicit VisualScriptViewSettings(std::filesystem::path file);
@@ -169,7 +218,7 @@ namespace Strada
 
 		VisualScriptViews const& GetViews() const { return m_Views; }
 
-		// The file's form: { "Strada": { "Version": 1, "Type": "VisualScriptViews" }, "VisualScriptViews": { ... } }, members at
+		// The file's form: { "Strada": { "Version": 2, "Type": "VisualScriptViews" }, "VisualScriptViews": { ... } }, members at
 		// their defaults included, except Scroll, CommentColor and a graph's ContextEntity when they are none.
 		static Json Serialize(VisualScriptViews const& views);
 		// Reads the file's form as Load does: what is valid within the limits, the warnings appended. Projects' paths are kept
@@ -200,6 +249,20 @@ namespace Strada
 		// False (nothing kept) for a text that is no type ID: empty, longer than a document's type, or with control
 		// characters or invalid UTF-8.
 		bool SetLastVariableType(std::string_view type);
+
+		bool IsBreakOnErrors() const { return m_Views.BreakOnErrors; }
+		void SetBreakOnErrors(bool breakOnErrors) { m_Views.BreakOnErrors = breakOnErrors; }
+		VisualScriptWireValues GetWireValues() const { return m_Views.WireValues; }
+		// False (nothing kept) for a value that is none of the enumerators.
+		bool SetWireValues(VisualScriptWireValues wireValues);
+		bool IsShowFlow() const { return m_Views.ShowFlow; }
+		void SetShowFlow(bool showFlow) { m_Views.ShowFlow = showFlow; }
+		bool IsOutlineNotRunning() const { return m_Views.OutlineNotRunning; }
+		void SetOutlineNotRunning(bool outlineNotRunning) { m_Views.OutlineNotRunning = outlineNotRunning; }
+		VisualScriptGamePreviewSettings const& GetGamePreview() const { return m_Views.GamePreview; }
+		// The width is clamped to [MinGamePreviewWidth, MaxGamePreviewWidth]; a width that is not finite keeps the current one.
+		// False (nothing kept) for a corner that is none of the enumerators.
+		bool SetGamePreview(VisualScriptGamePreviewSettings const& preview);
 
 		// The most recent first.
 		std::span<VisualScriptRecentNode const> GetRecents() const { return m_Views.Recents; }
@@ -248,6 +311,22 @@ namespace Strada
 		bool SetBookmark(AssetHandle graph, VisualScriptBookmark bookmark);
 		void RemoveBookmark(AssetHandle graph, uint8_t slot);
 
+		// --- Breakpoints, by project file whichever project is current ---
+		// The debug session follows a project of its own, which it compares with the editor's before every use, while the
+		// windows switch the current project later in the frame: so breakpoints are read and written by the project's file,
+		// normalized as SetProject normalizes it. An empty path names no project: nothing is kept or found.
+
+		// The graphs of the project that have breakpoints, in the project's order (the most recently used first).
+		std::vector<AssetHandle> GetBreakpointGraphs(std::filesystem::path const& project) const;
+		// By node ID; empty when the project keeps none for the graph.
+		std::span<VisualScriptBreakpoint const> GetBreakpoints(std::filesystem::path const& project, AssetHandle graph) const;
+		// Replaces the graph's breakpoints in the project. Breakpoints VisualScriptBreakpointStore::Check refuses are left out,
+		// and so are repeated nodes (the later one) and those beyond MaxBreakpointsPerGraph; the rest are kept by node ID. A
+		// project or graph entry is made when needed, within MaxProjects and MaxGraphsPerProject: the graph becomes its
+		// project's most recently used, and a project that is not the current one goes right after the current one. Nothing
+		// is made for no breakpoints, and an invalid handle keeps nothing.
+		void SetBreakpoints(std::filesystem::path const& project, AssetHandle graph, std::span<VisualScriptBreakpoint const> breakpoints);
+
 	private:
 		VisualScriptProjectViews* GetCurrentProject();
 		VisualScriptProjectViews const* GetCurrentProject() const;
@@ -256,6 +335,8 @@ namespace Strada
 		VisualScriptGraphViews* UseGraph(AssetHandle graph);
 		// Makes the project the front entry of the list (it is m_Project, normalized).
 		void UseProject();
+		// The entry of a normalized project file; null for none.
+		VisualScriptProjectViews const* FindProject(std::filesystem::path const& normalized) const;
 
 		std::filesystem::path m_File;
 		VisualScriptViews m_Views;

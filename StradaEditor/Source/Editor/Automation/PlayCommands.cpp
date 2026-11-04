@@ -1,5 +1,6 @@
 #include "Editor/Automation/PlayCommands.h"
 
+#include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/JsonSchema.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -49,8 +50,10 @@ namespace Strada
 			                     {"results", std::move(results)}});
 		}
 
-		Json DescribePlay(PlayMode const& playMode, EditorContext& context)
+		// The debugger's part is brought up to date first: an earlier command in the same batch may have ended a stop.
+		Json DescribePlay(PlayMode& playMode, EditorContext& context)
 		{
+			playMode.RefreshObserver();
 			Json description = Json::object({{"state", GetStateName(context.GetPlayState())},
 			                                 {"paused", playMode.IsPaused()},
 			                                 {"startPending", playMode.IsStartPending()},
@@ -62,6 +65,11 @@ namespace Strada
 			}
 			TestRunReport const* const report = playMode.GetTestReport();
 			description["tests"] = report != nullptr ? DescribeTestReport(*report) : Json();
+			PlayDebugSummary const debug = playMode.GetDebugSummary();
+			description["debug"] = Json::object({{"state", debug.State},
+			                                     {"stops", debug.Stops},
+			                                     {"current", debug.Current ? Json(*debug.Current) : Json()},
+			                                     {"pauseHeld", debug.PauseHeld}});
 			return description;
 		}
 
@@ -91,6 +99,17 @@ namespace Strada
 		CommandError NotPlaying()
 		{
 			return MakeCommandError(AutomationErrorCode::InvalidOperation, "the editor is not playing (play.start)");
+		}
+
+		// Frames refused while an execution is stopped at a breakpoint, with the debugger's reason, read up to date.
+		std::optional<CommandError> RefuseFrames(PlayMode& playMode)
+		{
+			playMode.RefreshObserver();
+			if (std::optional<std::string> const refusal = playMode.GetFrameStepRefusal())
+			{
+				return MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", *refusal);
+			}
+			return std::nullopt;
 		}
 
 		char const* GetButtonStateName(UIButtonState state)
@@ -213,35 +232,45 @@ namespace Strada
 	Result<void> RegisterPlayCommands(CommandRegistry& registry, PlayMode& playMode, EditorContext& context,
 	                                  ViewportSizeProvider viewportSize)
 	{
-		Result<void> result = AddAsync(
-			registry, "play.start",
-			"Plays a copy of the edited scene (mode play: scripts, physics and audio; simulate: physics only); panels and "
-			"commands then show and edit the copy, and play.stop discards it. Play builds changed scripts first and fails when "
-			"they do not build; asynchronous. Returns the play state.",
-			SchemaBuilder::Object().Property("mode", SchemaBuilder::String("What runs").Enum({"play", "simulate"}).Default("play")).Build(),
-			[&playMode, &context, viewportSize](Json const& params, CommandCompletion completion)
-			{
-				if (playMode.IsPlaying() || playMode.IsStartPending())
-				{
-					completion.Complete(MakeCommandError(AutomationErrorCode::InvalidOperation, "the editor is already playing"));
-					return;
-				}
-				auto const mode = params.find("mode");
-				EditorPlayState const state =
-					mode != params.end() && *mode == "simulate" ? EditorPlayState::Simulate : EditorPlayState::Play;
-				glm::uvec2 const size = viewportSize();
-				playMode.RequestStart(state, size.x, size.y, nullptr,
-			                          [completion, &playMode, &context](Result<void> const& started)
-			                          {
-										  if (!started)
-										  {
-											  completion.Complete(
-												  MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", started.GetError()));
-											  return;
-										  }
-										  completion.Complete(DescribePlay(playMode, context));
-									  });
-			});
+		Result<void> result =
+			AddAsync(registry, "play.start",
+		             "Plays a copy of the edited scene (mode play: scripts, physics and audio; simulate: physics only); panels and "
+		             "commands then show and edit the copy, and play.stop discards it. paused: the scene starts (its scripts' OnCreate "
+		             "run) and is paused before its first frame, for sessions that advance it with fixed steps (play.advance). Play "
+		             "builds changed scripts first and fails when they do not build; asynchronous. Returns the play state.",
+		             SchemaBuilder::Object()
+		                 .Property("mode", SchemaBuilder::String("What runs").Enum({"play", "simulate"}).Default("play"))
+		                 .Property("paused", SchemaBuilder::Boolean("Pause the scene before its first frame").Default(false))
+		                 .Build(),
+		             [&playMode, &context, viewportSize](Json const& params, CommandCompletion completion)
+		             {
+						 if (playMode.IsPlaying() || playMode.IsStartPending())
+						 {
+							 completion.Complete(MakeCommandError(AutomationErrorCode::InvalidOperation, "the editor is already playing"));
+							 return;
+						 }
+						 auto const mode = params.find("mode");
+						 EditorPlayState const state =
+							 mode != params.end() && *mode == "simulate" ? EditorPlayState::Simulate : EditorPlayState::Play;
+						 PlayStartOptions options;
+						 if (auto const paused = params.find("paused"); paused != params.end())
+						 {
+							 options.Paused = paused->get<bool>();
+						 }
+						 glm::uvec2 const size = viewportSize();
+						 playMode.RequestStart(
+							 state, size.x, size.y, nullptr,
+							 [completion, &playMode, &context](Result<void> const& started)
+							 {
+								 if (!started)
+								 {
+									 completion.Complete(MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", started.GetError()));
+									 return;
+								 }
+								 completion.Complete(DescribePlay(playMode, context));
+							 },
+							 options);
+					 });
 
 		result =
 			result ? Add(registry, "play.stop",
@@ -258,7 +287,10 @@ namespace Strada
 				   : result;
 
 		result =
-			result ? Add(registry, "play.pause", "Pauses or resumes the running scene (and its sounds).",
+			result ? Add(registry, "play.pause",
+		                 "Pauses or resumes the running scene (and its sounds). Resuming while an execution is stopped at a "
+		                 "breakpoint continues every stopped execution first; the scene stays paused when one stops again (the "
+		                 "result's debug tells).",
 		                 SchemaBuilder::Object().Property("paused", SchemaBuilder::Boolean("Pause (true) or resume").Default(true)).Build(),
 		                 false,
 		                 [&playMode, &context](Json const& params) -> CommandResult
@@ -268,7 +300,15 @@ namespace Strada
 								 return NotPlaying();
 							 }
 							 auto const paused = params.find("paused");
-							 playMode.SetPaused(paused == params.end() || paused->get<bool>());
+							 if (paused == params.end() || paused->get<bool>())
+							 {
+								 playMode.SetPaused(true);
+							 }
+							 else
+							 {
+								 // Stopped executions continue first: they may stop again, or quit.
+								 playMode.Resume();
+							 }
 							 return DescribePlay(playMode, context);
 						 })
 				   : result;
@@ -276,7 +316,7 @@ namespace Strada
 		result = result
 		             ? Add(registry, "play.step",
 		                   "Advances the paused scene by frames, one per editor frame with the editor's frame time (play.advance runs "
-		                   "frames at once).",
+		                   "frames at once). Refused while an execution is stopped at a breakpoint.",
 		                   SchemaBuilder::Object()
 		                       .Property("frames", SchemaBuilder::Integer("Frames to advance").Minimum(1).Maximum(100000).Default(1))
 		                       .Build(),
@@ -286,6 +326,10 @@ namespace Strada
 							   if (!playMode.IsPlaying())
 							   {
 								   return NotPlaying();
+							   }
+							   if (std::optional<CommandError> refused = RefuseFrames(playMode))
+							   {
+								   return std::move(*refused);
 							   }
 							   if (!playMode.IsPaused())
 							   {
@@ -297,35 +341,52 @@ namespace Strada
 						   })
 		             : result;
 
-		result = result ? Add(registry, "play.advance",
-		                      "Runs frames at once with a fixed time step, paused or not; input set before applies to the first frame. "
-		                      "Pause first for deterministic runs: the editor keeps playing in real time otherwise. Stops early when "
-		                      "the scripts quit (Application.Quit). Returns framesRun and the play state.",
-		                      SchemaBuilder::Object()
-		                          .Property("frames", SchemaBuilder::Integer("Frames to run").Minimum(1).Maximum(100000), true)
-		                          .Property("timestep", TimestepSchema())
-		                          .Build(),
-		                      false,
-		                      [&playMode, &context](Json const& params) -> CommandResult
-		                      {
-								  if (!playMode.IsPlaying())
-								  {
-									  return NotPlaying();
-								  }
-								  auto const timestep = params.find("timestep");
-								  float const seconds =
-									  static_cast<float>(timestep != params.end() ? timestep->get<double>() : DefaultTimestep);
-								  uint32_t const run = playMode.Advance(params.at("frames").get<uint32_t>(), Timestep(seconds));
-								  Json description = DescribePlay(playMode, context);
-								  description["framesRun"] = run;
-								  return description;
-							  })
-		                : result;
+		result =
+			result ? Add(registry, "play.advance",
+		                 "Runs frames at once with a fixed time step, paused or not; input set before applies to the first frame. "
+		                 "Pause first for deterministic runs: the editor keeps playing in real time otherwise. Stops early when "
+		                 "the scripts quit (Application.Quit) and after a frame in which an execution stopped at a breakpoint; "
+		                 "refused while one is stopped. Returns the play state with framesRun, stopped (an execution stopped) and "
+		                 "stop (as graph.debug's stops, or null: also when the stop ended in the frame that made it, its entity "
+		                 "destroyed or another scene loaded, which keeps the scene paused).",
+		                 SchemaBuilder::Object()
+		                     .Property("frames", SchemaBuilder::Integer("Frames to run").Minimum(1).Maximum(100000), true)
+		                     .Property("timestep", TimestepSchema())
+		                     .Build(),
+		                 false,
+		                 [&playMode, &context](Json const& params) -> CommandResult
+		                 {
+							 if (!playMode.IsPlaying())
+							 {
+								 return NotPlaying();
+							 }
+							 if (std::optional<CommandError> refused = RefuseFrames(playMode))
+							 {
+								 return std::move(*refused);
+							 }
+							 auto const timestep = params.find("timestep");
+							 float const seconds = static_cast<float>(timestep != params.end() ? timestep->get<double>() : DefaultTimestep);
+							 uint64_t const stopsMade = playMode.GetDebugSummary().StopsMade;
+							 uint32_t const run = playMode.Advance(params.at("frames").get<uint32_t>(), Timestep(seconds));
+							 Json description = DescribePlay(playMode, context);
+							 description["framesRun"] = run;
+							 // A stop made by the frames ended them: the stop is the current one, unless it already ended in
+			                 // its frame (a scene load, its entity destroyed).
+							 PlayDebugSummary const debug = playMode.GetDebugSummary();
+							 bool const stopped = debug.StopsMade > stopsMade;
+							 VisualScriptStop const* stop = stopped && debug.Current ? playMode.FindDebugStop(*debug.Current) : nullptr;
+							 description["stopped"] = stopped;
+							 description["stop"] = stop != nullptr ? DescribeVisualScriptStop(*stop, context.GetScene()) : Json();
+							 return description;
+						 })
+				   : result;
 
 		result = result ? Add(registry, "play.state",
 		                      "The play state: { state (edit, play or simulate), paused, startPending, scene, frame and time (while "
 		                      "playing), tests (the run's Strada.Testing report: finished, passed, failed, exceptions, failures, "
-		                      "results; null before the first run) }.",
+		                      "results; null before the first run), debug (the visual-script debugger: state (Detached, Running, "
+		                      "Stopped, Stepping or StepEnded), stops, current (the current stop's ID or null), pauseHeld (it paused "
+		                      "the scene for a stop and has not resumed it)) }.",
 		                      Json(), true,
 		                      [&playMode, &context](Json const&) -> CommandResult
 		                      {
@@ -430,8 +491,9 @@ namespace Strada
 			registry, "test.run",
 			"Plays a scene until its scripts finish testing (Strada.Testing.TestReporter.Finish), they quit, or a timeout in "
 			"game seconds passes, with a fixed time step, then stops. The scene is a scene file of the asset directory, or a "
-			"copy of the edited scene. Scripts build first when they changed; asynchronous. Returns { finished, timedOut, "
-			"frames, passed, failed, exceptions, failures, results: [{ name, passed, message }] }.",
+			"copy of the edited scene. Breakpoints are ignored: the run attaches no debugger. Scripts build first when they "
+			"changed; asynchronous. Returns { finished, timedOut, frames, passed, failed, exceptions, failures, results: "
+			"[{ name, passed, message }] }.",
 			SchemaBuilder::Object()
 				.Property("scene", SchemaBuilder::String("Scene file relative to the asset directory").MinLength(1))
 				.Property("timeout",
@@ -471,27 +533,34 @@ namespace Strada
 				uint32_t const maxFrames =
 					static_cast<uint32_t>(std::ceil((timeout != params.end() ? timeout->get<double>() : 60.0) / seconds));
 				glm::uvec2 const size = viewportSize();
-				playMode.RequestStart(EditorPlayState::Play, size.x, size.y, std::move(scene),
-			                          [completion, &playMode, maxFrames, seconds](Result<void> const& started)
-			                          {
-										  if (!started)
-										  {
-											  completion.Complete(
-												  MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", started.GetError()));
-											  return;
-										  }
-										  uint32_t frames = 0;
-										  while (playMode.IsPlaying() && frames < maxFrames && !playMode.GetTestReport()->Finished)
-										  {
-											  frames += playMode.Advance(1, Timestep(static_cast<float>(seconds)));
-										  }
-										  playMode.Stop();
-										  TestRunReport const report = *playMode.GetTestReport();
-										  Json description = DescribeTestReport(report);
-										  description["timedOut"] = !report.Finished && frames >= maxFrames;
-										  description["frames"] = frames;
-										  completion.Complete(std::move(description));
-									  });
+				playMode.RequestStart(
+					EditorPlayState::Play, size.x, size.y, std::move(scene),
+					[completion, &playMode, maxFrames, seconds](Result<void> const& started)
+					{
+						if (!started)
+						{
+							completion.Complete(MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", started.GetError()));
+							return;
+						}
+						uint32_t frames = 0;
+						while (playMode.IsPlaying() && frames < maxFrames && !playMode.GetTestReport()->Finished)
+						{
+							// A run no frame can advance ends (a test run attaches no debugger, which alone refuses frames).
+							uint32_t const ran = playMode.Advance(1, Timestep(static_cast<float>(seconds)));
+							if (ran == 0)
+							{
+								break;
+							}
+							frames += ran;
+						}
+						playMode.Stop();
+						TestRunReport const report = *playMode.GetTestReport();
+						Json description = DescribeTestReport(report);
+						description["timedOut"] = !report.Finished && frames >= maxFrames;
+						description["frames"] = frames;
+						completion.Complete(std::move(description));
+					},
+					PlayStartOptions{.TestRun = true});
 			});
 	}
 }

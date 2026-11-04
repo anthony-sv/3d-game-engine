@@ -65,6 +65,8 @@ namespace Strada
 				Resolve(functions.VisualScriptInvoke, "VisualScriptInvoke"),
 				Resolve(functions.VisualScriptDescribeInstanceVariables, "VisualScriptDescribeInstanceVariables"),
 				Resolve(functions.VisualScriptSetInstanceVariables, "VisualScriptSetInstanceVariables"),
+				Resolve(functions.VisualScriptDebug, "VisualScriptDebug"),
+				Resolve(functions.VisualScriptTakeTrace, "VisualScriptTakeTrace"),
 			};
 			for (Result<void> const& result : results)
 			{

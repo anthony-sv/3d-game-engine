@@ -19,8 +19,10 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -180,6 +182,96 @@ namespace
 		play.Advance(1, Timestep(1.0f / 60.0f));
 		Input::SetKeyState(key, false);
 	}
+
+	// Records what play mode tells it, with the running scene's frame and pause at each call, and holds play mode back as
+	// a test sets it to: pauses after a frame, refuses frames, keeps the scene paused on a resume.
+	class RecordingObserver final : public PlayModeObserver
+	{
+	public:
+		struct Call
+		{
+			std::string Kind;
+			uint64_t Frame = 0;
+			float Seconds = 0.0f;
+			bool Paused = false;
+
+			bool operator==(Call const& other) const = default;
+		};
+
+		explicit RecordingObserver(EditorContext& context)
+			: m_Context(context)
+		{
+		}
+
+		void OnPlayStarting(EditorPlayState state, PlayStartOptions const& options) override
+		{
+			// The scene does not run yet: the context still shows the edited one.
+			StartedPlaying = m_Context.IsPlaying();
+			Started = std::make_pair(state, options);
+			Calls.push_back({"Starting", 0, 0.0f, false});
+		}
+
+		bool OnPlayFrame(Timestep timestep) override
+		{
+			Scene const& scene = m_Context.GetScene();
+			Calls.push_back({"Frame", scene.GetRuntimeFrame(), timestep.GetSeconds(), scene.IsPaused()});
+			return PauseAfterFrame == scene.GetRuntimeFrame();
+		}
+
+		void OnPlayStopping() override { Calls.push_back({"Stopping", m_Context.GetScene().GetRuntimeFrame(), 0.0f, false}); }
+
+		bool OnPlayResuming() override
+		{
+			Calls.push_back({"Resuming", m_Context.GetScene().GetRuntimeFrame(), 0.0f, m_Context.GetScene().IsPaused()});
+			// Continuing ends the refusal, unless an execution stops again.
+			if (!StopAgainOnResume)
+			{
+				Refusal.reset();
+			}
+			return StopAgainOnResume;
+		}
+
+		void Refresh() override { Refreshes++; }
+		std::optional<std::string> GetFrameStepRefusal() const override { return Refusal; }
+		PlayDebugSummary GetDebugSummary() const override { return Summary; }
+
+		VisualScriptStop const* FindStop(uint64_t) const override { return nullptr; }
+
+		std::vector<Call> Calls;
+		std::optional<std::pair<EditorPlayState, PlayStartOptions>> Started;
+		bool StartedPlaying = true;
+		std::optional<uint64_t> PauseAfterFrame;
+		bool StopAgainOnResume = false;
+		std::optional<std::string> Refusal;
+		PlayDebugSummary Summary;
+		uint32_t Refreshes = 0;
+
+	private:
+		EditorContext& m_Context;
+	};
+
+	// Declared right after an observer: stops playing and clears the observer before it is destroyed, also when a failed
+	// assertion unwinds the case (the fixture's play mode, destroyed after it, would tell a destroyed observer otherwise).
+	class ObserverGuard final
+	{
+	public:
+		explicit ObserverGuard(PlayMode& play)
+			: m_Play(play)
+		{
+		}
+
+		~ObserverGuard()
+		{
+			m_Play.Stop();
+			m_Play.SetObserver(nullptr);
+		}
+
+		ObserverGuard(ObserverGuard const&) = delete;
+		ObserverGuard& operator=(ObserverGuard const&) = delete;
+
+	private:
+		PlayMode& m_Play;
+	};
 }
 
 TEST_CASE("PlayMode: playing shows and edits a copy that stopping discards")
@@ -979,4 +1071,286 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in i
 	press("keys", "Right");
 	press("keys", "Enter");
 	CHECK(fixture.Ok("play.state")["state"] == "edit");
+}
+
+TEST_CASE("PlayMode: the observer is told of the start, of each frame that ran with its time step and of the stop, and may pause "
+          "after a frame")
+{
+	PlayFixture fixture;
+	fixture.Create("Crate");
+	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
+	fixture.Play.SetObserver(&observer);
+	using Call = RecordingObserver::Call;
+	constexpr float Frame = 1.0f / 60.0f;
+
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	CHECK_FALSE(observer.StartedPlaying);
+	REQUIRE(observer.Started.has_value());
+	CHECK(observer.Started->first == EditorPlayState::Play);
+	CHECK_FALSE(observer.Started->second.TestRun);
+	CHECK_FALSE(observer.Started->second.Paused);
+	// After the start, the scene started and ran no frame (a zero time step).
+	CHECK(observer.Calls == std::vector<Call>{{"Starting", 0, 0.0f, false}, {"Frame", 0, 0.0f, false}});
+
+	// Editor frames: one call per frame that ran, with the time step before the scene's time scale.
+	fixture.Context.GetScene().SetTimeScale(0.5f);
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(observer.Calls.back() == Call{"Frame", 1, Frame, false});
+	CHECK(fixture.Context.GetScene().GetRuntimeTime() == doctest::Approx(Frame * 0.5f));
+	fixture.Context.GetScene().SetTimeScale(1.0f);
+	REQUIRE(fixture.Play.SetPaused(true));
+	size_t const calls = observer.Calls.size();
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(observer.Calls.size() == calls);
+	fixture.Play.Step(2);
+	for (int frame = 0; frame < 3; frame++)
+	{
+		fixture.Play.Update(Timestep(Frame));
+	}
+	REQUIRE(observer.Calls.size() == calls + 2);
+	CHECK(observer.Calls[calls + 1] == Call{"Frame", 3, Frame, true});
+
+	// Advance tells it of each frame, and stops early when it pauses the scene after one.
+	CHECK(fixture.Play.Advance(2, Timestep(0.5f)) == 2);
+	CHECK(observer.Calls.back() == Call{"Frame", 5, 0.5f, true});
+	REQUIRE(fixture.Play.SetPaused(false));
+	observer.PauseAfterFrame = 7;
+	CHECK(fixture.Play.Advance(5, Timestep(0.25f)) == 2);
+	CHECK(observer.Calls.back() == Call{"Frame", 7, 0.25f, false});
+	CHECK(fixture.Play.IsPaused());
+	// An editor frame after which it pauses the scene holds it there.
+	REQUIRE(fixture.Play.SetPaused(false));
+	observer.PauseAfterFrame = 8;
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(fixture.Play.IsPaused());
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 8);
+
+	// Before the scene stops, while it still runs.
+	fixture.Play.Stop();
+	CHECK(observer.Calls.back() == Call{"Stopping", 8, 0.0f, false});
+	CHECK(std::count_if(observer.Calls.begin(), observer.Calls.end(),
+	                    [](Call const& call)
+	                    {
+							return call.Kind == "Stopping";
+						}) == 1);
+
+	// A pause the observer asks for after the start holds the scene before its first frame.
+	observer.Calls.clear();
+	observer.PauseAfterFrame = 0;
+	REQUIRE(fixture.Play.Start(EditorPlayState::Simulate, 640, 480).IsOk());
+	CHECK(observer.Started->first == EditorPlayState::Simulate);
+	CHECK(fixture.Play.IsPaused());
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 0);
+	fixture.Play.Stop();
+
+	// Without an observer play mode runs as before, and reports the debugger detached.
+	fixture.Play.SetObserver(nullptr);
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	CHECK(fixture.Play.Advance(3, Timestep(Frame)) == 3);
+	CHECK_FALSE(fixture.Play.GetFrameStepRefusal().has_value());
+	CHECK(fixture.Play.GetDebugSummary().State == "Detached");
+	fixture.Play.Stop();
+	CHECK(observer.Calls.size() == 3);
+}
+
+TEST_CASE("PlayMode: PlayStartOptions start the scene paused before its first frame, and tell the observer of test runs")
+{
+	Testing::ScriptEngineScope scripting;
+	PlayFixture fixture;
+	UUID const reporter =
+		fixture.Create("Reporter", Json::object({{"Script", Json::object({{"ClassName", "Strada.Tests.FieldReporter"}})}}));
+	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
+	fixture.Play.SetObserver(&observer);
+	auto const updates = [reporter]
+	{
+		Result<ScriptFieldMap> const fields = ScriptEngine::GetInstanceFields(reporter);
+		REQUIRE(fields.IsOk());
+		return fields.GetValue().at("Updates");
+	};
+
+	PlayStartOptions paused;
+	paused.Paused = true;
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480, nullptr, paused).IsOk());
+	REQUIRE(observer.Started.has_value());
+	CHECK(observer.Started->second.Paused);
+	// Its scripts were created; none updated, and editor frames hold it.
+	CHECK(fixture.Play.IsPaused());
+	CHECK(ScriptEngine::HasInstance(reporter));
+	CHECK(observer.Calls.back() == RecordingObserver::Call{"Frame", 0, 0.0f, true});
+	fixture.Play.Update(Timestep(1.0f / 60.0f));
+	CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 0);
+	CHECK(updates() == ScriptFieldValue::FromInt32(0));
+	CHECK(fixture.Play.Advance(1, Timestep(1.0f / 60.0f)) == 1);
+	CHECK(updates() == ScriptFieldValue::FromInt32(1));
+	fixture.Play.Stop();
+
+	// play.start's paused does the same; test.run's runs are test runs.
+	Json const started = fixture.Ok("play.start", Json::object({{"paused", true}}));
+	CHECK(started["paused"] == true);
+	CHECK(started["frame"] == 0);
+	CHECK(observer.Started->second.Paused);
+	CHECK_FALSE(observer.Started->second.TestRun);
+	fixture.Ok("play.stop");
+	CHECK_FALSE(fixture.Ok("play.start")["paused"].get<bool>());
+	fixture.Ok("play.stop");
+	fixture.Ok("test.run", Json::object({{"timeout", 0.05}}));
+	CHECK(observer.Started->second.TestRun);
+	CHECK_FALSE(observer.Started->second.Paused);
+	fixture.Play.SetObserver(nullptr);
+}
+
+TEST_CASE("PlayMode: while the observer refuses frames, unpausing, steps and frames are refused, and Resume continues through it")
+{
+	PlayFixture fixture;
+	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
+	fixture.Play.SetObserver(&observer);
+	constexpr float Frame = 1.0f / 60.0f;
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Advance(2, Timestep(Frame));
+	Scene& scene = fixture.Context.GetScene();
+	REQUIRE(fixture.Play.SetPaused(true));
+
+	// Steps and frames bring the observer up to date first: what it refuses may have changed since an editor frame.
+	uint32_t const refreshes = observer.Refreshes;
+	fixture.Play.Step(1);
+	fixture.Play.CancelSteps();
+	CHECK(observer.Refreshes == refreshes + 1);
+	CHECK(fixture.Play.Advance(0, Timestep(Frame)) == 0);
+	CHECK(observer.Refreshes == refreshes + 2);
+
+	// Steps queued before the refusal never run while it holds, and the refusal refuses new ones.
+	fixture.Play.Step(5);
+	observer.Refusal = "an execution is stopped at a breakpoint (stop 3): graph.continue or graph.step it first";
+	CHECK(fixture.Play.GetFrameStepRefusal() == observer.Refusal);
+	for (int frame = 0; frame < 3; frame++)
+	{
+		fixture.Play.Update(Timestep(Frame));
+	}
+	CHECK(scene.GetRuntimeFrame() == 2);
+	CHECK(fixture.Play.Advance(4, Timestep(Frame)) == 0);
+	CHECK(scene.GetRuntimeFrame() == 2);
+	fixture.Play.Step(1);
+	// Unpausing is refused; pausing is not.
+	CHECK_FALSE(fixture.Play.SetPaused(false));
+	CHECK(fixture.Play.IsPaused());
+	CHECK(fixture.Play.SetPaused(true));
+
+	// Cancelled steps are gone once the refusal ends.
+	fixture.Play.CancelSteps();
+	observer.Refusal.reset();
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(scene.GetRuntimeFrame() == 2);
+	fixture.Play.Step(1);
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(scene.GetRuntimeFrame() == 3);
+
+	// Resume continues the stopped executions first: one that stops again keeps the scene paused; once none does, it runs.
+	observer.Refusal = "stopped";
+	observer.StopAgainOnResume = true;
+	CHECK_FALSE(fixture.Play.Resume());
+	CHECK(fixture.Play.IsPaused());
+	CHECK(observer.Calls.back() == RecordingObserver::Call{"Resuming", 3, 0.0f, true});
+	observer.StopAgainOnResume = false;
+	CHECK(fixture.Play.Resume());
+	CHECK_FALSE(fixture.Play.IsPaused());
+	CHECK_FALSE(fixture.Play.GetFrameStepRefusal().has_value());
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(scene.GetRuntimeFrame() == 4);
+
+	// The debugger's summary comes from the observer.
+	observer.Summary.State = "Stopped";
+	observer.Summary.Stops = 2;
+	observer.Summary.Current = 5;
+	CHECK(fixture.Play.GetDebugSummary().Current == std::optional<uint64_t>(5));
+	fixture.Play.Stop();
+	CHECK_FALSE(fixture.Play.Resume());
+	CHECK_FALSE(fixture.Play.SetPaused(true));
+	fixture.Play.SetObserver(nullptr);
+}
+
+TEST_CASE("PlayMode: FollowScripts loads the scene script code asked for between frames, and stops when it quit")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptEngineScope scripting;
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const scenes = directory.GetPath() / "Scenes";
+	REQUIRE(FileSystem::CreateDirectories(scenes).IsOk());
+	WriteSwitcherScene(scenes / "First.sscene", "First", "Scenes/Second.sscene");
+	WriteSwitcherScene(scenes / "Second.sscene", "Second", "");
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	PlayFixture fixture;
+	REQUIRE(fixture.Operations.OpenScene(scenes / "First.sscene").IsOk());
+	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
+	fixture.Play.SetObserver(&observer);
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+
+	// What the scripts ask between frames (as a resumed execution does) waits for FollowScripts, which acts on it at once.
+	fixture.Play.FollowScripts();
+	CHECK(fixture.Context.GetScene().GetName() == "First");
+	ScriptHost* const host = ScriptEngine::GetHost();
+	REQUIRE(host != nullptr);
+	host->RequestSceneLoad(AssetManager::FindByPath("Scenes/Second.sscene"));
+	CHECK(fixture.Context.GetScene().GetName() == "First");
+	uint64_t const version = fixture.Context.GetSceneVersion();
+	fixture.Play.FollowScripts();
+	CHECK(fixture.Context.GetScene().GetName() == "Second");
+	CHECK(fixture.Context.GetScene().IsRunning());
+	CHECK(fixture.Context.GetSceneVersion() != version);
+
+	host->RequestQuit();
+	fixture.Play.FollowScripts();
+	CHECK_FALSE(fixture.Play.IsPlaying());
+	CHECK(observer.Calls.back().Kind == "Stopping");
+	CHECK(fixture.Context.GetScene().GetName() == "First");
+	fixture.Play.FollowScripts();
+	fixture.Play.SetObserver(nullptr);
+}
+
+TEST_CASE("PlayCommands: frames are refused with the debugger's reason, play.pause resumes through it, and play.state reports "
+          "the debugger")
+{
+	PlayFixture fixture;
+	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
+	fixture.Play.SetObserver(&observer);
+	Json const started = fixture.Ok("play.start", Json::object({{"paused", true}}));
+	CHECK(started["debug"] == Json::object({{"state", "Detached"}, {"stops", 0}, {"current", nullptr}, {"pauseHeld", false}}));
+
+	std::string const reason = "an execution is stopped at a breakpoint (stop 3): graph.continue or graph.step it first";
+	observer.Refusal = reason;
+	observer.Summary = {"Stopped", 1, 3, true};
+	for (std::string_view const command : {"play.step", "play.advance"})
+	{
+		CAPTURE(command);
+		CommandResult const refused = fixture.Run(command, Json::object({{"frames", 2}}));
+		REQUIRE(refused.IsError());
+		CHECK(refused.GetError().Code == AutomationErrorCode::InvalidOperation);
+		CHECK(refused.GetError().Message == reason);
+	}
+	CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 0);
+	// play.state brings the debugger up to date before it reports it.
+	uint32_t const refreshes = observer.Refreshes;
+	Json const state = fixture.Ok("play.state");
+	CHECK(observer.Refreshes > refreshes);
+	CHECK(state["debug"] == Json::object({{"state", "Stopped"}, {"stops", 1}, {"current", 3}, {"pauseHeld", true}}));
+
+	// Resuming continues the stopped executions first; the scene stays paused while one stops again.
+	observer.StopAgainOnResume = true;
+	CHECK(fixture.Ok("play.pause", Json::object({{"paused", false}}))["paused"] == true);
+	CHECK(observer.Calls.back().Kind == "Resuming");
+	observer.StopAgainOnResume = false;
+	observer.Summary = {};
+	Json const resumed = fixture.Ok("play.pause", Json::object({{"paused", false}}));
+	CHECK(resumed["paused"] == false);
+	CHECK(resumed["debug"]["state"] == "Detached");
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 2}}))["framesRun"] == 2);
+	fixture.Ok("play.stop");
+	fixture.Play.SetObserver(nullptr);
 }
