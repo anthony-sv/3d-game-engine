@@ -1306,7 +1306,8 @@ TEST_CASE("VisualScriptDebug: a stop on a disabled node passes through, and a br
 	CHECK(UI::HasArrows(line));
 	REQUIRE(window.GetStripRows()[0].Buttons.size() == 4);
 	CHECK(window.GetStripRows()[0].Buttons[2].Action == VisualScriptDebugStripAction::StepInto);
-	CHECK(window.GetStripRows()[0].Buttons[2].SecondChord == "Ctrl+F11");
+	// Named as the keyboard shows it: Cmd+F11 where ImGui's Ctrl shortcuts take Cmd (macOS).
+	CHECK(window.GetStripRows()[0].Buttons[2].SecondChord == (ImGui::GetIO().ConfigMacOSXBehaviors ? "Cmd+F11" : "Ctrl+F11"));
 
 	// A broken edit (a Get of a variable the graph lacks) while stopped: the stopped execution runs on in the last version that
 	// worked, which the window's own strip line says.
