@@ -327,11 +327,30 @@ namespace Strada
 		glm::vec2 ScreenPosition{0.0f};
 	};
 
+	enum class VisualScriptBreakpointAction : uint8_t
+	{
+		// A click on a node's breakpoint marker or its ghost marker: the node's breakpoint is removed, or one is added.
+		Toggle = 0,
+		// A right click on it: the breakpoint popup opens.
+		Settings
+	};
+
+	// A press on a node's breakpoint marker or its ghost marker that did not become a drag (spec-slice4 §13.5). Breakpoints are
+	// not edits: the window hands these to the window manager, which hands them to the debug session; read-only states emit
+	// them too.
+	struct VisualScriptBreakpointIntent
+	{
+		uint32_t Node = 0;
+		VisualScriptBreakpointAction Action = VisualScriptBreakpointAction::Toggle;
+		// Where the release was, for the popup.
+		glm::vec2 ScreenPosition{0.0f};
+	};
+
 	using VisualScriptEditorIntent =
 		std::variant<VisualScriptMoveIntent, VisualScriptConnectIntent, VisualScriptRelinkIntent, VisualScriptDisconnectIntent,
 	                 VisualScriptResizeCommentIntent, VisualScriptInsertRerouteIntent, VisualScriptSpliceIntent, VisualScriptPaletteIntent,
 	                 VisualScriptContextMenuIntent, VisualScriptActionIntent, VisualScriptOpenFunctionIntent, VisualScriptDropIntent,
-	                 VisualScriptPinMenuIntent>;
+	                 VisualScriptPinMenuIntent, VisualScriptBreakpointIntent>;
 
 	// Whether an action edits the document: the model emits none of these in read-only states. Copy, find, the shortcut
 	// sheet, opening a node and the actions the model applies itself (view, selection, navigation, bookmarks) do not.
@@ -638,6 +657,11 @@ namespace Strada
 		// What the mouse was over at the last Update: Kind None when the canvas was not hovered and no gesture ran, and while a
 		// gesture carries the mouse beyond the canvas's edges (nothing is drawn there).
 		VisualScriptHit const& GetHover() const { return m_Hover; }
+		// The breakpoint markers of the shown sub-graph, which hit testing takes (VisualScriptHitContext::BreakpointMarkers):
+		// shown while the window debugs (its view has a debug view), with the nodes that have a marker by ID ascending. The
+		// window sets them every frame before Update; a press on one emits a VisualScriptBreakpointIntent at its release.
+		void SetBreakpointMarkers(bool shown, std::span<uint32_t const> nodes);
+		bool AreBreakpointMarkersShown() const { return m_BreakpointMarkers; }
 		VisualScriptGestureView GetGesture() const;
 		// In every state but Editable the model emits no edit intents; viewing, selecting and copying still work.
 		bool IsReadOnly() const { return m_State != VisualScriptDocumentState::Editable; }
@@ -1126,6 +1150,9 @@ namespace Strada
 		// Where the mouse was at the last Update.
 		glm::vec2 m_LastMouse{0.0f};
 		VisualScriptHitScratch m_HitScratch;
+		// SetBreakpointMarkers.
+		bool m_BreakpointMarkers = false;
+		std::vector<uint32_t> m_BreakpointNodes;
 		std::vector<uint32_t> m_Query;
 		std::vector<glm::vec2> m_Polyline;
 		float m_CurveTolerance = 1.25f;

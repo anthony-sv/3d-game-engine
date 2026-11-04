@@ -366,8 +366,7 @@ TEST_CASE("VisualScriptEditor: at Far and Overview a press on a comment's title 
 		REQUIRE((fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Far ||
 		         fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Overview));
 		VisualScriptCommentVisual const visual = fixture.Model.GetComments().front();
-		VisualScriptRect const plate = Geometry::GetCommentLabelRect(visual, fixture.View, visual.Title.Width,
-		                                                             Geometry::CountGlyphs(fixture.Model.GetVisibleText(visual.Title)));
+		VisualScriptRect const plate = Geometry::GetCommentLabelRect(visual, fixture.View);
 		REQUIRE(!Geometry::IsEmpty(plate));
 		glm::vec2 const point = fixture.View.ToCanvas(plate.GetCenter());
 
@@ -426,8 +425,7 @@ TEST_CASE("VisualScriptEditor: where the title plates of nested comments overlap
 		REQUIRE(comments[0].ID == 10);
 		auto const plateOf = [&fixture](VisualScriptCommentVisual const& visual)
 		{
-			return Geometry::GetCommentLabelRect(visual, fixture.View, visual.Title.Width,
-			                                     Geometry::CountGlyphs(fixture.Model.GetVisibleText(visual.Title)));
+			return Geometry::GetCommentLabelRect(visual, fixture.View);
 		};
 		VisualScriptRect const outerPlate = plateOf(comments[0]);
 		VisualScriptRect const innerPlate = plateOf(comments[1]);
@@ -442,4 +440,137 @@ TEST_CASE("VisualScriptEditor: where the title plates of nested comments overlap
 		REQUIRE(!Geometry::Contains(innerPlate, outerOnly));
 		CheckHit(fixture.Hit(fixture.View.ToCanvas(outerOnly)), VisualScriptHitKind::CommentTitle, 10);
 	}
+}
+
+TEST_CASE("VisualScriptDebug: a breakpoint marker is hit around its node's top-left corner, above the header and the nodes")
+{
+	HitFixture fixture;
+	fixture.Document.Graph.Nodes = {MakeNode(1, "Flow.Branch", glm::vec2(100.0f)), MakeNode(2, "Flow.Branch", glm::vec2(500.0f, 100.0f)),
+	                                MakeNode(3, "Reroute", glm::vec2(900.0f, 300.0f))};
+	fixture.Sync();
+	VisualScriptNodeVisual const first = fixture.Model.GetNodes()[fixture.NodeIndex(1)];
+	glm::vec2 const corner = Geometry::GetBreakpointCenter(first);
+	CHECK(corner == Geometry::GetNodeRect(first).Min);
+	float const radius = Geometry::GetBadgeRadius(fixture.View.GetPixelsPerUnit(), fixture.View.GetUIScale());
+	glm::vec2 const inside = corner + glm::vec2(radius * 0.5f);
+	glm::vec2 const outside = corner - glm::vec2(radius * 0.5f);
+	// Without markers (a window that does not debug) the corner is the header's, and outside it nothing.
+	CheckHit(fixture.Hit(inside), VisualScriptHitKind::NodeHeader, 1);
+	CheckHit(fixture.Hit(outside), VisualScriptHitKind::Background);
+
+	// Shown: the ghost marker of any node at Detail and Compact, within 1.25 of the marker's radius, half outside the node.
+	fixture.Context.BreakpointMarkers = true;
+	CheckHit(fixture.Hit(inside), VisualScriptHitKind::Breakpoint, 1);
+	CheckHit(fixture.Hit(outside), VisualScriptHitKind::Breakpoint, 1);
+	CheckHit(fixture.Hit(corner + glm::vec2(radius * 1.2f, 0.0f)), VisualScriptHitKind::Breakpoint, 1);
+	CheckHit(fixture.Hit(corner + glm::vec2(radius * 1.3f, 0.0f)), VisualScriptHitKind::NodeHeader, 1);
+	// A reroute's marker sits on its rectangle's corner; without one its dot keeps the mouse there.
+	VisualScriptNodeVisual const reroute = fixture.Model.GetNodes()[fixture.NodeIndex(3)];
+	glm::vec2 const rerouteCorner = Geometry::GetBreakpointCenter(reroute);
+	CHECK(fixture.Hit(rerouteCorner).Kind != VisualScriptHitKind::Breakpoint);
+	std::array<uint32_t, 1> const reroutes = {3};
+	fixture.Context.Breakpoints = reroutes;
+	CheckHit(fixture.Hit(rerouteCorner), VisualScriptHitKind::Breakpoint, 3);
+	fixture.Context.Breakpoints = {};
+
+	// At Overview only the nodes that have a marker: no ghosts there.
+	fixture.SetZoom(0.3f);
+	REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Overview);
+	float const overviewRadius = Geometry::GetBadgeRadius(fixture.View.GetPixelsPerUnit(), fixture.View.GetUIScale());
+	glm::vec2 const overviewInside = corner + glm::vec2(overviewRadius * 0.5f);
+	CHECK(fixture.Hit(overviewInside).Kind != VisualScriptHitKind::Breakpoint);
+	std::array<uint32_t, 1> const marked = {1};
+	fixture.Context.Breakpoints = marked;
+	CheckHit(fixture.Hit(overviewInside), VisualScriptHitKind::Breakpoint, 1);
+	// At Far nothing of them.
+	fixture.SetZoom(0.1f);
+	REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Far);
+	CHECK(fixture.Hit(corner).Kind != VisualScriptHitKind::Breakpoint);
+}
+
+TEST_CASE("VisualScriptDebug: a breakpoint marker is drawn above every node, a ghost marker only where no node above it covers the mouse")
+{
+	HitFixture fixture;
+	// Node 2 lies over node 1's top-left corner, and is drawn above it (selected).
+	fixture.Document.Graph.Nodes = {MakeNode(1, "Flow.Branch", glm::vec2(200.0f)), MakeNode(2, "Flow.Branch", glm::vec2(150.0f))};
+	fixture.Sync();
+	fixture.Selected[fixture.NodeIndex(2)] = 1;
+	fixture.Context.BreakpointMarkers = true;
+	VisualScriptNodeVisual const lower = fixture.Model.GetNodes()[fixture.NodeIndex(1)];
+	glm::vec2 const corner = Geometry::GetBreakpointCenter(lower);
+	REQUIRE(Geometry::Contains(Geometry::GetNodeRect(fixture.Model.GetNodes()[fixture.NodeIndex(2)]), corner));
+	// The upper node covers the lower one's ghost: its body is hit.
+	VisualScriptHit const covered = fixture.Hit(corner);
+	CHECK(covered.Element == 2);
+	CHECK(covered.Kind != VisualScriptHitKind::Breakpoint);
+	// The lower node's marker is drawn above the upper node.
+	std::array<uint32_t, 1> const marked = {1};
+	fixture.Context.Breakpoints = marked;
+	CheckHit(fixture.Hit(corner), VisualScriptHitKind::Breakpoint, 1);
+}
+
+TEST_CASE("VisualScriptDebug: a comment's plate is hit where it is drawn, from one pixel more than its title's measured room")
+{
+	// At 30 % the title is 12 pixels high: "WWW" and the ellipsis measure (3 + 3) × 0.5 × 18 = 54 units at the layout's size, 36
+	// pixels, and the box leaves its width less twice the inset of 4 pixels.
+	for (float const delta : {-0.5f, 0.5f})
+	{
+		CAPTURE(delta);
+		HitFixture fixture;
+		VisualScriptComment comment;
+		comment.ID = 10;
+		comment.Text = "WWWWide region";
+		comment.Position = glm::vec2(50.0f);
+		comment.Size = glm::vec2((36.0f + 8.0f + delta) / 0.3f, 600.0f);
+		fixture.Document.Graph.Comments = {comment};
+		fixture.Sync();
+		fixture.SetZoom(0.3f);
+		REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Overview);
+		VisualScriptCommentVisual const visual = fixture.Model.GetComments().front();
+		CHECK(visual.TitleRoom == doctest::Approx(54.0f));
+		VisualScriptRect const plate = Geometry::GetCommentLabelRect(visual, fixture.View);
+		if (delta < 0.0f)
+		{
+			CHECK(Geometry::IsEmpty(plate));
+			continue;
+		}
+		REQUIRE(!Geometry::IsEmpty(plate));
+		float const padding = Geometry::CommentLabelPaddingLogicalPixels * fixture.View.GetUIScale();
+		CHECK(plate.GetSize().x - 2.0f * padding == doctest::Approx(36.5f));
+		CheckHit(fixture.Hit(fixture.View.ToCanvas(plate.GetCenter())), VisualScriptHitKind::CommentTitle, 10);
+	}
+}
+
+TEST_CASE("VisualScriptDebug: a pin whose anchor lies on a node's ghost marker keeps the mouse")
+{
+	HitFixture fixture;
+	fixture.Document.Graph.Nodes = {MakeNode(1, "Operator.Add", glm::vec2(100.0f))};
+	fixture.Sync();
+	fixture.Context.BreakpointMarkers = true;
+	VisualScriptNodeVisual const node = fixture.Model.GetNodes()[fixture.NodeIndex(1)];
+	glm::vec2 const corner = Geometry::GetBreakpointCenter(node);
+	// The zoom at Compact where the operator's first input lies inside the marker's circle (the circle keeps a minimum size on
+	// the screen, so it covers more of a node zoomed out).
+	std::optional<float> zoom;
+	glm::vec2 anchor{0.0f};
+	for (float candidate = VisualScriptCompactZoom + 0.005f; candidate < VisualScriptDetailZoom && !zoom; candidate += 0.005f)
+	{
+		fixture.SetZoom(candidate);
+		anchor = fixture.Anchor(1, "A");
+		float const markerRadius =
+			Geometry::GetBadgeRadius(fixture.View.GetPixelsPerUnit(), fixture.View.GetUIScale()) * Geometry::BreakpointHitScale;
+		if (glm::length(anchor - corner) < markerRadius)
+		{
+			zoom = candidate;
+		}
+	}
+	REQUIRE(zoom.has_value());
+	REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Compact);
+	VisualScriptHit const hit = fixture.Hit(anchor);
+	CHECK(hit.Kind == VisualScriptHitKind::Pin);
+	CHECK(hit.Element == 1);
+	// Its marker, once set, is drawn above the pin and takes the mouse.
+	std::array<uint32_t, 1> const marked = {1};
+	fixture.Context.Breakpoints = marked;
+	CheckHit(fixture.Hit(anchor), VisualScriptHitKind::Breakpoint, 1);
 }

@@ -269,6 +269,12 @@ namespace Strada
 		// The first line of its text, its width at CommentTitleTextSize, ellipsized to the box's width at that size (at lower
 		// zooms the title is drawn larger than that, and the renderer shortens it further).
 		VisualScriptTextRef Title;
+		// The room the title needs to be drawn at all, in canvas units at CommentTitleTextSize: the measured width of its first
+		// VisualScriptGeometry::CommentTitleMinGlyphs code points and the ellipsis after them, or of the whole first line when it
+		// has no more glyphs than that (spec-slice4 §13.9). TitleMinimumLength is the bytes of those code points (of the whole
+		// first line then): a title drawn shorter than its layout never shows fewer.
+		float TitleRoom = 0.0f;
+		uint16_t TitleMinimumLength = 0;
 		// The further lines, wrapped at CommentBodyInset inside the box, lines separated by '\n'.
 		VisualScriptTextRef Body;
 		// VisualScriptCommentColors.
@@ -333,6 +339,12 @@ namespace Strada
 	                                                              VisualScriptTypeInfo const* type,
 	                                                              VisualScriptEnumLookup const& enumLookup,
 	                                                              VisualScriptAssetNameLookup const& assetNames);
+	// The same with floating-point numbers (and the components of vectors and quaternions) at precision significant digits
+	// instead of 6 (the debugger's values show 3, spec-slice4 §13.4).
+	[[nodiscard]] VisualScriptChipValue FormatVisualScriptLiteral(Json const& literal, std::string_view typeId,
+	                                                              VisualScriptTypeInfo const* type,
+	                                                              VisualScriptEnumLookup const& enumLookup,
+	                                                              VisualScriptAssetNameLookup const& assetNames, int precision);
 
 	// The symbol a binary operator's compact shape shows ("+", "≤", "AND"); empty for other node types.
 	[[nodiscard]] std::string_view GetVisualScriptOperatorSymbol(std::string_view nodeType);

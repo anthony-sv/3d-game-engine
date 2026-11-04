@@ -185,6 +185,8 @@ namespace Strada
 		// The menus to open: of an element, and of a collapsed anchor's pins.
 		std::optional<VisualScriptContextMenuIntent> ContextMenu;
 		std::optional<VisualScriptPinMenuIntent> PinMenu;
+		// A breakpoint marker's click or right click, which the window hands to the window manager (never a commit).
+		std::optional<VisualScriptBreakpointIntent> Breakpoint;
 		// A jump within the script (the model applies it).
 		std::optional<VisualScriptOpenRequest> Open;
 		// What to find the references of.

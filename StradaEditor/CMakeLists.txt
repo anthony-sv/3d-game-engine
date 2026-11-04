@@ -137,6 +137,7 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptBrushes.cpp
     Source/Editor/VisualScripting/VisualScriptBrushes.h
     Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
+    Source/Editor/VisualScripting/VisualScriptCanvasDebug.h
     Source/Editor/VisualScripting/VisualScriptCanvasModel.cpp
     Source/Editor/VisualScripting/VisualScriptCanvasModel.h
     Source/Editor/VisualScripting/VisualScriptCanvasPins.cpp
@@ -157,6 +158,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptCurveView.h
     Source/Editor/VisualScripting/VisualScriptDebugSession.cpp
     Source/Editor/VisualScripting/VisualScriptDebugSession.h
+    Source/Editor/VisualScripting/VisualScriptDebugValues.cpp
+    Source/Editor/VisualScripting/VisualScriptDebugValues.h
     Source/Editor/VisualScripting/VisualScriptDetails.cpp
     Source/Editor/VisualScripting/VisualScriptDetails.h
     Source/Editor/VisualScripting/VisualScriptDrawer.cpp
@@ -172,6 +175,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptFind.h
     Source/Editor/VisualScripting/VisualScriptFindBar.cpp
     Source/Editor/VisualScripting/VisualScriptFindBar.h
+    Source/Editor/VisualScripting/VisualScriptFlow.cpp
+    Source/Editor/VisualScripting/VisualScriptFlow.h
     Source/Editor/VisualScripting/VisualScriptFlowTake.h
     Source/Editor/VisualScripting/VisualScriptGeometry.cpp
     Source/Editor/VisualScripting/VisualScriptGeometry.h

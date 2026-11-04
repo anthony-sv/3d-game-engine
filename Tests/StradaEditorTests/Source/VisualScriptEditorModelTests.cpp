@@ -2967,3 +2967,116 @@ TEST_CASE("VisualScriptEditor: random gestures across random outside changes of 
 	}
 	CHECK(intents == static_cast<size_t>(rounds));
 }
+
+namespace
+{
+	std::vector<VisualScriptBreakpointIntent> BreakpointIntents(std::vector<VisualScriptEditorIntent> const& intents)
+	{
+		std::vector<VisualScriptBreakpointIntent> found;
+		for (VisualScriptEditorIntent const& intent : intents)
+		{
+			if (VisualScriptBreakpointIntent const* breakpoint = std::get_if<VisualScriptBreakpointIntent>(&intent))
+			{
+				found.push_back(*breakpoint);
+			}
+		}
+		return found;
+	}
+}
+
+TEST_CASE("VisualScriptDebug: a drag starting on a breakpoint marker or its ghost moves the node and adds no breakpoint")
+{
+	for (bool const marked : {false, true})
+	{
+		CAPTURE(marked);
+		InteractionFixture fixture(MakeCanvasDocument());
+		VisualScriptEditorModel& model = fixture.Model;
+		std::array<uint32_t, 1> const nodes = {6};
+		model.SetBreakpointMarkers(true, marked ? std::span<uint32_t const>(nodes) : std::span<uint32_t const>());
+		CHECK(model.AreBreakpointMarkersShown());
+		// Just inside the node's top-left corner, on the marker (or the ghost marker) centred there.
+		glm::vec2 const corner = Testing::CanvasPoint(model, 6, glm::vec2(0.0f)) + glm::vec2(2.0f);
+		fixture.MoveTo(corner);
+		REQUIRE(model.GetHover().Kind == VisualScriptHitKind::Breakpoint);
+		CHECK(model.GetHover().Element == 6);
+		glm::vec2 const end = corner + glm::vec2(80.0f, 48.0f);
+		std::vector<VisualScriptEditorIntent> const intents = fixture.Drag(corner, end);
+		CHECK(BreakpointIntents(intents).empty());
+		VisualScriptMoveIntent const move = Single<VisualScriptMoveIntent>(intents);
+		CHECK(move.Elements == std::vector<uint32_t>{6});
+		CHECK(move.Offset == fixture.SnappedOffset(glm::vec2(400.0f, 320.0f), corner, end));
+	}
+}
+
+TEST_CASE("VisualScriptDebug: a click on a breakpoint marker toggles it once, at the release, and a right click asks for its popup")
+{
+	InteractionFixture fixture(MakeCanvasDocument());
+	VisualScriptEditorModel& model = fixture.Model;
+	glm::vec2 const corner = Testing::CanvasPoint(model, 6, glm::vec2(0.0f)) + glm::vec2(2.0f);
+	// A window that does not debug: the corner is the node's header.
+	CHECK(BreakpointIntents(fixture.Click(corner)).empty());
+	CHECK_FALSE(model.AreBreakpointMarkersShown());
+
+	model.SetBreakpointMarkers(true, {});
+	fixture.MoveTo(corner);
+	CHECK(BreakpointIntents(fixture.Press()).empty());
+	std::vector<VisualScriptBreakpointIntent> const toggled = BreakpointIntents(fixture.Release());
+	REQUIRE(toggled.size() == 1);
+	CHECK(toggled.front().Node == 6);
+	CHECK(toggled.front().Action == VisualScriptBreakpointAction::Toggle);
+	CHECK(toggled.front().ScreenPosition == corner);
+	// Nothing more in the frames after it.
+	CHECK(BreakpointIntents(fixture.Frame()).empty());
+
+	// The right click: the popup, not the node's menu.
+	std::array<uint32_t, 1> const nodes = {6};
+	model.SetBreakpointMarkers(true, nodes);
+	std::vector<VisualScriptEditorIntent> const right = fixture.Click(corner, 1);
+	std::vector<VisualScriptBreakpointIntent> const settings = BreakpointIntents(right);
+	REQUIRE(settings.size() == 1);
+	CHECK(settings.front().Node == 6);
+	CHECK(settings.front().Action == VisualScriptBreakpointAction::Settings);
+	CHECK(std::none_of(right.begin(), right.end(),
+	                   [](VisualScriptEditorIntent const& intent)
+	                   {
+						   return std::holds_alternative<VisualScriptContextMenuIntent>(intent);
+					   }));
+}
+
+TEST_CASE("VisualScriptDebug: a read-only window toggles breakpoints too: they are not edits")
+{
+	InteractionFixture fixture(MakeCanvasDocument(), true);
+	REQUIRE(fixture.Model.IsReadOnly());
+	fixture.Model.SetBreakpointMarkers(true, {});
+	glm::vec2 const corner = Testing::CanvasPoint(fixture.Model, 6, glm::vec2(0.0f)) + glm::vec2(2.0f);
+	std::vector<VisualScriptEditorIntent> const intents = fixture.Click(corner);
+	CHECK(BreakpointIntents(intents).size() == 1);
+	CHECK(intents.size() == 1);
+	// A drag moves nothing there.
+	CHECK(fixture.Drag(corner, corner + glm::vec2(80.0f, 48.0f)).empty());
+}
+
+TEST_CASE("VisualScriptDebug: a press on a breakpoint marker does nothing when its node changes elsewhere before the release")
+{
+	InteractionFixture fixture(MakeCanvasDocument());
+	VisualScriptEditorModel& model = fixture.Model;
+	model.SetBreakpointMarkers(true, {});
+	glm::vec2 const corner = Testing::CanvasPoint(model, 6, glm::vec2(0.0f)) + glm::vec2(2.0f);
+	fixture.MoveTo(corner);
+	fixture.Press();
+	VisualScriptDocument changed = model.GetDisplayDocument();
+	GetNode(changed, 6).Position = glm::vec2(400.0f, 480.0f);
+	fixture.Outside(changed);
+	fixture.Frame();
+	CHECK(fixture.Release().empty());
+	CHECK(fixture.Interruptions.empty());
+
+	// Another node's change leaves the press as it was: the click still toggles.
+	fixture.MoveTo(Testing::CanvasPoint(model, 6, glm::vec2(0.0f)) + glm::vec2(2.0f));
+	fixture.Press();
+	changed = model.GetDisplayDocument();
+	GetNode(changed, 7).Position = glm::vec2(1200.0f, 900.0f);
+	fixture.Outside(changed);
+	fixture.Frame();
+	CHECK(BreakpointIntents(fixture.Release()).size() == 1);
+}

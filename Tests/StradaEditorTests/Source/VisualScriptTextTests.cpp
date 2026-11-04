@@ -6,6 +6,8 @@
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
+#include "Editor/VisualScripting/VisualScriptDebugValues.h"
+#include "Editor/VisualScripting/VisualScriptFlow.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
 
 #include "Strada/Script/VisualScriptLibrary.h"
@@ -132,6 +134,9 @@ TEST_CASE("VisualScriptEditor: the editor's UI font has every character the canv
 
 	std::vector<std::string> texts(VisualScriptCanvasTexts::All.begin(), VisualScriptCanvasTexts::All.end());
 	texts.emplace_back(VisualScriptEllipsis);
+	// Debugging: the run counts' sign and the debugger's value texts (spec-slice4 §13.2, §13.4).
+	texts.emplace_back(VisualScriptRunCountPrefix);
+	texts.insert(texts.end(), VisualScriptDebugValueTexts::All.begin(), VisualScriptDebugValueTexts::All.end());
 	// Operator symbols, badge counts and the chip texts of booleans.
 	for (std::string_view const type : {"Operator.Add", "Operator.Subtract", "Operator.Multiply", "Operator.Divide", "Operator.Modulo",
 	                                    "Operator.Equal", "Operator.NotEqual", "Operator.Less", "Operator.LessOrEqual", "Operator.Greater",

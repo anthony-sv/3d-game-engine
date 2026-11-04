@@ -1330,9 +1330,7 @@ TEST_CASE("VisualScriptEditor: at Far and Overview comment titles are drawn on p
 		std::optional<uint32_t> const index = fixture.Model.GetCanvas().FindComment(20);
 		REQUIRE(index.has_value());
 		VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments()[*index];
-		uint32_t const glyphs = VisualScriptGeometry::CountGlyphs(fixture.Model.GetCanvas().GetVisibleText(visual.Title));
-		CHECK(labels.front().Screen ==
-		      VisualScriptGeometry::GetCommentLabelRect(visual, fixture.Model.GetView(), visual.Title.Width, glyphs));
+		CHECK(labels.front().Screen == VisualScriptGeometry::GetCommentLabelRect(visual, fixture.Model.GetView()));
 		CHECK(labels.front().Color == visual.BarColor);
 		CHECK(labels.front().Screen.Min.x >= comment.Screen.Min.x);
 		CHECK(labels.front().Screen.Max.x <= comment.Screen.Max.x);
@@ -1391,8 +1389,7 @@ TEST_CASE("VisualScriptEditor: a comment whose left edge is off the canvas draws
 
 	// At Detail the title stays in the bar, from the canvas's left edge too.
 	fixture.SetView(glm::vec2(-1000.0f + 800.0f, 200.0f), 1.0f);
-	VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(
-		visual, view, visual.Title.Width, VisualScriptGeometry::CountGlyphs(fixture.Model.GetCanvas().GetVisibleText(visual.Title)));
+	VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(visual, view);
 	REQUIRE(!VisualScriptGeometry::IsEmpty(title));
 	CHECK(title.Min.x == doctest::Approx(canvasMin.x + std::max(VisualScriptCanvasMetrics::HorizontalPadding, 4.0f)));
 	CHECK(fixture.Item(VisualScriptDrawItemKind::Comment, 20).Has(Elements::Title));
@@ -1403,114 +1400,165 @@ TEST_CASE("VisualScriptEditor: a comment whose left edge is off the canvas draws
 	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::CommentLabel, 20) == nullptr);
 }
 
-TEST_CASE("VisualScriptEditor: a comment title is left out with no room for three of its glyphs and an ellipsis, counted in glyphs")
+TEST_CASE("VisualScriptEditor: a comment title is left out with no room for its measured first three glyphs and an ellipsis")
 {
-	CHECK(VisualScriptGeometry::CountGlyphs("") == 0);
-	CHECK(VisualScriptGeometry::CountGlyphs("Weapons") == 7);
-	CHECK(VisualScriptGeometry::CountGlyphs("\xC3\x84pfel") == 5);
-	CHECK(VisualScriptGeometry::CountGlyphs("\xE6\xBC\xA2\xE5\xAD\x97") == 2);
-
 	// The canvas from the screen's origin at 100 %, a box at the canvas's left edge.
 	VisualScriptView view;
 	view.SetCanvas(glm::vec2(0.0f), glm::vec2(1600.0f, 900.0f), 1.0f);
 	view.SetState({0, glm::vec2(800.0f, 450.0f), 1.0f});
 	float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(view.GetPixelsPerUnit(), view.GetUIScale());
 	float const inset = std::max(VisualScriptCanvasMetrics::HorizontalPadding * view.GetPixelsPerUnit(), 4.0f * view.GetUIScale());
-	// A title 180 pixels wide when drawn.
+	auto const toUnits = [titlePixels](float pixels)
+	{
+		return pixels * VisualScriptCanvasMetrics::CommentTitleTextSize / titlePixels;
+	};
+	// A title 180 pixels wide when drawn, whose first three glyphs and the ellipsis measure 80.
 	VisualScriptCommentVisual comment;
-	comment.Title.Width = 180.0f * VisualScriptCanvasMetrics::CommentTitleTextSize / titlePixels;
-	auto const title = [&](float room, uint16_t bytes, uint16_t visibleBytes, uint32_t glyphs)
+	comment.Title.Width = toUnits(180.0f);
+	comment.Title.Length = 20;
+	comment.Title.VisibleLength = 20;
+	comment.TitleRoom = toUnits(80.0f);
+	comment.TitleMinimumLength = 3;
+	auto const title = [&](float room)
 	{
 		comment.Rect = {glm::vec2(0.0f), glm::vec2(room + 2.0f * inset, 300.0f)};
-		comment.Title.Length = bytes;
-		comment.Title.VisibleLength = visibleBytes;
-		return VisualScriptGeometry::GetCommentTitleRect(comment, view, comment.Title.Width, glyphs);
+		return VisualScriptGeometry::GetCommentTitleRect(comment, view);
 	};
-
-	// Nine glyphs of two bytes each: an average glyph of 20 pixels, so three and the ellipsis need 80 pixels (counted in bytes,
-	// 30 would have done).
-	CHECK(VisualScriptGeometry::IsEmpty(title(79.0f, 18, 18, 9)));
-	CHECK(VisualScriptGeometry::IsEmpty(title(40.0f, 18, 18, 9)));
-	VisualScriptRect const fits = title(80.0f, 18, 18, 9);
+	CHECK(VisualScriptGeometry::IsEmpty(title(79.0f)));
+	CHECK(VisualScriptGeometry::IsEmpty(title(40.0f)));
+	VisualScriptRect const fits = title(80.0f);
 	REQUIRE(!VisualScriptGeometry::IsEmpty(fits));
 	CHECK(fits.Min.x == doctest::Approx(inset));
 	CHECK(fits.Max.x - fits.Min.x == doctest::Approx(80.0f));
-	// Nine ASCII glyphs alike.
-	CHECK(VisualScriptGeometry::IsEmpty(title(79.0f, 9, 9, 9)));
-	CHECK(!VisualScriptGeometry::IsEmpty(title(80.0f, 9, 9, 9)));
-	// Ellipsized at layout: eight glyphs and the ellipsis.
-	CHECK(VisualScriptGeometry::IsEmpty(title(79.0f, 30, 8, 8)));
-	CHECK(!VisualScriptGeometry::IsEmpty(title(80.0f, 30, 8, 8)));
-	// Three glyphs or four: the whole title or nothing.
-	CHECK(VisualScriptGeometry::IsEmpty(title(179.0f, 3, 3, 3)));
-	CHECK(!VisualScriptGeometry::IsEmpty(title(180.0f, 3, 3, 3)));
-	CHECK(VisualScriptGeometry::IsEmpty(title(179.0f, 4, 4, 4)));
-	CHECK(!VisualScriptGeometry::IsEmpty(title(180.0f, 4, 4, 4)));
+	// Wider first glyphs need more room, whatever the title's average glyph is.
+	comment.TitleRoom = toUnits(120.0f);
+	CHECK(VisualScriptGeometry::IsEmpty(title(119.0f)));
+	CHECK(!VisualScriptGeometry::IsEmpty(title(120.0f)));
+	// A title of three glyphs or fewer measures its whole width as its room: the whole title or nothing.
+	comment.TitleRoom = comment.Title.Width;
+	CHECK(VisualScriptGeometry::IsEmpty(title(179.0f)));
+	VisualScriptRect const whole = title(180.0f);
+	REQUIRE(!VisualScriptGeometry::IsEmpty(whole));
+	CHECK(whole.Max.x - whole.Min.x == doctest::Approx(180.0f));
+	// No room measured (no measurer): the title shows wherever any room is left.
+	comment.TitleRoom = 0.0f;
+	CHECK(!VisualScriptGeometry::IsEmpty(title(1.0f)));
 }
 
-TEST_CASE("VisualScriptEditor: a title whose first glyphs are wider than its average shows its ellipsis on its plate, never a blank "
-          "plate")
+namespace
 {
-	// Laid out a tenth of the text size wide per byte, far narrower than the editor's font draws "Weapons": the geometry leaves
-	// room for three glyphs and an ellipsis at that average, which holds no "W" beside the ellipsis.
-	VisualScriptDocument document;
-	document.Graph.Nodes = {MakeNode(1, "Event.Create", glm::vec2(600.0f, 0.0f))};
-	VisualScriptComment comment;
-	comment.ID = 30;
-	comment.Text = "Weapons and armour";
-	comment.Position = glm::vec2(0.0f);
-	comment.Size = glm::vec2(120.0f, 300.0f);
-	document.Graph.Comments = {comment};
-	Testing::CanvasRenderFixture fixture(document);
-	fixture.Measure = Testing::FixedWidthMeasurer(0.1f);
-	fixture.Frame();
-	std::optional<uint32_t> const index = fixture.Model.GetCanvas().FindComment(30);
-	REQUIRE(index.has_value());
-	VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments()[*index];
-	REQUIRE(!visual.Title.IsEllipsized());
-	uint32_t const glyphs = VisualScriptGeometry::CountGlyphs(fixture.Model.GetCanvas().GetVisibleText(visual.Title));
-
-	// A zoom at Far or Overview where the title is shortened again from its layout and its room holds the ellipsis but not "W"
-	// beside it, with the font the canvas draws with (measured in a frame).
-	VisualScriptView probe = fixture.Model.GetView();
-	std::optional<float> zoom;
-	fixture.Extra = [&]
+	// The vertices drawn in a colour within a record item: four per glyph quad.
+	uint32_t CountColoredVertices(ImDrawList const* drawList, VisualScriptDrawRecordItem const& item, uint32_t color)
 	{
-		ImFont* const font = ImGui::GetFont();
-		for (float candidate = 0.30f; candidate > 0.1f && !zoom; candidate -= 0.005f)
+		uint32_t count = 0;
+		for (uint32_t vertex = item.VertexBegin; vertex < item.VertexEnd && static_cast<int>(vertex) < drawList->VtxBuffer.Size; vertex++)
 		{
-			probe.SetState({0, glm::vec2(60.0f, 150.0f), candidate});
-			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(visual, probe, visual.Title.Width, glyphs);
-			float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(probe.GetPixelsPerUnit(), probe.GetUIScale());
-			float const layoutWidth = visual.Title.Width * titlePixels / VisualScriptCanvasMetrics::CommentTitleTextSize;
-			float const ellipsis = font->CalcTextSizeA(titlePixels, FLT_MAX, 0.0f, VisualScriptEllipsis.data(),
-			                                           VisualScriptEllipsis.data() + VisualScriptEllipsis.size())
-			                           .x;
-			float const first = font->CalcTextSizeA(titlePixels, FLT_MAX, 0.0f, "W").x;
-			float const room = title.Max.x - title.Min.x;
-			if (!VisualScriptGeometry::IsEmpty(title) && room < layoutWidth - 1.0f && room >= ellipsis && room < first + ellipsis - 0.5f)
+			count += drawList->VtxBuffer[static_cast<int>(vertex)].col == color ? 1u : 0u;
+		}
+		return count;
+	}
+
+	// A one-comment graph with a box of a width.
+	VisualScriptDocument MakeTitleDocument(std::string const& title, float widthCu)
+	{
+		VisualScriptDocument document;
+		document.Graph.Nodes = {MakeNode(1, "Event.Create", glm::vec2(0.0f, 2000.0f))};
+		VisualScriptComment comment;
+		comment.ID = 30;
+		comment.Text = title;
+		comment.Position = glm::vec2(0.0f);
+		comment.Size = glm::vec2(widthCu, 300.0f);
+		document.Graph.Comments = {comment};
+		return document;
+	}
+
+	// Titles measured with the editor's font, as the editor measures them (the fixture made with its editor style).
+	void UseFontMeasurer(Testing::CanvasRenderFixture& fixture)
+	{
+		ImFont* const font = ImGui::GetIO().FontDefault;
+		fixture.Measure.Measure = [font](std::string_view text, float sizeCu)
+		{
+			return font->CalcTextSizeA(sizeCu, FLT_MAX, 0.0f, text.data(), text.data() + text.size()).x;
+		};
+		fixture.Measure.Signature = 1;
+		fixture.Frame();
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a comment title's measured room holds its first three glyphs and the ellipsis, wide and narrow "
+          "glyphs alike")
+{
+	for (std::string_view const name : {std::string_view("WWWWide region"), std::string_view("iiiiNarrow region")})
+	{
+		std::string const title(name);
+		CAPTURE(title);
+		for (float const zoom : {0.12f, 0.3f})
+		{
+			CAPTURE(zoom);
+			Testing::CanvasRenderFixture fixture(MakeTitleDocument(title, 2000.0f), glm::vec2(1600.0f, 900.0f), true);
+			UseFontMeasurer(fixture);
+			VisualScriptCommentVisual const measured = fixture.Model.GetCanvas().GetComments().front();
+			// The room the measurer gave: the first three glyphs and the ellipsis at the layout's size.
+			ImFont* const font = ImGui::GetIO().FontDefault;
+			std::string const firstThree = title.substr(0, 3) + std::string(VisualScriptEllipsis);
+			CHECK(measured.TitleRoom == doctest::Approx(font->CalcTextSizeA(VisualScriptCanvasMetrics::CommentTitleTextSize, FLT_MAX, 0.0f,
+			                                                                firstThree.data(), firstThree.data() + firstThree.size())
+			                                                .x));
+			CHECK(measured.TitleMinimumLength == 3);
+			float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(zoom, 1.0f);
+			float const room = measured.TitleRoom * titlePixels / VisualScriptCanvasMetrics::CommentTitleTextSize;
+			float const inset = std::max(VisualScriptCanvasMetrics::HorizontalPadding * zoom, 4.0f);
+			// The box's width on the screen leaves the title's room at the zoom, one pixel less, or one more.
+			for (float const delta : {-1.0f, 1.0f})
 			{
-				zoom = candidate;
+				CAPTURE(delta);
+				float const widthCu = (room + 2.0f * inset + delta) / zoom;
+				fixture.ChangeOutside(MakeTitleDocument(title, widthCu));
+				fixture.SetView(glm::vec2(widthCu * 0.5f, 150.0f), zoom);
+				REQUIRE((fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Far ||
+				         fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Overview));
+				VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments().front();
+				CHECK(visual.TitleRoom == doctest::Approx(measured.TitleRoom));
+				VisualScriptDrawRecordItem const* label = fixture.Record.Find(VisualScriptDrawItemKind::CommentLabel, 30);
+				if (delta < 0.0f)
+				{
+					CHECK(label == nullptr);
+					continue;
+				}
+				REQUIRE(label != nullptr);
+				// Three glyphs and the ellipsis: four quads in the title's colour.
+				CHECK(CountColoredVertices(fixture.Draw.DrawList, *label, visual.BarTextColor) == 16);
 			}
 		}
-	};
-	fixture.Frame();
-	fixture.Extra = {};
-	REQUIRE(zoom.has_value());
-	fixture.SetView(glm::vec2(60.0f, 150.0f), *zoom);
-	REQUIRE((fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Far ||
-	         fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Overview));
-	VisualScriptDrawRecordItem const& label = fixture.Item(VisualScriptDrawItemKind::CommentLabel, 30);
-	CHECK(label.Has(Elements::Body | Elements::Title));
-	// The plate's vertices in the bar's colour, then one glyph's quad in the title's: the ellipsis.
-	ImDrawList const* drawList = fixture.Draw.DrawList;
-	REQUIRE(static_cast<int>(label.VertexEnd) <= drawList->VtxBuffer.Size);
-	uint32_t text = 0;
-	for (uint32_t vertex = label.VertexBegin; vertex < label.VertexEnd; vertex++)
-	{
-		text += drawList->VtxBuffer[static_cast<int>(vertex)].col == visual.BarTextColor ? 1u : 0u;
 	}
-	CHECK(text == 4);
+}
+
+TEST_CASE("VisualScriptEditor: a shown comment plate never draws fewer than three glyphs of its title")
+{
+	constexpr std::string_view Title = "WWWW and more of a long region title";
+	uint32_t shown = 0;
+	Testing::CanvasRenderFixture fixture(MakeTitleDocument(std::string(Title), 120.0f), glm::vec2(1600.0f, 900.0f), true);
+	UseFontMeasurer(fixture);
+	for (float widthCu = 120.0f; widthCu <= 1200.0f; widthCu += 45.0f)
+	{
+		CAPTURE(widthCu);
+		fixture.ChangeOutside(MakeTitleDocument(std::string(Title), widthCu));
+		for (float const zoom : {0.11f, 0.15f, 0.2f, 0.27f, 0.35f, 0.42f})
+		{
+			CAPTURE(zoom);
+			fixture.SetView(glm::vec2(widthCu * 0.5f, 150.0f), zoom);
+			VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments().front();
+			VisualScriptDrawRecordItem const* label = fixture.Record.Find(VisualScriptDrawItemKind::CommentLabel, 30);
+			if (label == nullptr)
+			{
+				continue;
+			}
+			// The title's quads (its spaces draw none), and the ellipsis's when it is cut.
+			CHECK(CountColoredVertices(fixture.Draw.DrawList, *label, visual.BarTextColor) >= 16);
+			shown++;
+		}
+	}
+	CHECK(shown >= 20);
 }
 
 TEST_CASE("VisualScriptEditor: a comment title that fits its box is drawn whole at every zoom and UI scale, wherever its box is on "
@@ -1558,8 +1606,7 @@ TEST_CASE("VisualScriptEditor: a comment title that fits its box is drawn whole 
 			VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments()[*index];
 			REQUIRE_FALSE(visual.Title.IsEllipsized());
 			VisualScriptView const& view = fixture.Model.GetView();
-			uint32_t const visibleGlyphs = VisualScriptGeometry::CountGlyphs(fixture.Model.GetCanvas().GetVisibleText(visual.Title));
-			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(visual, view, visual.Title.Width, visibleGlyphs);
+			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(visual, view);
 			if (VisualScriptGeometry::IsEmpty(title))
 			{
 				continue;
@@ -1633,4 +1680,491 @@ TEST_CASE("VisualScriptEditor: comment plates are opaque in their bar colour, on
 		CHECK((colors.Bar >> 24) == 0xFFu);
 		CHECK(GetVisualScriptContrast(colors.BarText, colors.Bar) >= 4.5f);
 	}
+}
+
+namespace
+{
+	// Update (1) -Then-> Delay (2) -Completed-> Branch (3) -True-> Log Info (4), Update's DeltaTime -> Delay's Duration, and a
+	// comment box (20) around Update and Delay.
+	VisualScriptDocument MakeDebugDocument()
+	{
+		VisualScriptDocument document;
+		document.Graph.Nodes = {MakeNode(1, "Event.Update", glm::vec2(0.0f, 0.0f)), MakeNode(2, "Flow.Delay", glm::vec2(320.0f, 0.0f)),
+		                        MakeNode(3, "Flow.Branch", glm::vec2(640.0f, 0.0f)),
+		                        MakeNode(4, "Call:Strada.Log.Info(string)", glm::vec2(960.0f, 0.0f), Json::object({{"Message", "Hi"}}))};
+		document.Graph.Links = {MakeLink(1, "Then", 2, "Execute"), MakeLink(1, "DeltaTime", 2, "Duration"),
+		                        MakeLink(2, "Completed", 3, "Execute"), MakeLink(3, "True", 4, "Execute")};
+		VisualScriptComment comment;
+		comment.ID = 20;
+		comment.Text = "Waiting";
+		comment.Position = glm::vec2(-48.0f, -80.0f);
+		comment.Size = glm::vec2(640.0f, 300.0f);
+		document.Graph.Comments = {comment};
+		return document;
+	}
+
+	// The index in the visual model of the link between two nodes (by pin names as the canvas knows them).
+	uint32_t FindLinkIndex(Testing::CanvasRenderFixture const& fixture, uint32_t from, std::string_view fromPin)
+	{
+		VisualScriptCanvasModel const& canvas = fixture.Model.GetCanvas();
+		std::span<VisualScriptLinkVisual const> const links = canvas.GetLinks();
+		std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+		std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+		for (uint32_t index = 0; index < links.size(); index++)
+		{
+			if (nodes[links[index].FromNode].ID == from && canvas.GetText(pins[links[index].FromPin].Name) == fromPin)
+			{
+				return index;
+			}
+		}
+		FAIL("no link from ", from, " ", std::string(fromPin));
+		return 0;
+	}
+
+	// What a window debugging the debug document draws: flow from Update to Delay, Update counted 37 times, a stop entered at
+	// Delay called from Update, breakpoints on Branch (plain) and Log (conditional, the stop's), and DeltaTime's value.
+	struct DebugViewData
+	{
+		std::vector<VisualScriptBreakpointMark> Breakpoints;
+		std::vector<uint32_t> Callers = {1};
+		std::vector<uint32_t> Computed = {1};
+		std::vector<VisualScriptFlowLinkMark> FlowLinks;
+		std::vector<VisualScriptFlowNodeMark> FlowNodes;
+		std::vector<VisualScriptFlowBoxMark> FlowBoxes = {{20, 0.8f}};
+		std::vector<VisualScriptValueMark> Values;
+		VisualScriptCanvasDebugView View;
+
+		explicit DebugViewData(Testing::CanvasRenderFixture const& fixture)
+		{
+			VisualScriptBreakpointMark plain;
+			plain.Node = 3;
+			VisualScriptBreakpointMark conditional;
+			conditional.Node = 4;
+			conditional.State = VisualScriptBreakpointMarkState::Conditional;
+			conditional.CausedStop = true;
+			Breakpoints = {plain, conditional};
+			FlowLinks = {{FindLinkIndex(fixture, 1, "Then"), 1.0f, 0.1f}, {FindLinkIndex(fixture, 2, "Completed"), 0.6f, 0.05f}};
+			FlowNodes = {{1, 1.0f, 37}, {2, 0.6f, 1}};
+			Values = {{FindLinkIndex(fixture, 1, "DeltaTime"), "0.0167", std::nullopt, VisualScriptValueCurrency::Current}};
+			View.Breakpoints = Breakpoints;
+			VisualScriptInstructionMark instruction;
+			instruction.Node = 2;
+			instruction.Pin = "Execute";
+			View.Instruction = instruction;
+			View.Callers = Callers;
+			View.Computed = Computed;
+			View.FlowLinks = FlowLinks;
+			View.FlowNodes = FlowNodes;
+			View.FlowBoxes = FlowBoxes;
+			View.Values = Values;
+			View.BreakpointChord = "F9";
+		}
+	};
+
+	std::vector<VisualScriptDrawRecordItem> DebugItemsOf(VisualScriptDrawRecord const& record, VisualScriptDrawItemKind kind, uint8_t mark)
+	{
+		std::vector<VisualScriptDrawRecordItem> items;
+		for (VisualScriptDrawRecordItem const& item : record.Items)
+		{
+			if (item.Kind == kind && item.Mark == mark)
+			{
+				items.push_back(item);
+			}
+		}
+		return items;
+	}
+}
+
+TEST_CASE("VisualScriptDebug: the Flow layer is drawn behind the nodes and the Debug layer above them, before the comment labels")
+{
+	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
+	REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Detail);
+	// Nothing of debugging without a debug view.
+	for (VisualScriptDrawItemKind const kind :
+	     {VisualScriptDrawItemKind::FlowWire, VisualScriptDrawItemKind::RunGlow, VisualScriptDrawItemKind::Breakpoint,
+	      VisualScriptDrawItemKind::Instruction, VisualScriptDrawItemKind::Caller, VisualScriptDrawItemKind::RunCount,
+	      VisualScriptDrawItemKind::ValuePill})
+	{
+		CHECK(fixture.Record.Count(kind) == 0);
+	}
+
+	DebugViewData data(fixture);
+	fixture.Draw.Debug = &data.View;
+	fixture.Frame();
+	VisualScriptDrawRecord const& record = fixture.Record;
+	uint32_t lastWire = 0;
+	uint32_t firstNode = ~0u;
+	uint32_t lastNode = 0;
+	for (VisualScriptDrawRecordItem const& item : record.Items)
+	{
+		if (item.Layer == VisualScriptDrawLayer::Wires || item.Layer == VisualScriptDrawLayer::HighlightedWires)
+		{
+			lastWire = std::max(lastWire, item.Order);
+		}
+		if (item.Layer == VisualScriptDrawLayer::Nodes || item.Layer == VisualScriptDrawLayer::SelectedNodes)
+		{
+			firstNode = std::min(firstNode, item.Order);
+			lastNode = std::max(lastNode, item.Order);
+		}
+	}
+	for (VisualScriptDrawRecordItem const& item : record.Items)
+	{
+		if (item.Layer == VisualScriptDrawLayer::Flow)
+		{
+			CHECK(item.Order > lastWire);
+			CHECK(item.Order < firstNode);
+		}
+		if (item.Layer == VisualScriptDrawLayer::Debug)
+		{
+			CHECK(item.Order > lastNode);
+		}
+		if (item.Layer == VisualScriptDrawLayer::Overlay)
+		{
+			CHECK(item.Order > lastNode);
+		}
+	}
+	CHECK(VisualScriptDrawLayer::HighlightedWires < VisualScriptDrawLayer::Flow);
+	CHECK(VisualScriptDrawLayer::Flow < VisualScriptDrawLayer::Nodes);
+	CHECK(VisualScriptDrawLayer::SelectedNodes < VisualScriptDrawLayer::Debug);
+	CHECK(VisualScriptDrawLayer::Debug < VisualScriptDrawLayer::CommentLabels);
+
+	// What each item is, with its mark.
+	uint32_t const then = FindLinkIndex(fixture, 1, "Then");
+	VisualScriptDrawRecordItem const& wire = fixture.Item(VisualScriptDrawItemKind::FlowWire, then);
+	CHECK(wire.Layer == VisualScriptDrawLayer::Flow);
+	CHECK(wire.Color == MultiplyVisualScriptAlpha(VisualScriptFlowColor, 0.9f));
+	VisualScriptDrawRecordItem const* plainWire = FindWire(fixture, 1, 2);
+	REQUIRE(plainWire != nullptr);
+	CHECK(wire.Thickness >= std::max(1.6f * plainWire->Thickness - 1.0f, 2.0f));
+	CHECK(DebugItemsOf(record, VisualScriptDrawItemKind::RunGlow, 1).size() == 1);
+	CHECK(DebugItemsOf(record, VisualScriptDrawItemKind::RunGlow, 1).front().Element == 1);
+	CHECK(DebugItemsOf(record, VisualScriptDrawItemKind::RunGlow, 0).size() == 2);
+	CHECK(DebugItemsOf(record, VisualScriptDrawItemKind::RunGlow, 2).empty());
+	CHECK(fixture.Item(VisualScriptDrawItemKind::Caller, 1).Has(Elements::Outline));
+	VisualScriptDrawRecordItem const& instruction = fixture.Item(VisualScriptDrawItemKind::Instruction, 2);
+	CHECK(instruction.Mark == static_cast<uint8_t>(VisualScriptStopPlace::Enter));
+	CHECK(instruction.Has(Elements::Outline | Elements::Glow | Elements::KindGlyph));
+	CHECK_FALSE(instruction.Has(Elements::Faded));
+	CHECK(instruction.Color == VisualScriptCurrentInstructionColor);
+	VisualScriptDrawRecordItem const& plain = fixture.Item(VisualScriptDrawItemKind::Breakpoint, 3);
+	CHECK(plain.Mark == static_cast<uint8_t>(VisualScriptBreakpointMarkState::Enabled));
+	CHECK(plain.Color == VisualScriptBreakpointColor);
+	// On the node's top-left corner, half outside it.
+	VisualScriptDrawRecordItem const& branch = fixture.Item(VisualScriptDrawItemKind::Node, 3);
+	CHECK(plain.Screen.GetCenter().x == doctest::Approx(branch.Screen.Min.x));
+	CHECK(plain.Screen.GetCenter().y == doctest::Approx(branch.Screen.Min.y));
+	VisualScriptDrawRecordItem const& conditional = fixture.Item(VisualScriptDrawItemKind::Breakpoint, 4);
+	CHECK(conditional.Mark == static_cast<uint8_t>(VisualScriptBreakpointMarkState::Conditional));
+	CHECK(conditional.Has(Elements::Outline));
+	VisualScriptDrawRecordItem const& count = fixture.Item(VisualScriptDrawItemKind::RunCount, 1);
+	CHECK(count.Text == "\xC3\x97"
+	                    "37");
+	// Above the header's top-right corner.
+	VisualScriptDrawRecordItem const& update = fixture.Item(VisualScriptDrawItemKind::Node, 1);
+	CHECK(count.Screen.Max.y <= update.Screen.Min.y);
+	CHECK(count.Screen.Max.x == doctest::Approx(update.Screen.Max.x).epsilon(0.01));
+	// Counted once: no count.
+	CHECK(record.Find(VisualScriptDrawItemKind::RunCount, 2) == nullptr);
+	VisualScriptDrawRecordItem const& pill = fixture.Item(VisualScriptDrawItemKind::ValuePill, FindLinkIndex(fixture, 1, "DeltaTime"));
+	CHECK(pill.Text == "0.0167");
+	CHECK(pill.Mark == static_cast<uint8_t>(VisualScriptValueCurrency::Current));
+	CHECK_FALSE(pill.Has(Elements::Faded));
+}
+
+TEST_CASE("VisualScriptDebug: an Overview draw record holds RunGlow box items for the boxes of the nodes that ran, and each level "
+          "draws its debugging items")
+{
+	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
+	DebugViewData data(fixture);
+	fixture.Draw.Debug = &data.View;
+	uint32_t const then = FindLinkIndex(fixture, 1, "Then");
+
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 0.6f);
+	REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Compact);
+	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::FlowWire, then) != nullptr);
+	CHECK(DebugItemsOf(fixture.Record, VisualScriptDrawItemKind::RunGlow, 0).size() == 2);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::RunCount) == 1);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::ValuePill) == 1);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::Breakpoint) == 2);
+	CHECK(fixture.Item(VisualScriptDrawItemKind::Instruction, 2).Has(Elements::KindGlyph));
+
+	// Overview: the boxes whose nodes ran glow instead of the nodes; markers stay; no counts or pills.
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 0.3f);
+	REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Overview);
+	std::vector<VisualScriptDrawRecordItem> const boxes = DebugItemsOf(fixture.Record, VisualScriptDrawItemKind::RunGlow, 2);
+	REQUIRE(boxes.size() == 1);
+	CHECK(boxes.front().Element == 20);
+	CHECK(boxes.front().Layer == VisualScriptDrawLayer::Flow);
+	CHECK(boxes.front().Color == MultiplyVisualScriptAlpha(VisualScriptFlowColor, 0.35f * 0.8f));
+	CHECK(DebugItemsOf(fixture.Record, VisualScriptDrawItemKind::RunGlow, 0).empty());
+	CHECK(DebugItemsOf(fixture.Record, VisualScriptDrawItemKind::RunGlow, 1).empty());
+	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::FlowWire, then) != nullptr);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::RunCount) == 0);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::ValuePill) == 0);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::Breakpoint) == 2);
+	VisualScriptDrawRecordItem const& outline = fixture.Item(VisualScriptDrawItemKind::Instruction, 2);
+	CHECK(outline.Has(Elements::Outline));
+	CHECK_FALSE(outline.Has(Elements::KindGlyph));
+
+	// Far: no markers either.
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 0.12f);
+	REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Far);
+	CHECK(DebugItemsOf(fixture.Record, VisualScriptDrawItemKind::RunGlow, 2).size() == 1);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::Breakpoint) == 0);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::RunCount) == 0);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::ValuePill) == 0);
+}
+
+TEST_CASE("VisualScriptDebug: fired wires move their dots while the flow clock runs, never while it holds or with Reduce Motion")
+{
+	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
+	DebugViewData data(fixture);
+	fixture.Draw.Debug = &data.View;
+	uint32_t const then = FindLinkIndex(fixture, 1, "Then");
+	uint32_t const completed = FindLinkIndex(fixture, 2, "Completed");
+	// Completed's light is under half: it draws no dots.
+	data.FlowLinks[1].Intensity = 0.4f;
+	fixture.Settings.SetReduceMotion(false);
+	fixture.Frame();
+	CHECK(fixture.Item(VisualScriptDrawItemKind::FlowWire, then).Has(Elements::PulseDot));
+	// Over half intensity only.
+	CHECK_FALSE(fixture.Item(VisualScriptDrawItemKind::FlowWire, completed).Has(Elements::PulseDot));
+	uint32_t const moving = fixture.Item(VisualScriptDrawItemKind::FlowWire, then).VertexEnd -
+	                        fixture.Item(VisualScriptDrawItemKind::FlowWire, then).VertexBegin;
+
+	data.View.FlowHeld = true;
+	fixture.Frame();
+	VisualScriptDrawRecordItem const held = fixture.Item(VisualScriptDrawItemKind::FlowWire, then);
+	CHECK_FALSE(held.Has(Elements::PulseDot));
+	CHECK(held.Color == MultiplyVisualScriptAlpha(VisualScriptFlowColor, 0.9f));
+	CHECK(held.VertexEnd - held.VertexBegin < moving);
+
+	data.View.FlowHeld = false;
+	fixture.Settings.SetReduceMotion(true);
+	fixture.Frame();
+	VisualScriptDrawRecordItem const reduced = fixture.Item(VisualScriptDrawItemKind::FlowWire, then);
+	CHECK_FALSE(reduced.Has(Elements::PulseDot));
+	// The light fades in place: the stroke follows the intensity.
+	CHECK(fixture.Item(VisualScriptDrawItemKind::FlowWire, completed).Color ==
+	      MultiplyVisualScriptAlpha(VisualScriptFlowColor, 0.9f * 0.4f));
+}
+
+TEST_CASE("VisualScriptDebug: a frame draws at most 512 fired wires and 512 run glows, the most intense first, and 200 value pills")
+{
+	// 700 Branches in a chain at Overview.
+	VisualScriptDocument chain;
+	for (uint32_t index = 0; index < 700; index++)
+	{
+		chain.Graph.Nodes.push_back(MakeNode(index + 1, "Flow.Branch",
+		                                     glm::vec2(static_cast<float>(index % 30) * 240.0f, static_cast<float>(index / 30) * 160.0f)));
+		if (index > 0)
+		{
+			chain.Graph.Links.push_back(MakeLink(index, "True", index + 1, "Execute"));
+		}
+	}
+	{
+		Testing::CanvasRenderFixture fixture(chain);
+		fixture.SetView(glm::vec2(3600.0f, 1900.0f), 0.2f);
+		REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Overview);
+		std::vector<VisualScriptFlowLinkMark> links;
+		for (uint32_t index = 0; index < fixture.Model.GetCanvas().GetLinks().size(); index++)
+		{
+			links.push_back({index, 1.0f - static_cast<float>(index) / 1000.0f, -1.0f});
+		}
+		REQUIRE(links.size() == 699);
+		VisualScriptCanvasDebugView view;
+		view.FlowLinks = links;
+		fixture.Draw.Debug = &view;
+		fixture.Frame();
+		std::vector<VisualScriptDrawRecordItem> const wires = ItemsOf(fixture.Record, VisualScriptDrawItemKind::FlowWire);
+		REQUIRE(wires.size() == VisualScriptCanvasRenderer::MaxFlowWires);
+		// The first 512 of the list, the most intense.
+		for (size_t index = 0; index < wires.size(); index++)
+		{
+			CHECK(wires[index].Element == links[index].Link);
+		}
+	}
+
+	// 600 reroutes in a chain at Detail: every one computed, every wire with a value.
+	VisualScriptDocument reroutes;
+	for (uint32_t index = 0; index < 600; index++)
+	{
+		reroutes.Graph.Nodes.push_back(
+			MakeNode(index + 1, "Reroute", glm::vec2(static_cast<float>(index % 30) * 40.0f, static_cast<float>(index / 30) * 40.0f)));
+		if (index > 0)
+		{
+			reroutes.Graph.Links.push_back(MakeLink(index, "Out", index + 1, "In"));
+		}
+	}
+	Testing::CanvasRenderFixture fixture(reroutes);
+	fixture.SetView(glm::vec2(600.0f, 400.0f), 1.0f);
+	REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Detail);
+	std::vector<uint32_t> computed;
+	std::vector<VisualScriptFlowNodeMark> nodes;
+	for (uint32_t index = 0; index < 600; index++)
+	{
+		computed.push_back(index + 1);
+		nodes.push_back({index + 1, 0.5f, 1});
+	}
+	std::vector<VisualScriptValueMark> values;
+	for (uint32_t index = 0; index < fixture.Model.GetCanvas().GetLinks().size(); index++)
+	{
+		values.push_back({index, "1", std::nullopt, VisualScriptValueCurrency::Current});
+	}
+	REQUIRE(values.size() == 599);
+	VisualScriptCanvasDebugView view;
+	view.Computed = computed;
+	view.FlowNodes = nodes;
+	view.Values = values;
+	fixture.Draw.Debug = &view;
+	fixture.Frame();
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::RunGlow) == VisualScriptCanvasRenderer::MaxRunGlows);
+	// The path to the stop goes first: every glow drawn is a computed one.
+	CHECK(DebugItemsOf(fixture.Record, VisualScriptDrawItemKind::RunGlow, 1).size() == VisualScriptCanvasRenderer::MaxRunGlows);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::ValuePill) == VisualScriptCanvasRenderer::MaxValuePills);
+}
+
+TEST_CASE("VisualScriptDebug: value pills show at most 24 code points, earlier and unknown values at half alpha and none not computed")
+{
+	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
+	uint32_t const data = FindLinkIndex(fixture, 1, "DeltaTime");
+	std::vector<VisualScriptValueMark> values = {
+		{data, "\"A rather long text value that goes on\"", std::nullopt, VisualScriptValueCurrency::Earlier}};
+	VisualScriptCanvasDebugView view;
+	view.Values = values;
+	fixture.Draw.Debug = &view;
+	fixture.Frame();
+	VisualScriptDrawRecordItem const& pill = fixture.Item(VisualScriptDrawItemKind::ValuePill, data);
+	CHECK(pill.Text == "\"A rather long text valu\xE2\x80\xA6");
+	CHECK(pill.Has(Elements::Faded));
+	CHECK(pill.Mark == static_cast<uint8_t>(VisualScriptValueCurrency::Earlier));
+	// A colour: its swatch.
+	values = {{data, "", VisualScriptRgba(255, 0, 0), VisualScriptValueCurrency::Current}};
+	view.Values = values;
+	fixture.Frame();
+	CHECK(fixture.Item(VisualScriptDrawItemKind::ValuePill, data).Color == VisualScriptRgba(255, 0, 0));
+	values = {{data, "1", std::nullopt, VisualScriptValueCurrency::NotComputed}};
+	view.Values = values;
+	fixture.Frame();
+	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::ValuePill, data) == nullptr);
+}
+
+TEST_CASE("VisualScriptDebug: the current instruction points at its entered pin, or past the exit about to fire with its pill, and "
+          "a read-only stop draws it hollow")
+{
+	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
+	VisualScriptCanvasDebugView view;
+	VisualScriptInstructionMark mark;
+	mark.Node = 3;
+	mark.Place = VisualScriptStopPlace::Continue;
+	mark.Pin = "True";
+	mark.Note = "next: True";
+	view.Instruction = mark;
+	fixture.Draw.Debug = &view;
+	fixture.Frame();
+	VisualScriptDrawRecordItem const& instruction = fixture.Item(VisualScriptDrawItemKind::Instruction, 3);
+	CHECK(instruction.Mark == static_cast<uint8_t>(VisualScriptStopPlace::Continue));
+	CHECK(instruction.Has(Elements::KindGlyph | Elements::StripLabel));
+	CHECK(instruction.Text == "next: True");
+	mark.ReadOnly = true;
+	mark.Place = VisualScriptStopPlace::Enter;
+	mark.Pin = "Execute";
+	mark.Note.clear();
+	view.Instruction = mark;
+	fixture.Frame();
+	VisualScriptDrawRecordItem const& hollow = fixture.Item(VisualScriptDrawItemKind::Instruction, 3);
+	CHECK(hollow.Has(Elements::KindGlyph | Elements::Faded));
+	CHECK_FALSE(hollow.Has(Elements::StripLabel));
+	// An error stop: the outline alone, its badge tells the rest.
+	mark.Place = VisualScriptStopPlace::Error;
+	view.Instruction = mark;
+	fixture.Frame();
+	CHECK_FALSE(fixture.Item(VisualScriptDrawItemKind::Instruction, 3).Has(Elements::KindGlyph));
+	// A node out of the shown sub-graph: nothing.
+	mark.Node = 77;
+	view.Instruction = mark;
+	fixture.Frame();
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::Instruction) == 0);
+}
+
+TEST_CASE("VisualScriptDebug: the ghost marker appears under the mouse at a node's corner with its tooltip, and markers show their "
+          "states")
+{
+	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
+	VisualScriptCanvasDebugView view;
+	view.BreakpointChord = "F9";
+	std::vector<VisualScriptBreakpointMark> marks(3);
+	marks[0].Node = 2;
+	marks[0].State = VisualScriptBreakpointMarkState::Disabled;
+	marks[1].Node = 3;
+	marks[1].State = VisualScriptBreakpointMarkState::Invalid;
+	marks[2].Node = 4;
+	marks[2].Inactive = true;
+	view.Breakpoints = marks;
+	std::array<uint32_t, 3> const marked = {2, 3, 4};
+	fixture.Model.SetBreakpointMarkers(true, marked);
+	glm::vec2 const corner = fixture.Item(VisualScriptDrawItemKind::Node, 1).Screen.Min + glm::vec2(2.0f);
+
+	// Without a debug view nothing is drawn, though the model hits the corner.
+	fixture.MoveTo(corner);
+	REQUIRE(fixture.Model.GetHover().Kind == VisualScriptHitKind::Breakpoint);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::Breakpoint) == 0);
+
+	fixture.Draw.Debug = &view;
+	fixture.Frame();
+	VisualScriptDrawRecordItem const& ghost = fixture.Item(VisualScriptDrawItemKind::Breakpoint, 1);
+	CHECK(ghost.Mark == VisualScriptGhostBreakpointMark);
+	CHECK(ghost.Color == MultiplyVisualScriptAlpha(VisualScriptBreakpointColor, 0.35f));
+	// After the hover delay: what a click does, with its key.
+	fixture.Frame(0.5);
+	std::vector<VisualScriptDrawRecordItem> const pills = ItemsOf(fixture.Record, VisualScriptDrawItemKind::Pill);
+	REQUIRE(pills.size() == 1);
+	CHECK(pills.front().Text == "Click: add a breakpoint (F9)");
+	CHECK(pills.front().Element == 1);
+
+	CHECK(fixture.Item(VisualScriptDrawItemKind::Breakpoint, 2).Has(Elements::Border));
+	CHECK(fixture.Item(VisualScriptDrawItemKind::Breakpoint, 3).Color == VisualScriptWarningColor);
+	VisualScriptDrawRecordItem const& inactive = fixture.Item(VisualScriptDrawItemKind::Breakpoint, 4);
+	CHECK(inactive.Has(Elements::Faded));
+	CHECK(inactive.Color == MultiplyVisualScriptAlpha(VisualScriptBreakpointColor, 0.5f));
+
+	// On a node with a marker the marker is drawn, not a ghost.
+	fixture.MoveTo(fixture.Item(VisualScriptDrawItemKind::Node, 3).Screen.Min + glm::vec2(2.0f));
+	REQUIRE(fixture.Model.GetHover().Kind == VisualScriptHitKind::Breakpoint);
+	CHECK(fixture.Item(VisualScriptDrawItemKind::Breakpoint, 3).Mark == static_cast<uint8_t>(VisualScriptBreakpointMarkState::Invalid));
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::Breakpoint) == 3);
+}
+
+TEST_CASE("VisualScriptDebug: the wire hover pill and pin tooltips gain the value the wire carries")
+{
+	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
+	uint32_t const data = FindLinkIndex(fixture, 1, "DeltaTime");
+	std::vector<VisualScriptValueMark> const values = {{data, "0.0167", std::nullopt, VisualScriptValueCurrency::Current}};
+	VisualScriptCanvasDebugView view;
+	view.Values = values;
+	fixture.Draw.Debug = &view;
+	// The pin tooltip of Delay's Duration, after the hover delay.
+	fixture.MoveTo(Testing::CanvasPoint(fixture.Model, 2, "Duration"));
+	fixture.Frame(0.5);
+	std::vector<VisualScriptDrawRecordItem> pills = ItemsOf(fixture.Record, VisualScriptDrawItemKind::Pill);
+	REQUIRE(pills.size() == 1);
+	CHECK(pills.front().Text.ends_with("\n= 0.0167"));
+	// Again in the next frame, once.
+	fixture.Frame();
+	pills = ItemsOf(fixture.Record, VisualScriptDrawItemKind::Pill);
+	REQUIRE(pills.size() == 1);
+	CHECK(pills.front().Text.ends_with("\n= 0.0167"));
+	CHECK(pills.front().Text.find("= 0.0167") == pills.front().Text.rfind("= 0.0167"));
+	// Without a value, the tooltip as before.
+	fixture.Draw.Debug = nullptr;
+	fixture.Frame();
+	pills = ItemsOf(fixture.Record, VisualScriptDrawItemKind::Pill);
+	REQUIRE(pills.size() == 1);
+	CHECK(pills.front().Text.find("= ") == std::string::npos);
 }

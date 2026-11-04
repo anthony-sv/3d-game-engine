@@ -4435,6 +4435,7 @@ namespace Strada
 					break;
 				case VisualScriptHitKind::None:
 				case VisualScriptHitKind::Minimap:
+				case VisualScriptHitKind::Breakpoint:
 				case VisualScriptHitKind::Background:
 					break;
 			}
@@ -4443,6 +4444,10 @@ namespace Strada
 			m_Menu.Armed = true;
 			m_Menu.Context = std::move(*value.ContextMenu);
 			m_Menu.Position = m_Model.GetView().ToCanvas(m_Menu.Context.ScreenPosition);
+		}
+		if (value.Breakpoint)
+		{
+			m_BreakpointRequests.push_back(*value.Breakpoint);
 		}
 		if (value.PinMenu)
 		{

@@ -359,6 +359,12 @@ namespace Strada
 				return {};
 			}
 
+			Result<void> Resolve(VisualScriptBreakpointIntent const& intent)
+			{
+				m_Result.Breakpoint = intent;
+				return {};
+			}
+
 			Result<void> Resolve(VisualScriptOpenFunctionIntent const& intent)
 			{
 				m_Result.ShowFunction = intent.Function;

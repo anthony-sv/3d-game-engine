@@ -289,6 +289,9 @@ namespace Strada
 		// result or a reference in another script, a history toast's [Show] for another script's step, Back and Forward to a
 		// cross-graph entry), each with its origin: the window manager opens them, or brings them to the front.
 		std::vector<VisualScriptOpenRequest> TakeOtherGraphRequests() { return std::exchange(m_OtherGraphRequests, {}); }
+		// The breakpoint markers' clicks and right clicks since the last call (spec-slice4 §13.5): the window manager hands them
+		// to the debug session.
+		std::vector<VisualScriptBreakpointIntent> TakeBreakpointRequests() { return std::exchange(m_BreakpointRequests, {}); }
 		// The panes, as the last draw left them (tests and automation find their rows through them).
 		VisualScriptPalettePopup const& GetPalette() const { return m_Palette; }
 		VisualScriptSidebar const& GetSidebar() const { return m_Sidebar; }
@@ -652,6 +655,7 @@ namespace Strada
 		std::optional<ProblemsPopup> m_Problems;
 		std::vector<VisualScriptDiagnostic> m_PopupProblems;
 		std::vector<VisualScriptOpenRequest> m_OtherGraphRequests;
+		std::vector<VisualScriptBreakpointIntent> m_BreakpointRequests;
 		// Whether the live widget was drawn this frame (the chip it edits may be gone), and where.
 		bool m_LiveDrawn = false;
 		std::optional<VisualScriptLiveWidgetFrames> m_LiveWidget;

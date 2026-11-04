@@ -209,7 +209,8 @@ namespace Strada
 
 		bool IsNodeHit(VisualScriptHitKind kind)
 		{
-			return kind == Kind::Pin || kind == Kind::Badge || kind == Kind::NodeHeader || kind == Kind::Node || kind == Kind::Reroute;
+			return kind == Kind::Breakpoint || kind == Kind::Pin || kind == Kind::Badge || kind == Kind::NodeHeader || kind == Kind::Node ||
+			       kind == Kind::Reroute;
 		}
 
 		// A hit that names a node or a comment box by its Element.
@@ -1922,6 +1923,13 @@ namespace Strada
 		HitTestCanvas(m_Canvas, m_Index, m_View, MakeHitContext(false), mouse, m_Hover);
 	}
 
+	void VisualScriptEditorModel::SetBreakpointMarkers(bool shown, std::span<uint32_t const> nodes)
+	{
+		m_BreakpointMarkers = shown;
+		m_BreakpointNodes.assign(nodes.begin(), nodes.end());
+		std::sort(m_BreakpointNodes.begin(), m_BreakpointNodes.end());
+	}
+
 	VisualScriptHitContext VisualScriptEditorModel::MakeHitContext(bool skipMoved)
 	{
 		VisualScriptHitContext context;
@@ -1934,6 +1942,8 @@ namespace Strada
 		context.Preview = GetNodePreview();
 		context.DynamicLinks = m_DynamicLinks;
 		context.SkipMoved = skipMoved;
+		context.BreakpointMarkers = m_BreakpointMarkers;
+		context.Breakpoints = m_BreakpointNodes;
 		context.CurveTessellationTolerance = m_CurveTolerance;
 		context.Scratch = &m_HitScratch;
 		return context;
@@ -2323,6 +2333,8 @@ namespace Strada
 			case Kind::Pin:
 				PressPin(input, intents);
 				return;
+			case Kind::Breakpoint:
+				// As a press on a badge: a drag moves the node by its corner, a click toggles the breakpoint at the release.
 			case Kind::Badge:
 			case Kind::NodeHeader:
 			case Kind::Node:
@@ -2456,6 +2468,7 @@ namespace Strada
 			}
 			case Kind::None:
 			case Kind::Minimap:
+			case Kind::Breakpoint:
 			case Kind::Pin:
 			case Kind::Badge:
 			case Kind::Reroute:
@@ -2663,6 +2676,11 @@ namespace Strada
 					uint32_t const elements[] = {m_Press.Hit.Element};
 					Select(elements, m_Press.Ctrl ? VisualScriptSelectMode::Toggle : VisualScriptSelectMode::Replace);
 				}
+				if (m_Press.Hit.Kind == Kind::Breakpoint)
+				{
+					intents.emplace_back(
+						VisualScriptBreakpointIntent{m_Press.Hit.Element, VisualScriptBreakpointAction::Toggle, input.Mouse});
+				}
 				return;
 			case PressKind::AltPin:
 			{
@@ -2708,6 +2726,10 @@ namespace Strada
 		VisualScriptHit const target = m_Press.Hit;
 		switch (target.Kind)
 		{
+			case Kind::Breakpoint:
+				// The breakpoint's popup, where a badge's right click opens the node's menu.
+				intents.emplace_back(VisualScriptBreakpointIntent{target.Element, VisualScriptBreakpointAction::Settings, input.Mouse});
+				return;
 			case Kind::Badge:
 			case Kind::NodeHeader:
 			case Kind::Node:
@@ -3409,6 +3431,7 @@ namespace Strada
 				}
 				return;
 			}
+			case Kind::Breakpoint:
 			case Kind::Badge:
 			case Kind::NodeHeader:
 			case Kind::Node:

@@ -29,6 +29,8 @@ namespace Strada
 		constexpr std::string_view SelfText = "Self";
 		// printf's %g: six significant digits. Chips too narrow for them show fewer.
 		constexpr int DefaultPrecision = 6;
+		// What a double holds (std::numeric_limits<double>::max_digits10).
+		constexpr int MaxPrecision = 17;
 
 		// The symbols of the binary operators' compact shape, in UTF-8 ("−", "×", "÷", "≠", "≤", "≥" are escaped).
 		struct OperatorSymbol
@@ -553,6 +555,13 @@ namespace Strada
 		return FormatLiteral(literal, typeId, type, enumLookup, assetNames, DefaultPrecision);
 	}
 
+	VisualScriptChipValue FormatVisualScriptLiteral(Json const& literal, std::string_view typeId, VisualScriptTypeInfo const* type,
+	                                                VisualScriptEnumLookup const& enumLookup, VisualScriptAssetNameLookup const& assetNames,
+	                                                int precision)
+	{
+		return FormatLiteral(literal, typeId, type, enumLookup, assetNames, std::clamp(precision, 1, MaxPrecision));
+	}
+
 	std::string_view GetVisualScriptOperatorSymbol(std::string_view nodeType)
 	{
 		for (OperatorSymbol const& symbol : OperatorSymbols)
@@ -656,6 +665,8 @@ namespace Strada
 		std::string OtherNameBuffer;
 		std::string LabelBuffer;
 		std::string ChipBuffer;
+		// A comment title's first glyphs and the ellipsis, measured as its room.
+		std::string TitleRoomBuffer;
 
 		size_t GetCapacityBytes() const
 		{
@@ -664,7 +675,7 @@ namespace Strada
 			       GetCapacity(AnalysisNodes) + GetCapacity(AnalyzedNodes) + GetCapacity(NodeDiagnostics) + GetCapacity(Diagnostics) +
 			       GetCapacity(Pins) + GetCapacity(Boundaries) + GetCapacity(FieldNames) + GetCapacity(CommentOrder) +
 			       GetCapacity(SortedComments) + GetCapacity(SortedCommentRecords) + GetCapacity(NameBuffer) +
-			       GetCapacity(OtherNameBuffer) + GetCapacity(LabelBuffer) + GetCapacity(ChipBuffer);
+			       GetCapacity(OtherNameBuffer) + GetCapacity(LabelBuffer) + GetCapacity(ChipBuffer) + GetCapacity(TitleRoomBuffer);
 		}
 	};
 
@@ -2309,6 +2320,27 @@ namespace Strada
 			}
 		}
 
+		// The title's room, with the measurer of the title's own measure (VisualScriptCommentVisual::TitleRoom).
+		void MeasureTitleRoom(VisualScriptCommentVisual& visual)
+		{
+			std::string_view const title = m_Model.GetText(visual.Title);
+			size_t end = 0;
+			for (uint32_t glyphs = 0; end < title.size() && glyphs < VisualScriptGeometry::CommentTitleMinGlyphs; glyphs++)
+			{
+				end = NextCodePoint(title, end);
+			}
+			visual.TitleMinimumLength = static_cast<uint16_t>(end);
+			if (end >= title.size())
+			{
+				visual.TitleRoom = m_Measure(title, Metrics::CommentTitleTextSize);
+				return;
+			}
+			std::string& room = m_Scratch.TitleRoomBuffer;
+			room.assign(title.substr(0, end));
+			room.append(VisualScriptEllipsis);
+			visual.TitleRoom = m_Measure(room, Metrics::CommentTitleTextSize);
+		}
+
 		void BuildComments()
 		{
 			std::vector<IdIndex>& indices = m_Model.m_CommentIndices;
@@ -2343,6 +2375,7 @@ namespace Strada
 				uint32_t const textOffset = static_cast<uint32_t>(m_Model.m_Text.size());
 				visual.Title = AddText(GetFirstLine(comment.Text), Metrics::CommentTitleTextSize,
 				                       std::max(size.x - 2.0f * Metrics::HorizontalPadding, 0.0f));
+				MeasureTitleRoom(visual);
 				size_t const bodyStart = std::min(comment.Text.find('\n'), comment.Text.size());
 				std::string_view const body =
 					bodyStart < comment.Text.size() ? std::string_view(comment.Text).substr(bodyStart + 1) : std::string_view();
