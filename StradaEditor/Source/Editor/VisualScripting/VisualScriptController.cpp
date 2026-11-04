@@ -2732,20 +2732,23 @@ namespace Strada
 												   return findBreakpoint(node) != nullptr;
 											   });
 				group = true;
-				add(Action::ToggleBreakpoint, (every ? "Remove Breakpoint" : "Add Breakpoint") + std::string(nodes.size() == 1 ? "" : "s"));
+				namespace MenuTexts = VisualScriptDebugMenuTexts;
+				add(Action::ToggleBreakpoint, std::string(every ? MenuTexts::RemoveBreakpoint : MenuTexts::AddBreakpoint) +
+				                                  std::string(nodes.size() == 1 ? std::string_view() : MenuTexts::Plural));
 				VisualScriptWindowBreakpoint const* primaryBreakpoint = findBreakpoint(primary);
-				VisualScriptMenuItem* enable = add(
-					Action::ToggleBreakpointEnabled,
-					primaryBreakpoint != nullptr && !primaryBreakpoint->Breakpoint.Enabled ? "Enable Breakpoint" : "Disable Breakpoint");
+				VisualScriptMenuItem* enable =
+					add(Action::ToggleBreakpointEnabled,
+				        std::string(primaryBreakpoint != nullptr && !primaryBreakpoint->Breakpoint.Enabled ? MenuTexts::EnableBreakpoint
+				                                                                                           : MenuTexts::DisableBreakpoint));
 				if (primaryBreakpoint == nullptr)
 				{
-					disable(enable, "The node has no breakpoint");
+					disable(enable, std::string(MenuTexts::NoBreakpoint));
 				}
-				add(Action::BreakpointSettings, "Breakpoint Settings...");
-				VisualScriptMenuItem* runTo = add(Action::RunToNode, "Run to Here");
+				add(Action::BreakpointSettings, std::string(MenuTexts::BreakpointSettings));
+				VisualScriptMenuItem* runTo = add(Action::RunToNode, std::string(MenuTexts::RunToHere));
 				if (!debug->Attached)
 				{
-					disable(runTo, "Runs the game to the node while it plays");
+					disable(runTo, std::string(MenuTexts::RunToHereNotPlaying));
 				}
 			}
 			return items;

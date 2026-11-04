@@ -74,8 +74,9 @@ namespace Strada
 		// The last take ran no frame: the flow clock holds.
 		bool IsHeld() const { return m_Held; }
 		bool IsEmpty() const { return m_Steps.empty(); }
-		// The runs counted for a node ID (the sum of its steps' counts: each time the flow passed it, entering it or continuing
-		// one of its loops or sequences).
+		// The runs counted for a node ID: the exits it fired (each output of a sequence, each iteration of a loop), or the times it
+		// ended its chain without one when that is more, so a function call or a latent node that ran once (entered, then
+		// returned or completed) counts once.
 		uint32_t GetCount(uint32_t node) const;
 
 	private:

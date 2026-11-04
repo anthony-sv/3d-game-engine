@@ -170,6 +170,7 @@ TEST_CASE("VisualScriptEditor: the editor's UI font has every character the canv
 	// The debugger's: the Debugger panel's, the debug controls' tooltips and the session's texts the UI shows (spec-slice4 §14).
 	texts.insert(texts.end(), VisualScriptDebuggerPanel::Texts::All.begin(), VisualScriptDebuggerPanel::Texts::All.end());
 	texts.insert(texts.end(), VisualScriptDebugControls::Texts::All.begin(), VisualScriptDebugControls::Texts::All.end());
+	texts.insert(texts.end(), VisualScriptDebugMenuTexts::All.begin(), VisualScriptDebugMenuTexts::All.end());
 	texts.insert(texts.end(), VisualScriptDebugSession::Texts.begin(), VisualScriptDebugSession::Texts.end());
 	// The separators the panes put between the parts of their texts (spec §15.4: the strings the panes format): Details' middle
 	// dots and its mixed-values dash, the palette's and the drawer's chevron between a place's parts, My Script's function sign.

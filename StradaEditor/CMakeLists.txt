@@ -138,8 +138,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptBreakpoints.h
     Source/Editor/VisualScripting/VisualScriptBrushes.cpp
     Source/Editor/VisualScripting/VisualScriptBrushes.h
-    Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
     Source/Editor/VisualScripting/VisualScriptCanvasDebug.h
+    Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
     Source/Editor/VisualScripting/VisualScriptCanvasModel.cpp
     Source/Editor/VisualScripting/VisualScriptCanvasModel.h
     Source/Editor/VisualScripting/VisualScriptCanvasPins.cpp

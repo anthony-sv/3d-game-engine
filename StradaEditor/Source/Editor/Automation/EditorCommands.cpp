@@ -3719,8 +3719,8 @@ namespace Strada
 					"which Details then shows (reveal). The view parameters apply in order: the framing, "
 					"then zoom around its centre, then center. Applied when the window is next drawn: graph.editors a frame later "
 					"shows the result. Works while playing. A file that is missing or does not load opens on its card (loaded false): "
-					"function, select, frame, find, timeline and reveal are then ignored, which warnings says. Returns { asset, path, "
-					"function (the "
+					"function, select, frame, find, timeline, reveal and show are then ignored, which warnings says. Returns { asset, "
+					"path, function (the "
 					"sub-graph shown), selection (the select given, as applied: empty without one; an empty select keeps the window's "
 					"selection), loaded, warnings }. Unavailable without the editor's UI "
 					"(headless); InvalidOperation while a dialog is open.",
@@ -4046,7 +4046,8 @@ namespace Strada
 				result =
 					result
 						? Add("graph.debug-panel",
-				              "The visual-script Debugger panel: open (bool) shows or hides it, tab picks its tab (CallStack, Values, "
+				              "The visual-script Debugger panel: open (bool) shows it (in front of the tabs it is docked with, at its "
+				              "next draw) or hides it, tab picks its tab (CallStack, Values, "
 				              "Breakpoints, Instances), stop selects a stop (graph.debug lists them) and frame a frame of the selected "
 				              "stop's call stack, which opens its graph's window on the frame's node as a click on a call-stack row "
 				              "does; with none it only reads. Changes no document and records no history step. Returns { open, visible "
@@ -4103,13 +4104,24 @@ namespace Strada
 									  }
 									  frame = static_cast<uint32_t>(index);
 								  }
-								  if (params.contains("open"))
+								  std::optional<VisualScriptDebuggerTab> const tab =
+									  params.contains("tab") ? ParseVisualScriptDebuggerTab(params["tab"].get<std::string>())
+															 : std::nullopt;
+								  // Opening brings the panel to the front at its next draw, also behind another tab.
+								  if (params.contains("open") && params["open"].get<bool>())
 								  {
-									  panel.SetOpen(params["open"].get<bool>());
+									  panel.Show(tab);
 								  }
-								  if (params.contains("tab"))
+								  else
 								  {
-									  panel.SetTab(*ParseVisualScriptDebuggerTab(params["tab"].get<std::string>()));
+									  if (params.contains("open"))
+									  {
+										  panel.SetOpen(false);
+									  }
+									  if (tab)
+									  {
+										  panel.SetTab(*tab);
+									  }
 								  }
 								  if (stop)
 								  {

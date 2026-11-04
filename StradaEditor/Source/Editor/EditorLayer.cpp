@@ -478,6 +478,8 @@ namespace Strada
 			{
 				m_VisualScripts->OnTargetChanged(graph, entity);
 			});
+		// Values read as on the canvas: with the scripting runtime's node library.
+		m_DebuggerPanel.SetSemantics(&m_VisualScriptSemantics);
 		m_DebuggerPanel.SetFollowFrame(
 			[this](VisualScriptStop const& stop, uint32_t frame)
 			{

@@ -389,9 +389,9 @@ namespace
 	constexpr double T2EnumMilliseconds = 8.12;
 	// The graph window's whole frame (ImGui's included) with the mouse on the live widget of a float, a vector and an enum chip.
 	constexpr std::array<double, 3> WindowFrameMilliseconds = {3.08, 3.07, 3.07};
-	// The debugger's frames (spec-slice4 §21): a watched 2,000-node graph's flow, and 200 value pills with their request, as
-	// track U1 measured them in Debug.
-	constexpr double WatchedFlowMilliseconds = 10.5;
+	// The debugger's frames (spec-slice4 §21): a watched 2,000-node graph's flow (the observed frame watched against unwatched),
+	// and 200 value pills with their request, as track U1 measured them in Debug.
+	constexpr double WatchedFlowMilliseconds = 15.3;
 	constexpr double ValuePillsMilliseconds = 27.5;
 #else
 	constexpr double T1Milliseconds = 1.03;
@@ -407,10 +407,12 @@ namespace
 	constexpr double T2VectorMilliseconds = 0.821;
 	constexpr double T2EnumMilliseconds = 0.829;
 	constexpr std::array<double, 3> WindowFrameMilliseconds = {0.447, 0.445, 0.462};
-	// Track U1 measured them (3 runs of 60 frames, medians): the flow 0.349-0.379 ms against the 1 ms target; the pills
-	// 1.00-1.04 ms against the 0.4 ms target, most of it the managed read of the values, which the window makes 10 times a second.
-	constexpr double WatchedFlowMilliseconds = 0.379;
-	constexpr double ValuePillsMilliseconds = 1.04;
+	// Track U1 measured them (3 runs of 60 frames, medians): watching the flow 1.75-1.76 ms against the 1 ms target (the
+	// observed frame watched against unwatched: the runtime's traced runs, the trace's take and read, and the window's flow
+	// model and overlays, which alone take 0.35-0.38 ms); the pills 1.02-1.12 ms against the 0.4 ms target, most of it the
+	// managed read of the values, which the window makes 10 times a second.
+	constexpr double WatchedFlowMilliseconds = 1.76;
+	constexpr double ValuePillsMilliseconds = 1.12;
 #endif
 
 	// The chips of T2's live widget: a float, a vector and an enum (the grid's Delay and Add Force).
@@ -907,10 +909,12 @@ namespace
 	};
 }
 
-TEST_CASE("VisualScriptDebug: a watched 2,000-node graph's flow frame")
+TEST_CASE("VisualScriptEditor: a watched 2,000-node graph's flow frame")
 {
-	// Spec-slice4 §21: one watched graph of 2,000 nodes whose every exit fires each frame: the session's take, the window's flow
-	// model and the overlays it draws, beside the same window drawn without them.
+	// Spec-slice4 §21: one watched graph of 2,000 nodes whose every exit fires each frame. Timed is the whole editor frame of
+	// the observed game (play mode's frame, in which the session takes the runtime's trace and reads its block, the take, the
+	// window's flow model and the overlays it draws) with the window's sub-graph watched, beside the same frames unwatched and
+	// drawn without the debug view: the difference is what watching costs.
 	WatchedChain chain;
 	VisualScriptEditorPanel& panel = *chain.Window.Panel;
 	VisualScriptWindowDebugInput input;
@@ -920,38 +924,55 @@ TEST_CASE("VisualScriptDebug: a watched 2,000-node graph's flow frame")
 	VisualScriptDrawRecord record;
 	panel.SetDrawRecord(&record);
 	bool const performance = Testing::ArePerformanceTestsEnabled();
-	std::vector<double> withFlow;
-	std::vector<double> without;
-	for (int frame = 0, frames = performance ? 60 : 4; frame < frames; frame++)
+	int const frames = performance ? 60 : 4;
+	auto const elapsed = [](std::chrono::steady_clock::time_point start)
 	{
+		return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+	};
+	std::vector<double> watched;
+	for (int frame = 0; frame < frames; frame++)
+	{
+		auto const start = std::chrono::steady_clock::now();
 		chain.Play.Update(Timestep(1.0f / 60.0f));
 		chain.Session.EndFrame();
-		auto const start = std::chrono::steady_clock::now();
 		input.Flow = chain.Session.TakeFlow(chain.Window.Graph, 0);
 		input.FlowTime = chain.Session.GetFlowTime();
 		panel.SetDebugInput(&input);
+		record.Clear();
 		chain.Window.Frames(1);
-		withFlow.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+		watched.push_back(elapsed(start));
 		// Every one of the 666 increments ran, and the overlays keep to their caps.
 		CHECK(record.Count(VisualScriptDrawItemKind::FlowWire) <= 512);
 		CHECK(record.Count(VisualScriptDrawItemKind::RunGlow) <= 512);
+		CHECK(record.Count(VisualScriptDrawItemKind::FlowWire) > 0);
 		CHECK(panel.GetFlowModel().GetCount(10 + 665 * 3) >= 1);
-		panel.SetDebugInput(nullptr);
-		auto const plainStart = std::chrono::steady_clock::now();
+	}
+	// The same frames with nothing watched: the runtime records no flow and the window draws no debug view.
+	chain.Session.SetWatches({});
+	panel.SetDebugInput(nullptr);
+	std::vector<double> unwatched;
+	for (int frame = 0; frame < frames; frame++)
+	{
+		auto const start = std::chrono::steady_clock::now();
+		chain.Play.Update(Timestep(1.0f / 60.0f));
+		chain.Session.EndFrame();
+		record.Clear();
 		chain.Window.Frames(1);
-		without.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - plainStart).count());
+		unwatched.push_back(elapsed(start));
+		CHECK(record.Count(VisualScriptDrawItemKind::FlowWire) == 0);
 	}
 	panel.SetDrawRecord(nullptr);
 	if (performance)
 	{
-		double const flowCost = Median(withFlow) - Median(without);
-		MESSAGE("a watched 2,000-node graph's flow frame: ", Median(withFlow), " ms with the take, the flow model and the overlays, ",
-		        Median(without), " ms without (", flowCost, " ms for the flow)");
+		double const flowCost = Median(watched) - Median(unwatched);
+		MESSAGE("a watched 2,000-node graph's flow frame: ", Median(watched),
+		        " ms watched (the take, its read, the flow model and the overlays), ", Median(unwatched), " ms unwatched (", flowCost,
+		        " ms for watching)");
 		CHECK(flowCost <= 3.0 * WatchedFlowMilliseconds);
 	}
 }
 
-TEST_CASE("VisualScriptDebug: 200 value pills with their request")
+TEST_CASE("VisualScriptEditor: 200 value pills with their request")
 {
 	// Spec-slice4 §21: the running instance's values of the chain's nodes read (Wire Values: Always), formatted and drawn on
 	// the data wires, at most 200 pills.

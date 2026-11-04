@@ -439,3 +439,25 @@ TEST_CASE("VisualScriptDebug: a take naming a step twice counts it as one step o
 	REQUIRE(fixture.Marks.Nodes.size() == 3);
 	CHECK(fixture.FindNode(1)->Count == 5);
 }
+
+TEST_CASE("VisualScriptDebug: a latent node or a function call that ran once counts once, its entry and its exit being one run")
+{
+	FlowFixture fixture;
+	// The Delay suspends (its entry ends the chain), then completes a frame later (its exit): one run, not two.
+	fixture.Apply(MakeTake({MakeStep(1, "Then", 1, 0, 0.1), MakeStep(2, "", 1, 1, 0.1)}, 0.1, 1));
+	fixture.Apply(MakeTake({MakeStep(2, "Completed", 1, 0, 0.2), MakeStep(3, "True", 1, 1, 0.2)}, 0.2, 1));
+	CHECK(fixture.Flow.GetCount(2) == 1);
+	fixture.Build(0.2);
+	REQUIRE(fixture.FindNode(2) != nullptr);
+	CHECK(fixture.FindNode(2)->Count == 1);
+	// The completed exit lights its wire.
+	CHECK(fixture.FindLink(fixture.LinkOf(2, "Completed")) != nullptr);
+	// Entered twice more, one still waiting: three runs.
+	fixture.Apply(MakeTake({MakeStep(2, "", 2, 0, 0.3), MakeStep(2, "Completed", 1, 1, 0.3)}, 0.3, 1));
+	CHECK(fixture.Flow.GetCount(2) == 3);
+	fixture.Build(0.3);
+	CHECK(fixture.FindNode(2)->Count == 3);
+	// A node that fires several exits per run (a sequence's outputs, a loop's iterations) counts each exit.
+	fixture.Apply(MakeTake({MakeStep(3, "True", 2, 0, 0.4), MakeStep(3, "False", 1, 1, 0.4)}, 0.4, 1));
+	CHECK(fixture.Flow.GetCount(3) == 4);
+}

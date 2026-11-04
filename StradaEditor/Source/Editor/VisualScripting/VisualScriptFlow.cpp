@@ -26,6 +26,15 @@ namespace Strada
 			return b > std::numeric_limits<uint32_t>::max() - a ? std::numeric_limits<uint32_t>::max() : a + b;
 		}
 
+		// A node's runs from its steps' counts: the exits it fired (a sequence's outputs and a loop's iterations each count), or
+		// the times it ended its chain without an exit when that is more. One run of a function call or a latent node is two
+		// steps, the entry ending the chain (the call enters its function, the node suspends) and the exit when it returns or
+		// completes, so the larger of the two counts each such run once, and a run still inside it too.
+		uint32_t CountRuns(uint32_t withoutExit, uint32_t exits)
+		{
+			return std::max(withoutExit, exits);
+		}
+
 		bool Encloses(VisualScriptRect const& outer, VisualScriptRect const& inner)
 		{
 			return inner.Min.x >= outer.Min.x && inner.Min.y >= outer.Min.y && inner.Max.x <= outer.Max.x && inner.Max.y <= outer.Max.y;
@@ -183,13 +192,21 @@ namespace Strada
 		{
 			size_t last = first;
 			float nodeIntensity = 0.0f;
-			uint32_t count = 0;
+			uint32_t withoutExit = 0;
+			uint32_t exits = 0;
 			for (; last < m_Steps.size() && m_Steps[last].Node == m_Steps[first].Node; last++)
 			{
 				Step const& step = m_Steps[last];
 				float const intensity = GetIntensity(flowTime, step.LastFired);
 				nodeIntensity = std::max(nodeIntensity, intensity);
-				count = AddCounts(count, step.Count);
+				if (step.Exit.empty())
+				{
+					withoutExit = AddCounts(withoutExit, step.Count);
+				}
+				else
+				{
+					exits = AddCounts(exits, step.Count);
+				}
 				if (step.Link && intensity >= MinIntensity)
 				{
 					float phase = -1.0f;
@@ -201,6 +218,7 @@ namespace Strada
 				}
 			}
 			Step const& head = m_Steps[first];
+			uint32_t const count = CountRuns(withoutExit, exits);
 			if (head.NodeIndex)
 			{
 				bool const lit = nodeIntensity >= MinIntensity;
@@ -270,14 +288,16 @@ namespace Strada
 
 	uint32_t VisualScriptFlowModel::GetCount(uint32_t node) const
 	{
-		uint32_t count = 0;
+		uint32_t withoutExit = 0;
+		uint32_t exits = 0;
 		for (Step const& step : m_Steps)
 		{
 			if (step.Node == node)
 			{
-				count = AddCounts(count, step.Count);
+				uint32_t& counted = step.Exit.empty() ? withoutExit : exits;
+				counted = AddCounts(counted, step.Count);
 			}
 		}
-		return count;
+		return CountRuns(withoutExit, exits);
 	}
 }

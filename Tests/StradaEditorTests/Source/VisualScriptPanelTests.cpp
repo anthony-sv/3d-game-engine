@@ -2430,6 +2430,7 @@ TEST_CASE("VisualScriptEditor: ShowNode pans the least distance that shows the n
 	VisualScriptDocument document = MakeDocument();
 	document.Graph.Nodes.push_back(MakeNode(20, "Operator.Add", glm::vec2(4000.0f, 0.0f)));
 	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptEditorPanel& panel = *fixture.Panel;
 	VisualScriptOpenRequest request;
 	request.Graph = fixture.Graph;
@@ -2478,6 +2479,7 @@ TEST_CASE("VisualScriptEditor: twenty steps into and out of a function add one B
 	function.Graph.Links = {MakeLink(101, "Then", 102, "Execute")};
 	document.Functions.push_back(std::move(function));
 	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptEditorPanel& panel = *fixture.Panel;
 	fixture.Frames(2);
 	VisualScriptViewState const before = panel.GetState().View;
@@ -2522,7 +2524,16 @@ TEST_CASE("VisualScriptEditor: twenty steps into and out of a function add one B
 
 TEST_CASE("VisualScriptEditor: an open the window asked for that fails says so, and Back goes on to its next entry")
 {
-	PanelFixture fixture(MakeDocument());
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptFunction function;
+	function.ID = 100;
+	function.Name = "TakeHit";
+	function.Graph.Nodes = {MakeNode(101, "Function.Entry", glm::vec2(0.0f, 0.0f)),
+	                        MakeNode(102, "Function.Return", glm::vec2(400.0f, 0.0f))};
+	function.Graph.Links = {MakeLink(101, "Then", 102, "Execute")};
+	document.Functions.push_back(std::move(function));
+	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptEditorPanel& panel = *fixture.Panel;
 	VisualScriptOpenRequest request;
 	request.Graph = AssetHandle(UUID(424242));
@@ -2536,4 +2547,23 @@ TEST_CASE("VisualScriptEditor: an open the window asked for that fails says so, 
 	panel.OnOtherGraphOpenFailed(request, "no asset 424242");
 	fixture.Frames(1);
 	CHECK(panel.GetState().Toasts.back() == "Could not open 424242: it was deleted");
+
+	// With a history: the user went from the event graph into TakeHit, and a Back to a graph deleted since failed. Back goes on to
+	// the next entry, the event graph; a failed Jump moves nothing.
+	VisualScriptOpenRequest into;
+	into.Graph = fixture.Graph;
+	into.Function = 100;
+	panel.Apply(into);
+	fixture.Frames(2);
+	REQUIRE(panel.GetState().Function == 100);
+	REQUIRE(panel.GetState().CanGoBack);
+	panel.OnOtherGraphOpenFailed(request, "no asset 424242");
+	fixture.Frames(2);
+	CHECK(panel.GetState().Function == 100);
+	request.Origin->Step = VisualScriptHistoryStep::Back;
+	panel.OnOtherGraphOpenFailed(request, "no asset 424242");
+	fixture.Frames(2);
+	CHECK(panel.GetState().Function == 0);
+	CHECK_FALSE(panel.GetState().CanGoBack);
+	CHECK(panel.GetState().CanGoForward);
 }

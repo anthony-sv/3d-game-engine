@@ -1876,7 +1876,7 @@ TEST_CASE("VisualScriptEditor: a commit lays a window's canvas out again only wh
 	CHECK(window.GetModel().GetCanvasRevision() == settled);
 }
 
-TEST_CASE("VisualScriptDebug: following a stop opens the window of its innermost frame's document on its node, a library's own")
+TEST_CASE("VisualScriptEditor: following a stop opens the window of its innermost frame's document on its node, a library's own")
 {
 	EditorsFixture fixture;
 	// A library whose function 30 holds node 31, which a frame of a stop names.
@@ -1891,6 +1891,7 @@ TEST_CASE("VisualScriptDebug: following a stop opens the window of its innermost
 	AssetHandle const combat = fixture.AddGraph("Scripts/Combat.sgraph");
 	REQUIRE(fixture.Operations.SetVisualScriptDocument(combat, library).IsOk());
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 
 	VisualScriptStop stop;
 	stop.ID = 1;
@@ -1925,7 +1926,7 @@ TEST_CASE("VisualScriptDebug: following a stop opens the window of its innermost
 	CHECK(fixture.GetOpenGraphs().size() == 2);
 }
 
-TEST_CASE("VisualScriptDebug: the debug session watches the sub-graphs the visible graph windows show")
+TEST_CASE("VisualScriptEditor: the debug session watches the sub-graphs the visible graph windows show")
 {
 	EditorsFixture fixture;
 	EditorScripts scripts{fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
@@ -1934,6 +1935,7 @@ TEST_CASE("VisualScriptDebug: the debug session watches the sub-graphs the visib
 	fixture.Editors.SetDebugSession(&session);
 	fixture.OpenGraph(fixture.Player);
 	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
 	fixture.Frames(2);
 	// Both docked in the middle: the one in front is watched.
 	CHECK(std::vector<VisualScriptDebugWatch>(session.GetWatches().begin(), session.GetWatches().end()) ==
@@ -1965,6 +1967,7 @@ TEST_CASE("VisualScriptEditor: Back to a graph deleted since goes on to the wind
 	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Player, player).IsOk());
 	// Door's window has a view of its own on its history, then Player's (a jump from Player's node).
 	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptEditorPanel& doorWindow = fixture.GetPanel(fixture.Door);
 	VisualScriptViewState const own = doorWindow.GetState().View;
 	VisualScriptOpenRequest moved;

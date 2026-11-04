@@ -442,7 +442,7 @@ TEST_CASE("VisualScriptEditor: where the title plates of nested comments overlap
 	}
 }
 
-TEST_CASE("VisualScriptDebug: a breakpoint marker is hit around its node's top-left corner, above the header and the nodes")
+TEST_CASE("VisualScriptEditor: a breakpoint marker is hit around its node's top-left corner, above the header and the nodes")
 {
 	HitFixture fixture;
 	fixture.Document.Graph.Nodes = {MakeNode(1, "Flow.Branch", glm::vec2(100.0f)), MakeNode(2, "Flow.Branch", glm::vec2(500.0f, 100.0f)),
@@ -488,7 +488,7 @@ TEST_CASE("VisualScriptDebug: a breakpoint marker is hit around its node's top-l
 	CHECK(fixture.Hit(corner).Kind != VisualScriptHitKind::Breakpoint);
 }
 
-TEST_CASE("VisualScriptDebug: a breakpoint marker is drawn above every node, a ghost marker only where no node above it covers the mouse")
+TEST_CASE("VisualScriptEditor: a breakpoint marker is drawn above every node, a ghost marker only where no node above it covers the mouse")
 {
 	HitFixture fixture;
 	// Node 2 lies over node 1's top-left corner, and is drawn above it (selected).
@@ -509,7 +509,7 @@ TEST_CASE("VisualScriptDebug: a breakpoint marker is drawn above every node, a g
 	CheckHit(fixture.Hit(corner), VisualScriptHitKind::Breakpoint, 1);
 }
 
-TEST_CASE("VisualScriptDebug: a comment's plate is hit where it is drawn, from one pixel more than its title's measured room")
+TEST_CASE("VisualScriptEditor: a comment's plate is hit where it is drawn, from one pixel more than its title's measured room")
 {
 	// At 30 % the title is 12 pixels high: "WWW" and the ellipsis measure (3 + 3) × 0.5 × 18 = 54 units at the layout's size, 36
 	// pixels, and the box leaves its width less twice the inset of 4 pixels.
@@ -541,7 +541,7 @@ TEST_CASE("VisualScriptDebug: a comment's plate is hit where it is drawn, from o
 	}
 }
 
-TEST_CASE("VisualScriptDebug: a pin whose anchor lies on a node's ghost marker keeps the mouse")
+TEST_CASE("VisualScriptEditor: a pin whose anchor lies on a node's breakpoint marker or its ghost keeps the mouse")
 {
 	HitFixture fixture;
 	fixture.Document.Graph.Nodes = {MakeNode(1, "Operator.Add", glm::vec2(100.0f))};
@@ -569,8 +569,13 @@ TEST_CASE("VisualScriptDebug: a pin whose anchor lies on a node's ghost marker k
 	VisualScriptHit const hit = fixture.Hit(anchor);
 	CHECK(hit.Kind == VisualScriptHitKind::Pin);
 	CHECK(hit.Element == 1);
-	// Its marker, once set, is drawn above the pin and takes the mouse.
+	// Its marker, once set, is drawn above the pin, but the pin keeps the mouse so it can still be wired; the rest of the circle,
+	// outside the node, is the marker's.
 	std::array<uint32_t, 1> const marked = {1};
 	fixture.Context.Breakpoints = marked;
-	CheckHit(fixture.Hit(anchor), VisualScriptHitKind::Breakpoint, 1);
+	VisualScriptHit const wired = fixture.Hit(anchor);
+	CHECK(wired.Kind == VisualScriptHitKind::Pin);
+	CHECK(wired.Element == 1);
+	float const radius = Geometry::GetBadgeRadius(fixture.View.GetPixelsPerUnit(), fixture.View.GetUIScale());
+	CheckHit(fixture.Hit(corner - glm::vec2(radius * 0.5f)), VisualScriptHitKind::Breakpoint, 1);
 }

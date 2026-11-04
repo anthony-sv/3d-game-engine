@@ -5,6 +5,7 @@
 
 #include "Strada/Script/VisualScriptDebugger.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -161,6 +162,10 @@ namespace Strada
 		std::string Label;
 		// The key that does the same, as FormatVisualScriptChord names it ("F5"); empty for none.
 		std::string Chord;
+		// Show: the frame of the stop it brings into view (a waiting member's receiver).
+		std::optional<uint32_t> Frame;
+		// A second key that does the same, named in the tooltip (Step Into's Ctrl+F11, Cmd+F11 on macOS); empty for none.
+		std::string SecondChord;
 
 		bool operator==(VisualScriptDebugStripButton const& other) const = default;
 	};
@@ -252,6 +257,25 @@ namespace Strada
 		bool WireValues = true;
 		bool LiveWireValues = false;
 	};
+
+	// The node menu's debugging items (spec-slice4 §13.5), listed in All for the glyph test.
+	namespace VisualScriptDebugMenuTexts
+	{
+		inline constexpr std::string_view AddBreakpoint = "Add Breakpoint";
+		inline constexpr std::string_view RemoveBreakpoint = "Remove Breakpoint";
+		// Appended for several nodes ("Add Breakpoints").
+		inline constexpr std::string_view Plural = "s";
+		inline constexpr std::string_view EnableBreakpoint = "Enable Breakpoint";
+		inline constexpr std::string_view DisableBreakpoint = "Disable Breakpoint";
+		inline constexpr std::string_view NoBreakpoint = "The node has no breakpoint";
+		inline constexpr std::string_view BreakpointSettings = "Breakpoint Settings...";
+		inline constexpr std::string_view RunToHere = "Run to Here";
+		inline constexpr std::string_view RunToHereNotPlaying = "Runs the game to the node while it plays";
+
+		inline constexpr std::array<std::string_view, 9> All = {AddBreakpoint,      RemoveBreakpoint,  Plural,
+		                                                        EnableBreakpoint,   DisableBreakpoint, NoBreakpoint,
+		                                                        BreakpointSettings, RunToHere,         RunToHereNotPlaying};
+	}
 
 	// What a graph window asks of the debug session; the window manager hands each to it.
 	struct VisualScriptDebugRequest

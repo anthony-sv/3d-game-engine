@@ -77,18 +77,26 @@ namespace Strada
 			return text;
 		}
 
+		namespace Texts = VisualScriptPanelTexts;
+
 		// "Enemy 3 (1234)": an entity of the running scene by name, with its ID.
 		std::string DescribeDebugEntity(Scene& scene, UUID entity)
 		{
 			if (!entity.IsValid())
 			{
-				return "no entity";
+				return std::string(Texts::StripNoEntity);
 			}
 			if (!scene.HasEntity(entity))
 			{
-				return fmt::format("Missing ({})", entity);
+				return fmt::format("{}{})", Texts::StripMissing, entity);
 			}
 			return fmt::format("{} ({})", scene.GetEntityByUUID(entity).GetName(), entity);
+		}
+
+		// "Apply Damage (node 12) on Player (123)": where a frame is.
+		std::string DescribeDebugPlace(Scene& scene, std::string_view title, uint32_t node, UUID entity)
+		{
+			return fmt::format("{}{}{}{}{}", title, Texts::StripNode, node, Texts::StripOn, DescribeDebugEntity(scene, entity));
 		}
 
 		// The words a stop's reason ends its strip's line with.
@@ -97,19 +105,19 @@ namespace Strada
 			switch (reason)
 			{
 				case VisualScriptStopReason::Breakpoint:
-					return "breakpoint";
+					return Texts::ReasonBreakpoint;
 				case VisualScriptStopReason::Step:
-					return "step";
+					return Texts::ReasonStep;
 				case VisualScriptStopReason::Break:
-					return "break";
+					return Texts::ReasonBreak;
 				case VisualScriptStopReason::RunTo:
-					return "run to node";
+					return Texts::ReasonRunTo;
 				case VisualScriptStopReason::Error:
-					return "error";
+					return Texts::ReasonError;
 				case VisualScriptStopReason::Passed:
-					return "passed breakpoint";
+					return Texts::ReasonPassed;
 			}
-			return "breakpoint";
+			return Texts::ReasonBreakpoint;
 		}
 
 		// What a stop-ended reason says in the strip's parenthesis.
@@ -117,17 +125,17 @@ namespace Strada
 		{
 			if (reason == VisualScriptDebugSession::StopEndedByEdit)
 			{
-				return "cancelled by your edit";
+				return Texts::StripHeldByEdit;
 			}
 			if (reason == VisualScriptDebugSession::StopEndedByDestroy)
 			{
-				return "its entity was destroyed";
+				return Texts::StripHeldByDestroy;
 			}
 			if (reason == VisualScriptDebugSession::StopEndedBySceneLoad)
 			{
-				return "a script loaded another scene";
+				return Texts::StripHeldBySceneLoad;
 			}
-			return "it ended without a resume";
+			return Texts::StripHeldOther;
 		}
 
 		// Why a breakpoint does not stop now (spec-slice4 §2.6), as graph.breakpoints says it; empty while it is active.
@@ -135,17 +143,46 @@ namespace Strada
 		{
 			if (counted != nullptr && counted->Reason == VisualScriptBreakpointInactivity::NotInProgram)
 			{
-				return "not in the running program: the graph has errors";
+				return std::string(Texts::InactiveNotInProgram);
 			}
 			if (!library && target.IsValid() && targetGone)
 			{
-				return fmt::format("the target {} was destroyed", target);
+				return fmt::format("{}{}{}", Texts::InactiveTarget, target, Texts::InactiveTargetGone);
 			}
 			if (counted == nullptr || !counted->Active)
 			{
-				return library ? "no running graph calls this library" : "no entity runs it";
+				return std::string(library ? Texts::InactiveNoLibraryCaller : Texts::InactiveNoRunner);
 			}
 			return {};
+		}
+
+		// Whether a node of a document's sub-graph is disabled (it passes the flow through without running).
+		bool IsNodeDisabled(VisualScriptDocument const* document, uint32_t function, uint32_t node)
+		{
+			if (document == nullptr)
+			{
+				return false;
+			}
+			VisualScriptGraph const* graph = &document->Graph;
+			if (function != 0)
+			{
+				auto const found = std::find_if(document->Functions.begin(), document->Functions.end(),
+				                                [function](VisualScriptFunction const& candidate)
+				                                {
+													return candidate.ID == function;
+												});
+				graph = found != document->Functions.end() ? &found->Graph : nullptr;
+			}
+			if (graph == nullptr)
+			{
+				return false;
+			}
+			auto const found = std::find_if(graph->Nodes.begin(), graph->Nodes.end(),
+			                                [node](VisualScriptNode const& candidate)
+			                                {
+												return candidate.ID == node;
+											});
+			return found != graph->Nodes.end() && found->Enabled == VisualScriptNodeEnabled::Disabled;
 		}
 
 		bool HasElement(VisualScriptGraph const& graph, uint32_t id)
@@ -900,8 +937,15 @@ namespace Strada
 		{
 			watches.push_back(VisualScriptDebugWatch{graph, function});
 		}
-		// The window's target: what its Instance combo shows (spec-slice4 §13.6). A function library runs on no entity.
-		if (!library && model.GetStoredDocument() != nullptr)
+		// The window's target: what its Instance combo shows (spec-slice4 §13.6). A function library runs on no entity (the
+		// session keeps no target for one). A window that has not chosen its entity yet (just opened, a stop's window among them,
+		// before its first draw resolves it) adopts the target the session has, which an agent's graph.target may have set while
+		// it was closed, instead of replacing it.
+		if (UUID const kept = session.GetTarget(graph); kept.IsValid() && panel.IsContextUndecided())
+		{
+			panel.ChooseContextEntity(kept);
+		}
+		else if (!library && model.GetStoredDocument() != nullptr)
 		{
 			session.SetTarget(graph, panel.GetDebugTarget());
 		}
@@ -941,20 +985,51 @@ namespace Strada
 				stop != nullptr && stop->Breakpoint && *stop->Breakpoint == std::pair<AssetHandle, uint32_t>(graph, breakpoint.Node);
 		}
 
-		std::string const graphName = model.GetGraphName(graph);
 		auto const chord = [mac](ImGuiKeyChord key)
 		{
 			return FormatVisualScriptChord(key, mac);
 		};
-		auto const stoppedButtons = [&chord]
+		auto const button = [&chord](VisualScriptDebugStripAction action, std::string_view label, ImGuiKeyChord key)
 		{
-			return std::vector<VisualScriptDebugStripButton>{
-				{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)},
-				{VisualScriptDebugStripAction::StepOver, "Step Over", chord(ImGuiKey_F10)},
-				{VisualScriptDebugStripAction::StepInto, "Step Into", chord(ImGuiKey_F11)},
-				{VisualScriptDebugStripAction::StepOut, "Step Out", chord(ImGuiMod_Shift | ImGuiKey_F11)},
-			};
+			return VisualScriptDebugStripButton{
+				action, std::string(label), key == ImGuiKey_None ? std::string() : chord(key), std::nullopt, {}};
 		};
+		auto const stoppedButtons = [&button, &chord]
+		{
+			std::vector<VisualScriptDebugStripButton> buttons{
+				button(VisualScriptDebugStripAction::Continue, Texts::StripContinue, ImGuiKey_F5),
+				button(VisualScriptDebugStripAction::StepOver, Texts::StripStepOver, ImGuiKey_F10),
+				button(VisualScriptDebugStripAction::StepInto, Texts::StripStepInto, ImGuiKey_F11),
+				button(VisualScriptDebugStripAction::StepOut, Texts::StripStepOut, ImGuiMod_Shift | ImGuiKey_F11),
+			};
+			// Step Into's second key, for macOS, which keeps F11 for Show Desktop (spec-slice4 §14.4).
+			buttons[2].SecondChord = chord(ImGuiMod_Ctrl | ImGuiKey_F11);
+			return buttons;
+		};
+		// The other frames of the stop in this document (the calls and sends that led to the selected frame): outlined as callers.
+		auto const addCallers = [&input, graph](VisualScriptStop const& shown, std::optional<uint32_t> selectedFrame)
+		{
+			for (uint32_t index = 0; index < shown.Frames.size(); index++)
+			{
+				VisualScriptStopFrame const& other = shown.Frames[index];
+				if (index != selectedFrame && other.Kind != VisualScriptStopFrameKind::Native && other.Document == graph)
+				{
+					input.Callers.emplace_back(other.Function, other.Node);
+				}
+			}
+		};
+		// A member of the stop's chain waiting in this document, inside its Send or Broadcast (its frame is a delivery).
+		std::optional<uint32_t> waiting;
+		if (stop != nullptr)
+		{
+			for (uint32_t index = 0; index < stop->Frames.size() && !waiting; index++)
+			{
+				if (stop->Frames[index].Kind == VisualScriptStopFrameKind::Delivery && stop->Frames[index].Document == graph)
+				{
+					waiting = index;
+				}
+			}
+		}
 
 		if (stop != nullptr && frameIndex < stop->Frames.size() && stop->Frames[frameIndex].Kind != VisualScriptStopFrameKind::Native &&
 		    stop->Frames[frameIndex].Document == graph)
@@ -975,22 +1050,39 @@ namespace Strada
 			              : stop->Reason == VisualScriptStopReason::Error ? VisualScriptWindowDebugState::Error
 			                                                              : VisualScriptWindowDebugState::Stopped;
 			input.StoppedHere = true;
-			std::string const where = fmt::format("{} (node {}) on {}", frame.Title, frame.Node, DescribeDebugEntity(scene, frame.Entity));
-			input.StoppedTooltip =
-				fmt::format("Stopped at {}. Edits apply at once and reach the stopped execution when they keep its nodes.", where);
+			std::string const place = DescribeDebugPlace(scene, frame.Title, frame.Node, frame.Entity);
+			std::string where = place;
+			input.StoppedTooltip = fmt::format("{}{}{}", Texts::StripStoppedAt, place, Texts::StoppedTooltipEnd);
+			// A disabled node stops too: the flow enters it and passes through (spec-slice4 §2.2).
+			if (IsNodeDisabled(model.GetStoredDocument().get(), frame.Function, frame.Node))
+			{
+				where += Texts::StripDisabled;
+			}
 			switch (input.State)
 			{
 				case VisualScriptWindowDebugState::Passed:
-					input.Strip.push_back({fmt::format("Passed breakpoint at {}: {}. These are its values as it passed", where,
-					                                   stop->Message.empty() ? std::string("it could not stop") : stop->Message),
-					                       {{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)}}});
+					input.Strip.push_back({fmt::format("{}{}: {}{}", Texts::StripPassedAt, where,
+					                                   stop->Message.empty() ? std::string(Texts::StripPassedUnknown) : stop->Message,
+					                                   Texts::StripPassedValues),
+					                       {button(VisualScriptDebugStripAction::Continue, Texts::StripContinue, ImGuiKey_F5)}});
 					break;
 				case VisualScriptWindowDebugState::Error:
-					input.Strip.push_back({fmt::format("Failed at {}: {}", where, stop->Message),
-					                       {{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)}}});
+				{
+					// The runtime's message names the place too ("Scripts/Failing.sgraph: Divide (node 12) on Failer (1): integer
+					// division by zero"): the line, which starts with the place, keeps what follows it.
+					std::string_view message = stop->Message;
+					std::string const named = place + ": ";
+					if (size_t const at = message.find(named); at != std::string_view::npos)
+					{
+						message = message.substr(at + named.size());
+					}
+					input.Strip.push_back({fmt::format("{}{}: {}", Texts::StripFailedAt, where, message),
+					                       {button(VisualScriptDebugStripAction::Continue, Texts::StripContinue, ImGuiKey_F5)}});
 					break;
+				}
 				default:
-					input.Strip.push_back({fmt::format("Stopped at {}: {}", where, GetStopReasonWords(stop->Reason)), stoppedButtons()});
+					input.Strip.push_back(
+						{fmt::format("{}{}: {}", Texts::StripStoppedAt, where, GetStopReasonWords(stop->Reason)), stoppedButtons()});
 					break;
 			}
 			// One frame's breakpoint stopped several instances of this graph under any instance (spec-slice4 §4.7).
@@ -1007,19 +1099,15 @@ namespace Strada
 				{
 					std::string const entity =
 						scene.HasEntity(stop->Entity) ? scene.GetEntityByUUID(stop->Entity).GetName() : stop->Entity.ToString();
-					input.Strip.push_back({fmt::format("+{} more {} stopped here", others, others == 1 ? "instance" : "instances"),
-					                       {{VisualScriptDebugStripAction::OnlyInstance, "Only " + entity, {}}}});
+					input.Strip.push_back({fmt::format("+{}{}", others, others == 1 ? Texts::StripMoreInstance : Texts::StripMoreInstances),
+					                       {{VisualScriptDebugStripAction::OnlyInstance,
+					                         fmt::format("{}{}", Texts::StripOnly, entity),
+					                         {},
+					                         std::nullopt,
+					                         {}}}});
 				}
 			}
-			// The other frames of the stop in this document (calls, sends): outlined as callers.
-			for (uint32_t index = 0; index < stop->Frames.size(); index++)
-			{
-				VisualScriptStopFrame const& other = stop->Frames[index];
-				if (index != frameIndex && other.Kind != VisualScriptStopFrameKind::Native && other.Document == graph)
-				{
-					input.Callers.emplace_back(other.Function, other.Node);
-				}
-			}
+			addCallers(*stop, frameIndex);
 			// The values of the frame: the path it computed, and the wires' values.
 			if (VisualScriptStopValues const* values = session.GetStopValues(stop->ID, frameIndex))
 			{
@@ -1033,7 +1121,8 @@ namespace Strada
 					VisualScriptEnumLookup const enums = MakeVisualScriptEnumLookup(nodeLibrary);
 					auto const describe = [&scene](UUID entity)
 					{
-						return scene.HasEntity(entity) ? scene.GetEntityByUUID(entity).GetName() : fmt::format("Missing ({})", entity);
+						return scene.HasEntity(entity) ? scene.GetEntityByUUID(entity).GetName()
+						                               : fmt::format("{}{})", Texts::StripMissing, entity);
 					};
 					VisualScriptAssetNameLookup const assetName = [](AssetHandle handle)
 					{
@@ -1072,40 +1161,34 @@ namespace Strada
 				}
 			}
 		}
-		else if (stop != nullptr && std::any_of(stop->Frames.begin(), stop->Frames.end(),
-		                                        [graph](VisualScriptStopFrame const& frame)
-		                                        {
-													return frame.Kind != VisualScriptStopFrameKind::Native && frame.Document == graph;
-												}))
+		else if (stop != nullptr && waiting)
 		{
-			// A member of the stop's chain waits in this document, inside its Send or Broadcast.
-			auto const member = std::find_if(stop->Frames.begin(), stop->Frames.end(),
-			                                 [graph](VisualScriptStopFrame const& frame)
-			                                 {
-												 return frame.Kind != VisualScriptStopFrameKind::Native && frame.Document == graph;
-											 });
-			uint32_t const memberIndex = static_cast<uint32_t>(member - stop->Frames.begin());
-			input.State = VisualScriptWindowDebugState::Waiting;
-			input.Stop = stop->ID;
-			input.Frame = memberIndex;
-			input.Function = member->Function;
-			input.StoppedHere = true;
-			VisualScriptStopFrame const& leaf = stop->Frames.front();
-			std::string const receiverGraph = model.GetGraphName(leaf.Document);
-			input.StoppedTooltip = fmt::format("Stopped at {} (node {}) on {}. Edits apply at once and reach the stopped execution when "
-			                                   "they keep its nodes.",
-			                                   leaf.Title, leaf.Node, DescribeDebugEntity(scene, leaf.Entity));
-			for (uint32_t index = 0; index < stop->Frames.size(); index++)
+			// A member of the stop's chain waits in this document, inside its Send or Broadcast; its receiver is the member just
+			// inside it (the frame before its delivery, past any engine code between them).
+			VisualScriptStopFrame const& member = stop->Frames[*waiting];
+			std::optional<uint32_t> receiver;
+			for (uint32_t index = *waiting; index > 0 && !receiver; index--)
 			{
-				VisualScriptStopFrame const& other = stop->Frames[index];
-				if (other.Kind != VisualScriptStopFrameKind::Native && other.Document == graph)
+				if (stop->Frames[index - 1].Kind != VisualScriptStopFrameKind::Native)
 				{
-					input.Callers.emplace_back(other.Function, other.Node);
+					receiver = index - 1;
 				}
 			}
-			input.Strip.push_back({fmt::format("Waiting in {} (node {}): its receiver on {} is stopped in {}", member->Title, member->Node,
-			                                   DescribeDebugEntity(scene, leaf.Entity), receiverGraph),
-			                       {{VisualScriptDebugStripAction::Show, "Show", {}}}});
+			input.State = VisualScriptWindowDebugState::Waiting;
+			input.Stop = stop->ID;
+			input.Frame = *waiting;
+			input.Function = member.Function;
+			input.StoppedHere = true;
+			VisualScriptStopFrame const& leaf = stop->Frames.front();
+			input.StoppedTooltip = fmt::format("{}{}{}", Texts::StripStoppedAt,
+			                                   DescribeDebugPlace(scene, leaf.Title, leaf.Node, leaf.Entity), Texts::StoppedTooltipEnd);
+			addCallers(*stop, std::nullopt);
+			VisualScriptStopFrame const& inside = stop->Frames[receiver.value_or(0)];
+			VisualScriptDebugStripButton show{VisualScriptDebugStripAction::Show, std::string(Texts::StripShow), {}, receiver, {}};
+			input.Strip.push_back({fmt::format("{}{}{}{}{}{}{}", Texts::StripWaitingIn, member.Title, Texts::StripNode, member.Node,
+			                                   Texts::StripReceiverOn, DescribeDebugEntity(scene, inside.Entity), Texts::StripStoppedIn) +
+			                           model.GetGraphName(inside.Graph),
+			                       {std::move(show)}});
 		}
 		else if (state.Stepping && state.Stepping->WaitsIn && state.Stepping->WaitsIn->Document == graph && state.Stops.empty())
 		{
@@ -1113,31 +1196,37 @@ namespace Strada
 			input.State = VisualScriptWindowDebugState::Stepping;
 			input.Function = wait.Function;
 			std::string text =
-				fmt::format("Stepping: the execution waits in {} (node {}) and stops when it completes", wait.Title, wait.Node);
+				fmt::format("{}{}{}{}{}", Texts::StripStepping, wait.Title, Texts::StripNode, wait.Node, Texts::StripSteppingEnd);
 			if (m_Operations.GetContext().IsPlaying() && m_Operations.GetContext().GetScene().IsPaused() && !session.HasPausedScene())
 			{
-				text += ". The game is paused: frames must run for it to complete";
+				text += Texts::StripSteppingPaused;
 			}
-			input.Strip.push_back({std::move(text), {{VisualScriptDebugStripAction::Break, "Break", {}}}});
+			input.Strip.push_back({std::move(text), {button(VisualScriptDebugStripAction::Break, Texts::StripBreak, ImGuiKey_None)}});
 		}
 		else if (session.GetSessionState() == VisualScriptDebugSessionState::StepEnded && m_LastStopGraph == graph)
 		{
 			input.State = VisualScriptWindowDebugState::StepEnded;
-			input.Strip.push_back({fmt::format("The execution ended. Continue ({}) resumes the game; Step ({}) stops at this graph's next "
-			                                   "instruction",
-			                                   chord(ImGuiKey_F5), chord(ImGuiKey_F10)),
-			                       {{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)},
-			                        {VisualScriptDebugStripAction::StepOver, "Step Over", chord(ImGuiKey_F10)}}});
+			input.Strip.push_back({fmt::format("{}{}{}{}{}", Texts::StripStepEnded, chord(ImGuiKey_F5), Texts::StripStepEndedStep,
+			                                   chord(ImGuiKey_F10), Texts::StripStepEndedEnd),
+			                       {button(VisualScriptDebugStripAction::Continue, Texts::StripContinue, ImGuiKey_F5),
+			                        button(VisualScriptDebugStripAction::StepOver, Texts::StripStepOver, ImGuiKey_F10)}});
 		}
 		else if (m_HeldGraph == graph && graph.IsValid() && session.HasPausedScene() && state.Stops.empty())
 		{
-			input.Strip.push_back({fmt::format("The stopped execution ended ({}). The game stays paused: Continue ({}) resumes it",
-			                                   GetHeldCause(m_HeldReason), chord(ImGuiKey_F5)),
-			                       {{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)}}});
+			input.Strip.push_back({fmt::format("{}{}{}{}{}", Texts::StripHeld, GetHeldCause(m_HeldReason), Texts::StripHeldPaused,
+			                                   chord(ImGuiKey_F5), Texts::StripHeldEnd),
+			                       {button(VisualScriptDebugStripAction::Continue, Texts::StripContinue, ImGuiKey_F5)}});
+		}
+		else if (stop != nullptr)
+		{
+			// The stop's other frames in this document (a call that led into a library, a sender in another graph): outlined, with
+			// no strip.
+			addCallers(*stop, std::nullopt);
 		}
 
-		// Values of the running game on the wires (Wire Values: Always), while no stop of this graph shows its own.
-		if (input.LiveWireValues && attached && !input.Stop && !library)
+		// Values of the running game on the wires (Wire Values: Always), while no stop of this graph shows its own and the window
+		// shows its canvas (a tab behind another draws none).
+		if (input.LiveWireValues && attached && !input.Stop && !library && panel.IsVisible())
 		{
 			input.Values = std::move(previous.Values);
 			input.ValuesFunction = previous.ValuesFunction;
@@ -1302,13 +1391,14 @@ namespace Strada
 				case VisualScriptDebugRequest::Kind::ShowFrame:
 					if (request.Stop)
 					{
-						if (VisualScriptStop const* stop = session.FindStop(*request.Stop))
+						if (VisualScriptStop const* stop = session.FindStop(*request.Stop);
+						    stop != nullptr && request.Frame < stop->Frames.size())
 						{
-							// The receiver a waiting member's strip names: the chain's leaf.
+							// The receiver a waiting member's strip names: the member just inside it.
 							VisualScriptStop const shown = *stop;
 							session.SelectStop(shown.ID);
-							session.SelectFrame(0);
-							FollowFrame(shown, 0);
+							session.SelectFrame(request.Frame);
+							FollowFrame(shown, request.Frame);
 						}
 					}
 					break;

@@ -2984,7 +2984,7 @@ namespace
 	}
 }
 
-TEST_CASE("VisualScriptDebug: a drag starting on a breakpoint marker or its ghost moves the node and adds no breakpoint")
+TEST_CASE("VisualScriptEditor: a drag starting on a breakpoint marker or its ghost moves the node and adds no breakpoint")
 {
 	for (bool const marked : {false, true})
 	{
@@ -3008,7 +3008,7 @@ TEST_CASE("VisualScriptDebug: a drag starting on a breakpoint marker or its ghos
 	}
 }
 
-TEST_CASE("VisualScriptDebug: a click on a breakpoint marker toggles it once, at the release, and a right click asks for its popup")
+TEST_CASE("VisualScriptEditor: a click on a breakpoint marker toggles it once, at the release, and a right click asks for its popup")
 {
 	InteractionFixture fixture(MakeCanvasDocument());
 	VisualScriptEditorModel& model = fixture.Model;
@@ -3043,7 +3043,7 @@ TEST_CASE("VisualScriptDebug: a click on a breakpoint marker toggles it once, at
 					   }));
 }
 
-TEST_CASE("VisualScriptDebug: a read-only window toggles breakpoints too: they are not edits")
+TEST_CASE("VisualScriptEditor: a read-only window toggles breakpoints too: they are not edits")
 {
 	InteractionFixture fixture(MakeCanvasDocument(), true);
 	REQUIRE(fixture.Model.IsReadOnly());
@@ -3056,7 +3056,7 @@ TEST_CASE("VisualScriptDebug: a read-only window toggles breakpoints too: they a
 	CHECK(fixture.Drag(corner, corner + glm::vec2(80.0f, 48.0f)).empty());
 }
 
-TEST_CASE("VisualScriptDebug: a press on a breakpoint marker does nothing when its node changes elsewhere before the release")
+TEST_CASE("VisualScriptEditor: a press on a breakpoint marker does nothing when its node changes elsewhere before the release")
 {
 	InteractionFixture fixture(MakeCanvasDocument());
 	VisualScriptEditorModel& model = fixture.Model;

@@ -1775,7 +1775,7 @@ namespace
 	}
 }
 
-TEST_CASE("VisualScriptDebug: the Flow layer is drawn behind the nodes and the Debug layer above them, before the comment labels")
+TEST_CASE("VisualScriptEditor: the Flow layer is drawn behind the nodes and the Debug layer above them, before the comment labels")
 {
 	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
 	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
@@ -1872,7 +1872,7 @@ TEST_CASE("VisualScriptDebug: the Flow layer is drawn behind the nodes and the D
 	CHECK_FALSE(pill.Has(Elements::Faded));
 }
 
-TEST_CASE("VisualScriptDebug: an Overview draw record holds RunGlow box items for the boxes of the nodes that ran, and each level "
+TEST_CASE("VisualScriptEditor: an Overview draw record holds RunGlow box items for the boxes of the nodes that ran, and each level "
           "draws its debugging items")
 {
 	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
@@ -1916,7 +1916,7 @@ TEST_CASE("VisualScriptDebug: an Overview draw record holds RunGlow box items fo
 	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::ValuePill) == 0);
 }
 
-TEST_CASE("VisualScriptDebug: fired wires move their dots while the flow clock runs, never while it holds or with Reduce Motion")
+TEST_CASE("VisualScriptEditor: fired wires move their dots while the flow clock runs, never while it holds or with Reduce Motion")
 {
 	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
 	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
@@ -1951,7 +1951,7 @@ TEST_CASE("VisualScriptDebug: fired wires move their dots while the flow clock r
 	      MultiplyVisualScriptAlpha(VisualScriptFlowColor, 0.9f * 0.4f));
 }
 
-TEST_CASE("VisualScriptDebug: a frame draws at most 512 fired wires and 512 run glows, the most intense first, and 200 value pills")
+TEST_CASE("VisualScriptEditor: a frame draws at most 512 fired wires and 512 run glows, the most intense first, and 200 value pills")
 {
 	// 700 Branches in a chain at Overview.
 	VisualScriptDocument chain;
@@ -2026,7 +2026,7 @@ TEST_CASE("VisualScriptDebug: a frame draws at most 512 fired wires and 512 run 
 	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::ValuePill) == VisualScriptCanvasRenderer::MaxValuePills);
 }
 
-TEST_CASE("VisualScriptDebug: value pills show at most 24 code points, earlier and unknown values at half alpha and none not computed")
+TEST_CASE("VisualScriptEditor: value pills show at most 24 code points, earlier and unknown values at half alpha and none not computed")
 {
 	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
 	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
@@ -2052,7 +2052,7 @@ TEST_CASE("VisualScriptDebug: value pills show at most 24 code points, earlier a
 	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::ValuePill, data) == nullptr);
 }
 
-TEST_CASE("VisualScriptDebug: the current instruction points at its entered pin, or past the exit about to fire with its pill, and "
+TEST_CASE("VisualScriptEditor: the current instruction points at its entered pin, or past the exit about to fire with its pill, and "
           "a read-only stop draws it hollow")
 {
 	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
@@ -2091,7 +2091,7 @@ TEST_CASE("VisualScriptDebug: the current instruction points at its entered pin,
 	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::Instruction) == 0);
 }
 
-TEST_CASE("VisualScriptDebug: the ghost marker appears under the mouse at a node's corner with its tooltip, and markers show their "
+TEST_CASE("VisualScriptEditor: the ghost marker appears under the mouse at a node's corner with its tooltip, and markers show their "
           "states")
 {
 	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
@@ -2140,7 +2140,7 @@ TEST_CASE("VisualScriptDebug: the ghost marker appears under the mouse at a node
 	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::Breakpoint) == 3);
 }
 
-TEST_CASE("VisualScriptDebug: the wire hover pill and pin tooltips gain the value the wire carries")
+TEST_CASE("VisualScriptEditor: the wire hover pill and pin tooltips gain the value the wire carries")
 {
 	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
 	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);

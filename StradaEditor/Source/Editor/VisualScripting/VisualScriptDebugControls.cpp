@@ -93,16 +93,24 @@ namespace Strada
 		return UI::GetToolbarButtonSize().x * 5.0f + style.ItemSpacing.x * 5.0f;
 	}
 
+	std::optional<VisualScriptDebugControls::ButtonRect> VisualScriptDebugControls::GetButtonRect(VisualScriptDebugButton button) const
+	{
+		size_t const index = static_cast<size_t>(button);
+		return index < m_ButtonRects.size() ? m_ButtonRects[index] : std::nullopt;
+	}
+
 	void VisualScriptDebugControls::DrawToolbarButtons()
 	{
+		m_ButtonRects.fill(std::nullopt);
 		if (!IsPlayingWithDebugger())
 		{
 			return;
 		}
 		bool const macOS = ImGui::GetIO().ConfigMacOSXBehaviors;
 		VisualScriptDebugSessionState const state = m_Session.GetSessionState();
-		for (DebugButton const& button : ResumeButtons)
+		for (size_t index = 0; index < ResumeButtons.size(); index++)
 		{
+			DebugButton const& button = ResumeButtons[index];
 			bool const enabled = button.Action == VisualScriptDebugAction::Continue ? CanContinue()
 			                     : button.Action == VisualScriptDebugAction::StepOut
 			                         ? CanStep() && state != VisualScriptDebugSessionState::StepEnded
@@ -115,6 +123,7 @@ namespace Strada
 				bool const all = button.Action == VisualScriptDebugAction::Continue;
 				m_Session.RequestResume(all ? std::nullopt : m_Session.GetSelectedStop(), button.Action, all);
 			}
+			m_ButtonRects[index] = ButtonRect{ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
 			std::string keys = FormatVisualScriptChord(button.Chord, macOS);
 			if (button.SecondChord != ImGuiKey_None)
 			{
@@ -125,7 +134,9 @@ namespace Strada
 		}
 		ImGui::SameLine();
 		ImGui::BeginDisabled(!CanBreak());
-		if (UI::ToolbarButton("##Break", UI::ToolbarIcon::Break, false))
+		bool const broken = UI::ToolbarButton("##Break", UI::ToolbarIcon::Break, false);
+		m_ButtonRects[static_cast<size_t>(VisualScriptDebugButton::Break)] = ButtonRect{ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
+		if (broken)
 		{
 			// Arming a break runs no graph code: it is the session's configuration, made at once.
 			AssetHandle const graph = m_Host.GetBreakGraph ? m_Host.GetBreakGraph() : AssetHandle();
@@ -149,15 +160,22 @@ namespace Strada
 			m_Session.RequestResume(std::nullopt, VisualScriptDebugAction::Continue, true, true);
 			return;
 		}
-		// Refused only while an execution is stopped, which is handled above.
-		static_cast<void>(m_PlayMode.SetPaused(!m_PlayMode.IsPaused()));
+		// Refused only while an execution is stopped, which is handled above. Unpausing a held pause or an ended step resumes
+		// play without the session's resume listener: the input taken at the stop goes back as Continue gives it.
+		bool const resuming = m_PlayMode.IsPaused();
+		static_cast<void>(m_PlayMode.SetPaused(!resuming));
+		if (resuming && !m_PlayMode.IsPaused())
+		{
+			OnResume();
+		}
 	}
 
 	std::string VisualScriptDebugControls::GetPauseTooltip() const
 	{
 		if (m_Session.GetFrameStepRefusal())
 		{
-			return std::string(Texts::PauseWhileStopped);
+			return fmt::format("{}{}{}", Texts::PauseWhileStopped,
+			                   FormatVisualScriptChord(ImGuiKey_F5, ImGui::GetIO().ConfigMacOSXBehaviors), Texts::PauseWhileStoppedEnd);
 		}
 		return std::string(m_PlayMode.IsPaused() ? Texts::Resume : Texts::Pause);
 	}
@@ -180,8 +198,26 @@ namespace Strada
 		}
 	}
 
+	void VisualScriptDebugControls::UpdateInput()
+	{
+		if (!IsPlayingWithDebugger())
+		{
+			// Play stopped (or the session detached): nothing is left to give back, and the next session starts afresh.
+			m_TookInput = false;
+			return;
+		}
+		// The pause is held without a new stop (a step that ended after waiting in a latent node, a stop made and ended in one
+		// frame, one an edit cancelled): the keys that continue must reach the editor, as at a stop.
+		if (CanContinue() && m_PlayMode.IsPaused() && m_Input.HasInput())
+		{
+			m_Input.Release();
+			m_TookInput = true;
+		}
+	}
+
 	void VisualScriptDebugControls::HandleKeys()
 	{
+		UpdateInput();
 		// The global routes ignore modals: the keys do nothing while one is open (a confirmation acts on what is shown).
 		if (ImGui::GetTopMostPopupModal() != nullptr || !IsPlayingWithDebugger())
 		{
