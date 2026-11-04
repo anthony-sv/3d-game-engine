@@ -76,6 +76,7 @@ public sealed class DayNight : Script
 	public bool IsNight => m_Target > 0.5f;
 
 	/// <summary>How far the change has come, from 0 (day) to 1 (night).</summary>
+	[VisualNode(Description = "How far day has turned to night: 0 by day, 1 at night")]
 	public float Blend { get; private set; }
 
 	/// <summary>Times it switched between day and night.</summary>

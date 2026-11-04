@@ -3,9 +3,15 @@ props), the generated sounds, meshes and textures, the C# scripts, materials, pr
 the test scene; then runs the tests. The downloads are not in the repository (FetchAssets.py restores them).
 
     python Projects/Showcase/Tools/Author.py [strada executable]
+    python Projects/Showcase/Tools/Author.py --exhibit GraphGarden [strada executable]
 
 The project is rebuilt from scratch: everything but this Tools folder, the .gitignore and the scripts' sources
 (Scripts/Source) is replaced. Without an executable, strada runs from the repository (dotnet run).
+
+With --exhibit, one exhibit is authored in place instead: the project is opened as it is, the exhibit's entities are made
+anew in the main and test scenes, its graphs and materials are written (keeping their asset handles), and the tests run.
+Every other asset stays as it is (a rebuild imports the Poly Haven assets with new handles and rewrites the materials made
+from them): the run fails, naming the files, when anything outside the exhibit's own files changed.
 
 The clearing is laid out in exhibit areas around a fountain, each with a signpost: physically based materials (west), glass
 and cutouts (east), lights and shadows (north-west) in an evening zone of post-processing (with a signpost of its own),
@@ -15,6 +21,8 @@ scene; day turns to night at the press of a button. The camera tours the exhibit
 flickers on; then it flies or walks over the clearing, and a HUD (a UI canvas) lists the features, counts what was knocked
 down and scored, and sets the exhibits off.
 """
+import argparse
+import hashlib
 import json
 import math
 import os
@@ -25,6 +33,9 @@ import sys
 import tempfile
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, TOOLS)
+import GraphGarden  # noqa: E402  (the Graph Garden exhibit: its data, graphs and entities)
+
 PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
 SCRIPTS = ["CameraRig", "Walker", "CameraShake", "Flythrough", "CameraShot", "ITourCue", "Impact", "LanternFlicker", "Playground",
@@ -256,7 +267,7 @@ POST_SIGN_FACING = (-3.0, 4.0)
 # The opening tour: the shots the camera glides through, as (name, frame, eye, target, seconds to the next shot, caption,
 # detail line, the exhibit set off on the way: an attribute of Showcase whose script is a tour cue, and how many seconds before
 # the camera arrives it goes off). It opens on the neon sign, the engine's name in light, and pulls back to the gallery under
-# it; it ends at the campfire, beside the home view.
+# it; it ends at the Graph Garden and the night, beside the home view.
 TOUR = (
     ("Opening", GALLERY, (-0.8, 5.6, 4.6), (0.2, 6.5, -0.6), 6.0, "", "", "neon_sign", 0.0),
     ("Gallery", GALLERY, (0.8, 3.2, 8.2), (0.0, 2.7, 0.0), 4.5, "Physically based materials",
@@ -273,6 +284,7 @@ TOUR = (
      "press F to walk: a ramp, stairs, posts to jump and a lift up the lookout", None, 0.0),
     ("Campfire", LAYOUT, (-1.0, 1.5, 13.8), (-4.8, 1.0, 6.2), 4.0, "Particles and sound",
      "fire, smoke, sparks, water and fireflies, heard where they are", "night_interlude", 2.5),
+    (GraphGarden.SHOT[0], LAYOUT) + GraphGarden.SHOT[1:],
     ("Night", LAYOUT, (-2.0, 7.0, 20.5), (-1.6, -0.2, -4.0), 4.0, "Day and night",
      "press L for the night: moonlight, lamps, firelight and neon", None, 0.0),
     ("Home", *HOME, 3.0, "", "", None, 0.0),
@@ -329,8 +341,29 @@ FEATURES = (
     ("Triggers", "a goal that counts, a plate that opens a gate", (11.0, -8.0), 6.0),
     ("Character controller", "walk, run, jump, climb stairs, ride a lift, push", (11.0, 14.5), 7.0),
     ("Particles and 3D sound", "fire, water, sparks; 3D sound and streamed music", (-2.2, 4.0), 7.0),
+    GraphGarden.FEATURE,
     ("UI and C# scripting", "exhibits are C# scripts with inspector fields", None, 0.0),
 )
+
+# The feature list's rows: closed, each this tall, this far apart.
+ROW_HEIGHT = 34.0
+ROW_GAP = 4.0
+
+
+def feature_row_position(index):
+    """Where the feature list's row at the index stands, every row above it closed (Hud stacks them as they open)."""
+    return (0.0, index * (ROW_HEIGHT + ROW_GAP))
+
+
+def feature_panel_sizes():
+    """The sizes of the feature panel and of its list, every row closed."""
+    rows_height = ROW_HEIGHT * len(FEATURES) + ROW_GAP * (len(FEATURES) - 1)
+    return (392.0, 124.0 + rows_height + 16.0), (356.0, rows_height)
+
+
+# The night the tour lets fall on its way to the campfire outlasts the rest of the tour, so the tour's end (or a skip) is what
+# ends it: the Graph Garden, after the campfire, glows at night.
+NIGHT_INTERLUDE_SECONDS = 30.0
 
 # The HUD's buttons: (entity name, label, icon, key, Hud field).
 BUTTONS = (
@@ -372,10 +405,66 @@ def use_engine_sources(csproj):
         file.write(text)
 
 
-def main():
-    command = [sys.argv[1]] if len(sys.argv) > 1 else \
-        ["dotnet", "run", "--project", os.path.join(ROOT, "StradaTool"), "-c", "Release", "--no-launch-profile", "--"]
+# The exhibits Author.py can author in place, and the files under Assets each may write (paths relative to Assets, with
+# forward slashes; a trailing "/" takes a folder's files).
+EXHIBITS = {
+    "GraphGarden": ("Scenes/Main.sscene", "Scenes/Tests.sscene", "AssetRegistry.sreg", "Audio/Chime.wav", "Scripts/GraphGarden/",
+                    "Materials/GraphGarden/"),
+}
+# The checks of the test scene (ShowcaseTests.cs).
+TEST_CHECKS = 68
 
+
+def main():
+    parser = argparse.ArgumentParser(description="Builds the Showcase project through strada mcp, or one of its exhibits in place.")
+    parser.add_argument("strada", nargs="?", help="the strada executable (default: dotnet run of the repository's StradaTool)")
+    parser.add_argument("--exhibit", choices=sorted(EXHIBITS), help="author this exhibit in place, leaving every other asset as it is")
+    arguments = parser.parse_args()
+    command = [os.path.abspath(arguments.strada)] if arguments.strada else \
+        ["dotnet", "run", "--project", os.path.join(ROOT, "StradaTool"), "-c", "Release", "--no-launch-profile", "--"]
+    if arguments.exhibit:
+        author_exhibit(command, arguments.exhibit)
+    else:
+        rebuild(command)
+
+
+def hash_assets():
+    """The SHA-256 of every file under the project's Assets, by its path relative to Assets (forward slashes)."""
+    assets = os.path.join(PROJECT, "Assets")
+    hashes = {}
+    for folder, _, files in os.walk(assets):
+        for name in files:
+            path = os.path.join(folder, name)
+            with open(path, "rb") as file:
+                hashes[os.path.relpath(path, assets).replace(os.sep, "/")] = hashlib.sha256(file.read()).hexdigest()
+    return hashes
+
+
+def author_exhibit(command, exhibit):
+    """Authors one exhibit in the project as it is (spec-slice4 section 19.7): a rebuild would give every Poly Haven asset a
+    new handle and rewrite the materials made from them. Fails, naming the files, when a file the exhibit does not own
+    changed."""
+    before = hash_assets()
+    client = McpClient(command + ["mcp", "--headless", "--new"])
+    try:
+        session = Showcase(client)
+        session.call("project_open", {"path": os.path.join(PROJECT, "Showcase.sproj")})
+        built = session.call("script_build")
+        if not built["succeeded"]:
+            raise SystemExit(f"the scripts did not build: {built}")
+        session.author_graph_garden_in_place()
+    finally:
+        client.close()
+    after = hash_assets()
+    owned = EXHIBITS[exhibit]
+    changed = sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
+    foreign = [path for path in changed if not any(path == own or (own.endswith("/") and path.startswith(own)) for own in owned)]
+    print("changed under Assets:", ", ".join(changed) if changed else "nothing")
+    if foreign:
+        raise SystemExit("authoring the exhibit changed files it does not own: " + ", ".join(foreign))
+
+
+def rebuild(command):
     # The editor starts before anything is touched: a tool that cannot run leaves the project as it is.
     client = McpClient(command + ["mcp", "--headless", "--new"])
     # The editor creates projects in empty directories only: what is kept waits outside meanwhile.
@@ -428,8 +517,13 @@ class Showcase:
         return created
 
     def material(self, path, fields):
-        self.call("material_create", {"path": f"Materials/{path}.smat", "fields": fields})
-        return f"asset://Materials/{path}.smat"
+        """The material at Materials/<path>.smat with the fields: created, or set when it exists (its handle stays)."""
+        reference = f"asset://Materials/{path}.smat"
+        if os.path.exists(os.path.join(PROJECT, "Assets", "Materials", *f"{path}.smat".split("/"))):
+            self.call("material_set", {"material": reference, "fields": fields})
+        else:
+            self.call("material_create", {"path": f"Materials/{path}.smat", "fields": fields})
+        return reference
 
     def mesh(self, mesh, material, extra=None, shadows=True):
         """A Mesh component of a built-in or project mesh with one material. Fittings around a shadow-casting light (lenses,
@@ -478,6 +572,7 @@ class Showcase:
 
     def make_materials(self):
         material = self.material
+        self.marble = self.textures[MARBLE]
         self.ball_metal = material("BallMetal", {"BaseColor": [0.95, 0.93, 0.88, 1.0], "Metallic": 1.0, "Roughness": 0.18})
         self.iron = material("Iron", {"BaseColor": [0.16, 0.16, 0.18, 1.0], "Metallic": 1.0, "Roughness": 0.38})
         self.red_paint = material("RedPaint", {"BaseColor": [0.62, 0.09, 0.05, 1.0], "Roughness": 0.45})
@@ -585,6 +680,8 @@ class Showcase:
         self.make_scenery()
         self.make_sound()
         self.make_grading()
+        # The conductor reads the day and night switch (make_grading).
+        self.make_graph_garden()
         self.make_playground()
         self.make_hud()
         self.make_tour()
@@ -1614,12 +1711,20 @@ class Showcase:
             "EveningZone": entity | {"Value": self.evening_zone}, "DayAmbience": entity | {"Value": self.ambience},
             "NightAmbience": entity | {"Value": self.night_ambience}, "Smoke": entity | {"Value": self.campfire_smoke},
             "Water": entity | {"Value": self.fountain_jets}, "Leaves": entity | {"Value": self.leaves}}}})
-        # The tour lets night fall on its way to the campfire, for a while.
-        self.night_interlude = self.entity("Night Interlude", {"Script": {"ClassName": "Showcase.NightInterlude", "Fields": {
-            "Lighting": entity | {"Value": self.day_night}}}}, self.day_night)
+        # The tour lets night fall on its way to the campfire, until it ends.
+        self.night_interlude = self.entity("Night Interlude", {"Script": {"ClassName": "Showcase.NightInterlude",
+                                                                          "Fields": self.night_interlude_fields()}}, self.day_night)
         # The launcher's smoke dims with the rest of the unlit matter (a script's fields are set as a whole).
         self.call("component_set", {"entity": self.launcher, "component": "Script", "fields": {"Fields": self.launcher_fields | {
             "Lighting": entity | {"Value": self.day_night}}}})
+
+    def night_interlude_fields(self):
+        return {"Lighting": {"Type": "Entity", "Value": self.day_night}, "Seconds": {"Type": "Float", "Value": NIGHT_INTERLUDE_SECONDS}}
+
+    def make_graph_garden(self):
+        """The Graph Garden (GraphGarden.py): visual scripts play its chimes, and the tour cues its conductor."""
+        self.garden = GraphGarden.build(self)
+        self.graph_garden = self.garden.conductor
 
     def make_playground(self):
         """The playground, which counts the props knocked down and puts the exhibits back, the debug view and the thrown ball's
@@ -1667,9 +1772,8 @@ class Showcase:
 
         # The feature list, top left: the engine's name, then a row per exhibit area, its name alone until it lights up and
         # opens (Hud stacks the rows; this is the list with every row closed).
-        row_height, row_gap = 34.0, 4.0
-        rows_height = row_height * len(FEATURES) + row_gap * (len(FEATURES) - 1)
-        panel = self.entity("Feature Panel", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (36.0, 36.0), (392.0, 124.0 + rows_height + 16.0)),
+        panel_size, rows_size = feature_panel_sizes()
+        panel = self.entity("Feature Panel", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (36.0, 36.0), panel_size),
                                               "UIImage": {"Color": PANEL, "CornerRadius": 18.0}}, hud)
         self.entity("Brand", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (30.0, 22.0), (340.0, 52.0)),
                               "UIText": ui_text("S T R A D A", 42.0, TEXT)}, panel)
@@ -1677,26 +1781,12 @@ class Showcase:
                                  "UIText": ui_text("ENGINE SHOWCASE", 17.0, AMBER)}, panel)
         self.entity("Rule", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (30.0, 110.0), (332.0, 2.0)), "UIImage": {"Color": AMBER[:3] + [0.45]}},
                     panel)
-        features = self.entity("Features", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (18.0, 124.0), (356.0, rows_height))}, panel)
-        for index, (name, detail, center, radius) in enumerate(FEATURES):
-            row = self.entity(f"Feature: {name}", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (0.0, index * (row_height + row_gap)),
-                                                                     (356.0, row_height))}, features)
-            glow = self.entity("Glow", {"UIRect": ui_fill(Opacity=0.0), "UIImage": {"Color": linear(1.0, 0.68, 0.3, 0.13), "CornerRadius": 10.0}}, row)
-            bar = self.entity("Bar", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.5), (6.0, 0.0), (4.0, -12.0), (0.0, 1.0), Opacity=0.25),
-                                      "UIImage": {"Color": AMBER, "CornerRadius": 2.0}}, row)
-            label = self.entity("Name", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 4.0), (328.0, 26.0)), "UIText": ui_text(name, 21.0, TEXT)},
-                                row)
-            line = self.entity("Detail", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 31.0), (328.0, 18.0), Opacity=0.0),
-                                          "UIText": ui_text(detail, 15.0, DIM)}, row)
-            x, z = center if center else (0.0, 0.0)
-            self.call("component_add", {"entity": row, "component": "Script", "fields": {"ClassName": "Showcase.HudFeature", "Fields": {
-                "Center": {"Type": "Vector3", "Value": [x, 0.0, z]}, "Radius": {"Type": "Float", "Value": radius},
-                "Glow": entity | {"Value": glow}, "Bar": entity | {"Value": bar}, "Label": entity | {"Value": label},
-                "Detail": entity | {"Value": line}, "ClosedHeight": {"Type": "Float", "Value": row_height},
-                "DetailHeight": {"Type": "Float", "Value": 22.0}}}})
+        features = self.entity("Features", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (18.0, 124.0), rows_size)}, panel)
+        for index, feature in enumerate(FEATURES):
+            self.make_feature_row(features, index, feature)
         hud_fields["Features"] = entity | {"Value": features}
         hud_fields["FeaturePanel"] = entity | {"Value": panel}
-        hud_fields["RowGap"] = {"Type": "Float", "Value": row_gap}
+        hud_fields["RowGap"] = {"Type": "Float", "Value": ROW_GAP}
 
         # The status, top right: the props knocked down and the goals.
         status = self.entity("Status", {"UIRect": ui_rect((1.0, 0.0), (1.0, 0.0), (-36.0, 36.0), (340.0, 92.0)),
@@ -1780,6 +1870,27 @@ class Showcase:
         self.tour_fade = self.entity("Tour Fade", {"UIRect": ui_fill(Opacity=0.0), "UIImage": {"Color": black}}, tour)
         self.finish_camera(self.ball_prefab, self.crosshair)
 
+    def make_feature_row(self, features, index, feature):
+        """The feature list's row of an exhibit (name, detail, center, radius) at its index among the list's rows."""
+        name, detail, center, radius = feature
+        entity = {"Type": "Entity"}
+        row = self.call("entity_create", {"name": f"Feature: {name}", "parent": features, "siblingIndex": index, "components": {
+            "UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), feature_row_position(index), (356.0, ROW_HEIGHT))}})["id"]
+        glow = self.entity("Glow", {"UIRect": ui_fill(Opacity=0.0), "UIImage": {"Color": linear(1.0, 0.68, 0.3, 0.13), "CornerRadius": 10.0}}, row)
+        bar = self.entity("Bar", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.5), (6.0, 0.0), (4.0, -12.0), (0.0, 1.0), Opacity=0.25),
+                                  "UIImage": {"Color": AMBER, "CornerRadius": 2.0}}, row)
+        label = self.entity("Name", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 4.0), (328.0, 26.0)), "UIText": ui_text(name, 21.0, TEXT)},
+                            row)
+        line = self.entity("Detail", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 31.0), (328.0, 18.0), Opacity=0.0),
+                                      "UIText": ui_text(detail, 15.0, DIM)}, row)
+        x, z = center if center else (0.0, 0.0)
+        self.call("component_add", {"entity": row, "component": "Script", "fields": {"ClassName": "Showcase.HudFeature", "Fields": {
+            "Center": {"Type": "Vector3", "Value": [x, 0.0, z]}, "Radius": {"Type": "Float", "Value": radius},
+            "Glow": entity | {"Value": glow}, "Bar": entity | {"Value": bar}, "Label": entity | {"Value": label},
+            "Detail": entity | {"Value": line}, "ClosedHeight": {"Type": "Float", "Value": ROW_HEIGHT},
+            "DetailHeight": {"Type": "Float", "Value": 22.0}}}})
+        return row
+
     def find_root(self, name):
         return [entity["id"] for entity in self.call("entity_find", {"name": name})["entities"]][0]
 
@@ -1792,16 +1903,114 @@ class Showcase:
             "CaptionText": entity | {"Value": self.tour_caption_text}, "Detail": entity | {"Value": self.tour_detail},
             "Hint": entity | {"Value": self.tour_hint}, "Hud": entity | {"Value": self.hud}, "Music": entity | {"Value": self.music},
             "Playground": entity | {"Value": self.playground}}
-        tour = self.entity("Camera Tour", {"Script": {"ClassName": "Showcase.Flythrough", "Fields": self.tour_fields}})
-        for name, frame, eye, target, seconds, caption, detail, cue, lead in TOUR:
-            fields = {"Caption": {"Type": "String", "Value": caption}, "Detail": {"Type": "String", "Value": detail},
-                      "Seconds": {"Type": "Float", "Value": seconds}}
-            if cue is not None:
-                fields["Cue"] = {"Type": "Entity", "Value": getattr(self, cue)}
-                fields["CueLead"] = {"Type": "Float", "Value": lead}
-            self.entity(f"Shot: {name}", {"Transform": frame.look(eye, target), "Script": {"ClassName": "Showcase.CameraShot", "Fields": fields}},
-                        tour)
-        self.tour = tour
+        self.tour = self.entity("Camera Tour", {"Script": {"ClassName": "Showcase.Flythrough", "Fields": self.tour_fields}})
+        for index, shot in enumerate(TOUR):
+            self.make_shot(index, shot)
+
+    def make_shot(self, index, shot):
+        """A stop of the tour at its index among the tour's shots; its cue names an attribute of the session (an entity)."""
+        name, frame, eye, target, seconds, caption, detail, cue, lead = shot
+        fields = {"Caption": {"Type": "String", "Value": caption}, "Detail": {"Type": "String", "Value": detail},
+                  "Seconds": {"Type": "Float", "Value": seconds}}
+        if cue is not None:
+            fields["Cue"] = {"Type": "Entity", "Value": getattr(self, cue)}
+            fields["CueLead"] = {"Type": "Float", "Value": lead}
+        return self.call("entity_create", {"name": f"Shot: {name}", "parent": self.tour, "siblingIndex": index, "components": {
+            "Transform": frame.look(eye, target), "Script": {"ClassName": "Showcase.CameraShot", "Fields": fields}}})["id"]
+
+    # --- An exhibit in place --------------------------------------------------------------------------------------------------
+
+    def find(self, name):
+        """The one entity of the open scene with the name."""
+        found = [entity["id"] for entity in self.call("entity_find", {"name": name})["entities"]]
+        if len(found) != 1:
+            raise SystemExit(f"the scene has {len(found)} entities named '{name}', expected one")
+        return found[0]
+
+    def bind_existing_assets(self):
+        """Points the session's attributes an exhibit uses at what the project holds, writing nothing: the materials and the
+        signpost prefab by their paths, the entities of the open main scene by their unique names."""
+        self.iron = "asset://Materials/Iron.smat"
+        self.lamp_glass = "asset://Materials/LampGlass.smat"
+        self.textures[MARBLE] = f"asset://Textures/{MARBLE}/{MARBLE}.smat"
+        self.marble = self.textures[MARBLE]
+        self.signpost_prefab = "asset://Prefabs/Signpost.sprefab"
+        self.signposts = self.find("Signposts")
+        self.day_night = self.find("Day and Night")
+        self.night_interlude = self.find("Night Interlude")
+        self.rig = self.find("Camera Rig")
+        self.features = self.find("Features")
+        self.feature_panel = self.find("Feature Panel")
+        self.tour = self.find("Camera Tour")
+
+    def author_graph_garden_in_place(self):
+        """The Graph Garden in the project as it is: its sound, materials, graphs and entities, its row in the HUD's feature
+        list, its tour shot, the night that lasts the tour, and the test scene with the checks that look at it."""
+        call = self.call
+        subprocess.run([sys.executable, os.path.join(TOOLS, "GenerateAudio.py"), "--only", "Chime.wav"], check=True)
+        call("asset_refresh")
+        # What the test scene adds to the main scene: its checks' fields and the tour that does not play at the start.
+        call("scene_open", {"path": "Scenes/Tests.sscene"})
+        test_fields = call("component_get", {"entity": self.find("Tests"), "component": "Script"})["fields"]["Fields"]
+        test_tour_fields = call("component_get", {"entity": self.find("Camera Tour"), "component": "Script"})["fields"]["Fields"]
+
+        call("scene_open", {"path": "Scenes/Main.sscene"})
+        self.bind_existing_assets()
+        present = [entity["id"] for name in (GraphGarden.ROOT, GraphGarden.SIGNPOST, f"Feature: {GraphGarden.FEATURE[0]}",
+                                             f"Shot: {GraphGarden.SHOT[0]}") for entity in call("entity_find", {"name": name})["entities"]]
+        if present:
+            call("entity_delete", {"entities": present})
+        self.make_graph_garden()
+        # The tour's night outlasts it (make_grading).
+        night_fields = call("component_get", {"entity": self.night_interlude, "component": "Script"})["fields"]["Fields"]
+        call("component_set", {"entity": self.night_interlude, "component": "Script", "fields": {
+            "Fields": night_fields | self.night_interlude_fields()}})
+        # The feature list's row, the rows after it moved down and the panel grown as make_hud makes them.
+        index = FEATURES.index(GraphGarden.FEATURE)
+        self.make_feature_row(self.features, index, GraphGarden.FEATURE)
+        rows = call("entity_get", {"entity": self.features})["children"]
+        for row_index, row in enumerate(rows):
+            call("component_set", {"entity": row, "component": "UIRect", "fields": {"Position": list(feature_row_position(row_index))}})
+        panel_size, rows_size = feature_panel_sizes()
+        call("component_set", {"entity": self.feature_panel, "component": "UIRect", "fields": {"Size": list(panel_size)}})
+        call("component_set", {"entity": self.features, "component": "UIRect", "fields": {"Size": list(rows_size)}})
+        # The tour's shot, cueing the conductor.
+        shot = next(shot for shot in TOUR if shot[0] == GraphGarden.SHOT[0])
+        self.make_shot(TOUR.index(shot), shot)
+        call("scene_save")
+
+        # The test scene: the main scene saved as Tests (its entities keep their IDs), as make_test_scene makes it.
+        call("scene_save", {"path": "Scenes/Tests.sscene"})
+        call("scene_settings", {"name": "Showcase Tests"})
+        call("component_set", {"entity": self.tour, "component": "Script", "fields": {"Fields": test_tour_fields}})
+        call("entity_create", {"name": "Tests", "components": {"Script": {"ClassName": "Showcase.ShowcaseTests", "Fields": test_fields | GraphGarden.test_fields(self.garden)}}})
+        call("scene_save")
+        call("scene_open", {"path": "Scenes/Main.sscene"})
+        self.run_tests(90)
+
+    def read_log(self, since, level):
+        """The log's entries at or above a level from an index on, all of them; returns (entries, the index after the last)."""
+        entries = []
+        while True:
+            read = self.call("log_read", {"since": since, "minLevel": level, "maxCount": 10000})
+            since = read["next"]
+            if not read["entries"]:
+                return entries, since
+            entries += read["entries"]
+
+    def run_tests(self, timeout):
+        """Runs the test scene: every check must pass, and no visual script may warn meanwhile."""
+        _, start = self.read_log(0, "critical")
+        run = self.call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": timeout})
+        print("test run:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})
+        for result in run["results"]:
+            print("  ", "PASS" if result["passed"] else "FAIL", result["name"], result.get("message", ""))
+        if run["failed"] or run["exceptions"] or not run["finished"] or run["passed"] != TEST_CHECKS:
+            raise SystemExit("the tests failed")
+        entries, _ = self.read_log(start, "warn")
+        problems = [entry["message"] for entry in entries if "isual script" in entry["message"] or ".sgraph" in entry["message"]]
+        if problems:
+            raise SystemExit("the test run logged problems of visual scripts:\n  " + "\n  ".join(problems))
 
     # --- The test scene -------------------------------------------------------------------------------------------------------
 
@@ -1814,7 +2023,7 @@ class Showcase:
         call("component_set", {"entity": self.tour, "component": "Script", "fields": {"Fields": self.tour_fields | {
             "PlayOnStart": {"Type": "Bool", "Value": False}}}})
         entity = {"Type": "Entity"}
-        call("entity_create", {"name": "Tests", "components": {"Script": {"ClassName": "Showcase.ShowcaseTests", "Fields": {
+        call("entity_create", {"name": "Tests", "components": {"Script": {"ClassName": "Showcase.ShowcaseTests", "Fields": GraphGarden.test_fields(self.garden) | {
             "Playground": entity | {"Value": self.playground}, "Rig": entity | {"Value": self.rig}, "Camera": entity | {"Value": self.camera},
             "Lantern": entity | {"Value": self.lantern_light}, "WreckingBall": entity | {"Value": self.wrecking_ball},
             "Paddle": entity | {"Value": self.paddle}, "Campfire": entity | {"Value": self.campfire}, "Goal": entity | {"Value": self.goal},
@@ -1830,13 +2039,7 @@ class Showcase:
             "Ramp": entity | {"Value": self.ramp}, "NightInterlude": entity | {"Value": self.night_interlude}}}}})
         call("scene_save")
         call("scene_open", {"path": "Scenes/Main.sscene"})
-
-        run = call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": 60})
-        print("test run:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})
-        for result in run["results"]:
-            print("  ", "PASS" if result["passed"] else "FAIL", result["name"], result.get("message", ""))
-        if run["failed"] or run["exceptions"] or not run["finished"]:
-            raise SystemExit("the tests failed")
+        self.run_tests(60)
 
 
 if __name__ == "__main__":

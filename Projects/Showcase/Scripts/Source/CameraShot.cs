@@ -16,7 +16,7 @@ public sealed class CameraShot : Script
 	[Range(0.5f, 30.0f)]
 	public float Seconds = 4.0f;
 
-	[Tooltip("An exhibit the camera sets off on its way to this shot (its script is an ITourCue)")]
+	[Tooltip("An exhibit the camera sets off on its way to this shot (an ITourCue, or a visual script with the events Perform and TourEnded)")]
 	public Entity? Cue;
 
 	[Tooltip("Seconds before the camera reaches this shot that it sets the exhibit off, so the action peaks as it arrives")]

@@ -1,0 +1,220 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "A lantern around the chimes: on every bar of the score it flares in the bar's colour.",
+		"Variables": [],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 1,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						0.0
+					],
+					"Settings": {
+						"Name": "Pulse",
+						"Parameters": [
+							{
+								"Name": "Bar",
+								"Type": "int"
+							}
+						]
+					}
+				},
+				{
+					"ID": 2,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						0.0
+					],
+					"Settings": {
+						"Formula": "bar * 5"
+					}
+				},
+				{
+					"ID": 3,
+					"Type": "Function.Call",
+					"Position": [
+						384.0,
+						0.0
+					],
+					"Settings": {
+						"Graph": "1480662518265575091",
+						"Function": 4
+					}
+				},
+				{
+					"ID": 4,
+					"Type": "Set:Strada.PointLightComponent.Color",
+					"Position": [
+						608.0,
+						0.0
+					],
+					"Comment": "Each bar a fourth higher round the colour wheel"
+				},
+				{
+					"ID": 5,
+					"Type": "Flow.Tween",
+					"Position": [
+						816.0,
+						0.0
+					],
+					"Settings": {
+						"Easing": "Linear"
+					},
+					"Inputs": {
+						"Duration": 0.7
+					}
+				},
+				{
+					"ID": 6,
+					"Type": "Expression",
+					"Position": [
+						1120.0,
+						0.0
+					],
+					"Settings": {
+						"Formula": "2 + 7 * sin(alpha * pi)"
+					}
+				},
+				{
+					"ID": 7,
+					"Type": "Set:Strada.PointLightComponent.Intensity",
+					"Position": [
+						1344.0,
+						0.0
+					]
+				},
+				{
+					"ID": 8,
+					"Type": "Set:Strada.PointLightComponent.Intensity",
+					"Position": [
+						1120.0,
+						128.0
+					],
+					"Inputs": {
+						"Value": 2.0
+					}
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						1,
+						"Bar"
+					],
+					"To": [
+						2,
+						"bar"
+					]
+				},
+				{
+					"From": [
+						2,
+						"Result"
+					],
+					"To": [
+						3,
+						"Semitone"
+					]
+				},
+				{
+					"From": [
+						3,
+						"Color"
+					],
+					"To": [
+						4,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						5,
+						"Alpha"
+					],
+					"To": [
+						6,
+						"alpha"
+					]
+				},
+				{
+					"From": [
+						6,
+						"Result"
+					],
+					"To": [
+						7,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						1,
+						"Then"
+					],
+					"To": [
+						4,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						4,
+						"Then"
+					],
+					"To": [
+						5,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						5,
+						"Update"
+					],
+					"To": [
+						7,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						5,
+						"Completed"
+					],
+					"To": [
+						8,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 9,
+					"Text": "Pulse: every bar the lantern flares in the bar's colour and fades",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						1539.13623046875,
+						362.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

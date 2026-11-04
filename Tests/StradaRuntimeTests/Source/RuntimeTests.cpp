@@ -857,11 +857,14 @@ TEST_CASE("Runtime: the Showcase sample plays and passes its tests")
 	ProcessResult const tests = RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test"});
 	CAPTURE(tests.Output);
 	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 61 checks"));
+	CHECK(Contains(tests.Output, "Tests passed: 68 checks"));
+	// The Graph Garden's visual scripts run without a word: the VM puts a graph's path before its errors and warnings.
+	CHECK_FALSE(Contains(tests.Output, ".sgraph:"));
 
 	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});
 	CAPTURE(game.Output);
 	CHECK(game.ExitCode == 0);
+	CHECK_FALSE(Contains(game.Output, ".sgraph:"));
 }
 
 TEST_CASE("Runtime: the Blocks sample plays and passes its tests")

@@ -46,6 +46,7 @@ namespace
 
 	constexpr SampleGraphSet SampleGraphSets[] = {
 		{"PrismBreak", ""},
+		{"Showcase", "Scripts/GraphGarden"},
 	};
 
 	// The longest title a region's comment box may have.

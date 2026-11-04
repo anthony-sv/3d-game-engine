@@ -1,13 +1,16 @@
 """Generates the Showcase project's sounds (Assets/Audio/*.wav): a music loop, forest (day), crickets (night), campfire, fountain,
-neon and lift loops, the impact sounds, the sounds of the exhibits (goal chime, cannon, gate, the neon sign lighting up),
-footsteps and landings, and the HUD's button sounds.
+neon and lift loops, the impact sounds, the sounds of the exhibits (goal chime, cannon, gate, the neon sign lighting up, the
+Graph Garden's tubular chime), footsteps and landings, and the HUD's button sounds.
 
 Everything is synthesized here, so the sounds have no license of their own and regenerate identically (fixed seeds):
 
-    python Projects/Showcase/Tools/GenerateAudio.py
+    python Projects/Showcase/Tools/GenerateAudio.py [--only Name.wav ...]
+
+--only writes just the named sounds (Author.py's in-place mode adds an exhibit's sounds without touching the others).
 
 16-bit mono WAV at 22050 Hz keeps the files small; the engine plays them at the device's rate.
 """
+import argparse
 import math
 import os
 import random
@@ -500,12 +503,49 @@ def ui_click():
     return out
 
 
+def tubular_chime():
+    """The Graph Garden's chime: a tubular bell struck at C5 (523.25 Hz), 2.5 seconds. Its partials are a bell's: a clear
+    fundamental that rings longest, a fainter octave and the inharmonic partials of a free bar (2.76 and 5.40 times the
+    fundamental) that fade fast, each beating slowly against a twin a little higher; the mallet's tick starts it. Chimes play
+    it at their own pitch (an audio source's Pitch)."""
+    random.seed(21)
+    count = int(2.5 * RATE)
+    fundamental = note(72)
+    # (ratio, gain, seconds the partial takes to fall to 1/e, detune of its twin).
+    partials = ((1.0, 1.0, 0.9, 1.0012), (2.0, 0.32, 0.45, 1.0008), (2.76, 0.22, 0.3, 1.0015), (5.4, 0.1, 0.12, 1.002),
+                (8.93, 0.05, 0.05, 1.0))
+    tick = Biquad("band", 3200.0, 1.2)
+    out = []
+    for i in range(count):
+        t = i / RATE
+        sample = 0.0
+        for ratio, gain, decay, detune in partials:
+            frequency = fundamental * ratio
+            envelope = gain * math.exp(-t / decay)
+            sample += envelope * (math.sin(2.0 * math.pi * frequency * t) + 0.35 * math.sin(2.0 * math.pi * frequency * detune * t))
+        sample += 0.5 * tick(random.uniform(-1.0, 1.0)) * math.exp(-t / 0.004)
+        # A few milliseconds of attack, and the tail fades to silence in the last tenth.
+        out.append(sample * min(1.0, i / 40.0) * min(1.0, 10.0 * (count - i) / count))
+    return out
+
+
+SOUNDS = (("Music.wav", music, 0.8), ("Ambience.wav", ambience, 0.7), ("WoodHit.wav", wood_hit, 0.9), ("MetalHit.wav", metal_hit, 0.85),
+          ("Throw.wav", throw, 0.7), ("Crackle.wav", crackle, 0.75), ("Fountain.wav", fountain_water, 0.7), ("Goal.wav", goal_chime, 0.85),
+          ("Cannon.wav", cannon_boom, 0.9), ("Gate.wav", gate_rumble, 0.8), ("NeonIgnite.wav", neon_ignite, 0.85),
+          ("NeonHum.wav", neon_hum, 0.7), ("Night.wav", crickets, 0.7), ("Step.wav", footstep, 0.85), ("Land.wav", landing, 0.9),
+          ("Lift.wav", lift_hum, 0.7), ("UIHover.wav", ui_hover, 0.6), ("UIClick.wav", ui_click, 0.8), ("Chime.wav", tubular_chime, 0.85))
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generates the Showcase project's sounds.")
+    parser.add_argument("--only", nargs="+", metavar="NAME", choices=[name for name, _, _ in SOUNDS],
+                        help="write only these sounds (file names, such as Chime.wav)")
+    arguments = parser.parse_args()
+    for name, generate, peak in SOUNDS:
+        if arguments.only is None or name in arguments.only:
+            write_wav(name, generate(), peak)
+            print("wrote", os.path.join(OUTPUT, name))
+
+
 if __name__ == "__main__":
-    for name, generate, peak in (("Music.wav", music, 0.8), ("Ambience.wav", ambience, 0.7), ("WoodHit.wav", wood_hit, 0.9),
-                                 ("MetalHit.wav", metal_hit, 0.85), ("Throw.wav", throw, 0.7), ("Crackle.wav", crackle, 0.75),
-                                 ("Fountain.wav", fountain_water, 0.7), ("Goal.wav", goal_chime, 0.85), ("Cannon.wav", cannon_boom, 0.9),
-                                 ("Gate.wav", gate_rumble, 0.8), ("NeonIgnite.wav", neon_ignite, 0.85), ("NeonHum.wav", neon_hum, 0.7),
-                                 ("Night.wav", crickets, 0.7), ("Step.wav", footstep, 0.85), ("Land.wav", landing, 0.9),
-                                 ("Lift.wav", lift_hum, 0.7), ("UIHover.wav", ui_hover, 0.6), ("UIClick.wav", ui_click, 0.8)):
-        write_wav(name, generate(), peak)
-        print("wrote", os.path.join(OUTPUT, name))
+    main()

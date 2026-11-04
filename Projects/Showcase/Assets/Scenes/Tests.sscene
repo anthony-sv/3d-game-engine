@@ -379,7 +379,8 @@
 						"4315074964425599966",
 						"4117959228062973527",
 						"17640056609536866519",
-						"820167490865204638"
+						"820167490865204638",
+						"2968942217764821746"
 					]
 				}
 			}
@@ -3525,6 +3526,453 @@
 				"Prefab": {
 					"Prefab": "332924334223320932",
 					"SourceEntity": "14091006193817472066"
+				}
+			}
+		},
+		{
+			"ID": "2968942217764821746",
+			"Components": {
+				"Tag": {
+					"Tag": "Signpost: Visual Scripting"
+				},
+				"Transform": {
+					"Translation": [
+						-5.0,
+						0.0,
+						19.5
+					],
+					"Rotation": [
+						0.0,
+						0.6872153878211975,
+						0.0,
+						0.7264537215232849
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "17599986038503942303",
+					"Children": [
+						"4900295514993523011",
+						"15509459544582938465",
+						"14581240166868555849",
+						"2622281084408451754",
+						"2680817492385462259",
+						"17394500064451380023",
+						"5311619966985992784",
+						"222462899971752156"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						1.399999976158142,
+						1.149999976158142,
+						0.07999999821186066
+					],
+					"Offset": [
+						0.0,
+						1.149999976158142,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"Prefab": {
+					"Prefab": "332924334223320932",
+					"SourceEntity": "15893116958543059876"
+				}
+			}
+		},
+		{
+			"ID": "4900295514993523011",
+			"Components": {
+				"Tag": {
+					"Tag": "Left Post"
+				},
+				"Transform": {
+					"Translation": [
+						-1.2000000476837158,
+						1.149999976158142,
+						-0.07000000029802322
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.11999999731779099,
+						2.299999952316284,
+						0.11999999731779099
+					]
+				},
+				"Relationship": {
+					"Parent": "2968942217764821746",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"13926277721978127225"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"Prefab": {
+					"Prefab": "332924334223320932",
+					"SourceEntity": "5595825178299468277"
+				}
+			}
+		},
+		{
+			"ID": "15509459544582938465",
+			"Components": {
+				"Tag": {
+					"Tag": "Right Post"
+				},
+				"Transform": {
+					"Translation": [
+						1.2000000476837158,
+						1.149999976158142,
+						-0.07000000029802322
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.11999999731779099,
+						2.299999952316284,
+						0.11999999731779099
+					]
+				},
+				"Relationship": {
+					"Parent": "2968942217764821746",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"13926277721978127225"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"Prefab": {
+					"Prefab": "332924334223320932",
+					"SourceEntity": "3478426018158611416"
+				}
+			}
+		},
+		{
+			"ID": "14581240166868555849",
+			"Components": {
+				"Tag": {
+					"Tag": "Board"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.7200000286102295,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						2.700000047683716,
+						1.0,
+						0.07999999821186066
+					]
+				},
+				"Relationship": {
+					"Parent": "2968942217764821746",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"13926277721978127225"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"Prefab": {
+					"Prefab": "332924334223320932",
+					"SourceEntity": "10470157924921589406"
+				}
+			}
+		},
+		{
+			"ID": "2622281084408451754",
+			"Components": {
+				"Tag": {
+					"Tag": "Face"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.7200000286102295,
+						0.029999999329447746
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						2.5,
+						0.8199999928474426,
+						0.029999999329447746
+					]
+				},
+				"Relationship": {
+					"Parent": "2968942217764821746",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5845793503635396610"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"Prefab": {
+					"Prefab": "332924334223320932",
+					"SourceEntity": "8328455182610392678"
+				}
+			}
+		},
+		{
+			"ID": "2680817492385462259",
+			"Components": {
+				"Tag": {
+					"Tag": "Cap"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						2.25,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						2.819999933242798,
+						0.07000000029802322,
+						0.1599999964237213
+					]
+				},
+				"Relationship": {
+					"Parent": "2968942217764821746",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"Prefab": {
+					"Prefab": "332924334223320932",
+					"SourceEntity": "7679291936381855027"
+				}
+			}
+		},
+		{
+			"ID": "17394500064451380023",
+			"Components": {
+				"Tag": {
+					"Tag": "Title"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						2.0899999141693115,
+						0.05000000074505806
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "2968942217764821746",
+					"Children": []
+				},
+				"Text": {
+					"Text": "VISUAL SCRIPTING",
+					"Font": "300",
+					"Color": [
+						1.0,
+						0.8600000143051147,
+						0.6000000238418579,
+						1.0
+					],
+					"FontSize": 0.2800000011920929,
+					"ScreenSpace": false,
+					"Alignment": "Center",
+					"LineSpacing": 1.0
+				},
+				"Prefab": {
+					"Prefab": "332924334223320932",
+					"SourceEntity": "8226438443638267179"
+				}
+			}
+		},
+		{
+			"ID": "5311619966985992784",
+			"Components": {
+				"Tag": {
+					"Tag": "Detail"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.7000000476837158,
+						0.05000000074505806
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "2968942217764821746",
+					"Children": []
+				},
+				"Text": {
+					"Text": "six graphs play the chimes · a timeline is\nthe score · press G or step on a pad",
+					"Font": "300",
+					"Color": [
+						0.949999988079071,
+						0.9300000071525574,
+						0.8799999952316284,
+						1.0
+					],
+					"FontSize": 0.11999999731779099,
+					"ScreenSpace": false,
+					"Alignment": "Center",
+					"LineSpacing": 1.149999976158142
+				},
+				"Prefab": {
+					"Prefab": "332924334223320932",
+					"SourceEntity": "14091006193817472066"
+				}
+			}
+		},
+		{
+			"ID": "222462899971752156",
+			"Components": {
+				"Tag": {
+					"Tag": "Live"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.4199999570846558,
+						0.05000000074505806
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "2968942217764821746",
+					"Children": []
+				},
+				"VisualScript": {
+					"Graph": "13585724070424028934",
+					"Variables": {
+						"Conductor": {
+							"Type": "Entity",
+							"Value": "16551919988227946642"
+						}
+					}
+				},
+				"Text": {
+					"Text": "",
+					"Font": "300",
+					"Color": [
+						1.0,
+						0.7200000286102295,
+						0.3499999940395355,
+						1.0
+					],
+					"FontSize": 0.10000000149011612,
+					"ScreenSpace": false,
+					"Alignment": "Center",
+					"LineSpacing": 1.0
 				}
 			}
 		},
@@ -38258,6 +38706,10 @@
 						"Lighting": {
 							"Type": "Entity",
 							"Value": "12093584151109417220"
+						},
+						"Seconds": {
+							"Type": "Float",
+							"Value": 30.0
 						}
 					}
 				}
@@ -38699,7 +39151,7 @@
 					],
 					"Size": [
 						392.0,
-						478.0
+						516.0
 					],
 					"Pivot": [
 						0.0,
@@ -38959,6 +39411,7 @@
 						"16018594763031316356",
 						"14503581143678588546",
 						"18445551779310653371",
+						"293839434606881650",
 						"5583363181926278517"
 					]
 				},
@@ -38977,7 +39430,7 @@
 					],
 					"Size": [
 						356.0,
-						338.0
+						376.0
 					],
 					"Pivot": [
 						0.0,
@@ -41933,6 +42386,374 @@
 			}
 		},
 		{
+			"ID": "293839434606881650",
+			"Components": {
+				"Tag": {
+					"Tag": "Feature: Visual scripting"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "4230141555238957190",
+					"Children": [
+						"15279589756531979679",
+						"1117237696596130831",
+						"14652478166918849044",
+						"6959475453941335100"
+					]
+				},
+				"Script": {
+					"ClassName": "Showcase.HudFeature",
+					"Fields": {
+						"Bar": {
+							"Type": "Entity",
+							"Value": "1117237696596130831"
+						},
+						"Center": {
+							"Type": "Vector3",
+							"Value": [
+								-1.7999999523162842,
+								0.0,
+								16.799999237060547
+							]
+						},
+						"ClosedHeight": {
+							"Type": "Float",
+							"Value": 34.0
+						},
+						"Detail": {
+							"Type": "Entity",
+							"Value": "6959475453941335100"
+						},
+						"DetailHeight": {
+							"Type": "Float",
+							"Value": 22.0
+						},
+						"Glow": {
+							"Type": "Entity",
+							"Value": "15279589756531979679"
+						},
+						"Label": {
+							"Type": "Entity",
+							"Value": "14652478166918849044"
+						},
+						"Radius": {
+							"Type": "Float",
+							"Value": 5.0
+						}
+					}
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						0.0,
+						0.0
+					],
+					"Position": [
+						0.0,
+						304.0
+					],
+					"Size": [
+						356.0,
+						34.0
+					],
+					"Pivot": [
+						0.0,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				}
+			}
+		},
+		{
+			"ID": "15279589756531979679",
+			"Components": {
+				"Tag": {
+					"Tag": "Glow"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "293839434606881650",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						1.0,
+						1.0
+					],
+					"Position": [
+						0.0,
+						0.0
+					],
+					"Size": [
+						0.0,
+						0.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 0.0
+				},
+				"UIImage": {
+					"Color": [
+						1.0,
+						0.4200332760810852,
+						0.07323895394802094,
+						0.12999999523162842
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 10.0
+				}
+			}
+		},
+		{
+			"ID": "1117237696596130831",
+			"Components": {
+				"Tag": {
+					"Tag": "Bar"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "293839434606881650",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						0.0,
+						1.0
+					],
+					"Position": [
+						6.0,
+						0.0
+					],
+					"Size": [
+						4.0,
+						-12.0
+					],
+					"Pivot": [
+						0.0,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 0.25
+				},
+				"UIImage": {
+					"Color": [
+						1.0,
+						0.4200332760810852,
+						0.07323895394802094,
+						1.0
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 2.0
+				}
+			}
+		},
+		{
+			"ID": "14652478166918849044",
+			"Components": {
+				"Tag": {
+					"Tag": "Name"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "293839434606881650",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						0.0,
+						0.0
+					],
+					"Position": [
+						22.0,
+						4.0
+					],
+					"Size": [
+						328.0,
+						26.0
+					],
+					"Pivot": [
+						0.0,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "Visual scripting",
+					"Font": "0",
+					"Color": [
+						0.911407470703125,
+						0.868899405002594,
+						0.7874122858047485,
+						1.0
+					],
+					"FontSize": 21.0,
+					"Alignment": "Left",
+					"VerticalAlignment": "Middle",
+					"Wrap": true,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "6959475453941335100",
+			"Components": {
+				"Tag": {
+					"Tag": "Detail"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "293839434606881650",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						0.0,
+						0.0
+					],
+					"Position": [
+						22.0,
+						31.0
+					],
+					"Size": [
+						328.0,
+						18.0
+					],
+					"Pivot": [
+						0.0,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 0.0
+				},
+				"UIText": {
+					"Text": "graphs play the chimes; a timeline is the score",
+					"Font": "0",
+					"Color": [
+						0.3931231200695038,
+						0.3931231200695038,
+						0.3931231200695038,
+						1.0
+					],
+					"FontSize": 15.0,
+					"Alignment": "Left",
+					"VerticalAlignment": "Middle",
+					"Wrap": true,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
 			"ID": "5583363181926278517",
 			"Components": {
 				"Tag": {
@@ -42017,7 +42838,7 @@
 					],
 					"Position": [
 						0.0,
-						304.0
+						342.0
 					],
 					"Size": [
 						356.0,
@@ -46241,6 +47062,7 @@
 						"12637507054866210832",
 						"11786200232911201652",
 						"9339408084101405583",
+						"9754717304515951173",
 						"6974182020565276099",
 						"16395437513508338278"
 					]
@@ -46764,6 +47586,61 @@
 			}
 		},
 		{
+			"ID": "9754717304515951173",
+			"Components": {
+				"Tag": {
+					"Tag": "Shot: Graph Garden"
+				},
+				"Transform": {
+					"Translation": [
+						2.4000000953674316,
+						2.0,
+						13.199999809265137
+					],
+					"Rotation": [
+						-0.022562243044376373,
+						0.9071875810623169,
+						0.04905529320240021,
+						0.4172472357749939
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "4770928787828342241",
+					"Children": []
+				},
+				"Script": {
+					"ClassName": "Showcase.CameraShot",
+					"Fields": {
+						"Caption": {
+							"Type": "String",
+							"Value": "Visual scripting"
+						},
+						"Cue": {
+							"Type": "Entity",
+							"Value": "16551919988227946642"
+						},
+						"CueLead": {
+							"Type": "Float",
+							"Value": 1.2000000476837158
+						},
+						"Detail": {
+							"Type": "String",
+							"Value": "six graphs play the chimes: a timeline is the score"
+						},
+						"Seconds": {
+							"Type": "Float",
+							"Value": 4.0
+						}
+					}
+				}
+			}
+		},
+		{
 			"ID": "6974182020565276099",
 			"Components": {
 				"Tag": {
@@ -46858,7 +47735,4307 @@
 			}
 		},
 		{
-			"ID": "7974278391635989497",
+			"ID": "145528223768679080",
+			"Components": {
+				"Tag": {
+					"Tag": "Graph Garden"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"12689208449182350944",
+						"6190173932093104567",
+						"17838360936812610775",
+						"1077348065499053186",
+						"9624599322204089349",
+						"16551919988227946642",
+						"18406312869095289290",
+						"3919395159021666470",
+						"17823174653300443724"
+					]
+				}
+			}
+		},
+		{
+			"ID": "12689208449182350944",
+			"Components": {
+				"Tag": {
+					"Tag": "Platform"
+				},
+				"Transform": {
+					"Translation": [
+						-1.7999999523162842,
+						0.07999999821186066,
+						16.799999237060547
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						6.400000095367432,
+						0.1599999964237213,
+						6.400000095367432
+					]
+				},
+				"Relationship": {
+					"Parent": "145528223768679080",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"15869848643060527530"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"MeshCollider": {
+					"Mesh": "4",
+					"Convex": true,
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "6190173932093104567",
+			"Components": {
+				"Tag": {
+					"Tag": "Ring"
+				},
+				"Transform": {
+					"Translation": [
+						-1.7999999523162842,
+						2.200000047683716,
+						16.799999237060547
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.899999976158142,
+						1.0,
+						1.899999976158142
+					]
+				},
+				"Relationship": {
+					"Parent": "145528223768679080",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "5293509286494928828",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "17838360936812610775",
+			"Components": {
+				"Tag": {
+					"Tag": "Post 1"
+				},
+				"Transform": {
+					"Translation": [
+						-1.7999999523162842,
+						1.1799999475479126,
+						18.850000381469727
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						2.0399999618530273,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "145528223768679080",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "1077348065499053186",
+			"Components": {
+				"Tag": {
+					"Tag": "Post 2"
+				},
+				"Transform": {
+					"Translation": [
+						-3.575352191925049,
+						1.1799999475479126,
+						15.774999618530273
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						2.0399999618530273,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "145528223768679080",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "9624599322204089349",
+			"Components": {
+				"Tag": {
+					"Tag": "Post 3"
+				},
+				"Transform": {
+					"Translation": [
+						-0.024647921323776245,
+						1.1799999475479126,
+						15.774999618530273
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						2.0399999618530273,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "145528223768679080",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "16551919988227946642",
+			"Components": {
+				"Tag": {
+					"Tag": "Conductor"
+				},
+				"Transform": {
+					"Translation": [
+						-1.7999999523162842,
+						1.350000023841858,
+						16.799999237060547
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.41999998688697815,
+						0.41999998688697815,
+						0.41999998688697815
+					]
+				},
+				"Relationship": {
+					"Parent": "145528223768679080",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"5805873574292698659"
+					],
+					"CastShadows": false,
+					"Visible": true
+				},
+				"PointLight": {
+					"Color": [
+						0.3499999940395355,
+						0.6000000238418579,
+						1.0
+					],
+					"Intensity": 2.0,
+					"Range": 7.0,
+					"CastShadows": false
+				},
+				"VisualScript": {
+					"Graph": "16222081865217089390",
+					"Variables": {
+						"Chimes": {
+							"Type": "Entity",
+							"Value": "18406312869095289290"
+						},
+						"Lighting": {
+							"Type": "Entity",
+							"Value": "12093584151109417220"
+						},
+						"Listener": {
+							"Type": "Entity",
+							"Value": "6312573094793523785"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "18406312869095289290",
+			"Components": {
+				"Tag": {
+					"Tag": "Chimes"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "145528223768679080",
+					"Children": [
+						"8036569335825072127",
+						"9336290719115959938",
+						"17617933287844560342",
+						"6488921718755647363",
+						"11076457753777025265",
+						"14100671064308604186",
+						"9829322531894613577",
+						"13723370860371063980"
+					]
+				}
+			}
+		},
+		{
+			"ID": "8036569335825072127",
+			"Components": {
+				"Tag": {
+					"Tag": "Tube 1"
+				},
+				"Transform": {
+					"Translation": [
+						-0.32179275155067444,
+						2.1500000953674316,
+						17.412294387817383
+					],
+					"Rotation": [
+						0.0,
+						0.5555702447891235,
+						0.0,
+						0.8314695954322815
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "18406312869095289290",
+					"Children": [
+						"10223936219995427571",
+						"16024927945004192967"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"CapsuleCollider": {
+					"Radius": 0.09000000357627869,
+					"HalfHeight": 0.6600000262260437,
+					"Offset": [
+						0.0,
+						-0.75,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"AudioSource": {
+					"Clip": "11519315555261973321",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 18.0
+				},
+				"VisualScript": {
+					"Graph": "16179190138674778621",
+					"Variables": {
+						"Bar": {
+							"Type": "Entity",
+							"Value": "16024927945004192967"
+						},
+						"Semitone": {
+							"Type": "Int32",
+							"Value": 0
+						}
+					}
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 0,
+					"MaxParticles": 120,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.800000011920929,
+					"SpeedMin": 0.800000011920929,
+					"SpeedMax": 2.200000047683716,
+					"Shape": "Sphere",
+					"ConeAngle": 70.0,
+					"Radius": 0.05999999865889549,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.5,
+					"Drag": 0.6000000238418579,
+					"StartSize": 0.05000000074505806,
+					"EndSize": 0.009999999776482582,
+					"StartColor": [
+						1.0,
+						0.8999999761581421,
+						0.699999988079071,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.6000000238418579,
+						0.30000001192092896,
+						0.0
+					],
+					"Intensity": 7.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
+			"ID": "10223936219995427571",
+			"Components": {
+				"Tag": {
+					"Tag": "Bracket"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.029999999329447746,
+						0.15000000596046448
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.029999999329447746,
+						0.029999999329447746,
+						0.3400000035762787
+					]
+				},
+				"Relationship": {
+					"Parent": "8036569335825072127",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "16024927945004192967",
+			"Components": {
+				"Tag": {
+					"Tag": "Bar"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.75,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						1.5,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "8036569335825072127",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"4549567506265094678"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "9336290719115959938",
+			"Components": {
+				"Tag": {
+					"Tag": "Tube 2"
+				},
+				"Transform": {
+					"Translation": [
+						-1.187706470489502,
+						2.1500000953674316,
+						18.278207778930664
+					],
+					"Rotation": [
+						0.0,
+						0.19509032368659973,
+						0.0,
+						0.9807852506637573
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "18406312869095289290",
+					"Children": [
+						"4932116497008029069",
+						"18082734371749240650"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"CapsuleCollider": {
+					"Radius": 0.09000000357627869,
+					"HalfHeight": 0.6100000143051147,
+					"Offset": [
+						0.0,
+						-0.699999988079071,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"AudioSource": {
+					"Clip": "11519315555261973321",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 18.0
+				},
+				"VisualScript": {
+					"Graph": "16179190138674778621",
+					"Variables": {
+						"Bar": {
+							"Type": "Entity",
+							"Value": "18082734371749240650"
+						},
+						"Semitone": {
+							"Type": "Int32",
+							"Value": 2
+						}
+					}
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 0,
+					"MaxParticles": 120,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.800000011920929,
+					"SpeedMin": 0.800000011920929,
+					"SpeedMax": 2.200000047683716,
+					"Shape": "Sphere",
+					"ConeAngle": 70.0,
+					"Radius": 0.05999999865889549,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.5,
+					"Drag": 0.6000000238418579,
+					"StartSize": 0.05000000074505806,
+					"EndSize": 0.009999999776482582,
+					"StartColor": [
+						1.0,
+						0.8999999761581421,
+						0.699999988079071,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.6000000238418579,
+						0.30000001192092896,
+						0.0
+					],
+					"Intensity": 7.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
+			"ID": "4932116497008029069",
+			"Components": {
+				"Tag": {
+					"Tag": "Bracket"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.029999999329447746,
+						0.15000000596046448
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.029999999329447746,
+						0.029999999329447746,
+						0.3400000035762787
+					]
+				},
+				"Relationship": {
+					"Parent": "9336290719115959938",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "18082734371749240650",
+			"Components": {
+				"Tag": {
+					"Tag": "Bar"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.699999988079071,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						1.399999976158142,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "9336290719115959938",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"4549567506265094678"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "17617933287844560342",
+			"Components": {
+				"Tag": {
+					"Tag": "Tube 3"
+				},
+				"Transform": {
+					"Translation": [
+						-2.4122934341430664,
+						2.1500000953674316,
+						18.278207778930664
+					],
+					"Rotation": [
+						0.0,
+						-0.19509032368659973,
+						0.0,
+						0.9807852506637573
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "18406312869095289290",
+					"Children": [
+						"15662699274813972493",
+						"10075250168005414340"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"CapsuleCollider": {
+					"Radius": 0.09000000357627869,
+					"HalfHeight": 0.5600000023841858,
+					"Offset": [
+						0.0,
+						-0.6499999761581421,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"AudioSource": {
+					"Clip": "11519315555261973321",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 18.0
+				},
+				"VisualScript": {
+					"Graph": "16179190138674778621",
+					"Variables": {
+						"Bar": {
+							"Type": "Entity",
+							"Value": "10075250168005414340"
+						},
+						"Semitone": {
+							"Type": "Int32",
+							"Value": 4
+						}
+					}
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 0,
+					"MaxParticles": 120,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.800000011920929,
+					"SpeedMin": 0.800000011920929,
+					"SpeedMax": 2.200000047683716,
+					"Shape": "Sphere",
+					"ConeAngle": 70.0,
+					"Radius": 0.05999999865889549,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.5,
+					"Drag": 0.6000000238418579,
+					"StartSize": 0.05000000074505806,
+					"EndSize": 0.009999999776482582,
+					"StartColor": [
+						1.0,
+						0.8999999761581421,
+						0.699999988079071,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.6000000238418579,
+						0.30000001192092896,
+						0.0
+					],
+					"Intensity": 7.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
+			"ID": "15662699274813972493",
+			"Components": {
+				"Tag": {
+					"Tag": "Bracket"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.029999999329447746,
+						0.15000000596046448
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.029999999329447746,
+						0.029999999329447746,
+						0.3400000035762787
+					]
+				},
+				"Relationship": {
+					"Parent": "17617933287844560342",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "10075250168005414340",
+			"Components": {
+				"Tag": {
+					"Tag": "Bar"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.6499999761581421,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						1.2999999523162842,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "17617933287844560342",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"4549567506265094678"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "6488921718755647363",
+			"Components": {
+				"Tag": {
+					"Tag": "Tube 4"
+				},
+				"Transform": {
+					"Translation": [
+						-3.278207302093506,
+						2.1500000953674316,
+						17.412294387817383
+					],
+					"Rotation": [
+						0.0,
+						-0.5555702447891235,
+						0.0,
+						0.8314695954322815
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "18406312869095289290",
+					"Children": [
+						"16423433698378823048",
+						"7668806744255015507"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"CapsuleCollider": {
+					"Radius": 0.09000000357627869,
+					"HalfHeight": 0.5099999904632568,
+					"Offset": [
+						0.0,
+						-0.6000000238418579,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"AudioSource": {
+					"Clip": "11519315555261973321",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 18.0
+				},
+				"VisualScript": {
+					"Graph": "16179190138674778621",
+					"Variables": {
+						"Bar": {
+							"Type": "Entity",
+							"Value": "7668806744255015507"
+						},
+						"Semitone": {
+							"Type": "Int32",
+							"Value": 7
+						}
+					}
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 0,
+					"MaxParticles": 120,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.800000011920929,
+					"SpeedMin": 0.800000011920929,
+					"SpeedMax": 2.200000047683716,
+					"Shape": "Sphere",
+					"ConeAngle": 70.0,
+					"Radius": 0.05999999865889549,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.5,
+					"Drag": 0.6000000238418579,
+					"StartSize": 0.05000000074505806,
+					"EndSize": 0.009999999776482582,
+					"StartColor": [
+						1.0,
+						0.8999999761581421,
+						0.699999988079071,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.6000000238418579,
+						0.30000001192092896,
+						0.0
+					],
+					"Intensity": 7.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
+			"ID": "16423433698378823048",
+			"Components": {
+				"Tag": {
+					"Tag": "Bracket"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.029999999329447746,
+						0.15000000596046448
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.029999999329447746,
+						0.029999999329447746,
+						0.3400000035762787
+					]
+				},
+				"Relationship": {
+					"Parent": "6488921718755647363",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "7668806744255015507",
+			"Components": {
+				"Tag": {
+					"Tag": "Bar"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.6000000238418579,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						1.2000000476837158,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "6488921718755647363",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"4549567506265094678"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "11076457753777025265",
+			"Components": {
+				"Tag": {
+					"Tag": "Tube 5"
+				},
+				"Transform": {
+					"Translation": [
+						-3.278207302093506,
+						2.1500000953674316,
+						16.187705993652344
+					],
+					"Rotation": [
+						0.0,
+						-0.8314695954322815,
+						0.0,
+						0.5555702447891235
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "18406312869095289290",
+					"Children": [
+						"18002271489851797768",
+						"13047157450476711787"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"CapsuleCollider": {
+					"Radius": 0.09000000357627869,
+					"HalfHeight": 0.46000000834465027,
+					"Offset": [
+						0.0,
+						-0.550000011920929,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"AudioSource": {
+					"Clip": "11519315555261973321",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 18.0
+				},
+				"VisualScript": {
+					"Graph": "16179190138674778621",
+					"Variables": {
+						"Bar": {
+							"Type": "Entity",
+							"Value": "13047157450476711787"
+						},
+						"Semitone": {
+							"Type": "Int32",
+							"Value": 9
+						}
+					}
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 0,
+					"MaxParticles": 120,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.800000011920929,
+					"SpeedMin": 0.800000011920929,
+					"SpeedMax": 2.200000047683716,
+					"Shape": "Sphere",
+					"ConeAngle": 70.0,
+					"Radius": 0.05999999865889549,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.5,
+					"Drag": 0.6000000238418579,
+					"StartSize": 0.05000000074505806,
+					"EndSize": 0.009999999776482582,
+					"StartColor": [
+						1.0,
+						0.8999999761581421,
+						0.699999988079071,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.6000000238418579,
+						0.30000001192092896,
+						0.0
+					],
+					"Intensity": 7.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
+			"ID": "18002271489851797768",
+			"Components": {
+				"Tag": {
+					"Tag": "Bracket"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.029999999329447746,
+						0.15000000596046448
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.029999999329447746,
+						0.029999999329447746,
+						0.3400000035762787
+					]
+				},
+				"Relationship": {
+					"Parent": "11076457753777025265",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "13047157450476711787",
+			"Components": {
+				"Tag": {
+					"Tag": "Bar"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.550000011920929,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						1.100000023841858,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "11076457753777025265",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"4549567506265094678"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "14100671064308604186",
+			"Components": {
+				"Tag": {
+					"Tag": "Tube 6"
+				},
+				"Transform": {
+					"Translation": [
+						-2.4122934341430664,
+						2.1500000953674316,
+						15.321792602539063
+					],
+					"Rotation": [
+						0.0,
+						-0.9807852506637573,
+						0.0,
+						0.19509032368659973
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "18406312869095289290",
+					"Children": [
+						"10630696808389270930",
+						"2965076872219736477"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"CapsuleCollider": {
+					"Radius": 0.09000000357627869,
+					"HalfHeight": 0.4099999964237213,
+					"Offset": [
+						0.0,
+						-0.5,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"AudioSource": {
+					"Clip": "11519315555261973321",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 18.0
+				},
+				"VisualScript": {
+					"Graph": "16179190138674778621",
+					"Variables": {
+						"Bar": {
+							"Type": "Entity",
+							"Value": "2965076872219736477"
+						},
+						"Semitone": {
+							"Type": "Int32",
+							"Value": 12
+						}
+					}
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 0,
+					"MaxParticles": 120,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.800000011920929,
+					"SpeedMin": 0.800000011920929,
+					"SpeedMax": 2.200000047683716,
+					"Shape": "Sphere",
+					"ConeAngle": 70.0,
+					"Radius": 0.05999999865889549,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.5,
+					"Drag": 0.6000000238418579,
+					"StartSize": 0.05000000074505806,
+					"EndSize": 0.009999999776482582,
+					"StartColor": [
+						1.0,
+						0.8999999761581421,
+						0.699999988079071,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.6000000238418579,
+						0.30000001192092896,
+						0.0
+					],
+					"Intensity": 7.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
+			"ID": "10630696808389270930",
+			"Components": {
+				"Tag": {
+					"Tag": "Bracket"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.029999999329447746,
+						0.15000000596046448
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.029999999329447746,
+						0.029999999329447746,
+						0.3400000035762787
+					]
+				},
+				"Relationship": {
+					"Parent": "14100671064308604186",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "2965076872219736477",
+			"Components": {
+				"Tag": {
+					"Tag": "Bar"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.5,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						1.0,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "14100671064308604186",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"4549567506265094678"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "9829322531894613577",
+			"Components": {
+				"Tag": {
+					"Tag": "Tube 7"
+				},
+				"Transform": {
+					"Translation": [
+						-1.187706470489502,
+						2.1500000953674316,
+						15.321792602539063
+					],
+					"Rotation": [
+						0.0,
+						0.9807852506637573,
+						0.0,
+						0.19509032368659973
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "18406312869095289290",
+					"Children": [
+						"17246457804742199655",
+						"8239550608025616355"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"CapsuleCollider": {
+					"Radius": 0.09000000357627869,
+					"HalfHeight": 0.36000001430511475,
+					"Offset": [
+						0.0,
+						-0.44999998807907104,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"AudioSource": {
+					"Clip": "11519315555261973321",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 18.0
+				},
+				"VisualScript": {
+					"Graph": "16179190138674778621",
+					"Variables": {
+						"Bar": {
+							"Type": "Entity",
+							"Value": "8239550608025616355"
+						},
+						"Semitone": {
+							"Type": "Int32",
+							"Value": 14
+						}
+					}
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 0,
+					"MaxParticles": 120,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.800000011920929,
+					"SpeedMin": 0.800000011920929,
+					"SpeedMax": 2.200000047683716,
+					"Shape": "Sphere",
+					"ConeAngle": 70.0,
+					"Radius": 0.05999999865889549,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.5,
+					"Drag": 0.6000000238418579,
+					"StartSize": 0.05000000074505806,
+					"EndSize": 0.009999999776482582,
+					"StartColor": [
+						1.0,
+						0.8999999761581421,
+						0.699999988079071,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.6000000238418579,
+						0.30000001192092896,
+						0.0
+					],
+					"Intensity": 7.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
+			"ID": "17246457804742199655",
+			"Components": {
+				"Tag": {
+					"Tag": "Bracket"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.029999999329447746,
+						0.15000000596046448
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.029999999329447746,
+						0.029999999329447746,
+						0.3400000035762787
+					]
+				},
+				"Relationship": {
+					"Parent": "9829322531894613577",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "8239550608025616355",
+			"Components": {
+				"Tag": {
+					"Tag": "Bar"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.44999998807907104,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						0.8999999761581421,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "9829322531894613577",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"4549567506265094678"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "13723370860371063980",
+			"Components": {
+				"Tag": {
+					"Tag": "Tube 8"
+				},
+				"Transform": {
+					"Translation": [
+						-0.32179275155067444,
+						2.1500000953674316,
+						16.187705993652344
+					],
+					"Rotation": [
+						0.0,
+						0.8314695954322815,
+						0.0,
+						0.5555702447891235
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "18406312869095289290",
+					"Children": [
+						"9892852598572709262",
+						"7449851328495052092"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"CapsuleCollider": {
+					"Radius": 0.09000000357627869,
+					"HalfHeight": 0.3100000023841858,
+					"Offset": [
+						0.0,
+						-0.4000000059604645,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"AudioSource": {
+					"Clip": "11519315555261973321",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 18.0
+				},
+				"VisualScript": {
+					"Graph": "16179190138674778621",
+					"Variables": {
+						"Bar": {
+							"Type": "Entity",
+							"Value": "7449851328495052092"
+						},
+						"Semitone": {
+							"Type": "Int32",
+							"Value": 16
+						}
+					}
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 0,
+					"MaxParticles": 120,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.800000011920929,
+					"SpeedMin": 0.800000011920929,
+					"SpeedMax": 2.200000047683716,
+					"Shape": "Sphere",
+					"ConeAngle": 70.0,
+					"Radius": 0.05999999865889549,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.5,
+					"Drag": 0.6000000238418579,
+					"StartSize": 0.05000000074505806,
+					"EndSize": 0.009999999776482582,
+					"StartColor": [
+						1.0,
+						0.8999999761581421,
+						0.699999988079071,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.6000000238418579,
+						0.30000001192092896,
+						0.0
+					],
+					"Intensity": 7.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
+			"ID": "9892852598572709262",
+			"Components": {
+				"Tag": {
+					"Tag": "Bracket"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.029999999329447746,
+						0.15000000596046448
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.029999999329447746,
+						0.029999999329447746,
+						0.3400000035762787
+					]
+				},
+				"Relationship": {
+					"Parent": "13723370860371063980",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "7449851328495052092",
+			"Components": {
+				"Tag": {
+					"Tag": "Bar"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.4000000059604645,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.09000000357627869,
+						0.800000011920929,
+						0.09000000357627869
+					]
+				},
+				"Relationship": {
+					"Parent": "13723370860371063980",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"4549567506265094678"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "3919395159021666470",
+			"Components": {
+				"Tag": {
+					"Tag": "Pads"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "145528223768679080",
+					"Children": [
+						"17245759372068466269",
+						"1255781144729928013",
+						"10667907178636573761",
+						"1130739731827938697",
+						"8303020111859232793",
+						"3669795266072309645",
+						"2862293527346803285",
+						"12450885088432453184"
+					]
+				}
+			}
+		},
+		{
+			"ID": "17245759372068466269",
+			"Components": {
+				"Tag": {
+					"Tag": "Pad 1"
+				},
+				"Transform": {
+					"Translation": [
+						0.6944747567176819,
+						0.1599999964237213,
+						17.83324432373047
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3919395159021666470",
+					"Children": [
+						"14044090742702701241"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.3499999940395355,
+						0.6000000238418579,
+						0.3499999940395355
+					],
+					"Offset": [
+						0.0,
+						0.6000000238418579,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "1279958461494650362",
+					"Variables": {
+						"Plate": {
+							"Type": "Entity",
+							"Value": "14044090742702701241"
+						},
+						"Tube": {
+							"Type": "Entity",
+							"Value": "8036569335825072127"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "14044090742702701241",
+			"Components": {
+				"Tag": {
+					"Tag": "Plate"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.019999999552965164,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.699999988079071,
+						0.03999999910593033,
+						0.699999988079071
+					]
+				},
+				"Relationship": {
+					"Parent": "17245759372068466269",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"1723014610094566287"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "1255781144729928013",
+			"Components": {
+				"Tag": {
+					"Tag": "Pad 2"
+				},
+				"Transform": {
+					"Translation": [
+						-0.7667547464370728,
+						0.1599999964237213,
+						19.294475555419922
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3919395159021666470",
+					"Children": [
+						"3313949660128229147"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.3499999940395355,
+						0.6000000238418579,
+						0.3499999940395355
+					],
+					"Offset": [
+						0.0,
+						0.6000000238418579,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "1279958461494650362",
+					"Variables": {
+						"Plate": {
+							"Type": "Entity",
+							"Value": "3313949660128229147"
+						},
+						"Tube": {
+							"Type": "Entity",
+							"Value": "9336290719115959938"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "3313949660128229147",
+			"Components": {
+				"Tag": {
+					"Tag": "Plate"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.019999999552965164,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.699999988079071,
+						0.03999999910593033,
+						0.699999988079071
+					]
+				},
+				"Relationship": {
+					"Parent": "1255781144729928013",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"1723014610094566287"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "10667907178636573761",
+			"Components": {
+				"Tag": {
+					"Tag": "Pad 3"
+				},
+				"Transform": {
+					"Translation": [
+						-2.833245277404785,
+						0.1599999964237213,
+						19.294475555419922
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3919395159021666470",
+					"Children": [
+						"3724267728946648915"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.3499999940395355,
+						0.6000000238418579,
+						0.3499999940395355
+					],
+					"Offset": [
+						0.0,
+						0.6000000238418579,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "1279958461494650362",
+					"Variables": {
+						"Plate": {
+							"Type": "Entity",
+							"Value": "3724267728946648915"
+						},
+						"Tube": {
+							"Type": "Entity",
+							"Value": "17617933287844560342"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "3724267728946648915",
+			"Components": {
+				"Tag": {
+					"Tag": "Plate"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.019999999552965164,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.699999988079071,
+						0.03999999910593033,
+						0.699999988079071
+					]
+				},
+				"Relationship": {
+					"Parent": "10667907178636573761",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"1723014610094566287"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "1130739731827938697",
+			"Components": {
+				"Tag": {
+					"Tag": "Pad 4"
+				},
+				"Transform": {
+					"Translation": [
+						-4.2944746017456055,
+						0.1599999964237213,
+						17.83324432373047
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3919395159021666470",
+					"Children": [
+						"5299482291669977653"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.3499999940395355,
+						0.6000000238418579,
+						0.3499999940395355
+					],
+					"Offset": [
+						0.0,
+						0.6000000238418579,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "1279958461494650362",
+					"Variables": {
+						"Plate": {
+							"Type": "Entity",
+							"Value": "5299482291669977653"
+						},
+						"Tube": {
+							"Type": "Entity",
+							"Value": "6488921718755647363"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "5299482291669977653",
+			"Components": {
+				"Tag": {
+					"Tag": "Plate"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.019999999552965164,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.699999988079071,
+						0.03999999910593033,
+						0.699999988079071
+					]
+				},
+				"Relationship": {
+					"Parent": "1130739731827938697",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"1723014610094566287"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "8303020111859232793",
+			"Components": {
+				"Tag": {
+					"Tag": "Pad 5"
+				},
+				"Transform": {
+					"Translation": [
+						-4.2944746017456055,
+						0.1599999964237213,
+						15.766755104064941
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3919395159021666470",
+					"Children": [
+						"18314465020304915594"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.3499999940395355,
+						0.6000000238418579,
+						0.3499999940395355
+					],
+					"Offset": [
+						0.0,
+						0.6000000238418579,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "1279958461494650362",
+					"Variables": {
+						"Plate": {
+							"Type": "Entity",
+							"Value": "18314465020304915594"
+						},
+						"Tube": {
+							"Type": "Entity",
+							"Value": "11076457753777025265"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "18314465020304915594",
+			"Components": {
+				"Tag": {
+					"Tag": "Plate"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.019999999552965164,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.699999988079071,
+						0.03999999910593033,
+						0.699999988079071
+					]
+				},
+				"Relationship": {
+					"Parent": "8303020111859232793",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"1723014610094566287"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "3669795266072309645",
+			"Components": {
+				"Tag": {
+					"Tag": "Pad 6"
+				},
+				"Transform": {
+					"Translation": [
+						-2.833245277404785,
+						0.1599999964237213,
+						14.305524826049805
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3919395159021666470",
+					"Children": [
+						"9366198700663127095"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.3499999940395355,
+						0.6000000238418579,
+						0.3499999940395355
+					],
+					"Offset": [
+						0.0,
+						0.6000000238418579,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "1279958461494650362",
+					"Variables": {
+						"Plate": {
+							"Type": "Entity",
+							"Value": "9366198700663127095"
+						},
+						"Tube": {
+							"Type": "Entity",
+							"Value": "14100671064308604186"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "9366198700663127095",
+			"Components": {
+				"Tag": {
+					"Tag": "Plate"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.019999999552965164,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.699999988079071,
+						0.03999999910593033,
+						0.699999988079071
+					]
+				},
+				"Relationship": {
+					"Parent": "3669795266072309645",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"1723014610094566287"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "2862293527346803285",
+			"Components": {
+				"Tag": {
+					"Tag": "Pad 7"
+				},
+				"Transform": {
+					"Translation": [
+						-0.7667547464370728,
+						0.1599999964237213,
+						14.305524826049805
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3919395159021666470",
+					"Children": [
+						"6271280822750079311"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.3499999940395355,
+						0.6000000238418579,
+						0.3499999940395355
+					],
+					"Offset": [
+						0.0,
+						0.6000000238418579,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "1279958461494650362",
+					"Variables": {
+						"Plate": {
+							"Type": "Entity",
+							"Value": "6271280822750079311"
+						},
+						"Tube": {
+							"Type": "Entity",
+							"Value": "9829322531894613577"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "6271280822750079311",
+			"Components": {
+				"Tag": {
+					"Tag": "Plate"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.019999999552965164,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.699999988079071,
+						0.03999999910593033,
+						0.699999988079071
+					]
+				},
+				"Relationship": {
+					"Parent": "2862293527346803285",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"1723014610094566287"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "12450885088432453184",
+			"Components": {
+				"Tag": {
+					"Tag": "Pad 8"
+				},
+				"Transform": {
+					"Translation": [
+						0.6944747567176819,
+						0.1599999964237213,
+						15.766755104064941
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3919395159021666470",
+					"Children": [
+						"12285981512831334578"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.3499999940395355,
+						0.6000000238418579,
+						0.3499999940395355
+					],
+					"Offset": [
+						0.0,
+						0.6000000238418579,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"VisualScript": {
+					"Graph": "1279958461494650362",
+					"Variables": {
+						"Plate": {
+							"Type": "Entity",
+							"Value": "12285981512831334578"
+						},
+						"Tube": {
+							"Type": "Entity",
+							"Value": "13723370860371063980"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "12285981512831334578",
+			"Components": {
+				"Tag": {
+					"Tag": "Plate"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.019999999552965164,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.699999988079071,
+						0.03999999910593033,
+						0.699999988079071
+					]
+				},
+				"Relationship": {
+					"Parent": "12450885088432453184",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"1723014610094566287"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "17823174653300443724",
+			"Components": {
+				"Tag": {
+					"Tag": "Lanterns"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "145528223768679080",
+					"Children": [
+						"10459606199172995314",
+						"10252489464718175980",
+						"3957299601517608975",
+						"12004130590279541651"
+					]
+				}
+			}
+		},
+		{
+			"ID": "10459606199172995314",
+			"Components": {
+				"Tag": {
+					"Tag": "Lantern 1"
+				},
+				"Transform": {
+					"Translation": [
+						1.7999999523162842,
+						1.7000000476837158,
+						16.799999237060547
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "17823174653300443724",
+					"Children": [
+						"8241553388755731770",
+						"12638833527936278413",
+						"8173461165472606615",
+						"13374825841512540380"
+					]
+				},
+				"PointLight": {
+					"Color": [
+						1.0,
+						0.7200000286102295,
+						0.44999998807907104
+					],
+					"Intensity": 2.0,
+					"Range": 5.0,
+					"CastShadows": false
+				},
+				"VisualScript": {
+					"Graph": "11021123671566624170",
+					"Variables": {}
+				}
+			}
+		},
+		{
+			"ID": "8241553388755731770",
+			"Components": {
+				"Tag": {
+					"Tag": "Post"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.8500000238418579,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.07000000029802322,
+						1.7000000476837158,
+						0.07000000029802322
+					]
+				},
+				"Relationship": {
+					"Parent": "10459606199172995314",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "12638833527936278413",
+			"Components": {
+				"Tag": {
+					"Tag": "Globe"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.11999999731779099,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.30000001192092896,
+						0.30000001192092896,
+						0.30000001192092896
+					]
+				},
+				"Relationship": {
+					"Parent": "10459606199172995314",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"18184378960503833111"
+					],
+					"CastShadows": false,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "8173461165472606615",
+			"Components": {
+				"Tag": {
+					"Tag": "Bulb"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.11999999731779099,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.10999999940395355,
+						0.10999999940395355,
+						0.10999999940395355
+					]
+				},
+				"Relationship": {
+					"Parent": "10459606199172995314",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"17777091603794846887"
+					],
+					"CastShadows": false,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "13374825841512540380",
+			"Components": {
+				"Tag": {
+					"Tag": "Cap"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.30000001192092896,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.1599999964237213,
+						0.05000000074505806,
+						0.1599999964237213
+					]
+				},
+				"Relationship": {
+					"Parent": "10459606199172995314",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "10252489464718175980",
+			"Components": {
+				"Tag": {
+					"Tag": "Lantern 2"
+				},
+				"Transform": {
+					"Translation": [
+						-1.7999999523162842,
+						1.7000000476837158,
+						20.399999618530273
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "17823174653300443724",
+					"Children": [
+						"7520145998223775107",
+						"3330053340736387775",
+						"16230814812779319171",
+						"18206834588373254499"
+					]
+				},
+				"PointLight": {
+					"Color": [
+						1.0,
+						0.7200000286102295,
+						0.44999998807907104
+					],
+					"Intensity": 2.0,
+					"Range": 5.0,
+					"CastShadows": false
+				},
+				"VisualScript": {
+					"Graph": "11021123671566624170",
+					"Variables": {}
+				}
+			}
+		},
+		{
+			"ID": "7520145998223775107",
+			"Components": {
+				"Tag": {
+					"Tag": "Post"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.8500000238418579,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.07000000029802322,
+						1.7000000476837158,
+						0.07000000029802322
+					]
+				},
+				"Relationship": {
+					"Parent": "10252489464718175980",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "3330053340736387775",
+			"Components": {
+				"Tag": {
+					"Tag": "Globe"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.11999999731779099,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.30000001192092896,
+						0.30000001192092896,
+						0.30000001192092896
+					]
+				},
+				"Relationship": {
+					"Parent": "10252489464718175980",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"18184378960503833111"
+					],
+					"CastShadows": false,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "16230814812779319171",
+			"Components": {
+				"Tag": {
+					"Tag": "Bulb"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.11999999731779099,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.10999999940395355,
+						0.10999999940395355,
+						0.10999999940395355
+					]
+				},
+				"Relationship": {
+					"Parent": "10252489464718175980",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"17777091603794846887"
+					],
+					"CastShadows": false,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "18206834588373254499",
+			"Components": {
+				"Tag": {
+					"Tag": "Cap"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.30000001192092896,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.1599999964237213,
+						0.05000000074505806,
+						0.1599999964237213
+					]
+				},
+				"Relationship": {
+					"Parent": "10252489464718175980",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "3957299601517608975",
+			"Components": {
+				"Tag": {
+					"Tag": "Lantern 3"
+				},
+				"Transform": {
+					"Translation": [
+						-5.400000095367432,
+						1.7000000476837158,
+						16.799999237060547
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "17823174653300443724",
+					"Children": [
+						"9974458639074037210",
+						"807881817213221064",
+						"14582301493303533262",
+						"16558684216159025190"
+					]
+				},
+				"PointLight": {
+					"Color": [
+						1.0,
+						0.7200000286102295,
+						0.44999998807907104
+					],
+					"Intensity": 2.0,
+					"Range": 5.0,
+					"CastShadows": false
+				},
+				"VisualScript": {
+					"Graph": "11021123671566624170",
+					"Variables": {}
+				}
+			}
+		},
+		{
+			"ID": "9974458639074037210",
+			"Components": {
+				"Tag": {
+					"Tag": "Post"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.8500000238418579,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.07000000029802322,
+						1.7000000476837158,
+						0.07000000029802322
+					]
+				},
+				"Relationship": {
+					"Parent": "3957299601517608975",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "807881817213221064",
+			"Components": {
+				"Tag": {
+					"Tag": "Globe"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.11999999731779099,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.30000001192092896,
+						0.30000001192092896,
+						0.30000001192092896
+					]
+				},
+				"Relationship": {
+					"Parent": "3957299601517608975",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"18184378960503833111"
+					],
+					"CastShadows": false,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "14582301493303533262",
+			"Components": {
+				"Tag": {
+					"Tag": "Bulb"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.11999999731779099,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.10999999940395355,
+						0.10999999940395355,
+						0.10999999940395355
+					]
+				},
+				"Relationship": {
+					"Parent": "3957299601517608975",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"17777091603794846887"
+					],
+					"CastShadows": false,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "16558684216159025190",
+			"Components": {
+				"Tag": {
+					"Tag": "Cap"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.30000001192092896,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.1599999964237213,
+						0.05000000074505806,
+						0.1599999964237213
+					]
+				},
+				"Relationship": {
+					"Parent": "3957299601517608975",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "12004130590279541651",
+			"Components": {
+				"Tag": {
+					"Tag": "Lantern 4"
+				},
+				"Transform": {
+					"Translation": [
+						-1.7999999523162842,
+						1.7000000476837158,
+						13.199999809265137
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "17823174653300443724",
+					"Children": [
+						"13073307981475779355",
+						"7043972158495746121",
+						"6595928663102643053",
+						"9271569168069911646"
+					]
+				},
+				"PointLight": {
+					"Color": [
+						1.0,
+						0.7200000286102295,
+						0.44999998807907104
+					],
+					"Intensity": 2.0,
+					"Range": 5.0,
+					"CastShadows": false
+				},
+				"VisualScript": {
+					"Graph": "11021123671566624170",
+					"Variables": {}
+				}
+			}
+		},
+		{
+			"ID": "13073307981475779355",
+			"Components": {
+				"Tag": {
+					"Tag": "Post"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.8500000238418579,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.07000000029802322,
+						1.7000000476837158,
+						0.07000000029802322
+					]
+				},
+				"Relationship": {
+					"Parent": "12004130590279541651",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "7043972158495746121",
+			"Components": {
+				"Tag": {
+					"Tag": "Globe"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.11999999731779099,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.30000001192092896,
+						0.30000001192092896,
+						0.30000001192092896
+					]
+				},
+				"Relationship": {
+					"Parent": "12004130590279541651",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"18184378960503833111"
+					],
+					"CastShadows": false,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "6595928663102643053",
+			"Components": {
+				"Tag": {
+					"Tag": "Bulb"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.11999999731779099,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.10999999940395355,
+						0.10999999940395355,
+						0.10999999940395355
+					]
+				},
+				"Relationship": {
+					"Parent": "12004130590279541651",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"17777091603794846887"
+					],
+					"CastShadows": false,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "9271569168069911646",
+			"Components": {
+				"Tag": {
+					"Tag": "Cap"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.30000001192092896,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.1599999964237213,
+						0.05000000074505806,
+						0.1599999964237213
+					]
+				},
+				"Relationship": {
+					"Parent": "12004130590279541651",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"5504318408171513527"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "13684709812837236034",
 			"Components": {
 				"Tag": {
 					"Tag": "Tests"
@@ -46900,6 +52077,14 @@
 							"Type": "Entity",
 							"Value": "6036463065250792338"
 						},
+						"Chimes": {
+							"Type": "Entity",
+							"Value": "18406312869095289290"
+						},
+						"Conductor": {
+							"Type": "Entity",
+							"Value": "16551919988227946642"
+						},
 						"DebugView": {
 							"Type": "Entity",
 							"Value": "17649565889494526796"
@@ -46931,6 +52116,14 @@
 						"Gallery": {
 							"Type": "Entity",
 							"Value": "4833358177181273893"
+						},
+						"GardenPads": {
+							"Type": "Entity",
+							"Value": "3919395159021666470"
+						},
+						"GardenSign": {
+							"Type": "Entity",
+							"Value": "222462899971752156"
 						},
 						"Gate": {
 							"Type": "Entity",
