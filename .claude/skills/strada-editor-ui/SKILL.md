@@ -143,7 +143,11 @@ for windows that exist once per open asset (Docs/Architecture.md §11.1):
   `SelectionEnd` are writable on every frame the field is active (imgui.h:1348, :2808-2809).
 - Values being edited survive edits made elsewhere: `VisualScriptWidgetCommits` rebases a pending value over an outside
   change (`RebaseVisualScriptEdit`, a pure function) and drops it with a note only when the change touched the same
-  element; a canvas gesture an outside change ends shows a toast.
+  element. Canvas gestures do the same: the model records what the outside change did (`OutsideChange`) and
+  `RebaseGesture` continues the gesture on the new document while its elements are untouched, or ends it with a toast
+  naming the element ("Your move was interrupted: Branch (node 12) was changed elsewhere"). A new press kind gets a case
+  in `RebaseGesture`'s Idle branch (which makes a press inert), and a new gesture a case in `RebaseGesture` and, when its
+  interruption names an element, in `IsGestureElement`.
 - A window whose panes do not fit side by side stacks them (`VisualScriptWindowLayout::Stacked`: one column, My Script
   above Details at a share of the column, a splitter between them) before it hides any; both report Shown.
 - Drawing: emit layers in order into one draw list (no `ImDrawListSplitter`: with 16-bit indices and `VtxOffset` every
@@ -159,6 +163,37 @@ for windows that exist once per open asset (Docs/Architecture.md §11.1):
   a popup request instead of a popup), whose popup body `FieldEditor::DrawValuePopup` draws.
 - Names users type are checked with `VisualScriptSerializer::IsValidName`, the loader's own rule; read-only files with
   `FileSystem::IsReadOnly`, the editor's one rule.
+
+## Debugging and the live game
+
+- A graph window draws debugging and the live game from pure views the window manager builds once per frame
+  (`VisualScriptWindowDebugInput`, `VisualScriptCanvasDebug.h`): the window maps them onto its canvas after its own sync
+  and the renderer draws only the result. Keep the session itself (`VisualScriptDebugSession`) free of ImGui and panel
+  headers.
+- Windows never run graph code while they draw. Resumes and Run to Node that the UI asks for, the play controls'
+  unpause included, are queued (`RequestResume`) for the next `BeginFrame`, which runs before automation. Read-only VM
+  queries that run no graph code (`ReadValues`, `DescribeInstances`, `CheckCondition`, `DescribeStop`) may be made while
+  drawing, at a bounded rate (live values at 4 or 10 Hz, only for windows that show their canvas).
+- Put behaviour in units `EditorLayer` only calls (`VisualScriptDebugControls`, `FindEditorWindowRect`,
+  `WantsHiddenGameRender`), so headless tests drive the real code instead of a copy of the editor's frame.
+- Values in cells go through the one formatter (`FormatVisualScriptDebugValue`): colours as swatches, entities by name,
+  arrays and strings on one line, clipped with `RenderTextEllipsis` before the next column, the whole value in the
+  tooltip. My Script's live value cells, the Debugger panel and value pills share it.
+- Texts use only the fonts' glyphs: arrows through `UI::DrawArrowText` (or `UI::WrapArrowText`), other symbols as drawn
+  shapes, key hints through `FormatVisualScriptChord`; new texts are constants in a list the glyph test reads
+  (`VisualScriptPanelTexts::All`, `VisualScriptDebuggerPanel::Texts::All`, built with `std::to_array`, so append to them).
+- The debug keys (F5, F10, F11, Ctrl+F11, Shift+F11) are global chords listed in `VisualScriptEditorChords` and shown in
+  the shortcut sheet as `Global` rows; they are inert behind modals (`ImGui::GetTopMostPopupModal()`), and canvas keys
+  never equal them. While the session holds the pause the controls take the game's input back every frame, and give it
+  back only where the Game View shows without a tab change.
+- The live-edit feedback reads one revision of the live log per frame (`VisualScriptEngine::GetLiveLog`): receipt toasts
+  for the window's own document changes only, the Live popover, the outline of what does not run
+  (`FindVisualScriptNotRunning`), runtime discs and the drawer's Runtime section. Tell Play from Simulate by
+  `EditorPlayState::Play`: Simulate is no play session.
+- The game preview renders the game only when the Game View rendered nothing that frame (`WantsHiddenGameRender`), and
+  Game View Beside runs at the start of a frame, before the dock node's windows are submitted
+  (`DockBuilderSplitNode` moves a node's windows to the opposite child; `DockBuilderDockWindow` only sets a window's dock
+  ID).
 
 ## Tests
 
@@ -182,4 +217,11 @@ for windows that exist once per open asset (Docs/Architecture.md §11.1):
   libstdc++ sees the initializers only once the enclosing class is complete); remove elements with `std::erase_if` or
   `std::remove_if`, never with a hand-written move loop that may move-assign an object to itself (libstdc++ and libc++
   empty it, MSVC does not).
-- Check the result visually with an automation screenshot (`viewport.screenshot`) of the running editor.
+- A test of a shortcut's text expects it as `FormatVisualScriptChord` names it for the ImGui context's
+  `ConfigMacOSXBehaviors` (Cmd and Option on macOS, Ctrl and Alt elsewhere), or passes the flag explicitly; never a fixed
+  "Ctrl+...". The editor's own menus format through ImGui and name Ctrl everywhere.
+- Debugger UI tests run a scripted session under `Testing::ScriptRuntimeScope` with `PlayMode` and the debug session
+  (the runtime tier), stop on real breakpoints, and check the draw record (`Kind` and `Mark` of the debug items), the
+  strip's rows and buttons and the panel's values after the panel invariant.
+- Check the result visually with an automation screenshot (`viewport.screenshot`, or `viewport.screenshot {window}` for
+  one window) of the running editor.

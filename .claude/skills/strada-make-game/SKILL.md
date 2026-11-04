@@ -1,6 +1,6 @@
 ---
 name: strada-make-game
-description: How to make or change a game with the Strada editor through its MCP tools (strada mcp) - projects, scenes from entities and components, materials, prefabs, C# scripts, visual scripts (graphs), play mode and test runs, export. Use when asked to build a game, level or prototype with Strada, or to drive the editor as an agent.
+description: How to make or change a game with the Strada editor through its MCP tools (strada mcp) - projects, scenes from entities and components, materials, prefabs, C# scripts, visual scripts (graphs), watching, debugging and fixing graphs while the game plays, play mode and test runs, export. Use when asked to build a game, level or prototype with Strada, or to drive the editor as an agent.
 ---
 
 # Making a game with the Strada editor
@@ -210,6 +210,26 @@ Errors and what to do:
 | the user changed the graph meanwhile | InvalidOperation on `programRevision` (the program changed) or `revision` (anything changed) | `graph_get`, then edit again; prefer `programRevision`, which the user's moves leave alone |
 | no .NET runtime | Unavailable for the operations that need pins; deletions and measured arranging run degraded | `graph_set` writes links as given |
 
+**Build a game of graphs.** Write graphs that read well and refer to each other safely, as
+`Projects/PrismBreak/Tools/Author.py` does:
+
+- Declare first: one `graph_edit` per graph that adds only its variables (with tooltips, and ranges for numbers), its
+  `Event.Custom` nodes with their `Parameters`, and its functions with their inputs and outputs. Then every typed Send,
+  remote Get and Set and call of the bodies resolves, even between graphs that refer to each other in cycles. Write a
+  graph's functions (and a callee's waiting body) before the regions that call them.
+- Then one `graph_edit` per region: its nodes and links, `{ "op": "Arrange", "scope": "Created" }`, `{ "op": "Arrange",
+  "scope": "Nodes", "nodes": [...] }` and an `AddComment` with `text`, `elements` and `color`, with
+  `refuseNewErrors: true`; require `summary.errors` and `summary.warnings` to be 0 before going on.
+- One region per behaviour, its comment box titled "<What>: <how>" or a short noun phrase (at most 72 characters) in its
+  role's colour (blue events and input, orange rules, purple effects, green the title, red development only); regions
+  stack from top to bottom in reading order, and inside a region the nodes run from left to right. Regions share no nodes
+  and no links: give each its own Get nodes and calls. Name events for what happened or what to do and functions as
+  verbs; put node comments where the reason is not plain; give every graph a `description` and every public variable a
+  tooltip. `SampleGraphsTests` holds the samples to these rules (every node in exactly one titled box, none closer than
+  16 units, no link between boxes, each box arranged).
+- Verify at the end: `graph_check` of each graph's `graph_get` document has no diagnostic, `graph_arrange` with
+  `dryRun: true` per box changes nothing, and `graph_interface` of each library lists its callers in `usedBy`.
+
 **The language.**
 
 - Graphs hold no entity values: other entities come from public `Strada.Entity` variables (set per component), `Self`,
@@ -263,8 +283,9 @@ Errors and what to do:
   shows graphs that do not load (`Visual script '<path>' has 1 error; first: ...`), entities left without theirs
   (`Entity '<name>' runs no visual script: ...`) and errors while running
   (`<graph>: <node> (node <id>) on <entity> (<id>): <message>`).
-- While playing, `graph_edit` and `graph_set` change running graphs at their next update (live edit), `entity_get` shows
-  the values the public variables hold, and `component_set` sets them in the running graph.
+- While playing, `graph_edit` and `graph_set` change running graphs in their own call (live edit; their result's `live`
+  says what the game took, section 7), `entity_get` shows the values the public variables hold, and `component_set` sets
+  them in the running graph.
 - Nodes can carry a comment (`SetNodeComment`), be collapsed, disabled (`SetEnabled` `Disabled`: passes the flow and
   values through, its errors become warnings) or `DevelopmentOnly` (runs in the editor and test runs, not in exported
   games: debug logging, cheat keys), and have split struct pins (`SplitPin`: `Force.X`, `Force.Y`, `Force.Z`).
@@ -281,10 +302,109 @@ Errors and what to do:
 - The graphs FeatureTest's scenes run, and `MathLibrary.sgraph` they call, use every built-in kind of node and every
   `[VisualNode]` member of its scripts (`FormatSample.sgraph` is a format sample no scene runs): read them for examples.
 
-## 7. Play and test
+## 7. Watch, debug and fix graphs while the game plays
+
+- Make the session exact: `play_start` with `paused: true` creates the scene (every `OnCreate` and `Event.Create` run)
+  and pauses it before its first frame, and `play_advance` with `frames` runs exactly those frames (1/60 s each;
+  `timestep` changes it), so every value read is reproducible.
+- Pick the instance: when many entities run the graph (one enemy among many), `graph_target` with `graph` and `entity`
+  makes its breakpoints stop that one alone (`any: true`: every instance); with `graph` alone it lists the instances.
+- Set breakpoints: `graph_breakpoints` with `graph` and `add: [{ "node": 8, "condition": "Angle > 33.5" }]` (`enabled`,
+  `hitCount`; `add` merges with a breakpoint the node has). A condition is a formula over the names the node reads: the
+  `Index` and `Element` of the loops around it (innermost first), its function's locals, the outputs of the one event or
+  function entry every chain to it starts from (a custom event's parameters, `Other`, `DeltaTime`, a function's inputs)
+  and the graph's variables; names with spaces are written with `_` (`Max_Health`); strings and enums compare with
+  string literals (`State == "Serve"`), entities with `None`. Read `checked`, `error` and `inactiveReason` in the result;
+  a refused condition says what was meant ("unknown name angle: did you mean Angle?"). A pure node's breakpoint stops the
+  nodes that read it and takes no condition.
+- Run until one stops: `play_advance` stops early after the frame in which an execution stopped (`stopped`, `stop`).
+  `graph_wait` waits in real time while the game runs, and answers at once when no frame can run (`reason` `Paused`).
+- Read the stop: `graph_debug` gives the state (`Stopped`, `Stepping`, `StepEnded`), each stop's call stack (`frames`,
+  innermost first) and `start`; `graph_values` with `graph` and `stop` reads every value of the stopped frame (`nodes`
+  adds nodes' values; each value has a `currency`: `Current`, `Earlier`, `NotComputed`, `Unknown`), and `evaluate`
+  computes formulas in that frame (`["Health * 2"]`). Without `stop` it reads the live instance. `graph_instances` lists
+  the instances with their waits and stops.
+- Step: `graph_step` with `kind` `Into`, `Over` or `Out` answers `Stopped` with the next stop. A step that waits in a
+  latent node (a Delay) answers `Waiting`, with `needsFrames` while the scene stays paused: run `play_advance`, which
+  stops where the step stops. `graph_continue` continues every stop (`stop` one; `to` `{ graph, node }` runs to a node),
+  and `graph_break` stops the next node that runs. While an execution is stopped, `play_step`, `play_advance` and
+  `graph_trace` are refused: continue or step first.
+- Fix it: `graph_edit` while stopped applies in its own call and reaches the stopped execution when it keeps the stopped
+  node (`live.edits[].instanceNotes[].stopsKept`, then `migrated` in `graph_debug`; `graph_values` marks a changed literal
+  `edited` with its `before`). A receipt's `outcome` is `Applied`, `Pending` (a step holds the swap), `KeptLastWorking`
+  (the edit has errors: the game keeps the last version that worked) or `NotRunning`; it lists the variables kept and
+  reset and the waits cancelled. An edit that removes the stopped node cancels the execution; the game stays paused and
+  `graph_continue` resumes it.
+- Verify: `graph_trace` with `frames`, `graphs` and `nodes` runs frames and summarizes which exits each node took how
+  often and each pin's first, last, minimum and maximum (`summary: false` lists every step; `truncated.hint` says how to
+  narrow it); `graph_values` reads what the instance holds now.
+- Errors while running: `graph_live` lists what edits did to the running game and the runtime problems (one per graph,
+  node, entity and severity, with a count and the calls that led there); pass the last answer's `serial` as `after` to
+  read only what is new. `graph_breakpoints` with `breakOnErrors: true` stops at the next error.
+- Hand the editor back clean: `graph_breakpoints` with `clear: true` removes every graph's breakpoints (with `graph`, that
+  graph's), then `play_stop`. Edits made while playing stay, and stay undoable.
+- Show the user: `graph_open` with `show` (a node) brings a node into view, `graph_debug_panel` opens the Debugger panel
+  on a tab, a stop and a frame, and `viewport_screenshot` with `window` (`Graph` with `graph`, `Debugger`, `GameView`)
+  captures one window. Test runs (`test_run`), the player and exported games ignore breakpoints.
+
+The documented session (`Tests/Data/VisualScripting/Agents/Debugging.json`; Docs/Scripting.md and Docs/Automation.md show
+it too) makes the Spinner with a mistake, `% 36` for `% 360` (it shakes instead of turning), finds it with a breakpoint,
+fixes it while the execution is stopped, traces the fix, and undoes and redoes it after Stop. Each call is followed by
+the members of its result the session checks:
+
+```
+graph_create {"path":"Scripts/Spinner.sgraph"}
+  → {"path":"Scripts/Spinner.sgraph"}
+graph_edit {"graph":"asset://Scripts/Spinner.sgraph","description":"Spin at Speed degrees per second","operations":[{"op":"AddVariable","name":"Speed","type":"float","value":90.0,"public":true,"tooltip":"Degrees per second"},{"op":"AddVariable","name":"Angle","type":"float"},{"op":"AddNode","type":"Variable.Get","settings":{"Variable":"Speed"},"as":"$speed"},{"op":"AddNode","type":"Variable.Get","settings":{"Variable":"Angle"},"as":"$angle"},{"op":"AddNode","type":"Expression","settings":{"Formula":"(angle + speed * dt) % 36"},"as":"$next"},{"op":"AddNode","type":"Variable.Set","settings":{"Variable":"Angle"},"as":"$store"},{"op":"AddNode","type":"Expression","settings":{"Formula":"vec3(0, a, 0)"},"as":"$euler"},{"op":"AddNode","type":"Set:Strada.TransformComponent.EulerAngles","as":"$turn"},{"op":"Connect","from":["$angle","Value"],"to":["$next","angle"]},{"op":"Connect","from":["$speed","Value"],"to":["$next","speed"]},{"op":"Connect","from":[2,"DeltaTime"],"to":["$next","dt"]},{"op":"Connect","from":["$next","Result"],"to":["$store","Value"]},{"op":"Connect","from":["$store","Value"],"to":["$euler","a"]},{"op":"Connect","from":["$euler","Result"],"to":["$turn","Value"]},{"op":"Connect","from":[2,"Then"],"to":["$store","Execute"]},{"op":"Connect","from":["$store","Then"],"to":["$turn","Execute"]},{"op":"Arrange","scope":"Graph"}]}
+  → {"summary":{"errors":0},"labels":{"$next":7,"$store":8,"$turn":10}}
+entity_create {"name":"Spinner","components":{"VisualScript":{"Graph":"asset://Scripts/Spinner.sgraph"}}}
+  → {}
+play_start {"paused":true}
+  → {"state":"play","paused":true}
+graph_breakpoints {"graph":"asset://Scripts/Spinner.sgraph","add":[{"node":8,"condition":"Angle > 33.5"}]}
+  → {"breakpoints":[{"node":8,"title":"Set Angle","condition":"Angle > 33.5","checked":true}]}
+play_advance {"frames":60}
+  → {"framesRun":24,"stopped":true,"stop":{"reason":"Breakpoint","frames":[{"node":8,"pin":"Execute"}]}}
+graph_debug {}
+  → {"state":"Stopped","stops":[{"id":1,"frames":[{"node":8,"title":"Set Angle","functionName":"Event Graph"}],"start":{"kind":"Event","node":2}}]}
+graph_values {"graph":"asset://Scripts/Spinner.sgraph","stop":1,"nodes":[7]}
+  → {"source":"Stop","variables":[{"name":"Speed","value":90},{"name":"Angle","value":34.5}],"nodes":[{"node":7,"outputs":[{"name":"Result","value":34.5,"currency":"Earlier"}]}]}
+graph_step {"kind":"Over"}
+  → {"outcome":"Stopped","stop":{"id":2,"frames":[{"node":10}]}}
+graph_values {"graph":"asset://Scripts/Spinner.sgraph","stop":2,"nodes":[7]}
+  → {"nodes":[{"node":7,"outputs":[{"name":"Result","value":0,"currency":"Current"}]}],"variables":[{"name":"Angle","value":0}]}
+graph_edit {"graph":"asset://Scripts/Spinner.sgraph","operations":[{"op":"SetFormula","node":7,"formula":"(angle + speed * dt) % 360"}]}
+  → {"changed":true,"live":{"edits":[{"outcome":"Applied","instances":1,"instanceNotes":[{"stopsKept":1}]}]}}
+graph_debug {}
+  → {"state":"Stopped","stops":[{"id":2,"migrated":true}]}
+graph_breakpoints {"graph":"asset://Scripts/Spinner.sgraph","clear":true}
+  → {"breakpoints":[]}
+graph_continue {}
+  → {"outcome":"Ended","paused":true}
+play_advance {"frames":30}
+  → {"framesRun":30,"stopped":false}
+graph_trace {"frames":10,"graphs":["asset://Scripts/Spinner.sgraph"],"nodes":[8]}
+  → {"framesRun":10,"summary":{"graphs":[{"steps":[{"node":8,"exit":"Then","count":10}],"values":[{"node":8,"pin":"Value","direction":"In","count":10,"min":46.5,"max":60}]}]}}
+graph_values {"graph":"asset://Scripts/Spinner.sgraph"}
+  → {"variables":[{"name":"Angle","value":60}]}
+play_stop {}
+  → {"state":"edit"}
+editor_undo {}
+  → {}
+graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
+  → {"document":{"Graph":{"Nodes":[{"ID":7,"Settings":{"Formula":"(angle + speed * dt) % 36"}}]}}}
+editor_redo {}
+  → {}
+graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
+  → {"document":{"Graph":{"Nodes":[{"ID":7,"Settings":{"Formula":"(angle + speed * dt) % 360"}}]}}}
+```
+
+## 8. Play and test
 
 - `play_start`, then `play_pause` and `play_advance` with `frames` for deterministic steps; `input_set` presses keys
   and buttons in the game; `play_state` reports the frame and time; `play_stop` discards everything the run changed.
+  With `play_start {paused: true}`, an `input_set` press reaches the next `play_advance` or `play_step` frame even with
+  other calls between; the frame after it sees the key held, not pressed.
   To click a UI button, read its `center` from `ui_layout` (game-view pixels), `input_set` the `mousePosition` there
   with `mouseButtons` `{"Left": true}`, advance a frame, then release `Left` and advance another; `ui_layout` also
   reports each button's `state`. Prefer a headless editor for this (a windowed editor's game view also follows the
@@ -292,8 +412,14 @@ Errors and what to do:
 - Verify behavior with test scripts: `Strada.Testing` (`TestReporter.Run(name, check)`, `Assert`,
   `TestReporter.Finish()`) in a scene, run by `test_run` with `scene` and `timeout`, which returns every check's
   result. Projects/FeatureTest shows the pattern.
+- Or test with graphs alone, as Prism Break's `Tests.sgraph` does: a `Checks` function library (a `Check(Name, Passed,
+  Detail)` that calls `TestReporter.Pass` or `Fail`, and comparisons such as `Near`), one latent function per check that
+  acts, notes `Time.Elapsed`, waits with `Flow.WaitUntil` on a formula such as `done || now - start > 2` (what it
+  expects, or its time limit), and reports; the test graph's `Event.Create` calls them in order from a `Sequence`, then
+  `TestReporter.Finish`. Physical checks place what they test (teleport the ball in front of the target) rather than
+  depend on a path.
 
-## 8. Ship
+## 9. Ship
 
 - Save everything (`scene_save`), then `project_export` with `directory`: it builds the scripts and writes a game
   that runs on its own (with the scripting runtime's API for visual scripts); the result names the executable.
@@ -305,6 +431,11 @@ that plays the title screen's demo), a game script that creates its entities and
 on a UI canvas built with `entity_create` (its `Tools/Author.py` shows the helpers) and brought to life by a script,
 sounds, and a test scene (`Scenes/Tests.sscene`) whose script checks the rules, plays the game through its public
 methods and clicks its buttons.
+
+`Projects/PrismBreak` is a game made of 13 visual scripts and no C#, a neon brick breaker, built entirely through
+`graph_edit` by its `Tools/Author.py` (declare first, then one batch per region): its graphs read well by the rules of
+section 6, call two function libraries, send typed events and broadcast to each other, read each other's variables
+guarded by `RunsGraph`, and its test scene's 29 checks are graphs too. Read it for every feature of the language in use.
 
 ## Rules
 

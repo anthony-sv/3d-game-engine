@@ -84,7 +84,18 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
   `-Wdangling-reference`); numbers are read as documents are read (ParseJson, then `VisualScriptSerializer::ReadFloat`),
   never with floating-point `std::from_chars`, which Apple's libc++ lacks at the deployment target; a lambda's locals
   and parameters are named apart from the locals of the function around it, captured or not (GCC `-Wshadow` warns,
-  Clang and MSVC do not: run `build/smoke/shadow_check.py` where no GCC is at hand).
+  Clang and MSVC do not: run `build/smoke/shadow_check.py` where no GCC is at hand); a range-for loop variable of class
+  type binds by reference (`auto const&`, `auto const& [a, b]`), because libstdc++'s `std::pair` and `std::tuple` are
+  never trivially copyable and GCC's `-Wrange-loop-construct` refuses the copy MSVC accepts.
+- The debugger costs nothing untraced: debugging code runs only in the traced interpreter (`Run<Traced>`) or behind a
+  debugger the editor attaches; the untraced and attached-idle performance cases keep their figures and allocate
+  nothing. Breakpoints, traces and the views file never reach the player or an exported game.
+- Sample projects: their graphs pass `SampleGraphsTests` (re-run the sample's `Tools/Author.py` after a change to
+  arranging); a change to a sample updates the check counts its tests pin (`RuntimeTests.cpp`); doc fixtures
+  (`Agents/Spinner.json`, `Agents/Debugging.json`) are shown verbatim where the docs show them, which their doc tests
+  check. A change under `Projects/Showcase` leaves the two protected materials
+  (`Assets/Materials/Gallery/Metallic100Roughness0.smat`, `Assets/Textures/rusty_metal_02/rusty_metal_02.smat`) untouched:
+  `git diff --name-only` shows neither.
 
 **Architecture**
 - Module layering from `Docs/Architecture.md` §4 is respected; public headers avoid third-party includes where

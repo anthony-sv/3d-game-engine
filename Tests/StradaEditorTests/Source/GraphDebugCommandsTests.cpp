@@ -1478,6 +1478,41 @@ TEST_CASE("VisualScriptDebug: the documented agent session (Agents/Debugging.jso
 	}
 }
 
+TEST_CASE("VisualScriptDebug: the docs and the game-making skill show every step of the documented agent session verbatim")
+{
+	auto const read = [](char const* path)
+	{
+		Result<std::string> text = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(path));
+		REQUIRE_MESSAGE(text.IsOk(), path);
+		std::string content = text.TakeValue();
+		std::erase(content, '\r');
+		return content;
+	};
+	std::string const automation = read(STRADA_AUTOMATION_DOC_PATH);
+	std::string const scripting = read(STRADA_SCRIPTING_DOC_PATH);
+	std::string const skill = read(STRADA_MAKE_GAME_SKILL_PATH);
+	Json const session = LoadAgentFile("Debugging.json");
+	REQUIRE(session.size() == 22);
+	for (size_t index = 0; index < session.size(); index++)
+	{
+		std::string const command = session[index]["command"].get<std::string>();
+		std::string const arguments = session[index]["arguments"].dump();
+		CAPTURE(index + 1);
+		// The guide and the skill show each step as the MCP tool and its compact JSON arguments, the tool named as strada's
+		// catalog names it.
+		std::string tool = command;
+		std::replace(tool.begin(), tool.end(), '.', '_');
+		std::replace(tool.begin(), tool.end(), '-', '_');
+		std::string const call = tool + " " + arguments;
+		CAPTURE(call);
+		CHECK_MESSAGE(scripting.find(call) != std::string::npos, "Docs/Scripting.md");
+		CHECK_MESSAGE(skill.find(call) != std::string::npos, "the strada-make-game skill");
+		// The command reference shows the session as the JSON-RPC requests it is.
+		std::string const request = "\"method\":\"" + command + "\",\"params\":" + arguments + "}";
+		CHECK_MESSAGE(automation.find(request) != std::string::npos, "Docs/Automation.md: ", request);
+	}
+}
+
 namespace
 {
 	// The random debug sessions' editor: the Spinner, the three graphs of Agents/DebugFuzz.json and their entities, the

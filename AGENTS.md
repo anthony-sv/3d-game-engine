@@ -32,7 +32,8 @@ before changing anything structural; it is the architectural contract.
 | `Tests/Data/` | Test data (renderer golden images) |
 | `Projects/FeatureTest/` | Project exercising every component and the entire scripting API, with graphs of every built-in node kind and every `[VisualNode]` member of its scripts |
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
-| `Projects/Showcase/` | Every engine feature in exhibit areas of a forest clearing (materials, glass, lights, post-processing, physics, triggers, a yard to walk in, particles, sound) with an opening camera tour, a HUD and day and night, built by `Tools/Author.py` through the agent tools; `Tools/FetchAssets.py` downloads its Poly Haven assets |
+| `Projects/PrismBreak/` | A game made of visual scripts alone (a neon brick breaker), built by `Tools/Author.py` through the agent tools; its test scene's checks are graphs too |
+| `Projects/Showcase/` | Every engine feature in exhibit areas of a forest clearing (materials, glass, lights, post-processing, physics, triggers, a yard to walk in, particles, sound, a garden of chimes played by visual scripts (`Tools/GraphGarden.py`; `Tools/Author.py --exhibit GraphGarden` rebuilds it in place)) with an opening camera tour, a HUD and day and night, built by `Tools/Author.py` through the agent tools; `Tools/FetchAssets.py` downloads its Poly Haven assets |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
 | `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format and dotnet format) |
 | `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference), `Scripting.md` (guide to writing game scripts) |
@@ -217,6 +218,9 @@ Rules for the other suites:
 - Editor automation tests live in `Tests/StradaEditorTests` and run the editor headless against a temporary project.
 - Game player tests live in `Tests/StradaRuntimeTests`: they write games to temporary directories and run the
   `StradaRuntime` executable on them, checking exit codes and output (windowed runs skip like windowed tests).
+- Sample projects are played by `StradaRuntimeTests`; a change to a sample updates its pinned check count. Sample graphs
+  must read well: `Tests/StradaEditorTests/Source/SampleGraphsTests.cpp` requires every node placed in a titled comment
+  box, none overlapping, each box arranged (re-run the sample's `Tools/Author.py` after a change to arranging).
 - Scripting tests (`Testing::ScriptEngineScope`) run the game scripts of `Tests/TestScripts`; scripts report what they
   saw through entity names and the log.
 - Audio tests run the `AudioEngine` with manual output (`Testing::AudioEngineScope`) and measure the mix they read,
@@ -300,4 +304,4 @@ workflows change.
 | `strada-automation-command` | Adding or changing an editor automation command |
 | `strada-render-pass` | Adding a shader or render pass, golden-image tests |
 | `strada-editor-ui` | Editor panels, the generated inspector, undo merge keys, shortcuts, headless UI tests |
-| `strada-make-game` | Building a game through the editor's MCP tools (`strada mcp`, registered in `.mcp.json`) |
+| `strada-make-game` | Building a game through the editor's MCP tools (`strada mcp`, registered in `.mcp.json`), and watching, debugging and fixing its visual scripts while it plays |
