@@ -152,6 +152,9 @@ namespace Strada
 		// The debugger opened it (following a stop or a call-stack row, spec-slice4 §13.8): it pushes at most one Back entry
 		// per stop session, so following steps does not bury the user's own navigation.
 		bool FromDebugger = false;
+		// A row of Details, by its label ("Formula", "Length", "Settings", a setting's or an input's name), to scroll to the top
+		// of the pane once Details draws it (S4-R5.2): with Select, the selected node's. Empty scrolls nothing.
+		std::string DetailsRow;
 		bool Focus = true;
 
 		bool operator==(VisualScriptOpenRequest const& other) const = default;
@@ -252,13 +255,60 @@ namespace Strada
 		StepOut
 	};
 
+	// Game View Beside's split rule (spec-slice4 §15.6, S4-R1.1 Q12), in font sizes F, which the game preview's Beside symbol
+	// draws too.
+	namespace VisualScriptBeside
+	{
+		// Up gives the Game View this share of the height, when the graph keeps MinGraphHeight of it.
+		inline constexpr float UpShare = 0.45f;
+		inline constexpr float MinGraphHeight = 20.0f;
+		// Left gives the graph MinGraphWidth (the stacked panes' 14 F and the canvas's minimum of 40 F) and the Game View the
+		// rest, at most MaxLeftShare of the width; below MinLeftShare it gives the Game View FallbackLeftShare instead.
+		inline constexpr float MinGraphWidth = 54.0f;
+		inline constexpr float MaxLeftShare = 0.5f;
+		inline constexpr float MinLeftShare = 0.3f;
+		inline constexpr float FallbackLeftShare = 0.45f;
+		// The game's aspect ratio when it has not rendered yet.
+		inline constexpr float DefaultAspect = 16.0f / 9.0f;
+	}
+
+	// The game as the graph windows' preview shows it (spec-slice4 §15.6), from the editor's game view in the frame being drawn.
+	struct VisualScriptGamePreview
+	{
+		// The texture of the game's image rendered this frame (an ImTextureID); none when nothing rendered (no GPU, no
+		// primary camera, or the game was not rendered for the preview yet).
+		std::optional<uint64_t> Texture;
+		// The pixels the game renders, whose aspect ratio the preview keeps.
+		glm::uvec2 Size{1280, 720};
+		// The game rendered in this frame (for the game view or the preview): with no Texture, no camera renders it. Before
+		// the frame's render (the first frame the game view is hidden), there is neither.
+		bool Rendered = false;
+		// The game view is open, and visible this frame (its tab in front): a visible one shows the game, so no preview does.
+		bool GameViewOpen = false;
+		bool GameViewVisible = false;
+		// The dock node the game view was drawn in this frame with its tab in front (an ImGuiID); 0 when it was not, or floats.
+		uint32_t GameViewDockNode = 0;
+		// Where the game view's window was last drawn (screen pixels), while it is open.
+		std::optional<std::pair<glm::vec2, glm::vec2>> GameViewRect;
+		// The game has the keyboard and mouse (it takes them only through the game view).
+		bool GameHasInput = false;
+
+		bool operator==(VisualScriptGamePreview const& other) const = default;
+	};
+
 	// Editor services the graph windows and their panes use, which the editor injects as it injects the console's font and
-	// its Show Console callback. Tests leave the defaults.
+	// its Show Console callback. Tests leave the defaults (or give fakes).
 	struct VisualScriptEditorServices
 	{
 		// Shortcut keys, type strings and problem codes; null draws them with the current font.
 		ImFont* MonospaceFont = nullptr;
 		// The [Show Console] button of notices and error toasts; empty leaves the button out.
 		std::function<void()> ShowConsole;
+		// The game for the windows' preview, asked while they draw; empty, or answering none, shows no preview (no game view).
+		std::function<std::optional<VisualScriptGamePreview>()> GamePreview;
+		// Brings the game view to the front with the game's input (the preview's expand button and a click on its image).
+		std::function<void()> ShowGameView;
+		// Asks for Game View Beside for the graph's window (VisualScriptEditors::RequestGameViewBeside), run at the next frame.
+		std::function<void(AssetHandle graph)> PlaceGameViewBeside;
 	};
 }

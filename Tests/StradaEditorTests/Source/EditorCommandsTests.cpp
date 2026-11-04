@@ -1,3 +1,4 @@
+#include "HeadlessImGui.h"
 #include "TestUtilities.h"
 
 #include "Editor/Automation/EditorCommands.h"
@@ -5,6 +6,7 @@
 #include "Editor/EditorScripts.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/UI/WindowCapture.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -20,6 +22,7 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <functional>
 #include <optional>
 #include <set>
 #include <string>
@@ -59,6 +62,8 @@ namespace
 		std::vector<std::pair<bool, std::string>> EntityMenuRequests;
 		// Whether the editor shows a dialog, over which no menu opens.
 		bool DialogOpen = false;
+		// Where viewport.screenshot finds the editor's windows in the captured image (EditorCommandEnvironment::FindWindowRect).
+		std::function<Result<ScreenshotRect>(ScreenshotWindow, AssetHandle)> WindowRect;
 
 		explicit CommandFixture(bool withWindow = false)
 		{
@@ -104,6 +109,14 @@ namespace
 				environment.ShowEntityMenu = [this](bool open, std::string const& submenu)
 				{
 					EntityMenuRequests.emplace_back(open, submenu);
+				};
+				environment.FindWindowRect = [this](ScreenshotWindow window, AssetHandle graph) -> Result<ScreenshotRect>
+				{
+					if (!WindowRect)
+					{
+						return Error{"the window is not open"};
+					}
+					return WindowRect(window, graph);
 				};
 			}
 			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
@@ -582,6 +595,226 @@ TEST_CASE("EditorCommands: screenshots complete asynchronously with PNG data")
 	(*fixture.PendingScreenshot)(Error{"minimized"});
 	REQUIRE(result);
 	CHECK(result->GetError().Code == AutomationErrorCode::Unavailable);
+}
+
+TEST_CASE("EditorCommands: viewport.screenshot cuts a window out of the editor's image")
+{
+	Testing::AssetManagerScope assets;
+	CommandFixture fixture(true);
+	// A gradient as the captured editor window: each pixel names its column and row.
+	Image image(8, 6, 4);
+	for (uint32_t y = 0; y < 6; y++)
+	{
+		for (uint32_t x = 0; x < 8; x++)
+		{
+			uint8_t* const pixel = image.GetPixel(x, y);
+			pixel[0] = static_cast<uint8_t>(x * 30);
+			pixel[1] = static_cast<uint8_t>(y * 40);
+			pixel[3] = 255;
+		}
+	}
+	std::vector<ScreenshotWindow> asked;
+	fixture.WindowRect = [&asked](ScreenshotWindow window, AssetHandle) -> Result<ScreenshotRect>
+	{
+		asked.push_back(window);
+		switch (window)
+		{
+			case ScreenshotWindow::Inspector:
+				return ScreenshotRect{2, 1, 3, 2};
+			case ScreenshotWindow::GameView:
+				// Past the image's right and bottom edges (a resize in flight): cut to the image.
+				return ScreenshotRect{5, 4, 10, 10};
+			case ScreenshotWindow::SceneView:
+				return ScreenshotRect{9, 9, 4, 4};
+			case ScreenshotWindow::Console:
+				return Error{"the Console window is behind another tab"};
+			default:
+				return Error{"the window is not open"};
+		}
+	};
+	// Runs the command and answers its capture with the gradient.
+	auto const capture = [&fixture, &image](Json const& params)
+	{
+		std::optional<CommandResult> result;
+		fixture.PendingScreenshot.reset();
+		fixture.Registry.Execute("viewport.screenshot", params,
+		                         [&result](CommandResult value)
+		                         {
+									 result.emplace(std::move(value));
+								 });
+		if (!result)
+		{
+			REQUIRE(fixture.PendingScreenshot);
+			(*fixture.PendingScreenshot)(image);
+		}
+		REQUIRE(result);
+		return std::move(*result);
+	};
+	auto const decode = [](Json const& shot)
+	{
+		Result<std::vector<uint8_t>> png = Base64Decode(shot["data"].get<std::string>());
+		REQUIRE(png.IsOk());
+		Result<Image> decoded = Image::LoadFromMemory(png.GetValue());
+		REQUIRE(decoded.IsOk());
+		return decoded.TakeValue();
+	};
+
+	// The whole editor window, as before.
+	CommandResult const whole = capture(Json::object());
+	REQUIRE(whole.IsOk());
+	CHECK(whole.GetValue()["window"] == "Editor");
+	CHECK(whole.GetValue()["rect"] == Json::array({0, 0, 8, 6}));
+	CHECK(whole.GetValue()["width"] == 8);
+	CHECK(asked.empty());
+
+	// A window's rectangle, its pixels those of the editor's image there.
+	CommandResult const inspector = capture(Json::object({{"window", "Inspector"}}));
+	REQUIRE(inspector.IsOk());
+	CHECK(inspector.GetValue()["window"] == "Inspector");
+	CHECK(inspector.GetValue()["rect"] == Json::array({2, 1, 3, 2}));
+	CHECK(inspector.GetValue()["width"] == 3);
+	CHECK(inspector.GetValue()["height"] == 2);
+	Image const cut = decode(inspector.GetValue());
+	REQUIRE(cut.GetWidth() == 3);
+	REQUIRE(cut.GetHeight() == 2);
+	for (uint32_t y = 0; y < 2; y++)
+	{
+		for (uint32_t x = 0; x < 3; x++)
+		{
+			CHECK(cut.GetPixel(x, y)[0] == (x + 2) * 30);
+			CHECK(cut.GetPixel(x, y)[1] == (y + 1) * 40);
+		}
+	}
+	CHECK(asked == std::vector<ScreenshotWindow>{ScreenshotWindow::Inspector});
+
+	// Clamped to the image; a rectangle outside it, and the window's own refusals, are InvalidOperation with their messages.
+	CommandResult const game = capture(Json::object({{"window", "GameView"}}));
+	REQUIRE(game.IsOk());
+	CHECK(game.GetValue()["rect"] == Json::array({5, 4, 3, 2}));
+	CommandResult const outside = capture(Json::object({{"window", "SceneView"}}));
+	REQUIRE(outside.IsError());
+	CHECK(outside.GetError().Code == AutomationErrorCode::InvalidOperation);
+	CommandResult const behind = capture(Json::object({{"window", "Console"}}));
+	REQUIRE(behind.IsError());
+	CHECK(behind.GetError().Code == AutomationErrorCode::InvalidOperation);
+	CHECK(behind.GetError().Message == "the Console window is behind another tab");
+
+	// graph goes with window Graph and only with it, and names a registered visual script.
+	CommandResult const lone = capture(Json::object({{"graph", "asset://Scripts/Player.sgraph"}}));
+	REQUIRE(lone.IsError());
+	CHECK(lone.GetError().Code == AutomationErrorCode::InvalidParams);
+	CHECK(lone.GetError().Data["path"] == "graph");
+	CommandResult const graphless = capture(Json::object({{"window", "Graph"}}));
+	REQUIRE(graphless.IsError());
+	CHECK(graphless.GetError().Code == AutomationErrorCode::InvalidParams);
+	CHECK(graphless.GetError().Data["path"] == "graph");
+	CommandResult const unknown = capture(Json::object({{"window", "Graph"}, {"graph", "asset://Scripts/Missing.sgraph"}}));
+	REQUIRE(unknown.IsError());
+	CHECK(unknown.GetError().Code == AutomationErrorCode::AssetNotFound);
+	CommandResult const wrong = capture(Json::object({{"window", "Toolbar"}}));
+	REQUIRE(wrong.IsError());
+	CHECK(wrong.GetError().Code == AutomationErrorCode::InvalidParams);
+	CHECK(asked.size() == 4);
+
+	// Headless: nothing to capture.
+	CommandFixture headless;
+	CHECK(headless.Fails("viewport.screenshot", Json::object({{"window", "Inspector"}})) == AutomationErrorCode::Unavailable);
+}
+
+TEST_CASE("EditorCommands: FindEditorWindowRect finds a window in the editor's image, and says why it cannot")
+{
+	Testing::HeadlessImGui gui;
+	ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	bool drawClosed = true;
+	bool buildLayout = true;
+	auto const draw = [&drawClosed, &buildLayout]
+	{
+		ImGuiID const dockspace = ImGui::DockSpaceOverViewport(ImGui::GetID("Dockspace"), ImGui::GetMainViewport());
+		if (std::exchange(buildLayout, false))
+		{
+			ImGui::DockBuilderRemoveNode(dockspace);
+			ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
+			ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
+			ImGuiID left = dockspace;
+			ImGuiID const right = ImGui::DockBuilderSplitNode(left, ImGuiDir_Right, 0.5f, nullptr, &left);
+			ImGui::DockBuilderDockWindow("Front", left);
+			ImGui::DockBuilderDockWindow("Back", left);
+			ImGui::DockBuilderDockWindow("Alone###Alone42", right);
+			ImGui::DockBuilderFinish(dockspace);
+		}
+		for (char const* const name : {"Back", "Front", "Alone###Alone42"})
+		{
+			ImGui::Begin(name);
+			ImGui::End();
+		}
+		ImGui::SetNextWindowPos(ImVec2(100.0f, 120.0f));
+		ImGui::SetNextWindowSize(ImVec2(300.0f, 200.0f));
+		ImGui::Begin("Floating");
+		ImGui::End();
+		ImGui::SetNextWindowPos(ImVec2(1800.0f, 1000.0f));
+		ImGui::SetNextWindowSize(ImVec2(300.0f, 200.0f));
+		ImGui::Begin("Edge");
+		ImGui::End();
+		if (drawClosed)
+		{
+			ImGui::Begin("Closed");
+			ImGui::End();
+		}
+	};
+	for (int frame = 0; frame < 3; frame++)
+	{
+		gui.Frame(draw);
+	}
+	gui.Frame(
+		[&draw]
+		{
+			draw();
+			ImGui::SetWindowFocus("Front");
+		});
+	gui.Frame(draw);
+	gui.Frame(draw);
+	ImGuiViewport const* const viewport = ImGui::GetMainViewport();
+
+	// Floating in the main viewport: its rectangle; at the display's edge, cut to it.
+	Result<ScreenshotRect> const floating = FindEditorWindowRect("Floating", viewport);
+	REQUIRE_MESSAGE(floating.IsOk(), (floating ? std::string() : floating.GetError()));
+	CHECK(floating.GetValue() == ScreenshotRect{100, 120, 300, 200});
+	Result<ScreenshotRect> const edge = FindEditorWindowRect("Edge", viewport);
+	REQUIRE(edge.IsOk());
+	CHECK(edge.GetValue() == ScreenshotRect{1800, 1000, 120, 80});
+
+	// Docked: the tab in front gives its window's rectangle; the one behind it is refused.
+	ImGuiWindow const* const front = ImGui::FindWindowByName("Front");
+	REQUIRE(front != nullptr);
+	REQUIRE(front->DockNode != nullptr);
+	Result<ScreenshotRect> const docked = FindEditorWindowRect("Front", viewport);
+	REQUIRE(docked.IsOk());
+	CHECK(docked.GetValue() == ScreenshotRect{static_cast<uint32_t>(front->Pos.x), static_cast<uint32_t>(front->Pos.y),
+	                                          static_cast<uint32_t>(front->Size.x), static_cast<uint32_t>(front->Size.y)});
+	Result<ScreenshotRect> const back = FindEditorWindowRect("Back", viewport);
+	REQUIRE(back.IsError());
+	CHECK(back.GetError() == "the Back window is behind another tab");
+	// A window named by its ID alone is found as the same window.
+	CHECK(FindEditorWindowRect("###Alone42", viewport).IsOk());
+
+	// Not drawn in this frame, or never: not open.
+	drawClosed = false;
+	gui.Frame(draw);
+	Result<ScreenshotRect> const closed = FindEditorWindowRect("Closed", viewport);
+	REQUIRE(closed.IsError());
+	CHECK(closed.GetError() == "the Closed window is not open");
+	Result<ScreenshotRect> const never = FindEditorWindowRect("Never", viewport);
+	REQUIRE(never.IsError());
+	CHECK(never.GetError() == "the Never window is not open");
+
+	// On a display with two pixels per point (macOS Retina), the rectangle is in the back buffer's pixels.
+	io.DisplayFramebufferScale = ImVec2(2.0f, 2.0f);
+	gui.Frame(draw);
+	Result<ScreenshotRect> const scaled = FindEditorWindowRect("Floating", ImGui::GetMainViewport());
+	REQUIRE(scaled.IsOk());
+	CHECK(scaled.GetValue() == ScreenshotRect{200, 240, 600, 400});
+	io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
 }
 
 TEST_CASE("EditorCommands: projects are created, configured, closed and opened")

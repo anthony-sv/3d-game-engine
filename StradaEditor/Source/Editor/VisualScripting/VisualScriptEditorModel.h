@@ -19,6 +19,7 @@
 #include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <glm/glm.hpp>
 
@@ -456,7 +457,9 @@ namespace Strada
 		FirstCanvas,
 		GestureHint,
 		// The debug strip (spec-slice4 §13.6): under the toolbar, after the other notices.
-		Debug
+		Debug,
+		// The one-time hint over the canvas that Game View Beside keeps the game and the graph in view (spec-slice4 §15.6).
+		BesideHint
 	};
 
 	enum class VisualScriptCard : uint8_t
@@ -568,6 +571,14 @@ namespace Strada
 		uint32_t Breakpoints = 0;
 		bool FlowDrawn = false;
 		bool FlowHeld = false;
+		// The live channel (spec-slice4 §17.4): the window's last receipt (none since it opened or Play started), the runtime
+		// problems at its document's nodes, and the nodes the game does not run as stored.
+		Ref<VisualScriptLiveEdit const> LiveReceipt;
+		uint32_t RuntimeErrors = 0;
+		uint32_t RuntimeWarnings = 0;
+		uint32_t NotRunning = 0;
+		// Where the game preview was drawn over the canvas (screen pixels; spec-slice4 §15.6), none when it was not shown.
+		std::optional<VisualScriptRect> GamePreview;
 	};
 
 	// The model of one graph window: which document it shows and how (the asset's document, with its unplaced nodes placed in

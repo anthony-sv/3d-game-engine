@@ -40,6 +40,9 @@ namespace Strada
 		[[nodiscard]] Result<void> WritePNG(std::filesystem::path const& path) const;
 		// The PNG file contents, for sending images without touching the file system.
 		[[nodiscard]] Result<std::vector<uint8_t>> EncodePNG() const;
+		// The pixels of a rectangle of the image (x, y its top-left pixel), with the image's channels. Refuses an empty
+		// rectangle and one that does not lie inside the image.
+		[[nodiscard]] Result<Image> Crop(uint32_t x, uint32_t y, uint32_t width, uint32_t height) const;
 
 		uint32_t GetWidth() const { return m_Width; }
 		uint32_t GetHeight() const { return m_Height; }

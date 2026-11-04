@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <numbers>
 
 namespace Strada
 {
@@ -138,6 +139,13 @@ namespace Strada
 		constexpr float DebugPillTextLogicalPixels = 11.0f;
 		constexpr float DebugPillGapLogicalPixels = 2.0f;
 		constexpr float DimmedValueAlpha = 0.5f;
+		// Live marks (spec-slice4 §15.3).
+		constexpr float NotRunningOutlineLogicalPixels = 2.0f;
+		constexpr float NotRunningDashLogicalPixels = 6.0f;
+		constexpr float NotRunningGapLogicalPixels = 4.0f;
+		constexpr float LiveMarkGapLogicalPixels = 2.0f;
+		constexpr uint32_t CancelledMarkColor = VisualScriptRgba(128, 132, 140);
+		constexpr uint32_t ResetMarkColor = VisualScriptRgba(92, 128, 176);
 
 		ImVec2 ToIm(glm::vec2 point)
 		{
@@ -544,6 +552,8 @@ namespace Strada
 		Frame frame(model, input);
 		m_Stats = {};
 		m_TextSizeCount = 0;
+		m_LiveMarkPlaces.clear();
+		m_LiveMarkReach.clear();
 		if (input.Record != nullptr)
 		{
 			input.Record->Clear();
@@ -691,7 +701,8 @@ namespace Strada
 		return bytes(m_Query) + bytes(m_VisibleNodes) + bytes(m_NodeOrder) + bytes(m_VisibleComments) + bytes(m_VisibleLinks) +
 		       bytes(m_HighlightedLinks) + bytes(m_LinkMarks) + bytes(m_MarkedLinks) + bytes(m_NodeStamps) + bytes(m_Polyline) +
 		       bytes(m_DashPolyline) + bytes(m_Lengths) + bytes(m_ActivePulses) + bytes(m_Pulses) + bytes(m_Flashes) + bytes(m_Glides) +
-		       bytes(m_GlideIndices) + bytes(m_MinimapCells) + m_Text.capacity() + m_PillText.capacity();
+		       bytes(m_GlideIndices) + bytes(m_MinimapCells) + bytes(m_LiveMarkPlaces) + bytes(m_LiveMarkReach) + m_Text.capacity() +
+		       m_PillText.capacity();
 	}
 
 	void VisualScriptCanvasRenderer::TakeEvents(VisualScriptEditorModel const& model, Frame& frame)
@@ -3051,6 +3062,11 @@ namespace Strada
 		{
 			DrawInstruction(frame, *debug->Instruction);
 		}
+		// What the game does not run, outlined at every level but Far.
+		if (frame.Level != VisualScriptDetailLevel::Far)
+		{
+			DrawNotRunning(frame);
+		}
 
 		// Breakpoint markers at every level but Far, and the ghost marker under the mouse at Compact and Detail.
 		if (frame.Level != VisualScriptDetailLevel::Far)
@@ -3078,11 +3094,23 @@ namespace Strada
 		{
 			return;
 		}
+		DrawLiveDiscs(frame);
 		for (VisualScriptFlowNodeMark const& mark : debug->FlowNodes)
 		{
 			if (mark.Count >= 2)
 			{
-				DrawRunCount(frame, mark);
+				// Left of the node's live marks, which hold the corner.
+				float shift = 0.0f;
+				if (std::optional<uint32_t> const index = frame.Canvas.FindNode(mark.Node))
+				{
+					auto const reach = std::find_if(m_LiveMarkReach.begin(), m_LiveMarkReach.end(),
+					                                [&index](std::pair<uint32_t, float> const& entry)
+					                                {
+														return entry.first == *index;
+													});
+					shift = reach != m_LiveMarkReach.end() ? reach->second : 0.0f;
+				}
+				DrawRunCount(frame, mark, shift);
 			}
 		}
 		size_t pills = 0;
@@ -3279,7 +3307,7 @@ namespace Strada
 		}
 	}
 
-	void VisualScriptCanvasRenderer::DrawRunCount(Frame& frame, VisualScriptFlowNodeMark const& mark)
+	void VisualScriptCanvasRenderer::DrawRunCount(Frame& frame, VisualScriptFlowNodeMark const& mark, float shift)
 	{
 		std::optional<uint32_t> const index = frame.Canvas.FindNode(mark.Node);
 		if (!index || !IsNodeVisible(*index))
@@ -3291,9 +3319,9 @@ namespace Strada
 		glm::vec2 const size = GetDebugPillSize(frame, text, false);
 		uint32_t const begin = static_cast<uint32_t>(frame.DrawList->VtxBuffer.Size);
 		// Above the header's top-right corner.
-		VisualScriptRect const rect =
-			DrawDebugPill(frame, glm::vec2(screen.Max.x - size.x, screen.Min.y - size.y - DebugPillGapLogicalPixels * frame.UIScale), text,
-		                  std::nullopt, VisualScriptFlowColor, 1.0f);
+		VisualScriptRect const rect = DrawDebugPill(
+			frame, glm::vec2(screen.Max.x - shift - size.x, screen.Min.y - size.y - DebugPillGapLogicalPixels * frame.UIScale), text,
+			std::nullopt, VisualScriptFlowColor, 1.0f);
 		if (frame.Input.Record != nullptr)
 		{
 			VisualScriptDrawRecordItem item;
@@ -3307,6 +3335,220 @@ namespace Strada
 			item.Text = text;
 			item.VertexBegin = begin;
 			item.VertexEnd = static_cast<uint32_t>(frame.DrawList->VtxBuffer.Size);
+			item.Order = frame.Order++;
+			frame.Input.Record->Items.push_back(std::move(item));
+		}
+	}
+
+	void VisualScriptCanvasRenderer::DrawNotRunning(Frame& frame)
+	{
+		VisualScriptCanvasDebugView const& debug = *frame.Input.Debug;
+		ImDrawList* const drawList = frame.DrawList;
+		float const s = frame.UIScale;
+		float const thickness = WholePixels(NotRunningOutlineLogicalPixels * s);
+		float const dash = NotRunningDashLogicalPixels * s;
+		float const gap = NotRunningGapLogicalPixels * s;
+		auto const record = [&frame](uint32_t element, uint32_t elements, VisualScriptRect const& screen, uint32_t begin)
+		{
+			if (frame.Input.Record == nullptr)
+			{
+				return;
+			}
+			VisualScriptDrawRecordItem item;
+			item.Layer = VisualScriptDrawLayer::Debug;
+			item.Kind = VisualScriptDrawItemKind::LiveMark;
+			item.Element = element;
+			item.Mark = static_cast<uint8_t>(VisualScriptLiveMarkKind::NotRunning);
+			item.Level = frame.Level;
+			item.Elements = elements;
+			item.Color = VisualScriptWarningColor;
+			item.Screen = screen;
+			item.VertexBegin = begin;
+			item.VertexEnd = static_cast<uint32_t>(frame.DrawList->VtxBuffer.Size);
+			item.Order = frame.Order++;
+			frame.Input.Record->Items.push_back(std::move(item));
+		};
+		// The links the version the game runs lacks: their wires dashed in amber over the wire's own stroke.
+		for (uint32_t const link : debug.NotRunningLinks)
+		{
+			if (link >= frame.Links.size() || !IsLinkVisible(link))
+			{
+				continue;
+			}
+			std::array<glm::vec2, 4> points = GetWirePoints(frame, link);
+			for (glm::vec2& point : points)
+			{
+				point = frame.ToScreen(point);
+			}
+			VisualScriptGeometry::WireFlattening const flattening =
+				VisualScriptGeometry::GetWireFlattening(frame.Level, frame.Input.Style.CurveTessellationTolerance);
+			VisualScriptGeometry::FlattenWire(points, flattening.Tolerance, flattening.SegmentCap, m_Polyline);
+			uint32_t const begin = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+			Stroke(frame, m_Polyline, VisualScriptWarningColor, thickness, dash, gap);
+			record(link, Elements::Dashed, VisualScriptGeometry::GetWireBounds(points), begin);
+		}
+		// The nodes it lacks or holds with another program: a dashed outline just outside each.
+		for (VisualScriptLiveMark const& mark : debug.Live)
+		{
+			if (mark.Kind != VisualScriptLiveMarkKind::NotRunning)
+			{
+				continue;
+			}
+			std::optional<uint32_t> const index = frame.Canvas.FindNode(mark.Node);
+			if (!index || !IsNodeVisible(*index))
+			{
+				continue;
+			}
+			VisualScriptRect const screen = GetNodeScreen(frame, *index);
+			float const half = thickness * 0.5f + s;
+			glm::vec2 const lower = screen.Min - glm::vec2(half);
+			glm::vec2 const upper = screen.Max + glm::vec2(half);
+			std::array<glm::vec2, 5> const outline = {lower, glm::vec2(upper.x, lower.y), upper, glm::vec2(lower.x, upper.y), lower};
+			uint32_t const begin = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+			Stroke(frame, outline, VisualScriptWarningColor, thickness, dash, gap);
+			record(mark.Node, Elements::Outline | Elements::Dashed, {lower, upper}, begin);
+		}
+	}
+
+	void VisualScriptCanvasRenderer::DrawLiveDiscs(Frame& frame)
+	{
+		VisualScriptCanvasDebugView const& debug = *frame.Input.Debug;
+		if (debug.Live.empty())
+		{
+			return;
+		}
+		float const k = frame.PixelsPerUnit;
+		float const s = frame.UIScale;
+		float const radius = VisualScriptGeometry::GetBadgeRadius(k, s) * k;
+		float const gap = LiveMarkGapLogicalPixels * s;
+		// Per node, right to left from the header's top-right corner: runtime errors, runtime warnings, cancellations, resets. A
+		// node whose problem badges sit on that corner (a shape without a Standard header) starts left of them.
+		constexpr std::array<VisualScriptLiveMarkKind, 4> Order = {VisualScriptLiveMarkKind::RuntimeError,
+		                                                           VisualScriptLiveMarkKind::RuntimeWarning,
+		                                                           VisualScriptLiveMarkKind::Cancelled, VisualScriptLiveMarkKind::Reset};
+		for (size_t first = 0; first < debug.Live.size(); first++)
+		{
+			VisualScriptLiveMark const& lead = debug.Live[first];
+			if (lead.Kind == VisualScriptLiveMarkKind::NotRunning)
+			{
+				continue;
+			}
+			// Each node once, at its first disc.
+			bool const seen = std::any_of(debug.Live.begin(), debug.Live.begin() + static_cast<std::ptrdiff_t>(first),
+			                              [&lead](VisualScriptLiveMark const& earlier)
+			                              {
+											  return earlier.Node == lead.Node && earlier.Kind != VisualScriptLiveMarkKind::NotRunning;
+										  });
+			std::optional<uint32_t> const index = frame.Canvas.FindNode(lead.Node);
+			if (seen || !index || !IsNodeVisible(*index))
+			{
+				continue;
+			}
+			VisualScriptNodeVisual const& node = frame.Nodes[*index];
+			VisualScriptRect const screen = GetNodeScreen(frame, *index);
+			// The right edge of the first disc.
+			float x = screen.Max.x + radius;
+			if (node.Shape != VisualScriptNodeShape::Standard && (node.ErrorCount > 0 || node.WarningCount > 0))
+			{
+				VisualScriptRect const badges = VisualScriptGeometry::GetBadgeRect(node, k, s, GetNodeOffset(frame, *index));
+				x = frame.ToScreen(badges.Min).x - gap;
+			}
+			for (VisualScriptLiveMarkKind const kind : Order)
+			{
+				for (size_t markIndex = first; markIndex < debug.Live.size(); markIndex++)
+				{
+					VisualScriptLiveMark const& mark = debug.Live[markIndex];
+					if (mark.Node != lead.Node || mark.Kind != kind)
+					{
+						continue;
+					}
+					glm::vec2 const center(x - radius, screen.Min.y);
+					std::string count;
+					if ((kind == VisualScriptLiveMarkKind::RuntimeError || kind == VisualScriptLiveMarkKind::RuntimeWarning) &&
+					    frame.Level == VisualScriptDetailLevel::Detail && mark.Count >= 2)
+					{
+						count = FormatVisualScriptRunCount(mark.Count);
+					}
+					DrawLiveDisc(frame, static_cast<uint32_t>(markIndex), center, radius, count);
+					x = center.x - radius - gap;
+					if (!count.empty())
+					{
+						x -= GetDebugPillSize(frame, count, false).x + gap;
+					}
+				}
+			}
+			m_LiveMarkReach.emplace_back(*index, std::max(screen.Max.x - x, 0.0f));
+		}
+	}
+
+	void VisualScriptCanvasRenderer::DrawLiveDisc(Frame& frame, uint32_t markIndex, glm::vec2 center, float radius, std::string_view count)
+	{
+		VisualScriptLiveMark const& mark = frame.Input.Debug->Live[markIndex];
+		ImDrawList* const drawList = frame.DrawList;
+		float const s = frame.UIScale;
+		uint32_t const begin = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+		uint32_t const ink = VisualScriptRgba(255, 255, 255);
+		float const stroke = std::max(radius * 0.22f, s);
+		uint32_t color = VisualScriptErrorColor;
+		switch (mark.Kind)
+		{
+			case VisualScriptLiveMarkKind::RuntimeError:
+			case VisualScriptLiveMarkKind::RuntimeWarning:
+				color = mark.Kind == VisualScriptLiveMarkKind::RuntimeError ? VisualScriptErrorColor : VisualScriptWarningColor;
+				drawList->AddCircleFilled(ToIm(center), radius, color);
+				DrawExclamation(frame, center, radius, frame.Theme.Border);
+				break;
+			case VisualScriptLiveMarkKind::Cancelled:
+			{
+				// A "cancelled" shape: the disc crossed by a diagonal bar.
+				color = CancelledMarkColor;
+				drawList->AddCircleFilled(ToIm(center), radius, color);
+				float const reach = radius * 0.5f;
+				drawList->AddLine(ImVec2(center.x - reach, center.y - reach), ImVec2(center.x + reach, center.y + reach), ink, stroke);
+				break;
+			}
+			case VisualScriptLiveMarkKind::Reset:
+			{
+				// A circular arrow: three quarters of a circle, its head at the open end.
+				color = ResetMarkColor;
+				drawList->AddCircleFilled(ToIm(center), radius, color);
+				float const arc = radius * 0.5f;
+				float const start = -0.5f * std::numbers::pi_v<float>;
+				float const end = start + 1.5f * std::numbers::pi_v<float>;
+				drawList->PathArcTo(ToIm(center), arc, start, end, 12);
+				drawList->PathStroke(ink, stroke);
+				glm::vec2 const tip = center + arc * glm::vec2(std::cos(end), std::sin(end));
+				float const head = radius * 0.32f;
+				drawList->AddTriangleFilled(ImVec2(tip.x - head, tip.y - head), ImVec2(tip.x + head, tip.y),
+				                            ImVec2(tip.x - head, tip.y + head), ink);
+				break;
+			}
+			case VisualScriptLiveMarkKind::NotRunning:
+				return;
+		}
+		if (!count.empty())
+		{
+			// The occurrences, left of the disc.
+			glm::vec2 const size = GetDebugPillSize(frame, count, false);
+			glm::vec2 const at(center.x - radius - LiveMarkGapLogicalPixels * s - size.x, center.y - size.y * 0.5f);
+			DrawDebugPill(frame, at, count, std::nullopt, color, 1.0f);
+		}
+		VisualScriptRect const screen{center - glm::vec2(radius), center + glm::vec2(radius)};
+		m_LiveMarkPlaces.push_back({markIndex, screen});
+		if (frame.Input.Record != nullptr)
+		{
+			VisualScriptDrawRecordItem item;
+			item.Layer = VisualScriptDrawLayer::Debug;
+			item.Kind = VisualScriptDrawItemKind::LiveMark;
+			item.Element = mark.Node;
+			item.Mark = static_cast<uint8_t>(mark.Kind);
+			item.Level = frame.Level;
+			item.Elements = Elements::Body;
+			item.Color = color;
+			item.Screen = screen;
+			item.Text = std::string(count);
+			item.VertexBegin = begin;
+			item.VertexEnd = static_cast<uint32_t>(drawList->VtxBuffer.Size);
 			item.Order = frame.Order++;
 			frame.Input.Record->Items.push_back(std::move(item));
 		}

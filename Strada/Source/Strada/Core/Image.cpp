@@ -155,6 +155,27 @@ namespace Strada
 		return encoded;
 	}
 
+	Result<Image> Image::Crop(uint32_t x, uint32_t y, uint32_t width, uint32_t height) const
+	{
+		if (width == 0 || height == 0)
+		{
+			return MakeError("the rectangle {}x{} has no pixels", width, height);
+		}
+		// In 64 bits: x + width cannot wrap around.
+		if (static_cast<uint64_t>(x) + width > m_Width || static_cast<uint64_t>(y) + height > m_Height)
+		{
+			return MakeError("the rectangle at ({}, {}) of {}x{} pixels does not lie inside the image of {}x{}", x, y, width, height,
+			                 m_Width, m_Height);
+		}
+		Image cropped(width, height, m_Channels);
+		size_t const rowBytes = static_cast<size_t>(width) * m_Channels;
+		for (uint32_t row = 0; row < height; row++)
+		{
+			std::memcpy(cropped.GetPixel(0, row), GetPixel(x, y + row), rowBytes);
+		}
+		return cropped;
+	}
+
 	HdrImage::HdrImage(uint32_t width, uint32_t height, uint32_t channels)
 		: m_Width(width),
 		  m_Height(height),

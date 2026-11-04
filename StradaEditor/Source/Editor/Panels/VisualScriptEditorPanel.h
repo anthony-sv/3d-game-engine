@@ -9,6 +9,7 @@
 #include "Editor/VisualScripting/VisualScriptController.h"
 #include "Editor/VisualScripting/VisualScriptDetails.h"
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 #include "Editor/VisualScripting/VisualScriptFindBar.h"
@@ -26,6 +27,7 @@
 #include "Strada/Core/UUID.h"
 #include "Strada/Script/ScriptField.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <glm/glm.hpp>
 #include <imgui.h>
@@ -140,6 +142,24 @@ namespace Strada
 		StripBreak,
 		// The breakpoint popup's first readable name (a click inserts it into the condition).
 		BreakpointScopeName,
+		// The Live popover's (spec-slice4 §15.2): [Show first error], the Outline toggle, the first instance line of the last
+		// receipt, and [Show] of the runtime problems; and the newest toast's [Break on errors].
+		PopoverShowFirstError,
+		PopoverOutline,
+		PopoverInstance,
+		PopoverShowRuntime,
+		ToastBreakOnErrors,
+		// The game preview over the canvas (spec-slice4 §15.6): its whole rectangle, its header's expand, Beside and close
+		// buttons and its inner edge; the Beside hint's [Beside] and [Not now].
+		GamePreview,
+		GamePreviewExpand,
+		GamePreviewBeside,
+		GamePreviewClose,
+		GamePreviewEdge,
+		HintBeside,
+		HintNotNow,
+		// The newest toast's [Show].
+		ToastShow,
 		Count
 	};
 
@@ -171,6 +191,11 @@ namespace Strada
 	inline constexpr double VisualScriptBlinkSeconds = 0.6;
 	// The hint shown once per user over the first canvas (VisualScriptViewSettings::IsHintSeen).
 	inline constexpr std::string_view VisualScriptCanvasHint = "Canvas";
+	// The hint shown once per user the first time Play hides a graph window behind the game view (spec-slice4 §15.6).
+	inline constexpr std::string_view VisualScriptGameViewBesideHint = "GameViewBeside";
+	// The game preview's least width (font sizes) and its largest share of the canvas's width (spec-slice4 §15.6).
+	inline constexpr float VisualScriptGamePreviewMinWidth = 12.0f;
+	inline constexpr float VisualScriptGamePreviewMaxShare = 0.6f;
 
 	// The fixed texts of a graph window: its notices, cards, pills and hints (spec §10.4, §10.6), all listed in All for the glyph
 	// test (the editor's UI font must have each character).
@@ -193,6 +218,9 @@ namespace Strada
 														"Waiting nodes survive edits that keep them; new variables start at their value.";
 		inline constexpr std::string_view SimulatingTooltip =
 			"SIMULATING \xC2\xB7 visual scripts do not run while simulating: Play runs them.";
+		// The pill's tooltip while the game runs the last version that worked: with this version's errors when it has any.
+		inline constexpr std::string_view LastWorkingHas = ": this version has ";
+		inline constexpr std::string_view LastWorkingKeeps = ": the game keeps running the last version that worked.";
 		inline constexpr std::string_view CanvasHint =
 			"Tab or right-click: add a node \xC2\xB7 Drag from a pin: connect \xC2\xB7 Middle-drag: pan "
 			"\xC2\xB7 Wheel: zoom (view menu: Scroll) \xC2\xB7 F1: shortcuts";
@@ -292,6 +320,117 @@ namespace Strada
 		inline constexpr std::string_view InactiveTargetGone = " was destroyed";
 		inline constexpr std::string_view InactiveNoLibraryCaller = "no running graph calls this library";
 		inline constexpr std::string_view InactiveNoRunner = "no entity runs it";
+		// The live channel (spec-slice4 §15.1-§15.4): the receipt toasts are made of these parts, with the counts, names and
+		// errors between them.
+		inline constexpr std::string_view LivePrefix = "Live: ";
+		inline constexpr std::string_view ReceiptApplied = "applied to ";
+		inline constexpr std::string_view ReceiptInstance = " instance";
+		inline constexpr std::string_view ReceiptInstances = " instances";
+		inline constexpr std::string_view ReceiptNote = " \xC2\xB7 ";
+		inline constexpr std::string_view ReceiptTypeReset = " reset (type changed)";
+		inline constexpr std::string_view ReceiptNewReset = " starts at its value";
+		inline constexpr std::string_view ReceiptStateReset = " reset";
+		inline constexpr std::string_view ReceiptWaitCancelled = " wait cancelled";
+		inline constexpr std::string_view ReceiptWaitsCancelled = " waits cancelled";
+		inline constexpr std::string_view ReceiptStopContinues = "the stopped execution continues with the edit";
+		inline constexpr std::string_view ReceiptStopsContinue = " stopped executions continue with the edit";
+		inline constexpr std::string_view ReceiptStopCancelled = "the stopped execution was cancelled";
+		inline constexpr std::string_view ReceiptStopsCancelled = " stopped executions were cancelled";
+		inline constexpr std::string_view ReceiptTimelineShortened = " Timeline shortened";
+		inline constexpr std::string_view ReceiptTimelinesShortened = " Timelines shortened";
+		inline constexpr std::string_view ReceiptNotes = " notes";
+		inline constexpr std::string_view ReceiptSaved = "saved; no entity runs ";
+		inline constexpr std::string_view ReceiptNow = " now";
+		inline constexpr std::string_view ReceiptScriptCalls = " script that calls ";
+		inline constexpr std::string_view ReceiptScriptsCall = " scripts that call ";
+		inline constexpr std::string_view ReceiptCompiled = " compiled again; ";
+		inline constexpr std::string_view ReceiptPending = "applies when the running step ends";
+		inline constexpr std::string_view ReceiptNotApplied = "not applied: ";
+		inline constexpr std::string_view ReceiptFirst = " (first: ";
+		inline constexpr std::string_view ReceiptKeeps = "; the game keeps running the last version that worked";
+		inline constexpr std::string_view ReceiptCallersKeep = "; the scripts that call ";
+		inline constexpr std::string_view ReceiptKeepLast = " keep running the last version that worked";
+		inline constexpr std::string_view ReceiptNoVersion = " has no version that runs";
+		// The Live popover (spec-slice4 §15.2).
+		inline constexpr std::string_view PopoverRunningSince = " \xC2\xB7 running since ";
+		inline constexpr std::string_view PopoverAgo = " ago)";
+		inline constexpr std::string_view PopoverSeconds = " s";
+		inline constexpr std::string_view PopoverMinutes = " min";
+		inline constexpr std::string_view PopoverHours = " h";
+		inline constexpr std::string_view PopoverNoVersion = "No version of this graph runs yet";
+		inline constexpr std::string_view PopoverLastWorking = "The game runs the last version that worked: ";
+		inline constexpr std::string_view PopoverNodeChanged = " node changed since is not running";
+		inline constexpr std::string_view PopoverNodesChanged = " nodes changed since are not running";
+		inline constexpr std::string_view PopoverLinkChanged = " link changed since is not running";
+		inline constexpr std::string_view PopoverLinksChanged = " links changed since are not running";
+		inline constexpr std::string_view PopoverReferenceChanged = "a graph it uses changed since";
+		inline constexpr std::string_view PopoverOutline = "Outline nodes not running";
+		inline constexpr std::string_view PopoverLastEdit = "Last edit: ";
+		inline constexpr std::string_view PopoverCause = "Compiled again for an edit of ";
+		inline constexpr std::string_view PopoverKept = "Variables kept: ";
+		inline constexpr std::string_view PopoverMatched = "Matched by name: ";
+		inline constexpr std::string_view PopoverWas = " (was ";
+		inline constexpr std::string_view PopoverReset = "Reset: ";
+		inline constexpr std::string_view PopoverAdded = "Added: ";
+		inline constexpr std::string_view PopoverRemoved = "Removed: ";
+		inline constexpr std::string_view PopoverStatesKept = " node states kept";
+		inline constexpr std::string_view PopoverStatesReset = "; reset: ";
+		inline constexpr std::string_view PopoverWaitKept = " wait kept";
+		inline constexpr std::string_view PopoverWaitsKept = " waits kept";
+		inline constexpr std::string_view PopoverStopKept = " stopped execution kept";
+		inline constexpr std::string_view PopoverStopsKept = " stopped executions kept";
+		inline constexpr std::string_view PopoverCancelled = "cancelled ";
+		inline constexpr std::string_view PopoverTimeline = "Timeline";
+		inline constexpr std::string_view PopoverTimelineAt = " at ";
+		inline constexpr std::string_view PopoverShortenedFrom = " (shortened from ";
+		inline constexpr std::string_view PopoverMoreInstances = " more instances";
+		inline constexpr std::string_view PopoverInstanceHint = "Click: show this entity's values";
+		inline constexpr std::string_view PopoverAtRunTime = " at run time";
+		inline constexpr std::string_view PopoverShow = "Show";
+		inline constexpr std::string_view PopoverUsers = "Graphs that call this library:";
+		inline constexpr std::string_view PopoverNoUsers = "No graph that runs calls this library";
+		inline constexpr std::string_view UserRunsThis = " runs this version";
+		inline constexpr std::string_view UserRunsLast = " runs the last version that worked";
+		inline constexpr std::string_view UserNotCompiled = " has no working version that calls this library";
+		inline constexpr std::string_view UserNoInstances = ": no entity runs it";
+		// The problems pill's tooltip and the first runtime error's toast (spec-slice4 §15.4).
+		inline constexpr std::string_view ProblemsPrefix = "Problems: ";
+		inline constexpr std::string_view CountError = " error";
+		inline constexpr std::string_view CountErrors = " errors";
+		inline constexpr std::string_view CountWarning = " warning";
+		inline constexpr std::string_view CountWarnings = " warnings";
+		inline constexpr std::string_view AtRunTime = " \xC2\xB7 at run time: ";
+		inline constexpr std::string_view RuntimeFailedOn = " failed on ";
+		inline constexpr std::string_view BreakOnErrors = "Break on errors";
+		// The live marks' tooltips (spec-slice4 §15.3).
+		inline constexpr std::string_view LiveMarkOn = "on ";
+		inline constexpr std::string_view LiveMarkAnd = " and ";
+		inline constexpr std::string_view LiveMarkMore = " more";
+		inline constexpr std::string_view LiveMarkWaitCancelled = "The edit cancelled a wait here: ";
+		inline constexpr std::string_view LiveMarkStopCancelled = "The edit cancelled the stopped execution here: ";
+		inline constexpr std::string_view LiveMarkReset = " was reset by the edit";
+		inline constexpr std::string_view LiveMarkNotRunning =
+			"Not running yet: the game runs the last version that worked, which does not have this node as it is now";
+		// The game preview and Game View Beside (spec-slice4 §15.6).
+		inline constexpr std::string_view PreviewTitle = "Game";
+		inline constexpr std::string_view PreviewClickToPlay = "Game \xC2\xB7 Click to play";
+		inline constexpr std::string_view PreviewNoImage = "No camera renders the game";
+		inline constexpr std::string_view PreviewExpand = "Show the game view with the game's input";
+		inline constexpr std::string_view PreviewBeside = "Game View Beside: keep the game and this graph in view";
+		inline constexpr std::string_view PreviewClose = "Hide the preview (the view menu shows it again)";
+		inline constexpr std::string_view PreviewMove = "Drag to move to another corner; drag the inner edge to resize";
+		inline constexpr std::string_view PreviewMenu = "Game Preview";
+		inline constexpr std::string_view PreviewMenuTooltip =
+			"While the game plays and its view is hidden, the game in a corner of the canvas";
+		inline constexpr std::string_view BesideMenu = "Game View Beside";
+		inline constexpr std::string_view BesideMenuTooltip = "Dock the game view beside this window, so that both stay in view";
+		inline constexpr std::string_view BesideHint = "The game hides this graph while you play. Game View Beside keeps both in view";
+		inline constexpr std::string_view BesideHintBeside = "Beside";
+		inline constexpr std::string_view BesideHintNotNow = "Not now";
+		inline constexpr std::string_view BesideNotApplied = "Game View Beside: ";
+		inline constexpr std::string_view BesideAlreadyVisible = "the game view is in view already";
+		inline constexpr std::string_view BesideNotOpen = "the graph window is not open";
+		inline constexpr std::string_view BesideNoDockSpace = "the dock space is not available";
 
 		inline constexpr std::array All = std::to_array<std::string_view>({Degraded,
 		                                                                   ReadOnlyMemory,
@@ -306,6 +445,8 @@ namespace Strada
 		                                                                   SimulatingFull,
 		                                                                   LiveTooltip,
 		                                                                   SimulatingTooltip,
+		                                                                   LastWorkingHas,
+		                                                                   LastWorkingKeeps,
 		                                                                   CanvasHint,
 		                                                                   CanvasHintPan,
 		                                                                   WireHint,
@@ -392,7 +533,110 @@ namespace Strada
 		                                                                   InactiveTarget,
 		                                                                   InactiveTargetGone,
 		                                                                   InactiveNoLibraryCaller,
-		                                                                   InactiveNoRunner});
+		                                                                   InactiveNoRunner,
+		                                                                   LivePrefix,
+		                                                                   ReceiptApplied,
+		                                                                   ReceiptInstance,
+		                                                                   ReceiptInstances,
+		                                                                   ReceiptNote,
+		                                                                   ReceiptTypeReset,
+		                                                                   ReceiptNewReset,
+		                                                                   ReceiptStateReset,
+		                                                                   ReceiptWaitCancelled,
+		                                                                   ReceiptWaitsCancelled,
+		                                                                   ReceiptStopContinues,
+		                                                                   ReceiptStopsContinue,
+		                                                                   ReceiptStopCancelled,
+		                                                                   ReceiptStopsCancelled,
+		                                                                   ReceiptTimelineShortened,
+		                                                                   ReceiptTimelinesShortened,
+		                                                                   ReceiptNotes,
+		                                                                   ReceiptSaved,
+		                                                                   ReceiptNow,
+		                                                                   ReceiptScriptCalls,
+		                                                                   ReceiptScriptsCall,
+		                                                                   ReceiptCompiled,
+		                                                                   ReceiptPending,
+		                                                                   ReceiptNotApplied,
+		                                                                   ReceiptFirst,
+		                                                                   ReceiptKeeps,
+		                                                                   ReceiptCallersKeep,
+		                                                                   ReceiptKeepLast,
+		                                                                   ReceiptNoVersion,
+		                                                                   PopoverRunningSince,
+		                                                                   PopoverAgo,
+		                                                                   PopoverSeconds,
+		                                                                   PopoverMinutes,
+		                                                                   PopoverHours,
+		                                                                   PopoverNoVersion,
+		                                                                   PopoverLastWorking,
+		                                                                   PopoverNodeChanged,
+		                                                                   PopoverNodesChanged,
+		                                                                   PopoverLinkChanged,
+		                                                                   PopoverLinksChanged,
+		                                                                   PopoverReferenceChanged,
+		                                                                   PopoverOutline,
+		                                                                   PopoverLastEdit,
+		                                                                   PopoverCause,
+		                                                                   PopoverKept,
+		                                                                   PopoverMatched,
+		                                                                   PopoverWas,
+		                                                                   PopoverReset,
+		                                                                   PopoverAdded,
+		                                                                   PopoverRemoved,
+		                                                                   PopoverStatesKept,
+		                                                                   PopoverStatesReset,
+		                                                                   PopoverWaitKept,
+		                                                                   PopoverWaitsKept,
+		                                                                   PopoverStopKept,
+		                                                                   PopoverStopsKept,
+		                                                                   PopoverCancelled,
+		                                                                   PopoverTimeline,
+		                                                                   PopoverTimelineAt,
+		                                                                   PopoverShortenedFrom,
+		                                                                   PopoverMoreInstances,
+		                                                                   PopoverInstanceHint,
+		                                                                   PopoverAtRunTime,
+		                                                                   PopoverShow,
+		                                                                   PopoverUsers,
+		                                                                   PopoverNoUsers,
+		                                                                   UserRunsThis,
+		                                                                   UserRunsLast,
+		                                                                   UserNotCompiled,
+		                                                                   UserNoInstances,
+		                                                                   ProblemsPrefix,
+		                                                                   CountError,
+		                                                                   CountErrors,
+		                                                                   CountWarning,
+		                                                                   CountWarnings,
+		                                                                   AtRunTime,
+		                                                                   RuntimeFailedOn,
+		                                                                   BreakOnErrors,
+		                                                                   LiveMarkOn,
+		                                                                   LiveMarkAnd,
+		                                                                   LiveMarkMore,
+		                                                                   LiveMarkWaitCancelled,
+		                                                                   LiveMarkStopCancelled,
+		                                                                   LiveMarkReset,
+		                                                                   LiveMarkNotRunning,
+		                                                                   PreviewTitle,
+		                                                                   PreviewClickToPlay,
+		                                                                   PreviewNoImage,
+		                                                                   PreviewExpand,
+		                                                                   PreviewBeside,
+		                                                                   PreviewClose,
+		                                                                   PreviewMove,
+		                                                                   PreviewMenu,
+		                                                                   PreviewMenuTooltip,
+		                                                                   BesideMenu,
+		                                                                   BesideMenuTooltip,
+		                                                                   BesideHint,
+		                                                                   BesideHintBeside,
+		                                                                   BesideHintNotNow,
+		                                                                   BesideNotApplied,
+		                                                                   BesideAlreadyVisible,
+		                                                                   BesideNotOpen,
+		                                                                   BesideNoDockSpace});
 	}
 
 	// The pane sizes of spec §10.1, in font sizes.
@@ -555,9 +799,56 @@ namespace Strada
 		// The context entity (spec §10.5): where entity drops write values and whose live values the window shows; invalid
 		// when none, and while the entity chosen is not in the scene shown (deleted; undoing the deletion brings it back).
 		UUID GetContextEntity() const;
-		// The context entity's public variables as its running instance holds them, read while playing at most
-		// VisualScriptLiveValueInterval apart; none while not playing, without a context entity or without its instance.
-		std::optional<ScriptFieldMap> const& GetLiveValues() const { return m_LiveValues; }
+		// The context entity's variables and timelines as its running instance holds them (VisualScriptDebugger::ReadValues),
+		// read while playing at most VisualScriptLiveValueInterval apart; while an execution of the graph is stopped, the selected
+		// stop frame's instance's variables instead (spec-slice4 §13.6). None while not playing, without a context entity or
+		// without its instance.
+		std::optional<VisualScriptLiveValues> const& GetLiveValues() const { return m_LiveValues; }
+
+		// The revision of the live log (spec-slice4 §8.5) the window draws from: the window manager hands it every frame before
+		// the windows draw. A commit of the window takes a newer one (VisualScriptEngine::GetLiveLog) and draws the rest of its
+		// frame from it. Null draws nothing of the live channel.
+		void SetLiveLog(Ref<VisualScriptLiveLog const> log) { m_LiveLog = std::move(log); }
+		Ref<VisualScriptLiveLog const> const& GetLiveLog() const { return m_LiveLog; }
+		// The last receipt of the window's graph (spec-slice4 §15.1, §15.2) since the window opened or Play started, its own edits'
+		// and those another graph caused (a library's window: the last receipt a change of it caused); null when none.
+		Ref<VisualScriptLiveEdit const> const& GetLastReceipt() const { return m_LastReceipt; }
+		// The runtime problems at the window's document's nodes (spec-slice4 §15.4), by serial, from the revision it draws from.
+		std::span<Ref<VisualScriptRuntimeProblem const> const> GetRuntimeProblems() const { return m_RuntimeProblems; }
+		// The nodes of the whole document the game does not run as stored (VisualScriptEngine::RunsStoredProgram), while the
+		// live state is LastWorking: FindVisualScriptNotRunning over every sub-graph. 0 otherwise and for libraries.
+		uint32_t GetNotRunningCount() const { return m_NotRunningCount; }
+		// The problems pill's tooltip in the last draw (the analysis' counts, and the runtime's after " · at run time: ").
+		std::string const& GetProblemsTooltip() const { return m_ProblemsTooltip; }
+		// The toasts shown, oldest first, with how they look and end: the warning colour, when it goes (ImGui time; none for a
+		// failure, which stays until dismissed), and the buttons it offers.
+		struct ToastRecord
+		{
+			std::string Text;
+			bool Warning = false;
+			std::optional<double> Expires;
+			bool HasShow = false;
+			bool BreakOnErrors = false;
+		};
+		std::vector<ToastRecord> GetToastRecords() const;
+		// The Live popover (spec-slice4 §15.2): whether its last draw showed it, and its lines in order (buttons excluded).
+		bool IsLivePopoverOpen() const { return m_LivePopoverOpen; }
+		std::vector<std::string> const& GetLivePopoverLines() const { return m_LivePopoverLines; }
+		// Whether the game preview showed over the canvas in the last draw (spec-slice4 §15.6): while the window's graph plays (its
+		// live state is Live or LastWorking, or it shows a stop), the preview is on (VisualScriptGamePreviewSettings::Shown)
+		// and the game view is not visible (VisualScriptEditorServices::GamePreview). GetItemRect(GamePreview) is where.
+		bool IsGamePreviewShown() const { return m_GamePreviewShown; }
+		// The preview header's text in the last draw (VisualScriptPanelTexts::PreviewTitle, or PreviewClickToPlay while the game
+		// does not have the input); empty while it is not shown.
+		std::string_view GetGamePreviewTitle() const { return m_GamePreviewShown ? m_GamePreviewTitle : std::string_view(); }
+		// The text the preview's image area showed instead of the game in the last draw (PreviewNoImage when the game rendered
+		// without an image); empty while it showed the image, or nothing before the game's first render for it.
+		std::string_view GetGamePreviewMessage() const { return m_GamePreviewShown ? m_GamePreviewMessage : std::string_view(); }
+		// Whether the Beside hint showed over the canvas in the last draw: once per user, after Play hid the window behind the
+		// game view in its dock node, while the game plays.
+		bool IsBesideHintShown() const { return m_BesideHintShown; }
+		// Brings the window to the front at its next draw (Game View Beside keeps the graph in front of its node).
+		void RequestFocus() { m_FocusRequested = true; }
 
 		// "<title>###VisualScript<handle as decimal>": the window keeps its ID (and its dock node) when the title changes.
 		static std::string GetWindowName(AssetHandle graph, std::string_view title);
@@ -569,6 +860,14 @@ namespace Strada
 			// When it disappears; none for a failure, which stays until dismissed.
 			std::optional<double> Expires;
 			bool ShowConsole = false;
+			// A toast an AddToast of the same key updates in place (a receipt of a cadence drag's step, spec-slice4 §15.1).
+			std::optional<uint64_t> Key;
+			// Drawn in the warning colour (a receipt of an edit the game did not take).
+			bool Warning = false;
+			// [Show] opens this (a runtime error's node, with its entity), before the other targets below.
+			std::optional<VisualScriptOpenRequest> ShowOpen;
+			// [Break on errors] (the first runtime error's toast).
+			bool BreakOnErrors = false;
 			// [Show]: focuses the scene's view (an invalid handle) or opens the window of another visual script; with ShowElements,
 			// frames those nodes and comments of the sub-graph ShowFunction instead.
 			bool HasShow = false;
@@ -745,7 +1044,28 @@ namespace Strada
 		void DrawToolbar();
 		void DrawInstanceCombo(float width);
 		void DrawLivePill(float width, std::string const& text);
+		// The Live popover under the pill (spec-slice4 §15.2), inside its popup.
+		void DrawLivePopover();
 		void DrawStoppedSegment(float width);
+		// What a receipt did, as its toast says it after "Live: " (spec-slice4 §15.1); warning or failure as it says.
+		struct ReceiptText
+		{
+			std::string Text;
+			bool Warning = false;
+			bool Failure = false;
+		};
+		// The live channel (spec-slice4 §15): the receipts of the revision drawn since the window last looked, toasted when toast
+		// (under key for its own commit's; into collected instead when given: an undo's history toast says them), then the
+		// runtime problems of its document.
+		void TakeLiveEvents(bool toast, std::optional<uint64_t> key = std::nullopt, std::vector<ReceiptText>* collected = nullptr);
+		void ToastReceipt(VisualScriptLiveEdit const& edit, std::optional<uint64_t> key);
+		ReceiptText DescribeReceipt(VisualScriptLiveEdit const& edit) const;
+		// A library's window: one text for the receipts of the graphs an edit of it compiled again.
+		ReceiptText DescribeLibraryReceipts(std::span<Ref<VisualScriptLiveEdit const> const> edits) const;
+		void UpdateRuntimeProblems(bool toast);
+		// The nodes and links of the document the game does not run as stored (FindVisualScriptNotRunning), and the shown
+		// sub-graph's marks.
+		void UpdateNotRunning();
 		// The debug strip's rows (spec-slice4 §13.6), under the other notices.
 		void DrawDebugStrip();
 		// Maps the window's debug input onto the canvas after the model's sync: breakpoint markers, the instruction, callers,
@@ -767,6 +1087,11 @@ namespace Strada
 		void DrawNotice(NoticeKind kind);
 		void DrawCard(ImVec2 canvasMin, ImVec2 canvasMax);
 		void DrawCanvasHint(ImVec2 canvasMin, ImVec2 canvasMax);
+		// The game's image in a corner of the canvas while it plays and its view is hidden (spec-slice4 §15.6), a child window over
+		// the canvas: a header with expand, Beside and close; its header drags it to another corner, its inner edge resizes it.
+		void DrawGamePreview();
+		// The one-time hint that Game View Beside keeps the game and the graph in view, along the canvas's top edge.
+		void DrawBesideHint(ImVec2 canvasMin, ImVec2 canvasMax);
 		void DrawShortcutSheet();
 		void DrawBody();
 		void DrawPane(char const* id, VisualScriptWindowPart part, ImVec2 size, bool border = false);
@@ -846,7 +1171,8 @@ namespace Strada
 		void CommitTextEdit();
 		void CloseTextEdit();
 		void OpenTextEdit(VisualScriptTextEditRequest const& request);
-		void AddToast(std::string text, bool failure = false);
+		// A toast; one with the key of a toast shown updates that one in place instead (its text and time).
+		Toast& AddToast(std::string text, bool failure = false, std::optional<uint64_t> key = std::nullopt);
 		// The actions the window handles itself (find, the shortcut sheet); false for the others.
 		bool HandlePanelAction(VisualScriptEditorAction action);
 
@@ -1034,8 +1360,69 @@ namespace Strada
 		bool m_ContextResolved = false;
 		bool m_InstanceShown = false;
 		VisualScriptLiveState m_Live = VisualScriptLiveState::None;
-		std::optional<ScriptFieldMap> m_LiveValues;
+		std::optional<VisualScriptLiveValues> m_LiveValues;
 		double m_LiveRead = -1.0e30;
+
+		// The live channel (spec-slice4 §15): the revision the window draws from, the last serial it looked at (none until it
+		// first did: it opened, or Play started, after the receipts before it), whether the editor played at its last look, and
+		// the last receipt of its graph with when it came (My Script says reset and new for a few seconds after).
+		Ref<VisualScriptLiveLog const> m_LiveLog;
+		std::optional<uint64_t> m_LiveSerial;
+		bool m_LivePlaying = false;
+		Ref<VisualScriptLiveEdit const> m_LastReceipt;
+		double m_LastReceiptTime = -1.0e30;
+		std::vector<std::string> m_ReceiptReset;
+		std::vector<std::string> m_ReceiptNew;
+		// The graph's document as its asset held it at the window's last look at the log: a receipt of the graph's own edit comes
+		// with a change of it (a commit, an undo or redo, an outside change). A load of an unchanged document (an instance
+		// started, a scene loaded, a graph first used in a play session) is nobody's edit (spec-slice4 §15.1).
+		Ref<VisualScriptDocument const> m_ReceiptDocument;
+		// The last edit's receipt was Pending: the Deferred receipt that ends it is that edit's too.
+		bool m_ReceiptPending = false;
+		// The key of the toast of a Pending receipt, which the Applied receipt that ends it updates.
+		std::optional<uint64_t> m_PendingToast;
+		uint64_t m_ReceiptToasts = 0;
+		// The runtime problems at the document's nodes in the revision drawn (and the revision they were read from), their
+		// counts, and the nodes whose first error this play session toasted.
+		std::vector<Ref<VisualScriptRuntimeProblem const>> m_RuntimeProblems;
+		Ref<VisualScriptLiveLog const> m_RuntimeLog;
+		uint32_t m_RuntimeErrors = 0;
+		uint32_t m_RuntimeWarnings = 0;
+		std::vector<std::pair<uint32_t, uint32_t>> m_RuntimeToasted;
+		// What the game does not run of the document (spec-slice4 §15.3), found again only when the working or the stored
+		// document changes: per sub-graph, and the marks and link indices of the shown one.
+		Ref<VisualScriptDocument const> m_NotRunningWorking;
+		Ref<VisualScriptDocument const> m_NotRunningStored;
+		std::vector<std::pair<uint32_t, VisualScriptNotRunning>> m_NotRunning;
+		uint32_t m_NotRunningCount = 0;
+		uint32_t m_NotRunningLinkCount = 0;
+		std::string m_ProblemsTooltip;
+		std::vector<VisualScriptLiveMark> m_LiveMarks;
+		std::vector<uint32_t> m_NotRunningLinks;
+		// Those and the window manager's (VisualScriptWindowDebugInput::LiveMarks) of the shown sub-graph: the view's.
+		std::vector<VisualScriptLiveMark> m_ViewLiveMarks;
+		// The Live popover: its lines as last drawn, and whether it was shown.
+		bool m_LivePopoverOpen = false;
+		std::vector<std::string> m_LivePopoverLines;
+		// The game preview (spec-slice4 §15.6): shown in the last draw; a drag of its header (Resize false: it follows the mouse
+		// and snaps to the nearest corner on release) or of its inner edge (its width), from where the drag started.
+		struct PreviewDrag
+		{
+			PreviewDrag();
+
+			bool Resize = false;
+			glm::vec2 StartMouse{0.0f};
+			glm::vec2 StartPosition{0.0f};
+			float StartWidth = 0.0f;
+		};
+		bool m_GamePreviewShown = false;
+		std::string_view m_GamePreviewTitle;
+		std::string_view m_GamePreviewMessage;
+		std::optional<PreviewDrag> m_PreviewDrag;
+		std::optional<glm::vec2> m_PreviewPosition;
+		// Play hid the window behind the game view in its dock node: the Beside hint shows when it is shown again while playing.
+		bool m_BesideHintPending = false;
+		bool m_BesideHintShown = false;
 
 		// The Bookmarks menu: the names typed in its Rename submenu, by slot.
 		std::array<std::string, 9> m_BookmarkNames;

@@ -1,9 +1,11 @@
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
 
+#include "Editor/VisualScripting/VisualScriptFlow.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 
 #include <imgui.h>
@@ -11,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -452,6 +455,9 @@ namespace Strada
 		m_ProblemRows.clear();
 		m_FixButtons.clear();
 		m_FindRects.clear();
+		m_RuntimeHeader.clear();
+		m_RuntimeRows.clear();
+		m_RuntimeButtons.clear();
 		if (context.Model.GetStoredDocument() == nullptr)
 		{
 			ImGui::TextDisabled("No script is shown.");
@@ -474,6 +480,11 @@ namespace Strada
 
 	void VisualScriptDrawer::DrawProblems(VisualScriptPaneContext& context, VisualScriptPaneResult& result)
 	{
+		// What went wrong while the game ran, above what the analysis finds (spec-slice4 §15.4).
+		if (!context.RuntimeProblems.empty())
+		{
+			DrawRuntime(context, result);
+		}
 		VisualScriptEditorModel const& model = context.Model;
 		VisualScriptAnalysis const* const analysis = model.GetAnalysis();
 		if (analysis == nullptr)
@@ -553,6 +564,140 @@ namespace Strada
 				ImGui::PopID();
 			}
 		}
+	}
+
+	void VisualScriptDrawer::DrawRuntime(VisualScriptPaneContext& context, VisualScriptPaneResult& result)
+	{
+		namespace Texts = VisualScriptLiveTexts;
+		ImGuiStyle const& style = ImGui::GetStyle();
+		VisualScriptDocument const& document = context.Model.GetDisplayDocument();
+		auto const graphName = [](AssetHandle graph)
+		{
+			std::optional<AssetMetadata> const metadata = AssetManager::IsInitialized() ? AssetManager::GetMetadata(graph) : std::nullopt;
+			if (!metadata)
+			{
+				return graph.ToString();
+			}
+			return metadata->Path.empty() ? metadata->Name : FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem());
+		};
+		auto const entityName = [&context](UUID entity)
+		{
+			return context.DescribeEntity ? context.DescribeEntity(entity) : entity.ToString();
+		};
+		auto const record = [this](size_t row, std::string_view label)
+		{
+			ImVec2 const min = ImGui::GetItemRectMin();
+			ImVec2 const max = ImGui::GetItemRectMax();
+			m_RuntimeButtons.push_back({row, std::string(label), glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)});
+		};
+
+		// The section's header; after Stop, the last run's, until the next Play or [Clear].
+		m_RuntimeHeader = std::string(context.RuntimeLastRun ? Texts::RuntimeLastRun : Texts::Runtime);
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextUnformatted(m_RuntimeHeader.c_str());
+		if (context.RuntimeLastRun)
+		{
+			ImGui::SameLine();
+			if (ImGui::SmallButton(Texts::Clear.data()))
+			{
+				result.ClearRuntimeProblems = true;
+			}
+			record(SIZE_MAX, Texts::Clear);
+		}
+		for (size_t row = 0; row < context.RuntimeProblems.size(); row++)
+		{
+			VisualScriptRuntimeProblem const& problem = *context.RuntimeProblems[row];
+			VisualScriptDrawerRuntimeRow shown;
+			shown.Problem = context.RuntimeProblems[row];
+			shown.Title = fmt::format("{}{}{})", problem.Title, Texts::Node, problem.Node);
+			if (problem.Function != 0)
+			{
+				shown.Title += fmt::format("{}{}", Texts::In, GetVisualScriptGraphName(document, problem.Function));
+			}
+			shown.Detail =
+				fmt::format("{}{}{}{}", Texts::On, entityName(problem.Entity), Texts::Separator, FormatVisualScriptRunCount(problem.Count));
+			// A library's node: the call of the graph whose instance ran it, the innermost of that graph's.
+			std::optional<VisualScriptCallFrame> caller;
+			if (problem.Graph != context.Graph)
+			{
+				for (VisualScriptCallFrame const& call : problem.Calls)
+				{
+					if (call.Document == problem.Graph)
+					{
+						caller = call;
+					}
+				}
+				if (caller)
+				{
+					shown.Detail += fmt::format("{}{}{}{})", Texts::CalledFrom, graphName(problem.Graph), Texts::Node, caller->Node);
+				}
+			}
+
+			ImGui::PushID(static_cast<int>(row));
+			ImVec2 const start = ImGui::GetCursorScreenPos();
+			float const size = ImGui::GetFontSize() * 0.6f;
+			ImVec2 const center(start.x + style.FramePadding.x + size * 0.5f, start.y + ImGui::GetFrameHeight() * 0.5f);
+			ImDrawList* const drawList = ImGui::GetWindowDrawList();
+			if (problem.Severity == VisualScriptSeverity::Error)
+			{
+				drawList->AddCircleFilled(center, size * 0.5f, GetSeverityColor(problem.Severity));
+			}
+			else
+			{
+				drawList->AddTriangleFilled(ImVec2(center.x, center.y - size * 0.5f),
+				                            ImVec2(center.x + size * 0.5f, center.y + size * 0.5f),
+				                            ImVec2(center.x - size * 0.5f, center.y + size * 0.5f), GetSeverityColor(problem.Severity));
+			}
+			ImGui::SetCursorScreenPos(ImVec2(start.x + style.FramePadding.x * 2.0f + size, start.y));
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted(shown.Title.c_str());
+			ImGui::SameLine();
+			ImGui::TextUnformatted(problem.Message.c_str());
+			ImGui::SameLine();
+			ImGui::TextDisabled("%s", shown.Detail.c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton(Texts::GoTo.data()))
+			{
+				result.Open = MakeVisualScriptJump(context.Graph, problem.Function, {problem.Node});
+				// The graph's own node: the entity it failed on becomes the window's context entity.
+				if (problem.Graph == context.Graph)
+				{
+					result.ContextEntity = problem.Entity;
+				}
+			}
+			record(row, Texts::GoTo);
+			if (caller)
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton(Texts::Caller.data()))
+				{
+					// The calling graph's window at its call, on the entity.
+					VisualScriptOpenRequest request = MakeVisualScriptJump(problem.Graph, caller->Function, {caller->Node});
+					request.ContextEntity = problem.Entity;
+					result.Open = std::move(request);
+				}
+				record(row, Texts::Caller);
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton(Texts::SelectEntity.data()))
+			{
+				result.SelectEntity = problem.Entity;
+			}
+			record(row, Texts::SelectEntity);
+			ImGui::PopID();
+			m_RuntimeRows.push_back(std::move(shown));
+		}
+		ImGui::Separator();
+	}
+
+	std::optional<std::pair<glm::vec2, glm::vec2>> VisualScriptDrawer::FindRuntimeButton(size_t row, std::string_view label) const
+	{
+		auto const found = std::find_if(m_RuntimeButtons.begin(), m_RuntimeButtons.end(),
+		                                [row, label](RuntimeButton const& button)
+		                                {
+											return button.Row == row && button.Label == label;
+										});
+		return found != m_RuntimeButtons.end() ? std::optional(std::pair(found->Min, found->Max)) : std::nullopt;
 	}
 
 	void VisualScriptDrawer::SortProblems(VisualScriptEditorModel const& model, VisualScriptAnalysis const& analysis)

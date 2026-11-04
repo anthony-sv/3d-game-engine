@@ -1098,6 +1098,13 @@ namespace
 			{
 				return {m_State.GraphEvents, {"Nope", "  "}};
 			}
+			// graph.open's detailsRow: labels of Details' rows (for the node selected, or the script), and labels it draws for no
+			// subject.
+			if (property == "detailsRow")
+			{
+				return {{"Formula", "Comment", "Settings", "Length", "Name", "Description", "Then1"},
+				        {"No Such Row", " ", std::string(300, 'x')}};
+			}
 			if (property == "name")
 			{
 				std::vector<std::string> names = m_State.EntityNames;

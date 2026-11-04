@@ -2754,6 +2754,11 @@ namespace Strada
 		                     {"edits", std::move(edits)}});
 	}
 
+	Json DescribeVisualScriptLiveEdit(VisualScriptLiveEdit const& edit, Scene& scene)
+	{
+		return DebugJson(scene).LiveEdit(edit, Platform::GetTime());
+	}
+
 	Result<void> RegisterGraphDebugCommands(CommandRegistry& registry, VisualScriptDebugSession& session, PlayMode& playMode,
 	                                        EditorContext& context)
 	{

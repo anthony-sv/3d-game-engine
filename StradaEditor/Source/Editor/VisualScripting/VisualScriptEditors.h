@@ -5,14 +5,17 @@
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
+#include "Editor/VisualScripting/VisualScriptGameBeside.h"
 #include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <imgui.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -86,6 +89,9 @@ namespace Strada
 		// The session's stop-ended listener: the graph's window shows the held pause in its strip with the reason, and toasts it;
 		// a stop that ended in its own frame (an invalid graph) is toasted in the edit target's window.
 		void OnStopEnded(AssetHandle graph, std::string const& reason);
+		// The revision of the live log (spec-slice4 §8.5) the windows draw from: taken once per frame before they draw
+		// (VisualScriptEngine::GetLiveLog), and handed to each (VisualScriptEditorPanel::SetLiveLog). Null before the first draw.
+		Ref<VisualScriptLiveLog const> const& GetLiveLog() const { return m_LiveLog; }
 		// What the window of a graph was told of debugging at the last draw; null when it is not open or there is no session.
 		VisualScriptWindowDebugInput const* FindDebugInput(AssetHandle graph);
 		// The running instance's values on the data wires a window's view shows (Wire Values: Always): one request for the sources
@@ -156,7 +162,41 @@ namespace Strada
 		// before DockBuilderFinish.
 		void ResetLayout(ImGuiID centerNode);
 
+		// The live game beside the graphs (spec-slice4 §15.6). Whether a window showed the game preview in the last draw: the
+		// editor then renders the game for it while the game view is hidden (WantsHiddenGameRender).
+		bool WantsGamePreview() const;
+		// Game View Beside for the graph's window: queued (outcome Queued) for the editor, which runs it at the start of the next
+		// frame its window was drawn in before (TakeGameViewBesideRequest, then OnGameViewBesidePlaced). A later request replaces
+		// one not run yet.
+		void RequestGameViewBeside(AssetHandle graph);
+		// The queued request's graph, taken, once the graph's window was drawn in the last frame; none while nothing is queued,
+		// or while a window that is open has not been drawn yet (a window the request's own call opened is first drawn after
+		// the dock space). A window not drawn within BesideWaitFrames frames, or one not open, gets its request then, which
+		// PlaceGameViewBeside refuses. Inside an ImGui frame.
+		[[nodiscard]] std::optional<AssetHandle> TakeGameViewBesideRequest();
+		// What the editor's docking did with the request: kept for graph.editors, toasted in the graph's window unless it was
+		// Applied (which brings the window to the front of its node).
+		void OnGameViewBesidePlaced(VisualScriptGameBesideState state);
+		// The last request and its outcome; none before the first.
+		std::optional<VisualScriptGameBesideState> const& GetGameViewBeside() const { return m_GameBeside; }
+		// The open graph window that shares the named window's dock node as the last frame drew them (the one focused last
+		// first); none when no graph window does. Inside an ImGui frame.
+		std::optional<AssetHandle> FindWindowDockedWith(char const* windowName) const;
+
+		// How long a receipt's marks stay on the nodes where it cancelled a wait or reset a state (seconds, spec-slice4 §15.3).
+		static constexpr double ReceiptMarkSeconds = 4.0;
+		// How many frames a Game View Beside request waits for its open window's first draw.
+		static constexpr uint32_t BesideWaitFrames = 10;
+
 	private:
+		// A receipt's mark on a node of a window's document, shown until Expires (ImGui time).
+		struct TimedLiveMark
+		{
+			uint32_t Function = 0;
+			VisualScriptLiveMark Mark;
+			double Expires = 0.0;
+		};
+
 		struct GraphWindow
 		{
 			Scope<VisualScriptEditorPanel> Panel;
@@ -169,6 +209,10 @@ namespace Strada
 			// windows' list grows), and when it last read its target's live wire values.
 			Scope<VisualScriptWindowDebugInput> Debug;
 			double LiveValuesRead = -1.0e30;
+			// The last receipt serial the window's marks were taken from (none until its first draw: older receipts mark nothing),
+			// and the marks still shown.
+			std::optional<uint64_t> MarkSerial;
+			std::vector<TimedLiveMark> TimedMarks;
 		};
 
 		// What every call does first: follow the project, then close the windows of deleted visual scripts (spec §12.4).
@@ -185,6 +229,9 @@ namespace Strada
 		// Debugging, before the windows draw (their inputs, the watches, the flow and the targets) and after (their requests).
 		void UpdateDebugging();
 		void BuildDebugInput(GraphWindow& window, std::vector<VisualScriptDebugWatch>& watches);
+		// The live log's marks on the window's document (spec-slice4 §15.3): its runtime problems, and the receipts' cancellations
+		// and resets for ReceiptMarkSeconds.
+		void BuildLiveMarks(GraphWindow& window, VisualScriptWindowDebugInput& input);
 		void ApplyDebugRequests();
 		// The live wire values of a window's target while playing (Wire Values: Always), at most 10 times a second.
 		void ReadLiveWireValues(GraphWindow& window, VisualScriptWindowDebugInput& input);
@@ -216,6 +263,7 @@ namespace Strada
 		// What AfterNextDraw was given, called at the end of the next OnImGuiRender.
 		std::vector<std::function<void()>> m_AfterDraw;
 		VisualScriptProjectIndex m_ProjectIndex;
+		Ref<VisualScriptLiveLog const> m_LiveLog;
 
 		VisualScriptDebugSession* m_DebugSession = nullptr;
 		// Counts the session's attachments (the windows' flow starts again at each), and whether it was attached at the last draw.
@@ -226,5 +274,14 @@ namespace Strada
 		// The graph whose stop ended without a resume while the pause is held, and why (the stop-ended listener).
 		AssetHandle m_HeldGraph;
 		std::string m_HeldReason;
+		// Game View Beside: the request waiting for the next frame its window was drawn in (and the frames it waited), and the
+		// last request's outcome.
+		struct BesideRequest
+		{
+			AssetHandle Graph;
+			uint32_t Waited = 0;
+		};
+		std::optional<BesideRequest> m_BesideRequest;
+		std::optional<VisualScriptGameBesideState> m_GameBeside;
 	};
 }

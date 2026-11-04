@@ -15,6 +15,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Platform.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
@@ -33,9 +34,11 @@
 #include <array>
 #include <bit>
 #include <cfloat>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <map>
 #include <span>
@@ -140,6 +143,126 @@ namespace Strada
 		constexpr float FrameMargin = 48.0f;
 		namespace Texts = VisualScriptPanelTexts;
 
+		// The live channel (spec-slice4 §15).
+		// A receipt of an edit the game did not take stays this long (seconds); one it refused stays until dismissed.
+		constexpr double WarningToastSeconds = 8.0;
+		// The window's receipt toasts' keys ("VSLR" and a counter), apart from the merge keys of its steps.
+		constexpr uint64_t ReceiptToastKey = 0x56534C5200000000ull;
+		// My Script says reset and new beside a receipt's variables this long (seconds).
+		constexpr double ReceiptNoteSeconds = 4.0;
+
+		// "12 s", "3 min", "2 h".
+		std::string FormatAge(double seconds)
+		{
+			double const age = std::max(seconds, 0.0);
+			if (age < 60.0)
+			{
+				return fmt::format("{}{}", static_cast<int64_t>(age), Texts::PopoverSeconds);
+			}
+			if (age < 3600.0)
+			{
+				return fmt::format("{}{}", static_cast<int64_t>(age / 60.0), Texts::PopoverMinutes);
+			}
+			return fmt::format("{}{}", static_cast<int64_t>(age / 3600.0), Texts::PopoverHours);
+		}
+
+		// The local wall-clock time of a moment on Platform::GetTime()'s clock ("12:03:41").
+		std::string FormatClock(double time)
+		{
+			auto const ago = std::chrono::duration_cast<std::chrono::system_clock::duration>(
+				std::chrono::duration<double>(std::max(Platform::GetTime() - time, 0.0)));
+			std::time_t const moment = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now() - ago);
+			std::tm local{};
+#if defined(ST_PLATFORM_WINDOWS)
+			if (localtime_s(&local, &moment) != 0)
+			{
+				return {};
+			}
+#else
+			if (localtime_r(&moment, &local) == nullptr)
+			{
+				return {};
+			}
+#endif
+			return fmt::format("{:02}:{:02}:{:02}", local.tm_hour, local.tm_min, local.tm_sec);
+		}
+
+		// A receipt's error text ("2 errors; first: <message> (node 14)", DescribeVisualScriptErrors) as the toast says it: "2
+		// errors (first: <message> (node 14))"; as it is when it has no first error.
+		std::string FormatReceiptErrors(std::string_view errors)
+		{
+			constexpr std::string_view First = "; first: ";
+			size_t const at = errors.find(First);
+			if (at == std::string_view::npos)
+			{
+				return std::string(errors);
+			}
+			return fmt::format("{}{}{})", errors.substr(0, at), Texts::ReceiptFirst, errors.substr(at + First.size()));
+		}
+
+		// Its count alone ("2 errors").
+		std::string_view GetReceiptErrorCount(std::string_view errors)
+		{
+			return errors.substr(0, errors.find(';'));
+		}
+
+		std::string CountWords(uint32_t count, std::string_view one, std::string_view many)
+		{
+			return fmt::format("{}{}", count, count == 1 ? one : many);
+		}
+
+		std::string JoinTexts(std::span<std::string const> texts)
+		{
+			std::string joined;
+			for (std::string const& text : texts)
+			{
+				joined += joined.empty() ? text : ", " + text;
+			}
+			return joined;
+		}
+
+		// The link of the visual model a document link names (by the pins' names): the not-running wires.
+		std::optional<uint32_t> FindVisualLink(VisualScriptCanvasModel const& canvas, VisualScriptLink const& link)
+		{
+			std::optional<uint32_t> const from = canvas.FindNode(link.From.Node);
+			if (!from)
+			{
+				return std::nullopt;
+			}
+			std::span<VisualScriptLinkVisual const> const links = canvas.GetLinks();
+			std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+			std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+			for (uint32_t const index : canvas.GetIncidentLinks(*from))
+			{
+				VisualScriptLinkVisual const& visual = links[index];
+				if (visual.FromNode != *from || nodes[visual.ToNode].ID != link.To.Node)
+				{
+					continue;
+				}
+				bool const fromMatches =
+					canvas.GetText(visual.FromName) == link.From.Pin || canvas.GetText(pins[visual.FromPin].Name) == link.From.Pin;
+				bool const toMatches =
+					canvas.GetText(visual.ToName) == link.To.Pin || canvas.GetText(pins[visual.ToPin].Name) == link.To.Pin;
+				if (fromMatches && toMatches)
+				{
+					return index;
+				}
+			}
+			return std::nullopt;
+		}
+
+		// A lightning bolt drawn as two triangles (the editor's fonts have no bolt glyph, spec-slice4 §15): the problems pill's
+		// runtime count.
+		void DrawLightning(ImDrawList* drawList, ImVec2 center, float size, ImU32 color)
+		{
+			float const h = size * 0.5f;
+			drawList->AddTriangleFilled(ImVec2(center.x + h * 0.35f, center.y - h), ImVec2(center.x - h * 0.55f, center.y + h * 0.15f),
+			                            ImVec2(center.x + h * 0.15f, center.y + h * 0.15f), color);
+			drawList->AddTriangleFilled(ImVec2(center.x - h * 0.15f, center.y - h * 0.15f),
+			                            ImVec2(center.x + h * 0.55f, center.y - h * 0.15f), ImVec2(center.x - h * 0.35f, center.y + h),
+			                            color);
+		}
+
 		ImU32 MixColor(ImU32 from, ImU32 to, float amount)
 		{
 			ImVec4 const a = ImGui::ColorConvertU32ToFloat4(from);
@@ -184,6 +307,14 @@ namespace Strada
 			ListArrow,
 			Close,
 			Bookmark
+		};
+
+		// The game preview's header buttons, drawn as shapes.
+		enum class PreviewSymbol : uint8_t
+		{
+			Expand = 0,
+			Beside,
+			Close
 		};
 
 		ImU32 WithAlpha(ImU32 color, float alpha)
@@ -659,6 +790,8 @@ namespace Strada
 
 	VisualScriptEditorPanel::BreakpointPopup::BreakpointPopup() = default;
 
+	VisualScriptEditorPanel::PreviewDrag::PreviewDrag() = default;
+
 	UUID VisualScriptEditorPanel::GetContextEntity() const
 	{
 		return GetPresentContextEntity();
@@ -734,8 +867,26 @@ namespace Strada
 
 	void VisualScriptEditorPanel::NotifyHistoryStep(bool undone, std::string const& description, AssetHandle editedAsset)
 	{
-		AddToast(fmt::format("{}: {}", undone ? "Undone" : "Redone", description));
-		Toast& toast = m_Toasts.back();
+		std::string text = fmt::format("{}: {}", undone ? "Undone" : "Redone", description);
+		// What the step did to the running game (it applied inside the undo, spec-slice4 §8.1).
+		std::vector<ReceiptText> receipts;
+		if (m_LiveLog != nullptr)
+		{
+			m_LiveLog = VisualScriptEngine::GetLiveLog();
+			TakeLiveEvents(true, std::nullopt, &receipts);
+		}
+		bool warning = false;
+		for (ReceiptText const& receipt : receipts)
+		{
+			text += fmt::format("{}{}", Texts::ReceiptNote, receipt.Text);
+			warning = warning || receipt.Warning || receipt.Failure;
+		}
+		Toast& toast = AddToast(std::move(text));
+		toast.Warning = warning;
+		if (warning)
+		{
+			toast.Expires = m_Time + WarningToastSeconds;
+		}
 		if (!editedAsset.IsValid())
 		{
 			// A step of the scene: [Show] focuses its view.
@@ -876,7 +1027,12 @@ namespace Strada
 		}
 		state.FlowDrawn =
 			m_HasDebugView && (!m_DebugView.FlowLinks.empty() || !m_DebugView.FlowNodes.empty() || !m_DebugView.FlowBoxes.empty());
+		state.LiveReceipt = m_LastReceipt;
+		state.RuntimeErrors = m_RuntimeErrors;
+		state.RuntimeWarnings = m_RuntimeWarnings;
+		state.NotRunning = m_NotRunningCount;
 		state.FlowHeld = state.FlowDrawn && m_DebugView.FlowHeld;
+		state.GamePreview = m_GamePreviewShown ? GetItemRect(VisualScriptPanelItem::GamePreview) : std::nullopt;
 		// Top to bottom: the notices under the toolbar, then the hints over the canvas.
 		std::vector<VisualScriptNotice> notices;
 		for (NoticeKind const notice : m_Notices)
@@ -910,6 +1066,10 @@ namespace Strada
 		if (m_CanvasHintShown)
 		{
 			notices.push_back(VisualScriptNotice::FirstCanvas);
+		}
+		if (m_BesideHintShown)
+		{
+			notices.push_back(VisualScriptNotice::BesideHint);
 		}
 		notices.insert(notices.end(), state.Notices.begin(), state.Notices.end());
 		state.Notices = std::move(notices);
@@ -963,6 +1123,10 @@ namespace Strada
 		m_CanvasHovered = false;
 		m_HintShown = false;
 		m_CanvasHintShown = false;
+		m_BesideHintShown = false;
+		m_GamePreviewShown = false;
+		m_PreviewDrag.reset();
+		m_PreviewPosition.reset();
 		m_ItemRects.fill(std::nullopt);
 		m_Model.CancelGesture();
 		m_Renderer.StopAnimations();
@@ -974,6 +1138,8 @@ namespace Strada
 		m_BadgePress.reset();
 		m_BreakpointPopup.reset();
 		m_InstanceComboOpen = false;
+		m_LivePopoverOpen = false;
+		m_LivePopoverLines.clear();
 		m_HasDebugView = false;
 		m_WidgetActive = false;
 		m_RequestedActions.clear();
@@ -1004,8 +1170,22 @@ namespace Strada
 		ImGui::PopStyleVar();
 		if (!visible)
 		{
+			// Play hid the window: the game view came forward in its dock node. The Beside hint shows when it is shown again.
+			// (The game view is drawn before the graph windows: the service tells where it is in front this frame.)
+			if (m_Operations.GetContext().GetPlayState() == EditorPlayState::Play &&
+			    !m_Settings.IsHintSeen(VisualScriptGameViewBesideHint) && m_Services.GamePreview)
+			{
+				ImGuiWindow const* const window = ImGui::GetCurrentWindow();
+				std::optional<VisualScriptGamePreview> const game = m_Services.GamePreview();
+				if (window->DockNode != nullptr && game && game->GameViewVisible && game->GameViewDockNode == window->DockNode->ID)
+				{
+					m_BesideHintPending = true;
+				}
+			}
 			ImGui::End();
 			OnHidden();
+			// A hidden window takes what the game did silently: shown later, it toasts nothing stale.
+			TakeLiveEvents(false);
 			return;
 		}
 		m_Visible = true;
@@ -1060,6 +1240,10 @@ namespace Strada
 			{
 				ShowTimeline(*request.Timeline);
 			}
+			if (!request.DetailsRow.empty())
+			{
+				m_PaneShared.ScrollRow = request.DetailsRow;
+			}
 		}
 		// The Timeline drawer closes when its node is no longer a Timeline of the sub-graph shown (deleted, undone, another
 		// sub-graph shown).
@@ -1090,6 +1274,8 @@ namespace Strada
 			m_NameRun.reset();
 		}
 		UpdateWindowState();
+		TakeLiveEvents(true);
+		UpdateNotRunning();
 		UpdateDebugView();
 
 		DrawToolbar();
@@ -1612,17 +1798,34 @@ namespace Strada
 
 	void VisualScriptEditorPanel::UpdateDebugView()
 	{
-		m_HasDebugView = m_DebugInput != nullptr && m_Model.GetStoredDocument() != nullptr;
-		if (!m_HasDebugView)
+		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+		uint32_t const function = m_Model.GetFunction();
+		// The live channel's marks (spec-slice4 §15.3): the window's own (what the game does not run), then the window
+		// manager's (runtime problems, a receipt's cancellations and resets) on the shown sub-graph's nodes.
+		m_ViewLiveMarks = m_LiveMarks;
+		if (m_DebugInput != nullptr)
+		{
+			for (auto const& [markFunction, mark] : m_DebugInput->LiveMarks)
+			{
+				if (markFunction == function && canvas.FindNode(mark.Node))
+				{
+					m_ViewLiveMarks.push_back(mark);
+				}
+			}
+		}
+		bool const live = !m_ViewLiveMarks.empty() || !m_NotRunningLinks.empty();
+		m_HasDebugView = (m_DebugInput != nullptr || live) && m_Model.GetStoredDocument() != nullptr;
+		if (!m_HasDebugView || m_DebugInput == nullptr)
 		{
 			m_Model.SetBreakpointMarkers(false, {});
 			m_Flow.Clear();
 			m_FlowMarks.Clear();
+			m_DebugView = VisualScriptCanvasDebugView();
+			m_DebugView.Live = m_ViewLiveMarks;
+			m_DebugView.NotRunningLinks = m_NotRunningLinks;
 			return;
 		}
 		VisualScriptWindowDebugInput const& input = *m_DebugInput;
-		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
-		uint32_t const function = m_Model.GetFunction();
 
 		// The shown sub-graph's breakpoints, by node ID (the input's are).
 		m_BreakpointMarks.clear();
@@ -1646,6 +1849,8 @@ namespace Strada
 		m_DebugView = VisualScriptCanvasDebugView();
 		m_DebugView.Breakpoints = m_BreakpointMarks;
 		m_DebugView.BreakpointChord = input.BreakpointChord;
+		m_DebugView.Live = m_ViewLiveMarks;
+		m_DebugView.NotRunningLinks = m_NotRunningLinks;
 		if (input.Instruction && input.Function == function && canvas.FindNode(input.Instruction->Node))
 		{
 			m_DebugView.Instruction = input.Instruction;
@@ -1735,20 +1940,39 @@ namespace Strada
 				break;
 			case EditorPlayState::Play:
 			{
-				// With errors, the game keeps running the last version that compiled, when it has one.
-				uint32_t const errors = CountProblems(m_Model.GetAnalysis(), std::nullopt).first;
-				m_Live = errors > 0 && VisualScriptEngine::HasWorkingProgram(m_Graph) ? VisualScriptLiveState::LastWorking
-				                                                                      : VisualScriptLiveState::Live;
+				// A library runs in the graphs that call it, which keep its last working version while it has errors. A script's
+				// game runs the last version that worked exactly when it has one and it is not what is stored, compiled with the
+				// graphs it uses as they are (VisualScriptEngine::RunsStoredProgram, the engine's one answer, S4-R11.1), so the
+				// pill, the receipts and graph.live never disagree.
+				Ref<VisualScriptDocument const> const& stored = m_Model.GetStoredDocument();
+				bool const library = stored != nullptr && stored->Kind == VisualScriptDocumentKind::Library;
+				bool const lastWorking =
+					library ? CountProblems(m_Model.GetAnalysis(), std::nullopt).first > 0 && VisualScriptEngine::HasWorkingProgram(m_Graph)
+							: VisualScriptEngine::HasWorkingProgram(m_Graph) && !VisualScriptEngine::RunsStoredProgram(m_Graph);
+				m_Live = lastWorking ? VisualScriptLiveState::LastWorking : VisualScriptLiveState::Live;
 				break;
 			}
 			case EditorPlayState::Simulate:
 				m_Live = VisualScriptLiveState::Simulating;
 				break;
 		}
+		// While an execution of the graph is stopped, the selected stop frame's instance's variables (spec-slice4 §13.6), which the
+		// window manager read from the session: no read of the runtime.
+		if (m_Live != VisualScriptLiveState::None && m_DebugInput != nullptr && m_DebugInput->StopVariables)
+		{
+			VisualScriptLiveValues stopped;
+			stopped.Entity = m_DebugInput->StopEntity;
+			stopped.Graph = m_Graph;
+			stopped.Source = VisualScriptValueSource::Frame;
+			stopped.Variables = *m_DebugInput->StopVariables;
+			m_LiveValues = std::move(stopped);
+			m_LiveRead = -1.0e30;
+			return;
+		}
 		// The context entity's running values, read at most VisualScriptLiveValueInterval apart: My Script shows them.
 		UUID const entity = GetPresentContextEntity();
 		if (m_Live == VisualScriptLiveState::None || m_Live == VisualScriptLiveState::Simulating || !entity.IsValid() ||
-		    !VisualScriptEngine::HasInstance(entity))
+		    !VisualScriptEngine::HasInstance(entity) || !ScriptEngine::IsInitialized())
 		{
 			m_LiveValues.reset();
 			m_LiveRead = -1.0e30;
@@ -1760,7 +1984,11 @@ namespace Strada
 		}
 		m_LiveRead = m_Time;
 		m_Activity.LiveValueReads++;
-		Result<ScriptFieldMap> values = VisualScriptEngine::GetInstanceVariables(entity);
+		VisualScriptValueRequest request;
+		request.Entity = entity;
+		request.Variables = true;
+		request.Timelines = true;
+		Result<VisualScriptLiveValues> values = VisualScriptDebugger::ReadValues(request);
 		if (values)
 		{
 			m_LiveValues = values.TakeValue();
@@ -2003,6 +2231,8 @@ namespace Strada
 
 	void VisualScriptEditorPanel::DrawToolbar()
 	{
+		// The Live popover is drawn with its pill, which shows only while the editor plays or simulates.
+		m_LivePopoverOpen = false;
 		ImGuiStyle const& style = ImGui::GetStyle();
 		float const fontSize = ImGui::GetFontSize();
 		float const frame = ImGui::GetFrameHeight();
@@ -2051,13 +2281,17 @@ namespace Strada
 		std::string const warningCount = fmt::format("{}", warnings);
 		float const badge = fontSize * 0.72f;
 		// The counts with their glyphs; "No problems" when there are none, "Not analyzed" without the scripting runtime (spec
-		// §11.5).
-		std::string_view const problemsText = !modelState.Analyzed           ? Texts::NotAnalyzed
-		                                      : errors == 0 && warnings == 0 ? Texts::NoProblems
-		                                                                     : std::string_view();
-		float const problemsWidth = !problemsText.empty() ? textButtonWidth(problemsText)
-		                                                  : style.FramePadding.x * 2.0f + badge * 2.0f + style.ItemInnerSpacing.x * 2.0f +
-		                                                        textWidth(errorCount) + textWidth(warningCount) + style.ItemSpacing.x;
+		// §11.5); then, after a drawn lightning bolt, the runtime problems of the graph's nodes (spec-slice4 §15.4).
+		uint32_t const runtime = m_RuntimeErrors + m_RuntimeWarnings;
+		std::string const runtimeCount = fmt::format("{}", runtime);
+		std::string_view const problemsText = !modelState.Analyzed                           ? Texts::NotAnalyzed
+		                                      : errors == 0 && warnings == 0 && runtime == 0 ? Texts::NoProblems
+		                                                                                     : std::string_view();
+		float const runtimeWidth = runtime > 0 ? style.ItemSpacing.x + badge + style.ItemInnerSpacing.x + textWidth(runtimeCount) : 0.0f;
+		float const problemsWidth = (!problemsText.empty() ? textButtonWidth(problemsText)
+		                                                   : style.FramePadding.x * 2.0f + badge * 2.0f + style.ItemInnerSpacing.x * 2.0f +
+		                                                         textWidth(errorCount) + textWidth(warningCount) + style.ItemSpacing.x) +
+		                            runtimeWidth;
 		std::string liveText;
 		std::string liveShort;
 		switch (m_Live)
@@ -2264,8 +2498,25 @@ namespace Strada
 				ShowDrawer(shown ? VisualScriptDrawerMode::Closed : VisualScriptDrawerMode::Problems);
 			}
 			RecordItem(VisualScriptPanelItem::Problems);
-			ImGui::SetItemTooltip("%s", modelState.Analyzed ? fmt::format("Problems: {} errors, {} warnings", errors, warnings).c_str()
-			                                                : "Problems are found with the scripting runtime");
+			std::string tooltip = modelState.Analyzed ? fmt::format("{}{}, {}", Texts::ProblemsPrefix,
+			                                                        CountWords(errors, Texts::CountError, Texts::CountErrors),
+			                                                        CountWords(warnings, Texts::CountWarning, Texts::CountWarnings))
+			                                          : std::string("Problems are found with the scripting runtime");
+			if (runtime > 0)
+			{
+				std::string counts;
+				if (m_RuntimeErrors > 0)
+				{
+					counts = CountWords(m_RuntimeErrors, Texts::CountError, Texts::CountErrors);
+				}
+				if (m_RuntimeWarnings > 0)
+				{
+					counts += (counts.empty() ? "" : ", ") + CountWords(m_RuntimeWarnings, Texts::CountWarning, Texts::CountWarnings);
+				}
+				tooltip += fmt::format("{}{}", Texts::AtRunTime, counts);
+			}
+			ImGui::SetItemTooltip("%s", tooltip.c_str());
+			m_ProblemsTooltip = std::move(tooltip);
 			ImDrawList* drawList = ImGui::GetWindowDrawList();
 			if (ImGui::IsItemHovered())
 			{
@@ -2281,6 +2532,14 @@ namespace Strada
 			else
 			{
 				DrawProblemCounts(drawList, ToVec2(pillMin), badge, errors, warnings);
+			}
+			if (runtime > 0)
+			{
+				float const countEnd = pillMin.x + problemsWidth - style.FramePadding.x;
+				float const textX = countEnd - textWidth(runtimeCount);
+				ImVec2 const bolt(textX - style.ItemInnerSpacing.x - badge * 0.5f, pillMin.y + frame * 0.5f);
+				DrawLightning(drawList, bolt, badge, m_RuntimeErrors > 0 ? VisualScriptErrorColor : VisualScriptWarningColor);
+				drawList->AddText(ImVec2(textX, pillMin.y + style.FramePadding.y), ImGui::GetColorU32(ImGuiCol_Text), runtimeCount.c_str());
 			}
 		}
 		ImGui::SameLine();
@@ -2591,7 +2850,11 @@ namespace Strada
 		ImGuiStyle const& style = ImGui::GetStyle();
 		float const frame = ImGui::GetFrameHeight();
 		ImVec2 const lower = ImGui::GetCursorScreenPos();
-		ImGui::InvisibleButton("##live", ImVec2(width, frame));
+		constexpr char const* PopoverId = "##livePopover";
+		if (ImGui::InvisibleButton("##live", ImVec2(width, frame)))
+		{
+			ImGui::OpenPopup(PopoverId);
+		}
 		RecordItem(VisualScriptPanelItem::Live);
 		ImU32 const color = m_Live == VisualScriptLiveState::Simulating    ? SimulateColor
 		                    : m_Live == VisualScriptLiveState::LastWorking ? NoticeWarningColor
@@ -2601,6 +2864,19 @@ namespace Strada
 		drawList->AddText(ImVec2(lower.x + style.FramePadding.x, lower.y + style.FramePadding.y), IM_COL32(255, 255, 255, 255),
 		                  text.c_str());
 		ImGui::SetItemTooltip("%s", GetLiveTooltip().c_str());
+		// The Live popover, under the pill (spec-slice4 §15.2).
+		ImGui::SetNextWindowPos(ImVec2(lower.x, lower.y + frame));
+		m_LivePopoverOpen = false;
+		if (ImGui::BeginPopup(PopoverId, ImGuiWindowFlags_NoSavedSettings))
+		{
+			m_LivePopoverOpen = true;
+			DrawLivePopover();
+			ImGui::EndPopup();
+		}
+		else
+		{
+			m_LivePopoverLines.clear();
+		}
 	}
 
 	std::string VisualScriptEditorPanel::GetLiveTooltip() const
@@ -2619,8 +2895,13 @@ namespace Strada
 				{
 					return fmt::format("This version has {}: graphs that call it keep running the last version that worked.", counted);
 				}
-				return fmt::format("{}: this version has {}: the game keeps running the last version that worked.", Texts::LastWorking,
-				                   counted);
+				// Since S4-R11.1 the game runs an older version also when this one has no errors (a graph it uses changed since):
+				// the errors are told only when there are any.
+				if (errors == 0)
+				{
+					return fmt::format("{}{}", Texts::LastWorking, Texts::LastWorkingKeeps);
+				}
+				return fmt::format("{}{}{}{}", Texts::LastWorking, Texts::LastWorkingHas, counted, Texts::LastWorkingKeeps);
 			}
 			case VisualScriptLiveState::Simulating:
 				return std::string(Texts::SimulatingTooltip);
@@ -2628,6 +2909,622 @@ namespace Strada
 				break;
 		}
 		return {};
+	}
+
+	void VisualScriptEditorPanel::DrawLivePopover()
+	{
+		m_LivePopoverLines.clear();
+		auto const line = [this](std::string text)
+		{
+			ImGui::TextUnformatted(text.c_str());
+			m_LivePopoverLines.push_back(std::move(text));
+		};
+		ImGui::PushTextWrapPos(ImGui::GetFontSize() * TooltipWrap);
+		if (m_Live == VisualScriptLiveState::Simulating)
+		{
+			line(std::string(Texts::SimulatingTooltip));
+			ImGui::PopTextWrapPos();
+			return;
+		}
+		Ref<VisualScriptDocument const> const& stored = m_Model.GetStoredDocument();
+		bool const library = stored != nullptr && stored->Kind == VisualScriptDocumentKind::Library;
+		Scene& scene = m_Operations.GetContext().GetScene();
+
+		// What runs, and since when.
+		std::string header(m_Live == VisualScriptLiveState::LastWorking ? Texts::LastWorking : Texts::Live);
+		if (!library)
+		{
+			if (double const since = VisualScriptEngine::GetWorkingSince(m_Graph); since > 0.0)
+			{
+				header += fmt::format("{}{} ({}{}", Texts::PopoverRunningSince, FormatClock(since), FormatAge(Platform::GetTime() - since),
+				                      Texts::PopoverAgo);
+			}
+		}
+		line(std::move(header));
+		if (!library && !VisualScriptEngine::HasWorkingProgram(m_Graph))
+		{
+			line(std::string(Texts::PopoverNoVersion));
+		}
+		if (m_Live == VisualScriptLiveState::LastWorking && !library)
+		{
+			// What of this graph the game does not run: its nodes, else its links; else none of its own (a graph it uses changed).
+			std::string const missing =
+				m_NotRunningCount > 0       ? CountWords(m_NotRunningCount, Texts::PopoverNodeChanged, Texts::PopoverNodesChanged)
+				: m_NotRunningLinkCount > 0 ? CountWords(m_NotRunningLinkCount, Texts::PopoverLinkChanged, Texts::PopoverLinksChanged)
+											: std::string(Texts::PopoverReferenceChanged);
+			line(fmt::format("{}{}", Texts::PopoverLastWorking, missing));
+			if (ImGui::SmallButton(Texts::StripShowFirstError.data()))
+			{
+				// The drawer's problems, and the first error's node in view.
+				ShowDrawer(VisualScriptDrawerMode::Problems);
+				if (VisualScriptAnalysis const* analysis = m_Model.GetAnalysis())
+				{
+					auto const first =
+						std::find_if(analysis->Diagnostics.begin(), analysis->Diagnostics.end(),
+					                 [](VisualScriptDiagnostic const& diagnostic)
+					                 {
+										 return diagnostic.Severity == VisualScriptSeverity::Error && diagnostic.Node.has_value();
+									 });
+					if (first != analysis->Diagnostics.end())
+					{
+						uint32_t const function =
+							FindVisualScriptElementGraph(m_Model.GetDisplayDocument(), *first->Node).value_or(first->Function);
+						m_Model.ApplyOpenRequest(MakeVisualScriptJump(m_Graph, function, {*first->Node}));
+					}
+				}
+				ImGui::CloseCurrentPopup();
+			}
+			RecordItem(VisualScriptPanelItem::PopoverShowFirstError);
+			ImGui::SameLine();
+			bool outline = m_Settings.IsOutlineNotRunning();
+			if (ImGui::Checkbox(Texts::PopoverOutline.data(), &outline))
+			{
+				m_Settings.SetOutlineNotRunning(outline);
+			}
+			RecordItem(VisualScriptPanelItem::PopoverOutline);
+		}
+
+		// The last receipt, in full (spec-slice4 §8.5's fields as lines); an instance's line makes its entity the context entity.
+		if (m_LastReceipt != nullptr)
+		{
+			VisualScriptLiveEdit const& edit = *m_LastReceipt;
+			ImGui::Separator();
+			if (edit.Graph != m_Graph)
+			{
+				// A library's window: the receipt of a graph that calls it.
+				std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(edit.Graph);
+				line(fmt::format("{}{}", Texts::PopoverLastEdit, metadata ? metadata->Path : edit.Name));
+				line(DescribeReceipt(edit).Text);
+			}
+			else
+			{
+				line(fmt::format("{}{}", Texts::PopoverLastEdit, DescribeReceipt(edit).Text));
+			}
+			if (edit.Cause.IsValid() && edit.Graph == m_Graph)
+			{
+				std::optional<AssetMetadata> const cause = AssetManager::GetMetadata(edit.Cause);
+				line(fmt::format("{}{}", Texts::PopoverCause, cause ? cause->Path : edit.Cause.ToString()));
+			}
+			if (!edit.KeptVariables.empty())
+			{
+				line(fmt::format("{}{}", Texts::PopoverKept, JoinTexts(edit.KeptVariables)));
+			}
+			auto const variables = [](std::span<VisualScriptLiveVariable const> list, bool was)
+			{
+				std::vector<std::string> texts;
+				for (VisualScriptLiveVariable const& variable : list)
+				{
+					texts.push_back(was ? fmt::format("{}{}{})", variable.Name, Texts::PopoverWas, variable.Detail)
+					                    : fmt::format("{} ({})", variable.Name, variable.Detail));
+				}
+				return JoinTexts(texts);
+			};
+			if (!edit.MatchedVariables.empty())
+			{
+				line(fmt::format("{}{}", Texts::PopoverMatched, variables(edit.MatchedVariables, true)));
+			}
+			if (!edit.ResetVariables.empty())
+			{
+				line(fmt::format("{}{}", Texts::PopoverReset, variables(edit.ResetVariables, false)));
+			}
+			if (!edit.AddedVariables.empty())
+			{
+				line(fmt::format("{}{}", Texts::PopoverAdded, JoinTexts(edit.AddedVariables)));
+			}
+			if (!edit.RemovedVariables.empty())
+			{
+				line(fmt::format("{}{}", Texts::PopoverRemoved, JoinTexts(edit.RemovedVariables)));
+			}
+			if (edit.KeptStates > 0 || !edit.ResetStates.empty())
+			{
+				std::string states = fmt::format("{}{}", edit.KeptStates, Texts::PopoverStatesKept);
+				if (!edit.ResetStates.empty())
+				{
+					std::vector<std::string> reset;
+					for (VisualScriptLiveNode const& node : edit.ResetStates)
+					{
+						reset.push_back(fmt::format("{}{}{}) ({})", node.Title, Texts::StripNode, node.Node, node.Reason));
+					}
+					states += fmt::format("{}{}", Texts::PopoverStatesReset, JoinTexts(reset));
+				}
+				line(std::move(states));
+			}
+			bool firstInstance = true;
+			for (VisualScriptLiveInstance const& note : edit.InstanceNotes)
+			{
+				std::vector<std::string> parts;
+				if (note.WaitsKept > 0)
+				{
+					parts.push_back(CountWords(note.WaitsKept, Texts::PopoverWaitKept, Texts::PopoverWaitsKept));
+				}
+				if (note.StopsKept > 0)
+				{
+					parts.push_back(CountWords(note.StopsKept, Texts::PopoverStopKept, Texts::PopoverStopsKept));
+				}
+				for (VisualScriptLiveNode const& cancelled : note.Cancelled)
+				{
+					parts.push_back(fmt::format("{}{}{}{})", Texts::PopoverCancelled, cancelled.Title, Texts::StripNode, cancelled.Node));
+				}
+				for (VisualScriptLiveTimeline const& timeline : note.Timelines)
+				{
+					std::string text = fmt::format("{}{}{}){}{:.3g}{}", Texts::PopoverTimeline, Texts::StripNode, timeline.Node,
+					                               Texts::PopoverTimelineAt, timeline.Time, Texts::PopoverSeconds);
+					if (timeline.ClampedFrom)
+					{
+						text += fmt::format("{}{:.3g}{})", Texts::PopoverShortenedFrom, *timeline.ClampedFrom, Texts::PopoverSeconds);
+					}
+					parts.push_back(std::move(text));
+				}
+				std::string const entity =
+					scene.HasEntity(note.Entity) ? scene.GetEntityByUUID(note.Entity).GetName() : note.Entity.ToString();
+				std::string text = fmt::format("{}: {}", entity, JoinTexts(parts));
+				ImGui::PushID(static_cast<int>(m_LivePopoverLines.size()));
+				if (ImGui::Selectable(text.c_str(), note.Entity == m_ContextEntity) && edit.Graph == m_Graph &&
+				    scene.HasEntity(note.Entity))
+				{
+					ChooseContextEntity(note.Entity);
+				}
+				ImGui::SetItemTooltip("%s", Texts::PopoverInstanceHint.data());
+				if (std::exchange(firstInstance, false))
+				{
+					RecordItem(VisualScriptPanelItem::PopoverInstance);
+				}
+				ImGui::PopID();
+				m_LivePopoverLines.push_back(std::move(text));
+			}
+			if (edit.MoreInstances > 0)
+			{
+				line(fmt::format("+{}{}", edit.MoreInstances, Texts::PopoverMoreInstances));
+			}
+		}
+
+		// The runtime problems of the graph's nodes.
+		if (m_RuntimeErrors + m_RuntimeWarnings > 0)
+		{
+			ImGui::Separator();
+			std::string counts;
+			if (m_RuntimeErrors > 0)
+			{
+				counts = CountWords(m_RuntimeErrors, Texts::CountError, Texts::CountErrors);
+			}
+			if (m_RuntimeWarnings > 0)
+			{
+				counts += (counts.empty() ? "" : ", ") + CountWords(m_RuntimeWarnings, Texts::CountWarning, Texts::CountWarnings);
+			}
+			line(counts + std::string(Texts::PopoverAtRunTime));
+			ImGui::SameLine();
+			if (ImGui::SmallButton(Texts::PopoverShow.data()))
+			{
+				ShowDrawer(VisualScriptDrawerMode::Problems);
+				ImGui::CloseCurrentPopup();
+			}
+			RecordItem(VisualScriptPanelItem::PopoverShowRuntime);
+		}
+
+		// A library: what each graph that calls it runs (S4-R11.3's four cases).
+		if (library)
+		{
+			ImGui::Separator();
+			std::vector<VisualScriptLibraryUser> const users = VisualScriptEngine::DescribeLibraryUsers(m_Graph);
+			line(std::string(users.empty() ? Texts::PopoverNoUsers : Texts::PopoverUsers));
+			for (VisualScriptLibraryUser const& user : users)
+			{
+				std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(user.Graph);
+				std::string const name = metadata ? metadata->Path : user.Name;
+				std::string_view const state = !user.Compiled        ? Texts::UserNotCompiled
+				                               : user.Instances == 0 ? Texts::UserNoInstances
+				                               : user.RunsCurrent    ? Texts::UserRunsThis
+				                                                     : Texts::UserRunsLast;
+				line(fmt::format("{}{}", name, state));
+			}
+		}
+		ImGui::PopTextWrapPos();
+	}
+
+	VisualScriptEditorPanel::ReceiptText VisualScriptEditorPanel::DescribeReceipt(VisualScriptLiveEdit const& edit) const
+	{
+		ReceiptText described;
+		switch (edit.Outcome)
+		{
+			case VisualScriptLiveOutcome::Applied:
+			{
+				if (edit.Instances == 0)
+				{
+					described.Text = fmt::format("{}{}{}", Texts::ReceiptSaved, m_ScriptName, Texts::ReceiptNow);
+					break;
+				}
+				described.Text =
+					fmt::format("{}{}", Texts::ReceiptApplied, CountWords(edit.Instances, Texts::ReceiptInstance, Texts::ReceiptInstances));
+				// What the edit did besides: variables reset, states reset, waits and stopped executions cancelled or kept, Timelines
+				// shortened (spec-slice4 §8.3's receipt).
+				std::vector<std::string> notes;
+				for (VisualScriptLiveVariable const& variable : edit.ResetVariables)
+				{
+					// The engine names a reset's reason "type changed from <type> to <type>", or "new" (VisualScriptLiveVariable).
+					bool const typeChanged = variable.Detail.starts_with("type changed");
+					notes.push_back(fmt::format("{}{}", variable.Name, typeChanged ? Texts::ReceiptTypeReset : Texts::ReceiptNewReset));
+				}
+				for (VisualScriptLiveNode const& state : edit.ResetStates)
+				{
+					if (state.Reason != VisualScriptRemovedStateReason)
+					{
+						notes.push_back(fmt::format("{}{}", state.Title, Texts::ReceiptStateReset));
+					}
+				}
+				uint32_t waits = 0;
+				uint32_t stopsCancelled = 0;
+				uint32_t stopsKept = 0;
+				uint32_t shortened = 0;
+				for (VisualScriptLiveInstance const& note : edit.InstanceNotes)
+				{
+					stopsKept += note.StopsKept;
+					for (VisualScriptLiveNode const& cancelled : note.Cancelled)
+					{
+						(cancelled.Stopped ? stopsCancelled : waits)++;
+					}
+					shortened += static_cast<uint32_t>(std::count_if(note.Timelines.begin(), note.Timelines.end(),
+					                                                 [](VisualScriptLiveTimeline const& timeline)
+					                                                 {
+																		 return timeline.ClampedFrom.has_value();
+																	 }));
+				}
+				if (waits > 0)
+				{
+					notes.push_back(CountWords(waits, Texts::ReceiptWaitCancelled, Texts::ReceiptWaitsCancelled));
+				}
+				if (stopsKept > 0)
+				{
+					notes.push_back(stopsKept == 1 ? std::string(Texts::ReceiptStopContinues)
+					                               : fmt::format("{}{}", stopsKept, Texts::ReceiptStopsContinue));
+				}
+				if (stopsCancelled > 0)
+				{
+					notes.push_back(stopsCancelled == 1 ? std::string(Texts::ReceiptStopCancelled)
+					                                    : fmt::format("{}{}", stopsCancelled, Texts::ReceiptStopsCancelled));
+				}
+				if (shortened > 0)
+				{
+					notes.push_back(CountWords(shortened, Texts::ReceiptTimelineShortened, Texts::ReceiptTimelinesShortened));
+				}
+				if (notes.size() <= 2)
+				{
+					for (std::string const& note : notes)
+					{
+						described.Text += fmt::format("{}{}", Texts::ReceiptNote, note);
+					}
+				}
+				else
+				{
+					described.Text += fmt::format("{}{}{}", Texts::ReceiptNote, notes.size(), Texts::ReceiptNotes);
+				}
+				break;
+			}
+			case VisualScriptLiveOutcome::Pending:
+				described.Text = std::string(Texts::ReceiptPending);
+				break;
+			case VisualScriptLiveOutcome::KeptLastWorking:
+				described.Text = fmt::format("{}{}{}", Texts::ReceiptNotApplied, FormatReceiptErrors(edit.Errors), Texts::ReceiptKeeps);
+				described.Warning = true;
+				break;
+			case VisualScriptLiveOutcome::NotRunning:
+				described.Text = fmt::format("{}{}; {}{}", Texts::ReceiptNotApplied, GetReceiptErrorCount(edit.Errors), m_ScriptName,
+				                             Texts::ReceiptNoVersion);
+				described.Failure = true;
+				break;
+		}
+		return described;
+	}
+
+	void VisualScriptEditorPanel::TakeLiveEvents(bool toast, std::optional<uint64_t> key, std::vector<ReceiptText>* collected)
+	{
+		// Graphs run in Play only (not while simulating, whose start keeps the last run's problems).
+		bool const playing = m_Operations.GetContext().GetPlayState() == EditorPlayState::Play;
+		// A play session starts: its first loads are nobody's edits, and its runtime problems are new (S4-R11.3).
+		if (playing && !m_LivePlaying)
+		{
+			m_LiveSerial.reset();
+			m_LastReceipt.reset();
+			m_PendingToast.reset();
+			m_ReceiptPending = false;
+			m_RuntimeToasted.clear();
+		}
+		m_LivePlaying = playing;
+		if (m_LiveLog == nullptr)
+		{
+			return;
+		}
+		Result<Ref<VisualScriptAsset>> const asset = AssetManager::TryGetAsset<VisualScriptAsset>(m_Graph);
+		Ref<VisualScriptDocument const> const sent = asset ? asset.GetValue()->GetSharedDocument() : nullptr;
+		if (!m_LiveSerial)
+		{
+			// The window opened, or Play started, after the receipts the log holds.
+			m_LiveSerial = m_LiveLog->Serial;
+			m_ReceiptDocument = sent;
+		}
+		bool const edited = sent != m_ReceiptDocument;
+		m_ReceiptDocument = sent;
+		Ref<VisualScriptDocument const> const& stored = m_Model.GetStoredDocument();
+		bool const library = stored != nullptr && stored->Kind == VisualScriptDocumentKind::Library;
+		std::vector<Ref<VisualScriptLiveEdit const>> caused;
+		for (Ref<VisualScriptLiveEdit const> const& edit : m_LiveLog->Edits)
+		{
+			if (edit->Serial <= *m_LiveSerial)
+			{
+				continue;
+			}
+			if (edit->Graph == m_Graph)
+			{
+				if (!edit->Cause.IsValid())
+				{
+					// The graph's own document sent: an edit's receipt only with a change of it, or as the end of an edit's
+					// Pending one; another send (an instance started with a graph no entity ran, a scene loaded) says nothing.
+					if (!edited && !(edit->Deferred && m_ReceiptPending))
+					{
+						continue;
+					}
+					m_ReceiptPending = edit->Outcome == VisualScriptLiveOutcome::Pending;
+				}
+				m_LastReceipt = edit;
+				m_LastReceiptTime = m_Time;
+				m_ReceiptReset.clear();
+				for (VisualScriptLiveVariable const& variable : edit->ResetVariables)
+				{
+					m_ReceiptReset.push_back(variable.Name);
+				}
+				m_ReceiptNew = edit->AddedVariables;
+				// Only the graph's own document's changes toast; a graph it uses that compiled it again updates the pill silently
+				// (spec-slice4 §8.5), so one library edit does not toast in every window.
+				if (!edit->Cause.IsValid())
+				{
+					if (collected != nullptr)
+					{
+						collected->push_back(DescribeReceipt(*edit));
+					}
+					else if (toast)
+					{
+						ToastReceipt(*edit, key);
+					}
+				}
+			}
+			else if (library && edit->Cause == m_Graph)
+			{
+				caused.push_back(edit);
+				m_LastReceipt = edit;
+				m_LastReceiptTime = m_Time;
+			}
+		}
+		if (!caused.empty() && (toast || collected != nullptr))
+		{
+			ReceiptText const summary = DescribeLibraryReceipts(caused);
+			if (collected != nullptr)
+			{
+				collected->push_back(summary);
+			}
+			else
+			{
+				Toast& shown = AddToast(fmt::format("{}{}", Texts::LivePrefix, summary.Text), false, key);
+				shown.Warning = summary.Warning;
+				if (summary.Warning)
+				{
+					shown.Expires = m_Time + WarningToastSeconds;
+				}
+			}
+		}
+		m_LiveSerial = std::max(*m_LiveSerial, m_LiveLog->Serial);
+		UpdateRuntimeProblems(toast && playing);
+	}
+
+	void VisualScriptEditorPanel::ToastReceipt(VisualScriptLiveEdit const& edit, std::optional<uint64_t> key)
+	{
+		ReceiptText const described = DescribeReceipt(edit);
+		std::optional<uint64_t> toastKey = key;
+		if (edit.Deferred && m_PendingToast)
+		{
+			// The receipt that ends a Pending one says so in its toast.
+			toastKey = std::exchange(m_PendingToast, std::nullopt);
+		}
+		else if (edit.Outcome == VisualScriptLiveOutcome::Pending)
+		{
+			if (!toastKey)
+			{
+				toastKey = ReceiptToastKey + ++m_ReceiptToasts;
+			}
+			m_PendingToast = toastKey;
+		}
+		Toast& shown = AddToast(fmt::format("{}{}", Texts::LivePrefix, described.Text), described.Failure, toastKey);
+		shown.ShowConsole = false;
+		shown.Warning = described.Warning;
+		if (described.Warning)
+		{
+			shown.Expires = m_Time + WarningToastSeconds;
+		}
+	}
+
+	VisualScriptEditorPanel::ReceiptText
+	VisualScriptEditorPanel::DescribeLibraryReceipts(std::span<Ref<VisualScriptLiveEdit const> const> edits) const
+	{
+		// One line for one edit of a library: the graphs that call it, compiled again (spec-slice4 §15.1).
+		std::vector<AssetHandle> graphs;
+		uint32_t instances = 0;
+		VisualScriptLiveEdit const* kept = nullptr;
+		for (Ref<VisualScriptLiveEdit const> const& edit : edits)
+		{
+			if (std::find(graphs.begin(), graphs.end(), edit->Graph) == graphs.end())
+			{
+				graphs.push_back(edit->Graph);
+			}
+			if (edit->Outcome == VisualScriptLiveOutcome::KeptLastWorking || edit->Outcome == VisualScriptLiveOutcome::NotRunning)
+			{
+				kept = kept != nullptr ? kept : edit.get();
+			}
+			else if (!edit->Deferred)
+			{
+				instances += edit->Instances;
+			}
+		}
+		ReceiptText described;
+		if (kept != nullptr)
+		{
+			described.Text = fmt::format("{}{}{}{}{}", Texts::ReceiptNotApplied, FormatReceiptErrors(kept->Errors),
+			                             Texts::ReceiptCallersKeep, m_ScriptName, Texts::ReceiptKeepLast);
+			described.Warning = true;
+			return described;
+		}
+		described.Text = fmt::format("{}{}{}{}{}", static_cast<uint32_t>(graphs.size()),
+		                             graphs.size() == 1 ? Texts::ReceiptScriptCalls : Texts::ReceiptScriptsCall, m_ScriptName,
+		                             Texts::ReceiptCompiled, Texts::ReceiptApplied) +
+		                 CountWords(instances, Texts::ReceiptInstance, Texts::ReceiptInstances);
+		return described;
+	}
+
+	void VisualScriptEditorPanel::UpdateRuntimeProblems(bool toast)
+	{
+		// The problems at the document's nodes (whichever graph's instance ran a library's), read again only for a new revision.
+		if (m_LiveLog != m_RuntimeLog)
+		{
+			m_RuntimeLog = m_LiveLog;
+			m_RuntimeProblems.clear();
+			m_RuntimeErrors = 0;
+			m_RuntimeWarnings = 0;
+			if (m_LiveLog != nullptr)
+			{
+				for (Ref<VisualScriptRuntimeProblem const> const& problem : m_LiveLog->Problems)
+				{
+					if (problem->Document != m_Graph)
+					{
+						continue;
+					}
+					m_RuntimeProblems.push_back(problem);
+					(problem->Severity == VisualScriptSeverity::Error ? m_RuntimeErrors : m_RuntimeWarnings)++;
+				}
+			}
+		}
+		if (m_Operations.GetContext().GetPlayState() != EditorPlayState::Play)
+		{
+			return;
+		}
+		// The first runtime error of each node in a play session toasts, with [Show] and [Break on errors] (spec-slice4 §15.4); a
+		// window that is not shown takes them as told.
+		Scene& scene = m_Operations.GetContext().GetScene();
+		for (Ref<VisualScriptRuntimeProblem const> const& problem : m_RuntimeProblems)
+		{
+			std::pair<uint32_t, uint32_t> const place(problem->Function, problem->Node);
+			if (problem->Severity != VisualScriptSeverity::Error ||
+			    std::find(m_RuntimeToasted.begin(), m_RuntimeToasted.end(), place) != m_RuntimeToasted.end())
+			{
+				continue;
+			}
+			m_RuntimeToasted.push_back(place);
+			if (!toast)
+			{
+				continue;
+			}
+			std::string const entity =
+				scene.HasEntity(problem->Entity) ? scene.GetEntityByUUID(problem->Entity).GetName() : problem->Entity.ToString();
+			Toast& shown = AddToast(fmt::format("{}{}{}){}{}: {}", problem->Title, Texts::StripNode, problem->Node, Texts::RuntimeFailedOn,
+			                                    entity, problem->Message));
+			VisualScriptOpenRequest show = MakeVisualScriptJump(m_Graph, problem->Function, {problem->Node});
+			if (problem->Graph == m_Graph && scene.HasEntity(problem->Entity))
+			{
+				show.ContextEntity = problem->Entity;
+			}
+			shown.ShowOpen = std::move(show);
+			shown.HasShow = true;
+			shown.BreakOnErrors = m_DebugInput != nullptr && !m_Settings.IsBreakOnErrors();
+		}
+	}
+
+	void VisualScriptEditorPanel::UpdateNotRunning()
+	{
+		m_LiveMarks.clear();
+		m_NotRunningLinks.clear();
+		Ref<VisualScriptDocument const> const& stored = m_Model.GetStoredDocument();
+		// Libraries get no outline: the graphs that call them may run different versions (the popover lists them).
+		if (m_Live != VisualScriptLiveState::LastWorking || stored == nullptr || stored->Kind == VisualScriptDocumentKind::Library)
+		{
+			m_NotRunning.clear();
+			m_NotRunningCount = 0;
+			m_NotRunningLinkCount = 0;
+			m_NotRunningWorking.reset();
+			m_NotRunningStored.reset();
+			return;
+		}
+		Ref<VisualScriptDocument const> const working = VisualScriptEngine::GetWorkingDocument(m_Graph);
+		if (working != m_NotRunningWorking || stored != m_NotRunningStored)
+		{
+			m_NotRunningWorking = working;
+			m_NotRunningStored = stored;
+			m_NotRunning.clear();
+			m_NotRunningCount = 0;
+			m_NotRunningLinkCount = 0;
+			if (working != nullptr)
+			{
+				auto const find = [&](uint32_t function)
+				{
+					VisualScriptNotRunning missing = FindVisualScriptNotRunning(*working, *stored, function);
+					if (!missing.Nodes.empty() || !missing.Links.empty())
+					{
+						m_NotRunningCount += static_cast<uint32_t>(missing.Nodes.size());
+						m_NotRunningLinkCount += static_cast<uint32_t>(missing.Links.size());
+						m_NotRunning.emplace_back(function, std::move(missing));
+					}
+				};
+				find(0);
+				for (VisualScriptFunction const& function : stored->Functions)
+				{
+					find(function.ID);
+				}
+			}
+		}
+		if (!m_Settings.IsOutlineNotRunning())
+		{
+			return;
+		}
+		// The shown sub-graph's, on the canvas.
+		auto const shown = std::find_if(m_NotRunning.begin(), m_NotRunning.end(),
+		                                [this](std::pair<uint32_t, VisualScriptNotRunning> const& entry)
+		                                {
+											return entry.first == m_Model.GetFunction();
+										});
+		if (shown == m_NotRunning.end())
+		{
+			return;
+		}
+		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+		for (uint32_t const node : shown->second.Nodes)
+		{
+			if (canvas.FindNode(node))
+			{
+				m_LiveMarks.push_back({node, VisualScriptLiveMarkKind::NotRunning, 0, std::string(Texts::LiveMarkNotRunning)});
+			}
+		}
+		for (VisualScriptLink const& link : shown->second.Links)
+		{
+			if (std::optional<uint32_t> const index = FindVisualLink(canvas, link))
+			{
+				m_NotRunningLinks.push_back(*index);
+			}
+		}
 	}
 
 	void VisualScriptEditorPanel::AddLibraryFunction()
@@ -2831,6 +3728,21 @@ namespace Strada
 		{
 			m_Flow.ResetCounts();
 		}
+		// The live game beside the graph (spec-slice4 §15.6): the preview in a corner of the canvas, and the game view docked
+		// beside this window.
+		ImGui::Separator();
+		VisualScriptGamePreviewSettings preview = m_Settings.GetGamePreview();
+		if (ImGui::MenuItem(Texts::PreviewMenu.data(), nullptr, preview.Shown))
+		{
+			preview.Shown = !preview.Shown;
+			m_Settings.SetGamePreview(preview);
+		}
+		ImGui::SetItemTooltip("%s", Texts::PreviewMenuTooltip.data());
+		if (ImGui::MenuItem(Texts::BesideMenu.data(), nullptr, false, static_cast<bool>(m_Services.PlaceGameViewBeside)))
+		{
+			m_Services.PlaceGameViewBeside(m_Graph);
+		}
+		ImGui::SetItemTooltip("%s", Texts::BesideMenuTooltip.data());
 		if (m_ViewItemsInMenu)
 		{
 			ImGui::Separator();
@@ -3570,6 +4482,284 @@ namespace Strada
 		ImGui::PopStyleColor();
 	}
 
+	void VisualScriptEditorPanel::DrawGamePreview()
+	{
+		m_GamePreviewShown = false;
+		std::optional<VisualScriptGamePreview> const preview = m_Services.GamePreview ? m_Services.GamePreview() : std::nullopt;
+		bool const playing = m_Live == VisualScriptLiveState::Live || m_Live == VisualScriptLiveState::LastWorking ||
+		                     (m_DebugInput != nullptr && m_DebugInput->Stop.has_value());
+		VisualScriptGamePreviewSettings settings = m_Settings.GetGamePreview();
+		if (!preview || preview->GameViewVisible || !playing || !settings.Shown || m_CanvasSize.x < 1.0f || m_CanvasSize.y < 1.0f)
+		{
+			m_PreviewDrag.reset();
+			m_PreviewPosition.reset();
+			return;
+		}
+		ImGuiStyle const& style = ImGui::GetStyle();
+		ImGuiIO const& io = ImGui::GetIO();
+		float const fontSize = ImGui::GetFontSize();
+		float const margin = std::round(fontSize * 0.5f);
+		float const header = ImGui::GetFrameHeight();
+		float const aspect = preview->Size.x > 0 && preview->Size.y > 0
+		                         ? static_cast<float>(preview->Size.x) / static_cast<float>(preview->Size.y)
+		                         : VisualScriptBeside::DefaultAspect;
+		// The setting's share of the canvas, at least 12 F and at most 0.6 of the canvas (which wins on a narrow canvas); the
+		// image keeps the game's aspect ratio, as wide as the canvas's height allows.
+		float width = std::min(std::max(settings.Width * m_CanvasSize.x, VisualScriptGamePreviewMinWidth * fontSize),
+		                       VisualScriptGamePreviewMaxShare * m_CanvasSize.x);
+		float imageHeight = width / aspect;
+		float const room = m_CanvasSize.y - margin * 2.0f - header - 2.0f;
+		if (imageHeight > room)
+		{
+			imageHeight = std::max(room, 1.0f);
+			width = imageHeight * aspect;
+		}
+		width = std::max(std::round(width), 1.0f);
+		imageHeight = std::max(std::round(imageHeight), 1.0f);
+		// A 1-pixel border in the play colour around the header and the image.
+		glm::vec2 const size(width + 2.0f, header + imageHeight + 2.0f);
+		bool const left = settings.Corner == VisualScriptPreviewCorner::TopLeft || settings.Corner == VisualScriptPreviewCorner::BottomLeft;
+		bool const top = settings.Corner == VisualScriptPreviewCorner::TopLeft || settings.Corner == VisualScriptPreviewCorner::TopRight;
+		glm::vec2 const cornerPosition(left ? m_CanvasMin.x + margin : m_CanvasMin.x + m_CanvasSize.x - margin - size.x,
+		                               top ? m_CanvasMin.y + margin : m_CanvasMin.y + m_CanvasSize.y - margin - size.y);
+		glm::vec2 const position = glm::floor(
+			glm::clamp(m_PreviewPosition.value_or(cornerPosition), m_CanvasMin, glm::max(m_CanvasMin, m_CanvasMin + m_CanvasSize - size)));
+
+		ImGui::SetCursorScreenPos(ToImVec2(position));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(1.0f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_PopupBg));
+		bool const drawn = ImGui::BeginChild("##gamePreview", ToImVec2(size), ImGuiChildFlags_AlwaysUseWindowPadding,
+		                                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoNav);
+		ImGui::PopStyleColor();
+		ImGui::PopStyleVar();
+		bool headerActive = false;
+		bool edgeActive = false;
+		if (drawn)
+		{
+			ImDrawList* const drawList = ImGui::GetWindowDrawList();
+			ImVec2 const origin = ImGui::GetCursorScreenPos();
+			ImU32 const textColor = ImGui::GetColorU32(ImGuiCol_Text);
+			// The header: the title, which drags the preview, then the buttons that have a service at its right end.
+			int const buttons = (m_Services.ShowGameView ? 1 : 0) + (m_Services.PlaceGameViewBeside ? 1 : 0) + 1;
+			float const titleWidth = std::max(width - header * static_cast<float>(buttons), 1.0f);
+			ImGui::SetNextItemAllowOverlap();
+			ImGui::InvisibleButton("##previewHeader", ImVec2(titleWidth, header));
+			headerActive = ImGui::IsItemActive();
+			if (ImGui::IsItemHovered() && !m_PreviewDrag)
+			{
+				ImGui::SetTooltip("%s", Texts::PreviewMove.data());
+			}
+			std::string_view const title = preview->GameHasInput ? Texts::PreviewTitle : Texts::PreviewClickToPlay;
+			m_GamePreviewTitle = title;
+			drawList->PushClipRect(origin, ImVec2(origin.x + titleWidth, origin.y + header), true);
+			drawList->AddText(ImVec2(origin.x + style.FramePadding.x, origin.y + (header - ImGui::GetTextLineHeight()) * 0.5f), textColor,
+			                  title.data(), title.data() + title.size());
+			drawList->PopClipRect();
+
+			// A square button of the header's height with a drawn symbol (the editor's fonts have none, spec-slice4 §15).
+			float const inset = std::round(header * 0.3f);
+			float const stroke = std::max(1.0f, std::round(style.FontScaleDpi));
+			float buttonX = origin.x + titleWidth;
+			auto const drawButton = [&](char const* id, VisualScriptPanelItem item, std::string_view tooltip,
+			                            PreviewSymbol const symbol) -> bool
+			{
+				ImGui::SetCursorScreenPos(ImVec2(buttonX, origin.y));
+				bool const pressed = ImGui::InvisibleButton(id, ImVec2(header, header));
+				RecordItem(item);
+				ImVec2 const lower = ImGui::GetItemRectMin();
+				ImVec2 const upper = ImGui::GetItemRectMax();
+				if (ImGui::IsItemHovered())
+				{
+					drawList->AddRectFilled(lower, upper,
+					                        ImGui::GetColorU32(ImGui::IsItemActive() ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered));
+					ImGui::SetTooltip("%s", tooltip.data());
+				}
+				ImVec2 const symbolMin(lower.x + inset, lower.y + inset);
+				ImVec2 const symbolMax(upper.x - inset, upper.y - inset);
+				if (symbol == PreviewSymbol::Close)
+				{
+					drawList->AddLine(symbolMin, symbolMax, textColor, stroke);
+					drawList->AddLine(ImVec2(symbolMin.x, symbolMax.y), ImVec2(symbolMax.x, symbolMin.y), textColor, stroke);
+				}
+				else
+				{
+					drawList->AddRect(symbolMin, symbolMax, textColor, 0.0f, stroke);
+					if (symbol == PreviewSymbol::Beside)
+					{
+						// Beside: the frame split as Game View Beside splits a dock node, the game above the graph.
+						float const split = std::round(symbolMin.y + (symbolMax.y - symbolMin.y) * VisualScriptBeside::UpShare);
+						drawList->AddLine(ImVec2(symbolMin.x, split), ImVec2(symbolMax.x, split), textColor, stroke);
+					}
+					else
+					{
+						// Expand: the frame with its title bar, as a window that comes forward.
+						drawList->AddRectFilled(symbolMin, ImVec2(symbolMax.x, symbolMin.y + stroke * 2.0f), textColor);
+					}
+				}
+				buttonX += header;
+				return pressed;
+			};
+			if (m_Services.ShowGameView &&
+			    drawButton("##previewExpand", VisualScriptPanelItem::GamePreviewExpand, Texts::PreviewExpand, PreviewSymbol::Expand))
+			{
+				m_Services.ShowGameView();
+			}
+			if (m_Services.PlaceGameViewBeside &&
+			    drawButton("##previewBeside", VisualScriptPanelItem::GamePreviewBeside, Texts::PreviewBeside, PreviewSymbol::Beside))
+			{
+				m_Services.PlaceGameViewBeside(m_Graph);
+			}
+			if (drawButton("##previewClose", VisualScriptPanelItem::GamePreviewClose, Texts::PreviewClose, PreviewSymbol::Close))
+			{
+				settings.Shown = false;
+				m_Settings.SetGamePreview(settings);
+			}
+
+			// The game's image: a click on it plays (the game takes the input only through the game view).
+			ImVec2 const imageMin(origin.x, origin.y + header);
+			ImVec2 const imageMax(imageMin.x + width, imageMin.y + imageHeight);
+			ImGui::SetCursorScreenPos(imageMin);
+			ImGui::SetNextItemAllowOverlap();
+			if (ImGui::InvisibleButton("##previewImage", ImVec2(width, imageHeight)) && m_Services.ShowGameView)
+			{
+				m_Services.ShowGameView();
+			}
+			drawList->AddRectFilled(imageMin, imageMax, IM_COL32(0, 0, 0, 255));
+			m_GamePreviewMessage = {};
+			if (preview->Texture)
+			{
+				drawList->AddImage(ImTextureRef(static_cast<ImTextureID>(*preview->Texture)), imageMin, imageMax);
+			}
+			else if (preview->Rendered)
+			{
+				// Rendered without an image: no camera renders the game. (Not rendered yet, in the first frame the game view is
+				// hidden, the image stays black.)
+				std::string_view const message = Texts::PreviewNoImage;
+				m_GamePreviewMessage = message;
+				ImVec2 const textSize = ImGui::CalcTextSize(message.data(), message.data() + message.size());
+				drawList->PushClipRect(imageMin, imageMax, true);
+				drawList->AddText(ImVec2(imageMin.x + std::max((width - textSize.x) * 0.5f, style.FramePadding.x),
+				                         imageMin.y + (imageHeight - textSize.y) * 0.5f),
+				                  ImGui::GetColorU32(ImGuiCol_TextDisabled), message.data(), message.data() + message.size());
+				drawList->PopClipRect();
+			}
+
+			// The inner edge (the one towards the canvas's middle) resizes the preview.
+			float const grip = std::max(4.0f, std::round(4.0f * style.FontScaleDpi));
+			ImGui::SetCursorScreenPos(ImVec2(left ? origin.x + width - grip : origin.x, origin.y));
+			ImGui::InvisibleButton("##previewEdge", ImVec2(grip, header + imageHeight));
+			RecordItem(VisualScriptPanelItem::GamePreviewEdge);
+			edgeActive = ImGui::IsItemActive();
+			if (ImGui::IsItemHovered() || edgeActive)
+			{
+				ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+			}
+			// The border, in the child's own draw list after its image: ImGui draws a window's list before its children's
+			// (imgui.cpp:6114-6126), so a border in the graph window's list would lie under the preview. The window padding of
+			// one pixel keeps the image inside it; the clip rectangle is widened to the child's edge.
+			drawList->PushClipRect(ToImVec2(position), ToImVec2(position + size), false);
+			drawList->AddRect(ToImVec2(position), ToImVec2(position + size), VisualScriptPlayColor, 0.0f, 1.0f);
+			drawList->PopClipRect();
+		}
+		ImGui::EndChild();
+		RecordItem(VisualScriptPanelItem::GamePreview);
+		m_GamePreviewShown = true;
+
+		// Dragging, from where the drag started: the header moves the preview until the release snaps it to the nearest corner,
+		// the inner edge changes its width (a per-user setting, never a history step).
+		glm::vec2 const mouse = ToVec2(io.MousePos);
+		if ((headerActive || edgeActive) && !m_PreviewDrag && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		{
+			PreviewDrag drag;
+			drag.Resize = edgeActive;
+			drag.StartMouse = ToVec2(io.MouseClickedPos[ImGuiMouseButton_Left]);
+			drag.StartPosition = position;
+			drag.StartWidth = width;
+			m_PreviewDrag = drag;
+		}
+		if (!m_PreviewDrag)
+		{
+			return;
+		}
+		glm::vec2 const delta = ImGui::IsMousePosValid() ? mouse - m_PreviewDrag->StartMouse : glm::vec2(0.0f);
+		if (m_PreviewDrag->Resize)
+		{
+			float const resized = m_PreviewDrag->StartWidth + (left ? delta.x : -delta.x);
+			settings.Width = resized / m_CanvasSize.x;
+			m_Settings.SetGamePreview(settings);
+		}
+		else
+		{
+			m_PreviewPosition = m_PreviewDrag->StartPosition + delta;
+		}
+		if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			return;
+		}
+		if (!m_PreviewDrag->Resize)
+		{
+			glm::vec2 const center = *m_PreviewPosition + size * 0.5f;
+			glm::vec2 const middle = m_CanvasMin + m_CanvasSize * 0.5f;
+			bool const toLeft = center.x < middle.x;
+			settings.Corner = center.y < middle.y
+			                      ? (toLeft ? VisualScriptPreviewCorner::TopLeft : VisualScriptPreviewCorner::TopRight)
+			                      : (toLeft ? VisualScriptPreviewCorner::BottomLeft : VisualScriptPreviewCorner::BottomRight);
+			m_Settings.SetGamePreview(settings);
+		}
+		m_PreviewDrag.reset();
+		m_PreviewPosition.reset();
+	}
+
+	void VisualScriptEditorPanel::DrawBesideHint(ImVec2 canvasMin, ImVec2 canvasMax)
+	{
+		bool const playing = m_Live == VisualScriptLiveState::Live || m_Live == VisualScriptLiveState::LastWorking;
+		if (m_Settings.IsHintSeen(VisualScriptGameViewBesideHint))
+		{
+			m_BesideHintPending = false;
+		}
+		m_BesideHintShown = m_BesideHintPending && playing && m_Services.PlaceGameViewBeside && m_Card != VisualScriptCard::Missing &&
+		                    m_Card != VisualScriptCard::Unloadable;
+		if (!m_BesideHintShown)
+		{
+			return;
+		}
+		ImGuiStyle const& style = ImGui::GetStyle();
+		std::string_view const text = Texts::BesideHint;
+		ImGui::SetCursorScreenPos(canvasMin);
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, WithAlpha(m_Theme.Body, HintBackgroundAlpha));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(style.FramePadding.x * 2.0f, style.FramePadding.y));
+		if (ImGui::BeginChild("##besideHint", ImVec2(canvasMax.x - canvasMin.x, 0.0f),
+		                      ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding,
+		                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		{
+			float const besideWidth = ImGui::CalcTextSize(Texts::BesideHintBeside.data()).x + style.FramePadding.x * 2.0f;
+			float const notNowWidth = ImGui::CalcTextSize(Texts::BesideHintNotNow.data()).x + style.FramePadding.x * 2.0f;
+			float const right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+			float const buttonsLeft = right - besideWidth - notNowWidth - style.ItemSpacing.x;
+			float const lineTop = ImGui::GetCursorPosY();
+			ImGui::PushTextWrapPos(buttonsLeft - style.ItemSpacing.x);
+			ImGui::SetCursorPosY(lineTop + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
+			ImGui::TextUnformatted(text.data(), text.data() + text.size());
+			ImGui::PopTextWrapPos();
+			ImGui::SetCursorPos(ImVec2(buttonsLeft, lineTop));
+			if (ImGui::Button(Texts::BesideHintBeside.data()))
+			{
+				m_Settings.SetHintSeen(VisualScriptGameViewBesideHint);
+				m_Services.PlaceGameViewBeside(m_Graph);
+			}
+			RecordItem(VisualScriptPanelItem::HintBeside);
+			ImGui::SameLine();
+			if (ImGui::Button(Texts::BesideHintNotNow.data()))
+			{
+				m_Settings.SetHintSeen(VisualScriptGameViewBesideHint);
+			}
+			RecordItem(VisualScriptPanelItem::HintNotNow);
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleVar();
+		ImGui::PopStyleColor();
+	}
+
 	void VisualScriptEditorPanel::DrawShortcutSheet()
 	{
 		constexpr char const* SheetId = "Visual Script Shortcuts###VisualScriptShortcuts";
@@ -3687,6 +4877,29 @@ namespace Strada
 
 	void VisualScriptEditorPanel::DrawDrawer(ImVec2 size)
 	{
+		std::optional<double> playhead;
+		UUID const entity = GetPresentContextEntity();
+		if (m_DrawerMode == VisualScriptDrawerMode::Timeline && m_Drawer.GetMode() == VisualScriptDrawerMode::Timeline &&
+		    m_Model.GetFunction() == 0 && m_Operations.GetContext().IsPlaying() && entity.IsValid() && ScriptEngine::IsInitialized() &&
+		    VisualScriptEngine::HasInstance(entity))
+		{
+			// Timelines inside functions have none: their state is per call.
+			VisualScriptValueRequest request;
+			request.Entity = entity;
+			request.Timelines = true;
+			if (Result<VisualScriptLiveValues> const values = VisualScriptDebugger::ReadValues(request))
+			{
+				uint32_t const node = m_Drawer.GetTimelineNode();
+				for (VisualScriptTimelineState const& timeline : values.GetValue().Timelines)
+				{
+					if (timeline.Node == node)
+					{
+						playhead = timeline.Time;
+					}
+				}
+			}
+		}
+		m_Drawer.GetCurveEditor().SetPlayhead(playhead);
 		// The drawer's contents, and its close button at the right.
 		float const frame = ImGui::GetFrameHeight();
 		float const spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -3835,6 +5048,7 @@ namespace Strada
 		            m_SidebarOverlay);
 		drawOverlay("##detailsOverlay", VisualScriptWindowPart::Details, panes.Details, VisualScriptDetailsMinWidth, false, detailsWasOpen,
 		            m_DetailsOverlay);
+		DrawGamePreview();
 		if (!drawerOpen)
 		{
 			return;
@@ -3980,6 +5194,18 @@ namespace Strada
 		draw.Record = m_DrawRecord;
 		m_Renderer.Draw(m_Model, draw);
 		m_PulsedLinks = m_Model.CommittedLinks().size();
+		if (surfaceHovered && m_HasDebugView)
+		{
+			for (VisualScriptLiveMarkPlace const& place : m_Renderer.GetLiveMarkPlaces())
+			{
+				if (place.Mark < m_DebugView.Live.size() && input.Mouse.x >= place.Screen.Min.x && input.Mouse.x <= place.Screen.Max.x &&
+				    input.Mouse.y >= place.Screen.Min.y && input.Mouse.y <= place.Screen.Max.y)
+				{
+					ImGui::SetTooltip("%s", m_DebugView.Live[place.Mark].Tooltip.c_str());
+					break;
+				}
+			}
+		}
 		if (!m_LiveDrawn)
 		{
 			m_ActiveChip.reset();
@@ -4581,6 +5807,7 @@ namespace Strada
 		DrawHeaderTooltip();
 		DrawGestureHint(canvasMin, canvasMax);
 		DrawCanvasHint(canvasMin, canvasMax);
+		DrawBesideHint(canvasMin, canvasMax);
 		DrawToasts(canvasMin, canvasMax);
 	}
 
@@ -4708,6 +5935,9 @@ namespace Strada
 			float const buttons =
 				ImGui::GetFrameHeight() + (toast.HasShow ? ImGui::CalcTextSize("Show").x + style.FramePadding.x * 2.0f : 0.0f) +
 				(toast.Find ? ImGui::CalcTextSize(toast.FindLabel.c_str()).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x : 0.0f) +
+				(toast.BreakOnErrors
+			         ? ImGui::CalcTextSize(Texts::BreakOnErrors.data()).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x
+			         : 0.0f) +
 				(hasButtons ? ImGui::CalcTextSize("Show Console").x + style.FramePadding.x * 2.0f : 0.0f) + style.ItemSpacing.x * 3.0f;
 			ImVec2 const size(textWidth + buttons + style.WindowPadding.x * 2.0f,
 			                  std::max(textSize.y, ImGui::GetFrameHeight()) + style.WindowPadding.y * 2.0f);
@@ -4725,12 +5955,14 @@ namespace Strada
 				toast.Expires = m_Time + ToastSeconds;
 			}
 			ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + maxWidth);
-			if (!toast.Expires)
+			bool const tinted = !toast.Expires || toast.Warning;
+			if (tinted)
 			{
-				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(VisualScriptErrorColor));
+				ImGui::PushStyleColor(ImGuiCol_Text,
+				                      ImGui::ColorConvertU32ToFloat4(toast.Warning ? NoticeWarningColor : VisualScriptErrorColor));
 			}
 			ImGui::TextUnformatted(toast.Text.c_str());
-			if (!toast.Expires)
+			if (tinted)
 			{
 				ImGui::PopStyleColor();
 			}
@@ -4740,7 +5972,18 @@ namespace Strada
 				ImGui::SameLine();
 				if (ImGui::SmallButton("Show"))
 				{
-					if (!toast.ShowElements.empty())
+					if (toast.ShowOpen)
+					{
+						// A runtime error's node, with the entity it failed on as the context entity.
+						if (toast.ShowOpen->ContextEntity.IsValid())
+						{
+							ChooseContextEntity(toast.ShowOpen->ContextEntity);
+						}
+						VisualScriptOpenRequest request = *toast.ShowOpen;
+						request.ContextEntity = UUID::Invalid();
+						OpenRequest(std::move(request));
+					}
+					else if (!toast.ShowElements.empty())
 					{
 						// Elements an outside change touched beyond the view: framed, in their sub-graph.
 						if (toast.ShowFunction != m_Model.GetFunction())
@@ -4772,6 +6015,10 @@ namespace Strada
 					}
 					dismissed = i;
 				}
+				if (i + 1 == m_Toasts.size())
+				{
+					RecordItem(VisualScriptPanelItem::ToastShow);
+				}
 			}
 			if (toast.Find)
 			{
@@ -4785,6 +6032,22 @@ namespace Strada
 				if (i + 1 == m_Toasts.size())
 				{
 					RecordItem(VisualScriptPanelItem::ToastFind);
+				}
+			}
+			if (toast.BreakOnErrors)
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton(Texts::BreakOnErrors.data()))
+				{
+					// Every aborting error stops from now on: the session's per-user option.
+					VisualScriptDebugRequest request;
+					request.RequestKind = VisualScriptDebugRequest::Kind::BreakOnErrors;
+					m_DebugRequests.push_back(std::move(request));
+					dismissed = i;
+				}
+				if (i + 1 == m_Toasts.size())
+				{
+					RecordItem(VisualScriptPanelItem::ToastBreakOnErrors);
 				}
 			}
 			if (hasButtons)
@@ -4811,6 +6074,17 @@ namespace Strada
 		{
 			m_Toasts.erase(m_Toasts.begin() + static_cast<std::ptrdiff_t>(*dismissed));
 		}
+	}
+
+	std::vector<VisualScriptEditorPanel::ToastRecord> VisualScriptEditorPanel::GetToastRecords() const
+	{
+		std::vector<ToastRecord> records;
+		records.reserve(m_Toasts.size());
+		for (Toast const& toast : m_Toasts)
+		{
+			records.push_back(ToastRecord{toast.Text, toast.Warning, toast.Expires, toast.HasShow, toast.BreakOnErrors});
+		}
+		return records;
 	}
 
 	void VisualScriptEditorPanel::OpenTextEdit(VisualScriptTextEditRequest const& request)
@@ -5004,8 +6278,25 @@ namespace Strada
 		return &*m_NameRun;
 	}
 
-	void VisualScriptEditorPanel::AddToast(std::string text, bool failure)
+	VisualScriptEditorPanel::Toast& VisualScriptEditorPanel::AddToast(std::string text, bool failure, std::optional<uint64_t> key)
 	{
+		if (key)
+		{
+			// The toast of the same key (a cadence drag's step) says the latest, in its place.
+			auto const shown = std::find_if(m_Toasts.begin(), m_Toasts.end(),
+			                                [&key](Toast const& candidate)
+			                                {
+												return candidate.Key == key;
+											});
+			if (shown != m_Toasts.end())
+			{
+				shown->Text = std::move(text);
+				shown->Expires = failure ? std::nullopt : std::optional<double>(m_Time + ToastSeconds);
+				shown->ShowConsole = failure;
+				shown->Warning = false;
+				return *shown;
+			}
+		}
 		Toast toast;
 		toast.Text = std::move(text);
 		if (!failure)
@@ -5013,11 +6304,13 @@ namespace Strada
 			toast.Expires = m_Time + ToastSeconds;
 		}
 		toast.ShowConsole = failure;
+		toast.Key = key;
 		m_Toasts.push_back(std::move(toast));
 		if (m_Toasts.size() > MaxToasts)
 		{
 			m_Toasts.erase(m_Toasts.begin());
 		}
+		return m_Toasts.back();
 	}
 
 	VisualScriptEditContext VisualScriptEditorPanel::MakeContext(uint64_t mergeKey) const
@@ -5042,14 +6335,23 @@ namespace Strada
 		{
 			DrawNodePreview(entry, drawList, position, scale);
 		};
-		std::function<Result<ScriptFieldMap>(UUID)> live = [this](UUID entity) -> Result<ScriptFieldMap>
+		std::function<Result<VisualScriptLiveValues>(UUID)> live = [this](UUID entity) -> Result<VisualScriptLiveValues>
 		{
-			if (!m_LiveValues || entity != GetPresentContextEntity())
+			// A stopped execution's instance whatever the entity asked; else the context entity's running instance.
+			bool const stopped = m_DebugInput != nullptr && m_DebugInput->StopVariables.has_value();
+			if (!m_LiveValues || (!stopped && entity != GetPresentContextEntity()))
 			{
 				return Error{"the context entity has no running instance"};
 			}
 			return *m_LiveValues;
 		};
+		std::function<std::string(UUID)> describe = [this](UUID entity)
+		{
+			Scene& scene = m_Operations.GetContext().GetScene();
+			return scene.HasEntity(entity) ? scene.GetEntityByUUID(entity).GetName()
+			                               : fmt::format("{}{})", VisualScriptLiveTexts::Missing, entity);
+		};
+		bool const recent = m_Time - m_LastReceiptTime < ReceiptNoteSeconds;
 		return {m_Model,
 		        m_Semantics,
 		        m_Settings,
@@ -5063,7 +6365,12 @@ namespace Strada
 		        m_Time,
 		        m_Measure,
 		        std::move(preview),
-		        std::move(live)};
+		        std::move(live),
+		        std::move(describe),
+		        m_RuntimeProblems,
+		        m_Operations.GetContext().GetPlayState() != EditorPlayState::Play,
+		        recent ? std::span<std::string const>(m_ReceiptReset) : std::span<std::string const>(),
+		        recent ? std::span<std::string const>(m_ReceiptNew) : std::span<std::string const>()};
 	}
 
 	void VisualScriptEditorPanel::ApplyPaneResult(VisualScriptPaneResult result)
@@ -5103,6 +6410,11 @@ namespace Strada
 		}
 		if (result.Open)
 		{
+			// An entity the scene no longer has (a runtime problem's) is no context entity to open with.
+			if (result.Open->ContextEntity.IsValid() && !m_Operations.GetContext().GetScene().HasEntity(result.Open->ContextEntity))
+			{
+				result.Open->ContextEntity = UUID::Invalid();
+			}
 			OpenRequest(std::move(*result.Open));
 		}
 		if (!result.SelectAndFrame.empty())
@@ -5117,6 +6429,21 @@ namespace Strada
 		if (result.ShowTimeline)
 		{
 			ShowTimeline(result.ShowTimeline->Node, result.ShowTimeline->Track);
+		}
+		if (result.ContextEntity)
+		{
+			ChooseContextEntity(*result.ContextEntity);
+		}
+		if (result.SelectEntity && m_Operations.GetContext().GetScene().HasEntity(*result.SelectEntity))
+		{
+			std::array<UUID, 1> const selected = {*result.SelectEntity};
+			m_Operations.GetContext().Select(selected);
+		}
+		if (result.ClearRuntimeProblems)
+		{
+			// View state, not a step: the last run's problems go (spec-slice4 §15.4).
+			VisualScriptEngine::ClearLiveLog();
+			m_LiveLog = VisualScriptEngine::GetLiveLog();
 		}
 		for (std::string& note : result.Notes)
 		{
@@ -5477,6 +6804,7 @@ namespace Strada
 		Ref<VisualScriptDocument const> const document = request.Document;
 		std::string const description = request.Description;
 		bool const layoutOnly = request.LayoutOnly;
+		uint64_t const mergeKey = request.MergeKey;
 		m_LastCommitTimings = request.Timings;
 		Result<void> const result = edits.empty()
 		                                ? m_Operations.EditVisualScript(m_Graph, document, std::move(request.Description), request.MergeKey,
@@ -5498,6 +6826,13 @@ namespace Strada
 		// The frame that commits draws the committed document: the model adopts it as the window's own change now.
 		m_Model.OnCommitted(document, layoutOnly);
 		SyncModel();
+		// The edit reached the running game inside the commit (spec-slice4 §8.1): its receipt is in the revision the engine
+		// answers now, which the rest of the frame draws from. A cadence drag's commits are one step: one toast.
+		if (m_LiveLog != nullptr)
+		{
+			m_LiveLog = VisualScriptEngine::GetLiveLog();
+			TakeLiveEvents(m_Visible, mergeKey != 0 ? std::optional<uint64_t>(mergeKey) : std::nullopt);
+		}
 		if (!request.Select.empty())
 		{
 			m_Model.Select(request.Select);

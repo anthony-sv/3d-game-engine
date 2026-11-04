@@ -12,6 +12,8 @@
 #include "Editor/EntityPresets.h"
 #include "Editor/FileDialogs.h"
 #include "Editor/UI/EditorUI.h"
+#include "Editor/UI/WindowCapture.h"
+#include "Editor/VisualScripting/VisualScriptGameBeside.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -29,7 +31,9 @@
 #include <imgui_internal.h>
 #include <imgui_stdlib.h>
 
+#include <algorithm>
 #include <array>
+#include <functional>
 #include <optional>
 #include <string>
 #include <utility>
@@ -163,6 +167,10 @@ namespace Strada
 			{
 				return m_DebuggerPanel;
 			};
+			environment.FindWindowRect = [this](ScreenshotWindow window, AssetHandle graph)
+			{
+				return FindWindowRect(window, graph);
+			};
 		}
 		environment.RequestQuit = []
 		{
@@ -249,6 +257,20 @@ namespace Strada
 			{
 				m_ShowConsole = true;
 				m_FocusConsole = true;
+			};
+			// The live game beside the graphs (spec-slice4 §15.6): the preview's image, its expand button, and Game View Beside.
+			services.GamePreview = [this]() -> std::optional<VisualScriptGamePreview>
+			{
+				return DescribeGamePreview();
+			};
+			services.ShowGameView = [this]
+			{
+				m_ShowGameView = true;
+				m_GameInput.Grant();
+			};
+			services.PlaceGameViewBeside = [this](AssetHandle graph)
+			{
+				m_VisualScripts->RequestGameViewBeside(graph);
 			};
 			m_VisualScripts->SetServices(std::move(services));
 			// Graph windows open as large tabs beside the scene and game views.
@@ -525,6 +547,81 @@ namespace Strada
 		m_DebugControls.SetHost(std::move(host));
 	}
 
+	std::optional<VisualScriptGamePreview> EditorLayer::DescribeGamePreview() const
+	{
+		if (m_GameViewPanel == nullptr)
+		{
+			return std::nullopt;
+		}
+		VisualScriptGamePreview preview;
+		if (std::optional<ImTextureID> const texture = m_GameViewPanel->GetPreviewTexture())
+		{
+			preview.Texture = static_cast<uint64_t>(*texture);
+		}
+		preview.Rendered = m_GameViewPanel->HasRenderedThisFrame();
+		preview.Size = m_GameViewPanel->GetRenderSize();
+		preview.GameViewOpen = m_ShowGameView;
+		preview.GameViewVisible = m_ShowGameView && m_GameViewPanel->IsVisible();
+		preview.GameViewDockNode = preview.GameViewVisible ? m_GameViewPanel->GetVisibleDockNode() : 0;
+		preview.GameViewRect = m_ShowGameView ? m_GameViewPanel->GetWindowRect() : std::nullopt;
+		preview.GameHasInput = m_GameInput.HasInput();
+		return preview;
+	}
+
+	Result<ScreenshotRect> EditorLayer::FindWindowRect(ScreenshotWindow window, AssetHandle graph) const
+	{
+		std::string name;
+		switch (window)
+		{
+			case ScreenshotWindow::Editor:
+			{
+				ImGuiViewport const* const viewport = ImGui::GetMainViewport();
+				ImVec2 const scale =
+					viewport->FramebufferScale.x != 0.0f ? viewport->FramebufferScale : ImGui::GetIO().DisplayFramebufferScale;
+				return ScreenshotRect{0, 0, static_cast<uint32_t>(viewport->Size.x * scale.x),
+				                      static_cast<uint32_t>(viewport->Size.y * scale.y)};
+			}
+			case ScreenshotWindow::SceneView:
+				name = "Scene View";
+				break;
+			case ScreenshotWindow::GameView:
+				name = GameViewPanel::WindowName;
+				break;
+			case ScreenshotWindow::Hierarchy:
+				name = "Scene Hierarchy";
+				break;
+			case ScreenshotWindow::Inspector:
+				name = "Inspector";
+				break;
+			case ScreenshotWindow::ContentBrowser:
+				name = ContentBrowserPanel::WindowName;
+				break;
+			case ScreenshotWindow::Console:
+				name = "Console";
+				break;
+			case ScreenshotWindow::Debugger:
+				name = VisualScriptDebuggerPanel::WindowName;
+				break;
+			case ScreenshotWindow::Graph:
+			{
+				// Named by its file, as its window's title names it ("Player"); the ID after the title finds the window.
+				std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(graph);
+				std::string title = metadata ? metadata->Name : graph.ToString();
+				if (metadata && !metadata->Path.empty())
+				{
+					title = FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem());
+				}
+				if (m_VisualScripts == nullptr || m_VisualScripts->FindPanel(graph) == nullptr)
+				{
+					return MakeError("the {} window is not open", title);
+				}
+				name = VisualScriptEditorPanel::GetWindowName(graph, title);
+				break;
+			}
+		}
+		return FindEditorWindowRect(name, ImGui::GetMainViewport());
+	}
+
 	void EditorLayer::UpdateThumbnails()
 	{
 		Project const* project = m_Context.GetProject();
@@ -572,12 +669,31 @@ namespace Strada
 		}
 		if (m_GameViewPanel && m_ShowGameView)
 		{
+			// Its Beside button while a graph window shares its dock node (spec-slice4 §15.6).
+			std::optional<AssetHandle> const shared =
+				m_VisualScripts ? m_VisualScripts->FindWindowDockedWith(GameViewPanel::WindowName) : std::nullopt;
+			std::function<void()> beside;
+			if (shared)
+			{
+				beside = [this, graph = *shared]
+				{
+					m_VisualScripts->RequestGameViewBeside(graph);
+				};
+			}
+			m_GameViewPanel->SetBesideAction(std::move(beside));
 			m_GameViewPanel->OnImGuiRender(m_Context, m_ShowGameView);
 		}
 		else
 		{
 			// A closed game view takes no input.
 			m_GameInput.SetView({});
+		}
+		// The graph windows' preview of a hidden game view, rendered before they draw (spec-slice4 §15.6): the scene renders
+		// at most once per frame.
+		if (m_GameViewPanel && m_VisualScripts &&
+		    WantsHiddenGameRender(m_ShowGameView && m_GameViewPanel->IsVisible(), m_VisualScripts->WantsGamePreview()))
+		{
+			m_GameViewPanel->RenderHidden(m_Context);
 		}
 		if (m_ShowHierarchy)
 		{
@@ -658,6 +774,28 @@ namespace Strada
 		{
 			BuildDefaultLayout(dockspace);
 			m_ResetLayout = false;
+		}
+		// Game View Beside (spec-slice4 §15.6), asked for in the last frame: docked before any window of the node is submitted.
+		// Layout changes are never history steps.
+		if (std::optional<AssetHandle> const graph = m_VisualScripts ? m_VisualScripts->TakeGameViewBesideRequest() : std::nullopt)
+		{
+			VisualScriptBesideRequest request;
+			request.GraphWindow = VisualScriptEditorPanel::GetWindowName(*graph, {});
+			request.GameWindow = GameViewPanel::WindowName;
+			request.FallbackWindow = "Scene View";
+			request.Dockspace = dockspace;
+			request.GameViewOpen = m_ShowGameView;
+			glm::uvec2 const size = m_GameViewPanel != nullptr ? m_GameViewPanel->GetRenderSize() : glm::uvec2(16, 9);
+			request.Aspect = static_cast<float>(std::max(size.x, 1u)) / static_cast<float>(std::max(size.y, 1u));
+			request.Toolbar = m_GameViewPanel != nullptr ? m_GameViewPanel->GetToolbarHeight() : 0.0f;
+			VisualScriptGameBesideState placed = PlaceGameViewBeside(request);
+			placed.Graph = *graph;
+			if (placed.Outcome == VisualScriptGameBesideOutcome::Applied)
+			{
+				// A closed game view opens where the split put it.
+				m_ShowGameView = true;
+			}
+			m_VisualScripts->OnGameViewBesidePlaced(std::move(placed));
 		}
 	}
 
@@ -831,6 +969,15 @@ namespace Strada
 					m_DebuggerPanel.SetOpen(debugger);
 				}
 				m_VisualScripts->DrawViewMenuItems();
+				// The graph window the Edit menu acts on, with the game view beside it (spec-slice4 §15.6).
+				VisualScriptEditorPanel const* const target = m_VisualScripts->GetEditTarget();
+				if (ImGui::MenuItem(VisualScriptPanelTexts::BesideMenu.data(), nullptr, false,
+				                    target != nullptr && m_GameViewPanel != nullptr) &&
+				    target != nullptr)
+				{
+					m_VisualScripts->RequestGameViewBeside(target->GetGraph());
+				}
+				ImGui::SetItemTooltip("%s", VisualScriptPanelTexts::BesideMenuTooltip.data());
 			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout"))

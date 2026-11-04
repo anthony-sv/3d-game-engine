@@ -19,6 +19,7 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
@@ -2566,4 +2567,261 @@ TEST_CASE("VisualScriptEditor: an open the window asked for that fails says so, 
 	CHECK(panel.GetState().Function == 0);
 	CHECK_FALSE(panel.GetState().CanGoBack);
 	CHECK(panel.GetState().CanGoForward);
+}
+
+TEST_CASE("VisualScriptEditor: the game preview shows in a canvas corner while the game plays out of view, and plays, docks or hides")
+{
+	PanelFixture fixture(MakeDocument());
+	VisualScriptGamePreview preview;
+	preview.Texture = 7;
+	preview.Size = glm::uvec2(1280, 720);
+	preview.GameViewOpen = true;
+	int shown = 0;
+	std::vector<AssetHandle> besides;
+	fixture.Services.GamePreview = [&preview]() -> std::optional<VisualScriptGamePreview>
+	{
+		return preview;
+	};
+	fixture.Services.ShowGameView = [&shown]
+	{
+		shown++;
+	};
+	fixture.Services.PlaceGameViewBeside = [&besides](AssetHandle graph)
+	{
+		besides.push_back(graph);
+	};
+	VisualScriptEditorPanel const& panel = *fixture.Panel;
+	fixture.CheckDrawingChangesNothing();
+
+	// Not while editing.
+	fixture.Frames(2);
+	CHECK_FALSE(panel.IsGamePreviewShown());
+	CHECK_FALSE(panel.GetState().GamePreview.has_value());
+
+	// Playing with the game view hidden: in the canvas's bottom-right corner, 0.3 of its width, the game's aspect ratio.
+	fixture.Context.BeginPlay(Scene::Copy(fixture.Context.GetScene()), EditorPlayState::Play);
+	fixture.Frames(2);
+	REQUIRE(panel.IsGamePreviewShown());
+	CHECK(panel.GetGamePreviewTitle() == VisualScriptPanelTexts::PreviewClickToPlay);
+	VisualScriptRect const rect = fixture.ItemRect(VisualScriptPanelItem::GamePreview);
+	CHECK(panel.GetState().GamePreview == std::optional<VisualScriptRect>(rect));
+	ImGuiWindow const* const canvas = fixture.GetChild("##canvas");
+	glm::vec2 const canvasMin(canvas->Pos.x, canvas->Pos.y);
+	glm::vec2 const canvasMax = canvasMin + glm::vec2(canvas->Size.x, canvas->Size.y);
+	CHECK(rect.Min.x >= canvasMin.x);
+	CHECK(rect.Min.y >= canvasMin.y);
+	CHECK(rect.Max.x <= canvasMax.x);
+	CHECK(rect.Max.y <= canvasMax.y);
+	CHECK(rect.Min.x > (canvasMin.x + canvasMax.x) * 0.5f);
+	CHECK(rect.Min.y > (canvasMin.y + canvasMax.y) * 0.5f);
+	float const header = ImGui::GetFrameHeight();
+	CHECK(rect.GetSize().x - 2.0f == doctest::Approx(std::round(canvas->Size.x * 0.3f)).epsilon(0.01));
+	CHECK((rect.GetSize().y - header - 2.0f) * 1280.0f / 720.0f == doctest::Approx(rect.GetSize().x - 2.0f).epsilon(0.01));
+	// Its 1-pixel border in the play colour is in the preview's own draw list, which ImGui draws after the window's and the
+	// canvas's: over the preview, not under it.
+	ImGuiWindow const* const previewWindow = fixture.GetChild("##gamePreview");
+	auto const holdsBorder = [](ImGuiWindow const* window)
+	{
+		return std::any_of(window->DrawList->VtxBuffer.begin(), window->DrawList->VtxBuffer.end(),
+		                   [](ImDrawVert const& vertex)
+		                   {
+							   return vertex.col == VisualScriptPlayColor;
+						   });
+	};
+	CHECK(holdsBorder(previewWindow));
+	CHECK(panel.GetGamePreviewMessage().empty());
+	fixture.CheckDrawingChangesNothing();
+
+	// Without an image: "No camera renders the game" once the game rendered without one; nothing before its first render.
+	preview.Texture.reset();
+	fixture.Frames(1);
+	CHECK(panel.GetGamePreviewMessage().empty());
+	preview.Rendered = true;
+	fixture.Frames(1);
+	CHECK(panel.GetGamePreviewMessage() == VisualScriptPanelTexts::PreviewNoImage);
+	preview.Texture = 7;
+	preview.Rendered = false;
+
+	// The game has the input: the header says Game alone. The game view in view: no preview.
+	preview.GameHasInput = true;
+	fixture.Frames(1);
+	CHECK(panel.GetGamePreviewTitle() == VisualScriptPanelTexts::PreviewTitle);
+	preview.GameHasInput = false;
+	preview.GameViewVisible = true;
+	fixture.Frames(1);
+	CHECK_FALSE(panel.IsGamePreviewShown());
+	preview.GameViewVisible = false;
+	fixture.Frames(1);
+	REQUIRE(panel.IsGamePreviewShown());
+
+	// Expand and a click on the image bring the game view forward with the input; Beside asks to dock it beside the window.
+	fixture.ClickItem(VisualScriptPanelItem::GamePreviewExpand);
+	CHECK(shown == 1);
+	VisualScriptRect const image = fixture.ItemRect(VisualScriptPanelItem::GamePreview);
+	fixture.Click(glm::vec2(image.GetCenter().x, image.Max.y - 20.0f));
+	CHECK(shown == 2);
+	fixture.ClickItem(VisualScriptPanelItem::GamePreviewBeside);
+	CHECK(besides == std::vector<AssetHandle>{fixture.Graph});
+	// No click reached the canvas: nothing is selected, nothing changed.
+	CHECK(fixture.Model().GetSelection().empty());
+
+	// Its header drags it to another corner, where it snaps on release; its inner edge resizes it.
+	VisualScriptRect const before = fixture.ItemRect(VisualScriptPanelItem::GamePreview);
+	fixture.Gui.DragPath(ImVec2(before.Min.x + 20.0f, before.Min.y + header * 0.5f), ImVec2(canvasMin.x + 60.0f, canvasMin.y + 60.0f),
+	                     fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Settings.GetGamePreview().Corner == VisualScriptPreviewCorner::TopLeft);
+	VisualScriptRect const moved = fixture.ItemRect(VisualScriptPanelItem::GamePreview);
+	CHECK(moved.Min.x < (canvasMin.x + canvasMax.x) * 0.5f);
+	CHECK(moved.Min.y < (canvasMin.y + canvasMax.y) * 0.5f);
+	CHECK(moved.GetSize() == before.GetSize());
+	VisualScriptRect const edge = fixture.ItemRect(VisualScriptPanelItem::GamePreviewEdge);
+	CHECK(edge.Max.x == doctest::Approx(moved.Max.x - 1.0f));
+	fixture.Gui.DragPath(ToImVec2(edge.GetCenter()), ImVec2(edge.GetCenter().x + 100.0f, edge.GetCenter().y), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Settings.GetGamePreview().Width > 0.3f);
+	CHECK(fixture.ItemRect(VisualScriptPanelItem::GamePreview).GetSize().x > moved.GetSize().x + 50.0f);
+	CHECK(fixture.Model().GetSelection().empty());
+
+	// Close hides it (per user); the view menu shows it again.
+	fixture.ClickItem(VisualScriptPanelItem::GamePreviewClose);
+	fixture.Frames(1);
+	CHECK_FALSE(panel.IsGamePreviewShown());
+	CHECK_FALSE(fixture.Settings.GetGamePreview().Shown);
+	fixture.ClickItem(VisualScriptPanelItem::ViewMenu);
+	fixture.Frames(1);
+	std::optional<glm::vec2> const item = fixture.FindPopupItem(VisualScriptPanelTexts::PreviewMenu.data());
+	REQUIRE(item.has_value());
+	fixture.Click(*item);
+	fixture.Frames(2);
+	CHECK(fixture.Settings.GetGamePreview().Shown);
+	CHECK(panel.IsGamePreviewShown());
+
+	// Without a game view (no service answer), and after play: none.
+	fixture.Services.GamePreview = []() -> std::optional<VisualScriptGamePreview>
+	{
+		return std::nullopt;
+	};
+	fixture.Frames(1);
+	CHECK_FALSE(panel.IsGamePreviewShown());
+	fixture.Services.GamePreview = [&preview]() -> std::optional<VisualScriptGamePreview>
+	{
+		return preview;
+	};
+	fixture.Context.EndPlay();
+	fixture.Frames(2);
+	CHECK_FALSE(panel.IsGamePreviewShown());
+}
+
+TEST_CASE("VisualScriptEditor: an open request scrolls Details to a row of the selected node once it draws it")
+{
+	PanelFixture fixture(MakeLanguageDocument());
+	// A short window: Details holds more than it shows.
+	fixture.WindowSize = ImVec2(1600.0f, 300.0f);
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptOpenRequest select;
+	select.Graph = fixture.Graph;
+	select.Select = {2};
+	fixture.Panel->Apply(select);
+	fixture.Frames(3);
+	ImGuiWindow const* const details = fixture.GetChild("##details");
+	REQUIRE(details->ScrollMax.y > 0.0f);
+	CHECK(details->Scroll.y == 0.0f);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const before = fixture.Panel->GetDetails().FindRow("Formula");
+	REQUIRE(before.has_value());
+
+	VisualScriptOpenRequest request = select;
+	request.DetailsRow = "Formula";
+	fixture.Panel->Apply(request);
+	fixture.Frames(3);
+	CHECK_FALSE(fixture.Panel->GetPaneShared().ScrollRow.has_value());
+	CHECK(details->Scroll.y > 0.0f);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const after = fixture.Panel->GetDetails().FindRow("Formula");
+	REQUIRE(after.has_value());
+	CHECK(after->first.y < before->first.y);
+	// At the pane's top, or as near as the pane's end allows.
+	float const top = details->Pos.y + ImGui::GetStyle().WindowPadding.y;
+	CHECK((after->first.y <= top + ImGui::GetStyle().ItemSpacing.y + 1.0f || details->Scroll.y == details->ScrollMax.y));
+
+	// A row Details does not draw is dropped after a few draws, and scrolls nothing.
+	float const scroll = details->Scroll.y;
+	request.DetailsRow = "No Such Row";
+	fixture.Panel->Apply(request);
+	fixture.Frames(VisualScriptDetails::FocusSettingFrames + 2);
+	CHECK_FALSE(fixture.Panel->GetPaneShared().ScrollRow.has_value());
+	CHECK(details->Scroll.y == scroll);
+	// Scrolling to a row wrote nothing.
+	fixture.CheckDrawingChangesNothing();
+}
+
+namespace
+{
+	// A receipt of the panel fixture's graph as the live log keeps it.
+	Ref<VisualScriptLiveEdit const> MakeReceipt(AssetHandle graph, uint64_t serial, VisualScriptLiveOutcome outcome, bool deferred,
+	                                            uint32_t instances)
+	{
+		VisualScriptLiveEdit edit;
+		edit.Serial = serial;
+		edit.Graph = graph;
+		edit.Name = "Scripts/Player.sgraph";
+		edit.Outcome = outcome;
+		edit.Deferred = deferred;
+		edit.Instances = instances;
+		edit.Pending = outcome == VisualScriptLiveOutcome::Pending ? 1 : 0;
+		return CreateRef<VisualScriptLiveEdit const>(std::move(edit));
+	}
+
+	std::vector<std::string> GetLiveToasts(VisualScriptEditorPanel const& panel)
+	{
+		std::vector<std::string> toasts;
+		for (std::string const& toast : panel.GetState().Toasts)
+		{
+			if (toast.starts_with("Live: "))
+			{
+				toasts.push_back(toast);
+			}
+		}
+		return toasts;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: an edit's Pending receipt toasts that it applies when the running step ends, and the receipt that ends "
+          "it says so in its place; a load nobody edited for toasts nothing")
+{
+	PanelFixture fixture(MakeDocument());
+	VisualScriptLiveLog log;
+	log.Serial = 1;
+	fixture.Panel->SetLiveLog(CreateRef<VisualScriptLiveLog const>(log));
+	fixture.CheckDrawingChangesNothing();
+	fixture.Context.BeginPlay(Scene::Copy(fixture.Context.GetScene()), EditorPlayState::Play);
+	fixture.Frames(2);
+	VisualScriptEditorPanel const& panel = *fixture.Panel;
+
+	// An outside edit whose swap waits for the step that runs the old program.
+	VisualScriptDocument edited = MakeDocument();
+	edited.Graph.Nodes.push_back(MakeNode(90, "Event.Create", glm::vec2(0.0f, 640.0f)));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, edited).IsOk());
+	log.Serial = 2;
+	log.Edits.push_back(MakeReceipt(fixture.Graph, 2, VisualScriptLiveOutcome::Pending, false, 0));
+	fixture.Panel->SetLiveLog(CreateRef<VisualScriptLiveLog const>(log));
+	fixture.Frames(1);
+	CHECK(GetLiveToasts(panel) == std::vector<std::string>{"Live: applies when the running step ends"});
+
+	// The step ended: the deferred receipt, with no change of the document, takes the Pending toast's place.
+	log.Serial = 3;
+	log.Edits.push_back(MakeReceipt(fixture.Graph, 3, VisualScriptLiveOutcome::Applied, true, 1));
+	fixture.Panel->SetLiveLog(CreateRef<VisualScriptLiveLog const>(log));
+	fixture.Frames(1);
+	CHECK(GetLiveToasts(panel) == std::vector<std::string>{"Live: applied to 1 instance"});
+	REQUIRE(panel.GetLastReceipt() != nullptr);
+	CHECK(panel.GetLastReceipt()->Serial == 3);
+
+	// A load of the unchanged document (an instance started with it, a scene loaded) is nobody's edit.
+	log.Serial = 4;
+	log.Edits.push_back(MakeReceipt(fixture.Graph, 4, VisualScriptLiveOutcome::Applied, false, 0));
+	fixture.Panel->SetLiveLog(CreateRef<VisualScriptLiveLog const>(log));
+	fixture.Frames(1);
+	CHECK(GetLiveToasts(panel) == std::vector<std::string>{"Live: applied to 1 instance"});
+	CHECK(panel.GetLastReceipt()->Serial == 3);
+	fixture.Context.EndPlay();
 }

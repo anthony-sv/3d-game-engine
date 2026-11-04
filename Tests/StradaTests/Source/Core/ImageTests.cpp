@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -115,6 +116,42 @@ TEST_CASE("Image: PNG encoding in memory decodes to the same pixels")
 	CHECK(decoded.GetValue().GetPixels() == original.GetPixels());
 
 	CHECK(Image().EncodePNG().IsError());
+}
+
+TEST_CASE("Image: a crop keeps the rectangle's pixels and refuses rectangles outside the image")
+{
+	Image const original = MakeGradient(37, 21);
+	Result<Image> cropped = original.Crop(5, 3, 10, 7);
+	REQUIRE(cropped.IsOk());
+	Image const& cut = cropped.GetValue();
+	CHECK(cut.GetWidth() == 10);
+	CHECK(cut.GetHeight() == 7);
+	CHECK(cut.GetChannels() == 4);
+	for (uint32_t y = 0; y < 7; y++)
+	{
+		for (uint32_t x = 0; x < 10; x++)
+		{
+			CHECK(std::equal(cut.GetPixel(x, y), cut.GetPixel(x, y) + 4, original.GetPixel(x + 5, y + 3)));
+		}
+	}
+
+	// The whole image, and the last pixel alone.
+	Result<Image> const whole = original.Crop(0, 0, 37, 21);
+	REQUIRE(whole.IsOk());
+	CHECK(whole.GetValue().GetPixels() == original.GetPixels());
+	Result<Image> const corner = original.Crop(36, 20, 1, 1);
+	REQUIRE(corner.IsOk());
+	CHECK(std::equal(corner.GetValue().GetPixels().begin(), corner.GetValue().GetPixels().end(), original.GetPixel(36, 20)));
+
+	// Empty, reaching past an edge, starting outside, and sizes whose sum wraps around in 32 bits.
+	CHECK(original.Crop(0, 0, 0, 5).IsError());
+	CHECK(original.Crop(0, 0, 5, 0).IsError());
+	CHECK(original.Crop(30, 0, 8, 1).IsError());
+	CHECK(original.Crop(0, 15, 1, 7).IsError());
+	CHECK(original.Crop(37, 0, 1, 1).IsError());
+	CHECK(original.Crop(1, 1, std::numeric_limits<uint32_t>::max(), 1).IsError());
+	CHECK(original.Crop(1, 1, 1, std::numeric_limits<uint32_t>::max()).IsError());
+	CHECK(Image().Crop(0, 0, 1, 1).IsError());
 }
 
 TEST_CASE("Image: channel conversion on load")

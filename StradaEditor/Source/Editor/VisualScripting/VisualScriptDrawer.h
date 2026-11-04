@@ -7,14 +7,17 @@
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <glm/glm.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -40,14 +43,25 @@ namespace Strada
 		std::string Error;
 	};
 
+	// A row of the drawer's Runtime section (spec-slice4 §15.4): a runtime problem at a node of the document, its place ("Divide
+	// (node 14)", its sub-graph named when it is a function's) and what follows the message ("on Enemy 3 · ×37", and for a
+	// library's node " · called from Player (node 22)").
+	struct VisualScriptDrawerRuntimeRow
+	{
+		Ref<VisualScriptRuntimeProblem const> Problem;
+		std::string Title;
+		std::string Detail;
+	};
+
 	// The drawer under a graph window's canvas, in one of three modes. Problems lists the analysis' diagnostics of the whole
-	// script: errors first, then by sub-graph (the event graph, then the functions in document order), then by where their
-	// node sits (top, then left); each row has its severity, code, message and place ("AddScore > Set Score") and the buttons
-	// of its quick fixes (one step each). A click on a row shows its sub-graph and selects and frames what it names. Find
-	// lists the matches of a text in this script or in every script of the project, or the references of an element (a
-	// custom event's senders in every script, since events are sent by name), grouped by script, then sub-graph; a click
-	// opens the match (another script's in its own window). Matches follow the documents as they change. Timeline edits a
-	// Flow.Timeline of the shown sub-graph (VisualScriptCurveEditor, spec-slice3 §9.5). Main thread only.
+	// script, under the runtime problems of its nodes while there are any (the Runtime section: each with [Go to], [Caller] for
+	// a library's node and [Select Entity]; after Stop the last run's, with [Clear]): errors first, then by sub-graph (the event graph,
+	// then the functions in document order), then by where their node sits (top, then left); each row has its severity, code, message and
+	// place ("AddScore > Set Score") and the buttons of its quick fixes (one step each). A click on a row shows its sub-graph and selects
+	// and frames what it names. Find lists the matches of a text in this script or in every script of the project, or the references of an
+	// element (a custom event's senders in every script, since events are sent by name), grouped by script, then sub-graph; a click opens
+	// the match (another script's in its own window). Matches follow the documents as they change. Timeline edits a Flow.Timeline of the
+	// shown sub-graph (VisualScriptCurveEditor, spec-slice3 §9.5). Main thread only.
 	class VisualScriptDrawer
 	{
 	public:
@@ -77,6 +91,12 @@ namespace Strada
 
 		// The problems listed in the last Draw, in their order.
 		std::span<VisualScriptDiagnostic const> GetProblems() const { return m_Problems; }
+		// The Runtime section of the last Draw: its header ("Runtime", "Runtime (last run)"; empty when not drawn), its rows, and
+		// the screen rectangles (min, max) of a row's buttons ("Go to", "Caller", "Select Entity"; the header's "Clear" is row
+		// SIZE_MAX).
+		std::string const& GetRuntimeHeader() const { return m_RuntimeHeader; }
+		std::span<VisualScriptDrawerRuntimeRow const> GetRuntimeRows() const { return m_RuntimeRows; }
+		std::optional<std::pair<glm::vec2, glm::vec2>> FindRuntimeButton(size_t row, std::string_view label) const;
 		// The find rows listed in the last Draw, in their order.
 		std::span<VisualScriptDrawerFindRow const> GetFindRows() const { return m_FindRows; }
 		// How many times Find looked through the scripts: once per change of its query, of this script, or of the project's
@@ -96,6 +116,7 @@ namespace Strada
 		};
 
 		void DrawProblems(VisualScriptPaneContext& context, VisualScriptPaneResult& result);
+		void DrawRuntime(VisualScriptPaneContext& context, VisualScriptPaneResult& result);
 		void DrawFind(VisualScriptPaneContext& context, VisualScriptPaneResult& result);
 		void UpdateFindRows(VisualScriptPaneContext& context);
 		// Shows what a diagnostic names, or a find row's match.
@@ -115,6 +136,17 @@ namespace Strada
 		std::weak_ptr<VisualScriptDocument const> m_SortedDocument;
 		std::vector<Rect> m_ProblemRows;
 		std::vector<Rect> m_FixButtons;
+		// The Runtime section as the last Draw drew it.
+		struct RuntimeButton
+		{
+			size_t Row = 0;
+			std::string Label;
+			glm::vec2 Min{0.0f};
+			glm::vec2 Max{0.0f};
+		};
+		std::string m_RuntimeHeader;
+		std::vector<VisualScriptDrawerRuntimeRow> m_RuntimeRows;
+		std::vector<RuntimeButton> m_RuntimeButtons;
 		// Find: the text or the reference, the scope, and whether the field takes the keyboard.
 		std::string m_Text;
 		std::optional<VisualScriptReference> m_Reference;

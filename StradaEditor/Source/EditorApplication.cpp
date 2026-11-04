@@ -1,4 +1,5 @@
 #include "Editor/EditorLayer.h"
+#include "Editor/EditorWindowOptions.h"
 
 #include "Strada/Core/CommandLine.h"
 #include "Strada/Core/EntryPoint.h"
@@ -47,6 +48,8 @@ namespace Strada
 			.AddFlag("validation", "Enable Vulkan and NVRHI validation")
 			.AddFlag("no-validation", "Disable Vulkan and NVRHI validation")
 			.AddFlag("no-vsync", "Present without waiting for vertical sync")
+			.AddFlag("maximized", "Open the editor window maximized")
+			.AddOption("window-size", "WxH", "The editor window's size in pixels, such as 1920x1080 (default 1600x900)")
 			.AddOption("screenshot", "path", "Save a PNG of the editor window (on the last frame with --frames)")
 			.AddFlag("headless", "Run without a window or UI (automation and offscreen use; GPU optional)")
 			.AddOption("automation-port", "port", "Port of the automation server on 127.0.0.1 (default: any free port)")
@@ -77,6 +80,21 @@ namespace Strada
 		specification.Window.Width = 1600;
 		specification.Window.Height = 900;
 		specification.Window.VSync = !arguments.HasFlag("no-vsync");
+		// For reproducible captures: the window's size, or maximized (on the screen it opens on).
+		specification.Window.Maximized = arguments.HasFlag("maximized");
+		if (std::optional<std::string> const windowSize = arguments.GetValue("window-size"))
+		{
+			std::optional<glm::uvec2> const size = ParseEditorWindowSize(*windowSize);
+			if (!size)
+			{
+				std::fprintf(stderr, "--window-size must be <width>x<height> with both between 1 and %u\n",
+				             static_cast<unsigned>(MaxEditorWindowSize));
+				exitCode = 2;
+				return nullptr;
+			}
+			specification.Window.Width = size->x;
+			specification.Window.Height = size->y;
+		}
 		specification.EnableImGui = true;
 		specification.ImGuiIniFilePath = FileSystem::GetUserDataDirectory() / "Editor" / "imgui.ini";
 		if (arguments.HasFlag("headless"))

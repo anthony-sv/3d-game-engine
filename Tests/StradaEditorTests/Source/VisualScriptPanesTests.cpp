@@ -8,6 +8,7 @@
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
+#include "Editor/VisualScripting/VisualScriptDebugValues.h"
 #include "Editor/VisualScripting/VisualScriptDetails.h"
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
 #include "Editor/VisualScripting/VisualScriptFindBar.h"
@@ -18,14 +19,17 @@
 #include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 #include "Editor/VisualScripting/VisualScriptSidebar.h"
+#include "Editor/VisualScripting/VisualScriptTheme.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/VisualScriptDebugger.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 #include "Strada/Script/VisualScriptLiterals.h"
+#include "Strada/Script/VisualScriptLive.h"
 #include "Strada/Script/VisualScriptVariables.h"
 
 #include <doctest/doctest.h>
@@ -73,6 +77,17 @@ namespace
 		return variable;
 	}
 
+	// A variable's value as the scripting runtime's debugger encodes it (VisualScriptDebugger::ReadValues).
+	VisualScriptDebugValue MakeLiveValue(uint32_t id, std::string name, std::string type, Json value)
+	{
+		VisualScriptDebugValue live;
+		live.ID = id;
+		live.Name = std::move(name);
+		live.Type = std::move(type);
+		live.Value = std::move(value);
+		return live;
+	}
+
 	// Update → Log, a Raycast whose flow ends there, and two variables.
 	VisualScriptDocument MakeDocument()
 	{
@@ -117,8 +132,9 @@ namespace
 
 		VisualScriptPaneContext MakeContext()
 		{
-			return {*Model,  *ActiveSemantics, Settings, Session, Services, Shared,          Graph,
-			        "Graph", ContextEntity,    Playing,  Time,    Measure,  DrawNodePreview, ReadLiveVariables};
+			return {*Model,         *ActiveSemantics, Settings, Session,        Services,    Shared,          Graph,
+			        "Graph",        ContextEntity,    Playing,  Time,           Measure,     DrawNodePreview, ReadLiveValues,
+			        DescribeEntity, RuntimeProblems,  LastRun,  ResetVariables, NewVariables};
 		}
 
 		// What the window's shell does before any window draws: flush the edits of widgets that are no longer active, then
@@ -231,7 +247,7 @@ namespace
 								 });
 						break;
 					case FixturePane::Sidebar:
-						DrawPane("My Script", ImVec2(0.0f, 0.0f), SidebarSize,
+						DrawPane("My Script", ImVec2(0.0f, 0.0f), SidebarWindowSize,
 						         [this](VisualScriptPaneContext& context)
 						         {
 									 return Sidebar.Draw(context);
@@ -345,8 +361,9 @@ namespace
 		static constexpr ImVec2 FindBarSize{600.0f, 60.0f};
 		static constexpr ImVec2 DetailsPosition{760.0f, 0.0f};
 		static constexpr ImVec2 DetailsSize{440.0f, 900.0f};
-		// The size Details is drawn at (DetailsSize unless a test narrows the pane).
+		// The sizes Details and My Script are drawn at (DetailsSize and SidebarSize unless a test narrows the pane).
 		ImVec2 DetailsWindowSize = DetailsSize;
+		ImVec2 SidebarWindowSize = SidebarSize;
 
 		struct
 		{
@@ -379,7 +396,13 @@ namespace
 		// The window's play state and context entity, and how it reads live values.
 		bool Playing = false;
 		UUID ContextEntity = UUID::Invalid();
-		std::function<Result<ScriptFieldMap>(UUID)> ReadLiveVariables;
+		std::function<Result<VisualScriptLiveValues>(UUID)> ReadLiveValues;
+		std::function<std::string(UUID)> DescribeEntity;
+		// The runtime problems the drawer lists (after Stop: the last run's), and the variables of the last receipt.
+		std::vector<Ref<VisualScriptRuntimeProblem const>> RuntimeProblems;
+		bool LastRun = false;
+		std::vector<std::string> ResetVariables;
+		std::vector<std::string> NewVariables;
 		// The canvas's node drawing the palette's preview calls; unset draws none.
 		std::function<void(VisualScriptPaletteEntry const&, ImDrawList*, ImVec2, float)> DrawNodePreview;
 		ImGuiID PreviousActive = 0;
@@ -2145,18 +2168,21 @@ TEST_CASE("VisualScriptEditor: My Script's + adds a function shown at once and a
 	CHECK(FindVisualScriptNode(fixture.GetDocument(), event->ID)->Settings.value("Name", Json()) == "Landed");
 }
 
-TEST_CASE("VisualScriptEditor: while playing, My Script shows the context entity's public values, read at most 4 times a second")
+TEST_CASE("VisualScriptEditor: while playing, My Script shows the context entity's values, private ones too, read at most 4 times a "
+          "second")
 {
 	VisualScriptDocument document = MakeDocument();
 	document.Variables.front().Public = true;
 	PaneFixture fixture(document, {FixturePane::Sidebar});
 	fixture.CheckDrawingChangesNothing();
 	int reads = 0;
-	fixture.ReadLiveVariables = [&reads](UUID)
+	fixture.ReadLiveValues = [&reads](UUID entity)
 	{
 		reads++;
-		return Result<ScriptFieldMap>(
-			ScriptFieldMap{{"Speed", ScriptFieldValue::FromFloat(2.5f)}, {"Alive", ScriptFieldValue::FromBool(true)}});
+		VisualScriptLiveValues values;
+		values.Entity = entity;
+		values.Variables = {MakeLiveValue(100, "Speed", "float", 2.5), MakeLiveValue(101, "Alive", "bool", true)};
+		return Result<VisualScriptLiveValues>(std::move(values));
 	};
 	fixture.Frames(30);
 	CHECK(reads == 0);
@@ -2166,8 +2192,242 @@ TEST_CASE("VisualScriptEditor: while playing, My Script shows the context entity
 	fixture.Frames(60);
 	CHECK(reads >= 4);
 	CHECK(reads <= 5);
-	// Public variables only.
-	CHECK(fixture.Sidebar.GetLiveValues() == std::map<std::string, Json>{{"Speed", Json(2.5)}});
+	// Every variable, private ones too (spec-slice4 §15.5), formatted as the debugger formats values.
+	std::map<std::string, VisualScriptValueCell> const cells = fixture.Sidebar.GetLiveValues();
+	REQUIRE(cells.size() == 2);
+	CHECK(cells.at("Speed").Text == "2.5");
+	CHECK(cells.at("Alive").Text == "true");
+	CHECK(fixture.Sidebar.FindLiveCellRect(101).has_value());
+}
+
+TEST_CASE("VisualScriptEditor: My Script's value cells show a colour as a swatch, an entity by name that a click selects, an array on "
+          "one line, a long string cut before the type column, and flash when a value changes")
+{
+	VisualScriptDocument document;
+	document.Variables = {MakeVariable(100, "Tint", "Strada.Color"), MakeVariable(101, "Target", "Strada.Entity"),
+	                      MakeVariable(102, "Scores", "int[]"), MakeVariable(103, "Message", "string")};
+	document.Graph.Nodes = {MakeNode(1, "Event.Update", glm::vec2(0.0f))};
+	PaneFixture fixture(document, {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	Json scores = Json::array({{{"Value", 1}}, {{"Value", 2}}, {{"Value", 3}}});
+	std::string const message = "A message that goes on and on, much longer than the pane is wide";
+	fixture.ReadLiveValues = [&scores, &message](UUID entity)
+	{
+		VisualScriptLiveValues values;
+		values.Entity = entity;
+		VisualScriptDebugValue target = MakeLiveValue(101, "Target", "Strada.Entity", Json());
+		target.Entity = UUID(77);
+		VisualScriptDebugValue list = MakeLiveValue(102, "Scores", "int[]", scores);
+		list.Length = static_cast<uint32_t>(scores.size());
+		values.Variables = {MakeLiveValue(100, "Tint", "Strada.Color", Json::array({1.0, 0.0, 0.0, 1.0})), target, list,
+		                    MakeLiveValue(103, "Message", "string", message)};
+		return Result<VisualScriptLiveValues>(std::move(values));
+	};
+	fixture.DescribeEntity = [](UUID entity)
+	{
+		return entity == UUID(77) ? std::string("Enemy 3") : entity.ToString();
+	};
+	// A pane 16 font sizes wide: the cell starts 6 font sizes in, and ends before the eye and the type.
+	fixture.SidebarWindowSize = ImVec2(ImGui::GetFontSize() * 16.0f, PaneFixture::SidebarSize.y);
+	fixture.Playing = true;
+	fixture.ContextEntity = UUID(42);
+	fixture.Frames(3);
+
+	// A colour: a swatch, no text.
+	VisualScriptValueCell const* tint = fixture.Sidebar.FindLiveCell(100);
+	REQUIRE(tint != nullptr);
+	CHECK(tint->Kind == VisualScriptValueCellKind::Swatch);
+	CHECK(tint->Text.empty());
+	CHECK(tint->Color == std::optional<uint32_t>(VisualScriptRgba(255, 0, 0, 255)));
+	// Hovered, its swatch shows ImGui's colour tooltip (the cell drawn under it lets it take the hover).
+	std::optional<std::pair<glm::vec2, glm::vec2>> const tintCell = fixture.Sidebar.FindLiveCellRect(100);
+	REQUIRE(tintCell.has_value());
+	float const swatchX = tintCell->first.x + ImGui::GetFontSize() * 0.36f + ImGui::GetStyle().ItemInnerSpacing.x + 2.0f;
+	ImGui::GetIO().AddMousePosEvent(swatchX, (tintCell->first.y + tintCell->second.y) * 0.5f);
+	auto const tooltipShown = []
+	{
+		return std::any_of(GImGui->Windows.begin(), GImGui->Windows.end(),
+		                   [](ImGuiWindow const* window)
+		                   {
+							   return (window->Flags & ImGuiWindowFlags_Tooltip) != 0 && window->Active;
+						   });
+	};
+	bool shown = false;
+	for (int frame = 0; frame < 60 && !shown; frame++)
+	{
+		fixture.Frames(1);
+		shown = tooltipShown();
+	}
+	CHECK(shown);
+	// An entity: its name.
+	VisualScriptValueCell const* target = fixture.Sidebar.FindLiveCell(101);
+	REQUIRE(target != nullptr);
+	CHECK(target->Kind == VisualScriptValueCellKind::Entity);
+	CHECK(target->Text == "Enemy 3");
+	// An array, on one line.
+	REQUIRE(fixture.Sidebar.FindLiveCell(102) != nullptr);
+	CHECK(fixture.Sidebar.FindLiveCell(102)->Text == "[3] 1, 2, 3");
+	// A long string: quoted, its cell ending before the eye and the type column, and its whole value the tooltip.
+	REQUIRE(fixture.Sidebar.FindLiveCell(103) != nullptr);
+	CHECK(fixture.Sidebar.FindLiveCell(103)->Text == "\"" + message + "\"");
+	std::optional<std::pair<glm::vec2, glm::vec2>> const cell = fixture.Sidebar.FindLiveCellRect(103);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const type = fixture.Sidebar.FindTypeRect(103);
+	REQUIRE(cell.has_value());
+	REQUIRE(type.has_value());
+	CHECK(cell->second.x <= type->first.x - ImGui::GetStyle().ItemSpacing.x);
+	CHECK(cell->first.x >= fixture.Sidebar.FindRow({VisualScriptElementKind::Variable, 103})->first.x);
+	ImVec2 const cellCenter((cell->first.x + cell->second.x) * 0.5f, (cell->first.y + cell->second.y) * 0.5f);
+	ImGui::GetIO().AddMousePosEvent(cellCenter.x, cellCenter.y);
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetLiveTooltip().find(message) != std::string::npos);
+	// At 12 font sizes no cell reaches the type column: what has no room is not drawn.
+	fixture.SidebarWindowSize = ImVec2(ImGui::GetFontSize() * 12.0f, PaneFixture::SidebarSize.y);
+	fixture.Frames(2);
+	for (uint32_t const variable : {100u, 101u, 102u, 103u})
+	{
+		CAPTURE(variable);
+		std::optional<std::pair<glm::vec2, glm::vec2>> const narrow = fixture.Sidebar.FindLiveCellRect(variable);
+		std::optional<std::pair<glm::vec2, glm::vec2>> const column = fixture.Sidebar.FindTypeRect(variable);
+		REQUIRE(column.has_value());
+		CHECK((!narrow || narrow->second.x <= column->first.x - ImGui::GetStyle().ItemSpacing.x));
+	}
+	fixture.SidebarWindowSize = ImVec2(ImGui::GetFontSize() * 16.0f, PaneFixture::SidebarSize.y);
+	fixture.Frames(2);
+
+	// A click on the entity's cell selects it in the running scene.
+	std::optional<std::pair<glm::vec2, glm::vec2>> const targetCell = fixture.Sidebar.FindLiveCellRect(101);
+	REQUIRE(targetCell.has_value());
+	fixture.Results.clear();
+	fixture.ImGui.Click(ImVec2((targetCell->first.x + targetCell->second.x) * 0.5f, (targetCell->first.y + targetCell->second.y) * 0.5f),
+	                    fixture.Drawer());
+	CHECK(std::any_of(fixture.Results.begin(), fixture.Results.end(),
+	                  [](VisualScriptPaneResult const& result)
+	                  {
+						  return result.SelectEntity == std::optional<UUID>(UUID(77));
+					  }));
+
+	// A value that differs from the last read flashes its cell; the others do not.
+	CHECK_FALSE(fixture.Sidebar.IsLiveCellFlashing(102, fixture.Time));
+	scores = Json::array({{{"Value", 1}}, {{"Value", 2}}, {{"Value", 4}}});
+	fixture.Frames(20);
+	CHECK(fixture.Sidebar.FindLiveCell(102)->Text == "[3] 1, 2, 4");
+	CHECK(fixture.Sidebar.IsLiveCellFlashing(102, fixture.Time));
+	CHECK_FALSE(fixture.Sidebar.IsLiveCellFlashing(103, fixture.Time));
+
+	// For a few seconds after a receipt: reset and new before the values the window names.
+	fixture.ResetVariables = {"Scores"};
+	fixture.NewVariables = {"Message"};
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.FindLiveCellRect(102).has_value());
+	CHECK(fixture.Sidebar.GetLiveCellLabel(102) == VisualScriptLiveTexts::Reset);
+	CHECK(fixture.Sidebar.GetLiveCellLabel(103) == VisualScriptLiveTexts::New);
+	CHECK(fixture.Sidebar.GetLiveCellLabel(101).empty());
+	// The window names them no longer: the labels go.
+	fixture.ResetVariables.clear();
+	fixture.NewVariables.clear();
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetLiveCellLabel(102).empty());
+	CHECK(fixture.Sidebar.GetLiveCellLabel(103).empty());
+	// Not playing: no cells.
+	fixture.Playing = false;
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetLiveValues().empty());
+	CHECK_FALSE(fixture.Sidebar.FindLiveCellRect(103).has_value());
+}
+
+namespace
+{
+	// A runtime problem as the live log keeps it.
+	Ref<VisualScriptRuntimeProblem const> MakeProblem(uint64_t serial, VisualScriptSeverity severity, AssetHandle graph,
+	                                                  AssetHandle document, uint32_t function, uint32_t node, std::string title,
+	                                                  UUID entity, uint32_t count)
+	{
+		VisualScriptRuntimeProblem problem;
+		problem.Serial = serial;
+		problem.Severity = severity;
+		problem.Graph = graph;
+		problem.Document = document;
+		problem.Function = function;
+		problem.Node = node;
+		problem.Title = std::move(title);
+		problem.Entity = entity;
+		problem.Message = "integer division by zero";
+		problem.Count = count;
+		return CreateRef<VisualScriptRuntimeProblem const>(std::move(problem));
+	}
+}
+
+TEST_CASE("VisualScriptEditor: the problems drawer's Runtime section lists the runtime problems above the analysis' with Go to, Caller "
+          "and Select Entity, and after Stop the last run's with Clear")
+{
+	PaneFixture fixture(MakeDocument(), {FixturePane::Drawer});
+	fixture.DescribeEntity = [](UUID entity)
+	{
+		return entity == UUID(7) ? std::string("Enemy 3") : entity.ToString();
+	};
+	fixture.CheckDrawingChangesNothing();
+	// Without problems, no section.
+	CHECK(fixture.DrawerPane.GetRuntimeHeader().empty());
+
+	// The graph's own node, and its node run by another graph's instance as a library's would be (with the calls that led to it).
+	AssetHandle const caller(UUID(900));
+	VisualScriptRuntimeProblem called = *MakeProblem(5, VisualScriptSeverity::Warning, caller, fixture.Graph, 0, 2, "Log", UUID(8), 1);
+	called.Calls = {{caller, 0, 22}, {fixture.Graph, 0, 3}};
+	fixture.RuntimeProblems = {MakeProblem(4, VisualScriptSeverity::Error, fixture.Graph, fixture.Graph, 0, 3, "Raycast", UUID(7), 37),
+	                           CreateRef<VisualScriptRuntimeProblem const>(std::move(called))};
+	fixture.Playing = true;
+	fixture.Frames(2);
+	CHECK(fixture.DrawerPane.GetRuntimeHeader() == "Runtime");
+	std::span<VisualScriptDrawerRuntimeRow const> const rows = fixture.DrawerPane.GetRuntimeRows();
+	REQUIRE(rows.size() == 2);
+	CHECK(rows[0].Title == "Raycast (node 3)");
+	CHECK(rows[0].Detail == "on Enemy 3 \xC2\xB7 \xC3\x97"
+	                        "37");
+	CHECK(rows[1].Detail == "on 8 \xC2\xB7 \xC3\x97"
+	                        "1 \xC2\xB7 called from 900 (node 22)");
+	// The analysis' problems still follow.
+	CHECK(fixture.DrawerPane.FindRuntimeButton(0, "Caller") == std::nullopt);
+	REQUIRE(fixture.DrawerPane.FindRuntimeButton(1, "Caller").has_value());
+
+	auto const press = [&fixture](size_t row, std::string_view label)
+	{
+		std::optional<std::pair<glm::vec2, glm::vec2>> const button = fixture.DrawerPane.FindRuntimeButton(row, label);
+		REQUIRE(button.has_value());
+		fixture.Results.clear();
+		fixture.ImGui.Click(ImVec2((button->first.x + button->second.x) * 0.5f, (button->first.y + button->second.y) * 0.5f),
+		                    fixture.Drawer());
+		auto const found = std::find_if(fixture.Results.begin(), fixture.Results.end(),
+		                                [](VisualScriptPaneResult const& result)
+		                                {
+											return result.Open || result.SelectEntity || result.ClearRuntimeProblems;
+										});
+		REQUIRE(found != fixture.Results.end());
+		return *found;
+	};
+	// Go to: the node selected and framed in its sub-graph, the entity it failed on the context entity.
+	VisualScriptPaneResult const goTo = press(0, "Go to");
+	REQUIRE(goTo.Open.has_value());
+	CHECK(goTo.Open->Graph == fixture.Graph);
+	CHECK(goTo.Open->Select == std::vector<uint32_t>{3});
+	CHECK(goTo.ContextEntity == std::optional<UUID>(UUID(7)));
+	// Caller: the calling graph's window at its call, with the entity.
+	VisualScriptPaneResult const callerOpen = press(1, "Caller");
+	REQUIRE(callerOpen.Open.has_value());
+	CHECK(callerOpen.Open->Graph == caller);
+	CHECK(callerOpen.Open->Select == std::vector<uint32_t>{22});
+	CHECK(callerOpen.Open->ContextEntity == UUID(8));
+	CHECK_FALSE(callerOpen.ContextEntity.has_value());
+	// Select Entity.
+	CHECK(press(0, "Select Entity").SelectEntity == std::optional<UUID>(UUID(7)));
+
+	// After Stop: the last run's, which Clear lets go.
+	fixture.Playing = false;
+	fixture.Frames(2);
+	CHECK(fixture.DrawerPane.GetRuntimeHeader() == "Runtime");
+	fixture.LastRun = true;
+	fixture.Frames(2);
+	CHECK(fixture.DrawerPane.GetRuntimeHeader() == "Runtime (last run)");
+	CHECK(press(SIZE_MAX, "Clear").ClearRuntimeProblems);
 }
 
 // --- The problems drawer and find ---

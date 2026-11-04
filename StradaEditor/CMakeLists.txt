@@ -68,6 +68,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EditorOperations.h
     Source/Editor/EditorScripts.cpp
     Source/Editor/EditorScripts.h
+    Source/Editor/EditorWindowOptions.cpp
+    Source/Editor/EditorWindowOptions.h
     Source/Editor/EntityBounds.cpp
     Source/Editor/EntityBounds.h
     Source/Editor/EntityPresets.cpp
@@ -122,6 +124,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp
     Source/Editor/UI/FieldEditor.h
+    Source/Editor/UI/WindowCapture.cpp
+    Source/Editor/UI/WindowCapture.h
     Source/Editor/Viewport/CanvasOverlay.cpp
     Source/Editor/Viewport/CanvasOverlay.h
     Source/Editor/Viewport/PickingIdMap.cpp
@@ -184,6 +188,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptFlow.cpp
     Source/Editor/VisualScripting/VisualScriptFlow.h
     Source/Editor/VisualScripting/VisualScriptFlowTake.h
+    Source/Editor/VisualScripting/VisualScriptGameBeside.cpp
+    Source/Editor/VisualScripting/VisualScriptGameBeside.h
     Source/Editor/VisualScripting/VisualScriptGeometry.cpp
     Source/Editor/VisualScripting/VisualScriptGeometry.h
     Source/Editor/VisualScripting/VisualScriptHeadlessCanvas.cpp

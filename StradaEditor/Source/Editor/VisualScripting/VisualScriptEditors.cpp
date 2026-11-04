@@ -18,6 +18,7 @@
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptDebugger.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <imgui_internal.h>
 
@@ -58,6 +59,8 @@ namespace Strada
 
 		// Live wire values are read at most this often (seconds): 10 times a second (spec-slice4 §13.4).
 		constexpr double LiveWireValueInterval = 0.1;
+		// A runtime problem's mark names at most this many instances in its tooltip.
+		constexpr size_t LiveMarkInstances = 5;
 
 		// The first code points of a text (a value pill's), with an ellipsis when it was longer.
 		std::string CutToCodePoints(std::string const& text, size_t codePoints)
@@ -310,7 +313,9 @@ namespace Strada
 				false,
 				{},
 				CreateScope<VisualScriptWindowDebugInput>(),
-				-1.0e30});
+				-1.0e30,
+				std::nullopt,
+				{}});
 			window = &m_Windows.back();
 			window->Panel->SetProjectIndex(&m_ProjectIndex);
 			window->Panel->SetDebugInput(m_DebugSession != nullptr ? window->Debug.get() : nullptr);
@@ -436,6 +441,16 @@ namespace Strada
 		EndInteractions();
 		OpenOtherGraphRequests();
 		UpdateTitles();
+		// The live log's revision every window draws from (spec-slice4 §8.5): one take of the runtime's events per frame, before
+		// the windows draw; a window that commits while it draws takes a newer one itself.
+		if (!m_Windows.empty())
+		{
+			m_LiveLog = VisualScriptEngine::GetLiveLog();
+		}
+		for (GraphWindow const& window : m_Windows)
+		{
+			window.Panel->SetLiveLog(m_LiveLog);
+		}
 		UpdateDebugging();
 
 		std::vector<size_t> closed;
@@ -479,6 +494,103 @@ namespace Strada
 		{
 			callback();
 		}
+	}
+
+	bool VisualScriptEditors::WantsGamePreview() const
+	{
+		return std::any_of(m_Windows.begin(), m_Windows.end(),
+		                   [](GraphWindow const& window)
+		                   {
+							   return window.Panel->IsGamePreviewShown();
+						   });
+	}
+
+	void VisualScriptEditors::RequestGameViewBeside(AssetHandle graph)
+	{
+		m_BesideRequest = BesideRequest{graph, 0};
+		m_GameBeside = VisualScriptGameBesideState{graph, VisualScriptGameBesideOutcome::Queued, {}};
+	}
+
+	std::optional<AssetHandle> VisualScriptEditors::TakeGameViewBesideRequest()
+	{
+		if (!m_BesideRequest)
+		{
+			return std::nullopt;
+		}
+		// graph.open {besideGameView} opens the window and asks in one call, before the frame whose dock space runs the request
+		// and draws the window only after it: the request waits for the window's first draw (WasActive: drawn in the last
+		// frame, imgui.cpp:5979).
+		if (GraphWindow const* const window = FindGraphWindow(m_BesideRequest->Graph);
+		    window != nullptr && m_BesideRequest->Waited < BesideWaitFrames)
+		{
+			std::string const name = VisualScriptEditorPanel::GetWindowName(m_BesideRequest->Graph, window->Title);
+			ImGuiWindow const* const drawn = ImGui::FindWindowByName(name.c_str());
+			if (drawn == nullptr || !drawn->WasActive)
+			{
+				m_BesideRequest->Waited++;
+				return std::nullopt;
+			}
+		}
+		AssetHandle const graph = m_BesideRequest->Graph;
+		m_BesideRequest.reset();
+		return graph;
+	}
+
+	void VisualScriptEditors::OnGameViewBesidePlaced(VisualScriptGameBesideState state)
+	{
+		if (VisualScriptEditorPanel* const panel = FindPanel(state.Graph))
+		{
+			switch (state.Outcome)
+			{
+				case VisualScriptGameBesideOutcome::Applied:
+					// The game view took the other side of the node: the graph stays in front of its own.
+					panel->RequestFocus();
+					break;
+				case VisualScriptGameBesideOutcome::AlreadyVisible:
+					panel->ShowToast(
+						fmt::format("{}{}", VisualScriptPanelTexts::BesideNotApplied, VisualScriptPanelTexts::BesideAlreadyVisible));
+					break;
+				case VisualScriptGameBesideOutcome::Failed:
+					panel->ShowToast(fmt::format("{}{}", VisualScriptPanelTexts::BesideNotApplied, state.Reason));
+					break;
+				case VisualScriptGameBesideOutcome::Queued:
+					break;
+			}
+		}
+		m_GameBeside = std::move(state);
+	}
+
+	std::optional<AssetHandle> VisualScriptEditors::FindWindowDockedWith(char const* windowName) const
+	{
+		ImGuiWindow const* const other = ImGui::FindWindowByName(windowName);
+		if (other == nullptr || other->DockNode == nullptr)
+		{
+			return std::nullopt;
+		}
+		std::optional<AssetHandle> found;
+		for (GraphWindow const& window : m_Windows)
+		{
+			AssetHandle const graph = window.Panel->GetGraph();
+			ImGuiWindow const* const candidate = ImGui::FindWindowByID(GetWindowID(graph));
+			if (candidate == nullptr || candidate->DockNode != other->DockNode)
+			{
+				continue;
+			}
+			if (m_EditTarget && *m_EditTarget == graph)
+			{
+				return graph;
+			}
+			// The one focused last among them.
+			auto const rank = [this](AssetHandle handle)
+			{
+				return std::find(m_FocusOrder.begin(), m_FocusOrder.end(), handle) - m_FocusOrder.begin();
+			};
+			if (!found || rank(graph) < rank(*found))
+			{
+				found = graph;
+			}
+		}
+		return found;
 	}
 
 	std::optional<std::vector<EditorMenuItemRecord>> VisualScriptEditors::DrawEditMenuItems(std::span<ImGuiKeyChord const> claimed)
@@ -1223,6 +1335,17 @@ namespace Strada
 			// no strip.
 			addCallers(*stop, std::nullopt);
 		}
+		// My Script while stopped (spec-slice4 §13.6): the variables of the selected frame's instance, when it runs this graph.
+		if (stop != nullptr && !library && frameIndex < stop->Frames.size() &&
+		    stop->Frames[frameIndex].Kind != VisualScriptStopFrameKind::Native && stop->Frames[frameIndex].Graph == graph)
+		{
+			if (VisualScriptStopValues const* values = session.GetStopValues(stop->ID, frameIndex))
+			{
+				input.StopVariables = values->Variables;
+				input.StopEntity = stop->Frames[frameIndex].Entity;
+			}
+		}
+		BuildLiveMarks(window, input);
 
 		// Values of the running game on the wires (Wire Values: Always), while no stop of this graph shows its own and the window
 		// shows its canvas (a tab behind another draws none).
@@ -1231,6 +1354,134 @@ namespace Strada
 			input.Values = std::move(previous.Values);
 			input.ValuesFunction = previous.ValuesFunction;
 			ReadLiveWireValues(window, input);
+		}
+	}
+
+	void VisualScriptEditors::BuildLiveMarks(GraphWindow& window, VisualScriptWindowDebugInput& input)
+	{
+		if (m_LiveLog == nullptr)
+		{
+			return;
+		}
+		AssetHandle const graph = window.Panel->GetGraph();
+		Scene& scene = m_Operations.GetContext().GetScene();
+		// The runtime problems at the document's nodes (whichever graph's instance ran a library's): one mark per node and
+		// severity, the instances' counts summed, with the latest message and the instances in its tooltip.
+		struct ProblemMark
+		{
+			uint32_t Function = 0;
+			uint32_t Node = 0;
+			VisualScriptLiveMarkKind Kind = VisualScriptLiveMarkKind::RuntimeError;
+			uint32_t Count = 0;
+			std::string Message;
+			std::vector<std::string> Instances;
+		};
+		std::vector<ProblemMark> problems;
+		for (Ref<VisualScriptRuntimeProblem const> const& problem : m_LiveLog->Problems)
+		{
+			if (problem->Document != graph)
+			{
+				continue;
+			}
+			VisualScriptLiveMarkKind const kind = problem->Severity == VisualScriptSeverity::Error
+			                                          ? VisualScriptLiveMarkKind::RuntimeError
+			                                          : VisualScriptLiveMarkKind::RuntimeWarning;
+			auto found = std::find_if(problems.begin(), problems.end(),
+			                          [&problem, kind](ProblemMark const& candidate)
+			                          {
+										  return candidate.Function == problem->Function && candidate.Node == problem->Node &&
+				                                 candidate.Kind == kind;
+									  });
+			if (found == problems.end())
+			{
+				problems.push_back({problem->Function, problem->Node, kind, 0, {}, {}});
+				found = std::prev(problems.end());
+			}
+			// The log keeps its problems by serial: the last one's message is the latest.
+			found->Count += problem->Count;
+			found->Message = problem->Message;
+			std::string const entity =
+				scene.HasEntity(problem->Entity) ? scene.GetEntityByUUID(problem->Entity).GetName() : problem->Entity.ToString();
+			found->Instances.push_back(fmt::format("{} {}", entity, FormatVisualScriptRunCount(problem->Count)));
+		}
+		for (ProblemMark& problem : problems)
+		{
+			VisualScriptLiveMark mark;
+			mark.Node = problem.Node;
+			mark.Kind = problem.Kind;
+			mark.Count = problem.Count;
+			std::string instances;
+			for (size_t index = 0; index < problem.Instances.size() && index < LiveMarkInstances; index++)
+			{
+				instances += (index == 0 ? "" : ", ") + problem.Instances[index];
+			}
+			if (problem.Instances.size() > LiveMarkInstances)
+			{
+				instances += fmt::format("{}{}{}", Texts::LiveMarkAnd, problem.Instances.size() - LiveMarkInstances, Texts::LiveMarkMore);
+			}
+			mark.Tooltip = fmt::format("{}\n{}{}", problem.Message, Texts::LiveMarkOn, instances);
+			input.LiveMarks.emplace_back(problem.Function, std::move(mark));
+		}
+
+		// The receipts since the last draw: where they cancelled a wait or a stopped execution, or reset a state, at this
+		// document's nodes (any instance), for ReceiptMarkSeconds.
+		double const now = ImGui::GetTime();
+		if (!window.MarkSerial)
+		{
+			window.MarkSerial = m_LiveLog->Serial;
+		}
+		auto const add = [&window, graph, now](VisualScriptLiveNode const& node, VisualScriptLiveMarkKind kind, std::string tooltip)
+		{
+			if (node.Document != graph)
+			{
+				return;
+			}
+			std::erase_if(window.TimedMarks,
+			              [&node, kind](TimedLiveMark const& timed)
+			              {
+							  return timed.Function == node.Function && timed.Mark.Node == node.Node && timed.Mark.Kind == kind;
+						  });
+			TimedLiveMark timed;
+			timed.Function = node.Function;
+			timed.Mark.Node = node.Node;
+			timed.Mark.Kind = kind;
+			timed.Mark.Tooltip = std::move(tooltip);
+			timed.Expires = now + ReceiptMarkSeconds;
+			window.TimedMarks.push_back(std::move(timed));
+		};
+		for (Ref<VisualScriptLiveEdit const> const& edit : m_LiveLog->Edits)
+		{
+			if (edit->Serial <= *window.MarkSerial)
+			{
+				continue;
+			}
+			for (VisualScriptLiveInstance const& note : edit->InstanceNotes)
+			{
+				for (VisualScriptLiveNode const& cancelled : note.Cancelled)
+				{
+					add(cancelled, VisualScriptLiveMarkKind::Cancelled,
+					    fmt::format("{}{}", cancelled.Stopped ? Texts::LiveMarkStopCancelled : Texts::LiveMarkWaitCancelled,
+					                cancelled.Reason));
+				}
+			}
+			for (VisualScriptLiveNode const& reset : edit->ResetStates)
+			{
+				// A removed node has no place to mark.
+				if (reset.Reason != VisualScriptRemovedStateReason)
+				{
+					add(reset, VisualScriptLiveMarkKind::Reset, fmt::format("{}{}", reset.Title, Texts::LiveMarkReset));
+				}
+			}
+		}
+		window.MarkSerial = std::max(*window.MarkSerial, m_LiveLog->Serial);
+		std::erase_if(window.TimedMarks,
+		              [now](TimedLiveMark const& timed)
+		              {
+						  return timed.Expires <= now;
+					  });
+		for (TimedLiveMark const& timed : window.TimedMarks)
+		{
+			input.LiveMarks.emplace_back(timed.Function, timed.Mark);
 		}
 	}
 
@@ -1387,6 +1638,9 @@ namespace Strada
 					{
 						ST_WARN("The step was not cancelled: {}", cancelled.GetError());
 					}
+					break;
+				case VisualScriptDebugRequest::Kind::BreakOnErrors:
+					session.SetBreakOnErrors(true);
 					break;
 				case VisualScriptDebugRequest::Kind::ShowFrame:
 					if (request.Stop)

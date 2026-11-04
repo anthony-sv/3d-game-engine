@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptDebugValues.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -23,13 +24,18 @@ namespace Strada
 	// variable's Get and Set nodes are selected and framed). "+" adds an element and opens its name, which becomes part of
 	// the step that added it; rows rename in place, drag onto the canvas (DragDropPayload::VisualScriptElement) and, for
 	// variables, onto each other to reorder; Delete asks first when nodes use what goes, and deletes them in the same step.
-	// Problems of an element show as a dot or a badge on its row. While playing, public variables show the context entity's
-	// live values. Main thread only.
+	// Problems of an element show as a dot or a badge on its row. While playing, every variable's row shows the context entity's
+	// live value in a cell between its name and its type (spec-slice4 §15.5), formatted as the debugger formats values; while
+	// an execution of the graph is stopped, the stopped frame's instance's. Main thread only.
 	class VisualScriptSidebar
 	{
 	public:
 		// Live values are read at most this often (seconds).
 		static constexpr double LiveValueInterval = 0.25;
+		// A live value that changed flashes this long (seconds), as the window's VisualScriptBlinkSeconds.
+		static constexpr double LiveFlashSeconds = 0.6;
+		// A variable's live value cell starts at least this many font sizes into its row.
+		static constexpr float LiveCellIndent = 6.0f;
 		// The base names of new elements, made unique.
 		static constexpr char const* NewVariableName = "NewVar";
 		static constexpr char const* NewLocalName = "NewLocal";
@@ -66,8 +72,21 @@ namespace Strada
 		std::string const& GetDeleteMessage() const { return m_DeleteMessage; }
 		// The screen rectangle of a button of the delete modal ("Delete", "Find References", "Cancel") in the last Draw.
 		std::optional<std::pair<glm::vec2, glm::vec2>> FindDeleteButton(std::string_view label) const;
-		// The live values shown, by variable name (literals); empty while not playing.
-		std::map<std::string, Json> const& GetLiveValues() const { return m_LiveValues; }
+		// The live value cells shown, by variable name; empty while not playing.
+		std::map<std::string, VisualScriptValueCell> GetLiveValues() const;
+		// A variable's live value cell as the last read formatted it; null without one.
+		VisualScriptValueCell const* FindLiveCell(uint32_t variable) const;
+		// Whether a variable's live value changed at its last read and its cell still flashes.
+		bool IsLiveCellFlashing(uint32_t variable, double time) const;
+		// The screen rectangles (min, max) of a variable row's live value cell (the dot that opens it included) and of its type
+		// text in the last Draw.
+		std::optional<std::pair<glm::vec2, glm::vec2>> FindLiveCellRect(uint32_t variable) const;
+		std::optional<std::pair<glm::vec2, glm::vec2>> FindTypeRect(uint32_t variable) const;
+		// What a variable's live value cell said before its value in the last Draw, for a few seconds after a receipt
+		// (VisualScriptLiveTexts::Reset or New); empty when it said nothing.
+		std::string_view GetLiveCellLabel(uint32_t variable) const;
+		// The tooltip a hovered live value cell showed in the last Draw (a colour's is ImGui's own); empty when none was hovered.
+		std::string const& GetLiveTooltip() const { return m_LiveTooltip; }
 		// A function library's header line in the last Draw ("Function library · used by 5 nodes in 3 scripts"); empty for a
 		// script.
 		std::string const& GetLibraryLine() const { return m_LibraryLine; }
@@ -101,6 +120,8 @@ namespace Strada
 		void Duplicate(Frame& frame, VisualScriptElement element);
 		void DrawDeleteModal(Frame& frame);
 		void UpdateLiveValues(Frame& frame);
+		// A variable row's live value cell, from x to right (screen pixels) at the row's top.
+		void DrawLiveCell(Frame& frame, VisualScriptVariable const& variable, float x, float right, float top);
 		bool Matches(std::string_view name) const;
 
 		VisualScriptWidgetCommits m_Commits;
@@ -134,9 +155,21 @@ namespace Strada
 		std::optional<VisualScriptReference> m_DeleteReferences;
 		std::vector<std::pair<std::string, std::pair<glm::vec2, glm::vec2>>> m_DeleteButtons;
 		bool m_OpenDelete = false;
-		// Live values: when they were read last, and what they read.
+		// Live values: when they were read last, and per variable (by ID) the value read, its cell and when it last changed; the
+		// entity read, and where the last Draw put the cells and the type texts.
+		struct LiveCell
+		{
+			VisualScriptDebugValue Value;
+			VisualScriptValueCell Cell;
+			double Changed = -1.0e30;
+		};
 		double m_LiveTime = -1.0e30;
-		std::map<std::string, Json> m_LiveValues;
+		std::map<uint32_t, LiveCell> m_LiveCells;
+		UUID m_LiveEntity = UUID::Invalid();
+		std::vector<std::pair<uint32_t, std::pair<glm::vec2, glm::vec2>>> m_LiveCellRects;
+		std::vector<std::pair<uint32_t, std::pair<glm::vec2, glm::vec2>>> m_TypeRects;
+		std::vector<std::pair<uint32_t, std::string_view>> m_LiveCellLabels;
+		std::string m_LiveTooltip;
 		std::string m_LibraryLine;
 	};
 }

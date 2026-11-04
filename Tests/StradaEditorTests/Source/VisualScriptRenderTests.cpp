@@ -2168,3 +2168,102 @@ TEST_CASE("VisualScriptEditor: the wire hover pill and pin tooltips gain the val
 	REQUIRE(pills.size() == 1);
 	CHECK(pills.front().Text.find("= ") == std::string::npos);
 }
+
+TEST_CASE("VisualScriptEditor: live marks: runtime problems, cancellations and resets as discs right to left from the header's corner, "
+          "and what the game does not run dashed")
+{
+	Testing::CanvasRenderFixture fixture(MakeDebugDocument());
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 1.0f);
+	REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Detail);
+	// The Delay holds an error that happened 37 times, a cancelled wait and a reset; the Branch a warning; the Log is not running
+	// in the version the game runs, nor is the wire from the Branch to it.
+	std::vector<VisualScriptLiveMark> const marks = {
+		{2, VisualScriptLiveMarkKind::Reset, 0, "Delay was reset by the edit"},
+		{2, VisualScriptLiveMarkKind::RuntimeError, 37, "integer division by zero"},
+		{2, VisualScriptLiveMarkKind::Cancelled, 0, "the edit removed or changed Delay (node 2)"},
+		{3, VisualScriptLiveMarkKind::RuntimeWarning, 1, "a warning"},
+		{4, VisualScriptLiveMarkKind::NotRunning, 0, "not running"},
+	};
+	uint32_t const branchToLog = FindLinkIndex(fixture, 3, "True");
+	std::vector<uint32_t> const links = {branchToLog};
+	std::vector<VisualScriptFlowNodeMark> const counts = {{2, 0.0f, 12}};
+	VisualScriptCanvasDebugView view;
+	view.Live = marks;
+	view.NotRunningLinks = links;
+	view.FlowNodes = counts;
+	fixture.Draw.Debug = &view;
+	fixture.Frame();
+	VisualScriptDrawRecord const& record = fixture.Record;
+	auto const disc = [&record](uint32_t node, VisualScriptLiveMarkKind kind) -> VisualScriptDrawRecordItem const&
+	{
+		auto const found = std::find_if(record.Items.begin(), record.Items.end(),
+		                                [node, kind](VisualScriptDrawRecordItem const& item)
+		                                {
+											return item.Kind == VisualScriptDrawItemKind::LiveMark && item.Element == node &&
+			                                       item.Mark == static_cast<uint8_t>(kind) && item.Has(Elements::Body);
+										});
+		REQUIRE(found != record.Items.end());
+		return *found;
+	};
+
+	// In the Debug layer, after the nodes; the error rightmost, centred on the header's top-right corner, then the cancellation
+	// and the reset to its left (whatever order the view lists them in).
+	VisualScriptDrawRecordItem const& delay = fixture.Item(VisualScriptDrawItemKind::Node, 2);
+	VisualScriptDrawRecordItem const& error = disc(2, VisualScriptLiveMarkKind::RuntimeError);
+	VisualScriptDrawRecordItem const& cancelled = disc(2, VisualScriptLiveMarkKind::Cancelled);
+	VisualScriptDrawRecordItem const& reset = disc(2, VisualScriptLiveMarkKind::Reset);
+	CHECK(error.Layer == VisualScriptDrawLayer::Debug);
+	CHECK(error.Order > delay.Order);
+	CHECK(error.Color == VisualScriptErrorColor);
+	CHECK(error.Screen.GetCenter().x == doctest::Approx(delay.Screen.Max.x));
+	CHECK(error.Screen.GetCenter().y == doctest::Approx(delay.Screen.Min.y));
+	// Its count beside it at Detail.
+	CHECK(error.Text == "\xC3\x97"
+	                    "37");
+	CHECK(cancelled.Screen.Max.x < error.Screen.Min.x);
+	CHECK(reset.Screen.Max.x < cancelled.Screen.Min.x);
+	CHECK(cancelled.Text.empty());
+	CHECK(cancelled.Screen.GetCenter().y == doctest::Approx(delay.Screen.Min.y));
+	// A warning that happened once shows no count.
+	VisualScriptDrawRecordItem const& warning = disc(3, VisualScriptLiveMarkKind::RuntimeWarning);
+	CHECK(warning.Color == VisualScriptWarningColor);
+	CHECK(warning.Text.empty());
+	// The run count moves left of the node's discs, clear of them.
+	VisualScriptDrawRecordItem const& count = fixture.Item(VisualScriptDrawItemKind::RunCount, 2);
+	CHECK(count.Screen.Max.x < reset.Screen.Min.x);
+	// Where the discs are, for the window's tooltips.
+	std::span<VisualScriptLiveMarkPlace const> const places = fixture.Renderer.GetLiveMarkPlaces();
+	REQUIRE(places.size() == 4);
+	auto const placed = std::find_if(places.begin(), places.end(),
+	                                 [](VisualScriptLiveMarkPlace const& place)
+	                                 {
+										 return place.Mark == 1;
+									 });
+	REQUIRE(placed != places.end());
+	CHECK(placed->Screen.Min == error.Screen.Min);
+
+	// What the game does not run: the Log's dashed outline just outside it, and the wire into it dashed, both in amber.
+	VisualScriptDrawRecordItem const& log = fixture.Item(VisualScriptDrawItemKind::Node, 4);
+	std::vector<VisualScriptDrawRecordItem> const notRunning =
+		DebugItemsOf(record, VisualScriptDrawItemKind::LiveMark, static_cast<uint8_t>(VisualScriptLiveMarkKind::NotRunning));
+	REQUIRE(notRunning.size() == 2);
+	VisualScriptDrawRecordItem const& wire = notRunning[0].Has(Elements::Outline) ? notRunning[1] : notRunning[0];
+	VisualScriptDrawRecordItem const& box = notRunning[0].Has(Elements::Outline) ? notRunning[0] : notRunning[1];
+	CHECK(box.Element == 4);
+	CHECK(box.Has(Elements::Outline | Elements::Dashed));
+	CHECK(box.Color == VisualScriptWarningColor);
+	CHECK(box.Screen.Min.x < log.Screen.Min.x);
+	CHECK(box.Screen.Max.x > log.Screen.Max.x);
+	CHECK(wire.Element == branchToLog);
+	CHECK(wire.Has(Elements::Dashed));
+	CHECK_FALSE(wire.Has(Elements::Outline));
+
+	// At Compact: the discs without counts; at Far: nothing of them.
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 0.55f);
+	REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Compact);
+	CHECK(disc(2, VisualScriptLiveMarkKind::RuntimeError).Text.empty());
+	fixture.SetView(glm::vec2(480.0f, 40.0f), 0.12f);
+	REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Far);
+	CHECK(fixture.Record.Count(VisualScriptDrawItemKind::LiveMark) == 0);
+	CHECK(fixture.Renderer.GetLiveMarkPlaces().empty());
+}

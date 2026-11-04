@@ -2,12 +2,17 @@
 
 #include "Editor/Automation/CommandRegistry.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/UI/WindowCapture.h"
+
+#include "Strada/Asset/AssetHandle.h"
 
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
+#include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -22,6 +27,25 @@ namespace Strada
 	class VisualScriptLibrary;
 	struct VisualScriptDocument;
 
+	// The windows viewport.screenshot cuts out of the editor's image (Editor: the whole window).
+	enum class ScreenshotWindow : uint8_t
+	{
+		Editor = 0,
+		SceneView,
+		GameView,
+		Hierarchy,
+		Inspector,
+		ContentBrowser,
+		Console,
+		Debugger,
+		// A graph window: the one of the screenshot's graph.
+		Graph
+	};
+
+	// viewport.screenshot's name of a window ("SceneView"), and the window of a name; nothing for other names.
+	[[nodiscard]] std::string_view GetScreenshotWindowName(ScreenshotWindow window);
+	[[nodiscard]] std::optional<ScreenshotWindow> ParseScreenshotWindow(std::string_view name);
+
 	// What the automation commands need from the running editor besides the document state.
 	struct EditorCommandEnvironment
 	{
@@ -30,6 +54,11 @@ namespace Strada
 		// Captures the main window and calls back on the main thread. Unset when the editor has no window (headless);
 		// viewport.screenshot then fails with AutomationErrorCode::Unavailable.
 		std::function<void(ScreenshotCallback callback)> CaptureScreenshot;
+		// Where an editor window lies in the image CaptureScreenshot gives (FindEditorWindowRect), asked in the capture's
+		// callback, after ImGui drew the frame captured; graph names the graph window's visual script (Graph only). Fails with a
+		// message naming the window when it cannot be cut out (not open, behind another tab, in a window of its own, no area).
+		// Unset when the editor has no UI (headless); viewport.screenshot of a window other than Editor is then Unavailable.
+		std::function<Result<ScreenshotRect>(ScreenshotWindow window, AssetHandle graph)> FindWindowRect;
 		// Asks the editor to exit after the current frame. Unset when the host cannot quit (tests).
 		std::function<void()> RequestQuit;
 		// Called after a project was created or opened (the editor lists it under its recent projects). May be unset.

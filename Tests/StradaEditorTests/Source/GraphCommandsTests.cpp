@@ -1585,7 +1585,10 @@ TEST_CASE("GraphCommands: graph.open brings a node into view and sets the debugg
 	CHECK(editor["breakpoints"] == 0);
 	CHECK(editor["flow"] == Json::object({{"drawn", false}, {"held", false}}));
 	Json const editors = fixture.Ok("graph.editors");
-	CHECK(editors["settings"] == Json::object({{"wireValues", "Always"}, {"showFlow", false}}));
+	CHECK(editors["settings"] == Json::object({{"wireValues", "Always"},
+	                                           {"showFlow", false},
+	                                           {"outlineNotRunning", true},
+	                                           {"gamePreview", {{"shown", true}, {"corner", "BottomRight"}, {"width", 0.3f}}}}));
 	CHECK(editors["debugPanel"].is_null());
 	CHECK(fixture.Settings.GetWireValues() == VisualScriptWireValues::Always);
 	CHECK_FALSE(fixture.Settings.IsShowFlow());
@@ -1603,6 +1606,110 @@ TEST_CASE("GraphCommands: graph.open brings a node into view and sets the debugg
 	CommandResult const panel = fixture.Run("graph.debug-panel", Json::object({{"tab", "Values"}}));
 	REQUIRE(panel.IsError());
 	CHECK(panel.GetError().Code == AutomationErrorCode::Unavailable);
+}
+
+TEST_CASE("GraphCommands: graph.open sets the outline of what the game does not run, and graph.editors reports the live channel's "
+          "members")
+{
+	// Spec-slice4 §17.4's U2 rows; what they report while the game runs is tested with the scripting runtime in
+	// VisualScriptRuntimeEditorTests.
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Frames(3);
+	// Outside play: no receipt, no runtime problem, nothing the game does not run.
+	Json const editor = fixture.Editor(graph);
+	CHECK(editor["liveReceipt"].is_null());
+	CHECK(editor["runtimeProblems"] == Json::object({{"errors", 0}, {"warnings", 0}}));
+	CHECK(editor["notRunning"] == 0);
+	CHECK(fixture.Ok("graph.editors")["settings"]["outlineNotRunning"] == true);
+
+	// A per-user setting, which every window draws with from its next draw.
+	Json const opened = fixture.Ok("graph.open", Json::object({{"graph", graph}, {"outlineNotRunning", false}}));
+	CHECK(opened["warnings"] == Json::array());
+	CHECK_FALSE(fixture.Settings.IsOutlineNotRunning());
+	CHECK(fixture.Ok("graph.editors")["settings"]["outlineNotRunning"] == false);
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"outlineNotRunning", true}}));
+	CHECK(fixture.Settings.IsOutlineNotRunning());
+	CommandResult const wrong = fixture.Run("graph.open", Json::object({{"graph", graph}, {"outlineNotRunning", "yes"}}));
+	REQUIRE(wrong.IsError());
+	CHECK(wrong.GetError().Code == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Settings.IsOutlineNotRunning());
+}
+
+TEST_CASE("GraphCommands: graph.open sets the game preview, queues Game View Beside and scrolls Details, which graph.editors reports")
+{
+	// Spec-slice4 §17.4's U2 rows for the live game beside the graph, and S4-R5.2's detailsRow.
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	AssetHandle const handle = GraphWindowFixture::GetHandle(graph);
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Frames(3);
+
+	// The defaults, outside play and without a game view: no preview, the game view neither open nor visible, no Beside yet.
+	Json const editors = fixture.Ok("graph.editors");
+	CHECK(editors["settings"]["gamePreview"] == Json::object({{"shown", true}, {"corner", "BottomRight"}, {"width", 0.3f}}));
+	CHECK(editors["gameView"] == Json::object({{"open", false}, {"visible", false}, {"rect", Json()}, {"beside", Json()}}));
+	CHECK(fixture.Editor(graph)["gamePreview"] == Json::object({{"shown", false}, {"rect", Json()}}));
+
+	// gamePreview is a per-user setting.
+	Json const hidden = fixture.Ok("graph.open", Json::object({{"graph", graph}, {"gamePreview", false}}));
+	CHECK_FALSE(hidden.contains("besideGameView"));
+	CHECK_FALSE(fixture.Settings.GetGamePreview().Shown);
+	CHECK(fixture.Ok("graph.editors")["settings"]["gamePreview"]["shown"] == false);
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"gamePreview", true}}));
+	CHECK(fixture.Settings.GetGamePreview().Shown);
+
+	// besideGameView queues the docking for the editor's next frame; graph.editors reports the request, then its outcome.
+	Json const queued = fixture.Ok("graph.open", Json::object({{"graph", graph}, {"besideGameView", true}}));
+	CHECK(queued["besideGameView"] == "Queued");
+	CHECK(fixture.Ok("graph.editors")["gameView"]["beside"] ==
+	      Json::object({{"graph", handle.ToString()}, {"outcome", "Queued"}, {"reason", Json()}}));
+	std::optional<AssetHandle> const taken = fixture.Editors.TakeGameViewBesideRequest();
+	REQUIRE(taken.has_value());
+	CHECK(*taken == handle);
+	CHECK_FALSE(fixture.Editors.TakeGameViewBesideRequest().has_value());
+	fixture.Editors.OnGameViewBesidePlaced(
+		VisualScriptGameBesideState{handle, VisualScriptGameBesideOutcome::Failed, "the dock space is not available"});
+	fixture.Frames(1);
+	CHECK(fixture.Ok("graph.editors")["gameView"]["beside"] ==
+	      Json::object({{"graph", handle.ToString()}, {"outcome", "Failed"}, {"reason", "the dock space is not available"}}));
+	Json const toasts = fixture.Editor(graph)["toasts"];
+	CHECK(std::find(toasts.begin(), toasts.end(), Json("Game View Beside: the dock space is not available")) != toasts.end());
+
+	// With a game view the editor describes, graph.editors reports where it is.
+	VisualScriptEditorServices services = fixture.Editors.GetServices();
+	services.GamePreview = []() -> std::optional<VisualScriptGamePreview>
+	{
+		VisualScriptGamePreview preview;
+		preview.GameViewOpen = true;
+		preview.GameViewVisible = true;
+		preview.GameViewRect = std::pair(glm::vec2(10.0f, 20.0f), glm::vec2(410.0f, 320.0f));
+		return preview;
+	};
+	fixture.Editors.SetServices(std::move(services));
+	Json const view = fixture.Ok("graph.editors")["gameView"];
+	CHECK(view["open"] == true);
+	CHECK(view["visible"] == true);
+	CHECK(view["rect"] == Json::array({10.0, 20.0, 400.0, 300.0}));
+
+	// detailsRow names a row by its label; it is a non-empty string.
+	Json const scrolled =
+		fixture.Ok("graph.open", Json::object({{"graph", graph}, {"select", Json::array({15})}, {"detailsRow", "Comment"}}));
+	CHECK(scrolled["warnings"] == Json::array());
+	fixture.Frames(3);
+	VisualScriptEditorPanel const* const panel = fixture.Editors.FindPanel(handle);
+	REQUIRE(panel != nullptr);
+	CHECK_FALSE(panel->GetPaneShared().ScrollRow.has_value());
+	for (Json const& wrong : {Json(""), Json(3), Json(std::string(300, 'x'))})
+	{
+		CommandResult const refused = fixture.Run("graph.open", Json::object({{"graph", graph}, {"detailsRow", wrong}}));
+		REQUIRE(refused.IsError());
+		CHECK(refused.GetError().Code == AutomationErrorCode::InvalidParams);
+	}
+	CommandResult const besideWrong = fixture.Run("graph.open", Json::object({{"graph", graph}, {"besideGameView", "yes"}}));
+	REQUIRE(besideWrong.IsError());
+	CHECK(besideWrong.GetError().Code == AutomationErrorCode::InvalidParams);
 }
 
 TEST_CASE("GraphCommands: graph.open frames, then zooms around the framed centre, then centres, in every combination")
