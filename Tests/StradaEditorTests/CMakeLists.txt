@@ -108,8 +108,9 @@ target_compile_definitions(StradaEditorTests PRIVATE
     # Shared test data: the visual script editor's tests read their node library and documents from it.
     STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data")
 
-# The inspector tests show the fields of the test scripts; the play mode tests play the Blocks sample.
-add_dependencies(StradaEditorTests StradaTestScripts StradaBlocksScripts)
+# The inspector tests show the fields of the test scripts; the play mode tests play the Blocks sample; the sample graphs'
+# test reads the Showcase's graphs with its scripts.
+add_dependencies(StradaEditorTests StradaTestScripts StradaBlocksScripts StradaShowcaseScripts)
 # The export tests ship the game player.
 add_dependencies(StradaEditorTests StradaRuntime)
 

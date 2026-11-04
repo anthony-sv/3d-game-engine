@@ -932,6 +932,8 @@ TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays 
 	CHECK(game.ExitCode == 0);
 	CHECK_FALSE(Contains(game.Output, "Visual script"));
 	CHECK_FALSE(Contains(game.Output, " runs no visual script"));
+	// What the graphs' nodes report while they run (an aborting error, a node's warning) starts with the graph's path.
+	CHECK_FALSE(Contains(game.Output, ".sgraph:"));
 
 	// Its exported game carries the scripting API and no game scripts, and passes the same checks.
 	std::filesystem::path player;

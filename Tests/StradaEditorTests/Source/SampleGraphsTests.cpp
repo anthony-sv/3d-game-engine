@@ -243,18 +243,19 @@ TEST_CASE("VisualScriptEditor: the sample projects' graphs read well: every node
           "arranged")
 {
 	Testing::ScriptRuntimeScope runtime;
-	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
-	REQUIRE(library != nullptr);
 	for (SampleGraphSet const& set : SampleGraphSets)
 	{
 		CAPTURE(set.Project);
-		std::filesystem::path const assets =
-			FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / FileSystem::PathFromUtf8(set.Project) / "Assets";
+		std::filesystem::path const project = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / FileSystem::PathFromUtf8(set.Project);
+		std::filesystem::path const assets = project / "Assets";
 		// The graphs are analyzed with a copy of the project's registry and graphs as the asset directory, where the graphs
-		// they name are found.
+		// they name are found, and with the project's game scripts when it has some: its graphs may use their members.
 		Testing::TemporaryDirectory directory;
 		Testing::AssetManagerScope manager;
 		Testing::OpenVisualScriptsCopy(assets, directory.GetPath());
+		Testing::ProjectScriptsScope scripts(project);
+		Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
+		REQUIRE(library != nullptr);
 
 		std::vector<SampleGraph> graphs;
 		for (std::string const& path : FindGraphPaths(assets, set.Folder))

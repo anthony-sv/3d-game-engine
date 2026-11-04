@@ -137,7 +137,7 @@
 								0.0
 							],
 							"Settings": {
-								"Graph": "14223333027472449766",
+								"Graph": "11260502822282376115",
 								"Function": 4
 							}
 						},
@@ -398,7 +398,7 @@
 							],
 							"Settings": {
 								"Variable": 31,
-								"Graph": "2152932090520014630"
+								"Graph": "17547337789174679122"
 							}
 						},
 						{
@@ -409,7 +409,7 @@
 								224.0
 							],
 							"Settings": {
-								"Graph": "14223333027472449766",
+								"Graph": "11260502822282376115",
 								"Function": 7
 							}
 						},
@@ -432,7 +432,7 @@
 								320.0
 							],
 							"Settings": {
-								"Graph": "14223333027472449766",
+								"Graph": "11260502822282376115",
 								"Function": 10
 							}
 						},
@@ -532,7 +532,7 @@
 							],
 							"Settings": {
 								"Variable": 8,
-								"Graph": "2152932090520014630"
+								"Graph": "17547337789174679122"
 							}
 						},
 						{
@@ -628,7 +628,7 @@
 							],
 							"Settings": {
 								"Name": "BrickBroken",
-								"Graph": "2152932090520014630",
+								"Graph": "17547337789174679122",
 								"Parameters": [
 									{
 										"Name": "Points",
@@ -1171,7 +1171,7 @@
 						832.0
 					],
 					"Settings": {
-						"Graph": "7992801857554523135"
+						"Graph": "16219410850394416192"
 					}
 				},
 				{
@@ -1235,7 +1235,7 @@
 					],
 					"Settings": {
 						"Variable": 31,
-						"Graph": "2152932090520014630"
+						"Graph": "17547337789174679122"
 					}
 				},
 				{
@@ -1257,7 +1257,7 @@
 						1200.0
 					],
 					"Settings": {
-						"Graph": "14223333027472449766",
+						"Graph": "11260502822282376115",
 						"Function": 7
 					}
 				},
@@ -1280,7 +1280,7 @@
 						960.0
 					],
 					"Settings": {
-						"Graph": "14223333027472449766",
+						"Graph": "11260502822282376115",
 						"Function": 10
 					}
 				},
@@ -1308,33 +1308,97 @@
 						1152.0
 					],
 					"Settings": {
-						"Variable": 1
+						"Variable": 4
 					}
 				},
 				{
 					"ID": 83,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1216.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 84,
 					"Type": "Expression",
 					"Position": [
 						192.0,
 						1328.0
 					],
 					"Settings": {
+						"Formula": "hits + 1"
+					}
+				},
+				{
+					"ID": 85,
+					"Type": "Function.Call",
+					"Position": [
+						416.0,
+						1104.0
+					],
+					"Settings": {
+						"Graph": "11260502822282376115",
+						"Function": 4
+					}
+				},
+				{
+					"ID": 86,
+					"Type": "Event.Send",
+					"Position": [
+						1472.0,
+						832.0
+					],
+					"Settings": {
+						"Name": "BrickHit",
+						"Graph": "17547337789174679122",
+						"Parameters": [
+							{
+								"Name": "Tint",
+								"Type": "Strada.Color"
+							}
+						]
+					},
+					"Comment": "Every hit juices the arena in the colour the prism had when the ball struck it"
+				},
+				{
+					"ID": 87,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1280.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 88,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						1456.0
+					],
+					"Settings": {
 						"Formula": "hits > 0"
 					}
 				},
 				{
-					"ID": 84,
+					"ID": 89,
 					"Type": "Flow.Branch",
 					"Position": [
-						1472.0,
+						1664.0,
 						832.0
 					]
 				},
 				{
-					"ID": 85,
+					"ID": 90,
 					"Type": "Flow.Timeline",
 					"Position": [
-						1696.0,
+						1888.0,
 						832.0
 					],
 					"Settings": {
@@ -1396,34 +1460,34 @@
 					}
 				},
 				{
-					"ID": 86,
+					"ID": 91,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1216.0
+						1344.0
 					],
 					"Settings": {
 						"Variable": 9
 					}
 				},
 				{
-					"ID": 87,
+					"ID": 92,
 					"Type": "Set:Strada.Material.EmissiveIntensity",
 					"Position": [
-						2000.0,
+						2192.0,
 						832.0
 					]
 				},
 				{
-					"ID": 88,
+					"ID": 93,
 					"Type": "Set:Strada.TransformComponent.Scale",
 					"Position": [
-						2224.0,
+						2416.0,
 						832.0
 					]
 				},
 				{
-					"ID": 89,
+					"ID": 94,
 					"Type": "Function.Call",
 					"Position": [
 						864.0,
@@ -1434,10 +1498,10 @@
 					}
 				},
 				{
-					"ID": 90,
+					"ID": 95,
 					"Type": "Function.Call",
 					"Position": [
-						1696.0,
+						1888.0,
 						1104.0
 					],
 					"Settings": {
@@ -1628,51 +1692,91 @@
 				},
 				{
 					"From": [
-						82,
+						83,
 						"Value"
 					],
 					"To": [
-						83,
+						84,
 						"hits"
 					]
 				},
 				{
 					"From": [
-						83,
+						84,
 						"Result"
 					],
 					"To": [
-						84,
-						"Condition"
+						85,
+						"Hits"
 					]
 				},
 				{
 					"From": [
-						86,
+						82,
 						"Value"
 					],
 					"To": [
-						87,
+						86,
 						"Target"
 					]
 				},
 				{
 					"From": [
 						85,
+						"Color"
+					],
+					"To": [
+						86,
+						"Tint"
+					]
+				},
+				{
+					"From": [
+						87,
+						"Value"
+					],
+					"To": [
+						88,
+						"hits"
+					]
+				},
+				{
+					"From": [
+						88,
+						"Result"
+					],
+					"To": [
+						89,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						91,
+						"Value"
+					],
+					"To": [
+						92,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						90,
 						"Glow"
 					],
 					"To": [
-						87,
+						92,
 						"Value"
 					]
 				},
 				{
 					"From": [
-						85,
+						90,
 						"Squash"
 					],
 					"To": [
-						88,
+						93,
 						"Value"
 					]
 				},
@@ -1702,13 +1806,13 @@
 						"Then"
 					],
 					"To": [
-						89,
+						94,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						89,
+						94,
 						"Then"
 					],
 					"To": [
@@ -1732,47 +1836,57 @@
 						"Then"
 					],
 					"To": [
-						84,
+						86,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						84,
+						86,
+						"Then"
+					],
+					"To": [
+						89,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						89,
 						"True"
 					],
 					"To": [
-						85,
+						90,
 						"PlayFromStart"
 					]
 				},
 				{
 					"From": [
-						84,
+						89,
 						"False"
 					],
 					"To": [
-						90,
+						95,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						85,
+						90,
 						"Update"
 					],
 					"To": [
-						87,
+						92,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						87,
+						92,
 						"Then"
 					],
 					"To": [
-						88,
+						93,
 						"Execute"
 					]
 				}
@@ -1815,15 +1929,15 @@
 					]
 				},
 				{
-					"ID": 91,
-					"Text": "Hit: lose a hit, recolor, chime, then flash or break",
+					"ID": 96,
+					"Text": "Hit: lose a hit, recolor, chime, juice, then flash or break",
 					"Position": [
 						-32.0,
 						760.0
 					],
 					"Size": [
-						2419.13623046875,
-						682.0
+						2611.13623046875,
+						810.0
 					],
 					"Color": [
 						0.949999988079071,

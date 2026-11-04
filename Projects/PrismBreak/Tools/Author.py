@@ -242,8 +242,8 @@ class Region:
             self.flow(first, second)
         return items[-1]
 
-    def branch(self, condition):
-        return self.add("Flow.Branch", Condition=condition)
+    def branch(self, condition, comment=None):
+        return self.add("Flow.Branch", comment=comment, Condition=condition)
 
     def sequence(self, count):
         return self.add("Flow.Sequence", {"Count": count})
@@ -563,7 +563,7 @@ def declare_all(author):
     author.declare(DRAIN, "The drain behind the paddle: a ball that falls in is lost.", variables=(
         public("Game", ENTITY, None, "The entity whose Game.sgraph counts the lives"),
     ))
-    author.declare(LIGHTS, "One of the arena's six lights: it pulses in the colour of every prism that breaks, runs a rainbow "
+    author.declare(LIGHTS, "One of the arena's six lights: it pulses in the colour of every prism the ball hits, runs a rainbow "
                    "chase when a level is cleared and flashes red when a life is lost.", variables=(
         public("Base", "Strada.Color", CYAN, "The light's colour at rest"),
         public("BaseIntensity", "float", 6.0, "The light's intensity at rest", (0.0, 50.0)),
@@ -634,14 +634,16 @@ def declare_all(author):
         public("BallSpeed", "float", 9.0, "Read-out: the ball's speed now, in metres per second", (0.0, 100.0)),
         public("LastPulseCount", "int", 0, "Read-out: the lights the last hit pulsed", (0, 100)),
         public("LastBroadcastCount", "int", 0, "Read-out: the graphs the last level clear reached", (0, 100)),
+        public("Attract", "bool", False, "Read-out: the title is playing itself; the screen keeps its points out of the best"),
         private("Levels", "string[]", LEVELS),
         private("Scores", "int[]", []),
         private("LiveBalls", "Strada.Entity[]", []),
         private("Building", "bool", False),
         private("Launched", "bool", False),
-        private("Attract", "bool", False),
         private("Paused", "bool", False),
+        private("Clearing", "bool", False),
     ), events=(
+        ("BrickHit", (("Tint", "Strada.Color"),)),
         ("BrickBroken", (("Points", "int"), ("At", "Strada.Vector3"), ("Row", "int"))),
         ("PaddleHit", ()),
         ("BallLost", (("Ball", ENTITY),)),
@@ -654,12 +656,11 @@ def declare_all(author):
         ("BuildLevel", False, (("Number", "int"),), (), ()),
         ("Serve", False, (), (), ()),
         ("LaunchBall", False, (), (), ()),
-        ("AttractMode", False, (), (), ()),
-        ("LevelClear", False, (), (), ()),
+        ("StartAttractMode", False, (), (), ()),
+        ("LevelClear", False, (), (), (("WasAttract", "bool", False),)),
         ("ClearBricks", False, (), (), ()),
         ("BeginGame", False, (), (), ()),
         ("GameOver", False, (), (), ()),
-        ("Juice", False, (("Tint", "Strada.Color"),), (), ()),
         ("SpawnCapsule", False, (("Kind", "string"), ("At", "Strada.Vector3")), (), ()),
     ))
     declare_tests(author)
@@ -756,13 +757,16 @@ def write_brick(author):
         glow = b.set("Glow", b.library("BrickColor", output="Color", Hits=b.get("Hits")).out)
         emissive = b.call("Set:Strada.Material.Emissive", Target=b.get("Look"), Value=b.get("Glow"))
         b.chain(b.entry, glow, emissive, b.ret)
-    with author.region(BRICK, "Hit: lose a hit, recolor, chime, then flash or break", RULES) as b:
+    with author.region(BRICK, "Hit: lose a hit, recolor, chime, juice, then flash or break", RULES) as b:
         hit = b.event("Event.CollisionEnter")
         by_ball = b.branch(b.runs(BALL, hit["Other"]))
         lose = b.set("Hits", b.expr("hits - 1", hits=b.get("Hits")))
         combo = b.get("Combo", GAME, b.get("Game"))
         pitch = b.call("Set:Strada.AudioSourceComponent.Pitch", Value=chime_pitch(b, b.get("Row"), combo))
         ring = b.call("Call:Strada.AudioSourceComponent.Play()")
+        tell = b.send("BrickHit", b.get("Game"), GAME,
+                      Tint=b.library("BrickColor", output="Color", Hits=b.expr("hits + 1", hits=b.get("Hits"))).out,
+                      comment="Every hit juices the arena in the colour the prism had when the ball struck it")
         left = b.branch(b.expr("hits > 0", hits=b.get("Hits")))
         flash = b.timeline(0.3, [
             track("Glow", "float", [(0.0, 8.0), (0.3, 1.4)]),
@@ -771,7 +775,7 @@ def write_brick(author):
         glow = b.call("Set:Strada.Material.EmissiveIntensity", Target=b.get("Look"), Value=flash["Glow"])
         squash = b.call("Set:Strada.TransformComponent.Scale", Value=flash["Squash"])
         b.chain(hit, by_ball)
-        b.chain(by_ball["True"], lose, b.own("Recolor"), pitch, ring, left)
+        b.chain(by_ball["True"], lose, b.own("Recolor"), pitch, ring, tell, left)
         b.flow(left["True"], flash["PlayFromStart"])
         b.flow(left["False"], b.own("Break"))
         b.chain(flash["Update"], glow, squash)
@@ -911,12 +915,14 @@ def write_paddle(author):
         for name, key in (("a", "A"), ("left", "Left"), ("d", "D"), ("right", "Right")):
             keys[name] = b.pure("Call:Strada.Input.IsKeyDown(Strada.KeyCode)", Key=key)
         direction = b.expr("(d || right ? 1 : 0) - (a || left ? 1 : 0)", **keys)
-        manual = b.expr("clamp(length(delta) > 0 ? (mouse.x / screen - 0.5) * span : target + direction * speed * dt, -limit, limit)",
+        manual = b.expr("clamp(length(delta) > 0 ? (mouse.x / screen - 0.5) * span : target + direction * speed * dt, "
+                        "-limit + width * 0.5, limit - width * 0.5)",
                         delta=b.pure("Get:Strada.Input.MouseDelta", "Value"), mouse=b.pure("Get:Strada.Input.MousePosition", "Value"),
                         screen=b.pure("Get:Strada.Application.WindowWidth", "Value"), span=b.get("ScreenSpan"),
-                        target=b.get("Target"), direction=direction, speed=b.get("KeySpeed"), dt=dt, limit=b.get("Limit"))
+                        target=b.get("Target"), direction=direction, speed=b.get("KeySpeed"), dt=dt, limit=b.get("Limit"),
+                        width=b.get("Width"))
         pilot = b.branch(b.get("Autopilot"))
-        steer = b.set("Target", manual)
+        steer = b.set("Target", manual, comment="The target stays within the paddle's reach, so the keys turn it round at once at a wall")
         ease = b.set("X", b.expr("clamp(lerp(x, target, 1 - exp(-25 * dt)), -limit + width * 0.5, limit - width * 0.5)",
                                  x=b.get("X"), target=b.get("Target"), dt=dt, limit=b.get("Limit"), width=b.get("Width")))
         b.chain(tick, pilot)
@@ -1078,7 +1084,9 @@ def write_hud(author):
         shown = b.set("ShownScore", b.get("Score", GAME, b.get("Game")))
         digits = b.library("GroupDigits", output="Text", Value=b.get("ShownScore"))
         score = text(b, "ScoreText", digits.out)
-        best = b.set("Best", b.expr("max(best, score)", best=b.get("Best"), score=b.get("ShownScore")))
+        best = b.set("Best", b.expr("demo ? best : max(best, score)", demo=b.get("Attract", GAME, b.get("Game")), best=b.get("Best"),
+                                    score=b.get("ShownScore")),
+                     comment="The points the title scores while it plays itself are no player's best")
         best_digits = b.library("GroupDigits", output="Text", Value=b.get("Best"))
         best_text = text(b, "BestText", best_digits.out)
         b.chain(b.entry, game)
@@ -1124,6 +1132,8 @@ def write_hud(author):
         b.chain(changed, title, bar, serve, over, pause, b.own("ShowLives"), b.own("ShowScore"))
     with author.region(HUD, "Level banner: LEVEL CLEAR, then the next level's number", TITLE) as b:
         cleared = b.custom("LevelCleared")
+        played = b.branch(b.both(b.runs(GAME, b.get("Game")), b.negate(b.get("Attract", GAME, b.get("Game")))),
+                          comment="The title stays clear of the banner while it plays itself")
         next_level = b.set("NextLevel", b.expr("level + 1", level=cleared["Level"]))
         clear_text = text(b, "BannerText", "LEVEL CLEAR")
         visible = show(b, "Banner", True)
@@ -1132,7 +1142,8 @@ def write_hud(author):
         opacity = b.call("Set:Strada.UIRectComponent.Opacity", Target=b.get("Banner"), Value=banner["Opacity"])
         next_text = text(b, "BannerText", b.fmt("LEVEL {Level}", Level=b.get("NextLevel")))
         hidden = show(b, "Banner", False)
-        b.chain(cleared, next_level, clear_text, visible)
+        b.chain(cleared, played)
+        b.chain(played["True"], next_level, clear_text, visible)
         b.flow(visible, banner["PlayFromStart"])
         b.flow(banner["Update"], opacity)
         b.flow(banner["Swap"], next_text)
@@ -1205,7 +1216,7 @@ def write_game(author):
         b.chain(seeded["True"], seed, lives)
         b.flow(seeded["False"], lives)
         b.chain(lives, level, speed, build, title)
-        b.flow(title["True"], b.own("AttractMode"))
+        b.flow(title["True"], b.own("StartAttractMode"))
         b.flow(title["False"], b.own("Serve"))
     with author.region(GAME, "Build a level: its layout, row by row, prism by prism", RULES, "BuildLevel") as b:
         building = b.set("Building", True)
@@ -1295,21 +1306,21 @@ def write_game(author):
         score = b.set("Score", b.expr("score + points", score=b.get("Score"), points=points.out))
         combo = b.set("Combo", b.expr("combo + 1", combo=b.get("Combo")))
         left = b.set("BricksLeft", b.expr("left - 1", left=b.get("BricksLeft")))
-        juice = b.own("Juice", Tint=b.library("BrickColor", output="Color", Hits=b.expr("points / 10", points=broken["Points"])).out)
         lucky = b.branch(b.expr("roll < chance", roll=b.pure("Get:Strada.Random.Value", "Value"), chance=b.get("PowerUpChance")))
         kind = b.select(b.expr("roll < 0.5", roll=b.pure("Get:Strada.Random.Value", "Value")), b.lit("string", "Widen"),
                         b.lit("string", "Slow"))
         capsule = b.own("SpawnCapsule", Kind=kind, At=broken["At"])
-        empty = b.branch(b.both(b.expr("left <= 0", left=b.get("BricksLeft")), b.not_equal(b.get("State"), "Clear")))
-        b.chain(broken, score, combo, left, juice, lucky)
+        empty = b.branch(b.expr("left <= 0 && !clearing", left=b.get("BricksLeft"), clearing=b.get("Clearing")))
+        b.chain(broken, score, combo, left, lucky)
         b.chain(lucky["True"], capsule, empty)
         b.flow(lucky["False"], empty)
         b.flow(empty["True"], b.own("LevelClear"))
-    with author.region(GAME, "Juice: every break pulses the lights and kicks the camera", EFFECTS, "Juice") as b:
-        pulse = b.broadcast("Pulse", LIGHTS, Tint=b.entry["Tint"], Strength=1.0)
+    with author.region(GAME, "Juice: every hit pulses the lights and kicks the camera", EFFECTS) as b:
+        hit = b.custom("BrickHit")
+        pulse = b.broadcast("Pulse", LIGHTS, Tint=hit["Tint"], Strength=1.0)
         count = b.set("LastPulseCount", pulse.out)
         kick = b.send("Shake", b.get("CameraRig"), CAMERA_RIG, Strength=0.3)
-        b.chain(b.entry, pulse, count, kick, b.ret)
+        b.chain(hit, pulse, count, kick)
     with author.region(GAME, "Capsules: a broken prism sometimes drops a power", EFFECTS, "SpawnCapsule") as b:
         widen = b.equal(b.entry["Kind"], "Widen")
         capsule = b.call(INSTANTIATE, "Result", Prefab=b.get("PowerUpPrefab"), Rotation=IDENTITY, Parent=b.get("PowerUps"),
@@ -1352,6 +1363,7 @@ def write_game(author):
         landed = b.set("Launched", False)
         attract = b.branch(b.get("Attract"))
         again = b.add("Flow.Delay", Duration=0.6)
+        still = b.branch(b.get("Attract"), comment="A player who started meanwhile keeps the game: the title's demo ends here")
         life = b.set("Lives", b.expr("lives - 1", lives=b.get("Lives")))
         tell = b.broadcast("LifeLost", parameters=(("Lives", "int"),), Lives=b.get("Lives"))
         wait = b.add("Flow.Delay", Duration=1.0)
@@ -1360,27 +1372,39 @@ def write_game(author):
         b.chain(known["True"], remove, destroy, last)
         b.chain(last["True"], landed, attract)
         b.flow(attract["True"], again)
-        b.flow(again["Completed"], b.own("AttractMode"))
+        b.flow(again["Completed"], still)
+        b.flow(still["True"], b.own("StartAttractMode"))
         b.chain(attract["False"], life, tell, wait)
         b.flow(wait["Completed"], more)
         b.flow(more["True"], b.own("Serve"))
         b.flow(more["False"], b.own("GameOver"))
-    with author.region(GAME, "Level clear: tell every graph, wait, build the next", TITLE, "LevelClear") as b:
+    with author.region(GAME, "Level clear: tell every graph, wait, build the next", RULES, "LevelClear") as b:
+        clearing = b.set("Clearing", True)
+        was = b.set("WasAttract", b.get("Attract"))
+        demo = b.branch(b.get("WasAttract"), comment="The title stays up while its demo clears a level")
         state, told = change_state(b, "Clear")
         first, last = destroy_balls(b)
         cleared = b.broadcast("LevelCleared", parameters=(("Level", "int"),), Level=b.get("Level"))
         count = b.set("LastBroadcastCount", cleared.out)
         sound = b.call("Call:Strada.AudioSourceComponent.Play()", Target=b.get("LevelClearSound"))
         wait = b.add("Flow.Delay", Duration=2.2)
+        same = b.branch(b.equal(b.get("Attract"), b.get("WasAttract")),
+                        comment="A player who started during the demo's clear has a game of their own: this clear ends here")
         level = b.set("Level", b.expr("level + 1", level=b.get("Level")))
         build = b.own("BuildLevel", Number=b.get("Level"))
         attract = b.branch(b.get("Attract"))
-        b.chain(b.entry, state)
+        done = b.set("Clearing", False)
+        b.chain(b.entry, clearing, was, demo)
+        b.flow(demo["True"], first)
+        b.flow(demo["False"], state)
         b.chain(told, first)
         b.chain(last, cleared, count, sound, wait)
-        b.chain(wait["Completed"], level, build, attract)
-        b.chain(attract["True"], b.own("AttractMode"), b.ret)
-        b.chain(attract["False"], b.own("Serve"), b.ret)
+        b.chain(wait["Completed"], same)
+        b.chain(same["True"], level, build, attract)
+        b.flow(same["False"], done)
+        b.chain(attract["True"], b.own("StartAttractMode"), done)
+        b.chain(attract["False"], b.own("Serve"), done)
+        b.flow(done, b.ret)
     with author.region(GAME, "Game over: the score joins the top five", RULES, "GameOver") as b:
         state, told = change_state(b, "Over")
         first, last = destroy_balls(b)
@@ -1418,7 +1442,7 @@ def write_game(author):
         tell = b.broadcast("Paused", parameters=(("On", "bool"),), On=b.get("Paused"))
         b.chain(escape, playing)
         b.chain(playing["True"], toggle, time, tell)
-    with author.region(GAME, "Title: the game plays itself until a player starts", TITLE, "AttractMode") as b:
+    with author.region(GAME, "Title: the game plays itself until a player starts", TITLE, "StartAttractMode") as b:
         attract = b.set("Attract", True)
         pilot = b.set("Autopilot", True, PADDLE, b.get("Paddle"))
         state, told = change_state(b, "Title")
@@ -1435,7 +1459,7 @@ def write_game(author):
         each = b.add("Flow.ForEach", Array=b.children(b.get("Bricks")))
         remove = b.call("Call:Strada.Entity.Destroy()", Target=each["Element"])
         none_left = b.set("BricksLeft", 0)
-        open_level = b.branch(b.not_equal(b.get("State"), "Clear"))
+        open_level = b.branch(b.negate(b.get("Clearing")))
         b.chain(b.entry, each)
         b.flow(each["Body"], remove)
         b.chain(each["Completed"], none_left, open_level)
@@ -1601,7 +1625,7 @@ TEST_CHECKS = (
     ("CheckNextLevel", "Next level: level 2's 34 prisms, then a serve", "the next level is built"),
     ("CheckBanner", "Banner: LEVEL 2, bright, then gone within 2.5 s", "the level banner plays its timeline"),
     ("CheckCameraShake", "Camera: the clear shakes it, then it rests at home", "the camera shakes on a clear and settles"),
-    ("CheckLightsPulse", "Lights: a break pulses all six", "every hit pulses every light"),
+    ("CheckLightsPulse", "Lights: a hit that leaves the prism standing pulses all six", "every hit pulses every light"),
     ("CheckGameOver", "Game over: the last life ends it, the table shows the score",
      "losing the last life ends the game and records the score"),
     ("CheckNewGame", "New game: fresh read-outs, and remote reads guarded", "a new game starts fresh, and remote reads are guarded"),
@@ -1630,6 +1654,7 @@ def declare_tests(author):
             private("LeftBefore", "int", 0),
             private("ScoreBefore", "int", 0),
             private("ComboBefore", "int", 0),
+            private("LevelBefore", "int", 0),
             private("LivesBefore", "int", 0),
             private("Reached", "int", 0),
             private("Base", "float", 0.0),
@@ -1793,18 +1818,25 @@ def check_ball_breaks_brick(b, name):
     left = of_game(b, "BricksLeft")
     before = var(b, "LeftBefore")
     done = b.both(gone(b), b.equal(left, b.expr("before - 1", before=before)))
-    run(b, find_brick(b, 4, 5), b.set("LeftBefore", left), b.set("ScoreBefore", of_game(b, "Score")),
-        b.set("ComboBefore", of_game(b, "Combo")), strike(b, "Target"),
-        check(b, name, done, 2, b.fmt("{Left} prisms left of {Before}", Left=left, Before=before)))
+    game = var(b, "Game")
+    combo = b.set("Combo", 3, GAME, game, comment="A combo and a level above their first values, so that the next check tells "
+                                                    "the score's formula from the prism's points")
+    run(b, find_brick(b, 4, 5), b.set("LeftBefore", left), b.set("ScoreBefore", of_game(b, "Score")), combo,
+        b.set("Level", 2, GAME, game), b.set("ComboBefore", of_game(b, "Combo")), b.set("LevelBefore", of_game(b, "Level")),
+        strike(b, "Target"), check(b, name, done, 2, b.fmt("{Left} prisms left of {Before}", Left=left, Before=before)),
+        b.set("Level", 1, GAME, game, comment="Back on the first level, which the checks after the next one play"))
 
 
 def check_break_scores(b, name):
     combo = var(b, "ComboBefore")
+    level = var(b, "LevelBefore")
     before = var(b, "ScoreBefore")
-    points = b.library("ScoreFor", ARCADE, output="Score", Points=10, Combo=combo, Level=of_game(b, "Level")).out
+    points = b.library("ScoreFor", ARCADE, output="Score", Points=10, Combo=combo, Level=level).out
     score = of_game(b, "Score")
-    done = b.equal(score, b.expr("before + points", before=before, points=points))
-    run(b, check(b, name, done, 1, b.fmt("{Score} after {Before} and a combo of {Combo}", Score=score, Before=before, Combo=combo)))
+    scored = b.equal(score, b.expr("before + points", before=before, points=points))
+    run(b, check(b, name, scored, 1, b.fmt("{Score} after {Before}, with a combo of {Combo} on level {Level}", Score=score,
+                                           Before=before, Combo=combo, Level=level),
+                 b.both(scored, b.expr("combo > 0 && level > 1", combo=combo, level=level))))
 
 
 def check_strong_brick(b, name):
@@ -1920,9 +1952,13 @@ def check_camera_shake(b, name):
 
 def check_lights_pulse(b, name):
     count = of_game(b, "LastPulseCount")
-    run(b, b.send("Launch", var(b, "Game"), GAME), wait_until(b, is_state(b, "Play"), 1),
-        b.set("LastPulseCount", 0, GAME, var(b, "Game")), find_brick(b, 4, 5), strike(b, "Target"),
-        check(b, name, b.both(gone(b), b.equal(count, 6)), 2, b.fmt("it pulsed {Count} lights", Count=count)))
+    hits = hits_of(b, "Target")
+    standing = b.both(b.equal(hits, 1), b.equal(count, 6))
+    reset = b.set("LastPulseCount", 0, GAME, var(b, "Game"),
+                  comment="Level 2's front row hides its two-hit prisms: one breaks, then the one behind it is hit once")
+    run(b, b.send("Launch", var(b, "Game"), GAME), wait_until(b, is_state(b, "Play"), 1), find_brick(b, 4, 4),
+        strike(b, "Target"), wait_until(b, gone(b), 2), reset, find_brick(b, 2, 4), strike(b, "Target"),
+        check(b, name, standing, 2, b.fmt("it pulsed {Count} lights, and the prism has {Hits} hits left", Count=count, Hits=hits)))
 
 
 def check_game_over(b, name):
@@ -2382,11 +2418,24 @@ def contains(box, node):
     return left <= x <= left + width and top <= y <= top + height
 
 
+def read_log(client, since, level):
+    """The log's entries at or above a level from an index on, all of them; returns (entries, the index after the last)."""
+    entries = []
+    while True:
+        read = client.call("log_read", {"since": since, "minLevel": level, "maxCount": 10000})
+        since = read["next"]
+        if not read["entries"]:
+            return entries, since
+        entries += read["entries"]
+
+
 def play(client):
-    """Plays the title's attract mode for 600 frames: no visual script may warn."""
+    """Plays the title's attract mode for 600 frames: no visual script may warn while it plays."""
+    # Only what the attract mode logs counts: the authoring and the test run logged before it.
+    _, start = read_log(client, 0, "critical")
     client.call("play_start", {"paused": True})
     client.call("play_advance", {"frames": 600})
-    entries = client.call("log_read", {"minLevel": "warn"})["entries"]
+    entries, _ = read_log(client, start, "warn")
     client.call("play_stop")
     problems = [entry["message"] for entry in entries if "isual script" in entry["message"] or ".sgraph" in entry["message"]]
     if problems:

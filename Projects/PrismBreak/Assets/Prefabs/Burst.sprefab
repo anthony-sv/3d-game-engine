@@ -5,7 +5,7 @@
 	},
 	"Entities": [
 		{
-			"ID": "8846611302810176174",
+			"ID": "211387416230669391",
 			"Components": {
 				"Tag": {
 					"Tag": "Burst"
@@ -31,11 +31,11 @@
 				"Relationship": {
 					"Parent": "0",
 					"Children": [
-						"16557156417110544047"
+						"2820574873416621685"
 					]
 				},
 				"AudioSource": {
-					"Clip": "3441328337276038770",
+					"Clip": "12582166714482179497",
 					"Stream": false,
 					"Volume": 0.699999988079071,
 					"Pitch": 1.0,
@@ -79,7 +79,7 @@
 						0.0
 					],
 					"Intensity": 6.0,
-					"Texture": "14884911402080838847",
+					"Texture": "5332072809182626647",
 					"BlendMode": "Additive",
 					"WorldSpace": true,
 					"DestroyWhenFinished": true
@@ -87,7 +87,7 @@
 			}
 		},
 		{
-			"ID": "16557156417110544047",
+			"ID": "2820574873416621685",
 			"Components": {
 				"Tag": {
 					"Tag": "Shatter"
@@ -111,11 +111,11 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "8846611302810176174",
+					"Parent": "211387416230669391",
 					"Children": []
 				},
 				"AudioSource": {
-					"Clip": "10714082327602462825",
+					"Clip": "2775233322476052744",
 					"Stream": false,
 					"Volume": 0.550000011920929,
 					"Pitch": 1.0,

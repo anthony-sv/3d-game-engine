@@ -5,7 +5,7 @@
 	},
 	"Entities": [
 		{
-			"ID": "16151217582120629896",
+			"ID": "8949827716594839316",
 			"Components": {
 				"Tag": {
 					"Tag": "PowerUp"
@@ -35,7 +35,7 @@
 				"Mesh": {
 					"Mesh": "5",
 					"Materials": [
-						"15313085186618170192"
+						"3493591078743754672"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -51,7 +51,7 @@
 					"CastShadows": false
 				},
 				"AudioSource": {
-					"Clip": "8204928904885198159",
+					"Clip": "6742136291000126096",
 					"Stream": false,
 					"Volume": 0.800000011920929,
 					"Pitch": 1.0,
@@ -62,7 +62,7 @@
 					"MaxDistance": 100.0
 				},
 				"VisualScript": {
-					"Graph": "4331903985350939145",
+					"Graph": "5099310569931107932",
 					"Variables": {}
 				}
 			}

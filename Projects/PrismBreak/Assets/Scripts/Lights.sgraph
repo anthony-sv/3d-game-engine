@@ -4,7 +4,7 @@
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
-		"Description": "One of the arena's six lights: it pulses in the colour of every prism that breaks, runs a rainbow chase when a level is cleared and flashes red when a life is lost.",
+		"Description": "One of the arena's six lights: it pulses in the colour of every prism the ball hits, runs a rainbow chase when a level is cleared and flashes red when a life is lost.",
 		"Variables": [
 			{
 				"ID": 1,

@@ -551,17 +551,28 @@
 				},
 				{
 					"ID": 42,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1808.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 43,
 					"Type": "Expression",
 					"Position": [
 						512.0,
 						208.0
 					],
 					"Settings": {
-						"Formula": "clamp(length(delta) > 0 ? (mouse.x / screen - 0.5) * span : target + direction * speed * dt, -limit, limit)"
+						"Formula": "clamp(length(delta) > 0 ? (mouse.x / screen - 0.5) * span : target + direction * speed * dt, -limit + width * 0.5, limit - width * 0.5)"
 					}
 				},
 				{
-					"ID": 43,
+					"ID": 44,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -572,7 +583,7 @@
 					}
 				},
 				{
-					"ID": 44,
+					"ID": 45,
 					"Type": "Flow.Branch",
 					"Position": [
 						288.0,
@@ -580,7 +591,7 @@
 					]
 				},
 				{
-					"ID": 45,
+					"ID": 46,
 					"Type": "Variable.Set",
 					"Position": [
 						736.0,
@@ -588,10 +599,11 @@
 					],
 					"Settings": {
 						"Variable": 10
-					}
+					},
+					"Comment": "The target stays within the paddle's reach, so the keys turn it round at once at a wall"
 				},
 				{
-					"ID": 46,
+					"ID": 47,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -602,7 +614,7 @@
 					}
 				},
 				{
-					"ID": 47,
+					"ID": 48,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -613,7 +625,7 @@
 					}
 				},
 				{
-					"ID": 48,
+					"ID": 49,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -624,7 +636,7 @@
 					}
 				},
 				{
-					"ID": 49,
+					"ID": 50,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -635,7 +647,7 @@
 					}
 				},
 				{
-					"ID": 50,
+					"ID": 51,
 					"Type": "Expression",
 					"Position": [
 						288.0,
@@ -646,7 +658,7 @@
 					}
 				},
 				{
-					"ID": 51,
+					"ID": 52,
 					"Type": "Variable.Set",
 					"Position": [
 						928.0,
@@ -657,34 +669,23 @@
 					}
 				},
 				{
-					"ID": 52,
+					"ID": 53,
 					"Type": "Function.Call",
 					"Position": [
 						512.0,
-						528.0
+						544.0
 					],
 					"Settings": {
 						"Function": 13
 					}
 				},
 				{
-					"ID": 54,
+					"ID": 55,
 					"Type": "Event.FixedUpdate",
 					"Position": [
 						0.0,
-						1920.0
+						1984.0
 					]
-				},
-				{
-					"ID": 55,
-					"Type": "Variable.Get",
-					"Position": [
-						0.0,
-						2048.0
-					],
-					"Settings": {
-						"Variable": 9
-					}
 				},
 				{
 					"ID": 56,
@@ -694,26 +695,37 @@
 						2112.0
 					],
 					"Settings": {
-						"Variable": 5
+						"Variable": 9
 					}
 				},
 				{
 					"ID": 57,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2176.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 58,
 					"Type": "Expression",
 					"Position": [
 						192.0,
-						1920.0
+						1984.0
 					],
 					"Settings": {
 						"Formula": "vec3(x, 0.5, z)"
 					}
 				},
 				{
-					"ID": 58,
+					"ID": 59,
 					"Type": "Call:Strada.RigidBodyComponent.MoveKinematic(Strada.Vector3,Strada.Quaternion)",
 					"Position": [
 						384.0,
-						1920.0
+						1984.0
 					],
 					"Inputs": {
 						"Rotation": [
@@ -725,11 +737,11 @@
 					}
 				},
 				{
-					"ID": 60,
+					"ID": 61,
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						2288.0
+						2352.0
 					],
 					"Settings": {
 						"Name": "Widen",
@@ -742,11 +754,11 @@
 					}
 				},
 				{
-					"ID": 61,
+					"ID": 62,
 					"Type": "Flow.Timeline",
 					"Position": [
 						400.0,
-						2288.0
+						2352.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -789,33 +801,22 @@
 					}
 				},
 				{
-					"ID": 62,
+					"ID": 63,
 					"Type": "Expression",
 					"Position": [
 						192.0,
-						2288.0
+						2352.0
 					],
 					"Settings": {
 						"Formula": "8 / seconds"
 					}
 				},
 				{
-					"ID": 63,
+					"ID": 64,
 					"Type": "Variable.Set",
 					"Position": [
 						704.0,
-						2288.0
-					],
-					"Settings": {
-						"Variable": 3
-					}
-				},
-				{
-					"ID": 64,
-					"Type": "Variable.Get",
-					"Position": [
-						0.0,
-						2416.0
+						2352.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -823,25 +824,6 @@
 				},
 				{
 					"ID": 65,
-					"Type": "Expression",
-					"Position": [
-						192.0,
-						2416.0
-					],
-					"Settings": {
-						"Formula": "vec3(width, 0.4, 0.5)"
-					}
-				},
-				{
-					"ID": 66,
-					"Type": "Set:Strada.TransformComponent.Scale",
-					"Position": [
-						896.0,
-						2288.0
-					]
-				},
-				{
-					"ID": 67,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -852,6 +834,25 @@
 					}
 				},
 				{
+					"ID": 66,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						2480.0
+					],
+					"Settings": {
+						"Formula": "vec3(width, 0.4, 0.5)"
+					}
+				},
+				{
+					"ID": 67,
+					"Type": "Set:Strada.TransformComponent.Scale",
+					"Position": [
+						896.0,
+						2352.0
+					]
+				},
+				{
 					"ID": 68,
 					"Type": "Variable.Get",
 					"Position": [
@@ -859,34 +860,45 @@
 						2544.0
 					],
 					"Settings": {
-						"Variable": 11
+						"Variable": 3
 					}
 				},
 				{
 					"ID": 69,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2608.0
+					],
+					"Settings": {
+						"Variable": 11
+					}
+				},
+				{
+					"ID": 70,
 					"Type": "Expression",
 					"Position": [
 						192.0,
-						2544.0
+						2608.0
 					],
 					"Settings": {
 						"Formula": "abs(width - collider) > 0.05"
 					}
 				},
 				{
-					"ID": 70,
+					"ID": 71,
 					"Type": "Flow.Branch",
 					"Position": [
 						1104.0,
-						2288.0
+						2352.0
 					]
 				},
 				{
-					"ID": 71,
+					"ID": 72,
 					"Type": "Set:Strada.BoxColliderComponent.HalfExtents",
 					"Position": [
 						1328.0,
-						2288.0
+						2352.0
 					],
 					"Inputs": {
 						"Value": [
@@ -898,68 +910,68 @@
 					"Comment": "Setting the box again makes the physics rebuild it at the paddle's new width"
 				},
 				{
-					"ID": 72,
+					"ID": 73,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						2608.0
+						2672.0
 					],
 					"Settings": {
 						"Variable": 3
 					}
 				},
 				{
-					"ID": 73,
+					"ID": 74,
 					"Type": "Variable.Set",
 					"Position": [
 						1632.0,
-						2288.0
+						2352.0
 					],
 					"Settings": {
 						"Variable": 11
 					}
 				},
 				{
-					"ID": 75,
+					"ID": 76,
 					"Type": "Event.CollisionEnter",
 					"Position": [
 						0.0,
-						2800.0
+						2864.0
 					]
-				},
-				{
-					"ID": 76,
-					"Type": "RunsGraph",
-					"Position": [
-						192.0,
-						2800.0
-					],
-					"Settings": {
-						"Graph": "7992801857554523135"
-					}
 				},
 				{
 					"ID": 77,
-					"Type": "Flow.Branch",
+					"Type": "RunsGraph",
 					"Position": [
-						400.0,
-						2800.0
-					]
+						192.0,
+						2864.0
+					],
+					"Settings": {
+						"Graph": "16219410850394416192"
+					}
 				},
 				{
 					"ID": 78,
-					"Type": "Call:Strada.AudioSourceComponent.Play()",
+					"Type": "Flow.Branch",
 					"Position": [
-						624.0,
-						2800.0
+						400.0,
+						2864.0
 					]
 				},
 				{
 					"ID": 79,
+					"Type": "Call:Strada.AudioSourceComponent.Play()",
+					"Position": [
+						624.0,
+						2864.0
+					]
+				},
+				{
+					"ID": 80,
 					"Type": "Flow.Tween",
 					"Position": [
 						832.0,
-						2800.0
+						2864.0
 					],
 					"Settings": {
 						"Easing": "Linear"
@@ -969,33 +981,33 @@
 					}
 				},
 				{
-					"ID": 80,
+					"ID": 81,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						2928.0
+						2992.0
 					],
 					"Settings": {
 						"Variable": 3
 					}
 				},
 				{
-					"ID": 81,
+					"ID": 82,
 					"Type": "Expression",
 					"Position": [
 						1136.0,
-						2800.0
+						2864.0
 					],
 					"Settings": {
 						"Formula": "vec3(width, 0.4 * (1 - 0.35 * sin(alpha * pi)), 0.5 * (1 + 0.2 * sin(alpha * pi)))"
 					}
 				},
 				{
-					"ID": 82,
+					"ID": 83,
 					"Type": "Set:Strada.TransformComponent.Scale",
 					"Position": [
 						1344.0,
-						2800.0
+						2864.0
 					]
 				}
 			],
@@ -1046,7 +1058,7 @@
 						"Value"
 					],
 					"To": [
-						42,
+						43,
 						"delta"
 					]
 				},
@@ -1056,7 +1068,7 @@
 						"Value"
 					],
 					"To": [
-						42,
+						43,
 						"mouse"
 					]
 				},
@@ -1066,7 +1078,7 @@
 						"Value"
 					],
 					"To": [
-						42,
+						43,
 						"screen"
 					]
 				},
@@ -1076,7 +1088,7 @@
 						"Value"
 					],
 					"To": [
-						42,
+						43,
 						"span"
 					]
 				},
@@ -1086,7 +1098,7 @@
 						"Value"
 					],
 					"To": [
-						42,
+						43,
 						"target"
 					]
 				},
@@ -1096,7 +1108,7 @@
 						"Result"
 					],
 					"To": [
-						42,
+						43,
 						"direction"
 					]
 				},
@@ -1106,7 +1118,7 @@
 						"Value"
 					],
 					"To": [
-						42,
+						43,
 						"speed"
 					]
 				},
@@ -1116,7 +1128,7 @@
 						"DeltaTime"
 					],
 					"To": [
-						42,
+						43,
 						"dt"
 					]
 				},
@@ -1126,38 +1138,38 @@
 						"Value"
 					],
 					"To": [
-						42,
+						43,
 						"limit"
 					]
 				},
 				{
 					"From": [
-						43,
+						42,
 						"Value"
 					],
 					"To": [
+						43,
+						"width"
+					]
+				},
+				{
+					"From": [
 						44,
+						"Value"
+					],
+					"To": [
+						45,
 						"Condition"
 					]
 				},
 				{
 					"From": [
-						42,
+						43,
 						"Result"
 					],
 					"To": [
-						45,
-						"Value"
-					]
-				},
-				{
-					"From": [
 						46,
 						"Value"
-					],
-					"To": [
-						50,
-						"x"
 					]
 				},
 				{
@@ -1166,7 +1178,17 @@
 						"Value"
 					],
 					"To": [
-						50,
+						51,
+						"x"
+					]
+				},
+				{
+					"From": [
+						48,
+						"Value"
+					],
+					"To": [
+						51,
 						"target"
 					]
 				},
@@ -1176,18 +1198,8 @@
 						"DeltaTime"
 					],
 					"To": [
-						50,
+						51,
 						"dt"
-					]
-				},
-				{
-					"From": [
-						48,
-						"Value"
-					],
-					"To": [
-						50,
-						"limit"
 					]
 				},
 				{
@@ -1196,17 +1208,27 @@
 						"Value"
 					],
 					"To": [
-						50,
-						"width"
+						51,
+						"limit"
 					]
 				},
 				{
 					"From": [
 						50,
-						"Result"
+						"Value"
 					],
 					"To": [
 						51,
+						"width"
+					]
+				},
+				{
+					"From": [
+						51,
+						"Result"
+					],
+					"To": [
+						52,
 						"Value"
 					]
 				},
@@ -1216,58 +1238,48 @@
 						"Then"
 					],
 					"To": [
-						44,
+						45,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						44,
+						45,
 						"True"
 					],
 					"To": [
-						52,
+						53,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						52,
+						53,
 						"Then"
 					],
 					"To": [
-						51,
+						52,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						44,
+						45,
 						"False"
 					],
 					"To": [
-						45,
+						46,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						45,
+						46,
 						"Then"
 					],
 					"To": [
-						51,
+						52,
 						"Execute"
-					]
-				},
-				{
-					"From": [
-						55,
-						"Value"
-					],
-					"To": [
-						57,
-						"x"
 					]
 				},
 				{
@@ -1276,88 +1288,88 @@
 						"Value"
 					],
 					"To": [
+						58,
+						"x"
+					]
+				},
+				{
+					"From": [
 						57,
+						"Value"
+					],
+					"To": [
+						58,
 						"z"
 					]
 				},
 				{
 					"From": [
-						57,
+						58,
 						"Result"
 					],
 					"To": [
-						58,
+						59,
 						"Position"
 					]
 				},
 				{
 					"From": [
-						54,
+						55,
 						"Then"
 					],
 					"To": [
-						58,
+						59,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						60,
+						61,
 						"Seconds"
 					],
 					"To": [
-						62,
+						63,
 						"seconds"
 					]
 				},
 				{
 					"From": [
-						62,
+						63,
 						"Result"
 					],
 					"To": [
-						61,
+						62,
 						"Rate"
 					]
 				},
 				{
 					"From": [
-						61,
+						62,
 						"Width"
 					],
 					"To": [
-						63,
-						"Value"
-					]
-				},
-				{
-					"From": [
 						64,
 						"Value"
-					],
-					"To": [
-						65,
-						"width"
 					]
 				},
 				{
 					"From": [
 						65,
-						"Result"
+						"Value"
 					],
 					"To": [
 						66,
-						"Value"
+						"width"
 					]
 				},
 				{
 					"From": [
-						67,
-						"Value"
+						66,
+						"Result"
 					],
 					"To": [
-						69,
-						"width"
+						67,
+						"Value"
 					]
 				},
 				{
@@ -1366,184 +1378,194 @@
 						"Value"
 					],
 					"To": [
-						69,
-						"collider"
-					]
-				},
-				{
-					"From": [
-						69,
-						"Result"
-					],
-					"To": [
 						70,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						72,
-						"Value"
-					],
-					"To": [
-						73,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						60,
-						"Then"
-					],
-					"To": [
-						61,
-						"PlayFromStart"
-					]
-				},
-				{
-					"From": [
-						61,
-						"Update"
-					],
-					"To": [
-						63,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						63,
-						"Then"
-					],
-					"To": [
-						66,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						66,
-						"Then"
-					],
-					"To": [
-						70,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						70,
-						"True"
-					],
-					"To": [
-						71,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						71,
-						"Then"
-					],
-					"To": [
-						73,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						75,
-						"Other"
-					],
-					"To": [
-						76,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						76,
-						"Result"
-					],
-					"To": [
-						77,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						80,
-						"Value"
-					],
-					"To": [
-						81,
 						"width"
 					]
 				},
 				{
 					"From": [
-						79,
-						"Alpha"
+						69,
+						"Value"
 					],
 					"To": [
-						81,
-						"alpha"
+						70,
+						"collider"
 					]
 				},
 				{
 					"From": [
-						81,
+						70,
 						"Result"
 					],
 					"To": [
-						82,
+						71,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						73,
+						"Value"
+					],
+					"To": [
+						74,
 						"Value"
 					]
 				},
 				{
 					"From": [
-						75,
+						61,
 						"Then"
 					],
 					"To": [
-						77,
-						"Execute"
+						62,
+						"PlayFromStart"
 					]
 				},
 				{
 					"From": [
-						77,
-						"True"
-					],
-					"To": [
-						78,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						78,
-						"Then"
-					],
-					"To": [
-						79,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						79,
+						62,
 						"Update"
 					],
 					"To": [
+						64,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						64,
+						"Then"
+					],
+					"To": [
+						67,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						67,
+						"Then"
+					],
+					"To": [
+						71,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						71,
+						"True"
+					],
+					"To": [
+						72,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						72,
+						"Then"
+					],
+					"To": [
+						74,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						76,
+						"Other"
+					],
+					"To": [
+						77,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						77,
+						"Result"
+					],
+					"To": [
+						78,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						81,
+						"Value"
+					],
+					"To": [
 						82,
+						"width"
+					]
+				},
+				{
+					"From": [
+						80,
+						"Alpha"
+					],
+					"To": [
+						82,
+						"alpha"
+					]
+				},
+				{
+					"From": [
+						82,
+						"Result"
+					],
+					"To": [
+						83,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						76,
+						"Then"
+					],
+					"To": [
+						78,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						78,
+						"True"
+					],
+					"To": [
+						79,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						79,
+						"Then"
+					],
+					"To": [
+						80,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						80,
+						"Update"
+					],
+					"To": [
+						83,
 						"Execute"
 					]
 				}
 			],
 			"Comments": [
 				{
-					"ID": 53,
+					"ID": 54,
 					"Text": "Steer: the mouse or the keys set a target the paddle eases to",
 					"Position": [
 						-32.0,
@@ -1551,7 +1573,7 @@
 					],
 					"Size": [
 						1117.572509765625,
-						1668.0
+						1732.0
 					],
 					"Color": [
 						0.20000000298023224,
@@ -1561,11 +1583,11 @@
 					]
 				},
 				{
-					"ID": 59,
+					"ID": 60,
 					"Text": "Move the body: each physics step carries the paddle to X",
 					"Position": [
 						-32.0,
-						1848.0
+						1912.0
 					],
 					"Size": [
 						694.7850341796875,
@@ -1579,11 +1601,11 @@
 					]
 				},
 				{
-					"ID": 74,
+					"ID": 75,
 					"Text": "Widen: a capsule widens the paddle, which settles back",
 					"Position": [
 						-32.0,
-						2216.0
+						2280.0
 					],
 					"Size": [
 						1821.572509765625,
@@ -1597,11 +1619,11 @@
 					]
 				},
 				{
-					"ID": 83,
+					"ID": 84,
 					"Text": "Squash on a hit: the paddle gives and springs back",
 					"Position": [
 						-32.0,
-						2728.0
+						2792.0
 					],
 					"Size": [
 						1539.13623046875,

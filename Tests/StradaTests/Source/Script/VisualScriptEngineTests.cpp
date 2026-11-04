@@ -3557,39 +3557,6 @@ namespace
 		return Testing::FindVisualScriptRunSet(project / "Assets");
 	}
 
-	// Loads the project's game assembly, as CMake builds it, for as long as it lives (when the project has scripts): graphs
-	// may use its types and members.
-	class ProjectScriptsScope
-	{
-	public:
-		explicit ProjectScriptsScope(std::filesystem::path const& project)
-		{
-			std::string const name = FileSystem::PathToUtf8(project.filename());
-			if (!FileSystem::Exists(project / "Scripts" / (name + ".csproj")))
-			{
-				return;
-			}
-			Result<void> const loaded =
-				ScriptEngine::LoadGameAssembly(FileSystem::GetExecutableDirectory() / project.filename() / (name + ".dll"));
-			REQUIRE_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
-			m_Loaded = true;
-		}
-
-		~ProjectScriptsScope()
-		{
-			if (m_Loaded)
-			{
-				ScriptEngine::UnloadGameAssembly();
-			}
-		}
-
-		ProjectScriptsScope(ProjectScriptsScope const&) = delete;
-		ProjectScriptsScope& operator=(ProjectScriptsScope const&) = delete;
-
-	private:
-		bool m_Loaded = false;
-	};
-
 	// What the nodes of a run set hold, for the feature-test check: the node types (those of enabled nodes apart), whether
 	// an inferred generic method appears without and with TypeArguments, and the types of the timelines' tracks.
 	struct RunSetUses
@@ -3657,7 +3624,7 @@ TEST_CASE("VisualScriptEngine: the projects' scene graphs and the libraries they
 		{
 			continue;
 		}
-		ProjectScriptsScope scripts(project);
+		Testing::ProjectScriptsScope scripts(project);
 		for (RunSetGraph const& graph : graphs)
 		{
 			CAPTURE(graph.Path);
@@ -3693,7 +3660,7 @@ TEST_CASE("VisualScriptEngine: the feature-test graphs use every built-in node k
 	Testing::TemporaryDirectory directory;
 	Testing::AssetManagerScope assets;
 	std::vector<RunSetGraph> const graphs = OpenRunSet(project, directory.GetPath());
-	ProjectScriptsScope scripts(project);
+	Testing::ProjectScriptsScope scripts(project);
 	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
 	REQUIRE(library != nullptr);
 
