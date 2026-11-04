@@ -78,8 +78,10 @@ namespace Strada
 	//
 	// While it plays, play mode owns the game's input frame (Input::SetFrameOwned): the frame ends after each game frame that
 	// Update or Advance ran, and only then, so the input given while no game frame runs (a paused scene, frames refused at a
-	// stop) reaches the next game frame once, whatever editor frames come between. Start and Stop each begin a clean input
-	// frame; keys and buttons held stay down. Main thread only.
+	// stop) reaches the next game frame once, whatever editor frames come between. Graph code that a resume of a stopped
+	// execution runs between frames reads the input of that moment, so it reads that input too, and the next game frame then
+	// sees it again. Start begins a clean input frame, keys and buttons held staying down; Stop releases them, then begins
+	// one. Main thread only.
 	class PlayMode
 	{
 	public:

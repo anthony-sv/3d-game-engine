@@ -403,7 +403,8 @@ namespace Strada
 		              "(KeyCode and MouseButton names), the mouse position in pixels of the game view and scroll for one frame. "
 		              "Pressed and released last one frame. While playing that is the game's next frame: a paused game keeps the "
 		              "presses, releases, mouse movement and scroll until its next frame (play.step, play.advance), however many "
-		              "editor frames come between. Returns the keys and buttons down and the mouse position.",
+		              "editor frames come between; graph code that resuming a stopped execution runs reads it too. Returns the "
+		              "keys and buttons down and the mouse position.",
 		              SchemaBuilder::Object()
 		                  .Property("keys", SchemaBuilder::Object("Key name -> down").AdditionalProperties(SchemaBuilder::Boolean()))
 		                  .Property("mouseButtons",

@@ -289,6 +289,128 @@ TEST_CASE("Application: unconsumed events reach every layer and update Input")
 
 namespace
 {
+	// What a layer read of Input in one of the application's frames.
+	struct InputFrameReading
+	{
+		bool Pressed = false;
+		bool Down = false;
+		glm::vec2 MouseDelta{0.0f};
+		glm::vec2 Scroll{0.0f};
+		bool Owned = false;
+	};
+
+	// Presses a key, moves the mouse and scrolls in the application's first frame, and reads Input in every frame.
+	class InputFrameLayer final : public Layer
+	{
+	public:
+		explicit InputFrameLayer(std::vector<InputFrameReading>& readings)
+			: Layer("Input"),
+			  m_Readings(readings)
+		{
+		}
+
+		void OnUpdate(Timestep) override
+		{
+			if (m_Readings.empty())
+			{
+				Input::SetKeyState(KeyCode::G, true);
+				Input::SetMousePosition({10.0f, 10.0f});
+				Input::SetMousePosition({14.0f, 13.0f});
+				Input::AddScrollDelta({0.0f, 2.0f});
+			}
+			m_Readings.push_back({Input::IsKeyPressed(KeyCode::G), Input::IsKeyDown(KeyCode::G), Input::GetMouseDelta(),
+			                      Input::GetScrollDelta(), Input::IsFrameOwned()});
+		}
+
+	private:
+		std::vector<InputFrameReading>& m_Readings;
+	};
+
+	// Runs InputFrameLayer; with ownFrame, something of the application's owns the input frame from OnInit on.
+	class InputFrameApplication final : public Application
+	{
+	public:
+		InputFrameApplication(ApplicationSpecification const& specification, std::vector<InputFrameReading>& readings, bool ownFrame)
+			: Application(specification),
+			  m_Readings(readings),
+			  m_OwnFrame(ownFrame)
+		{
+		}
+
+	protected:
+		Result<void> OnInit() override
+		{
+			PushLayer<InputFrameLayer>(m_Readings);
+			Input::SetFrameOwned(m_OwnFrame);
+			return {};
+		}
+
+	private:
+		std::vector<InputFrameReading>& m_Readings;
+		bool m_OwnFrame;
+	};
+
+	// Gives the input frame back and clears Input, also when a check fails.
+	struct InputFrameGuard
+	{
+		InputFrameGuard() = default;
+		~InputFrameGuard()
+		{
+			Input::SetFrameOwned(false);
+			Input::Reset();
+		}
+		InputFrameGuard(InputFrameGuard const&) = delete;
+		InputFrameGuard& operator=(InputFrameGuard const&) = delete;
+	};
+}
+
+TEST_CASE("Application: the loop ends the input frame after each frame unless something owns it")
+{
+	InputFrameGuard const guard;
+
+	// Unowned (the player, exported games, the editor's edit mode), each frame of the loop ends the input frame: the press,
+	// the movement and the scroll are seen by the frame they came in only, and the key stays held.
+	std::vector<InputFrameReading> readings;
+	{
+		InputFrameApplication application(HeadlessSpecification(3), readings, false);
+		CHECK(application.Run() == 0);
+	}
+	REQUIRE(readings.size() == 3);
+	CHECK(readings[0].Pressed);
+	CHECK(readings[0].MouseDelta == glm::vec2(4.0f, 3.0f));
+	CHECK(readings[0].Scroll == glm::vec2(0.0f, 2.0f));
+	for (size_t frame = 1; frame < readings.size(); frame++)
+	{
+		CAPTURE(frame);
+		CHECK_FALSE(readings[frame].Pressed);
+		CHECK(readings[frame].Down);
+		CHECK(readings[frame].MouseDelta == glm::vec2(0.0f));
+		CHECK(readings[frame].Scroll == glm::vec2(0.0f));
+	}
+	for (InputFrameReading const& reading : readings)
+	{
+		CHECK_FALSE(reading.Owned);
+	}
+
+	// Owned (the editor's play mode while it plays), the loop keeps them for the owner to end.
+	readings.clear();
+	{
+		InputFrameApplication application(HeadlessSpecification(3), readings, true);
+		CHECK(application.Run() == 0);
+	}
+	REQUIRE(readings.size() == 3);
+	for (InputFrameReading const& reading : readings)
+	{
+		CHECK(reading.Owned);
+		CHECK(reading.Pressed);
+		CHECK(reading.Down);
+		CHECK(reading.MouseDelta == glm::vec2(4.0f, 3.0f));
+		CHECK(reading.Scroll == glm::vec2(0.0f, 2.0f));
+	}
+}
+
+namespace
+{
 	class CloseInInitApplication : public Application
 	{
 	public:

@@ -129,12 +129,26 @@ public sealed class EditorIntegrationTests
 		});
 
 		Assert.True((await CallAsync("play_start", new JsonObject { ["paused"] = true }))["paused"]!.GetValue<bool>());
-		long since = (await CallAsync("log_read", new JsonObject { ["maxCount"] = 1 }))["next"]!.GetValue<long>();
-		async Task<int> CountPressesAsync()
+		// log_read reads oldest first, a page at a time: reads every entry from an index to the log's end, giving the index after
+		// it and how many entries the graph logged.
+		async Task<(long Next, int Presses)> ReadLogAsync(long from)
 		{
-			JsonArray entries = (await CallAsync("log_read", new JsonObject { ["since"] = since }))["entries"]!.AsArray();
-			return entries.Count(entry => entry!["message"]!.GetValue<string>().Contains("Space pressed in the graph", StringComparison.Ordinal));
+			long next = from;
+			int presses = 0;
+			while (true)
+			{
+				JsonNode read = await CallAsync("log_read", new JsonObject { ["since"] = next });
+				JsonArray entries = read["entries"]!.AsArray();
+				if (entries.Count == 0)
+				{
+					return (next, presses);
+				}
+				presses += entries.Count(entry => entry!["message"]!.GetValue<string>().Contains("Space pressed in the graph", StringComparison.Ordinal));
+				next = read["next"]!.GetValue<long>();
+			}
 		}
+		long since = (await ReadLogAsync(0)).Next;
+		async Task<int> CountPressesAsync() => (await ReadLogAsync(since)).Presses;
 
 		// The editor answers each request in a frame of its own and ends that frame before it reads the next one, so editor
 		// frames, which run no game frame while the game is paused, come between the press and the advance.
