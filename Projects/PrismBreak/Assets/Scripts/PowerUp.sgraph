@@ -1,0 +1,1041 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "A capsule that falls from a broken prism: the paddle catches it for its power, or it falls out.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Kind",
+				"Type": "string",
+				"Value": "Widen",
+				"Public": true,
+				"Tooltip": "Widen makes the paddle wider, Slow slows the ball"
+			},
+			{
+				"ID": 2,
+				"Name": "Seconds",
+				"Type": "float",
+				"Value": 8.0,
+				"Public": true,
+				"Tooltip": "How long the power lasts",
+				"Range": [
+					0.5,
+					30.0
+				]
+			},
+			{
+				"ID": 3,
+				"Name": "Game",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The entity whose Game.sgraph a Slow capsule tells"
+			},
+			{
+				"ID": 4,
+				"Name": "Paddle",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The paddle that catches the capsule"
+			},
+			{
+				"ID": 5,
+				"Name": "FallSpeed",
+				"Type": "float",
+				"Value": 4.5,
+				"Public": true,
+				"Tooltip": "Metres per second the capsule falls towards the paddle",
+				"Range": [
+					0.5,
+					20.0
+				]
+			},
+			{
+				"ID": 6,
+				"Name": "Spin",
+				"Type": "float",
+				"Value": 200.0,
+				"Public": true,
+				"Tooltip": "Degrees per second the capsule turns",
+				"Range": [
+					0.0,
+					1000.0
+				]
+			},
+			{
+				"ID": 7,
+				"Name": "Caught",
+				"Type": "bool",
+				"Value": false
+			},
+			{
+				"ID": 8,
+				"Name": "Angle",
+				"Type": "float",
+				"Value": 0.0
+			}
+		],
+		"Functions": [
+			{
+				"ID": 9,
+				"Name": "Catch",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 10,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 11,
+							"Type": "Function.Return",
+							"Position": [
+								1984.0,
+								0.0
+							]
+						},
+						{
+							"ID": 12,
+							"Type": "Variable.Set",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 7
+							},
+							"Inputs": {
+								"Value": true
+							}
+						},
+						{
+							"ID": 13,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 1
+							}
+						},
+						{
+							"ID": 14,
+							"Type": "Flow.Switch",
+							"Position": [
+								416.0,
+								0.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Cases": [
+									"Widen",
+									"Slow"
+								]
+							}
+						},
+						{
+							"ID": 15,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 4
+							}
+						},
+						{
+							"ID": 16,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								240.0
+							],
+							"Settings": {
+								"Variable": 2
+							}
+						},
+						{
+							"ID": 17,
+							"Type": "Event.Send",
+							"Position": [
+								640.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "Widen",
+								"Graph": "6826924986256932464",
+								"Parameters": [
+									{
+										"Name": "Seconds",
+										"Type": "float"
+									}
+								]
+							}
+						},
+						{
+							"ID": 18,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								304.0
+							],
+							"Settings": {
+								"Variable": 3
+							}
+						},
+						{
+							"ID": 19,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								368.0
+							],
+							"Settings": {
+								"Variable": 2
+							}
+						},
+						{
+							"ID": 20,
+							"Type": "Event.Send",
+							"Position": [
+								640.0,
+								176.0
+							],
+							"Settings": {
+								"Name": "SlowDown",
+								"Graph": "17547337789174679122",
+								"Parameters": [
+									{
+										"Name": "Seconds",
+										"Type": "float"
+									}
+								]
+							}
+						},
+						{
+							"ID": 21,
+							"Type": "Set:Strada.MeshComponent.Visible",
+							"Position": [
+								832.0,
+								0.0
+							],
+							"Inputs": {
+								"Value": false
+							}
+						},
+						{
+							"ID": 22,
+							"Type": "Set:Strada.PointLightComponent.Intensity",
+							"Position": [
+								1040.0,
+								0.0
+							],
+							"Inputs": {
+								"Value": 0.0
+							}
+						},
+						{
+							"ID": 23,
+							"Type": "Call:Strada.AudioSourceComponent.Play()",
+							"Position": [
+								1264.0,
+								0.0
+							]
+						},
+						{
+							"ID": 24,
+							"Type": "Flow.Delay",
+							"Position": [
+								1472.0,
+								0.0
+							],
+							"Inputs": {
+								"Duration": 0.8
+							},
+							"Comment": "The capsule stays until its sound has played"
+						},
+						{
+							"ID": 25,
+							"Type": "Call:Strada.Entity.Destroy()",
+							"Position": [
+								1776.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								13,
+								"Value"
+							],
+							"To": [
+								14,
+								"Selection"
+							]
+						},
+						{
+							"From": [
+								15,
+								"Value"
+							],
+							"To": [
+								17,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								16,
+								"Value"
+							],
+							"To": [
+								17,
+								"Seconds"
+							]
+						},
+						{
+							"From": [
+								18,
+								"Value"
+							],
+							"To": [
+								20,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Value"
+							],
+							"To": [
+								20,
+								"Seconds"
+							]
+						},
+						{
+							"From": [
+								10,
+								"Then"
+							],
+							"To": [
+								12,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								12,
+								"Then"
+							],
+							"To": [
+								14,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								14,
+								"Case:Widen"
+							],
+							"To": [
+								17,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								14,
+								"Case:Slow"
+							],
+							"To": [
+								20,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								17,
+								"Then"
+							],
+							"To": [
+								21,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								20,
+								"Then"
+							],
+							"To": [
+								21,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								14,
+								"Default"
+							],
+							"To": [
+								21,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								21,
+								"Then"
+							],
+							"To": [
+								22,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								22,
+								"Then"
+							],
+							"To": [
+								23,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								23,
+								"Then"
+							],
+							"To": [
+								24,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								24,
+								"Completed"
+							],
+							"To": [
+								25,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								25,
+								"Then"
+							],
+							"To": [
+								11,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 26,
+							"Text": "Catch: the power goes to its owner, the capsule goes",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								2168.0,
+								500.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 27,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						320.0
+					]
+				},
+				{
+					"ID": 28,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 7
+					}
+				},
+				{
+					"ID": 29,
+					"Type": "Operator.Not",
+					"Position": [
+						240.0,
+						0.0
+					]
+				},
+				{
+					"ID": 30,
+					"Type": "Flow.Branch",
+					"Position": [
+						448.0,
+						0.0
+					]
+				},
+				{
+					"ID": 31,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						0.0,
+						64.0
+					]
+				},
+				{
+					"ID": 32,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						192.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 33,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						112.0
+					],
+					"Settings": {
+						"Formula": "p + vec3(0, 0, speed * dt)"
+					}
+				},
+				{
+					"ID": 34,
+					"Type": "Set:Strada.Entity.Translation",
+					"Position": [
+						672.0,
+						0.0
+					]
+				},
+				{
+					"ID": 35,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						512.0
+					],
+					"Settings": {
+						"Variable": 8
+					}
+				},
+				{
+					"ID": 36,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						576.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				},
+				{
+					"ID": 37,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						544.0
+					],
+					"Settings": {
+						"Formula": "(angle + spin * dt) % 360"
+					}
+				},
+				{
+					"ID": 38,
+					"Type": "Variable.Set",
+					"Position": [
+						880.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 8
+					}
+				},
+				{
+					"ID": 39,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						640.0
+					],
+					"Settings": {
+						"Variable": 8
+					}
+				},
+				{
+					"ID": 40,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						720.0
+					],
+					"Settings": {
+						"Formula": "vec3(angle, 0, 90)"
+					}
+				},
+				{
+					"ID": 41,
+					"Type": "Set:Strada.TransformComponent.EulerAngles",
+					"Position": [
+						1072.0,
+						0.0
+					]
+				},
+				{
+					"ID": 42,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						256.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 43,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						0.0,
+						832.0
+					]
+				},
+				{
+					"ID": 44,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						240.0,
+						288.0
+					]
+				},
+				{
+					"ID": 45,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						448.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 46,
+					"Type": "Variable.Get",
+					"Position": [
+						240.0,
+						416.0
+					],
+					"Settings": {
+						"Variable": 3,
+						"Graph": "6826924986256932464"
+					}
+				},
+				{
+					"ID": 47,
+					"Type": "Expression",
+					"Position": [
+						448.0,
+						128.0
+					],
+					"Settings": {
+						"Formula": "abs(p.x - q.x) < w * 0.5 + 0.35 && abs(p.z - q.z) < 0.45"
+					}
+				},
+				{
+					"ID": 48,
+					"Type": "Flow.Branch",
+					"Position": [
+						1280.0,
+						0.0
+					]
+				},
+				{
+					"ID": 49,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						0.0,
+						704.0
+					]
+				},
+				{
+					"ID": 50,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						848.0
+					],
+					"Settings": {
+						"Formula": "p.z > 12"
+					}
+				},
+				{
+					"ID": 51,
+					"Type": "Flow.Branch",
+					"Position": [
+						1504.0,
+						0.0
+					]
+				},
+				{
+					"ID": 52,
+					"Type": "Function.Call",
+					"Position": [
+						1504.0,
+						128.0
+					],
+					"Settings": {
+						"Function": 9
+					}
+				},
+				{
+					"ID": 53,
+					"Type": "Call:Strada.Entity.Destroy()",
+					"Position": [
+						1728.0,
+						0.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						28,
+						"Value"
+					],
+					"To": [
+						29,
+						"A"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Result"
+					],
+					"To": [
+						30,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						31,
+						"Value"
+					],
+					"To": [
+						33,
+						"p"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Value"
+					],
+					"To": [
+						33,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						27,
+						"DeltaTime"
+					],
+					"To": [
+						33,
+						"dt"
+					]
+				},
+				{
+					"From": [
+						33,
+						"Result"
+					],
+					"To": [
+						34,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Value"
+					],
+					"To": [
+						37,
+						"angle"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Value"
+					],
+					"To": [
+						37,
+						"spin"
+					]
+				},
+				{
+					"From": [
+						27,
+						"DeltaTime"
+					],
+					"To": [
+						37,
+						"dt"
+					]
+				},
+				{
+					"From": [
+						37,
+						"Result"
+					],
+					"To": [
+						38,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						39,
+						"Value"
+					],
+					"To": [
+						40,
+						"angle"
+					]
+				},
+				{
+					"From": [
+						40,
+						"Result"
+					],
+					"To": [
+						41,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						42,
+						"Value"
+					],
+					"To": [
+						44,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						45,
+						"Value"
+					],
+					"To": [
+						46,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						43,
+						"Value"
+					],
+					"To": [
+						47,
+						"p"
+					]
+				},
+				{
+					"From": [
+						44,
+						"Value"
+					],
+					"To": [
+						47,
+						"q"
+					]
+				},
+				{
+					"From": [
+						46,
+						"Value"
+					],
+					"To": [
+						47,
+						"w"
+					]
+				},
+				{
+					"From": [
+						47,
+						"Result"
+					],
+					"To": [
+						48,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						49,
+						"Value"
+					],
+					"To": [
+						50,
+						"p"
+					]
+				},
+				{
+					"From": [
+						50,
+						"Result"
+					],
+					"To": [
+						51,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Then"
+					],
+					"To": [
+						30,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						30,
+						"True"
+					],
+					"To": [
+						34,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						34,
+						"Then"
+					],
+					"To": [
+						38,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						38,
+						"Then"
+					],
+					"To": [
+						41,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Then"
+					],
+					"To": [
+						48,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						48,
+						"True"
+					],
+					"To": [
+						52,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						48,
+						"False"
+					],
+					"To": [
+						51,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						51,
+						"True"
+					],
+					"To": [
+						53,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 54,
+					"Text": "Fall and spin: caught by the paddle, or missed",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						1923.13623046875,
+						1034.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

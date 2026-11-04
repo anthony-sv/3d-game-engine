@@ -1,0 +1,1120 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "One of the arena's six lights: it pulses in the colour of every prism the ball hits, runs a rainbow chase when a level is cleared and flashes red when a life is lost.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Base",
+				"Type": "Strada.Color",
+				"Value": [
+					0.08,
+					0.85,
+					1.0,
+					1.0
+				],
+				"Public": true,
+				"Tooltip": "The light's colour at rest"
+			},
+			{
+				"ID": 2,
+				"Name": "BaseIntensity",
+				"Type": "float",
+				"Value": 6.0,
+				"Public": true,
+				"Tooltip": "The light's intensity at rest",
+				"Range": [
+					0.0,
+					50.0
+				]
+			},
+			{
+				"ID": 3,
+				"Name": "Index",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "The light's place in the rainbow chase",
+				"Range": [
+					0.0,
+					15.0
+				]
+			},
+			{
+				"ID": 4,
+				"Name": "Flash",
+				"Type": "Strada.Color",
+				"Value": [
+					1.0,
+					1.0,
+					1.0,
+					1.0
+				]
+			},
+			{
+				"ID": 5,
+				"Name": "FlashStrength",
+				"Type": "float",
+				"Value": 1.0
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 9,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						688.0
+					],
+					"Settings": {
+						"Name": "Pulse",
+						"Parameters": [
+							{
+								"Name": "Tint",
+								"Type": "Strada.Color"
+							},
+							{
+								"Name": "Strength",
+								"Type": "float"
+							}
+						]
+					}
+				},
+				{
+					"ID": 10,
+					"Type": "Variable.Set",
+					"Position": [
+						192.0,
+						688.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 11,
+					"Type": "Variable.Set",
+					"Position": [
+						384.0,
+						688.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 12,
+					"Type": "Flow.Tween",
+					"Position": [
+						592.0,
+						688.0
+					],
+					"Settings": {
+						"Easing": "EaseOut"
+					},
+					"Inputs": {
+						"Duration": 0.45
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						848.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 14,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						912.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 15,
+					"Type": "Call:Strada.Color.Lerp(Strada.Color,Strada.Color,float)",
+					"Position": [
+						896.0,
+						688.0
+					]
+				},
+				{
+					"ID": 16,
+					"Type": "Set:Strada.PointLightComponent.Color",
+					"Position": [
+						1104.0,
+						688.0
+					]
+				},
+				{
+					"ID": 17,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						976.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 18,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1040.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 19,
+					"Type": "Expression",
+					"Position": [
+						896.0,
+						864.0
+					],
+					"Settings": {
+						"Formula": "base * (1 + 2.5 * strength * (1 - alpha))"
+					}
+				},
+				{
+					"ID": 20,
+					"Type": "Set:Strada.PointLightComponent.Intensity",
+					"Position": [
+						1312.0,
+						688.0
+					]
+				},
+				{
+					"ID": 21,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1104.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 22,
+					"Type": "Set:Strada.PointLightComponent.Color",
+					"Position": [
+						896.0,
+						1040.0
+					]
+				},
+				{
+					"ID": 23,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1168.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 24,
+					"Type": "Set:Strada.PointLightComponent.Intensity",
+					"Position": [
+						1104.0,
+						864.0
+					]
+				},
+				{
+					"ID": 26,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						1344.0
+					],
+					"Settings": {
+						"Name": "LevelCleared",
+						"Parameters": [
+							{
+								"Name": "Level",
+								"Type": "int"
+							}
+						]
+					}
+				},
+				{
+					"ID": 27,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1472.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 28,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						1344.0
+					],
+					"Settings": {
+						"Formula": "index * 0.08"
+					}
+				},
+				{
+					"ID": 29,
+					"Type": "Flow.Delay",
+					"Position": [
+						384.0,
+						1344.0
+					]
+				},
+				{
+					"ID": 30,
+					"Type": "Flow.Timeline",
+					"Position": [
+						624.0,
+						1344.0
+					],
+					"Settings": {
+						"Timeline": {
+							"Length": 1.8,
+							"Loop": false,
+							"Tracks": [
+								{
+									"Name": "Hue",
+									"Type": "Strada.Color",
+									"Keys": [
+										{
+											"Time": 0.0,
+											"Value": [
+												1.0,
+												0.1,
+												0.1,
+												1.0
+											],
+											"Interpolation": "Linear"
+										},
+										{
+											"Time": 0.3,
+											"Value": [
+												1.0,
+												0.6,
+												0.05,
+												1.0
+											],
+											"Interpolation": "Linear"
+										},
+										{
+											"Time": 0.6,
+											"Value": [
+												0.95,
+												1.0,
+												0.1,
+												1.0
+											],
+											"Interpolation": "Linear"
+										},
+										{
+											"Time": 0.9,
+											"Value": [
+												0.1,
+												1.0,
+												0.3,
+												1.0
+											],
+											"Interpolation": "Linear"
+										},
+										{
+											"Time": 1.2,
+											"Value": [
+												0.1,
+												0.8,
+												1.0,
+												1.0
+											],
+											"Interpolation": "Linear"
+										},
+										{
+											"Time": 1.5,
+											"Value": [
+												0.4,
+												0.2,
+												1.0,
+												1.0
+											],
+											"Interpolation": "Linear"
+										},
+										{
+											"Time": 1.8,
+											"Value": [
+												1.0,
+												0.15,
+												0.75,
+												1.0
+											],
+											"Interpolation": "Linear"
+										}
+									]
+								}
+							]
+						}
+					}
+				},
+				{
+					"ID": 31,
+					"Type": "Set:Strada.PointLightComponent.Color",
+					"Position": [
+						928.0,
+						1344.0
+					]
+				},
+				{
+					"ID": 32,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1536.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 33,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						1472.0
+					],
+					"Settings": {
+						"Formula": "base * 2"
+					}
+				},
+				{
+					"ID": 34,
+					"Type": "Set:Strada.PointLightComponent.Intensity",
+					"Position": [
+						1136.0,
+						1344.0
+					]
+				},
+				{
+					"ID": 35,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1600.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 36,
+					"Type": "Set:Strada.PointLightComponent.Color",
+					"Position": [
+						928.0,
+						1520.0
+					]
+				},
+				{
+					"ID": 37,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1664.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 38,
+					"Type": "Set:Strada.PointLightComponent.Intensity",
+					"Position": [
+						1136.0,
+						1520.0
+					]
+				},
+				{
+					"ID": 40,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						1840.0
+					],
+					"Settings": {
+						"Name": "LifeLost",
+						"Parameters": [
+							{
+								"Name": "Lives",
+								"Type": "int"
+							}
+						]
+					}
+				},
+				{
+					"ID": 41,
+					"Type": "Flow.Tween",
+					"Position": [
+						192.0,
+						1840.0
+					],
+					"Settings": {
+						"Easing": "EaseIn"
+					},
+					"Inputs": {
+						"Duration": 0.9
+					}
+				},
+				{
+					"ID": 42,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						1968.0
+					],
+					"Settings": {
+						"Type": "Strada.Color",
+						"Value": [
+							1.0,
+							0.08,
+							0.05,
+							1.0
+						]
+					}
+				},
+				{
+					"ID": 43,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2096.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 44,
+					"Type": "Call:Strada.Color.Lerp(Strada.Color,Strada.Color,float)",
+					"Position": [
+						496.0,
+						1840.0
+					]
+				},
+				{
+					"ID": 45,
+					"Type": "Set:Strada.PointLightComponent.Color",
+					"Position": [
+						704.0,
+						1840.0
+					]
+				},
+				{
+					"ID": 46,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2160.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 47,
+					"Type": "Expression",
+					"Position": [
+						496.0,
+						2016.0
+					],
+					"Settings": {
+						"Formula": "base * (1 + 3 * (1 - alpha))"
+					}
+				},
+				{
+					"ID": 48,
+					"Type": "Set:Strada.PointLightComponent.Intensity",
+					"Position": [
+						912.0,
+						1840.0
+					]
+				},
+				{
+					"ID": 49,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2224.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 50,
+					"Type": "Set:Strada.PointLightComponent.Color",
+					"Position": [
+						496.0,
+						2160.0
+					]
+				},
+				{
+					"ID": 51,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2288.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 52,
+					"Type": "Set:Strada.PointLightComponent.Intensity",
+					"Position": [
+						704.0,
+						2016.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						9,
+						"Tint"
+					],
+					"To": [
+						10,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Strength"
+					],
+					"To": [
+						11,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Value"
+					],
+					"To": [
+						15,
+						"A"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Value"
+					],
+					"To": [
+						15,
+						"B"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Alpha"
+					],
+					"To": [
+						15,
+						"T"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Result"
+					],
+					"To": [
+						16,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						17,
+						"Value"
+					],
+					"To": [
+						19,
+						"base"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Value"
+					],
+					"To": [
+						19,
+						"strength"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Alpha"
+					],
+					"To": [
+						19,
+						"alpha"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Result"
+					],
+					"To": [
+						20,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Then"
+					],
+					"To": [
+						10,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						10,
+						"Then"
+					],
+					"To": [
+						11,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Then"
+					],
+					"To": [
+						12,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Update"
+					],
+					"To": [
+						16,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						16,
+						"Then"
+					],
+					"To": [
+						20,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						21,
+						"Value"
+					],
+					"To": [
+						22,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Value"
+					],
+					"To": [
+						24,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						22,
+						"Then"
+					],
+					"To": [
+						24,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Completed"
+					],
+					"To": [
+						22,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Value"
+					],
+					"To": [
+						28,
+						"index"
+					]
+				},
+				{
+					"From": [
+						28,
+						"Result"
+					],
+					"To": [
+						29,
+						"Duration"
+					]
+				},
+				{
+					"From": [
+						30,
+						"Hue"
+					],
+					"To": [
+						31,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Value"
+					],
+					"To": [
+						33,
+						"base"
+					]
+				},
+				{
+					"From": [
+						33,
+						"Result"
+					],
+					"To": [
+						34,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						26,
+						"Then"
+					],
+					"To": [
+						29,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Completed"
+					],
+					"To": [
+						30,
+						"PlayFromStart"
+					]
+				},
+				{
+					"From": [
+						30,
+						"Update"
+					],
+					"To": [
+						31,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						31,
+						"Then"
+					],
+					"To": [
+						34,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Value"
+					],
+					"To": [
+						36,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						37,
+						"Value"
+					],
+					"To": [
+						38,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Then"
+					],
+					"To": [
+						38,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						30,
+						"Finished"
+					],
+					"To": [
+						36,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						42,
+						"Value"
+					],
+					"To": [
+						44,
+						"A"
+					]
+				},
+				{
+					"From": [
+						43,
+						"Value"
+					],
+					"To": [
+						44,
+						"B"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Alpha"
+					],
+					"To": [
+						44,
+						"T"
+					]
+				},
+				{
+					"From": [
+						44,
+						"Result"
+					],
+					"To": [
+						45,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						46,
+						"Value"
+					],
+					"To": [
+						47,
+						"base"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Alpha"
+					],
+					"To": [
+						47,
+						"alpha"
+					]
+				},
+				{
+					"From": [
+						47,
+						"Result"
+					],
+					"To": [
+						48,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						40,
+						"Then"
+					],
+					"To": [
+						41,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Update"
+					],
+					"To": [
+						45,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						45,
+						"Then"
+					],
+					"To": [
+						48,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						49,
+						"Value"
+					],
+					"To": [
+						50,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						51,
+						"Value"
+					],
+					"To": [
+						52,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						50,
+						"Then"
+					],
+					"To": [
+						52,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Completed"
+					],
+					"To": [
+						50,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 25,
+					"Text": "Pulse: flash in the prism's colour, fade back",
+					"Position": [
+						-32.0,
+						616.0
+					],
+					"Size": [
+						1507.13623046875,
+						612.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 39,
+					"Text": "Rainbow chase: a cleared level runs the colours round",
+					"Position": [
+						-32.0,
+						1272.0
+					],
+					"Size": [
+						1331.13623046875,
+						452.0
+					],
+					"Color": [
+						0.25,
+						0.7799999713897705,
+						0.4000000059604645,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 53,
+					"Text": "Warning: a lost life flashes the lights red",
+					"Position": [
+						-32.0,
+						1768.0
+					],
+					"Size": [
+						1107.13623046875,
+						580.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

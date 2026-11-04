@@ -1,0 +1,535 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Kind": "Library",
+		"Description": "What the test scene's checks share: reporting a check and comparing numbers, vectors and tables.",
+		"Variables": [],
+		"Functions": [
+			{
+				"ID": 1,
+				"Name": "Check",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Name",
+						"Type": "string"
+					},
+					{
+						"Name": "Passed",
+						"Type": "bool"
+					},
+					{
+						"Name": "Detail",
+						"Type": "string"
+					}
+				],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 2,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 3,
+							"Type": "Function.Return",
+							"Position": [
+								608.0,
+								0.0
+							]
+						},
+						{
+							"ID": 13,
+							"Type": "Flow.Branch",
+							"Position": [
+								192.0,
+								0.0
+							]
+						},
+						{
+							"ID": 14,
+							"Type": "Call:Strada.Testing.TestReporter.Pass(string)",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 15,
+							"Type": "Call:Strada.Testing.TestReporter.Fail(string,string)",
+							"Position": [
+								416.0,
+								144.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								2,
+								"Passed"
+							],
+							"To": [
+								13,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Name"
+							],
+							"To": [
+								14,
+								"Name"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Name"
+							],
+							"To": [
+								15,
+								"Name"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Detail"
+							],
+							"To": [
+								15,
+								"Message"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Then"
+							],
+							"To": [
+								13,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								13,
+								"True"
+							],
+							"To": [
+								14,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								14,
+								"Then"
+							],
+							"To": [
+								3,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								13,
+								"False"
+							],
+							"To": [
+								15,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								15,
+								"Then"
+							],
+							"To": [
+								3,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 16,
+							"Text": "Check: report a pass, or a failure with its detail",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								792.0,
+								378.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 4,
+				"Name": "Near",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "A",
+						"Type": "float"
+					},
+					{
+						"Name": "B",
+						"Type": "float"
+					},
+					{
+						"Name": "Tolerance",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Result",
+						"Type": "bool"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 5,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 6,
+							"Type": "Function.Return",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 17,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "abs(a - b) <= tolerance"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								5,
+								"A"
+							],
+							"To": [
+								17,
+								"a"
+							]
+						},
+						{
+							"From": [
+								5,
+								"B"
+							],
+							"To": [
+								17,
+								"b"
+							]
+						},
+						{
+							"From": [
+								5,
+								"Tolerance"
+							],
+							"To": [
+								17,
+								"tolerance"
+							]
+						},
+						{
+							"From": [
+								17,
+								"Result"
+							],
+							"To": [
+								6,
+								"Result"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 18,
+							"Text": "Near: two numbers within a tolerance",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								600.0,
+								234.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 7,
+				"Name": "NearVector",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "A",
+						"Type": "Strada.Vector3"
+					},
+					{
+						"Name": "B",
+						"Type": "Strada.Vector3"
+					},
+					{
+						"Name": "Tolerance",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Result",
+						"Type": "bool"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 8,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 9,
+							"Type": "Function.Return",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 19,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "distance(a, b) <= tolerance"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								8,
+								"A"
+							],
+							"To": [
+								19,
+								"a"
+							]
+						},
+						{
+							"From": [
+								8,
+								"B"
+							],
+							"To": [
+								19,
+								"b"
+							]
+						},
+						{
+							"From": [
+								8,
+								"Tolerance"
+							],
+							"To": [
+								19,
+								"tolerance"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Result"
+							],
+							"To": [
+								9,
+								"Result"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 20,
+							"Text": "Near vector: two points within a tolerance",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								600.0,
+								234.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 10,
+				"Name": "SameInts",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "A",
+						"Type": "int[]"
+					},
+					{
+						"Name": "B",
+						"Type": "int[]"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Result",
+						"Type": "bool"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 11,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 12,
+							"Type": "Function.Return",
+							"Position": [
+								320.0,
+								0.0
+							]
+						},
+						{
+							"ID": 21,
+							"Type": "Operator.Equal",
+							"Position": [
+								192.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								11,
+								"A"
+							],
+							"To": [
+								21,
+								"A"
+							]
+						},
+						{
+							"From": [
+								11,
+								"B"
+							],
+							"To": [
+								21,
+								"B"
+							]
+						},
+						{
+							"From": [
+								21,
+								"Result"
+							],
+							"To": [
+								12,
+								"Result"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 22,
+							"Text": "Same ints: two tables element by element",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								504.0,
+								194.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [],
+			"Links": [],
+			"Comments": []
+		}
+	}
+}

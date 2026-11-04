@@ -21,6 +21,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <string>
@@ -880,28 +881,22 @@ TEST_CASE("VisualScript: damaged graphs that load also run")
 		REQUIRE(file["Strada"]["Version"] == 3);
 		return file;
 	};
-	std::array<Json, 3> const seeds = {features, readFixture("Editor.json"), readFixture("Language.json")};
-	// Features.sgraph calls the project's library, sends to and reads its other graphs and uses its scripts' members: the
-	// project's graphs are the assets (a copy, which the directory holds) and its scripts the game's.
-	Testing::TemporaryDirectory directory;
-	Testing::AssetManagerScope assets;
-	Testing::OpenVisualScriptsCopy(FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR) / "Assets", directory.GetPath());
-	Testing::ScriptEngineScope scripting(Testing::GetFeatureTestScriptsPath());
+	// Prism Break's match (spec-slice4 section 18.10): a game made of graphs alone, which calls its library, instantiates,
+	// sends to and remotely sets the graphs of what it spawns, broadcasts and waits in latent functions.
+	std::filesystem::path const prismBreak = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / "PrismBreak" / "Assets";
+	Result<std::string> const gameText = FileSystem::ReadTextFile(prismBreak / "Scripts" / "Game.sgraph");
+	REQUIRE(gameText.IsOk());
+	Result<Json> const game = ParseJson(gameText.GetValue());
+	REQUIRE(game.IsOk());
+	constexpr size_t PrismBreakSeed = 3;
+	std::array<Json, 4> const seeds = {features, readFixture("Editor.json"), readFixture("Language.json"), game.GetValue()};
 
 	// Each document that loads runs on an entity of a scene that starts, updates and stops: whatever the runtime makes of
-	// it, including failures, nothing crashes or hangs. The seeds take turns: every third round is Language.json's.
-	Testing::DocumentMutator mutator(10100);
-	std::array<int, 3> ran{};
-	for (int round = 0, rounds = Testing::GetFuzzRounds(100); round < rounds; round++)
+	// it, including failures, nothing crashes or hangs.
+	std::array<int, 4> ran{};
+	auto const run = [&ran](VisualScriptDocument document, size_t seed)
 	{
-		CAPTURE(round);
-		size_t const seed = static_cast<size_t>(round % 3);
-		std::optional<VisualScriptDocument> document = LoadDamagedFile(mutator.Damage(seeds[seed], round));
-		if (!document)
-		{
-			continue;
-		}
-		AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(std::move(*document)), "Damaged");
+		AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(std::move(document)), "Damaged");
 		{
 			Scene scene("Fuzz");
 			Entity entity = scene.CreateEntity("Graph");
@@ -918,10 +913,46 @@ TEST_CASE("VisualScript: damaged graphs that load also run")
 			scene.OnRuntimeStop();
 		}
 		AssetManager::RemoveMemoryAsset(graph);
+	};
+
+	// Features.sgraph calls the FeatureTest project's library, sends to and reads its other graphs and uses its scripts'
+	// members: that project's graphs are the assets (a copy, which the directory holds) and its scripts the game's. Prism
+	// Break's graphs name its own graphs, so its rounds run afterwards, with a copy of its graphs as the assets; they load
+	// as the rounds come, since loading reads no asset.
+	Testing::TemporaryDirectory directory;
+	Testing::AssetManagerScope assets;
+	Testing::OpenVisualScriptsCopy(FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR) / "Assets", directory.GetPath() / "FeatureTest");
+	Testing::ScriptEngineScope scripting(Testing::GetFeatureTestScriptsPath());
+
+	// The seeds take turns: every fourth round is Prism Break's.
+	Testing::DocumentMutator mutator(10100);
+	std::vector<std::pair<int, VisualScriptDocument>> prismBreakRounds;
+	for (int round = 0, rounds = Testing::GetFuzzRounds(100); round < rounds; round++)
+	{
+		CAPTURE(round);
+		size_t const seed = static_cast<size_t>(round % 4);
+		std::optional<VisualScriptDocument> document = LoadDamagedFile(mutator.Damage(seeds[seed], round));
+		if (!document)
+		{
+			continue;
+		}
+		if (seed == PrismBreakSeed)
+		{
+			prismBreakRounds.emplace_back(round, std::move(*document));
+			continue;
+		}
+		run(std::move(*document), seed);
+	}
+	Testing::OpenVisualScriptsCopy(prismBreak, directory.GetPath() / "PrismBreak");
+	for (auto& [round, document] : prismBreakRounds)
+	{
+		CAPTURE(round);
+		run(std::move(document), PrismBreakSeed);
 	}
 	CHECK(ran[0] > 0);
 	CHECK(ran[1] > 0);
 	CHECK(ran[2] > 0);
+	CHECK(ran[3] > 0);
 }
 
 TEST_CASE("VisualScript: an analysis read with a previous one equals the analysis read alone")

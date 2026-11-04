@@ -101,6 +101,40 @@ namespace Strada::Testing
 		ScriptRuntimeScope& operator=(ScriptRuntimeScope const&) = delete;
 	};
 
+	// Loads a repository project's game assembly, which CMake builds to <executable directory>/<name>/<name>.dll, for as long
+	// as it lives, when the project has scripts (Scripts/<name>.csproj): its graphs may use their types and members. Needs an
+	// initialized ScriptEngine.
+	class ProjectScriptsScope
+	{
+	public:
+		explicit ProjectScriptsScope(std::filesystem::path const& project)
+		{
+			std::string const name = FileSystem::PathToUtf8(project.filename());
+			if (!FileSystem::Exists(project / "Scripts" / (name + ".csproj")))
+			{
+				return;
+			}
+			Result<void> const loaded =
+				ScriptEngine::LoadGameAssembly(FileSystem::GetExecutableDirectory() / project.filename() / (name + ".dll"));
+			REQUIRE_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
+			m_Loaded = true;
+		}
+
+		~ProjectScriptsScope()
+		{
+			if (m_Loaded)
+			{
+				ScriptEngine::UnloadGameAssembly();
+			}
+		}
+
+		ProjectScriptsScope(ProjectScriptsScope const&) = delete;
+		ProjectScriptsScope& operator=(ProjectScriptsScope const&) = delete;
+
+	private:
+		bool m_Loaded = false;
+	};
+
 	// Whether a log entry since firstIndex contains the text.
 	inline bool WasLogged(uint64_t firstIndex, std::string_view text)
 	{

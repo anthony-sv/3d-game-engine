@@ -1,0 +1,71 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "8949827716594839316",
+			"Components": {
+				"Tag": {
+					"Tag": "PowerUp"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-100.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.7071068286895752,
+						0.7071068286895752
+					],
+					"Scale": [
+						0.41999998688697815,
+						0.41999998688697815,
+						0.41999998688697815
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "5",
+					"Materials": [
+						"3493591078743754672"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"PointLight": {
+					"Color": [
+						0.20000000298023224,
+						1.0,
+						0.4000000059604645
+					],
+					"Intensity": 4.0,
+					"Range": 3.0,
+					"CastShadows": false
+				},
+				"AudioSource": {
+					"Clip": "6742136291000126096",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				},
+				"VisualScript": {
+					"Graph": "5099310569931107932",
+					"Variables": {}
+				}
+			}
+		}
+	]
+}

@@ -1,0 +1,95 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "7588381177376783200",
+			"Components": {
+				"Tag": {
+					"Tag": "Shard"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-100.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.1599999964237213,
+						0.1599999964237213,
+						0.1599999964237213
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"10662242677766171845"
+					],
+					"CastShadows": false,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 0.05000000074505806,
+					"LinearDamping": 0.4000000059604645,
+					"AngularDamping": 0.30000001192092896,
+					"GravityFactor": 1.0,
+					"Layer": 2,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.5,
+					"Restitution": 0.4000000059604645
+				},
+				"VisualScript": {
+					"Graph": "14616371297491046280",
+					"Variables": {}
+				}
+			}
+		}
+	]
+}

@@ -1,0 +1,9474 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "The match: it builds the levels, serves and launches the ball, scores the prisms, counts lives and combos, clears levels, ends the game with its top five, pauses, and plays itself on the title.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "BrickPrefab",
+				"Type": "Strada.Prefab",
+				"Public": true,
+				"Tooltip": "The prism the levels are built of"
+			},
+			{
+				"ID": 2,
+				"Name": "BallPrefab",
+				"Type": "Strada.Prefab",
+				"Public": true,
+				"Tooltip": "The ball a serve puts on the paddle"
+			},
+			{
+				"ID": 3,
+				"Name": "PowerUpPrefab",
+				"Type": "Strada.Prefab",
+				"Public": true,
+				"Tooltip": "The capsule a broken prism sometimes drops"
+			},
+			{
+				"ID": 4,
+				"Name": "WidenLook",
+				"Type": "Strada.Material",
+				"Public": true,
+				"Tooltip": "The material of a Widen capsule"
+			},
+			{
+				"ID": 5,
+				"Name": "SlowLook",
+				"Type": "Strada.Material",
+				"Public": true,
+				"Tooltip": "The material of a Slow capsule"
+			},
+			{
+				"ID": 6,
+				"Name": "Bricks",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The container of the level's prisms"
+			},
+			{
+				"ID": 7,
+				"Name": "Balls",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The container of the live balls"
+			},
+			{
+				"ID": 8,
+				"Name": "Shards",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The container of the shards of broken prisms"
+			},
+			{
+				"ID": 9,
+				"Name": "PowerUps",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The container of the falling capsules"
+			},
+			{
+				"ID": 10,
+				"Name": "Paddle",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The paddle"
+			},
+			{
+				"ID": 11,
+				"Name": "CameraRig",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The camera rig that hits shake"
+			},
+			{
+				"ID": 12,
+				"Name": "LevelClearSound",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The sound of a cleared level"
+			},
+			{
+				"ID": 13,
+				"Name": "GameOverSound",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The sound of the end of a game"
+			},
+			{
+				"ID": 14,
+				"Name": "PowerUpSound",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The sound of a capsule dropping"
+			},
+			{
+				"ID": 15,
+				"Name": "LaunchSound",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The sound of a launch"
+			},
+			{
+				"ID": 16,
+				"Name": "Columns",
+				"Type": "int",
+				"Value": 11,
+				"Public": true,
+				"Tooltip": "Prisms in a row of a level's layout",
+				"Range": [
+					1.0,
+					15.0
+				]
+			},
+			{
+				"ID": 17,
+				"Name": "Origin",
+				"Type": "Strada.Vector3",
+				"Value": [
+					-7.25,
+					0.5,
+					-10.5
+				],
+				"Public": true,
+				"Tooltip": "Where the first prism of the back row stands"
+			},
+			{
+				"ID": 18,
+				"Name": "Spacing",
+				"Type": "Strada.Vector2",
+				"Value": [
+					1.45,
+					0.85
+				],
+				"Public": true,
+				"Tooltip": "Metres between the prisms' centres, across and along the arena"
+			},
+			{
+				"ID": 19,
+				"Name": "StartLives",
+				"Type": "int",
+				"Value": 3,
+				"Public": true,
+				"Tooltip": "Lives a game starts with",
+				"Range": [
+					1.0,
+					5.0
+				]
+			},
+			{
+				"ID": 20,
+				"Name": "BaseSpeed",
+				"Type": "float",
+				"Value": 9.0,
+				"Public": true,
+				"Tooltip": "The ball's speed on the first level, in metres per second",
+				"Range": [
+					2.0,
+					30.0
+				]
+			},
+			{
+				"ID": 21,
+				"Name": "SpeedPerLevel",
+				"Type": "float",
+				"Value": 1.25,
+				"Public": true,
+				"Tooltip": "Speed the ball gains with every level",
+				"Range": [
+					0.0,
+					5.0
+				]
+			},
+			{
+				"ID": 22,
+				"Name": "PowerUpChance",
+				"Type": "float",
+				"Value": 0.12,
+				"Public": true,
+				"Tooltip": "The chance that a broken prism drops a capsule",
+				"Range": [
+					0.0,
+					1.0
+				]
+			},
+			{
+				"ID": 23,
+				"Name": "WidenSeconds",
+				"Type": "float",
+				"Value": 8.0,
+				"Public": true,
+				"Tooltip": "How long a Widen capsule widens the paddle",
+				"Range": [
+					0.5,
+					30.0
+				]
+			},
+			{
+				"ID": 24,
+				"Name": "SlowSeconds",
+				"Type": "float",
+				"Value": 6.0,
+				"Public": true,
+				"Tooltip": "How long a Slow capsule slows the ball",
+				"Range": [
+					0.5,
+					30.0
+				]
+			},
+			{
+				"ID": 25,
+				"Name": "Seed",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Seeds the random numbers for a repeatable game; 0 leaves them random",
+				"Range": [
+					0.0,
+					1000000.0
+				]
+			},
+			{
+				"ID": 26,
+				"Name": "StartOnTitle",
+				"Type": "bool",
+				"Value": true,
+				"Public": true,
+				"Tooltip": "Starts on the title, which plays itself; otherwise serves at once"
+			},
+			{
+				"ID": 27,
+				"Name": "State",
+				"Type": "string",
+				"Value": "Title",
+				"Public": true,
+				"Tooltip": "Read-out: Title, Serve, Play, Clear or Over"
+			},
+			{
+				"ID": 28,
+				"Name": "Score",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Read-out: the score",
+				"Range": [
+					0.0,
+					1000000000.0
+				]
+			},
+			{
+				"ID": 29,
+				"Name": "Lives",
+				"Type": "int",
+				"Value": 3,
+				"Public": true,
+				"Tooltip": "Read-out: the lives left",
+				"Range": [
+					0.0,
+					99.0
+				]
+			},
+			{
+				"ID": 30,
+				"Name": "Level",
+				"Type": "int",
+				"Value": 1,
+				"Public": true,
+				"Tooltip": "Read-out: the level",
+				"Range": [
+					1.0,
+					1000.0
+				]
+			},
+			{
+				"ID": 31,
+				"Name": "Combo",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Read-out: prisms broken since the ball last touched the paddle",
+				"Range": [
+					0.0,
+					1000.0
+				]
+			},
+			{
+				"ID": 32,
+				"Name": "BricksLeft",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Read-out: prisms left in the level",
+				"Range": [
+					0.0,
+					1000.0
+				]
+			},
+			{
+				"ID": 33,
+				"Name": "BallSpeed",
+				"Type": "float",
+				"Value": 9.0,
+				"Public": true,
+				"Tooltip": "Read-out: the ball's speed now, in metres per second",
+				"Range": [
+					0.0,
+					100.0
+				]
+			},
+			{
+				"ID": 34,
+				"Name": "LastPulseCount",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Read-out: the lights the last hit pulsed",
+				"Range": [
+					0.0,
+					100.0
+				]
+			},
+			{
+				"ID": 35,
+				"Name": "LastBroadcastCount",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Read-out: the graphs the last level clear reached",
+				"Range": [
+					0.0,
+					100.0
+				]
+			},
+			{
+				"ID": 36,
+				"Name": "Attract",
+				"Type": "bool",
+				"Value": false,
+				"Public": true,
+				"Tooltip": "Read-out: the title is playing itself; the screen keeps its points out of the best"
+			},
+			{
+				"ID": 37,
+				"Name": "Levels",
+				"Type": "string[]",
+				"Value": [
+					"...11111.../..1222221../.123333321./..1222221../...11111...",
+					"..11...11../.1221.1221./12..212..21/2..3...3..2/11111111111",
+					"4.4.4.4.4.4/44444444444/4.3333333.4/4.3.222.3.4/4.3.212.3.4/4.3.....3.4"
+				]
+			},
+			{
+				"ID": 38,
+				"Name": "Scores",
+				"Type": "int[]",
+				"Value": []
+			},
+			{
+				"ID": 39,
+				"Name": "LiveBalls",
+				"Type": "Strada.Entity[]",
+				"Value": []
+			},
+			{
+				"ID": 40,
+				"Name": "Building",
+				"Type": "bool",
+				"Value": false
+			},
+			{
+				"ID": 41,
+				"Name": "Launched",
+				"Type": "bool",
+				"Value": false
+			},
+			{
+				"ID": 42,
+				"Name": "Paused",
+				"Type": "bool",
+				"Value": false
+			},
+			{
+				"ID": 43,
+				"Name": "Clearing",
+				"Type": "bool",
+				"Value": false
+			}
+		],
+		"Functions": [
+			{
+				"ID": 53,
+				"Name": "BuildLevel",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Number",
+						"Type": "int"
+					}
+				],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 54,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 55,
+							"Type": "Function.Return",
+							"Position": [
+								1776.0,
+								368.0
+							]
+						},
+						{
+							"ID": 81,
+							"Type": "Variable.Set",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 40
+							},
+							"Inputs": {
+								"Value": true
+							}
+						},
+						{
+							"ID": 82,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 83,
+							"Type": "Get:Strada.Entity.Children",
+							"Position": [
+								192.0,
+								128.0
+							]
+						},
+						{
+							"ID": 84,
+							"Type": "Flow.ForEach",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 85,
+							"Type": "Call:Strada.Entity.Destroy()",
+							"Position": [
+								656.0,
+								0.0
+							]
+						},
+						{
+							"ID": 86,
+							"Type": "Variable.Set",
+							"Position": [
+								656.0,
+								144.0
+							],
+							"Settings": {
+								"Variable": 32
+							},
+							"Inputs": {
+								"Value": 0
+							}
+						},
+						{
+							"ID": 87,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								192.0
+							],
+							"Settings": {
+								"Variable": 37
+							}
+						},
+						{
+							"ID": 88,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 37
+							}
+						},
+						{
+							"ID": 89,
+							"Type": "Array.Length",
+							"Position": [
+								192.0,
+								256.0
+							]
+						},
+						{
+							"ID": 90,
+							"Type": "Expression",
+							"Position": [
+								416.0,
+								176.0
+							],
+							"Settings": {
+								"Formula": "(number - 1) % count"
+							}
+						},
+						{
+							"ID": 91,
+							"Type": "Array.Get",
+							"Position": [
+								656.0,
+								272.0
+							]
+						},
+						{
+							"ID": 92,
+							"Type": "String.Split",
+							"Position": [
+								928.0,
+								0.0
+							],
+							"Inputs": {
+								"Separator": "/"
+							}
+						},
+						{
+							"ID": 93,
+							"Type": "Flow.ForEach",
+							"Position": [
+								1248.0,
+								0.0
+							]
+						},
+						{
+							"ID": 94,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								320.0
+							],
+							"Settings": {
+								"Variable": 16
+							}
+						},
+						{
+							"ID": 95,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								384.0
+							],
+							"Settings": {
+								"Formula": "columns - 1"
+							}
+						},
+						{
+							"ID": 96,
+							"Type": "Flow.ForLoop",
+							"Position": [
+								1488.0,
+								0.0
+							],
+							"Inputs": {
+								"First": 0
+							}
+						},
+						{
+							"ID": 97,
+							"Type": "String.Substring",
+							"Position": [
+								1776.0,
+								0.0
+							],
+							"Inputs": {
+								"Length": 1
+							}
+						},
+						{
+							"ID": 98,
+							"Type": "String.ToInt",
+							"Position": [
+								2048.0,
+								0.0
+							]
+						},
+						{
+							"ID": 99,
+							"Type": "Expression",
+							"Position": [
+								2256.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "ok && hits > 0"
+							}
+						},
+						{
+							"ID": 100,
+							"Type": "Flow.Branch",
+							"Position": [
+								2448.0,
+								0.0
+							]
+						},
+						{
+							"ID": 101,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								384.0
+							],
+							"Settings": {
+								"Variable": 1
+							}
+						},
+						{
+							"ID": 102,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								448.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 103,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								512.0
+							],
+							"Settings": {
+								"Variable": 17
+							}
+						},
+						{
+							"ID": 104,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								576.0
+							],
+							"Settings": {
+								"Variable": 18
+							}
+						},
+						{
+							"ID": 105,
+							"Type": "Expression",
+							"Position": [
+								1776.0,
+								176.0
+							],
+							"Settings": {
+								"Formula": "origin + vec3(column * spacing.x, 0, row * spacing.y)"
+							}
+						},
+						{
+							"ID": 106,
+							"Type": "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)",
+							"Position": [
+								2672.0,
+								0.0
+							],
+							"Inputs": {
+								"Rotation": [
+									0.0,
+									0.0,
+									0.0,
+									1.0
+								]
+							}
+						},
+						{
+							"ID": 107,
+							"Type": "Variable.Set",
+							"Position": [
+								3024.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 1,
+								"Graph": "406140568513313708"
+							}
+						},
+						{
+							"ID": 108,
+							"Type": "Expression",
+							"Position": [
+								2256.0,
+								144.0
+							],
+							"Settings": {
+								"Formula": "hits * 10"
+							}
+						},
+						{
+							"ID": 109,
+							"Type": "Variable.Set",
+							"Position": [
+								3232.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 2,
+								"Graph": "406140568513313708"
+							}
+						},
+						{
+							"ID": 110,
+							"Type": "Variable.Set",
+							"Position": [
+								3440.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 3,
+								"Graph": "406140568513313708"
+							}
+						},
+						{
+							"ID": 111,
+							"Type": "Self",
+							"Position": [
+								0.0,
+								640.0
+							]
+						},
+						{
+							"ID": 112,
+							"Type": "Variable.Set",
+							"Position": [
+								3648.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 4,
+								"Graph": "406140568513313708"
+							}
+						},
+						{
+							"ID": 113,
+							"Type": "Event.Send",
+							"Position": [
+								3856.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "Configure",
+								"Graph": "406140568513313708",
+								"Parameters": []
+							}
+						},
+						{
+							"ID": 114,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								704.0
+							],
+							"Settings": {
+								"Variable": 32
+							}
+						},
+						{
+							"ID": 115,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								512.0
+							],
+							"Settings": {
+								"Formula": "left + 1"
+							}
+						},
+						{
+							"ID": 116,
+							"Type": "Variable.Set",
+							"Position": [
+								4048.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 32
+							}
+						},
+						{
+							"ID": 117,
+							"Type": "Flow.Delay",
+							"Position": [
+								4240.0,
+								0.0
+							],
+							"Inputs": {
+								"Duration": 0.015
+							},
+							"Comment": "The prisms pop in one by one while the loops wait here"
+						},
+						{
+							"ID": 118,
+							"Type": "Variable.Set",
+							"Position": [
+								1488.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 40
+							},
+							"Inputs": {
+								"Value": false
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								82,
+								"Value"
+							],
+							"To": [
+								83,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								83,
+								"Value"
+							],
+							"To": [
+								84,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								84,
+								"Element"
+							],
+							"To": [
+								85,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								88,
+								"Value"
+							],
+							"To": [
+								89,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Number"
+							],
+							"To": [
+								90,
+								"number"
+							]
+						},
+						{
+							"From": [
+								89,
+								"Length"
+							],
+							"To": [
+								90,
+								"count"
+							]
+						},
+						{
+							"From": [
+								87,
+								"Value"
+							],
+							"To": [
+								91,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								90,
+								"Result"
+							],
+							"To": [
+								91,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								91,
+								"Element"
+							],
+							"To": [
+								92,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								92,
+								"Parts"
+							],
+							"To": [
+								93,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								94,
+								"Value"
+							],
+							"To": [
+								95,
+								"columns"
+							]
+						},
+						{
+							"From": [
+								95,
+								"Result"
+							],
+							"To": [
+								96,
+								"Last"
+							]
+						},
+						{
+							"From": [
+								93,
+								"Element"
+							],
+							"To": [
+								97,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								96,
+								"Index"
+							],
+							"To": [
+								97,
+								"Start"
+							]
+						},
+						{
+							"From": [
+								97,
+								"Result"
+							],
+							"To": [
+								98,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								98,
+								"Success"
+							],
+							"To": [
+								99,
+								"ok"
+							]
+						},
+						{
+							"From": [
+								98,
+								"Value"
+							],
+							"To": [
+								99,
+								"hits"
+							]
+						},
+						{
+							"From": [
+								99,
+								"Result"
+							],
+							"To": [
+								100,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								103,
+								"Value"
+							],
+							"To": [
+								105,
+								"origin"
+							]
+						},
+						{
+							"From": [
+								96,
+								"Index"
+							],
+							"To": [
+								105,
+								"column"
+							]
+						},
+						{
+							"From": [
+								104,
+								"Value"
+							],
+							"To": [
+								105,
+								"spacing"
+							]
+						},
+						{
+							"From": [
+								93,
+								"Index"
+							],
+							"To": [
+								105,
+								"row"
+							]
+						},
+						{
+							"From": [
+								101,
+								"Value"
+							],
+							"To": [
+								106,
+								"Prefab"
+							]
+						},
+						{
+							"From": [
+								102,
+								"Value"
+							],
+							"To": [
+								106,
+								"Parent"
+							]
+						},
+						{
+							"From": [
+								105,
+								"Result"
+							],
+							"To": [
+								106,
+								"Position"
+							]
+						},
+						{
+							"From": [
+								98,
+								"Value"
+							],
+							"To": [
+								107,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								106,
+								"Result"
+							],
+							"To": [
+								107,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								98,
+								"Value"
+							],
+							"To": [
+								108,
+								"hits"
+							]
+						},
+						{
+							"From": [
+								108,
+								"Result"
+							],
+							"To": [
+								109,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								106,
+								"Result"
+							],
+							"To": [
+								109,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								93,
+								"Index"
+							],
+							"To": [
+								110,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								106,
+								"Result"
+							],
+							"To": [
+								110,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								111,
+								"Self"
+							],
+							"To": [
+								112,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								106,
+								"Result"
+							],
+							"To": [
+								112,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								106,
+								"Result"
+							],
+							"To": [
+								113,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								114,
+								"Value"
+							],
+							"To": [
+								115,
+								"left"
+							]
+						},
+						{
+							"From": [
+								115,
+								"Result"
+							],
+							"To": [
+								116,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Then"
+							],
+							"To": [
+								81,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								81,
+								"Then"
+							],
+							"To": [
+								84,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								84,
+								"Body"
+							],
+							"To": [
+								85,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								84,
+								"Completed"
+							],
+							"To": [
+								86,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								86,
+								"Then"
+							],
+							"To": [
+								93,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								93,
+								"Body"
+							],
+							"To": [
+								96,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								96,
+								"Body"
+							],
+							"To": [
+								100,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								100,
+								"True"
+							],
+							"To": [
+								106,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								106,
+								"Then"
+							],
+							"To": [
+								107,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								107,
+								"Then"
+							],
+							"To": [
+								109,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								109,
+								"Then"
+							],
+							"To": [
+								110,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								110,
+								"Then"
+							],
+							"To": [
+								112,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								112,
+								"Then"
+							],
+							"To": [
+								113,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								113,
+								"Then"
+							],
+							"To": [
+								116,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								116,
+								"Then"
+							],
+							"To": [
+								117,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								93,
+								"Completed"
+							],
+							"To": [
+								118,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								118,
+								"Then"
+							],
+							"To": [
+								55,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 119,
+							"Text": "Build a level: its layout, row by row, prism by prism",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								4542.2451171875,
+								836.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 56,
+				"Name": "Serve",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 57,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 58,
+							"Type": "Function.Return",
+							"Position": [
+								2880.0,
+								0.0
+							]
+						},
+						{
+							"ID": 120,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 121,
+							"Type": "Flow.ForEach",
+							"Position": [
+								192.0,
+								0.0
+							]
+						},
+						{
+							"ID": 122,
+							"Type": "Call:Strada.Entity.Destroy()",
+							"Position": [
+								432.0,
+								0.0
+							]
+						},
+						{
+							"ID": 123,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Type": "Strada.Entity[]",
+								"Value": []
+							}
+						},
+						{
+							"ID": 124,
+							"Type": "Variable.Set",
+							"Position": [
+								432.0,
+								144.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 125,
+							"Type": "Variable.Set",
+							"Position": [
+								624.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 41
+							},
+							"Inputs": {
+								"Value": false
+							}
+						},
+						{
+							"ID": 126,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								304.0
+							],
+							"Settings": {
+								"Variable": 2
+							}
+						},
+						{
+							"ID": 127,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								368.0
+							],
+							"Settings": {
+								"Variable": 7
+							}
+						},
+						{
+							"ID": 128,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								432.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 129,
+							"Type": "Get:Strada.Entity.Translation",
+							"Position": [
+								192.0,
+								176.0
+							]
+						},
+						{
+							"ID": 130,
+							"Type": "Expression",
+							"Position": [
+								432.0,
+								272.0
+							],
+							"Settings": {
+								"Formula": "vec3(p.x, 0.5, p.z - 0.6)"
+							}
+						},
+						{
+							"ID": 131,
+							"Type": "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)",
+							"Position": [
+								848.0,
+								0.0
+							],
+							"Inputs": {
+								"Rotation": [
+									0.0,
+									0.0,
+									0.0,
+									1.0
+								]
+							}
+						},
+						{
+							"ID": 132,
+							"Type": "Self",
+							"Position": [
+								0.0,
+								496.0
+							]
+						},
+						{
+							"ID": 133,
+							"Type": "Variable.Set",
+							"Position": [
+								1200.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 1,
+								"Graph": "16219410850394416192"
+							}
+						},
+						{
+							"ID": 134,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								560.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 135,
+							"Type": "Variable.Set",
+							"Position": [
+								1408.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 2,
+								"Graph": "16219410850394416192"
+							}
+						},
+						{
+							"ID": 136,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								624.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 137,
+							"Type": "Array.Add",
+							"Position": [
+								1200.0,
+								176.0
+							]
+						},
+						{
+							"ID": 138,
+							"Type": "Variable.Set",
+							"Position": [
+								1616.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 139,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								688.0
+							],
+							"Settings": {
+								"Variable": 20
+							}
+						},
+						{
+							"ID": 140,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								752.0
+							],
+							"Settings": {
+								"Variable": 21
+							}
+						},
+						{
+							"ID": 141,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								816.0
+							],
+							"Settings": {
+								"Variable": 30
+							}
+						},
+						{
+							"ID": 142,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								304.0
+							],
+							"Settings": {
+								"Formula": "base + per_level * (level - 1)"
+							}
+						},
+						{
+							"ID": 143,
+							"Type": "Variable.Set",
+							"Position": [
+								1808.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 33
+							}
+						},
+						{
+							"ID": 144,
+							"Type": "Variable.Set",
+							"Position": [
+								2000.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 31
+							},
+							"Inputs": {
+								"Value": 0
+							}
+						},
+						{
+							"ID": 145,
+							"Type": "Variable.Set",
+							"Position": [
+								2272.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 27
+							},
+							"Inputs": {
+								"Value": "Serve"
+							}
+						},
+						{
+							"ID": 146,
+							"Type": "Event.Broadcast",
+							"Position": [
+								2576.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "StateChanged",
+								"Parameters": [
+									{
+										"Name": "State",
+										"Type": "string"
+									}
+								]
+							},
+							"Inputs": {
+								"State": "Serve"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								120,
+								"Value"
+							],
+							"To": [
+								121,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								121,
+								"Element"
+							],
+							"To": [
+								122,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								121,
+								"Body"
+							],
+							"To": [
+								122,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								123,
+								"Value"
+							],
+							"To": [
+								124,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								121,
+								"Completed"
+							],
+							"To": [
+								124,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								124,
+								"Then"
+							],
+							"To": [
+								125,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								128,
+								"Value"
+							],
+							"To": [
+								129,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								129,
+								"Value"
+							],
+							"To": [
+								130,
+								"p"
+							]
+						},
+						{
+							"From": [
+								126,
+								"Value"
+							],
+							"To": [
+								131,
+								"Prefab"
+							]
+						},
+						{
+							"From": [
+								127,
+								"Value"
+							],
+							"To": [
+								131,
+								"Parent"
+							]
+						},
+						{
+							"From": [
+								130,
+								"Result"
+							],
+							"To": [
+								131,
+								"Position"
+							]
+						},
+						{
+							"From": [
+								132,
+								"Self"
+							],
+							"To": [
+								133,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								131,
+								"Result"
+							],
+							"To": [
+								133,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								134,
+								"Value"
+							],
+							"To": [
+								135,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								131,
+								"Result"
+							],
+							"To": [
+								135,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								136,
+								"Value"
+							],
+							"To": [
+								137,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								131,
+								"Result"
+							],
+							"To": [
+								137,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								137,
+								"Result"
+							],
+							"To": [
+								138,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								139,
+								"Value"
+							],
+							"To": [
+								142,
+								"base"
+							]
+						},
+						{
+							"From": [
+								140,
+								"Value"
+							],
+							"To": [
+								142,
+								"per_level"
+							]
+						},
+						{
+							"From": [
+								141,
+								"Value"
+							],
+							"To": [
+								142,
+								"level"
+							]
+						},
+						{
+							"From": [
+								142,
+								"Result"
+							],
+							"To": [
+								143,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								145,
+								"Then"
+							],
+							"To": [
+								146,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								57,
+								"Then"
+							],
+							"To": [
+								121,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								125,
+								"Then"
+							],
+							"To": [
+								131,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								131,
+								"Then"
+							],
+							"To": [
+								133,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								133,
+								"Then"
+							],
+							"To": [
+								135,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								135,
+								"Then"
+							],
+							"To": [
+								138,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								138,
+								"Then"
+							],
+							"To": [
+								143,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								143,
+								"Then"
+							],
+							"To": [
+								144,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								144,
+								"Then"
+							],
+							"To": [
+								145,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								146,
+								"Then"
+							],
+							"To": [
+								58,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 147,
+							"Text": "Serve: a new ball waits on the paddle",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								3064.0,
+								948.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 59,
+				"Name": "LaunchBall",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 60,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 61,
+							"Type": "Function.Return",
+							"Position": [
+								2432.0,
+								0.0
+							]
+						},
+						{
+							"ID": 148,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 41
+							}
+						},
+						{
+							"ID": 149,
+							"Type": "Flow.Branch",
+							"Position": [
+								256.0,
+								0.0
+							]
+						},
+						{
+							"ID": 150,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 151,
+							"Type": "Array.Length",
+							"Position": [
+								256.0,
+								128.0
+							]
+						},
+						{
+							"ID": 152,
+							"Type": "Expression",
+							"Position": [
+								544.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "count > 0"
+							}
+						},
+						{
+							"ID": 153,
+							"Type": "Flow.Branch",
+							"Position": [
+								752.0,
+								0.0
+							]
+						},
+						{
+							"ID": 154,
+							"Type": "Variable.Set",
+							"Position": [
+								976.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 41
+							},
+							"Inputs": {
+								"Value": true
+							}
+						},
+						{
+							"ID": 155,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								240.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 156,
+							"Type": "Array.Get",
+							"Position": [
+								256.0,
+								256.0
+							],
+							"Inputs": {
+								"Index": 0
+							}
+						},
+						{
+							"ID": 157,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								304.0
+							],
+							"Settings": {
+								"Variable": 33
+							}
+						},
+						{
+							"ID": 158,
+							"Type": "Call:Strada.Random.Range(float,float)",
+							"Position": [
+								0.0,
+								368.0
+							],
+							"Inputs": {
+								"Min": -0.35,
+								"Max": 0.35
+							}
+						},
+						{
+							"ID": 159,
+							"Type": "Expression",
+							"Position": [
+								256.0,
+								400.0
+							],
+							"Settings": {
+								"Formula": "normalize(vec3(spread, 0, -1)) * speed"
+							}
+						},
+						{
+							"ID": 160,
+							"Type": "Set:Strada.RigidBodyComponent.LinearVelocity",
+							"Position": [
+								1200.0,
+								0.0
+							]
+						},
+						{
+							"ID": 161,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								512.0
+							],
+							"Settings": {
+								"Variable": 15
+							}
+						},
+						{
+							"ID": 162,
+							"Type": "Call:Strada.AudioSourceComponent.Play()",
+							"Position": [
+								1408.0,
+								0.0
+							]
+						},
+						{
+							"ID": 163,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								576.0
+							],
+							"Settings": {
+								"Variable": 27
+							}
+						},
+						{
+							"ID": 164,
+							"Type": "Operator.Equal",
+							"Position": [
+								256.0,
+								544.0
+							],
+							"Inputs": {
+								"B": "Serve"
+							}
+						},
+						{
+							"ID": 165,
+							"Type": "Flow.Branch",
+							"Position": [
+								1600.0,
+								0.0
+							]
+						},
+						{
+							"ID": 166,
+							"Type": "Variable.Set",
+							"Position": [
+								1824.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 27
+							},
+							"Inputs": {
+								"Value": "Play"
+							}
+						},
+						{
+							"ID": 167,
+							"Type": "Event.Broadcast",
+							"Position": [
+								2128.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "StateChanged",
+								"Parameters": [
+									{
+										"Name": "State",
+										"Type": "string"
+									}
+								]
+							},
+							"Inputs": {
+								"State": "Play"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								148,
+								"Value"
+							],
+							"To": [
+								149,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								150,
+								"Value"
+							],
+							"To": [
+								151,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								151,
+								"Length"
+							],
+							"To": [
+								152,
+								"count"
+							]
+						},
+						{
+							"From": [
+								152,
+								"Result"
+							],
+							"To": [
+								153,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								155,
+								"Value"
+							],
+							"To": [
+								156,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								157,
+								"Value"
+							],
+							"To": [
+								159,
+								"speed"
+							]
+						},
+						{
+							"From": [
+								158,
+								"Result"
+							],
+							"To": [
+								159,
+								"spread"
+							]
+						},
+						{
+							"From": [
+								156,
+								"Element"
+							],
+							"To": [
+								160,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								159,
+								"Result"
+							],
+							"To": [
+								160,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								161,
+								"Value"
+							],
+							"To": [
+								162,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								163,
+								"Value"
+							],
+							"To": [
+								164,
+								"A"
+							]
+						},
+						{
+							"From": [
+								164,
+								"Result"
+							],
+							"To": [
+								165,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								166,
+								"Then"
+							],
+							"To": [
+								167,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								60,
+								"Then"
+							],
+							"To": [
+								149,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								149,
+								"False"
+							],
+							"To": [
+								153,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								153,
+								"True"
+							],
+							"To": [
+								154,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								154,
+								"Then"
+							],
+							"To": [
+								160,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								160,
+								"Then"
+							],
+							"To": [
+								162,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								162,
+								"Then"
+							],
+							"To": [
+								165,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								165,
+								"True"
+							],
+							"To": [
+								166,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								167,
+								"Then"
+							],
+							"To": [
+								61,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								165,
+								"False"
+							],
+							"To": [
+								61,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								153,
+								"False"
+							],
+							"To": [
+								61,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								149,
+								"True"
+							],
+							"To": [
+								61,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 168,
+							"Text": "Launch: the ball leaves the paddle at the level's speed",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								2616.0,
+								738.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 62,
+				"Name": "StartAttractMode",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 63,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 64,
+							"Type": "Function.Return",
+							"Position": [
+								2160.0,
+								0.0
+							]
+						},
+						{
+							"ID": 169,
+							"Type": "Variable.Set",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 36
+							},
+							"Inputs": {
+								"Value": true
+							}
+						},
+						{
+							"ID": 170,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 171,
+							"Type": "Variable.Set",
+							"Position": [
+								416.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 8,
+								"Graph": "6826924986256932464"
+							},
+							"Inputs": {
+								"Value": true
+							}
+						},
+						{
+							"ID": 172,
+							"Type": "Variable.Set",
+							"Position": [
+								832.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 27
+							},
+							"Inputs": {
+								"Value": "Title"
+							}
+						},
+						{
+							"ID": 173,
+							"Type": "Event.Broadcast",
+							"Position": [
+								1136.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "StateChanged",
+								"Parameters": [
+									{
+										"Name": "State",
+										"Type": "string"
+									}
+								]
+							},
+							"Inputs": {
+								"State": "Title"
+							}
+						},
+						{
+							"ID": 174,
+							"Type": "Flow.Delay",
+							"Position": [
+								1440.0,
+								0.0
+							],
+							"Inputs": {
+								"Duration": 1.2
+							}
+						},
+						{
+							"ID": 175,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 36
+							}
+						},
+						{
+							"ID": 176,
+							"Type": "Flow.Branch",
+							"Position": [
+								1744.0,
+								0.0
+							]
+						},
+						{
+							"ID": 177,
+							"Type": "Function.Call",
+							"Position": [
+								640.0,
+								0.0
+							],
+							"Settings": {
+								"Function": 56
+							}
+						},
+						{
+							"ID": 178,
+							"Type": "Function.Call",
+							"Position": [
+								1968.0,
+								0.0
+							],
+							"Settings": {
+								"Function": 59
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								170,
+								"Value"
+							],
+							"To": [
+								171,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								172,
+								"Then"
+							],
+							"To": [
+								173,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								175,
+								"Value"
+							],
+							"To": [
+								176,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								63,
+								"Then"
+							],
+							"To": [
+								169,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								169,
+								"Then"
+							],
+							"To": [
+								171,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								171,
+								"Then"
+							],
+							"To": [
+								177,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								177,
+								"Then"
+							],
+							"To": [
+								172,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								173,
+								"Then"
+							],
+							"To": [
+								174,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								174,
+								"Completed"
+							],
+							"To": [
+								176,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								176,
+								"True"
+							],
+							"To": [
+								178,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								178,
+								"Then"
+							],
+							"To": [
+								64,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								176,
+								"False"
+							],
+							"To": [
+								64,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 179,
+							"Text": "Title: the game plays itself until a player starts",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								2344.0,
+								308.0
+							],
+							"Color": [
+								0.25,
+								0.7799999713897705,
+								0.4000000059604645,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 65,
+				"Name": "LevelClear",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [
+					{
+						"ID": 68,
+						"Name": "WasAttract",
+						"Type": "bool",
+						"Value": false
+					}
+				],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 66,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 67,
+							"Type": "Function.Return",
+							"Position": [
+								4368.0,
+								0.0
+							]
+						},
+						{
+							"ID": 180,
+							"Type": "Variable.Set",
+							"Position": [
+								208.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 43
+							},
+							"Inputs": {
+								"Value": true
+							}
+						},
+						{
+							"ID": 181,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 36
+							}
+						},
+						{
+							"ID": 182,
+							"Type": "Variable.Set",
+							"Position": [
+								432.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 68
+							}
+						},
+						{
+							"ID": 183,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 68
+							}
+						},
+						{
+							"ID": 184,
+							"Type": "Flow.Branch",
+							"Position": [
+								624.0,
+								0.0
+							],
+							"Comment": "The title stays up while its demo clears a level"
+						},
+						{
+							"ID": 185,
+							"Type": "Variable.Set",
+							"Position": [
+								848.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 27
+							},
+							"Inputs": {
+								"Value": "Clear"
+							}
+						},
+						{
+							"ID": 186,
+							"Type": "Event.Broadcast",
+							"Position": [
+								1152.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "StateChanged",
+								"Parameters": [
+									{
+										"Name": "State",
+										"Type": "string"
+									}
+								]
+							},
+							"Inputs": {
+								"State": "Clear"
+							}
+						},
+						{
+							"ID": 187,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								240.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 188,
+							"Type": "Flow.ForEach",
+							"Position": [
+								1456.0,
+								0.0
+							]
+						},
+						{
+							"ID": 189,
+							"Type": "Call:Strada.Entity.Destroy()",
+							"Position": [
+								1696.0,
+								0.0
+							]
+						},
+						{
+							"ID": 190,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								304.0
+							],
+							"Settings": {
+								"Type": "Strada.Entity[]",
+								"Value": []
+							}
+						},
+						{
+							"ID": 191,
+							"Type": "Variable.Set",
+							"Position": [
+								1696.0,
+								144.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 192,
+							"Type": "Variable.Set",
+							"Position": [
+								1888.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 41
+							},
+							"Inputs": {
+								"Value": false
+							}
+						},
+						{
+							"ID": 193,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								432.0
+							],
+							"Settings": {
+								"Variable": 30
+							}
+						},
+						{
+							"ID": 194,
+							"Type": "Event.Broadcast",
+							"Position": [
+								2112.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "LevelCleared",
+								"Parameters": [
+									{
+										"Name": "Level",
+										"Type": "int"
+									}
+								]
+							}
+						},
+						{
+							"ID": 195,
+							"Type": "Variable.Set",
+							"Position": [
+								2352.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 35
+							}
+						},
+						{
+							"ID": 196,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								496.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 197,
+							"Type": "Call:Strada.AudioSourceComponent.Play()",
+							"Position": [
+								2592.0,
+								0.0
+							]
+						},
+						{
+							"ID": 198,
+							"Type": "Flow.Delay",
+							"Position": [
+								2784.0,
+								0.0
+							],
+							"Inputs": {
+								"Duration": 2.2
+							}
+						},
+						{
+							"ID": 199,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								560.0
+							],
+							"Settings": {
+								"Variable": 36
+							}
+						},
+						{
+							"ID": 200,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								624.0
+							],
+							"Settings": {
+								"Variable": 68
+							}
+						},
+						{
+							"ID": 201,
+							"Type": "Operator.Equal",
+							"Position": [
+								208.0,
+								128.0
+							]
+						},
+						{
+							"ID": 202,
+							"Type": "Flow.Branch",
+							"Position": [
+								3088.0,
+								0.0
+							],
+							"Comment": "A player who started during the demo's clear has a game of their own: this clear ends here"
+						},
+						{
+							"ID": 203,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								688.0
+							],
+							"Settings": {
+								"Variable": 30
+							}
+						},
+						{
+							"ID": 204,
+							"Type": "Expression",
+							"Position": [
+								208.0,
+								208.0
+							],
+							"Settings": {
+								"Formula": "level + 1"
+							}
+						},
+						{
+							"ID": 205,
+							"Type": "Variable.Set",
+							"Position": [
+								3312.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 30
+							}
+						},
+						{
+							"ID": 206,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								752.0
+							],
+							"Settings": {
+								"Variable": 30
+							}
+						},
+						{
+							"ID": 207,
+							"Type": "Function.Call",
+							"Position": [
+								3504.0,
+								0.0
+							],
+							"Settings": {
+								"Function": 53
+							}
+						},
+						{
+							"ID": 208,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								816.0
+							],
+							"Settings": {
+								"Variable": 36
+							}
+						},
+						{
+							"ID": 209,
+							"Type": "Flow.Branch",
+							"Position": [
+								3696.0,
+								0.0
+							]
+						},
+						{
+							"ID": 210,
+							"Type": "Variable.Set",
+							"Position": [
+								4144.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 43
+							},
+							"Inputs": {
+								"Value": false
+							}
+						},
+						{
+							"ID": 211,
+							"Type": "Function.Call",
+							"Position": [
+								3920.0,
+								0.0
+							],
+							"Settings": {
+								"Function": 62
+							}
+						},
+						{
+							"ID": 212,
+							"Type": "Function.Call",
+							"Position": [
+								3920.0,
+								112.0
+							],
+							"Settings": {
+								"Function": 56
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								181,
+								"Value"
+							],
+							"To": [
+								182,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								183,
+								"Value"
+							],
+							"To": [
+								184,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								185,
+								"Then"
+							],
+							"To": [
+								186,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								187,
+								"Value"
+							],
+							"To": [
+								188,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								188,
+								"Element"
+							],
+							"To": [
+								189,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								188,
+								"Body"
+							],
+							"To": [
+								189,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								190,
+								"Value"
+							],
+							"To": [
+								191,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								188,
+								"Completed"
+							],
+							"To": [
+								191,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								191,
+								"Then"
+							],
+							"To": [
+								192,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								193,
+								"Value"
+							],
+							"To": [
+								194,
+								"Level"
+							]
+						},
+						{
+							"From": [
+								194,
+								"Count"
+							],
+							"To": [
+								195,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								196,
+								"Value"
+							],
+							"To": [
+								197,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								199,
+								"Value"
+							],
+							"To": [
+								201,
+								"A"
+							]
+						},
+						{
+							"From": [
+								200,
+								"Value"
+							],
+							"To": [
+								201,
+								"B"
+							]
+						},
+						{
+							"From": [
+								201,
+								"Result"
+							],
+							"To": [
+								202,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								203,
+								"Value"
+							],
+							"To": [
+								204,
+								"level"
+							]
+						},
+						{
+							"From": [
+								204,
+								"Result"
+							],
+							"To": [
+								205,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								206,
+								"Value"
+							],
+							"To": [
+								207,
+								"Number"
+							]
+						},
+						{
+							"From": [
+								208,
+								"Value"
+							],
+							"To": [
+								209,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								66,
+								"Then"
+							],
+							"To": [
+								180,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								180,
+								"Then"
+							],
+							"To": [
+								182,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								182,
+								"Then"
+							],
+							"To": [
+								184,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								184,
+								"True"
+							],
+							"To": [
+								188,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								184,
+								"False"
+							],
+							"To": [
+								185,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								186,
+								"Then"
+							],
+							"To": [
+								188,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								192,
+								"Then"
+							],
+							"To": [
+								194,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								194,
+								"Then"
+							],
+							"To": [
+								195,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								195,
+								"Then"
+							],
+							"To": [
+								197,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								197,
+								"Then"
+							],
+							"To": [
+								198,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								198,
+								"Completed"
+							],
+							"To": [
+								202,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								202,
+								"True"
+							],
+							"To": [
+								205,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								205,
+								"Then"
+							],
+							"To": [
+								207,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								207,
+								"Then"
+							],
+							"To": [
+								209,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								202,
+								"False"
+							],
+							"To": [
+								210,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								209,
+								"True"
+							],
+							"To": [
+								211,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								211,
+								"Then"
+							],
+							"To": [
+								210,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								209,
+								"False"
+							],
+							"To": [
+								212,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								212,
+								"Then"
+							],
+							"To": [
+								210,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								210,
+								"Then"
+							],
+							"To": [
+								67,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 213,
+							"Text": "Level clear: tell every graph, wait, build the next",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								4552.0,
+								948.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 69,
+				"Name": "ClearBricks",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 70,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 71,
+							"Type": "Function.Return",
+							"Position": [
+								1328.0,
+								0.0
+							]
+						},
+						{
+							"ID": 214,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 6
+							}
+						},
+						{
+							"ID": 215,
+							"Type": "Get:Strada.Entity.Children",
+							"Position": [
+								192.0,
+								0.0
+							]
+						},
+						{
+							"ID": 216,
+							"Type": "Flow.ForEach",
+							"Position": [
+								400.0,
+								0.0
+							]
+						},
+						{
+							"ID": 217,
+							"Type": "Call:Strada.Entity.Destroy()",
+							"Position": [
+								640.0,
+								0.0
+							]
+						},
+						{
+							"ID": 218,
+							"Type": "Variable.Set",
+							"Position": [
+								640.0,
+								144.0
+							],
+							"Settings": {
+								"Variable": 32
+							},
+							"Inputs": {
+								"Value": 0
+							}
+						},
+						{
+							"ID": 219,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 43
+							}
+						},
+						{
+							"ID": 220,
+							"Type": "Operator.Not",
+							"Position": [
+								192.0,
+								128.0
+							]
+						},
+						{
+							"ID": 221,
+							"Type": "Flow.Branch",
+							"Position": [
+								912.0,
+								0.0
+							]
+						},
+						{
+							"ID": 222,
+							"Type": "Function.Call",
+							"Position": [
+								1136.0,
+								0.0
+							],
+							"Settings": {
+								"Function": 65
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								214,
+								"Value"
+							],
+							"To": [
+								215,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								215,
+								"Value"
+							],
+							"To": [
+								216,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								216,
+								"Element"
+							],
+							"To": [
+								217,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								219,
+								"Value"
+							],
+							"To": [
+								220,
+								"A"
+							]
+						},
+						{
+							"From": [
+								220,
+								"Result"
+							],
+							"To": [
+								221,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								70,
+								"Then"
+							],
+							"To": [
+								216,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								216,
+								"Body"
+							],
+							"To": [
+								217,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								216,
+								"Completed"
+							],
+							"To": [
+								218,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								218,
+								"Then"
+							],
+							"To": [
+								221,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								221,
+								"True"
+							],
+							"To": [
+								222,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								222,
+								"Then"
+							],
+							"To": [
+								71,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								221,
+								"False"
+							],
+							"To": [
+								71,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 223,
+							"Text": "Clear the prisms: all go at once, and the level is clear",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1512.0,
+								338.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 72,
+				"Name": "BeginGame",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 73,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 74,
+							"Type": "Function.Return",
+							"Position": [
+								4032.0,
+								0.0
+							]
+						},
+						{
+							"ID": 224,
+							"Type": "Variable.Set",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 36
+							},
+							"Inputs": {
+								"Value": false
+							}
+						},
+						{
+							"ID": 225,
+							"Type": "Variable.Set",
+							"Position": [
+								416.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 42
+							},
+							"Inputs": {
+								"Value": false
+							}
+						},
+						{
+							"ID": 226,
+							"Type": "Set:Strada.Time.TimeScale",
+							"Position": [
+								640.0,
+								0.0
+							],
+							"Inputs": {
+								"Value": 1.0
+							}
+						},
+						{
+							"ID": 227,
+							"Type": "Variable.Set",
+							"Position": [
+								864.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 28
+							},
+							"Inputs": {
+								"Value": 0
+							}
+						},
+						{
+							"ID": 228,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 19
+							}
+						},
+						{
+							"ID": 229,
+							"Type": "Variable.Set",
+							"Position": [
+								1136.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 29
+							}
+						},
+						{
+							"ID": 230,
+							"Type": "Variable.Set",
+							"Position": [
+								1328.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 30
+							},
+							"Inputs": {
+								"Value": 1
+							}
+						},
+						{
+							"ID": 231,
+							"Type": "Variable.Set",
+							"Position": [
+								1600.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 31
+							},
+							"Inputs": {
+								"Value": 0
+							}
+						},
+						{
+							"ID": 232,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 233,
+							"Type": "Variable.Set",
+							"Position": [
+								1872.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 8,
+								"Graph": "6826924986256932464"
+							},
+							"Inputs": {
+								"Value": false
+							}
+						},
+						{
+							"ID": 234,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								240.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 235,
+							"Type": "Flow.ForEach",
+							"Position": [
+								2096.0,
+								0.0
+							]
+						},
+						{
+							"ID": 236,
+							"Type": "Call:Strada.Entity.Destroy()",
+							"Position": [
+								2336.0,
+								0.0
+							]
+						},
+						{
+							"ID": 237,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								304.0
+							],
+							"Settings": {
+								"Type": "Strada.Entity[]",
+								"Value": []
+							}
+						},
+						{
+							"ID": 238,
+							"Type": "Variable.Set",
+							"Position": [
+								2336.0,
+								144.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 239,
+							"Type": "Variable.Set",
+							"Position": [
+								2528.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 41
+							},
+							"Inputs": {
+								"Value": false
+							}
+						},
+						{
+							"ID": 240,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								432.0
+							],
+							"Settings": {
+								"Variable": 9
+							}
+						},
+						{
+							"ID": 241,
+							"Type": "Get:Strada.Entity.Children",
+							"Position": [
+								192.0,
+								128.0
+							]
+						},
+						{
+							"ID": 242,
+							"Type": "Flow.ForEach",
+							"Position": [
+								2752.0,
+								0.0
+							]
+						},
+						{
+							"ID": 243,
+							"Type": "Call:Strada.Entity.Destroy()",
+							"Position": [
+								2992.0,
+								0.0
+							]
+						},
+						{
+							"ID": 244,
+							"Type": "Variable.Set",
+							"Position": [
+								2992.0,
+								144.0
+							],
+							"Settings": {
+								"Variable": 27
+							},
+							"Inputs": {
+								"Value": "Serve"
+							}
+						},
+						{
+							"ID": 245,
+							"Type": "Event.Broadcast",
+							"Position": [
+								3296.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "StateChanged",
+								"Parameters": [
+									{
+										"Name": "State",
+										"Type": "string"
+									}
+								]
+							},
+							"Inputs": {
+								"State": "Serve"
+							}
+						},
+						{
+							"ID": 246,
+							"Type": "Function.Call",
+							"Position": [
+								3600.0,
+								0.0
+							],
+							"Settings": {
+								"Function": 53
+							},
+							"Inputs": {
+								"Number": 1
+							}
+						},
+						{
+							"ID": 247,
+							"Type": "Function.Call",
+							"Position": [
+								3840.0,
+								0.0
+							],
+							"Settings": {
+								"Function": 56
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								228,
+								"Value"
+							],
+							"To": [
+								229,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								232,
+								"Value"
+							],
+							"To": [
+								233,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								234,
+								"Value"
+							],
+							"To": [
+								235,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Element"
+							],
+							"To": [
+								236,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Body"
+							],
+							"To": [
+								236,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								237,
+								"Value"
+							],
+							"To": [
+								238,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Completed"
+							],
+							"To": [
+								238,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								238,
+								"Then"
+							],
+							"To": [
+								239,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								240,
+								"Value"
+							],
+							"To": [
+								241,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								241,
+								"Value"
+							],
+							"To": [
+								242,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								242,
+								"Element"
+							],
+							"To": [
+								243,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								244,
+								"Then"
+							],
+							"To": [
+								245,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								73,
+								"Then"
+							],
+							"To": [
+								224,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								224,
+								"Then"
+							],
+							"To": [
+								225,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								225,
+								"Then"
+							],
+							"To": [
+								226,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								226,
+								"Then"
+							],
+							"To": [
+								227,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								227,
+								"Then"
+							],
+							"To": [
+								229,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								229,
+								"Then"
+							],
+							"To": [
+								230,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								230,
+								"Then"
+							],
+							"To": [
+								231,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								231,
+								"Then"
+							],
+							"To": [
+								233,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								233,
+								"Then"
+							],
+							"To": [
+								235,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								239,
+								"Then"
+							],
+							"To": [
+								242,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								242,
+								"Body"
+							],
+							"To": [
+								243,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								242,
+								"Completed"
+							],
+							"To": [
+								244,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								245,
+								"Then"
+							],
+							"To": [
+								246,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								246,
+								"Then"
+							],
+							"To": [
+								247,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								247,
+								"Then"
+							],
+							"To": [
+								74,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 248,
+							"Text": "A new game: fresh score and lives, the first level",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								4216.0,
+								564.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 75,
+				"Name": "GameOver",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 76,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 77,
+							"Type": "Function.Return",
+							"Position": [
+								2352.0,
+								0.0
+							]
+						},
+						{
+							"ID": 249,
+							"Type": "Variable.Set",
+							"Position": [
+								1744.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 27
+							},
+							"Inputs": {
+								"Value": "Over"
+							}
+						},
+						{
+							"ID": 250,
+							"Type": "Event.Broadcast",
+							"Position": [
+								2048.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "StateChanged",
+								"Parameters": [
+									{
+										"Name": "State",
+										"Type": "string"
+									}
+								]
+							},
+							"Inputs": {
+								"State": "Over"
+							}
+						},
+						{
+							"ID": 251,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 252,
+							"Type": "Flow.ForEach",
+							"Position": [
+								208.0,
+								0.0
+							]
+						},
+						{
+							"ID": 253,
+							"Type": "Call:Strada.Entity.Destroy()",
+							"Position": [
+								448.0,
+								0.0
+							]
+						},
+						{
+							"ID": 254,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Type": "Strada.Entity[]",
+								"Value": []
+							}
+						},
+						{
+							"ID": 255,
+							"Type": "Variable.Set",
+							"Position": [
+								448.0,
+								144.0
+							],
+							"Settings": {
+								"Variable": 39
+							}
+						},
+						{
+							"ID": 256,
+							"Type": "Variable.Set",
+							"Position": [
+								640.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 41
+							},
+							"Inputs": {
+								"Value": false
+							}
+						},
+						{
+							"ID": 257,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								304.0
+							],
+							"Settings": {
+								"Variable": 38
+							}
+						},
+						{
+							"ID": 258,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								368.0
+							],
+							"Settings": {
+								"Variable": 28
+							}
+						},
+						{
+							"ID": 259,
+							"Type": "Function.Call",
+							"Position": [
+								864.0,
+								0.0
+							],
+							"Settings": {
+								"Graph": "11260502822282376115",
+								"Function": 18
+							},
+							"Inputs": {
+								"Keep": 5
+							}
+						},
+						{
+							"ID": 260,
+							"Type": "Variable.Set",
+							"Position": [
+								1136.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 38
+							}
+						},
+						{
+							"ID": 261,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								432.0
+							],
+							"Settings": {
+								"Variable": 28
+							}
+						},
+						{
+							"ID": 262,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								496.0
+							],
+							"Settings": {
+								"Variable": 38
+							}
+						},
+						{
+							"ID": 263,
+							"Type": "Event.Broadcast",
+							"Position": [
+								1328.0,
+								0.0
+							],
+							"Settings": {
+								"Name": "GameEnded",
+								"Parameters": [
+									{
+										"Name": "Score",
+										"Type": "int"
+									},
+									{
+										"Name": "Scores",
+										"Type": "int[]"
+									}
+								]
+							}
+						},
+						{
+							"ID": 264,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								560.0
+							],
+							"Settings": {
+								"Variable": 13
+							}
+						},
+						{
+							"ID": 265,
+							"Type": "Call:Strada.AudioSourceComponent.Play()",
+							"Position": [
+								1552.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								249,
+								"Then"
+							],
+							"To": [
+								250,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								251,
+								"Value"
+							],
+							"To": [
+								252,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								252,
+								"Element"
+							],
+							"To": [
+								253,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								252,
+								"Body"
+							],
+							"To": [
+								253,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								254,
+								"Value"
+							],
+							"To": [
+								255,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								252,
+								"Completed"
+							],
+							"To": [
+								255,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								255,
+								"Then"
+							],
+							"To": [
+								256,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								257,
+								"Value"
+							],
+							"To": [
+								259,
+								"Scores"
+							]
+						},
+						{
+							"From": [
+								258,
+								"Value"
+							],
+							"To": [
+								259,
+								"Score"
+							]
+						},
+						{
+							"From": [
+								259,
+								"Result"
+							],
+							"To": [
+								260,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								261,
+								"Value"
+							],
+							"To": [
+								263,
+								"Score"
+							]
+						},
+						{
+							"From": [
+								262,
+								"Value"
+							],
+							"To": [
+								263,
+								"Scores"
+							]
+						},
+						{
+							"From": [
+								264,
+								"Value"
+							],
+							"To": [
+								265,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								76,
+								"Then"
+							],
+							"To": [
+								252,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								256,
+								"Then"
+							],
+							"To": [
+								259,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								259,
+								"Then"
+							],
+							"To": [
+								260,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								260,
+								"Then"
+							],
+							"To": [
+								263,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								263,
+								"Then"
+							],
+							"To": [
+								265,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								265,
+								"Then"
+							],
+							"To": [
+								249,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								250,
+								"Then"
+							],
+							"To": [
+								77,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 266,
+							"Text": "Game over: the score joins the top five",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								2536.0,
+								692.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 78,
+				"Name": "SpawnCapsule",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Kind",
+						"Type": "string"
+					},
+					{
+						"Name": "At",
+						"Type": "Strada.Vector3"
+					}
+				],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 79,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 80,
+							"Type": "Function.Return",
+							"Position": [
+								2272.0,
+								0.0
+							]
+						},
+						{
+							"ID": 267,
+							"Type": "Operator.Equal",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Inputs": {
+								"B": "Widen"
+							}
+						},
+						{
+							"ID": 268,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								160.0
+							],
+							"Settings": {
+								"Variable": 3
+							}
+						},
+						{
+							"ID": 269,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								224.0
+							],
+							"Settings": {
+								"Variable": 9
+							}
+						},
+						{
+							"ID": 270,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "vec3(at.x, 0.5, at.z)"
+							}
+						},
+						{
+							"ID": 271,
+							"Type": "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)",
+							"Position": [
+								480.0,
+								160.0
+							],
+							"Inputs": {
+								"Rotation": [
+									0.0,
+									0.0,
+									0.0,
+									1.0
+								]
+							}
+						},
+						{
+							"ID": 272,
+							"Type": "Variable.Set",
+							"Position": [
+								832.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 1,
+								"Graph": "5099310569931107932"
+							}
+						},
+						{
+							"ID": 273,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								288.0
+							],
+							"Settings": {
+								"Variable": 23
+							}
+						},
+						{
+							"ID": 274,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								352.0
+							],
+							"Settings": {
+								"Variable": 24
+							}
+						},
+						{
+							"ID": 275,
+							"Type": "Select",
+							"Position": [
+								480.0,
+								0.0
+							]
+						},
+						{
+							"ID": 276,
+							"Type": "Variable.Set",
+							"Position": [
+								1040.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 2,
+								"Graph": "5099310569931107932"
+							}
+						},
+						{
+							"ID": 277,
+							"Type": "Self",
+							"Position": [
+								0.0,
+								416.0
+							]
+						},
+						{
+							"ID": 278,
+							"Type": "Variable.Set",
+							"Position": [
+								1248.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 3,
+								"Graph": "5099310569931107932"
+							}
+						},
+						{
+							"ID": 279,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								480.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 280,
+							"Type": "Variable.Set",
+							"Position": [
+								1456.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 4,
+								"Graph": "5099310569931107932"
+							}
+						},
+						{
+							"ID": 281,
+							"Type": "Operator.Equal",
+							"Position": [
+								192.0,
+								256.0
+							],
+							"Inputs": {
+								"B": "Widen"
+							}
+						},
+						{
+							"ID": 282,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								544.0
+							],
+							"Settings": {
+								"Variable": 4
+							}
+						},
+						{
+							"ID": 283,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								608.0
+							],
+							"Settings": {
+								"Variable": 5
+							}
+						},
+						{
+							"ID": 284,
+							"Type": "Select",
+							"Position": [
+								480.0,
+								384.0
+							]
+						},
+						{
+							"ID": 285,
+							"Type": "Call:Strada.MeshComponent.SetMaterial(int,Strada.Material)",
+							"Position": [
+								1664.0,
+								0.0
+							],
+							"Inputs": {
+								"Index": 0
+							}
+						},
+						{
+							"ID": 286,
+							"Type": "Operator.Equal",
+							"Position": [
+								192.0,
+								384.0
+							],
+							"Inputs": {
+								"B": "Widen"
+							}
+						},
+						{
+							"ID": 287,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								672.0
+							],
+							"Settings": {
+								"Type": "Strada.Color",
+								"Value": [
+									0.2,
+									1.0,
+									0.4,
+									1.0
+								]
+							}
+						},
+						{
+							"ID": 288,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								800.0
+							],
+							"Settings": {
+								"Type": "Strada.Color",
+								"Value": [
+									1.0,
+									0.5,
+									0.08,
+									1.0
+								]
+							}
+						},
+						{
+							"ID": 289,
+							"Type": "Select",
+							"Position": [
+								480.0,
+								544.0
+							]
+						},
+						{
+							"ID": 290,
+							"Type": "Set:Strada.PointLightComponent.Color",
+							"Position": [
+								1888.0,
+								0.0
+							]
+						},
+						{
+							"ID": 291,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								928.0
+							],
+							"Settings": {
+								"Variable": 14
+							}
+						},
+						{
+							"ID": 292,
+							"Type": "Call:Strada.AudioSourceComponent.Play()",
+							"Position": [
+								2080.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								79,
+								"Kind"
+							],
+							"To": [
+								267,
+								"A"
+							]
+						},
+						{
+							"From": [
+								79,
+								"At"
+							],
+							"To": [
+								270,
+								"at"
+							]
+						},
+						{
+							"From": [
+								268,
+								"Value"
+							],
+							"To": [
+								271,
+								"Prefab"
+							]
+						},
+						{
+							"From": [
+								269,
+								"Value"
+							],
+							"To": [
+								271,
+								"Parent"
+							]
+						},
+						{
+							"From": [
+								270,
+								"Result"
+							],
+							"To": [
+								271,
+								"Position"
+							]
+						},
+						{
+							"From": [
+								79,
+								"Kind"
+							],
+							"To": [
+								272,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								271,
+								"Result"
+							],
+							"To": [
+								272,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								267,
+								"Result"
+							],
+							"To": [
+								275,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								273,
+								"Value"
+							],
+							"To": [
+								275,
+								"True"
+							]
+						},
+						{
+							"From": [
+								274,
+								"Value"
+							],
+							"To": [
+								275,
+								"False"
+							]
+						},
+						{
+							"From": [
+								275,
+								"Result"
+							],
+							"To": [
+								276,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								271,
+								"Result"
+							],
+							"To": [
+								276,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								277,
+								"Self"
+							],
+							"To": [
+								278,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								271,
+								"Result"
+							],
+							"To": [
+								278,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								279,
+								"Value"
+							],
+							"To": [
+								280,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								271,
+								"Result"
+							],
+							"To": [
+								280,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								79,
+								"Kind"
+							],
+							"To": [
+								281,
+								"A"
+							]
+						},
+						{
+							"From": [
+								281,
+								"Result"
+							],
+							"To": [
+								284,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								282,
+								"Value"
+							],
+							"To": [
+								284,
+								"True"
+							]
+						},
+						{
+							"From": [
+								283,
+								"Value"
+							],
+							"To": [
+								284,
+								"False"
+							]
+						},
+						{
+							"From": [
+								271,
+								"Result"
+							],
+							"To": [
+								285,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								284,
+								"Result"
+							],
+							"To": [
+								285,
+								"Material"
+							]
+						},
+						{
+							"From": [
+								79,
+								"Kind"
+							],
+							"To": [
+								286,
+								"A"
+							]
+						},
+						{
+							"From": [
+								286,
+								"Result"
+							],
+							"To": [
+								289,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								287,
+								"Value"
+							],
+							"To": [
+								289,
+								"True"
+							]
+						},
+						{
+							"From": [
+								288,
+								"Value"
+							],
+							"To": [
+								289,
+								"False"
+							]
+						},
+						{
+							"From": [
+								271,
+								"Result"
+							],
+							"To": [
+								290,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								289,
+								"Result"
+							],
+							"To": [
+								290,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								291,
+								"Value"
+							],
+							"To": [
+								292,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								79,
+								"Then"
+							],
+							"To": [
+								271,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								271,
+								"Then"
+							],
+							"To": [
+								272,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								272,
+								"Then"
+							],
+							"To": [
+								276,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								276,
+								"Then"
+							],
+							"To": [
+								278,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								278,
+								"Then"
+							],
+							"To": [
+								280,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								280,
+								"Then"
+							],
+							"To": [
+								285,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								285,
+								"Then"
+							],
+							"To": [
+								290,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								290,
+								"Then"
+							],
+							"To": [
+								292,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								292,
+								"Then"
+							],
+							"To": [
+								80,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 293,
+							"Text": "Capsules: a broken prism sometimes drops a power",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								2456.0,
+								1060.0
+							],
+							"Color": [
+								0.6200000047683716,
+								0.30000001192092896,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 294,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						2112.0
+					]
+				},
+				{
+					"ID": 295,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2224.0
+					],
+					"Settings": {
+						"Variable": 25
+					}
+				},
+				{
+					"ID": 296,
+					"Type": "Operator.NotEqual",
+					"Position": [
+						192.0,
+						2112.0
+					],
+					"Inputs": {
+						"B": 0
+					}
+				},
+				{
+					"ID": 297,
+					"Type": "Flow.Branch",
+					"Position": [
+						448.0,
+						2112.0
+					]
+				},
+				{
+					"ID": 298,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2288.0
+					],
+					"Settings": {
+						"Variable": 25
+					}
+				},
+				{
+					"ID": 299,
+					"Type": "Call:Strada.Random.Seed(int)",
+					"Position": [
+						672.0,
+						2112.0
+					]
+				},
+				{
+					"ID": 300,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2352.0
+					],
+					"Settings": {
+						"Variable": 19
+					}
+				},
+				{
+					"ID": 301,
+					"Type": "Variable.Set",
+					"Position": [
+						864.0,
+						2112.0
+					],
+					"Settings": {
+						"Variable": 29
+					}
+				},
+				{
+					"ID": 302,
+					"Type": "Variable.Set",
+					"Position": [
+						1056.0,
+						2112.0
+					],
+					"Settings": {
+						"Variable": 30
+					},
+					"Inputs": {
+						"Value": 1
+					}
+				},
+				{
+					"ID": 303,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2416.0
+					],
+					"Settings": {
+						"Variable": 20
+					}
+				},
+				{
+					"ID": 304,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2480.0
+					],
+					"Settings": {
+						"Variable": 21
+					}
+				},
+				{
+					"ID": 305,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2544.0
+					],
+					"Settings": {
+						"Variable": 30
+					}
+				},
+				{
+					"ID": 306,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						2240.0
+					],
+					"Settings": {
+						"Formula": "base + per_level * (level - 1)"
+					}
+				},
+				{
+					"ID": 307,
+					"Type": "Variable.Set",
+					"Position": [
+						1328.0,
+						2112.0
+					],
+					"Settings": {
+						"Variable": 33
+					}
+				},
+				{
+					"ID": 308,
+					"Type": "Function.Call",
+					"Position": [
+						1520.0,
+						2112.0
+					],
+					"Settings": {
+						"Function": 53
+					},
+					"Inputs": {
+						"Number": 1
+					}
+				},
+				{
+					"ID": 309,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2608.0
+					],
+					"Settings": {
+						"Variable": 26
+					}
+				},
+				{
+					"ID": 310,
+					"Type": "Flow.Branch",
+					"Position": [
+						1760.0,
+						2112.0
+					]
+				},
+				{
+					"ID": 311,
+					"Type": "Function.Call",
+					"Position": [
+						1984.0,
+						2112.0
+					],
+					"Settings": {
+						"Function": 62
+					}
+				},
+				{
+					"ID": 312,
+					"Type": "Function.Call",
+					"Position": [
+						1984.0,
+						2224.0
+					],
+					"Settings": {
+						"Function": 56
+					}
+				},
+				{
+					"ID": 314,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						2784.0
+					]
+				},
+				{
+					"ID": 315,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2912.0
+					],
+					"Settings": {
+						"Variable": 41
+					}
+				},
+				{
+					"ID": 316,
+					"Type": "Flow.Branch",
+					"Position": [
+						192.0,
+						2784.0
+					]
+				},
+				{
+					"ID": 317,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2976.0
+					],
+					"Settings": {
+						"Variable": 39
+					}
+				},
+				{
+					"ID": 318,
+					"Type": "Array.Length",
+					"Position": [
+						192.0,
+						2912.0
+					]
+				},
+				{
+					"ID": 319,
+					"Type": "Expression",
+					"Position": [
+						464.0,
+						2784.0
+					],
+					"Settings": {
+						"Formula": "count > 0"
+					}
+				},
+				{
+					"ID": 320,
+					"Type": "Flow.Branch",
+					"Position": [
+						672.0,
+						2784.0
+					]
+				},
+				{
+					"ID": 321,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						3040.0
+					],
+					"Settings": {
+						"Variable": 39
+					}
+				},
+				{
+					"ID": 322,
+					"Type": "Array.Get",
+					"Position": [
+						192.0,
+						3040.0
+					],
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 323,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						3104.0
+					],
+					"Settings": {
+						"Variable": 10
+					}
+				},
+				{
+					"ID": 324,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						192.0,
+						3184.0
+					]
+				},
+				{
+					"ID": 325,
+					"Type": "Expression",
+					"Position": [
+						464.0,
+						2912.0
+					],
+					"Settings": {
+						"Formula": "vec3(p.x, 0.5, p.z - 0.6)"
+					}
+				},
+				{
+					"ID": 326,
+					"Type": "Call:Strada.RigidBodyComponent.Teleport(Strada.Vector3,Strada.Quaternion)",
+					"Position": [
+						896.0,
+						2784.0
+					],
+					"Inputs": {
+						"Rotation": [
+							0.0,
+							0.0,
+							0.0,
+							1.0
+						]
+					}
+				},
+				{
+					"ID": 327,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						3168.0
+					],
+					"Settings": {
+						"Variable": 39
+					}
+				},
+				{
+					"ID": 328,
+					"Type": "Array.Get",
+					"Position": [
+						192.0,
+						3312.0
+					],
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 329,
+					"Type": "Set:Strada.RigidBodyComponent.LinearVelocity",
+					"Position": [
+						1216.0,
+						2784.0
+					],
+					"Inputs": {
+						"Value": [
+							0.0,
+							0.0,
+							0.0
+						]
+					}
+				},
+				{
+					"ID": 331,
+					"Type": "Event.KeyPressed",
+					"Position": [
+						0.0,
+						3568.0
+					],
+					"Settings": {
+						"Key": "Space"
+					}
+				},
+				{
+					"ID": 332,
+					"Type": "Event.MouseButtonPressed",
+					"Position": [
+						0.0,
+						3680.0
+					],
+					"Settings": {
+						"Button": "Left"
+					}
+				},
+				{
+					"ID": 333,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						3792.0
+					],
+					"Settings": {
+						"Variable": 40
+					}
+				},
+				{
+					"ID": 334,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						3856.0
+					],
+					"Settings": {
+						"Variable": 42
+					}
+				},
+				{
+					"ID": 335,
+					"Type": "Operator.Or",
+					"Position": [
+						240.0,
+						3568.0
+					]
+				},
+				{
+					"ID": 336,
+					"Type": "Flow.Branch",
+					"Position": [
+						368.0,
+						3568.0
+					]
+				},
+				{
+					"ID": 337,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						3920.0
+					],
+					"Settings": {
+						"Variable": 27
+					}
+				},
+				{
+					"ID": 338,
+					"Type": "Flow.Switch",
+					"Position": [
+						592.0,
+						3568.0
+					],
+					"Settings": {
+						"Type": "string",
+						"Cases": [
+							"Title",
+							"Over",
+							"Serve"
+						]
+					}
+				},
+				{
+					"ID": 339,
+					"Type": "Function.Call",
+					"Position": [
+						816.0,
+						3568.0
+					],
+					"Settings": {
+						"Function": 72
+					}
+				},
+				{
+					"ID": 340,
+					"Type": "Function.Call",
+					"Position": [
+						816.0,
+						3680.0
+					],
+					"Settings": {
+						"Function": 59
+					}
+				},
+				{
+					"ID": 341,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						4064.0
+					],
+					"Settings": {
+						"Name": "Launch",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 342,
+					"Type": "Function.Call",
+					"Position": [
+						192.0,
+						4064.0
+					],
+					"Settings": {
+						"Function": 59
+					}
+				},
+				{
+					"ID": 343,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						4256.0
+					],
+					"Settings": {
+						"Name": "StartGame",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 344,
+					"Type": "Function.Call",
+					"Position": [
+						192.0,
+						4256.0
+					],
+					"Settings": {
+						"Function": 72
+					}
+				},
+				{
+					"ID": 346,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						4464.0
+					],
+					"Settings": {
+						"Name": "BrickBroken",
+						"Parameters": [
+							{
+								"Name": "Points",
+								"Type": "int"
+							},
+							{
+								"Name": "At",
+								"Type": "Strada.Vector3"
+							},
+							{
+								"Name": "Row",
+								"Type": "int"
+							}
+						]
+					}
+				},
+				{
+					"ID": 347,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						4640.0
+					],
+					"Settings": {
+						"Variable": 31
+					}
+				},
+				{
+					"ID": 348,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						4704.0
+					],
+					"Settings": {
+						"Variable": 30
+					}
+				},
+				{
+					"ID": 349,
+					"Type": "Function.Call",
+					"Position": [
+						208.0,
+						4464.0
+					],
+					"Settings": {
+						"Graph": "11260502822282376115",
+						"Function": 1
+					}
+				},
+				{
+					"ID": 350,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						4768.0
+					],
+					"Settings": {
+						"Variable": 28
+					}
+				},
+				{
+					"ID": 351,
+					"Type": "Expression",
+					"Position": [
+						416.0,
+						4464.0
+					],
+					"Settings": {
+						"Formula": "score + points"
+					}
+				},
+				{
+					"ID": 352,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						4464.0
+					],
+					"Settings": {
+						"Variable": 28
+					}
+				},
+				{
+					"ID": 353,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						4832.0
+					],
+					"Settings": {
+						"Variable": 31
+					}
+				},
+				{
+					"ID": 354,
+					"Type": "Expression",
+					"Position": [
+						208.0,
+						4640.0
+					],
+					"Settings": {
+						"Formula": "combo + 1"
+					}
+				},
+				{
+					"ID": 355,
+					"Type": "Variable.Set",
+					"Position": [
+						832.0,
+						4464.0
+					],
+					"Settings": {
+						"Variable": 31
+					}
+				},
+				{
+					"ID": 356,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						4896.0
+					],
+					"Settings": {
+						"Variable": 32
+					}
+				},
+				{
+					"ID": 357,
+					"Type": "Expression",
+					"Position": [
+						208.0,
+						4768.0
+					],
+					"Settings": {
+						"Formula": "left - 1"
+					}
+				},
+				{
+					"ID": 358,
+					"Type": "Variable.Set",
+					"Position": [
+						1024.0,
+						4464.0
+					],
+					"Settings": {
+						"Variable": 32
+					}
+				},
+				{
+					"ID": 359,
+					"Type": "Get:Strada.Random.Value",
+					"Position": [
+						0.0,
+						4960.0
+					]
+				},
+				{
+					"ID": 360,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						5088.0
+					],
+					"Settings": {
+						"Variable": 22
+					}
+				},
+				{
+					"ID": 361,
+					"Type": "Expression",
+					"Position": [
+						208.0,
+						4896.0
+					],
+					"Settings": {
+						"Formula": "roll < chance"
+					}
+				},
+				{
+					"ID": 362,
+					"Type": "Flow.Branch",
+					"Position": [
+						1216.0,
+						4464.0
+					]
+				},
+				{
+					"ID": 363,
+					"Type": "Get:Strada.Random.Value",
+					"Position": [
+						0.0,
+						5152.0
+					]
+				},
+				{
+					"ID": 364,
+					"Type": "Expression",
+					"Position": [
+						208.0,
+						5040.0
+					],
+					"Settings": {
+						"Formula": "roll < 0.5"
+					}
+				},
+				{
+					"ID": 365,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						5280.0
+					],
+					"Settings": {
+						"Type": "string",
+						"Value": "Widen"
+					}
+				},
+				{
+					"ID": 366,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						5408.0
+					],
+					"Settings": {
+						"Type": "string",
+						"Value": "Slow"
+					}
+				},
+				{
+					"ID": 367,
+					"Type": "Select",
+					"Position": [
+						416.0,
+						4608.0
+					]
+				},
+				{
+					"ID": 368,
+					"Type": "Function.Call",
+					"Position": [
+						1440.0,
+						4464.0
+					],
+					"Settings": {
+						"Function": 78
+					}
+				},
+				{
+					"ID": 369,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						5536.0
+					],
+					"Settings": {
+						"Variable": 32
+					}
+				},
+				{
+					"ID": 370,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						5600.0
+					],
+					"Settings": {
+						"Variable": 43
+					}
+				},
+				{
+					"ID": 371,
+					"Type": "Expression",
+					"Position": [
+						208.0,
+						5168.0
+					],
+					"Settings": {
+						"Formula": "left <= 0 && !clearing"
+					}
+				},
+				{
+					"ID": 372,
+					"Type": "Flow.Branch",
+					"Position": [
+						1632.0,
+						4464.0
+					]
+				},
+				{
+					"ID": 373,
+					"Type": "Function.Call",
+					"Position": [
+						1856.0,
+						4464.0
+					],
+					"Settings": {
+						"Function": 65
+					}
+				},
+				{
+					"ID": 375,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						5776.0
+					],
+					"Settings": {
+						"Name": "BrickHit",
+						"Parameters": [
+							{
+								"Name": "Tint",
+								"Type": "Strada.Color"
+							}
+						]
+					}
+				},
+				{
+					"ID": 376,
+					"Type": "Event.Broadcast",
+					"Position": [
+						192.0,
+						5776.0
+					],
+					"Settings": {
+						"Name": "Pulse",
+						"Graph": "14822510747250306451",
+						"Parameters": [
+							{
+								"Name": "Tint",
+								"Type": "Strada.Color"
+							},
+							{
+								"Name": "Strength",
+								"Type": "float"
+							}
+						]
+					},
+					"Inputs": {
+						"Strength": 1.0
+					}
+				},
+				{
+					"ID": 377,
+					"Type": "Variable.Set",
+					"Position": [
+						480.0,
+						5776.0
+					],
+					"Settings": {
+						"Variable": 34
+					}
+				},
+				{
+					"ID": 378,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						5904.0
+					],
+					"Settings": {
+						"Variable": 11
+					}
+				},
+				{
+					"ID": 379,
+					"Type": "Event.Send",
+					"Position": [
+						688.0,
+						5776.0
+					],
+					"Settings": {
+						"Name": "Shake",
+						"Graph": "18230686520903922723",
+						"Parameters": [
+							{
+								"Name": "Strength",
+								"Type": "float"
+							}
+						]
+					},
+					"Inputs": {
+						"Strength": 0.3
+					}
+				},
+				{
+					"ID": 381,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						6080.0
+					],
+					"Settings": {
+						"Name": "SpawnPowerUp",
+						"Parameters": [
+							{
+								"Name": "Kind",
+								"Type": "string"
+							},
+							{
+								"Name": "At",
+								"Type": "Strada.Vector3"
+							}
+						]
+					}
+				},
+				{
+					"ID": 382,
+					"Type": "Function.Call",
+					"Position": [
+						208.0,
+						6080.0
+					],
+					"Settings": {
+						"Function": 78
+					}
+				},
+				{
+					"ID": 384,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						6336.0
+					],
+					"Settings": {
+						"Name": "SlowDown",
+						"Parameters": [
+							{
+								"Name": "Seconds",
+								"Type": "float"
+							}
+						]
+					}
+				},
+				{
+					"ID": 385,
+					"Type": "Flow.Timeline",
+					"Position": [
+						416.0,
+						6336.0
+					],
+					"Settings": {
+						"Timeline": {
+							"Length": 1.0,
+							"Loop": false,
+							"Tracks": [
+								{
+									"Name": "Factor",
+									"Type": "float",
+									"Keys": [
+										{
+											"Time": 0.0,
+											"Value": 1.0,
+											"Interpolation": "Linear"
+										},
+										{
+											"Time": 0.1,
+											"Value": 0.55,
+											"Interpolation": "Linear"
+										},
+										{
+											"Time": 0.85,
+											"Value": 0.55,
+											"Interpolation": "Linear"
+										},
+										{
+											"Time": 1.0,
+											"Value": 1.0,
+											"Interpolation": "Linear"
+										}
+									]
+								}
+							]
+						}
+					}
+				},
+				{
+					"ID": 386,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						6336.0
+					],
+					"Settings": {
+						"Formula": "1 / seconds"
+					}
+				},
+				{
+					"ID": 387,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						6464.0
+					],
+					"Settings": {
+						"Variable": 20
+					}
+				},
+				{
+					"ID": 388,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						6528.0
+					],
+					"Settings": {
+						"Variable": 21
+					}
+				},
+				{
+					"ID": 389,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						6592.0
+					],
+					"Settings": {
+						"Variable": 30
+					}
+				},
+				{
+					"ID": 390,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						6464.0
+					],
+					"Settings": {
+						"Formula": "base + per_level * (level - 1)"
+					}
+				},
+				{
+					"ID": 391,
+					"Type": "Expression",
+					"Position": [
+						720.0,
+						6336.0
+					],
+					"Settings": {
+						"Formula": "speed * factor"
+					}
+				},
+				{
+					"ID": 392,
+					"Type": "Variable.Set",
+					"Position": [
+						928.0,
+						6336.0
+					],
+					"Settings": {
+						"Variable": 33
+					}
+				},
+				{
+					"ID": 393,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						6656.0
+					],
+					"Settings": {
+						"Variable": 20
+					}
+				},
+				{
+					"ID": 394,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						6720.0
+					],
+					"Settings": {
+						"Variable": 21
+					}
+				},
+				{
+					"ID": 395,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						6784.0
+					],
+					"Settings": {
+						"Variable": 30
+					}
+				},
+				{
+					"ID": 396,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						6640.0
+					],
+					"Settings": {
+						"Formula": "base + per_level * (level - 1)"
+					}
+				},
+				{
+					"ID": 397,
+					"Type": "Variable.Set",
+					"Position": [
+						720.0,
+						6480.0
+					],
+					"Settings": {
+						"Variable": 33
+					}
+				},
+				{
+					"ID": 399,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						6960.0
+					],
+					"Settings": {
+						"Name": "PaddleHit",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 400,
+					"Type": "Variable.Set",
+					"Position": [
+						192.0,
+						6960.0
+					],
+					"Settings": {
+						"Variable": 31
+					},
+					"Inputs": {
+						"Value": 0
+					},
+					"Comment": "A combo counts the prisms one ball breaks between two touches of the paddle, so a touch of the paddle starts it again"
+				},
+				{
+					"ID": 402,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						7264.0
+					],
+					"Settings": {
+						"Name": "BallLost",
+						"Parameters": [
+							{
+								"Name": "Ball",
+								"Type": "Strada.Entity"
+							}
+						]
+					}
+				},
+				{
+					"ID": 403,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						7200.0
+					],
+					"Settings": {
+						"Variable": 39
+					}
+				},
+				{
+					"ID": 404,
+					"Type": "Array.IndexOf",
+					"Position": [
+						192.0,
+						7200.0
+					]
+				},
+				{
+					"ID": 405,
+					"Type": "Expression",
+					"Position": [
+						480.0,
+						7200.0
+					],
+					"Settings": {
+						"Formula": "index >= 0"
+					}
+				},
+				{
+					"ID": 406,
+					"Type": "Flow.Branch",
+					"Position": [
+						688.0,
+						7200.0
+					]
+				},
+				{
+					"ID": 407,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						7456.0
+					],
+					"Settings": {
+						"Variable": 39
+					}
+				},
+				{
+					"ID": 408,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						7392.0
+					],
+					"Settings": {
+						"Variable": 39
+					}
+				},
+				{
+					"ID": 409,
+					"Type": "Array.IndexOf",
+					"Position": [
+						192.0,
+						7376.0
+					]
+				},
+				{
+					"ID": 410,
+					"Type": "Array.RemoveAt",
+					"Position": [
+						480.0,
+						7328.0
+					]
+				},
+				{
+					"ID": 411,
+					"Type": "Variable.Set",
+					"Position": [
+						912.0,
+						7200.0
+					],
+					"Settings": {
+						"Variable": 39
+					}
+				},
+				{
+					"ID": 412,
+					"Type": "Call:Strada.Entity.Destroy()",
+					"Position": [
+						1104.0,
+						7200.0
+					]
+				},
+				{
+					"ID": 413,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						7520.0
+					],
+					"Settings": {
+						"Variable": 39
+					}
+				},
+				{
+					"ID": 414,
+					"Type": "Array.Length",
+					"Position": [
+						192.0,
+						7552.0
+					]
+				},
+				{
+					"ID": 415,
+					"Type": "Expression",
+					"Position": [
+						480.0,
+						7472.0
+					],
+					"Settings": {
+						"Formula": "count == 0"
+					}
+				},
+				{
+					"ID": 416,
+					"Type": "Flow.Branch",
+					"Position": [
+						1296.0,
+						7200.0
+					]
+				},
+				{
+					"ID": 417,
+					"Type": "Variable.Set",
+					"Position": [
+						1520.0,
+						7200.0
+					],
+					"Settings": {
+						"Variable": 41
+					},
+					"Inputs": {
+						"Value": false
+					}
+				},
+				{
+					"ID": 418,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						7712.0
+					],
+					"Settings": {
+						"Variable": 36
+					}
+				},
+				{
+					"ID": 419,
+					"Type": "Flow.Branch",
+					"Position": [
+						1744.0,
+						7200.0
+					]
+				},
+				{
+					"ID": 420,
+					"Type": "Flow.Delay",
+					"Position": [
+						1968.0,
+						7200.0
+					],
+					"Inputs": {
+						"Duration": 0.6
+					}
+				},
+				{
+					"ID": 421,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						7776.0
+					],
+					"Settings": {
+						"Variable": 36
+					}
+				},
+				{
+					"ID": 422,
+					"Type": "Flow.Branch",
+					"Position": [
+						2272.0,
+						7200.0
+					],
+					"Comment": "A player who started meanwhile keeps the game: the title's demo ends here"
+				},
+				{
+					"ID": 423,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						7584.0
+					],
+					"Settings": {
+						"Variable": 29
+					}
+				},
+				{
+					"ID": 424,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						7680.0
+					],
+					"Settings": {
+						"Formula": "lives - 1"
+					}
+				},
+				{
+					"ID": 425,
+					"Type": "Variable.Set",
+					"Position": [
+						1968.0,
+						7328.0
+					],
+					"Settings": {
+						"Variable": 29
+					}
+				},
+				{
+					"ID": 426,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						7840.0
+					],
+					"Settings": {
+						"Variable": 29
+					}
+				},
+				{
+					"ID": 427,
+					"Type": "Event.Broadcast",
+					"Position": [
+						2272.0,
+						7328.0
+					],
+					"Settings": {
+						"Name": "LifeLost",
+						"Parameters": [
+							{
+								"Name": "Lives",
+								"Type": "int"
+							}
+						]
+					}
+				},
+				{
+					"ID": 428,
+					"Type": "Flow.Delay",
+					"Position": [
+						2496.0,
+						7312.0
+					],
+					"Inputs": {
+						"Duration": 1.0
+					}
+				},
+				{
+					"ID": 429,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						7648.0
+					],
+					"Settings": {
+						"Variable": 29
+					}
+				},
+				{
+					"ID": 430,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						7808.0
+					],
+					"Settings": {
+						"Formula": "lives > 0"
+					}
+				},
+				{
+					"ID": 431,
+					"Type": "Flow.Branch",
+					"Position": [
+						2800.0,
+						7200.0
+					]
+				},
+				{
+					"ID": 432,
+					"Type": "Function.Call",
+					"Position": [
+						2496.0,
+						7200.0
+					],
+					"Settings": {
+						"Function": 62
+					}
+				},
+				{
+					"ID": 433,
+					"Type": "Function.Call",
+					"Position": [
+						3024.0,
+						7200.0
+					],
+					"Settings": {
+						"Function": 56
+					}
+				},
+				{
+					"ID": 434,
+					"Type": "Function.Call",
+					"Position": [
+						3024.0,
+						7312.0
+					],
+					"Settings": {
+						"Function": 75
+					}
+				},
+				{
+					"ID": 436,
+					"Type": "Event.KeyPressed",
+					"Position": [
+						0.0,
+						8032.0
+					],
+					"Settings": {
+						"Key": "Escape"
+					}
+				},
+				{
+					"ID": 437,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						8144.0
+					],
+					"Settings": {
+						"Variable": 27
+					}
+				},
+				{
+					"ID": 438,
+					"Type": "Operator.Equal",
+					"Position": [
+						192.0,
+						8032.0
+					],
+					"Inputs": {
+						"B": "Serve"
+					}
+				},
+				{
+					"ID": 439,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						8208.0
+					],
+					"Settings": {
+						"Variable": 27
+					}
+				},
+				{
+					"ID": 440,
+					"Type": "Operator.Equal",
+					"Position": [
+						192.0,
+						8160.0
+					],
+					"Inputs": {
+						"B": "Play"
+					}
+				},
+				{
+					"ID": 441,
+					"Type": "Operator.Or",
+					"Position": [
+						480.0,
+						8032.0
+					]
+				},
+				{
+					"ID": 442,
+					"Type": "Flow.Branch",
+					"Position": [
+						608.0,
+						8032.0
+					]
+				},
+				{
+					"ID": 443,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						8272.0
+					],
+					"Settings": {
+						"Variable": 42
+					}
+				},
+				{
+					"ID": 444,
+					"Type": "Operator.Not",
+					"Position": [
+						192.0,
+						8288.0
+					]
+				},
+				{
+					"ID": 445,
+					"Type": "Variable.Set",
+					"Position": [
+						832.0,
+						8032.0
+					],
+					"Settings": {
+						"Variable": 42
+					}
+				},
+				{
+					"ID": 446,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						8336.0
+					],
+					"Settings": {
+						"Variable": 42
+					}
+				},
+				{
+					"ID": 447,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						8400.0
+					],
+					"Settings": {
+						"Type": "float",
+						"Value": 0.0
+					}
+				},
+				{
+					"ID": 448,
+					"Type": "Literal",
+					"Position": [
+						0.0,
+						8528.0
+					],
+					"Settings": {
+						"Type": "float",
+						"Value": 1.0
+					}
+				},
+				{
+					"ID": 449,
+					"Type": "Select",
+					"Position": [
+						192.0,
+						8400.0
+					]
+				},
+				{
+					"ID": 450,
+					"Type": "Set:Strada.Time.TimeScale",
+					"Position": [
+						1024.0,
+						8032.0
+					]
+				},
+				{
+					"ID": 451,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						8656.0
+					],
+					"Settings": {
+						"Variable": 42
+					}
+				},
+				{
+					"ID": 452,
+					"Type": "Event.Broadcast",
+					"Position": [
+						1216.0,
+						8032.0
+					],
+					"Settings": {
+						"Name": "Paused",
+						"Parameters": [
+							{
+								"Name": "On",
+								"Type": "bool"
+							}
+						]
+					}
+				},
+				{
+					"ID": 454,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						8832.0
+					],
+					"Settings": {
+						"Name": "ClearLevel",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 455,
+					"Type": "Function.Call",
+					"Position": [
+						192.0,
+						8832.0
+					],
+					"Settings": {
+						"Function": 69
+					}
+				},
+				{
+					"ID": 457,
+					"Type": "Event.KeyPressed",
+					"Position": [
+						0.0,
+						9040.0
+					],
+					"Settings": {
+						"Key": "D1"
+					},
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 458,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						9168.0
+					],
+					"Settings": {
+						"Variable": 10
+					},
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 459,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						192.0,
+						9040.0
+					],
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 460,
+					"Type": "Expression",
+					"Position": [
+						400.0,
+						9040.0
+					],
+					"Settings": {
+						"Formula": "vec3(p.x, 0.5, p.z - 5)"
+					},
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 461,
+					"Type": "Function.Call",
+					"Position": [
+						592.0,
+						9040.0
+					],
+					"Settings": {
+						"Function": 78
+					},
+					"Inputs": {
+						"Kind": "Widen"
+					},
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 462,
+					"Type": "Event.KeyPressed",
+					"Position": [
+						0.0,
+						9328.0
+					],
+					"Settings": {
+						"Key": "D2"
+					},
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 463,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						9456.0
+					],
+					"Settings": {
+						"Variable": 10
+					},
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 464,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						192.0,
+						9328.0
+					],
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 465,
+					"Type": "Expression",
+					"Position": [
+						400.0,
+						9328.0
+					],
+					"Settings": {
+						"Formula": "vec3(p.x, 0.5, p.z - 5)"
+					},
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 466,
+					"Type": "Function.Call",
+					"Position": [
+						592.0,
+						9328.0
+					],
+					"Settings": {
+						"Function": 78
+					},
+					"Inputs": {
+						"Kind": "Slow"
+					},
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 467,
+					"Type": "Event.KeyPressed",
+					"Position": [
+						0.0,
+						9616.0
+					],
+					"Settings": {
+						"Key": "N"
+					},
+					"Enabled": "DevelopmentOnly"
+				},
+				{
+					"ID": 468,
+					"Type": "Function.Call",
+					"Position": [
+						192.0,
+						9616.0
+					],
+					"Settings": {
+						"Function": 69
+					},
+					"Enabled": "DevelopmentOnly"
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						295,
+						"Value"
+					],
+					"To": [
+						296,
+						"A"
+					]
+				},
+				{
+					"From": [
+						296,
+						"Result"
+					],
+					"To": [
+						297,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						298,
+						"Value"
+					],
+					"To": [
+						299,
+						"Seed"
+					]
+				},
+				{
+					"From": [
+						300,
+						"Value"
+					],
+					"To": [
+						301,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						303,
+						"Value"
+					],
+					"To": [
+						306,
+						"base"
+					]
+				},
+				{
+					"From": [
+						304,
+						"Value"
+					],
+					"To": [
+						306,
+						"per_level"
+					]
+				},
+				{
+					"From": [
+						305,
+						"Value"
+					],
+					"To": [
+						306,
+						"level"
+					]
+				},
+				{
+					"From": [
+						306,
+						"Result"
+					],
+					"To": [
+						307,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						309,
+						"Value"
+					],
+					"To": [
+						310,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						294,
+						"Then"
+					],
+					"To": [
+						297,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						297,
+						"True"
+					],
+					"To": [
+						299,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						299,
+						"Then"
+					],
+					"To": [
+						301,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						297,
+						"False"
+					],
+					"To": [
+						301,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						301,
+						"Then"
+					],
+					"To": [
+						302,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						302,
+						"Then"
+					],
+					"To": [
+						307,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						307,
+						"Then"
+					],
+					"To": [
+						308,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						308,
+						"Then"
+					],
+					"To": [
+						310,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						310,
+						"True"
+					],
+					"To": [
+						311,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						310,
+						"False"
+					],
+					"To": [
+						312,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						315,
+						"Value"
+					],
+					"To": [
+						316,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						317,
+						"Value"
+					],
+					"To": [
+						318,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						318,
+						"Length"
+					],
+					"To": [
+						319,
+						"count"
+					]
+				},
+				{
+					"From": [
+						319,
+						"Result"
+					],
+					"To": [
+						320,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						321,
+						"Value"
+					],
+					"To": [
+						322,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						323,
+						"Value"
+					],
+					"To": [
+						324,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						324,
+						"Value"
+					],
+					"To": [
+						325,
+						"p"
+					]
+				},
+				{
+					"From": [
+						322,
+						"Element"
+					],
+					"To": [
+						326,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						325,
+						"Result"
+					],
+					"To": [
+						326,
+						"Position"
+					]
+				},
+				{
+					"From": [
+						327,
+						"Value"
+					],
+					"To": [
+						328,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						328,
+						"Element"
+					],
+					"To": [
+						329,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						314,
+						"Then"
+					],
+					"To": [
+						316,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						316,
+						"False"
+					],
+					"To": [
+						320,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						320,
+						"True"
+					],
+					"To": [
+						326,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						326,
+						"Then"
+					],
+					"To": [
+						329,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						333,
+						"Value"
+					],
+					"To": [
+						335,
+						"A"
+					]
+				},
+				{
+					"From": [
+						334,
+						"Value"
+					],
+					"To": [
+						335,
+						"B"
+					]
+				},
+				{
+					"From": [
+						335,
+						"Result"
+					],
+					"To": [
+						336,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						337,
+						"Value"
+					],
+					"To": [
+						338,
+						"Selection"
+					]
+				},
+				{
+					"From": [
+						331,
+						"Then"
+					],
+					"To": [
+						336,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						332,
+						"Then"
+					],
+					"To": [
+						336,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						336,
+						"False"
+					],
+					"To": [
+						338,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						338,
+						"Case:Title"
+					],
+					"To": [
+						339,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						338,
+						"Case:Over"
+					],
+					"To": [
+						339,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						338,
+						"Case:Serve"
+					],
+					"To": [
+						340,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						341,
+						"Then"
+					],
+					"To": [
+						342,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						343,
+						"Then"
+					],
+					"To": [
+						344,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						346,
+						"Points"
+					],
+					"To": [
+						349,
+						"Points"
+					]
+				},
+				{
+					"From": [
+						347,
+						"Value"
+					],
+					"To": [
+						349,
+						"Combo"
+					]
+				},
+				{
+					"From": [
+						348,
+						"Value"
+					],
+					"To": [
+						349,
+						"Level"
+					]
+				},
+				{
+					"From": [
+						350,
+						"Value"
+					],
+					"To": [
+						351,
+						"score"
+					]
+				},
+				{
+					"From": [
+						349,
+						"Score"
+					],
+					"To": [
+						351,
+						"points"
+					]
+				},
+				{
+					"From": [
+						351,
+						"Result"
+					],
+					"To": [
+						352,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						353,
+						"Value"
+					],
+					"To": [
+						354,
+						"combo"
+					]
+				},
+				{
+					"From": [
+						354,
+						"Result"
+					],
+					"To": [
+						355,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						356,
+						"Value"
+					],
+					"To": [
+						357,
+						"left"
+					]
+				},
+				{
+					"From": [
+						357,
+						"Result"
+					],
+					"To": [
+						358,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						359,
+						"Value"
+					],
+					"To": [
+						361,
+						"roll"
+					]
+				},
+				{
+					"From": [
+						360,
+						"Value"
+					],
+					"To": [
+						361,
+						"chance"
+					]
+				},
+				{
+					"From": [
+						361,
+						"Result"
+					],
+					"To": [
+						362,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						363,
+						"Value"
+					],
+					"To": [
+						364,
+						"roll"
+					]
+				},
+				{
+					"From": [
+						364,
+						"Result"
+					],
+					"To": [
+						367,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						365,
+						"Value"
+					],
+					"To": [
+						367,
+						"True"
+					]
+				},
+				{
+					"From": [
+						366,
+						"Value"
+					],
+					"To": [
+						367,
+						"False"
+					]
+				},
+				{
+					"From": [
+						367,
+						"Result"
+					],
+					"To": [
+						368,
+						"Kind"
+					]
+				},
+				{
+					"From": [
+						346,
+						"At"
+					],
+					"To": [
+						368,
+						"At"
+					]
+				},
+				{
+					"From": [
+						369,
+						"Value"
+					],
+					"To": [
+						371,
+						"left"
+					]
+				},
+				{
+					"From": [
+						370,
+						"Value"
+					],
+					"To": [
+						371,
+						"clearing"
+					]
+				},
+				{
+					"From": [
+						371,
+						"Result"
+					],
+					"To": [
+						372,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						346,
+						"Then"
+					],
+					"To": [
+						352,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						352,
+						"Then"
+					],
+					"To": [
+						355,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						355,
+						"Then"
+					],
+					"To": [
+						358,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						358,
+						"Then"
+					],
+					"To": [
+						362,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						362,
+						"True"
+					],
+					"To": [
+						368,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						368,
+						"Then"
+					],
+					"To": [
+						372,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						362,
+						"False"
+					],
+					"To": [
+						372,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						372,
+						"True"
+					],
+					"To": [
+						373,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						375,
+						"Tint"
+					],
+					"To": [
+						376,
+						"Tint"
+					]
+				},
+				{
+					"From": [
+						376,
+						"Count"
+					],
+					"To": [
+						377,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						378,
+						"Value"
+					],
+					"To": [
+						379,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						375,
+						"Then"
+					],
+					"To": [
+						376,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						376,
+						"Then"
+					],
+					"To": [
+						377,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						377,
+						"Then"
+					],
+					"To": [
+						379,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						381,
+						"Kind"
+					],
+					"To": [
+						382,
+						"Kind"
+					]
+				},
+				{
+					"From": [
+						381,
+						"At"
+					],
+					"To": [
+						382,
+						"At"
+					]
+				},
+				{
+					"From": [
+						381,
+						"Then"
+					],
+					"To": [
+						382,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						384,
+						"Seconds"
+					],
+					"To": [
+						386,
+						"seconds"
+					]
+				},
+				{
+					"From": [
+						386,
+						"Result"
+					],
+					"To": [
+						385,
+						"Rate"
+					]
+				},
+				{
+					"From": [
+						387,
+						"Value"
+					],
+					"To": [
+						390,
+						"base"
+					]
+				},
+				{
+					"From": [
+						388,
+						"Value"
+					],
+					"To": [
+						390,
+						"per_level"
+					]
+				},
+				{
+					"From": [
+						389,
+						"Value"
+					],
+					"To": [
+						390,
+						"level"
+					]
+				},
+				{
+					"From": [
+						390,
+						"Result"
+					],
+					"To": [
+						391,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						385,
+						"Factor"
+					],
+					"To": [
+						391,
+						"factor"
+					]
+				},
+				{
+					"From": [
+						391,
+						"Result"
+					],
+					"To": [
+						392,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						393,
+						"Value"
+					],
+					"To": [
+						396,
+						"base"
+					]
+				},
+				{
+					"From": [
+						394,
+						"Value"
+					],
+					"To": [
+						396,
+						"per_level"
+					]
+				},
+				{
+					"From": [
+						395,
+						"Value"
+					],
+					"To": [
+						396,
+						"level"
+					]
+				},
+				{
+					"From": [
+						396,
+						"Result"
+					],
+					"To": [
+						397,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						384,
+						"Then"
+					],
+					"To": [
+						385,
+						"PlayFromStart"
+					]
+				},
+				{
+					"From": [
+						385,
+						"Update"
+					],
+					"To": [
+						392,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						385,
+						"Finished"
+					],
+					"To": [
+						397,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						399,
+						"Then"
+					],
+					"To": [
+						400,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						403,
+						"Value"
+					],
+					"To": [
+						404,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						402,
+						"Ball"
+					],
+					"To": [
+						404,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						404,
+						"Index"
+					],
+					"To": [
+						405,
+						"index"
+					]
+				},
+				{
+					"From": [
+						405,
+						"Result"
+					],
+					"To": [
+						406,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						408,
+						"Value"
+					],
+					"To": [
+						409,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						402,
+						"Ball"
+					],
+					"To": [
+						409,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						407,
+						"Value"
+					],
+					"To": [
+						410,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						409,
+						"Index"
+					],
+					"To": [
+						410,
+						"Index"
+					]
+				},
+				{
+					"From": [
+						410,
+						"Result"
+					],
+					"To": [
+						411,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						402,
+						"Ball"
+					],
+					"To": [
+						412,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						413,
+						"Value"
+					],
+					"To": [
+						414,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						414,
+						"Length"
+					],
+					"To": [
+						415,
+						"count"
+					]
+				},
+				{
+					"From": [
+						415,
+						"Result"
+					],
+					"To": [
+						416,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						418,
+						"Value"
+					],
+					"To": [
+						419,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						421,
+						"Value"
+					],
+					"To": [
+						422,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						423,
+						"Value"
+					],
+					"To": [
+						424,
+						"lives"
+					]
+				},
+				{
+					"From": [
+						424,
+						"Result"
+					],
+					"To": [
+						425,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						426,
+						"Value"
+					],
+					"To": [
+						427,
+						"Lives"
+					]
+				},
+				{
+					"From": [
+						429,
+						"Value"
+					],
+					"To": [
+						430,
+						"lives"
+					]
+				},
+				{
+					"From": [
+						430,
+						"Result"
+					],
+					"To": [
+						431,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						402,
+						"Then"
+					],
+					"To": [
+						406,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						406,
+						"True"
+					],
+					"To": [
+						411,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						411,
+						"Then"
+					],
+					"To": [
+						412,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						412,
+						"Then"
+					],
+					"To": [
+						416,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						416,
+						"True"
+					],
+					"To": [
+						417,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						417,
+						"Then"
+					],
+					"To": [
+						419,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						419,
+						"True"
+					],
+					"To": [
+						420,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						420,
+						"Completed"
+					],
+					"To": [
+						422,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						422,
+						"True"
+					],
+					"To": [
+						432,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						419,
+						"False"
+					],
+					"To": [
+						425,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						425,
+						"Then"
+					],
+					"To": [
+						427,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						427,
+						"Then"
+					],
+					"To": [
+						428,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						428,
+						"Completed"
+					],
+					"To": [
+						431,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						431,
+						"True"
+					],
+					"To": [
+						433,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						431,
+						"False"
+					],
+					"To": [
+						434,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						437,
+						"Value"
+					],
+					"To": [
+						438,
+						"A"
+					]
+				},
+				{
+					"From": [
+						439,
+						"Value"
+					],
+					"To": [
+						440,
+						"A"
+					]
+				},
+				{
+					"From": [
+						438,
+						"Result"
+					],
+					"To": [
+						441,
+						"A"
+					]
+				},
+				{
+					"From": [
+						440,
+						"Result"
+					],
+					"To": [
+						441,
+						"B"
+					]
+				},
+				{
+					"From": [
+						441,
+						"Result"
+					],
+					"To": [
+						442,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						443,
+						"Value"
+					],
+					"To": [
+						444,
+						"A"
+					]
+				},
+				{
+					"From": [
+						444,
+						"Result"
+					],
+					"To": [
+						445,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						446,
+						"Value"
+					],
+					"To": [
+						449,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						447,
+						"Value"
+					],
+					"To": [
+						449,
+						"True"
+					]
+				},
+				{
+					"From": [
+						448,
+						"Value"
+					],
+					"To": [
+						449,
+						"False"
+					]
+				},
+				{
+					"From": [
+						449,
+						"Result"
+					],
+					"To": [
+						450,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						451,
+						"Value"
+					],
+					"To": [
+						452,
+						"On"
+					]
+				},
+				{
+					"From": [
+						436,
+						"Then"
+					],
+					"To": [
+						442,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						442,
+						"True"
+					],
+					"To": [
+						445,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						445,
+						"Then"
+					],
+					"To": [
+						450,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						450,
+						"Then"
+					],
+					"To": [
+						452,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						454,
+						"Then"
+					],
+					"To": [
+						455,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						458,
+						"Value"
+					],
+					"To": [
+						459,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						459,
+						"Value"
+					],
+					"To": [
+						460,
+						"p"
+					]
+				},
+				{
+					"From": [
+						460,
+						"Result"
+					],
+					"To": [
+						461,
+						"At"
+					]
+				},
+				{
+					"From": [
+						457,
+						"Then"
+					],
+					"To": [
+						461,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						463,
+						"Value"
+					],
+					"To": [
+						464,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						464,
+						"Value"
+					],
+					"To": [
+						465,
+						"p"
+					]
+				},
+				{
+					"From": [
+						465,
+						"Result"
+					],
+					"To": [
+						466,
+						"At"
+					]
+				},
+				{
+					"From": [
+						462,
+						"Then"
+					],
+					"To": [
+						466,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						467,
+						"Then"
+					],
+					"To": [
+						468,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 313,
+					"Text": "Start: seed, build the first level, then the title or a serve",
+					"Position": [
+						-32.0,
+						2040.0
+					],
+					"Size": [
+						2206.03125,
+						628.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 330,
+					"Text": "Serve: the ball rides the paddle until it is launched",
+					"Position": [
+						-32.0,
+						2712.0
+					],
+					"Size": [
+						1511.7862548828125,
+						738.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 345,
+					"Text": "Input: Space and a click start, or launch, by state",
+					"Position": [
+						-32.0,
+						3496.0
+					],
+					"Size": [
+						1001.9562377929688,
+						858.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 374,
+					"Text": "Bricks: points by the combo and the level, then a clear",
+					"Position": [
+						-32.0,
+						4392.0
+					],
+					"Size": [
+						2040.0,
+						1268.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 380,
+					"Text": "Juice: every hit pulses the lights and kicks the camera",
+					"Position": [
+						-32.0,
+						5704.0
+					],
+					"Size": [
+						927.20751953125,
+						260.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 383,
+					"Text": "Capsules on request: the tests and the cheats drop one",
+					"Position": [
+						-32.0,
+						6008.0
+					],
+					"Size": [
+						397.45623779296875,
+						218.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 398,
+					"Text": "Slow motion: the ball slows, then speeds up again",
+					"Position": [
+						-32.0,
+						6264.0
+					],
+					"Size": [
+						1117.572509765625,
+						580.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 401,
+					"Text": "Combo: the paddle ends it",
+					"Position": [
+						-32.0,
+						6888.0
+					],
+					"Size": [
+						451.572509765625,
+						194.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 435,
+					"Text": "Balls and lives: a lost ball costs a life, then a serve",
+					"Position": [
+						-32.0,
+						7128.0
+					],
+					"Size": [
+						3208.0,
+						794.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 453,
+					"Text": "Pause: Escape freezes the game and shows the pause screen",
+					"Position": [
+						-32.0,
+						7960.0
+					],
+					"Size": [
+						1410.90625,
+						756.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 456,
+					"Text": "Clear on request: the tests empty the level",
+					"Position": [
+						-32.0,
+						8760.0
+					],
+					"Size": [
+						377.7124938964844,
+						170.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 469,
+					"Text": "Cheats: 1 and 2 drop capsules, N clears the level",
+					"Position": [
+						-32.0,
+						8968.0
+					],
+					"Size": [
+						841.44873046875,
+						766.0
+					],
+					"Color": [
+						0.8999999761581421,
+						0.2199999988079071,
+						0.2199999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

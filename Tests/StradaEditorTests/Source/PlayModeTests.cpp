@@ -300,6 +300,115 @@ namespace
 		REQUIRE(graph.IsValid());
 		return graph;
 	}
+
+	// The Prism Break sample as a player gets it, its scenes and assets and no C#, copied and opened in the editor model with
+	// play mode (spec-slice4 section 18.10), with what its cases do and read while it plays. The match's random numbers are
+	// seeded, so every run plays the same frames.
+	class PrismBreakPlay
+	{
+	public:
+		PrismBreakPlay()
+		{
+			std::filesystem::path const sample = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / "PrismBreak";
+			REQUIRE(FileSystem::CopyDirectory(sample / "Assets", m_Directory.GetPath() / "Assets").IsOk());
+			REQUIRE(FileSystem::Copy(sample / "PrismBreak.sproj", m_Directory.GetPath() / "PrismBreak.sproj", false).IsOk());
+			REQUIRE(m_Fixture.Operations.OpenProject(m_Directory.GetPath() / "PrismBreak.sproj").IsOk());
+			Entity const game = Find("Game");
+			VisualScriptComponent match = game.GetComponent<VisualScriptComponent>();
+			match.Variables["Seed"] = ScriptFieldValue::FromInt32(7);
+			REQUIRE(m_Fixture.Operations.SetComponent(game.GetUUID(), match).IsOk());
+		}
+
+		PrismBreakPlay(PrismBreakPlay const&) = delete;
+		PrismBreakPlay& operator=(PrismBreakPlay const&) = delete;
+
+		// Starts playing, paused: the frames run as the case advances them.
+		void Start()
+		{
+			CHECK(m_Fixture.Ok("play.start")["state"] == "play");
+			m_Fixture.Ok("play.pause");
+		}
+
+		void Stop() { CHECK(m_Fixture.Ok("play.stop")["state"] == "edit"); }
+
+		void Advance(uint32_t frames) { m_Fixture.Ok("play.advance", Json::object({{"frames", frames}})); }
+
+		void Hold(std::string const& key, bool down) { m_Fixture.Ok("input.set", Json::object({{"keys", Json::object({{key, down}})}})); }
+
+		// A key goes down for a frame, then up.
+		void Press(std::string const& key)
+		{
+			Hold(key, true);
+			Advance(1);
+			Hold(key, false);
+			Advance(1);
+		}
+
+		// The mouse at a point of the 640-pixel-wide game view, its height's middle.
+		void PointAt(float x) { m_Fixture.Ok("input.set", Json::object({{"mousePosition", Json::array({x, 240.0})}})); }
+
+		Entity Find(std::string_view name)
+		{
+			Entity const entity = m_Fixture.Context.GetScene().FindEntityByName(name);
+			REQUIRE(entity);
+			return entity;
+		}
+
+		// A public variable of the graph an entity runs (the match's read-outs on the Game), as its instance holds it.
+		ScriptFieldValue ReadOut(std::string const& name, std::string_view entity = "Game")
+		{
+			Result<ScriptFieldMap> const variables = VisualScriptEngine::GetInstanceVariables(Find(entity).GetUUID());
+			REQUIRE_MESSAGE(variables.IsOk(), (variables ? std::string() : variables.GetError()));
+			auto const variable = variables.GetValue().find(name);
+			REQUIRE(variable != variables.GetValue().end());
+			return variable->second;
+		}
+
+		// Sets a public variable of the graph an entity runs, in its running instance.
+		void SetVariable(std::string_view entity, std::string const& name, ScriptFieldValue value)
+		{
+			ScriptFieldMap const variables = {{name, std::move(value)}};
+			Result<void> const set = VisualScriptEngine::SetInstanceVariables(Find(entity).GetUUID(), variables);
+			REQUIRE_MESSAGE(set.IsOk(), (set ? std::string() : set.GetError()));
+		}
+
+		std::string GetState() { return ReadOut("State").GetString(); }
+
+		bool IsShown(std::string_view element) { return Find(element).GetComponent<UIRectComponent>().Visible; }
+
+		std::string GetText(std::string_view element) { return Find(element).GetComponent<UITextComponent>().Text; }
+
+		glm::vec3 GetPlace(std::string_view name) { return Find(name).GetComponent<TransformComponent>().Translation; }
+
+		// The children of a container that exist: the level's prisms in Bricks, the balls in play in Balls.
+		std::vector<Entity> GetChildren(std::string_view container)
+		{
+			std::vector<Entity> found;
+			for (UUID const child : Find(container).GetComponent<RelationshipComponent>().Children)
+			{
+				if (Entity const entity = m_Fixture.Context.GetScene().GetEntityByUUID(child))
+				{
+					found.push_back(entity);
+				}
+			}
+			return found;
+		}
+
+		glm::vec3 GetBallPlace()
+		{
+			std::vector<Entity> const balls = GetChildren("Balls");
+			REQUIRE(balls.size() == 1);
+			return balls.front().GetComponent<TransformComponent>().Translation;
+		}
+
+	private:
+		Testing::AssetManagerScope m_Assets;
+		Testing::PhysicsSystemScope m_Physics;
+		Testing::ScriptRuntimeScope m_Scripting;
+		InputScope m_Input;
+		Testing::TemporaryDirectory m_Directory;
+		PlayFixture m_Fixture;
+	};
 }
 
 TEST_CASE("PlayMode: playing shows and edits a copy that stopping discards")
@@ -1099,6 +1208,167 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in i
 	press("keys", "Right");
 	press("keys", "Enter");
 	CHECK(fixture.Ok("play.state")["state"] == "edit");
+}
+
+TEST_CASE("PlayCommands: input.set plays the Prism Break sample, made of visual scripts alone: the title plays itself, Space starts "
+          "and serves, the mouse moves the paddle, Escape pauses, a lost ball costs a life")
+{
+	PrismBreakPlay sample;
+	sample.Start();
+
+	// The title shows, and the game plays itself: the autopilot steers the paddle, and its ball breaks prisms. The mouse rests
+	// over the game view meanwhile (a first position is no movement).
+	sample.PointAt(320.0f);
+	sample.Advance(1);
+	CHECK(sample.GetState() == "Title");
+	CHECK(sample.IsShown("Title Screen"));
+	CHECK_FALSE(sample.IsShown("Game Bar"));
+	sample.Advance(900);
+	CHECK(sample.GetState() == "Title");
+	CHECK(sample.IsShown("Title Screen"));
+	CHECK(sample.ReadOut("Score").GetInt32() > 0);
+	CHECK(sample.ReadOut("Lives").GetInt32() == 3);
+	CHECK(sample.GetPlace("Paddle").x != 0.0f);
+
+	// Space starts a game: the score and lives start fresh, the level builds prism by prism, and the ball waits on the paddle.
+	sample.Press("Space");
+	CHECK(sample.GetState() == "Serve");
+	CHECK_FALSE(sample.IsShown("Title Screen"));
+	CHECK(sample.ReadOut("Score").GetInt32() == 0);
+	CHECK(sample.ReadOut("Lives").GetInt32() == 3);
+	sample.Advance(60);
+	CHECK(sample.ReadOut("BricksLeft").GetInt32() == 33);
+	CHECK(sample.GetState() == "Serve");
+	CHECK(sample.IsShown("Serve Prompt"));
+	CHECK(sample.IsShown("Game Bar"));
+
+	// The mouse moves the paddle across the arena, and the waiting ball rides it.
+	sample.PointAt(600.0f);
+	sample.Advance(30);
+	CHECK(sample.GetPlace("Paddle").x > 5.0f);
+	CHECK(sample.GetBallPlace().x == doctest::Approx(sample.GetPlace("Paddle").x).epsilon(0.02));
+	sample.PointAt(40.0f);
+	sample.Advance(30);
+	CHECK(sample.GetPlace("Paddle").x < -5.0f);
+	CHECK(sample.GetBallPlace().x == doctest::Approx(sample.GetPlace("Paddle").x).epsilon(0.02));
+	sample.PointAt(320.0f);
+	sample.Advance(30);
+
+	// Space serves: the ball leaves the paddle for the prisms.
+	float const served = sample.GetBallPlace().z;
+	sample.Press("Space");
+	CHECK(sample.GetState() == "Play");
+	CHECK_FALSE(sample.IsShown("Serve Prompt"));
+	sample.Advance(10);
+	CHECK(sample.GetBallPlace().z < served - 1.0f);
+
+	// Escape pauses: the pause screen shows and the ball holds still; Escape again plays on.
+	sample.Press("Escape");
+	CHECK(sample.IsShown("Pause Screen"));
+	glm::vec3 const held = sample.GetBallPlace();
+	sample.Advance(30);
+	CHECK(sample.GetBallPlace() == held);
+	sample.Press("Escape");
+	CHECK_FALSE(sample.IsShown("Pause Screen"));
+	sample.Advance(5);
+	CHECK(sample.GetBallPlace() != held);
+
+	// The paddle kept away from the ball lets it fall into the drain: a life goes, its icon with it, and the next ball waits
+	// on the paddle.
+	for (int frame = 0; frame < 1200 && sample.ReadOut("Lives").GetInt32() == 3; frame++)
+	{
+		std::vector<Entity> const inPlay = sample.GetChildren("Balls");
+		if (!inPlay.empty())
+		{
+			sample.PointAt(inPlay.front().GetComponent<TransformComponent>().Translation.x > 0.0f ? 40.0f : 600.0f);
+		}
+		sample.Advance(1);
+	}
+	CHECK(sample.ReadOut("Lives").GetInt32() == 2);
+	CHECK(sample.IsShown("Life 2"));
+	CHECK_FALSE(sample.IsShown("Life 3"));
+	sample.Advance(90);
+	CHECK(sample.GetState() == "Serve");
+	CHECK(sample.GetChildren("Balls").size() == 1);
+	sample.Stop();
+}
+
+TEST_CASE("PlayCommands: input.set starts a Prism Break game while its title plays itself: a start as the title clears a level or "
+          "loses its ball keeps the player's game, the title's points are no best, and the keys turn the paddle at a wall")
+{
+	PrismBreakPlay sample;
+	sample.Start();
+	sample.PointAt(320.0f);
+	sample.Advance(900);
+	REQUIRE(sample.GetState() == "Title");
+	CHECK(sample.ReadOut("Attract").GetBool());
+	CHECK(sample.ReadOut("Score").GetInt32() > 0);
+	CHECK(sample.GetText("Best Text") == "0");
+
+	// The title's next break clears its level: the title stays up, without the game bar or the level banner.
+	sample.SetVariable("Game", "BricksLeft", ScriptFieldValue::FromInt32(1));
+	for (int frame = 0; frame < 1800 && sample.ReadOut("LastBroadcastCount").GetInt32() == 0; frame++)
+	{
+		sample.Advance(1);
+	}
+	REQUIRE(sample.ReadOut("LastBroadcastCount").GetInt32() == 8);
+	CHECK(sample.GetState() == "Title");
+	CHECK(sample.IsShown("Title Screen"));
+	CHECK_FALSE(sample.IsShown("Game Bar"));
+	CHECK_FALSE(sample.IsShown("Banner"));
+
+	// Space, while the title waits to build its next level, starts a game on the first level, which the title's clear
+	// leaves alone once its wait is over.
+	sample.Advance(30);
+	sample.Press("Space");
+	CHECK(sample.GetState() == "Serve");
+	CHECK_FALSE(sample.ReadOut("Attract").GetBool());
+	sample.Advance(240);
+	CHECK(sample.GetState() == "Serve");
+	CHECK(sample.ReadOut("Level").GetInt32() == 1);
+	CHECK(sample.ReadOut("BricksLeft").GetInt32() == 33);
+	CHECK(sample.GetChildren("Bricks").size() == 33);
+	CHECK_FALSE(sample.IsShown("Title Screen"));
+	CHECK(sample.IsShown("Game Bar"));
+	CHECK(sample.GetText("Score Text") == "0");
+	CHECK(sample.GetText("Best Text") == "0");
+
+	// D carries the paddle to the right wall; A turns it round at once, as the keys' target never passes the wall.
+	sample.Hold("D", true);
+	sample.Advance(60);
+	sample.Hold("D", false);
+	float const atWall = sample.GetPlace("Paddle").x;
+	CHECK(atWall == doctest::Approx(8.5f - 3.2f * 0.5f).epsilon(0.01));
+	sample.Hold("A", true);
+	sample.Advance(5);
+	sample.Hold("A", false);
+	CHECK(sample.GetPlace("Paddle").x < atWall - 0.3f);
+	sample.Stop();
+
+	// Played again, the title's autopilot lets its ball go into the drain, and Space starts a game before the title serves
+	// itself again: the player's ball waits on the paddle, which nothing steers but the player.
+	sample.Start();
+	sample.Advance(120);
+	REQUIRE(sample.GetState() == "Title");
+	sample.SetVariable("Paddle", "Autopilot", ScriptFieldValue::FromBool(false));
+	bool drained = false;
+	for (int frame = 0; frame < 1800 && !drained; frame++)
+	{
+		sample.Advance(1);
+		drained = sample.GetChildren("Balls").empty();
+	}
+	REQUIRE(drained);
+	CHECK(sample.GetState() == "Title");
+	sample.Press("Space");
+	CHECK(sample.GetState() == "Serve");
+	sample.Advance(240);
+	CHECK(sample.GetState() == "Serve");
+	CHECK_FALSE(sample.ReadOut("Attract").GetBool());
+	CHECK_FALSE(sample.ReadOut("Autopilot", "Paddle").GetBool());
+	CHECK_FALSE(sample.IsShown("Title Screen"));
+	CHECK(sample.ReadOut("Lives").GetInt32() == 3);
+	CHECK(sample.GetChildren("Balls").size() == 1);
+	sample.Stop();
 }
 
 TEST_CASE("PlayMode: the observer is told of the start, of each frame that ran with its time step and of the stop, and may pause "

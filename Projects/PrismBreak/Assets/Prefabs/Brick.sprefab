@@ -1,0 +1,115 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "10361949051258305053",
+			"Components": {
+				"Tag": {
+					"Tag": "Brick"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-100.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "3946315317282540900",
+					"Materials": [
+						"16211772179481642106"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.675000011920929,
+						0.2750000059604645,
+						0.3499999940395355
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.0,
+					"Restitution": 1.0
+				},
+				"AudioSource": {
+					"Clip": "12582166714482179497",
+					"Stream": false,
+					"Volume": 0.699999988079071,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				},
+				"VisualScript": {
+					"Graph": "406140568513313708",
+					"Variables": {
+						"Burst": {
+							"Type": "Prefab",
+							"Value": "17242446063640964356"
+						},
+						"Shard": {
+							"Type": "Prefab",
+							"Value": "2973956448038214034"
+						}
+					}
+				}
+			}
+		}
+	]
+}

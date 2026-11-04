@@ -1,0 +1,179 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "The drain behind the paddle: a ball that falls in is lost.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Game",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The entity whose Game.sgraph counts the lives"
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 2,
+					"Type": "Event.TriggerEnter",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 3,
+					"Type": "RunsGraph",
+					"Position": [
+						192.0,
+						0.0
+					],
+					"Settings": {
+						"Graph": "16219410850394416192"
+					}
+				},
+				{
+					"ID": 4,
+					"Type": "Flow.Branch",
+					"Position": [
+						400.0,
+						0.0
+					]
+				},
+				{
+					"ID": 5,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						128.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 6,
+					"Type": "Event.Send",
+					"Position": [
+						624.0,
+						0.0
+					],
+					"Settings": {
+						"Name": "BallLost",
+						"Graph": "17547337789174679122",
+						"Parameters": [
+							{
+								"Name": "Ball",
+								"Type": "Strada.Entity"
+							}
+						]
+					}
+				},
+				{
+					"ID": 7,
+					"Type": "Call:Strada.AudioSourceComponent.Play()",
+					"Position": [
+						816.0,
+						0.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						2,
+						"Other"
+					],
+					"To": [
+						3,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						3,
+						"Result"
+					],
+					"To": [
+						4,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						5,
+						"Value"
+					],
+					"To": [
+						6,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						2,
+						"Other"
+					],
+					"To": [
+						6,
+						"Ball"
+					]
+				},
+				{
+					"From": [
+						2,
+						"Then"
+					],
+					"To": [
+						4,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						4,
+						"True"
+					],
+					"To": [
+						6,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						6,
+						"Then"
+					],
+					"To": [
+						7,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 8,
+					"Text": "A ball falls out: the Game loses it",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						1011.13623046875,
+						260.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

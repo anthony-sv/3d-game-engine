@@ -1,0 +1,131 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "211387416230669391",
+			"Components": {
+				"Tag": {
+					"Tag": "Burst"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-100.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"2820574873416621685"
+					]
+				},
+				"AudioSource": {
+					"Clip": "12582166714482179497",
+					"Stream": false,
+					"Volume": 0.699999988079071,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 0,
+					"MaxParticles": 160,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.8500000238418579,
+					"SpeedMin": 3.0,
+					"SpeedMax": 8.5,
+					"Shape": "Sphere",
+					"ConeAngle": 25.0,
+					"Radius": 0.30000001192092896,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.4000000059604645,
+					"Drag": 2.5999999046325684,
+					"StartSize": 0.3400000035762787,
+					"EndSize": 0.0,
+					"StartColor": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"EndColor": [
+						0.550000011920929,
+						0.30000001192092896,
+						1.0,
+						0.0
+					],
+					"Intensity": 6.0,
+					"Texture": "5332072809182626647",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": true
+				}
+			}
+		},
+		{
+			"ID": "2820574873416621685",
+			"Components": {
+				"Tag": {
+					"Tag": "Shatter"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "211387416230669391",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "2775233322476052744",
+					"Stream": false,
+					"Volume": 0.550000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				}
+			}
+		}
+	]
+}
