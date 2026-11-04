@@ -11,6 +11,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/AssetThumbnails.h
     Source/Editor/Automation/AutomationInstance.cpp
     Source/Editor/Automation/AutomationInstance.h
+    Source/Editor/Automation/AutomationInstanceFile.cpp
+    Source/Editor/Automation/AutomationInstanceFile.h
     Source/Editor/Automation/AutomationServer.cpp
     Source/Editor/Automation/AutomationServer.h
     Source/Editor/Automation/CommandRegistry.cpp

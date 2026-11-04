@@ -312,22 +312,15 @@ namespace Strada
 			return;
 		}
 
-		m_InstanceInfo.ProcessID = Platform::GetProcessID();
-		m_InstanceInfo.Port = m_AutomationServer.GetPort();
-		m_InstanceInfo.Token = m_AutomationServer.GetToken();
-		m_InstanceInfo.Version = EngineVersion::String;
+		AutomationInstanceInfo instance;
+		instance.ProcessID = Platform::GetProcessID();
+		instance.Port = m_AutomationServer.GetPort();
+		instance.Token = m_AutomationServer.GetToken();
+		instance.Version = EngineVersion::String;
 		Project const* project = m_Context.GetProject();
-		m_InstanceInfo.Project = project != nullptr ? FileSystem::PathToUtf8(project->GetFilePath()) : std::string();
-		Result<std::filesystem::path> written = AutomationInstance::Write(m_InstanceInfo);
-		if (written)
-		{
-			m_InstanceFileWritten = true;
-			ST_INFO("Automation instance file: {}", FileSystem::PathToUtf8(written.GetValue()));
-		}
-		else
-		{
-			ST_ERROR("Could not write the automation instance file: {}", written.GetError());
-		}
+		instance.Project = project != nullptr ? FileSystem::PathToUtf8(project->GetFilePath()) : std::string();
+		// Retried by UpdateInstanceFile when it fails.
+		m_InstanceFile.Start(std::move(instance));
 	}
 
 	void EditorLayer::OnDetach()
@@ -363,11 +356,7 @@ namespace Strada
 			m_VisualScripts->SaveViews();
 		}
 		m_AutomationServer.Stop();
-		if (m_InstanceFileWritten)
-		{
-			AutomationInstance::Remove(Platform::GetProcessID());
-			m_InstanceFileWritten = false;
-		}
+		m_InstanceFile.Stop();
 	}
 
 	void EditorLayer::OnUpdate(Timestep timestep)
@@ -905,22 +894,12 @@ namespace Strada
 
 	void EditorLayer::UpdateInstanceFile()
 	{
-		if (!m_InstanceFileWritten)
+		if (!m_InstanceFile.IsStarted())
 		{
 			return;
 		}
 		Project const* project = m_Context.GetProject();
-		std::string projectFile = project != nullptr ? FileSystem::PathToUtf8(project->GetFilePath()) : std::string();
-		if (projectFile == m_InstanceInfo.Project)
-		{
-			return;
-		}
-		// Not retried when it fails: the old file still leads clients here, and they can ask editor.status.
-		m_InstanceInfo.Project = std::move(projectFile);
-		if (Result<std::filesystem::path> written = AutomationInstance::Write(m_InstanceInfo); !written)
-		{
-			ST_ERROR("Could not update the automation instance file: {}", written.GetError());
-		}
+		m_InstanceFile.Update(project != nullptr ? FileSystem::PathToUtf8(project->GetFilePath()) : std::string());
 	}
 
 	void EditorLayer::WatchParentProcess()

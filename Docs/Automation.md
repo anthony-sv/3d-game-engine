@@ -18,9 +18,10 @@ this document is the reference (a test fails when a registered command is missin
    ```
 
    `Project` is the project file the editor has open (empty without one); the editor rewrites the file when that
-   changes. The file holds a secret: its directory is user-only (POSIX 0700, files 0600; on Windows the per-user
-   application data folder is private by its default ACL). The editor deletes it on exit; files of processes that no
-   longer run are stale and removed by scanners.
+   changes, until the file names it: a write that fails (on Windows the replace fails while another process has the
+   file open) is retried at most every 100 ms, always with the newest project. The file holds a secret: its directory
+   is user-only (POSIX 0700, files 0600; on Windows the per-user application data folder is private by its default
+   ACL). The editor deletes it on exit; files of processes that no longer run are stale and removed by scanners.
 3. Open a TCP connection and authenticate first:
 
    ```json
