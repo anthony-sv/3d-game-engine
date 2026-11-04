@@ -2,7 +2,7 @@
 
 #include "Editor/AssetAutoRefresh.h"
 #include "Editor/AssetThumbnails.h"
-#include "Editor/Automation/AutomationInstance.h"
+#include "Editor/Automation/AutomationInstanceFile.h"
 #include "Editor/Automation/AutomationServer.h"
 #include "Editor/Automation/CommandRegistry.h"
 #include "Editor/EditorContext.h"
@@ -132,7 +132,8 @@ namespace Strada
 		std::string GetExportStatus() const;
 		void DrawRecentProjectsMenu();
 		void UpdateWindowTitle();
-		// Rewrites the automation instance file when the open project changed, so that clients find the editor by project.
+		// Keeps the automation instance file naming the open project (rewritten when it changed, failed writes retried), so
+		// that clients find the editor by project.
 		void UpdateInstanceFile();
 		// Closes the editor once the parent process (EditorLayerSpecification::ParentProcessID) has exited.
 		void WatchParentProcess();
@@ -173,9 +174,8 @@ namespace Strada
 		AssetAutoRefresh m_AssetAutoRefresh;
 		CommandRegistry m_Commands;
 		AutomationServer m_AutomationServer;
-		// What the instance file holds; valid while m_InstanceFileWritten.
-		AutomationInstanceInfo m_InstanceInfo;
-		bool m_InstanceFileWritten = false;
+		// The instance file clients find the editor by, kept naming the open project.
+		AutomationInstanceFile m_InstanceFile;
 		std::chrono::steady_clock::time_point m_NextParentProcessCheck;
 
 		// Images of the open project's assets, made once for the content browser and the inspector, which draw from them
