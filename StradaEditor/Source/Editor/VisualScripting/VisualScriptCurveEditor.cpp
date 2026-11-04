@@ -994,6 +994,14 @@ namespace Strada
 			drawList->AddRect(ToImVec(marquee->first), ToImVec(marquee->second), selectionColor);
 			m_Record.Marquee = true;
 		}
+		// The running instance's time, over the ruler and the curves.
+		if (m_Playhead && std::isfinite(*m_Playhead))
+		{
+			float const x = m_View.ToScreenX(std::clamp(*m_Playhead, 0.0, static_cast<double>(timeline.Length)));
+			drawList->AddLine(ImVec2(x, origin.y), ImVec2(x, max.y), VisualScriptPlayColor, std::max(std::round(fontSize * 0.15f), 1.0f));
+			m_Record.Playhead = true;
+			m_Record.PlayheadX = x;
+		}
 		drawList->PopClipRect();
 	}
 

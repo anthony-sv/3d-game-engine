@@ -15,11 +15,14 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Script/ScriptField.h"
+#include "Strada/Script/VisualScriptDebugger.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 #include "Strada/Script/VisualScriptLiterals.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -38,6 +41,35 @@ struct ImVec2;
 namespace Strada
 {
 	class EditSession;
+
+	// The play colour of live values (My Script's live dot and flash, the Timeline's playhead): IM_COL32(64, 160, 255, 255).
+	inline constexpr uint32_t VisualScriptPlayColor = 0xFFFFA040u;
+
+	// The fixed texts the panes draw of the running game (spec-slice4 §15.4, §15.5), listed in All for the glyph test.
+	namespace VisualScriptLiveTexts
+	{
+		// My Script's value cells.
+		inline constexpr std::string_view LiveValueOn = "Live value on ";
+		inline constexpr std::string_view Reset = "reset";
+		inline constexpr std::string_view New = "new";
+		// The drawer's Runtime section.
+		inline constexpr std::string_view Runtime = "Runtime";
+		inline constexpr std::string_view RuntimeLastRun = "Runtime (last run)";
+		inline constexpr std::string_view Clear = "Clear";
+		inline constexpr std::string_view GoTo = "Go to";
+		inline constexpr std::string_view Caller = "Caller";
+		inline constexpr std::string_view SelectEntity = "Select Entity";
+		inline constexpr std::string_view Node = " (node ";
+		inline constexpr std::string_view In = " in ";
+		inline constexpr std::string_view On = "on ";
+		inline constexpr std::string_view Separator = " \xC2\xB7 ";
+		inline constexpr std::string_view CalledFrom = " \xC2\xB7 called from ";
+		inline constexpr std::string_view Missing = "Missing (";
+
+		inline constexpr std::array All =
+			std::to_array<std::string_view>({LiveValueOn, Reset, New, Runtime, RuntimeLastRun, Clear, GoTo, Caller, SelectEntity, Node, In,
+		                                     On, Separator, CalledFrom, Missing});
+	}
 
 	// What a row of My Script stands for, as VisualScriptElementPayload::Kind holds it.
 	enum class VisualScriptElementKind : uint32_t
@@ -138,10 +170,19 @@ namespace Strada
 		// Draws a node as the canvas does (the palette's hover preview), its top-left at the position, at the scale; unset in
 		// the panes' own tests and until the window sets it.
 		std::function<void(VisualScriptPaletteEntry const&, ImDrawList*, ImVec2 position, float scale)> DrawNodePreview;
-		// While playing, the values the public variables of an entity's running instance hold now, by name, as
-		// VisualScriptEngine::GetInstanceVariables reads them (My Script shows the context entity's, at most
-		// VisualScriptSidebar::LiveValueInterval apart); unset shows none.
-		std::function<Result<ScriptFieldMap>(UUID entity)> ReadLiveVariables;
+		// While playing, the variables of an entity's running instance (VisualScriptDebugger::ReadValues with Variables and
+		// Timelines; My Script shows the context entity's, at most VisualScriptSidebar::LiveValueInterval apart) and, while an
+		// execution of the graph is stopped, those of the stopped frame's instance whatever the entity asked; unset shows none.
+		std::function<Result<VisualScriptLiveValues>(UUID entity)> ReadLiveValues;
+		// The running scene's name of an entity ("Missing (1234)" when it has none); unset names entities by their IDs.
+		std::function<std::string(UUID entity)> DescribeEntity;
+		// The runtime problems at the document's nodes (spec-slice4 §15.4), by serial, from the live log the window draws from;
+		// after Stop the last run's (LastRun).
+		std::span<Ref<VisualScriptRuntimeProblem const> const> RuntimeProblems;
+		bool RuntimeLastRun = false;
+		// The variables the window's last receipt reset and added, while My Script says so (a few seconds after it).
+		std::span<std::string const> ResetVariables;
+		std::span<std::string const> NewVariables;
 	};
 
 	// What a pane asks of the window after drawing. The window applies the members in this order: Commit (executed, then the
@@ -167,6 +208,12 @@ namespace Strada
 		std::optional<VisualScriptCommentTitleRequest> EditCommentTitle;
 		// The drawer opens in Timeline mode on a Flow.Timeline of the shown sub-graph (Details' "Edit" of a track).
 		std::optional<VisualScriptTimelineFocus> ShowTimeline;
+		// An entity of the running scene to select (a value cell's or a runtime problem's), and one to make the window's context
+		// entity (a runtime problem's Go to).
+		std::optional<UUID> SelectEntity;
+		std::optional<UUID> ContextEntity;
+		// The drawer's [Clear] of the last run's runtime problems (VisualScriptEngine::ClearLiveLog; view state, no step).
+		bool ClearRuntimeProblems = false;
 		// A widget interaction is in progress: its edits merge into one step until it ends.
 		bool WidgetActive = false;
 	};

@@ -5,24 +5,37 @@
 #include "VisualScriptPanelTestUtilities.h"
 #include "VisualScriptTestUtilities.h"
 
+#include "Editor/Automation/CommandRegistry.h"
+#include "Editor/Automation/EditorCommands.h"
+#include "Editor/Automation/GraphDebugCommands.h"
+#include "Editor/Automation/PlayCommands.h"
 #include "Editor/Commands/EntityCommands.h"
 #include "Editor/EditorContext.h"
+#include "Editor/EditorEditingKeys.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
+#include "Editor/VisualScripting/VisualScriptCurveEditor.h"
+#include "Editor/VisualScripting/VisualScriptDebugSession.h"
+#include "Editor/VisualScripting/VisualScriptDetails.h"
+#include "Editor/VisualScripting/VisualScriptDrawer.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
+#include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptTimeline.h"
+#include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Script/VisualScriptDebugger.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 #include "Strada/Script/VisualScriptLive.h"
@@ -38,11 +51,13 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -425,8 +440,13 @@ TEST_CASE("VisualScriptEditor: while playing, moving a node sends nothing and a 
 	CHECK(second >= 4);
 	CHECK(second <= 5);
 	REQUIRE(fixture.Window.Panel->GetLiveValues().has_value());
-	CHECK(fixture.Window.Panel->GetLiveValues()->contains("Done"));
-	// My Script shows them beside the public variables, labelled live.
+	std::vector<VisualScriptDebugValue> const& variables = fixture.Window.Panel->GetLiveValues()->Variables;
+	CHECK(std::any_of(variables.begin(), variables.end(),
+	                  [](VisualScriptDebugValue const& value)
+	                  {
+						  return value.Name == "Done" && value.Value == Json(false);
+					  }));
+	// My Script shows them in its rows' value cells.
 	CHECK(fixture.Window.Panel->GetSidebar().GetLiveValues().contains("Done"));
 	CHECK(fixture.Window.Panel->GetActivity().LiveValueReads - reads == second);
 
@@ -669,11 +689,12 @@ TEST_CASE("VisualScriptEditor: the editor's Timeline parser accepts a setting ex
 		document.Graph.Nodes = {MakeNode(1, "Flow.Timeline", glm::vec2(0.0f), Json::object({{"Timeline", damaged}}))};
 		Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(document);
 		REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
-		// The runtime's problems with the setting: its messages start with the setting's path.
+		// The runtime's problems with the setting: every finding of the Timeline reader carries the setting (spec-slice4 §16.4),
+		// whatever its code.
 		std::vector<std::string> problems;
 		for (VisualScriptDiagnostic const& diagnostic : analysis.GetValue()->Diagnostics)
 		{
-			if (diagnostic.Node == 1 && diagnostic.Message.starts_with("Timeline"))
+			if (diagnostic.Node == 1 && diagnostic.Setting == "Timeline")
 			{
 				problems.push_back(diagnostic.Message);
 			}
@@ -926,4 +947,829 @@ TEST_CASE("VisualScriptEditor: the frame that commits a new link while the game 
 			CHECK(median <= 3.0 * PlayLinkFrameMilliseconds[size]);
 		}
 	}
+}
+
+// --- The live channel in the window (spec-slice4 §15.1-§15.4, §15.7, §15.9) ---
+
+namespace
+{
+	// On every update: Count += 1 (Set 11, its Add 12 and Get 13), then Steps += 1 (Set 14, its Add 15 and Get 16).
+	VisualScriptDocument MakeLiveCounterDocument()
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Count", "int", 0));
+		document.Variables.push_back(MakeVariable(2, "Steps", "int", 0));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Update", glm::vec2(0.0f, 0.0f)));
+		for (auto const& [set, variable, x] :
+		     {std::tuple<uint32_t, uint32_t, float>{11, 1, 320.0f}, std::tuple<uint32_t, uint32_t, float>{14, 2, 760.0f}})
+		{
+			document.Graph.Nodes.push_back(MakeNode(set, "Variable.Set", glm::vec2(x, 0.0f), Json::object({{"Variable", variable}})));
+			document.Graph.Nodes.push_back(
+				MakeNode(set + 1, "Operator.Add", glm::vec2(x - 160.0f, 160.0f), Json::object(), Json::object({{"B", 1}})));
+			document.Graph.Nodes.push_back(
+				MakeNode(set + 2, "Variable.Get", glm::vec2(x - 320.0f, 160.0f), Json::object({{"Variable", variable}})));
+			document.Graph.Links.push_back(MakeLink(set + 2, "Value", set + 1, "A"));
+			document.Graph.Links.push_back(MakeLink(set + 1, "Result", set, "Value"));
+		}
+		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		document.Graph.Links.push_back(MakeLink(11, "Then", 14, "Execute"));
+		return document;
+	}
+
+	// The counter with a call of a member no type has (node 20) after its last Set: it does not compile.
+	VisualScriptDocument MakeBrokenLiveCounterDocument()
+	{
+		VisualScriptDocument document = MakeLiveCounterDocument();
+		document.Graph.Nodes.push_back(MakeNode(20, "Call:Strada.Nothing.Here()", glm::vec2(480.0f, 320.0f)));
+		document.Graph.Links.push_back(MakeLink(14, "Then", 20, "Execute"));
+		return document;
+	}
+
+	// On every update, Result = 1 / Zero (the Divide is node 12): an integer division by zero every frame.
+	VisualScriptDocument MakeLiveDivisionDocument()
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Result", "int", 0));
+		document.Variables.push_back(MakeVariable(2, "Zero", "int", 0));
+		document.Graph.Nodes = {MakeNode(10, "Event.Update", glm::vec2(0.0f, 0.0f)),
+		                        MakeNode(11, "Variable.Set", glm::vec2(320.0f, 0.0f), Json::object({{"Variable", 1}})),
+		                        MakeNode(12, "Operator.Divide", glm::vec2(160.0f, 160.0f), Json::object(), Json::object({{"A", 1}})),
+		                        MakeNode(13, "Variable.Get", glm::vec2(0.0f, 160.0f), Json::object({{"Variable", 2}}))};
+		document.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(13, "Value", 12, "B"), MakeLink(12, "Result", 11, "Value")};
+		return document;
+	}
+
+	// The graph windows with the debug session and play mode as EditorLayer wires them, and the commands that read them
+	// (graph.editors), drawn headless frame by frame as the editor runs them.
+	struct LiveFixture
+	{
+		Testing::HeadlessImGui Gui;
+		Testing::ScriptRuntimeScope Runtime;
+		Testing::AssetManagerScope Assets;
+		Testing::TemporaryDirectory Directory;
+		EditorContext Context;
+		EditorOperations Operations{Context};
+		EditorScripts Scripts{Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+		PlayMode Play{Context, Scripts};
+		VisualScriptDebugSession Session{Context, Play};
+		EngineVisualScriptSemantics Semantics;
+		VisualScriptViewSettings Settings{Directory.GetPath() / "UserData" / "Editor" / "VisualScriptViews.json"};
+		VisualScriptEditors Editors{Operations, Semantics, Settings};
+		CommandRegistry Registry;
+		VisualScriptDrawRecord Record;
+
+		LiveFixture()
+		{
+			Gui.UseEditorStyle(true);
+			Settings.SetHintSeen(VisualScriptCanvasHint);
+			Settings.SetReduceMotion(true);
+			EditorCommandEnvironment environment;
+			environment.GraphEditors = [this]() -> VisualScriptEditors&
+			{
+				return Editors;
+			};
+			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
+			REQUIRE(RegisterPlayCommands(Registry, Play, Context,
+			                             []
+			                             {
+											 return glm::uvec2(640, 480);
+										 })
+			            .IsOk());
+			REQUIRE(RegisterGraphDebugCommands(Registry, Session, Play, Context).IsOk());
+			Context.SetAssetReferenceResolver(
+				[](std::string_view reference)
+				{
+					return AssetManager::ResolveReference(reference);
+				});
+			REQUIRE(Operations.CreateProject(Directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+			Play.SetObserver(&Session);
+			Session.SetViewSettings(&Settings);
+			Editors.SetDebugSession(&Session);
+		}
+
+		~LiveFixture()
+		{
+			Play.Stop();
+			Play.SetObserver(nullptr);
+			Editors.SetDebugSession(nullptr);
+			Session.SetViewSettings(nullptr);
+		}
+
+		LiveFixture(LiveFixture const&) = delete;
+		LiveFixture& operator=(LiveFixture const&) = delete;
+
+		Json Ok(std::string_view name, Json params = Json::object())
+		{
+			std::optional<CommandResult> result;
+			Registry.Execute(name, params,
+			                 [&result](CommandResult value)
+			                 {
+								 result.emplace(std::move(value));
+							 });
+			REQUIRE(result.has_value());
+			REQUIRE_MESSAGE(result->IsOk(), (result->IsError() ? result->GetError().Message : std::string()));
+			return result->TakeValue();
+		}
+
+		AssetHandle CreateGraph(std::string const& path, VisualScriptDocument const& document)
+		{
+			std::string const graph = Ok("graph.create", Json::object({{"path", path}}))["asset"].get<std::string>();
+			Result<AssetHandle> const handle = AssetManager::ResolveReference(graph);
+			REQUIRE(handle.IsOk());
+			Set(handle.GetValue(), document);
+			return handle.GetValue();
+		}
+
+		void Set(AssetHandle graph, VisualScriptDocument const& document)
+		{
+			Ok("graph.set", Json::object({{"graph", graph.ToString()}, {"document", VisualScriptSerializer::SerializeDocument(document)}}));
+		}
+
+		UUID CreateRunner(std::string name, AssetHandle graph)
+		{
+			Json const created =
+				Ok("entity.create",
+			       Json::object({{"name", std::move(name)},
+			                     {"components", Json::object({{"VisualScript", Json::object({{"Graph", graph.ToString()}})}})}}));
+			std::optional<UUID> const id = UUID::FromString(created["id"].get<std::string>());
+			REQUIRE(id.has_value());
+			return *id;
+		}
+
+		void Open(AssetHandle graph)
+		{
+			VisualScriptOpenRequest request;
+			request.Graph = graph;
+			REQUIRE(Editors.Open(request).IsOk());
+			Frames(3);
+		}
+
+		void Start()
+		{
+			Result<void> const started = Play.Start(EditorPlayState::Play, 640, 480, nullptr, PlayStartOptions());
+			REQUIRE_MESSAGE(started.IsOk(), (started ? std::string() : started.GetError()));
+		}
+
+		// An editor frame: the queued resumes, play mode's update, the session's end, then the windows drawn (seconds of editor time
+		// after the last).
+		void EditorFrame(float seconds = FrameTime)
+		{
+			Session.BeginFrame();
+			Play.Update(Timestep(FrameTime));
+			Session.EndFrame();
+			Record.Clear();
+			Gui.Frame(Drawer(), seconds);
+		}
+
+		void Frames(int count)
+		{
+			for (int i = 0; i < count; i++)
+			{
+				EditorFrame();
+			}
+		}
+
+		std::function<void()> Drawer()
+		{
+			return [this]
+			{
+				Editors.OnImGuiRender();
+			};
+		}
+
+		VisualScriptEditorPanel& Window(AssetHandle graph)
+		{
+			VisualScriptEditorPanel* panel = Editors.FindPanel(graph);
+			REQUIRE(panel != nullptr);
+			return *panel;
+		}
+
+		// graph.editors' entry of a graph's window.
+		Json Editor(AssetHandle graph)
+		{
+			Json const editors = Ok("graph.editors")["editors"];
+			for (Json const& editor : editors)
+			{
+				if (editor["asset"] == graph.ToString())
+				{
+					return editor;
+				}
+			}
+			FAIL("no window of ", graph.ToString());
+			return Json();
+		}
+
+		// The window's toasts that begin with a text.
+		std::vector<std::string> Toasts(AssetHandle graph, std::string_view start = {})
+		{
+			std::vector<std::string> toasts;
+			for (std::string const& toast : Window(graph).GetState().Toasts)
+			{
+				if (toast.starts_with(start))
+				{
+					toasts.push_back(toast);
+				}
+			}
+			return toasts;
+		}
+
+		// Brings a window to the front (and makes it the edit target), drawn so in the next frame.
+		void Focus(AssetHandle graph)
+		{
+			std::string const name = VisualScriptEditorPanel::GetWindowName(graph, {});
+			Gui.Frame(
+				[this, &name]
+				{
+					Editors.OnImGuiRender();
+					ImGui::SetWindowFocus(name.c_str());
+				});
+			Gui.Frame(Drawer());
+		}
+
+		// Clicks the middle of a rectangle of a window's last draw, in front of the window.
+		void Click(AssetHandle graph, glm::vec2 min, glm::vec2 max)
+		{
+			Focus(graph);
+			Gui.Click(ImVec2((min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f), Drawer());
+		}
+
+		void ClickItem(AssetHandle graph, VisualScriptPanelItem item)
+		{
+			Focus(graph);
+			std::optional<VisualScriptRect> const rect = Window(graph).GetItemRect(item);
+			REQUIRE(rect.has_value());
+			Gui.Click(ImVec2((rect->Min.x + rect->Max.x) * 0.5f, (rect->Min.y + rect->Max.y) * 0.5f), Drawer());
+		}
+
+		// The live marks of a kind on a node, or on a link (the dashed wires of what the game does not run), in the last draw.
+		size_t CountLiveMarks(VisualScriptLiveMarkKind kind, std::optional<uint32_t> node = std::nullopt, bool links = false) const
+		{
+			return static_cast<size_t>(std::count_if(Record.Items.begin(), Record.Items.end(),
+			                                         [kind, node, links](VisualScriptDrawRecordItem const& item)
+			                                         {
+														 bool const link = item.Has(VisualScriptDrawElements::Dashed) &&
+				                                                           !item.Has(VisualScriptDrawElements::Outline);
+														 return item.Kind == VisualScriptDrawItemKind::LiveMark &&
+				                                                item.Mark == static_cast<uint8_t>(kind) && link == links &&
+				                                                (!node || item.Element == *node);
+													 }));
+		}
+	};
+}
+
+TEST_CASE("VisualScriptEditor: a commit while playing toasts its receipt and graph.editors reports it in the commit's frame; a window "
+          "drawn after it keeps its revision; an undo's toast says what it did")
+{
+	LiveFixture fixture;
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeLiveCounterDocument());
+	AssetHandle const other = fixture.CreateGraph("Scripts/Other.sgraph", MakeLiveCounterDocument());
+	fixture.CreateRunner("Counter", counter);
+	fixture.CreateRunner("Other", other);
+	// Drawn in this order.
+	fixture.Open(counter);
+	fixture.Open(other);
+	fixture.Start();
+	fixture.Frames(3);
+	// Play's first loads are nobody's edits: no toast, no receipt (S4-R11.3).
+	CHECK(fixture.Toasts(counter, "Live: ").empty());
+	CHECK(fixture.Editor(counter)["liveReceipt"].is_null());
+
+	// The window deletes Set Steps: its receipt toasts in the frame of the commit, which graph.editors reports.
+	fixture.Ok("graph.open", Json::object({{"graph", counter.ToString()}, {"select", Json::array({14})}}));
+	fixture.Frames(2);
+	uint64_t const before = fixture.Editors.GetLiveLog()->Serial;
+	REQUIRE(fixture.Window(counter).RequestAction(VisualScriptEditorAction::Delete));
+	fixture.EditorFrame();
+	REQUIRE(fixture.Window(counter).GetModel().GetDisplayDocument().Graph.Nodes.size() == 6);
+	CHECK(fixture.Toasts(counter, "Live: ") == std::vector<std::string>{"Live: applied to 1 instance"});
+	Json const editor = fixture.Editor(counter);
+	REQUIRE(editor["liveReceipt"].is_object());
+	CHECK(editor["liveReceipt"]["outcome"] == "Applied");
+	CHECK(editor["liveReceipt"]["instances"] == 1);
+	CHECK(editor["liveReceipt"]["serial"].get<uint64_t>() > before);
+	CHECK(editor["liveReceipt"]["cause"].is_null());
+	CHECK(editor["live"] == "Live");
+	// The committing window draws the rest of its frame from the newer revision; the window drawn after it keeps the one it was
+	// given before the windows drew.
+	Ref<VisualScriptLiveLog const> const given = fixture.Editors.GetLiveLog();
+	CHECK(fixture.Window(other).GetLiveLog() == given);
+	CHECK(fixture.Window(counter).GetLiveLog() != given);
+	CHECK(fixture.Window(counter).GetLiveLog()->Serial > given->Serial);
+	// The other window took no receipt of its own.
+	CHECK(fixture.Toasts(other, "Live: ").empty());
+	CHECK(fixture.Editor(other)["liveReceipt"].is_null());
+
+	// An undo applies at once too: its history toast and its receipt are one toast.
+	fixture.Focus(counter);
+	REQUIRE(fixture.Editors.GetEditTarget() == &fixture.Window(counter));
+	UndoEditorStep(fixture.Operations, &fixture.Editors);
+	fixture.Frames(2);
+	std::vector<std::string> const undone = fixture.Toasts(counter, "Undone: ");
+	REQUIRE(undone.size() == 1);
+	CHECK(undone.front().ends_with(" \xC2\xB7 applied to 1 instance"));
+	CHECK(fixture.Toasts(counter, "Live: ").size() == 1);
+	CHECK(fixture.Window(counter).GetModel().GetDisplayDocument().Graph.Nodes.size() == 7);
+}
+
+TEST_CASE("VisualScriptEditor: a broken edit while playing toasts that the game keeps the last version, shows LAST WORKING and outlines "
+          "exactly what does not run; fixing it applies and the outline goes")
+{
+	LiveFixture fixture;
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeLiveCounterDocument());
+	fixture.CreateRunner("Counter", counter);
+	fixture.Open(counter);
+	fixture.Window(counter).SetDrawRecord(&fixture.Record);
+	fixture.Start();
+	fixture.Frames(3);
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning) == 0);
+
+	// An agent's edit the window adopts: toasted at its next draw.
+	fixture.Set(counter, MakeBrokenLiveCounterDocument());
+	fixture.Frames(2);
+	// "not applied: 2 errors (first: unknown node type ... (node 20)); ...", the errors the log prints.
+	std::vector<std::string> const kept = fixture.Toasts(counter, "Live: not applied: ");
+	REQUIRE(kept.size() == 1);
+	CHECK(kept.front().find(" (first: ") != std::string::npos);
+	CHECK(kept.front().find("(node 20))") != std::string::npos);
+	CHECK(kept.front().ends_with("; the game keeps running the last version that worked"));
+	Json editor = fixture.Editor(counter);
+	CHECK(editor["live"] == "LastWorking");
+	CHECK(editor["notRunning"] == 1);
+	CHECK(editor["liveReceipt"]["outcome"] == "KeptLastWorking");
+	// The new node is outlined, and the link into it dashed: nothing else.
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning, 20) == 1);
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning) == 1);
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning, std::nullopt, true) == 1);
+	// The outline is the user's choice (graph.open sets it too).
+	fixture.Ok("graph.open", Json::object({{"graph", counter.ToString()}, {"outlineNotRunning", false}}));
+	fixture.Frames(1);
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning) == 0);
+	CHECK(fixture.Ok("graph.editors")["settings"]["outlineNotRunning"] == false);
+	CHECK(fixture.Editor(counter)["notRunning"] == 1);
+	fixture.Ok("graph.open", Json::object({{"graph", counter.ToString()}, {"outlineNotRunning", true}}));
+	fixture.Frames(1);
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning, 20) == 1);
+
+	// Fixed (Steps grow by 2 now): applied, and the marks go.
+	VisualScriptDocument fixed = MakeLiveCounterDocument();
+	fixed.Graph.Nodes[5].Inputs["B"] = 2;
+	fixture.Set(counter, fixed);
+	fixture.Frames(2);
+	CHECK(fixture.Toasts(counter, "Live: applied to 1 instance").size() == 1);
+	editor = fixture.Editor(counter);
+	CHECK(editor["live"] == "Live");
+	CHECK(editor["notRunning"] == 0);
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning) == 0);
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning, std::nullopt, true) == 0);
+}
+
+TEST_CASE("VisualScriptEditor: a broken edit while stopped keeps the stop with LAST WORKING and STOPPED and the strip's line; fixing it "
+          "reaches the stopped execution")
+{
+	LiveFixture fixture;
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeLiveCounterDocument());
+	fixture.CreateRunner("Counter", counter);
+	fixture.Open(counter);
+	fixture.Ok("graph.breakpoints", Json::object({{"graph", counter.ToString()}, {"add", Json::array({Json::object({{"node", 14}})})}}));
+	fixture.Start();
+	for (int frame = 0; frame < 30 && fixture.Session.GetSessionState() != VisualScriptDebugSessionState::Stopped; frame++)
+	{
+		fixture.EditorFrame();
+	}
+	REQUIRE(fixture.Session.GetSessionState() == VisualScriptDebugSessionState::Stopped);
+	fixture.Frames(2);
+	// My Script shows the stopped frame's instance's variables (spec-slice4 §13.6), which the session read: no read of the
+	// running instance meanwhile.
+	uint64_t const reads = fixture.Window(counter).GetActivity().LiveValueReads;
+	fixture.Frames(20);
+	REQUIRE(fixture.Window(counter).GetLiveValues().has_value());
+	CHECK(fixture.Window(counter).GetActivity().LiveValueReads == reads);
+	VisualScriptValueCell const* count = fixture.Window(counter).GetSidebar().FindLiveCell(1);
+	REQUIRE(count != nullptr);
+	VisualScriptStop const* stop = fixture.Session.FindStop(*fixture.Session.GetSelectedStop());
+	REQUIRE(stop != nullptr);
+	VisualScriptStopValues const* values = fixture.Session.GetStopValues(stop->ID, 0);
+	REQUIRE(values != nullptr);
+	auto const stopped = std::find_if(values->Variables.begin(), values->Variables.end(),
+	                                  [](VisualScriptDebugValue const& value)
+	                                  {
+										  return value.Name == "Count";
+									  });
+	REQUIRE(stopped != values->Variables.end());
+	CHECK(count->Text == stopped->Value.dump());
+
+	fixture.Set(counter, MakeBrokenLiveCounterDocument());
+	fixture.Frames(2);
+	Json const editor = fixture.Editor(counter);
+	CHECK(editor["live"] == "LastWorking");
+	CHECK(editor["debug"]["state"] == "Stopped");
+	// Both pill segments, and the strip's line.
+	CHECK(fixture.Window(counter).GetItemRect(VisualScriptPanelItem::Live).has_value());
+	CHECK(fixture.Window(counter).GetItemRect(VisualScriptPanelItem::Stopped).has_value());
+	std::vector<VisualScriptDebugStripRow> const& rows = fixture.Window(counter).GetStripRows();
+	CHECK(std::any_of(rows.begin(), rows.end(),
+	                  [](VisualScriptDebugStripRow const& row)
+	                  {
+						  return row.Text.starts_with("Your last edit has ") &&
+		                         row.Text.ends_with(": this execution continues with the last version that worked");
+					  }));
+
+	// Fixed (Steps grow by 2 now): the stopped execution goes on with the edit.
+	VisualScriptDocument fixed = MakeLiveCounterDocument();
+	fixed.Graph.Nodes[5].Inputs["B"] = 2;
+	fixture.Set(counter, fixed);
+	fixture.Frames(2);
+	CHECK(fixture.Toasts(counter, "Live: applied to 1 instance \xC2\xB7 the stopped execution continues with the edit").size() == 1);
+	CHECK(fixture.Editor(counter)["live"] == "Live");
+	CHECK(fixture.Editor(counter)["debug"]["state"] == "Stopped");
+	fixture.Ok("graph.continue");
+}
+
+TEST_CASE("VisualScriptEditor: an edit that cancels a waiting Delay toasts it and marks the node for 4 seconds")
+{
+	LiveFixture fixture;
+	VisualScriptDocument document = MakeDelayDocument();
+	document.Graph.Nodes[1].Inputs["Duration"] = 100.0;
+	AssetHandle const waiter = fixture.CreateGraph("Scripts/Waiter.sgraph", document);
+	fixture.CreateRunner("Waiter", waiter);
+	fixture.Open(waiter);
+	fixture.Window(waiter).SetDrawRecord(&fixture.Record);
+	fixture.Start();
+	fixture.Frames(3);
+
+	// The Delay (node 11) becomes a Log under its ID: the wait in it is cancelled.
+	VisualScriptDocument changed = document;
+	changed.Graph.Nodes[1] =
+		MakeNode(11, "Call:Strada.Log.Info(string)", glm::vec2(320.0f, 0.0f), Json::object(), Json::object({{"Message", "Now"}}));
+	changed.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(11, "Then", 13, "Execute"), MakeLink(13, "Then", 12, "Execute")};
+	fixture.Set(waiter, changed);
+	fixture.Frames(1);
+	CHECK(fixture.Toasts(waiter, "Live: applied to 1 instance \xC2\xB7 1 wait cancelled").size() == 1);
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::Cancelled, 11) == 1);
+	fixture.EditorFrame(3.0f);
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::Cancelled, 11) == 1);
+	fixture.EditorFrame(1.5f);
+	fixture.EditorFrame();
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::Cancelled) == 0);
+}
+
+TEST_CASE("VisualScriptEditor: while playing the Timeline drawer draws the playhead at the context instance's time")
+{
+	LiveFixture fixture;
+	VisualScriptDocument document;
+	Json const timeline =
+		Json::object({{"Length", 30.0},
+	                  {"Loop", false},
+	                  {"Tracks", Json::array({Json::object({{"Name", "Lift"},
+	                                                        {"Type", "float"},
+	                                                        {"Keys", Json::array({Json::object({{"Time", 0}, {"Value", 0}}),
+	                                                                              Json::object({{"Time", 30}, {"Value", 1}})})}})})}});
+	document.Graph.Nodes = {MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)),
+	                        MakeNode(11, "Flow.Timeline", glm::vec2(320.0f, 0.0f), Json::object({{"Timeline", timeline}}))};
+	document.Graph.Links = {MakeLink(10, "Then", 11, "PlayFromStart")};
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Rise.sgraph", document);
+	UUID const riser = fixture.CreateRunner("Riser", graph);
+	fixture.Open(graph);
+	fixture.Ok("graph.open", Json::object({{"graph", graph.ToString()}, {"timeline", 11}}));
+	fixture.Frames(2);
+	VisualScriptCurveEditor const& curves = fixture.Window(graph).GetDrawer().GetCurveEditor();
+	// Not playing: none.
+	CHECK_FALSE(curves.GetPlayhead().has_value());
+	CHECK_FALSE(curves.GetDrawRecord().Playhead);
+
+	fixture.Start();
+	fixture.Frames(20);
+	REQUIRE(curves.GetPlayhead().has_value());
+	VisualScriptValueRequest request;
+	request.Entity = riser;
+	request.Timelines = true;
+	Result<VisualScriptLiveValues> const values = VisualScriptDebugger::ReadValues(request);
+	REQUIRE(values.IsOk());
+	REQUIRE(values.GetValue().Timelines.size() == 1);
+	CHECK(*curves.GetPlayhead() == doctest::Approx(values.GetValue().Timelines.front().Time));
+	CHECK(*curves.GetPlayhead() > 0.0);
+	CHECK(curves.GetDrawRecord().Playhead);
+	CHECK(curves.GetDrawRecord().PlayheadX == doctest::Approx(curves.GetView().ToScreenX(*curves.GetPlayhead())));
+	// It moves with the game.
+	double const earlier = *curves.GetPlayhead();
+	fixture.Frames(10);
+	CHECK(*curves.GetPlayhead() > earlier);
+	fixture.Play.Stop();
+	fixture.Frames(1);
+	CHECK_FALSE(curves.GetPlayhead().has_value());
+}
+
+TEST_CASE("VisualScriptEditor: a runtime error badges its node with its count, toasts once, fills the Runtime section, and Go to frames "
+          "it with its entity as the context entity")
+{
+	LiveFixture fixture;
+	AssetHandle const divider = fixture.CreateGraph("Scripts/Divider.sgraph", MakeLiveDivisionDocument());
+	UUID const first = fixture.CreateRunner("First", divider);
+	fixture.CreateRunner("Second", divider);
+	fixture.Open(divider);
+	fixture.Window(divider).SetDrawRecord(&fixture.Record);
+	fixture.Start();
+	fixture.Frames(4);
+
+	// One mark on the Divide for both instances, their counts summed.
+	REQUIRE(fixture.CountLiveMarks(VisualScriptLiveMarkKind::RuntimeError, 12) == 1);
+	auto const mark = std::find_if(fixture.Record.Items.begin(), fixture.Record.Items.end(),
+	                               [](VisualScriptDrawRecordItem const& item)
+	                               {
+									   return item.Kind == VisualScriptDrawItemKind::LiveMark && item.Element == 12;
+								   });
+	REQUIRE(mark != fixture.Record.Items.end());
+	CHECK(mark->Text.starts_with("\xC3\x97"));
+	Json editor = fixture.Editor(divider);
+	CHECK(editor["runtimeProblems"] == Json::object({{"errors", 2}, {"warnings", 0}}));
+	// The node's first error toasted once, however often it recurs.
+	std::vector<std::string> const failed = fixture.Toasts(divider, "Divide (node 12) failed on ");
+	REQUIRE(failed.size() == 1);
+	CHECK(failed.front().ends_with(": integer division by zero"));
+	fixture.Frames(3);
+	CHECK(fixture.Toasts(divider, "Divide (node 12) failed on ").size() == 1);
+
+	// The Runtime section, above the analysis' problems.
+	fixture.Ok("graph.open", Json::object({{"graph", divider.ToString()}, {"problems", true}}));
+	fixture.Frames(2);
+	VisualScriptDrawer const& drawer = fixture.Window(divider).GetDrawer();
+	CHECK(drawer.GetRuntimeHeader() == "Runtime");
+	REQUIRE(drawer.GetRuntimeRows().size() == 2);
+	std::span<VisualScriptDrawerRuntimeRow const> const runtimeRows = drawer.GetRuntimeRows();
+	auto const found = std::find_if(runtimeRows.begin(), runtimeRows.end(),
+	                                [first](VisualScriptDrawerRuntimeRow const& candidate)
+	                                {
+										return candidate.Problem->Entity == first;
+									});
+	REQUIRE(found != runtimeRows.end());
+	VisualScriptDrawerRuntimeRow const& row = *found;
+	CHECK(row.Title == "Divide (node 12)");
+	CHECK(row.Detail.starts_with("on First \xC2\xB7 \xC3\x97"));
+	size_t const index = static_cast<size_t>(found - runtimeRows.begin());
+
+	// Go to: the Divide selected and in view, First the context entity.
+	fixture.Window(divider).ChooseContextEntity(UUID::Invalid());
+	fixture.Frames(1);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const goTo = fixture.Window(divider).GetDrawer().FindRuntimeButton(index, "Go to");
+	REQUIRE(goTo.has_value());
+	fixture.Click(divider, goTo->first, goTo->second);
+	fixture.Frames(2);
+	std::span<uint32_t const> const selection = fixture.Window(divider).GetModel().GetSelection();
+	CHECK(std::vector<uint32_t>(selection.begin(), selection.end()) == std::vector<uint32_t>{12});
+	CHECK(fixture.Window(divider).GetContextEntity() == first);
+
+	// After Stop: the last run's, until Clear.
+	fixture.Play.Stop();
+	fixture.Frames(2);
+	CHECK(fixture.Window(divider).GetDrawer().GetRuntimeHeader() == "Runtime (last run)");
+	std::optional<std::pair<glm::vec2, glm::vec2>> const clear = fixture.Window(divider).GetDrawer().FindRuntimeButton(SIZE_MAX, "Clear");
+	REQUIRE(clear.has_value());
+	fixture.Click(divider, clear->first, clear->second);
+	fixture.Frames(2);
+	CHECK(fixture.Window(divider).GetDrawer().GetRuntimeHeader().empty());
+	CHECK(fixture.Editor(divider)["runtimeProblems"] == Json::object({{"errors", 0}, {"warnings", 0}}));
+}
+
+TEST_CASE("VisualScriptEditor: the Live popover says since when the graph runs, what the game runs, the last receipt in full and the "
+          "runtime problems, and acts on them")
+{
+	LiveFixture fixture;
+	VisualScriptDocument document = MakeDelayDocument();
+	document.Graph.Nodes[1].Inputs["Duration"] = 100.0;
+	AssetHandle const waiter = fixture.CreateGraph("Scripts/Waiter.sgraph", document);
+	UUID const entity = fixture.CreateRunner("Waiter", waiter);
+	fixture.Open(waiter);
+	fixture.Window(waiter).SetDrawRecord(&fixture.Record);
+	fixture.Start();
+	fixture.Frames(3);
+
+	// An edit that keeps the wait: the receipt's instance line.
+	VisualScriptDocument longer = document;
+	longer.Graph.Nodes[1].Inputs["Duration"] = 200.0;
+	fixture.Set(waiter, longer);
+	fixture.Frames(2);
+	fixture.ClickItem(waiter, VisualScriptPanelItem::Live);
+	fixture.Frames(1);
+	VisualScriptEditorPanel const& window = fixture.Window(waiter);
+	REQUIRE(window.IsLivePopoverOpen());
+	std::vector<std::string> lines = window.GetLivePopoverLines();
+	REQUIRE(lines.size() >= 3);
+	CHECK(lines[0].starts_with("LIVE \xC2\xB7 running since "));
+	CHECK(lines[0].ends_with(" ago)"));
+	CHECK(lines[1] == "Last edit: applied to 1 instance");
+	CHECK(std::find(lines.begin(), lines.end(), "Variables kept: Done") != lines.end());
+	CHECK(std::find(lines.begin(), lines.end(), "Waiter: 1 wait kept") != lines.end());
+	// An instance's line makes its entity the context entity.
+	fixture.Window(waiter).ChooseContextEntity(UUID::Invalid());
+	fixture.Frames(1);
+	std::optional<VisualScriptRect> const instance = fixture.Window(waiter).GetItemRect(VisualScriptPanelItem::PopoverInstance);
+	REQUIRE(instance.has_value());
+	fixture.Gui.Click(ImVec2((instance->Min.x + instance->Max.x) * 0.5f, (instance->Min.y + instance->Max.y) * 0.5f), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Window(waiter).GetContextEntity() == entity);
+
+	// Broken: what the game runs instead, with Show first error and the outline toggle.
+	VisualScriptDocument broken = longer;
+	broken.Graph.Nodes.push_back(MakeNode(20, "Call:Strada.Nothing.Here()", glm::vec2(640.0f, 200.0f)));
+	broken.Graph.Links.push_back(MakeLink(12, "Then", 20, "Execute"));
+	fixture.Set(waiter, broken);
+	fixture.Frames(2);
+	fixture.ClickItem(waiter, VisualScriptPanelItem::Live);
+	fixture.Frames(1);
+	REQUIRE(fixture.Window(waiter).IsLivePopoverOpen());
+	lines = fixture.Window(waiter).GetLivePopoverLines();
+	CHECK(lines[0].starts_with("LIVE \xC2\xB7 last working version \xC2\xB7 running since "));
+	CHECK(std::find(lines.begin(), lines.end(), "The game runs the last version that worked: 1 node changed since is not running") !=
+	      lines.end());
+	CHECK(lines[2].starts_with("Last edit: not applied: "));
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning, 20) == 1);
+	std::optional<VisualScriptRect> const outline = fixture.Window(waiter).GetItemRect(VisualScriptPanelItem::PopoverOutline);
+	REQUIRE(outline.has_value());
+	fixture.Gui.Click(ImVec2((outline->Min.x + outline->Max.x) * 0.5f, (outline->Min.y + outline->Max.y) * 0.5f), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK_FALSE(fixture.Settings.IsOutlineNotRunning());
+	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning) == 0);
+	fixture.Settings.SetOutlineNotRunning(true);
+	std::optional<VisualScriptRect> const show = fixture.Window(waiter).GetItemRect(VisualScriptPanelItem::PopoverShowFirstError);
+	REQUIRE(show.has_value());
+	fixture.Gui.Click(ImVec2((show->Min.x + show->Max.x) * 0.5f, (show->Min.y + show->Max.y) * 0.5f), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.Editor(waiter)["drawer"] == "Problems");
+	std::span<uint32_t const> const selection = fixture.Window(waiter).GetModel().GetSelection();
+	CHECK(std::vector<uint32_t>(selection.begin(), selection.end()) == std::vector<uint32_t>{20});
+	CHECK_FALSE(fixture.Window(waiter).IsLivePopoverOpen());
+}
+
+TEST_CASE("VisualScriptEditor: a library's Live popover lists what each graph that calls it runs, and its edits toast once in its own "
+          "window")
+{
+	LiveFixture fixture;
+	// A pure Twice(Value) = 2 × Value (function 20), called by two scripts that each run on an entity, and by one no entity runs.
+	VisualScriptDocument library;
+	library.Kind = VisualScriptDocumentKind::Library;
+	VisualScriptFunction twice;
+	twice.ID = 20;
+	twice.Name = "Twice";
+	twice.Pure = true;
+	twice.Inputs.push_back({"Value", "int", {}});
+	twice.Outputs.push_back({"Result", "int", {}});
+	twice.Graph.Nodes = {MakeNode(21, "Function.Entry", glm::vec2(0.0f, 0.0f)),
+	                     MakeNode(22, "Operator.Multiply", glm::vec2(200.0f, 0.0f), Json::object(), Json::object({{"B", 2}})),
+	                     MakeNode(23, "Function.Return", glm::vec2(400.0f, 0.0f))};
+	twice.Graph.Links = {MakeLink(21, "Value", 22, "A"), MakeLink(22, "Result", 23, "Result")};
+	library.Functions.push_back(std::move(twice));
+	AssetHandle const math = fixture.CreateGraph("Scripts/Math.sgraph", library);
+	auto const caller = [&math]
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Count", "int", 0));
+		document.Graph.Nodes = {MakeNode(10, "Event.Update", glm::vec2(0.0f, 0.0f)),
+		                        MakeNode(11, "Variable.Set", glm::vec2(320.0f, 0.0f), Json::object({{"Variable", 1}})),
+		                        MakeNode(12, "Function.Call", glm::vec2(160.0f, 160.0f),
+		                                 Json::object({{"Function", 20}, {"Graph", math.ToString()}}), Json::object({{"Value", 3}}))};
+		document.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(12, "Result", 11, "Value")};
+		return document;
+	};
+	AssetHandle const first = fixture.CreateGraph("Scripts/First.sgraph", caller());
+	AssetHandle const second = fixture.CreateGraph("Scripts/Second.sgraph", caller());
+	fixture.CreateRunner("First", first);
+	fixture.CreateRunner("Second", second);
+	fixture.Open(first);
+	fixture.Open(math);
+	fixture.Start();
+	fixture.Frames(3);
+
+	// A body edit of the library: the graphs that call it compile again, said once in the library's window; the callers' windows
+	// stay silent.
+	VisualScriptDocument thrice = library;
+	thrice.Functions.front().Graph.Nodes[1].Inputs["B"] = 3;
+	fixture.Set(math, thrice);
+	fixture.Frames(2);
+	CHECK(fixture.Toasts(math, "Live: ") ==
+	      std::vector<std::string>{"Live: 2 scripts that call Math compiled again; applied to 2 instances"});
+	CHECK(fixture.Toasts(first, "Live: ").empty());
+	CHECK(fixture.Editor(first)["liveReceipt"]["cause"] == math.ToString());
+
+	fixture.ClickItem(math, VisualScriptPanelItem::Live);
+	fixture.Frames(1);
+	REQUIRE(fixture.Window(math).IsLivePopoverOpen());
+	std::vector<std::string> const lines = fixture.Window(math).GetLivePopoverLines();
+	CHECK(std::find(lines.begin(), lines.end(), "Graphs that call this library:") != lines.end());
+	CHECK(std::find(lines.begin(), lines.end(), "Scripts/First.sgraph runs this version") != lines.end());
+	CHECK(std::find(lines.begin(), lines.end(), "Scripts/Second.sgraph runs this version") != lines.end());
+}
+
+TEST_CASE("VisualScriptEditor: the runtime's finding of a damaged Timeline offers Edit in Details, which shows Details' Timeline section "
+          "with its finding and gives Length the keyboard")
+{
+	// Spec-slice4 §15.9, the runtime half of S-R10.5: the runtime's finding carries Setting "Timeline".
+	VisualScriptDocument document;
+	Json timeline = Json::object({{"Length", 1.0}, {"Loop", false}, {"Tracks", Json::array()}});
+	timeline["Tracks"].push_back(
+		Json::object({{"Name", "Lift"},
+	                  {"Type", "float"},
+	                  {"Keys", Json::array({Json::object({{"Time", 0.5}, {"Value", 0}}), Json::object({{"Time", 4}, {"Value", 1}})})}}));
+	document.Graph.Nodes = {MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)),
+	                        MakeNode(11, "Flow.Timeline", glm::vec2(320.0f, 0.0f), Json::object({{"Timeline", timeline}}))};
+	document.Graph.Links = {MakeLink(10, "Then", 11, "PlayFromStart")};
+	RuntimeFixture fixture(document);
+	fixture.Window.CheckDrawingChangesNothing();
+	VisualScriptOpenRequest request;
+	request.Graph = fixture.Window.Graph;
+	request.ShowProblems = true;
+	fixture.Window.Panel->Apply(request);
+	fixture.Window.Frames(3);
+	VisualScriptDrawer const& drawer = fixture.Window.Panel->GetDrawer();
+	auto const damaged = std::find_if(drawer.GetProblems().begin(), drawer.GetProblems().end(),
+	                                  [](VisualScriptDiagnostic const& diagnostic)
+	                                  {
+										  return diagnostic.Setting == "Timeline";
+									  });
+	REQUIRE(damaged != drawer.GetProblems().end());
+	CHECK(damaged->Node == std::optional<uint32_t>(11));
+	size_t const index = static_cast<size_t>(damaged - drawer.GetProblems().begin());
+	std::optional<std::pair<glm::vec2, glm::vec2>> const fix = drawer.FindFixButton(index);
+	REQUIRE(fix.has_value());
+
+	// Edit in Details, the first fix: the node selected, Details' Timeline section from its header with the finding under it and
+	// why the timeline cannot be edited there (what the runtime refuses, Details' parser refuses too); nothing edited.
+	size_t const undo = fixture.Window.GetUndoCount();
+	fixture.Window.Click((fix->first + fix->second) * 0.5f);
+	fixture.Window.Frames(3);
+	CHECK(fixture.Window.GetUndoCount() == undo);
+	std::span<uint32_t const> const selection = fixture.Model().GetSelection();
+	CHECK(std::vector<uint32_t>(selection.begin(), selection.end()) == std::vector<uint32_t>{11});
+	VisualScriptDetails const& details = fixture.Window.Panel->GetDetails();
+	REQUIRE(details.GetSubject() == VisualScriptDetailsSubject::Node);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const header = details.FindRow("Settings");
+	std::optional<std::pair<glm::vec2, glm::vec2>> const problem = details.FindRow("Timeline Problem");
+	std::optional<std::pair<glm::vec2, glm::vec2>> const refused = details.FindRow("Timeline");
+	REQUIRE(header.has_value());
+	REQUIRE(problem.has_value());
+	REQUIRE(refused.has_value());
+	CHECK(problem->first.y >= header->second.y);
+	CHECK(refused->first.y >= problem->second.y);
+	CHECK(details.GetRowText("Timeline").value_or("").starts_with("Cannot be edited here: Timeline.Tracks[0].Keys[1].Time"));
+	CHECK_FALSE(fixture.Window.Panel->GetPaneShared().FocusSetting.has_value());
+}
+
+TEST_CASE("VisualScriptEditor: a value dragged in the canvas's live widget while playing is one step and one receipt toast, said anew in "
+          "place at each commit")
+{
+	VisualScriptDocument document = MakeDelayDocument();
+	document.Graph.Nodes[1].Inputs["Duration"] = 100.0;
+	RuntimeFixture fixture(document);
+	// As the window manager hands every window the frame's revision of the live log.
+	fixture.Window.Probe = [&fixture]
+	{
+		fixture.Window.Panel->SetLiveLog(VisualScriptEngine::GetLiveLog());
+	};
+	fixture.Window.CheckDrawingChangesNothing();
+	fixture.CreateRunner("Waiter");
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Advance(2, Timestep(FrameTime));
+	fixture.Window.Frames(2);
+	size_t const undo = fixture.Window.GetUndoCount();
+	auto const receipts = [&fixture]
+	{
+		Ref<VisualScriptLiveLog const> const log = VisualScriptEngine::GetLiveLog();
+		return std::count_if(log->Edits.begin(), log->Edits.end(),
+		                     [&fixture](Ref<VisualScriptLiveEdit const> const& edit)
+		                     {
+								 return edit->Graph == fixture.Window.Graph;
+							 });
+	};
+	auto const before = receipts();
+
+	// The Delay's Duration dragged over frames further apart than the commit cadence: several commits of one step.
+	VisualScriptCanvasModel const& canvas = fixture.Model().GetCanvas();
+	std::optional<uint32_t> const delay = canvas.FindNode(11);
+	REQUIRE(delay.has_value());
+	std::optional<uint32_t> const duration = canvas.FindPin(*delay, "Duration", VisualScriptPinDirection::In);
+	REQUIRE(duration.has_value());
+	glm::vec2 const chip = fixture.Model().GetView().ToScreen(
+		VisualScriptGeometry::GetChipRect(canvas.GetNodes()[*delay], canvas.GetPins()[*duration]).GetCenter());
+	fixture.Window.MoveMouse(chip);
+	fixture.Window.Frames(1);
+	REQUIRE(fixture.Window.Panel->GetLiveWidget().has_value());
+	fixture.Window.SetButton(ImGuiMouseButton_Left, true);
+	for (int step = 1; step <= 6; step++)
+	{
+		ImGui::GetIO().AddMousePosEvent(chip.x + 8.0f * static_cast<float>(step), chip.y);
+		fixture.Window.Gui.Frame(fixture.Window.Drawer(), 0.15f);
+	}
+	fixture.Window.SetButton(ImGuiMouseButton_Left, false);
+	fixture.Window.Frames(2);
+	REQUIRE(fixture.Window.GetUndoCount() == undo + 1);
+	CHECK(receipts() - before >= 2);
+	// One toast for the step, its wait kept.
+	std::vector<std::string> toasts;
+	for (std::string const& toast : fixture.Window.Panel->GetState().Toasts)
+	{
+		if (toast.starts_with("Live: "))
+		{
+			toasts.push_back(toast);
+		}
+	}
+	CHECK(toasts == std::vector<std::string>{"Live: applied to 1 instance"});
 }

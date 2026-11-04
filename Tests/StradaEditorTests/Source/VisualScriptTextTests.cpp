@@ -11,6 +11,7 @@
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
 #include "Editor/VisualScripting/VisualScriptDebugValues.h"
 #include "Editor/VisualScripting/VisualScriptFlow.h"
+#include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
 
 #include "Strada/Script/VisualScriptLibrary.h"
@@ -165,8 +166,11 @@ TEST_CASE("VisualScriptEditor: the editor's UI font has every character the canv
 		texts.push_back(type.Title);
 		texts.push_back(type.ID);
 	}
-	// The graph window's notices, cards, pills and hints, and the shortcut sheet's rows on both platforms.
+	// The graph window's notices, cards, pills and hints (with the live channel's toasts, popover and marks), and the shortcut
+	// sheet's rows on both platforms.
 	texts.insert(texts.end(), VisualScriptPanelTexts::All.begin(), VisualScriptPanelTexts::All.end());
+	// The panes' texts of the running game: My Script's value cells and the drawer's Runtime section (spec-slice4 §15.4, §15.5).
+	texts.insert(texts.end(), VisualScriptLiveTexts::All.begin(), VisualScriptLiveTexts::All.end());
 	// The debugger's: the Debugger panel's, the debug controls' tooltips and the session's texts the UI shows (spec-slice4 §14).
 	texts.insert(texts.end(), VisualScriptDebuggerPanel::Texts::All.begin(), VisualScriptDebuggerPanel::Texts::All.end());
 	texts.insert(texts.end(), VisualScriptDebugControls::Texts::All.begin(), VisualScriptDebugControls::Texts::All.end());

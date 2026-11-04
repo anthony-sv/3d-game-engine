@@ -102,7 +102,37 @@ namespace Strada
 		bool operator==(VisualScriptValueMark const& other) const = default;
 	};
 
-	// U2 adds VisualScriptLiveMark (spec-slice4 §15.3).
+	// What a live mark on a node says (spec-slice4 §15.3).
+	enum class VisualScriptLiveMarkKind : uint8_t
+	{
+		// The game runs the last version that worked, and it lacks the node, or holds it with another program: a dashed amber
+		// outline (and a dashed amber wire for each link it lacks, VisualScriptCanvasDebugView::NotRunningLinks).
+		NotRunning = 0,
+		// A runtime problem of the graph at the node: a red or amber disc with "!" on the header's top-right corner, its count
+		// beside it at Detail.
+		RuntimeError,
+		RuntimeWarning,
+		// An edit cancelled a wait or a stopped execution at the node: a grey disc with a diagonal bar, for a few seconds.
+		Cancelled,
+		// An edit reset the node's state (Do Once, Gate, ...): a disc with a circular arrow, for a few seconds.
+		Reset
+	};
+
+	// A live mark of a node of the shown sub-graph. Count: a runtime problem's occurrences (every instance's); Tooltip: what the
+	// mark's tooltip says (the message and the instances, the reason).
+	struct VisualScriptLiveMark
+	{
+		uint32_t Node = 0;
+		VisualScriptLiveMarkKind Kind = VisualScriptLiveMarkKind::NotRunning;
+		uint32_t Count = 0;
+		std::string Tooltip;
+
+		bool operator==(VisualScriptLiveMark const& other) const = default;
+	};
+
+	// A receipt's reset state whose node the edit removed (VisualScriptLiveNode::Reason): it has no node left to mark.
+	inline constexpr std::string_view VisualScriptRemovedStateReason = "Removed";
+
 	struct VisualScriptCanvasDebugView
 	{
 		// The shown sub-graph's breakpoints, by node ID ascending.
@@ -123,6 +153,10 @@ namespace Strada
 		// The key that toggles breakpoints, as FormatVisualScriptChord names it ("F9"), for the ghost marker's tooltip; empty
 		// leaves the key out.
 		std::string_view BreakpointChord;
+		// The live channel's marks on the shown sub-graph's nodes (spec-slice4 §15.3), and the links (indices in the visual model)
+		// the version the game runs lacks, drawn dashed in amber.
+		std::span<VisualScriptLiveMark const> Live;
+		std::span<uint32_t const> NotRunningLinks;
 	};
 
 	// What a graph window shows of the debug session (graph.editors' debug.state): its graph holds the selected stop's frame
@@ -256,6 +290,14 @@ namespace Strada
 		// Wire values are drawn, and live ones while playing (Always).
 		bool WireValues = true;
 		bool LiveWireValues = false;
+		// The live channel's marks on the window's document (spec-slice4 §15.3), by sub-graph: its runtime problems (one mark per
+		// node and severity, the instances' counts summed) and, for a few seconds after a receipt, the nodes where it cancelled a
+		// wait or a stopped execution or reset a state. The window adds its own NotRunning marks.
+		std::vector<std::pair<uint32_t, VisualScriptLiveMark>> LiveMarks;
+		// My Script while stopped (spec-slice4 §13.6): the variables of the selected stop frame's instance when that instance
+		// runs the window's graph, and its entity; none otherwise.
+		std::optional<std::vector<VisualScriptDebugValue>> StopVariables;
+		UUID StopEntity = UUID::Invalid();
 	};
 
 	// The node menu's debugging items (spec-slice4 §13.5), listed in All for the glyph test.
@@ -299,7 +341,9 @@ namespace Strada
 			// The strip's [Break]: cancels the waiting step.
 			CancelStep,
 			// Stop and Frame: the strip's [Show] (a waiting member's receiver).
-			ShowFrame
+			ShowFrame,
+			// A runtime error's toast's [Break on errors]: every aborting error stops from now on (the per-user option).
+			BreakOnErrors
 		};
 
 		Kind RequestKind = Kind::ToggleBreakpoints;

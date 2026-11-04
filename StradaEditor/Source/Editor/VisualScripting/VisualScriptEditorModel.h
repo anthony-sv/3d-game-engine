@@ -19,6 +19,7 @@
 #include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <glm/glm.hpp>
 
@@ -568,6 +569,12 @@ namespace Strada
 		uint32_t Breakpoints = 0;
 		bool FlowDrawn = false;
 		bool FlowHeld = false;
+		// The live channel (spec-slice4 §17.4): the window's last receipt (none since it opened or Play started), the runtime
+		// problems at its document's nodes, and the nodes the game does not run as stored.
+		Ref<VisualScriptLiveEdit const> LiveReceipt;
+		uint32_t RuntimeErrors = 0;
+		uint32_t RuntimeWarnings = 0;
+		uint32_t NotRunning = 0;
 	};
 
 	// The model of one graph window: which document it shows and how (the asset's document, with its unplaced nodes placed in

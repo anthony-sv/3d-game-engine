@@ -123,7 +123,11 @@ namespace Strada
 		RunCount,
 		// A data wire's value at its midpoint (the link's index; Mark: its VisualScriptValueCurrency; Text as drawn, Color its
 		// swatch).
-		ValuePill
+		ValuePill,
+		// A live mark (spec-slice4 §15.3; Mark: its VisualScriptLiveMarkKind). A node's (its ID): a disc on the header's top-right
+		// corner (Body; Text: its count at Detail), or for NotRunning its dashed outline (Outline and Dashed). A link the version
+		// the game runs lacks (the link's index; NotRunning, Dashed without Outline).
+		LiveMark
 	};
 
 	// A Breakpoint item's Mark for the ghost marker: where a click adds a breakpoint.
@@ -389,6 +393,14 @@ namespace Strada
 		bool MeasurePhases = false;
 	};
 
+	// Where a frame drew a live mark's disc (VisualScriptCanvasDebugView::Live): the mark's index there and its screen rectangle,
+	// which the window's tooltips hit.
+	struct VisualScriptLiveMarkPlace
+	{
+		uint32_t Mark = 0;
+		VisualScriptRect Screen;
+	};
+
 	// Draws a rounded label of one or more lines (split by '\n', arrows drawn by UI::DrawArrowText) whose top-left corner is
 	// near anchor and which stays within bounds when it fits: the wire hover label, pin tooltips, and later the values of
 	// wires while debugging. Returns its rectangle in screen pixels.
@@ -444,6 +456,8 @@ namespace Strada
 		void StopAnimations();
 
 		VisualScriptRenderStats const& GetStats() const { return m_Stats; }
+		// The live marks' discs the last frame drew, in drawing order.
+		std::span<VisualScriptLiveMarkPlace const> GetLiveMarkPlaces() const { return m_LiveMarkPlaces; }
 		// The distinct text sizes (pixels) the last frame drew text at, in the order first used (at most 16 listed;
 		// GetStats().TextSizes counts them all).
 		std::span<float const> GetTextSizes() const { return {m_TextSizes.data(), std::min<size_t>(m_TextSizeCount, m_TextSizes.size())}; }
@@ -544,7 +558,13 @@ namespace Strada
 		void DrawDebug(Frame& frame);
 		void DrawBreakpoint(Frame& frame, uint32_t nodeIndex, VisualScriptBreakpointMark const* mark);
 		void DrawInstruction(Frame& frame, VisualScriptInstructionMark const& mark);
-		void DrawRunCount(Frame& frame, VisualScriptFlowNodeMark const& mark);
+		// shift: screen pixels the pill moves left of the header's corner, clear of the node's live marks.
+		void DrawRunCount(Frame& frame, VisualScriptFlowNodeMark const& mark, float shift);
+		// The live marks (spec-slice4 §15.3): the dashed outlines and wires of what the game does not run, and the discs of the
+		// others, right to left from the header's top-right corner (m_LiveMarkReach records how far left they reach).
+		void DrawNotRunning(Frame& frame);
+		void DrawLiveDiscs(Frame& frame);
+		void DrawLiveDisc(Frame& frame, uint32_t markIndex, glm::vec2 center, float radius, std::string_view count);
 		void DrawValuePill(Frame& frame, VisualScriptValueMark const& mark);
 		// A node's rectangle on the screen as this frame draws it (moved, gliding, expanded).
 		VisualScriptRect GetNodeScreen(Frame const& frame, uint32_t index) const;
@@ -616,6 +636,9 @@ namespace Strada
 		std::string m_PillText;
 		// A value pill's text as drawn.
 		std::string m_DebugText;
+		// The live marks' discs drawn this frame, and per node index how far left of the corner they reach (screen pixels).
+		std::vector<VisualScriptLiveMarkPlace> m_LiveMarkPlaces;
+		std::vector<std::pair<uint32_t, float>> m_LiveMarkReach;
 		// The current instruction's glow was drawn this frame (DrawFlow), under its outline (DrawDebug).
 		bool m_InstructionGlow = false;
 		// What m_PillText holds a pin's text for (BuildPinText's key); 0 when it holds another pill's.

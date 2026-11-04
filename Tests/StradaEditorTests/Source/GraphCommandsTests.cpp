@@ -1585,7 +1585,7 @@ TEST_CASE("GraphCommands: graph.open brings a node into view and sets the debugg
 	CHECK(editor["breakpoints"] == 0);
 	CHECK(editor["flow"] == Json::object({{"drawn", false}, {"held", false}}));
 	Json const editors = fixture.Ok("graph.editors");
-	CHECK(editors["settings"] == Json::object({{"wireValues", "Always"}, {"showFlow", false}}));
+	CHECK(editors["settings"] == Json::object({{"wireValues", "Always"}, {"showFlow", false}, {"outlineNotRunning", true}}));
 	CHECK(editors["debugPanel"].is_null());
 	CHECK(fixture.Settings.GetWireValues() == VisualScriptWireValues::Always);
 	CHECK_FALSE(fixture.Settings.IsShowFlow());
@@ -1603,6 +1603,35 @@ TEST_CASE("GraphCommands: graph.open brings a node into view and sets the debugg
 	CommandResult const panel = fixture.Run("graph.debug-panel", Json::object({{"tab", "Values"}}));
 	REQUIRE(panel.IsError());
 	CHECK(panel.GetError().Code == AutomationErrorCode::Unavailable);
+}
+
+TEST_CASE("GraphCommands: graph.open sets the outline of what the game does not run, and graph.editors reports the live channel's "
+          "members")
+{
+	// Spec-slice4 §17.4's U2 rows; what they report while the game runs is tested with the scripting runtime in
+	// VisualScriptRuntimeEditorTests.
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Frames(3);
+	// Outside play: no receipt, no runtime problem, nothing the game does not run.
+	Json const editor = fixture.Editor(graph);
+	CHECK(editor["liveReceipt"].is_null());
+	CHECK(editor["runtimeProblems"] == Json::object({{"errors", 0}, {"warnings", 0}}));
+	CHECK(editor["notRunning"] == 0);
+	CHECK(fixture.Ok("graph.editors")["settings"]["outlineNotRunning"] == true);
+
+	// A per-user setting, which every window draws with from its next draw.
+	Json const opened = fixture.Ok("graph.open", Json::object({{"graph", graph}, {"outlineNotRunning", false}}));
+	CHECK(opened["warnings"] == Json::array());
+	CHECK_FALSE(fixture.Settings.IsOutlineNotRunning());
+	CHECK(fixture.Ok("graph.editors")["settings"]["outlineNotRunning"] == false);
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"outlineNotRunning", true}}));
+	CHECK(fixture.Settings.IsOutlineNotRunning());
+	CommandResult const wrong = fixture.Run("graph.open", Json::object({{"graph", graph}, {"outlineNotRunning", "yes"}}));
+	REQUIRE(wrong.IsError());
+	CHECK(wrong.GetError().Code == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Settings.IsOutlineNotRunning());
 }
 
 TEST_CASE("GraphCommands: graph.open frames, then zooms around the framed centre, then centres, in every combination")

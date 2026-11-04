@@ -732,7 +732,7 @@ namespace Strada
 		}
 
 		// A graph window as graph.editors reports it: what its last draw saw.
-		Json DescribeGraphEditor(VisualScriptEditorState const& state)
+		Json DescribeGraphEditor(VisualScriptEditorState const& state, Scene& scene)
 		{
 			Json notices = Json::array();
 			for (VisualScriptNotice const notice : state.Notices)
@@ -786,6 +786,11 @@ namespace Strada
 			                                   {"function", state.DebugStop ? Json(state.DebugFunction) : Json()}});
 			described["breakpoints"] = state.Breakpoints;
 			described["flow"] = Json::object({{"drawn", state.FlowDrawn}, {"held", state.FlowHeld}});
+			// The live channel (spec-slice4 §17.4): the window's last receipt in graph.live's form, the runtime problems at its
+			// document's nodes, and the nodes the game does not run as stored.
+			described["liveReceipt"] = state.LiveReceipt != nullptr ? DescribeVisualScriptLiveEdit(*state.LiveReceipt, scene) : Json();
+			described["runtimeProblems"] = Json::object({{"errors", state.RuntimeErrors}, {"warnings", state.RuntimeWarnings}});
+			described["notRunning"] = state.NotRunning;
 			return described;
 		}
 
@@ -3786,6 +3791,9 @@ namespace Strada
 				                                    .Enum({"Off", "WhileStopped", "Always"}))
 						.Property("showFlow", SchemaBuilder::Boolean("Light the wires and nodes the game runs while playing, with run "
 				                                                     "counts (per user)"))
+						.Property("outlineNotRunning",
+				                  SchemaBuilder::Boolean("Outline, while the game runs the last version that worked, the nodes and links "
+				                                         "it does not run yet (per user)"))
 						.Build(),
 					false,
 					[this](Json const& params) -> CommandResult
@@ -3968,6 +3976,10 @@ namespace Strada
 						{
 							editors.GetSettings().SetShowFlow(params["showFlow"].get<bool>());
 						}
+						if (params.contains("outlineNotRunning"))
+						{
+							editors.GetSettings().SetOutlineNotRunning(params["outlineNotRunning"].get<bool>());
+						}
 						Json described = DescribeGraph(request.Graph);
 						described["function"] = opened.GetValue().Function;
 						described["selection"] = std::move(select);
@@ -4031,8 +4043,11 @@ namespace Strada
 				              "Forward have a view to go to, in this window or, after opening a node that names another graph, in that "
 				              "graph's window), debug { state (None, Stopped, Waiting, Passed, Error, Stepping or StepEnded: what the "
 				              "window shows of the debugger), stop, frame, node, function (the stop frame it shows, else null) }, "
-				              "breakpoints (the graph's count), flow { drawn, held (the flow clock holds: no frame ran since) } }; and "
-				              "settings { wireValues, showFlow } and debugPanel { open, visible, tab } (null without the Debugger panel). A "
+				              "breakpoints (the graph's count), flow { drawn, held (the flow clock holds: no frame ran since) }, liveReceipt "
+				              "(the window's last receipt since it opened or Play started, in graph.live's form, or null), "
+				              "runtimeProblems { errors, warnings } (at its document's nodes), notRunning (the nodes the game does not run "
+				              "as stored, while it runs the last version that worked) }; and settings { wireValues, showFlow, "
+				              "outlineNotRunning } and debugPanel { open, visible, tab } (null without the Debugger panel). A "
 				              "window opened since the last frame reports its state before its first draw (not visible, nothing "
 				              "selected). Unavailable without the editor's UI (headless).",
 				              Json(), true,
@@ -4046,11 +4061,12 @@ namespace Strada
 								  Json editors = Json::array();
 								  for (VisualScriptEditorState const& state : windows.Describe())
 								  {
-									  editors.push_back(DescribeGraphEditor(state));
+									  editors.push_back(DescribeGraphEditor(state, Context().GetScene()));
 								  }
 								  VisualScriptViewSettings const& settings = windows.GetSettings();
-								  Json settingsJson = Json::object(
-									  {{"wireValues", GetWireValuesName(settings.GetWireValues())}, {"showFlow", settings.IsShowFlow()}});
+								  Json settingsJson = Json::object({{"wireValues", GetWireValuesName(settings.GetWireValues())},
+					                                                {"showFlow", settings.IsShowFlow()},
+					                                                {"outlineNotRunning", settings.IsOutlineNotRunning()}});
 								  return Json::object(
 									  {{"editors", std::move(editors)},
 					                   {"settings", std::move(settingsJson)},

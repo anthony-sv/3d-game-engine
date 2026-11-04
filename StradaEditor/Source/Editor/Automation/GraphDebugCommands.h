@@ -14,6 +14,7 @@ namespace Strada
 {
 	class Scene;
 	class VisualScriptDebugSession;
+	struct VisualScriptLiveEdit;
 	struct VisualScriptStop;
 
 	// Registers the visual-script debug commands: graph.breakpoints, graph.target, graph.debug, graph.continue, graph.step,
@@ -36,4 +37,8 @@ namespace Strada
 	// edits being the receipts taken after serial in graph.live's form (none without a serial). Since an edit reaches the
 	// running scene inside the command (EditorContext::FinishEdit), its receipts are final when the command returns.
 	[[nodiscard]] Json DescribeVisualScriptLiveEdits(EditorContext& context, std::optional<uint64_t> serial);
+
+	// A receipt in graph.live's form (graph.editors' liveReceipt): camelCase, its graphs with their paths, its instances' entities
+	// with their names in the scene, and its age.
+	[[nodiscard]] Json DescribeVisualScriptLiveEdit(VisualScriptLiveEdit const& edit, Scene& scene);
 }

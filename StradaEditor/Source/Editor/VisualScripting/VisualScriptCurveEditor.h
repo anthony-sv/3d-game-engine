@@ -91,6 +91,9 @@ namespace Strada
 		bool Marquee = false;
 		// "No tracks yet" was shown instead of curves.
 		bool Empty = false;
+		// The playhead was drawn, at this screen x (spec-slice4 §15.7).
+		bool Playhead = false;
+		float PlayheadX = 0.0f;
 	};
 
 	class VisualScriptCurveEditor
@@ -110,6 +113,10 @@ namespace Strada
 		// Cancels the gesture in progress (Escape) at the next Draw: a drag's keys or tangent go back where they were, in the
 		// drag's step, which then nets to nothing; a marquee gives back the selection it started from.
 		void CancelGesture();
+		// While playing, the context instance's time on the timeline shown (spec-slice4 §15.7): the curves draw a vertical line
+		// in the play colour there; none draws none. Kept until set again.
+		void SetPlayhead(std::optional<double> time) { m_Playhead = time; }
+		std::optional<double> GetPlayhead() const { return m_Playhead; }
 		// Whether a gesture of the curve view is in progress.
 		bool IsGestureActive() const { return m_View.GetGesture() != VisualScriptCurveGesture::Idle; }
 
@@ -167,6 +174,7 @@ namespace Strada
 		bool m_OpenKeyMenu = false;
 		std::vector<VisualScriptEditorAction> m_Actions;
 		VisualScriptCurveDrawRecord m_Record;
+		std::optional<double> m_Playhead;
 		std::vector<std::pair<std::string, std::pair<glm::vec2, glm::vec2>>> m_Rects;
 	};
 }

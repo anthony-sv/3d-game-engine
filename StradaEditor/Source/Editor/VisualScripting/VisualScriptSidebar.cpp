@@ -7,6 +7,7 @@
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Script/VisualScriptLiterals.h"
@@ -18,7 +19,9 @@
 #include <algorithm>
 #include <cfloat>
 #include <cstring>
+#include <functional>
 #include <iterator>
+#include <map>
 
 namespace Strada
 {
@@ -188,6 +191,9 @@ namespace Strada
 			context.Shared.Element.reset();
 		}
 		m_ReadOnly = frame.ReadOnly;
+		m_LiveCellRects.clear();
+		m_TypeRects.clear();
+		m_LiveTooltip.clear();
 		if (context.Shared.Rename)
 		{
 			// A quick fix that renames; nothing is renamed in a document that cannot be edited.
@@ -653,21 +659,27 @@ namespace Strada
 				ImGui::SetCursorScreenPos(ImVec2(start.x + ImGui::GetStyle().FramePadding.x + pill, start.y));
 				ImGui::AlignTextToFramePadding();
 				ImGui::TextUnformatted(variable.Name.c_str());
-				auto const live = m_LiveValues.find(variable.Name);
-				if (variable.Public && live != m_LiveValues.end())
-				{
-					ImGui::SameLine();
-					ImGui::TextDisabled("= %s (live)", live->second.dump().c_str());
-				}
+				float const nameEnd = ImGui::GetItemRectMax().x;
 				ImGui::SameLine();
+				// Left to right: the type pill, the name, the live value's cell, the eye, the type and the problem marker. The
+				// cell never reaches the eye or the type column (spec-slice4 §15.5).
 				std::vector<VisualScriptDiagnostic> const problems = GetVisualScriptVariableProblems(frame.Analysis, variable.ID);
 				float const marker = problems.empty() ? 0.0f : ImGui::GetFontSize() * 0.75f;
 				std::string const type = DescribeVisualScriptType(frame.Library, variable.Type);
 				float const typeWidth = ImGui::CalcTextSize(type.c_str()).x;
 				float const typeX = right - marker - typeWidth;
+				float const spacing = ImGui::GetStyle().ItemSpacing.x;
+				float const eyeX = typeX - ImGui::GetFontSize() * 1.2f - spacing;
 				ImGui::GetWindowDrawList()->AddText(ImVec2(typeX, start.y + ImGui::GetStyle().FramePadding.y),
 				                                    ImGui::GetColorU32(ImGuiCol_TextDisabled), type.c_str());
-				DrawEye(frame, variable, typeX - ImGui::GetFontSize() * 1.2f - ImGui::GetStyle().ItemSpacing.x);
+				m_TypeRects.emplace_back(
+					variable.ID, std::pair(glm::vec2(typeX, start.y), glm::vec2(typeX + typeWidth, start.y + ImGui::GetFrameHeight())));
+				if (m_LiveCells.contains(variable.ID))
+				{
+					DrawLiveCell(frame, variable, std::max(nameEnd + spacing, start.x + LiveCellIndent * ImGui::GetFontSize()),
+					             eyeX - spacing, start.y);
+				}
+				DrawEye(frame, variable, eyeX);
 				DrawProblemMarker(frame, problems, false, right);
 				ImGui::NewLine();
 			}
@@ -1409,9 +1421,10 @@ namespace Strada
 	void VisualScriptSidebar::UpdateLiveValues(Frame& frame)
 	{
 		VisualScriptPaneContext& context = frame.Context;
-		if (!context.Playing || !context.ContextEntity.IsValid() || !context.ReadLiveVariables)
+		if (!context.Playing || !context.ReadLiveValues)
 		{
-			m_LiveValues.clear();
+			m_LiveCells.clear();
+			m_LiveEntity = UUID::Invalid();
 			m_LiveTime = -1.0e30;
 			return;
 		}
@@ -1420,24 +1433,240 @@ namespace Strada
 			return;
 		}
 		m_LiveTime = context.Time;
-		m_LiveValues.clear();
-		Result<ScriptFieldMap> const values = context.ReadLiveVariables(context.ContextEntity);
+		Result<VisualScriptLiveValues> const values = context.ReadLiveValues(context.ContextEntity);
 		if (!values)
 		{
+			m_LiveCells.clear();
+			m_LiveEntity = UUID::Invalid();
 			return;
 		}
+		// Every variable the document has (private ones too: spec-slice4 §15.5), formatted as the debugger shows values; one
+		// that differs from the previous read of the same entity flashes.
 		VisualScriptEnumLookup const enums = MakeVisualScriptEnumLookup(frame.Library);
-		for (VisualScriptVariable const& variable : frame.Document.Variables)
+		std::function<std::string(UUID)> const describe = context.DescribeEntity ? context.DescribeEntity
+		                                                                         : std::function<std::string(UUID)>(
+																					   [](UUID entity)
+																					   {
+																						   return entity.ToString();
+																					   });
+		VisualScriptAssetNameLookup const assetName = [](AssetHandle handle)
 		{
-			auto const value = values.GetValue().find(variable.Name);
-			if (!variable.Public || value == values.GetValue().end())
+			std::optional<AssetMetadata> const metadata = AssetManager::IsInitialized() ? AssetManager::GetMetadata(handle) : std::nullopt;
+			return metadata ? (metadata->Path.empty() ? metadata->Name : metadata->Path) : handle.ToString();
+		};
+		bool const sameEntity = values.GetValue().Entity == m_LiveEntity;
+		std::map<uint32_t, LiveCell> cells;
+		for (VisualScriptDebugValue const& value : values.GetValue().Variables)
+		{
+			auto const declared = std::find_if(frame.Document.Variables.begin(), frame.Document.Variables.end(),
+			                                   [&value](VisualScriptVariable const& variable)
+			                                   {
+												   return variable.ID == value.ID && variable.Name == value.Name;
+											   });
+			if (declared == frame.Document.Variables.end())
 			{
 				continue;
 			}
-			if (std::optional<Json> literal = EncodeVisualScriptLiteral(value->second, variable.Type, enums))
+			LiveCell cell;
+			cell.Value = value;
+			cell.Cell = FormatVisualScriptDebugValue(value, frame.Library, enums, describe, assetName);
+			if (auto const previous = m_LiveCells.find(value.ID); previous != m_LiveCells.end() && sameEntity)
 			{
-				m_LiveValues.emplace(variable.Name, std::move(*literal));
+				cell.Changed = previous->second.Value != value ? context.Time : previous->second.Changed;
+			}
+			cells.emplace(value.ID, std::move(cell));
+		}
+		m_LiveCells = std::move(cells);
+		m_LiveEntity = values.GetValue().Entity;
+	}
+
+	void VisualScriptSidebar::DrawLiveCell(Frame& frame, VisualScriptVariable const& variable, float x, float right, float top)
+	{
+		LiveCell const& live = m_LiveCells.at(variable.ID);
+		VisualScriptValueCell const& cell = live.Cell;
+		VisualScriptPaneContext const& context = frame.Context;
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const font = ImGui::GetFontSize();
+		float const height = ImGui::GetFrameHeight();
+		float const radius = font * 0.18f;
+		std::string_view const ellipsis = VisualScriptDebugValueTexts::Ellipsis;
+		if (right - x <
+		    radius * 2.0f + style.ItemInnerSpacing.x + ImGui::CalcTextSize(ellipsis.data(), ellipsis.data() + ellipsis.size()).x)
+		{
+			// No room left between the name and the eye even for the dot and an ellipsis.
+			return;
+		}
+		ImDrawList* const drawList = ImGui::GetWindowDrawList();
+		ImVec2 const cursor = ImGui::GetCursorScreenPos();
+		ImGui::SetCursorScreenPos(ImVec2(x, top));
+		ImGui::PushID("liveCell");
+		bool const clicked = ImGui::InvisibleButton("##cell", ImVec2(right - x, height));
+		bool const hovered = ImGui::IsItemHovered();
+		m_LiveCellRects.emplace_back(variable.ID, std::pair(glm::vec2(x, top), glm::vec2(right, top + height)));
+		// A value that changed flashes in the play colour (held while Reduce Motion is on).
+		double const since = context.Time - live.Changed;
+		if (since >= 0.0 && since < LiveFlashSeconds)
+		{
+			float const fade = context.Settings.IsReduceMotion() ? 1.0f : 1.0f - static_cast<float>(since / LiveFlashSeconds);
+			ImVec4 flash = ImGui::ColorConvertU32ToFloat4(VisualScriptPlayColor);
+			flash.w *= 0.3f * fade;
+			drawList->AddRectFilled(ImVec2(x, top), ImVec2(right, top + height), ImGui::ColorConvertFloat4ToU32(flash),
+			                        style.FrameRounding);
+		}
+		// The play-coloured dot that opens the cell.
+		drawList->AddCircleFilled(ImVec2(x + radius, top + height * 0.5f), radius, VisualScriptPlayColor);
+		float left = x + radius * 2.0f + style.ItemInnerSpacing.x;
+		float const textY = top + style.FramePadding.y;
+		ImU32 const dimmed = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+		ImU32 const normal = cell.Dimmed || cell.Kind == VisualScriptValueCellKind::None ? dimmed : ImGui::GetColorU32(ImGuiCol_Text);
+		// For a few seconds after a receipt: what it did to the variable, before the value.
+		bool const reset =
+			std::find(context.ResetVariables.begin(), context.ResetVariables.end(), variable.Name) != context.ResetVariables.end();
+		bool const added = std::find(context.NewVariables.begin(), context.NewVariables.end(), variable.Name) != context.NewVariables.end();
+		if (reset || added)
+		{
+			std::string_view const label = reset ? VisualScriptLiveTexts::Reset : VisualScriptLiveTexts::New;
+			drawList->AddText(ImVec2(left, textY), dimmed, label.data(), label.data() + label.size());
+			left += ImGui::CalcTextSize(label.data(), label.data() + label.size()).x + style.ItemInnerSpacing.x;
+		}
+		bool cut = false;
+		if (cell.Kind == VisualScriptValueCellKind::Swatch && cell.Color)
+		{
+			// A colour is its swatch alone, with ImGui's colour tooltip.
+			float const size = std::max(height - 4.0f, 1.0f);
+			ImGui::SetCursorScreenPos(ImVec2(left, top + (height - size) * 0.5f));
+			ImGui::ColorButton("##swatch", ImGui::ColorConvertU32ToFloat4(*cell.Color), ImGuiColorEditFlags_AlphaPreviewHalf,
+			                   ImVec2(size, size));
+		}
+		else
+		{
+			if (cell.Kind == VisualScriptValueCellKind::Entity)
+			{
+				// An entity's glyph (a small box), then its name.
+				float const box = font * 0.55f;
+				ImVec2 const lower(left, top + (height - box) * 0.5f);
+				drawList->AddRect(lower, ImVec2(lower.x + box, lower.y + box), normal, 1.0f, std::max(font * 0.08f, 1.0f));
+				left += box + style.ItemInnerSpacing.x;
+			}
+			std::string_view const text = cell.Text;
+			float const room = std::max(right - left, 0.0f);
+			ImVec2 const size = ImGui::CalcTextSize(text.data(), text.data() + text.size());
+			cut = size.x > room;
+			drawList->PushClipRect(ImVec2(left, top), ImVec2(right, top + height), true);
+			if (cell.Escapes.empty())
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, normal);
+				ImGui::RenderTextEllipsis(drawList, ImVec2(left, textY), ImVec2(right, top + height), right, text.data(),
+				                          text.data() + text.size(), &size);
+				ImGui::PopStyleColor();
+			}
+			else
+			{
+				// The string's \n escapes dimmed: its parts drawn in turn, cut before the ellipsis as RenderTextEllipsis cuts.
+				std::string_view shown = text;
+				if (cut)
+				{
+					float const ellipsisWidth = ImGui::CalcTextSize(ellipsis.data(), ellipsis.data() + ellipsis.size()).x;
+					char const* end = nullptr;
+					ImGui::GetFont()->CalcTextSizeA(font, std::max(room - ellipsisWidth, 1.0f), 0.0f, text.data(),
+					                                text.data() + text.size(), &end);
+					shown = text.substr(0, static_cast<size_t>(end - text.data()));
+				}
+				float at = left;
+				size_t start = 0;
+				auto const part = [&](size_t from, size_t to, ImU32 color)
+				{
+					if (to <= from || from >= shown.size())
+					{
+						return;
+					}
+					std::string_view const piece = shown.substr(from, std::min(to, shown.size()) - from);
+					drawList->AddText(ImVec2(at, textY), color, piece.data(), piece.data() + piece.size());
+					at += ImGui::CalcTextSize(piece.data(), piece.data() + piece.size()).x;
+				};
+				for (uint32_t const offset : cell.Escapes)
+				{
+					if (offset < start || offset + 2 > text.size())
+					{
+						continue;
+					}
+					part(start, offset, normal);
+					part(offset, offset + 2, dimmed);
+					start = offset + 2;
+				}
+				part(start, shown.size(), normal);
+				if (cut)
+				{
+					drawList->AddText(ImVec2(at, textY), normal, ellipsis.data(), ellipsis.data() + ellipsis.size());
+				}
+			}
+			drawList->PopClipRect();
+		}
+		if (hovered)
+		{
+			// The whole value when it was cut (an entity's with its ID), else where the value comes from.
+			std::string const entity = context.DescribeEntity ? context.DescribeEntity(m_LiveEntity) : m_LiveEntity.ToString();
+			std::string tooltip = (cut || cell.Kind == VisualScriptValueCellKind::Entity) && !cell.Tooltip.empty()
+			                          ? cell.Tooltip
+			                          : fmt::format("{}{}", VisualScriptLiveTexts::LiveValueOn, entity);
+			if (!cell.Note.empty())
+			{
+				tooltip += "\n" + cell.Note;
+			}
+			if (cell.Kind != VisualScriptValueCellKind::Swatch)
+			{
+				ImGui::SetTooltip("%s", tooltip.c_str());
+				m_LiveTooltip = std::move(tooltip);
 			}
 		}
+		if (clicked && cell.Kind == VisualScriptValueCellKind::Entity && cell.Entity.IsValid())
+		{
+			// A click selects the entity in the running scene.
+			frame.Result.SelectEntity = cell.Entity;
+		}
+		ImGui::PopID();
+		ImGui::SetCursorScreenPos(cursor);
+	}
+
+	std::map<std::string, VisualScriptValueCell> VisualScriptSidebar::GetLiveValues() const
+	{
+		std::map<std::string, VisualScriptValueCell> cells;
+		for (auto const& [variable, cell] : m_LiveCells)
+		{
+			cells.emplace(cell.Value.Name, cell.Cell);
+		}
+		return cells;
+	}
+
+	VisualScriptValueCell const* VisualScriptSidebar::FindLiveCell(uint32_t variable) const
+	{
+		auto const found = m_LiveCells.find(variable);
+		return found != m_LiveCells.end() ? &found->second.Cell : nullptr;
+	}
+
+	bool VisualScriptSidebar::IsLiveCellFlashing(uint32_t variable, double time) const
+	{
+		auto const found = m_LiveCells.find(variable);
+		return found != m_LiveCells.end() && time - found->second.Changed >= 0.0 && time - found->second.Changed < LiveFlashSeconds;
+	}
+
+	std::optional<std::pair<glm::vec2, glm::vec2>> VisualScriptSidebar::FindLiveCellRect(uint32_t variable) const
+	{
+		auto const found = std::find_if(m_LiveCellRects.begin(), m_LiveCellRects.end(),
+		                                [variable](auto const& rect)
+		                                {
+											return rect.first == variable;
+										});
+		return found != m_LiveCellRects.end() ? std::optional(found->second) : std::nullopt;
+	}
+
+	std::optional<std::pair<glm::vec2, glm::vec2>> VisualScriptSidebar::FindTypeRect(uint32_t variable) const
+	{
+		auto const found = std::find_if(m_TypeRects.begin(), m_TypeRects.end(),
+		                                [variable](auto const& rect)
+		                                {
+											return rect.first == variable;
+										});
+		return found != m_TypeRects.end() ? std::optional(found->second) : std::nullopt;
 	}
 }
