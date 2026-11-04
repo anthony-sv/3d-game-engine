@@ -411,6 +411,7 @@ namespace Strada
 				{
 					outcome.Result = VisualScriptResumeResult::Ended;
 				}
+				Notify();
 				return outcome;
 			}
 			if (IsStepEnded() && !m_State.Stepping)
@@ -439,21 +440,13 @@ namespace Strada
 			return Error{"nothing is stopped: no execution to step"};
 		}
 
-		AssetHandle steppedGraph;
-		if (action != VisualScriptDebugAction::Continue)
-		{
-			std::optional<uint64_t> const stepped = stop ? stop : m_State.Current;
-			if (VisualScriptStop const* const record = stepped ? FindStop(*stepped) : nullptr)
-			{
-				steppedGraph = record->Graph;
-			}
-		}
+		ResumeScope const scope = MakeResumeScope(stop, all);
 		Result<VisualScriptResumeOutcome> resumed = VisualScriptDebugger::Resume(stop, action, all);
 		if (!resumed)
 		{
 			return Error{resumed.GetError()};
 		}
-		return FinishResume(resumed.GetValue(), action, steppedGraph, true);
+		return FinishResume(resumed.GetValue(), action, scope, true).Outcome;
 	}
 
 	Result<void> VisualScriptDebugSession::Break(bool cancel, std::optional<AssetHandle> graph)
@@ -462,6 +455,10 @@ namespace Strada
 		if (std::optional<std::string> refusal = GetControlRefusal())
 		{
 			return Error{std::move(*refusal)};
+		}
+		if (cancel && graph)
+		{
+			return Error{"cancel takes no graph: it cancels the armed break and the step"};
 		}
 		if (Result<void> armed = VisualScriptDebugger::Break(cancel, graph); !armed)
 		{
@@ -474,6 +471,7 @@ namespace Strada
 		}
 		RefreshState(StateOrigin::Control);
 		m_Revision++;
+		Notify();
 		return {};
 	}
 
@@ -500,12 +498,13 @@ namespace Strada
 		SyncPause();
 		if (!m_State.Stops.empty())
 		{
+			ResumeScope const scope = MakeResumeScope(std::nullopt, true);
 			Result<VisualScriptResumeOutcome> resumed = VisualScriptDebugger::Resume(std::nullopt, VisualScriptDebugAction::Continue, true);
 			if (!resumed)
 			{
 				return Error{resumed.GetError()};
 			}
-			return FinishResume(resumed.GetValue(), VisualScriptDebugAction::Continue, AssetHandle(), true);
+			return FinishResume(resumed.GetValue(), VisualScriptDebugAction::Continue, scope, true).Outcome;
 		}
 		m_StepEnded = false;
 		m_Revision++;
@@ -722,8 +721,18 @@ namespace Strada
 			m_FlowTime += static_cast<double>(timestep.GetSeconds());
 			m_FrameCount++;
 		}
+		else
+		{
+			// The running scene the start made is the one stops were made in.
+			m_SceneVersionSeen = m_Context.GetSceneVersion();
+		}
 		m_StartReported = true;
 		m_FrameRan = true;
+
+		// Frames run only without a resumable stop. Without a step either, only a stop made in the frame changes the stop
+		// revision (after the dismissals below), which tells a stop that already ended in its frame.
+		bool const quiet = !m_State.Stepping && !HasResumableStop();
+		uint64_t quietRevision = m_State.StopRevision;
 
 		// A frame dismisses the read-only stops of the frames before it.
 		std::vector<uint64_t> readOnly;
@@ -738,21 +747,33 @@ namespace Strada
 		for (uint64_t const stop : readOnly)
 		{
 			Result<VisualScriptResumeOutcome> const resumed = VisualScriptDebugger::Resume(stop, VisualScriptDebugAction::Continue, false);
-			dismissed = dismissed || resumed.IsOk();
+			if (resumed)
+			{
+				dismissed = true;
+				quietRevision = resumed.GetValue().StopRevision;
+			}
 		}
 
 		std::optional<uint64_t> const stopRevision = TakeTrace();
 		bool hold = false;
 		if (dismissed || !stopRevision || *stopRevision != m_State.StopRevision)
 		{
-			hold = RefreshState(StateOrigin::Frame);
+			StateChange change;
+			if (quiet)
+			{
+				change.QuietRevision = quietRevision;
+			}
+			hold = RefreshState(StateOrigin::Frame, change).value_or(false);
 		}
+		m_SceneVersionSeen = m_Context.GetSceneVersion();
 		if (hold)
 		{
-			// Play mode pauses the scene when this answers true; the pause is the debugger's unless it was paused already.
-			m_PauseHeld = m_PauseHeld || !m_PlayMode.IsPaused();
-			m_PlayMode.CancelSteps();
+			// Paused before the listeners hear of it (play mode pauses the scene too when this answers true); the pause is the
+			// debugger's unless it was paused already.
+			HoldPlay();
+			m_Holds++;
 		}
+		Notify();
 		return hold;
 	}
 
@@ -774,14 +795,15 @@ namespace Strada
 		{
 			return false;
 		}
-		Follow();
-		SyncPause();
+		Refresh();
+		bool held = false;
 		if (!m_State.Stops.empty())
 		{
+			ResumeScope const scope = MakeResumeScope(std::nullopt, true);
 			Result<VisualScriptResumeOutcome> resumed = VisualScriptDebugger::Resume(std::nullopt, VisualScriptDebugAction::Continue, true);
 			if (resumed)
 			{
-				FinishResume(resumed.GetValue(), VisualScriptDebugAction::Continue, AssetHandle(), false);
+				held = FinishResume(resumed.GetValue(), VisualScriptDebugAction::Continue, scope, false).Held;
 			}
 			else
 			{
@@ -792,7 +814,8 @@ namespace Strada
 		{
 			return false;
 		}
-		bool const stoppedAgain = HasResumableStop();
+		// A continued chain that stopped again, or whose new stop ended at once, keeps the scene paused.
+		bool const stoppedAgain = HasResumableStop() || held;
 		if (!stoppedAgain)
 		{
 			// Play mode unpauses the scene next: the debugger's pause and an ended step end with it.
@@ -817,7 +840,8 @@ namespace Strada
 		summary.Stops = static_cast<uint32_t>(m_State.Stops.size());
 		summary.Current = m_State.Current;
 		summary.PauseHeld = IsPauseHeld();
-		summary.LastStop = m_LastStopID;
+		summary.StopsMade = m_StopsMade;
+		summary.Holds = m_Holds;
 		return summary;
 	}
 
@@ -1091,11 +1115,12 @@ namespace Strada
 		std::optional<uint64_t> const stopRevision = TakeTrace();
 		if (!stopRevision || *stopRevision != m_State.StopRevision)
 		{
-			if (RefreshState(StateOrigin::Poll))
+			if (RefreshState(StateOrigin::Poll).value_or(false))
 			{
 				HoldPlay();
 			}
 		}
+		Notify();
 	}
 
 	bool VisualScriptDebugSession::HasResumableStop() const
@@ -1161,41 +1186,67 @@ namespace Strada
 		m_PlayMode.CancelSteps();
 	}
 
-	bool VisualScriptDebugSession::RefreshState(StateOrigin origin)
+	std::optional<bool> VisualScriptDebugSession::RefreshState(StateOrigin origin)
+	{
+		return RefreshState(origin, StateChange());
+	}
+
+	std::optional<bool> VisualScriptDebugSession::RefreshState(StateOrigin origin, StateChange const& change)
 	{
 		Result<VisualScriptDebugState> state = VisualScriptDebugger::GetState();
 		if (!state)
 		{
 			ST_WARN("The visual script debugger's state cannot be read: {}", state.GetError());
-			return false;
+			return std::nullopt;
 		}
-		return ApplyState(state.TakeValue(), origin);
+		return ApplyState(state.TakeValue(), origin, change);
 	}
 
-	bool VisualScriptDebugSession::ApplyState(VisualScriptDebugState state, StateOrigin origin)
+	bool VisualScriptDebugSession::ApplyState(VisualScriptDebugState state, StateOrigin origin, StateChange const& change)
 	{
-		bool const hadResumable = HasResumableStop();
 		bool const wasStepping = m_State.Stepping.has_value();
 		uint64_t const lastSeen = m_LastStopID;
+		auto const kept = [&state](uint64_t id)
+		{
+			return std::any_of(state.Stops.begin(), state.Stops.end(),
+			                   [id](VisualScriptStop const& stop)
+			                   {
+								   return stop.ID == id;
+							   });
+		};
 		bool newStop = false;
 		for (VisualScriptStop const& stop : state.Stops)
 		{
 			if (stop.ID > lastSeen)
 			{
 				newStop = true;
+				m_StopsMade++;
 				m_LastStopID = std::max(m_LastStopID, stop.ID);
 			}
 		}
-		// The resumable stop that ended last, for the stop-ended listener.
+		// A stop made and ended before this read: the stop a resume reached that a scene load or a destruction its code asked
+		// for ended at once, or one a quiet frame made and ended (nothing else changes the stop revision then).
+		bool madeAndEnded = false;
+		if (change.Reached && *change.Reached > lastSeen && !kept(*change.Reached))
+		{
+			madeAndEnded = true;
+			m_StopsMade++;
+			m_LastStopID = std::max(m_LastStopID, *change.Reached);
+		}
+		else if (change.QuietRevision && !newStop && !state.Stepping && state.StopRevision != *change.QuietRevision)
+		{
+			madeAndEnded = true;
+			m_StopsMade++;
+		}
+		// The resumable stop that ended last without a resume, for the stop-ended listener: a resume ends the stops it
+		// continued.
 		std::optional<VisualScriptStop> ended;
 		for (VisualScriptStop const& stop : m_State.Stops)
 		{
-			bool const gone = std::none_of(state.Stops.begin(), state.Stops.end(),
-			                               [&stop](VisualScriptStop const& kept)
-			                               {
-											   return kept.ID == stop.ID;
-										   });
-			if (stop.Resumable && gone)
+			bool const resumed = change.Resume != nullptr &&
+			                     (change.Resume->All || std::find(change.Resume->Resumed.begin(), change.Resume->Resumed.end(), stop.ID) !=
+			                                                change.Resume->Resumed.end());
+			if (stop.Resumable && !resumed && !kept(stop.ID))
 			{
 				ended = stop;
 			}
@@ -1212,7 +1263,6 @@ namespace Strada
 		if (newStop)
 		{
 			m_StepEnded = false;
-			m_StopSceneVersion = m_Context.GetSceneVersion();
 		}
 		if (m_SelectedStop && FindStop(*m_SelectedStop) == nullptr)
 		{
@@ -1221,10 +1271,10 @@ namespace Strada
 		}
 
 		bool hold = false;
+		bool const resumable = HasResumableStop();
 		if (origin == StateOrigin::Frame || origin == StateOrigin::Poll)
 		{
-			bool const resumable = HasResumableStop();
-			if (newStop)
+			if (newStop || madeAndEnded)
 			{
 				hold = true;
 			}
@@ -1234,29 +1284,40 @@ namespace Strada
 				m_StepEnded = true;
 				hold = true;
 			}
-			if (hadResumable && !resumable && !newStop && ended)
+		}
+		if ((ended || madeAndEnded) && !resumable && !newStop)
+		{
+			// The last resumable stop ended without a resume: play stays paused, with the pause held when the debugger held it.
+			hold = true;
+			uint64_t const sceneVersion = change.Resume != nullptr ? change.Resume->SceneVersion : m_SceneVersionSeen;
+			std::string_view reason = StopEndedByEdit;
+			if (m_Context.GetSceneVersion() != sceneVersion)
 			{
-				std::string reason;
-				if (m_Context.GetSceneVersion() != m_StopSceneVersion)
-				{
-					reason = "A script loaded another scene, which ended the stopped execution; the game stays paused: Continue (F5) "
-							 "resumes it";
-				}
-				else if (!m_Context.GetScene().HasEntity(ended->Entity))
-				{
-					reason = "The stopped execution's entity was destroyed; the game stays paused: Continue (F5) resumes it";
-				}
-				else
-				{
-					reason = "The stopped execution was cancelled by your edit; the game stays paused: Continue (F5) resumes it";
-				}
-				if (m_StopEndedListener)
-				{
-					m_StopEndedListener(ended->Graph, reason);
-				}
+				reason = StopEndedBySceneLoad;
+			}
+			else if (change.Resume != nullptr || !ended || !m_Context.GetScene().HasEntity(ended->Entity))
+			{
+				// No edit runs inside a resume or a frame: what one ends (and a stop the session never saw) went with its
+				// instance. Between them, an ended stop whose entity is still there was cancelled by an edit.
+				reason = StopEndedByDestroy;
+			}
+			AssetHandle const graph = ended ? ended->Graph : change.Resume != nullptr ? change.Resume->Graph : AssetHandle();
+			m_PendingEnded.emplace(graph, std::string(reason));
+		}
+		return hold;
+	}
+
+	void VisualScriptDebugSession::Notify()
+	{
+		if (m_PendingEnded)
+		{
+			std::pair<AssetHandle, std::string> const ended = std::move(*m_PendingEnded);
+			m_PendingEnded.reset();
+			if (m_StopEndedListener)
+			{
+				m_StopEndedListener(ended.first, ended.second);
 			}
 		}
-
 		if (m_State.Current != m_NotifiedCurrent)
 		{
 			m_NotifiedCurrent = m_State.Current;
@@ -1265,7 +1326,6 @@ namespace Strada
 				m_StopListener(*current);
 			}
 		}
-		return hold;
 	}
 
 	void VisualScriptDebugSession::MergeTrace(VisualScriptFrameTrace const& trace)
@@ -1303,7 +1363,7 @@ namespace Strada
 					flow->Steps.push_back(std::move(merged));
 				}
 				VisualScriptFlowStep& merged = flow->Steps[entry->second];
-				uint32_t constexpr MaxCount = std::numeric_limits<uint32_t>::max();
+				constexpr uint32_t MaxCount = std::numeric_limits<uint32_t>::max();
 				merged.Count = merged.Count > MaxCount - step.Count ? MaxCount : merged.Count + step.Count;
 				merged.LastTime = m_FlowTime;
 			}
@@ -1326,14 +1386,35 @@ namespace Strada
 		return trace.GetValue().StopRevision;
 	}
 
-	VisualScriptResumeOutcome VisualScriptDebugSession::FinishResume(VisualScriptResumeOutcome outcome, VisualScriptDebugAction action,
-	                                                                 AssetHandle steppedGraph, bool managePlay)
+	VisualScriptDebugSession::ResumeScope VisualScriptDebugSession::MakeResumeScope(std::optional<uint64_t> stop, bool all) const
 	{
+		ResumeScope scope;
+		scope.All = all;
+		scope.WasPaused = m_PlayMode.IsPaused();
+		scope.SceneVersion = m_Context.GetSceneVersion();
+		std::optional<uint64_t> const resumed = stop ? stop : m_State.Current;
+		if (!all && resumed)
+		{
+			scope.Resumed.push_back(*resumed);
+			if (VisualScriptStop const* const record = FindStop(*resumed))
+			{
+				scope.Graph = record->Graph;
+			}
+		}
+		return scope;
+	}
+
+	VisualScriptDebugSession::FinishedResume VisualScriptDebugSession::FinishResume(VisualScriptResumeOutcome outcome,
+	                                                                                VisualScriptDebugAction action,
+	                                                                                ResumeScope const& scope, bool managePlay)
+	{
+		FinishedResume finished;
+		finished.Outcome = outcome;
 		m_StepEnded = false;
 		m_Revision++;
 		if (action != VisualScriptDebugAction::Continue)
 		{
-			m_StepGraph = steppedGraph;
+			m_StepGraph = scope.Graph;
 		}
 		// What the frame's end would have done after the code the resume ran: destroyed entities go, a requested scene load
 		// happens and a quit stops playing (which detaches).
@@ -1341,25 +1422,47 @@ namespace Strada
 		m_PlayMode.FollowScripts();
 		if (!m_Attached)
 		{
-			return outcome;
+			return finished;
+		}
+		// A scene the resume loaded starts running: it stays paused as the scene it replaced was, so that the pause the
+		// debugger holds, an ended step's and the agent's own survive the load.
+		if (scope.WasPaused && m_Context.GetSceneVersion() != scope.SceneVersion && !m_PlayMode.IsPaused())
+		{
+			m_PlayMode.SetPaused(true);
 		}
 		// What the resumed code ran lights the flow too.
 		TakeTrace();
-		RefreshState(StateOrigin::Resume);
-		if (!managePlay)
+		StateChange change;
+		change.Resume = &scope;
+		if (outcome.Result == VisualScriptResumeResult::Stopped)
 		{
-			return outcome;
+			change.Reached = outcome.Stop;
 		}
-		if (action != VisualScriptDebugAction::Continue && outcome.Result == VisualScriptResumeResult::Ended)
+		std::optional<bool> const read = RefreshState(StateOrigin::Resume, change);
+		m_SceneVersionSeen = m_Context.GetSceneVersion();
+		finished.Held = read.value_or(false);
+		// A stop the resume reached that ended at once (a scene load or a destruction its code asked for) leaves the execution
+		// ended.
+		if (read && outcome.Result == VisualScriptResumeResult::Stopped && outcome.Stop && FindStop(*outcome.Stop) == nullptr)
 		{
-			// The step ended its execution: the scene stays paused.
-			m_StepEnded = !HasResumableStop();
+			finished.Outcome.Result = VisualScriptResumeResult::Ended;
+			finished.Outcome.Stop.reset();
+			finished.Outcome.StopRevision = m_State.StopRevision;
 		}
-		else if (outcome.Result != VisualScriptResumeResult::Stopped && !HasResumableStop() && IsPauseHeld())
+		if (managePlay)
 		{
-			ResumePlay();
+			if (action != VisualScriptDebugAction::Continue && finished.Outcome.Result == VisualScriptResumeResult::Ended)
+			{
+				// The step ended its execution: the scene stays paused.
+				m_StepEnded = !HasResumableStop();
+			}
+			else if (!finished.Held && finished.Outcome.Result != VisualScriptResumeResult::Stopped && !HasResumableStop() && IsPauseHeld())
+			{
+				ResumePlay();
+			}
 		}
-		return outcome;
+		Notify();
+		return finished;
 	}
 
 	void VisualScriptDebugSession::RunRequest(QueuedRequest const& request)
@@ -1491,7 +1594,10 @@ namespace Strada
 		m_ConfigurationDirty = true;
 		m_State = VisualScriptDebugState();
 		m_LastStopID = 0;
-		m_StopSceneVersion = 0;
+		m_StopsMade = 0;
+		m_Holds = 0;
+		m_SceneVersionSeen = 0;
+		m_PendingEnded.reset();
 		m_NotifiedCurrent.reset();
 		m_PauseHeld = false;
 		m_StepEnded = false;

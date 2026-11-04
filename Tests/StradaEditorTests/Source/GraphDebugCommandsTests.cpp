@@ -725,6 +725,12 @@ TEST_CASE("VisualScriptDebug: graph.break stops the next node of one graph's exe
 	CHECK(advanced["stop"]["graph"] == literal);
 	CHECK(fixture.Ok("graph.continue")["outcome"] == "Ended");
 
+	// A cancel takes no graph: it cancels the armed break and the step, whatever graph they are for.
+	CommandError const error = fixture.Fails("graph.break", Json::object({{"cancel", true}, {"graph", literal}}));
+	CHECK(error.Code == AutomationErrorCode::InvalidParams);
+	CHECK(error.Data["path"] == "graph");
+	CHECK(error.Message == "graph: cancel takes no graph: it cancels the armed break and the step");
+
 	// Cancelled before a frame ran, it stops nothing.
 	fixture.Ok("graph.break");
 	state = fixture.Ok("graph.break", Json::object({{"cancel", true}}));
@@ -1280,6 +1286,83 @@ TEST_CASE("VisualScriptDebug: commands run back to back with no editor frame see
 	CHECK(fixture.Variable(first, "Steps").get<int>() >= 6);
 }
 
+TEST_CASE("VisualScriptDebug: a breakpoint on a node an edit with errors added is not in the running program")
+{
+	DebugFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", MakeCounterDocument());
+	fixture.CreateRunner("Counter", graph);
+	fixture.Start(true);
+
+	// The edit adds node 30 after Steps' Set, setting a variable the graph does not have: the graph has an error, so it runs on
+	// with the last version that worked, which has no node 30.
+	VisualScriptDocument edited = MakeCounterDocument();
+	edited.Graph.Nodes.push_back(MakeNode(30, "Variable.Set", Json::object({{"Variable", 99}}), Json::object({{"Value", 1}})));
+	edited.Graph.Links.push_back(MakeLink(14, "Then", 30, "Execute"));
+	fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", VisualScriptSerializer::SerializeDocument(edited)}}));
+	Json const breakpoint = FindBreakpoint(fixture.Breakpoint(graph, Json::object({{"node", 30}})), 30);
+	CHECK(breakpoint["active"] == false);
+	CHECK(breakpoint["inactiveReason"] == "not in the running program: the graph has errors");
+	Json const listed = FindBreakpoint(fixture.Ok("graph.debug")["breakpoints"], 30);
+	CHECK(listed["inactiveReason"] == "not in the running program: the graph has errors");
+	// The breakpoint on a node of the program that runs is active, and the frames run past node 30's breakpoint.
+	CHECK(FindBreakpoint(fixture.Breakpoint(graph, Json::object({{"node", 14}, {"enabled", false}})), 14)["active"] == true);
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 3}}))["stopped"] == false);
+}
+
+TEST_CASE("VisualScriptDebug: the play commands right after a command that ended the stop see it ended")
+{
+	DebugFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", MakeCounterDocument());
+	std::string const spinner = fixture.CreateRunner("Spinner", graph);
+	fixture.Breakpoint(graph, Json::object({{"node", 11}}));
+	fixture.Start(true);
+	REQUIRE(fixture.Ok("play.advance", Json::object({{"frames", 5}}))["stopped"] == true);
+
+	// The stopped execution's entity deleted, then play.state and play.advance with no editor frame between them.
+	fixture.Ok("entity.delete", Json::object({{"entities", Json::array({spinner})}}));
+	Json const state = fixture.Ok("play.state");
+	CHECK(state["debug"] == Json::object({{"state", "Running"}, {"stops", 0}, {"current", nullptr}, {"pauseHeld", false}}));
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+
+	// An edit that cancels the stop, then play.step.
+	std::string const other = fixture.CreateRunner("Other", graph);
+	Json const advanced = fixture.Ok("play.advance", Json::object({{"frames", 5}}));
+	REQUIRE(advanced["stopped"] == true);
+	CHECK(advanced["stop"]["entity"] == other);
+	fixture.Ok(
+		"graph.edit",
+		Json::object({{"graph", graph}, {"operations", Json::array({Json::object({{"op", "Delete"}, {"elements", Json::array({11})}})})}}));
+	CHECK(fixture.Ok("play.step", Json::object({{"frames", 1}}))["debug"]["stops"] == 0);
+}
+
+TEST_CASE("VisualScriptDebug: graph.trace ends after the frame in which a waiting step ended its execution, as play.advance does")
+{
+	DebugFixture fixture;
+	// When the graph starts: a Delay of 0.1 s at node 11 whose Completed leads nowhere; on every update: Count += 1 at 21.
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Count", "int", 0));
+	document.Graph.Nodes.push_back(MakeNode(10, "Event.Create"));
+	document.Graph.Nodes.push_back(MakeNode(11, "Flow.Delay", Json::object(), Json::object({{"Duration", 0.1}})));
+	document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	document.Graph.Nodes.push_back(MakeNode(20, "Event.Update"));
+	AddIncrement(document.Graph, 21, 1);
+	document.Graph.Links.push_back(MakeLink(20, "Then", 21, "Execute"));
+	std::string const graph = fixture.CreateGraph("Scripts/Wait.sgraph", document);
+	fixture.CreateRunner("Waiter", graph);
+	fixture.Breakpoint(graph, Json::object({{"node", 11}}));
+	fixture.Start(true);
+	REQUIRE(fixture.Ok("graph.debug")["stops"].size() == 1);
+	REQUIRE(fixture.Ok("graph.step", Json::object({{"kind", "Over"}}))["outcome"] == "Waiting");
+
+	Json const traced = fixture.Ok("graph.trace", Json::object({{"frames", 30}}));
+	CHECK(traced["framesRun"].get<uint32_t>() < 30);
+	CHECK(traced["stopped"] == false);
+	CHECK(traced["stop"].is_null());
+	Json const debug = fixture.Ok("graph.debug");
+	CHECK(debug["state"] == "StepEnded");
+	CHECK(fixture.Ok("play.state")["paused"] == true);
+}
+
 TEST_CASE("VisualScriptDebug: the documented agent session (Agents/Debugging.json) runs headless, every expectation met")
 {
 	Json const session = LoadAgentFile("Debugging.json");
@@ -1693,11 +1776,10 @@ TEST_CASE("VisualScriptDebug: random debug sessions answer once and leave a cons
 			{
 				CHECK_MESSAGE(*answers == 1, "unanswered: ", request);
 			}
-			fixture.Session->EndFrame();
-
-			// The state agrees with itself: graph.debug with play.state, and every stopped execution with its instance.
-			Json const after = fixture.Ok("graph.debug");
+			// The state agrees with itself: graph.debug with play.state, and every stopped execution with its instance. play.state
+			// is read first, right after the call with no editor frame between them, as a batch runs commands.
 			Json const play = fixture.Ok("play.state");
+			Json const after = fixture.Ok("graph.debug");
 			CHECK(after["state"] == play["debug"]["state"]);
 			CHECK(after["stops"].size() == play["debug"]["stops"]);
 			CHECK(after["current"] == play["debug"]["current"]);
@@ -1706,12 +1788,14 @@ TEST_CASE("VisualScriptDebug: random debug sessions answer once and leave a cons
 			{
 				CHECK(after["state"] == "Detached");
 				CHECK(after["stops"] == Json::array());
+				fixture.Session->EndFrame();
 				break;
 			}
+			// Every stop, read-only ones too, is in its instance's stops while its entity exists.
 			Json const instances = fixture.Ok("graph.instances", Json::object({{"limit", 500}}));
 			for (Json const& stop : after["stops"])
 			{
-				if (stop["resumable"] != true || !stop["entity"].is_string() ||
+				if (!stop["entity"].is_string() ||
 				    !fixture.Context.GetScene().HasEntity(*UUID::FromString(stop["entity"].get<std::string>())))
 				{
 					continue;
@@ -1724,6 +1808,7 @@ TEST_CASE("VisualScriptDebug: random debug sessions answer once and leave a cons
 												});
 				CHECK_MESSAGE(listed, "stop ", stop.dump(), " is in no instance's stops: ", instances.dump());
 			}
+			fixture.Session->EndFrame();
 		}
 		if (fixture.Play.IsPlaying())
 		{

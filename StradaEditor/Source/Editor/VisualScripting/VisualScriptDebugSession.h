@@ -12,6 +12,7 @@
 #include "Strada/Core/UUID.h"
 #include "Strada/Script/VisualScriptDebugger.h"
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -65,6 +66,15 @@ namespace Strada
 	public:
 		// GetFrameStepRefusalForUI's text, which names the keys (the toolbar's and the Play menu's Step show it).
 		static constexpr std::string_view RefusalForUI = "An execution is stopped at a breakpoint: continue it (F5) or step it (F10) first";
+		// The reasons the stop-ended listener is told.
+		static constexpr std::string_view StopEndedBySceneLoad =
+			"A script loaded another scene, which ended the stopped execution; the game stays paused: Continue (F5) resumes it";
+		static constexpr std::string_view StopEndedByDestroy =
+			"The stopped execution's entity was destroyed; the game stays paused: Continue (F5) resumes it";
+		static constexpr std::string_view StopEndedByEdit =
+			"The stopped execution was cancelled by your edit; the game stays paused: Continue (F5) resumes it";
+		// Every text the session gives the UI to show (the glyph tests read them).
+		static constexpr std::array<std::string_view, 4> Texts = {RefusalForUI, StopEndedBySceneLoad, StopEndedByDestroy, StopEndedByEdit};
 
 		VisualScriptDebugSession(EditorContext& context, PlayMode& playMode);
 		~VisualScriptDebugSession() override;
@@ -171,7 +181,7 @@ namespace Strada
 		bool OnPlayFrame(Timestep timestep) override;
 		// Detaches: every stop ends, and waits answer PlayStopped.
 		void OnPlayStopping() override;
-		// Continues every stop; true when one stopped again.
+		// Continues every stop; true when one stopped again, or when a stop ended without a resume (the scene stays paused).
 		bool OnPlayResuming() override;
 		PlayDebugSummary GetDebugSummary() const override;
 
@@ -181,9 +191,9 @@ namespace Strada
 		void BeginFrame();
 		// Brings what the session shows up to date between editor frames, as EndFrame does without ending one: follows the
 		// project and edits, and reads the runtime's state when its stop revision changed (an edit, an inspector change or a
-		// resume while paused), pausing the scene at a stop that made. Automation calls it before it reads or acts on the
-		// state: commands run back to back with no editor frame between them.
-		void Refresh();
+		// resume while paused), pausing the scene at a stop that made. Automation and play mode call it before they read or act
+		// on the state: commands run back to back with no editor frame between them.
+		void Refresh() override;
 		// Follows the project and edits (breakpoints whose node went), polls the stop revision when no frame ran, and
 		// completes waits.
 		void EndFrame();
@@ -194,12 +204,15 @@ namespace Strada
 		// The held pause: the debugger paused the scene and has not resumed it (so a resume unpauses it). It outlives a stop
 		// that ends without a resume.
 		bool HasPausedScene() const;
-		// Told of a new current stop (the UI brings its window forward and takes the game's input back).
+		// Told of a new current stop (the UI brings its window forward and takes the game's input back), after the scene was
+		// paused for it and queued frame steps were cancelled.
 		void SetStopListener(std::function<void(VisualScriptStop const& stop)> listener);
 		// Told when the session unpauses the scene it paused.
 		void SetResumeListener(std::function<void()> listener);
 		// Told when the last resumable stop ended without a resume (an edit cancelled it, its entity was destroyed, a scene
-		// load), with its graph and the reason.
+		// load; also by what another stop's resume ran, and in the frame or resume that made it), with its graph and the reason
+		// (one of the StopEndedBy texts), after the scene was kept paused. The graph is invalid when the stop ended before the
+		// session read it: in the frame that made it.
 		void SetStopEndedListener(std::function<void(AssetHandle graph, std::string const& reason)> listener);
 
 	private:
@@ -248,6 +261,37 @@ namespace Strada
 			CommandCompletion Completion;
 		};
 
+		// What a resume continues, read before it runs.
+		struct ResumeScope
+		{
+			// The stops it continues; every stop when All.
+			std::vector<uint64_t> Resumed;
+			bool All = false;
+			// The graph of the one stop it continues (invalid for All).
+			AssetHandle Graph;
+			// The scene was paused before it: a scene the resume loads stays paused.
+			bool WasPaused = false;
+			uint64_t SceneVersion = 0;
+		};
+
+		// What a state read knows of how it came about, beyond its origin.
+		struct StateChange
+		{
+			// A resume's scope and the stop it reached (stops it did not continue that are gone ended without a resume).
+			ResumeScope const* Resume = nullptr;
+			std::optional<uint64_t> Reached;
+			// A frame that started with no stop and no step: the stop revision then. A change with no stop left means that a
+			// stop was made and ended within the frame.
+			std::optional<uint64_t> QuietRevision;
+		};
+
+		// What FinishResume did. Held: a stop ended without a resume, so the scene stays paused.
+		struct FinishedResume
+		{
+			VisualScriptResumeOutcome Outcome;
+			bool Held = false;
+		};
+
 		// Loads another project's breakpoints when the editor's project is not the one followed; true then. Queries follow
 		// too, so the store and what it follows are mutable.
 		bool FollowProject() const;
@@ -278,16 +322,23 @@ namespace Strada
 		// Pauses the scene at a new stop (remembering whether the debugger paused it) and cancels queued frame steps.
 		void HoldPlay();
 
-		// Reads the runtime's state and applies it; true when a frame must be held (a new stop, a step that ended).
-		bool RefreshState(StateOrigin origin);
-		bool ApplyState(VisualScriptDebugState state, StateOrigin origin);
+		// Reads the runtime's state and applies it: true when play must be held (a new stop or a step that ended, after a
+		// frame or a poll; the last resumable stop ended without a resume, after anything); none when it cannot be read.
+		std::optional<bool> RefreshState(StateOrigin origin);
+		std::optional<bool> RefreshState(StateOrigin origin, StateChange const& change);
+		bool ApplyState(VisualScriptDebugState state, StateOrigin origin, StateChange const& change);
+		// Tells the listeners what the last state reads found, once play was held for it.
+		void Notify();
 		// Merges a trace into the watches' accumulations (frame: a scene frame ran).
 		void MergeTrace(VisualScriptFrameTrace const& trace);
 		// Takes the runtime's trace, merging it; nothing (having logged once per attachment) when it cannot be read.
 		std::optional<uint64_t> TakeTrace();
-		// After a resume ran graph code: what the frame's end would have flushed and followed, then the state, then play.
-		VisualScriptResumeOutcome FinishResume(VisualScriptResumeOutcome outcome, VisualScriptDebugAction action, AssetHandle steppedGraph,
-		                                       bool managePlay);
+		// What a resume of the stop (none: the current one), or of every stop, continues, as the state last read says.
+		ResumeScope MakeResumeScope(std::optional<uint64_t> stop, bool all) const;
+		// After a resume ran graph code: what the frame's end would have flushed and followed, then the state, then play
+		// (managePlay: resumes it, or leaves it paused when the step ended its execution or a stop ended without a resume).
+		FinishedResume FinishResume(VisualScriptResumeOutcome outcome, VisualScriptDebugAction action, ResumeScope const& scope,
+		                            bool managePlay);
 		void RunRequest(QueuedRequest const& request);
 		void CompleteWaits(bool playStopped);
 		Json MakeWaitResult(std::string_view reason) const;
@@ -318,9 +369,14 @@ namespace Strada
 		VisualScriptDebugState m_State;
 		// The largest stop ID seen this attachment: larger ones are new.
 		uint64_t m_LastStopID = 0;
-		// The context's scene version when the last new stop was seen (a scene load ends stops).
-		uint64_t m_StopSceneVersion = 0;
+		// The stops made, and the frames after which play was held, this attachment (PlayDebugSummary).
+		uint64_t m_StopsMade = 0;
+		uint64_t m_Holds = 0;
+		// The context's scene version after the last frame or resume (a scene load since then ends stops).
+		uint64_t m_SceneVersionSeen = 0;
 		std::optional<uint64_t> m_NotifiedCurrent;
+		// A stop that ended without a resume, for the stop-ended listener: its graph and the reason.
+		std::optional<std::pair<AssetHandle, std::string>> m_PendingEnded;
 		bool m_PauseHeld = false;
 		bool m_StepEnded = false;
 		// The graph of the execution the last step was made in, which a Break after StepEnded is armed for.

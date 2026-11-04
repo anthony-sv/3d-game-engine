@@ -1486,7 +1486,7 @@ namespace Strada
 				return Add(m_Registry, "graph.break",
 				           "Arms a break: the next node a targeted visual-script execution reaches in a frame that runs stops it (it "
 				           "unpauses nothing). graph: only executions of that script graph, or nodes of that library. cancel: cancels "
-				           "the armed break and a step that waits. Returns the state, as graph.debug.",
+				           "the armed break and a step that waits (it takes no graph). Returns the state, as graph.debug.",
 				           SchemaBuilder::Object()
 				               .Property("cancel", SchemaBuilder::Boolean("Cancel the armed break and a waiting step").Default(false))
 				               .Property("graph", GraphSchema("Only this graph's executions, or this library's nodes"))
@@ -1500,9 +1500,14 @@ namespace Strada
 
 			CommandResult Break(Json const& params)
 			{
+				bool const cancel = params.value("cancel", false);
 				std::optional<AssetHandle> graph;
 				if (auto const parameter = params.find("graph"); parameter != params.end())
 				{
+					if (cancel)
+					{
+						return MakeParameterError("graph", "cancel takes no graph: it cancels the armed break and the step");
+					}
 					CommandValue<AssetHandle> parsed = ParseGraph(*parameter, "graph");
 					if (!parsed)
 					{
@@ -1515,7 +1520,7 @@ namespace Strada
 					return std::move(*refused);
 				}
 				m_Session.Refresh();
-				if (Result<void> armed = m_Session.Break(params.value("cancel", false), graph); !armed)
+				if (Result<void> armed = m_Session.Break(cancel, graph); !armed)
 				{
 					return MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", armed.GetError());
 				}
@@ -1664,7 +1669,7 @@ namespace Strada
 				{
 					return MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", started.GetError());
 				}
-				uint64_t const lastStop = m_PlayMode.GetDebugSummary().LastStop;
+				PlayDebugSummary const before = m_PlayMode.GetDebugSummary();
 				uint32_t framesRun = 0;
 				bool stopped = false;
 				while (framesRun < frames && m_PlayMode.IsPlaying() && m_Session.IsAttached())
@@ -1679,9 +1684,12 @@ namespace Strada
 						break;
 					}
 					framesRun++;
-					if (m_PlayMode.GetDebugSummary().LastStop > lastStop)
+					// The trace ends where play.advance would: after a frame the debugger held (a new stop, a waiting step
+					// that ended its execution, a stop that ended in its frame).
+					PlayDebugSummary const after = m_PlayMode.GetDebugSummary();
+					if (after.Holds > before.Holds)
 					{
-						stopped = true;
+						stopped = after.StopsMade > before.StopsMade;
 						break;
 					}
 				}

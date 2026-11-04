@@ -163,6 +163,7 @@ namespace Strada
 
 	void PlayMode::Step(uint32_t frames)
 	{
+		RefreshObserver();
 		if (m_Runner != nullptr && !GetFrameStepRefusal())
 		{
 			m_Runner->GetScene()->Step(frames);
@@ -174,6 +175,14 @@ namespace Strada
 		if (m_Runner != nullptr)
 		{
 			m_Runner->GetScene()->CancelSteps();
+		}
+	}
+
+	void PlayMode::RefreshObserver()
+	{
+		if (m_Observer != nullptr && m_Runner != nullptr)
+		{
+			m_Observer->Refresh();
 		}
 	}
 
@@ -223,6 +232,7 @@ namespace Strada
 
 	uint32_t PlayMode::Advance(uint32_t frames, Timestep timestep)
 	{
+		RefreshObserver();
 		uint32_t run = 0;
 		while (run < frames && m_Runner != nullptr && !GetFrameStepRefusal())
 		{

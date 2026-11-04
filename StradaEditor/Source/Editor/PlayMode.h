@@ -36,9 +36,13 @@ namespace Strada
 		std::optional<uint64_t> Current;
 		// The debugger paused the scene for a stop and has not resumed it (it outlives a stop that ends without a resume).
 		bool PauseHeld = false;
-		// The largest stop ID made since play started (0: none): a larger one after frames ran means one stopped (play.advance's
-		// stopped).
-		uint64_t LastStop = 0;
+		// The stops made since play started, also those that ended in the frame or resume that made them before the debugger
+		// read them (a scene load, the entity destroyed): a larger count after frames ran means one stopped (play.advance's
+		// and graph.trace's stopped).
+		uint64_t StopsMade = 0;
+		// The frames after which the debugger held play since play started (a new stop, a step that ended its execution, a
+		// stop that ended without a resume): a larger count after a frame means play mode paused there (graph.trace ends).
+		uint64_t Holds = 0;
 	};
 
 	// Is told what play mode does, and may hold it back: the editor's visual-script debug session. Main thread.
@@ -57,6 +61,9 @@ namespace Strada
 		// Before a paused scene resumes (PlayMode::Resume): the stopped executions continue first; true when one stopped
 		// again, and the scene then stays paused.
 		virtual bool OnPlayResuming() = 0;
+		// Brings what the observer reports up to date: commands that change what is stopped (an entity deleted, an edit)
+		// run back to back with no editor frame between them. Runs no graph code and no frame.
+		virtual void Refresh() = 0;
 		// Why scene frames must not run or be stepped now (an execution is stopped at a breakpoint); none when they may.
 		virtual std::optional<std::string> GetFrameStepRefusal() const = 0;
 		virtual PlayDebugSummary GetDebugSummary() const = 0;
@@ -108,10 +115,13 @@ namespace Strada
 		// Resumes a paused scene as the play controls do: the observer continues the stopped executions first
 		// (OnPlayResuming), and the scene stays paused when one stopped again. True when the scene runs afterwards.
 		bool Resume();
-		// Queues frames for a paused scene; nothing while the observer refuses frames.
+		// Queues frames for a paused scene; nothing while the observer refuses frames (brought up to date first).
 		void Step(uint32_t frames = 1);
 		// Drops the frames Step queued that have not run yet.
 		void CancelSteps();
+		// Brings what the observer reports up to date (PlayModeObserver::Refresh): automation calls it before it reads the
+		// refusal or the summary, and Step and Advance call it first.
+		void RefreshObserver();
 		// Why scene frames must not run or be stepped now (the observer's reason); none when they may, and without an
 		// observer.
 		std::optional<std::string> GetFrameStepRefusal() const;
@@ -134,8 +144,8 @@ namespace Strada
 		void Update(Timestep timestep);
 		// Runs frames at once with a fixed time step (paused scenes too), each ending like an editor frame ends (input
 		// pressed in a frame is seen by that frame only): deterministic play for automation and tests. Stops early when the
-		// scripts quit and when the observer pauses the scene after a frame; runs none while it refuses frames. Returns the
-		// number of frames run.
+		// scripts quit and when the observer pauses the scene after a frame; runs none while it refuses frames (brought up to
+		// date first). Returns the number of frames run.
 		uint32_t Advance(uint32_t frames, Timestep timestep);
 
 		// The test results and script exceptions of the current run, or of the last one once it stopped (the scripts may end

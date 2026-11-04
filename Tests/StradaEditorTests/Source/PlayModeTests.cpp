@@ -231,6 +231,7 @@ namespace
 			return StopAgainOnResume;
 		}
 
+		void Refresh() override { Refreshes++; }
 		std::optional<std::string> GetFrameStepRefusal() const override { return Refusal; }
 		PlayDebugSummary GetDebugSummary() const override { return Summary; }
 
@@ -243,9 +244,33 @@ namespace
 		bool StopAgainOnResume = false;
 		std::optional<std::string> Refusal;
 		PlayDebugSummary Summary;
+		uint32_t Refreshes = 0;
 
 	private:
 		EditorContext& m_Context;
+	};
+
+	// Declared right after an observer: stops playing and clears the observer before it is destroyed, also when a failed
+	// assertion unwinds the case (the fixture's play mode, destroyed after it, would tell a destroyed observer otherwise).
+	class ObserverGuard final
+	{
+	public:
+		explicit ObserverGuard(PlayMode& play)
+			: m_Play(play)
+		{
+		}
+
+		~ObserverGuard()
+		{
+			m_Play.Stop();
+			m_Play.SetObserver(nullptr);
+		}
+
+		ObserverGuard(ObserverGuard const&) = delete;
+		ObserverGuard& operator=(ObserverGuard const&) = delete;
+
+	private:
+		PlayMode& m_Play;
 	};
 }
 
@@ -1054,6 +1079,7 @@ TEST_CASE("PlayMode: the observer is told of the start, of each frame that ran w
 	PlayFixture fixture;
 	fixture.Create("Crate");
 	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
 	fixture.Play.SetObserver(&observer);
 	using Call = RecordingObserver::Call;
 	constexpr float Frame = 1.0f / 60.0f;
@@ -1137,6 +1163,7 @@ TEST_CASE("PlayMode: PlayStartOptions start the scene paused before its first fr
 	UUID const reporter =
 		fixture.Create("Reporter", Json::object({{"Script", Json::object({{"ClassName", "Strada.Tests.FieldReporter"}})}}));
 	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
 	fixture.Play.SetObserver(&observer);
 	auto const updates = [reporter]
 	{
@@ -1180,12 +1207,21 @@ TEST_CASE("PlayMode: while the observer refuses frames, unpausing, steps and fra
 {
 	PlayFixture fixture;
 	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
 	fixture.Play.SetObserver(&observer);
 	constexpr float Frame = 1.0f / 60.0f;
 	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
 	fixture.Play.Advance(2, Timestep(Frame));
 	Scene& scene = fixture.Context.GetScene();
 	REQUIRE(fixture.Play.SetPaused(true));
+
+	// Steps and frames bring the observer up to date first: what it refuses may have changed since an editor frame.
+	uint32_t const refreshes = observer.Refreshes;
+	fixture.Play.Step(1);
+	fixture.Play.CancelSteps();
+	CHECK(observer.Refreshes == refreshes + 1);
+	CHECK(fixture.Play.Advance(0, Timestep(Frame)) == 0);
+	CHECK(observer.Refreshes == refreshes + 2);
 
 	// Steps queued before the refusal never run while it holds, and the refusal refuses new ones.
 	fixture.Play.Step(5);
@@ -1250,6 +1286,7 @@ TEST_CASE("PlayMode: FollowScripts loads the scene script code asked for between
 	PlayFixture fixture;
 	REQUIRE(fixture.Operations.OpenScene(scenes / "First.sscene").IsOk());
 	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
 	fixture.Play.SetObserver(&observer);
 	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
 	fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
@@ -1281,6 +1318,7 @@ TEST_CASE("PlayCommands: frames are refused with the debugger's reason, play.pau
 {
 	PlayFixture fixture;
 	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
 	fixture.Play.SetObserver(&observer);
 	Json const started = fixture.Ok("play.start", Json::object({{"paused", true}}));
 	CHECK(started["debug"] == Json::object({{"state", "Detached"}, {"stops", 0}, {"current", nullptr}, {"pauseHeld", false}}));
@@ -1297,7 +1335,10 @@ TEST_CASE("PlayCommands: frames are refused with the debugger's reason, play.pau
 		CHECK(refused.GetError().Message == reason);
 	}
 	CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 0);
+	// play.state brings the debugger up to date before it reports it.
+	uint32_t const refreshes = observer.Refreshes;
 	Json const state = fixture.Ok("play.state");
+	CHECK(observer.Refreshes > refreshes);
 	CHECK(state["debug"] == Json::object({{"state", "Stopped"}, {"stops", 1}, {"current", 3}, {"pauseHeld", true}}));
 
 	// Resuming continues the stopped executions first; the scene stays paused while one stops again.

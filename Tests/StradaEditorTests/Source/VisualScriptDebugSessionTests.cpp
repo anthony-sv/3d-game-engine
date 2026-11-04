@@ -157,6 +157,22 @@ namespace
 		return document;
 	}
 
+	// On every update: Count += 1 at node 11, then destroys the entity named victim at node 14 (its target found by node 15).
+	VisualScriptDocument MakeDestroyByNameDocument(std::string victim)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Count", "int", 0));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+		AddIncrement(document, 11, 1);
+		document.Graph.Nodes.push_back(MakeNode(14, "Call:Strada.Entity.Destroy()"));
+		document.Graph.Nodes.push_back(
+			MakeNode(15, "Call:Strada.Entity.FindByName(string)", Json::object(), Json::object({{"Name", std::move(victim)}})));
+		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		document.Graph.Links.push_back(MakeLink(11, "Then", 14, "Execute"));
+		document.Graph.Links.push_back(MakeLink(15, "Result", 14, "Target"));
+		return document;
+	}
+
 	VisualScriptBreakpoint MakeBreakpoint(uint32_t node, std::string condition = {}, uint32_t hitCount = 0)
 	{
 		VisualScriptBreakpoint breakpoint;
@@ -380,11 +396,14 @@ TEST_CASE("VisualScriptDebug: a breakpoint pauses play at the end of its frame, 
 	UUID const first = fixture.CreateRunner("First", graph);
 	UUID const second = fixture.CreateRunner("Second", graph);
 	std::vector<uint64_t> notified;
+	// The listener hears of a stop once the scene is paused for it, with the pause held.
+	std::vector<std::pair<bool, bool>> pausedWhenNotified;
 	int resumes = 0;
 	fixture.Session.SetStopListener(
-		[&notified](VisualScriptStop const& stop)
+		[&notified, &pausedWhenNotified, &fixture](VisualScriptStop const& stop)
 		{
 			notified.push_back(stop.ID);
+			pausedWhenNotified.emplace_back(fixture.Play.IsPaused(), fixture.Session.HasPausedScene());
 		});
 	fixture.Session.SetResumeListener(
 		[&resumes]
@@ -410,6 +429,7 @@ TEST_CASE("VisualScriptDebug: a breakpoint pauses play at the end of its frame, 
 	CHECK(stop.Resumable);
 	CHECK(stop.Breakpoint == std::make_pair(graph, uint32_t(11)));
 	CHECK(notified == std::vector<uint64_t>{stop.ID});
+	CHECK(pausedWhenNotified == std::vector<std::pair<bool, bool>>{{true, true}});
 	// The rest of the frame ran: the other instance, which is not the target, set both of its variables.
 	CHECK(fixture.GetVariable(first, "Count") == 0);
 	CHECK(fixture.GetVariable(second, "Count") == 1);
@@ -670,8 +690,7 @@ TEST_CASE("VisualScriptDebug: a stop that ends without a resume keeps the scene 
 	CHECK(fixture.Session.GetSessionState() == VisualScriptDebugSessionState::Running);
 	CHECK(fixture.Play.IsPaused());
 	CHECK(fixture.Session.HasPausedScene());
-	CHECK(ended == std::vector<std::pair<AssetHandle, std::string>>{
-					   {graph, "The stopped execution was cancelled by your edit; the game stays paused: Continue (F5) resumes it"}});
+	CHECK(ended == std::vector<std::pair<AssetHandle, std::string>>{{graph, std::string(VisualScriptDebugSession::StopEndedByEdit)}});
 	// Its breakpoint went with the node.
 	CHECK(fixture.Session.GetBreakpoints().Find(graph, 11) == nullptr);
 	CHECK(fixture.Ok("play.state")["debug"]["pauseHeld"] == true);
@@ -692,11 +711,159 @@ TEST_CASE("VisualScriptDebug: a stop that ends without a resume keeps the scene 
 	CHECK(fixture.Session.GetSessionState() == VisualScriptDebugSessionState::Running);
 	CHECK(fixture.Session.HasPausedScene());
 	REQUIRE(ended.size() == 2);
-	CHECK(ended[1] ==
-	      std::make_pair(graph, std::string("The stopped execution's entity was destroyed; the game stays paused: Continue (F5) "
-	                                        "resumes it")));
+	CHECK(ended[1] == std::make_pair(graph, std::string(VisualScriptDebugSession::StopEndedByDestroy)));
 	CHECK(fixture.Resume(VisualScriptDebugAction::Continue).Result == VisualScriptResumeResult::Resumed);
 	CHECK_FALSE(fixture.Play.IsPaused());
+}
+
+TEST_CASE("VisualScriptDebug: a stop that another stop's resume ends keeps the scene paused with the pause held, and the listener is "
+          "told why")
+{
+	SessionFixture fixture;
+	std::vector<std::pair<AssetHandle, std::string>> ended;
+	fixture.Session.SetStopEndedListener(
+		[&ended, &fixture](AssetHandle stopped, std::string const& reason)
+		{
+			// Told once the scene is kept paused.
+			CHECK(fixture.Play.IsPaused());
+			ended.emplace_back(stopped, reason);
+		});
+	// The stop of the first entity, of the two stopped.
+	auto const findStop = [&fixture](UUID entity)
+	{
+		std::vector<VisualScriptStop> const& stops = fixture.Session.GetState().Stops;
+		auto const found = std::find_if(stops.begin(), stops.end(),
+		                                [entity](VisualScriptStop const& candidate)
+		                                {
+											return candidate.Entity == entity;
+										});
+		REQUIRE(found != stops.end());
+		return found->ID;
+	};
+
+	SUBCASE("the resumed execution destroys the other stop's entity")
+	{
+		AssetHandle const graph = fixture.CreateGraph("Scripts/Pair.sgraph", MakeDestroyByNameDocument("Victim"));
+		UUID const victim = fixture.CreateRunner("Victim", graph);
+		UUID const killer = fixture.CreateRunner("Killer", graph);
+		fixture.SetBreakpoint(graph, MakeBreakpoint(11));
+		fixture.Start();
+		fixture.EditorFrame();
+		REQUIRE(fixture.Session.GetState().Stops.size() == 2);
+		CHECK(fixture.Session.HasPausedScene());
+
+		CHECK(fixture.Resume(VisualScriptDebugAction::Continue, findStop(killer)).Result == VisualScriptResumeResult::Ended);
+		CHECK_FALSE(fixture.Context.GetScene().HasEntity(victim));
+		CHECK(fixture.Session.GetState().Stops.empty());
+		CHECK(fixture.Session.GetSessionState() == VisualScriptDebugSessionState::Running);
+		CHECK(fixture.Play.IsPaused());
+		CHECK(fixture.Session.HasPausedScene());
+		CHECK(ended ==
+		      std::vector<std::pair<AssetHandle, std::string>>{{graph, std::string(VisualScriptDebugSession::StopEndedByDestroy)}});
+		CHECK(fixture.Ok("play.state")["debug"]["pauseHeld"] == true);
+	}
+	SUBCASE("the resumed execution loads another scene")
+	{
+		std::filesystem::path const second = AssetManager::GetAssetDirectory() / "Scenes" / "Second.sscene";
+		REQUIRE(FileSystem::CreateDirectories(second.parent_path()).IsOk());
+		REQUIRE(SceneSerializer::SaveToFile(Scene("Second"), second).IsOk());
+		REQUIRE(fixture.Operations.RefreshAssets().IsOk());
+		AssetHandle const graph =
+			fixture.CreateGraph("Scripts/Loader.sgraph", MakeCallDocument("Call:Strada.SceneManager.LoadScene(string)",
+		                                                                  Json::object({{"Path", "Scenes/Second.sscene"}})));
+		UUID const first = fixture.CreateRunner("First", graph);
+		fixture.CreateRunner("Second", graph);
+		fixture.SetBreakpoint(graph, MakeBreakpoint(11));
+		fixture.Start();
+		fixture.EditorFrame();
+		REQUIRE(fixture.Session.GetState().Stops.size() == 2);
+		uint64_t const stop = findStop(first);
+
+		SUBCASE("Continue")
+		{
+			CHECK(fixture.Resume(VisualScriptDebugAction::Continue, stop).Result == VisualScriptResumeResult::Ended);
+			CHECK(fixture.Session.GetSessionState() == VisualScriptDebugSessionState::Running);
+		}
+		SUBCASE("Step Over")
+		{
+			CHECK(fixture.Resume(VisualScriptDebugAction::StepOver, stop).Result == VisualScriptResumeResult::Ended);
+			CHECK(fixture.Session.GetSessionState() == VisualScriptDebugSessionState::StepEnded);
+		}
+		CHECK(fixture.Context.GetScene().GetName() == "Second");
+		CHECK(fixture.Session.GetState().Stops.empty());
+		// The loaded scene stays paused, as the one it replaced was.
+		CHECK(fixture.Play.IsPaused());
+		CHECK(fixture.Session.HasPausedScene());
+		CHECK(ended ==
+		      std::vector<std::pair<AssetHandle, std::string>>{{graph, std::string(VisualScriptDebugSession::StopEndedBySceneLoad)}});
+	}
+
+	// No frame runs while the pause is held; Continue resumes play.
+	uint64_t const frame = fixture.GetFrame();
+	fixture.EditorFrame();
+	CHECK(fixture.GetFrame() == frame);
+	CHECK(fixture.Session.HasPausedScene());
+	CHECK(fixture.Resume(VisualScriptDebugAction::Continue).Result == VisualScriptResumeResult::Resumed);
+	CHECK_FALSE(fixture.Play.IsPaused());
+	CHECK(ended.size() == 1);
+}
+
+TEST_CASE("VisualScriptDebug: a stop that ends in the frame that made it pauses play with the pause held, and play.advance says it "
+          "stopped")
+{
+	SessionFixture fixture;
+	std::vector<std::pair<AssetHandle, std::string>> ended;
+	std::vector<uint64_t> notified;
+	fixture.Session.SetStopEndedListener(
+		[&ended](AssetHandle stopped, std::string const& reason)
+		{
+			ended.emplace_back(stopped, reason);
+		});
+	fixture.Session.SetStopListener(
+		[&notified](VisualScriptStop const& stop)
+		{
+			notified.push_back(stop.ID);
+		});
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeCounterDocument());
+	// Made first, so its update runs (and stops) before the other entity's later in the frame.
+	fixture.CreateRunner("Victim", counter);
+	fixture.SetBreakpoint(counter, MakeBreakpoint(11));
+	std::string reason;
+
+	SUBCASE("a scene load the frame asked for")
+	{
+		std::filesystem::path const second = AssetManager::GetAssetDirectory() / "Scenes" / "Second.sscene";
+		REQUIRE(FileSystem::CreateDirectories(second.parent_path()).IsOk());
+		REQUIRE(SceneSerializer::SaveToFile(Scene("Second"), second).IsOk());
+		REQUIRE(fixture.Operations.RefreshAssets().IsOk());
+		AssetHandle const loader =
+			fixture.CreateGraph("Scripts/Loader.sgraph", MakeCallDocument("Call:Strada.SceneManager.LoadScene(string)",
+		                                                                  Json::object({{"Path", "Scenes/Second.sscene"}})));
+		fixture.CreateRunner("Loader", loader);
+		reason = VisualScriptDebugSession::StopEndedBySceneLoad;
+	}
+	SUBCASE("the stopped entity destroyed later in the frame")
+	{
+		AssetHandle const killer = fixture.CreateGraph("Scripts/Killer.sgraph", MakeDestroyByNameDocument("Victim"));
+		fixture.CreateRunner("Killer", killer);
+		reason = VisualScriptDebugSession::StopEndedByDestroy;
+	}
+
+	// Started paused, as an agent does: the frame play.advance runs stops, and play stays paused after it.
+	fixture.Ok("play.start", Json::object({{"paused", true}}));
+	Json const advanced = fixture.Ok("play.advance", Json::object({{"frames", 3}}));
+	CHECK(advanced["framesRun"] == 1);
+	CHECK(advanced["stopped"] == true);
+	CHECK(advanced["stop"].is_null());
+	CHECK(advanced["debug"]["state"] == "Running");
+	CHECK(advanced["debug"]["stops"] == 0);
+	CHECK(advanced["paused"] == true);
+	CHECK(fixture.Play.GetDebugSummary().StopsMade == 1);
+	CHECK(fixture.Play.GetDebugSummary().Holds == 1);
+	// Nothing the session could show was made, so no stop was announced; the stop's graph is unknown.
+	CHECK(notified.empty());
+	CHECK(ended == std::vector<std::pair<AssetHandle, std::string>>{{AssetHandle(), reason}});
+	CHECK(fixture.Session.GetBreakpoints().Find(counter, 11) != nullptr);
 }
 
 TEST_CASE("VisualScriptDebug: with break on errors an error stops read-only at the frame's end, and Resume and play.advance dismiss it")
@@ -824,11 +991,20 @@ TEST_CASE("VisualScriptDebug: after a step, what the frame's end would do happen
 		fixture.EditorFrame();
 		REQUIRE(fixture.Session.GetSessionState() == VisualScriptDebugSessionState::Stopped);
 		uint64_t const version = fixture.Context.GetSceneVersion();
-		fixture.Resume(VisualScriptDebugAction::StepOver);
+		CHECK(fixture.Resume(VisualScriptDebugAction::StepOver).Result == VisualScriptResumeResult::Ended);
 		CHECK(fixture.Play.IsPlaying());
 		CHECK(fixture.Context.GetSceneVersion() != version);
 		CHECK(fixture.Context.GetScene().GetName() == "Second");
 		CHECK(fixture.Session.GetState().Stops.empty());
+		// The loaded scene stays paused as the step left the scene before it: the step ended its execution.
+		CHECK(fixture.Play.IsPaused());
+		CHECK(fixture.Session.HasPausedScene());
+		CHECK(fixture.Session.GetSessionState() == VisualScriptDebugSessionState::StepEnded);
+		uint64_t const frame = fixture.GetFrame();
+		fixture.EditorFrame();
+		CHECK(fixture.GetFrame() == frame);
+		CHECK(fixture.Resume(VisualScriptDebugAction::Continue).Result == VisualScriptResumeResult::Resumed);
+		CHECK_FALSE(fixture.Play.IsPaused());
 	}
 }
 
