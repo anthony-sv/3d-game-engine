@@ -1,7 +1,8 @@
 namespace Showcase;
 
 /// <summary>An exhibit that sets itself off on cue: the tour cues it when the camera passes a shot that names it, and its key
-/// does the same while you explore.</summary>
+/// does the same while you explore. A shot's cue is a script that is an ITourCue, or a visual script with the custom events
+/// Perform and TourEnded, which the tour raises as it calls these methods.</summary>
 public interface ITourCue
 {
 	/// <summary>Sets the exhibit off (swings the wrecking ball, tips the dominoes, fires the ball launcher).</summary>

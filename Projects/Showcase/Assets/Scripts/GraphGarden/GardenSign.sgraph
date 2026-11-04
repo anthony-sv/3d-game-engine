@@ -1,0 +1,324 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "The signpost's live line: the conductor's tempo, bar and notes, read four times a second.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Conductor",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The conductor whose score the line reads"
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 2,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 3,
+					"Type": "Flow.Interval",
+					"Position": [
+						192.0,
+						0.0
+					],
+					"Inputs": {
+						"Interval": 0.25
+					}
+				},
+				{
+					"ID": 4,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						112.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 5,
+					"Type": "RunsGraph",
+					"Position": [
+						192.0,
+						176.0
+					],
+					"Settings": {
+						"Graph": "16222081865217089390"
+					}
+				},
+				{
+					"ID": 6,
+					"Type": "Flow.Branch",
+					"Position": [
+						496.0,
+						0.0
+					],
+					"Comment": "The conductor's variables are read only while it runs its graph"
+				},
+				{
+					"ID": 7,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						176.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 8,
+					"Type": "Variable.Get",
+					"Position": [
+						192.0,
+						288.0
+					],
+					"Settings": {
+						"Variable": 1,
+						"Graph": "16222081865217089390"
+					}
+				},
+				{
+					"ID": 9,
+					"Type": "Expression",
+					"Position": [
+						496.0,
+						128.0
+					],
+					"Settings": {
+						"Formula": "int(round(tempo))"
+					}
+				},
+				{
+					"ID": 10,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						240.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 11,
+					"Type": "Variable.Get",
+					"Position": [
+						192.0,
+						416.0
+					],
+					"Settings": {
+						"Variable": 6,
+						"Graph": "16222081865217089390"
+					}
+				},
+				{
+					"ID": 12,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						304.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Variable.Get",
+					"Position": [
+						192.0,
+						544.0
+					],
+					"Settings": {
+						"Variable": 7,
+						"Graph": "16222081865217089390"
+					}
+				},
+				{
+					"ID": 14,
+					"Type": "FormatString",
+					"Position": [
+						720.0,
+						0.0
+					],
+					"Settings": {
+						"Format": "{Tempo} bpm · bar {Bar} · {Notes} notes"
+					}
+				},
+				{
+					"ID": 15,
+					"Type": "Set:Strada.TextComponent.Text",
+					"Position": [
+						928.0,
+						0.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						4,
+						"Value"
+					],
+					"To": [
+						5,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						5,
+						"Result"
+					],
+					"To": [
+						6,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						7,
+						"Value"
+					],
+					"To": [
+						8,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Value"
+					],
+					"To": [
+						9,
+						"tempo"
+					]
+				},
+				{
+					"From": [
+						10,
+						"Value"
+					],
+					"To": [
+						11,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Value"
+					],
+					"To": [
+						13,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Result"
+					],
+					"To": [
+						14,
+						"Tempo"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Value"
+					],
+					"To": [
+						14,
+						"Bar"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Value"
+					],
+					"To": [
+						14,
+						"Notes"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Result"
+					],
+					"To": [
+						15,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						2,
+						"Then"
+					],
+					"To": [
+						3,
+						"Start"
+					]
+				},
+				{
+					"From": [
+						3,
+						"Tick"
+					],
+					"To": [
+						6,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						6,
+						"True"
+					],
+					"To": [
+						15,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 16,
+					"Text": "Read the conductor four times a second: tempo, bar and notes",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						1123.13623046875,
+						730.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

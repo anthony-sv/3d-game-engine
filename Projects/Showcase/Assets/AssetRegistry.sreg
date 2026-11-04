@@ -15,6 +15,11 @@
 			"Path": "Audio/Cannon.wav"
 		},
 		{
+			"Handle": "11519315555261973321",
+			"Type": "AudioClip",
+			"Path": "Audio/Chime.wav"
+		},
+		{
 			"Handle": "344046871434587302",
 			"Type": "AudioClip",
 			"Path": "Audio/Crackle.wav"
@@ -338,6 +343,26 @@
 			"Handle": "4589009948042236113",
 			"Type": "Material",
 			"Path": "Materials/GlassWater.smat"
+		},
+		{
+			"Handle": "17777091603794846887",
+			"Type": "Material",
+			"Path": "Materials/GraphGarden/Lamp.smat"
+		},
+		{
+			"Handle": "5805873574292698659",
+			"Type": "Material",
+			"Path": "Materials/GraphGarden/Orb.smat"
+		},
+		{
+			"Handle": "1723014610094566287",
+			"Type": "Material",
+			"Path": "Materials/GraphGarden/Pad.smat"
+		},
+		{
+			"Handle": "4549567506265094678",
+			"Type": "Material",
+			"Path": "Materials/GraphGarden/Tube.smat"
 		},
 		{
 			"Handle": "10476097598987655130",
@@ -958,6 +983,36 @@
 			"Handle": "11434313360406699510",
 			"Type": "Scene",
 			"Path": "Scenes/Tests.sscene"
+		},
+		{
+			"Handle": "1279958461494650362",
+			"Type": "VisualScript",
+			"Path": "Scripts/GraphGarden/ChimePad.sgraph"
+		},
+		{
+			"Handle": "16179190138674778621",
+			"Type": "VisualScript",
+			"Path": "Scripts/GraphGarden/ChimeTube.sgraph"
+		},
+		{
+			"Handle": "16222081865217089390",
+			"Type": "VisualScript",
+			"Path": "Scripts/GraphGarden/Conductor.sgraph"
+		},
+		{
+			"Handle": "13585724070424028934",
+			"Type": "VisualScript",
+			"Path": "Scripts/GraphGarden/GardenSign.sgraph"
+		},
+		{
+			"Handle": "11021123671566624170",
+			"Type": "VisualScript",
+			"Path": "Scripts/GraphGarden/Lantern.sgraph"
+		},
+		{
+			"Handle": "1480662518265575091",
+			"Type": "VisualScript",
+			"Path": "Scripts/GraphGarden/Music.sgraph"
 		},
 		{
 			"Handle": "5799002209911839402",

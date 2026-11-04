@@ -1,0 +1,1403 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "A tubular chime: struck by the score, a pad or a ball, it rings at its note's pitch, as loud as the strike, glows in the note's colour, swings and sparks.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Semitone",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "The chime's note in semitones above C5: its pitch and its colour",
+				"Range": [
+					0.0,
+					24.0
+				]
+			},
+			{
+				"ID": 2,
+				"Name": "Bar",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The bar that glows and swings (the chime's child, hanging from it)"
+			},
+			{
+				"ID": 3,
+				"Name": "Strikes",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Read-out: times the chime was struck",
+				"Range": [
+					0.0,
+					1000000000.0
+				]
+			},
+			{
+				"ID": 4,
+				"Name": "LastVelocity",
+				"Type": "float",
+				"Value": 0.0,
+				"Public": true,
+				"Tooltip": "Read-out: how hard the last strike was, from 0 to 1",
+				"Range": [
+					0.0,
+					1.0
+				]
+			},
+			{
+				"ID": 5,
+				"Name": "Glow",
+				"Type": "float",
+				"Value": 1.0,
+				"Public": true,
+				"Tooltip": "Read-out: how brightly the bar glows, 1 at rest",
+				"Range": [
+					0.0,
+					10.0
+				]
+			},
+			{
+				"ID": 6,
+				"Name": "Look",
+				"Type": "Strada.Material"
+			},
+			{
+				"ID": 7,
+				"Name": "Half",
+				"Type": "float",
+				"Value": 0.5
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 9,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						208.0
+					]
+				},
+				{
+					"ID": 10,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						320.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 11,
+					"Type": "Call:Strada.MeshComponent.GetMaterial(int)",
+					"Position": [
+						192.0,
+						208.0
+					],
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 12,
+					"Type": "Call:Strada.Material.Clone()",
+					"Position": [
+						464.0,
+						208.0
+					]
+				},
+				{
+					"ID": 13,
+					"Type": "Variable.Set",
+					"Position": [
+						672.0,
+						208.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				},
+				{
+					"ID": 14,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						384.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 15,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						448.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				},
+				{
+					"ID": 16,
+					"Type": "Call:Strada.MeshComponent.SetMaterial(int,Strada.Material)",
+					"Position": [
+						864.0,
+						208.0
+					],
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 17,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						512.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 18,
+					"Type": "Function.Call",
+					"Position": [
+						192.0,
+						352.0
+					],
+					"Settings": {
+						"Graph": "1480662518265575091",
+						"Function": 4
+					}
+				},
+				{
+					"ID": 19,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						576.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				},
+				{
+					"ID": 20,
+					"Type": "Set:Strada.Material.Emissive",
+					"Position": [
+						1088.0,
+						208.0
+					]
+				},
+				{
+					"ID": 21,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						640.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				},
+				{
+					"ID": 22,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						704.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 23,
+					"Type": "Set:Strada.Material.EmissiveIntensity",
+					"Position": [
+						1280.0,
+						208.0
+					]
+				},
+				{
+					"ID": 24,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						768.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 25,
+					"Type": "Function.Call",
+					"Position": [
+						192.0,
+						480.0
+					],
+					"Settings": {
+						"Graph": "1480662518265575091",
+						"Function": 4
+					}
+				},
+				{
+					"ID": 26,
+					"Type": "Set:Strada.ParticleSystemComponent.StartColor",
+					"Position": [
+						1504.0,
+						208.0
+					]
+				},
+				{
+					"ID": 27,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						832.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 28,
+					"Type": "Get:Strada.TransformComponent.Scale",
+					"Position": [
+						192.0,
+						608.0
+					]
+				},
+				{
+					"ID": 29,
+					"Type": "Expression",
+					"Position": [
+						464.0,
+						352.0
+					],
+					"Settings": {
+						"Formula": "size.y * 0.5"
+					}
+				},
+				{
+					"ID": 30,
+					"Type": "Variable.Set",
+					"Position": [
+						1712.0,
+						208.0
+					],
+					"Settings": {
+						"Variable": 7
+					},
+					"Comment": "The bar hangs half its length below the chime's pivot"
+				},
+				{
+					"ID": 32,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						1008.0
+					],
+					"Settings": {
+						"Name": "Strike",
+						"Parameters": [
+							{
+								"Name": "Velocity",
+								"Type": "float"
+							}
+						]
+					}
+				},
+				{
+					"ID": 33,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						1008.0
+					],
+					"Settings": {
+						"Formula": "clamp(velocity, 0, 1)"
+					}
+				},
+				{
+					"ID": 34,
+					"Type": "Variable.Set",
+					"Position": [
+						400.0,
+						1008.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 35,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1136.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 36,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						1136.0
+					],
+					"Settings": {
+						"Formula": "strikes + 1"
+					}
+				},
+				{
+					"ID": 37,
+					"Type": "Variable.Set",
+					"Position": [
+						592.0,
+						1008.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 38,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1200.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 39,
+					"Type": "Function.Call",
+					"Position": [
+						192.0,
+						1264.0
+					],
+					"Settings": {
+						"Graph": "1480662518265575091",
+						"Function": 1
+					}
+				},
+				{
+					"ID": 40,
+					"Type": "Set:Strada.AudioSourceComponent.Pitch",
+					"Position": [
+						784.0,
+						1008.0
+					]
+				},
+				{
+					"ID": 41,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1264.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 42,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						1392.0
+					],
+					"Settings": {
+						"Formula": "0.4 + 0.6 * velocity"
+					}
+				},
+				{
+					"ID": 43,
+					"Type": "Set:Strada.AudioSourceComponent.Volume",
+					"Position": [
+						992.0,
+						1008.0
+					]
+				},
+				{
+					"ID": 44,
+					"Type": "Call:Strada.AudioSourceComponent.Play()",
+					"Position": [
+						1200.0,
+						1008.0
+					]
+				},
+				{
+					"ID": 45,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1328.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 46,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						1520.0
+					],
+					"Settings": {
+						"Formula": "uint(8 + 24 * velocity)"
+					}
+				},
+				{
+					"ID": 47,
+					"Type": "Call:Strada.ParticleSystemComponent.Emit(uint)",
+					"Position": [
+						1408.0,
+						1008.0
+					]
+				},
+				{
+					"ID": 48,
+					"Type": "Flow.Timeline",
+					"Position": [
+						1616.0,
+						1008.0
+					],
+					"Settings": {
+						"Timeline": {
+							"Length": 0.8,
+							"Loop": false,
+							"Tracks": [
+								{
+									"Name": "Light",
+									"Type": "float",
+									"Keys": [
+										{
+											"Time": 0.0,
+											"Value": 1.0
+										},
+										{
+											"Time": 0.8,
+											"Value": 0.0
+										}
+									]
+								},
+								{
+									"Name": "Swing",
+									"Type": "Strada.Vector3",
+									"Keys": [
+										{
+											"Time": 0.0,
+											"Value": [
+												0.0,
+												0.0,
+												0.0
+											]
+										},
+										{
+											"Time": 0.2,
+											"Value": [
+												8.0,
+												0.0,
+												0.0
+											]
+										},
+										{
+											"Time": 0.5,
+											"Value": [
+												-5.0,
+												0.0,
+												0.0
+											]
+										},
+										{
+											"Time": 0.8,
+											"Value": [
+												0.0,
+												0.0,
+												0.0
+											]
+										}
+									]
+								}
+							]
+						}
+					}
+				},
+				{
+					"ID": 49,
+					"Type": "Expression",
+					"Position": [
+						1920.0,
+						1008.0
+					],
+					"Settings": {
+						"Formula": "lerp(1, 8, light)"
+					}
+				},
+				{
+					"ID": 50,
+					"Type": "Variable.Set",
+					"Position": [
+						2128.0,
+						1008.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 51,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1392.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				},
+				{
+					"ID": 52,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1456.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 53,
+					"Type": "Set:Strada.Material.EmissiveIntensity",
+					"Position": [
+						2320.0,
+						1008.0
+					]
+				},
+				{
+					"ID": 54,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1520.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 55,
+					"Type": "Set:Strada.TransformComponent.EulerAngles",
+					"Position": [
+						2544.0,
+						1008.0
+					]
+				},
+				{
+					"ID": 56,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1584.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 57,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1648.0
+					],
+					"Settings": {
+						"Variable": 7
+					}
+				},
+				{
+					"ID": 58,
+					"Type": "Expression",
+					"Position": [
+						1920.0,
+						1136.0
+					],
+					"Settings": {
+						"Formula": "vec3(0, -half * cos(radians(swing.x)), -half * sin(radians(swing.x)))"
+					}
+				},
+				{
+					"ID": 59,
+					"Type": "Set:Strada.TransformComponent.Translation",
+					"Position": [
+						2736.0,
+						1008.0
+					],
+					"Comment": "The bar swings about the pivot at its top"
+				},
+				{
+					"ID": 61,
+					"Type": "Event.CollisionEnter",
+					"Position": [
+						0.0,
+						1824.0
+					]
+				},
+				{
+					"ID": 62,
+					"Type": "Call:Strada.Entity.HasComponent<T>()",
+					"Position": [
+						192.0,
+						1824.0
+					],
+					"Settings": {
+						"TypeArguments": [
+							"Strada.RigidBodyComponent"
+						]
+					}
+				},
+				{
+					"ID": 63,
+					"Type": "Flow.Branch",
+					"Position": [
+						400.0,
+						1824.0
+					],
+					"Comment": "Only bodies that fly strike it: a walker that bumps into it does not"
+				},
+				{
+					"ID": 64,
+					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
+					"Position": [
+						192.0,
+						1952.0
+					]
+				},
+				{
+					"ID": 65,
+					"Type": "Self",
+					"Position": [
+						0.0,
+						1952.0
+					]
+				},
+				{
+					"ID": 66,
+					"Type": "Expression",
+					"Position": [
+						400.0,
+						1952.0
+					],
+					"Settings": {
+						"Formula": "clamp(length(v) / 8, 0.2, 1)"
+					}
+				},
+				{
+					"ID": 67,
+					"Type": "Event.Send",
+					"Position": [
+						624.0,
+						1824.0
+					],
+					"Settings": {
+						"Name": "Strike",
+						"Parameters": [
+							{
+								"Name": "Velocity",
+								"Type": "float"
+							}
+						]
+					}
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						10,
+						"Value"
+					],
+					"To": [
+						11,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Result"
+					],
+					"To": [
+						12,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Result"
+					],
+					"To": [
+						13,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Value"
+					],
+					"To": [
+						16,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Value"
+					],
+					"To": [
+						16,
+						"Material"
+					]
+				},
+				{
+					"From": [
+						17,
+						"Value"
+					],
+					"To": [
+						18,
+						"Semitone"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Value"
+					],
+					"To": [
+						20,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Color"
+					],
+					"To": [
+						20,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						21,
+						"Value"
+					],
+					"To": [
+						23,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						22,
+						"Value"
+					],
+					"To": [
+						23,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						24,
+						"Value"
+					],
+					"To": [
+						25,
+						"Semitone"
+					]
+				},
+				{
+					"From": [
+						25,
+						"Color"
+					],
+					"To": [
+						26,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Value"
+					],
+					"To": [
+						28,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						28,
+						"Value"
+					],
+					"To": [
+						29,
+						"size"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Result"
+					],
+					"To": [
+						30,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Then"
+					],
+					"To": [
+						12,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Then"
+					],
+					"To": [
+						13,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Then"
+					],
+					"To": [
+						16,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						16,
+						"Then"
+					],
+					"To": [
+						20,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Then"
+					],
+					"To": [
+						23,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Then"
+					],
+					"To": [
+						26,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						26,
+						"Then"
+					],
+					"To": [
+						30,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Velocity"
+					],
+					"To": [
+						33,
+						"velocity"
+					]
+				},
+				{
+					"From": [
+						33,
+						"Result"
+					],
+					"To": [
+						34,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Value"
+					],
+					"To": [
+						36,
+						"strikes"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Result"
+					],
+					"To": [
+						37,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						38,
+						"Value"
+					],
+					"To": [
+						39,
+						"Semitone"
+					]
+				},
+				{
+					"From": [
+						39,
+						"Pitch"
+					],
+					"To": [
+						40,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Value"
+					],
+					"To": [
+						42,
+						"velocity"
+					]
+				},
+				{
+					"From": [
+						42,
+						"Result"
+					],
+					"To": [
+						43,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						45,
+						"Value"
+					],
+					"To": [
+						46,
+						"velocity"
+					]
+				},
+				{
+					"From": [
+						46,
+						"Result"
+					],
+					"To": [
+						47,
+						"Count"
+					]
+				},
+				{
+					"From": [
+						48,
+						"Light"
+					],
+					"To": [
+						49,
+						"light"
+					]
+				},
+				{
+					"From": [
+						49,
+						"Result"
+					],
+					"To": [
+						50,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						51,
+						"Value"
+					],
+					"To": [
+						53,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						52,
+						"Value"
+					],
+					"To": [
+						53,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						54,
+						"Value"
+					],
+					"To": [
+						55,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						48,
+						"Swing"
+					],
+					"To": [
+						55,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						57,
+						"Value"
+					],
+					"To": [
+						58,
+						"half"
+					]
+				},
+				{
+					"From": [
+						48,
+						"Swing"
+					],
+					"To": [
+						58,
+						"swing"
+					]
+				},
+				{
+					"From": [
+						56,
+						"Value"
+					],
+					"To": [
+						59,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						58,
+						"Result"
+					],
+					"To": [
+						59,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Then"
+					],
+					"To": [
+						34,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						34,
+						"Then"
+					],
+					"To": [
+						37,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						37,
+						"Then"
+					],
+					"To": [
+						40,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						40,
+						"Then"
+					],
+					"To": [
+						43,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						43,
+						"Then"
+					],
+					"To": [
+						44,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						44,
+						"Then"
+					],
+					"To": [
+						47,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						47,
+						"Then"
+					],
+					"To": [
+						48,
+						"PlayFromStart"
+					]
+				},
+				{
+					"From": [
+						48,
+						"Update"
+					],
+					"To": [
+						50,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						50,
+						"Then"
+					],
+					"To": [
+						53,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						53,
+						"Then"
+					],
+					"To": [
+						55,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						55,
+						"Then"
+					],
+					"To": [
+						59,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						61,
+						"Other"
+					],
+					"To": [
+						62,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						62,
+						"Result"
+					],
+					"To": [
+						63,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						61,
+						"Other"
+					],
+					"To": [
+						64,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						64,
+						"Value"
+					],
+					"To": [
+						66,
+						"v"
+					]
+				},
+				{
+					"From": [
+						65,
+						"Self"
+					],
+					"To": [
+						67,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						66,
+						"Result"
+					],
+					"To": [
+						67,
+						"Velocity"
+					]
+				},
+				{
+					"From": [
+						61,
+						"Then"
+					],
+					"To": [
+						63,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						63,
+						"True"
+					],
+					"To": [
+						67,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 31,
+					"Text": "Start: the bar glows in its note's colour, through its own material",
+					"Position": [
+						-32.0,
+						136.0
+					],
+					"Size": [
+						1901.572509765625,
+						756.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 60,
+					"Text": "Strike: ring at the note's pitch, as loud as the strike, glow and swing",
+					"Position": [
+						-32.0,
+						936.0
+					],
+					"Size": [
+						2920.0,
+						772.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 68,
+					"Text": "Hit: a ball strikes the chime as hard as it flies",
+					"Position": [
+						-32.0,
+						1752.0
+					],
+					"Size": [
+						808.0,
+						314.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

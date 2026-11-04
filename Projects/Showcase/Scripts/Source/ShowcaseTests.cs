@@ -12,8 +12,11 @@ namespace Showcase;
 /// tour cues its exhibits, plays the music up, hands over and plays again with the exhibits put back, the neon sign lights up,
 /// night falls and passes again in the tour's interlude (which a skip ends and the visitor's choice outlasts), the HUD's buttons
 /// work, the cursor is freed, the walker climbs, runs, jumps, pushes, rides the lift, waits under it, presses the plate and stays
-/// on the ground, and the camera flies within the clearing. None of them needs the downloaded models. The run ends once they
-/// are done (play the scene, or `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
+/// on the ground, and the camera flies within the clearing; in the Graph Garden, whose visual scripts these checks read
+/// through the entities' VisualScript components, the conductor plays its score near the camera, the chimes ring at their
+/// pitches, a ball and a pad strike them, the tour's cue plays the flourish, the sign reads the conductor and the garden
+/// glows brighter at night. None of them needs the downloaded models. The run ends once they are done (play the scene, or
+/// `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
 public sealed class ShowcaseTests : Script
 {
 	[Tooltip("The playground that counts the props")]
@@ -115,6 +118,18 @@ public sealed class ShowcaseTests : Script
 	[Tooltip("The tour's night for a while (a NightInterlude)")]
 	public Entity? NightInterlude;
 
+	[Tooltip("The Graph Garden's conductor (it runs Conductor.sgraph)")]
+	public Entity? Conductor;
+
+	[Tooltip("The parent of the Graph Garden's chimes, from the lowest note (each runs ChimeTube.sgraph)")]
+	public Entity? Chimes;
+
+	[Tooltip("The parent of the Graph Garden's pads, one in front of each chime (each runs ChimePad.sgraph)")]
+	public Entity? GardenPads;
+
+	[Tooltip("The Graph Garden signpost's live line (it runs GardenSign.sgraph)")]
+	public Entity? GardenSign;
+
 	private readonly List<(float Time, Action Step)> m_Schedule = [];
 	private int m_Next;
 	private float m_Time;
@@ -147,6 +162,20 @@ public sealed class ShowcaseTests : Script
 	private int m_PlatePresses;
 	private int m_ResetsBeforeReplay;
 	private (Entity Body, Vector3 Position, Vector3 Up)[] m_BarrelStack = [];
+	private (Vector3 Position, float Pitch, float Yaw) m_RigPose;
+	private int m_GardenNotes;
+	private (bool Playing, int Notes) m_GardenNear;
+	private int[] m_GardenStrikes = [];
+	private Entity? m_GardenBall;
+	// The fourth chime's first strike after the ball was thrown: how hard it was, how fast the ball flew then, and how far from
+	// the conductor the ball was (inside the ring of pads, no pad struck the chime).
+	private (float Velocity, float Speed, float Reach)? m_GardenBallHit;
+	// While the ball and the flourish are checked, whether the score played (its notes would strike the chimes too).
+	private bool m_WatchTheScore;
+	private bool m_ScorePlayed;
+	// How often the first cued flourish struck each chime.
+	private int[] m_FlourishStrikes = [];
+	private float m_GardenDayLight;
 
 	protected override void OnCreate()
 	{
@@ -215,11 +244,15 @@ public sealed class ShowcaseTests : Script
 		});
 		At(15.7f, CheckTheRigOnItsFeet);
 		At(15.8f, ClimbTheStairs);
+		// The walker is driven directly while the camera visits the Graph Garden.
+		At(16.0f, ApproachTheConductor);
 		At(17.8f, CheckTheStairs);
 		At(17.9f, WalkDownTheRamp);
+		At(19.0f, () => m_GardenNear = (ReadVariable(Conductor, "Playing", false), ReadVariable(Conductor, "Notes", -1)));
 		At(19.9f, CheckTheRamp);
-		// North along an open line from south of the plaza: a second at walking pace, then a second running.
-		At(20.5f, () => WalkAlong(new Vector3(-1.0f, 0.04f, 19.0f), 0.0f));
+		// North along an open line from south of the plaza, east of the Graph Garden: a second at walking pace, then a second
+		// running.
+		At(20.5f, () => WalkAlong(new Vector3(3.3f, 0.04f, 19.0f), 0.0f));
 		At(21.0f, () => m_PaceFrom = Walker?.Transform.WorldTranslation ?? Vector3.Zero);
 		At(21.5f, () =>
 		{
@@ -236,11 +269,37 @@ public sealed class ShowcaseTests : Script
 			m_TrackJump = true;
 			Walker?.As<Walker>()?.Jump();
 		});
+		At(24.6f, () =>
+		{
+			CheckTheChimesPitches();
+			CheckTheGardenSign();
+			LeaveTheConductor();
+		});
 		At(24.8f, CheckTheJump);
 		At(24.9f, PushACrate);
+		At(25.6f, () =>
+		{
+			CheckTheScore();
+			ThrowAtAChime();
+		});
 		At(26.5f, CheckThePush);
 		At(26.6f, CheckTheCratesPutBack);
+		At(26.6f, () =>
+		{
+			CheckTheChimeBall();
+			CueTheFlourish();
+		});
 		At(26.7f, RideTheLift);
+		At(28.6f, () =>
+		{
+			m_FlourishStrikes = StrikesSince(m_GardenStrikes);
+			LetNightFallOnTheGarden();
+		});
+		// The flourish again, and the tour's end 0.2 seconds into it, before it reaches the fourth chime.
+		At(28.7f, CueTheFlourish);
+		At(28.9f, () => Flythrough.EndTour(GardenCue()));
+		At(30.8f, CheckTheFlourish);
+		At(32.1f, CheckTheGardenAtNight);
 		At(33.4f, () =>
 		{
 			CheckTheLift();
@@ -292,6 +351,8 @@ public sealed class ShowcaseTests : Script
 			WreckingBall?.As<WreckingBall>()?.Swing();
 			Dominoes?.As<DominoRun>()?.Push();
 		});
+		At(40.3f, StepOnAPad);
+		At(41.3f, CheckThePad);
 		At(42.2f, ReplayTheTour);
 		At(42.3f, CheckTheReplayAndSkip);
 		At(43.7f, () =>
@@ -316,6 +377,7 @@ public sealed class ShowcaseTests : Script
 			walker.MoveInput = Vector2.Zero;
 			m_WalkRange = float.PositiveInfinity;
 		}
+		WatchTheGarden();
 		float light = Lantern?.GetComponent<PointLightComponent>()?.Intensity ?? 0.0f;
 		m_LowestLight = Mathf.Min(m_LowestLight, light);
 		m_BrightestLight = Mathf.Max(m_BrightestLight, light);
@@ -550,12 +612,14 @@ public sealed class ShowcaseTests : Script
 				Assert.IsNotNull(shot, $"{child.Name} is a shot");
 				if (shot.Cue is not null)
 				{
-					Assert.IsTrue(shot.Cue.As<Script>() is ITourCue, $"{child.Name} cues {shot.Cue.Name}, which performs");
+					// A script that is an ITourCue, or a visual script (with the custom events Perform and TourEnded).
+					Assert.IsTrue(shot.Cue.As<Script>() is ITourCue || shot.Cue.GetComponent<VisualScriptComponent>()?.Graph is not null,
+						$"{child.Name} cues {shot.Cue.Name}, which performs");
 					cues++;
 				}
 			}
-			// The neon sign, the wrecking ball, the dominoes, the launcher and the night.
-			Assert.AreEqual(5, cues);
+			// The neon sign, the wrecking ball, the dominoes, the launcher, the night and the Graph Garden's conductor.
+			Assert.AreEqual(6, cues);
 			Entity? campfire = tour.Children.FirstOrDefault(child => child.Name == "Shot: Campfire");
 			Assert.IsNotNull(campfire);
 			Assert.AreEqual(NightInterlude?.ID, campfire.As<CameraShot>()?.Cue?.ID);
@@ -1218,6 +1282,247 @@ public sealed class ShowcaseTests : Script
 			Assert.AreEqual(2, tour.HandOvers);
 			Assert.IsTrue(rig.Controllable);
 		});
+	}
+
+	// --- The Graph Garden: its graphs are read through the VisualScript components ------------------------------------------
+
+	private static VisualScriptComponent? Graph(Entity? entity) => entity?.GetComponent<VisualScriptComponent>();
+
+	private Entity[] GardenChimes => Chimes?.Children ?? [];
+
+	// A variable of the entity's running graph, or the fallback when it runs none: the checks then fail on what they read.
+	private static T ReadVariable<T>(Entity? entity, string name, T fallback) =>
+		Graph(entity) is { } graph && graph.HasVariable(name) ? graph.GetVariable<T>(name) ?? fallback : fallback;
+
+	private int[] ChimeStrikes() => [.. GardenChimes.Select(chime => ReadVariable(chime, "Strikes", -1))];
+
+	// How often each chime was struck since the counts were read (-1 for a chime that was not there then).
+	private int[] StrikesSince(int[] counts) =>
+		[.. ChimeStrikes().Select((strikes, index) => index < counts.Length ? strikes - counts[index] : -1)];
+
+	// The camera comes within the conductor's reach: 6 m from it, looking at it.
+	private void ApproachTheConductor()
+	{
+		if (Rig?.As<CameraRig>() is not { } rig || Conductor is null)
+		{
+			return;
+		}
+		m_RigPose = (rig.Translation, rig.Pitch, rig.Yaw);
+		m_GardenNotes = ReadVariable(Conductor, "Notes", 0);
+		m_GardenStrikes = ChimeStrikes();
+		Vector3 conductor = Conductor.Transform.WorldTranslation;
+		Vector3 eye = conductor + (new Vector3(0.0f, 0.2f, 1.0f).Normalized * 6.0f);
+		rig.SetPose(eye, -2.0f, YawTowards(eye, conductor));
+	}
+
+	private void CheckTheChimesPitches()
+	{
+		TestReporter.Run("each chime rings at its own pitch", () =>
+		{
+			Entity[] chimes = GardenChimes;
+			Assert.AreEqual(8, chimes.Length);
+			int[] strikes = ChimeStrikes();
+			for (int i = 0; i < chimes.Length; i++)
+			{
+				VisualScriptComponent? graph = Graph(chimes[i]);
+				Assert.IsNotNull(graph);
+				Assert.IsTrue(strikes[i] > m_GardenStrikes[i],
+					$"{chimes[i].Name} was struck {strikes[i] - m_GardenStrikes[i]} times by the score");
+				int semitone = graph.GetVariable<int>("Semitone");
+				float pitch = chimes[i].GetComponent<AudioSourceComponent>()?.Pitch ?? -1.0f;
+				Assert.AreApproximatelyEqual(Mathf.Pow(2.0f, semitone / 12.0f), pitch, 1e-4f, $"{chimes[i].Name} ({semitone} semitones)");
+			}
+		});
+	}
+
+	private void CheckTheGardenSign()
+	{
+		TestReporter.Run("the garden's sign reads the conductor", () =>
+		{
+			VisualScriptComponent? conductor = Graph(Conductor);
+			Assert.IsNotNull(conductor);
+			string text = GardenSign?.GetComponent<TextComponent>()?.Text ?? "";
+			int bars = conductor.GetVariable<int>("Bars");
+			Assert.IsTrue(bars > 0, "the score played its bars");
+			Assert.IsTrue(text.Contains("120 bpm", StringComparison.Ordinal), $"the sign reads '{text}'");
+			// The sign reads the conductor four times a second and a bar lasts two seconds: it shows this bar, or for at most a
+			// quarter of a second after a downbeat the bar before.
+			bool thisBar = text.Contains($"bar {bars} ", StringComparison.Ordinal);
+			bool barBefore = text.Contains($"bar {bars - 1} ", StringComparison.Ordinal);
+			Assert.IsTrue(thisBar || barBefore, $"the sign reads '{text}' at bar {bars}");
+		});
+	}
+
+	// The camera goes 14 m from the conductor, out of its reach.
+	private void LeaveTheConductor()
+	{
+		if (Rig?.As<CameraRig>() is { } rig && Conductor is not null)
+		{
+			Vector3 conductor = Conductor.Transform.WorldTranslation;
+			Vector3 eye = conductor + (new Vector3(0.0f, 0.2f, 1.0f).Normalized * 14.0f);
+			rig.SetPose(eye, -2.0f, YawTowards(eye, conductor));
+		}
+	}
+
+	private void CheckTheScore()
+	{
+		TestReporter.Run("the garden's conductor plays its score when the camera comes near", () =>
+		{
+			VisualScriptComponent? conductor = Graph(Conductor);
+			Assert.IsNotNull(conductor);
+			// Three seconds after the camera came 6 m near, and a second after it went 14 m away.
+			Assert.IsTrue(m_GardenNear.Playing, "it played near the camera");
+			Assert.IsTrue(m_GardenNear.Notes - m_GardenNotes >= 6, $"{m_GardenNear.Notes - m_GardenNotes} notes in three seconds");
+			Assert.IsFalse(conductor.GetVariable<bool>("Playing"), "it stopped away from the camera");
+		});
+		Rig?.As<CameraRig>()?.SetPose(m_RigPose.Position, m_RigPose.Pitch, m_RigPose.Yaw);
+	}
+
+	// Per frame: whether the score plays while the ball and the flourish are checked, and the ball's strike as it happens.
+	private void WatchTheGarden()
+	{
+		if (m_WatchTheScore)
+		{
+			m_ScorePlayed |= ReadVariable(Conductor, "Playing", false);
+		}
+		Entity[] chimes = GardenChimes;
+		if (m_GardenBall is null || m_GardenBallHit is not null || chimes.Length < 4 || m_GardenStrikes.Length < 4 || Conductor is null ||
+			ReadVariable(chimes[3], "Strikes", -1) <= m_GardenStrikes[3])
+		{
+			return;
+		}
+		float speed = m_GardenBall.GetComponent<RigidBodyComponent>()?.LinearVelocity.Length ?? -1.0f;
+		float reach = Vector3.Distance(Flat(m_GardenBall.Transform.WorldTranslation), Flat(Conductor.Transform.WorldTranslation));
+		m_GardenBallHit = (ReadVariable(chimes[3], "LastVelocity", -1.0f), speed, reach);
+	}
+
+	// A ball flies at the fourth chime's bar from beside the conductor, outwards: it bounces back into the ring, so it never
+	// reaches the pad beyond the chime, whose strike would hide a ball that strikes nothing.
+	private void ThrowAtAChime()
+	{
+		Entity[] chimes = GardenChimes;
+		if (chimes.Length < 4 || Rig?.As<CameraRig>()?.Ball is not { } ball || Conductor is null)
+		{
+			return;
+		}
+		m_GardenStrikes = ChimeStrikes();
+		m_GardenBallHit = null;
+		m_WatchTheScore = true;
+		m_ScorePlayed = false;
+		if (chimes[3].Children.FirstOrDefault(child => child.Name == "Bar") is not { } bar)
+		{
+			return;
+		}
+		Vector3 target = bar.Transform.WorldTranslation;
+		Vector3 outwards = Flat(target - Conductor.Transform.WorldTranslation).Normalized;
+		m_GardenBall = Entity.Instantiate(ball, target - outwards, Quaternion.Identity);
+		if (m_GardenBall?.GetComponent<RigidBodyComponent>() is { } body)
+		{
+			body.LinearVelocity = outwards * 14.0f;
+		}
+	}
+
+	private void CheckTheChimeBall()
+	{
+		TestReporter.Run("a ball thrown at a chime strikes it", () =>
+		{
+			Entity[] chimes = GardenChimes;
+			Assert.IsNotNull(m_GardenBall);
+			Assert.IsTrue(chimes.Length >= 4);
+			Assert.IsFalse(m_ScorePlayed, "the score played meanwhile");
+			Assert.IsNotNull(m_GardenBallHit, $"{chimes[3].Name} was struck 0 times");
+			(float velocity, float speed, float reach) = m_GardenBallHit.Value;
+			// Nearer the conductor than any pad's trigger reaches: the ball struck the chime itself.
+			Assert.IsTrue(reach < 2.0f, $"the chime was struck with the ball {reach} m from the conductor");
+			// As hard as the ball flew off the bar: its speed over 8 m/s, at least 0.2 (the chime read it a frame or two before).
+			Assert.AreApproximatelyEqual(Mathf.Clamp(speed / 8.0f, 0.2f, 1.0f), velocity, 0.05f, $"struck at {speed} m/s");
+			Assert.IsTrue(velocity > 0.3f, $"as hard as {velocity}");
+		});
+		m_GardenBall?.Destroy();
+		m_GardenBall = null;
+	}
+
+	// The cue of the tour's Graph Garden shot.
+	private Entity? GardenCue() =>
+		Tour?.As<Flythrough>()?.Children.FirstOrDefault(child => child.Name == "Shot: Graph Garden")?.As<CameraShot>()?.Cue;
+
+	// The tour's cue, through the tour's own code.
+	private void CueTheFlourish()
+	{
+		m_GardenStrikes = ChimeStrikes();
+		Flythrough.Perform(GardenCue());
+	}
+
+	private void CheckTheFlourish()
+	{
+		m_WatchTheScore = false;
+		TestReporter.Run("the tour cues the garden's flourish", () =>
+		{
+			Assert.IsNotNull(Conductor);
+			Assert.AreEqual(Conductor.ID, GardenCue()?.ID);
+			Assert.IsFalse(m_ScorePlayed, "the score played meanwhile");
+			Entity[] chimes = GardenChimes;
+			Assert.AreEqual(8, chimes.Length);
+			Assert.AreEqual(8, m_FlourishStrikes.Length);
+			// The first cue: in two seconds the flourish strikes every chime.
+			for (int i = 0; i < chimes.Length; i++)
+			{
+				Assert.IsTrue(m_FlourishStrikes[i] > 0, $"{chimes[i].Name} was struck {m_FlourishStrikes[i]} times");
+			}
+			// The second: it strikes the first chime, and the tour's end stops it before the fourth.
+			int[] strikes = StrikesSince(m_GardenStrikes);
+			Assert.IsTrue(strikes[0] > 0, $"{chimes[0].Name} was struck {strikes[0]} times");
+			for (int i = 3; i < chimes.Length; i++)
+			{
+				Assert.AreEqual(0, strikes[i], $"{chimes[i].Name}'s strikes after the tour ended");
+			}
+		});
+	}
+
+	private void LetNightFallOnTheGarden()
+	{
+		m_GardenDayLight = Conductor?.GetComponent<PointLightComponent>()?.Intensity ?? -1.0f;
+		Lighting?.As<DayNight>()?.SetNight(true);
+	}
+
+	private void CheckTheGardenAtNight()
+	{
+		TestReporter.Run("the garden glows brighter at night", () =>
+		{
+			DayNight? lighting = Lighting?.As<DayNight>();
+			Assert.IsNotNull(lighting);
+			Assert.AreEqual(1.0f, lighting.Blend);
+			float night = Conductor?.GetComponent<PointLightComponent>()?.Intensity ?? -1.0f;
+			Assert.IsTrue(m_GardenDayLight > 0.0f, $"the conductor glows at {m_GardenDayLight} by day");
+			Assert.IsTrue(night >= 2.0f * m_GardenDayLight, $"it glows at {night} at night, {m_GardenDayLight} by day");
+			lighting.SetNight(false);
+		});
+	}
+
+	// The walker steps onto the sixth pad, as a visitor would.
+	private void StepOnAPad()
+	{
+		Entity[] pads = GardenPads?.Children ?? [];
+		if (pads.Length < 6 || Walker?.As<Walker>() is not { } walker)
+		{
+			return;
+		}
+		m_GardenStrikes = ChimeStrikes();
+		Vector3 center = pads[5].Transform.WorldTranslation;
+		walker.Enter(new Vector3(center.X, center.Y + 0.05f, center.Z), walker.Yaw);
+		walker.MoveInput = Vector2.Zero;
+	}
+
+	private void CheckThePad()
+	{
+		TestReporter.Run("stepping on a pad strikes its chime", () =>
+		{
+			Entity[] chimes = GardenChimes;
+			Assert.IsTrue(chimes.Length >= 6);
+			int strikes = ReadVariable(chimes[5], "Strikes", -1);
+			Assert.IsTrue(strikes > m_GardenStrikes[5], $"{chimes[5].Name} was struck {strikes - m_GardenStrikes[5]} times");
+		});
+		Walker?.As<Walker>()?.Park();
 	}
 
 	// Meters from a point to the volume's box: the unit cube under its transform (its parents are not scaled); 0 inside.

@@ -7,8 +7,9 @@ namespace Showcase;
 /// (the children, each a CameraShot) on a smooth path that eases in and out, shows the title and the shots' captions, cues
 /// their exhibits, and then hands the rig over to the free camera as the bars open and the HUD fades in. Any key or click
 /// skips it (the camera glides to the last shot in a moment); when it ends or is skipped, the exhibits it cues are told
-/// (<see cref="ITourCue.TourEnded"/>). Its key plays it again with the exhibits put back. Its texts, bars and fade are UI
-/// elements (it sets their opacities and the bars' heights). The music plays up during the tour and settles back after it.</summary>
+/// (<see cref="ITourCue.TourEnded"/>, or a visual script's custom event TourEnded). Its key plays it again with the exhibits
+/// put back. Its texts, bars and fade are UI elements (it sets their opacities and the bars' heights). The music plays up
+/// during the tour and settles back after it.</summary>
 public sealed class Flythrough : Script
 {
 	[Tooltip("The camera rig the tour moves (a CameraRig)")]
@@ -264,10 +265,7 @@ public sealed class Flythrough : Script
 			if (!m_Cued[shot] && m_Knots[shot] - (m_Shots[shot]?.CueLead ?? 0.0f) <= time)
 			{
 				m_Cued[shot] = true;
-				if (m_Shots[shot]?.Cue?.As<Script>() is ITourCue cue)
-				{
-					cue.Perform();
-				}
+				Perform(m_Shots[shot]?.Cue);
 			}
 		}
 		FadeTexts(TitleAlpha(), UpdateCaption(time) * CaptionGate(), Mathf.Clamp01((m_Elapsed - 1.0f) / FadeSeconds) * 0.7f);
@@ -326,10 +324,33 @@ public sealed class Flythrough : Script
 	{
 		foreach (CameraShot? shot in m_Shots)
 		{
-			if (shot?.Cue?.As<Script>() is ITourCue cue)
-			{
-				cue.TourEnded();
-			}
+			EndTour(shot?.Cue);
+		}
+	}
+
+	// A cue is a script that is an ITourCue, or a visual script with the custom events Perform and TourEnded (a graph without
+	// the event gets SendEvent's warning). The test scene cues the Graph Garden's conductor through these two, as the tour does.
+	internal static void Perform(Entity? cue)
+	{
+		if (cue?.As<Script>() is ITourCue tourCue)
+		{
+			tourCue.Perform();
+		}
+		else if (cue?.GetComponent<VisualScriptComponent>() is { Graph: not null } graph)
+		{
+			graph.SendEvent("Perform");
+		}
+	}
+
+	internal static void EndTour(Entity? cue)
+	{
+		if (cue?.As<Script>() is ITourCue tourCue)
+		{
+			tourCue.TourEnded();
+		}
+		else if (cue?.GetComponent<VisualScriptComponent>() is { Graph: not null } graph)
+		{
+			graph.SendEvent("TourEnded");
 		}
 	}
 
