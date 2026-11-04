@@ -1314,6 +1314,35 @@ TEST_CASE("VisualScriptEditor: a commit while playing toasts its receipt and gra
 	CHECK(fixture.Window(counter).GetModel().GetDisplayDocument().Graph.Nodes.size() == 7);
 }
 
+TEST_CASE("VisualScriptEditor: an agent's graph.edit of a graph whose window shows it toasts its receipt there, also while stopped")
+{
+	LiveFixture fixture;
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeLiveCounterDocument());
+	fixture.CreateRunner("Counter", counter);
+	fixture.Open(counter);
+	fixture.Start();
+	fixture.Frames(3);
+	REQUIRE(fixture.Toasts(counter, "Live: ").empty());
+
+	fixture.Ok("graph.edit",
+	           Json::object({{"graph", counter.ToString()},
+	                         {"operations", Json::array({Json::object({{"op", "SetInput"}, {"node", 12}, {"pin", "B"}, {"value", 2}})})}}));
+	fixture.Frames(2);
+	CHECK(fixture.Toasts(counter, "Live: ") == std::vector<std::string>{"Live: applied to 1 instance"});
+
+	// Stopped at Set Steps: the edit keeps the stopped node, and the toast says the stopped execution continues with it.
+	fixture.Ok("graph.breakpoints", Json::object({{"graph", counter.ToString()}, {"add", Json::array({Json::object({{"node", 14}})})}}));
+	fixture.Frames(2);
+	REQUIRE(fixture.Editor(counter)["debug"]["state"] == "Stopped");
+	fixture.Ok("graph.edit",
+	           Json::object({{"graph", counter.ToString()},
+	                         {"operations", Json::array({Json::object({{"op", "SetInput"}, {"node", 12}, {"pin", "B"}, {"value", 3}})})}}));
+	fixture.Frames(2);
+	std::vector<std::string> const toasts = fixture.Toasts(counter, "Live: ");
+	REQUIRE(toasts.size() == 2);
+	CHECK(toasts.back().find("the stopped execution continues with the edit") != std::string::npos);
+}
+
 TEST_CASE("VisualScriptEditor: a broken edit while playing toasts that the game keeps the last version, shows LAST WORKING and outlines "
           "exactly what does not run; fixing it applies and the outline goes")
 {
@@ -1510,6 +1539,49 @@ TEST_CASE("VisualScriptEditor: while playing the Timeline drawer draws the playh
 	fixture.Play.Stop();
 	fixture.Frames(1);
 	CHECK_FALSE(curves.GetPlayhead().has_value());
+}
+
+TEST_CASE("VisualScriptEditor: graph.open with references opens the drawer's Find on a custom event's senders in every script")
+{
+	LiveFixture fixture;
+	VisualScriptDocument receiver;
+	receiver.Graph.Nodes = {MakeNode(10, "Event.Custom", glm::vec2(0.0f, 0.0f), Json::object({{"Name", "Ping"}}))};
+	VisualScriptDocument sender;
+	sender.Graph.Nodes = {MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)),
+	                      MakeNode(11, "Event.Send", glm::vec2(320.0f, 0.0f), Json::object({{"Name", "Ping"}}))};
+	sender.Graph.Links = {MakeLink(10, "Then", 11, "Execute")};
+	AssetHandle const listener = fixture.CreateGraph("Scripts/Listener.sgraph", receiver);
+	AssetHandle const caller = fixture.CreateGraph("Scripts/Caller.sgraph", sender);
+	fixture.Open(listener);
+
+	fixture.Ok("graph.open",
+	           Json::object({{"graph", listener.ToString()}, {"references", Json::object({{"kind", "CustomEvent"}, {"name", "Ping"}})}}));
+	fixture.Frames(2);
+	VisualScriptDrawer const& drawer = fixture.Window(listener).GetDrawer();
+	CHECK(drawer.GetMode() == VisualScriptDrawerMode::Find);
+	std::vector<std::pair<std::string, uint32_t>> found;
+	for (VisualScriptDrawerFindRow const& row : drawer.GetFindRows())
+	{
+		found.emplace_back(row.Script, row.Match.Node);
+	}
+	CHECK(found == std::vector<std::pair<std::string, uint32_t>>{{"Scripts/Listener.sgraph", 10}, {"Scripts/Caller.sgraph", 11}});
+	Json const editors = fixture.Ok("graph.editors");
+	CHECK(editors["editors"][0]["drawer"] == "Find");
+	fixture.CheckDrawingChangesNothing();
+
+	// The parameter is checked as graph.find checks it, at its own path.
+	std::optional<CommandResult> refused;
+	fixture.Registry.Execute(
+		"graph.open", Json::object({{"graph", listener.ToString()}, {"references", Json::object({{"kind", "Variable"}, {"id", 1}})}}),
+		[&refused](CommandResult value)
+		{
+			refused.emplace(std::move(value));
+		});
+	REQUIRE(refused.has_value());
+	REQUIRE(refused->IsError());
+	CHECK(refused->GetError().Code == AutomationErrorCode::InvalidParams);
+	CHECK(refused->GetError().Data == Json::object({{"path", "references.graph"}}));
+	CHECK(caller.IsValid());
 }
 
 TEST_CASE("VisualScriptEditor: a runtime error badges its node with its count, toasts once, fills the Runtime section, and Go to frames "

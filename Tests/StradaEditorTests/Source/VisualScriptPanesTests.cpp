@@ -4393,6 +4393,16 @@ TEST_CASE("VisualScriptEditor: My Script shows a function library's functions an
 	fixture.Model->SetProjectGraphs(graphs, 1);
 	fixture.CheckDrawingChangesNothing();
 	CHECK(fixture.Sidebar.GetLibraryLine() == "Function library \xC2\xB7 used by 3 nodes in 2 scripts");
+	// In a narrow pane the line wraps within the pane instead of running past its edge.
+	REQUIRE(fixture.Sidebar.GetLibraryLineRect().has_value());
+	float const oneLine = fixture.Sidebar.GetLibraryLineRect()->second.y - fixture.Sidebar.GetLibraryLineRect()->first.y;
+	fixture.SidebarWindowSize = ImVec2(ImGui::GetFontSize() * 12.0f, PaneFixture::SidebarSize.y);
+	fixture.Frames(2);
+	REQUIRE(fixture.Sidebar.GetLibraryLineRect().has_value());
+	CHECK(fixture.Sidebar.GetLibraryLineRect()->second.x <= fixture.SidebarWindowSize.x);
+	CHECK(fixture.Sidebar.GetLibraryLineRect()->second.y - fixture.Sidebar.GetLibraryLineRect()->first.y > oneLine * 1.5f);
+	fixture.SidebarWindowSize = PaneFixture::SidebarSize;
+	fixture.Frames(2);
 	// Its functions, no event graph, no variables or custom events, and nothing to add but functions.
 	CHECK(fixture.Sidebar.FindRow({VisualScriptElementKind::Function, 10}));
 	CHECK_FALSE(fixture.Sidebar.FindRow({VisualScriptElementKind::Function, 0}));

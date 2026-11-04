@@ -90,6 +90,8 @@ namespace Strada
 		// A function library's header line in the last Draw ("Function library · used by 5 nodes in 3 scripts"); empty for a
 		// script.
 		std::string const& GetLibraryLine() const { return m_LibraryLine; }
+		// Where that line was drawn (wrapped to the pane's width), in screen pixels; none for a script.
+		std::optional<std::pair<glm::vec2, glm::vec2>> const& GetLibraryLineRect() const { return m_LibraryLineRect; }
 
 	private:
 		struct Frame;
@@ -171,5 +173,6 @@ namespace Strada
 		std::vector<std::pair<uint32_t, std::string_view>> m_LiveCellLabels;
 		std::string m_LiveTooltip;
 		std::string m_LibraryLine;
+		std::optional<std::pair<glm::vec2, glm::vec2>> m_LibraryLineRect;
 	};
 }

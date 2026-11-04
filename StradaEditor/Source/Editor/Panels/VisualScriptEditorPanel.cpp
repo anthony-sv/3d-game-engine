@@ -1240,6 +1240,11 @@ namespace Strada
 			{
 				ShowTimeline(*request.Timeline);
 			}
+			if (request.References)
+			{
+				m_Drawer.ShowReferences(*request.References);
+				ShowDrawer(VisualScriptDrawerMode::Find);
+			}
 			if (!request.DetailsRow.empty())
 			{
 				m_PaneShared.ScrollRow = request.DetailsRow;

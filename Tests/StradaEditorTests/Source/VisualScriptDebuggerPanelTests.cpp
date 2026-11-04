@@ -137,6 +137,8 @@ namespace
 		bool ShowModal = false;
 		// The Debugger panel docked with a stand-in of the Console, as the editor's default layout docks it.
 		bool DockWithConsole = false;
+		// The Debugger panel's size when it floats.
+		ImVec2 DebuggerSize{900.0f, 900.0f};
 		bool DockBuilt = false;
 		ImGuiID Dockspace = 0;
 		VisualScriptDrawRecord Record;
@@ -323,7 +325,7 @@ namespace
 			if (!DockWithConsole)
 			{
 				ImGui::SetNextWindowPos(ImVec2(1000.0f, 20.0f), ImGuiCond_Always);
-				ImGui::SetNextWindowSize(ImVec2(900.0f, 900.0f), ImGuiCond_Always);
+				ImGui::SetNextWindowSize(DebuggerSize, ImGuiCond_Always);
 			}
 			Debugger.OnImGuiRender(std::nullopt);
 			if (ShowModal)
@@ -1578,6 +1580,42 @@ TEST_CASE("VisualScriptDebug: the Values tab formats colours, vectors, enums and
 	CHECK(fixture.Debugger.GetEvaluateResult().empty());
 	CHECK_FALSE(fixture.Debugger.GetEvaluateCell().has_value());
 	CHECK(fixture.Debugger.GetEvaluateText() == "Count + 41");
+	fixture.Session.ClearBreakpoints(std::nullopt);
+}
+
+TEST_CASE("VisualScriptDebug: in a short Debugger panel the Values tab keeps most of its height for the values, the names yielding")
+{
+	DebuggerFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph(
+		"Scripts/Values.sgraph", MakeVariableDocument({MakeVariable(3, "Tint", "Strada.Color", Json::array({1.0, 0.0, 0.0, 1.0})),
+	                                                   MakeVariable(4, "Offset", "Strada.Vector3", Json::array({1.0, 2.5, -3.0})),
+	                                                   MakeVariable(5, "Lives", "int", 3), MakeVariable(6, "Speed", "float", 9.0),
+	                                                   MakeVariable(7, "Level", "int", 1), MakeVariable(8, "Combo", "int", 0)}));
+	fixture.CreateRunner("Player", graph);
+	REQUIRE(fixture.Session.SetBreakpoint(graph, MakeBreakpoint(11)).IsOk());
+	fixture.Start();
+	fixture.FramesUntilStopped();
+	fixture.Debugger.SetTab(VisualScriptDebuggerTab::Values);
+	// A panel docked low in the editor, 300 pixels tall at the top of the screen (the fixture floats it at y = 20).
+	fixture.DebuggerSize = ImVec2(900.0f, 300.0f);
+	fixture.Frames(2);
+	REQUIRE(fixture.Debugger.GetEvaluateScope().size() > 6);
+	std::optional<VisualScriptDebuggerPanel::ItemRect> const table = fixture.Debugger.GetItemRect(VisualScriptDebuggerItem::ValuesTable);
+	std::optional<VisualScriptDebuggerPanel::ItemRect> const name = fixture.Debugger.GetItemRect(VisualScriptDebuggerItem::EvaluateName);
+	REQUIRE(table.has_value());
+	REQUIRE(name.has_value());
+	float const tableHeight = table->Max.y - table->Min.y;
+	// The values are the tab's larger part: the names below Evaluate's row, from the first to the panel's bottom, take less.
+	float const namesHeight = 20.0f + fixture.DebuggerSize.y - name->Min.y;
+	CHECK(name->Min.y > table->Max.y);
+	CHECK(tableHeight > namesHeight);
+
+	// A tall panel lists six names, as before.
+	fixture.DebuggerSize = ImVec2(900.0f, 900.0f);
+	fixture.Frames(2);
+	std::optional<VisualScriptDebuggerPanel::ItemRect> const tall = fixture.Debugger.GetItemRect(VisualScriptDebuggerItem::ValuesTable);
+	REQUIRE(tall.has_value());
+	CHECK(tall->Max.y - tall->Min.y > tableHeight);
 	fixture.Session.ClearBreakpoints(std::nullopt);
 }
 

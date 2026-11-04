@@ -618,12 +618,18 @@ internal sealed partial class VisualScriptRuntime
 	private void Call<TMode>(Execution execution, CompiledNode node, Frame frame)
 		where TMode : struct, ITraceMode
 	{
-		PushFrame(execution, node, frame, null, 0);
+		Frame callee = PushFrame(execution, node, frame, null, 0);
 		execution.Node = node.Function!.EntryNode;
 		execution.Entry = 0;
-		if (TMode.IsTraced && (execution.Mode & ReportModes) != 0)
+		if (TMode.IsTraced)
 		{
-			execution.Debugger!.OnStep(execution, node, -1);
+			// The call wrote the function's inputs, which are its Entry's outputs: this execution computed them, so a stop at
+			// the Entry shows the parameters as current (spec-slice4 section 5.2).
+			callee.StampsOrNew[node.Function.EntryNode] = execution.Serial;
+			if ((execution.Mode & ReportModes) != 0)
+			{
+				execution.Debugger!.OnStep(execution, node, -1);
+			}
 		}
 	}
 
