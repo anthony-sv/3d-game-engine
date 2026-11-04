@@ -1101,6 +1101,171 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in i
 	CHECK(fixture.Ok("play.state")["state"] == "edit");
 }
 
+TEST_CASE("PlayCommands: input.set plays the Prism Break sample, made of visual scripts alone: the title plays itself, Space starts "
+          "and serves, the mouse moves the paddle, Escape pauses, a lost ball costs a life")
+{
+	// The sample as a player gets it: its scenes and assets, and no C# (spec-slice4 section 18.10).
+	Testing::AssetManagerScope assets;
+	Testing::PhysicsSystemScope physics;
+	Testing::ScriptRuntimeScope scripting;
+	InputScope input;
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const sample = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / "PrismBreak";
+	REQUIRE(FileSystem::CopyDirectory(sample / "Assets", directory.GetPath() / "Assets").IsOk());
+	REQUIRE(FileSystem::Copy(sample / "PrismBreak.sproj", directory.GetPath() / "PrismBreak.sproj", false).IsOk());
+
+	PlayFixture fixture;
+	REQUIRE(fixture.Operations.OpenProject(directory.GetPath() / "PrismBreak.sproj").IsOk());
+	auto const find = [&fixture](std::string_view name)
+	{
+		Entity const entity = fixture.Context.GetScene().FindEntityByName(name);
+		REQUIRE(entity);
+		return entity;
+	};
+	// The match's random numbers are seeded, so every run plays the same frames.
+	Entity const game = find("Game");
+	VisualScriptComponent match = game.GetComponent<VisualScriptComponent>();
+	match.Variables["Seed"] = ScriptFieldValue::FromInt32(7);
+	REQUIRE(fixture.Operations.SetComponent(game.GetUUID(), match).IsOk());
+	UUID const gameId = game.GetUUID();
+
+	CHECK(fixture.Ok("play.start")["state"] == "play");
+	fixture.Ok("play.pause");
+	auto const advance = [&fixture](uint32_t frames)
+	{
+		fixture.Ok("play.advance", Json::object({{"frames", frames}}));
+	};
+	// A key goes down for a frame, then up.
+	auto const press = [&fixture, &advance](std::string const& key)
+	{
+		fixture.Ok("input.set", Json::object({{"keys", Json::object({{key, true}})}}));
+		advance(1);
+		fixture.Ok("input.set", Json::object({{"keys", Json::object({{key, false}})}}));
+		advance(1);
+	};
+	// What the match's read-outs say, through the public variables of its graph.
+	auto const readOut = [gameId](std::string const& name)
+	{
+		Result<ScriptFieldMap> const variables = VisualScriptEngine::GetInstanceVariables(gameId);
+		REQUIRE_MESSAGE(variables.IsOk(), (variables ? std::string() : variables.GetError()));
+		auto const variable = variables.GetValue().find(name);
+		REQUIRE(variable != variables.GetValue().end());
+		return variable->second;
+	};
+	auto const state = [&readOut]
+	{
+		return readOut("State").GetString();
+	};
+	auto const shown = [&find](std::string_view element)
+	{
+		return find(element).GetComponent<UIRectComponent>().Visible;
+	};
+	auto const placeOf = [&find](std::string_view name)
+	{
+		return find(name).GetComponent<TransformComponent>().Translation;
+	};
+	// The balls in play: the children of the Balls container.
+	auto const balls = [&fixture, &find]
+	{
+		std::vector<Entity> found;
+		for (UUID const child : find("Balls").GetComponent<RelationshipComponent>().Children)
+		{
+			if (Entity const ball = fixture.Context.GetScene().GetEntityByUUID(child))
+			{
+				found.push_back(ball);
+			}
+		}
+		return found;
+	};
+	auto const ballPlace = [&balls]
+	{
+		std::vector<Entity> const found = balls();
+		REQUIRE(found.size() == 1);
+		return found.front().GetComponent<TransformComponent>().Translation;
+	};
+	// The mouse at a point of the 640-pixel-wide game view, its height's middle.
+	auto const pointAt = [&fixture](float x)
+	{
+		fixture.Ok("input.set", Json::object({{"mousePosition", Json::array({x, 240.0})}}));
+	};
+
+	// The title shows, and the game plays itself: the autopilot steers the paddle, and its ball breaks prisms. The mouse rests
+	// over the game view meanwhile (a first position is no movement).
+	pointAt(320.0f);
+	advance(1);
+	CHECK(state() == "Title");
+	CHECK(shown("Title Screen"));
+	CHECK_FALSE(shown("Game Bar"));
+	advance(900);
+	CHECK(state() == "Title");
+	CHECK(shown("Title Screen"));
+	CHECK(readOut("Score").GetInt32() > 0);
+	CHECK(readOut("Lives").GetInt32() == 3);
+	CHECK(placeOf("Paddle").x != 0.0f);
+
+	// Space starts a game: the score and lives start fresh, the level builds prism by prism, and the ball waits on the paddle.
+	press("Space");
+	CHECK(state() == "Serve");
+	CHECK_FALSE(shown("Title Screen"));
+	CHECK(readOut("Score").GetInt32() == 0);
+	CHECK(readOut("Lives").GetInt32() == 3);
+	advance(60);
+	CHECK(readOut("BricksLeft").GetInt32() == 33);
+	CHECK(state() == "Serve");
+	CHECK(shown("Serve Prompt"));
+	CHECK(shown("Game Bar"));
+
+	// The mouse moves the paddle across the arena, and the waiting ball rides it.
+	pointAt(600.0f);
+	advance(30);
+	CHECK(placeOf("Paddle").x > 5.0f);
+	CHECK(ballPlace().x == doctest::Approx(placeOf("Paddle").x).epsilon(0.02));
+	pointAt(40.0f);
+	advance(30);
+	CHECK(placeOf("Paddle").x < -5.0f);
+	CHECK(ballPlace().x == doctest::Approx(placeOf("Paddle").x).epsilon(0.02));
+	pointAt(320.0f);
+	advance(30);
+
+	// Space serves: the ball leaves the paddle for the prisms.
+	float const served = ballPlace().z;
+	press("Space");
+	CHECK(state() == "Play");
+	CHECK_FALSE(shown("Serve Prompt"));
+	advance(10);
+	CHECK(ballPlace().z < served - 1.0f);
+
+	// Escape pauses: the pause screen shows and the ball holds still; Escape again plays on.
+	press("Escape");
+	CHECK(shown("Pause Screen"));
+	glm::vec3 const held = ballPlace();
+	advance(30);
+	CHECK(ballPlace() == held);
+	press("Escape");
+	CHECK_FALSE(shown("Pause Screen"));
+	advance(5);
+	CHECK(ballPlace() != held);
+
+	// The paddle kept away from the ball lets it fall into the drain: a life goes, its icon with it, and the next ball waits
+	// on the paddle.
+	for (int frame = 0; frame < 1200 && readOut("Lives").GetInt32() == 3; frame++)
+	{
+		std::vector<Entity> const inPlay = balls();
+		if (!inPlay.empty())
+		{
+			pointAt(inPlay.front().GetComponent<TransformComponent>().Translation.x > 0.0f ? 40.0f : 600.0f);
+		}
+		advance(1);
+	}
+	CHECK(readOut("Lives").GetInt32() == 2);
+	CHECK(shown("Life 2"));
+	CHECK_FALSE(shown("Life 3"));
+	advance(90);
+	CHECK(state() == "Serve");
+	CHECK(balls().size() == 1);
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+}
+
 TEST_CASE("PlayMode: the observer is told of the start, of each frame that ran with its time step and of the stop, and may pause "
           "after a frame")
 {

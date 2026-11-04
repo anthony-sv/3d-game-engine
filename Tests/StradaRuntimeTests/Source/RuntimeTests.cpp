@@ -328,8 +328,10 @@ namespace
 		return document;
 	}
 
-	// A copy of Projects/<name> (its project file named after it) in the directory, with the scripts CMake built for it
-	// (bin/<name>) where the editor's build puts them. Returns the copy's project file.
+	// A copy of Projects/<name> (its project file named after it) in the directory. A project with C# scripts
+	// (Scripts/<name>.csproj, the rule the engine tests' ProjectScriptsScope follows) gets the scripts CMake built for it
+	// (bin/<name>) where the editor's build puts them; a project made of visual scripts alone has none to copy. Returns the
+	// copy's project file.
 	std::filesystem::path CopyRepositoryProject(std::string const& name, std::filesystem::path const& directory)
 	{
 		std::filesystem::path const source = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / FileSystem::PathFromUtf8(name);
@@ -337,9 +339,12 @@ namespace
 		std::filesystem::path const file = FileSystem::PathFromUtf8(name + ".sproj");
 		REQUIRE(FileSystem::CopyDirectory(source / "Assets", project / "Assets").IsOk());
 		REQUIRE(FileSystem::Copy(source / file, project / file, false).IsOk());
-		REQUIRE(FileSystem::CopyDirectory(FileSystem::GetExecutableDirectory() / FileSystem::PathFromUtf8(name),
-		                                  project / "Scripts" / "Binaries")
-		            .IsOk());
+		if (FileSystem::Exists(source / "Scripts" / FileSystem::PathFromUtf8(name + ".csproj")))
+		{
+			REQUIRE(FileSystem::CopyDirectory(FileSystem::GetExecutableDirectory() / FileSystem::PathFromUtf8(name),
+			                                  project / "Scripts" / "Binaries")
+			            .IsOk());
+		}
 		return project / file;
 	}
 }
@@ -891,4 +896,69 @@ TEST_CASE("Runtime: the Blocks sample plays and passes its tests")
 	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});
 	CAPTURE(game.Output);
 	CHECK(game.ExitCode == 0);
+}
+
+TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays and passes its tests, and so does its exported game")
+{
+	// Thirteen graphs and no C#: the player starts .NET for them, and its 29 checks are graphs too (spec-slice4 section 18.10).
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const project = CopyRepositoryProject("PrismBreak", directory.GetPath());
+	std::vector<std::string> const testRun = {"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timeout", "90"};
+
+	ProcessResult const tests = RunPlayer(testRun);
+	CAPTURE(tests.Output);
+	CHECK(tests.ExitCode == 0);
+	CHECK(Contains(tests.Output, "Tests passed: 29 checks"));
+	CHECK_FALSE(Contains(tests.Output, "The game has no scripts"));
+
+	// The test scene seeds the game's random numbers, so every run plays the same frames.
+	ProcessResult const again = RunPlayer(testRun);
+	CAPTURE(again.Output);
+	CHECK(again.ExitCode == 0);
+	CHECK_FALSE(TestSummary(tests.Output).empty());
+	CHECK(TestSummary(again.Output) == TestSummary(tests.Output));
+
+	// The checks wait in seconds of the game, so they pass at another frame rate too.
+	std::vector<std::string> slower = testRun;
+	slower.insert(slower.end(), {"--timestep", "0.0333333"});
+	ProcessResult const slow = RunPlayer(slower);
+	CAPTURE(slow.Output);
+	CHECK(slow.ExitCode == 0);
+	CHECK(Contains(slow.Output, "Tests passed: 29 checks"));
+
+	// The game's own scene, whose title plays itself, runs five seconds without a window and without a word from its graphs.
+	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "300"});
+	CAPTURE(game.Output);
+	CHECK(game.ExitCode == 0);
+	CHECK_FALSE(Contains(game.Output, "Visual script"));
+	CHECK_FALSE(Contains(game.Output, " runs no visual script"));
+
+	// Its exported game carries the scripting API and no game scripts, and passes the same checks.
+	std::filesystem::path player;
+	std::filesystem::path scripts;
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> opened = Project::Open(project);
+		REQUIRE_MESSAGE(opened.IsOk(), (opened ? std::string() : opened.GetError()));
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*opened.GetValue(), directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		CHECK(prepared.GetValue().UsesVisualScripts);
+		CHECK(prepared.GetValue().ScriptProjectFile.empty());
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		scripts = directory.GetPath() / "Export" / "Scripts";
+		if (player.extension() == ".app")
+		{
+			scripts = player / "Contents" / "Resources" / "Scripts";
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+	}
+	CHECK(FileSystem::IsRegularFile(scripts / "Strada.ScriptCore.dll"));
+	CHECK_FALSE(FileSystem::Exists(scripts / "Game.dll"));
+	ProcessResult const exportedTests = RunProgram(player, {"--test", "--scene", "Scenes/Tests.sscene", "--timeout", "90"});
+	CAPTURE(exportedTests.Output);
+	CHECK(exportedTests.ExitCode == 0);
+	CHECK(Contains(exportedTests.Output, "Tests passed: 29 checks"));
 }
