@@ -202,6 +202,7 @@ set(STRADA_SCENE_SOURCES
 set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/DotNetHost.cpp
     Source/Strada/Script/DotNetHost.h
+    Source/Strada/Script/ReplyReader.h
     Source/Strada/Script/ScriptBindings.cpp
     Source/Strada/Script/ScriptBindings.h
     Source/Strada/Script/ScriptBindingsApplication.cpp
@@ -226,6 +227,8 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/VisualScriptLibrary.h
     Source/Strada/Script/VisualScriptLiterals.cpp
     Source/Strada/Script/VisualScriptLiterals.h
+    Source/Strada/Script/VisualScriptLive.cpp
+    Source/Strada/Script/VisualScriptLive.h
     Source/Strada/Script/VisualScriptVariables.cpp
     Source/Strada/Script/VisualScriptVariables.h
 )

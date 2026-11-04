@@ -1,3 +1,4 @@
+#include "Fuzzing.h"
 #include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "Script/VisualScriptGridGraph.h"
@@ -27,6 +28,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -448,6 +450,125 @@ namespace
 			                           : fmt::format(R"(,"Form":"{}","Document":{}}})", entry.Form, entry.Text);
 		}
 		return text + "]}";
+	}
+
+	// --- The live channel ---
+
+	// The receipt the graph's last send made: the newest receipt of the graph in the engine's live log.
+	Ref<VisualScriptLiveEdit const> FindLastReceipt(AssetHandle graph)
+	{
+		Ref<VisualScriptLiveLog const> const log = VisualScriptEngine::GetLiveLog();
+		REQUIRE(log != nullptr);
+		auto const found = std::find_if(log->Edits.rbegin(), log->Edits.rend(),
+		                                [graph](Ref<VisualScriptLiveEdit const> const& edit)
+		                                {
+											return edit->Graph == graph;
+										});
+		REQUIRE(found != log->Edits.rend());
+		return *found;
+	}
+
+	// Every event the runtime's live log keeps, as it writes them for the engine (the reader's input).
+	std::string WriteLiveEvents()
+	{
+		ScriptEngineInternal::ScriptEngineData* const data = ScriptEngineInternal::GetData();
+		REQUIRE(data != nullptr);
+		std::string text;
+		auto const status = static_cast<ScriptEngineInternal::ScriptStatus>(
+			data->Host.VisualScriptTakeLiveEvents(0, &text, &ScriptEngineInternal::ReceiveText));
+		REQUIRE(status == ScriptEngineInternal::ScriptStatus::Success);
+		return text;
+	}
+
+	// Divides 1 by a variable that is 0 on every update: an aborting error at node 12, Divide.
+	VisualScriptDocument MakeUpdateDivisionDocument()
+	{
+		VisualScriptDocument document = MakeDivisionDocument();
+		document.Graph.Nodes[0] = MakeNode(10, "Event.Update");
+		return document;
+	}
+
+	// Sets the public Done when created, after a Delay of ten seconds (node 11) when delayed.
+	VisualScriptDocument MakeDelayDocument(bool delayed)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Done", "bool", false, true));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Create"));
+		document.Graph.Nodes.push_back(MakeNode(12, "Variable.Set", Json::object({{"Variable", 1}}), Json::object({{"Value", true}})));
+		if (delayed)
+		{
+			document.Graph.Nodes.push_back(MakeNode(11, "Flow.Delay", Json::object(), Json::object({{"Duration", 10.0}})));
+			document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+			document.Graph.Links.push_back(MakeLink(11, "Completed", 12, "Execute"));
+		}
+		else
+		{
+			document.Graph.Links.push_back(MakeLink(10, "Then", 12, "Execute"));
+		}
+		return document;
+	}
+
+	// A library whose pure Inverse(int Value) -> int Result (function 1) divides 1 by Value at node 11.
+	VisualScriptDocument MakeInverseLibraryDocument()
+	{
+		VisualScriptDocument document;
+		document.Kind = VisualScriptDocumentKind::Library;
+		VisualScriptFunction inverse;
+		inverse.ID = 1;
+		inverse.Name = "Inverse";
+		inverse.Pure = true;
+		inverse.Inputs.emplace_back("Value", "int");
+		inverse.Outputs.emplace_back("Result", "int");
+		inverse.Graph.Nodes.push_back(MakeNode(10, "Function.Entry"));
+		inverse.Graph.Nodes.push_back(MakeNode(11, "Operator.Divide", Json::object(), Json::object({{"A", 1}})));
+		inverse.Graph.Nodes.push_back(MakeNode(12, "Function.Return"));
+		inverse.Graph.Links.push_back(MakeLink(10, "Value", 11, "B"));
+		inverse.Graph.Links.push_back(MakeLink(11, "Result", 12, "Result"));
+		document.Functions.push_back(std::move(inverse));
+		return document;
+	}
+
+	// Sets the public Count to the library's Inverse(0) on every update, calling it at node 22: the library's node fails.
+	VisualScriptDocument MakeInverseCallerDocument(AssetHandle library)
+	{
+		VisualScriptDocument document = MakeCallerDocument(library);
+		document.Graph.Nodes[0] = MakeNode(20, "Event.Update");
+		document.Graph.Nodes[2].Inputs = Json::object({{"Value", 0}});
+		return document;
+	}
+
+	// The form a read of the events has (what the reader checks): serials from 1 to Last, by kind in order; problems that
+	// happened; reasons the engine knows.
+	void CheckLiveEventsForm(std::vector<VisualScriptLiveEdit> const& edits, std::vector<VisualScriptRuntimeProblem> const& problems,
+	                         uint64_t last)
+	{
+		for (size_t index = 0; index < edits.size(); index++)
+		{
+			VisualScriptLiveEdit const& edit = edits[index];
+			CHECK(edit.Serial >= 1);
+			CHECK(edit.Serial <= last);
+			CHECK((index == 0 || edits[index - 1].Serial < edit.Serial));
+			CHECK(edit.Outcome != VisualScriptLiveOutcome::NotRunning);
+			CHECK((edit.Outcome == VisualScriptLiveOutcome::KeptLastWorking) != edit.Errors.empty());
+			CHECK((!edit.Deferred || edit.Outcome == VisualScriptLiveOutcome::Applied));
+			CHECK_FALSE(edit.Cause.IsValid());
+			for (VisualScriptLiveVariable const& reset : edit.ResetVariables)
+			{
+				CHECK((reset.Detail == "new" || reset.Detail.starts_with("type changed from ")));
+			}
+			for (VisualScriptLiveNode const& state : edit.ResetStates)
+			{
+				CHECK((state.Reason == "Removed" || state.Reason == "Changed" || state.Reason == "Disabled"));
+			}
+		}
+		for (size_t index = 0; index < problems.size(); index++)
+		{
+			VisualScriptRuntimeProblem const& problem = problems[index];
+			CHECK(problem.Serial >= 1);
+			CHECK(problem.Serial <= last);
+			CHECK((index == 0 || problems[index - 1].Serial < problem.Serial));
+			CHECK(problem.Count >= 1);
+		}
 	}
 
 	// The entries of a references text, parsed.
@@ -2871,10 +2992,11 @@ TEST_CASE("VisualScriptEngine: a library edited while playing sends its 20 depen
 	std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
 	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
 	double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-	// The update's loads, summed (spec-slice4 section 9.0): the texts and the runtime take measurable time (the references and
-	// the diagnostics "[]" can take less than the clock's resolution), and together they are within the update.
+	// The update's loads, summed (spec-slice4 section 9.0): the runtime takes measurable time (the references and the
+	// diagnostics "[]" can take less than the clock's resolution), and together they are within the update. No dependent's
+	// text is written again: each one's document is the one last sent (spec-slice4 section 9.4), so Text is not even timed.
 	VisualScriptLoadTimings const loads = VisualScriptEngine::TakeLoadTimings();
-	CHECK(loads.Text > 0.0);
+	CHECK(loads.Text == 0.0);
 	CHECK(loads.References >= 0.0);
 	CHECK(loads.Runtime > 0.0);
 	CHECK(loads.Diagnostics >= 0.0);
@@ -2892,6 +3014,11 @@ TEST_CASE("VisualScriptEngine: a library edited while playing sends its 20 depen
 	for (size_t index = 0; index < Dependents; index++)
 	{
 		CAPTURE(index);
+		// Each send's receipt names the library as what made it, and the one instance it swapped.
+		Ref<VisualScriptLiveEdit const> const receipt = FindLastReceipt(graphs[index]);
+		CHECK(receipt->Cause == library);
+		CHECK(receipt->Outcome == VisualScriptLiveOutcome::Applied);
+		CHECK(receipt->Instances == 1);
 		CHECK(VisualScriptEngine::GetProgramGeneration(graphs[index]) != generations[index]);
 		CHECK(VisualScriptEngine::HasInstance(entities[index]));
 		CHECK(ReadVariable(entities[index], "Result") == ScriptFieldValue::FromInt32(15 + static_cast<int32_t>(Additions)));
@@ -2908,11 +3035,14 @@ TEST_CASE("VisualScriptEngine: a library edited while playing sends its 20 depen
 	std::optional<std::string> const performance = Platform::ReadEnvironmentVariable("STRADA_PERFORMANCE_TESTS");
 	if (performance.has_value() && *performance == "1")
 	{
-		// Three times the figure track X1 measured (an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51; median of five runs).
+		// Three times the figure track L measured once the dependents' analyses were reused and their texts kept (spec-slice4
+		// section 9.4; an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51; median of five runs). spec-slice4 section 21's
+		// target, 45 ms optimized, is printed as met or missed.
 #if defined(ST_DEBUG)
-		constexpr double MeasuredMilliseconds = 118.0;
+		constexpr double MeasuredMilliseconds = 45.0;
 #else
-		constexpr double MeasuredMilliseconds = 85.0;
+		constexpr double MeasuredMilliseconds = 31.6;
+		MESSAGE("spec-slice4 section 21's target of 45 ms is " << (milliseconds <= 45.0 ? "met" : "missed"));
 #endif
 		CHECK(milliseconds <= 3.0 * MeasuredMilliseconds);
 	}
@@ -3993,4 +4123,568 @@ TEST_CASE("VisualScriptEngine: the analysis of a 2,000-node grid after a link ch
 #endif
 		CHECK(MedianOf(reads) <= 3.0 * MeasuredMilliseconds);
 	}
+}
+
+// --- The live channel (spec-slice4 section 8.5) ---
+
+TEST_CASE("VisualScriptEngine: a send's receipt says what the edit did, KeptLastWorking exactly when the log says the previous "
+          "version keeps running, else NotRunning")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const asset = CreateRef<VisualScriptAsset>(MakeCountDocument(1));
+	AssetHandle const graph = AssetManager::AddMemoryAsset(asset, "Counter");
+
+	// Loaded: the instances (none yet) run it, and its variables are new to the handle.
+	double const before = Platform::GetTime();
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	Ref<VisualScriptLiveEdit const> receipt = FindLastReceipt(graph);
+	CHECK(receipt->Outcome == VisualScriptLiveOutcome::Applied);
+	CHECK(receipt->Name == "Counter");
+	CHECK_FALSE(receipt->Cause.IsValid());
+	CHECK_FALSE(receipt->Deferred);
+	CHECK(receipt->Instances == 0);
+	CHECK(receipt->AddedVariables == std::vector<std::string>{"Count"});
+	CHECK(receipt->Errors.empty());
+	CHECK(receipt->Time >= before);
+	CHECK(receipt->Time <= Platform::GetTime());
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1001), graph, {}).IsOk());
+	VisualScriptEngine::InvokeOnCreate(UUID(1001));
+
+	// The same program again (a node moved) is no send, so no receipt.
+	uint64_t const serial = VisualScriptEngine::GetLiveLog()->Serial;
+	VisualScriptDocument moved = MakeCountDocument(1);
+	moved.Graph.Nodes[0].Position = glm::vec2(80.0f, 0.0f);
+	CHECK_FALSE(SendsDocument(*asset, graph, moved));
+	CHECK(VisualScriptEngine::GetLiveLog()->Serial == serial);
+
+	// Count's type changed and a variable added: one instance swapped, Count reset with why.
+	VisualScriptDocument retyped = MakeCountDocument(1);
+	retyped.Variables[0] = MakeVariable(1, "Count", "float", 0.0, true);
+	retyped.Graph.Nodes[1].Inputs["Value"] = 1.0;
+	retyped.Variables.push_back(MakeVariable(2, "Shield", "int", 3, false));
+	CHECK(SendsDocument(*asset, graph, retyped));
+	receipt = FindLastReceipt(graph);
+	CHECK(receipt->Outcome == VisualScriptLiveOutcome::Applied);
+	CHECK(receipt->Instances == 1);
+	CHECK(receipt->KeptVariables.empty());
+	CHECK(receipt->ResetVariables == std::vector<VisualScriptLiveVariable>{{"Count", "type changed from int to float"}});
+	CHECK(receipt->AddedVariables == std::vector<std::string>{"Shield"});
+	CHECK(receipt->RemovedVariables.empty());
+
+	// Broken while a working program runs: the log says it keeps running, and so does the receipt, with the log's errors.
+	uint64_t logStart = Log::GetNextEntryIndex();
+	CHECK(SendsDocument(*asset, graph, MakeBrokenDocument()));
+	receipt = FindLastReceipt(graph);
+	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
+	CHECK(receipt->Outcome == VisualScriptLiveOutcome::KeptLastWorking);
+	CHECK(receipt->Errors.starts_with("1 error; first: "));
+	CHECK(receipt->Errors.ends_with(" (node 12)"));
+	CHECK(Testing::WasLogged(logStart, fmt::format("Visual script 'Counter' has {}; the previous version keeps running", receipt->Errors)));
+	CHECK(receipt->Instances == 0);
+
+	// Fixed: applied against the program the instance ran, whose Count was a float and which had Shield.
+	CHECK(SendsDocument(*asset, graph, MakeCountDocument(3)));
+	receipt = FindLastReceipt(graph);
+	CHECK(receipt->Outcome == VisualScriptLiveOutcome::Applied);
+	CHECK(receipt->Instances == 1);
+	CHECK(receipt->ResetVariables == std::vector<VisualScriptLiveVariable>{{"Count", "type changed from float to int"}});
+	CHECK(receipt->RemovedVariables == std::vector<std::string>{"Shield"});
+
+	// Broken from the start: nothing runs, the log does not say it keeps running, and the receipt says it does not.
+	AssetHandle const failing = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeBrokenDocument()), "Broken");
+	logStart = Log::GetNextEntryIndex();
+	REQUIRE(VisualScriptEngine::EnsureLoaded(failing).IsOk());
+	receipt = FindLastReceipt(failing);
+	CHECK(receipt->Outcome == VisualScriptLiveOutcome::NotRunning);
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(failing));
+	CHECK(Testing::WasLogged(logStart, fmt::format("Visual script 'Broken' has {}", receipt->Errors)));
+	CHECK_FALSE(Testing::WasLogged(logStart, "keeps running"));
+
+	// After a game-assembly change the working program goes first, and still runs: the broken document is KeptLastWorking
+	// again, as the log says.
+	asset->SetDocument(MakeBrokenDocument());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	VisualScriptEngine::DestroyAllInstances();
+	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+	logStart = Log::GetNextEntryIndex();
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	receipt = FindLastReceipt(graph);
+	CHECK(receipt->Outcome == VisualScriptLiveOutcome::KeptLastWorking);
+	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+	CHECK(host.Exceptions == 0);
+}
+
+TEST_CASE("VisualScriptEngine: a library edit's receipts name the library as their Cause, and DescribeLibraryUsers tells who runs "
+          "which version")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const libraryAsset = CreateRef<VisualScriptAsset>(MakeLibraryDocument());
+	AssetHandle const library = AssetManager::AddMemoryAsset(libraryAsset, "Motion");
+	AssetHandle const first = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeCallerDocument(library)), "Caller A");
+	AssetHandle const second = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeCallerDocument(library)), "Caller B");
+	AssetHandle const other = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeCountDocument(1)), "Counter");
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library).empty());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(second).IsOk());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(first).IsOk());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(other).IsOk());
+	CHECK_FALSE(FindLastReceipt(first)->Cause.IsValid());
+	std::vector<VisualScriptLibraryUser> const both = {{first, "Caller A", true}, {second, "Caller B", true}};
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) == both);
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(other).empty());
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(AssetHandle(UUID(424242))).empty());
+
+	// A node of the library moved: the same program, which every user runs.
+	VisualScriptDocument moved = MakeLibraryDocument();
+	moved.Functions[0].Graph.Nodes[1].Position = glm::vec2(160.0f, 0.0f);
+	libraryAsset->SetDocument(moved);
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) == both);
+
+	// Its body edited: the first caller sent again is the library's doing; the second runs the earlier version until sent.
+	libraryAsset->SetDocument(MakeLibraryDocument(4));
+	REQUIRE(VisualScriptEngine::EnsureLoaded(first).IsOk());
+	Ref<VisualScriptLiveEdit const> receipt = FindLastReceipt(first);
+	CHECK(receipt->Cause == library);
+	CHECK(receipt->Outcome == VisualScriptLiveOutcome::Applied);
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) ==
+	      std::vector<VisualScriptLibraryUser>{{first, "Caller A", true}, {second, "Caller B", false}});
+	REQUIRE(VisualScriptEngine::EnsureLoaded(second).IsOk());
+	CHECK(FindLastReceipt(second)->Cause == library);
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) == both);
+
+	// Broken: its callers keep the version that worked, the library's doing.
+	VisualScriptDocument broken = MakeLibraryDocument();
+	broken.Functions[0].Graph.Nodes.push_back(MakeNode(13, "Sample.NoSuchNode"));
+	libraryAsset->SetDocument(broken);
+	REQUIRE(VisualScriptEngine::EnsureLoaded(first).IsOk());
+	receipt = FindLastReceipt(first);
+	CHECK(receipt->Cause == library);
+	CHECK(receipt->Outcome == VisualScriptLiveOutcome::KeptLastWorking);
+	CHECK_FALSE(receipt->Errors.empty());
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) ==
+	      std::vector<VisualScriptLibraryUser>{{first, "Caller A", false}, {second, "Caller B", false}});
+
+	// The caller's own edit is no library's doing.
+	Ref<VisualScriptAsset> const firstAsset = AssetManager::GetAsset<VisualScriptAsset>(first);
+	REQUIRE(firstAsset != nullptr);
+	CHECK(SendsDocument(*firstAsset, first, MakeCountDocument(2)));
+	CHECK_FALSE(FindLastReceipt(first)->Cause.IsValid());
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) == std::vector<VisualScriptLibraryUser>{{second, "Caller B", false}});
+	CHECK(host.Exceptions == 0);
+}
+
+TEST_CASE("VisualScriptEngine: GetWorkingSince tells when the working program last became another program")
+{
+	Testing::AssetManagerScope assets;
+	Ref<VisualScriptAsset> const asset = CreateRef<VisualScriptAsset>(MakeCountDocument(1));
+	AssetHandle const graph = AssetManager::AddMemoryAsset(asset, "Counter");
+	{
+		Testing::ScriptRuntimeScope runtime;
+		CHECK(VisualScriptEngine::GetWorkingSince(graph) == 0.0);
+		double before = Platform::GetTime();
+		REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+		double const loaded = VisualScriptEngine::GetWorkingSince(graph);
+		CHECK(loaded >= before);
+		CHECK(loaded <= Platform::GetTime());
+
+		// The same program (a node moved, a broken document beside it, the game assembly changed) keeps its time.
+		VisualScriptDocument moved = MakeCountDocument(1);
+		moved.Graph.Nodes[1].Position = glm::vec2(240.0f, 0.0f);
+		CHECK_FALSE(SendsDocument(*asset, graph, moved));
+		CHECK(VisualScriptEngine::GetWorkingSince(graph) == loaded);
+		CHECK(SendsDocument(*asset, graph, MakeBrokenDocument()));
+		CHECK(VisualScriptEngine::GetWorkingSince(graph) == loaded);
+		REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+		REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+		REQUIRE(VisualScriptEngine::HasWorkingProgram(graph));
+		CHECK(VisualScriptEngine::GetWorkingSince(graph) == loaded);
+
+		// Another program: from its send.
+		before = Platform::GetTime();
+		CHECK(SendsDocument(*asset, graph, MakeCountDocument(2)));
+		CHECK(VisualScriptEngine::GetWorkingSince(graph) >= before);
+
+		// Without a working program: 0.
+		AssetHandle const failing = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeBrokenDocument()), "Broken");
+		REQUIRE(VisualScriptEngine::EnsureLoaded(failing).IsOk());
+		CHECK(VisualScriptEngine::GetWorkingSince(failing) == 0.0);
+		CHECK_FALSE(VisualScriptEngine::GetLiveLog()->Edits.empty());
+	}
+
+	// Without the runtime: 0, no users, and an empty log that clearing leaves empty.
+	CHECK(VisualScriptEngine::GetWorkingSince(graph) == 0.0);
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(graph).empty());
+	VisualScriptEngine::ClearLiveLog();
+	Ref<VisualScriptLiveLog const> const empty = VisualScriptEngine::GetLiveLog();
+	REQUIRE(empty != nullptr);
+	CHECK(empty->Edits.empty());
+	CHECK(empty->Problems.empty());
+	CHECK(empty->Serial == 0);
+}
+
+TEST_CASE("VisualScriptEngine: the live log coalesces a node's 1,000 aborts into one problem, keeps every revision as it was "
+          "answered, and ClearLiveLog empties it")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const asset = CreateRef<VisualScriptAsset>(MakeUpdateDivisionDocument());
+	AssetHandle const graph = AssetManager::AddMemoryAsset(asset, "Division");
+	UUID const entity(1001);
+	REQUIRE(VisualScriptEngine::CreateInstance(entity, graph, {}).IsOk());
+	for (int update = 0; update < 1000; update++)
+	{
+		VisualScriptEngine::InvokeOnUpdate(entity, 1.0f / 60.0f);
+	}
+	CHECK(host.Exceptions == 1000);
+	Ref<VisualScriptLiveLog const> const held = VisualScriptEngine::GetLiveLog();
+	REQUIRE(held->Problems.size() == 1);
+	Ref<VisualScriptRuntimeProblem const> const problem = held->Problems[0];
+	CHECK(problem->Count == 1000);
+	CHECK(problem->Severity == VisualScriptSeverity::Error);
+	CHECK(problem->Graph == graph);
+	CHECK(problem->Document == graph);
+	CHECK(problem->Function == 0);
+	CHECK(problem->Node == 12);
+	CHECK(problem->Title == "Divide");
+	CHECK(problem->Entity == entity);
+	CHECK(problem->Message == "integer division by zero");
+	CHECK(problem->Calls.empty());
+	CHECK(problem->FirstTime > 0.0);
+	CHECK(problem->FirstTime == problem->LastTime);
+	CHECK(held->Dropped == 0);
+	REQUIRE(held->Edits.size() == 1);
+	CHECK(held->Serial == problem->Serial);
+	// Nothing new: the same revision.
+	CHECK(VisualScriptEngine::GetLiveLog() == held);
+
+	// A send and another abort make a newer revision, sharing what did not change; the one held keeps its entries and size.
+	VisualScriptDocument edited = MakeUpdateDivisionDocument();
+	edited.Graph.Nodes[2].Inputs["A"] = 2;
+	CHECK(SendsDocument(*asset, graph, edited));
+	VisualScriptEngine::InvokeOnUpdate(entity, 1.0f / 60.0f);
+	Ref<VisualScriptLiveLog const> const newer = VisualScriptEngine::GetLiveLog();
+	REQUIRE(newer != held);
+	REQUIRE(held->Edits.size() == 1);
+	REQUIRE(held->Problems.size() == 1);
+	CHECK(held->Problems[0] == problem);
+	CHECK(problem->Count == 1000);
+	REQUIRE(newer->Edits.size() == 2);
+	CHECK(newer->Edits[0] == held->Edits[0]);
+	CHECK(newer->Edits[1]->Instances == 1);
+	REQUIRE(newer->Problems.size() == 1);
+	CHECK(newer->Problems[0] != problem);
+	CHECK(newer->Problems[0]->Count == 1001);
+	CHECK(newer->Problems[0]->FirstTime == problem->FirstTime);
+	CHECK(newer->Problems[0]->LastTime >= problem->LastTime);
+	CHECK(newer->Serial > held->Serial);
+
+	// A second entity's problem is another entry, after the first by serial; the first's newer occurrence moves it last.
+	UUID const another(1002);
+	REQUIRE(VisualScriptEngine::CreateInstance(another, graph, {}).IsOk());
+	VisualScriptEngine::InvokeOnUpdate(another, 1.0f / 60.0f);
+	VisualScriptEngine::InvokeOnUpdate(entity, 1.0f / 60.0f);
+	Ref<VisualScriptLiveLog const> const both = VisualScriptEngine::GetLiveLog();
+	REQUIRE(both->Problems.size() == 2);
+	CHECK(both->Problems[0]->Entity == another);
+	CHECK(both->Problems[0]->Count == 1);
+	CHECK(both->Problems[1]->Entity == entity);
+	CHECK(both->Problems[1]->Count == 1002);
+	CHECK(newer->Problems.size() == 1);
+
+	// Cleared: nothing, here and in the runtime, so counts start again; serials go on.
+	VisualScriptEngine::ClearLiveLog();
+	Ref<VisualScriptLiveLog const> const cleared = VisualScriptEngine::GetLiveLog();
+	CHECK(cleared->Edits.empty());
+	CHECK(cleared->Problems.empty());
+	CHECK(cleared->Dropped == 0);
+	CHECK(cleared->Serial == both->Serial);
+	CHECK(both->Problems.size() == 2);
+	VisualScriptEngine::InvokeOnUpdate(entity, 1.0f / 60.0f);
+	Ref<VisualScriptLiveLog const> const again = VisualScriptEngine::GetLiveLog();
+	REQUIRE(again->Problems.size() == 1);
+	CHECK(again->Problems[0]->Count == 1);
+	CHECK(again->Problems[0]->Serial > both->Serial);
+
+	// Beyond the 512 distinct problems the runtime keeps, occurrences are counted as dropped.
+	VisualScriptEngine::ClearLiveLog();
+	constexpr uint64_t Entities = 513;
+	for (uint64_t index = 0; index < Entities; index++)
+	{
+		UUID const instance(2000 + index);
+		REQUIRE(VisualScriptEngine::CreateInstance(instance, graph, {}).IsOk());
+		VisualScriptEngine::InvokeOnUpdate(instance, 1.0f / 60.0f);
+	}
+	Ref<VisualScriptLiveLog const> const full = VisualScriptEngine::GetLiveLog();
+	CHECK(full->Problems.size() == 512);
+	CHECK(full->Dropped == 1);
+	VisualScriptEngine::InvokeOnUpdate(UUID(2000 + Entities - 1), 1.0f / 60.0f);
+	CHECK(VisualScriptEngine::GetLiveLog()->Dropped == 2);
+	VisualScriptEngine::ClearLiveLog();
+	CHECK(VisualScriptEngine::GetLiveLog()->Dropped == 0);
+}
+
+TEST_CASE("VisualScriptEngine: the live log keeps the last 64 receipts, and a library node's problem names its document and caller")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const asset = CreateRef<VisualScriptAsset>(MakeCountDocument(0));
+	AssetHandle const graph = AssetManager::AddMemoryAsset(asset, "Counter");
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	for (int32_t count = 1; count <= 70; count++)
+	{
+		CHECK(SendsDocument(*asset, graph, MakeCountDocument(count)));
+	}
+	Ref<VisualScriptLiveLog const> const log = VisualScriptEngine::GetLiveLog();
+	REQUIRE(log->Edits.size() == VisualScriptLiveLog::MaxEdits);
+	for (size_t index = 1; index < log->Edits.size(); index++)
+	{
+		CHECK(log->Edits[index - 1]->Serial < log->Edits[index]->Serial);
+	}
+	CHECK(log->Edits.back()->Serial == log->Serial);
+
+	AssetHandle const library = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeInverseLibraryDocument()), "Inverse");
+	AssetHandle const caller = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeInverseCallerDocument(library)), "Inverter");
+	UUID const entity(1001);
+	REQUIRE(VisualScriptEngine::CreateInstance(entity, caller, {}).IsOk());
+	VisualScriptEngine::InvokeOnUpdate(entity, 1.0f / 60.0f);
+	VisualScriptEngine::InvokeOnUpdate(entity, 1.0f / 60.0f);
+	Ref<VisualScriptLiveLog const> const failed = VisualScriptEngine::GetLiveLog();
+	REQUIRE(failed->Problems.size() == 1);
+	VisualScriptRuntimeProblem const& problem = *failed->Problems[0];
+	CHECK(problem.Graph == caller);
+	CHECK(problem.Document == library);
+	CHECK(problem.Function == 1);
+	CHECK(problem.Node == 11);
+	CHECK(problem.Count == 2);
+	CHECK(problem.Message == "integer division by zero");
+	CHECK(problem.Calls == std::vector<VisualScriptCallFrame>{{caller, 0, 22}});
+	CHECK(host.Exceptions == 2);
+}
+
+TEST_CASE("VisualScriptEngine: ParseVisualScriptLiveEvents reads the runtime's events and refuses damaged ones, naming the member")
+{
+	// spec-slice4 section 8.4's example, with a Timeline clamped and one whose time is not finite.
+	constexpr std::string_view Example = R"json({"Last":57,"Dropped":2,
+		"Edits":[{"Serial":55,"Graph":"8146390251172604461","Name":"Scripts/Enemy.sgraph","Outcome":"Swapped","Deferred":false,
+			"Instances":3,"Pending":0,
+			"Variables":{"Kept":["Health"],"Matched":[{"Name":"Speed","From":"Velocity"}],
+				"Reset":[{"Name":"Ammo","Reason":"TypeChanged","From":"int","To":"float"},{"Name":"Mode","Reason":"New"}],
+				"Added":["Shield"],"Removed":["Old"]},
+			"States":{"Kept":4,"Reset":[{"Document":"8146390251172604461","Function":0,"Node":7,"Title":"Do Once","Reason":"Changed"}]},
+			"InstanceNotes":[{"Entity":"123","WaitsKept":1,"StopsKept":2,
+				"Cancelled":[{"Document":"8146390251172604461","Function":0,"Node":12,"Title":"Delay","Stopped":true,
+					"Reason":"the edit removed or changed Delay (node 12)"}],
+				"Timelines":[{"Node":9,"Time":1.25,"ClampedFrom":3.5},{"Node":10,"Time":null,"ClampedFrom":null}]}],
+			"MoreInstances":5,"Errors":""},
+			{"Serial":56,"Graph":"77","Name":"Broken","Outcome":"Kept","Deferred":false,"Instances":0,"Pending":0,
+			"Variables":{"Kept":[],"Matched":[],"Reset":[],"Added":[],"Removed":[]},"States":{"Kept":0,"Reset":[]},
+			"InstanceNotes":[],"MoreInstances":0,"Errors":"1 errors, first: no such node (node 3)"}],
+		"Problems":[{"Serial":57,"Severity":"Warning","Graph":"8146390251172604461","Document":"99","Function":1,
+			"Node":14,"Title":"Divide","Entity":"123","Message":"integer division by zero","Count":37,
+			"Calls":[{"Document":"8146390251172604461","Function":0,"Node":22}]}]})json";
+	uint64_t last = 0;
+	uint32_t dropped = 0;
+	auto read = ParseVisualScriptLiveEvents(Example, last, dropped);
+	REQUIRE_MESSAGE(read.IsOk(), read.GetError());
+	CHECK(last == 57);
+	CHECK(dropped == 2);
+	auto const& [edits, problems] = read.GetValue();
+	REQUIRE(edits.size() == 2);
+	VisualScriptLiveEdit const& edit = edits[0];
+	AssetHandle const enemy(UUID(8146390251172604461ull));
+	CHECK(edit.Serial == 55);
+	CHECK(edit.Graph == enemy);
+	CHECK(edit.Name == "Scripts/Enemy.sgraph");
+	CHECK(edit.Outcome == VisualScriptLiveOutcome::Applied);
+	CHECK_FALSE(edit.Deferred);
+	CHECK(edit.Instances == 3);
+	CHECK(edit.Pending == 0);
+	CHECK(edit.KeptVariables == std::vector<std::string>{"Health"});
+	CHECK(edit.MatchedVariables == std::vector<VisualScriptLiveVariable>{{"Speed", "Velocity"}});
+	CHECK(edit.ResetVariables == std::vector<VisualScriptLiveVariable>{{"Ammo", "type changed from int to float"}, {"Mode", "new"}});
+	CHECK(edit.AddedVariables == std::vector<std::string>{"Shield"});
+	CHECK(edit.RemovedVariables == std::vector<std::string>{"Old"});
+	CHECK(edit.KeptStates == 4);
+	CHECK(edit.ResetStates == std::vector<VisualScriptLiveNode>{{enemy, 0, 7, "Do Once", "Changed", false}});
+	REQUIRE(edit.InstanceNotes.size() == 1);
+	VisualScriptLiveInstance const& instance = edit.InstanceNotes[0];
+	CHECK(instance.Entity == UUID(123));
+	CHECK(instance.WaitsKept == 1);
+	CHECK(instance.StopsKept == 2);
+	CHECK(instance.Cancelled ==
+	      std::vector<VisualScriptLiveNode>{{enemy, 0, 12, "Delay", "the edit removed or changed Delay (node 12)", true}});
+	REQUIRE(instance.Timelines.size() == 2);
+	CHECK(instance.Timelines[0].Node == 9);
+	CHECK(instance.Timelines[0].Time == 1.25);
+	CHECK(instance.Timelines[0].ClampedFrom == std::optional<double>(3.5));
+	CHECK(std::isnan(instance.Timelines[1].Time));
+	CHECK_FALSE(instance.Timelines[1].ClampedFrom.has_value());
+	CHECK(edit.MoreInstances == 5);
+	CHECK(edit.Errors.empty());
+	CHECK_FALSE(edit.Cause.IsValid());
+	CHECK(edit.Time == 0.0);
+	CHECK(edits[1].Outcome == VisualScriptLiveOutcome::KeptLastWorking);
+	CHECK(edits[1].Errors == "1 errors, first: no such node (node 3)");
+	REQUIRE(problems.size() == 1);
+	VisualScriptRuntimeProblem const& problem = problems[0];
+	CHECK(problem.Serial == 57);
+	CHECK(problem.Severity == VisualScriptSeverity::Warning);
+	CHECK(problem.Graph == enemy);
+	CHECK(problem.Document == AssetHandle(UUID(99)));
+	CHECK(problem.Function == 1);
+	CHECK(problem.Node == 14);
+	CHECK(problem.Title == "Divide");
+	CHECK(problem.Entity == UUID(123));
+	CHECK(problem.Message == "integer division by zero");
+	CHECK(problem.Count == 37);
+	CHECK(problem.Calls == std::vector<VisualScriptCallFrame>{{enemy, 0, 22}});
+
+	// Refused, naming the member; last and dropped stay as they were.
+	struct Refusal
+	{
+		std::string Text;
+		std::string Error;
+	};
+	std::string const exampleText(Example);
+	auto const replaced = [&exampleText](std::string_view from, std::string_view to)
+	{
+		std::string text = exampleText;
+		size_t const at = text.find(from);
+		REQUIRE(at != std::string::npos);
+		text.replace(at, from.size(), to);
+		return text;
+	};
+	std::vector<Refusal> const refusals = {
+		{"[]", "the live events: not an object"},
+		{R"({"Last":1,"Dropped":0,"Edits":[]})", "Problems: missing"},
+		{R"({"Last":-1,"Dropped":0,"Edits":[],"Problems":[]})", "Last: not an unsigned integer"},
+		{replaced(R"("Outcome":"Swapped")", R"("Outcome":"Applied")"), R"(Edits[0].Outcome: unknown value "Applied")"},
+		{replaced(R"("Serial":55)", R"("Serial":58)"), "Edits[0].Serial: not a serial from 1 to Last"},
+		{replaced(R"("Serial":55)", R"("Serial":56)"), "Edits[1].Serial: not after the serial before it"},
+		{replaced(R"("Graph":"77")", R"("Graph":77)"), "Edits[1].Graph: not a decimal string of an unsigned 64-bit integer"},
+		{replaced(R"("Reason":"New")", R"("Reason":"Renamed")"), R"(Edits[0].Variables.Reset[1].Reason: unknown value "Renamed")"},
+		{replaced(R"(,"From":"int","To":"float")", ""), "Edits[0].Variables.Reset[0].From: missing"},
+		{replaced(R"("Reason":"Changed")", R"("Reason":"Moved")"), R"(Edits[0].States.Reset[0].Reason: unknown value "Moved")"},
+		{replaced(R"("Stopped":true,)", ""), "Edits[0].InstanceNotes[0].Cancelled[0].Stopped: missing"},
+		{replaced(R"("Time":1.25)", R"("Time":"1.25")"), "Edits[0].InstanceNotes[0].Timelines[0].Time: not a number"},
+		{replaced(R"("Errors":"1 errors)", R"("Errors":")" + std::string("\",\"X\":\"")), "Edits[1].Errors: empty for Kept"},
+		{replaced(R"("MoreInstances":5,"Errors":"")", R"("MoreInstances":5,"Errors":"x")"),
+	     "Edits[0].Errors: not empty for Swapped or Pending"},
+		{replaced(R"("Deferred":false,)", R"("Deferred":true,)"), ""},
+		{replaced(R"("Severity":"Warning")", R"("Severity":"Info")"), R"(Problems[0].Severity: unknown value "Info")"},
+		{replaced(R"("Count":37)", R"("Count":0)"), "Problems[0].Count: 0: a problem happened at least once"},
+		{replaced(R"("Node":22})", R"("Node":4294967296})"), "Problems[0].Calls[0].Node: not an unsigned 32-bit integer"},
+		{"{\"Last\":", "the live events are not JSON: "},
+	};
+	for (Refusal const& refusal : refusals)
+	{
+		CAPTURE(refusal.Text);
+		last = 1;
+		dropped = 1;
+		Result<std::pair<std::vector<VisualScriptLiveEdit>, std::vector<VisualScriptRuntimeProblem>>> const refused =
+			ParseVisualScriptLiveEvents(refusal.Text, last, dropped);
+		if (refusal.Error.empty())
+		{
+			// A deferred swap reads whatever came before it: the Pending receipt it ends may have been taken earlier.
+			CHECK(refused.IsOk());
+			continue;
+		}
+		REQUIRE(refused.IsError());
+		CHECK(refused.GetError().starts_with(refusal.Error));
+		CHECK(last == 1);
+		CHECK(dropped == 1);
+	}
+}
+
+TEST_CASE("VisualScriptEngine: damaged live-event texts are refused or read with their form, never crash")
+{
+	// The texts the runtime's writer produces: receipts of every outcome (a cancelled wait and reset variables among them) and
+	// problems of a graph's node and of a library's, with their caller.
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	std::vector<std::string> texts;
+	Ref<VisualScriptAsset> const delayAsset = CreateRef<VisualScriptAsset>(MakeDelayDocument(true));
+	AssetHandle const delay = AssetManager::AddMemoryAsset(delayAsset, "Waiter");
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1001), delay, {}).IsOk());
+	VisualScriptEngine::InvokeOnCreate(UUID(1001));
+	texts.push_back(WriteLiveEvents());
+	VisualScriptDocument changed = MakeDelayDocument(false);
+	changed.Variables[0] = MakeVariable(1, "Done", "int", 0, true);
+	changed.Graph.Nodes[1].Inputs["Value"] = 1;
+	changed.Variables.push_back(MakeVariable(2, "Extra", "float", 1.0, false));
+	CHECK(SendsDocument(*delayAsset, delay, changed));
+	Ref<VisualScriptLiveEdit const> const cancelled = FindLastReceipt(delay);
+	REQUIRE(cancelled->InstanceNotes.size() == 1);
+	REQUIRE(cancelled->InstanceNotes[0].Cancelled.size() == 1);
+	CHECK(cancelled->InstanceNotes[0].Entity == UUID(1001));
+	CHECK(cancelled->InstanceNotes[0].Cancelled[0].Node == 11);
+	CHECK(cancelled->InstanceNotes[0].Cancelled[0].Document == delay);
+	CHECK_FALSE(cancelled->InstanceNotes[0].Cancelled[0].Stopped);
+	CHECK_FALSE(cancelled->InstanceNotes[0].Cancelled[0].Reason.empty());
+	CHECK(SendsDocument(*delayAsset, delay, MakeBrokenDocument()));
+	texts.push_back(WriteLiveEvents());
+
+	AssetHandle const division = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeUpdateDivisionDocument()), "Division");
+	AssetHandle const library = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeInverseLibraryDocument()), "Inverse");
+	AssetHandle const caller = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeInverseCallerDocument(library)), "Inverter");
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1002), division, {}).IsOk());
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1003), caller, {}).IsOk());
+	for (int update = 0; update < 3; update++)
+	{
+		VisualScriptEngine::InvokeOnUpdate(UUID(1002), 1.0f / 60.0f);
+		VisualScriptEngine::InvokeOnUpdate(UUID(1003), 1.0f / 60.0f);
+	}
+	texts.push_back(WriteLiveEvents());
+
+	// Each reads as the engine's log took it.
+	for (std::string const& text : texts)
+	{
+		CAPTURE(text);
+		uint64_t last = 0;
+		uint32_t dropped = 0;
+		Result<std::pair<std::vector<VisualScriptLiveEdit>, std::vector<VisualScriptRuntimeProblem>>> const read =
+			ParseVisualScriptLiveEvents(text, last, dropped);
+		REQUIRE_MESSAGE(read.IsOk(), read.GetError());
+		CheckLiveEventsForm(read.GetValue().first, read.GetValue().second, last);
+	}
+	Ref<VisualScriptLiveLog const> const log = VisualScriptEngine::GetLiveLog();
+	// The receipts of the Waiter's three sends and of the two other graphs' loads; a problem per failing node.
+	CHECK(log->Problems.size() == 2);
+	CHECK(log->Edits.size() == 5);
+
+	Testing::DocumentMutator mutator(11500);
+	Testing::FuzzRandom pick(11500);
+	int const rounds = Testing::GetFuzzRounds(200);
+	int readCount = 0;
+	for (int round = 0; round < rounds; round++)
+	{
+		CAPTURE(round);
+		Result<Json> const parsed = ParseJson(texts[pick.Pick(texts.size())]);
+		REQUIRE(parsed.IsOk());
+		std::string const damaged = mutator.Damage(parsed.GetValue(), round).dump();
+		CAPTURE(damaged);
+		uint64_t last = 7;
+		uint32_t dropped = 7;
+		Result<std::pair<std::vector<VisualScriptLiveEdit>, std::vector<VisualScriptRuntimeProblem>>> const read =
+			ParseVisualScriptLiveEvents(damaged, last, dropped);
+		if (read.IsError())
+		{
+			// A refusal names the member, or the events as a whole, and leaves what was read before.
+			CHECK(read.GetError().find(": ") != std::string::npos);
+			CHECK(last == 7);
+			CHECK(dropped == 7);
+			continue;
+		}
+		readCount++;
+		CheckLiveEventsForm(read.GetValue().first, read.GetValue().second, last);
+	}
+	CHECK(readCount > 0);
+	CHECK(host.Exceptions == 6);
 }

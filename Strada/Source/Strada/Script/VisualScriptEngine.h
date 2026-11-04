@@ -8,12 +8,14 @@
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Script/ScriptField.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLive.h"
 #include "Strada/Script/VisualScriptVariables.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace Strada
 {
@@ -117,6 +119,24 @@ namespace Strada
 		// rewrites, the editor being a development host. True without the runtime.
 		static void SetDevelopmentNodesEnabled(bool enabled);
 		static bool AreDevelopmentNodesEnabled();
+
+		// --- The live channel (spec-slice4 section 8.5) ---
+
+		// The live log as it is now: the runtime's receipts and runtime problems taken since the last call (one call into the
+		// runtime, which answers at once when nothing is new) in a new revision when there are any, else the revision the last
+		// call answered. A revision never changes once answered, so a caller may keep reading it while later edits make newer
+		// ones. Every send of a document (EnsureLoaded, and so every live edit) takes the receipt it made at once, completed:
+		// Cause, and KeptLastWorking or NotRunning by HasWorkingProgram. An empty log without the runtime; never null.
+		static Ref<VisualScriptLiveLog const> GetLiveLog();
+		// Drops the receipts and runtime problems, the runtime's too, so that a play session's problems count from its start:
+		// the editor calls it when play starts, before the scene starts.
+		static void ClearLiveLog();
+		// The graphs whose programs were sent with the library or run with it, by name (those found absent since left out),
+		// each with whether its working program runs the library's current program; empty without the runtime.
+		static std::vector<VisualScriptLibraryUser> DescribeLibraryUsers(AssetHandle library);
+		// Platform::GetTime() when the graph's working program last became another program; 0 while it has none
+		// (HasWorkingProgram).
+		static double GetWorkingSince(AssetHandle graph);
 
 		// --- Graph instances of the running scene (driven by Scene) ---
 

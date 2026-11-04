@@ -2885,3 +2885,69 @@ TEST_CASE("VisualScriptEditing: a value being edited is rebased over an outside 
 	REQUIRE(rebased.has_value());
 	CHECK(*rebased == current);
 }
+
+TEST_CASE("VisualScriptEditing: FindVisualScriptNotRunning lists what of a sub-graph the game does not run as it is shown")
+{
+	VisualScriptDocument const working = MakeRebaseDocument();
+	CHECK(FindVisualScriptNotRunning(working, working, 0) == VisualScriptNotRunning{});
+	CHECK(FindVisualScriptNotRunning(working, working, 2) == VisualScriptNotRunning{});
+
+	// A node added, with a link to it; a node changed in what the game reads; a node only moved, commented and collapsed
+	// (not listed); a change of another function's node (not listed for the event graph).
+	VisualScriptDocument current = working;
+	VisualScriptNode print;
+	print.ID = 12;
+	print.Type = "Call:Strada.Log.Info(string)";
+	current.Graph.Nodes.push_back(print);
+	VisualScriptLink const added{{11, "True"}, {12, "Execute"}};
+	current.Graph.Links.push_back(added);
+	EditNode(current, 10).Inputs["Duration"] = 2.0;
+	VisualScriptNode& branch = EditNode(current, 11);
+	branch.Position = glm::vec2(900.0f, 120.0f);
+	branch.Comment = "Moved";
+	branch.Collapsed = true;
+	current.Functions[0].Graph.Nodes[0].Enabled = VisualScriptNodeEnabled::Disabled;
+	VisualScriptNotRunning notRunning = FindVisualScriptNotRunning(working, current, 0);
+	CHECK(notRunning.Nodes == std::vector<uint32_t>{10, 12});
+	CHECK(notRunning.Links == std::vector<VisualScriptLink>{added});
+
+	// The function's sub-graph: its entry, disabled, runs otherwise.
+	notRunning = FindVisualScriptNotRunning(working, current, 2);
+	CHECK(notRunning.Nodes == std::vector<uint32_t>{4});
+	CHECK(notRunning.Links.empty());
+
+	// The working document's links that the shown one lacks are no part of it; a link from another pin is another link.
+	VisualScriptDocument linked = working;
+	linked.Graph.Links.push_back({{10, "Completed"}, {11, "Execute"}});
+	CHECK(FindVisualScriptNotRunning(linked, working, 0) == VisualScriptNotRunning{});
+	VisualScriptDocument relinked = working;
+	relinked.Graph.Links.push_back({{11, "False"}, {10, "Execute"}});
+	notRunning = FindVisualScriptNotRunning(linked, relinked, 0);
+	CHECK(notRunning.Nodes.empty());
+	CHECK(notRunning.Links == std::vector<VisualScriptLink>{relinked.Graph.Links.back()});
+
+	// A function the working document does not have: everything of it; a function the shown document does not have: nothing.
+	VisualScriptDocument withFunction = working;
+	VisualScriptFunction land;
+	land.ID = 20;
+	land.Name = "Land";
+	VisualScriptNode entry;
+	entry.ID = 21;
+	entry.Type = "Function.Entry";
+	VisualScriptNode landed;
+	landed.ID = 22;
+	landed.Type = "Function.Return";
+	land.Graph.Nodes = {entry, landed};
+	land.Graph.Links.push_back({{21, "Then"}, {22, "Execute"}});
+	withFunction.Functions.push_back(land);
+	notRunning = FindVisualScriptNotRunning(working, withFunction, 20);
+	CHECK(notRunning.Nodes == std::vector<uint32_t>{21, 22});
+	CHECK(notRunning.Links == land.Graph.Links);
+	CHECK(FindVisualScriptNotRunning(withFunction, working, 20) == VisualScriptNotRunning{});
+
+	// A node of the same ID and another type, and a node whose number was written as another kind, run otherwise.
+	VisualScriptDocument retyped = working;
+	EditNode(retyped, 11).Type = "Flow.Sequence";
+	EditNode(retyped, 10).Inputs["Duration"] = 1;
+	CHECK(FindVisualScriptNotRunning(working, retyped, 0).Nodes == std::vector<uint32_t>{10, 11});
+}
