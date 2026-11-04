@@ -176,6 +176,7 @@ class Region:
         self.after = []
         self.framed = []
         self.count = 0
+        self.shared = {}
         declared = author.declared[graph]
         if function is not None:
             entry, ret = declared["functions"][function]
@@ -661,6 +662,7 @@ def declare_all(author):
         ("Juice", False, (("Tint", "Strada.Color"),), (), ()),
         ("SpawnCapsule", False, (("Kind", "string"), ("At", "Strada.Vector3")), (), ()),
     ))
+    declare_tests(author)
 
 
 # --- Arcade.sgraph: the rules every graph shares --------------------------------------------------------------------------
@@ -1447,10 +1449,522 @@ def write_game(author):
         b.chain(b.event("Event.KeyPressed", {"Key": "N"}), b.own("ClearBricks"))
 
 
+# --- Tests.sgraph: the test scene's checks --------------------------------------------------------------------------------
+
+def shared(b, key, make):
+    """A value a region reads in several places, made once: a pure node evaluates again for every consumer, so one node
+    serves a read before a wait and after it."""
+    if key not in b.shared:
+        b.shared[key] = make()
+    return b.shared[key]
+
+
+def var(b, name):
+    """One of the graph's own variables, read by one node per region."""
+    return shared(b, ("var", name), lambda: b.get(name))
+
+
+def of_game(b, variable):
+    """A read-out of the Game (a remote Get)."""
+    return shared(b, ("game", variable), lambda: b.get(variable, GAME, var(b, "Game")))
+
+
+def the_ball(b):
+    return shared(b, "ball", lambda: b.element(b.children(var(b, "Balls")), 0))
+
+
+def position_of(b, name):
+    return shared(b, ("position", name), lambda: b.position(var(b, name)))
+
+
+def count_of(b, container):
+    return shared(b, ("count", container), lambda: b.length(b.children(var(b, container))))
+
+
+def hits_of(b, brick):
+    return shared(b, ("hits", brick), lambda: b.get("Hits", BRICK, var(b, brick)))
+
+
+def glow_of(b, brick):
+    """The emissive colour of a prism's own material."""
+    look = b.pure("Call:Strada.MeshComponent.GetMaterial(int)", Target=var(b, brick), Index=0)
+    return b.pure("Get:Strada.Material.Emissive", "Value", Target=look)
+
+
+def width_of_paddle(b):
+    return b.expr("scale.x", scale=b.pure("Get:Strada.Entity.Scale", "Value", Target=var(b, "Paddle")))
+
+
+def near(b, value, expected, tolerance):
+    return b.library("Near", CHECKS, output="Result", A=value, B=expected, Tolerance=tolerance).out
+
+
+def wait_until(b, done, limit):
+    """Marks the step's start and waits until done holds or limit seconds have passed (without done: the seconds), so a
+    check that never comes true fails instead of hanging; returns (first, last) of the chain."""
+    now = b.pure("Get:Strada.Time.Elapsed", "Value")
+    mark = b.set("StepStart", now)
+    inputs = {"now": now, "start": var(b, "StepStart")}
+    if done is None:
+        condition = f"now - start > {limit}"
+    else:
+        condition = f"done || now - start > {limit}"
+        inputs["done"] = done
+    wait = b.add("Flow.WaitUntil", Condition=b.expr(condition, **inputs))
+    b.flow(mark, wait)
+    return mark, wait["Completed"]
+
+
+def wait_seconds(b, seconds):
+    return wait_until(b, None, seconds)
+
+
+def check(b, name, done, limit, detail, passed=None):
+    """Waits for done (at most limit seconds), then reports the check; passed defaults to done."""
+    first, waited = wait_until(b, done, limit)
+    reported = b.library("Check", CHECKS, Name=f"Prism Break: {name}", Passed=done if passed is None else passed, Detail=detail)
+    b.flow(waited, reported)
+    return first, reported
+
+
+def run(b, *steps):
+    """Runs a function's steps in order, from its entry to its return: each a node, or (first, last) of a chain."""
+    previous = b.entry
+    for step in steps:
+        first, last = step if isinstance(step, tuple) else (step, step)
+        b.flow(previous, first)
+        previous = last
+    b.flow(previous, b.ret)
+
+
+def find_brick(b, row, column, variable="Target"):
+    """Stores the prism of a layout's row and column in a variable; returns (first, last) of the chain."""
+    found = b.own("FindBrick", output="Brick", Row=row, Column=column)
+    keep = b.set(variable, found.out)
+    b.flow(found, keep)
+    return found, keep
+
+
+def strike(b, brick):
+    return b.own("Strike", At=position_of(b, brick))
+
+
+def place(b, at, velocity):
+    return b.own("Place", At=at, Velocity=velocity)
+
+
+def onto_paddle(b):
+    """Sends the ball onto the paddle from just in front of it."""
+    return place(b, shared(b, "onto the paddle", lambda: b.expr("vec3(p.x, 0.5, p.z - 1.0)", p=position_of(b, "Paddle"))),
+                 shared(b, "towards the paddle", lambda: b.expr("vec3(0, 0, speed)", speed=of_game(b, "BallSpeed"))))
+
+
+def into_drain(b):
+    return place(b, b.lit("Strada.Vector3", [0.0, 0.5, 10.7]), b.expr("vec3(0, 0, speed)", speed=of_game(b, "BallSpeed")))
+
+
+def gone(b, variable="Target"):
+    return shared(b, ("gone", variable), lambda: b.negate(b.pure("Get:Strada.Entity.IsValid", "Value", Target=var(b, variable))))
+
+
+def is_state(b, state):
+    return shared(b, ("state", state), lambda: b.equal(of_game(b, "State"), state))
+
+
+# The checks in the order they run: (function, title of its box, the check's name in the report). Each function's body is
+# written by its writer in TEST_WRITERS.
+TEST_CHECKS = (
+    ("CheckLevelIsBuilt", "Level built: 33 prisms once the Game serves", "the first level is built from its layout"),
+    ("CheckBricksAreEntities", "Bricks container: one child per prism left",
+     "every brick of the level is an entity of the bricks container"),
+    ("CheckBrickGlow", "Glow: a gold prism's material glows BrickColor(3)", "bricks glow in the colour of their hits"),
+    ("CheckScoreFormula", "Score formula: ScoreFor(50, 3, 2) is 250", "scores grow with the combo and the level"),
+    ("CheckPitches", "Pitches: an octave doubles, a fifth is 1.4983", "pitches rise by semitones"),
+    ("CheckDigitGroups", "Digit groups: 1 234 567, -45 and 0", "scores show in groups of three digits"),
+    ("CheckTopFive", "Top five: sorted, and no longer than kept", "the top five stays sorted and five long"),
+    ("CheckHudScore", "HUD score: 12345 shows as 12 345", "the HUD shows the game's score"),
+    ("CheckBallWaits", "Serve: the ball waits at its serve point", "the ball waits on the paddle"),
+    ("CheckLaunchSpeed", "Launch: two frames later at the level's speed", "a launch sends the ball at the level's speed"),
+    ("CheckBallKeepsSpeed", "Speed and angle: a slow, flat ball is put right", "the ball keeps its speed and never goes flat"),
+    ("CheckBallBreaksBrick", "Break: the ball aimed at a front prism breaks it", "a ball breaks a one-hit brick"),
+    ("CheckBreakScores", "Break score: ScoreFor(10, combo, level) more", "a break scores by the formula"),
+    ("CheckStrongBrick", "Strong prism: clear the way, then one touch of gold", "a strong brick loses one hit per touch"),
+    ("CheckShards", "Shards: a break throws them, and they fade away", "shards burst out and fade away"),
+    ("CheckCombo", "Combo: two breaks make 2, the paddle makes 0", "the combo grows and resets at the paddle"),
+    ("CheckAutopilot", "Autopilot: the paddle moves under a resting ball", "the autopilot keeps the paddle under the ball"),
+    ("CheckWiden", "Widen: a caught capsule widens the paddle", "W widens the paddle"),
+    ("CheckWidenSettles", "Widen ends: the paddle settles back to 3.2 m", "the widening timeline brings the paddle back"),
+    ("CheckSlowDown", "Slow motion: 0.55 of the speed, then all of it", "S slows the ball and lets it go again"),
+    ("CheckDrain", "Drain: a life less, then a new serve", "the drain takes a life and serves again"),
+    ("CheckHudLives", "HUD lives: one icon for each life left", "the HUD shows the lives left"),
+    ("CheckClearBroadcast", "Clear: the broadcast reaches eight graphs", "clearing a level reaches every graph that listens"),
+    ("CheckNextLevel", "Next level: level 2's 34 prisms, then a serve", "the next level is built"),
+    ("CheckBanner", "Banner: LEVEL 2, bright, then gone within 2.5 s", "the level banner plays its timeline"),
+    ("CheckCameraShake", "Camera: the clear shakes it, then it rests at home", "the camera shakes on a clear and settles"),
+    ("CheckLightsPulse", "Lights: a break pulses all six", "every hit pulses every light"),
+    ("CheckGameOver", "Game over: the last life ends it, the table shows the score",
+     "losing the last life ends the game and records the score"),
+    ("CheckNewGame", "New game: fresh read-outs, and remote reads guarded", "a new game starts fresh, and remote reads are guarded"),
+)
+TEST_ENTITIES = (
+    ("Game", "The entity whose Game.sgraph the checks play"),
+    ("Paddle", "The paddle"),
+    ("CameraRig", "The camera rig"),
+    ("Bricks", "The container of the level's prisms"),
+    ("Balls", "The container of the live balls"),
+    ("Shards", "The container of the shards of broken prisms"),
+    ("ScoreText", "The HUD's score text"),
+    ("TableText", "The game-over screen's table of the top five"),
+    ("Banner", "The level banner"),
+    ("BannerText", "The level banner's text"),
+) + tuple((f"Life{index + 1}", f"Life icon {index + 1} of the HUD") for index in range(LIVES_SHOWN))
+
+
+def declare_tests(author):
+    author.declare(TESTS, "The test scene's checks: 29 checks of Prism Break's rules, physics, screen and flow, one after "
+                   "another, each a latent function that acts, waits for what it expects and reports it.", variables=(
+        tuple(public(name, ENTITY, None, tooltip) for name, tooltip in TEST_ENTITIES) + (
+            private("StepStart", "double", 0.0),
+            private("Strong", ENTITY),
+            private("Target", ENTITY),
+            private("LeftBefore", "int", 0),
+            private("ScoreBefore", "int", 0),
+            private("ComboBefore", "int", 0),
+            private("LivesBefore", "int", 0),
+            private("Reached", "int", 0),
+            private("Base", "float", 0.0),
+            private("Slowed", "float", 0.0),
+            private("PeakAt", "double", 0.0),
+            private("GoneAt", "double", 0.0),
+            private("SawLevel", "bool", False),
+            private("BannerDone", "bool", False),
+            private("ShakeSeen", "bool", False),
+        )), events=(("WatchTheBanner", ()), ("WatchTheCamera", ())), functions=(
+        ("Place", False, (("At", "Strada.Vector3"), ("Velocity", "Strada.Vector3")), (), ()),
+        ("Strike", False, (("At", "Strada.Vector3"),), (), ()),
+        ("FindBrick", False, (("Row", "int"), ("Column", "int")), (("Brick", ENTITY),), (("Found", ENTITY, None),)),
+    ) + tuple((name, False, (), (), ()) for name, _, _ in TEST_CHECKS))
+
+
+def write_tests(author):
+    with author.region(TESTS, "Start: every check in turn, then the report", CHECK) as b:
+        start = b.event("Event.Create")
+        settle = b.add("Flow.WaitFrames", Frames=1, comment="Every entity has run its Create first")
+        steps = b.sequence(len(TEST_CHECKS) + 1)
+        b.chain(start, settle)
+        b.flow(settle["Completed"], steps)
+        for index, (name, _, _) in enumerate(TEST_CHECKS):
+            b.flow(steps[f"Then{index}"], b.own(name))
+        b.flow(steps[f"Then{len(TEST_CHECKS)}"], b.call("Call:Strada.Testing.TestReporter.Finish()"))
+    with author.region(TESTS, "Watch the banner: bright, LEVEL 2, then faded", CHECK) as b:
+        watch = b.custom("WatchTheBanner")
+        opacity = b.pure("Get:Strada.UIRectComponent.Opacity", "Value", Target=var(b, "Banner"))
+        bright = b.add("Flow.WaitUntil", Condition=b.expr("opacity > 0.9", opacity=opacity))
+        peak = b.set("PeakAt", b.pure("Get:Strada.Time.Elapsed", "Value"))
+        text_now = b.pure("Get:Strada.UITextComponent.Text", "Value", Target=var(b, "BannerText"))
+        level = b.add("Flow.WaitUntil", Condition=b.equal(text_now, "LEVEL 2"))
+        saw = b.set("SawLevel", True)
+        visible = b.pure("Get:Strada.UIRectComponent.Visible", "Value", Target=var(b, "Banner"))
+        faded = b.add("Flow.WaitUntil", Condition=b.expr("opacity <= 0.001 || !visible", opacity=opacity, visible=visible))
+        gone_at = b.set("GoneAt", b.pure("Get:Strada.Time.Elapsed", "Value"))
+        done = b.set("BannerDone", True)
+        b.chain(watch, bright)
+        b.chain(bright["Completed"], peak, level)
+        b.chain(level["Completed"], saw, faded)
+        b.chain(faded["Completed"], gone_at, done)
+    with author.region(TESTS, "Watch the camera: the clear moves it off its home", CHECK) as b:
+        watch = b.custom("WatchTheCamera")
+        moved = b.add("Flow.WaitUntil", Condition=b.expr("distance(p, home) > 0.05", p=position_of(b, "CameraRig"),
+                                                         home=b.get("Home", CAMERA_RIG, var(b, "CameraRig"))))
+        b.chain(watch, moved)
+        b.flow(moved["Completed"], b.set("ShakeSeen", True))
+
+    with author.region(TESTS, "Place: the ball at a point, with a velocity", CHECK, "Place") as b:
+        any_ball = b.branch(b.expr("count > 0", count=count_of(b, "Balls")))
+        ball = the_ball(b)
+        teleport = b.call("Call:Strada.RigidBodyComponent.Teleport(Strada.Vector3,Strada.Quaternion)", Target=ball,
+                          Position=b.entry["At"], Rotation=IDENTITY)
+        velocity = b.call("Set:Strada.RigidBodyComponent.LinearVelocity", Target=ball, Value=b.entry["Velocity"])
+        b.chain(b.entry, any_ball)
+        b.chain(any_ball["True"], teleport, velocity, b.ret)
+        b.flow(any_ball["False"], b.ret)
+    with author.region(TESTS, "Strike: the ball flies at a prism from in front", CHECK, "Strike") as b:
+        run(b, place(b, b.expr("vec3(at.x, 0.5, at.z + 1.6)", at=b.entry["At"]),
+                     b.expr("vec3(0, 0, -speed)", speed=of_game(b, "BallSpeed"))))
+    with author.region(TESTS, "Find a prism: the one at a row and column of the layout", CHECK, "FindBrick") as b:
+        each = b.add("Flow.ForEach", Array=b.children(var(b, "Bricks")))
+        expected = b.expr("origin + vec3(column * spacing.x, 0, row * spacing.y)", origin=of_game(b, "Origin"),
+                          column=b.entry["Column"], spacing=of_game(b, "Spacing"), row=b.entry["Row"])
+        here = b.branch(b.library("NearVector", CHECKS, output="Result", A=b.position(each["Element"]), B=expected, Tolerance=0.05).out)
+        found = b.set("Found", each["Element"])
+        b.chain(b.entry, each)
+        b.flow(each["Body"], here)
+        b.flow(here["True"], found)
+        b.flow(found, each["Break"])
+        b.flow(each["Completed"], b.ret)
+        b.link(b.get("Found"), b.ret["Brick"])
+
+    for function, title, name in TEST_CHECKS:
+        with author.region(TESTS, title, CHECK, function) as b:
+            TEST_WRITERS[function](b, name)
+
+
+def check_level_is_built(b, name):
+    left = of_game(b, "BricksLeft")
+    serving = is_state(b, "Serve")
+    run(b, check(b, name, serving, 5, b.fmt("{Left} prisms once the state is {State}", Left=left, State=of_game(b, "State")),
+                 b.both(serving, b.equal(left, LEVEL_BRICKS[0]))))
+
+
+def check_bricks_are_entities(b, name):
+    children = count_of(b, "Bricks")
+    left = of_game(b, "BricksLeft")
+    run(b, check(b, name, b.equal(children, left), 1, b.fmt("{Children} children for {Left} prisms", Children=children, Left=left)))
+
+
+def check_brick_glow(b, name):
+    hits = hits_of(b, "Strong")
+    glow = glow_of(b, "Strong")
+    done = b.both(b.equal(hits, 3), b.equal(glow, b.library("BrickColor", ARCADE, output="Color", Hits=3).out))
+    run(b, find_brick(b, 2, 5, "Strong"), check(b, name, done, 1, b.fmt("{Hits} hits, glowing {Glow}", Hits=hits, Glow=glow)))
+
+
+def check_score_formula(b, name):
+    score = b.library("ScoreFor", ARCADE, output="Score", Points=50, Combo=3, Level=2).out
+    run(b, check(b, name, b.equal(score, 250), 1, b.fmt("ScoreFor(50, 3, 2) is {Score}", Score=score)))
+
+
+def check_pitches(b, name):
+    octave = b.library("PitchOf", ARCADE, output="Pitch", Semitones=12.0).out
+    fifth = b.library("PitchOf", ARCADE, output="Pitch", Semitones=7.0).out
+    done = b.both(near(b, octave, 2.0, 0.0001), near(b, fifth, 1.4983, 0.0001))
+    run(b, check(b, name, done, 1, b.fmt("{Octave} and {Fifth}", Octave=octave, Fifth=fifth)))
+
+
+def check_digit_groups(b, name):
+    large = b.library("GroupDigits", ARCADE, output="Text", Value=1234567)
+    negative = b.library("GroupDigits", ARCADE, output="Text", Value=-45)
+    zero = b.library("GroupDigits", ARCADE, output="Text", Value=0)
+    done = b.both(b.both(b.equal(large.out, "1 234 567"), b.equal(negative.out, "-45")), b.equal(zero.out, "0"))
+    run(b, large, negative, zero, check(b, name, done, 1, b.fmt("'{Large}', '{Negative}' and '{Zero}'", Large=large.out,
+                                                                 Negative=negative.out, Zero=zero.out)))
+
+
+def check_top_five(b, name):
+    full = b.library("InsertScore", ARCADE, output="Result", Scores=b.lit("int[]", [900, 500, 300, 200, 100]), Score=400, Keep=5)
+    short = b.library("InsertScore", ARCADE, output="Result", Scores=b.lit("int[]", [50]), Score=10, Keep=1)
+    done = b.both(b.library("SameInts", CHECKS, output="Result", A=full.out, B=b.lit("int[]", [900, 500, 400, 300, 200])).out,
+                  b.library("SameInts", CHECKS, output="Result", A=short.out, B=b.lit("int[]", [50])).out)
+    run(b, full, short, check(b, name, done, 1, b.fmt("{Full} and {Short}", Full=full.out, Short=short.out)))
+
+
+def check_hud_score(b, name):
+    shown = b.pure("Get:Strada.UITextComponent.Text", "Value", Target=var(b, "ScoreText"))
+    run(b, b.set("Score", 12345, GAME, var(b, "Game")),
+        check(b, name, b.equal(shown, "12 345"), 1, b.fmt("the score text reads '{Text}'", Text=shown)))
+
+
+def check_ball_waits(b, name):
+    point = b.expr("vec3(p.x, 0.5, p.z - 0.6)", p=position_of(b, "Paddle"))
+    ball = b.position(the_ball(b))
+    done = b.both(is_state(b, "Serve"), b.library("NearVector", CHECKS, output="Result", A=ball, B=point, Tolerance=0.05).out)
+    run(b, check(b, name, done, 1, b.fmt("the ball at {Ball}, its serve point {Point}", Ball=ball, Point=point)))
+
+
+def check_launch_speed(b, name):
+    speed = b.expr("length(v)", v=b.pure("Get:Strada.RigidBodyComponent.LinearVelocity", "Value", Target=the_ball(b)))
+    expected = of_game(b, "BallSpeed")
+    frames = b.add("Flow.WaitFrames", Frames=2)
+    run(b, b.send("Launch", var(b, "Game"), GAME), (frames, frames["Completed"]),
+        check(b, name, near(b, speed, expected, 0.05), 1, b.fmt("{Speed} m/s of {Expected}", Speed=speed, Expected=expected)))
+
+
+def check_ball_keeps_speed(b, name):
+    velocity = b.pure("Get:Strada.RigidBodyComponent.LinearVelocity", "Value", Target=the_ball(b))
+    speed = of_game(b, "BallSpeed")
+    done = b.expr("abs(length(v) - speed) <= 0.05 && abs(v.z) / length(v) >= minZ - 0.001", v=velocity, speed=speed,
+                  minZ=b.get("MinZ", BALL, the_ball(b)))
+    flat = place(b, b.lit("Strada.Vector3", [0.0, 0.5, 1.0]), b.lit("Strada.Vector3", [5.0, 0.0, -0.2]))
+    run(b, flat, wait_seconds(b, 2), check(b, name, done, 0.1, b.fmt("velocity {Velocity} at a speed of {Speed}", Velocity=velocity,
+                                                                    Speed=speed)))
+
+
+def check_ball_breaks_brick(b, name):
+    left = of_game(b, "BricksLeft")
+    before = var(b, "LeftBefore")
+    done = b.both(gone(b), b.equal(left, b.expr("before - 1", before=before)))
+    run(b, find_brick(b, 4, 5), b.set("LeftBefore", left), b.set("ScoreBefore", of_game(b, "Score")),
+        b.set("ComboBefore", of_game(b, "Combo")), strike(b, "Target"),
+        check(b, name, done, 2, b.fmt("{Left} prisms left of {Before}", Left=left, Before=before)))
+
+
+def check_break_scores(b, name):
+    combo = var(b, "ComboBefore")
+    before = var(b, "ScoreBefore")
+    points = b.library("ScoreFor", ARCADE, output="Score", Points=10, Combo=combo, Level=of_game(b, "Level")).out
+    score = of_game(b, "Score")
+    done = b.equal(score, b.expr("before + points", before=before, points=points))
+    run(b, check(b, name, done, 1, b.fmt("{Score} after {Before} and a combo of {Combo}", Score=score, Before=before, Combo=combo)))
+
+
+def check_strong_brick(b, name):
+    hits = hits_of(b, "Strong")
+    glow = glow_of(b, "Strong")
+    done = b.both(b.equal(hits, 2), b.equal(glow, b.library("BrickColor", ARCADE, output="Color", Hits=2).out))
+    run(b, find_brick(b, 3, 5), strike(b, "Target"), wait_until(b, b.equal(hits_of(b, "Target"), 1), 2),
+        strike(b, "Target"), wait_until(b, gone(b), 2), strike(b, "Strong"),
+        check(b, name, done, 2, b.fmt("{Hits} hits, glowing {Glow}", Hits=hits, Glow=glow)))
+
+
+def check_shards(b, name):
+    shards = count_of(b, "Shards")
+    had = var(b, "Reached")
+    none_left = b.equal(shards, 0)
+    run(b, find_brick(b, 4, 4), strike(b, "Target"), wait_until(b, b.both(gone(b), b.expr("count > 0", count=shards)), 2),
+        b.set("Reached", shards),
+        check(b, name, none_left, 2.5, b.fmt("{Had} shards after the break, {Left} 2.5 s later", Had=had, Left=shards),
+              b.both(none_left, b.expr("had > 0", had=had))))
+
+
+def check_combo(b, name):
+    combo = of_game(b, "Combo")
+    reached = var(b, "Reached")
+    reset = b.equal(combo, 0)
+    run(b, onto_paddle(b), wait_until(b, reset, 1),
+        find_brick(b, 4, 6), strike(b, "Target"), wait_until(b, gone(b), 2),
+        find_brick(b, 4, 7), strike(b, "Target"), wait_until(b, b.both(gone(b), b.equal(combo, 2)), 2),
+        b.set("Reached", combo), onto_paddle(b),
+        check(b, name, reset, 1, b.fmt("{Reached} after two breaks, {Combo} after the paddle", Reached=reached, Combo=combo),
+              b.both(reset, b.equal(reached, 2))))
+
+
+def check_autopilot(b, name):
+    off = b.expr("abs(p.x - q.x)", p=position_of(b, "Paddle"), q=b.position(the_ball(b)))
+    rest = place(b, b.lit("Strada.Vector3", [3.5, 0.5, 2.0]), b.lit("Strada.Vector3", [0.0, 0.0, 0.0]))
+    pilot = b.set("Autopilot", True, PADDLE, var(b, "Paddle"),
+                  comment="At x 3.5 the autopilot's aiming offset, sin(0.9 x) * 0.9, is almost 0")
+    run(b, rest, pilot, wait_seconds(b, 0.5),
+        check(b, name, b.expr("off < 0.4", off=off), 0.1, b.fmt("{Off} m between the paddle and the ball", Off=off)),
+        b.set("Autopilot", False, PADDLE, var(b, "Paddle")))
+
+
+def check_widen(b, name):
+    width = width_of_paddle(b)
+    spawn = b.send("SpawnPowerUp", var(b, "Game"), GAME, Kind="Widen", At=b.expr("p + vec3(0, 0, -0.2)", p=position_of(b, "Paddle")))
+    run(b, spawn, check(b, name, b.expr("width > 4.5", width=width), 0.6, b.fmt("the paddle is {Width} m wide", Width=width)))
+
+
+def check_widen_settles(b, name):
+    width = width_of_paddle(b)
+    run(b, check(b, name, near(b, width, PADDLE_WIDTH, 0.01), 2.5, b.fmt("the paddle is {Width} m wide", Width=width)))
+
+
+def check_slow_down(b, name):
+    speed = of_game(b, "BallSpeed")
+    base = var(b, "Base")
+    slowed = var(b, "Slowed")
+    done = b.both(near(b, slowed, b.expr("base * 0.55", base=base), 0.01), near(b, speed, base, 0.01))
+    run(b, b.set("Base", speed), b.send("SlowDown", var(b, "Game"), GAME, Seconds=1.5), wait_seconds(b, 0.4),
+        b.set("Slowed", speed), wait_seconds(b, 1.4),
+        check(b, name, done, 0.1, b.fmt("{Slowed} m/s slowed, {Speed} after, of {Base}", Slowed=slowed, Speed=speed, Base=base)))
+
+
+def check_drain(b, name):
+    lives = of_game(b, "Lives")
+    before = var(b, "LivesBefore")
+    done = b.both(b.equal(lives, b.expr("before - 1", before=before)), is_state(b, "Serve"))
+    run(b, b.set("LivesBefore", lives), into_drain(b),
+        check(b, name, done, 1.5, b.fmt("{Lives} lives of {Before}, state {State}", Lives=lives, Before=before,
+                                        State=of_game(b, "State"))))
+
+
+def check_hud_lives(b, name):
+    icons = {f"l{index + 1}": b.pure("Get:Strada.UIRectComponent.Visible", "Value", Target=var(b, f"Life{index + 1}"))
+             for index in range(LIVES_SHOWN)}
+    shown = b.expr(" + ".join(f"({icon} ? 1 : 0)" for icon in icons), **icons)
+    lives = of_game(b, "Lives")
+    run(b, check(b, name, b.equal(shown, lives), 1, b.fmt("{Shown} icons for {Lives} lives", Shown=shown, Lives=lives)))
+
+
+def check_clear_broadcast(b, name):
+    count = of_game(b, "LastBroadcastCount")
+    run(b, b.set("SawLevel", False), b.set("BannerDone", False), b.set("ShakeSeen", False),
+        b.send("WatchTheBanner", b.self_(), comment="The banner and the camera are watched from the clear on"),
+        b.send("WatchTheCamera", b.self_()), b.send("ClearLevel", var(b, "Game"), GAME),
+        check(b, name, b.equal(count, 8), 1, b.fmt("it reached {Count} graphs", Count=count)))
+
+
+def check_next_level(b, name):
+    left = of_game(b, "BricksLeft")
+    level = of_game(b, "Level")
+    done = b.both(b.both(b.equal(level, 2), b.equal(left, LEVEL_BRICKS[1])), is_state(b, "Serve"))
+    run(b, check(b, name, done, 5, b.fmt("level {Level}, {Left} prisms, state {State}", Level=level, Left=left,
+                                         State=of_game(b, "State"))))
+
+
+def check_banner(b, name):
+    fade = b.expr("gone - peak", gone=var(b, "GoneAt"), peak=var(b, "PeakAt"))
+    saw = var(b, "SawLevel")
+    done = var(b, "BannerDone")
+    run(b, check(b, name, done, 3, b.fmt("LEVEL 2 shown: {Saw}; faded {Fade} s after it was bright", Saw=saw, Fade=fade),
+                 b.expr("done && saw && fade <= 2.5", done=done, saw=saw, fade=fade)))
+
+
+def check_camera_shake(b, name):
+    offset = b.expr("distance(p, home)", p=position_of(b, "CameraRig"), home=b.get("Home", CAMERA_RIG, var(b, "CameraRig")))
+    resting = b.expr("offset < 0.001", offset=offset)
+    shaken = var(b, "ShakeSeen")
+    run(b, check(b, name, resting, 2, b.fmt("shaken: {Shaken}; {Offset} m from home now", Shaken=shaken, Offset=offset),
+                 b.both(resting, shaken)))
+
+
+def check_lights_pulse(b, name):
+    count = of_game(b, "LastPulseCount")
+    run(b, b.send("Launch", var(b, "Game"), GAME), wait_until(b, is_state(b, "Play"), 1),
+        b.set("LastPulseCount", 0, GAME, var(b, "Game")), find_brick(b, 4, 5), strike(b, "Target"),
+        check(b, name, b.both(gone(b), b.equal(count, 6)), 2, b.fmt("it pulsed {Count} lights", Count=count)))
+
+
+def check_game_over(b, name):
+    score = b.library("GroupDigits", ARCADE, output="Text", Value=of_game(b, "Score"))
+    rows = b.pure("String.Split", "Parts", Text=b.pure("Get:Strada.UITextComponent.Text", "Value", Target=var(b, "TableText")),
+                  Separator="\n")
+    first = b.element(rows, 0)
+    shows = b.equal(first, b.fmt("1.   {Points}", Points=score.out))
+    over = is_state(b, "Over")
+    run(b, b.set("Lives", 1, GAME, var(b, "Game")), into_drain(b), wait_until(b, over, 3), score,
+        check(b, name, shows, 1, b.fmt("state {State}, the first row '{Row}'", State=of_game(b, "State"), Row=first), b.both(shows, over)))
+
+
+def check_new_game(b, name):
+    score, lives, level, left = (of_game(b, variable) for variable in ("Score", "Lives", "Level", "BricksLeft"))
+    fresh = b.expr(f"score == 0 && lives == 3 && level == 1 && left == {LEVEL_BRICKS[0]}", score=score, lives=lives, level=level,
+                   left=left)
+    done = b.both(fresh, is_state(b, "Serve"))
+    guarded = b.both(b.runs(GAME, var(b, "Game")), b.negate(b.runs(GAME, var(b, "Paddle"))))
+    run(b, b.send("StartGame", var(b, "Game"), GAME),
+        check(b, name, done, 3, b.fmt("score {Score}, {Lives} lives, level {Level}, {Left} prisms", Score=score, Lives=lives,
+                                      Level=level, Left=left), b.both(done, guarded)))
+
+
+TEST_WRITERS = {
+    "CheckLevelIsBuilt": check_level_is_built, "CheckBricksAreEntities": check_bricks_are_entities,
+    "CheckBrickGlow": check_brick_glow, "CheckScoreFormula": check_score_formula, "CheckPitches": check_pitches,
+    "CheckDigitGroups": check_digit_groups, "CheckTopFive": check_top_five, "CheckHudScore": check_hud_score,
+    "CheckBallWaits": check_ball_waits, "CheckLaunchSpeed": check_launch_speed, "CheckBallKeepsSpeed": check_ball_keeps_speed,
+    "CheckBallBreaksBrick": check_ball_breaks_brick, "CheckBreakScores": check_break_scores, "CheckStrongBrick": check_strong_brick,
+    "CheckShards": check_shards, "CheckCombo": check_combo, "CheckAutopilot": check_autopilot, "CheckWiden": check_widen,
+    "CheckWidenSettles": check_widen_settles, "CheckSlowDown": check_slow_down, "CheckDrain": check_drain,
+    "CheckHudLives": check_hud_lives, "CheckClearBroadcast": check_clear_broadcast, "CheckNextLevel": check_next_level,
+    "CheckBanner": check_banner, "CheckCameraShake": check_camera_shake, "CheckLightsPulse": check_lights_pulse,
+    "CheckGameOver": check_game_over, "CheckNewGame": check_new_game,
+}
+
+
 WRITERS = {
     ARCADE: write_arcade, CHECKS: write_checks, BRICK: write_brick, BALL: write_ball, SHARD: write_shard, POWER_UP: write_power_up,
     PADDLE: write_paddle, DRAIN: write_drain, LIGHTS: write_lights, CAMERA_RIG: write_camera_rig, HUD: write_hud,
-    GAME: write_game,
+    GAME: write_game, TESTS: write_tests,
 }
 
 
@@ -1817,20 +2331,18 @@ def build_test_scene(client, handles, scene):
                       "PowerUpChance": float_value(0.0), "WidenSeconds": float_value(2.0)})
     client.call("component_set", {"entity": scene["Game"], "component": "VisualScript", "fields": {"Graph": handles[GAME],
                                                                                                     "Variables": variables}})
-    if TESTS in handles:
-        client.call("entity_create", {"name": "Tests", "components": {"VisualScript": {"Graph": handles[TESTS], "Variables": {
-            name: entity_value(entity) for name, entity in test_entities(scene).items()}}}})
+    client.call("entity_create", {"name": "Tests", "components": {"VisualScript": {"Graph": handles[TESTS], "Variables": {
+        name: entity_value(entity) for name, entity in test_entities(scene).items()}}}})
     client.call("scene_save")
     client.call("scene_open", {"path": "Scenes/Main.sscene"})
 
 
 def test_entities(scene):
     """The entities the checks look at, by the names of Tests.sgraph's variables."""
-    entities = {"Game": scene["Game"], "Paddle": scene["Paddle"], "CameraRig": scene["CameraRig"], "Screen": scene["Screen"]}
-    entities.update({name: entity for name, entity in scene["Containers"].items()})
-    entities.update({name: scene["Elements"][name] for name in ("ScoreText", "TableText", "Banner", "BannerText")})
-    entities.update({f"Life{index + 1}": scene["Elements"][f"Life{index + 1}"] for index in range(LIVES_SHOWN)})
-    return entities
+    known = {"Game": scene["Game"], "Paddle": scene["Paddle"], "CameraRig": scene["CameraRig"]}
+    known.update(scene["Containers"])
+    known.update(scene["Elements"])
+    return {name: known[name] for name, _ in TEST_ENTITIES}
 
 
 # --- Checks ---------------------------------------------------------------------------------------------------------------
@@ -1858,9 +2370,7 @@ def verify(client, handles):
                 if arranged["changed"]:
                     raise SystemExit(f"the box '{box['Text']}' of {graph} does not stand arranged")
     used_by = {entry["path"] for entry in client.call("graph_interface", {"graph": handles[ARCADE]})["usedBy"]}
-    expected = {"Scripts/Game.sgraph", "Scripts/Brick.sgraph", "Scripts/Hud.sgraph"}
-    if TESTS in handles:
-        expected.add("Scripts/Tests.sgraph")
+    expected = {"Scripts/Game.sgraph", "Scripts/Brick.sgraph", "Scripts/Hud.sgraph", "Scripts/Tests.sgraph"}
     if not expected <= used_by:
         raise SystemExit(f"Arcade is used by {sorted(used_by)}, expected at least {sorted(expected)}")
 
@@ -1922,13 +2432,12 @@ def build(client):
     build_test_scene(client, author.handles, scene)
 
     verify(client, author.handles)
-    if TESTS in author.handles:
-        run = client.call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": 90})
-        print("test run:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})
-        for result in run["results"]:
-            print("  ", "PASS" if result["passed"] else "FAIL", result["name"], result.get("message", ""))
-        if run["failed"] or run["exceptions"] or not run["finished"]:
-            raise SystemExit("the tests failed")
+    run = client.call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": 90})
+    print("test run:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})
+    for result in run["results"]:
+        print("  ", "PASS" if result["passed"] else "FAIL", result["name"], result.get("message", ""))
+    if run["failed"] or run["exceptions"] or not run["finished"] or run["passed"] != len(TEST_CHECKS):
+        raise SystemExit("the tests failed")
     play(client)
     export(client)
 

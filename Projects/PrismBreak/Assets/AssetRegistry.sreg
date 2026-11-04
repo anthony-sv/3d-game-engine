@@ -5,222 +5,227 @@
 	},
 	"Assets": [
 		{
-			"Handle": "11547800488507733217",
+			"Handle": "10714082327602462825",
 			"Type": "AudioClip",
 			"Path": "Audio/Break.wav"
 		},
 		{
-			"Handle": "13179911639738533020",
+			"Handle": "3441328337276038770",
 			"Type": "AudioClip",
 			"Path": "Audio/Chime.wav"
 		},
 		{
-			"Handle": "16024554301025726134",
+			"Handle": "13035234692288046348",
 			"Type": "AudioClip",
 			"Path": "Audio/GameOver.wav"
 		},
 		{
-			"Handle": "8291703953977282527",
+			"Handle": "14994282790548214260",
 			"Type": "AudioClip",
 			"Path": "Audio/Launch.wav"
 		},
 		{
-			"Handle": "6602817633436078800",
+			"Handle": "14389996617470224798",
 			"Type": "AudioClip",
 			"Path": "Audio/LevelClear.wav"
 		},
 		{
-			"Handle": "5241107635047197754",
+			"Handle": "14927910932514023336",
 			"Type": "AudioClip",
 			"Path": "Audio/Lose.wav"
 		},
 		{
-			"Handle": "15818379475557133030",
+			"Handle": "17870525545152089853",
 			"Type": "AudioClip",
 			"Path": "Audio/Music.wav"
 		},
 		{
-			"Handle": "5170520405645817114",
+			"Handle": "13006265402433379347",
 			"Type": "AudioClip",
 			"Path": "Audio/Paddle.wav"
 		},
 		{
-			"Handle": "6062470823272377371",
+			"Handle": "8204928904885198159",
 			"Type": "AudioClip",
 			"Path": "Audio/PowerUp.wav"
 		},
 		{
-			"Handle": "3103140741877324617",
+			"Handle": "6352812473966959767",
 			"Type": "AudioClip",
 			"Path": "Audio/Wall.wav"
 		},
 		{
-			"Handle": "12077860853820750418",
+			"Handle": "2776314980361316829",
 			"Type": "Material",
 			"Path": "Materials/Ball.smat"
 		},
 		{
-			"Handle": "8570142900335388656",
+			"Handle": "14062703923607493122",
 			"Type": "Material",
 			"Path": "Materials/Capsule S.smat"
 		},
 		{
-			"Handle": "5112360305477460651",
+			"Handle": "15313085186618170192",
 			"Type": "Material",
 			"Path": "Materials/Capsule W.smat"
 		},
 		{
-			"Handle": "10948100864844623601",
+			"Handle": "2086472152758378452",
 			"Type": "Material",
 			"Path": "Materials/Floor.smat"
 		},
 		{
-			"Handle": "2968067456274945838",
+			"Handle": "14510193744130277775",
 			"Type": "Material",
 			"Path": "Materials/Neon Cyan.smat"
 		},
 		{
-			"Handle": "8889971154062778474",
+			"Handle": "16455939548600015815",
 			"Type": "Material",
 			"Path": "Materials/Neon Magenta.smat"
 		},
 		{
-			"Handle": "2097412967789710364",
+			"Handle": "11726841174033178917",
 			"Type": "Material",
 			"Path": "Materials/Paddle.smat"
 		},
 		{
-			"Handle": "14621940172495473550",
+			"Handle": "6603525377091674293",
 			"Type": "Material",
 			"Path": "Materials/Prism.smat"
 		},
 		{
-			"Handle": "18280849970005906929",
+			"Handle": "2164756048101854560",
 			"Type": "Material",
 			"Path": "Materials/Shard.smat"
 		},
 		{
-			"Handle": "16321436330243259267",
+			"Handle": "8365879453252792834",
 			"Type": "Material",
 			"Path": "Materials/Wall.smat"
 		},
 		{
-			"Handle": "3115835014970922486",
+			"Handle": "6670014399046429024",
 			"Type": "Mesh",
 			"Path": "Meshes/Prism.gltf"
 		},
 		{
-			"Handle": "16568725629833532187",
+			"Handle": "10820744162376701622",
 			"Type": "Prefab",
 			"Path": "Prefabs/Ball.sprefab"
 		},
 		{
-			"Handle": "9805890593768152517",
+			"Handle": "8415711780874937259",
 			"Type": "Prefab",
 			"Path": "Prefabs/Brick.sprefab"
 		},
 		{
-			"Handle": "13894868768383662743",
+			"Handle": "17170210242106277433",
 			"Type": "Prefab",
 			"Path": "Prefabs/Burst.sprefab"
 		},
 		{
-			"Handle": "16507470848903541304",
+			"Handle": "9412351540531423469",
 			"Type": "Prefab",
 			"Path": "Prefabs/PowerUp.sprefab"
 		},
 		{
-			"Handle": "15474098767377082864",
+			"Handle": "18017640156998398533",
 			"Type": "Prefab",
 			"Path": "Prefabs/Shard.sprefab"
 		},
 		{
-			"Handle": "3940582745491761191",
+			"Handle": "1382424350820872846",
 			"Type": "Scene",
 			"Path": "Scenes/Main.sscene"
 		},
 		{
-			"Handle": "287140964645058347",
+			"Handle": "6217709349015493413",
 			"Type": "Scene",
 			"Path": "Scenes/Tests.sscene"
 		},
 		{
-			"Handle": "15550966734022881573",
+			"Handle": "14223333027472449766",
 			"Type": "VisualScript",
 			"Path": "Scripts/Arcade.sgraph"
 		},
 		{
-			"Handle": "15510458703511364141",
+			"Handle": "7992801857554523135",
 			"Type": "VisualScript",
 			"Path": "Scripts/Ball.sgraph"
 		},
 		{
-			"Handle": "13847948380584221262",
+			"Handle": "17140824797950672452",
 			"Type": "VisualScript",
 			"Path": "Scripts/Brick.sgraph"
 		},
 		{
-			"Handle": "5259334590175331865",
+			"Handle": "4650134647699289630",
 			"Type": "VisualScript",
 			"Path": "Scripts/CameraRig.sgraph"
 		},
 		{
-			"Handle": "12750201027211558374",
+			"Handle": "5229000271594202107",
 			"Type": "VisualScript",
 			"Path": "Scripts/Checks.sgraph"
 		},
 		{
-			"Handle": "11895894818145791944",
+			"Handle": "15456775671257692784",
 			"Type": "VisualScript",
 			"Path": "Scripts/Drain.sgraph"
 		},
 		{
-			"Handle": "16187624615347949468",
+			"Handle": "2152932090520014630",
 			"Type": "VisualScript",
 			"Path": "Scripts/Game.sgraph"
 		},
 		{
-			"Handle": "2431995185977692121",
+			"Handle": "4990789668177789322",
 			"Type": "VisualScript",
 			"Path": "Scripts/Hud.sgraph"
 		},
 		{
-			"Handle": "12244870154176650040",
+			"Handle": "15803531312306090147",
 			"Type": "VisualScript",
 			"Path": "Scripts/Lights.sgraph"
 		},
 		{
-			"Handle": "4765866712185969363",
+			"Handle": "12301471859028162991",
 			"Type": "VisualScript",
 			"Path": "Scripts/Paddle.sgraph"
 		},
 		{
-			"Handle": "16237280789620136492",
+			"Handle": "4331903985350939145",
 			"Type": "VisualScript",
 			"Path": "Scripts/PowerUp.sgraph"
 		},
 		{
-			"Handle": "556801530665048118",
+			"Handle": "5504203551032716285",
 			"Type": "VisualScript",
 			"Path": "Scripts/Shard.sgraph"
 		},
 		{
-			"Handle": "1467206060255884811",
+			"Handle": "10646956011245878648",
+			"Type": "VisualScript",
+			"Path": "Scripts/Tests.sgraph"
+		},
+		{
+			"Handle": "2535635966785202693",
 			"Type": "Texture",
 			"Path": "Textures/Glow.png"
 		},
 		{
-			"Handle": "17139266264462451748",
+			"Handle": "2575369635697390160",
 			"Type": "Texture",
 			"Path": "Textures/Grid.png"
 		},
 		{
-			"Handle": "10404948983529078583",
+			"Handle": "9136352158934500026",
 			"Type": "Texture",
 			"Path": "Textures/Life.png"
 		},
 		{
-			"Handle": "17062519787716811591",
+			"Handle": "14884911402080838847",
 			"Type": "Texture",
 			"Path": "Textures/Spark.png"
 		}
