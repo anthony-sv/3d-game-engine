@@ -37,6 +37,7 @@ namespace Strada
 
 			CursorMode Mode = CursorMode::Normal;
 			std::function<void(CursorMode)> CursorModeHandler;
+			bool FrameOwned = false;
 		};
 
 		InputData s_Data;
@@ -314,6 +315,24 @@ namespace Strada
 		s_Data.ScrollDelta = {0.0f, 0.0f};
 	}
 
+	void Input::SetFrameOwned(bool owned)
+	{
+		s_Data.FrameOwned = owned;
+	}
+
+	bool Input::IsFrameOwned()
+	{
+		return s_Data.FrameOwned;
+	}
+
+	void Input::EndApplicationFrame()
+	{
+		if (!s_Data.FrameOwned)
+		{
+			EndFrame();
+		}
+	}
+
 	void Input::ReleaseKeysAndMouseButtons()
 	{
 		for (ButtonState& state : s_Data.Keys)
@@ -333,8 +352,10 @@ namespace Strada
 	void Input::Reset()
 	{
 		std::function<void(CursorMode)> handler = std::move(s_Data.CursorModeHandler);
+		bool const frameOwned = s_Data.FrameOwned;
 		s_Data = InputData();
 		s_Data.CursorModeHandler = std::move(handler);
+		s_Data.FrameOwned = frameOwned;
 	}
 
 	void Input::SetCursorModeHandler(std::function<void(CursorMode)> handler)

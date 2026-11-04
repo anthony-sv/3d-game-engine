@@ -67,13 +67,23 @@ namespace Strada
 		static void AddScrollDelta(glm::vec2 delta);
 		static void SetGamepadState(uint32_t gamepad, GamepadState const& state);
 
-		// Ends the frame: clears pressed/released flags and per-frame deltas. Called once per frame by Application.
+		// Ends the input frame: clears pressed/released flags and per-frame deltas. Application ends it after each of its frames
+		// (EndApplicationFrame); while the frame is owned, its owner ends it instead.
 		static void EndFrame();
+		// Whether something that runs frames of its own owns the input frame: the editor's play mode while it plays, whose game
+		// frames are not the application's (a paused game runs none). While owned, the application's frames keep the input, and
+		// the owner ends the frame after each frame it ran, so a press, release, movement or scroll given between two of them
+		// (automation's input to a paused game) reaches the next frame once. Kept by Reset.
+		static void SetFrameOwned(bool owned);
+		static bool IsFrameOwned();
+		// Ends the input frame at the end of an application frame (Application's loop), unless it is owned.
+		static void EndApplicationFrame();
 		// Releases the keys and mouse buttons held, which report Released (mouse buttons also WasMouseButtonReleasedByReset):
 		// for when their release events will not come (the window lost the focus, the editor took the game's input back, play
 		// mode stopped). Gamepads keep their state: it is polled every frame, so a button held on one is still held.
 		static void ReleaseKeysAndMouseButtons();
-		// Clears all state including flags; used by tests and on shutdown.
+		// Clears all state including flags (not the cursor mode handler, nor whether the frame is owned); used by tests and on
+		// shutdown.
 		static void Reset();
 
 		// The platform layer registers how cursor mode changes are applied to the OS window.

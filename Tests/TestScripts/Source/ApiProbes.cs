@@ -403,6 +403,31 @@ public sealed class InputProbe : Script
 	}
 }
 
+// Counts the updates that saw Space pressed and released, the left mouse button pressed, the mouse move and the wheel
+// scroll, and names its entity after the counts and the latest update's movement and scroll.
+public sealed class InputFrameProbe : Script
+{
+	private int m_Pressed;
+	private int m_Released;
+	private int m_Clicked;
+	private int m_Moved;
+	private int m_Scrolled;
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		Vector2 delta = Input.MouseDelta;
+		Vector2 scroll = Input.MouseScrollDelta;
+		m_Pressed += Input.IsKeyPressed(KeyCode.Space) ? 1 : 0;
+		m_Released += Input.IsKeyReleased(KeyCode.Space) ? 1 : 0;
+		m_Clicked += Input.IsMouseButtonPressed(MouseButton.Left) ? 1 : 0;
+		m_Moved += delta != Vector2.Zero ? 1 : 0;
+		m_Scrolled += scroll != Vector2.Zero ? 1 : 0;
+		Name = string.Create(CultureInfo.InvariantCulture,
+			$"Pressed={m_Pressed};Released={m_Released};Clicked={m_Clicked};Moved={m_Moved};Delta={delta.X},{delta.Y};"
+			+ $"Scrolled={m_Scrolled};Scroll={scroll.X},{scroll.Y}");
+	}
+}
+
 // Plays its AudioSource from OnCreate.
 public sealed class AudioProbe : Script
 {

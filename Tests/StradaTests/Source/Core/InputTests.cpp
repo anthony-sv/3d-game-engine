@@ -11,7 +11,11 @@ namespace
 	struct InputFixture
 	{
 		InputFixture() { Input::Reset(); }
-		~InputFixture() { Input::Reset(); }
+		~InputFixture()
+		{
+			Input::SetFrameOwned(false);
+			Input::Reset();
+		}
 	};
 }
 
@@ -34,6 +38,50 @@ TEST_CASE_FIXTURE(InputFixture, "Input: key press lifecycle across frames")
 
 	Input::EndFrame();
 	CHECK_FALSE(Input::IsKeyReleased(KeyCode::A));
+}
+
+TEST_CASE_FIXTURE(InputFixture, "Input: the application's frames end the input frame unless it is owned, whose owner ends it")
+{
+	// Unowned (edit mode, the player, exported games), every application frame ends the input frame.
+	CHECK_FALSE(Input::IsFrameOwned());
+	Input::SetMousePosition({10.0f, 10.0f});
+	Input::SetKeyState(KeyCode::Space, true);
+	Input::SetMousePosition({14.0f, 13.0f});
+	Input::AddScrollDelta({0.0f, 2.0f});
+	Input::EndApplicationFrame();
+	CHECK_FALSE(Input::IsKeyPressed(KeyCode::Space));
+	CHECK(Input::GetMouseDelta() == glm::vec2(0.0f));
+	CHECK(Input::GetScrollDelta() == glm::vec2(0.0f));
+
+	// Owned, the application's frames keep the press, the release, the movement and the scroll for the owner's next frame.
+	Input::SetFrameOwned(true);
+	CHECK(Input::IsFrameOwned());
+	Input::SetKeyState(KeyCode::Space, false);
+	Input::SetMouseButtonState(MouseButton::Left, true);
+	Input::SetMousePosition({20.0f, 18.0f});
+	Input::AddScrollDelta({0.0f, -1.0f});
+	Input::EndApplicationFrame();
+	Input::EndApplicationFrame();
+	CHECK(Input::IsKeyReleased(KeyCode::Space));
+	CHECK(Input::IsMouseButtonPressed(MouseButton::Left));
+	CHECK(Input::GetMouseDelta() == glm::vec2(6.0f, 5.0f));
+	CHECK(Input::GetScrollDelta() == glm::vec2(0.0f, -1.0f));
+	// The owner's end of frame ends it; held buttons stay down.
+	Input::EndFrame();
+	CHECK_FALSE(Input::IsKeyReleased(KeyCode::Space));
+	CHECK_FALSE(Input::IsMouseButtonPressed(MouseButton::Left));
+	CHECK(Input::IsMouseButtonDown(MouseButton::Left));
+	CHECK(Input::GetMouseDelta() == glm::vec2(0.0f));
+	CHECK(Input::GetScrollDelta() == glm::vec2(0.0f));
+
+	// Reset clears the state, not the owner; giving the frame back makes the application's frames end it again.
+	Input::Reset();
+	CHECK(Input::IsFrameOwned());
+	Input::SetFrameOwned(false);
+	Input::SetKeyState(KeyCode::A, true);
+	Input::EndApplicationFrame();
+	CHECK_FALSE(Input::IsKeyPressed(KeyCode::A));
+	CHECK(Input::IsKeyDown(KeyCode::A));
 }
 
 TEST_CASE_FIXTURE(InputFixture, "Input: a tap within one frame reports both press and release")
