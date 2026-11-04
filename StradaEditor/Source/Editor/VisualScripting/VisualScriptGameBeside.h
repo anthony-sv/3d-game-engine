@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptEditorTypes.h"
+
 #include "Strada/Asset/AssetHandle.h"
 
 #include <glm/glm.hpp>
@@ -53,22 +55,6 @@ namespace Strada
 		bool operator==(VisualScriptBesideSplit const& other) const = default;
 	};
 
-	// The split's rule (spec-slice4 §15.6, S4-R1.1 Q12), in font sizes F.
-	namespace VisualScriptBeside
-	{
-		// Up gives the Game View this share of the height, when the graph keeps MinGraphHeight of it.
-		inline constexpr float UpShare = 0.45f;
-		inline constexpr float MinGraphHeight = 20.0f;
-		// Left gives the graph MinGraphWidth (the stacked panes' 14 F and the canvas's minimum of 40 F) and the Game View the
-		// rest, at most MaxLeftShare of the width; below MinLeftShare it gives the Game View FallbackLeftShare instead.
-		inline constexpr float MinGraphWidth = 54.0f;
-		inline constexpr float MaxLeftShare = 0.5f;
-		inline constexpr float MinLeftShare = 0.3f;
-		inline constexpr float FallbackLeftShare = 0.45f;
-		// The game's aspect ratio when it has not rendered yet.
-		inline constexpr float DefaultAspect = 16.0f / 9.0f;
-	}
-
 	// The split of a node of the given size (pixels, before the split) between the Game View and a graph window, for a game of
 	// the aspect ratio (width / height; DefaultAspect when not positive and finite), a Game View toolbar of toolbar pixels, a
 	// font size and the dock splitter's thickness: the candidate (Up or Left) whose game image has the larger area, Up on a
@@ -97,9 +83,10 @@ namespace Strada
 	// graph window docked, its node is split by ComputeVisualScriptBesideSplit (the node's windows stay on the graph's side)
 	// and the Game View docks into the other side; a floating graph window, or one in a dock node outside the dock space,
 	// first joins the Game View's node (with the Game View closed or floating, the fallback window's node, else the dock
-	// space's central node). Nothing is docked (AlreadyVisible) when the Game View shows already outside the graph window's
-	// node: floating, or the tab in front of another node. Failed when the graph window was not drawn in the last frame ("the
-	// graph window is not open") or the dock space has no node to split ("the dock space is not available"). Inside an ImGui
-	// frame, after the dock space is submitted and before the windows of its nodes, which show the split as they are drawn.
+	// space's central node), and the split docks a floating Game View too. Nothing is docked (AlreadyVisible) when a docked
+	// graph window's Game View shows already outside its node: floating, or the tab in front of another node. Failed when the
+	// graph window was not drawn in the last frame (VisualScriptPanelTexts::BesideNotOpen) or the dock space has no node to
+	// split (BesideNoDockSpace). Inside an ImGui frame, after the dock space is submitted and before the windows of its
+	// nodes, which show the split as they are drawn.
 	[[nodiscard]] VisualScriptGameBesideState PlaceGameViewBeside(VisualScriptBesideRequest const& request);
 }

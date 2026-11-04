@@ -1,5 +1,7 @@
 #include "Editor/VisualScripting/VisualScriptGameBeside.h"
 
+#include "Editor/Panels/VisualScriptEditorPanel.h"
+
 #include <imgui_internal.h>
 
 #include <algorithm>
@@ -95,27 +97,29 @@ namespace Strada
 		ImGuiWindow const* const graph = ImGui::FindWindowByName(request.GraphWindow.c_str());
 		if (graph == nullptr || !graph->WasActive)
 		{
-			state.Reason = "the graph window is not open";
+			state.Reason = VisualScriptPanelTexts::BesideNotOpen;
 			return state;
 		}
 		if (ImGui::DockBuilderGetNode(request.Dockspace) == nullptr)
 		{
-			state.Reason = "the dock space is not available";
+			state.Reason = VisualScriptPanelTexts::BesideNoDockSpace;
 			return state;
 		}
 
 		ImGuiWindow const* const game = ImGui::FindWindowByName(request.GameWindow.c_str());
 		bool const gameDrawn = request.GameViewOpen && game != nullptr && game->WasActive;
 		ImGuiDockNode* const graphNode = FindDockedNode(graph, request.Dockspace);
-		// Shown already: floating (in the editor's window or in one of its own), or the tab in front of another node.
+		// A docked graph window with the game shown already: floating (in the editor's window or in one of its own), or the tab
+		// in front of another node. A floating graph window always joins a node and splits it (spec-slice4 §15.6's cases).
 		bool const gameFloating = gameDrawn && game->DockNode == nullptr;
 		bool const gameInFront = gameDrawn && game->DockNode != nullptr && game->DockTabIsVisible;
-		if (gameFloating || (gameInFront && game->DockNode != graphNode))
+		if (graphNode != nullptr && (gameFloating || (gameInFront && game->DockNode != graphNode)))
 		{
 			state.Outcome = VisualScriptGameBesideOutcome::AlreadyVisible;
 			return state;
 		}
 
+		// The graph's node, else the docked Game View's (shown or behind a tab), else the fallback window's.
 		ImGuiDockNode* target = graphNode;
 		if (target == nullptr && gameDrawn)
 		{
@@ -131,7 +135,7 @@ namespace Strada
 		}
 		if (target == nullptr || !target->IsLeafNode())
 		{
-			state.Reason = "the dock space is not available";
+			state.Reason = VisualScriptPanelTexts::BesideNoDockSpace;
 			return state;
 		}
 

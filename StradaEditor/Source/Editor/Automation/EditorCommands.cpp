@@ -3849,8 +3849,9 @@ namespace Strada
 						.Property("gamePreview", SchemaBuilder::Boolean("Show the game in a corner of the graph windows' canvases while "
 				                                                        "it plays and the Game View is hidden (per user)"))
 						.Property("besideGameView",
-				                  SchemaBuilder::Boolean("Dock the Game View beside the graph's window at the next frame (Game View "
-				                                         "Beside); graph.editors' gameView.beside tells the outcome"))
+				                  SchemaBuilder::Boolean("Dock the Game View beside the graph's window at the start of the frame after "
+				                                         "the window's first draw (Game View Beside); graph.editors' gameView.beside "
+				                                         "tells the outcome"))
 						.Property("detailsRow",
 				                  SchemaBuilder::String("A row of Details to scroll to the top of the pane, by the label it shows "
 				                                        "(Formula, Settings, Length, a setting's or an input's name): with select, a "

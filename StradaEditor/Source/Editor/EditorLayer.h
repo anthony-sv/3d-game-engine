@@ -152,7 +152,7 @@ namespace Strada
 		std::optional<VisualScriptGamePreview> DescribeGamePreview() const;
 		// Where an editor window lies in the editor window's image (viewport.screenshot {window}), from the windows ImGui drew
 		// in the frame being captured.
-		Result<ScreenshotRect> FindWindowRect(ScreenshotWindow window, AssetHandle graph) const;
+		[[nodiscard]] Result<ScreenshotRect> FindWindowRect(ScreenshotWindow window, AssetHandle graph) const;
 
 		// Runs the action now, or after the unsaved-changes prompt when the scene has unsaved changes.
 		void RequestSceneAction(SceneAction action, std::filesystem::path path = {});

@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <imgui.h>
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -102,8 +103,12 @@ namespace Strada
 		void RenderHidden(EditorContext& context);
 		// The texture of the game's image rendered in this frame (by the view or RenderHidden); none when it did not render.
 		std::optional<ImTextureID> GetPreviewTexture() const;
+		// Whether the game rendered in this frame (by the view or RenderHidden), with an image or without (no camera).
+		bool HasRenderedThisFrame() const;
 		// Whether the view was drawn with its tab in front in this frame (open, not collapsed, not behind another tab).
 		bool IsVisible() const;
+		// The dock node the view was drawn in with its tab in front this frame; 0 when it was not visible, or floats.
+		ImGuiID GetVisibleDockNode() const;
 		// Where ImGui put the view's window when it was last drawn (screen pixels, min and max).
 		std::optional<std::pair<glm::vec2, glm::vec2>> GetWindowRect() const;
 		// How many times the scene rendered for the view and for RenderHidden.
@@ -122,8 +127,10 @@ namespace Strada
 		// What the game view's renderer drew in its last frame; null without a GPU.
 		SceneRendererStatistics const* GetRendererStatistics() const { return m_Renderer ? &m_Renderer->GetStatistics() : nullptr; }
 
-		// The toolbar's Beside button.
+		// The toolbar's Beside button and its tooltip, which the glyph test reads (spec-slice4 §15).
 		static constexpr std::string_view BesideLabel = "Beside";
+		static constexpr std::string_view BesideTooltip = "Show the game beside the graph window it shares this dock node with";
+		static constexpr std::array Texts = std::to_array<std::string_view>({BesideLabel, BesideTooltip});
 
 	private:
 		void DrawToolbar(EditorContext const& context);
@@ -142,6 +149,7 @@ namespace Strada
 		std::optional<ImTextureID> m_Texture;
 		int m_TextureFrame = -1;
 		int m_VisibleFrame = -1;
+		ImGuiID m_VisibleDockNode = 0;
 		std::optional<float> m_ToolbarHeight;
 		GameViewResolution m_Resolution = GameViewResolution::Free;
 		glm::uvec2 m_RenderSize = glm::uvec2(1280, 720);

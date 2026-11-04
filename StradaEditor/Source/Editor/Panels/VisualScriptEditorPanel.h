@@ -158,6 +158,8 @@ namespace Strada
 		GamePreviewEdge,
 		HintBeside,
 		HintNotNow,
+		// The newest toast's [Show].
+		ToastShow,
 		Count
 	};
 
@@ -216,6 +218,9 @@ namespace Strada
 														"Waiting nodes survive edits that keep them; new variables start at their value.";
 		inline constexpr std::string_view SimulatingTooltip =
 			"SIMULATING \xC2\xB7 visual scripts do not run while simulating: Play runs them.";
+		// The pill's tooltip while the game runs the last version that worked: with this version's errors when it has any.
+		inline constexpr std::string_view LastWorkingHas = ": this version has ";
+		inline constexpr std::string_view LastWorkingKeeps = ": the game keeps running the last version that worked.";
 		inline constexpr std::string_view CanvasHint =
 			"Tab or right-click: add a node \xC2\xB7 Drag from a pin: connect \xC2\xB7 Middle-drag: pan "
 			"\xC2\xB7 Wheel: zoom (view menu: Scroll) \xC2\xB7 F1: shortcuts";
@@ -356,6 +361,8 @@ namespace Strada
 		inline constexpr std::string_view PopoverLastWorking = "The game runs the last version that worked: ";
 		inline constexpr std::string_view PopoverNodeChanged = " node changed since is not running";
 		inline constexpr std::string_view PopoverNodesChanged = " nodes changed since are not running";
+		inline constexpr std::string_view PopoverLinkChanged = " link changed since is not running";
+		inline constexpr std::string_view PopoverLinksChanged = " links changed since are not running";
 		inline constexpr std::string_view PopoverReferenceChanged = "a graph it uses changed since";
 		inline constexpr std::string_view PopoverOutline = "Outline nodes not running";
 		inline constexpr std::string_view PopoverLastEdit = "Last edit: ";
@@ -422,6 +429,8 @@ namespace Strada
 		inline constexpr std::string_view BesideHintNotNow = "Not now";
 		inline constexpr std::string_view BesideNotApplied = "Game View Beside: ";
 		inline constexpr std::string_view BesideAlreadyVisible = "the game view is in view already";
+		inline constexpr std::string_view BesideNotOpen = "the graph window is not open";
+		inline constexpr std::string_view BesideNoDockSpace = "the dock space is not available";
 
 		inline constexpr std::array All = std::to_array<std::string_view>({Degraded,
 		                                                                   ReadOnlyMemory,
@@ -436,6 +445,8 @@ namespace Strada
 		                                                                   SimulatingFull,
 		                                                                   LiveTooltip,
 		                                                                   SimulatingTooltip,
+		                                                                   LastWorkingHas,
+		                                                                   LastWorkingKeeps,
 		                                                                   CanvasHint,
 		                                                                   CanvasHintPan,
 		                                                                   WireHint,
@@ -561,6 +572,8 @@ namespace Strada
 		                                                                   PopoverLastWorking,
 		                                                                   PopoverNodeChanged,
 		                                                                   PopoverNodesChanged,
+		                                                                   PopoverLinkChanged,
+		                                                                   PopoverLinksChanged,
 		                                                                   PopoverReferenceChanged,
 		                                                                   PopoverOutline,
 		                                                                   PopoverLastEdit,
@@ -621,7 +634,9 @@ namespace Strada
 		                                                                   BesideHintBeside,
 		                                                                   BesideHintNotNow,
 		                                                                   BesideNotApplied,
-		                                                                   BesideAlreadyVisible});
+		                                                                   BesideAlreadyVisible,
+		                                                                   BesideNotOpen,
+		                                                                   BesideNoDockSpace});
 	}
 
 	// The pane sizes of spec §10.1, in font sizes.
@@ -803,6 +818,19 @@ namespace Strada
 		// The nodes of the whole document the game does not run as stored (VisualScriptEngine::RunsStoredProgram), while the
 		// live state is LastWorking: FindVisualScriptNotRunning over every sub-graph. 0 otherwise and for libraries.
 		uint32_t GetNotRunningCount() const { return m_NotRunningCount; }
+		// The problems pill's tooltip in the last draw (the analysis' counts, and the runtime's after " · at run time: ").
+		std::string const& GetProblemsTooltip() const { return m_ProblemsTooltip; }
+		// The toasts shown, oldest first, with how they look and end: the warning colour, when it goes (ImGui time; none for a
+		// failure, which stays until dismissed), and the buttons it offers.
+		struct ToastRecord
+		{
+			std::string Text;
+			bool Warning = false;
+			std::optional<double> Expires;
+			bool HasShow = false;
+			bool BreakOnErrors = false;
+		};
+		std::vector<ToastRecord> GetToastRecords() const;
 		// The Live popover (spec-slice4 §15.2): whether its last draw showed it, and its lines in order (buttons excluded).
 		bool IsLivePopoverOpen() const { return m_LivePopoverOpen; }
 		std::vector<std::string> const& GetLivePopoverLines() const { return m_LivePopoverLines; }
@@ -813,6 +841,9 @@ namespace Strada
 		// The preview header's text in the last draw (VisualScriptPanelTexts::PreviewTitle, or PreviewClickToPlay while the game
 		// does not have the input); empty while it is not shown.
 		std::string_view GetGamePreviewTitle() const { return m_GamePreviewShown ? m_GamePreviewTitle : std::string_view(); }
+		// The text the preview's image area showed instead of the game in the last draw (PreviewNoImage when the game rendered
+		// without an image); empty while it showed the image, or nothing before the game's first render for it.
+		std::string_view GetGamePreviewMessage() const { return m_GamePreviewShown ? m_GamePreviewMessage : std::string_view(); }
 		// Whether the Beside hint showed over the canvas in the last draw: once per user, after Play hid the window behind the
 		// game view in its dock node, while the game plays.
 		bool IsBesideHintShown() const { return m_BesideHintShown; }
@@ -1342,6 +1373,12 @@ namespace Strada
 		double m_LastReceiptTime = -1.0e30;
 		std::vector<std::string> m_ReceiptReset;
 		std::vector<std::string> m_ReceiptNew;
+		// The graph's document as its asset held it at the window's last look at the log: a receipt of the graph's own edit comes
+		// with a change of it (a commit, an undo or redo, an outside change). A load of an unchanged document (an instance
+		// started, a scene loaded, a graph first used in a play session) is nobody's edit (spec-slice4 §15.1).
+		Ref<VisualScriptDocument const> m_ReceiptDocument;
+		// The last edit's receipt was Pending: the Deferred receipt that ends it is that edit's too.
+		bool m_ReceiptPending = false;
 		// The key of the toast of a Pending receipt, which the Applied receipt that ends it updates.
 		std::optional<uint64_t> m_PendingToast;
 		uint64_t m_ReceiptToasts = 0;
@@ -1358,6 +1395,8 @@ namespace Strada
 		Ref<VisualScriptDocument const> m_NotRunningStored;
 		std::vector<std::pair<uint32_t, VisualScriptNotRunning>> m_NotRunning;
 		uint32_t m_NotRunningCount = 0;
+		uint32_t m_NotRunningLinkCount = 0;
+		std::string m_ProblemsTooltip;
 		std::vector<VisualScriptLiveMark> m_LiveMarks;
 		std::vector<uint32_t> m_NotRunningLinks;
 		// Those and the window manager's (VisualScriptWindowDebugInput::LiveMarks) of the shown sub-graph: the view's.
@@ -1378,6 +1417,7 @@ namespace Strada
 		};
 		bool m_GamePreviewShown = false;
 		std::string_view m_GamePreviewTitle;
+		std::string_view m_GamePreviewMessage;
 		std::optional<PreviewDrag> m_PreviewDrag;
 		std::optional<glm::vec2> m_PreviewPosition;
 		// Play hid the window behind the game view in its dock node: the Beside hint shows when it is shown again while playing.

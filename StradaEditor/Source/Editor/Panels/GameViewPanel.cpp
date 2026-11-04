@@ -176,6 +176,7 @@ namespace Strada
 			return;
 		}
 		m_VisibleFrame = ImGui::GetFrameCount();
+		m_VisibleDockNode = ImGui::GetWindowDockID();
 		float const toolbarTop = ImGui::GetCursorPosY();
 		DrawToolbar(context);
 		m_ToolbarHeight = ImGui::GetCursorPosY() - toolbarTop;
@@ -271,9 +272,19 @@ namespace Strada
 		return m_TextureFrame == ImGui::GetFrameCount() ? m_Texture : std::nullopt;
 	}
 
+	bool GameViewPanel::HasRenderedThisFrame() const
+	{
+		return m_TextureFrame == ImGui::GetFrameCount();
+	}
+
 	bool GameViewPanel::IsVisible() const
 	{
 		return m_VisibleFrame == ImGui::GetFrameCount();
+	}
+
+	ImGuiID GameViewPanel::GetVisibleDockNode() const
+	{
+		return IsVisible() ? m_VisibleDockNode : 0;
 	}
 
 	std::optional<std::pair<glm::vec2, glm::vec2>> GameViewPanel::GetWindowRect() const
@@ -379,7 +390,7 @@ namespace Strada
 			{
 				m_BesideAction();
 			}
-			ImGui::SetItemTooltip("Show the game beside the graph window it shares this dock node with");
+			ImGui::SetItemTooltip("%s", BesideTooltip.data());
 			ImGui::SameLine();
 		}
 		ImGui::AlignTextToFramePadding();

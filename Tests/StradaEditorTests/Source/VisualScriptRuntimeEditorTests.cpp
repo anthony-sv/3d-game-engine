@@ -28,6 +28,7 @@
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
+#include "Editor/VisualScripting/VisualScriptSidebar.h"
 #include "Editor/VisualScripting/VisualScriptTimeline.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
@@ -1017,6 +1018,8 @@ namespace
 		VisualScriptEditors Editors{Operations, Semantics, Settings};
 		CommandRegistry Registry;
 		VisualScriptDrawRecord Record;
+		// The graphs CreateGraph made, whose files the panel invariant reads.
+		std::vector<AssetHandle> Graphs;
 
 		LiveFixture()
 		{
@@ -1077,7 +1080,33 @@ namespace
 			Result<AssetHandle> const handle = AssetManager::ResolveReference(graph);
 			REQUIRE(handle.IsOk());
 			Set(handle.GetValue(), document);
+			Graphs.push_back(handle.GetValue());
 			return handle.GetValue();
+		}
+
+		// The panel invariant (spec-slice2 §15): three editor frames of drawing change no undo count, no graph file byte and no
+		// asset version.
+		void CheckDrawingChangesNothing()
+		{
+			auto const snapshot = [this]
+			{
+				std::vector<std::pair<std::string, uint64_t>> files;
+				for (AssetHandle const graph : Graphs)
+				{
+					Result<std::string> const text = FileSystem::ReadTextFile(AssetManager::GetAbsolutePath(graph));
+					REQUIRE(text.IsOk());
+					Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+					files.emplace_back(text.GetValue(), asset != nullptr ? asset->GetVersion() : 0);
+				}
+				return files;
+			};
+			size_t const undo = Context.GetHistory().GetUndoCount();
+			uint64_t const version = AssetManager::GetVersion();
+			std::vector<std::pair<std::string, uint64_t>> const before = snapshot();
+			Frames(3);
+			CHECK(Context.GetHistory().GetUndoCount() == undo);
+			CHECK(AssetManager::GetVersion() == version);
+			CHECK(snapshot() == before);
 		}
 
 		void Set(AssetHandle graph, VisualScriptDocument const& document)
@@ -1159,6 +1188,19 @@ namespace
 			return Json();
 		}
 
+		// The window's toast that begins with a text, with how it looks and ends; none when it shows none.
+		std::optional<VisualScriptEditorPanel::ToastRecord> FindToast(AssetHandle graph, std::string_view start)
+		{
+			for (VisualScriptEditorPanel::ToastRecord const& toast : Window(graph).GetToastRecords())
+			{
+				if (toast.Text.starts_with(start))
+				{
+					return toast;
+				}
+			}
+			return std::nullopt;
+		}
+
 		// The window's toasts that begin with a text.
 		std::vector<std::string> Toasts(AssetHandle graph, std::string_view start = {})
 		{
@@ -1228,6 +1270,7 @@ TEST_CASE("VisualScriptEditor: a commit while playing toasts its receipt and gra
 	// Drawn in this order.
 	fixture.Open(counter);
 	fixture.Open(other);
+	fixture.CheckDrawingChangesNothing();
 	fixture.Start();
 	fixture.Frames(3);
 	// Play's first loads are nobody's edits: no toast, no receipt (S4-R11.3).
@@ -1279,6 +1322,7 @@ TEST_CASE("VisualScriptEditor: a broken edit while playing toasts that the game 
 	fixture.CreateRunner("Counter", counter);
 	fixture.Open(counter);
 	fixture.Window(counter).SetDrawRecord(&fixture.Record);
+	fixture.CheckDrawingChangesNothing();
 	fixture.Start();
 	fixture.Frames(3);
 	CHECK(fixture.CountLiveMarks(VisualScriptLiveMarkKind::NotRunning) == 0);
@@ -1292,6 +1336,12 @@ TEST_CASE("VisualScriptEditor: a broken edit while playing toasts that the game 
 	CHECK(kept.front().find(" (first: ") != std::string::npos);
 	CHECK(kept.front().find("(node 20))") != std::string::npos);
 	CHECK(kept.front().ends_with("; the game keeps running the last version that worked"));
+	// In the warning colour, for 8 seconds rather than a toast's 4.
+	std::optional<VisualScriptEditorPanel::ToastRecord> const warning = fixture.FindToast(counter, "Live: not applied: ");
+	REQUIRE(warning.has_value());
+	CHECK(warning->Warning);
+	REQUIRE(warning->Expires.has_value());
+	CHECK(*warning->Expires - ImGui::GetTime() > VisualScriptEditorPanel::ToastSeconds + 2.0);
 	Json editor = fixture.Editor(counter);
 	CHECK(editor["live"] == "LastWorking");
 	CHECK(editor["notRunning"] == 1);
@@ -1331,6 +1381,7 @@ TEST_CASE("VisualScriptEditor: a broken edit while stopped keeps the stop with L
 	fixture.CreateRunner("Counter", counter);
 	fixture.Open(counter);
 	fixture.Ok("graph.breakpoints", Json::object({{"graph", counter.ToString()}, {"add", Json::array({Json::object({{"node", 14}})})}}));
+	fixture.CheckDrawingChangesNothing();
 	fixture.Start();
 	for (int frame = 0; frame < 30 && fixture.Session.GetSessionState() != VisualScriptDebugSessionState::Stopped; frame++)
 	{
@@ -1394,6 +1445,7 @@ TEST_CASE("VisualScriptEditor: an edit that cancels a waiting Delay toasts it an
 	fixture.CreateRunner("Waiter", waiter);
 	fixture.Open(waiter);
 	fixture.Window(waiter).SetDrawRecord(&fixture.Record);
+	fixture.CheckDrawingChangesNothing();
 	fixture.Start();
 	fixture.Frames(3);
 
@@ -1430,6 +1482,7 @@ TEST_CASE("VisualScriptEditor: while playing the Timeline drawer draws the playh
 	AssetHandle const graph = fixture.CreateGraph("Scripts/Rise.sgraph", document);
 	UUID const riser = fixture.CreateRunner("Riser", graph);
 	fixture.Open(graph);
+	fixture.CheckDrawingChangesNothing();
 	fixture.Ok("graph.open", Json::object({{"graph", graph.ToString()}, {"timeline", 11}}));
 	fixture.Frames(2);
 	VisualScriptCurveEditor const& curves = fixture.Window(graph).GetDrawer().GetCurveEditor();
@@ -1468,6 +1521,7 @@ TEST_CASE("VisualScriptEditor: a runtime error badges its node with its count, t
 	fixture.CreateRunner("Second", divider);
 	fixture.Open(divider);
 	fixture.Window(divider).SetDrawRecord(&fixture.Record);
+	fixture.CheckDrawingChangesNothing();
 	fixture.Start();
 	fixture.Frames(4);
 
@@ -1540,6 +1594,7 @@ TEST_CASE("VisualScriptEditor: the Live popover says since when the graph runs, 
 	UUID const entity = fixture.CreateRunner("Waiter", waiter);
 	fixture.Open(waiter);
 	fixture.Window(waiter).SetDrawRecord(&fixture.Record);
+	fixture.CheckDrawingChangesNothing();
 	fixture.Start();
 	fixture.Frames(3);
 
@@ -1604,7 +1659,8 @@ TEST_CASE("VisualScriptEditor: a library's Live popover lists what each graph th
           "window")
 {
 	LiveFixture fixture;
-	// A pure Twice(Value) = 2 × Value (function 20), called by two scripts that each run on an entity, and by one no entity runs.
+	// A pure Twice(Value) = 2 × Value (function 20), called by two scripts that each run on an entity; later by a third that never
+	// compiles and a fourth whose entity goes.
 	VisualScriptDocument library;
 	library.Kind = VisualScriptDocumentKind::Library;
 	VisualScriptFunction twice;
@@ -1636,6 +1692,7 @@ TEST_CASE("VisualScriptEditor: a library's Live popover lists what each graph th
 	fixture.CreateRunner("Second", second);
 	fixture.Open(first);
 	fixture.Open(math);
+	fixture.CheckDrawingChangesNothing();
 	fixture.Start();
 	fixture.Frames(3);
 
@@ -1657,10 +1714,67 @@ TEST_CASE("VisualScriptEditor: a library's Live popover lists what each graph th
 	CHECK(std::find(lines.begin(), lines.end(), "Graphs that call this library:") != lines.end());
 	CHECK(std::find(lines.begin(), lines.end(), "Scripts/First.sgraph runs this version") != lines.end());
 	CHECK(std::find(lines.begin(), lines.end(), "Scripts/Second.sgraph runs this version") != lines.end());
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+	REQUIRE_FALSE(fixture.Window(math).IsLivePopoverOpen());
+
+	// S4-R11.3's other three answers. Third, started while playing, never compiles: no working version of it calls the library.
+	// Fourth runs it until its entity goes: no entity runs it. Second, broken by an edit, keeps its working program when the
+	// library changes again: it runs the last version of the library that worked.
+	VisualScriptDocument broken = caller();
+	broken.Graph.Nodes.push_back(MakeNode(20, "Call:Strada.Nothing.Here()", glm::vec2(480.0f, 320.0f)));
+	broken.Graph.Links.push_back(MakeLink(11, "Then", 20, "Execute"));
+	AssetHandle const third = fixture.CreateGraph("Scripts/Third.sgraph", broken);
+	AssetHandle const fourth = fixture.CreateGraph("Scripts/Fourth.sgraph", caller());
+	fixture.CreateRunner("Third", third);
+	UUID const fourthRunner = fixture.CreateRunner("Fourth", fourth);
+	fixture.Frames(2);
+	fixture.Ok("entity.delete", Json::object({{"entities", Json::array({fourthRunner.ToString()})}}));
+	fixture.Set(second, broken);
+	fixture.Frames(2);
+
+	// A library edit a graph that calls it cannot take: the library's window says the scripts that call it keep their last
+	// working version, in the warning colour.
+	VisualScriptDocument four = library;
+	four.Functions.front().Graph.Nodes[1].Inputs["B"] = 4;
+	fixture.Set(math, four);
+	fixture.Frames(2);
+	std::optional<VisualScriptEditorPanel::ToastRecord> const kept = fixture.FindToast(math, "Live: not applied: ");
+	REQUIRE(kept.has_value());
+	CHECK(kept->Text.ends_with("; the scripts that call Math keep running the last version that worked"));
+	CHECK(kept->Warning);
+
+	fixture.ClickItem(math, VisualScriptPanelItem::Live);
+	fixture.Frames(1);
+	REQUIRE(fixture.Window(math).IsLivePopoverOpen());
+	std::vector<std::string> const users = fixture.Window(math).GetLivePopoverLines();
+	CHECK(std::find(users.begin(), users.end(), "Scripts/First.sgraph runs this version") != users.end());
+	CHECK(std::find(users.begin(), users.end(), "Scripts/Second.sgraph runs the last version that worked") != users.end());
+	CHECK(std::find(users.begin(), users.end(), "Scripts/Third.sgraph has no working version that calls this library") != users.end());
+	CHECK(std::find(users.begin(), users.end(), "Scripts/Fourth.sgraph: no entity runs it") != users.end());
+
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+
+	// The library damaged: First, which calls it, keeps its last working version though none of its own nodes or links
+	// changed. Its pill's tooltip gives its analysis' count (the library's error reaches it), and its popover says why.
+	VisualScriptDocument damaged = four;
+	damaged.Functions.front().Graph.Nodes.push_back(MakeNode(24, "Call:Strada.Nothing.Here()", glm::vec2(200.0f, 200.0f)));
+	fixture.Set(math, damaged);
+	fixture.Frames(3);
+	REQUIRE(fixture.Editor(first)["live"] == "LastWorking");
+	CHECK(fixture.Editor(first)["notRunning"] == 0);
+	CHECK(fixture.Window(first).GetLiveTooltip() ==
+	      "LIVE \xC2\xB7 last working version: this version has 1 error: the game keeps running the last version that worked.");
+	fixture.ClickItem(first, VisualScriptPanelItem::Live);
+	fixture.Frames(1);
+	REQUIRE(fixture.Window(first).IsLivePopoverOpen());
+	std::vector<std::string> const why = fixture.Window(first).GetLivePopoverLines();
+	CHECK(std::find(why.begin(), why.end(), "The game runs the last version that worked: a graph it uses changed since") != why.end());
 }
 
 TEST_CASE("VisualScriptEditor: the runtime's finding of a damaged Timeline offers Edit in Details, which shows Details' Timeline section "
-          "with its finding and gives Length the keyboard")
+          "with its finding and why it cannot be edited there")
 {
 	// Spec-slice4 §15.9, the runtime half of S-R10.5: the runtime's finding carries Setting "Timeline".
 	VisualScriptDocument document;
@@ -1772,4 +1886,264 @@ TEST_CASE("VisualScriptEditor: a value dragged in the canvas's live widget while
 		}
 	}
 	CHECK(toasts == std::vector<std::string>{"Live: applied to 1 instance"});
+}
+
+TEST_CASE("VisualScriptEditor: a graph's load for an entity that starts while playing is nobody's edit: no toast, no receipt")
+{
+	LiveFixture fixture;
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeLiveCounterDocument());
+	// The scene runs visual scripts: an entity runs another graph from Play's start.
+	AssetHandle const other = fixture.CreateGraph("Scripts/Other.sgraph", MakeLiveCounterDocument());
+	fixture.CreateRunner("Other", other);
+	fixture.Open(counter);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Start();
+	fixture.Frames(3);
+
+	// An entity created while playing runs Counter, which no entity ran at Play's start: the engine loads it, and that load's
+	// receipt (Applied, no instance yet, every variable added) is in the log, but no edit of the window's made it.
+	uint64_t const serial = fixture.Editors.GetLiveLog()->Serial;
+	fixture.CreateRunner("Late", counter);
+	fixture.Frames(3);
+	Ref<VisualScriptLiveLog const> const log = fixture.Editors.GetLiveLog();
+	REQUIRE(std::any_of(log->Edits.begin(), log->Edits.end(),
+	                    [counter, serial](Ref<VisualScriptLiveEdit const> const& edit)
+	                    {
+							return edit->Graph == counter && edit->Serial > serial;
+						}));
+	CHECK(fixture.Toasts(counter, "Live: ").empty());
+	CHECK(fixture.Editor(counter)["liveReceipt"].is_null());
+
+	// The window's edits toast as before.
+	VisualScriptDocument fixed = MakeLiveCounterDocument();
+	fixed.Graph.Nodes[5].Inputs["B"] = 2;
+	fixture.Set(counter, fixed);
+	fixture.Frames(2);
+	CHECK(fixture.Toasts(counter, "Live: ") == std::vector<std::string>{"Live: applied to 1 instance"});
+	CHECK(fixture.Editor(counter)["liveReceipt"]["outcome"] == "Applied");
+}
+
+TEST_CASE("VisualScriptEditor: Simulate after a play session with runtime errors keeps them as the last run and toasts nothing")
+{
+	LiveFixture fixture;
+	AssetHandle const divider = fixture.CreateGraph("Scripts/Divider.sgraph", MakeLiveDivisionDocument());
+	fixture.CreateRunner("First", divider);
+	fixture.Open(divider);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Start();
+	fixture.Frames(4);
+	REQUIRE(fixture.Toasts(divider, "Divide (node 12) failed on ").size() == 1);
+	fixture.Ok("graph.open", Json::object({{"graph", divider.ToString()}, {"problems", true}}));
+	fixture.Frames(2);
+	fixture.Play.Stop();
+	fixture.Frames(2);
+	REQUIRE(fixture.Window(divider).GetDrawer().GetRuntimeHeader() == "Runtime (last run)");
+
+	// Graphs do not run while simulating: no play session starts, so nothing toasts again and the last run stays the last run.
+	Result<void> const simulating = fixture.Play.Start(EditorPlayState::Simulate, 640, 480, nullptr, PlayStartOptions());
+	REQUIRE_MESSAGE(simulating.IsOk(), (simulating ? std::string() : simulating.GetError()));
+	fixture.Frames(4);
+	CHECK(fixture.Toasts(divider, "Divide (node 12) failed on ").size() == 1);
+	VisualScriptDrawer const& drawer = fixture.Window(divider).GetDrawer();
+	CHECK(drawer.GetRuntimeHeader() == "Runtime (last run)");
+	CHECK(drawer.FindRuntimeButton(SIZE_MAX, "Clear").has_value());
+	CHECK(fixture.Editor(divider)["runtimeProblems"] == Json::object({{"errors", 1}, {"warnings", 0}}));
+	fixture.Play.Stop();
+}
+
+TEST_CASE("VisualScriptEditor: a runtime error's toast shows its node with its entity and offers Break on errors; the problems pill and "
+          "the Live popover count it, and the popover's Show opens the Runtime section")
+{
+	LiveFixture fixture;
+	AssetHandle const divider = fixture.CreateGraph("Scripts/Divider.sgraph", MakeLiveDivisionDocument());
+	UUID const first = fixture.CreateRunner("First", divider);
+	fixture.Open(divider);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Start();
+	fixture.Frames(4);
+
+	std::optional<VisualScriptEditorPanel::ToastRecord> const failed = fixture.FindToast(divider, "Divide (node 12) failed on First: ");
+	REQUIRE(failed.has_value());
+	CHECK(failed->HasShow);
+	CHECK(failed->BreakOnErrors);
+	// The pill's tooltip counts what happened at run time after the analysis' counts.
+	CHECK(fixture.Window(divider).GetProblemsTooltip().ends_with(" \xC2\xB7 at run time: 1 error"));
+
+	// [Show]: the Divide selected, First the context entity, the toast gone.
+	fixture.Window(divider).ChooseContextEntity(UUID::Invalid());
+	fixture.Frames(1);
+	fixture.ClickItem(divider, VisualScriptPanelItem::ToastShow);
+	fixture.Frames(2);
+	std::span<uint32_t const> const selection = fixture.Window(divider).GetModel().GetSelection();
+	CHECK(std::vector<uint32_t>(selection.begin(), selection.end()) == std::vector<uint32_t>{12});
+	CHECK(fixture.Window(divider).GetContextEntity() == first);
+	CHECK_FALSE(fixture.FindToast(divider, "Divide (node 12) failed on ").has_value());
+
+	// The Live popover's runtime line, and its [Show]: the drawer's Runtime section, the popover closed.
+	fixture.ClickItem(divider, VisualScriptPanelItem::Live);
+	fixture.Frames(1);
+	REQUIRE(fixture.Window(divider).IsLivePopoverOpen());
+	std::vector<std::string> const lines = fixture.Window(divider).GetLivePopoverLines();
+	CHECK(std::find(lines.begin(), lines.end(), "1 error at run time") != lines.end());
+	std::optional<VisualScriptRect> const show = fixture.Window(divider).GetItemRect(VisualScriptPanelItem::PopoverShowRuntime);
+	REQUIRE(show.has_value());
+	fixture.Gui.Click(ImVec2((show->Min.x + show->Max.x) * 0.5f, (show->Min.y + show->Max.y) * 0.5f), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Window(divider).IsLivePopoverOpen());
+	CHECK(fixture.Editor(divider)["drawer"] == "Problems");
+	CHECK(fixture.Window(divider).GetDrawer().GetRuntimeHeader() == "Runtime");
+
+	// The next play session's first error toasts again; its [Break on errors] turns the session's option on.
+	fixture.Play.Stop();
+	fixture.Frames(2);
+	fixture.Start();
+	fixture.Frames(4);
+	std::optional<VisualScriptEditorPanel::ToastRecord> const again = fixture.FindToast(divider, "Divide (node 12) failed on First: ");
+	REQUIRE(again.has_value());
+	REQUIRE(again->BreakOnErrors);
+	REQUIRE_FALSE(fixture.Session.IsBreakOnErrors());
+	fixture.ClickItem(divider, VisualScriptPanelItem::ToastBreakOnErrors);
+	fixture.Frames(2);
+	CHECK(fixture.Session.IsBreakOnErrors());
+	fixture.Play.Stop();
+	fixture.Session.SetBreakOnErrors(false);
+}
+
+TEST_CASE("VisualScriptEditor: an edit of a graph with no working version toasts that it has none until dismissed; the edit that fixes "
+          "it is saved while no entity runs it yet")
+{
+	LiveFixture fixture;
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeBrokenLiveCounterDocument());
+	fixture.CreateRunner("Counter", counter);
+	fixture.Open(counter);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Start();
+	fixture.Frames(3);
+	// Broken from Play's start: nothing toasts for Play's load.
+	CHECK(fixture.Toasts(counter, "Live: ").empty());
+
+	// Edited, still broken: no version runs, a failure that stays.
+	VisualScriptDocument broken = MakeBrokenLiveCounterDocument();
+	broken.Graph.Nodes[2].Inputs["B"] = 2;
+	fixture.Set(counter, broken);
+	fixture.Frames(2);
+	std::optional<VisualScriptEditorPanel::ToastRecord> const none = fixture.FindToast(counter, "Live: not applied: ");
+	REQUIRE(none.has_value());
+	CHECK(none->Text.ends_with("; Counter has no version that runs"));
+	CHECK_FALSE(none->Expires.has_value());
+	CHECK(fixture.Editor(counter)["liveReceipt"]["outcome"] == "NotRunning");
+
+	// Fixed: the runtime takes it before the entity's instance starts (at the next update), so it applies to no instance.
+	fixture.Set(counter, MakeLiveCounterDocument());
+	fixture.Frames(2);
+	CHECK(fixture.Toasts(counter, "Live: saved; ").size() == 1);
+	CHECK(fixture.FindToast(counter, "Live: saved; no entity runs Counter now").has_value());
+	CHECK(fixture.Editor(counter)["live"] == "Live");
+}
+
+TEST_CASE("VisualScriptEditor: an edit with more than two notes says how many, and My Script says reset and new before the values for "
+          "4 seconds")
+{
+	LiveFixture fixture;
+	// The counter with three variables nothing reads.
+	VisualScriptDocument document = MakeLiveCounterDocument();
+	for (uint32_t id = 3; id <= 5; id++)
+	{
+		document.Variables.push_back(MakeVariable(id, fmt::format("Spare{}", id), "int", 0));
+	}
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Counter.sgraph", document);
+	UUID const runner = fixture.CreateRunner("Counter", graph);
+	fixture.Open(graph);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Start();
+	fixture.Frames(3);
+	fixture.Window(graph).ChooseContextEntity(runner);
+	fixture.EditorFrame(0.3f);
+
+	// The three change type (each reset), and Bonus is new: three notes.
+	VisualScriptDocument retyped = document;
+	for (size_t index = 2; index < 5; index++)
+	{
+		retyped.Variables[index].Type = "float";
+		retyped.Variables[index].Value = 0.0;
+	}
+	retyped.Variables.push_back(MakeVariable(6, "Bonus", "int", 5));
+	fixture.Set(graph, retyped);
+	fixture.Frames(1);
+	CHECK(fixture.Toasts(graph, "Live: ") == std::vector<std::string>{"Live: applied to 1 instance \xC2\xB7 3 notes"});
+	// My Script, once it read the values again.
+	fixture.EditorFrame(0.3f);
+	VisualScriptSidebar const& sidebar = fixture.Window(graph).GetSidebar();
+	REQUIRE(sidebar.FindLiveCellRect(3).has_value());
+	REQUIRE(sidebar.FindLiveCellRect(6).has_value());
+	CHECK(sidebar.GetLiveCellLabel(3) == VisualScriptLiveTexts::Reset);
+	CHECK(sidebar.GetLiveCellLabel(5) == VisualScriptLiveTexts::Reset);
+	CHECK(sidebar.GetLiveCellLabel(6) == VisualScriptLiveTexts::New);
+	CHECK(sidebar.GetLiveCellLabel(1).empty());
+	// Gone after 4 seconds.
+	fixture.EditorFrame(4.0f);
+	fixture.EditorFrame();
+	REQUIRE(sidebar.FindLiveCellRect(3).has_value());
+	CHECK(sidebar.GetLiveCellLabel(3).empty());
+	CHECK(sidebar.GetLiveCellLabel(6).empty());
+}
+
+TEST_CASE("VisualScriptEditor: graph.editors reports where the game preview shows while the game plays out of view")
+{
+	LiveFixture fixture;
+	VisualScriptEditorServices services = fixture.Editors.GetServices();
+	// A game view that is closed, and a game that renders without an image.
+	services.GamePreview = []() -> std::optional<VisualScriptGamePreview>
+	{
+		VisualScriptGamePreview preview;
+		preview.Rendered = true;
+		preview.Size = glm::uvec2(640, 480);
+		return preview;
+	};
+	fixture.Editors.SetServices(std::move(services));
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeLiveCounterDocument());
+	fixture.CreateRunner("Counter", counter);
+	fixture.Open(counter);
+	fixture.CheckDrawingChangesNothing();
+	CHECK(fixture.Editor(counter)["gamePreview"] == Json::object({{"shown", false}, {"rect", nullptr}}));
+
+	fixture.Start();
+	fixture.Frames(3);
+	Json const preview = fixture.Editor(counter)["gamePreview"];
+	CHECK(preview["shown"] == true);
+	REQUIRE(preview["rect"].is_array());
+	REQUIRE(preview["rect"].size() == 4);
+	std::optional<VisualScriptRect> const rect = fixture.Window(counter).GetItemRect(VisualScriptPanelItem::GamePreview);
+	REQUIRE(rect.has_value());
+	CHECK(preview["rect"][0].get<double>() == doctest::Approx(rect->Min.x));
+	CHECK(preview["rect"][1].get<double>() == doctest::Approx(rect->Min.y));
+	CHECK(preview["rect"][2].get<double>() == doctest::Approx(rect->GetSize().x));
+	CHECK(preview["rect"][3].get<double>() == doctest::Approx(rect->GetSize().y));
+	CHECK(fixture.Window(counter).GetGamePreviewMessage() == VisualScriptPanelTexts::PreviewNoImage);
+}
+
+TEST_CASE("VisualScriptEditor: when only links of a broken edit do not run, the Live popover counts the links")
+{
+	LiveFixture fixture;
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeLiveCounterDocument());
+	fixture.CreateRunner("Counter", counter);
+	fixture.Open(counter);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Start();
+	fixture.Frames(3);
+
+	// The two Adds feed each other's B: the nodes are as they were, and the analysis refuses the two new links' cycle.
+	VisualScriptDocument cycle = MakeLiveCounterDocument();
+	cycle.Graph.Links.push_back(MakeLink(12, "Result", 15, "B"));
+	cycle.Graph.Links.push_back(MakeLink(15, "Result", 12, "B"));
+	fixture.Set(counter, cycle);
+	fixture.Frames(2);
+	REQUIRE(fixture.Editor(counter)["live"] == "LastWorking");
+	CHECK(fixture.Editor(counter)["notRunning"] == 0);
+	fixture.ClickItem(counter, VisualScriptPanelItem::Live);
+	fixture.Frames(1);
+	REQUIRE(fixture.Window(counter).IsLivePopoverOpen());
+	std::vector<std::string> const lines = fixture.Window(counter).GetLivePopoverLines();
+	CHECK(std::find(lines.begin(), lines.end(), "The game runs the last version that worked: 2 links changed since are not running") !=
+	      lines.end());
 }

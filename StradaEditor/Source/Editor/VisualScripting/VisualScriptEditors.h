@@ -166,10 +166,14 @@ namespace Strada
 		// editor then renders the game for it while the game view is hidden (WantsHiddenGameRender).
 		bool WantsGamePreview() const;
 		// Game View Beside for the graph's window: queued (outcome Queued) for the editor, which runs it at the start of the next
-		// frame (TakeGameViewBesideRequest, then OnGameViewBesidePlaced). A later request replaces one not run yet.
+		// frame its window was drawn in before (TakeGameViewBesideRequest, then OnGameViewBesidePlaced). A later request replaces
+		// one not run yet.
 		void RequestGameViewBeside(AssetHandle graph);
-		// The queued request's graph, taken; none when nothing is queued.
-		std::optional<AssetHandle> TakeGameViewBesideRequest();
+		// The queued request's graph, taken, once the graph's window was drawn in the last frame; none while nothing is queued,
+		// or while a window that is open has not been drawn yet (a window the request's own call opened is first drawn after
+		// the dock space). A window not drawn within BesideWaitFrames frames, or one not open, gets its request then, which
+		// PlaceGameViewBeside refuses. Inside an ImGui frame.
+		[[nodiscard]] std::optional<AssetHandle> TakeGameViewBesideRequest();
 		// What the editor's docking did with the request: kept for graph.editors, toasted in the graph's window unless it was
 		// Applied (which brings the window to the front of its node).
 		void OnGameViewBesidePlaced(VisualScriptGameBesideState state);
@@ -181,6 +185,8 @@ namespace Strada
 
 		// How long a receipt's marks stay on the nodes where it cancelled a wait or reset a state (seconds, spec-slice4 §15.3).
 		static constexpr double ReceiptMarkSeconds = 4.0;
+		// How many frames a Game View Beside request waits for its open window's first draw.
+		static constexpr uint32_t BesideWaitFrames = 10;
 
 	private:
 		// A receipt's mark on a node of a window's document, shown until Expires (ImGui time).
@@ -268,8 +274,14 @@ namespace Strada
 		// The graph whose stop ended without a resume while the pause is held, and why (the stop-ended listener).
 		AssetHandle m_HeldGraph;
 		std::string m_HeldReason;
-		// Game View Beside: the request waiting for the next frame, and the last request's outcome.
-		std::optional<AssetHandle> m_BesideRequest;
+		// Game View Beside: the request waiting for the next frame its window was drawn in (and the frames it waited), and the
+		// last request's outcome.
+		struct BesideRequest
+		{
+			AssetHandle Graph;
+			uint32_t Waited = 0;
+		};
+		std::optional<BesideRequest> m_BesideRequest;
 		std::optional<VisualScriptGameBesideState> m_GameBeside;
 	};
 }

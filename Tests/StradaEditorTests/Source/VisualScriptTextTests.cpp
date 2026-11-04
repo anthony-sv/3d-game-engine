@@ -2,6 +2,7 @@
 #include "VisualScriptPanelTestUtilities.h"
 #include "VisualScriptTestUtilities.h"
 
+#include "Editor/Panels/GameViewPanel.h"
 #include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
@@ -176,6 +177,8 @@ TEST_CASE("VisualScriptEditor: the editor's UI font has every character the canv
 	texts.insert(texts.end(), VisualScriptDebugControls::Texts::All.begin(), VisualScriptDebugControls::Texts::All.end());
 	texts.insert(texts.end(), VisualScriptDebugMenuTexts::All.begin(), VisualScriptDebugMenuTexts::All.end());
 	texts.insert(texts.end(), VisualScriptDebugSession::Texts.begin(), VisualScriptDebugSession::Texts.end());
+	// The game view's Game View Beside button and its tooltip (spec-slice4 §15.6).
+	texts.insert(texts.end(), GameViewPanel::Texts.begin(), GameViewPanel::Texts.end());
 	// The separators the panes put between the parts of their texts (spec §15.4: the strings the panes format): Details' middle
 	// dots and its mixed-values dash, the palette's and the drawer's chevron between a place's parts, My Script's function sign.
 	texts.emplace_back("Node 1 \xC2\xB7 Flow.Delay");

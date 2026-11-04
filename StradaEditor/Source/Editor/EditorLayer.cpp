@@ -558,9 +558,11 @@ namespace Strada
 		{
 			preview.Texture = static_cast<uint64_t>(*texture);
 		}
+		preview.Rendered = m_GameViewPanel->HasRenderedThisFrame();
 		preview.Size = m_GameViewPanel->GetRenderSize();
 		preview.GameViewOpen = m_ShowGameView;
 		preview.GameViewVisible = m_ShowGameView && m_GameViewPanel->IsVisible();
+		preview.GameViewDockNode = preview.GameViewVisible ? m_GameViewPanel->GetVisibleDockNode() : 0;
 		preview.GameViewRect = m_ShowGameView ? m_GameViewPanel->GetWindowRect() : std::nullopt;
 		preview.GameHasInput = m_GameInput.HasInput();
 		return preview;

@@ -193,6 +193,7 @@ namespace Strada
 		m_ReadOnly = frame.ReadOnly;
 		m_LiveCellRects.clear();
 		m_TypeRects.clear();
+		m_LiveCellLabels.clear();
 		m_LiveTooltip.clear();
 		if (context.Shared.Rename)
 		{
@@ -1500,6 +1501,9 @@ namespace Strada
 		ImVec2 const cursor = ImGui::GetCursorScreenPos();
 		ImGui::SetCursorScreenPos(ImVec2(x, top));
 		ImGui::PushID("liveCell");
+		// A colour's swatch is drawn over the cell later: it takes the hover there, and shows ImGui's colour tooltip
+		// (ItemHoverable refuses a later item over one that does not allow overlap, imgui.cpp:5155).
+		ImGui::SetNextItemAllowOverlap();
 		bool const clicked = ImGui::InvisibleButton("##cell", ImVec2(right - x, height));
 		bool const hovered = ImGui::IsItemHovered();
 		m_LiveCellRects.emplace_back(variable.ID, std::pair(glm::vec2(x, top), glm::vec2(right, top + height)));
@@ -1528,6 +1532,7 @@ namespace Strada
 			std::string_view const label = reset ? VisualScriptLiveTexts::Reset : VisualScriptLiveTexts::New;
 			drawList->AddText(ImVec2(left, textY), dimmed, label.data(), label.data() + label.size());
 			left += ImGui::CalcTextSize(label.data(), label.data() + label.size()).x + style.ItemInnerSpacing.x;
+			m_LiveCellLabels.emplace_back(variable.ID, label);
 		}
 		bool cut = false;
 		if (cell.Kind == VisualScriptValueCellKind::Swatch && cell.Color)
@@ -1648,6 +1653,16 @@ namespace Strada
 	{
 		auto const found = m_LiveCells.find(variable);
 		return found != m_LiveCells.end() && time - found->second.Changed >= 0.0 && time - found->second.Changed < LiveFlashSeconds;
+	}
+
+	std::string_view VisualScriptSidebar::GetLiveCellLabel(uint32_t variable) const
+	{
+		auto const found = std::find_if(m_LiveCellLabels.begin(), m_LiveCellLabels.end(),
+		                                [variable](std::pair<uint32_t, std::string_view> const& label)
+		                                {
+											return label.first == variable;
+										});
+		return found != m_LiveCellLabels.end() ? found->second : std::string_view();
 	}
 
 	std::optional<std::pair<glm::vec2, glm::vec2>> VisualScriptSidebar::FindLiveCellRect(uint32_t variable) const

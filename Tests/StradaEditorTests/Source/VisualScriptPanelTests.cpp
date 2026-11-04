@@ -19,6 +19,7 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
@@ -2590,6 +2591,7 @@ TEST_CASE("VisualScriptEditor: the game preview shows in a canvas corner while t
 		besides.push_back(graph);
 	};
 	VisualScriptEditorPanel const& panel = *fixture.Panel;
+	fixture.CheckDrawingChangesNothing();
 
 	// Not while editing.
 	fixture.Frames(2);
@@ -2615,7 +2617,30 @@ TEST_CASE("VisualScriptEditor: the game preview shows in a canvas corner while t
 	float const header = ImGui::GetFrameHeight();
 	CHECK(rect.GetSize().x - 2.0f == doctest::Approx(std::round(canvas->Size.x * 0.3f)).epsilon(0.01));
 	CHECK((rect.GetSize().y - header - 2.0f) * 1280.0f / 720.0f == doctest::Approx(rect.GetSize().x - 2.0f).epsilon(0.01));
+	// Its 1-pixel border in the play colour is in the preview's own draw list, which ImGui draws after the window's and the
+	// canvas's: over the preview, not under it.
+	ImGuiWindow const* const previewWindow = fixture.GetChild("##gamePreview");
+	auto const holdsBorder = [](ImGuiWindow const* window)
+	{
+		return std::any_of(window->DrawList->VtxBuffer.begin(), window->DrawList->VtxBuffer.end(),
+		                   [](ImDrawVert const& vertex)
+		                   {
+							   return vertex.col == VisualScriptPlayColor;
+						   });
+	};
+	CHECK(holdsBorder(previewWindow));
+	CHECK(panel.GetGamePreviewMessage().empty());
 	fixture.CheckDrawingChangesNothing();
+
+	// Without an image: "No camera renders the game" once the game rendered without one; nothing before its first render.
+	preview.Texture.reset();
+	fixture.Frames(1);
+	CHECK(panel.GetGamePreviewMessage().empty());
+	preview.Rendered = true;
+	fixture.Frames(1);
+	CHECK(panel.GetGamePreviewMessage() == VisualScriptPanelTexts::PreviewNoImage);
+	preview.Texture = 7;
+	preview.Rendered = false;
 
 	// The game has the input: the header says Game alone. The game view in view: no preview.
 	preview.GameHasInput = true;
@@ -2693,6 +2718,7 @@ TEST_CASE("VisualScriptEditor: an open request scrolls Details to a row of the s
 	PanelFixture fixture(MakeLanguageDocument());
 	// A short window: Details holds more than it shows.
 	fixture.WindowSize = ImVec2(1600.0f, 300.0f);
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptOpenRequest select;
 	select.Graph = fixture.Graph;
 	select.Select = {2};
@@ -2724,5 +2750,78 @@ TEST_CASE("VisualScriptEditor: an open request scrolls Details to a row of the s
 	fixture.Frames(VisualScriptDetails::FocusSettingFrames + 2);
 	CHECK_FALSE(fixture.Panel->GetPaneShared().ScrollRow.has_value());
 	CHECK(details->Scroll.y == scroll);
+	// Scrolling to a row wrote nothing.
 	fixture.CheckDrawingChangesNothing();
+}
+
+namespace
+{
+	// A receipt of the panel fixture's graph as the live log keeps it.
+	Ref<VisualScriptLiveEdit const> MakeReceipt(AssetHandle graph, uint64_t serial, VisualScriptLiveOutcome outcome, bool deferred,
+	                                            uint32_t instances)
+	{
+		VisualScriptLiveEdit edit;
+		edit.Serial = serial;
+		edit.Graph = graph;
+		edit.Name = "Scripts/Player.sgraph";
+		edit.Outcome = outcome;
+		edit.Deferred = deferred;
+		edit.Instances = instances;
+		edit.Pending = outcome == VisualScriptLiveOutcome::Pending ? 1 : 0;
+		return CreateRef<VisualScriptLiveEdit const>(std::move(edit));
+	}
+
+	std::vector<std::string> GetLiveToasts(VisualScriptEditorPanel const& panel)
+	{
+		std::vector<std::string> toasts;
+		for (std::string const& toast : panel.GetState().Toasts)
+		{
+			if (toast.starts_with("Live: "))
+			{
+				toasts.push_back(toast);
+			}
+		}
+		return toasts;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: an edit's Pending receipt toasts that it applies when the running step ends, and the receipt that ends "
+          "it says so in its place; a load nobody edited for toasts nothing")
+{
+	PanelFixture fixture(MakeDocument());
+	VisualScriptLiveLog log;
+	log.Serial = 1;
+	fixture.Panel->SetLiveLog(CreateRef<VisualScriptLiveLog const>(log));
+	fixture.CheckDrawingChangesNothing();
+	fixture.Context.BeginPlay(Scene::Copy(fixture.Context.GetScene()), EditorPlayState::Play);
+	fixture.Frames(2);
+	VisualScriptEditorPanel const& panel = *fixture.Panel;
+
+	// An outside edit whose swap waits for the step that runs the old program.
+	VisualScriptDocument edited = MakeDocument();
+	edited.Graph.Nodes.push_back(MakeNode(90, "Event.Create", glm::vec2(0.0f, 640.0f)));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, edited).IsOk());
+	log.Serial = 2;
+	log.Edits.push_back(MakeReceipt(fixture.Graph, 2, VisualScriptLiveOutcome::Pending, false, 0));
+	fixture.Panel->SetLiveLog(CreateRef<VisualScriptLiveLog const>(log));
+	fixture.Frames(1);
+	CHECK(GetLiveToasts(panel) == std::vector<std::string>{"Live: applies when the running step ends"});
+
+	// The step ended: the deferred receipt, with no change of the document, takes the Pending toast's place.
+	log.Serial = 3;
+	log.Edits.push_back(MakeReceipt(fixture.Graph, 3, VisualScriptLiveOutcome::Applied, true, 1));
+	fixture.Panel->SetLiveLog(CreateRef<VisualScriptLiveLog const>(log));
+	fixture.Frames(1);
+	CHECK(GetLiveToasts(panel) == std::vector<std::string>{"Live: applied to 1 instance"});
+	REQUIRE(panel.GetLastReceipt() != nullptr);
+	CHECK(panel.GetLastReceipt()->Serial == 3);
+
+	// A load of the unchanged document (an instance started with it, a scene loaded) is nobody's edit.
+	log.Serial = 4;
+	log.Edits.push_back(MakeReceipt(fixture.Graph, 4, VisualScriptLiveOutcome::Applied, false, 0));
+	fixture.Panel->SetLiveLog(CreateRef<VisualScriptLiveLog const>(log));
+	fixture.Frames(1);
+	CHECK(GetLiveToasts(panel) == std::vector<std::string>{"Live: applied to 1 instance"});
+	CHECK(panel.GetLastReceipt()->Serial == 3);
+	fixture.Context.EndPlay();
 }

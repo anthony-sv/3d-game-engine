@@ -82,6 +82,9 @@ namespace Strada
 		// text in the last Draw.
 		std::optional<std::pair<glm::vec2, glm::vec2>> FindLiveCellRect(uint32_t variable) const;
 		std::optional<std::pair<glm::vec2, glm::vec2>> FindTypeRect(uint32_t variable) const;
+		// What a variable's live value cell said before its value in the last Draw, for a few seconds after a receipt
+		// (VisualScriptLiveTexts::Reset or New); empty when it said nothing.
+		std::string_view GetLiveCellLabel(uint32_t variable) const;
 		// The tooltip a hovered live value cell showed in the last Draw (a colour's is ImGui's own); empty when none was hovered.
 		std::string const& GetLiveTooltip() const { return m_LiveTooltip; }
 		// A function library's header line in the last Draw ("Function library · used by 5 nodes in 3 scripts"); empty for a
@@ -165,6 +168,7 @@ namespace Strada
 		UUID m_LiveEntity = UUID::Invalid();
 		std::vector<std::pair<uint32_t, std::pair<glm::vec2, glm::vec2>>> m_LiveCellRects;
 		std::vector<std::pair<uint32_t, std::pair<glm::vec2, glm::vec2>>> m_TypeRects;
+		std::vector<std::pair<uint32_t, std::string_view>> m_LiveCellLabels;
 		std::string m_LiveTooltip;
 		std::string m_LibraryLine;
 	};

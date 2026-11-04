@@ -2,11 +2,9 @@
 
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
-#include "Editor/Panels/GameViewPanel.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
-#include "Editor/VisualScripting/VisualScriptGameBeside.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
@@ -1173,11 +1171,13 @@ namespace Strada
 		if (!visible)
 		{
 			// Play hid the window: the game view came forward in its dock node. The Beside hint shows when it is shown again.
-			if (m_Operations.GetContext().GetPlayState() == EditorPlayState::Play && !m_Settings.IsHintSeen(VisualScriptGameViewBesideHint))
+			// (The game view is drawn before the graph windows: the service tells where it is in front this frame.)
+			if (m_Operations.GetContext().GetPlayState() == EditorPlayState::Play &&
+			    !m_Settings.IsHintSeen(VisualScriptGameViewBesideHint) && m_Services.GamePreview)
 			{
 				ImGuiWindow const* const window = ImGui::GetCurrentWindow();
-				ImGuiWindow const* const game = ImGui::FindWindowByName(GameViewPanel::WindowName);
-				if (window->DockNode != nullptr && game != nullptr && game->DockNode == window->DockNode && game->DockTabIsVisible)
+				std::optional<VisualScriptGamePreview> const game = m_Services.GamePreview();
+				if (window->DockNode != nullptr && game && game->GameViewVisible && game->GameViewDockNode == window->DockNode->ID)
 				{
 					m_BesideHintPending = true;
 				}
@@ -2516,6 +2516,7 @@ namespace Strada
 				tooltip += fmt::format("{}{}", Texts::AtRunTime, counts);
 			}
 			ImGui::SetItemTooltip("%s", tooltip.c_str());
+			m_ProblemsTooltip = std::move(tooltip);
 			ImDrawList* drawList = ImGui::GetWindowDrawList();
 			if (ImGui::IsItemHovered())
 			{
@@ -2894,8 +2895,13 @@ namespace Strada
 				{
 					return fmt::format("This version has {}: graphs that call it keep running the last version that worked.", counted);
 				}
-				return fmt::format("{}: this version has {}: the game keeps running the last version that worked.", Texts::LastWorking,
-				                   counted);
+				// Since S4-R11.1 the game runs an older version also when this one has no errors (a graph it uses changed since):
+				// the errors are told only when there are any.
+				if (errors == 0)
+				{
+					return fmt::format("{}{}", Texts::LastWorking, Texts::LastWorkingKeeps);
+				}
+				return fmt::format("{}{}{}{}", Texts::LastWorking, Texts::LastWorkingHas, counted, Texts::LastWorkingKeeps);
 			}
 			case VisualScriptLiveState::Simulating:
 				return std::string(Texts::SimulatingTooltip);
@@ -2941,10 +2947,12 @@ namespace Strada
 		}
 		if (m_Live == VisualScriptLiveState::LastWorking && !library)
 		{
-			line(fmt::format("{}{}", Texts::PopoverLastWorking,
-			                 m_NotRunningCount == 0
-			                     ? std::string(Texts::PopoverReferenceChanged)
-			                     : CountWords(m_NotRunningCount, Texts::PopoverNodeChanged, Texts::PopoverNodesChanged)));
+			// What of this graph the game does not run: its nodes, else its links; else none of its own (a graph it uses changed).
+			std::string const missing =
+				m_NotRunningCount > 0       ? CountWords(m_NotRunningCount, Texts::PopoverNodeChanged, Texts::PopoverNodesChanged)
+				: m_NotRunningLinkCount > 0 ? CountWords(m_NotRunningLinkCount, Texts::PopoverLinkChanged, Texts::PopoverLinksChanged)
+											: std::string(Texts::PopoverReferenceChanged);
+			line(fmt::format("{}{}", Texts::PopoverLastWorking, missing));
 			if (ImGui::SmallButton(Texts::StripShowFirstError.data()))
 			{
 				// The drawer's problems, and the first error's node in view.
@@ -3229,13 +3237,15 @@ namespace Strada
 
 	void VisualScriptEditorPanel::TakeLiveEvents(bool toast, std::optional<uint64_t> key, std::vector<ReceiptText>* collected)
 	{
-		bool const playing = m_Operations.GetContext().IsPlaying();
+		// Graphs run in Play only (not while simulating, whose start keeps the last run's problems).
+		bool const playing = m_Operations.GetContext().GetPlayState() == EditorPlayState::Play;
 		// A play session starts: its first loads are nobody's edits, and its runtime problems are new (S4-R11.3).
 		if (playing && !m_LivePlaying)
 		{
 			m_LiveSerial.reset();
 			m_LastReceipt.reset();
 			m_PendingToast.reset();
+			m_ReceiptPending = false;
 			m_RuntimeToasted.clear();
 		}
 		m_LivePlaying = playing;
@@ -3243,11 +3253,16 @@ namespace Strada
 		{
 			return;
 		}
+		Result<Ref<VisualScriptAsset>> const asset = AssetManager::TryGetAsset<VisualScriptAsset>(m_Graph);
+		Ref<VisualScriptDocument const> const sent = asset ? asset.GetValue()->GetSharedDocument() : nullptr;
 		if (!m_LiveSerial)
 		{
 			// The window opened, or Play started, after the receipts the log holds.
 			m_LiveSerial = m_LiveLog->Serial;
+			m_ReceiptDocument = sent;
 		}
+		bool const edited = sent != m_ReceiptDocument;
+		m_ReceiptDocument = sent;
 		Ref<VisualScriptDocument const> const& stored = m_Model.GetStoredDocument();
 		bool const library = stored != nullptr && stored->Kind == VisualScriptDocumentKind::Library;
 		std::vector<Ref<VisualScriptLiveEdit const>> caused;
@@ -3259,6 +3274,16 @@ namespace Strada
 			}
 			if (edit->Graph == m_Graph)
 			{
+				if (!edit->Cause.IsValid())
+				{
+					// The graph's own document sent: an edit's receipt only with a change of it, or as the end of an edit's
+					// Pending one; another send (an instance started with a graph no entity ran, a scene loaded) says nothing.
+					if (!edited && !(edit->Deferred && m_ReceiptPending))
+					{
+						continue;
+					}
+					m_ReceiptPending = edit->Outcome == VisualScriptLiveOutcome::Pending;
+				}
 				m_LastReceipt = edit;
 				m_LastReceiptTime = m_Time;
 				m_ReceiptReset.clear();
@@ -3394,7 +3419,7 @@ namespace Strada
 				}
 			}
 		}
-		if (!m_Operations.GetContext().IsPlaying())
+		if (m_Operations.GetContext().GetPlayState() != EditorPlayState::Play)
 		{
 			return;
 		}
@@ -3439,6 +3464,7 @@ namespace Strada
 		{
 			m_NotRunning.clear();
 			m_NotRunningCount = 0;
+			m_NotRunningLinkCount = 0;
 			m_NotRunningWorking.reset();
 			m_NotRunningStored.reset();
 			return;
@@ -3450,6 +3476,7 @@ namespace Strada
 			m_NotRunningStored = stored;
 			m_NotRunning.clear();
 			m_NotRunningCount = 0;
+			m_NotRunningLinkCount = 0;
 			if (working != nullptr)
 			{
 				auto const find = [&](uint32_t function)
@@ -3458,6 +3485,7 @@ namespace Strada
 					if (!missing.Nodes.empty() || !missing.Links.empty())
 					{
 						m_NotRunningCount += static_cast<uint32_t>(missing.Nodes.size());
+						m_NotRunningLinkCount += static_cast<uint32_t>(missing.Links.size());
 						m_NotRunning.emplace_back(function, std::move(missing));
 					}
 				};
@@ -4597,13 +4625,17 @@ namespace Strada
 				m_Services.ShowGameView();
 			}
 			drawList->AddRectFilled(imageMin, imageMax, IM_COL32(0, 0, 0, 255));
+			m_GamePreviewMessage = {};
 			if (preview->Texture)
 			{
 				drawList->AddImage(ImTextureRef(static_cast<ImTextureID>(*preview->Texture)), imageMin, imageMax);
 			}
-			else
+			else if (preview->Rendered)
 			{
+				// Rendered without an image: no camera renders the game. (Not rendered yet, in the first frame the game view is
+				// hidden, the image stays black.)
 				std::string_view const message = Texts::PreviewNoImage;
+				m_GamePreviewMessage = message;
 				ImVec2 const textSize = ImGui::CalcTextSize(message.data(), message.data() + message.size());
 				drawList->PushClipRect(imageMin, imageMax, true);
 				drawList->AddText(ImVec2(imageMin.x + std::max((width - textSize.x) * 0.5f, style.FramePadding.x),
@@ -4622,10 +4654,15 @@ namespace Strada
 			{
 				ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
 			}
+			// The border, in the child's own draw list after its image: ImGui draws a window's list before its children's
+			// (imgui.cpp:6114-6126), so a border in the graph window's list would lie under the preview. The window padding of
+			// one pixel keeps the image inside it; the clip rectangle is widened to the child's edge.
+			drawList->PushClipRect(ToImVec2(position), ToImVec2(position + size), false);
+			drawList->AddRect(ToImVec2(position), ToImVec2(position + size), VisualScriptPlayColor, 0.0f, 1.0f);
+			drawList->PopClipRect();
 		}
 		ImGui::EndChild();
 		RecordItem(VisualScriptPanelItem::GamePreview);
-		ImGui::GetWindowDrawList()->AddRect(ToImVec2(position), ToImVec2(position + size), VisualScriptPlayColor, 0.0f, 1.0f);
 		m_GamePreviewShown = true;
 
 		// Dragging, from where the drag started: the header moves the preview until the release snaps it to the nearest corner,
@@ -5978,6 +6015,10 @@ namespace Strada
 					}
 					dismissed = i;
 				}
+				if (i + 1 == m_Toasts.size())
+				{
+					RecordItem(VisualScriptPanelItem::ToastShow);
+				}
 			}
 			if (toast.Find)
 			{
@@ -6033,6 +6074,17 @@ namespace Strada
 		{
 			m_Toasts.erase(m_Toasts.begin() + static_cast<std::ptrdiff_t>(*dismissed));
 		}
+	}
+
+	std::vector<VisualScriptEditorPanel::ToastRecord> VisualScriptEditorPanel::GetToastRecords() const
+	{
+		std::vector<ToastRecord> records;
+		records.reserve(m_Toasts.size());
+		for (Toast const& toast : m_Toasts)
+		{
+			records.push_back(ToastRecord{toast.Text, toast.Warning, toast.Expires, toast.HasShow, toast.BreakOnErrors});
+		}
+		return records;
 	}
 
 	void VisualScriptEditorPanel::OpenTextEdit(VisualScriptTextEditRequest const& request)
@@ -6316,7 +6368,7 @@ namespace Strada
 		        std::move(live),
 		        std::move(describe),
 		        m_RuntimeProblems,
-		        !m_Operations.GetContext().IsPlaying(),
+		        m_Operations.GetContext().GetPlayState() != EditorPlayState::Play,
 		        recent ? std::span<std::string const>(m_ReceiptReset) : std::span<std::string const>(),
 		        recent ? std::span<std::string const>(m_ReceiptNew) : std::span<std::string const>()};
 	}

@@ -2103,6 +2103,7 @@ TEST_CASE("VisualScriptEditor: Game View Beside docks the game view above the gr
 		fixture.ResetLayout = true;
 		fixture.Frames(2);
 		fixture.OpenGraph(fixture.Player);
+		fixture.CheckDrawingChangesNothing();
 		CHECK(GetNodeRect(ImGui::DockBuilderGetNode(fixture.Center)) == layout.Center);
 		ImGuiWindow const* const graph = FindGraphWindow(fixture.Player);
 		REQUIRE(graph != nullptr);
@@ -2148,6 +2149,7 @@ TEST_CASE("VisualScriptEditor: Game View Beside docks a floating graph window in
 {
 	EditorsFixture fixture;
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	std::string const name = VisualScriptEditorPanel::GetWindowName(fixture.Player, {});
 	fixture.InFrame(
 		[&name]
@@ -2185,6 +2187,7 @@ TEST_CASE("VisualScriptEditor: Game View Beside docks a closed game view by the 
 {
 	EditorsFixture fixture;
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	fixture.GameViewOpen = false;
 	fixture.Frames(2);
 	fixture.Editors.RequestGameViewBeside(fixture.Player);
@@ -2206,6 +2209,7 @@ TEST_CASE("VisualScriptEditor: Game View Beside leaves a game view in front of a
 {
 	EditorsFixture fixture;
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	fixture.InFrame(
 		[&fixture]
 		{
@@ -2229,15 +2233,93 @@ TEST_CASE("VisualScriptEditor: Game View Beside leaves a game view in front of a
 	      VisualScriptGameBesideState{fixture.Door, VisualScriptGameBesideOutcome::Failed, "the graph window is not open"});
 }
 
+TEST_CASE("VisualScriptEditor: Game View Beside asked for with the window's opening waits for its first draw, then docks the game view")
+{
+	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
+	// As graph.open {graph, besideGameView} does: one call opens the window and asks, before the frame whose dock space runs the
+	// request and which draws the window only after it.
+	VisualScriptOpenRequest request;
+	request.Graph = fixture.Player;
+	REQUIRE(fixture.Editors.Open(request).IsOk());
+	fixture.Editors.RequestGameViewBeside(fixture.Player);
+	fixture.Frames(1);
+	REQUIRE(fixture.Editors.GetGameViewBeside().has_value());
+	CHECK(fixture.Editors.GetGameViewBeside()->Outcome == VisualScriptGameBesideOutcome::Queued);
+	fixture.Frames(2);
+	CHECK(*fixture.Editors.GetGameViewBeside() == VisualScriptGameBesideState{fixture.Player, VisualScriptGameBesideOutcome::Applied, {}});
+	ImGuiWindow const* const game = ImGui::FindWindowByName("Game View");
+	ImGuiWindow const* const graph = FindGraphWindow(fixture.Player);
+	REQUIRE(game != nullptr);
+	REQUIRE(graph != nullptr);
+	REQUIRE(game->DockNode != nullptr);
+	REQUIRE(graph->DockNode != nullptr);
+	CHECK(game->DockNode != graph->DockNode);
+	CHECK(game->DockNode->Pos.y < graph->DockNode->Pos.y);
+	CHECK(game->DockTabIsVisible);
+	CHECK(graph->DockTabIsVisible);
+	std::vector<std::string> const toasts = fixture.GetPanel(fixture.Player).GetState().Toasts;
+	CHECK(std::none_of(toasts.begin(), toasts.end(),
+	                   [](std::string const& toast)
+	                   {
+						   return toast.starts_with(VisualScriptPanelTexts::BesideNotApplied);
+					   }));
+}
+
+TEST_CASE("VisualScriptEditor: Game View Beside docks a floating graph window into the node of the game view in front, and splits it")
+{
+	EditorsFixture fixture;
+	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
+	std::string const name = VisualScriptEditorPanel::GetWindowName(fixture.Player, {});
+	fixture.InFrame(
+		[&name]
+		{
+			ImGui::DockBuilderDockWindow(name.c_str(), 0);
+		});
+	fixture.Frames(2);
+	// The game view in front of its node, as Play brings it forward.
+	fixture.Focus("Game View");
+	ImGuiWindow const* const graph = FindGraphWindow(fixture.Player);
+	ImGuiWindow const* const game = ImGui::FindWindowByName("Game View");
+	REQUIRE(graph != nullptr);
+	REQUIRE(game != nullptr);
+	REQUIRE(graph->DockNode == nullptr);
+	REQUIRE(game->DockNode != nullptr);
+	REQUIRE(game->DockTabIsVisible);
+
+	fixture.Editors.RequestGameViewBeside(fixture.Player);
+	fixture.Frames(3);
+	REQUIRE(fixture.Editors.GetGameViewBeside().has_value());
+	CHECK(fixture.Editors.GetGameViewBeside()->Outcome == VisualScriptGameBesideOutcome::Applied);
+	REQUIRE(graph->DockNode != nullptr);
+	REQUIRE(game->DockNode != nullptr);
+	CHECK(game->DockNode != graph->DockNode);
+	CHECK(game->DockNode->Pos.y < graph->DockNode->Pos.y);
+	CHECK(game->DockTabIsVisible);
+	CHECK(graph->DockTabIsVisible);
+}
+
 namespace
 {
-	// The window manager's services with Game View Beside going to its queue, as the editor wires it.
+	// The window manager's services with Game View Beside going to its queue, and the game view stand-in described as the
+	// editor describes its game view (drawn before the graph windows), as the editor wires them.
 	void ConnectBeside(EditorsFixture& fixture)
 	{
 		VisualScriptEditorServices services = fixture.Editors.GetServices();
 		services.PlaceGameViewBeside = [&fixture](AssetHandle graph)
 		{
 			fixture.Editors.RequestGameViewBeside(graph);
+		};
+		services.GamePreview = [&fixture]() -> std::optional<VisualScriptGamePreview>
+		{
+			VisualScriptGamePreview preview;
+			ImGuiWindow const* const game = ImGui::FindWindowByName("Game View");
+			preview.GameViewOpen = fixture.GameViewOpen;
+			preview.GameViewVisible =
+				fixture.GameViewOpen && game != nullptr && game->Active && (game->DockNode == nullptr || game->DockTabIsVisible);
+			preview.GameViewDockNode = preview.GameViewVisible && game->DockNode != nullptr ? game->DockNode->ID : 0;
+			return preview;
 		};
 		fixture.Editors.SetServices(std::move(services));
 	}
@@ -2248,6 +2330,7 @@ TEST_CASE("VisualScriptEditor: the first time Play hides a graph window behind t
 	EditorsFixture fixture;
 	ConnectBeside(fixture);
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	std::string const name = VisualScriptEditorPanel::GetWindowName(fixture.Player, {});
 	VisualScriptEditorPanel& panel = fixture.GetPanel(fixture.Player);
 	auto const hasHint = [&panel]
@@ -2290,6 +2373,7 @@ TEST_CASE("VisualScriptEditor: the Beside hint's [Beside] places the game view b
 	EditorsFixture fixture;
 	ConnectBeside(fixture);
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	std::string const name = VisualScriptEditorPanel::GetWindowName(fixture.Player, {});
 	VisualScriptEditorPanel const& panel = fixture.GetPanel(fixture.Player);
 	fixture.Context.BeginPlay(Scene::Copy(fixture.Context.GetScene()), EditorPlayState::Play);

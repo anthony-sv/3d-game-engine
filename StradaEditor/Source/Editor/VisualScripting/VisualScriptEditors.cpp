@@ -507,13 +507,33 @@ namespace Strada
 
 	void VisualScriptEditors::RequestGameViewBeside(AssetHandle graph)
 	{
-		m_BesideRequest = graph;
+		m_BesideRequest = BesideRequest{graph, 0};
 		m_GameBeside = VisualScriptGameBesideState{graph, VisualScriptGameBesideOutcome::Queued, {}};
 	}
 
 	std::optional<AssetHandle> VisualScriptEditors::TakeGameViewBesideRequest()
 	{
-		return std::exchange(m_BesideRequest, std::nullopt);
+		if (!m_BesideRequest)
+		{
+			return std::nullopt;
+		}
+		// graph.open {besideGameView} opens the window and asks in one call, before the frame whose dock space runs the request
+		// and draws the window only after it: the request waits for the window's first draw (WasActive: drawn in the last
+		// frame, imgui.cpp:5979).
+		if (GraphWindow const* const window = FindGraphWindow(m_BesideRequest->Graph);
+		    window != nullptr && m_BesideRequest->Waited < BesideWaitFrames)
+		{
+			std::string const name = VisualScriptEditorPanel::GetWindowName(m_BesideRequest->Graph, window->Title);
+			ImGuiWindow const* const drawn = ImGui::FindWindowByName(name.c_str());
+			if (drawn == nullptr || !drawn->WasActive)
+			{
+				m_BesideRequest->Waited++;
+				return std::nullopt;
+			}
+		}
+		AssetHandle const graph = m_BesideRequest->Graph;
+		m_BesideRequest.reset();
+		return graph;
 	}
 
 	void VisualScriptEditors::OnGameViewBesidePlaced(VisualScriptGameBesideState state)

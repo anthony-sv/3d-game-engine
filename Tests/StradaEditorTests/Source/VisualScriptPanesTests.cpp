@@ -2239,6 +2239,26 @@ TEST_CASE("VisualScriptEditor: My Script's value cells show a colour as a swatch
 	CHECK(tint->Kind == VisualScriptValueCellKind::Swatch);
 	CHECK(tint->Text.empty());
 	CHECK(tint->Color == std::optional<uint32_t>(VisualScriptRgba(255, 0, 0, 255)));
+	// Hovered, its swatch shows ImGui's colour tooltip (the cell drawn under it lets it take the hover).
+	std::optional<std::pair<glm::vec2, glm::vec2>> const tintCell = fixture.Sidebar.FindLiveCellRect(100);
+	REQUIRE(tintCell.has_value());
+	float const swatchX = tintCell->first.x + ImGui::GetFontSize() * 0.36f + ImGui::GetStyle().ItemInnerSpacing.x + 2.0f;
+	ImGui::GetIO().AddMousePosEvent(swatchX, (tintCell->first.y + tintCell->second.y) * 0.5f);
+	auto const tooltipShown = []
+	{
+		return std::any_of(GImGui->Windows.begin(), GImGui->Windows.end(),
+		                   [](ImGuiWindow const* window)
+		                   {
+							   return (window->Flags & ImGuiWindowFlags_Tooltip) != 0 && window->Active;
+						   });
+	};
+	bool shown = false;
+	for (int frame = 0; frame < 60 && !shown; frame++)
+	{
+		fixture.Frames(1);
+		shown = tooltipShown();
+	}
+	CHECK(shown);
 	// An entity: its name.
 	VisualScriptValueCell const* target = fixture.Sidebar.FindLiveCell(101);
 	REQUIRE(target != nullptr);
@@ -2299,6 +2319,15 @@ TEST_CASE("VisualScriptEditor: My Script's value cells show a colour as a swatch
 	fixture.NewVariables = {"Message"};
 	fixture.Frames(2);
 	CHECK(fixture.Sidebar.FindLiveCellRect(102).has_value());
+	CHECK(fixture.Sidebar.GetLiveCellLabel(102) == VisualScriptLiveTexts::Reset);
+	CHECK(fixture.Sidebar.GetLiveCellLabel(103) == VisualScriptLiveTexts::New);
+	CHECK(fixture.Sidebar.GetLiveCellLabel(101).empty());
+	// The window names them no longer: the labels go.
+	fixture.ResetVariables.clear();
+	fixture.NewVariables.clear();
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetLiveCellLabel(102).empty());
+	CHECK(fixture.Sidebar.GetLiveCellLabel(103).empty());
 	// Not playing: no cells.
 	fixture.Playing = false;
 	fixture.Frames(2);
