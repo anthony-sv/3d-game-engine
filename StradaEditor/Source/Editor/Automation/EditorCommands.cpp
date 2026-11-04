@@ -934,6 +934,13 @@ namespace Strada
 			return FormatGraphRevision(Hash::FNV1a(VisualScriptSerializer::WriteText(document)));
 		}
 
+		// The program revision of a document: of what HaveSameVisualScriptProgram compares, so moves, comments, arranging and
+		// collapsing leave it unchanged. graph.live gives the same (GetVisualScriptProgramRevision).
+		std::string GetGraphProgramRevision(VisualScriptDocument const& document)
+		{
+			return GetVisualScriptProgramRevision(document);
+		}
+
 		bool IsGraphRevision(std::string_view text)
 		{
 			return text.size() == 16 && std::all_of(text.begin(), text.end(),
@@ -1102,7 +1109,7 @@ namespace Strada
 					return error;
 				}
 				bool const program = std::string_view(parameter) == "programRevision";
-				std::string current = program ? GetVisualScriptProgramRevision(*stored) : GetGraphRevision(*stored);
+				std::string current = program ? GetGraphProgramRevision(*stored) : GetGraphRevision(*stored);
 				if (given != current)
 				{
 					CommandError error =
@@ -2385,7 +2392,7 @@ namespace Strada
 									 Json described = DescribeGraph(graph.GetValue());
 									 described["document"] = VisualScriptSerializer::SerializeDocument(document);
 									 described["revision"] = GetGraphRevision(document);
-									 described["programRevision"] = GetVisualScriptProgramRevision(document);
+									 described["programRevision"] = GetGraphProgramRevision(document);
 									 described["analyzed"] = analysis != nullptr;
 									 if (analysis)
 									 {
@@ -2505,7 +2512,7 @@ namespace Strada
 									   bool const changed =
 										   storedDocument == nullptr || !IsSameVisualScriptDocument(*storedDocument, commit.Document);
 									   std::string revision = FormatGraphRevision(Hash::FNV1a(commit.Text));
-									   std::string programRevision = GetVisualScriptProgramRevision(commit.Document);
+									   std::string programRevision = GetGraphProgramRevision(commit.Document);
 									   // The receipts the running game gives the edit (an unchanged document sends nothing).
 									   std::optional<uint64_t> liveSerial;
 									   if (changed)
@@ -3005,7 +3012,7 @@ namespace Strada
 				Json described = DescribeGraph(handle);
 				described["changed"] = changed;
 				described["revision"] = FormatGraphRevision(Hash::FNV1a(request.Text));
-				described["programRevision"] = GetVisualScriptProgramRevision(*request.Document);
+				described["programRevision"] = GetGraphProgramRevision(*request.Document);
 				described["arranged"] = nodes.size();
 				described["bounds"] = Json();
 				if (VisualScriptGraph const* const result = FindVisualScriptGraph(*request.Document, function.GetValue()))
@@ -3334,7 +3341,7 @@ namespace Strada
 				described["changed"] = changed;
 				described["dryRun"] = dryRun;
 				described["revision"] = commit.has_value() ? FormatGraphRevision(Hash::FNV1a(commit->Text)) : GetGraphRevision(*stored);
-				described["programRevision"] = GetVisualScriptProgramRevision(result);
+				described["programRevision"] = GetGraphProgramRevision(result);
 				described["analyses"] = analyses;
 				Json labels = Json::object();
 				for (auto const& [label, id] : batch.Labels)

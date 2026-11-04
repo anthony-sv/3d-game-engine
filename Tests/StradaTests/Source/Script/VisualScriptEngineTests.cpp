@@ -355,6 +355,105 @@ namespace
 		static inline std::vector<Send> s_Sent;
 	};
 
+	// Stands in for the runtime's VisualScriptTakeLiveEvents while it lives: it fails, answers a text that is not JSON, or
+	// passes the call on, and records the serial each call takes the events after. Lives within a Testing::ScriptRuntimeScope,
+	// one at a time.
+	class LiveEventsStub
+	{
+	public:
+		enum class Answer : uint8_t
+		{
+			Failure,
+			Damaged,
+			Pass
+		};
+
+		LiveEventsStub()
+		{
+			ScriptEngineInternal::ScriptEngineData* const data = ScriptEngineInternal::GetData();
+			REQUIRE(data != nullptr);
+			REQUIRE(s_Take == nullptr);
+			s_Answer = Answer::Failure;
+			s_Afters.clear();
+			s_Take = std::exchange(data->Host.VisualScriptTakeLiveEvents, &Take);
+		}
+
+		~LiveEventsStub()
+		{
+			if (ScriptEngineInternal::ScriptEngineData* const data = ScriptEngineInternal::GetData(); data != nullptr)
+			{
+				data->Host.VisualScriptTakeLiveEvents = s_Take;
+			}
+			s_Take = nullptr;
+			s_Afters.clear();
+		}
+
+		LiveEventsStub(LiveEventsStub const&) = delete;
+		LiveEventsStub& operator=(LiveEventsStub const&) = delete;
+
+		void SetAnswer(Answer answer) { s_Answer = answer; }
+
+		// The serials the calls since the last TakeAfters took the events after.
+		std::vector<uint64_t> TakeAfters() { return std::exchange(s_Afters, {}); }
+
+	private:
+		static int32_t Take(uint64_t after, void* context, ScriptEngineInternal::ReceiveFunction receive)
+		{
+			s_Afters.push_back(after);
+			switch (s_Answer)
+			{
+				case Answer::Failure:
+					return static_cast<int32_t>(ScriptEngineInternal::ScriptStatus::Failure);
+				case Answer::Damaged:
+				{
+					constexpr std::string_view Damaged = R"({"Last":)";
+					receive(context, Damaged.data(), static_cast<int32_t>(Damaged.size()));
+					return static_cast<int32_t>(ScriptEngineInternal::ScriptStatus::Success);
+				}
+				case Answer::Pass:
+					break;
+			}
+			return s_Take(after, context, receive);
+		}
+
+		static inline decltype(ScriptEngineInternal::HostFunctions::VisualScriptTakeLiveEvents) s_Take = nullptr;
+		static inline Answer s_Answer = Answer::Failure;
+		static inline std::vector<uint64_t> s_Afters;
+	};
+
+	// A receipt of the live log as the runtime's events give it, completed as the engine completes them.
+	VisualScriptLiveEdit MakeReceipt(uint64_t serial, AssetHandle owner, VisualScriptLiveOutcome outcome, bool deferred = false,
+	                                 AssetHandle causedBy = {})
+	{
+		VisualScriptLiveEdit edit;
+		edit.Serial = serial;
+		edit.Graph = owner;
+		edit.Name = owner.ToString();
+		edit.Outcome = outcome;
+		edit.Deferred = deferred;
+		edit.Cause = causedBy;
+		edit.Instances = outcome == VisualScriptLiveOutcome::Pending ? 0 : 1;
+		edit.Pending = outcome == VisualScriptLiveOutcome::Pending ? 1 : 0;
+		return edit;
+	}
+
+	// A runtime problem at a node of a graph instance, taken at time.
+	VisualScriptRuntimeProblem MakeProblem(uint64_t serial, AssetHandle owner, uint32_t node, UUID entity, uint32_t count, double time)
+	{
+		VisualScriptRuntimeProblem problem;
+		problem.Serial = serial;
+		problem.Graph = owner;
+		problem.Document = owner;
+		problem.Node = node;
+		problem.Title = "Divide";
+		problem.Entity = entity;
+		problem.Message = "integer division by zero";
+		problem.Count = count;
+		problem.FirstTime = time;
+		problem.LastTime = time;
+		return problem;
+	}
+
 	// --- Graphs that refer to graphs ---
 
 	// The function library of the cross-graph tests: the pure Twice(int Value) -> int Result (function 1), Value times
@@ -4230,33 +4329,48 @@ TEST_CASE("VisualScriptEngine: a library edit's receipts name the library as the
 	AssetHandle const other = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeCountDocument(1)), "Counter");
 	CHECK(VisualScriptEngine::DescribeLibraryUsers(library).empty());
 	REQUIRE(VisualScriptEngine::EnsureLoaded(second).IsOk());
-	REQUIRE(VisualScriptEngine::EnsureLoaded(first).IsOk());
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1001), first, {}).IsOk());
 	REQUIRE(VisualScriptEngine::EnsureLoaded(other).IsOk());
 	CHECK_FALSE(FindLastReceipt(first)->Cause.IsValid());
-	std::vector<VisualScriptLibraryUser> const both = {{first, "Caller A", true}, {second, "Caller B", true}};
+	// Both compiled with the current version; an entity runs the first.
+	std::vector<VisualScriptLibraryUser> const both = {{first, "Caller A", true, true, 1}, {second, "Caller B", true, true, 0}};
 	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) == both);
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library)[0].Runs());
+	CHECK_FALSE(VisualScriptEngine::DescribeLibraryUsers(library)[1].Runs());
 	CHECK(VisualScriptEngine::DescribeLibraryUsers(other).empty());
 	CHECK(VisualScriptEngine::DescribeLibraryUsers(AssetHandle(UUID(424242))).empty());
+	CHECK(VisualScriptEngine::RunsStoredProgram(first));
+	CHECK(VisualScriptEngine::RunsStoredProgram(second));
+	CHECK_FALSE(VisualScriptEngine::RunsStoredProgram(library));
+	CHECK_FALSE(VisualScriptEngine::RunsStoredProgram(AssetHandle(UUID(424242))));
 
 	// A node of the library moved: the same program, which every user runs.
 	VisualScriptDocument moved = MakeLibraryDocument();
 	moved.Functions[0].Graph.Nodes[1].Position = glm::vec2(160.0f, 0.0f);
 	libraryAsset->SetDocument(moved);
 	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) == both);
+	CHECK(VisualScriptEngine::RunsStoredProgram(second));
 
-	// Its body edited: the first caller sent again is the library's doing; the second runs the earlier version until sent.
+	// Its body edited: the first caller sent again is the library's doing; the second runs the earlier version until sent,
+	// so it does not run what is stored although its own document did not change.
 	libraryAsset->SetDocument(MakeLibraryDocument(4));
+	CHECK_FALSE(VisualScriptEngine::RunsStoredProgram(second));
 	REQUIRE(VisualScriptEngine::EnsureLoaded(first).IsOk());
 	Ref<VisualScriptLiveEdit const> receipt = FindLastReceipt(first);
 	CHECK(receipt->Cause == library);
 	CHECK(receipt->Outcome == VisualScriptLiveOutcome::Applied);
+	CHECK(receipt->Instances == 1);
 	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) ==
-	      std::vector<VisualScriptLibraryUser>{{first, "Caller A", true}, {second, "Caller B", false}});
+	      std::vector<VisualScriptLibraryUser>{{first, "Caller A", true, true, 1}, {second, "Caller B", false, true, 0}});
+	CHECK(VisualScriptEngine::RunsStoredProgram(first));
+	CHECK_FALSE(VisualScriptEngine::RunsStoredProgram(second));
 	REQUIRE(VisualScriptEngine::EnsureLoaded(second).IsOk());
 	CHECK(FindLastReceipt(second)->Cause == library);
 	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) == both);
+	CHECK(VisualScriptEngine::RunsStoredProgram(second));
 
-	// Broken: its callers keep the version that worked, the library's doing.
+	// Broken: its callers keep the version that worked, the library's doing; their own documents are unchanged, yet what
+	// runs is not what is stored.
 	VisualScriptDocument broken = MakeLibraryDocument();
 	broken.Functions[0].Graph.Nodes.push_back(MakeNode(13, "Sample.NoSuchNode"));
 	libraryAsset->SetDocument(broken);
@@ -4265,15 +4379,40 @@ TEST_CASE("VisualScriptEngine: a library edit's receipts name the library as the
 	CHECK(receipt->Cause == library);
 	CHECK(receipt->Outcome == VisualScriptLiveOutcome::KeptLastWorking);
 	CHECK_FALSE(receipt->Errors.empty());
+	CHECK(VisualScriptEngine::HasWorkingProgram(first));
+	CHECK_FALSE(VisualScriptEngine::RunsStoredProgram(first));
 	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) ==
-	      std::vector<VisualScriptLibraryUser>{{first, "Caller A", false}, {second, "Caller B", false}});
+	      std::vector<VisualScriptLibraryUser>{{first, "Caller A", false, true, 1}, {second, "Caller B", false, true, 0}});
 
-	// The caller's own edit is no library's doing.
+	// A caller that never compiled runs no version of the library, nor does one whose working program does not call it
+	// (only its broken document does): both are listed, neither compiled with it.
+	VisualScriptDocument failing = MakeCallerDocument(library);
+	failing.Graph.Nodes.push_back(MakeNode(30, "Sample.NoSuchNode"));
+	AssetHandle const third = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(failing), "Caller C");
+	REQUIRE(VisualScriptEngine::EnsureLoaded(third).IsOk());
+	CHECK(FindLastReceipt(third)->Outcome == VisualScriptLiveOutcome::NotRunning);
+	CHECK_FALSE(VisualScriptEngine::RunsStoredProgram(third));
+	Ref<VisualScriptAsset> const otherAsset = AssetManager::GetAsset<VisualScriptAsset>(other);
+	REQUIRE(otherAsset != nullptr);
+	CHECK(SendsDocument(*otherAsset, other, failing));
+	CHECK(FindLastReceipt(other)->Outcome == VisualScriptLiveOutcome::KeptLastWorking);
+	CHECK_FALSE(VisualScriptEngine::RunsStoredProgram(other));
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) == std::vector<VisualScriptLibraryUser>{{first, "Caller A", false, true, 1},
+	                                                                                                {second, "Caller B", false, true, 0},
+	                                                                                                {third, "Caller C", false, false, 0},
+	                                                                                                {other, "Counter", false, false, 0}});
+
+	// The caller's own edit is no library's doing, and with its entity gone no entity runs it.
 	Ref<VisualScriptAsset> const firstAsset = AssetManager::GetAsset<VisualScriptAsset>(first);
 	REQUIRE(firstAsset != nullptr);
 	CHECK(SendsDocument(*firstAsset, first, MakeCountDocument(2)));
 	CHECK_FALSE(FindLastReceipt(first)->Cause.IsValid());
-	CHECK(VisualScriptEngine::DescribeLibraryUsers(library) == std::vector<VisualScriptLibraryUser>{{second, "Caller B", false}});
+	CHECK(VisualScriptEngine::RunsStoredProgram(first));
+	CHECK(SendsDocument(*firstAsset, first, MakeCallerDocument(library)));
+	CHECK(FindLastReceipt(first)->Outcome == VisualScriptLiveOutcome::KeptLastWorking);
+	VisualScriptEngine::DestroyInstance(UUID(1001));
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library)[0] == VisualScriptLibraryUser{first, "Caller A", false, false, 0});
+	CHECK(VisualScriptEngine::DescribeLibraryUsers(library)[1] == VisualScriptLibraryUser{second, "Caller B", false, true, 0});
 	CHECK(host.Exceptions == 0);
 }
 
@@ -4600,6 +4739,176 @@ TEST_CASE("VisualScriptEngine: ParseVisualScriptLiveEvents reads the runtime's e
 		CHECK(last == 1);
 		CHECK(dropped == 1);
 	}
+
+	// A swap a running step holds: Pending, with the instances it waits for.
+	std::string pending = replaced(R"("Outcome":"Swapped")", R"("Outcome":"Pending")");
+	constexpr std::string_view Counts = R"("Instances":3,"Pending":0)";
+	size_t const counts = pending.find(Counts);
+	REQUIRE(counts != std::string::npos);
+	pending.replace(counts, Counts.size(), R"("Instances":1,"Pending":2)");
+	auto const readPending = ParseVisualScriptLiveEvents(pending, last, dropped);
+	REQUIRE_MESSAGE(readPending.IsOk(), readPending.GetError());
+	VisualScriptLiveEdit const& held = readPending.GetValue().first[0];
+	CHECK(held.Outcome == VisualScriptLiveOutcome::Pending);
+	CHECK_FALSE(held.Deferred);
+	CHECK(held.Instances == 1);
+	CHECK(held.Pending == 2);
+	CHECK(held.Errors.empty());
+	CHECK(ParseVisualScriptLiveEvents(replaced(R"("Outcome":"Swapped","Deferred":false)", R"("Outcome":"Pending","Deferred":true)"), last,
+	                                  dropped)
+	          .IsError());
+}
+
+TEST_CASE("VisualScriptEngine: AppendVisualScriptLiveEvents makes the next revision: a Deferred receipt takes the Cause of the "
+          "Pending one it ends, a problem taken again keeps its first time, and the input revision never changes")
+{
+	AssetHandle const graph(UUID(11));
+	AssetHandle const other(UUID(12));
+	AssetHandle const library(UUID(13));
+	VisualScriptLiveLog const empty;
+
+	// In one take: the Pending receipt a library edit caused, then the Deferred one that ends it, which names no cause.
+	Ref<VisualScriptLiveLog const> const one =
+		AppendVisualScriptLiveEvents(empty,
+	                                 {MakeReceipt(1, graph, VisualScriptLiveOutcome::Pending, false, library),
+	                                  MakeReceipt(2, graph, VisualScriptLiveOutcome::Applied, true)},
+	                                 {}, 2, 0);
+	REQUIRE(one->Edits.size() == 2);
+	CHECK(one->Edits[0]->Cause == library);
+	CHECK(one->Edits[1]->Cause == library);
+	CHECK(one->Edits[1]->Deferred);
+	CHECK(one->Serial == 2);
+	CHECK(one->Dropped == 0);
+	CHECK(empty.Edits.empty());
+
+	// In a later take: the Pending receipt is the earlier revision's; another graph's Pending is not this graph's, and a
+	// Deferred receipt that names its cause keeps it.
+	Ref<VisualScriptLiveLog const> const two =
+		AppendVisualScriptLiveEvents(*one, {MakeReceipt(3, other, VisualScriptLiveOutcome::Pending, false, library)}, {}, 3, 0);
+	Ref<VisualScriptLiveLog const> const three =
+		AppendVisualScriptLiveEvents(*two,
+	                                 {MakeReceipt(4, other, VisualScriptLiveOutcome::Applied, true),
+	                                  MakeReceipt(5, graph, VisualScriptLiveOutcome::Applied, true, other)},
+	                                 {}, 5, 1);
+	REQUIRE(three->Edits.size() == 5);
+	CHECK(three->Edits[3]->Cause == library);
+	CHECK(three->Edits[4]->Cause == other);
+	CHECK(three->Dropped == 1);
+	// The entries that did not change are the earlier revision's, which keeps its own.
+	CHECK(three->Edits[0] == one->Edits[0]);
+	CHECK(three->Edits[2] == two->Edits[2]);
+	CHECK(two->Edits.size() == 3);
+	CHECK(two->Serial == 3);
+	CHECK(one->Edits.size() == 2);
+
+	// The newest Pending receipt of the graph is the one a Deferred receipt ends: here the graph's own edit, no cause.
+	Ref<VisualScriptLiveLog const> const newest = AppendVisualScriptLiveEvents(
+		*three,
+		{MakeReceipt(6, graph, VisualScriptLiveOutcome::Pending, false, library), MakeReceipt(7, graph, VisualScriptLiveOutcome::Pending),
+	     MakeReceipt(8, graph, VisualScriptLiveOutcome::Applied, true)},
+		{}, 8, 1);
+	CHECK_FALSE(newest->Edits.back()->Cause.IsValid());
+	// Nor does a Deferred receipt of a graph with no Pending one take any.
+	Ref<VisualScriptLiveLog const> const alone =
+		AppendVisualScriptLiveEvents(empty,
+	                                 {MakeReceipt(1, other, VisualScriptLiveOutcome::Pending, false, library),
+	                                  MakeReceipt(2, graph, VisualScriptLiveOutcome::Applied, true)},
+	                                 {}, 2, 0);
+	CHECK_FALSE(alone->Edits.back()->Cause.IsValid());
+
+	// The last 64 receipts: a Pending receipt dropped from them is no longer found.
+	std::vector<VisualScriptLiveEdit> many;
+	many.push_back(MakeReceipt(1, graph, VisualScriptLiveOutcome::Pending, false, library));
+	for (uint64_t serial = 2; serial <= 70; serial++)
+	{
+		many.push_back(MakeReceipt(serial, other, VisualScriptLiveOutcome::Applied));
+	}
+	Ref<VisualScriptLiveLog const> const capped = AppendVisualScriptLiveEvents(empty, std::move(many), {}, 70, 0);
+	REQUIRE(capped->Edits.size() == VisualScriptLiveLog::MaxEdits);
+	CHECK(capped->Edits.front()->Serial == 7);
+	CHECK(capped->Edits.back()->Serial == 70);
+	Ref<VisualScriptLiveLog const> const late =
+		AppendVisualScriptLiveEvents(*capped, {MakeReceipt(71, graph, VisualScriptLiveOutcome::Applied, true)}, {}, 71, 0);
+	REQUIRE(late->Edits.size() == VisualScriptLiveLog::MaxEdits);
+	CHECK(late->Edits.front()->Serial == 8);
+	CHECK_FALSE(late->Edits.back()->Cause.IsValid());
+	CHECK(capped->Edits.front()->Serial == 7);
+
+	// Problems: one per graph, document, node, entity and severity. Taken again, it moves to the end with the first time of
+	// the entry it replaces; should one take hold it twice, the later stands.
+	Ref<VisualScriptLiveLog const> const failed = AppendVisualScriptLiveEvents(
+		empty, {}, {MakeProblem(1, graph, 12, UUID(1001), 1, 10.0), MakeProblem(2, graph, 12, UUID(1002), 1, 11.0)}, 2, 0);
+	REQUIRE(failed->Problems.size() == 2);
+	VisualScriptRuntimeProblem warning = MakeProblem(5, graph, 12, UUID(1001), 1, 13.0);
+	warning.Severity = VisualScriptSeverity::Warning;
+	Ref<VisualScriptLiveLog const> const again = AppendVisualScriptLiveEvents(
+		*failed, {}, {MakeProblem(3, graph, 12, UUID(1001), 3, 12.0), MakeProblem(4, graph, 12, UUID(1001), 4, 12.5), std::move(warning)},
+		5, 0);
+	REQUIRE(again->Problems.size() == 3);
+	CHECK(again->Problems[0] == failed->Problems[1]);
+	VisualScriptRuntimeProblem const& moved = *again->Problems[1];
+	CHECK(moved.Serial == 4);
+	CHECK(moved.Count == 4);
+	CHECK(moved.FirstTime == 10.0);
+	CHECK(moved.LastTime == 12.5);
+	CHECK(again->Problems[2]->Severity == VisualScriptSeverity::Warning);
+	CHECK(again->Problems[2]->FirstTime == 13.0);
+	CHECK(again->Serial == 5);
+	// The revision it was made from is as it was.
+	REQUIRE(failed->Problems.size() == 2);
+	CHECK(failed->Problems[0]->Serial == 1);
+	CHECK(failed->Problems[0]->Count == 1);
+	CHECK(failed->Problems[0]->FirstTime == 10.0);
+	CHECK(failed->Serial == 2);
+}
+
+TEST_CASE("VisualScriptEngine: a live-event take that fails is logged once and keeps the revision, and the next take that "
+          "succeeds reads after the last serial taken")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeUpdateDivisionDocument()), "Division");
+	UUID const entity(1001);
+	REQUIRE(VisualScriptEngine::CreateInstance(entity, graph, {}).IsOk());
+	VisualScriptEngine::InvokeOnUpdate(entity, 1.0f / 60.0f);
+	Ref<VisualScriptLiveLog const> const held = VisualScriptEngine::GetLiveLog();
+	REQUIRE(held->Problems.size() == 1);
+	uint64_t const serial = held->Serial;
+	constexpr std::string_view Failure = "The live events of the visual scripts cannot be taken";
+
+	LiveEventsStub stub;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	VisualScriptEngine::InvokeOnUpdate(entity, 1.0f / 60.0f);
+	// The runtime fails, then answers a text that is not JSON: the same revision each time, the failure logged once.
+	CHECK(VisualScriptEngine::GetLiveLog() == held);
+	CHECK(VisualScriptEngine::GetLiveLog() == held);
+	stub.SetAnswer(LiveEventsStub::Answer::Damaged);
+	VisualScriptEngine::InvokeOnUpdate(entity, 1.0f / 60.0f);
+	CHECK(VisualScriptEngine::GetLiveLog() == held);
+	CHECK(CountLogged(logStart, Failure) == 1);
+	CHECK(CountLogged(logStart, "the scripting runtime failed (see the log)") == 1);
+	CHECK(stub.TakeAfters() == std::vector<uint64_t>{serial, serial, serial});
+	CHECK(held->Serial == serial);
+	CHECK(held->Problems[0]->Count == 1);
+
+	// Taken again: the events after the last serial taken, both missed occurrences counted.
+	stub.SetAnswer(LiveEventsStub::Answer::Pass);
+	Ref<VisualScriptLiveLog const> const recovered = VisualScriptEngine::GetLiveLog();
+	CHECK(stub.TakeAfters() == std::vector<uint64_t>{serial});
+	REQUIRE(recovered != held);
+	REQUIRE(recovered->Problems.size() == 1);
+	CHECK(recovered->Problems[0]->Count == 3);
+	CHECK(recovered->Problems[0]->Serial > serial);
+	CHECK(recovered->Problems[0]->FirstTime == held->Problems[0]->FirstTime);
+	CHECK(CountLogged(logStart, Failure) == 1);
+
+	// A failure after a take that succeeded is logged again.
+	stub.SetAnswer(LiveEventsStub::Answer::Failure);
+	CHECK(VisualScriptEngine::GetLiveLog() == recovered);
+	CHECK(CountLogged(logStart, Failure) == 2);
+	CHECK(stub.TakeAfters() == std::vector<uint64_t>{recovered->Serial});
+	CHECK(host.Exceptions == 3);
 }
 
 TEST_CASE("VisualScriptEngine: damaged live-event texts are refused or read with their form, never crash")

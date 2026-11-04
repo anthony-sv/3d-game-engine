@@ -163,14 +163,26 @@ namespace Strada
 		std::vector<Ref<VisualScriptRuntimeProblem const>> Problems;
 	};
 
-	// A graph whose program calls a library (VisualScriptEngine::DescribeLibraryUsers).
+	// A graph whose programs were compiled with a library (VisualScriptEngine::DescribeLibraryUsers): its working program, or
+	// only the document last sent (which then did not compile, or no longer calls the library).
 	struct VisualScriptLibraryUser
 	{
 		AssetHandle Graph;
 		// The graph's path (the name of a memory asset).
 		std::string Name;
-		// Whether its working program was compiled with the library's current document: else it runs an earlier version.
+		// Whether its working program was compiled with the library's current program: the library's current document, or
+		// one of the same program (HaveSameVisualScriptProgram: a node moved since). False when Compiled is.
 		bool RunsCurrent = false;
+		// Whether its working program runs (VisualScriptEngine::HasWorkingProgram) and was compiled with a version of the
+		// library: false when no version of the graph compiled, or when only a document sent after its working program calls
+		// the library.
+		bool Compiled = false;
+		// The entities whose instances run the graph now.
+		uint32_t Instances = 0;
+
+		// Whether the graph runs a version of the library: its working program was compiled with one, and an entity runs it.
+		// Of those that do, RunsCurrent tells which run the current version and which an earlier one that worked.
+		bool Runs() const { return Compiled && Instances > 0; }
 
 		bool operator==(VisualScriptLibraryUser const& other) const = default;
 	};

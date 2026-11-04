@@ -48,6 +48,7 @@
 #include <functional>
 #include <limits>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -3162,6 +3163,13 @@ namespace
 		VisualScriptDebugSession Session;
 	};
 
+	// A library user as graph.live lists it.
+	Json MakeLibraryUser(std::string const& asset, std::string const& path, bool compiled, bool runsCurrent, uint32_t instances)
+	{
+		return Json::object(
+			{{"asset", asset}, {"path", path}, {"compiled", compiled}, {"runsCurrent", runsCurrent}, {"instances", instances}});
+	}
+
 	// The entry of graph.live's graphs, edits or problems whose member key is value.
 	Json FindEntry(Json const& entries, std::string_view key, Json const& value)
 	{
@@ -3270,6 +3278,18 @@ TEST_CASE("GraphCommands: graph.live lists what the game runs of each graph, the
 	CHECK(nothing["serial"] == serial);
 	CHECK(nothing["edits"] == Json::array());
 	CHECK(nothing["problems"] == Json::array());
+	// A serial past any, even beyond 64 bits as a number without a fraction, lists nothing; 0.0 is 0.
+	for (Json const& beyond : {Json(std::numeric_limits<uint64_t>::max()), Json(1e19), Json(1e20), Json(1e300)})
+	{
+		CAPTURE(beyond.dump());
+		Json const past = fixture.Ok("graph.live", Json::object({{"after", beyond}}));
+		CHECK(past["edits"] == Json::array());
+		CHECK(past["problems"] == Json::array());
+	}
+	CHECK(fixture.Ok("graph.live", Json::object({{"after", 0.0}}))["problems"].size() == 1);
+	Json const skipped = fixture.Ok("graph.instances", Json::object({{"offset", 1e20}}));
+	CHECK(skipped["instances"] == Json::array());
+	CHECK(skipped["total"] == 2);
 	fixture.Ok("play.advance", Json::object({{"frames", 3}}));
 	Json const newer = fixture.Ok("graph.live", Json::object({{"after", serial}}));
 	CHECK(newer["edits"] == Json::array());
@@ -3429,8 +3449,8 @@ TEST_CASE("GraphCommands: graph.edit's and graph.set's live tell what the runnin
 	CHECK(used["runningProgramRevision"].is_null());
 	CHECK(used["notRunning"].is_null());
 	CHECK(used["instances"] == Json::array());
-	CHECK(used["users"] == Json::array({Json::object({{"asset", first}, {"path", "Scripts/First.sgraph"}, {"runsCurrent", true}}),
-	                                    Json::object({{"asset", second}, {"path", "Scripts/Second.sgraph"}, {"runsCurrent", true}})}));
+	CHECK(used["users"] == Json::array({MakeLibraryUser(first, "Scripts/First.sgraph", true, true, 1),
+	                                    MakeLibraryUser(second, "Scripts/Second.sgraph", true, true, 1)}));
 	CHECK(math["edits"].size() == 2);
 	// A library version that does not compile: its dependents keep the version that worked.
 	VisualScriptDocument brokenLibrary = MakeTwiceLibraryDocument();
@@ -3443,7 +3463,309 @@ TEST_CASE("GraphCommands: graph.edit's and graph.set's live tell what the runnin
 	CHECK(broken["live"]["edits"][0]["cause"] == library);
 	Json const stale = fixture.Ok("graph.live", Json::object({{"graph", library}}))["graphs"][0];
 	CHECK(stale["running"] == "LastWorking");
-	CHECK(stale["users"][0]["runsCurrent"] == false);
+	CHECK(stale["users"] == Json::array({MakeLibraryUser(first, "Scripts/First.sgraph", true, false, 1),
+	                                     MakeLibraryUser(second, "Scripts/Second.sgraph", true, false, 1)}));
+	// Their own documents are as stored, yet what runs is their last working version: it was compiled with the earlier
+	// library.
+	for (std::string const& dependent : {first, second})
+	{
+		CAPTURE(dependent);
+		Json const caller = fixture.Ok("graph.live", Json::object({{"graph", dependent}}))["graphs"][0];
+		CHECK(caller["running"] == "LastWorking");
+		CHECK(caller["runningProgramRevision"] == caller["programRevision"]);
+		CHECK(caller["notRunning"] == Json::object({{"nodes", Json::array()}, {"links", Json::array()}}));
+		CHECK(caller["instances"].size() == 1);
+	}
+}
+
+namespace
+{
+	// A library whose pure Inverse(Value) answers 1 / Value: function 20, its Entry 21, the division 22, its Return 23.
+	VisualScriptDocument MakeInverseLibraryDocument()
+	{
+		VisualScriptDocument document;
+		document.Kind = VisualScriptDocumentKind::Library;
+		VisualScriptFunction function;
+		function.ID = 20;
+		function.Name = "Inverse";
+		function.Pure = true;
+		function.Inputs.push_back({"Value", "int", {}});
+		function.Outputs.push_back({"Result", "int", {}});
+		function.Graph.Nodes.push_back(MakeNode(21, "Function.Entry"));
+		function.Graph.Nodes.push_back(MakeNode(22, "Operator.Divide", Json::object(), Json::object({{"A", 1}})));
+		function.Graph.Nodes.push_back(MakeNode(23, "Function.Return"));
+		function.Graph.Links.push_back(MakeLink(21, "Value", 22, "B"));
+		function.Graph.Links.push_back(MakeLink(22, "Result", 23, "Result"));
+		document.Functions.push_back(std::move(function));
+		return document;
+	}
+
+	// Sets the public Count to the library's Inverse(0) (node 12) on every update: the library's division fails.
+	VisualScriptDocument MakeInverseCallerDocument(std::string const& library)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Count", "int", 0));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+		document.Graph.Nodes.push_back(MakeNode(11, "Variable.Set", Json::object({{"Variable", 1}})));
+		document.Graph.Nodes.push_back(
+			MakeNode(12, "Function.Call", Json::object({{"Function", 20}, {"Graph", library}}), Json::object({{"Value", 0}})));
+		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		document.Graph.Links.push_back(MakeLink(12, "Result", 11, "Value"));
+		return document;
+	}
+
+	// What an instance keeps across an edit: a Timeline (node 11) played from the start when it is created, a Delay of 100
+	// seconds (node 14) its first update starts through a Do Once (node 13), and a Gate (node 15) with nothing linked.
+	// length is the Timeline's, and its Lift curve's last key; count is the type of the public Count. Without the Delay, the
+	// Do Once is a Flip Flop.
+	VisualScriptDocument MakeKeeperDocument(double length, std::string const& count, bool withDelay)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Count", count, count == "int" ? Json(0) : Json(0.0)));
+		Json const timeline = Json::object(
+			{{"Length", length},
+		     {"Loop", false},
+		     {"Tracks", Json::array({Json::object({{"Name", "Lift"},
+		                                           {"Type", "float"},
+		                                           {"Keys", Json::array({Json::object({{"Time", 0}, {"Value", 0}}),
+		                                                                 Json::object({{"Time", length}, {"Value", 1}})})}})})}});
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Create"));
+		document.Graph.Nodes.push_back(MakeNode(11, "Flow.Timeline", Json::object({{"Timeline", timeline}})));
+		document.Graph.Nodes.push_back(MakeNode(12, "Event.Update"));
+		document.Graph.Nodes.push_back(MakeNode(13, withDelay ? "Flow.DoOnce" : "Flow.FlipFlop"));
+		if (withDelay)
+		{
+			document.Graph.Nodes.push_back(MakeNode(14, "Flow.Delay", Json::object(), Json::object({{"Duration", 100.0}})));
+		}
+		document.Graph.Nodes.push_back(MakeNode(15, "Flow.Gate"));
+		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "PlayFromStart"));
+		document.Graph.Links.push_back(MakeLink(12, "Then", 13, "Execute"));
+		if (withDelay)
+		{
+			document.Graph.Links.push_back(MakeLink(13, "Completed", 14, "Execute"));
+		}
+		return document;
+	}
+
+	// A receipt without what changes from call to call (its serial and age).
+	Json WithoutSerialAndAge(Json receipt)
+	{
+		receipt.erase("serial");
+		receipt.erase("age");
+		return receipt;
+	}
+}
+
+TEST_CASE("GraphCommands: graph.live's library runs over the graphs that run it, and a library node's problem names its caller")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	LiveCommands live(fixture);
+	std::string const library = fixture.CreateGraph("Scripts/Math.sgraph", MakeTwiceLibraryDocument());
+	std::string const first = fixture.CreateGraph("Scripts/First.sgraph", MakeTwiceCallerDocument(library));
+	std::string const second = fixture.CreateGraph("Scripts/Second.sgraph", MakeTwiceCallerDocument(library));
+	VisualScriptDocument failing = MakeTwiceCallerDocument(library);
+	failing.Graph.Nodes.push_back(MakeNode(20, "Call:Strada.Nothing.Here()"));
+	std::string const third = fixture.CreateGraph("Scripts/Third.sgraph", failing);
+	fixture.CreateEntity("First", Json::object({{"VisualScript", Json::object({{"Graph", first}})}}));
+	std::string const secondEntity = fixture.CreateEntity("Second", Json::object({{"VisualScript", Json::object({{"Graph", second}})}}));
+	fixture.CreateEntity("Third", Json::object({{"VisualScript", Json::object({{"Graph", third}})}}));
+	std::string const inverse = fixture.CreateGraph("Scripts/Inverse.sgraph", MakeInverseLibraryDocument());
+	std::string const inverter = fixture.CreateGraph("Scripts/Inverter.sgraph", MakeInverseCallerDocument(inverse));
+	std::string const inverterEntity =
+		fixture.CreateEntity("Inverter", Json::object({{"VisualScript", Json::object({{"Graph", inverter}})}}));
+
+	// A caller that never compiled runs no version of the library: the library runs its current version in every graph
+	// that runs it.
+	fixture.Ok("play.start", Json::object({{"paused", true}}));
+	Json const math = fixture.Ok("graph.live", Json::object({{"graph", library}}))["graphs"][0];
+	CHECK(math["running"] == "Current");
+	CHECK(math["users"] == Json::array({MakeLibraryUser(first, "Scripts/First.sgraph", true, true, 1),
+	                                    MakeLibraryUser(second, "Scripts/Second.sgraph", true, true, 1),
+	                                    MakeLibraryUser(third, "Scripts/Third.sgraph", false, false, 0)}));
+	CHECK(fixture.Ok("graph.live", Json::object({{"graph", third}}))["graphs"][0]["running"] == "None");
+
+	// A library's node fails: the problem names the library's node and the call that led there, with their paths.
+	fixture.Ok("play.advance", Json::object({{"frames", 2}}));
+	Json const problems = fixture.Ok("graph.live", Json::object({{"graph", inverse}, {"edits", false}}))["problems"];
+	REQUIRE(problems.size() == 1);
+	Json const problem = problems[0];
+	CHECK(problem["graph"] == inverter);
+	CHECK(problem["path"] == "Scripts/Inverter.sgraph");
+	CHECK(problem["document"] == inverse);
+	CHECK(problem["documentPath"] == "Scripts/Inverse.sgraph");
+	CHECK(problem["function"] == 20);
+	CHECK(problem["node"] == 22);
+	CHECK(problem["title"] == "Divide");
+	CHECK(problem["entity"] == inverterEntity);
+	CHECK(problem["name"] == "Inverter");
+	CHECK(problem["count"] == 2);
+	CHECK(problem["calls"] ==
+	      Json::array({Json::object({{"document", inverter}, {"path", "Scripts/Inverter.sgraph"}, {"function", 0}, {"node", 12}})}));
+	Json const libraryGraph = fixture.Ok("graph.live", Json::object({{"graph", inverse}}))["graphs"][0];
+	CHECK(libraryGraph["kind"] == "Library");
+	CHECK(libraryGraph["running"] == "Current");
+
+	// No entity runs Second any more: a body edit does not compile it again, so it keeps the earlier version, which runs
+	// nowhere; the library runs its current version wherever it runs.
+	fixture.Ok("entity.delete", Json::object({{"entities", Json::array({secondEntity})}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	Json const doubled = fixture.Ok(
+		"graph.edit",
+		Json::object({{"graph", library},
+	                  {"operations", Json::array({Json::object({{"op", "SetInput"}, {"node", 22}, {"pin", "B"}, {"value", 3}})})}}));
+	Json const firstReceipt = FindEntry(doubled["live"]["edits"], "graph", first);
+	CHECK(firstReceipt["outcome"] == "Applied");
+	CHECK(firstReceipt["cause"] == library);
+	CHECK(firstReceipt["instances"] == 1);
+	for (Json const& receipt : doubled["live"]["edits"])
+	{
+		CHECK(receipt["graph"] != second);
+	}
+	Json const after = fixture.Ok("graph.live", Json::object({{"graph", library}}))["graphs"][0];
+	CHECK(after["running"] == "Current");
+	CHECK(after["users"] == Json::array({MakeLibraryUser(first, "Scripts/First.sgraph", true, true, 1),
+	                                     MakeLibraryUser(second, "Scripts/Second.sgraph", true, false, 0),
+	                                     MakeLibraryUser(third, "Scripts/Third.sgraph", false, false, 0)}));
+	// Second's program is not the stored one's any more (not sent since), though nothing runs it.
+	Json const unsent = fixture.Ok("graph.live", Json::object({{"graph", second}}))["graphs"][0];
+	CHECK(unsent["running"] == "LastWorking");
+	CHECK(unsent["instances"] == Json::array());
+
+	// The library broken: the graph that runs it keeps its last working version, which graph.live tells although its own
+	// document is the stored one.
+	VisualScriptDocument brokenLibrary = MakeTwiceLibraryDocument();
+	brokenLibrary.Functions[0].Graph.Nodes.push_back(MakeNode(24, "Call:Strada.Nothing.Here()"));
+	Json const broken =
+		fixture.Ok("graph.set", Json::object({{"graph", library}, {"document", VisualScriptSerializer::SerializeDocument(brokenLibrary)}}));
+	Json const kept = FindEntry(broken["live"]["edits"], "graph", first);
+	CHECK(kept["outcome"] == "KeptLastWorking");
+	CHECK(kept["cause"] == library);
+	Json const caller = fixture.Ok("graph.live", Json::object({{"graph", first}}))["graphs"][0];
+	CHECK(caller["running"] == "LastWorking");
+	CHECK(caller["runningProgramRevision"] == caller["programRevision"]);
+	CHECK(caller["notRunning"] == Json::object({{"nodes", Json::array()}, {"links", Json::array()}}));
+	Json const stale = fixture.Ok("graph.live", Json::object({{"graph", library}}))["graphs"][0];
+	CHECK(stale["running"] == "LastWorking");
+	CHECK(stale["users"][0] == MakeLibraryUser(first, "Scripts/First.sgraph", true, false, 1));
+}
+
+TEST_CASE("GraphCommands: a live receipt names the variables and states an edit reset, the waits and stopped executions it "
+          "cancelled and the Timelines it clamped, in graph.set's live and in graph.live")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	LiveCommands live(fixture);
+	std::string const keeper = fixture.CreateGraph("Scripts/Keeper.sgraph", MakeKeeperDocument(2.0, "int", true));
+	// One instance more than a receipt notes.
+	constexpr size_t Keepers = 65;
+	std::vector<std::string> entities;
+	for (size_t index = 0; index < Keepers; index++)
+	{
+		entities.push_back(
+			fixture.CreateEntity(fmt::format("Keeper {}", index), Json::object({{"VisualScript", Json::object({{"Graph", keeper}})}})));
+	}
+	VisualScriptDocument writer;
+	writer.Variables.push_back(MakeVariable(1, "Count", "int", 0));
+	writer.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	writer.Graph.Nodes.push_back(MakeNode(11, "Variable.Set", Json::object({{"Variable", 1}}), Json::object({{"Value", 1}})));
+	writer.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	std::string const written = fixture.CreateGraph("Scripts/Writer.sgraph", writer);
+	std::string const writerEntity = fixture.CreateEntity("Writer", Json::object({{"VisualScript", Json::object({{"Graph", written}})}}));
+
+	// Three half-second frames: each Timeline is at 1.5 s, each Delay waits.
+	fixture.Ok("play.start", Json::object({{"paused", true}}));
+	fixture.Ok("play.advance", Json::object({{"frames", 3}, {"timestep", 0.5}}));
+
+	// Count retyped, the Do Once changed into a Flip Flop, the Delay removed and the Timeline shortened below its time.
+	Json const set = fixture.Ok(
+		"graph.set", Json::object({{"graph", keeper},
+	                               {"document", VisualScriptSerializer::SerializeDocument(MakeKeeperDocument(1.0, "float", false))}}));
+	REQUIRE(set["live"]["edits"].size() == 1);
+	Json const receipt = set["live"]["edits"][0];
+	Json expected =
+		Json::object({{"graph", keeper},
+	                  {"path", "Scripts/Keeper.sgraph"},
+	                  {"name", "Scripts/Keeper.sgraph"},
+	                  {"cause", Json()},
+	                  {"causePath", Json()},
+	                  {"outcome", "Applied"},
+	                  {"deferred", false},
+	                  {"instances", Keepers},
+	                  {"pending", 0},
+	                  {"keptVariables", Json::array()},
+	                  {"matchedVariables", Json::array()},
+	                  {"resetVariables", Json::array({Json::object({{"name", "Count"}, {"reason", "type changed from int to float"}})})},
+	                  {"addedVariables", Json::array()},
+	                  {"removedVariables", Json::array()},
+	                  {"keptStates", 2},
+	                  {"resetStates", Json::array({Json::object({{"document", keeper},
+	                                                             {"path", "Scripts/Keeper.sgraph"},
+	                                                             {"function", 0},
+	                                                             {"node", 13},
+	                                                             {"title", "Do Once"},
+	                                                             {"reason", "Changed"}})})},
+	                  {"moreInstances", Keepers - 64},
+	                  {"errors", ""}});
+	Json const notes = receipt["instanceNotes"];
+	Json listed = WithoutSerialAndAge(receipt);
+	listed.erase("instanceNotes");
+	CHECK(listed == expected);
+	CHECK(receipt["age"].get<double>() >= 0.0);
+	// Every instance waited in the Delay and played the Timeline: the notes of 64 of them, each its own.
+	REQUIRE(notes.size() == 64);
+	std::set<std::string> noted;
+	for (Json const& note : notes)
+	{
+		std::string const entity = note["entity"].get<std::string>();
+		CAPTURE(entity);
+		size_t const index = static_cast<size_t>(std::find(entities.begin(), entities.end(), entity) - entities.begin());
+		REQUIRE(index < Keepers);
+		CHECK(noted.insert(entity).second);
+		CHECK(note == Json::object({{"entity", entity},
+		                            {"name", fmt::format("Keeper {}", index)},
+		                            {"waitsKept", 1},
+		                            {"stopsKept", 0},
+		                            {"cancelled", Json::array({Json::object({{"document", keeper},
+		                                                                     {"path", "Scripts/Keeper.sgraph"},
+		                                                                     {"function", 0},
+		                                                                     {"node", 14},
+		                                                                     {"title", "Delay"},
+		                                                                     {"reason", "the edit removed or changed Delay (node 14)"},
+		                                                                     {"stopped", false}})})},
+		                            {"timelines", Json::array({Json::object({{"node", 11}, {"time", 1.0}, {"clampedFrom", 1.5}})})}}));
+	}
+	// graph.live lists the same receipt.
+	Json const listedLive = FindEntry(fixture.Ok("graph.live", Json::object({{"graph", keeper}}))["edits"], "serial", receipt["serial"]);
+	CHECK(WithoutSerialAndAge(listedLive) == WithoutSerialAndAge(receipt));
+
+	// A stopped execution whose node an edit removes is cancelled, and the receipt says so.
+	fixture.Ok("graph.breakpoints", Json::object({{"graph", written}, {"add", Json::array({Json::object({{"node", 11}})})}}));
+	Json const advanced = fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	REQUIRE(advanced["stopped"] == true);
+	Json const removed = fixture.Ok(
+		"graph.edit", Json::object({{"graph", written},
+	                                {"operations", Json::array({Json::object({{"op", "Delete"}, {"elements", Json::array({11})}})})}}));
+	REQUIRE(removed["live"]["edits"].size() == 1);
+	Json const cancelled = removed["live"]["edits"][0];
+	CHECK(cancelled["outcome"] == "Applied");
+	CHECK(cancelled["instances"] == 1);
+	CHECK(cancelled["keptVariables"] == Json::array({"Count"}));
+	CHECK(cancelled["moreInstances"] == 0);
+	CHECK(cancelled["instanceNotes"] ==
+	      Json::array({Json::object({{"entity", writerEntity},
+	                                 {"name", "Writer"},
+	                                 {"waitsKept", 0},
+	                                 {"stopsKept", 0},
+	                                 {"cancelled", Json::array({Json::object({{"document", written},
+	                                                                          {"path", "Scripts/Writer.sgraph"},
+	                                                                          {"function", 0},
+	                                                                          {"node", 11},
+	                                                                          {"title", "Set Count"},
+	                                                                          {"reason", "the edit removed or changed Set Count (node 11)"},
+	                                                                          {"stopped", true}})})},
+	                                 {"timelines", Json::array()}})}));
+	CHECK(fixture.Ok("graph.debug")["stops"] == Json::array());
 }
 
 TEST_CASE("GraphCommands: an open graph window takes graph.edit's change as an outside change")

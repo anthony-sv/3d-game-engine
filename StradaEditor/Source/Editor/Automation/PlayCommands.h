@@ -20,4 +20,7 @@ namespace Strada
 	// outlive every registered command. Documented in Docs/Automation.md.
 	[[nodiscard]] Result<void> RegisterPlayCommands(CommandRegistry& registry, PlayMode& playMode, EditorContext& context,
 	                                                ViewportSizeProvider viewportSize);
+
+	// A play state as play.state names it (play, simulate, edit), and every command that reports one.
+	[[nodiscard]] char const* GetEditorPlayStateName(EditorPlayState state);
 }

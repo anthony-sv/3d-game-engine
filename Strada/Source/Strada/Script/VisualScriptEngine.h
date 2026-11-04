@@ -132,8 +132,15 @@ namespace Strada
 		// the editor calls it when play starts, before the scene starts.
 		static void ClearLiveLog();
 		// The graphs whose programs were sent with the library or run with it, by name (those found absent since left out),
-		// each with whether its working program runs the library's current program; empty without the runtime.
+		// each with whether its working program was compiled with a version of the library, whether that is the library's
+		// current program, and how many entities run the graph now; empty without the runtime.
 		static std::vector<VisualScriptLibraryUser> DescribeLibraryUsers(AssetHandle library);
+		// Whether the graph runs what is stored: its working program runs (HasWorkingProgram), the document last sent compiled
+		// and is the stored document's program, and the graphs it was compiled with still hold what was sent of them (a
+		// library it calls has the same program). False when only a version that worked earlier runs (the stored one, or a
+		// library it calls, does not compile, or was not sent since), for a function library, without a record and without
+		// the runtime.
+		static bool RunsStoredProgram(AssetHandle graph);
 		// Platform::GetTime() when the graph's working program last became another program; 0 while it has none
 		// (HasWorkingProgram).
 		static double GetWorkingSince(AssetHandle graph);

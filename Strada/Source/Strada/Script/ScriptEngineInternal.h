@@ -185,7 +185,8 @@ namespace Strada::ScriptEngineInternal
 		std::unordered_map<AssetHandle, VisualScriptProgramRecord> VisualScriptPrograms;
 		// The texts references send of each graph referred to so far, by handle.
 		std::unordered_map<AssetHandle, VisualScriptReferenceText> VisualScriptReferenceTexts;
-		std::unordered_set<UUID> GraphInstances;
+		// The entities with a graph instance, each with the graph it runs (VisualScriptEngine::DescribeLibraryUsers counts them).
+		std::unordered_map<UUID, AssetHandle> GraphInstances;
 		Ref<VisualScriptLibrary const> Library;
 		bool IsLibraryUnavailable = false;
 		// The last generation given to a program record.

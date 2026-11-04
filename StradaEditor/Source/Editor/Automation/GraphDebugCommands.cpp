@@ -2,6 +2,7 @@
 
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/Automation/JsonSchema.h"
+#include "Editor/Automation/PlayCommands.h"
 #include "Editor/VisualScripting/VisualScriptBreakpoints.h"
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
@@ -233,19 +234,27 @@ namespace Strada
 			return "";
 		}
 
-		// As play.state names the play states.
-		std::string_view GetPlayStateName(EditorPlayState state)
+		// A parameter whose schema is an integer of at least 0 with no maximum: the schema also accepts a number without a
+		// fraction (3.0, 1e20), which may be beyond uint64_t, so the value saturates rather than being cast out of range.
+		uint64_t GetUnsigned(Json const& params, char const* key)
 		{
-			switch (state)
+			auto const it = params.find(key);
+			if (it == params.end())
 			{
-				case EditorPlayState::Play:
-					return "play";
-				case EditorPlayState::Simulate:
-					return "simulate";
-				case EditorPlayState::Edit:
-					break;
+				return 0;
 			}
-			return "edit";
+			if (it->is_number_unsigned())
+			{
+				return it->get<uint64_t>();
+			}
+			if (it->is_number_integer())
+			{
+				return static_cast<uint64_t>(std::max<int64_t>(it->get<int64_t>(), 0));
+			}
+			// 2^64, exactly representable: every double below it converts.
+			constexpr double Limit = 18446744073709551616.0;
+			double const value = it->get<double>();
+			return value >= Limit ? std::numeric_limits<uint64_t>::max() : static_cast<uint64_t>(std::max(value, 0.0));
 		}
 
 		// Whether a game plays and its scene is paused (as play.state's paused).
@@ -2442,7 +2451,7 @@ namespace Strada
 				}
 				m_Session.Refresh();
 				query.Limit = params.value("limit", DefaultInstancesListed);
-				uint64_t const offset = params.value("offset", uint64_t(0));
+				uint64_t const offset = GetUnsigned(params, "offset");
 				query.Offset = static_cast<uint32_t>(std::min<uint64_t>(offset, std::numeric_limits<uint32_t>::max()));
 				Result<VisualScriptInstanceList> listed = VisualScriptDebugger::DescribeInstances(query);
 				if (!listed)
@@ -2498,13 +2507,15 @@ namespace Strada
 					"one graph (default: every graph the game loaded or a problem names); after: only receipts and problems with "
 					"a later serial (pass the last answer's serial to read only what is new); edits and problems (default true) "
 					"leave those lists out when false. Returns { playState, paused, serial, dropped, graphs: [{ asset, path, "
-					"kind, running (Current: what is stored; LastWorking: an earlier version that worked, the stored one not "
-					"running; None), generation, runningSince (seconds before now, or null), programRevision, "
+					"kind, running (Current: what is stored, with the libraries it calls as they are; LastWorking: an earlier "
+					"version that worked, the stored one, or a library it calls, not running; None; a library's: over the graphs "
+					"that run it), generation, runningSince (seconds before now, or null), programRevision, "
 					"runningProgramRevision, notRunning ({ nodes, links: [{ from: [node, pin], to: [node, pin] }] }: what the "
 					"stored document has that the running one has not; null when nothing runs), instances: [{ entity, name }], "
-					"users (a library's graphs: [{ asset, path, runsCurrent }]) }], edits (receipts, as graph.edit's live gives "
-					"them), problems: [{ serial, severity, graph, path, document, documentPath, function, node, title, entity, "
-					"name, message, count, calls, firstAge, lastAge }] }.",
+					"users (a library's graphs: [{ asset, path, compiled, runsCurrent, instances }]; one runs the library when "
+					"compiled with it and run by an entity) }], edits (receipts, as graph.edit's live gives them), problems: [{ "
+					"serial, severity, graph, path, document, documentPath, function, node, title, entity, name, message, count, "
+					"calls, firstAge, lastAge }] }.",
 					SchemaBuilder::Object()
 						.Property("graph", GraphSchema("Graph handle or \"asset://<path>.sgraph\""))
 						.Property("after", SchemaBuilder::Integer("Only receipts and problems with a later serial").Minimum(0).Default(0))
@@ -2530,7 +2541,7 @@ namespace Strada
 					}
 					only = parsed.GetValue();
 				}
-				uint64_t const after = params.value("after", uint64_t(0));
+				uint64_t const after = GetUnsigned(params, "after");
 				Ref<VisualScriptLiveLog const> const log = VisualScriptEngine::GetLiveLog();
 				double const now = Platform::GetTime();
 				DebugJson const json(m_Context.GetScene());
@@ -2564,7 +2575,7 @@ namespace Strada
 					described.push_back(DescribeLiveGraph(graph, now));
 				}
 
-				Json result = Json::object({{"playState", GetPlayStateName(m_Context.GetPlayState())},
+				Json result = Json::object({{"playState", GetEditorPlayStateName(m_Context.GetPlayState())},
 				                            {"paused", IsGamePaused(m_Context)},
 				                            {"serial", log->Serial},
 				                            {"dropped", log->Dropped},
@@ -2613,20 +2624,22 @@ namespace Strada
 				Ref<VisualScriptDocument const> const working = library ? nullptr : VisualScriptEngine::GetWorkingDocument(graph);
 				std::vector<VisualScriptLibraryUser> const users =
 					library ? VisualScriptEngine::DescribeLibraryUsers(graph) : std::vector<VisualScriptLibraryUser>();
-				bool const runs = VisualScriptEngine::HasWorkingProgram(graph);
+				// A library runs through the graphs that run it: the current version when each of them runs that one.
+				bool runs = false;
 				bool current = false;
-				if (runs && library)
+				if (library)
 				{
-					current = std::ranges::all_of(users,
-					                              [](VisualScriptLibraryUser const& user)
-					                              {
-													  return user.RunsCurrent;
-												  });
+					runs = std::ranges::any_of(users, &VisualScriptLibraryUser::Runs);
+					current = runs && std::ranges::all_of(users,
+					                                      [](VisualScriptLibraryUser const& user)
+					                                      {
+															  return !user.Runs() || user.RunsCurrent;
+														  });
 				}
-				else if (runs)
+				else
 				{
-					current =
-						stored != nullptr && working != nullptr && (working == stored || HaveSameVisualScriptProgram(*working, *stored));
+					runs = VisualScriptEngine::HasWorkingProgram(graph);
+					current = runs && VisualScriptEngine::RunsStoredProgram(graph);
 				}
 				std::string_view const running = !runs ? "None" : current ? "Current" : "LastWorking";
 
@@ -2688,8 +2701,11 @@ namespace Strada
 					Json listed = Json::array();
 					for (VisualScriptLibraryUser const& user : users)
 					{
-						listed.push_back(Json::object(
-							{{"asset", user.Graph.ToString()}, {"path", GetAssetPath(user.Graph)}, {"runsCurrent", user.RunsCurrent}}));
+						listed.push_back(Json::object({{"asset", user.Graph.ToString()},
+						                               {"path", GetAssetPath(user.Graph)},
+						                               {"compiled", user.Compiled},
+						                               {"runsCurrent", user.RunsCurrent},
+						                               {"instances", user.Instances}}));
 					}
 					described["users"] = std::move(listed);
 				}
@@ -2733,8 +2749,9 @@ namespace Strada
 				}
 			}
 		}
-		return Json::object(
-			{{"playState", GetPlayStateName(context.GetPlayState())}, {"paused", IsGamePaused(context)}, {"edits", std::move(edits)}});
+		return Json::object({{"playState", GetEditorPlayStateName(context.GetPlayState())},
+		                     {"paused", IsGamePaused(context)},
+		                     {"edits", std::move(edits)}});
 	}
 
 	Result<void> RegisterGraphDebugCommands(CommandRegistry& registry, VisualScriptDebugSession& session, PlayMode& playMode,
