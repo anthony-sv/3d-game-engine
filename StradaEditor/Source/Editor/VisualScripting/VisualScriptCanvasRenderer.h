@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptCanvasDebug.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
@@ -51,11 +52,14 @@ namespace Strada
 		inline constexpr std::string_view Cannot = "Cannot connect ";
 		inline constexpr std::string_view Exec = "exec";
 		inline constexpr std::string_view Ellipsis = "\xE2\x80\xA6";
+		// The ghost breakpoint marker's tooltip, followed by the key in parentheses; a value line of the hover pills.
+		inline constexpr std::string_view AddBreakpoint = "Click: add a breakpoint";
+		inline constexpr std::string_view ValuePrefix = "= ";
 
 		// All of them, for the glyph test.
-		inline constexpr std::array<std::string_view, 15> All = {Disabled,  DevelopmentOnly, Self,       None,       FunctionGlyph,
-		                                                         Separator, Default,         ResolvedTo, Unresolved, ConvertedFrom,
-		                                                         Converted, Arrow,           Cannot,     Exec,       Ellipsis};
+		inline constexpr std::array<std::string_view, 17> All = {
+			Disabled,      DevelopmentOnly, Self,  None,   FunctionGlyph, Separator, Default,       ResolvedTo, Unresolved,
+			ConvertedFrom, Converted,       Arrow, Cannot, Exec,          Ellipsis,  AddBreakpoint, ValuePrefix};
 	}
 
 	// The layers of the canvas, in the order they are drawn: every item of a layer is emitted before the next layer starts.
@@ -67,9 +71,13 @@ namespace Strada
 		Wires,
 		// The wires of selected or hovered nodes, the hovered wire, pulsing wires, the splice target.
 		HighlightedWires,
+		// What lit the flow while debugging (spec-slice4 §13.2): fired exec wires and run glows, behind the nodes.
+		Flow,
 		// Unselected nodes (reroutes included), in draw order (GetVisualScriptNodeDrawKey).
 		Nodes,
 		SelectedNodes,
+		// Breakpoint markers, the current instruction, callers, run counts and value pills, above the nodes.
+		Debug,
 		// Comment titles at Far and Overview, on plates above the nodes (spec §11.1).
 		CommentLabels,
 		// The ghost wire, the marquee, the cut line, link pulses, snap glows, the hover pill and pin tooltips.
@@ -94,10 +102,32 @@ namespace Strada
 		CutLine,
 		// A new link's dot moving from its output to its input.
 		Pulse,
-		// The wire hover label, a pin tooltip or the invalid-wire tooltip (DrawValuePill).
+		// The wire hover label, a pin tooltip, the invalid-wire tooltip or the ghost marker's tooltip (DrawValuePill).
 		Pill,
-		Minimap
+		Minimap,
+		// Debugging (VisualScriptCanvasDrawInput::Debug), Element and Mark as each says. A fired exec wire (the link's index;
+		// PulseDot when its dots were drawn).
+		FlowWire,
+		// Mark 0: a node that ran; 1: a node the selected stop frame's execution computed; 2: a comment box whose nodes ran (the
+		// comment's ID). Glow when the brush drew it.
+		RunGlow,
+		// A breakpoint marker (Mark: its VisualScriptBreakpointMarkState, or VisualScriptGhostBreakpointMark for the ghost marker
+		// under the mouse); Faded when inactive, Outline with the arrow of the breakpoint that caused the selected stop.
+		Breakpoint,
+		// The selected stop frame's node (Mark: its VisualScriptStopPlace): Outline, Glow, KindGlyph for the triangle (Faded:
+		// hollow, a read-only stop) and StripLabel for the pill of its Note (Text).
+		Instruction,
+		// The call or Send node of another frame of the stop.
+		Caller,
+		// "×37" above a node's header (Text).
+		RunCount,
+		// A data wire's value at its midpoint (the link's index; Mark: its VisualScriptValueCurrency; Text as drawn, Color its
+		// swatch).
+		ValuePill
 	};
+
+	// A Breakpoint item's Mark for the ghost marker: where a click adds a breakpoint.
+	inline constexpr uint8_t VisualScriptGhostBreakpointMark = 0xFF;
 
 	// VisualScriptDrawRecordItem::Elements: what was drawn of an item.
 	namespace VisualScriptDrawElements
@@ -178,6 +208,8 @@ namespace Strada
 		float Thickness = 0.0f;
 		// Pills: the text shown.
 		std::string Text;
+		// The kind's state (VisualScriptDrawItemKind's debugging items say which).
+		uint8_t Mark = 0;
 
 		bool Has(uint32_t elements) const { return (Elements & elements) == elements; }
 	};
@@ -349,6 +381,8 @@ namespace Strada
 		std::span<uint32_t const> Outlined;
 		// Shadows, glows and pulse dots; none leaves them out.
 		VisualScriptBrushes* Brushes = nullptr;
+		// What the canvas draws of debugging (spec-slice4 §13.1); none draws nothing of it.
+		VisualScriptCanvasDebugView const* Debug = nullptr;
 		// Filled with every item drawn when given (tests).
 		VisualScriptDrawRecord* Record = nullptr;
 		// Times the phases of the frame (VisualScriptRenderStats).
@@ -376,6 +410,12 @@ namespace Strada
 		static constexpr double PulseHighlightSeconds = 0.6;
 		static constexpr double FlashSeconds = 0.8;
 		static constexpr double GlideSeconds = 0.25;
+		// The most debugging items of a kind a frame draws (the most intense first; box glows count as run glows).
+		static constexpr size_t MaxFlowWires = 512;
+		static constexpr size_t MaxRunGlows = 512;
+		static constexpr size_t MaxValuePills = VisualScriptValuePillLimit;
+		// A value pill shows at most this many code points of its value.
+		static constexpr size_t ValuePillMaxGlyphs = 24;
 
 		VisualScriptCanvasRenderer();
 		~VisualScriptCanvasRenderer();
@@ -497,6 +537,28 @@ namespace Strada
 		VisualScriptLiveChip MakeChip(Frame const& frame, VisualScriptNodeVisual const& node, NodeState const& state,
 		                              uint32_t pinIndex) const;
 		void DrawExclamation(Frame& frame, glm::vec2 center, float radius, uint32_t color);
+		// Debugging: the Flow layer (fired wires and run glows) and the Debug layer (markers, the current instruction, callers,
+		// run counts, value pills).
+		void DrawFlow(Frame& frame);
+		void DrawFlowWire(Frame& frame, VisualScriptFlowLinkMark const& mark);
+		void DrawDebug(Frame& frame);
+		void DrawBreakpoint(Frame& frame, uint32_t nodeIndex, VisualScriptBreakpointMark const* mark);
+		void DrawInstruction(Frame& frame, VisualScriptInstructionMark const& mark);
+		void DrawRunCount(Frame& frame, VisualScriptFlowNodeMark const& mark);
+		void DrawValuePill(Frame& frame, VisualScriptValueMark const& mark);
+		// A node's rectangle on the screen as this frame draws it (moved, gliding, expanded).
+		VisualScriptRect GetNodeScreen(Frame const& frame, uint32_t index) const;
+		// The corner radius its outlines take.
+		float GetNodeRounding(Frame const& frame, uint32_t index) const;
+		// A small rounded label (an optional swatch, then text) at a fixed UI size: its size, and drawn with its top-left at
+		// position (whole pixels), at alpha.
+		glm::vec2 GetDebugPillSize(Frame const& frame, std::string_view text, bool swatch) const;
+		VisualScriptRect DrawDebugPill(Frame& frame, glm::vec2 position, std::string_view text, std::optional<uint32_t> swatch,
+		                               uint32_t textColor, float alpha);
+		bool IsNodeVisible(uint32_t index) const;
+		bool IsLinkVisible(uint32_t link) const;
+		// Appends "\n= <value>" to m_PillText for a link's value while debugging; false when it has none.
+		bool AppendValueLine(Frame const& frame, uint32_t link);
 		void DrawOverlay(Frame& frame);
 		void DrawPills(Frame& frame);
 		void DrawMinimap(Frame& frame);
@@ -552,6 +614,10 @@ namespace Strada
 		uint32_t m_TextSizeCount = 0;
 		std::string m_Text;
 		std::string m_PillText;
+		// A value pill's text as drawn.
+		std::string m_DebugText;
+		// The current instruction's glow was drawn this frame (DrawFlow), under its outline (DrawDebug).
+		bool m_InstructionGlow = false;
 		// What m_PillText holds a pin's text for (BuildPinText's key); 0 when it holds another pill's.
 		uint64_t m_PinTextKey = 0;
 

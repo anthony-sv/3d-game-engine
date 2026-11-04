@@ -275,6 +275,11 @@ namespace Strada::VisualScriptGeometry
 		return std::max(Metrics::BadgeRadius, Metrics::BadgeMinLogicalPixels / zoom);
 	}
 
+	glm::vec2 GetBreakpointCenter(VisualScriptNodeVisual const& node, glm::vec2 offset)
+	{
+		return GetNodeRect(node, offset).Min;
+	}
+
 	std::optional<glm::vec2> GetErrorBadgeCenter(VisualScriptNodeVisual const& node, glm::vec2 offset)
 	{
 		if (node.ErrorCount == 0)
@@ -575,20 +580,11 @@ namespace Strada::VisualScriptGeometry
 		return {comment.Rect.Min, glm::vec2(comment.Rect.Max.x, comment.Rect.Min.y + std::max(height, 0.0f))};
 	}
 
-	uint32_t CountGlyphs(std::string_view text)
-	{
-		return static_cast<uint32_t>(std::count_if(text.begin(), text.end(),
-		                                           [](char byte)
-		                                           {
-													   return (static_cast<unsigned char>(byte) & 0xC0u) != 0x80u;
-												   }));
-	}
-
-	VisualScriptRect GetCommentTitleRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view, float titleWidthCu,
-	                                     uint32_t titleGlyphs)
+	VisualScriptRect GetCommentTitleRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view)
 	{
 		float const pixelsPerUnit = view.GetPixelsPerUnit();
 		float const uiScale = view.GetUIScale();
+		float const titleWidthCu = comment.Title.Width;
 		if (!(pixelsPerUnit > 0.0f) || !(titleWidthCu > 0.0f) || comment.Title.Length == 0)
 		{
 			return {};
@@ -608,9 +604,9 @@ namespace Strada::VisualScriptGeometry
 		float const left = std::max(lower.x, canvasMin.x) + inset;
 		float const available = std::min(upper.x, canvasMax.x) - left - inset;
 		float const width = titleWidthCu * titlePixels / Metrics::CommentTitleTextSize;
-		// CommentTitleMinGlyphs glyphs and the ellipsis after them, at the title's average glyph width.
-		uint32_t const glyphs = std::max<uint32_t>(titleGlyphs + (comment.Title.IsEllipsized() ? 1u : 0u), 1u);
-		float const minimum = std::min(width, static_cast<float>(CommentTitleMinGlyphs + 1u) * width / static_cast<float>(glyphs));
+		// The first CommentTitleMinGlyphs glyphs and the ellipsis after them, as measured; widths scale linearly with the text
+		// size for the editor's fonts (stb_truetype's advance is advance × scale, and pixel snapping is off).
+		float const minimum = std::min(width, comment.TitleRoom * titlePixels / Metrics::CommentTitleTextSize);
 		if (!(available > 0.0f) || available < minimum)
 		{
 			return {};
@@ -619,10 +615,9 @@ namespace Strada::VisualScriptGeometry
 		return {glm::vec2(left, top), glm::vec2(left + std::min(width, available), top + titlePixels)};
 	}
 
-	VisualScriptRect GetCommentLabelRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view, float titleWidthCu,
-	                                     uint32_t titleGlyphs)
+	VisualScriptRect GetCommentLabelRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view)
 	{
-		VisualScriptRect const title = GetCommentTitleRect(comment, view, titleWidthCu, titleGlyphs);
+		VisualScriptRect const title = GetCommentTitleRect(comment, view);
 		if (IsEmpty(title))
 		{
 			return {};

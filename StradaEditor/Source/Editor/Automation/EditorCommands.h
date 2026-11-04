@@ -17,6 +17,7 @@ namespace Strada
 	class EditorCamera;
 	struct SceneRendererStatistics;
 	struct SceneViewOverlays;
+	class VisualScriptDebuggerPanel;
 	class VisualScriptEditors;
 	class VisualScriptLibrary;
 	struct VisualScriptDocument;
@@ -59,6 +60,9 @@ namespace Strada
 		// The visual script editor windows. Unset when the editor has no UI (headless); graph.open, graph.close, graph.editors
 		// and graph.palette then fail with AutomationErrorCode::Unavailable.
 		std::function<VisualScriptEditors&()> GraphEditors;
+		// The visual-script Debugger panel. Unset when the editor has no UI (headless); graph.debug-panel then fails with
+		// AutomationErrorCode::Unavailable, and graph.editors reports debugPanel as null.
+		std::function<VisualScriptDebuggerPanel&()> DebuggerPanel;
 	};
 
 	// Registers the editor, project, scene, entity, component, asset, material, graph (visual script), prefab, inspector, log and

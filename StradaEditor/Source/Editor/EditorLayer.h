@@ -20,9 +20,11 @@
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/SceneSettingsPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
+#include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/RecentProjects.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
+#include "Editor/VisualScripting/VisualScriptDebugControls.h"
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
@@ -142,6 +144,9 @@ namespace Strada
 		// Gives the inspector a lookup of the enum types of the scripting runtime's node library, which reads the library only
 		// when asked about a type, and none without the runtime (VisualScriptEnumLookupSource).
 		void UpdateVisualScriptEnumLookup();
+		// Wires the debug session to the UI (spec-slice4 §22.7): the views file keeps its breakpoints, the graph windows show it,
+		// its stops bring their windows and the Debugger panel forward and take the game's input back.
+		void ConnectDebugger();
 
 		// Runs the action now, or after the unsaved-changes prompt when the scene has unsaved changes.
 		void RequestSceneAction(SceneAction action, std::filesystem::path path = {});
@@ -170,6 +175,8 @@ namespace Strada
 		// The visual-script debugger, play mode's observer while the layer is attached (declared after play mode, which it
 		// observes).
 		VisualScriptDebugSession m_DebugSession;
+		// The Debugger panel (drawn with the UI; graph.debug-panel reaches it only then).
+		VisualScriptDebuggerPanel m_DebuggerPanel{m_DebugSession, m_Context};
 		EditorExport m_Export;
 		AssetAutoRefresh m_AssetAutoRefresh;
 		CommandRegistry m_Commands;
@@ -190,8 +197,11 @@ namespace Strada
 		SceneSettingsPanel m_SceneSettingsPanel;
 		ProjectSettingsPanel m_ProjectSettingsPanel;
 		ContentBrowserPanel m_ContentBrowserPanel;
-		// Declared before the game view, which uses it.
+		// Declared before the game view and the debug controls, which use it.
 		GameInputRouter m_GameInput;
+		// The toolbar's debugger buttons, Pause and Step while an execution is stopped, the debug keys and the game's input at
+		// stops (spec-slice4 §14).
+		VisualScriptDebugControls m_DebugControls{m_DebugSession, m_PlayMode, m_GameInput};
 		// Created when ImGui is available.
 		Scope<ViewportPanel> m_ViewportPanel;
 		Scope<GameViewPanel> m_GameViewPanel;

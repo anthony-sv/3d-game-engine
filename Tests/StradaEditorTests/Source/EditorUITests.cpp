@@ -1736,3 +1736,41 @@ TEST_CASE("CommandHistory: the steps of a deleted asset leave both stacks, and a
 	Record(merging, context, log, {"Edit Material", false, material, 0, Key});
 	CHECK(merging.GetUndoCount() == 2);
 }
+
+TEST_CASE("UI: texts with arrows are found, and wrapped at their spaces to a width for drawing with the arrows")
+{
+	CHECK(UI::HasArrows("Call A \xE2\x86\x92 B"));
+	CHECK(UI::HasArrows("\xE2\x86\x90"));
+	CHECK_FALSE(UI::HasArrows("Count (int)"));
+	CHECK_FALSE(UI::HasArrows("\xE2\x86\x91 up"));
+	CHECK_FALSE(UI::HasArrows("cut \xE2\x86"));
+
+	Testing::HeadlessImGui imgui;
+	imgui.UseEditorStyle();
+	imgui.Frame(
+		[&]
+		{
+			std::string_view const text = "Stopped at Call A \xE2\x86\x92 B (node 4) on Player: breakpoint";
+			float const whole = UI::CalcArrowTextSize(text).x;
+			// Wide enough: unchanged.
+			CHECK(UI::WrapArrowText(text, whole + 1.0f) == text);
+			// Narrower: broken at spaces only, each line within the width, the words kept in order.
+			float const width = whole * 0.4f;
+			std::string const wrapped = UI::WrapArrowText(text, width);
+			CHECK(wrapped.find('\n') != std::string::npos);
+			std::string joined = wrapped;
+			std::replace(joined.begin(), joined.end(), '\n', ' ');
+			CHECK(joined == text);
+			size_t start = 0;
+			while (start <= wrapped.size())
+			{
+				size_t const end = std::min(wrapped.find('\n', start), wrapped.size());
+				CHECK(UI::CalcArrowTextSize(std::string_view(wrapped).substr(start, end - start)).x <= width);
+				start = end + 1;
+			}
+			// Explicit line breaks stay; a word wider than the width keeps a line of its own.
+			CHECK(UI::WrapArrowText("a\nb", 1000.0f) == "a\nb");
+			CHECK(UI::WrapArrowText("Unbreakable", 1.0f) == "Unbreakable");
+			CHECK(UI::WrapArrowText("one two", 1.0f) == "one\ntwo");
+		});
+}

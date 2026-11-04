@@ -104,6 +104,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/SceneSettingsPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
+    Source/Editor/Panels/VisualScriptDebuggerPanel.cpp
+    Source/Editor/Panels/VisualScriptDebuggerPanel.h
     Source/Editor/Panels/VisualScriptEditorPanel.cpp
     Source/Editor/Panels/VisualScriptEditorPanel.h
     Source/Editor/PlayMode.cpp
@@ -138,6 +140,7 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptBreakpoints.h
     Source/Editor/VisualScripting/VisualScriptBrushes.cpp
     Source/Editor/VisualScripting/VisualScriptBrushes.h
+    Source/Editor/VisualScripting/VisualScriptCanvasDebug.h
     Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
     Source/Editor/VisualScripting/VisualScriptCanvasModel.cpp
     Source/Editor/VisualScripting/VisualScriptCanvasModel.h
@@ -157,8 +160,12 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptCurveEditor.h
     Source/Editor/VisualScripting/VisualScriptCurveView.cpp
     Source/Editor/VisualScripting/VisualScriptCurveView.h
+    Source/Editor/VisualScripting/VisualScriptDebugControls.cpp
+    Source/Editor/VisualScripting/VisualScriptDebugControls.h
     Source/Editor/VisualScripting/VisualScriptDebugSession.cpp
     Source/Editor/VisualScripting/VisualScriptDebugSession.h
+    Source/Editor/VisualScripting/VisualScriptDebugValues.cpp
+    Source/Editor/VisualScripting/VisualScriptDebugValues.h
     Source/Editor/VisualScripting/VisualScriptDetails.cpp
     Source/Editor/VisualScripting/VisualScriptDetails.h
     Source/Editor/VisualScripting/VisualScriptDrawer.cpp
@@ -174,6 +181,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptFind.h
     Source/Editor/VisualScripting/VisualScriptFindBar.cpp
     Source/Editor/VisualScripting/VisualScriptFindBar.h
+    Source/Editor/VisualScripting/VisualScriptFlow.cpp
+    Source/Editor/VisualScripting/VisualScriptFlow.h
     Source/Editor/VisualScripting/VisualScriptFlowTake.h
     Source/Editor/VisualScripting/VisualScriptGeometry.cpp
     Source/Editor/VisualScripting/VisualScriptGeometry.h

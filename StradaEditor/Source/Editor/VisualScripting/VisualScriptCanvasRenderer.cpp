@@ -3,6 +3,7 @@
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptBrushes.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
+#include "Editor/VisualScripting/VisualScriptFlow.h"
 #include "Editor/VisualScripting/VisualScriptHitTest.h"
 
 #include <imgui.h>
@@ -108,6 +109,35 @@ namespace Strada
 		constexpr float MinimapViewOutlineAlpha = 0.90f;
 		constexpr float MinimapRounding = 4.0f;
 		constexpr float MinimapCell = 2.0f;
+
+		// Debugging (spec-slice4 §13.2): canvas units, or pixels × UI scale where named LogicalPixels.
+		constexpr float FlowWireAlpha = 0.9f;
+		constexpr float FlowWireWidthScale = 1.6f;
+		constexpr float FlowWireMinLogicalPixels = 2.0f;
+		constexpr float FlowDotSpacingLogicalPixels = 40.0f;
+		// Per second of editor time.
+		constexpr float FlowDotSpeedLogicalPixels = 180.0f;
+		constexpr float FlowDotRadiusLogicalPixels = 2.5f;
+		constexpr float FlowDotMix = 0.6f;
+		constexpr float RunGlowReach = 10.0f;
+		constexpr float RunGlowAlpha = 0.45f;
+		constexpr float ComputedGlowAlpha = 0.35f;
+		constexpr float BoxGlowAlpha = 0.35f;
+		constexpr float BoxGlowMinReachLogicalPixels = 4.0f;
+		constexpr float InstructionOutlineLogicalPixels = 2.5f;
+		constexpr float InstructionGlowAlpha = 0.35f;
+		constexpr float InstructionTriangleWidth = 10.0f;
+		constexpr float InstructionTriangleGap = 2.0f;
+		constexpr float HollowTriangleLogicalPixels = 1.5f;
+		constexpr float CallerOutlineLogicalPixels = 1.5f;
+		constexpr float CallerAlpha = 0.5f;
+		constexpr float MarkerRingLogicalPixels = 2.0f;
+		constexpr float MarkerDotScale = 0.35f;
+		constexpr float InactiveMarkerAlpha = 0.5f;
+		constexpr float GhostMarkerAlpha = 0.35f;
+		constexpr float DebugPillTextLogicalPixels = 11.0f;
+		constexpr float DebugPillGapLogicalPixels = 2.0f;
+		constexpr float DimmedValueAlpha = 0.5f;
 
 		ImVec2 ToIm(glm::vec2 point)
 		{
@@ -556,12 +586,14 @@ namespace Strada
 		      {
 				  DrawWires(frame, false);
 				  DrawWires(frame, true);
+				  DrawFlow(frame);
 			  });
 		phase(m_Stats.NodesMilliseconds,
 		      [&]
 		      {
 				  DrawNodes(frame, false);
 				  DrawNodes(frame, true);
+				  DrawDebug(frame);
 				  DrawCommentLabels(frame);
 			  });
 		phase(m_Stats.OverlayMilliseconds,
@@ -860,6 +892,7 @@ namespace Strada
 					frame.HoveredPin = hover.Pin;
 				}
 				break;
+			case VisualScriptHitKind::Breakpoint:
 			case VisualScriptHitKind::Badge:
 			case VisualScriptHitKind::NodeHeader:
 			case VisualScriptHitKind::Node:
@@ -1108,8 +1141,7 @@ namespace Strada
 		// on and a title over their headers would hide them; at Far and Overview on its plate above the nodes (DrawCommentLabels).
 		if (frame.Level == VisualScriptDetailLevel::Compact || frame.Level == VisualScriptDetailLevel::Detail)
 		{
-			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(
-				comment, frame.View, comment.Title.Width, VisualScriptGeometry::CountGlyphs(frame.Canvas.GetVisibleText(comment.Title)));
+			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(comment, frame.View);
 			if (!VisualScriptGeometry::IsEmpty(title))
 			{
 				DrawCommentTitle(frame, comment, title);
@@ -1312,8 +1344,8 @@ namespace Strada
 	void VisualScriptCanvasRenderer::DrawCommentTitle(Frame& frame, VisualScriptCommentVisual const& comment, VisualScriptRect const& title)
 	{
 		// Drawn larger than its layout at low zooms: the layout's ellipsized text when it fits, else the title ellipsized again to
-		// the width it has. The geometry leaves room for its first glyphs at their average width, so wider first glyphs may leave
-		// room for the ellipsis alone: it is drawn then, so a title's plate is never blank.
+		// the width it has. The geometry leaves the room its first CommentTitleMinGlyphs glyphs and the ellipsis measured, so
+		// they are drawn at least: fitting them again can lose one to float rounding, which must not leave fewer.
 		float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(frame.PixelsPerUnit, frame.UIScale);
 		float const available = title.Max.x - title.Min.x;
 		float const layoutWidth = comment.Title.Width * titlePixels / Metrics::CommentTitleTextSize;
@@ -1332,8 +1364,9 @@ namespace Strada
 		                                .x;
 		char const* remaining = nullptr;
 		frame.Font->CalcTextSizeA(titlePixels, available - ellipsisWidth, 0.0f, text.data(), text.data() + text.size(), &remaining);
-		size_t const visible = remaining != nullptr ? static_cast<size_t>(remaining - text.data()) : 0;
-		DrawLadderText(frame, titlePixels, title.Min, comment.BarTextColor, text.substr(0, visible), true);
+		size_t const fitted = remaining != nullptr ? static_cast<size_t>(remaining - text.data()) : 0;
+		size_t const visible = std::min(std::max<size_t>(fitted, comment.TitleMinimumLength), text.size());
+		DrawLadderText(frame, titlePixels, title.Min, comment.BarTextColor, text.substr(0, visible), visible < text.size());
 	}
 
 	void VisualScriptCanvasRenderer::DrawCommentLabels(Frame& frame)
@@ -1348,14 +1381,13 @@ namespace Strada
 		for (uint32_t const index : m_VisibleComments)
 		{
 			VisualScriptCommentVisual const comment = GetDrawnComment(frame, index);
-			uint32_t const glyphs = VisualScriptGeometry::CountGlyphs(frame.Canvas.GetVisibleText(comment.Title));
-			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(comment, frame.View, comment.Title.Width, glyphs);
+			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(comment, frame.View);
 			if (VisualScriptGeometry::IsEmpty(title))
 			{
 				continue;
 			}
 			// The plate hit testing tests, around the title.
-			VisualScriptRect const plate = VisualScriptGeometry::GetCommentLabelRect(comment, frame.View, comment.Title.Width, glyphs);
+			VisualScriptRect const plate = VisualScriptGeometry::GetCommentLabelRect(comment, frame.View);
 			VisualScriptDrawRecordItem item;
 			item.Layer = VisualScriptDrawLayer::CommentLabels;
 			item.Kind = VisualScriptDrawItemKind::CommentLabel;
@@ -2728,6 +2760,644 @@ namespace Strada
 		item.Elements |= Elements::LiveWidget;
 	}
 
+	VisualScriptRect VisualScriptCanvasRenderer::GetNodeScreen(Frame const& frame, uint32_t index) const
+	{
+		VisualScriptNodeVisual node = frame.Nodes[index];
+		if (frame.Preview.Expanded == index)
+		{
+			node = VisualScriptGeometry::GetExpandedNode(node);
+		}
+		return frame.ToScreen(VisualScriptGeometry::GetNodeRect(node, GetNodeOffset(frame, index)));
+	}
+
+	bool VisualScriptCanvasRenderer::IsNodeVisible(uint32_t index) const
+	{
+		return index < m_NodeStamps.size() && m_NodeStamps[index] == m_Stamp;
+	}
+
+	bool VisualScriptCanvasRenderer::IsLinkVisible(uint32_t link) const
+	{
+		return std::binary_search(m_VisibleLinks.begin(), m_VisibleLinks.end(), link);
+	}
+
+	glm::vec2 VisualScriptCanvasRenderer::GetDebugPillSize(Frame const& frame, std::string_view text, bool swatch) const
+	{
+		float const pixels = Metrics::LadderFloor(DebugPillTextLogicalPixels * frame.UIScale);
+		float const padding = std::round(pixels * 0.25f);
+		float width = text.empty() ? 0.0f : frame.Font->CalcTextSizeA(pixels, FLT_MAX, 0.0f, text.data(), text.data() + text.size()).x;
+		if (swatch)
+		{
+			width += pixels + (text.empty() ? 0.0f : padding);
+		}
+		return glm::vec2(std::ceil(width) + 4.0f * padding, pixels + 2.0f * padding);
+	}
+
+	VisualScriptRect VisualScriptCanvasRenderer::DrawDebugPill(Frame& frame, glm::vec2 position, std::string_view text,
+	                                                           std::optional<uint32_t> swatch, uint32_t textColor, float alpha)
+	{
+		ImDrawList* const drawList = frame.DrawList;
+		float const pixels = Metrics::LadderFloor(DebugPillTextLogicalPixels * frame.UIScale);
+		float const padding = std::round(pixels * 0.25f);
+		glm::vec2 const size = GetDebugPillSize(frame, text, swatch.has_value());
+		glm::vec2 const min = glm::floor(position);
+		VisualScriptRect const rect{min, min + size};
+		float const rounding = size.y * 0.5f;
+		drawList->AddRectFilled(ToIm(rect.Min), ToIm(rect.Max), MultiplyVisualScriptAlpha(frame.Theme.Body, 0.95f * alpha), rounding);
+		drawList->AddRect(ToIm(rect.Min), ToIm(rect.Max), MultiplyVisualScriptAlpha(frame.Theme.Border, alpha), rounding,
+		                  WholePixels(frame.UIScale));
+		float x = rect.Min.x + 2.0f * padding;
+		if (swatch)
+		{
+			drawList->AddRectFilled(ImVec2(x, rect.Min.y + padding), ImVec2(x + pixels, rect.Min.y + padding + pixels),
+			                        MultiplyVisualScriptAlpha(*swatch, alpha), padding);
+			x += pixels + padding;
+		}
+		DrawLadderText(frame, pixels, glm::vec2(x, rect.Min.y + padding), MultiplyVisualScriptAlpha(textColor, alpha), text);
+		return rect;
+	}
+
+	void VisualScriptCanvasRenderer::DrawFlow(Frame& frame)
+	{
+		VisualScriptCanvasDebugView const* debug = frame.Input.Debug;
+		if (debug == nullptr)
+		{
+			return;
+		}
+		ImDrawList* const drawList = frame.DrawList;
+		float const k = frame.PixelsPerUnit;
+		float const s = frame.UIScale;
+		bool const detailed = frame.Level == VisualScriptDetailLevel::Detail || frame.Level == VisualScriptDetailLevel::Compact;
+		auto const record = [&](VisualScriptDrawItemKind kind, uint32_t element, uint8_t mark, uint32_t elements, uint32_t color,
+		                        VisualScriptRect const& screen, uint32_t vertexBegin)
+		{
+			if (frame.Input.Record != nullptr)
+			{
+				VisualScriptDrawRecordItem item;
+				item.Layer = VisualScriptDrawLayer::Flow;
+				item.Kind = kind;
+				item.Element = element;
+				item.Mark = mark;
+				item.Level = frame.Level;
+				item.Elements = elements;
+				item.Color = color;
+				item.Screen = screen;
+				item.VertexBegin = vertexBegin;
+				item.VertexEnd = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+				item.Order = frame.Order++;
+				frame.Input.Record->Items.push_back(std::move(item));
+			}
+		};
+
+		// Run glows, behind the nodes: at Compact and Detail the path that led to the stop (steady) and the nodes that ran; at
+		// Far and Overview the comment boxes whose nodes ran, so the zoomed-out graph shows which behaviours run.
+		size_t glows = 0;
+		auto const glow = [&](VisualScriptRect const& screen, float reach, uint32_t color, uint32_t element, uint8_t mark)
+		{
+			uint32_t const begin = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+			bool const drawn = DrawSoftRect(frame, ToIm(screen.Min), ToIm(screen.Max), reach, color);
+			record(VisualScriptDrawItemKind::RunGlow, element, mark, drawn ? Elements::Glow : 0u, color, screen, begin);
+			glows++;
+		};
+		if (detailed)
+		{
+			for (uint32_t const id : debug->Computed)
+			{
+				if (glows >= MaxRunGlows)
+				{
+					break;
+				}
+				std::optional<uint32_t> const index = frame.Canvas.FindNode(id);
+				if (index && IsNodeVisible(*index))
+				{
+					glow(GetNodeScreen(frame, *index), RunGlowReach * k,
+					     MultiplyVisualScriptAlpha(VisualScriptCurrentInstructionColor, ComputedGlowAlpha), id, 1);
+				}
+			}
+			for (VisualScriptFlowNodeMark const& mark : debug->FlowNodes)
+			{
+				if (glows >= MaxRunGlows)
+				{
+					break;
+				}
+				std::optional<uint32_t> const index =
+					mark.Intensity >= VisualScriptFlowModel::MinIntensity ? frame.Canvas.FindNode(mark.Node) : std::nullopt;
+				if (index && IsNodeVisible(*index))
+				{
+					glow(GetNodeScreen(frame, *index), RunGlowReach * k,
+					     MultiplyVisualScriptAlpha(VisualScriptFlowColor, RunGlowAlpha * mark.Intensity), mark.Node, 0);
+				}
+			}
+		}
+		else
+		{
+			for (VisualScriptFlowBoxMark const& mark : debug->FlowBoxes)
+			{
+				if (glows >= MaxRunGlows)
+				{
+					break;
+				}
+				std::optional<uint32_t> const index = frame.Canvas.FindComment(mark.Comment);
+				if (!index || !std::binary_search(m_VisibleComments.begin(), m_VisibleComments.end(), *index))
+				{
+					continue;
+				}
+				VisualScriptCommentVisual const comment = GetDrawnComment(frame, *index);
+				glow(frame.ToScreen(comment.Rect), std::max(RunGlowReach * k, BoxGlowMinReachLogicalPixels * s),
+				     MultiplyVisualScriptAlpha(VisualScriptFlowColor, BoxGlowAlpha * mark.Intensity), mark.Comment, 2);
+			}
+		}
+
+		// The current instruction's glow lies under its node, as the selection's does (its outline is drawn above, DrawDebug).
+		m_InstructionGlow = false;
+		if (debug->Instruction && frame.Level != VisualScriptDetailLevel::Far)
+		{
+			if (std::optional<uint32_t> const index = frame.Canvas.FindNode(debug->Instruction->Node); index && IsNodeVisible(*index))
+			{
+				VisualScriptRect const screen = GetNodeScreen(frame, *index);
+				m_InstructionGlow = DrawSoftRect(frame, ToIm(screen.Min), ToIm(screen.Max), GlowReach * k,
+				                                 MultiplyVisualScriptAlpha(VisualScriptCurrentInstructionColor, InstructionGlowAlpha));
+			}
+		}
+
+		// Fired exec wires, over the wires they light, the most intense first.
+		size_t wires = 0;
+		for (VisualScriptFlowLinkMark const& mark : debug->FlowLinks)
+		{
+			if (wires >= MaxFlowWires)
+			{
+				break;
+			}
+			if (mark.Link < frame.Links.size() && IsLinkVisible(mark.Link) && frame.Links[mark.Link].HasFlag(VisualScriptLinkFlags::Exec) &&
+			    (m_LinkMarks[mark.Link] & PickedMark) == 0)
+			{
+				DrawFlowWire(frame, mark);
+				wires++;
+			}
+		}
+	}
+
+	void VisualScriptCanvasRenderer::DrawFlowWire(Frame& frame, VisualScriptFlowLinkMark const& mark)
+	{
+		std::array<glm::vec2, 4> points = GetWirePoints(frame, mark.Link);
+		for (glm::vec2& point : points)
+		{
+			point = frame.ToScreen(point);
+		}
+		float const k = frame.PixelsPerUnit;
+		float const s = frame.UIScale;
+		VisualScriptRect const bounds = VisualScriptGeometry::GetWireBounds(points);
+		if (frame.Level == VisualScriptDetailLevel::Far && std::max(bounds.GetSize().x, bounds.GetSize().y) < FarMinWireLength * s)
+		{
+			// Far skips the wire itself.
+			return;
+		}
+		VisualScriptGeometry::WireFlattening const flattening =
+			VisualScriptGeometry::GetWireFlattening(frame.Level, frame.Input.Style.CurveTessellationTolerance);
+		VisualScriptGeometry::FlattenWire(points, flattening.Tolerance, flattening.SegmentCap, m_Polyline);
+		// The exec wire's own stroke (DrawWire), widened.
+		float const wireThickness = std::clamp(std::round(3.0f * k), 1.0f, std::round(5.0f * s));
+		float const thickness = WholePixels(std::max(FlowWireWidthScale * wireThickness, FlowWireMinLogicalPixels * s));
+		float const intensity = std::clamp(mark.Intensity, 0.0f, 1.0f);
+		uint32_t const color = MultiplyVisualScriptAlpha(VisualScriptFlowColor, FlowWireAlpha * intensity);
+		std::pair<uint32_t, uint32_t> const vertices = Stroke(frame, m_Polyline, color, thickness);
+		uint32_t elements = 0;
+		bool const held = frame.Input.Debug != nullptr && frame.Input.Debug->FlowHeld;
+		if (!held && !frame.Input.ReduceMotion && intensity >= VisualScriptFlowModel::DotIntensity && mark.Phase >= 0.0f &&
+		    m_Polyline.size() >= 2)
+		{
+			// Dots from the output toward the input, FlowDotSpacing apart, at FlowDotSpeed (editor time).
+			float length = 0.0f;
+			for (size_t point = 1; point < m_Polyline.size(); point++)
+			{
+				length += glm::length(m_Polyline[point] - m_Polyline[point - 1]);
+			}
+			float const spacing = FlowDotSpacingLogicalPixels * s;
+			if (length > 0.0f && spacing > 0.0f)
+			{
+				uint32_t const dotColor = MultiplyVisualScriptAlpha(
+					MixVisualScriptColors(VisualScriptFlowColor, VisualScriptRgba(255, 255, 255), FlowDotMix), intensity);
+				float const radius = FlowDotRadiusLogicalPixels * s;
+				for (float travelled = std::fmod(mark.Phase * FlowDotSpeedLogicalPixels * s, spacing); travelled <= length;
+				     travelled += spacing)
+				{
+					glm::vec2 const dot = VisualScriptGeometry::GetPolylinePoint(m_Polyline, travelled / length);
+					frame.DrawList->AddCircleFilled(ToIm(dot), radius, dotColor);
+				}
+				elements |= Elements::PulseDot;
+			}
+		}
+		if (frame.Input.Record != nullptr)
+		{
+			VisualScriptDrawRecordItem item;
+			item.Layer = VisualScriptDrawLayer::Flow;
+			item.Kind = VisualScriptDrawItemKind::FlowWire;
+			item.Element = mark.Link;
+			item.Level = frame.Level;
+			item.Elements = elements;
+			item.Screen = bounds;
+			item.Color = color;
+			item.Thickness = thickness;
+			item.PointCount = static_cast<uint32_t>(m_Polyline.size());
+			item.VertexBegin = vertices.first;
+			item.VertexEnd = static_cast<uint32_t>(frame.DrawList->VtxBuffer.Size);
+			item.Order = frame.Order++;
+			frame.Input.Record->Items.push_back(std::move(item));
+		}
+	}
+
+	void VisualScriptCanvasRenderer::DrawDebug(Frame& frame)
+	{
+		VisualScriptCanvasDebugView const* debug = frame.Input.Debug;
+		if (debug == nullptr)
+		{
+			return;
+		}
+		ImDrawList* const drawList = frame.DrawList;
+		float const s = frame.UIScale;
+		bool const detailed = frame.Level == VisualScriptDetailLevel::Detail || frame.Level == VisualScriptDetailLevel::Compact;
+
+		// The stop's other frames in this sub-graph, then its current instruction (outlines around their nodes).
+		float const callerThickness = WholePixels(CallerOutlineLogicalPixels * s);
+		for (uint32_t const id : debug->Callers)
+		{
+			std::optional<uint32_t> const index = frame.Canvas.FindNode(id);
+			if (!index || !IsNodeVisible(*index))
+			{
+				continue;
+			}
+			VisualScriptRect const screen = GetNodeScreen(frame, *index);
+			uint32_t const begin = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+			uint32_t const color = MultiplyVisualScriptAlpha(VisualScriptCurrentInstructionColor, CallerAlpha);
+			float const half = callerThickness * 0.5f;
+			drawList->AddRect(ImVec2(screen.Min.x - half, screen.Min.y - half), ImVec2(screen.Max.x + half, screen.Max.y + half), color,
+			                  GetNodeRounding(frame, *index) + half, callerThickness);
+			if (frame.Input.Record != nullptr)
+			{
+				VisualScriptDrawRecordItem item;
+				item.Layer = VisualScriptDrawLayer::Debug;
+				item.Kind = VisualScriptDrawItemKind::Caller;
+				item.Element = id;
+				item.Level = frame.Level;
+				item.Elements = Elements::Outline;
+				item.Color = color;
+				item.Screen = screen;
+				item.VertexBegin = begin;
+				item.VertexEnd = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+				item.Order = frame.Order++;
+				frame.Input.Record->Items.push_back(std::move(item));
+			}
+		}
+		if (debug->Instruction)
+		{
+			DrawInstruction(frame, *debug->Instruction);
+		}
+
+		// Breakpoint markers at every level but Far, and the ghost marker under the mouse at Compact and Detail.
+		if (frame.Level != VisualScriptDetailLevel::Far)
+		{
+			for (VisualScriptBreakpointMark const& mark : debug->Breakpoints)
+			{
+				if (std::optional<uint32_t> const index = frame.Canvas.FindNode(mark.Node); index && IsNodeVisible(*index))
+				{
+					DrawBreakpoint(frame, *index, &mark);
+				}
+			}
+			VisualScriptHit const& hover = frame.Model->GetHover();
+			if (detailed && hover.Kind == VisualScriptHitKind::Breakpoint && frame.HoveredNode &&
+			    std::none_of(debug->Breakpoints.begin(), debug->Breakpoints.end(),
+			                 [&hover](VisualScriptBreakpointMark const& mark)
+			                 {
+								 return mark.Node == hover.Element;
+							 }))
+			{
+				DrawBreakpoint(frame, *frame.HoveredNode, nullptr);
+			}
+		}
+
+		if (!detailed)
+		{
+			return;
+		}
+		for (VisualScriptFlowNodeMark const& mark : debug->FlowNodes)
+		{
+			if (mark.Count >= 2)
+			{
+				DrawRunCount(frame, mark);
+			}
+		}
+		size_t pills = 0;
+		for (VisualScriptValueMark const& mark : debug->Values)
+		{
+			if (pills >= MaxValuePills)
+			{
+				break;
+			}
+			if (mark.Currency != VisualScriptValueCurrency::NotComputed && mark.Link < frame.Links.size() && IsLinkVisible(mark.Link))
+			{
+				DrawValuePill(frame, mark);
+				pills++;
+			}
+		}
+	}
+
+	float VisualScriptCanvasRenderer::GetNodeRounding(Frame const& frame, uint32_t index) const
+	{
+		VisualScriptNodeVisual const& node = frame.Nodes[index];
+		if (frame.Level == VisualScriptDetailLevel::Far)
+		{
+			return 0.0f;
+		}
+		if (node.Shape == VisualScriptNodeShape::Pill || node.Shape == VisualScriptNodeShape::Reroute)
+		{
+			return GetNodeScreen(frame, index).GetSize().y * 0.5f;
+		}
+		return Metrics::NodeCornerRadius * frame.PixelsPerUnit;
+	}
+
+	void VisualScriptCanvasRenderer::DrawBreakpoint(Frame& frame, uint32_t nodeIndex, VisualScriptBreakpointMark const* mark)
+	{
+		ImDrawList* const drawList = frame.DrawList;
+		float const k = frame.PixelsPerUnit;
+		float const s = frame.UIScale;
+		VisualScriptNodeVisual node = frame.Nodes[nodeIndex];
+		if (frame.Preview.Expanded == nodeIndex)
+		{
+			node = VisualScriptGeometry::GetExpandedNode(node);
+		}
+		glm::vec2 const center = frame.ToScreen(VisualScriptGeometry::GetBreakpointCenter(node, GetNodeOffset(frame, nodeIndex)));
+		float const radius = VisualScriptGeometry::GetBadgeRadius(k, s) * k;
+		float const ring = WholePixels(MarkerRingLogicalPixels * s);
+		uint32_t const begin = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+		uint32_t elements = 0;
+		uint32_t color = 0;
+		uint8_t state = VisualScriptGhostBreakpointMark;
+		if (mark == nullptr)
+		{
+			color = MultiplyVisualScriptAlpha(VisualScriptBreakpointColor, GhostMarkerAlpha);
+			drawList->AddCircle(ToIm(center), radius - ring * 0.5f, color, 0, ring);
+			elements |= Elements::Border;
+		}
+		else
+		{
+			state = static_cast<uint8_t>(mark->State);
+			float const alpha = mark->Inactive ? InactiveMarkerAlpha : 1.0f;
+			color = MultiplyVisualScriptAlpha(
+				mark->State == VisualScriptBreakpointMarkState::Invalid ? VisualScriptWarningColor : VisualScriptBreakpointColor, alpha);
+			switch (mark->State)
+			{
+				case VisualScriptBreakpointMarkState::Enabled:
+					drawList->AddCircleFilled(ToIm(center), radius, color);
+					elements |= Elements::Body;
+					break;
+				case VisualScriptBreakpointMarkState::Disabled:
+					drawList->AddCircle(ToIm(center), radius - ring * 0.5f, color, 0, ring);
+					elements |= Elements::Border;
+					break;
+				case VisualScriptBreakpointMarkState::Conditional:
+					drawList->AddCircleFilled(ToIm(center), radius, color);
+					drawList->AddCircleFilled(ToIm(center), radius * MarkerDotScale,
+					                          MultiplyVisualScriptAlpha(VisualScriptRgba(255, 255, 255), alpha));
+					elements |= Elements::Body;
+					break;
+				case VisualScriptBreakpointMarkState::Invalid:
+					drawList->AddCircleFilled(ToIm(center), radius, color);
+					DrawExclamation(frame, center, radius, MultiplyVisualScriptAlpha(frame.Theme.Border, alpha));
+					elements |= Elements::Body;
+					break;
+			}
+			if (mark->Inactive)
+			{
+				elements |= Elements::Faded;
+			}
+			if (mark->CausedStop)
+			{
+				// The arrow of the breakpoint that caused the selected stop, over the marker.
+				ImVec2 const a(center.x - radius * 0.45f, center.y - radius * 0.6f);
+				ImVec2 const b(center.x + radius * 0.65f, center.y);
+				ImVec2 const c(center.x - radius * 0.45f, center.y + radius * 0.6f);
+				drawList->AddTriangleFilled(a, b, c, VisualScriptCurrentInstructionColor);
+				drawList->AddTriangle(a, b, c, frame.Theme.Border, WholePixels(s));
+				elements |= Elements::Outline;
+			}
+		}
+		if (frame.Input.Record != nullptr)
+		{
+			VisualScriptDrawRecordItem item;
+			item.Layer = VisualScriptDrawLayer::Debug;
+			item.Kind = VisualScriptDrawItemKind::Breakpoint;
+			item.Element = node.ID;
+			item.Mark = state;
+			item.Level = frame.Level;
+			item.Elements = elements;
+			item.Color = color;
+			item.Screen = {center - glm::vec2(radius), center + glm::vec2(radius)};
+			item.VertexBegin = begin;
+			item.VertexEnd = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+			item.Order = frame.Order++;
+			frame.Input.Record->Items.push_back(std::move(item));
+		}
+	}
+
+	void VisualScriptCanvasRenderer::DrawInstruction(Frame& frame, VisualScriptInstructionMark const& mark)
+	{
+		std::optional<uint32_t> const index = frame.Canvas.FindNode(mark.Node);
+		if (!index || !IsNodeVisible(*index))
+		{
+			return;
+		}
+		ImDrawList* const drawList = frame.DrawList;
+		float const s = frame.UIScale;
+		VisualScriptNodeVisual node = frame.Nodes[*index];
+		if (frame.Preview.Expanded == *index)
+		{
+			node = VisualScriptGeometry::GetExpandedNode(node);
+		}
+		glm::vec2 const offset = GetNodeOffset(frame, *index);
+		VisualScriptRect const screen = GetNodeScreen(frame, *index);
+		uint32_t const begin = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+		float const thickness = WholePixels(InstructionOutlineLogicalPixels * s);
+		float const half = thickness * 0.5f;
+		drawList->AddRect(ImVec2(screen.Min.x - half, screen.Min.y - half), ImVec2(screen.Max.x + half, screen.Max.y + half),
+		                  VisualScriptCurrentInstructionColor, GetNodeRounding(frame, *index) + half, thickness);
+		uint32_t elements = Elements::Outline | (m_InstructionGlow ? Elements::Glow : 0u);
+		std::string_view pillText;
+		bool const detailed = frame.Level == VisualScriptDetailLevel::Detail || frame.Level == VisualScriptDetailLevel::Compact;
+		if (detailed && mark.Place != VisualScriptStopPlace::Error)
+		{
+			// At Enter a triangle pointing at the entered exec input (at the header for an event), its tip just left of the node;
+			// at Continue one right of the exit about to fire, with the pill of what comes next.
+			bool const enter = mark.Place == VisualScriptStopPlace::Enter;
+			VisualScriptRect const rect = VisualScriptGeometry::GetNodeRect(node, offset);
+			float y = VisualScriptGeometry::GetHeaderRect(node, offset).GetCenter().y;
+			if (std::optional<uint32_t> const pin =
+			        frame.Canvas.FindPin(*index, mark.Pin, enter ? VisualScriptPinDirection::In : VisualScriptPinDirection::Out))
+			{
+				y = VisualScriptGeometry::GetPinAnchor(node, frame.Pins[*pin], offset).y;
+			}
+			float const inner = enter ? rect.Min.x - InstructionTriangleGap : rect.Max.x + InstructionTriangleGap;
+			float const outer = enter ? inner - InstructionTriangleWidth : inner + InstructionTriangleWidth;
+			float const tip = enter ? inner : outer;
+			float const base = enter ? outer : inner;
+			ImVec2 const a = frame.ToScreenIm(glm::vec2(base, y - InstructionTriangleWidth * 0.5f));
+			ImVec2 const b = frame.ToScreenIm(glm::vec2(tip, y));
+			ImVec2 const c = frame.ToScreenIm(glm::vec2(base, y + InstructionTriangleWidth * 0.5f));
+			if (mark.ReadOnly)
+			{
+				drawList->AddTriangle(a, b, c, VisualScriptCurrentInstructionColor, WholePixels(HollowTriangleLogicalPixels * s));
+				elements |= Elements::Faded;
+			}
+			else
+			{
+				drawList->AddTriangleFilled(a, b, c, VisualScriptCurrentInstructionColor);
+			}
+			elements |= Elements::KindGlyph;
+			if (!enter && !mark.Note.empty())
+			{
+				glm::vec2 const size = GetDebugPillSize(frame, mark.Note, false);
+				glm::vec2 const at = frame.ToScreen(glm::vec2(outer, y)) + glm::vec2(DebugPillGapLogicalPixels * s, -size.y * 0.5f);
+				DrawDebugPill(frame, at, mark.Note, std::nullopt, VisualScriptCurrentInstructionColor, 1.0f);
+				elements |= Elements::StripLabel;
+				pillText = mark.Note;
+			}
+		}
+		if (frame.Input.Record != nullptr)
+		{
+			VisualScriptDrawRecordItem item;
+			item.Layer = VisualScriptDrawLayer::Debug;
+			item.Kind = VisualScriptDrawItemKind::Instruction;
+			item.Element = mark.Node;
+			item.Mark = static_cast<uint8_t>(mark.Place);
+			item.Level = frame.Level;
+			item.Elements = elements;
+			item.Color = VisualScriptCurrentInstructionColor;
+			item.Screen = screen;
+			item.Text = std::string(pillText);
+			item.VertexBegin = begin;
+			item.VertexEnd = static_cast<uint32_t>(drawList->VtxBuffer.Size);
+			item.Order = frame.Order++;
+			frame.Input.Record->Items.push_back(std::move(item));
+		}
+	}
+
+	void VisualScriptCanvasRenderer::DrawRunCount(Frame& frame, VisualScriptFlowNodeMark const& mark)
+	{
+		std::optional<uint32_t> const index = frame.Canvas.FindNode(mark.Node);
+		if (!index || !IsNodeVisible(*index))
+		{
+			return;
+		}
+		std::string const text = FormatVisualScriptRunCount(mark.Count);
+		VisualScriptRect const screen = GetNodeScreen(frame, *index);
+		glm::vec2 const size = GetDebugPillSize(frame, text, false);
+		uint32_t const begin = static_cast<uint32_t>(frame.DrawList->VtxBuffer.Size);
+		// Above the header's top-right corner.
+		VisualScriptRect const rect =
+			DrawDebugPill(frame, glm::vec2(screen.Max.x - size.x, screen.Min.y - size.y - DebugPillGapLogicalPixels * frame.UIScale), text,
+		                  std::nullopt, VisualScriptFlowColor, 1.0f);
+		if (frame.Input.Record != nullptr)
+		{
+			VisualScriptDrawRecordItem item;
+			item.Layer = VisualScriptDrawLayer::Debug;
+			item.Kind = VisualScriptDrawItemKind::RunCount;
+			item.Element = mark.Node;
+			item.Level = frame.Level;
+			item.Elements = Elements::Body;
+			item.Color = VisualScriptFlowColor;
+			item.Screen = rect;
+			item.Text = text;
+			item.VertexBegin = begin;
+			item.VertexEnd = static_cast<uint32_t>(frame.DrawList->VtxBuffer.Size);
+			item.Order = frame.Order++;
+			frame.Input.Record->Items.push_back(std::move(item));
+		}
+	}
+
+	void VisualScriptCanvasRenderer::DrawValuePill(Frame& frame, VisualScriptValueMark const& mark)
+	{
+		std::array<glm::vec2, 4> points = GetWirePoints(frame, mark.Link);
+		for (glm::vec2& point : points)
+		{
+			point = frame.ToScreen(point);
+		}
+		VisualScriptGeometry::WireFlattening const flattening =
+			VisualScriptGeometry::GetWireFlattening(frame.Level, frame.Input.Style.CurveTessellationTolerance);
+		VisualScriptGeometry::FlattenWire(points, flattening.Tolerance, flattening.SegmentCap, m_Polyline);
+		glm::vec2 const middle = VisualScriptGeometry::GetPolylinePoint(m_Polyline, 0.5f);
+		// At most ValuePillMaxGlyphs code points, then the ellipsis.
+		m_DebugText.clear();
+		size_t glyphs = 0;
+		size_t end = 0;
+		for (; end < mark.Text.size(); end++)
+		{
+			bool const starts = (static_cast<unsigned char>(mark.Text[end]) & 0xC0u) != 0x80u;
+			if (starts && glyphs++ == ValuePillMaxGlyphs)
+			{
+				break;
+			}
+		}
+		m_DebugText.assign(mark.Text, 0, end);
+		if (end < mark.Text.size())
+		{
+			m_DebugText.append(VisualScriptEllipsis);
+		}
+		bool const dimmed = mark.Currency == VisualScriptValueCurrency::Earlier || mark.Currency == VisualScriptValueCurrency::Unknown;
+		glm::vec2 const size = GetDebugPillSize(frame, m_DebugText, mark.Swatch.has_value());
+		uint32_t const begin = static_cast<uint32_t>(frame.DrawList->VtxBuffer.Size);
+		VisualScriptRect const rect =
+			DrawDebugPill(frame, middle - size * 0.5f, m_DebugText, mark.Swatch, frame.Theme.Text, dimmed ? DimmedValueAlpha : 1.0f);
+		if (frame.Input.Record != nullptr)
+		{
+			VisualScriptDrawRecordItem item;
+			item.Layer = VisualScriptDrawLayer::Debug;
+			item.Kind = VisualScriptDrawItemKind::ValuePill;
+			item.Element = mark.Link;
+			item.Mark = static_cast<uint8_t>(mark.Currency);
+			item.Level = frame.Level;
+			item.Elements = Elements::Body | (dimmed ? Elements::Faded : 0u);
+			item.Color = mark.Swatch.value_or(0u);
+			item.Screen = rect;
+			item.Text = m_DebugText;
+			item.VertexBegin = begin;
+			item.VertexEnd = static_cast<uint32_t>(frame.DrawList->VtxBuffer.Size);
+			item.Order = frame.Order++;
+			frame.Input.Record->Items.push_back(std::move(item));
+		}
+	}
+
+	bool VisualScriptCanvasRenderer::AppendValueLine(Frame const& frame, uint32_t link)
+	{
+		VisualScriptCanvasDebugView const* debug = frame.Input.Debug;
+		if (debug == nullptr)
+		{
+			return false;
+		}
+		auto const found = std::find_if(debug->Values.begin(), debug->Values.end(),
+		                                [link](VisualScriptValueMark const& mark)
+		                                {
+											return mark.Link == link && mark.Currency != VisualScriptValueCurrency::NotComputed;
+										});
+		if (found == debug->Values.end())
+		{
+			return false;
+		}
+		m_PillText.append("\n");
+		m_PillText.append(VisualScriptCanvasTexts::ValuePrefix);
+		if (found->Text.empty() && found->Swatch)
+		{
+			// A colour shows as its swatch on the wire; here as its sRGB code.
+			uint32_t const color = *found->Swatch;
+			std::array<char, 10> code{};
+			int const length = std::snprintf(code.data(), code.size(), "#%02X%02X%02X%02X", color & 0xFFu, (color >> 8) & 0xFFu,
+			                                 (color >> 16) & 0xFFu, (color >> 24) & 0xFFu);
+			m_PillText.append(code.data(), static_cast<size_t>(std::max(length, 0)));
+		}
+		else
+		{
+			m_PillText.append(found->Text);
+		}
+		return true;
+	}
+
 	void VisualScriptCanvasRenderer::DrawOverlay(Frame& frame)
 	{
 		ImDrawList* const drawList = frame.DrawList;
@@ -3132,6 +3802,17 @@ namespace Strada
 			if (delayed || snapped)
 			{
 				BuildPinText(frame, *frame.HoveredNode, *frame.HoveredPin);
+				// The value of the pin's wire while debugging: an input's, or the first of an output's that has one.
+				for (uint32_t const link : frame.Canvas.GetIncidentLinks(*frame.HoveredNode))
+				{
+					VisualScriptLinkVisual const& visual = frame.Links[link];
+					if ((visual.ToPin == *frame.HoveredPin || visual.FromPin == *frame.HoveredPin) && AppendValueLine(frame, link))
+					{
+						// The cached pin text now holds the value: built again next frame.
+						m_PinTextKey = 0;
+						break;
+					}
+				}
 				element = hover.Element;
 				show = true;
 			}
@@ -3150,6 +3831,27 @@ namespace Strada
 			VisualScriptGeometry::FlattenWire(points, flattening.Tolerance, flattening.SegmentCap, m_Polyline);
 			anchor = VisualScriptGeometry::GetPolylinePoint(m_Polyline, hover.ArcFraction);
 			BuildWireText(frame, *frame.HoveredLink);
+			AppendValueLine(frame, *frame.HoveredLink);
+			show = true;
+		}
+		else if (hover.Kind == VisualScriptHitKind::Breakpoint && frame.HoveredNode && detailed && delayed &&
+		         frame.Input.Debug != nullptr &&
+		         std::none_of(frame.Input.Debug->Breakpoints.begin(), frame.Input.Debug->Breakpoints.end(),
+		                      [&hover](VisualScriptBreakpointMark const& mark)
+		                      {
+								  return mark.Node == hover.Element;
+							  }))
+		{
+			// The ghost marker: what a click does, and its key.
+			m_PinTextKey = 0;
+			m_PillText.assign(VisualScriptCanvasTexts::AddBreakpoint);
+			if (!frame.Input.Debug->BreakpointChord.empty())
+			{
+				m_PillText.append(" (");
+				m_PillText.append(frame.Input.Debug->BreakpointChord);
+				m_PillText.append(")");
+			}
+			element = hover.Element;
 			show = true;
 		}
 		else if (hover.Kind == VisualScriptHitKind::Badge && frame.HoveredNode && delayed)

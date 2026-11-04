@@ -1899,6 +1899,14 @@ inspector's primary entity as the context entity; without an asset directory the
   | | `Shift+Right` | Move the selected keys 0.1 s later |
   | | `F` | Frame the selected keys (everything without any) |
   | | `Esc` | Cancel the drag; else give the keyboard back to the canvas |
+  | Debugging | `F9` | Add or remove breakpoints on the selected nodes |
+  | | `Ctrl+F9` | Enable or disable the selected nodes' breakpoints |
+  | | `Ctrl+F10` | Run to the selected node (while playing) |
+  | Debugging (while stopped) | `F5` | Continue: the stopped executions, then the game |
+  | | `F10` | Step over |
+  | | `F11` | Step into |
+  | | `Ctrl+F11` | Step into (macOS keeps F11 for Show Desktop) |
+  | | `Shift+F11` | Step out |
   | Help | `F1` | Show these shortcuts |
 
   | Gesture | On | Action |

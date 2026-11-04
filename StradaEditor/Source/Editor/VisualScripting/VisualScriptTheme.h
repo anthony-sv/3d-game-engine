@@ -51,6 +51,12 @@ namespace Strada
 	// Pins and wires whose type is not known: unresolved wildcards ("*"), types the library does not have, and every data pin
 	// without a library.
 	inline constexpr uint32_t VisualScriptWildcardColor = VisualScriptRgba(0x7B, 0x81, 0x89);
+	// Debugging (spec-slice4 §13.2): breakpoint markers (a red apart from VisualScriptErrorColor: a marker is told from an error
+	// badge by its place, its shape and its hue), the current instruction of a stop and what its execution computed, and the
+	// flow that lights the wires and nodes that ran. Each keeps at least 3:1 against the canvas and the default node body.
+	inline constexpr uint32_t VisualScriptBreakpointColor = VisualScriptRgba(240, 60, 52);
+	inline constexpr uint32_t VisualScriptCurrentInstructionColor = VisualScriptRgba(255, 191, 0);
+	inline constexpr uint32_t VisualScriptFlowColor = VisualScriptRgba(64, 200, 255);
 
 	// A disabled node draws every primitive of itself and of its wires at this alpha, except text, which stays readable.
 	inline constexpr float VisualScriptDisabledAlpha = 0.55f;

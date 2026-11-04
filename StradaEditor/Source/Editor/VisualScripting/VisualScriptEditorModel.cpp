@@ -9,6 +9,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iterator>
 #include <limits>
@@ -209,7 +210,8 @@ namespace Strada
 
 		bool IsNodeHit(VisualScriptHitKind kind)
 		{
-			return kind == Kind::Pin || kind == Kind::Badge || kind == Kind::NodeHeader || kind == Kind::Node || kind == Kind::Reroute;
+			return kind == Kind::Breakpoint || kind == Kind::Pin || kind == Kind::Badge || kind == Kind::NodeHeader || kind == Kind::Node ||
+			       kind == Kind::Reroute;
 		}
 
 		// A hit that names a node or a comment box by its Element.
@@ -467,6 +469,14 @@ namespace Strada
 			case Action::GoToBookmark7:
 			case Action::GoToBookmark8:
 			case Action::GoToBookmark9:
+			case Action::ToggleBreakpoint:
+			case Action::ToggleBreakpointEnabled:
+			case Action::BreakpointSettings:
+			case Action::RunToNode:
+			case Action::Continue:
+			case Action::StepOver:
+			case Action::StepInto:
+			case Action::StepOut:
 				return false;
 		}
 		return false;
@@ -1663,6 +1673,10 @@ namespace Strada
 		m_CurveTolerance = input.CurveTessellationTolerance > 0.0f && std::isfinite(input.CurveTessellationTolerance)
 		                       ? input.CurveTessellationTolerance
 		                       : 1.25f;
+		if (input.FontSize > 0.0f && std::isfinite(input.FontSize))
+		{
+			m_FontSize = input.FontSize;
+		}
 		if (!IsInteractive())
 		{
 			CancelGesture();
@@ -1750,12 +1764,21 @@ namespace Strada
 
 	void VisualScriptEditorModel::ApplyOpenRequest(VisualScriptOpenRequest const& request)
 	{
+		// The user's own open ends the debugger's stop session of the history.
+		if (!request.FromDebugger)
+		{
+			m_DebuggerEntry = false;
+		}
 		PendingOpen pending;
 		pending.Request = request;
 		if (request.Origin && request.Origin->Graph.IsValid() && request.Origin->Graph != m_Graph)
 		{
 			VisualScriptOrigin const& origin = *request.Origin;
-			HistoryEntry entry{VisualScriptViewState{origin.Function, origin.Center, origin.Zoom}, origin.Graph};
+			HistoryEntry entry{VisualScriptViewState{origin.Function, origin.Center, origin.Zoom}, origin.Graph, origin.Name};
+			if (!origin.Name.empty())
+			{
+				m_HistoryNames.insert_or_assign(origin.Graph, origin.Name);
+			}
 			switch (origin.Step)
 			{
 				case VisualScriptHistoryStep::Jump:
@@ -1783,7 +1806,11 @@ namespace Strada
 		{
 			if (m_HasShownView && !pending.Pushed)
 			{
-				PushHistory(m_View.GetTargetState());
+				if (MayPushForOpen(request))
+				{
+					PushHistory(m_View.GetTargetState());
+					NotePushForOpen(request);
+				}
 				pending.Pushed = true;
 			}
 			SwitchFunction(*request.Function);
@@ -1797,8 +1824,82 @@ namespace Strada
 		{
 			return;
 		}
+		m_DebuggerEntry = false;
 		PushHistory(m_View.GetTargetState());
 		SwitchFunction(function);
+	}
+
+	void VisualScriptEditorModel::ContinueHistory(VisualScriptHistoryStep step)
+	{
+		switch (step)
+		{
+			case VisualScriptHistoryStep::Jump:
+				break;
+			case VisualScriptHistoryStep::Back:
+				GoBack(m_Time);
+				break;
+			case VisualScriptHistoryStep::Forward:
+				GoForward(m_Time);
+				break;
+		}
+	}
+
+	bool VisualScriptEditorModel::MayPushForOpen(VisualScriptOpenRequest const& request) const
+	{
+		return !request.FromDebugger || !m_DebuggerEntry;
+	}
+
+	void VisualScriptEditorModel::NotePushForOpen(VisualScriptOpenRequest const& request)
+	{
+		if (request.FromDebugger)
+		{
+			m_DebuggerEntry = true;
+		}
+	}
+
+	std::string VisualScriptEditorModel::GetHistoryGraphName(AssetHandle graph) const
+	{
+		if (VisualScriptProjectGraph const* known = FindProjectGraph(graph))
+		{
+			return known->DisplayName;
+		}
+		auto const found = m_HistoryNames.find(graph);
+		return found != m_HistoryNames.end() ? found->second : graph.ToString();
+	}
+
+	bool VisualScriptEditorModel::IsGraphGone(AssetHandle graph) const
+	{
+		return m_ProjectRevision != 0 && FindProjectGraph(graph) == nullptr;
+	}
+
+	VisualScriptViewState VisualScriptEditorModel::GetShowNodeTarget(VisualScriptViewState target, uint32_t node) const
+	{
+		std::array<uint32_t, 1> const elements = {node};
+		std::optional<VisualScriptRect> const bounds = m_Canvas.FindNode(node) ? m_Canvas.GetBounds(elements) : std::nullopt;
+		float const pixelsPerUnit = target.Zoom * m_View.GetUIScale();
+		glm::vec2 const canvasSize = m_View.GetCanvasSize();
+		if (!bounds || !(pixelsPerUnit > 0.0f) || canvasSize.x <= 0.0f || canvasSize.y <= 0.0f)
+		{
+			return target;
+		}
+		float const margin = 2.0f * m_FontSize / pixelsPerUnit;
+		glm::vec2 const room = canvasSize / pixelsPerUnit * 0.5f - glm::vec2(margin);
+		glm::vec2 const extent = (bounds->Max - bounds->Min) * 0.5f;
+		if (extent.x > room.x || extent.y > room.y)
+		{
+			// Larger than the view: centred, zoomed to fit.
+			VisualScriptViewState framed = m_View.GetFrameTarget(bounds);
+			framed.Function = target.Function;
+			return framed;
+		}
+		// The least pan that puts the node inside the view with the margin, axis by axis.
+		for (glm::length_t axis = 0; axis < 2; axis++)
+		{
+			float const lowest = bounds->Max[axis] - room[axis];
+			float const highest = bounds->Min[axis] + room[axis];
+			target.Center[axis] = std::clamp(target.Center[axis], lowest, highest);
+		}
+		return target;
 	}
 
 	void VisualScriptEditorModel::Select(std::span<uint32_t const> elements, VisualScriptSelectMode mode)
@@ -1922,6 +2023,13 @@ namespace Strada
 		HitTestCanvas(m_Canvas, m_Index, m_View, MakeHitContext(false), mouse, m_Hover);
 	}
 
+	void VisualScriptEditorModel::SetBreakpointMarkers(bool shown, std::span<uint32_t const> nodes)
+	{
+		m_BreakpointMarkers = shown;
+		m_BreakpointNodes.assign(nodes.begin(), nodes.end());
+		std::sort(m_BreakpointNodes.begin(), m_BreakpointNodes.end());
+	}
+
 	VisualScriptHitContext VisualScriptEditorModel::MakeHitContext(bool skipMoved)
 	{
 		VisualScriptHitContext context;
@@ -1934,6 +2042,8 @@ namespace Strada
 		context.Preview = GetNodePreview();
 		context.DynamicLinks = m_DynamicLinks;
 		context.SkipMoved = skipMoved;
+		context.BreakpointMarkers = m_BreakpointMarkers;
+		context.Breakpoints = m_BreakpointNodes;
 		context.CurveTessellationTolerance = m_CurveTolerance;
 		context.Scratch = &m_HitScratch;
 		return context;
@@ -1980,13 +2090,18 @@ namespace Strada
 			{
 				bounds = m_ContentBounds;
 			}
-			VisualScriptViewState const target = m_View.GetOpenTarget(request, bounds);
+			VisualScriptViewState target = m_View.GetOpenTarget(request, bounds);
+			if (request.ShowNode)
+			{
+				target = GetShowNodeTarget(target, *request.ShowNode);
+			}
 			VisualScriptViewState const current = m_View.GetTargetState();
 			if (!(target == current))
 			{
-				if (m_HasShownView && !pending.Pushed)
+				if (m_HasShownView && !pending.Pushed && MayPushForOpen(request))
 				{
 					PushHistory(current);
+					NotePushForOpen(request);
 				}
 				m_View.AnimateTo(target, time, m_HasShownView ? GetMoveDuration() : 0.0);
 			}
@@ -2323,6 +2438,8 @@ namespace Strada
 			case Kind::Pin:
 				PressPin(input, intents);
 				return;
+			case Kind::Breakpoint:
+				// As a press on a badge: a drag moves the node by its corner, a click toggles the breakpoint at the release.
 			case Kind::Badge:
 			case Kind::NodeHeader:
 			case Kind::Node:
@@ -2456,6 +2573,7 @@ namespace Strada
 			}
 			case Kind::None:
 			case Kind::Minimap:
+			case Kind::Breakpoint:
 			case Kind::Pin:
 			case Kind::Badge:
 			case Kind::Reroute:
@@ -2663,6 +2781,11 @@ namespace Strada
 					uint32_t const elements[] = {m_Press.Hit.Element};
 					Select(elements, m_Press.Ctrl ? VisualScriptSelectMode::Toggle : VisualScriptSelectMode::Replace);
 				}
+				if (m_Press.Hit.Kind == Kind::Breakpoint)
+				{
+					intents.emplace_back(
+						VisualScriptBreakpointIntent{m_Press.Hit.Element, VisualScriptBreakpointAction::Toggle, input.Mouse});
+				}
 				return;
 			case PressKind::AltPin:
 			{
@@ -2708,6 +2831,10 @@ namespace Strada
 		VisualScriptHit const target = m_Press.Hit;
 		switch (target.Kind)
 		{
+			case Kind::Breakpoint:
+				// The breakpoint's popup, where a badge's right click opens the node's menu.
+				intents.emplace_back(VisualScriptBreakpointIntent{target.Element, VisualScriptBreakpointAction::Settings, input.Mouse});
+				return;
 			case Kind::Badge:
 			case Kind::NodeHeader:
 			case Kind::Node:
@@ -3409,6 +3536,7 @@ namespace Strada
 				}
 				return;
 			}
+			case Kind::Breakpoint:
 			case Kind::Badge:
 			case Kind::NodeHeader:
 			case Kind::Node:
@@ -4194,7 +4322,7 @@ namespace Strada
 
 	void VisualScriptEditorModel::PushHistory(VisualScriptViewState const& view)
 	{
-		PushHistory(HistoryEntry{view, {}});
+		PushHistory(HistoryEntry{view, {}, {}});
 	}
 
 	void VisualScriptEditorModel::PushHistory(HistoryEntry entry)
@@ -4215,16 +4343,28 @@ namespace Strada
 		request.Function = entry.View.Function;
 		request.Center = entry.View.Center;
 		request.Zoom = entry.View.Zoom;
-		request.Origin = VisualScriptOrigin{m_Graph, current.Function, current.Center, current.Zoom, step};
+		VisualScriptProjectGraph const* own = FindProjectGraph(m_Graph);
+		request.Origin = VisualScriptOrigin{
+			m_Graph, current.Function, current.Center, current.Zoom, step, own != nullptr ? own->DisplayName : std::string()};
 		m_OtherGraphRequests.push_back(std::move(request));
+		if (!entry.Name.empty())
+		{
+			m_HistoryNames.insert_or_assign(entry.Graph, entry.Name);
+		}
 	}
 
 	void VisualScriptEditorModel::GoBack(double time)
 	{
+		m_DebuggerEntry = false;
 		while (!m_Back.empty())
 		{
 			HistoryEntry const target = m_Back.back();
 			m_Back.pop_back();
+			if (target.Graph.IsValid() && IsGraphGone(target.Graph))
+			{
+				// A graph deleted since: its views are skipped.
+				continue;
+			}
 			if (target.Graph.IsValid())
 			{
 				// Another graph's window shows that view, and keeps this one for its Forward.
@@ -4236,7 +4376,7 @@ namespace Strada
 				// A function deleted since: its views are skipped.
 				continue;
 			}
-			m_Forward.push_back(HistoryEntry{m_View.GetTargetState(), {}});
+			m_Forward.push_back(HistoryEntry{m_View.GetTargetState(), {}, {}});
 			GoTo(target.View, time);
 			return;
 		}
@@ -4244,10 +4384,15 @@ namespace Strada
 
 	void VisualScriptEditorModel::GoForward(double time)
 	{
+		m_DebuggerEntry = false;
 		while (!m_Forward.empty())
 		{
 			HistoryEntry const target = m_Forward.back();
 			m_Forward.pop_back();
+			if (target.Graph.IsValid() && IsGraphGone(target.Graph))
+			{
+				continue;
+			}
 			if (target.Graph.IsValid())
 			{
 				RequestOtherGraph(target, VisualScriptHistoryStep::Forward);
@@ -4257,7 +4402,7 @@ namespace Strada
 			{
 				continue;
 			}
-			m_Back.push_back(HistoryEntry{m_View.GetTargetState(), {}});
+			m_Back.push_back(HistoryEntry{m_View.GetTargetState(), {}, {}});
 			GoTo(target.View, time);
 			return;
 		}

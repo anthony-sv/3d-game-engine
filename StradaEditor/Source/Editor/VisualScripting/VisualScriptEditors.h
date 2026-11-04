@@ -24,8 +24,11 @@ namespace Strada
 {
 	class EditorOperations;
 	class Project;
+	class Scene;
+	class VisualScriptDebugSession;
 	class VisualScriptSemantics;
 	class VisualScriptViewSettings;
+	struct VisualScriptStop;
 
 	// The open graph windows (spec §12): one VisualScriptEditorPanel per open visual script, in the order they were opened,
 	// named "<title>###VisualScript<handle>" so renames and moves keep each window and its dock node. The windows share the
@@ -62,6 +65,34 @@ namespace Strada
 		// its fonts, tests keep the defaults. The windows keep a reference to the shell's copy, so they see the new ones.
 		void SetServices(VisualScriptEditorServices services);
 		VisualScriptEditorServices const& GetServices() const { return m_Services; }
+		// The per-user view settings the windows keep (graph.open sets the debugger's options in them).
+		VisualScriptViewSettings& GetSettings() { return m_Settings; }
+
+		// The visual-script debugger the windows show and drive (spec-slice4 §13): before the windows draw, each is told what the
+		// session shows of its graph (VisualScriptWindowDebugInput), the visible windows' sub-graphs become the session's
+		// watches and their flow is taken, each window's target is pushed; after they draw, what they asked (breakpoints, run
+		// to, the strip's resumes, which the session queues for the next frame) goes to the session. Null (headless editors,
+		// tests) shows nothing of debugging. The session must outlive the windows or be unset first.
+		void SetDebugSession(VisualScriptDebugSession* session);
+		// A new current stop (the session's stop listener): opens or focuses the window of the stop's innermost frame's document
+		// (a library's own window for a library frame) on that frame's sub-graph, bringing its node into view (ShowNode), as
+		// one of the debugger's opens (FromDebugger). Once per new current stop, so the user can look elsewhere meanwhile.
+		void FollowStop(VisualScriptStop const& stop);
+		// The same for a frame of a stop (a call-stack row, graph.debug-panel's frame). Native frames open nothing.
+		void FollowFrame(VisualScriptStop const& stop, uint32_t frame);
+		// The session's target listener: the graph's window shows that entity (ChooseContextEntity) unless it already targets
+		// it.
+		void OnTargetChanged(AssetHandle graph, UUID entity);
+		// The session's stop-ended listener: the graph's window shows the held pause in its strip with the reason, and toasts it;
+		// a stop that ended in its own frame (an invalid graph) is toasted in the edit target's window.
+		void OnStopEnded(AssetHandle graph, std::string const& reason);
+		// What the window of a graph was told of debugging at the last draw; null when it is not open or there is no session.
+		VisualScriptWindowDebugInput const* FindDebugInput(AssetHandle graph);
+		// The running instance's values on the data wires a window's view shows (Wire Values: Always): one request for the sources
+		// of at most VisualScriptValuePillLimit wires in view, formatted as the pills draw them. Empty without an entity or the
+		// scripting runtime.
+		[[nodiscard]] static std::vector<VisualScriptDebugPinValue> ReadLiveWireValues(VisualScriptEditorModel const& model, UUID entity,
+		                                                                               VisualScriptLibrary const* library, Scene& scene);
 
 		// Opens the graph's window, or applies the request to the window already open (with Focus, it comes to the front at
 		// its next draw). Checked now, applied at the window's next draw: the asset must be a registered visual script; when its
@@ -134,6 +165,10 @@ namespace Strada
 			bool HasFile = false;
 			// The title the window shows: the file's stem, with its folder when another open graph has the same stem.
 			std::string Title;
+			// What the window is told of debugging (its own allocation: the panel keeps a pointer to it across frames, while the
+			// windows' list grows), and when it last read its target's live wire values.
+			Scope<VisualScriptWindowDebugInput> Debug;
+			double LiveValuesRead = -1.0e30;
 		};
 
 		// What every call does first: follow the project, then close the windows of deleted visual scripts (spec §12.4).
@@ -147,6 +182,12 @@ namespace Strada
 		// 2), committing the pending edits of widgets that are no longer active first.
 		void EndInteractions();
 		void OpenOtherGraphRequests();
+		// Debugging, before the windows draw (their inputs, the watches, the flow and the targets) and after (their requests).
+		void UpdateDebugging();
+		void BuildDebugInput(GraphWindow& window, std::vector<VisualScriptDebugWatch>& watches);
+		void ApplyDebugRequests();
+		// The live wire values of a window's target while playing (Wire Values: Always), at most 10 times a second.
+		void ReadLiveWireValues(GraphWindow& window, VisualScriptWindowDebugInput& input);
 		// Where a window that does not exist yet docks: beside the graph window focused last, else the default node; none
 		// floats.
 		std::optional<ImGuiID> FindDockTarget() const;
@@ -175,5 +216,15 @@ namespace Strada
 		// What AfterNextDraw was given, called at the end of the next OnImGuiRender.
 		std::vector<std::function<void()>> m_AfterDraw;
 		VisualScriptProjectIndex m_ProjectIndex;
+
+		VisualScriptDebugSession* m_DebugSession = nullptr;
+		// Counts the session's attachments (the windows' flow starts again at each), and whether it was attached at the last draw.
+		uint64_t m_Attachment = 0;
+		bool m_WasAttached = false;
+		// The graph of the last current stop's innermost frame (where a step that ended its execution was).
+		AssetHandle m_LastStopGraph;
+		// The graph whose stop ended without a resume while the pause is held, and why (the stop-ended listener).
+		AssetHandle m_HeldGraph;
+		std::string m_HeldReason;
 	};
 }

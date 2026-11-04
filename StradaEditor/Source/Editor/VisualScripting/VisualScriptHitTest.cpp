@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 
 namespace Strada
 {
@@ -65,8 +66,9 @@ namespace Strada
 			float const rerouteRadius = Metrics::RerouteHitRadiusLogicalPixels * unitsPerLogicalPixel;
 			float const commentTolerance = Metrics::CommentHandleLogicalPixels * unitsPerLogicalPixel;
 			float const wireTolerance = Metrics::WireHitLogicalPixels * uiScale;
-			float const radius = std::max({pinSlop, rerouteRadius, commentTolerance, wireTolerance / pixelsPerUnit,
-			                               VisualScriptGeometry::GetBadgeRadius(pixelsPerUnit, uiScale)});
+			float const markerRadius =
+				VisualScriptGeometry::GetBadgeRadius(pixelsPerUnit, uiScale) * VisualScriptGeometry::BreakpointHitScale;
+			float const radius = std::max({pinSlop, rerouteRadius, commentTolerance, wireTolerance / pixelsPerUnit, markerRadius});
 
 			VisualScriptHitScratch local;
 			VisualScriptHitScratch& scratch = context.Scratch != nullptr ? *context.Scratch : local;
@@ -88,10 +90,7 @@ namespace Strada
 					uint32_t const comment = VisualScriptSpatialIndex::GetIndex(item);
 					VisualScriptCommentVisual const& visual = comments[comment];
 					if ((!labelComment || comment > *labelComment) &&
-					    VisualScriptGeometry::Contains(
-							VisualScriptGeometry::GetCommentLabelRect(
-								visual, view, visual.Title.Width, VisualScriptGeometry::CountGlyphs(model.GetVisibleText(visual.Title))),
-							mouse))
+					    VisualScriptGeometry::Contains(VisualScriptGeometry::GetCommentLabelRect(visual, view), mouse))
 					{
 						labelComment = comment;
 					}
@@ -145,8 +144,16 @@ namespace Strada
 				return static_cast<uint32_t>(key & 0xFFFFFFFFull);
 			};
 
+			auto const onMarker = [&](uint32_t nodeIndex, VisualScriptNodeVisual const& node)
+			{
+				glm::vec2 const center = VisualScriptGeometry::GetBreakpointCenter(node, context.Preview.GetOffset(nodeIndex));
+				return glm::length(point - center) <= markerRadius;
+			};
+
 			// A pin of the topmost node whose rectangle, grown by the pin slop, holds the mouse: the nearest one whose row (where
-			// labels are drawn) or anchor area holds it.
+			// labels are drawn) or anchor area holds it, with its anchor.
+			std::optional<VisualScriptHit> pinHit;
+			glm::vec2 pinAnchor(0.0f);
 			if (level != VisualScriptDetailLevel::Far)
 			{
 				bool const labelRows = VisualScriptGeometry::ArePinLabelsDrawn(level, view.GetState().Zoom);
@@ -174,30 +181,63 @@ namespace Strada
 						{
 							continue;
 						}
-						float const distance = glm::length(VisualScriptGeometry::GetPinAnchor(node, pins[pin], offset) - point);
+						glm::vec2 const anchor = VisualScriptGeometry::GetPinAnchor(node, pins[pin], offset);
+						float const distance = glm::length(anchor - point);
 						if (distance < nearestDistance)
 						{
 							nearestDistance = distance;
 							nearest = node.FirstPin + pin;
+							pinAnchor = anchor;
 						}
 					}
 					if (nearest)
 					{
-						VisualScriptHit hit = MakeNodeHit(VisualScriptHitKind::Pin, node);
-						hit.Pin = *nearest;
-						return hit;
+						pinHit = MakeNodeHit(VisualScriptHitKind::Pin, node);
+						pinHit->Pin = *nearest;
 					}
 					break;
 				}
 			}
 
-			// The topmost node under the mouse: its badge, its header or its body, and the bubble of its comment where it is drawn
-			// with its text.
+			// Breakpoint markers are drawn above every node: the topmost node's marker under the mouse wins, except over a pin
+			// whose anchor lies inside the marker's circle (an operator's input at Compact zoom), which keeps the mouse so it can
+			// still be wired.
+			if (context.BreakpointMarkers && level != VisualScriptDetailLevel::Far)
+			{
+				for (uint64_t const key : order)
+				{
+					uint32_t const nodeIndex = getNodeIndex(key);
+					VisualScriptNodeVisual const node = GetDrawnNode(model, context, nodeIndex);
+					if (!std::binary_search(context.Breakpoints.begin(), context.Breakpoints.end(), node.ID) || !onMarker(nodeIndex, node))
+					{
+						continue;
+					}
+					glm::vec2 const center = VisualScriptGeometry::GetBreakpointCenter(node, context.Preview.GetOffset(nodeIndex));
+					if (!pinHit || glm::length(pinAnchor - center) > markerRadius)
+					{
+						return MakeNodeHit(VisualScriptHitKind::Breakpoint, node);
+					}
+					break;
+				}
+			}
+			if (pinHit)
+			{
+				return *pinHit;
+			}
+
+			// The topmost node under the mouse: at Compact and Detail its ghost breakpoint marker (where a click adds one; after
+			// the pins, which keep their anchors near a corner; a reroute's dot keeps the mouse), its badge, its header or its
+			// body, and the bubble of its comment where it is drawn with its text.
 			bool const bubbles = level == VisualScriptDetailLevel::Compact || level == VisualScriptDetailLevel::Detail;
+			bool const ghosts = context.BreakpointMarkers && bubbles;
 			for (uint64_t const key : order)
 			{
 				uint32_t const nodeIndex = getNodeIndex(key);
 				VisualScriptNodeVisual const node = GetDrawnNode(model, context, nodeIndex);
+				if (node.Shape != VisualScriptNodeShape::Reroute && ghosts && onMarker(nodeIndex, node))
+				{
+					return MakeNodeHit(VisualScriptHitKind::Breakpoint, node);
+				}
 				if (node.Shape == VisualScriptNodeShape::Reroute)
 				{
 					continue;

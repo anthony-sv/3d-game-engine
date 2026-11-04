@@ -8,8 +8,11 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorEditingKeys.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/EditorScripts.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/VisualScriptEditorPanel.h"
+#include "Editor/PlayMode.h"
+#include "Editor/VisualScripting/VisualScriptDebugSession.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptProjectIndex.h"
@@ -1871,4 +1874,120 @@ TEST_CASE("VisualScriptEditor: a commit lays a window's canvas out again only wh
 	CHECK(settled > followed);
 	fixture.Frames(3);
 	CHECK(window.GetModel().GetCanvasRevision() == settled);
+}
+
+TEST_CASE("VisualScriptEditor: following a stop opens the window of its innermost frame's document on its node, a library's own")
+{
+	EditorsFixture fixture;
+	// A library whose function 30 holds node 31, which a frame of a stop names.
+	VisualScriptDocument library;
+	library.Kind = VisualScriptDocumentKind::Library;
+	VisualScriptFunction function;
+	function.ID = 30;
+	function.Name = "Damage";
+	function.Graph.Nodes = {MakeNode(31, "Function.Entry", glm::vec2(0.0f, 0.0f)),
+	                        MakeNode(32, "Function.Return", glm::vec2(400.0f, 0.0f))};
+	library.Functions.push_back(std::move(function));
+	AssetHandle const combat = fixture.AddGraph("Scripts/Combat.sgraph");
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(combat, library).IsOk());
+	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
+
+	VisualScriptStop stop;
+	stop.ID = 1;
+	stop.Graph = fixture.Player;
+	VisualScriptStopFrame inner;
+	inner.Kind = VisualScriptStopFrameKind::Graph;
+	inner.Graph = fixture.Player;
+	inner.Document = combat;
+	inner.Function = 30;
+	inner.Node = 32;
+	VisualScriptStopFrame outer;
+	outer.Kind = VisualScriptStopFrameKind::Call;
+	outer.Graph = fixture.Player;
+	outer.Document = fixture.Player;
+	outer.Node = 1;
+	VisualScriptStopFrame native;
+	native.Kind = VisualScriptStopFrameKind::Native;
+	native.Title = "Entity.Instantiate";
+	stop.Frames = {native, inner, outer};
+	fixture.Editors.FollowStop(stop);
+	fixture.Frames(3);
+	CHECK(fixture.GetOpenGraphs() == std::vector<AssetHandle>{fixture.Player, combat});
+	CHECK(GetFocusedRoot() == FindGraphWindow(combat));
+	CHECK(fixture.GetPanel(combat).GetState().Function == 30);
+
+	// A call-stack row's frame opens its own window; a native frame opens nothing.
+	fixture.Editors.FollowFrame(stop, 2);
+	fixture.Frames(3);
+	CHECK(GetFocusedRoot() == FindGraphWindow(fixture.Player));
+	fixture.Editors.FollowFrame(stop, 0);
+	fixture.Frames(1);
+	CHECK(fixture.GetOpenGraphs().size() == 2);
+}
+
+TEST_CASE("VisualScriptEditor: the debug session watches the sub-graphs the visible graph windows show")
+{
+	EditorsFixture fixture;
+	EditorScripts scripts{fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+	PlayMode play{fixture.Context, scripts};
+	VisualScriptDebugSession session{fixture.Context, play};
+	fixture.Editors.SetDebugSession(&session);
+	fixture.OpenGraph(fixture.Player);
+	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Frames(2);
+	// Both docked in the middle: the one in front is watched.
+	CHECK(std::vector<VisualScriptDebugWatch>(session.GetWatches().begin(), session.GetWatches().end()) ==
+	      std::vector<VisualScriptDebugWatch>{{fixture.Door, 0}});
+	fixture.Focus(VisualScriptEditorPanel::GetWindowName(fixture.Player, {}).c_str());
+	fixture.Frames(2);
+	CHECK(std::vector<VisualScriptDebugWatch>(session.GetWatches().begin(), session.GetWatches().end()) ==
+	      std::vector<VisualScriptDebugWatch>{{fixture.Player, 0}});
+	fixture.Editors.Close();
+	fixture.Frames(2);
+	CHECK(session.GetWatches().empty());
+	fixture.Editors.SetDebugSession(nullptr);
+}
+
+TEST_CASE("VisualScriptEditor: Back to a graph deleted since goes on to the window's own view")
+{
+	EditorsFixture fixture;
+	VisualScriptDocument door = MakeDocument();
+	VisualScriptVariable health;
+	health.ID = 50;
+	health.Name = "Health";
+	health.Type = "float";
+	health.Public = true;
+	door.Variables.push_back(health);
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Door, door).IsOk());
+	VisualScriptDocument player = MakeDocument();
+	player.Graph.Nodes.push_back(
+		MakeNode(60, "Variable.Get", glm::vec2(400.0f, 640.0f), Json::object({{"Variable", 50}, {"Graph", fixture.Door.ToString()}})));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Player, player).IsOk());
+	// Door's window has a view of its own on its history, then Player's (a jump from Player's node).
+	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptEditorPanel& doorWindow = fixture.GetPanel(fixture.Door);
+	VisualScriptViewState const own = doorWindow.GetState().View;
+	VisualScriptOpenRequest moved;
+	moved.Graph = fixture.Door;
+	moved.Center = own.Center + glm::vec2(900.0f, 0.0f);
+	REQUIRE(fixture.Editors.Open(moved).IsOk());
+	fixture.Frames(2);
+	fixture.OpenGraph(fixture.Player);
+	fixture.Gui.Frame(fixture.Drawer(), 1.0f);
+	VisualScriptEditorPanel& callerWindow = fixture.GetPanel(fixture.Player);
+	glm::vec2 const header = Testing::CanvasPoint(callerWindow.GetModel(), 60, glm::vec2(0.5f, 0.06f));
+	fixture.Gui.MouseClick(ImVec2(header.x, header.y), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(3);
+	REQUIRE(GetFocusedRoot() == FindGraphWindow(fixture.Door));
+
+	// Player is deleted: Back in Door's window skips its entry and returns to Door's own view.
+	REQUIRE(fixture.Operations.DeleteAsset(fixture.Player).IsOk());
+	fixture.Frames(2);
+	REQUIRE(doorWindow.RequestAction(VisualScriptEditorAction::Back));
+	fixture.Frames(3);
+	CHECK(fixture.GetOpenGraphs() == std::vector<AssetHandle>{fixture.Door});
+	CHECK(doorWindow.GetState().View.Center == own.Center);
 }

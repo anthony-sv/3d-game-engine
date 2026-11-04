@@ -21,6 +21,8 @@ namespace Strada
 	{
 		None = 0,
 		Minimap,
+		// A node's breakpoint marker, or the ghost marker where a click adds one (spec-slice4 §13.5).
+		Breakpoint,
 		Pin,
 		// A node's problem badge.
 		Badge,
@@ -38,7 +40,7 @@ namespace Strada
 	struct VisualScriptHit
 	{
 		VisualScriptHitKind Kind = VisualScriptHitKind::None;
-		// Pin, Badge, NodeHeader, Node and Reroute: the node's ID; CommentEdge and CommentTitle: the comment's.
+		// Breakpoint, Pin, Badge, NodeHeader, Node and Reroute: the node's ID; CommentEdge and CommentTitle: the comment's.
 		uint32_t Element = 0;
 		// Pin: the pin's index in the visual model's pins. A collapsed node's pins are hit at its two anchors, each standing for
 		// every pin of its side: the hit names the side's first pin.
@@ -88,6 +90,11 @@ namespace Strada
 		std::span<uint32_t const> DynamicLinks;
 		// The moved nodes and their wires are not hit: what lies under a dragged node (the wire it may be dropped on).
 		bool SkipMoved = false;
+		// Breakpoint markers are hit (the window debugs): the markers of the Breakpoints nodes (IDs ascending) at Overview,
+		// Compact and Detail, and at Compact and Detail the ghost marker of any other node but a reroute (whose dot keeps the
+		// mouse).
+		bool BreakpointMarkers = false;
+		std::span<uint32_t const> Breakpoints;
 		// ImGuiStyle::CurveTessellationTol: wires are hit where they are drawn.
 		float CurveTessellationTolerance = 1.25f;
 		// The index's cost of the hit test is added here when given.
@@ -97,9 +104,10 @@ namespace Strada
 
 	// What the mouse (screen pixels) is over. The first match wins: the minimap, at Far and Overview a comment's title plate
 	// (VisualScriptGeometry::GetCommentLabelRect, drawn above the nodes there: CommentTitle, or CommentEdge where it reaches its
-	// comment's resize handles), a pin, a node's badge, a node's header, a
-	// node's body (its comment's bubble included at Compact and Detail, where the bubble is drawn with its text), a reroute's
-	// dot, a wire (within WireHitLogicalPixels of its drawn polyline, the nearest), a comment's edge (within
+	// comment's resize handles), a breakpoint marker (drawn above every node), a pin, a node's ghost breakpoint marker (only
+	// where no node drawn above it covers the mouse, and after the pins, whose anchors can lie near a corner), a node's badge,
+	// a node's header, a node's body (its comment's bubble included at Compact and Detail, where the bubble is drawn with its text), a
+	// reroute's dot, a wire (within WireHitLogicalPixels of its drawn polyline, the nearest), a comment's edge (within
 	// CommentHandleLogicalPixels), a comment's title bar, the background. Nodes are tried in reverse draw order
 	// (GetVisualScriptNodeDrawKey), and a pin only on the topmost node whose rectangle (grown by PinSlopLogicalPixels) holds the
 	// mouse; comments smallest first, as they are drawn largest first. At Far no pins and no wires are hit (only selecting and

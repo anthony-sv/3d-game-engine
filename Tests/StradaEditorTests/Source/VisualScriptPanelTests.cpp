@@ -2424,3 +2424,146 @@ TEST_CASE("VisualScriptEditor: an offer toast that a later commit repeats shows 
 	CHECK(countToasts() == 0);
 	fixture.Panel->SetProjectIndex(nullptr);
 }
+
+TEST_CASE("VisualScriptEditor: ShowNode pans the least distance that shows the node, keeping the zoom and the selection")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(20, "Operator.Add", glm::vec2(4000.0f, 0.0f)));
+	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptEditorPanel& panel = *fixture.Panel;
+	VisualScriptOpenRequest request;
+	request.Graph = fixture.Graph;
+	request.Select = {1};
+	request.Center = glm::vec2(0.0f, 0.0f);
+	request.Zoom = 1.0f;
+	panel.Apply(request);
+	fixture.Frames(2);
+	REQUIRE(panel.GetState().View.Zoom == doctest::Approx(1.0f));
+
+	VisualScriptOpenRequest show;
+	show.Graph = fixture.Graph;
+	show.ShowNode = 20;
+	panel.Apply(show);
+	fixture.Frames(2);
+	VisualScriptEditorState const state = panel.GetState();
+	CHECK(state.View.Zoom == doctest::Approx(1.0f));
+	CHECK(state.SelectedNodes == std::vector<uint32_t>{1});
+	// The node is inside the view with a margin of 2 font sizes, at its right edge: the view moved no further than that.
+	VisualScriptEditorModel const& model = panel.GetModel();
+	VisualScriptCanvasModel const& canvas = model.GetCanvas();
+	std::optional<uint32_t> const index = canvas.FindNode(20);
+	REQUIRE(index.has_value());
+	VisualScriptNodeVisual const& node = canvas.GetNodes()[*index];
+	VisualScriptRect const visible = model.GetView().GetVisibleRect();
+	float const margin = 2.0f * ImGui::GetFontSize() / model.GetView().GetPixelsPerUnit();
+	CHECK(node.Position.x >= visible.Min.x + margin - 0.5f);
+	CHECK(node.Position.x + node.Size.x <= visible.Max.x - margin + 0.5f);
+	CHECK(node.Position.x + node.Size.x == doctest::Approx(visible.Max.x - margin).epsilon(0.001));
+	// A node already in view moves nothing.
+	VisualScriptViewState const settled = state.View;
+	panel.Apply(show);
+	fixture.Frames(2);
+	CHECK(panel.GetState().View.Center == settled.Center);
+}
+
+TEST_CASE("VisualScriptEditor: twenty steps into and out of a function add one Back entry, and Back returns to the view from before "
+          "debugging")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptFunction function;
+	function.ID = 100;
+	function.Name = "TakeHit";
+	function.Graph.Nodes = {MakeNode(101, "Function.Entry", glm::vec2(0.0f, 0.0f)),
+	                        MakeNode(102, "Function.Return", glm::vec2(400.0f, 0.0f))};
+	function.Graph.Links = {MakeLink(101, "Then", 102, "Execute")};
+	document.Functions.push_back(std::move(function));
+	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptEditorPanel& panel = *fixture.Panel;
+	fixture.Frames(2);
+	VisualScriptViewState const before = panel.GetState().View;
+	CHECK_FALSE(panel.GetState().CanGoBack);
+
+	// The debugger follows a step into the function and out of it, twenty times.
+	for (int step = 0; step < 20; step++)
+	{
+		VisualScriptOpenRequest request;
+		request.Graph = fixture.Graph;
+		request.Function = step % 2 == 0 ? 100u : 0u;
+		request.ShowNode = step % 2 == 0 ? 102u : 3u;
+		request.FromDebugger = true;
+		panel.Apply(request);
+		fixture.Frames(1);
+	}
+	CHECK(panel.GetState().CanGoBack);
+	REQUIRE(panel.RequestAction(Action::Back));
+	fixture.Frames(2);
+	CHECK(panel.GetState().Function == before.Function);
+	CHECK(panel.GetState().View.Center == before.Center);
+	CHECK_FALSE(panel.GetState().CanGoBack);
+
+	// The user's own navigation ends the debugger's session of the history: its next open pushes again.
+	VisualScriptOpenRequest user;
+	user.Graph = fixture.Graph;
+	user.Function = 100;
+	panel.Apply(user);
+	fixture.Frames(1);
+	VisualScriptOpenRequest debugged;
+	debugged.Graph = fixture.Graph;
+	debugged.Function = 0;
+	debugged.ShowNode = 3;
+	debugged.FromDebugger = true;
+	panel.Apply(debugged);
+	fixture.Frames(1);
+	REQUIRE(panel.RequestAction(Action::Back));
+	fixture.Frames(2);
+	CHECK(panel.GetState().Function == 100);
+	CHECK(panel.GetState().CanGoBack);
+}
+
+TEST_CASE("VisualScriptEditor: an open the window asked for that fails says so, and Back goes on to its next entry")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptFunction function;
+	function.ID = 100;
+	function.Name = "TakeHit";
+	function.Graph.Nodes = {MakeNode(101, "Function.Entry", glm::vec2(0.0f, 0.0f)),
+	                        MakeNode(102, "Function.Return", glm::vec2(400.0f, 0.0f))};
+	function.Graph.Links = {MakeLink(101, "Then", 102, "Execute")};
+	document.Functions.push_back(std::move(function));
+	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptEditorPanel& panel = *fixture.Panel;
+	VisualScriptOpenRequest request;
+	request.Graph = AssetHandle(UUID(424242));
+	request.Origin = VisualScriptOrigin{fixture.Graph, 0, glm::vec2(0.0f), 1.0f, VisualScriptHistoryStep::Back, "Player"};
+	panel.OnOtherGraphOpenFailed(request, "no asset 424242");
+	fixture.Frames(1);
+	std::vector<std::string> const toasts = panel.GetState().Toasts;
+	REQUIRE_FALSE(toasts.empty());
+	CHECK(toasts.back() == "Back could not open 424242: it was deleted");
+	request.Origin->Step = VisualScriptHistoryStep::Jump;
+	panel.OnOtherGraphOpenFailed(request, "no asset 424242");
+	fixture.Frames(1);
+	CHECK(panel.GetState().Toasts.back() == "Could not open 424242: it was deleted");
+
+	// With a history: the user went from the event graph into TakeHit, and a Back to a graph deleted since failed. Back goes on to
+	// the next entry, the event graph; a failed Jump moves nothing.
+	VisualScriptOpenRequest into;
+	into.Graph = fixture.Graph;
+	into.Function = 100;
+	panel.Apply(into);
+	fixture.Frames(2);
+	REQUIRE(panel.GetState().Function == 100);
+	REQUIRE(panel.GetState().CanGoBack);
+	panel.OnOtherGraphOpenFailed(request, "no asset 424242");
+	fixture.Frames(2);
+	CHECK(panel.GetState().Function == 100);
+	request.Origin->Step = VisualScriptHistoryStep::Back;
+	panel.OnOtherGraphOpenFailed(request, "no asset 424242");
+	fixture.Frames(2);
+	CHECK(panel.GetState().Function == 0);
+	CHECK_FALSE(panel.GetState().CanGoBack);
+	CHECK(panel.GetState().CanGoForward);
+}

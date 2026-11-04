@@ -5,6 +5,8 @@
 #include "Editor/GameInputRouter.h"
 #include "Editor/Panels/GameViewPanel.h"
 #include "Editor/PlayMode.h"
+#include "Editor/VisualScripting/VisualScriptDebugControls.h"
+#include "Editor/VisualScripting/VisualScriptDebugSession.h"
 
 #include "Strada/Core/Events/KeyEvent.h"
 #include "Strada/Core/Events/MouseEvent.h"
@@ -1102,6 +1104,62 @@ TEST_CASE("GameInput: docked behind another tab, the game view comes forward wit
 	fixture.Frame();
 	CHECK_FALSE(Input::IsKeyDown(KeyCode::Space));
 	CHECK(fixture.Router.HasInput());
+}
+
+TEST_CASE("GameInput: at a stop the debug controls take the input, and Continue gives it back only where the game view shows")
+{
+	// Spec-slice4 §14.4, with the real router and the editor's check of the Game View: "Tab" stands for a graph window docked
+	// with the Game View, "Other" for one in a dock node of its own.
+	GameViewFixture fixture(true);
+	VisualScriptDebugSession session(fixture.Context, fixture.Play);
+	VisualScriptDebugControls controls(session, fixture.Play, fixture.Router);
+	VisualScriptDebugControlsHost host;
+	host.IsGameViewVisible = []
+	{
+		return VisualScriptDebugControls::IsWindowShownWithoutTabChange("Game View");
+	};
+	controls.SetHost(std::move(host));
+	auto const stop = [&](char const* front)
+	{
+		fixture.FocusWindow("Game View");
+		fixture.Router.Grant();
+		fixture.Frame();
+		REQUIRE(fixture.Router.HasInput());
+		// The stop pauses the scene, then its window comes forward.
+		REQUIRE(fixture.Play.SetPaused(true));
+		controls.OnStop(VisualScriptStop());
+		CHECK_FALSE(fixture.Router.HasInput());
+		CHECK(controls.HasTakenInput());
+		fixture.FocusWindow(front);
+		REQUIRE(fixture.Play.SetPaused(false));
+	};
+
+	SUBCASE("A split layout: the game gets its input back")
+	{
+		stop("Other");
+		REQUIRE(VisualScriptDebugControls::IsWindowShownWithoutTabChange("Game View"));
+		controls.OnResume();
+		CHECK(fixture.Router.HasInput());
+		CHECK_FALSE(controls.HasTakenInput());
+	}
+	SUBCASE("The graph in front of the game view in their node stays there, and the game waits for a click")
+	{
+		stop("Tab");
+		ImGuiWindow const* const view = ImGui::FindWindowByName("Game View");
+		REQUIRE(view != nullptr);
+		CHECK_FALSE(view->DockTabIsVisible);
+		controls.OnResume();
+		fixture.Frame();
+		CHECK_FALSE(fixture.Router.HasInput());
+		CHECK_FALSE(controls.HasTakenInput());
+		CHECK(GameViewFixture::IsFocused("Tab"));
+	}
+	SUBCASE("Without a stop that took the input, a resume gives nothing")
+	{
+		fixture.FocusWindow("Game View");
+		controls.OnResume();
+		CHECK_FALSE(fixture.Router.HasInput());
+	}
 }
 
 TEST_CASE("GameInput: a cursor the game hides is hidden over the game view alone")

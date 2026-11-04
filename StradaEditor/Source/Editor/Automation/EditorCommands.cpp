@@ -8,6 +8,7 @@
 #include "Editor/EntityBounds.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/ProjectImport.h"
 #include "Editor/Viewport/ViewportOverlays.h"
@@ -16,6 +17,7 @@
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptCommit.h"
 #include "Editor/VisualScripting/VisualScriptCrossGraph.h"
+#include "Editor/VisualScripting/VisualScriptDebugSession.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptFind.h"
@@ -581,8 +583,46 @@ namespace Strada
 					return "FirstCanvas";
 				case VisualScriptNotice::GestureHint:
 					return "GestureHint";
+				case VisualScriptNotice::Debug:
+					return "Debug";
 			}
 			return "Degraded";
+		}
+
+		char const* GetWindowDebugStateName(VisualScriptWindowDebugState state)
+		{
+			switch (state)
+			{
+				case VisualScriptWindowDebugState::None:
+					return "None";
+				case VisualScriptWindowDebugState::Stopped:
+					return "Stopped";
+				case VisualScriptWindowDebugState::Waiting:
+					return "Waiting";
+				case VisualScriptWindowDebugState::Passed:
+					return "Passed";
+				case VisualScriptWindowDebugState::Error:
+					return "Error";
+				case VisualScriptWindowDebugState::Stepping:
+					return "Stepping";
+				case VisualScriptWindowDebugState::StepEnded:
+					return "StepEnded";
+			}
+			return "None";
+		}
+
+		char const* GetWireValuesName(VisualScriptWireValues values)
+		{
+			switch (values)
+			{
+				case VisualScriptWireValues::Off:
+					return "Off";
+				case VisualScriptWireValues::WhileStopped:
+					return "WhileStopped";
+				case VisualScriptWireValues::Always:
+					return "Always";
+			}
+			return "WhileStopped";
 		}
 
 		char const* GetCardName(VisualScriptCard card)
@@ -738,7 +778,23 @@ namespace Strada
 			described["shortcuts"] = state.ShortcutsOpen;
 			described["canGoBack"] = state.CanGoBack;
 			described["canGoForward"] = state.CanGoForward;
+			// What the window shows of debugging (spec-slice4 §17.4).
+			described["debug"] = Json::object({{"state", GetWindowDebugStateName(state.DebugState)},
+			                                   {"stop", state.DebugStop ? Json(*state.DebugStop) : Json()},
+			                                   {"frame", state.DebugStop ? Json(state.DebugFrame) : Json()},
+			                                   {"node", state.DebugNode ? Json(*state.DebugNode) : Json()},
+			                                   {"function", state.DebugStop ? Json(state.DebugFunction) : Json()}});
+			described["breakpoints"] = state.Breakpoints;
+			described["flow"] = Json::object({{"drawn", state.FlowDrawn}, {"held", state.FlowHeld}});
 			return described;
+		}
+
+		// What graph.editors and graph.debug-panel report of the Debugger panel.
+		Json DescribeDebuggerPanel(VisualScriptDebuggerPanel const& panel)
+		{
+			return Json::object({{"open", panel.IsOpen()},
+			                     {"visible", panel.IsVisible()},
+			                     {"tab", std::string(GetVisualScriptDebuggerTabName(panel.GetTab()))}});
 		}
 
 		// What a graph window's palette showed in its last draw, as graph.palette reports it.
@@ -3678,8 +3734,8 @@ namespace Strada
 					"which Details then shows (reveal). The view parameters apply in order: the framing, "
 					"then zoom around its centre, then center. Applied when the window is next drawn: graph.editors a frame later "
 					"shows the result. Works while playing. A file that is missing or does not load opens on its card (loaded false): "
-					"function, select, frame, find, timeline and reveal are then ignored, which warnings says. Returns { asset, path, "
-					"function (the "
+					"function, select, frame, find, timeline, reveal and show are then ignored, which warnings says. Returns { asset, "
+					"path, function (the "
 					"sub-graph shown), selection (the select given, as applied: empty without one; an empty select keeps the window's "
 					"selection), loaded, warnings }. Unavailable without the editor's UI "
 					"(headless); InvalidOperation while a dialog is open.",
@@ -3721,6 +3777,15 @@ namespace Strada
 				                                    .Minimum(0)
 				                                    .Maximum(VisualScriptSerializer::MaxID),
 				                                true))
+						.Property("show", SchemaBuilder::Integer("A node of the sub-graph shown to bring into view: the view pans the "
+				                                                 "least distance that shows it, keeping the zoom and the selection")
+				                              .Minimum(0)
+				                              .Maximum(VisualScriptSerializer::MaxID))
+						.Property("wireValues", SchemaBuilder::String("What the data wires show (per user): Off, WhileStopped (the stopped "
+				                                                      "frame's values, the default) or Always (also the running game's)")
+				                                    .Enum({"Off", "WhileStopped", "Always"}))
+						.Property("showFlow", SchemaBuilder::Boolean("Light the wires and nodes the game runs while playing, with run "
+				                                                     "counts (per user)"))
 						.Build(),
 					false,
 					[this](Json const& params) -> CommandResult
@@ -3852,6 +3917,20 @@ namespace Strada
 								}
 								request.Reveal = std::move(element);
 							}
+							if (params.contains("show"))
+							{
+								uint32_t const show = GetElementId(params["show"]);
+								bool const node = std::any_of(shown->Nodes.begin(), shown->Nodes.end(),
+							                                  [show](VisualScriptNode const& candidate)
+							                                  {
+																  return candidate.ID == show;
+															  });
+								if (!node)
+								{
+									return MakeParameterError("show", fmt::format("the sub-graph shown has no node {}", show));
+								}
+								request.ShowNode = show;
+							}
 							request.Select = select;
 							request.Frame = frame == "All"         ? VisualScriptFrame::All
 						                    : frame == "Selection" ? VisualScriptFrame::Selection
@@ -3861,7 +3940,7 @@ namespace Strada
 						else
 						{
 							// The window shows the file's card: nothing of the document can be shown or checked.
-							for (char const* const ignored : {"function", "select", "frame", "find", "timeline", "reveal"})
+							for (char const* const ignored : {"function", "select", "frame", "find", "timeline", "reveal", "show"})
 							{
 								if (params.contains(ignored))
 								{
@@ -3876,6 +3955,18 @@ namespace Strada
 						if (!opened)
 						{
 							return MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", opened.GetError());
+						}
+						// The debugger's per-user options, which every window draws with from its next draw.
+						if (params.contains("wireValues"))
+						{
+							std::string const values = params["wireValues"].get<std::string>();
+							editors.GetSettings().SetWireValues(values == "Off"      ? VisualScriptWireValues::Off
+						                                        : values == "Always" ? VisualScriptWireValues::Always
+						                                                             : VisualScriptWireValues::WhileStopped);
+						}
+						if (params.contains("showFlow"))
+						{
+							editors.GetSettings().SetShowFlow(params["showFlow"].get<bool>());
 						}
 						Json described = DescribeGraph(request.Graph);
 						described["function"] = opened.GetValue().Function;
@@ -3938,8 +4029,12 @@ namespace Strada
 				              "count }, bookmarks (the slots stored), minimap (shown), panes { sidebar, details, stacked (both shown in one "
 				              "column beside the canvas) }, shortcuts (the shortcut sheet is open), canGoBack and canGoForward (Back and "
 				              "Forward have a view to go to, in this window or, after opening a node that names another graph, in that "
-				              "graph's window) }. A window opened since the last frame reports its state before its first draw (not "
-				              "visible, nothing selected). Unavailable without the editor's UI (headless).",
+				              "graph's window), debug { state (None, Stopped, Waiting, Passed, Error, Stepping or StepEnded: what the "
+				              "window shows of the debugger), stop, frame, node, function (the stop frame it shows, else null) }, "
+				              "breakpoints (the graph's count), flow { drawn, held (the flow clock holds: no frame ran since) } }; and "
+				              "settings { wireValues, showFlow } and debugPanel { open, visible, tab } (null without the Debugger panel). A "
+				              "window opened since the last frame reports its state before its first draw (not visible, nothing "
+				              "selected). Unavailable without the editor's UI (headless).",
 				              Json(), true,
 				              [this](Json const&) -> CommandResult
 				              {
@@ -3947,12 +4042,115 @@ namespace Strada
 								  {
 									  return *error;
 								  }
+								  VisualScriptEditors& windows = m_Environment.GraphEditors();
 								  Json editors = Json::array();
-								  for (VisualScriptEditorState const& state : m_Environment.GraphEditors().Describe())
+								  for (VisualScriptEditorState const& state : windows.Describe())
 								  {
 									  editors.push_back(DescribeGraphEditor(state));
 								  }
-								  return Json::object({{"editors", std::move(editors)}});
+								  VisualScriptViewSettings const& settings = windows.GetSettings();
+								  Json settingsJson = Json::object(
+									  {{"wireValues", GetWireValuesName(settings.GetWireValues())}, {"showFlow", settings.IsShowFlow()}});
+								  return Json::object(
+									  {{"editors", std::move(editors)},
+					                   {"settings", std::move(settingsJson)},
+					                   {"debugPanel",
+					                    m_Environment.DebuggerPanel ? DescribeDebuggerPanel(m_Environment.DebuggerPanel()) : Json()}});
+							  })
+						: result;
+				result =
+					result
+						? Add("graph.debug-panel",
+				              "The visual-script Debugger panel: open (bool) shows it (in front of the tabs it is docked with, at its "
+				              "next draw) or hides it, tab picks its tab (CallStack, Values, "
+				              "Breakpoints, Instances), stop selects a stop (graph.debug lists them) and frame a frame of the selected "
+				              "stop's call stack, which opens its graph's window on the frame's node as a click on a call-stack row "
+				              "does; with none it only reads. Changes no document and records no history step. Returns { open, visible "
+				              "(its tab is in front at the last draw), tab, stop, frame (null while nothing is stopped) }. Unavailable "
+				              "without the editor's UI (headless); InvalidOperation for stop or frame while nothing is stopped; "
+				              "InvalidParams for a stop that does not exist and a frame out of the stop's call stack.",
+				              SchemaBuilder::Object()
+				                  .Property("open", SchemaBuilder::Boolean("Shows the panel (true) or hides it (false)"))
+				                  .Property(
+									  "tab",
+									  SchemaBuilder::String("The tab to show").Enum({"CallStack", "Values", "Breakpoints", "Instances"}))
+				                  .Property("stop", SchemaBuilder::Integer("A stop's ID (graph.debug's stops) to select").Minimum(1))
+				                  .Property("frame",
+				                            SchemaBuilder::Integer("A frame of the selected stop's call stack, 0 the innermost").Minimum(0))
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (!m_Environment.DebuggerPanel)
+								  {
+									  return MakeCommandError(AutomationErrorCode::Unavailable,
+						                                      "the editor has no Debugger panel (headless)");
+								  }
+								  VisualScriptDebuggerPanel& panel = m_Environment.DebuggerPanel();
+								  VisualScriptDebugSession& session = panel.GetSession();
+								  // Commands run back to back: the session first reads what earlier ones changed.
+								  session.Refresh();
+								  bool const selects = params.contains("stop") || params.contains("frame");
+								  if (selects && session.GetState().Stops.empty())
+								  {
+									  return MakeCommandError(AutomationErrorCode::InvalidOperation,
+						                                      "nothing is stopped: graph.debug lists the stops, graph.wait waits for one");
+								  }
+								  std::optional<uint64_t> stop;
+								  if (params.contains("stop"))
+								  {
+									  stop = params["stop"].get<uint64_t>();
+									  if (session.FindStop(*stop) == nullptr)
+									  {
+										  return MakeParameterError("stop",
+							                                        fmt::format("there is no stop {}: graph.debug lists the stops", *stop));
+									  }
+								  }
+								  std::optional<uint32_t> frame;
+								  if (params.contains("frame"))
+								  {
+									  std::optional<uint64_t> const selected = stop ? stop : session.GetSelectedStop();
+									  VisualScriptStop const* target = selected ? session.FindStop(*selected) : nullptr;
+									  uint64_t const index = params["frame"].get<uint64_t>();
+									  if (target == nullptr || index >= target->Frames.size())
+									  {
+										  return MakeParameterError("frame", fmt::format("the stop's call stack has {} frames",
+							                                                             target != nullptr ? target->Frames.size() : 0));
+									  }
+									  frame = static_cast<uint32_t>(index);
+								  }
+								  std::optional<VisualScriptDebuggerTab> const tab =
+									  params.contains("tab") ? ParseVisualScriptDebuggerTab(params["tab"].get<std::string>())
+															 : std::nullopt;
+								  // Opening brings the panel to the front at its next draw, also behind another tab.
+								  if (params.contains("open") && params["open"].get<bool>())
+								  {
+									  panel.Show(tab);
+								  }
+								  else
+								  {
+									  if (params.contains("open"))
+									  {
+										  panel.SetOpen(false);
+									  }
+									  if (tab)
+									  {
+										  panel.SetTab(*tab);
+									  }
+								  }
+								  if (stop)
+								  {
+									  session.SelectStop(*stop);
+								  }
+								  if (frame)
+								  {
+									  panel.SelectFrame(*frame);
+								  }
+								  Json described = DescribeDebuggerPanel(panel);
+								  std::optional<uint64_t> const selected = session.GetSelectedStop();
+								  described["stop"] = selected ? Json(*selected) : Json();
+								  described["frame"] = selected ? Json(session.GetSelectedFrame()) : Json();
+								  return described;
 							  })
 						: result;
 				if (!result)

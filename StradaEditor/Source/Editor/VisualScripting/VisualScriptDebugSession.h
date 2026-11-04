@@ -119,6 +119,8 @@ namespace Strada
 		// The sub-graphs the visible windows show (the window manager, every frame; applied when they change, which costs a
 		// comparison otherwise).
 		void SetWatches(std::vector<VisualScriptDebugWatch> watches);
+		// The watches as last set.
+		std::span<VisualScriptDebugWatch const> GetWatches() const { return m_Watches; }
 
 		// --- Control, between frames; each answers an error when nothing plays, while simulating, and in a test run ---
 

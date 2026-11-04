@@ -543,3 +543,27 @@ TEST_CASE("VisualScriptEditor: comment boxes keep their titles readable on every
 	CHECK(damaged.BarText == clamped.BarText);
 	CHECK(damaged.Border == clamped.Border);
 }
+
+TEST_CASE("VisualScriptEditor: the debugger's colours are the design's and stand out on bodies and on the canvas")
+{
+	VisualScriptThemeAnchors const theme;
+	CHECK(VisualScriptBreakpointColor == VisualScriptRgba(240, 60, 52));
+	CHECK(VisualScriptCurrentInstructionColor == VisualScriptRgba(255, 191, 0));
+	CHECK(VisualScriptFlowColor == VisualScriptRgba(64, 200, 255));
+	// The figures of spec-slice4 §13.2: against the default node body, then the canvas.
+	CHECK(GetVisualScriptContrast(VisualScriptBreakpointColor, theme.Body) == doctest::Approx(3.40f).epsilon(0.01));
+	CHECK(GetVisualScriptContrast(VisualScriptBreakpointColor, theme.Canvas) == doctest::Approx(4.29f).epsilon(0.01));
+	CHECK(GetVisualScriptContrast(VisualScriptCurrentInstructionColor, theme.Body) == doctest::Approx(8.0f).epsilon(0.01));
+	CHECK(GetVisualScriptContrast(VisualScriptCurrentInstructionColor, theme.Canvas) == doctest::Approx(10.1f).epsilon(0.01));
+	CHECK(GetVisualScriptContrast(VisualScriptFlowColor, theme.Body) == doctest::Approx(6.9f).epsilon(0.01));
+	CHECK(GetVisualScriptContrast(VisualScriptFlowColor, theme.Canvas) == doctest::Approx(8.7f).epsilon(0.01));
+	for (uint32_t const color : {VisualScriptBreakpointColor, VisualScriptCurrentInstructionColor, VisualScriptFlowColor})
+	{
+		CAPTURE(Describe(color));
+		CHECK(GetVisualScriptContrast(color, theme.Body) >= 3.0f);
+		CHECK(GetVisualScriptContrast(color, theme.Canvas) >= 3.0f);
+	}
+	// A breakpoint's red is not the error badges' red: its place and shape tell it apart, and so does its hue.
+	CHECK(VisualScriptBreakpointColor != VisualScriptErrorColor);
+	CHECK(GetVisualScriptColorDistance(VisualScriptBreakpointColor, VisualScriptErrorColor) > 0.02f);
+}

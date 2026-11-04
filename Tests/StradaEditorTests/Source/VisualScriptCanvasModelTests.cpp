@@ -1343,3 +1343,80 @@ TEST_CASE(
 		CHECK(buildSeconds <= BuildBound);
 	}
 }
+
+TEST_CASE("VisualScriptEditor: a comment's title room is the measured width of its first three code points and the ellipsis")
+{
+	CanvasFixture canvas;
+	// Every byte half its size wide: the room of n bytes and the ellipsis (3 bytes) is (n + 3) × 9 at the title's size.
+	float const unit = 0.5f * VisualScriptCanvasMetrics::CommentTitleTextSize;
+	struct Case
+	{
+		std::string Title;
+		// The bytes of its first three code points (of the whole title for three or fewer).
+		uint16_t MinimumLength;
+		// Measured with the ellipsis after them.
+		bool Ellipsis;
+	};
+	std::vector<Case> const cases = {
+		{"Weapons", 3, true},
+		// Two-, three- and four-byte code points.
+		{"\xC3\x84\xC3\x96\xC3\x9C"
+	     "ber",
+	     6, true},
+		{"\xE6\xBC\xA2\xE5\xAD\x97\xE3\x81\x8B\xE3\x81\xAA", 9, true},
+		{"\xF0\x9F\x98\x80\xF0\x9F\x98\x80\xF0\x9F\x98\x80\xF0\x9F\x98\x80", 12, true},
+		// Three glyphs or fewer: the whole title.
+		{"Abc", 3, false},
+		{"\xC3\x84\xC3\x96", 4, false},
+		// The first line only.
+		{"Hi\nand a longer body", 2, false},
+	};
+	uint32_t id = 1;
+	canvas.Document.Graph.Comments.clear();
+	for (Case const& entry : cases)
+	{
+		VisualScriptComment comment;
+		comment.ID = id++;
+		comment.Text = entry.Title;
+		comment.Position = glm::vec2(0.0f, 500.0f * static_cast<float>(comment.ID));
+		comment.Size = glm::vec2(2000.0f, 300.0f);
+		canvas.Document.Graph.Comments.push_back(comment);
+	}
+	canvas.Sync();
+	auto const check = [&]
+	{
+		for (size_t index = 0; index < cases.size(); index++)
+		{
+			CAPTURE(cases[index].Title);
+			std::optional<uint32_t> const found = canvas.Model.FindComment(static_cast<uint32_t>(index + 1));
+			REQUIRE(found.has_value());
+			VisualScriptCommentVisual const visual = canvas.Model.GetComments()[*found];
+			CHECK(visual.TitleMinimumLength == cases[index].MinimumLength);
+			float const bytes = static_cast<float>(cases[index].MinimumLength) + (cases[index].Ellipsis ? 3.0f : 0.0f);
+			CHECK(visual.TitleRoom == doctest::Approx(bytes * unit));
+			if (!cases[index].Ellipsis)
+			{
+				// A short title needs its whole width.
+				CHECK(visual.TitleRoom == doctest::Approx(visual.Title.Width));
+			}
+		}
+	};
+	check();
+	// An unchanged comment keeps its layout, and a move changes positions only.
+	canvas.Sync();
+	check();
+	VisualScriptDocument const previous = canvas.Document;
+	for (VisualScriptComment& comment : canvas.Document.Graph.Comments)
+	{
+		comment.Position += glm::vec2(64.0f, 32.0f);
+	}
+	std::optional<bool> const moved = canvas.SyncPositions(previous);
+	REQUIRE(moved.has_value());
+	check();
+	// Another measurer measures it anew.
+	canvas.Measure = Testing::FixedWidthMeasurer(0.25f);
+	canvas.Sync();
+	std::optional<uint32_t> const first = canvas.Model.FindComment(1);
+	REQUIRE(first.has_value());
+	CHECK(canvas.Model.GetComments()[*first].TitleRoom == doctest::Approx(6.0f * 0.25f * VisualScriptCanvasMetrics::CommentTitleTextSize));
+}

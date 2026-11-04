@@ -11,6 +11,7 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
@@ -560,10 +561,12 @@ namespace
 				{
 					params.erase("programRevision");
 				}
-				// Now and then a call that is right in every part (one operation that needs no scripting runtime), so the
-				// command's work is reached whatever else the drawn batches and parameters get wrong.
-				if (!m_State.Graph.empty() && m_Random.Pick(6) == 0)
+				// The first call, and now and then another, is right in every part (one operation that needs no scripting
+				// runtime), so the command's work is reached whatever else the drawn batches and parameters get wrong, and
+				// whichever commands the registry holds (each one changes the order the commands are drawn in).
+				if (!m_State.Graph.empty() && (!m_RightEditDrawn || m_Random.Pick(6) == 0))
 				{
+					m_RightEditDrawn = true;
 					params =
 						Json::object({{"graph", m_State.Graph},
 					                  {"operations", Json::array({Json::object({{"op", "SetDescription"}, {"description", "Fuzzed"}})})}});
@@ -614,7 +617,7 @@ namespace
 					choices = elements->second;
 				}
 			}
-			else if (property == "node" || property == "timeline" || property == "remove" || property == "nodes")
+			else if (property == "node" || property == "timeline" || property == "remove" || property == "nodes" || property == "show")
 			{
 				// graph.open's timeline: the seed's nodes, of which those of other types answer InvalidParams. The debug commands'
 				// breakpoint nodes (graph.breakpoints' add and remove) and nodes (graph.trace, graph.values) are the seed's too.
@@ -1166,6 +1169,8 @@ namespace
 		std::string_view m_Command;
 		// The sub-graph the last graph.edit batch drew its elements from.
 		int64_t m_BatchFunction = 0;
+		// A graph.edit right in every part was drawn.
+		bool m_RightEditDrawn = false;
 	};
 
 	// A project with something of everything, open in an editor model with the commands the editor layer registers.
@@ -1196,6 +1201,8 @@ namespace
 		VisualScriptEditors GraphEditors{Operations, Semantics, ViewSettings};
 		// The debug session, as play mode's observer, with the views settings: graph.breakpoints writes the views file.
 		VisualScriptDebugSession DebugSession{Context, Play};
+		// The Debugger panel graph.debug-panel reaches, never drawn.
+		VisualScriptDebuggerPanel DebuggerPanel{DebugSession, Context};
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 
@@ -1227,6 +1234,10 @@ namespace
 			environment.GraphEditors = [this]() -> VisualScriptEditors&
 			{
 				return GraphEditors;
+			};
+			environment.DebuggerPanel = [this]() -> VisualScriptDebuggerPanel&
+			{
+				return DebuggerPanel;
 			};
 			// There is no inspector or menu bar to show the menus, but inspector.add-component-menu and editor.entity-menu still
 			// check and list everything.
@@ -1809,7 +1820,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	CHECK(findSuccesses["query"] > 0);
 	CHECK(findSuccesses["references"] > 0);
 	// The debug commands that need no game work; the others are refused, for their parameters or for the state.
-	for (std::string const debugCommand : {"graph.breakpoints", "graph.target", "graph.debug", "graph.live"})
+	for (std::string const debugCommand : {"graph.breakpoints", "graph.target", "graph.debug", "graph.debug-panel", "graph.live"})
 	{
 		CAPTURE(debugCommand);
 		CHECK(outcomes[debugCommand].first > 0);
@@ -1817,8 +1828,9 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	std::set<AutomationErrorCode> const debugRefusals = {AutomationErrorCode::InvalidParams,  AutomationErrorCode::AssetNotFound,
 	                                                     AutomationErrorCode::EntityNotFound, AutomationErrorCode::FileError,
 	                                                     AutomationErrorCode::Unavailable,    AutomationErrorCode::InvalidOperation};
-	for (std::string const debugCommand : {"graph.breakpoints", "graph.target", "graph.debug", "graph.continue", "graph.step",
-	                                       "graph.break", "graph.wait", "graph.trace", "graph.values", "graph.instances", "graph.live"})
+	for (std::string const debugCommand :
+	     {"graph.breakpoints", "graph.target", "graph.debug", "graph.debug-panel", "graph.continue", "graph.step", "graph.break",
+	      "graph.wait", "graph.trace", "graph.values", "graph.instances", "graph.live"})
 	{
 		CAPTURE(debugCommand);
 		CHECK(outcomes[debugCommand].first + outcomes[debugCommand].second > 0);

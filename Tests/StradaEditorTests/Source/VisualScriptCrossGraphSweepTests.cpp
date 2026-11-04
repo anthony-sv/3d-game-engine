@@ -575,8 +575,9 @@ TEST_CASE(
 	CHECK(revealed.Open->Reveal ==
 	      std::optional<VisualScriptReference>(VisualScriptReference{VisualScriptReference::Kind::Variable, 5, {}}));
 	VisualScriptViewState const view = fixture.Model->GetView().GetTargetState();
-	CHECK(revealed.Open->Origin == std::optional<VisualScriptOrigin>(VisualScriptOrigin{fixture.Project.Graph, view.Function, view.Center,
-	                                                                                    view.Zoom, VisualScriptHistoryStep::Jump}));
+	CHECK(revealed.Open->Origin ==
+	      std::optional<VisualScriptOrigin>(
+			  VisualScriptOrigin{fixture.Project.Graph, view.Function, view.Center, view.Zoom, VisualScriptHistoryStep::Jump, "Graph"}));
 }
 
 TEST_CASE("VisualScriptEditor: a double click on a typed Send's header asks to open the other graph, never this script's event")

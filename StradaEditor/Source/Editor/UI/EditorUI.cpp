@@ -148,19 +148,6 @@ namespace Strada
 			constexpr float ArrowHeadHalfHeight = 0.18f;
 			constexpr float ArrowStemThickness = 0.075f;
 
-			bool HasArrows(std::string_view text)
-			{
-				for (size_t position = text.find(ArrowLead); position != std::string_view::npos;
-				     position = text.find(ArrowLead, position + 1))
-				{
-					if (position + 2 < text.size() && (text[position + 2] == RightArrowLast || text[position + 2] == LeftArrowLast))
-					{
-						return true;
-					}
-				}
-				return false;
-			}
-
 			// Calls onText with each run of text between the arrows of a line (none of them empty) and onArrow with each arrow
 			// (true for a right arrow), in order.
 			template<typename TOnText, typename TOnArrow>
@@ -303,6 +290,67 @@ namespace Strada
 					                        ImVec2(center.x + half * 0.55f + bar, center.y + half), color, 1.0f);
 					break;
 				}
+				case ToolbarIcon::Continue:
+				{
+					// A bar, then the play triangle: run on from where it stands.
+					float const bar = half * 0.4f;
+					drawList->AddRectFilled(ImVec2(center.x - half, center.y - half), ImVec2(center.x - half + bar, center.y + half), color,
+					                        1.0f);
+					drawList->AddTriangleFilled(ImVec2(center.x - half * 0.35f, center.y - half),
+					                            ImVec2(center.x - half * 0.35f, center.y + half), ImVec2(center.x + half, center.y), color);
+					break;
+				}
+				case ToolbarIcon::StepOver:
+				case ToolbarIcon::StepInto:
+				case ToolbarIcon::StepOut:
+				{
+					// A dot on the line of the statements, and the arrow the step takes: over it, down into it, up out of it.
+					float const thickness = std::max(1.0f, std::floor(size.y * 0.07f));
+					float const dot = half * 0.28f;
+					ImVec2 const statement(center.x, center.y + half * 0.7f);
+					drawList->AddCircleFilled(statement, dot, color);
+					ImVec2 tip;
+					ImVec2 direction;
+					if (icon == ToolbarIcon::StepOver)
+					{
+						drawList->PathArcTo(ImVec2(center.x, center.y + half * 0.1f), half * 0.85f, IM_PI, IM_PI * 2.0f);
+						drawList->PathStroke(color, thickness);
+						tip = ImVec2(center.x + half * 0.85f, center.y + half * 0.45f);
+						direction = ImVec2(0.0f, 1.0f);
+					}
+					else if (icon == ToolbarIcon::StepInto)
+					{
+						drawList->AddLine(ImVec2(center.x, center.y - half), ImVec2(center.x, center.y + half * 0.05f), color, thickness);
+						tip = ImVec2(center.x, center.y + half * 0.3f);
+						direction = ImVec2(0.0f, 1.0f);
+					}
+					else
+					{
+						drawList->AddLine(ImVec2(center.x, center.y + half * 0.3f), ImVec2(center.x, center.y - half * 0.55f), color,
+						                  thickness);
+						tip = ImVec2(center.x, center.y - half);
+						direction = ImVec2(0.0f, -1.0f);
+					}
+					// The arrow's head: a triangle whose tip is at tip, pointing along direction.
+					float const head = half * 0.45f;
+					ImVec2 const base(tip.x - direction.x * head, tip.y - direction.y * head);
+					ImVec2 const side(-direction.y * head * 0.75f, direction.x * head * 0.75f);
+					drawList->AddTriangleFilled(tip, ImVec2(base.x + side.x, base.y + side.y), ImVec2(base.x - side.x, base.y - side.y),
+					                            color);
+					break;
+				}
+				case ToolbarIcon::Break:
+				{
+					// Two bars on a disc: pause the code, not only the game.
+					drawList->AddCircleFilled(center, half, color);
+					ImU32 const cut = ImGui::GetColorU32(background);
+					float const bar = half * 0.28f;
+					drawList->AddRectFilled(ImVec2(center.x - half * 0.45f, center.y - half * 0.5f),
+					                        ImVec2(center.x - half * 0.45f + bar, center.y + half * 0.5f), cut);
+					drawList->AddRectFilled(ImVec2(center.x + half * 0.45f - bar, center.y - half * 0.5f),
+					                        ImVec2(center.x + half * 0.45f, center.y + half * 0.5f), cut);
+					break;
+				}
 			}
 			return pressed;
 		}
@@ -312,6 +360,62 @@ namespace Strada
 			ImVec2 size = CalcArrowTextSize(nullptr, 0.0f, text);
 			size.x = ImCeilFast(size.x);
 			return size;
+		}
+
+		bool HasArrows(std::string_view text)
+		{
+			for (size_t position = text.find(ArrowLead); position != std::string_view::npos; position = text.find(ArrowLead, position + 1))
+			{
+				if (position + 2 < text.size() && (text[position + 2] == RightArrowLast || text[position + 2] == LeftArrowLast))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		std::string WrapArrowText(std::string_view text, float width)
+		{
+			// Each line of the text breaks at the last space before its width; a first word wider than the width keeps a line of
+			// its own.
+			std::string wrapped;
+			wrapped.reserve(text.size());
+			size_t lineStart = 0;
+			while (true)
+			{
+				size_t const lineEnd = std::min(text.find('\n', lineStart), text.size());
+				std::string_view line = text.substr(lineStart, lineEnd - lineStart);
+				while (CalcArrowTextSize(line).x > width)
+				{
+					size_t breakAt = std::string_view::npos;
+					for (size_t space = line.find(' '); space != std::string_view::npos; space = line.find(' ', space + 1))
+					{
+						if (CalcArrowTextSize(line.substr(0, space)).x > width)
+						{
+							break;
+						}
+						breakAt = space;
+					}
+					if (breakAt == std::string_view::npos)
+					{
+						breakAt = line.find(' ');
+					}
+					if (breakAt == std::string_view::npos)
+					{
+						break;
+					}
+					wrapped.append(line.substr(0, breakAt));
+					wrapped.push_back('\n');
+					line = line.substr(breakAt + 1);
+				}
+				wrapped.append(line);
+				if (lineEnd == text.size())
+				{
+					return wrapped;
+				}
+				wrapped.push_back('\n');
+				lineStart = lineEnd + 1;
+			}
 		}
 
 		ImVec2 CalcArrowTextSize(ImFont* font, float fontSize, std::string_view text)

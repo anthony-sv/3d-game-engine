@@ -122,7 +122,14 @@ namespace Strada
 			Play = 0,
 			Stop,
 			Pause,
-			Step
+			Step,
+			// The debugger's (spec-slice4 §14.2): a bar and a triangle, a hop over a dot, a drop into a dot, a rise out of a
+			// dot, and two bars on a disc.
+			Continue,
+			StepOver,
+			StepInto,
+			StepOut,
+			Break
 		};
 
 		// The size of toolbar buttons at the current font size.
@@ -135,6 +142,12 @@ namespace Strada
 		// character. Draw such text with these, never with ImGui's text functions or widgets. Lines break at '\n'; without
 		// arrows the text is measured and drawn exactly as ImGui's text is. Inside an ImGui frame.
 		//
+		// Whether the text holds U+2192 or U+2190, which must be drawn with these functions.
+		bool HasArrows(std::string_view text);
+		// The text with line breaks at the spaces where its lines, measured as CalcArrowTextSize measures them in the current
+		// font, would grow wider than the width (pixels), so DrawArrowText draws it wrapped; a word wider than the width keeps
+		// a line of its own. Inside an ImGui frame.
+		std::string WrapArrowText(std::string_view text, float width);
 		// The size of the text in the current font at the current size, its width rounded up as ImGui::CalcTextSize rounds.
 		ImVec2 CalcArrowTextSize(std::string_view text);
 		// The size of the text in a font at a size in pixels, unrounded as ImFont::CalcTextSizeA measures; a null font is the

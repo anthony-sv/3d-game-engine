@@ -19,6 +19,8 @@
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/VisualScriptDebugger.h"
 #include "Strada/Script/VisualScriptEngine.h"
 
 #include <glm/gtc/constants.hpp>
@@ -35,7 +37,9 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <span>
+#include <tuple>
 #include <utility>
 #include <variant>
 
@@ -73,6 +77,64 @@ namespace Strada
 		constexpr float NoticeBlinkTint = 0.5f;
 		// The shortcut sheet's width and the cards' widths, in font sizes.
 		constexpr float ShortcutSheetWidth = 34.0f;
+		// The breakpoint popup is this many font sizes wide; the Instance combo reads its states at most this often (seconds).
+		constexpr float BreakpointPopupWidth = 24.0f;
+		constexpr double InstanceStatesInterval = 0.25;
+
+		// The debugger's actions of the keys and the node menu, which the window hands to the debug session.
+		bool IsDebugAction(Action action)
+		{
+			return action == Action::ToggleBreakpoint || action == Action::ToggleBreakpointEnabled ||
+			       action == Action::BreakpointSettings || action == Action::RunToNode;
+		}
+
+		// The strip's button's item, which tests and automation locate.
+		VisualScriptPanelItem GetStripItem(VisualScriptDebugStripAction action)
+		{
+			switch (action)
+			{
+				case VisualScriptDebugStripAction::Continue:
+					return VisualScriptPanelItem::StripContinue;
+				case VisualScriptDebugStripAction::StepOver:
+					return VisualScriptPanelItem::StripStepOver;
+				case VisualScriptDebugStripAction::StepInto:
+					return VisualScriptPanelItem::StripStepInto;
+				case VisualScriptDebugStripAction::StepOut:
+					return VisualScriptPanelItem::StripStepOut;
+				case VisualScriptDebugStripAction::OnlyInstance:
+					return VisualScriptPanelItem::StripOnlyInstance;
+				case VisualScriptDebugStripAction::ShowFirstError:
+					return VisualScriptPanelItem::StripShowFirstError;
+				case VisualScriptDebugStripAction::Show:
+					return VisualScriptPanelItem::StripShow;
+				case VisualScriptDebugStripAction::Break:
+					return VisualScriptPanelItem::StripBreak;
+			}
+			return VisualScriptPanelItem::StripContinue;
+		}
+
+		// The toolbar icon a strip's button becomes in a narrow window; none for the buttons that keep their text.
+		std::optional<UI::ToolbarIcon> GetStripIcon(VisualScriptDebugStripAction action)
+		{
+			switch (action)
+			{
+				case VisualScriptDebugStripAction::Continue:
+					return UI::ToolbarIcon::Continue;
+				case VisualScriptDebugStripAction::StepOver:
+					return UI::ToolbarIcon::StepOver;
+				case VisualScriptDebugStripAction::StepInto:
+					return UI::ToolbarIcon::StepInto;
+				case VisualScriptDebugStripAction::StepOut:
+					return UI::ToolbarIcon::StepOut;
+				case VisualScriptDebugStripAction::Break:
+					return UI::ToolbarIcon::Break;
+				case VisualScriptDebugStripAction::OnlyInstance:
+				case VisualScriptDebugStripAction::ShowFirstError:
+				case VisualScriptDebugStripAction::Show:
+					break;
+			}
+			return std::nullopt;
+		}
 		constexpr float CardWidth = 26.0f;
 		// The canvas border kept around elements a [Show] frames, in screen pixels at UI scale 1.
 		constexpr float FrameMargin = 48.0f;
@@ -595,6 +657,8 @@ namespace Strada
 
 	VisualScriptEditorPanel::NodePreview::NodePreview() = default;
 
+	VisualScriptEditorPanel::BreakpointPopup::BreakpointPopup() = default;
+
 	UUID VisualScriptEditorPanel::GetContextEntity() const
 	{
 		return GetPresentContextEntity();
@@ -801,6 +865,18 @@ namespace Strada
 		state.ContextEntity = GetPresentContextEntity();
 		state.Live = m_Live;
 		state.Card = m_Card;
+		if (m_DebugInput != nullptr)
+		{
+			state.DebugState = m_DebugInput->State;
+			state.DebugStop = m_DebugInput->Stop;
+			state.DebugFrame = m_DebugInput->Frame;
+			state.DebugNode = m_DebugInput->Instruction ? std::optional<uint32_t>(m_DebugInput->Instruction->Node) : std::nullopt;
+			state.DebugFunction = m_DebugInput->Function;
+			state.Breakpoints = static_cast<uint32_t>(m_DebugInput->Breakpoints.size());
+		}
+		state.FlowDrawn =
+			m_HasDebugView && (!m_DebugView.FlowLinks.empty() || !m_DebugView.FlowNodes.empty() || !m_DebugView.FlowBoxes.empty());
+		state.FlowHeld = state.FlowDrawn && m_DebugView.FlowHeld;
 		// Top to bottom: the notices under the toolbar, then the hints over the canvas.
 		std::vector<VisualScriptNotice> notices;
 		for (NoticeKind const notice : m_Notices)
@@ -826,6 +902,10 @@ namespace Strada
 					notices.push_back(VisualScriptNotice::NewFunction);
 					break;
 			}
+		}
+		if (m_Visible && m_DebugInput != nullptr && !m_DebugInput->Strip.empty())
+		{
+			notices.push_back(VisualScriptNotice::Debug);
 		}
 		if (m_CanvasHintShown)
 		{
@@ -892,6 +972,9 @@ namespace Strada
 		m_Problems.reset();
 		m_PopupProblems.clear();
 		m_BadgePress.reset();
+		m_BreakpointPopup.reset();
+		m_InstanceComboOpen = false;
+		m_HasDebugView = false;
 		m_WidgetActive = false;
 		m_RequestedActions.clear();
 		// A hidden window keeps no node library alive (a rebuilt library's old copy goes), nor a preview laid out with it.
@@ -1007,11 +1090,13 @@ namespace Strada
 			m_NameRun.reset();
 		}
 		UpdateWindowState();
+		UpdateDebugView();
 
 		DrawToolbar();
 		DrawNotices();
 		DrawBody();
 		DrawMenus();
+		DrawBreakpointPopup();
 		DrawShortcutSheet();
 		// Back and Forward that reached another graph's view: the window manager opens its window.
 		for (VisualScriptOpenRequest& request : m_Model.TakeOtherGraphRequests())
@@ -1134,7 +1219,15 @@ namespace Strada
 			}
 			if (ImGui::IsKeyChordPressed(shortcut.Chord, shortcut.Repeat ? ImGuiInputFlags_Repeat : ImGuiInputFlags_None, m_CanvasOwner))
 			{
-				m_FrameActions.push_back(shortcut.Action);
+				if (IsDebugAction(shortcut.Action))
+				{
+					// F9, Ctrl+F9 and Ctrl+F10 are the debug session's, on the selection (spec-slice4 §13.6).
+					HandleDebugAction(shortcut.Action, m_Model.GetSelection());
+				}
+				else
+				{
+					m_FrameActions.push_back(shortcut.Action);
+				}
 			}
 		}
 
@@ -1360,8 +1453,276 @@ namespace Strada
 		{
 			m_ContextEntity = running == 1 ? only : UUID::Invalid();
 		}
-		// The combo is shown while it has something to choose: an entity runs the graph, or one is chosen.
+		// The combo is shown while it has something to choose: an entity runs the graph, or one is chosen. The chosen entity's
+		// name is kept, to name it once it is destroyed.
 		m_InstanceShown = running > 0 || m_ContextEntity.IsValid();
+		if (m_ContextEntity.IsValid() && scene.HasEntity(m_ContextEntity))
+		{
+			m_ContextEntityName = scene.GetEntityByUUID(m_ContextEntity).GetName();
+		}
+		else if (!m_ContextEntity.IsValid())
+		{
+			m_ContextEntityName.clear();
+		}
+	}
+
+	UUID VisualScriptEditorPanel::GetDebugTarget() const
+	{
+		// The chosen entity also while it is gone (the session then stops nothing, spec-slice4 §3.1), else the one entity that
+		// runs the graph, else any instance.
+		return m_ContextEntity;
+	}
+
+	void VisualScriptEditorPanel::ChooseContextEntity(UUID entity)
+	{
+		m_RequestedContext.reset();
+		m_ContextResolved = true;
+		SetContextEntity(entity, true);
+	}
+
+	void VisualScriptEditorPanel::OnOtherGraphOpenFailed(VisualScriptOpenRequest const& request, std::string const& error)
+	{
+		VisualScriptHistoryStep const step = request.Origin ? request.Origin->Step : VisualScriptHistoryStep::Jump;
+		std::string const name = m_Model.GetHistoryGraphName(request.Graph);
+		bool const deleted = !AssetManager::IsInitialized() || !AssetManager::IsValid(request.Graph);
+		std::string const reason = deleted ? std::string("it was deleted") : error;
+		switch (step)
+		{
+			case VisualScriptHistoryStep::Jump:
+				AddToast(fmt::format("Could not open {}: {}", name, reason));
+				break;
+			case VisualScriptHistoryStep::Back:
+				AddToast(fmt::format("Back could not open {}: {}", name, reason));
+				break;
+			case VisualScriptHistoryStep::Forward:
+				AddToast(fmt::format("Forward could not open {}: {}", name, reason));
+				break;
+		}
+		// Back and Forward go on to the next entry of their history, as they skip deleted functions.
+		m_Model.ContinueHistory(step);
+		for (VisualScriptOpenRequest& next : m_Model.TakeOtherGraphRequests())
+		{
+			m_OtherGraphRequests.push_back(std::move(next));
+		}
+	}
+
+	VisualScriptWindowBreakpoint const* VisualScriptEditorPanel::FindWindowBreakpoint(uint32_t node) const
+	{
+		if (m_DebugInput == nullptr)
+		{
+			return nullptr;
+		}
+		auto const found = std::lower_bound(m_DebugInput->Breakpoints.begin(), m_DebugInput->Breakpoints.end(), node,
+		                                    [](VisualScriptWindowBreakpoint const& breakpoint, uint32_t id)
+		                                    {
+												return breakpoint.Breakpoint.Node < id;
+											});
+		return found != m_DebugInput->Breakpoints.end() && found->Breakpoint.Node == node ? &*found : nullptr;
+	}
+
+	std::optional<uint32_t> VisualScriptEditorPanel::GetBreakpointPopupNode() const
+	{
+		return m_BreakpointPopup ? std::optional<uint32_t>(m_BreakpointPopup->Node) : std::nullopt;
+	}
+
+	VisualScriptConditionCheck const* VisualScriptEditorPanel::GetBreakpointPopupCheck() const
+	{
+		return m_BreakpointPopup && m_BreakpointPopup->Check ? &*m_BreakpointPopup->Check : nullptr;
+	}
+
+	void VisualScriptEditorPanel::OpenBreakpointPopup(uint32_t node)
+	{
+		if (m_DebugInput == nullptr || !m_Model.GetCanvas().FindNode(node))
+		{
+			return;
+		}
+		BreakpointPopup popup;
+		popup.Node = node;
+		if (VisualScriptWindowBreakpoint const* breakpoint = FindWindowBreakpoint(node))
+		{
+			popup.Condition = breakpoint->Breakpoint.Condition;
+			popup.HitCount = static_cast<int>(std::min<uint32_t>(breakpoint->Breakpoint.HitCount, static_cast<uint32_t>(INT32_MAX)));
+		}
+		m_BreakpointPopup = std::move(popup);
+	}
+
+	void VisualScriptEditorPanel::HandleDebugAction(VisualScriptEditorAction action, std::span<uint32_t const> elements)
+	{
+		if (m_DebugInput == nullptr)
+		{
+			return;
+		}
+		// The nodes of the elements (comments take no breakpoints), the primary first.
+		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+		std::vector<uint32_t> nodes;
+		for (uint32_t const element : elements)
+		{
+			if (canvas.FindNode(element))
+			{
+				nodes.push_back(element);
+			}
+		}
+		if (nodes.empty())
+		{
+			return;
+		}
+		VisualScriptDebugRequest request;
+		switch (action)
+		{
+			case Action::ToggleBreakpoint:
+				request.RequestKind = VisualScriptDebugRequest::Kind::ToggleBreakpoints;
+				request.Nodes = std::move(nodes);
+				break;
+			case Action::ToggleBreakpointEnabled:
+			{
+				// Ctrl+F9: the breakpoints of the nodes are disabled when one of them is enabled, else enabled.
+				bool anyEnabled = false;
+				for (uint32_t const node : nodes)
+				{
+					if (VisualScriptWindowBreakpoint const* breakpoint = FindWindowBreakpoint(node))
+					{
+						request.Nodes.push_back(node);
+						anyEnabled = anyEnabled || breakpoint->Breakpoint.Enabled;
+					}
+				}
+				if (request.Nodes.empty())
+				{
+					return;
+				}
+				request.RequestKind = VisualScriptDebugRequest::Kind::SetBreakpointsEnabled;
+				request.Enabled = !anyEnabled;
+				break;
+			}
+			case Action::BreakpointSettings:
+				OpenBreakpointPopup(nodes.front());
+				return;
+			case Action::RunToNode:
+				if (!m_DebugInput->Attached)
+				{
+					return;
+				}
+				request.RequestKind = VisualScriptDebugRequest::Kind::RunTo;
+				request.Nodes = {nodes.front()};
+				break;
+			default:
+				return;
+		}
+		m_DebugRequests.push_back(std::move(request));
+	}
+
+	void VisualScriptEditorPanel::UpdateDebugView()
+	{
+		m_HasDebugView = m_DebugInput != nullptr && m_Model.GetStoredDocument() != nullptr;
+		if (!m_HasDebugView)
+		{
+			m_Model.SetBreakpointMarkers(false, {});
+			m_Flow.Clear();
+			m_FlowMarks.Clear();
+			return;
+		}
+		VisualScriptWindowDebugInput const& input = *m_DebugInput;
+		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+		uint32_t const function = m_Model.GetFunction();
+
+		// The shown sub-graph's breakpoints, by node ID (the input's are).
+		m_BreakpointMarks.clear();
+		m_BreakpointNodes.clear();
+		for (VisualScriptWindowBreakpoint const& breakpoint : input.Breakpoints)
+		{
+			if (!canvas.FindNode(breakpoint.Breakpoint.Node))
+			{
+				continue;
+			}
+			VisualScriptBreakpointMark mark;
+			mark.Node = breakpoint.Breakpoint.Node;
+			mark.State = breakpoint.State;
+			mark.CausedStop = breakpoint.CausedStop;
+			mark.Inactive = !breakpoint.InactiveReason.empty();
+			m_BreakpointMarks.push_back(mark);
+			m_BreakpointNodes.push_back(mark.Node);
+		}
+		m_Model.SetBreakpointMarkers(true, m_BreakpointNodes);
+
+		m_DebugView = VisualScriptCanvasDebugView();
+		m_DebugView.Breakpoints = m_BreakpointMarks;
+		m_DebugView.BreakpointChord = input.BreakpointChord;
+		if (input.Instruction && input.Function == function && canvas.FindNode(input.Instruction->Node))
+		{
+			m_DebugView.Instruction = input.Instruction;
+		}
+		m_DebugCallers.clear();
+		for (auto const& [callerFunction, node] : input.Callers)
+		{
+			if (callerFunction == function && canvas.FindNode(node))
+			{
+				m_DebugCallers.push_back(node);
+			}
+		}
+		m_DebugView.Callers = m_DebugCallers;
+		m_DebugComputed.clear();
+		if (input.Stop && input.Function == function)
+		{
+			m_DebugComputed = input.Computed;
+		}
+		m_DebugView.Computed = m_DebugComputed;
+
+		// The flow: counted from the attachment on, for the sub-graph shown (spec-slice4 §13.3).
+		if (input.Attachment != m_FlowAttachment || function != m_FlowFunction || !input.Attached)
+		{
+			m_Flow.Clear();
+			m_FlowAttachment = input.Attachment;
+			m_FlowFunction = function;
+		}
+		m_FlowMarks.Clear();
+		if (input.Attached && input.ShowFlow && input.FlowFunction == function)
+		{
+			uint64_t const revision = m_Model.GetCanvasRevision();
+			m_Flow.Apply(input.Flow, canvas, revision, m_Time);
+			m_Flow.Build(canvas, revision, input.FlowTime, m_Time, m_Settings.IsReduceMotion(), m_FlowMarks);
+		}
+		m_DebugView.FlowLinks = m_FlowMarks.Links;
+		m_DebugView.FlowNodes = m_FlowMarks.Nodes;
+		m_DebugView.FlowBoxes = m_FlowMarks.Boxes;
+		m_DebugView.FlowHeld = m_FlowMarks.Held;
+
+		// Values on the data wires whose source (or target) the input has a value of.
+		m_ValueMarks.clear();
+		if (input.WireValues && input.ValuesFunction == function && !input.Values.empty())
+		{
+			std::map<std::tuple<uint32_t, std::string_view, bool>, VisualScriptDebugPinValue const*> values;
+			for (VisualScriptDebugPinValue const& value : input.Values)
+			{
+				values.emplace(std::make_tuple(value.Node, std::string_view(value.Pin), value.Output), &value);
+			}
+			std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+			std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+			std::span<VisualScriptLinkVisual const> const links = canvas.GetLinks();
+			for (size_t index = 0; index < links.size(); index++)
+			{
+				VisualScriptLinkVisual const& link = links[index];
+				if (link.HasFlag(VisualScriptLinkFlags::Exec) || link.FromNode >= nodes.size() || link.ToNode >= nodes.size() ||
+				    link.FromPin >= pins.size() || link.ToPin >= pins.size())
+				{
+					continue;
+				}
+				auto found = values.find(std::make_tuple(nodes[link.FromNode].ID, canvas.GetText(pins[link.FromPin].Name), true));
+				if (found == values.end())
+				{
+					found = values.find(std::make_tuple(nodes[link.ToNode].ID, canvas.GetText(pins[link.ToPin].Name), false));
+				}
+				if (found == values.end() || found->second->Currency == VisualScriptValueCurrency::NotComputed)
+				{
+					continue;
+				}
+				VisualScriptValueMark mark;
+				mark.Link = static_cast<uint32_t>(index);
+				mark.Text = found->second->Text;
+				mark.Swatch = found->second->Swatch;
+				mark.Currency = found->second->Currency;
+				m_ValueMarks.push_back(std::move(mark));
+			}
+		}
+		m_DebugView.Values = m_ValueMarks;
 	}
 
 	void VisualScriptEditorPanel::UpdateLiveState()
@@ -1677,17 +2038,11 @@ namespace Strada
 		float const chevron = fontSize * 0.8f;
 		float const breadcrumbFull = textButtonWidth(scriptText) + chevron + textButtonWidth(graphText) + frame;
 		float const minimumText = VisualScriptBreadcrumbMinWidth * fontSize;
-		std::string const instanceText = [&]
-		{
-			if (!m_ContextEntity.IsValid())
-			{
-				return std::string("Instance: None");
-			}
-			Scene& scene = m_Operations.GetContext().GetScene();
-			return scene.HasEntity(m_ContextEntity) ? "Instance: " + scene.GetEntityByUUID(m_ContextEntity).GetName()
-			                                        : std::string("Instance: None");
-		}();
+		std::string const instanceText = GetInstanceText();
 		float const instanceFull = m_InstanceShown ? textWidth(instanceText) + style.FramePadding.x * 2.0f + frame : 0.0f;
+		// The live pill's STOPPED segment, beside LIVE or LAST WORKING (spec-slice4 §13.6).
+		bool const stoppedHere = m_DebugInput != nullptr && m_DebugInput->StoppedHere;
+		float const stoppedWidth = stoppedHere ? textButtonWidth(Texts::Stopped) : 0.0f;
 		VisualScriptEditorState const modelState = m_Model.GetState();
 		std::string const zoomText = fmt::format("{}%", static_cast<int>(std::lround(modelState.View.Zoom * 100.0f)));
 		std::string const saveText = m_SaveState == VisualScriptSaveState::Saved ? "Saved" : "Not saved";
@@ -1733,7 +2088,7 @@ namespace Strada
 			int items = 4;
 			if (!liveText.empty())
 			{
-				width += textButtonWidth(stage >= 1 ? liveShort : liveText);
+				width += textButtonWidth(stage >= 1 ? liveShort : liveText) + stoppedWidth;
 				items++;
 			}
 			if (stage >= 1)
@@ -1892,6 +2247,11 @@ namespace Strada
 		if (!liveText.empty())
 		{
 			DrawLivePill(textButtonWidth(glyphs ? liveShort : liveText), glyphs ? liveShort : liveText);
+			if (stoppedHere)
+			{
+				ImGui::SameLine(0.0f, 0.0f);
+				DrawStoppedSegment(stoppedWidth);
+			}
 			ImGui::SameLine();
 		}
 
@@ -2073,15 +2433,49 @@ namespace Strada
 		ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + toolbarHeight));
 	}
 
+	void VisualScriptEditorPanel::UpdateInstanceStates()
+	{
+		if (!m_InstanceComboOpen || m_Time - m_InstanceStatesRead < InstanceStatesInterval)
+		{
+			return;
+		}
+		m_InstanceStatesRead = m_Time;
+		m_InstanceStates.clear();
+		if (!ScriptEngine::IsInitialized())
+		{
+			return;
+		}
+		VisualScriptInstanceQuery query;
+		query.Graph = m_Graph;
+		query.Limit = 500;
+		Result<VisualScriptInstanceList> const listed = VisualScriptDebugger::DescribeInstances(query);
+		if (!listed)
+		{
+			return;
+		}
+		for (VisualScriptInstanceInfo const& instance : listed.GetValue().Instances)
+		{
+			switch (instance.State)
+			{
+				case VisualScriptInstanceState::Idle:
+					break;
+				case VisualScriptInstanceState::Stopped:
+					m_InstanceStates.emplace_back(instance.Entity, "stopped");
+					break;
+				case VisualScriptInstanceState::Waiting:
+					m_InstanceStates.emplace_back(instance.Entity, fmt::format("{} waiting", instance.Waits.size()));
+					break;
+			}
+		}
+	}
+
 	void VisualScriptEditorPanel::DrawInstanceCombo(float width)
 	{
-		// "Instance: <entity>": the entities of the scene shown that run this graph, and None (spec §10.5).
+		// "Instance: <entity>": the entities of the scene shown that run this graph, and None (spec §10.5); while playing "Any
+		// instance" first, and each entity's state (spec-slice4 §13.6).
 		Scene& scene = m_Operations.GetContext().GetScene();
-		auto const nameOf = [&scene](UUID entity)
-		{
-			return scene.HasEntity(entity) ? scene.GetEntityByUUID(entity).GetName() : std::string("None");
-		};
-		std::string const full = "Instance: " + (m_ContextEntity.IsValid() ? nameOf(m_ContextEntity) : std::string("None"));
+		std::string const none(GetInstanceNoneText());
+		std::string const full = GetInstanceText();
 		ImGuiStyle const& style = ImGui::GetStyle();
 		std::string const shown = UI::FitText(full, std::max(width - ImGui::GetFrameHeight() - style.FramePadding.x * 2.0f, 0.0f));
 		float const comboWidth = std::max(width, ImGui::GetFrameHeight());
@@ -2092,29 +2486,104 @@ namespace Strada
 		ImGui::SetNextItemWidth(comboWidth);
 		if (!ImGui::BeginCombo("##instance", shown.c_str()))
 		{
+			m_InstanceComboOpen = false;
 			ImGui::SetItemTooltip(
-				"%s", (full + ": entities dropped on the canvas set their values on it, and My Script shows its values while the game runs")
-						  .c_str());
+				"%s",
+				(full + ": entities dropped on the canvas set their values on it, My Script shows its values while the game runs, and "
+			            "its executions stop at the graph's breakpoints")
+					.c_str());
 			return;
 		}
-		if (ImGui::Selectable("None", !m_ContextEntity.IsValid()))
+		if (!m_InstanceComboOpen)
+		{
+			m_InstanceComboOpen = true;
+			m_InstanceStatesRead = -1.0e30;
+		}
+		UpdateInstanceStates();
+		if (ImGui::Selectable(none.c_str(), !m_ContextEntity.IsValid()))
 		{
 			SetContextEntity(UUID::Invalid(), true);
 		}
+		std::vector<UUID> entities;
 		for (entt::entity const handle : scene.GetAllEntitiesWith<VisualScriptComponent>())
 		{
 			Entity const entity(handle, &scene);
-			if (entity.GetComponent<VisualScriptComponent>().Graph != m_Graph)
+			if (entity.GetComponent<VisualScriptComponent>().Graph == m_Graph)
 			{
-				continue;
+				entities.push_back(entity.GetUUID());
 			}
-			UUID const id = entity.GetUUID();
-			if (ImGui::Selectable(fmt::format("{}##{}", entity.GetName(), id.GetValue()).c_str(), id == m_ContextEntity))
+		}
+		// Many instances (bullets, enemies) are drawn a page at a time.
+		ImGuiListClipper clipper;
+		clipper.Begin(static_cast<int>(entities.size()));
+		while (clipper.Step())
+		{
+			for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
 			{
-				SetContextEntity(id, true);
+				UUID const id = entities[static_cast<size_t>(row)];
+				std::string const name = scene.GetEntityByUUID(id).GetName();
+				float const rowRight = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+				if (ImGui::Selectable(fmt::format("{}##{}", name, id.GetValue()).c_str(), id == m_ContextEntity))
+				{
+					SetContextEntity(id, true);
+				}
+				auto const state = std::find_if(m_InstanceStates.begin(), m_InstanceStates.end(),
+				                                [id](std::pair<UUID, std::string> const& candidate)
+				                                {
+													return candidate.first == id;
+												});
+				if (state != m_InstanceStates.end())
+				{
+					float const stateWidth = ImGui::CalcTextSize(state->second.c_str()).x;
+					ImGui::SameLine(std::max(rowRight - stateWidth, ImGui::GetCursorPosX()));
+					ImGui::TextDisabled("%s", state->second.c_str());
+				}
 			}
 		}
 		ImGui::EndCombo();
+	}
+
+	std::string_view VisualScriptEditorPanel::GetInstanceNoneText() const
+	{
+		// While playing, the empty choice is any instance: the debugger stops every one (spec-slice4 §13.6).
+		return m_Operations.GetContext().IsPlaying() ? Texts::AnyInstance : Texts::InstanceNone;
+	}
+
+	std::string VisualScriptEditorPanel::GetInstanceText() const
+	{
+		if (!m_ContextEntity.IsValid())
+		{
+			return fmt::format("{}{}", Texts::InstancePrefix, GetInstanceNoneText());
+		}
+		Scene& scene = m_Operations.GetContext().GetScene();
+		if (scene.HasEntity(m_ContextEntity))
+		{
+			return fmt::format("{}{}", Texts::InstancePrefix, scene.GetEntityByUUID(m_ContextEntity).GetName());
+		}
+		// The choice is kept while its entity is gone; while playing the debugger then matches nothing (spec-slice4 §3.1).
+		if (!m_Operations.GetContext().IsPlaying())
+		{
+			return fmt::format("{}{}", Texts::InstancePrefix, Texts::InstanceNone);
+		}
+		std::string const name = m_ContextEntityName.empty() ? m_ContextEntity.ToString() : m_ContextEntityName;
+		return fmt::format("{}{}{}", Texts::InstancePrefix, name, Texts::InstanceDestroyed);
+	}
+
+	void VisualScriptEditorPanel::DrawStoppedSegment(float width)
+	{
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const frame = ImGui::GetFrameHeight();
+		ImVec2 const lower = ImGui::GetCursorScreenPos();
+		ImGui::InvisibleButton("##stopped", ImVec2(width, frame));
+		RecordItem(VisualScriptPanelItem::Stopped);
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->AddRectFilled(lower, ImVec2(lower.x + width, lower.y + frame), VisualScriptCurrentInstructionColor, frame * 0.5f);
+		drawList->AddText(ImVec2(lower.x + style.FramePadding.x, lower.y + style.FramePadding.y), IM_COL32(20, 20, 24, 255),
+		                  Texts::Stopped.data(), Texts::Stopped.data() + Texts::Stopped.size());
+		if (m_DebugInput != nullptr && !m_DebugInput->StoppedTooltip.empty())
+		{
+			ImGui::SetItemTooltip("%s", m_DebugInput->StoppedTooltip.c_str());
+		}
 	}
 
 	void VisualScriptEditorPanel::DrawLivePill(float width, std::string const& text)
@@ -2333,6 +2802,35 @@ namespace Strada
 			m_Settings.SetContextPalette(!m_Settings.IsContextPalette());
 		}
 		ImGui::SetItemTooltip("A wire released on empty canvas lists only the nodes it connects to");
+		// The debugger's (spec-slice4 §13.6): per-user settings, which graph.open sets too.
+		ImGui::Separator();
+		if (ImGui::BeginMenu(Texts::WireValuesMenu.data()))
+		{
+			VisualScriptWireValues const wireValues = m_Settings.GetWireValues();
+			std::array<std::pair<VisualScriptWireValues, std::string_view>, 3> const modes = {{
+				{VisualScriptWireValues::Off, Texts::WireValuesOff},
+				{VisualScriptWireValues::WhileStopped, Texts::WireValuesWhileStopped},
+				{VisualScriptWireValues::Always, Texts::WireValuesAlways},
+			}};
+			for (auto const& [mode, label] : modes)
+			{
+				if (ImGui::MenuItem(label.data(), nullptr, wireValues == mode))
+				{
+					m_Settings.SetWireValues(mode);
+				}
+			}
+			ImGui::EndMenu();
+		}
+		ImGui::SetItemTooltip("Values on the data wires: while an execution is stopped, or also from the running game");
+		if (ImGui::MenuItem(Texts::ShowFlow.data(), nullptr, m_Settings.IsShowFlow()))
+		{
+			m_Settings.SetShowFlow(!m_Settings.IsShowFlow());
+		}
+		ImGui::SetItemTooltip("Light the wires and nodes the game runs, and count how often each node runs");
+		if (ImGui::MenuItem(Texts::ResetRunCounts.data(), nullptr, false, !m_Flow.IsEmpty()))
+		{
+			m_Flow.ResetCounts();
+		}
 		if (m_ViewItemsInMenu)
 		{
 			ImGui::Separator();
@@ -2360,7 +2858,12 @@ namespace Strada
 
 	void VisualScriptEditorPanel::DrawNotices()
 	{
-		if (m_Notices.empty())
+		bool const strip = m_DebugInput != nullptr && !m_DebugInput->Strip.empty();
+		if (!strip)
+		{
+			m_StripRows.clear();
+		}
+		if (m_Notices.empty() && !strip)
 		{
 			return;
 		}
@@ -2373,8 +2876,369 @@ namespace Strada
 		{
 			DrawNotice(kind);
 		}
+		if (strip)
+		{
+			DrawDebugStrip();
+		}
 		ImGui::EndGroup();
 		ImGui::SetCursorScreenPos(ImVec2(origin.x, ImGui::GetItemRectMax().y + style.ItemSpacing.y));
+	}
+
+	void VisualScriptEditorPanel::DrawDebugStrip()
+	{
+		ImGuiStyle const& style = ImGui::GetStyle();
+		VisualScriptWindowDebugInput const& input = *m_DebugInput;
+		float const width = std::max(ImGui::GetContentRegionAvail().x - style.WindowPadding.x, ImGui::GetFontSize());
+		ImU32 const accent = VisualScriptCurrentInstructionColor;
+		// The session's rows, and the window's own: a broken edit while stopped here runs on in the last version that worked.
+		std::vector<VisualScriptDebugStripRow>& rows = m_StripRows;
+		rows = input.Strip;
+		if (input.StoppedHere && m_Live == VisualScriptLiveState::LastWorking)
+		{
+			uint32_t const errors = CountProblems(m_Model.GetAnalysis(), std::nullopt).first;
+			rows.push_back(
+				{fmt::format("{}{}{}{}", Texts::StripLastEdit, errors, errors == 1 ? Texts::StripError : Texts::StripErrors,
+			                 Texts::StripLastEditEnd),
+			     {{VisualScriptDebugStripAction::ShowFirstError, std::string(Texts::StripShowFirstError), {}, std::nullopt, {}}}});
+		}
+		ImGui::PushID("##debugStrip");
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, MixColor(ImGui::GetColorU32(ImGuiCol_WindowBg), accent, NoticeTint));
+		ImGui::PushStyleColor(ImGuiCol_Border, WithAlpha(accent, 0.85f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.FrameRounding);
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(style.FramePadding.x, style.FramePadding.y));
+		std::optional<VisualScriptDebugStripAction> pressed;
+		std::optional<uint32_t> pressedFrame;
+		if (ImGui::BeginChild("##strip", ImVec2(width, 0.0f),
+		                      ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding,
+		                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		{
+			float const frame = ImGui::GetFrameHeight();
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			for (size_t rowIndex = 0; rowIndex < rows.size(); rowIndex++)
+			{
+				VisualScriptDebugStripRow const& row = rows[rowIndex];
+				ImGui::PushID(static_cast<int>(rowIndex));
+				float const top = ImGui::GetCursorPosY();
+				float const right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+				// The first row starts with a pause shape (two bars, the toolbar's Pause icon's).
+				ImVec2 const cursor = ImGui::GetCursorScreenPos();
+				if (rowIndex == 0)
+				{
+					float const half = frame * 0.22f;
+					float const bar = half * 0.6f;
+					ImVec2 const center(std::floor(cursor.x + frame * 0.5f), std::floor(cursor.y + frame * 0.5f));
+					drawList->AddRectFilled(ImVec2(center.x - half * 0.85f, center.y - half),
+					                        ImVec2(center.x - half * 0.85f + bar, center.y + half), accent, 1.0f);
+					drawList->AddRectFilled(ImVec2(center.x + half * 0.85f - bar, center.y - half),
+					                        ImVec2(center.x + half * 0.85f, center.y + half), accent, 1.0f);
+				}
+				ImGui::Dummy(ImVec2(frame, frame));
+				ImGui::SameLine();
+				float const textLeft = ImGui::GetCursorPosX();
+				// The buttons as text, or as drawn icons with tooltips when they would leave the text less than half the row.
+				auto const label = [](VisualScriptDebugStripButton const& button)
+				{
+					return button.Chord.empty() ? button.Label : button.Label + " " + button.Chord;
+				};
+				float textButtons = 0.0f;
+				for (VisualScriptDebugStripButton const& button : row.Buttons)
+				{
+					textButtons += ImGui::CalcTextSize(label(button).c_str()).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
+				}
+				bool const icons = textButtons > (right - textLeft) * 0.5f;
+				float buttonsWidth = 0.0f;
+				for (VisualScriptDebugStripButton const& button : row.Buttons)
+				{
+					bool const icon = icons && GetStripIcon(button.Action).has_value();
+					buttonsWidth +=
+						(icon ? UI::GetToolbarButtonSize().x : ImGui::CalcTextSize(label(button).c_str()).x + style.FramePadding.x * 2.0f) +
+						style.ItemSpacing.x;
+				}
+				ImGui::SetCursorPosY(top + (frame - ImGui::GetTextLineHeight()) * 0.5f);
+				float const wrapAt = std::max(right - buttonsWidth, textLeft + ImGui::GetFontSize() * 4.0f);
+				// Node titles and entity names may hold arrows, which the editor's fonts lack: they are drawn as shapes, the line
+				// wrapped as ImGui wraps text.
+				if (UI::HasArrows(row.Text))
+				{
+					std::string const wrapped = UI::WrapArrowText(row.Text, wrapAt - ImGui::GetCursorPosX());
+					ImVec2 const at = ImGui::GetCursorScreenPos();
+					UI::DrawArrowText(ImGui::GetWindowDrawList(), at, ImGui::GetColorU32(ImGuiCol_Text), wrapped);
+					ImGui::Dummy(UI::CalcArrowTextSize(wrapped));
+				}
+				else
+				{
+					ImGui::PushTextWrapPos(wrapAt);
+					ImGui::TextUnformatted(row.Text.c_str());
+					ImGui::PopTextWrapPos();
+				}
+				if (!row.Buttons.empty())
+				{
+					ImGui::SetCursorPos(ImVec2(right - buttonsWidth + style.ItemSpacing.x, top));
+				}
+				for (size_t buttonIndex = 0; buttonIndex < row.Buttons.size(); buttonIndex++)
+				{
+					VisualScriptDebugStripButton const& button = row.Buttons[buttonIndex];
+					ImGui::PushID(static_cast<int>(buttonIndex));
+					std::optional<UI::ToolbarIcon> const icon = icons ? GetStripIcon(button.Action) : std::nullopt;
+					bool const clicked = icon ? UI::ToolbarButton("##icon", *icon, false) : ImGui::Button(label(button).c_str());
+					if (!button.SecondChord.empty())
+					{
+						ImGui::SetItemTooltip("%s", fmt::format("{} ({}, {})", button.Label, button.Chord, button.SecondChord).c_str());
+					}
+					else if (icon)
+					{
+						ImGui::SetItemTooltip("%s", label(button).c_str());
+					}
+					if (clicked)
+					{
+						pressed = button.Action;
+						pressedFrame = button.Frame;
+					}
+					VisualScriptPanelItem const item = GetStripItem(button.Action);
+					if (!m_ItemRects[static_cast<size_t>(item)])
+					{
+						RecordItem(item);
+					}
+					ImGui::PopID();
+					ImGui::SameLine();
+				}
+				ImGui::NewLine();
+				ImGui::PopID();
+			}
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleVar(3);
+		ImGui::PopStyleColor(2);
+		ImGui::PopID();
+		if (!pressed)
+		{
+			return;
+		}
+		VisualScriptDebugRequest request;
+		request.Stop = input.Stop;
+		request.Frame = pressedFrame.value_or(input.Frame);
+		switch (*pressed)
+		{
+			case VisualScriptDebugStripAction::Continue:
+				// Every stop, then the game (F5).
+				request.RequestKind = VisualScriptDebugRequest::Kind::Resume;
+				request.Action = VisualScriptDebugAction::Continue;
+				request.Stop.reset();
+				break;
+			case VisualScriptDebugStripAction::StepOver:
+				request.RequestKind = VisualScriptDebugRequest::Kind::Resume;
+				request.Action = VisualScriptDebugAction::StepOver;
+				break;
+			case VisualScriptDebugStripAction::StepInto:
+				request.RequestKind = VisualScriptDebugRequest::Kind::Resume;
+				request.Action = VisualScriptDebugAction::StepInto;
+				break;
+			case VisualScriptDebugStripAction::StepOut:
+				request.RequestKind = VisualScriptDebugRequest::Kind::Resume;
+				request.Action = VisualScriptDebugAction::StepOut;
+				break;
+			case VisualScriptDebugStripAction::OnlyInstance:
+				request.RequestKind = VisualScriptDebugRequest::Kind::OnlyInstance;
+				break;
+			case VisualScriptDebugStripAction::ShowFirstError:
+				ShowDrawer(VisualScriptDrawerMode::Problems);
+				return;
+			case VisualScriptDebugStripAction::Show:
+				request.RequestKind = VisualScriptDebugRequest::Kind::ShowFrame;
+				break;
+			case VisualScriptDebugStripAction::Break:
+				request.RequestKind = VisualScriptDebugRequest::Kind::CancelStep;
+				break;
+		}
+		m_DebugRequests.push_back(std::move(request));
+	}
+
+	void VisualScriptEditorPanel::DrawBreakpointPopup()
+	{
+		constexpr char const* PopupId = "##breakpointPopup";
+		if (!m_BreakpointPopup)
+		{
+			return;
+		}
+		if (m_BreakpointPopup->OpenPending)
+		{
+			m_BreakpointPopup->OpenPending = false;
+			ImGui::OpenPopup(PopupId);
+		}
+		ImGui::SetNextWindowSize(ImVec2(BreakpointPopupWidth * ImGui::GetFontSize(), 0.0f), ImGuiCond_Appearing);
+		if (!ImGui::BeginPopup(PopupId, ImGuiWindowFlags_NoSavedSettings))
+		{
+			m_BreakpointPopup.reset();
+			return;
+		}
+		BreakpointPopup& popup = *m_BreakpointPopup;
+		VisualScriptWindowBreakpoint const* breakpoint = FindWindowBreakpoint(popup.Node);
+		VisualScriptAnalyzedNode const* analyzed = m_Model.GetAnalysis() != nullptr ? m_Model.GetAnalysis()->FindNode(popup.Node) : nullptr;
+		std::string const title = analyzed != nullptr && !analyzed->Title.empty() ? analyzed->Title : fmt::format("Node {}", popup.Node);
+		ImGui::TextUnformatted(fmt::format("{} (node {})", title, popup.Node).c_str());
+		ImGui::Separator();
+		if (breakpoint == nullptr || m_DebugInput == nullptr)
+		{
+			if (ImGui::Button(Texts::BreakpointAdd.data()))
+			{
+				VisualScriptDebugRequest request;
+				request.RequestKind = VisualScriptDebugRequest::Kind::ToggleBreakpoints;
+				request.Nodes = {popup.Node};
+				m_DebugRequests.push_back(std::move(request));
+			}
+			ImGui::EndPopup();
+			return;
+		}
+		auto const commit = [this, breakpoint, &popup]
+		{
+			VisualScriptDebugRequest request;
+			request.RequestKind = VisualScriptDebugRequest::Kind::SetBreakpoint;
+			request.Breakpoint = breakpoint->Breakpoint;
+			request.Breakpoint.Condition = popup.Condition;
+			request.Breakpoint.HitCount = static_cast<uint32_t>(std::max(popup.HitCount, 0));
+			m_DebugRequests.push_back(std::move(request));
+		};
+		bool enabled = breakpoint->Breakpoint.Enabled;
+		if (ImGui::Checkbox(Texts::BreakpointEnabled.data(), &enabled))
+		{
+			VisualScriptDebugRequest request;
+			request.RequestKind = VisualScriptDebugRequest::Kind::SetBreakpointsEnabled;
+			request.Nodes = {popup.Node};
+			request.Enabled = enabled;
+			m_DebugRequests.push_back(std::move(request));
+		}
+		// Nodes no flow enters (pure nodes) take neither a condition nor a hit count (spec-slice4 §2.2); unknown without the analysis.
+		bool const entersFlow = analyzed == nullptr || std::any_of(analyzed->Pins.begin(), analyzed->Pins.end(),
+		                                                           [](VisualScriptPin const& pin)
+		                                                           {
+																	   return pin.Type == VisualScriptExecType || pin.CarriesExec;
+																   });
+		ImGui::BeginDisabled(!entersFlow);
+		ImGui::TextUnformatted(Texts::BreakpointCondition.data());
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		ImGui::InputTextWithHint("##condition", Texts::BreakpointConditionHint.data(), &popup.Condition);
+		bool const conditionDone = ImGui::IsItemDeactivatedAfterEdit();
+		// Checked as typed (once when the popup opens, then at each change): what it reads, or the error with its suggestion,
+		// and the scope it can read.
+		bool const unchecked = !popup.Check && popup.CheckError.empty();
+		if (ScriptEngine::IsInitialized() && (unchecked || popup.Checked != popup.Condition))
+		{
+			popup.Checked = popup.Condition;
+			popup.Check.reset();
+			popup.CheckError.clear();
+			Result<VisualScriptConditionCheck> const checked = VisualScriptDebugger::CheckCondition(m_Graph, popup.Node, popup.Condition);
+			if (checked)
+			{
+				popup.Check = checked.GetValue();
+			}
+			else
+			{
+				popup.CheckError = checked.GetError();
+			}
+		}
+		if (!popup.CheckError.empty())
+		{
+			ImGui::TextDisabled("%s", popup.CheckError.c_str());
+		}
+		else if (!popup.Check || !popup.Check->Checked)
+		{
+			ImGui::TextDisabled("%s", Texts::BreakpointUnchecked.data());
+		}
+		else if (popup.Check->Error)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(VisualScriptErrorColor));
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextUnformatted(popup.Check->Error->c_str());
+			ImGui::PopTextWrapPos();
+			ImGui::PopStyleColor();
+		}
+		else if (!popup.Condition.empty())
+		{
+			// What it reads: "Health · float variable".
+			std::string reads;
+			for (std::string const& read : popup.Check->Reads)
+			{
+				auto const named = std::find_if(popup.Check->Scope.begin(), popup.Check->Scope.end(),
+				                                [&read](VisualScriptConditionName const& name)
+				                                {
+													return name.Name == read || name.Form == read;
+												});
+				std::string const part =
+					named != popup.Check->Scope.end() ? fmt::format("{} \xC2\xB7 {} {}", read, named->Type, named->Source) : read;
+				reads += reads.empty() ? part : ", " + part;
+			}
+			ImGui::TextDisabled("%s", reads.c_str());
+		}
+		if (popup.Check && !popup.Check->Scope.empty())
+		{
+			ImGui::TextDisabled("%s", Texts::BreakpointNames.data());
+			float const listHeight = std::min(static_cast<float>(popup.Check->Scope.size()), 6.0f) * ImGui::GetTextLineHeightWithSpacing();
+			if (ImGui::BeginChild("##scope", ImVec2(0.0f, listHeight), ImGuiChildFlags_None))
+			{
+				for (size_t index = 0; index < popup.Check->Scope.size(); index++)
+				{
+					VisualScriptConditionName const& name = popup.Check->Scope[index];
+					std::string const row = fmt::format("{}   {} \xC2\xB7 {}##{}", name.Form, name.Type, name.Source, index);
+					bool const inserted = ImGui::Selectable(row.c_str());
+					if (index == 0)
+					{
+						RecordItem(VisualScriptPanelItem::BreakpointScopeName);
+					}
+					if (inserted)
+					{
+						popup.Condition += popup.Condition.empty() || popup.Condition.back() == ' ' ? name.Form : " " + name.Form;
+						commit();
+					}
+				}
+			}
+			ImGui::EndChild();
+		}
+		if (conditionDone)
+		{
+			commit();
+		}
+		ImGui::TextUnformatted(Texts::BreakpointHitCount.data());
+		ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+		ImGui::InputInt("##hitCount", &popup.HitCount, 1, 10);
+		popup.HitCount = std::clamp(popup.HitCount, 0, static_cast<int>(VisualScriptBreakpointStore::MaxHitCount));
+		if (ImGui::IsItemDeactivatedAfterEdit())
+		{
+			commit();
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled("%s", Texts::BreakpointHitCountHint.data());
+		ImGui::EndDisabled();
+		if (!entersFlow)
+		{
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextDisabled("%s", Texts::BreakpointNoFlow.data());
+			ImGui::PopTextWrapPos();
+		}
+		if (m_DebugInput->Attached)
+		{
+			ImGui::TextDisabled(
+				"%s",
+				fmt::format("{}{}{}{}", Texts::BreakpointReached, breakpoint->Reached, Texts::BreakpointHits, breakpoint->Hits).c_str());
+		}
+		if (!breakpoint->InactiveReason.empty())
+		{
+			ImGui::TextDisabled("%s", breakpoint->InactiveReason.c_str());
+		}
+		if (!breakpoint->Error.empty() && !(popup.Check && popup.Check->Error))
+		{
+			ImGui::TextDisabled("%s", breakpoint->Error.c_str());
+		}
+		ImGui::Separator();
+		if (ImGui::Button(Texts::BreakpointRemove.data()))
+		{
+			VisualScriptDebugRequest request;
+			request.RequestKind = VisualScriptDebugRequest::Kind::RemoveBreakpoints;
+			request.Nodes = {popup.Node};
+			m_DebugRequests.push_back(std::move(request));
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
 	}
 
 	void VisualScriptEditorPanel::DrawNotice(NoticeKind kind)
@@ -3112,6 +3976,8 @@ namespace Strada
 		draw.LiveChips = m_Library != nullptr && !panKey ? static_cast<VisualScriptLiveChipHost*>(this) : nullptr;
 		draw.Outlined = m_Outlined;
 		draw.Brushes = &m_Brushes;
+		draw.Debug = m_HasDebugView ? &m_DebugView : nullptr;
+		draw.Record = m_DrawRecord;
 		m_Renderer.Draw(m_Model, draw);
 		m_PulsedLinks = m_Model.CommittedLinks().size();
 		if (!m_LiveDrawn)
@@ -4163,6 +5029,7 @@ namespace Strada
 		context.MergeKey = mergeKey;
 		context.CommentColor = m_Settings.GetCommentColor();
 		context.Scene = &m_SceneContext;
+		context.Debug = m_DebugInput;
 		return context;
 	}
 
@@ -4435,6 +5302,7 @@ namespace Strada
 					break;
 				case VisualScriptHitKind::None:
 				case VisualScriptHitKind::Minimap:
+				case VisualScriptHitKind::Breakpoint:
 				case VisualScriptHitKind::Background:
 					break;
 			}
@@ -4443,6 +5311,21 @@ namespace Strada
 			m_Menu.Armed = true;
 			m_Menu.Context = std::move(*value.ContextMenu);
 			m_Menu.Position = m_Model.GetView().ToCanvas(m_Menu.Context.ScreenPosition);
+		}
+		if (value.Breakpoint)
+		{
+			// Not edits: a click toggles the node's breakpoint, a right click opens its popup (spec-slice4 §13.5).
+			if (value.Breakpoint->Action == VisualScriptBreakpointAction::Settings)
+			{
+				OpenBreakpointPopup(value.Breakpoint->Node);
+			}
+			else if (m_DebugInput != nullptr)
+			{
+				VisualScriptDebugRequest request;
+				request.RequestKind = VisualScriptDebugRequest::Kind::ToggleBreakpoints;
+				request.Nodes = {value.Breakpoint->Node};
+				m_DebugRequests.push_back(std::move(request));
+			}
 		}
 		if (value.PinMenu)
 		{
@@ -4489,7 +5372,8 @@ namespace Strada
 		if (!request.Origin)
 		{
 			VisualScriptViewState const view = m_Model.GetView().GetTargetState();
-			request.Origin = VisualScriptOrigin{m_Graph, view.Function, view.Center, view.Zoom, VisualScriptHistoryStep::Jump};
+			request.Origin =
+				VisualScriptOrigin{m_Graph, view.Function, view.Center, view.Zoom, VisualScriptHistoryStep::Jump, m_ScriptName};
 		}
 		m_OtherGraphRequests.push_back(std::move(request));
 	}
@@ -4794,6 +5678,11 @@ namespace Strada
 			std::vector<uint32_t> selection(m_Model.GetSelection().begin(), m_Model.GetSelection().end());
 			m_MenuPick = [this, action = *picked, selection = std::move(selection), position = m_Menu.Position]
 			{
+				if (IsDebugAction(action))
+				{
+					HandleDebugAction(action, selection);
+					return;
+				}
 				ExecuteIntent(VisualScriptActionIntent{action, selection, position});
 			};
 		}

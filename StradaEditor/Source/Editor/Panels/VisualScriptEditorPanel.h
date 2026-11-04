@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/VisualScripting/VisualScriptBrushes.h"
+#include "Editor/VisualScripting/VisualScriptCanvasDebug.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
@@ -11,6 +12,7 @@
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 #include "Editor/VisualScripting/VisualScriptFindBar.h"
+#include "Editor/VisualScripting/VisualScriptFlow.h"
 #include "Editor/VisualScripting/VisualScriptLiteralEditor.h"
 #include "Editor/VisualScripting/VisualScriptPalettePopup.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
@@ -125,6 +127,19 @@ namespace Strada
 		OpenFunction,
 		// The newest toast's find button ([Find Callers], [Find Senders], [Find References]).
 		ToastFind,
+		// The live pill's STOPPED segment, and the debug strip's buttons (spec-slice4 §13.6): Continue, Step Over, Step Into,
+		// Step Out, [Only <entity>], [Show first error], [Show] and [Break], the first of each drawn.
+		Stopped,
+		StripContinue,
+		StripStepOver,
+		StripStepInto,
+		StripStepOut,
+		StripOnlyInstance,
+		StripShowFirstError,
+		StripShow,
+		StripBreak,
+		// The breakpoint popup's first readable name (a click inserts it into the condition).
+		BreakpointScopeName,
 		Count
 	};
 
@@ -193,12 +208,191 @@ namespace Strada
 		// The toolbar's problems pill without counts to show.
 		inline constexpr std::string_view NoProblems = "No problems";
 		inline constexpr std::string_view NotAnalyzed = "Not analyzed";
+		// The debugger's (spec-slice4 §13.5, §13.6): the pill's segment, the Instance combo's first entry, the view menu's items,
+		// and the breakpoint popup's.
+		inline constexpr std::string_view Stopped = "STOPPED";
+		inline constexpr std::string_view AnyInstance = "Any instance";
+		inline constexpr std::string_view WireValuesMenu = "Wire Values";
+		inline constexpr std::string_view WireValuesOff = "Off";
+		inline constexpr std::string_view WireValuesWhileStopped = "While Stopped";
+		inline constexpr std::string_view WireValuesAlways = "Always";
+		inline constexpr std::string_view ShowFlow = "Show Flow While Playing";
+		inline constexpr std::string_view ResetRunCounts = "Reset Run Counts";
+		inline constexpr std::string_view BreakpointEnabled = "Enabled";
+		inline constexpr std::string_view BreakpointCondition = "Condition";
+		inline constexpr std::string_view BreakpointConditionHint = "Stops only when the formula holds, such as Health < 0";
+		inline constexpr std::string_view BreakpointHitCount = "Stop from hit";
+		inline constexpr std::string_view BreakpointHitCountHint = "0 stops at every hit";
+		inline constexpr std::string_view BreakpointNoFlow =
+			"No flow enters this node: it stops where its value is computed, every time, without a condition or a hit count";
+		inline constexpr std::string_view BreakpointNames = "Names the condition can read (click to insert):";
+		inline constexpr std::string_view BreakpointUnchecked = "Checked when the graph runs";
+		inline constexpr std::string_view BreakpointRemove = "Remove";
+		inline constexpr std::string_view BreakpointAdd = "Add Breakpoint";
+		inline constexpr std::string_view BreakpointReached = "Reached ";
+		inline constexpr std::string_view BreakpointHits = " \xC2\xB7 Hits ";
+		// The Instance combo; a chosen entity the scene no longer has is named as it was.
+		inline constexpr std::string_view InstancePrefix = "Instance: ";
+		inline constexpr std::string_view InstanceNone = "None";
+		inline constexpr std::string_view InstanceDestroyed = " (destroyed)";
+		// The debug strip (spec-slice4 §13.6): its lines are made of these parts, with the nodes, entities, graphs and keys between them.
+		inline constexpr std::string_view StripStoppedAt = "Stopped at ";
+		inline constexpr std::string_view StripPassedAt = "Passed breakpoint at ";
+		inline constexpr std::string_view StripPassedValues = ". These are its values as it passed";
+		inline constexpr std::string_view StripPassedUnknown = "it could not stop";
+		inline constexpr std::string_view StripFailedAt = "Failed at ";
+		inline constexpr std::string_view StripDisabled = " (disabled: passes through)";
+		inline constexpr std::string_view StripNode = " (node ";
+		inline constexpr std::string_view StripOn = ") on ";
+		inline constexpr std::string_view StripNoEntity = "no entity";
+		inline constexpr std::string_view StripMissing = "Missing (";
+		inline constexpr std::string_view StripMoreInstance = " more instance stopped here";
+		inline constexpr std::string_view StripMoreInstances = " more instances stopped here";
+		inline constexpr std::string_view StripWaitingIn = "Waiting in ";
+		inline constexpr std::string_view StripReceiverOn = "): its receiver on ";
+		inline constexpr std::string_view StripStoppedIn = " is stopped in ";
+		inline constexpr std::string_view StripStepping = "Stepping: the execution waits in ";
+		inline constexpr std::string_view StripSteppingEnd = ") and stops when it completes";
+		inline constexpr std::string_view StripSteppingPaused = ". The game is paused: frames must run for it to complete";
+		inline constexpr std::string_view StripStepEnded = "The execution ended. Continue (";
+		inline constexpr std::string_view StripStepEndedStep = ") resumes the game; Step (";
+		inline constexpr std::string_view StripStepEndedEnd = ") stops at this graph's next instruction";
+		inline constexpr std::string_view StripHeld = "The stopped execution ended (";
+		inline constexpr std::string_view StripHeldPaused = "). The game stays paused: Continue (";
+		inline constexpr std::string_view StripHeldEnd = ") resumes it";
+		inline constexpr std::string_view StripHeldByEdit = "cancelled by your edit";
+		inline constexpr std::string_view StripHeldByDestroy = "its entity was destroyed";
+		inline constexpr std::string_view StripHeldBySceneLoad = "a script loaded another scene";
+		inline constexpr std::string_view StripHeldOther = "it ended without a resume";
+		inline constexpr std::string_view StripLastEdit = "Your last edit has ";
+		inline constexpr std::string_view StripError = " error";
+		inline constexpr std::string_view StripErrors = " errors";
+		inline constexpr std::string_view StripLastEditEnd = ": this execution continues with the last version that worked";
+		inline constexpr std::string_view StoppedTooltipEnd =
+			". Edits apply at once and reach the stopped execution when they keep its nodes.";
+		// Why a stop stopped, ending its line.
+		inline constexpr std::string_view ReasonBreakpoint = "breakpoint";
+		inline constexpr std::string_view ReasonStep = "step";
+		inline constexpr std::string_view ReasonBreak = "break";
+		inline constexpr std::string_view ReasonRunTo = "run to node";
+		inline constexpr std::string_view ReasonError = "error";
+		inline constexpr std::string_view ReasonPassed = "passed breakpoint";
+		// The strip's buttons.
+		inline constexpr std::string_view StripContinue = "Continue";
+		inline constexpr std::string_view StripStepOver = "Step Over";
+		inline constexpr std::string_view StripStepInto = "Step Into";
+		inline constexpr std::string_view StripStepOut = "Step Out";
+		inline constexpr std::string_view StripOnly = "Only ";
+		inline constexpr std::string_view StripShow = "Show";
+		inline constexpr std::string_view StripBreak = "Break";
+		inline constexpr std::string_view StripShowFirstError = "Show first error";
+		// Why a breakpoint does not stop now (spec-slice4 §2.6), as graph.breakpoints says it.
+		inline constexpr std::string_view InactiveNotInProgram = "not in the running program: the graph has errors";
+		inline constexpr std::string_view InactiveTarget = "the target ";
+		inline constexpr std::string_view InactiveTargetGone = " was destroyed";
+		inline constexpr std::string_view InactiveNoLibraryCaller = "no running graph calls this library";
+		inline constexpr std::string_view InactiveNoRunner = "no entity runs it";
 
-		inline constexpr std::array<std::string_view, 25> All = {
-			Degraded,      ReadOnlyMemory, NewFunction,      EmptyGraph,     EmptyGraphHelp, EmptyLibrary,      LibraryEventGraph,
-			Live,          LastWorking,    Simulating,       SimulatingFull, LiveTooltip,    SimulatingTooltip, CanvasHint,
-			CanvasHintPan, WireHint,       MoveSnappedHint,  MoveFreeHint,   PanHint,        NoBookmarks,       ShortcutSheet,
-			NoProblems,    NotAnalyzed,    "Instance: None", "Not saved"};
+		inline constexpr std::array All = std::to_array<std::string_view>({Degraded,
+		                                                                   ReadOnlyMemory,
+		                                                                   NewFunction,
+		                                                                   EmptyGraph,
+		                                                                   EmptyGraphHelp,
+		                                                                   EmptyLibrary,
+		                                                                   LibraryEventGraph,
+		                                                                   Live,
+		                                                                   LastWorking,
+		                                                                   Simulating,
+		                                                                   SimulatingFull,
+		                                                                   LiveTooltip,
+		                                                                   SimulatingTooltip,
+		                                                                   CanvasHint,
+		                                                                   CanvasHintPan,
+		                                                                   WireHint,
+		                                                                   MoveSnappedHint,
+		                                                                   MoveFreeHint,
+		                                                                   PanHint,
+		                                                                   NoBookmarks,
+		                                                                   ShortcutSheet,
+		                                                                   NoProblems,
+		                                                                   NotAnalyzed,
+		                                                                   "Instance: None",
+		                                                                   "Not saved",
+		                                                                   Stopped,
+		                                                                   AnyInstance,
+		                                                                   WireValuesMenu,
+		                                                                   WireValuesOff,
+		                                                                   WireValuesWhileStopped,
+		                                                                   WireValuesAlways,
+		                                                                   ShowFlow,
+		                                                                   ResetRunCounts,
+		                                                                   BreakpointEnabled,
+		                                                                   BreakpointCondition,
+		                                                                   BreakpointConditionHint,
+		                                                                   BreakpointHitCount,
+		                                                                   BreakpointHitCountHint,
+		                                                                   BreakpointNoFlow,
+		                                                                   BreakpointNames,
+		                                                                   BreakpointUnchecked,
+		                                                                   BreakpointRemove,
+		                                                                   BreakpointAdd,
+		                                                                   BreakpointReached,
+		                                                                   BreakpointHits,
+		                                                                   InstancePrefix,
+		                                                                   InstanceNone,
+		                                                                   InstanceDestroyed,
+		                                                                   StripStoppedAt,
+		                                                                   StripPassedAt,
+		                                                                   StripPassedValues,
+		                                                                   StripPassedUnknown,
+		                                                                   StripFailedAt,
+		                                                                   StripDisabled,
+		                                                                   StripNode,
+		                                                                   StripOn,
+		                                                                   StripNoEntity,
+		                                                                   StripMissing,
+		                                                                   StripMoreInstance,
+		                                                                   StripMoreInstances,
+		                                                                   StripWaitingIn,
+		                                                                   StripReceiverOn,
+		                                                                   StripStoppedIn,
+		                                                                   StripStepping,
+		                                                                   StripSteppingEnd,
+		                                                                   StripSteppingPaused,
+		                                                                   StripStepEnded,
+		                                                                   StripStepEndedStep,
+		                                                                   StripStepEndedEnd,
+		                                                                   StripHeld,
+		                                                                   StripHeldPaused,
+		                                                                   StripHeldEnd,
+		                                                                   StripHeldByEdit,
+		                                                                   StripHeldByDestroy,
+		                                                                   StripHeldBySceneLoad,
+		                                                                   StripHeldOther,
+		                                                                   StripLastEdit,
+		                                                                   StripError,
+		                                                                   StripErrors,
+		                                                                   StripLastEditEnd,
+		                                                                   StoppedTooltipEnd,
+		                                                                   ReasonBreakpoint,
+		                                                                   ReasonStep,
+		                                                                   ReasonBreak,
+		                                                                   ReasonRunTo,
+		                                                                   ReasonError,
+		                                                                   ReasonPassed,
+		                                                                   StripContinue,
+		                                                                   StripStepOver,
+		                                                                   StripStepInto,
+		                                                                   StripStepOut,
+		                                                                   StripOnly,
+		                                                                   StripShow,
+		                                                                   StripBreak,
+		                                                                   StripShowFirstError,
+		                                                                   InactiveNotInProgram,
+		                                                                   InactiveTarget,
+		                                                                   InactiveTargetGone,
+		                                                                   InactiveNoLibraryCaller,
+		                                                                   InactiveNoRunner});
 	}
 
 	// The pane sizes of spec §10.1, in font sizes.
@@ -289,6 +483,53 @@ namespace Strada
 		// result or a reference in another script, a history toast's [Show] for another script's step, Back and Forward to a
 		// cross-graph entry), each with its origin: the window manager opens them, or brings them to the front.
 		std::vector<VisualScriptOpenRequest> TakeOtherGraphRequests() { return std::exchange(m_OtherGraphRequests, {}); }
+		// What the debug session shows in this window this frame: the window manager sets it before each draw, and the window
+		// maps it onto its canvas after its sync. It must stay valid until the next call; null (no debug session: headless
+		// editors, tests) draws nothing of debugging and leaves the node menu's debug items out.
+		void SetDebugInput(VisualScriptWindowDebugInput const* input) { m_DebugInput = input; }
+		VisualScriptWindowDebugInput const* GetDebugInput() const { return m_DebugInput; }
+		// What the window asked of the debug session since the last call (F9, Ctrl+F9, Ctrl+F10, the breakpoint markers, the
+		// node menu, the breakpoint popup and the debug strip's buttons): the window manager hands each to it.
+		std::vector<VisualScriptDebugRequest> TakeDebugRequests() { return std::exchange(m_DebugRequests, {}); }
+		// What the canvas drew of debugging in the last draw; null when it drew none.
+		VisualScriptCanvasDebugView const* GetDebugView() const { return m_HasDebugView ? &m_DebugView : nullptr; }
+		// The breakpoint popup's node while it is open (spec-slice4 §13.5).
+		std::optional<uint32_t> GetBreakpointPopupNode() const;
+		// The breakpoint popup's last check of its condition (what it reads, its error, the names it can read); null while it is
+		// closed or has not checked.
+		VisualScriptConditionCheck const* GetBreakpointPopupCheck() const;
+		// The debug strip's lines as the last draw drew them, the window's own LastWorking line included; empty without a strip.
+		std::vector<VisualScriptDebugStripRow> const& GetStripRows() const { return m_StripRows; }
+		// Opens the breakpoint popup of a node of the shown sub-graph at its next draw (a marker's right click, the node menu).
+		void OpenBreakpointPopup(uint32_t node);
+		// The entity whose executions the graph's breakpoints stop while playing (spec-slice4 §13.6): the chosen context entity,
+		// also while it is gone; else the one entity that runs the graph; else invalid (any instance). The window manager pushes
+		// it to the debug session every frame.
+		UUID GetDebugTarget() const;
+		// Chooses the context entity as the user would in the Instance combo (invalid chooses None): the debug session's target
+		// listener reports automation's targets so.
+		void ChooseContextEntity(UUID entity);
+		// The window has not chosen its entity yet: it opened without one and has not resolved it (the views file's, the only
+		// entity that runs the graph) at a draw.
+		bool IsContextUndecided() const { return !m_ContextResolved && !m_RequestedContext; }
+		// "Instance: Enemy 3", "Instance: Any instance" while playing (None otherwise), "Instance: Enemy 3 (destroyed)" for a chosen
+		// entity gone while playing: what the Instance combo shows, and what the toolbar measures it with.
+		std::string GetInstanceText() const;
+		// An open request this window made for another graph could not be done (spec-slice4 §13.10): "Back could not open Door:
+		// it was deleted" (Forward and Jump alike), and Back and Forward go on to the next entry of their history.
+		void OnOtherGraphOpenFailed(VisualScriptOpenRequest const& request, std::string const& error);
+		// A toast the window manager shows in this window (a stop that ended without a resume).
+		void ShowToast(std::string text) { AddToast(std::move(text)); }
+		// The debugger detached: its opens' mark on the history ends (VisualScriptEditorModel::EndDebuggerNavigation).
+		void EndDebuggerNavigation() { m_Model.EndDebuggerNavigation(); }
+		// The flow model the canvas lights the flow with (View > Reset Run Counts resets its counts).
+		VisualScriptFlowModel const& GetFlowModel() const { return m_Flow; }
+		// What the canvas's draws emit, item by item, while set (tests read what was drawn); null records nothing.
+		void SetDrawRecord(VisualScriptDrawRecord* record) { m_DrawRecord = record; }
+		// The last draw found the window shown (its tab in front).
+		bool IsVisible() const { return m_Visible; }
+		// The live pill's state as the last draw found it.
+		VisualScriptLiveState GetLiveState() const { return m_Live; }
 		// The panes, as the last draw left them (tests and automation find their rows through them).
 		VisualScriptPalettePopup const& GetPalette() const { return m_Palette; }
 		VisualScriptSidebar const& GetSidebar() const { return m_Sidebar; }
@@ -487,6 +728,7 @@ namespace Strada
 		// notices and the card, the toast of an outside change).
 		void UpdateWindowState();
 		void UpdateContextEntity();
+		std::string_view GetInstanceNoneText() const;
 		void UpdateLiveState();
 		void UpdateNotices();
 		void UpdateNormalizationCount();
@@ -503,6 +745,19 @@ namespace Strada
 		void DrawToolbar();
 		void DrawInstanceCombo(float width);
 		void DrawLivePill(float width, std::string const& text);
+		void DrawStoppedSegment(float width);
+		// The debug strip's rows (spec-slice4 §13.6), under the other notices.
+		void DrawDebugStrip();
+		// Maps the window's debug input onto the canvas after the model's sync: breakpoint markers, the instruction, callers,
+		// the computed path, flow and value pills (m_DebugView).
+		void UpdateDebugView();
+		// The debugger's actions of the keys and menus (ToggleBreakpoint, ToggleBreakpointEnabled, BreakpointSettings, RunToNode),
+		// on nodes or the selection.
+		void HandleDebugAction(VisualScriptEditorAction action, std::span<uint32_t const> nodes);
+		VisualScriptWindowBreakpoint const* FindWindowBreakpoint(uint32_t node) const;
+		void DrawBreakpointPopup();
+		// The Instance combo's states, read at 4 Hz while it is open ("stopped", "2 waiting").
+		void UpdateInstanceStates();
 		// A function library's card: adds a function in one step and shows it.
 		void AddLibraryFunction();
 		// A toast of what an own commit did to other scripts, with its find button; one of the same text is shown anew instead.
@@ -652,6 +907,44 @@ namespace Strada
 		std::optional<ProblemsPopup> m_Problems;
 		std::vector<VisualScriptDiagnostic> m_PopupProblems;
 		std::vector<VisualScriptOpenRequest> m_OtherGraphRequests;
+
+		// Debugging (spec-slice4 §13): the window manager's input, what the window asked, its flow model and what it maps onto
+		// the canvas each frame (the view's spans point into these).
+		VisualScriptWindowDebugInput const* m_DebugInput = nullptr;
+		VisualScriptDrawRecord* m_DrawRecord = nullptr;
+		std::vector<VisualScriptDebugRequest> m_DebugRequests;
+		VisualScriptFlowModel m_Flow;
+		VisualScriptFlowMarks m_FlowMarks;
+		uint64_t m_FlowAttachment = 0;
+		uint32_t m_FlowFunction = 0;
+		std::vector<VisualScriptBreakpointMark> m_BreakpointMarks;
+		std::vector<uint32_t> m_BreakpointNodes;
+		std::vector<uint32_t> m_DebugCallers;
+		std::vector<uint32_t> m_DebugComputed;
+		std::vector<VisualScriptValueMark> m_ValueMarks;
+		VisualScriptCanvasDebugView m_DebugView;
+		bool m_HasDebugView = false;
+
+		// The breakpoint popup (spec-slice4 §13.5) and the condition it checked last.
+		struct BreakpointPopup
+		{
+			// Defaulted in the .cpp, as LiveChipData's.
+			BreakpointPopup();
+
+			uint32_t Node = 0;
+			bool OpenPending = true;
+			std::string Condition;
+			std::string Checked;
+			std::optional<VisualScriptConditionCheck> Check;
+			std::string CheckError;
+			int HitCount = 0;
+		};
+		std::optional<BreakpointPopup> m_BreakpointPopup;
+		std::vector<VisualScriptDebugStripRow> m_StripRows;
+		// The Instance combo's states by entity, and when they were read.
+		std::vector<std::pair<UUID, std::string>> m_InstanceStates;
+		double m_InstanceStatesRead = -1.0e30;
+		bool m_InstanceComboOpen = false;
 		// Whether the live widget was drawn this frame (the chip it edits may be gone), and where.
 		bool m_LiveDrawn = false;
 		std::optional<VisualScriptLiveWidgetFrames> m_LiveWidget;
@@ -734,6 +1027,8 @@ namespace Strada
 		// The context entity (spec §10.5): chosen by an open request, the views file or the user, else the only entity that
 		// runs the graph while none is chosen.
 		UUID m_ContextEntity = UUID::Invalid();
+		// The chosen entity's name when it was last in the scene ("Instance: Enemy 3 (destroyed)").
+		std::string m_ContextEntityName;
 		std::optional<UUID> m_RequestedContext;
 		bool m_ContextChosen = false;
 		bool m_ContextResolved = false;
