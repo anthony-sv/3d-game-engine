@@ -196,9 +196,10 @@ paused; undo gives the script back the values it had. The `Fields` object replac
 leaves out stay the script's own. A `VisualScript` component's `Variables` (the values the entity gives the public
 variables of its graph, by name) work the same way with its running graph: a `Variables` patch replaces the whole map,
 so variables it leaves out have no stored value (the graph gives them their own) and, while playing, keep the values the
-graph holds. While the running graph has not taken an edit of its document yet (`graph.set` while paused), the read
-values are under the names of the variables it runs, and a value set for a variable only the edit has (renamed or
-added) reaches it as the graph takes the edit, at its next update. A `Graph` that is a function library is taken as any
+graph holds. While the running graph has not taken an edit of its document yet (a step of the visual-script debugger
+that runs in the old version holds the swap: the receipt is `Pending`), the read values are under the names of the
+variables it runs, and a value set for a variable only the edit has (renamed or added) reaches it as the graph takes the
+edit. A `Graph` that is a function library is taken as any
 graph, but runs on no entity: playing logs `Entity '<name>' runs no visual script: <path> is a function library: graphs
 call its functions; it runs on no entity`.
 
@@ -289,12 +290,12 @@ library's function), `Variable.Get` and `Variable.Set` (a public variable of ano
 | `graph.set` | `graph`*, `document`* (strict), `revision` and `programRevision` (as `graph.get` returns them: each refuses the call with InvalidOperation, `data: { path, <parameter>: <current> }`, writing nothing, unless the stored document still has it; a file that does not load has none, `null`), `refuseBrokenReferrers` (default false: nothing is written when the document breaks nodes of other scripts, InvalidOperation with `data.referrers`; replacing a file that does not load reports no referrers and refuses none, since the nodes naming it were broken already, so `graph.set` repairs a broken graph even with it) | `asset`, `path`, `changed` (false when the document is the stored one, as written: no undo step; an integer written as a float, `1` as `1.0`, is a change), `revision` and `programRevision` (of the document written), `analyzed`, `warnings` (what `graph.set` changed besides the given document), `summary` (`{ brokenReferrers, staleSenders }`), `referrers` (the nodes of other scripts the document breaks, below), `live` (what the running game took: below), `nodes`, `diagnostics`; saves the file as one undo step that does not mark the scene modified, whose undo gives the file its exact bytes back (a version-1 file stays version 1); allowed while playing (below) |
 | `graph.check` | `document`*, `graph` (the graph the document is for: renamed variables are found against its stored document, and nodes whose `Graph` setting names it are checked against the document itself; pass it when the document refers to its own graph) | `valid`, `issues` (`[{ path, message }]`: what `graph.set` would refuse), `warnings` (what it would change), `analyzed`, `nodes`, `diagnostics`; writes nothing |
 | `graph.edit` | `graph`*, `operations`* (0 to 10000 operations `{ "op": "<Kind>", ...fields }`, applied in order to the stored document, each the graph window's own edit: below), `function` (the sub-graph AddNode, AddComment, Paste and Arrange use when they name none: 0, the default, for the event graph, else a function's ID or name), `description` (1 to 128 code points, default "Edit Visual Script"), `revision` and `programRevision` (as for `graph.set`; `programRevision` ignores moves, comments and arranging, so a user working in the same graph does not refuse the call), `dryRun` (default false: everything but the write and the undo step), `refuseNewErrors` (default false: nothing is written when the result has an Error the stored document does not have; InvalidOperation with `data.diagnostics`), `refuseBrokenReferrers` (default false: as for `graph.set`; a dry run refuses as the call would), `analyze` (default true; operations that need pins analyze anyway), `nodes` (`None`, `Changed` (default: the nodes the batch created or whose program it changed, not those it only moved) or `All`), `document` (default false: the resulting document in the content form) | `asset`, `path`, `changed`, `dryRun`, `revision` and `programRevision` (of the document written, or that a dry run would write), `analyses`, `labels`, `results`, `warnings`, `analyzed`, `summary`, `referrers`, `diagnostics`, `nodes`, `hints`, `document`, `live` (below); one undo step "<description> in <script>", allowed while playing; an open window shows it as an outside change |
-| `graph.arrange` | `graph`*, `function` (0, the default: the event graph; else a function's ID or name), `nodes` (IDs of nodes of that sub-graph, at most 10000; absent or empty: every node), `extents` (`Measured` (default): node sizes as a graph window draws them, measured without one, from the analysis with the scripting runtime and from the pins links and literals name without it: heights equal a window's, widths are at most about 6 % wider; `Uniform`: 256 × 128 for every node, the pitches of `graph.set`'s layout, where tall nodes such as a raycast overlap), `revision` (the call fails with InvalidOperation, `data: { path: "revision", revision }` naming the current one, unless the stored document has it), `dryRun` (default false: everything but the write and the undo step) | `asset`, `path`, `changed` (false when the nodes stand arranged already: arranging is idempotent, and no step is recorded), `revision` (16 lowercase hex digits of the 64-bit FNV-1a hash of the file's text as the editor writes the document) and `programRevision` (the same of the document's content without what the scripting runtime never reads: the description, variables' tooltips and ranges, nodes' positions, comments and collapsing, comment boxes; arranging leaves it unchanged), of the document written or that a dry run would write, `arranged` (how many nodes), `bounds` (`{ min: [x, y], max: [x, y] }`: the arranged nodes' extent afterwards as a window draws them, where a comment box framing them goes; null for none); lays the nodes out as the window's Arrange does (comment boxes whose contents are all arranged are fitted around them again) as one undo step "Arrange N Nodes in <script>"; an open window shows it as an outside change. InvalidParams with `data.path` `graph` (no file of its own), `function`, `nodes[<i>]` or `revision` (not 16 lowercase hex digits); InvalidOperation without a project; FileError when the file does not load (`... does not load: <error>; graph.set replaces it`) or is read-only |
+| `graph.arrange` | `graph`*, `function` (0, the default: the event graph; else a function's ID or name), `nodes` (IDs of nodes of that sub-graph, at most 10000; absent or empty: every node), `extents` (`Measured` (default): node sizes as a graph window draws them, measured without one, from the analysis with the scripting runtime and from the pins links and literals name without it: heights equal a window's, widths are at most about 6 % wider; `Uniform`: 256 × 128 for every node, the pitches of `graph.set`'s layout, where tall nodes such as a raycast overlap), `revision` (the call fails with InvalidOperation, `data: { path: "revision", revision }` naming the current one, unless the stored document has it), `dryRun` (default false: everything but the write and the undo step) | `asset`, `path`, `changed` (false when the nodes stand arranged already: arranging is idempotent, and no step is recorded), `revision` (16 lowercase hex digits of the 64-bit FNV-1a hash of the file's text as the editor writes the document) and `programRevision` (the same of the document's content without what the scripting runtime never reads: the description, variables' tooltips and ranges, nodes' positions, comments and collapsing, comment boxes; arranging leaves it unchanged), of the document written or that a dry run would write, `arranged` (how many nodes), `bounds` (`{ min: [x, y], max: [x, y] }`: the arranged nodes' extent afterwards as a window draws them, where a comment box framing them goes; null for none); lays the nodes out as the window's Arrange does (comment boxes whose contents are all arranged nodes and boxes are fitted around them again, nested boxes inside the boxes that hold them: below) as one undo step "Arrange N Nodes in <script>"; an open window shows it as an outside change. InvalidParams with `data.path` `graph` (no file of its own), `function`, `nodes[<i>]` or `revision` (not 16 lowercase hex digits); InvalidOperation without a project; FileError when the file does not load (`... does not load: <error>; graph.set replaces it`) or is read-only |
 | `graph.copy` | `graph`*, `function` (as `graph.arrange`), `elements`* (1 to 10000 IDs of nodes and comment boxes of that sub-graph) | `text`: the graph window's clipboard text of the elements (the links between them, the variables they use and the functions they call), which `graph.edit`'s `Paste` takes into any graph; read-only, works headless and never touches the system clipboard; InvalidParams with `data.path` `function` or `elements[<i>]`; FileError when the file does not load |
 | `graph.interface` | `graph`* | `asset`, `path`, `kind` (`Script` or `Library`), `variables` (`[{ id, name, type, public }]`: a `Variable.Get` or `Variable.Set` whose `Graph` setting names the script reads and writes its public ones on another entity), `events` (`[{ node, name, parameters: [{ name, type }], enabled }]`: its custom events, which a typed `Event.Send` or `Event.Broadcast` sends; `enabled` is `Enabled`, `Disabled` or `DevelopmentOnly`), `functions` (`[{ id, name, pure, inputs: [{ name, type, formerNames? }], outputs, latent? }]`: a library's are what a `Function.Call` whose `Graph` names it calls; `latent` only with the scripting runtime), `uses` (`[{ asset, path, use, nodes }]`: the graphs its nodes name, `use` `Verification` (sends), `Interface` (variables, `RunsGraph`) or `Library` (calls)), `usedBy` (`[{ asset, path, nodes }]`: the other visual scripts whose nodes name it, by path), `skipped` (`[{ asset, path, error }]`: scripts that do not load, so not read for `usedBy`), `analyzed`; read-only, works headless; FileError when its file does not load |
 | `graph.library` | `query` (in titles, keywords, categories and types, ignoring case), `category` (`Flow`, `Math`, `Components/Rigid Body`, ...: with the categories below it), `pinType` (a type ID, `exec` for flow), `direction` (with `pinType`: `In` for nodes with an input taking the type, `Out` for nodes with an output giving it; without it either), `limit` (1 to 500, default 50), `offset` | `nodes` (in library order: by category, then title), `total` (matches before paging), `notes` (`[{ member, category, message }]`: the game's members marked `[VisualNode]` that have no node, and why, filtered by `category` (with the categories below it) and by `query` (a case-insensitive substring of the member or the message), never paged; `[]` when there are none); each node `{ Type, Title, Subtitle?, Category, Description?, Keywords, Kind, Pure, Latent, Game?, Pins, Settings }` (`Game`: true for a node of a `[VisualNode]` member of the game's scripts, in the category `Game/<type>` unless the attribute names another), its pins `{ Name, Direction, Type, Label?, Default?, DefaultsToSelf?, Role?, Constraint?, Group?, ElementOf?, ArrayOf? }` (wildcards have the type `*`; `ArrayOf` names the pin whose type, followed by `[]`, is this pin's; the constraint `Expression` takes bool, the numbers and `Strada.Vector2`, `3` and `4`, what formulas compute with), its settings `{ Name, Kind, ... }` (the kinds `Expression`, `Timeline` and `Graph` among them, below); InvalidParams for an unknown `pinType` and for `direction` without one |
 | `graph.types` | `query` (in IDs and titles, ignoring case), `kind` (`Exec`, `Bool`, `Integer`, `Float`, `String`, `Vector`, `Quaternion`, `Color`, `Matrix`, `Entity`, `Component`, `Asset`, `Enum`, `Struct`, `Class`, `Array` or `Object`), `limit` (1 to 500, default 50), `offset` | `types` (by ID), `total`; each type `{ ID, Title, Kind, FieldType? (the types public variables can have), AssetType?, Literal? (documents can hold its values), Enumerators? and Flags (enums), Makeable?, Breakable?, Fields? (structs), Base? (classes), Element? (arrays), ImplicitTo }` (`ImplicitTo`: the types its values convert to; every type also converts to `string`) |
-| `graph.open` | `graph`*, `function` (0: the event graph, else a function's ID; default the sub-graph shown last), `select` (IDs of nodes and comments of that sub-graph, at most 10000; the first is the primary selection), `frame` (`Keep`, `Selection` (the default with `select`) or `All`), `zoom` (0.1 to 2), `center` (`[x, y]` in canvas units, within ±1e7), `entity` (the context entity), `problems` (opens the problems drawer), `find` (opens the find bar with the text and goes to the first match, which becomes the selection), `timeline` (a `Flow.Timeline` node of that sub-graph: opens the drawer on its tracks and curves), `reveal` (`{ kind* (Variable, Function or CustomEvent), id* }`: selects the row of My Script, which Details then shows; a local reveals in its function, and a custom event's `id` is its `Event.Custom` node's), `show` (a node of that sub-graph to bring into view: the view pans the least distance that shows it with a margin, keeping the zoom unless the node is larger than the view, and keeping the selection), `wireValues` (`Off`, `WhileStopped` or `Always`: what the data wires show while debugging, per user), `showFlow` (bool: light the flow while playing, per user), `outlineNotRunning` (bool: while the game runs the last version that worked, outline the nodes and links it does not run yet, per user), `gamePreview` (bool: while the game plays and the Game View is hidden, show the game in a corner of the graph windows' canvases, per user), `besideGameView` (bool: dock the Game View beside the graph's window at the start of the editor's next frame that follows the window's first draw, so also for a window the same call opens, Game View Beside; `graph.editors`' `gameView.beside` tells the outcome), `detailsRow` (a row of Details to scroll to the top of its pane, by the label it shows: `Formula`, `Settings`, `Length`, a setting's or an input's name; with `select`, a row of the node selected; at most 256 bytes; a row Details does not draw within three draws is dropped) | `asset`, `path`, `function` (the sub-graph shown), `selection` (the `select` given, as applied: empty without one or for a file that does not load; an empty `select` keeps the window's selection), `loaded`, `warnings`, `besideGameView` (`Queued`, when asked); opens the graph's window or brings it to the front, applied at its next draw; InvalidParams with `data.path` `function`, `select[<i>]`, `entity`, `timeline` (another node), `reveal.id` or `show` for what the graph or the scene does not have |
+| `graph.open` | `graph`*, `function` (0: the event graph, else a function's ID; default the sub-graph shown last), `select` (IDs of nodes and comments of that sub-graph, at most 10000; the first is the primary selection), `frame` (`Keep`, `Selection` (the default with `select`) or `All`), `zoom` (0.1 to 2), `center` (`[x, y]` in canvas units, within ±1e7), `entity` (the context entity), `problems` (opens the problems drawer), `find` (opens the find bar with the text and goes to the first match, which becomes the selection), `references` (`{ kind*, graph, id, name }`, as `graph.find`'s: opens the drawer's Find on the references of that variable, function or custom event and lists what `graph.find` lists for it, so a custom event without `graph` is every script's, its events and typed senders included; checked as `graph.find` checks it, and ignored with a warning for a file that does not load), `timeline` (a `Flow.Timeline` node of that sub-graph: opens the drawer on its tracks and curves), `reveal` (`{ kind* (Variable, Function or CustomEvent), id* }`: selects the row of My Script, which Details then shows; a local reveals in its function, and a custom event's `id` is its `Event.Custom` node's), `show` (a node of that sub-graph to bring into view: the view pans the least distance that shows it with a margin, keeping the zoom unless the node is larger than the view, and keeping the selection), `wireValues` (`Off`, `WhileStopped` or `Always`: what the data wires show while debugging, per user), `showFlow` (bool: light the flow while playing, per user), `outlineNotRunning` (bool: while the game runs the last version that worked, outline the nodes and links it does not run yet, per user), `gamePreview` (bool: while the game plays and the Game View is hidden, show the game in a corner of the graph windows' canvases, per user), `besideGameView` (bool: dock the Game View beside the graph's window at the start of the editor's next frame that follows the window's first draw, so also for a window the same call opens, Game View Beside; `graph.editors`' `gameView.beside` tells the outcome), `detailsRow` (a row of Details to scroll to the top of its pane, by the label it shows: `Formula`, `Settings`, `Length`, a setting's or an input's name; with `select`, a row of the node selected; at most 256 bytes; a row Details does not draw within three draws is dropped) | `asset`, `path`, `function` (the sub-graph shown), `selection` (the `select` given, as applied: empty without one or for a file that does not load; an empty `select` keeps the window's selection), `loaded`, `warnings`, `besideGameView` (`Queued`, when asked); opens the graph's window or brings it to the front, applied at its next draw; InvalidParams with `data.path` `function`, `select[<i>]`, `entity`, `timeline` (another node), `reveal.id`, `show` or `references.*` for what the graph or the scene does not have; FileError when another `references.graph` does not load |
 | `graph.close` | `graph` (default: every window) | `closed` (the assets whose windows closed, in tab order); a graph whose window is not open is no error, nor is a deleted graph named by its handle (an `asset://` path no graph has is AssetNotFound) |
 | `graph.editors` | – | `editors`: the open graph windows in tab order, each `{ asset, path, function, focused, visible, readOnly, loaded, analyzed, errors, warnings, view: { center, zoom, level }, selection: { nodes, comments }, contextEntity, palette: { open, query }, notices, card, toasts, live, save, drawer, find: { open, text, index, count }, timeline?, bookmarks, minimap, panes: { sidebar, details, stacked }, shortcuts, canGoBack, canGoForward, debug: { state (None, Stopped, Waiting, Passed, Error, Stepping or StepEnded), stop, frame, node, function }, breakpoints (the graph's count), flow: { drawn, held }, liveReceipt (the window's last receipt since it opened or Play started, in `graph.live`'s form, or null), runtimeProblems: { errors, warnings } (the runtime problems at its document's nodes), notRunning (the nodes the game does not run as stored while it runs the last version that worked), gamePreview: { shown, rect } (the game in a corner of its canvas; rect `[x, y, width, height]` in screen pixels, or null) }` (below); `settings: { wireValues, showFlow, outlineNotRunning, gamePreview: { shown, corner (TopLeft, TopRight, BottomLeft or BottomRight), width (of the canvas's width) } }`; `gameView: { open, visible (its tab in front this frame), rect (where it was last drawn, or null), beside: { graph, outcome (Queued, Applied, AlreadyVisible or Failed), reason (Failed's, else null) } or null (the last Game View Beside) }`; `debugPanel: { open, visible, tab }` (null without the Debugger panel) |
 | `graph.palette` | `graph`* (an open window), `query`, `at` (`[x, y]` in canvas units; default the view's centre), `from` (`{ node*, pin*, direction* (In or Out) }`: context mode), `limit` (1 to 200, default 50), `open` (default true; false closes it) | `open`, `query`, `context`, `entries` (`[{ title, subtitle, category, type, settings, connects?, converts? }]` in rank order), `total`; asynchronous: answers once the palette was drawn (below) |
@@ -448,7 +449,7 @@ name a set succeed with an empty set.
 | `PromoteToVariable` | `node`*, `pin`*, `direction`*, `name`, `as` (the new Get or Set) | Makes a pin's value a variable, keeping the program's value | `{ variable, node }` |
 | `PromoteToFunctionInput` | `node`*, `pin`*, `name` | Makes a pin of a function's node an input of the function | `{}` |
 | `Retarget` | `node`*, `settings`* (`Graph`, `Function`, `Variable`, `Name`, `Parameters`; null removes one) | Gives an `Event.Send`, `Event.Broadcast`, `Function.Call`, `Variable.Get`, `Variable.Set` or `RunsGraph` new settings that change what it names. `Variable` and `Function` may be names in the named graph, and `Graph` may be `asset://`. A typed Send or Broadcast without `Parameters` takes its event's; `{ "Graph": null }` makes a Send untyped, keeping its parameters. Links to pins the new target keeps stay | `{ removedLinks }` |
-| `Arrange` | `function`, `scope` (`Graph` (default), `Created` or `Nodes`), `nodes` (with `Nodes` only), `extents` (`Measured` (default) or `Uniform`) | Lays out every node of the sub-graph (`Graph`), the nodes the batch added without a position (`Created`: beside the nodes they continue, in columns ordered against the links from those nodes) or the given ones | `{ arranged }` |
+| `Arrange` | `function`, `scope` (`Graph` (default), `Created` or `Nodes`), `nodes` (with `Nodes` only), `extents` (`Measured` (default) or `Uniform`) | Lays out every node of the sub-graph (`Graph`), the nodes the batch added without a position (`Created`: beside the nodes they continue, in columns ordered against the links from those nodes, then down until they and the frame a comment box framing them would get stand clear of every node and comment box, so framing them with AddComment {elements} overlaps no earlier box) or the given ones; comment boxes move with their nodes as `graph.arrange` moves them | `{ arranged }` |
 | `Align` | `elements`* (2 or more), `alignment`* (`Left`, `Right`, `Top`, `Bottom`, `Centers` or `Middles`), `extents` | Aligns them | `{}` |
 | `Distribute` | `elements`* (3 or more), `axis`* (`Horizontal` or `Vertical`), `extents` | Spaces them evenly | `{}` |
 | `Straighten` | `nodes`* (2 or more) | Straightens their flow, as Q does | `{ moved }` |
@@ -461,6 +462,16 @@ nodes, connect them, arrange, then frame or comment them. Arrange with `Graph` s
 of a graph just made from the Events template is the agent's, so its events join the first column); in a user's graph,
 `Created` places the new nodes and moves nothing else. Nodes left without a position are placed by the commit, below the
 graph's placed nodes.
+
+**Arranging and comment boxes.** A comment box that holds only arranged nodes moves with them when it holds one, stands in
+such a box, or when every node of the graph is arranged. What it holds moves as one block: its nodes and the boxes inside
+it are laid out on their own, as arranging them alone lays them out, and the box, fitted around them as a new comment box
+framing them would be, stands in the layout as one node linked as its nodes are. Boxes inside it are blocks of that
+layout in turn, so boxes stay nested as they were. A box that holds nothing keeps its size and goes after the nodes.
+Boxes that overlap without one holding the other, and hold a node or a box in common, move as one block. So of the boxes
+that move, those that did not overlap before arranging do not overlap after it, a box that held another still holds it,
+and each frames the nodes it framed; one that overlapped no other box (except those it held or stood in) holds no other
+node. The arranged nodes' top-left corner stays where it was, so arranging twice changes nothing.
 
 **References.** An integer names a node, comment box, variable, local or function by its ID in the document **as the
 call found it**: an ID an earlier operation deleted is an error (`node 20 was deleted by operations[2]`), even when a new
@@ -491,6 +502,14 @@ without bridging flow (only reroutes bridge), and the measured layouts (Arrange,
 AddComment's framing), which measure nodes from the pins their links and literals name, as `graph.arrange` does; every
 other operation works. When the runtime fails to analyze, an operation that needs pins fails with Unavailable ("see the
 log"), and `refuseNewErrors` with it.
+
+**Canvases.** graph.edit lays a sub-graph's headless canvas out only when what the operation reads may have changed:
+operations that read pin rows (Connect, Relink, Splice, deletions that bridge, splits) reuse a canvas across link, value
+and layout changes; those that read node sizes or pin anchors (Arrange, Align, Distribute, Straighten, Promote to
+Variable, comment framing, Paste's corner) reuse it across moves. Without the runtime every change lays it out again,
+since the degraded canvas infers pins from links and literals. The headless canvas resolves the other graphs nodes name,
+as a window does, so a node that names another graph is sized by its title from that graph also without the runtime. A
+thousand Connects on a 2,000-node graph take about 114 ms in Release.
 
 **The result.** `changed` is false when the batch left the document as it found it: nothing is written and no step is
 recorded, even when the file holds nodes without a position or types a commit would store canonically (an empty batch
@@ -610,18 +629,31 @@ commits do:
 While playing, the step of `graph.set` or `graph.edit` goes into the play history; `play.stop` moves the steps that edited asset files
 (`graph.set`, `graph.edit`, `graph.arrange`, `material.set`) into the edited scene's history as its newest steps, so they stay undoable and the scene
 keeps the unsaved state it had (steps undone while playing are not kept). The file keeps the change either way. Running
-instances of the graph take the edit at their next update: variables keep their values (matched by ID, then by name and
-type; others start at their `Value`, else their type's default, not at a value the component stored before they
-existed), values set for them since (`component.set`) reach them then, and nodes waiting (a `Flow.Delay`, ...) keep
-waiting while they still exist and are not disabled by the edit (disabling a node counts as removing it: its state does
-not carry over, and an execution waiting in it is cancelled with a Warning). An edit that changes no program (positions,
-comments, collapsed states, the description, tooltips, ranges) reaches nothing and compiles nothing.
+instances of the graph take the edit in the edit's own call, before the command answers, also while the game is paused
+and into an execution stopped at a breakpoint: variables keep their values (matched by ID, then by name and type; others
+start at their `Value`, else their type's default, not at a value the component stored before they existed), values set
+for them with `component.set` reach them as they take it, nodes keep their state (DoOnce, DoN, FlipFlop, Gate, a
+Timeline's time, clamped into a shorter `Length`) while their type stays and they stay enabled, and nodes waiting (a
+`Flow.Delay`, ...) keep waiting while they still exist and are not disabled by the edit (disabling a node counts as
+removing it: its state does not carry over, and an execution waiting in it is cancelled with a Warning). An edit that
+changes no program (positions, comments, collapsed states, the description, tooltips, ranges) reaches nothing and
+compiles nothing.
 
-While playing, `graph.edit` and `graph.set` change running graphs at once (stopped executions included) and their result
-gains `live` (`{ playState, paused, edits }`): `edits` are the receipts of this call, final when it answers, in the form
-`graph.live` lists them (below), one per graph the edit compiled again: the graph edited, or for a function library each
-graph that calls it (with the library as `cause`). It is empty for a dry run, a result that is the stored document, and
-while not playing (`playState` `edit` or `simulate`).
+**Live edits.** While playing, `graph.edit` and `graph.set` change running graphs at once (stopped executions included)
+and their result gains `live` (`{ playState, paused, edits }`): `edits` are the receipts of this call, final when it
+answers, in the form `graph.live` lists them (below), one per graph the edit compiled again: the graph edited, or for a
+function library each graph that calls it (with the library as `cause`). It is empty for a dry run, a result that is the
+stored document, and while not playing (`playState` `edit` or `simulate`). A receipt's `outcome` is `Applied` (the
+running instances took the new version: `instances` of them, with what each kept, reset and cancelled), `Pending` (a step
+of the debugger runs in the old version and holds the swap; a receipt with `deferred` true follows when it ends),
+`KeptLastWorking` (the edited version does not compile, and the game keeps running the last version that worked) or
+`NotRunning` (it does not compile and no version of the graph runs). Whether a graph keeps a last working version is one
+rule: a receipt is `KeptLastWorking` exactly when the log's error line for the send ends with `; the previous version
+keeps running`, and the graph windows' LIVE pill turns amber ("last working version") by the same rule. `graph.live`
+says what each graph runs: `running` is `Current` only when the game runs exactly what is stored, compiled with the
+graphs it refers to as they are now (its `runningProgramRevision` then equals `programRevision`), and lists the nodes and
+links the game does not run yet in `notRunning`. It also keeps the receipts and the runtime problems of the play
+session, each with a serial: pass the last answer's `serial` as `after` to read only what is new.
 
 **Analysis.** `nodes` lists every node of the document (those of the functions' graphs, then those of the event graph):
 `{ ID, Function (0 for the event graph), Type (as stored), Resolved (Exact, Redirect, Unique or Unknown), CanonicalType?
@@ -767,21 +799,38 @@ handle string of a visual script (`asset.list` gives handles; `graph.edit` takes
 
 ### graph debugging
 
-The visual-script debugger stops executions of graphs at breakpoints while the game plays, steps them with every value
-visible and continues them, between frames: a stopped execution lets the rest of its frame run, then play pauses at the
-frame's end, and no frame runs (`play.step`, `play.advance` and `graph.trace` are refused) until it continues. When the last
-stopped execution ends without being continued (an edit cancelled it, its entity was destroyed, another scene loaded, also
-by what another stop's resume ran or in the frame that stopped it), the scene stays paused with the pause held, and
-`graph.continue` resumes play (`Resumed`). These commands
-work headless and record no undo step: breakpoints and targets are per-user view state (a headless editor keeps them in
-memory), and resuming runs the game. Stops have integer IDs (`graph.debug` lists them); `graph` parameters are handles or
-`asset://` paths of visual scripts. Values are `{ name, type }` with one of `value` (the literal; `path` too for an asset),
-`entity` (with `entityName` and `valid`; components and script instances have `text` too) and `text` (what has no literal,
-and non-finite numbers), plus `length` and `truncated` for a cut string or array; array elements, `before` and a summary's
-`first`, `last`, `min` and `max` are the literal itself when it is one and whole, else such an object without `name` and
-`type`. Errors: InvalidOperation while not playing or simulating, with nothing to continue or step, and for `graph.trace`
-while an execution is stopped; Unavailable without the scripting runtime, or without the debugger (test runs attach none);
-InvalidParams with `data.path`; AssetNotFound; EntityNotFound; Cancelled for an abandoned `graph.wait`.
+**Debugging graphs.** The visual-script debugger stops executions of graphs at breakpoints while the game plays, steps
+them with every value visible and continues them, between frames. It attaches when play starts (Play, never Simulate or
+`test.run`) and detaches when it stops; the player and exported games never attach one, so breakpoints never reach them.
+Its `state` is `Detached` (not playing), `Running`, `Stopped` (an execution is stopped), `Stepping` (a step waits in a
+latent node) or `StepEnded` (a step ended its execution); `pauseHeld` says the debugger paused the scene and has not
+resumed it. A stopped execution lets the rest of its frame run (other entities, C# scripts, physics); then play pauses at
+the frame's end, `play.advance` and `graph.trace` stop after that frame, and no frame runs (`play.step`, `play.advance` and
+`graph.trace` are refused with InvalidOperation, naming `graph.continue` or `graph.step`) until it continues. An execution
+that `Event.Send` or `Event.Broadcast` started stops with its sender, which waits inside its Send; one that engine code
+started inside another execution (`Entity.Instantiate` running an `Event.Create`, a C# script's `SendEvent` from a member
+a graph called), and one whose instance was destroyed, cannot stop: it runs on and passes the breakpoint, recorded as a
+read-only stop with `reason` `Passed` that keeps a snapshot of its values. `graph.continue`, `graph.step` and
+`play.pause {paused: false}` resume between frames and never run a frame; a step that waits in a
+latent node completes only when frames run: with the scene paused by the agent (`play.start {paused: true}`) it answers
+`needsFrames`, and `play.advance` runs them, stopping early when the step stops. `graph.wait` waits in real time for a
+stop and says at once when no frame can run. While an execution is stopped, `play.pause {paused: false}` continues it
+and then the game, `play.step` and `play.advance` are refused and `play.stop` ends everything. When the last stopped
+execution ends without being continued (an edit cancelled it, its entity was destroyed, another scene loaded, also by
+what another stop's resume ran or in the frame that stopped it), the scene stays paused with the pause held, and
+`graph.continue` resumes play (`Resumed`). Edits reach stopped executions at once: one that keeps the stopped node
+migrates the execution (`migrated` in `graph.debug`, `edited` and `before` on the literals it changed in `graph.values`);
+one that removes the node, retypes or disables it, or changes the signature of its function, cancels it with a Warning.
+These commands work headless and record no undo step: breakpoints and targets are per-user view state (a headless editor
+keeps them in memory), and resuming runs the game. Stops have integer IDs (`graph.debug` lists them); `graph` parameters
+are handles or `asset://` paths of visual scripts. Values are `{ name, type }` with one of `value` (the literal; `path`
+too for an asset), `entity` (with `entityName` and `valid`; components and script instances have `text` too) and `text`
+(what has no literal, and non-finite numbers), plus `length` and `truncated` for a cut string (256 bytes) or array (32
+elements, nested two levels); array elements, `before` and a summary's `first`, `last`, `min` and `max` are the literal
+itself when it is one and whole, else such an object without `name` and `type`. Errors: InvalidOperation while not
+playing or simulating, with nothing to continue or step, and for `graph.trace` while an execution is stopped; Unavailable
+without the scripting runtime, or without the debugger (test runs attach none); InvalidParams with `data.path`;
+AssetNotFound; EntityNotFound; Cancelled for an abandoned `graph.wait`.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
@@ -863,4 +912,59 @@ they are.
 ← {"jsonrpc":"2.0","id":2,"result":{"id":"3218792578666045717"}}
 → {"jsonrpc":"2.0","id":3,"method":"component.set","params":{"entity":"3218792578666045717","component":"Transform","fields":{"Translation":[0,1,0]}}}
 ← {"jsonrpc":"2.0","id":3,"result":{"component":"Transform","fields":{"Translation":[0,1,0],"Rotation":[0,0,0,1],"Scale":[1,1,1]}}}
+```
+
+### Debugging a graph
+
+The documented session of `Tests/Data/VisualScripting/Agents/Debugging.json`, which the editor's tests run headless and
+through `strada mcp`: after `authenticate` and `project.create`, it makes the Spinner of `graph.edit`'s example with a
+mistake (`% 36` for `% 360`: it shakes instead of turning), stops it at a conditional breakpoint while the game is paused,
+reads the bug in the stopped frame, fixes it while the execution is stopped, traces the fix and undoes and redoes it
+after Stop. The steps run back to back; each answer shows only the members the session checks (the results hold more):
+
+```
+→ {"jsonrpc":"2.0","id":3,"method":"graph.create","params":{"path":"Scripts/Spinner.sgraph"}}
+← {"jsonrpc":"2.0","id":3,"result":{"path":"Scripts/Spinner.sgraph"}}
+→ {"jsonrpc":"2.0","id":4,"method":"graph.edit","params":{"graph":"asset://Scripts/Spinner.sgraph","description":"Spin at Speed degrees per second","operations":[{"op":"AddVariable","name":"Speed","type":"float","value":90.0,"public":true,"tooltip":"Degrees per second"},{"op":"AddVariable","name":"Angle","type":"float"},{"op":"AddNode","type":"Variable.Get","settings":{"Variable":"Speed"},"as":"$speed"},{"op":"AddNode","type":"Variable.Get","settings":{"Variable":"Angle"},"as":"$angle"},{"op":"AddNode","type":"Expression","settings":{"Formula":"(angle + speed * dt) % 36"},"as":"$next"},{"op":"AddNode","type":"Variable.Set","settings":{"Variable":"Angle"},"as":"$store"},{"op":"AddNode","type":"Expression","settings":{"Formula":"vec3(0, a, 0)"},"as":"$euler"},{"op":"AddNode","type":"Set:Strada.TransformComponent.EulerAngles","as":"$turn"},{"op":"Connect","from":["$angle","Value"],"to":["$next","angle"]},{"op":"Connect","from":["$speed","Value"],"to":["$next","speed"]},{"op":"Connect","from":[2,"DeltaTime"],"to":["$next","dt"]},{"op":"Connect","from":["$next","Result"],"to":["$store","Value"]},{"op":"Connect","from":["$store","Value"],"to":["$euler","a"]},{"op":"Connect","from":["$euler","Result"],"to":["$turn","Value"]},{"op":"Connect","from":[2,"Then"],"to":["$store","Execute"]},{"op":"Connect","from":["$store","Then"],"to":["$turn","Execute"]},{"op":"Arrange","scope":"Graph"}]}}
+← {"jsonrpc":"2.0","id":4,"result":{"summary":{"errors":0},"labels":{"$next":7,"$store":8,"$turn":10}}}
+→ {"jsonrpc":"2.0","id":5,"method":"entity.create","params":{"name":"Spinner","components":{"VisualScript":{"Graph":"asset://Scripts/Spinner.sgraph"}}}}
+← {"jsonrpc":"2.0","id":5,"result":{}}
+→ {"jsonrpc":"2.0","id":6,"method":"play.start","params":{"paused":true}}
+← {"jsonrpc":"2.0","id":6,"result":{"state":"play","paused":true}}
+→ {"jsonrpc":"2.0","id":7,"method":"graph.breakpoints","params":{"graph":"asset://Scripts/Spinner.sgraph","add":[{"node":8,"condition":"Angle > 33.5"}]}}
+← {"jsonrpc":"2.0","id":7,"result":{"breakpoints":[{"node":8,"title":"Set Angle","condition":"Angle > 33.5","checked":true}]}}
+→ {"jsonrpc":"2.0","id":8,"method":"play.advance","params":{"frames":60}}
+← {"jsonrpc":"2.0","id":8,"result":{"framesRun":24,"stopped":true,"stop":{"reason":"Breakpoint","frames":[{"node":8,"pin":"Execute"}]}}}
+→ {"jsonrpc":"2.0","id":9,"method":"graph.debug","params":{}}
+← {"jsonrpc":"2.0","id":9,"result":{"state":"Stopped","stops":[{"id":1,"frames":[{"node":8,"title":"Set Angle","functionName":"Event Graph"}],"start":{"kind":"Event","node":2}}]}}
+→ {"jsonrpc":"2.0","id":10,"method":"graph.values","params":{"graph":"asset://Scripts/Spinner.sgraph","stop":1,"nodes":[7]}}
+← {"jsonrpc":"2.0","id":10,"result":{"source":"Stop","variables":[{"name":"Speed","value":90},{"name":"Angle","value":34.5}],"nodes":[{"node":7,"outputs":[{"name":"Result","value":34.5,"currency":"Earlier"}]}]}}
+→ {"jsonrpc":"2.0","id":11,"method":"graph.step","params":{"kind":"Over"}}
+← {"jsonrpc":"2.0","id":11,"result":{"outcome":"Stopped","stop":{"id":2,"frames":[{"node":10}]}}}
+→ {"jsonrpc":"2.0","id":12,"method":"graph.values","params":{"graph":"asset://Scripts/Spinner.sgraph","stop":2,"nodes":[7]}}
+← {"jsonrpc":"2.0","id":12,"result":{"nodes":[{"node":7,"outputs":[{"name":"Result","value":0,"currency":"Current"}]}],"variables":[{"name":"Angle","value":0}]}}
+→ {"jsonrpc":"2.0","id":13,"method":"graph.edit","params":{"graph":"asset://Scripts/Spinner.sgraph","operations":[{"op":"SetFormula","node":7,"formula":"(angle + speed * dt) % 360"}]}}
+← {"jsonrpc":"2.0","id":13,"result":{"changed":true,"live":{"edits":[{"outcome":"Applied","instances":1,"instanceNotes":[{"stopsKept":1}]}]}}}
+→ {"jsonrpc":"2.0","id":14,"method":"graph.debug","params":{}}
+← {"jsonrpc":"2.0","id":14,"result":{"state":"Stopped","stops":[{"id":2,"migrated":true}]}}
+→ {"jsonrpc":"2.0","id":15,"method":"graph.breakpoints","params":{"graph":"asset://Scripts/Spinner.sgraph","clear":true}}
+← {"jsonrpc":"2.0","id":15,"result":{"breakpoints":[]}}
+→ {"jsonrpc":"2.0","id":16,"method":"graph.continue","params":{}}
+← {"jsonrpc":"2.0","id":16,"result":{"outcome":"Ended","paused":true}}
+→ {"jsonrpc":"2.0","id":17,"method":"play.advance","params":{"frames":30}}
+← {"jsonrpc":"2.0","id":17,"result":{"framesRun":30,"stopped":false}}
+→ {"jsonrpc":"2.0","id":18,"method":"graph.trace","params":{"frames":10,"graphs":["asset://Scripts/Spinner.sgraph"],"nodes":[8]}}
+← {"jsonrpc":"2.0","id":18,"result":{"framesRun":10,"summary":{"graphs":[{"steps":[{"node":8,"exit":"Then","count":10}],"values":[{"node":8,"pin":"Value","direction":"In","count":10,"min":46.5,"max":60}]}]}}}
+→ {"jsonrpc":"2.0","id":19,"method":"graph.values","params":{"graph":"asset://Scripts/Spinner.sgraph"}}
+← {"jsonrpc":"2.0","id":19,"result":{"variables":[{"name":"Angle","value":60}]}}
+→ {"jsonrpc":"2.0","id":20,"method":"play.stop","params":{}}
+← {"jsonrpc":"2.0","id":20,"result":{"state":"edit"}}
+→ {"jsonrpc":"2.0","id":21,"method":"editor.undo","params":{}}
+← {"jsonrpc":"2.0","id":21,"result":{}}
+→ {"jsonrpc":"2.0","id":22,"method":"graph.get","params":{"graph":"asset://Scripts/Spinner.sgraph"}}
+← {"jsonrpc":"2.0","id":22,"result":{"document":{"Graph":{"Nodes":[{"ID":7,"Settings":{"Formula":"(angle + speed * dt) % 36"}}]}}}}
+→ {"jsonrpc":"2.0","id":23,"method":"editor.redo","params":{}}
+← {"jsonrpc":"2.0","id":23,"result":{}}
+→ {"jsonrpc":"2.0","id":24,"method":"graph.get","params":{"graph":"asset://Scripts/Spinner.sgraph"}}
+← {"jsonrpc":"2.0","id":24,"result":{"document":{"Graph":{"Nodes":[{"ID":7,"Settings":{"Formula":"(angle + speed * dt) % 360"}}]}}}}
 ```

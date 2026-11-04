@@ -140,6 +140,9 @@ namespace Strada
 		std::string Find;
 		// Opens the drawer in Timeline mode on this Flow.Timeline node of the sub-graph shown.
 		std::optional<uint32_t> Timeline;
+		// Opens the drawer's Find on the references of a variable, function or custom event, as graph.find lists them: a custom
+		// event naming no graph is every graph's, events and typed senders alike.
+		std::optional<VisualScriptReference> References;
 		// A row of My Script to select (shown in Details): a variable or local, a function, or a custom event (its ID the
 		// Event.Custom node); its Graph and Name are not read.
 		std::optional<VisualScriptReference> Reveal;

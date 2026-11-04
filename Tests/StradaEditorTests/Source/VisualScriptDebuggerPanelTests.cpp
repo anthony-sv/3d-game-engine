@@ -137,6 +137,8 @@ namespace
 		bool ShowModal = false;
 		// The Debugger panel docked with a stand-in of the Console, as the editor's default layout docks it.
 		bool DockWithConsole = false;
+		// The Debugger panel's size when it floats.
+		ImVec2 DebuggerSize{900.0f, 900.0f};
 		bool DockBuilt = false;
 		ImGuiID Dockspace = 0;
 		VisualScriptDrawRecord Record;
@@ -323,7 +325,7 @@ namespace
 			if (!DockWithConsole)
 			{
 				ImGui::SetNextWindowPos(ImVec2(1000.0f, 20.0f), ImGuiCond_Always);
-				ImGui::SetNextWindowSize(ImVec2(900.0f, 900.0f), ImGuiCond_Always);
+				ImGui::SetNextWindowSize(DebuggerSize, ImGuiCond_Always);
 			}
 			Debugger.OnImGuiRender(std::nullopt);
 			if (ShowModal)
@@ -1105,6 +1107,48 @@ TEST_CASE("VisualScriptDebug: Step Into, Step Out and the computed path from a r
 	fixture.Session.ClearBreakpoints(std::nullopt);
 }
 
+TEST_CASE("VisualScriptDebug: stepped into a function's Entry, the Values tab lists its parameters once, not again as the Entry's outputs")
+{
+	DebuggerFixture fixture;
+	VisualScriptDocument combat = MakeLibraryDocument();
+	combat.Functions.front().Inputs.push_back({"Amount", "int", {}});
+	AssetHandle const library = fixture.CreateGraph("Scripts/Combat.sgraph", combat);
+	VisualScriptDocument calling = MakeCallerDocument(library);
+	calling.Graph.Nodes[1].Inputs = Json::object({{"Amount", 5}});
+	AssetHandle const caller = fixture.CreateGraph("Scripts/Caller.sgraph", calling);
+	fixture.CreateRunner("Player", caller);
+	REQUIRE(fixture.Session.SetBreakpoint(caller, MakeBreakpoint(11)).IsOk());
+	fixture.Start();
+	fixture.FramesUntilStopped();
+	fixture.CheckDrawingChangesNothing({library, caller});
+	fixture.Gui.Press(ImGuiKey_F11, fixture.Drawer());
+	fixture.Frames(3);
+	REQUIRE(fixture.Window(library).GetState().DebugNode == std::optional<uint32_t>(31));
+	fixture.Debugger.SetTab(VisualScriptDebuggerTab::Values);
+	fixture.Frames(2);
+
+	std::vector<VisualScriptDebuggerPanel::ValueRow> const& rows = fixture.Debugger.GetValueRows();
+	auto const named = [&rows](std::string_view name, bool section)
+	{
+		return std::count_if(rows.begin(), rows.end(),
+		                     [name, section](VisualScriptDebuggerPanel::ValueRow const& row)
+		                     {
+								 return row.Name == name && row.Cell.has_value() != section;
+							 });
+	};
+	CHECK(named("Parameters", true) == 1);
+	CHECK(named("Outputs", true) == 0);
+	CHECK(named("Amount", false) == 1);
+	auto const amount = std::find_if(rows.begin(), rows.end(),
+	                                 [](VisualScriptDebuggerPanel::ValueRow const& row)
+	                                 {
+										 return row.Name == "Amount" && row.Cell;
+									 });
+	REQUIRE(amount != rows.end());
+	CHECK(amount->Cell->Text == "5");
+	fixture.Session.ClearBreakpoints(std::nullopt);
+}
+
 TEST_CASE("VisualScriptDebug: a step waiting in a Delay says so, then that the execution ended, and the keys reach the editor again")
 {
 	DebuggerFixture fixture;
@@ -1578,6 +1622,43 @@ TEST_CASE("VisualScriptDebug: the Values tab formats colours, vectors, enums and
 	CHECK(fixture.Debugger.GetEvaluateResult().empty());
 	CHECK_FALSE(fixture.Debugger.GetEvaluateCell().has_value());
 	CHECK(fixture.Debugger.GetEvaluateText() == "Count + 41");
+	fixture.Session.ClearBreakpoints(std::nullopt);
+}
+
+TEST_CASE("VisualScriptDebug: in a short Debugger panel the Values tab keeps most of its height for the values, the names yielding")
+{
+	DebuggerFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph(
+		"Scripts/Values.sgraph", MakeVariableDocument({MakeVariable(3, "Tint", "Strada.Color", Json::array({1.0, 0.0, 0.0, 1.0})),
+	                                                   MakeVariable(4, "Offset", "Strada.Vector3", Json::array({1.0, 2.5, -3.0})),
+	                                                   MakeVariable(5, "Lives", "int", 3), MakeVariable(6, "Speed", "float", 9.0),
+	                                                   MakeVariable(7, "Level", "int", 1), MakeVariable(8, "Combo", "int", 0)}));
+	fixture.CreateRunner("Player", graph);
+	REQUIRE(fixture.Session.SetBreakpoint(graph, MakeBreakpoint(11)).IsOk());
+	fixture.Start();
+	fixture.FramesUntilStopped();
+	fixture.CheckDrawingChangesNothing({graph});
+	fixture.Debugger.SetTab(VisualScriptDebuggerTab::Values);
+	// A panel docked low in the editor, 300 pixels tall at the top of the screen (the fixture floats it at y = 20).
+	fixture.DebuggerSize = ImVec2(900.0f, 300.0f);
+	fixture.Frames(2);
+	REQUIRE(fixture.Debugger.GetEvaluateScope().size() > 6);
+	std::optional<VisualScriptDebuggerPanel::ItemRect> const table = fixture.Debugger.GetItemRect(VisualScriptDebuggerItem::ValuesTable);
+	std::optional<VisualScriptDebuggerPanel::ItemRect> const name = fixture.Debugger.GetItemRect(VisualScriptDebuggerItem::EvaluateName);
+	REQUIRE(table.has_value());
+	REQUIRE(name.has_value());
+	float const tableHeight = table->Max.y - table->Min.y;
+	// The values are the tab's larger part: the names below Evaluate's row, from the first to the panel's bottom, take less.
+	float const namesHeight = 20.0f + fixture.DebuggerSize.y - name->Min.y;
+	CHECK(name->Min.y > table->Max.y);
+	CHECK(tableHeight > namesHeight);
+
+	// A tall panel lists six names, as before.
+	fixture.DebuggerSize = ImVec2(900.0f, 900.0f);
+	fixture.Frames(2);
+	std::optional<VisualScriptDebuggerPanel::ItemRect> const tall = fixture.Debugger.GetItemRect(VisualScriptDebuggerItem::ValuesTable);
+	REQUIRE(tall.has_value());
+	CHECK(tall->Max.y - tall->Min.y > tableHeight);
 	fixture.Session.ClearBreakpoints(std::nullopt);
 }
 

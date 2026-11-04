@@ -464,9 +464,9 @@ last drawn wins) passes them to its nearest `UIButton` (itself or an ancestor be
 button pass on its clicks and other images keep them from what they cover. An interactable button there is hovered; a
 left button press on it presses it, and a release on the same button clicks it: `WasUIButtonClicked` holds for that
 update, and `OnClick(button)` runs on the scripts of the button and of its ancestors, nearest first, before the frame's
-`OnUpdate`. Presses and releases are Input's one-frame flags or the button's changes since the last update, so they
-also count when updates are further apart (a paused scene stepped, automation setting the button before it advances
-the scene). A release that `Input::ReleaseKeysAndMouseButtons` made (the window lost the focus, the editor took the
+`OnUpdate`. Presses and releases are Input's flags, which last until the next game frame in the editor's play mode and
+one application frame elsewhere, or the button's changes since the last update, which cover a scene updated after
+Input's frame ended. A release that `Input::ReleaseKeysAndMouseButtons` made (the window lost the focus, the editor took the
 game's input back: `Input::WasMouseButtonReleasedByReset`) cancels the press instead of clicking, as interfaces cancel
 a mouse capture. `IsPointerOverUI` tells whether an element that takes clicks is under the cursor (scripts'
 `Input.IsPointerOverUI`), so games can ignore world clicks that land on the UI. Buttons clicked in code
@@ -1115,12 +1115,14 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   a damaged document or one that is not UTF-8 text, gives a status and diagnostics, which a fuzz test of damaged
   documents checks.
 - **Live edit and assembly reload**: a working program loaded for a handle replaces the program of its instances as soon
-  as no dispatch or execution of the old one runs.
+  as no dispatch or execution of the old one runs. The editor sends every edit at once (below), so the instances take it
+  in the edit's own call, also while the game is paused and into executions stopped at a breakpoint; only a step of the
+  debugger that runs in the old version holds the swap until it ends (a `Pending` receipt).
   - Variables carry over by ID, then by name and type; the others start at their `Value`, else the type default. A
     value the component stores for a variable the edit adds is not given to it: the variable keeps its `Value` until
-    that value is edited or a new instance starts (play starts again, or the component's graph changes). An edit made
-    before the instance takes the live edit (the graph saved while paused, its variable edited before the next frame)
-    reaches the variable as the instance takes it.
+    that value is edited or a new instance starts (play starts again, or the component's graph changes). A value set
+    for a variable before the instance takes the edit (while a step holds the swap) reaches the variable as the instance
+    takes it.
   - Node states and stored outputs carry over by node ID while the node's type is unchanged and it stays enabled or
     disabled: disabling a node counts as removing it (a running `Tween` or `Interval` stops without `Completed`), a node
     enabled again starts fresh, and switching between `Enabled` and `DevelopmentOnly` changes nothing. Splitting or
@@ -1133,12 +1135,165 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   instances, reduces every program to its name and document and drops the invokers, so nothing holds the collectible
   assembly. Programs compile again from their documents when their handle is next used, logging their errors once if
   they no longer compile (`<graph> was compiled again for the changed game assembly: ...`).
-- **Debug hook**: `AttachDebugger(IVisualScriptDebugger)` lets a debugger choose which executions to trace, by entity:
-  `IsTarget` is asked when an execution starts or a fiber resumes. The debugger then hears of every instruction those
-  executions run (`OnStep`: the node and the exec output the flow left through) and of every value their pure nodes
-  compute (`OnValue`), each with the `graph` the node belongs to (0 for the instance's own document, else a library's
-  handle: node IDs repeat across documents). Without a debugger an instruction costs one null check. Breakpoints and stepping (slice 4) will
-  suspend executions with the same fiber machinery.
+- **Debugging** (the VM, `Strada.VisualScripting.Debugging`): the interpreter is compiled twice, `Run<Untraced>` and
+  `Run<Traced>`, and the stop-point check exists only in the traced form, so a runtime without a debugger, and every run a
+  debugger does not trace, costs nothing per instruction. The hook (`IVisualScriptDebugger`, `AttachDebugger`; one per
+  runtime) decides each run's `DebugMode` when an execution starts, a fiber resumes or a stopped execution resumes:
+  `Break` when the instance passes its graph's target and its program has an enabled breakpoint of the node's type (in
+  its own document or a library compiled into it), or a Break, a Run to Node or a step is armed for it; `Record` when a
+  window watches one of the program's compiled graphs; `Values` while a `graph.trace` recording is armed and the instance
+  passes its filter. Traced runs report every instruction (`OnStep`: the node and the exec output the flow left by) and
+  every pure evaluation (`OnEvaluated`), and stamp every node they evaluate with the execution's serial.
+  - **Stop points** are Enter positions (an instruction about to run, at the exec input the flow enters) and Continue
+    positions (a Sequence's next output, a loop's next iteration, a `While`'s condition evaluated again). Breakpoints are
+    checked through per-graph tables: a node's own, a pure node's at every consumer whose plan evaluates it (through pure
+    calls and a Timeline's input plans too), and a pure node feeding a `While` at each Continue. A breakpoint whose
+    compiled node has another type under its ID is inactive, so an edit can never make it stop at a node that took the
+    ID. A stopped execution returns `Stopped` with its position unchanged and becomes a **debug fiber** of its instance,
+    with its remaining budget and its `Time.DeltaTime` saved; the rest of the dispatch and the frame run, the pending
+    pass never advances it, and Continue resumes it at that position with that budget and delta, passing only its own
+    first stop point. At most 64 executions are stopped at once (`MaxStops`); beyond, hits are counted as passed.
+  - **Chains**: a receiver that `Event.Send` or `Event.Broadcast` runs stops together with its sender, which waits inside
+    its Send (`PendingDelivery`). Continuing a chain resumes its root, which finishes the delivery first; a Broadcast goes
+    on at its next receiver, and `Count` includes the receiver that stopped. Members die apart: a dead receiver counts as
+    delivered, a dead sender leaves its receiver to continue as a root of its own with the chain's saved budget, and a
+    dead middle member splits the stop in two.
+  - **The snapshot rule**: an execution that cannot be suspended, because it runs nested in engine code that another
+    execution called (an `Event.Create` that `Entity.Instantiate` ran, a `SendEvent` from a member a graph called) or
+    because its instance is being destroyed, passes its breakpoints: it records a read-only stop (`Passed`) with a
+    snapshot of its frames and the frames below it, and runs on.
+  - **Steps** follow a chain by its root's serial and compare its logical depth (the call depth summed over the
+    senders): Into stops at any depth, Over at the depth it stepped from or above, Out above it. A step whose root
+    suspends in a latent node waits (`Waiting`) until the fiber resumes; ticks, timeline outputs and executions nested
+    through native code are never followed. Break stops the next stop point of a targeted execution that can stop, of
+    any graph or of one graph or library; Run to Node is a one-shot breakpoint removed at the next stop of any kind.
+    Every change of the step request changes the stop revision the engine polls.
+  - **Conditions** are formulas compiled per program over the node's scope (the enclosing loops' outputs innermost
+    first, the locals, the outputs of the one start that begins every chain to the node, the variables; names matched by
+    identifier form, so "Max Health" is `Max_Health`), with comparisons of strings and enums with string literals and of
+    entities with `None` lowered into bool inputs, so the Expression checker and compiler are unchanged. Conditions on a
+    library's nodes read no variables. A condition that does not compile never stops and reports its error (`line L,
+    column C: ...`); one that fails at run time stops with "the condition failed: ...". Breakpoints count the positions
+    reached and the hits where the condition held; a hit count n stops from the n-th hit on. With break on errors an
+    aborting error of a targeted execution makes one read-only error stop at the failing node.
+  - **Live edit of stopped executions**: an edit migrates debug fibers by node ID as it migrates fibers (`FindMissing`,
+    `MapEntry`, `Move`, which also remaps the start node); a waiting sender migrates only while its event, parameter
+    types, `Graph` and `IncludeSelf` are unchanged. Otherwise the execution is cancelled with the fiber's Warning, and its
+    chain loses the member. A migrated stop is marked `Migrated`, and its frame shows the literals the edit changed as
+    `Edited` with `Before`; values changed elsewhere meanwhile are compared the way the edit carried them (the carry plan,
+    below).
+  - **Values**: a stop's snapshot copies each chain member's frames (slots and stamps), the instance's variables, its
+    flow entries, its position and its start (for a resumed fiber, `Origin`: where the execution that suspended
+    started). A value is `Current` when its stamp is the stopped execution's serial, `Earlier` when another execution
+    stamped it, `NotComputed` when its frame has stamps but the node none, and `Unknown` when no traced run stamped its
+    frame. `Describe` answers one frame of a stop: the node's inputs (at an Enter position, its sources' values, converted
+    as the node will load them) and outputs, the start's outputs, the parameters, the locals, every variable, the active
+    loops, the other nodes the execution computed there, values changed elsewhere (`Changed`), and formulas evaluated
+    read-only in the frame's scope; at most 4,096 values, the computed ones cut first. `Values` reads a live instance
+    between frames: its event frame, or the last call frame of a watched function (copied as the call returns), its
+    variables and its timelines; nothing is paid while nobody asks. One encoding serves every reply: literals through
+    the literal codec, strings cut at 256 bytes, arrays as their first 32 elements nested two levels, entities by ID with
+    `Valid`, components and script instances as text with their entity, non-finite numbers and math values as `Text`;
+    the managed side never formats values for display.
+  - **Flow and recording**: Record runs count each exit (and runs without an exit) of watched graphs in per-graph
+    counters; a take walks only what fired and writes a binary block (`VSDT`, version 1) merged by document and function,
+    at most 8,192 entries per graph and 65,536 per take (`Dropped` counts the rest). `graph.trace`'s recording keeps the
+    steps and values of Values runs, filtered by instance, documents and nodes: a capped list, or a summary per node and
+    exit (counts, first and last frame) and per pin (count, first, last, minimum and maximum).
+  - **Entry points**: `VisualScriptDebug(request)` takes one JSON command (`Attach`, `Detach`, `Configure`, `State`,
+    `Resume` with `Continue`, `StepInto`, `StepOver` or `StepOut`, `Break`, `RunTo`, `CheckCondition`, `Describe`,
+    `Values`, `Instances`, `Record`) and answers JSON in PascalCase; every refusal is `{ Error, Code }`, and member names
+    that are not valid Unicode are refused, never thrown. `VisualScriptTakeTrace` gives the trace block while the editor's
+    debugger is attached (NotFound otherwise). Detaching leaves nothing of the debugger in the runtime.
+  - **No nested frame loop**: a stop never runs an event loop inside the stopped execution. The execution becomes a
+    debug fiber, the frame finishes, and the editor's frames go on drawing and answering automation while the scene is
+    paused; resumes run between frames. So nothing re-enters the editor, ImGui or the scene while an execution is
+    stopped, and the budget and depth of a stopped execution continue across its stop.
+- **Debugging, the engine side**: `VisualScriptDebugger` (Script module, main thread) is the native facade of
+  `VisualScriptDebug`. Its readers in `ScriptEngineInternal` (and the shared strict reader `ReplyReader.h`) refuse a reply
+  not of its form, naming the JSON path of the first bad member, and read the binary trace block with every count and
+  size checked against the bytes received; they keep literals as sent (decoding them is the editor's formatter's job).
+  Only the editor attaches it; the player, exported games and `SceneRunner` runs never do. Every editor edit applies to
+  the running game in the call that made it (`Scene::ApplyVisualScriptEdits` in `EditorContext::FinishEdit`), also while
+  paused and into stopped executions, running no graph code; entities whose graph could not run start at the next
+  update. Play mode has one observer (`PlayModeObserver`), the debug session: it is told of each start, frame, resume and
+  stop, can hold play after a frame, refuses frames while an execution is stopped, and is asked to refresh before play
+  mode steps or advances and before the play commands report, so commands in one batch see each other's effects.
+  `PlayMode::SetPaused(false)` is the single guarded unpause, and `Resume()` continues stopped executions first. A scene
+  that a resume or a frame of a paused game loads stays paused as the scene it replaced was, and the frame steps still
+  queued carry over to it.
+- **The debug session** (`VisualScriptDebugSession`, editor shell, main thread, no ImGui, headless too) attaches the
+  runtime's debugger for Play (never Simulate or test runs) before the scene starts and detaches before it stops. After
+  each scene frame it advances the flow clock (the sum of the frames' unscaled time steps; it holds while no frame runs),
+  takes the trace into per-watch accumulations that each window drains, and reads the state when the stop revision
+  changed. A new stop of any kind pauses the scene at the frame's end (the held pause, when the debugger paused it) and
+  cancels queued frame steps; both listeners run after that. Continue, steps, Break and Run to Node run graph code between
+  frames, never a frame; they then flush destroyed entities and follow scene loads and quits, and resume play only when
+  the debugger paused it. Every mutator pushes the configuration (breakpoints, targets, watches) in its own call, so a
+  breakpoint set by one command holds for the next; the UI's resumes are queued for the next editor frame's `BeginFrame`,
+  which runs before automation, and `EndFrame` runs after play mode's update. The session tells every stop that ends
+  without a resume (an edit cancelled it, its entity was destroyed, a scene loaded by what another stop's resume ran, a
+  stop made and ended within one frame, told by the stop revision changing in a frame that began with no stop and no
+  step), keeping play paused with the pause held. Breakpoints are view state: kept per user and project in the views file
+  (never in documents or the undo history); a node deleted, or another type under its ID, loses its breakpoint, and undo
+  does not bring it back. A headless editor keeps them in memory only, and a project switch loads the other project's.
+  `GraphDebugCommands` (§12) is automation's face of the session: every command first brings the session up to date
+  (`Refresh`), breakpoints are checked in full before anything changes, conditions are checked against the running
+  program when one is loaded and stored unchecked otherwise, and `graph.trace` runs frames as `play.advance` does,
+  recording a summary per node and pin by default.
+- **The live channel**: the runtime keeps an always-on, bounded live log: the last 64 receipts and up to 512 distinct
+  runtime problems (`Dropped` counts the occurrences of problems that found it full); serials grow with every change, a
+  drop included. Problems coalesce by graph, document, node, entity and severity: a recurrence updates the count, the
+  latest message and the calls (the innermost 8) and takes a new serial; aborts are recorded once each, warnings once per
+  node and instance. A live edit makes one **carry plan** per pair of programs: the variable sources (by ID with the same
+  type, then by name and type) and the node-state, Timeline and stored-output slot copies of the event graph, and on
+  demand those of function frames; every instance swapped between the same two programs uses it, and the debugger's
+  `Changed` compare reads an edit through it. Every load gives a **receipt**: Swapped; Pending, then Swapped with
+  `Deferred`, while a running step holds the swap; or Kept for a document that does not compile. A receipt reports the
+  variables kept, matched (renamed), reset (TypeChanged or New), added and removed, the states kept and reset (Removed,
+  Changed, Disabled), and per instance the waits and stops kept, each cancelled one with the VM's reason, and each
+  Timeline's time with the time it was clamped from. `VisualScriptTakeLiveEvents(after)` gives the events after a serial
+  (NotFound when none), and `VisualScriptClearLiveEvents` empties the log; serials go on after a clear. Every Timeline
+  reader finding carries `Setting` `Timeline`.
+  - On the engine side, `VisualScriptEngine::GetLiveLog` gives an immutable revision of the log: the last 64 receipts
+    and this play session's runtime problems, ordered by serial. Taking new events (one runtime call, NotFound when none)
+    makes a new revision that shares the unchanged entries, so a reader can hold a revision while later edits make newer
+    ones. Every send of a program (an edit, an undo or redo, a library a graph calls, a game-assembly change) takes its
+    receipt at once, completed with the time, the graph whose change caused it (none for the graph's own document) and
+    the outcome: Applied and Pending pass through, and the VM's Kept becomes `KeptLastWorking` exactly when
+    `HasWorkingProgram`, else `NotRunning`, with the log's own error text. `ClearLiveLog`, called by play mode when Play
+    starts and before the scene starts, empties the engine's and the VM's logs, so a session's problems include those its
+    `OnCreate` raised and stay after Stop as the last run. `RunsStoredProgram(graph)` is the one answer to "the game
+    runs what is stored": the graph has a working program, the last send compiled, the working program is the stored
+    document's program and every reference it was compiled with still holds what was sent. `DescribeLibraryUsers`
+    lists the graphs compiled with a library, each with whether its working program was compiled with a version of the
+    library (`Compiled`), whether that is the current one (`RunsCurrent`) and how many entities run it (`Instances`);
+    a library runs, at the version they hold, through the graphs that are compiled with it and run by an entity.
+    `GetWorkingSince` tells when a graph's working program last changed.
+  - `graph.live` is the automation face of the log: per graph the game loaded, what runs (`running`: `Current` by
+    `RunsStoredProgram`, `LastWorking` when an earlier version that worked runs, `None`), both program revisions, what of
+    the stored document does not run (`FindVisualScriptNotRunning`) and the running instances, a library's users, and the
+    receipts and the play session's runtime problems, filtered by graph and by serial. `graph.edit` and `graph.set` take
+    the log's serial just before writing and list the receipts after it once the write returns; since the edit reaches
+    the running scene inside the command, these receipts are final.
+- **Dependents keep their analyses**: the runtime keeps the analysis of every loaded document that calls function
+  libraries, with what it read of other graphs and, per library, the interface it read: the library's name, kind, error
+  count and first error, and per function its ID, name, purity, latency and parameters with their types and former
+  names. When a library changes, its dependents are loaded again with unchanged documents. A dependent whose own text,
+  name and node library are unchanged, whose other reads are unchanged, and whose libraries give analyses with the same
+  interfaces keeps its analysis with the libraries' new analyses linked, and is only compiled. Compiled calls find their
+  callees by graph and function ID, so they reach the new library code. Unload and a game-assembly change drop the kept
+  analyses. The engine keeps each graph's last sent content text, so a dependent of an edited library is not written
+  again: 20 dependents of 200 nodes take a 31.6 ms update in Release (85 ms without the reuse), which a test bounds.
+- **Analyses in C++**: `VisualScriptEngine::Analyze` returns a shared, immutable analysis (`Ref<VisualScriptAnalysis
+  const>`) and keeps the last eight, one per graph. It reads each new analysis with the one it kept of that graph:
+  `VisualScriptAnalysis::Parse(text, previous)` copies every node and diagnostic whose bytes are unchanged and parses only
+  the rest. The runtime writes each record deterministically, so equal bytes are equal records. A text not in exactly the
+  runtime's form, or any part that does not read, is read whole, so the result and its errors are always those of reading
+  the text alone. `JsonScanner` (Serialization) finds the parts without building values. `FindNode` is a binary search of
+  `NodeIndex` for parsed analyses and a scan for analyses built by hand. Automation reports the runtime's JSON by parsing
+  `VisualScriptAnalysis::Text`. `VisualScriptEngine::GetLastAnalysisTimings` gives an analysis' phases (Text, References,
+  Runtime, Parse, Read) and what it reused; `TakeLoadTimings` gives the summed phases of program loads.
 - **C# API**: `VisualScriptComponent`'s methods forward to `Host.VisualScripts` with the component's entity. `SendEvent`
   runs the graph's `Event.Custom` of the name at once (nested in, and sharing the budget of, a graph that runs, else
   outermost); its arguments must match the event's parameters in number and convert to their types as links convert
@@ -1200,8 +1355,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   `DevelopmentOnly` nodes disabled. A record keeps the references its document and its working program were compiled
   with and is sent again when a library it links changes its program, a graph it reads changes its kind or variables,
   or any entry, a typed send's target included, appears, disappears or is renamed (renames are checked when the registry
-  changed): so editing a library recompiles every graph that calls it at the next update while playing (85 ms in Release
-  for 20 dependents of 200 nodes, a visible hitch that a test bounds), a moved or renamed graph recompiles its dependents,
+  changed): so editing a library recompiles every graph that calls it in the edit's own call while playing (20
+  dependents of 200 nodes in 31.6 ms in Release, as they keep their analyses: below), a moved or renamed graph recompiles
+  its dependents,
   whose messages then name the file that exists, and another graph's events or layout never do. A library runs on no
   entity: `EnsureLoaded` and `CreateInstance` refuse one (`<name> is a function library: graphs call its functions; it
   runs on no entity`, which the scene logs as the reason an entity runs no visual script), and `HasWorkingProgram` of a
@@ -1488,7 +1644,13 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   steps), and the selection keeps what still exists. Play builds changed scripts first. Scene and
   project files cannot change while playing (the UI stops playing first). Scripts' `Application.Quit` stops playing
   and `SceneManager.LoadScene` replaces the copy. A blue (Play) or green (Simulate) frame marks the scene view while
-  playing; stopping brings the scene view back to the front.
+  playing; stopping brings the scene view back to the front. While a visual script is stopped at a breakpoint (§10.6),
+  the toolbar's Pause continues it, Step is refused with the reason, and the toolbar gains Continue, Step Over, Step
+  Into, Step Out and Break (§11.1). Input's frame is the application's, which ends it after every frame, except while
+  play mode plays: play mode then owns it (`Input::SetFrameOwned`) and ends it after each game frame that `Update` or
+  `Advance` ran. So input given to a paused game, or while an execution is stopped, reaches the next game frame once;
+  graph code that a resume of a stopped execution runs between frames reads the input of that moment, so it sees that
+  input as well. Play's start begins a clean input frame with held keys staying down; Stop releases them and begins one.
 - Game input (`GameInputRouter`, the ImGui layer's input filter, like Unity's game view): Play gives the game the input
   and brings the game view to the front, and while playing a click on the view gives it back to the game (the click
   reaches the game too). While the game has the input, every key and mouse event goes to the game alone (Escape, Enter,
@@ -1722,8 +1884,15 @@ inspector's primary entity as the context entity; without an asset directory the
   breaks this or other scripts' nodes. A value being dragged or typed in Details or My Script survives an outside change
   (an agent's `graph.edit`, another window's commit) of other elements: `VisualScriptWidgetCommits` rebases it over the
   change (`RebaseVisualScriptEdit`, a pure function of the base, the pending value and the current document), and drops
-  it with "Your edit of Duration was replaced by a change made elsewhere" when the change touched the same element; a
-  canvas gesture an outside change ends shows "Your move was interrupted by a change made elsewhere".
+  it with "Your edit of Duration was replaced by a change made elsewhere" when the change touched the same element. A
+  canvas gesture survives changes made elsewhere (an agent's `graph.edit`, another window, undo) that touch none of its
+  elements: the model records what the change did to the shown sub-graph (nodes and comments changed or deleted, links
+  removed, the sub-graph gone) and, once the canvas shows the new document, continues the gesture on it; a move, a
+  comment resize, a wire and a relink go on while their elements, the wire's source and the relink's picked links and
+  their ends are untouched, marquees and cuts always go on, and a press not yet a drag does nothing more when its
+  element changed. A gesture whose elements were touched ends without an edit, and the window says why ("Your move was
+  interrupted: Branch (node 12) was changed elsewhere"). Intents name elements by ID and are resolved on the current
+  document, so the history holds the outside step, then the user's.
   Paste leaves out an input event the event graph already handles (the same key or button, compared by enumerator).
   Panes stand beside the canvas when both fit with a canvas of 40 font sizes; otherwise, with both on, they stack in one
   column on My Script's side (My Script above Details at 45 % of the column, a splitter between them, the column as wide
@@ -1791,24 +1960,117 @@ inspector's primary entity as the context entity; without an asset directory the
   position beside the placed nodes they continue: the anchors stand as a fixed column, each arranged group's first
   column is ordered against the anchors' rows by the links from the anchors into that group, and the block starts 64
   right of the anchors' right edge, at their top, on the 16 grid. The Arrange button and `graph.arrange` lay out alike
-  (`ArrangeNodes` with the window's or the headless canvas's extents). Each operation that reads pins after a change
-  syncs its sub-graph's canvas again, a layout of the sub-graph (about 2 ms per Connect on 2,000 nodes in Release), which
-  a test bounds.
-- **Live edit**: graph windows stay editable while playing. Every commit reaches the running game at the scene's next
-  update (layout-only edits send nothing); a dragged value reaches it within 0.1 s. A LIVE pill in the play colour says
-  so; it turns amber, "LIVE · last working version", while the edited version has errors and the game runs the last
-  one that worked (`VisualScriptEngine::HasWorkingProgram`; for a library, while a graph that calls it runs the version
-  that worked, its tooltip says so), and reads SIMULATING while simulating (graphs do not run then). The Instance combo picks the context entity among those whose component runs the graph (the open request's,
-  else the one kept in the views file, else the only one): entity drops write values to it, and My Script shows its
-  live values. A deleted context entity is kept but not used until an undo brings it back. Steps made while playing stay
-  undoable after Stop.
-- **Per-user views** (`VisualScriptViewSettings`, `<user data>/Editor/VisualScriptViews.json`, version 1; never in
+  (`ArrangeNodes` with the window's or the headless canvas's extents). A sub-graph's headless canvas is laid out again
+  only when what an operation reads may have changed: operations that read pin rows (Connect, Relink, Splice, deletions
+  that bridge, splits) reuse a canvas across link, value and layout changes, and those that read node sizes or anchors
+  (Arrange, Align, Distribute, Straighten, Promote to Variable, comment framing, Paste's corner) reuse it across moves;
+  without the runtime every change lays it out again, since the degraded canvas infers pins from links and literals. The
+  headless canvas resolves the other graphs nodes name, as a window does. A thousand Connects on a 2,000-node graph take
+  114 ms in Release with one copy of the document and one canvas layout, which a test asserts. Arranging keeps comment
+  boxes whole: a box whose contents are all arranged moves with them as one block (its nodes and the boxes inside it
+  laid out on their own, the box fitted around them standing in the layout as one node linked as its nodes are), so
+  boxes stay nested as they were, boxes that did not overlap do not overlap afterwards, each frames the nodes it framed,
+  and the `Created` scope keeps new blocks a frame's reach clear of every existing box.
+- **Live edit**: graph windows stay editable while playing. Every commit reaches the running game in the commit's own
+  call (layout-only edits send nothing); a dragged value reaches it within 0.1 s. A LIVE pill in the play colour says
+  so; it turns amber, "LIVE · last working version", while the game runs a version that is not the stored one
+  (`HasWorkingProgram` and not `RunsStoredProgram`; for a library, while a graph that calls it runs the version that
+  worked, its tooltip says so), and reads SIMULATING while simulating (graphs do not run then). Every frame the window
+  manager takes one revision of the live log and hands it to each window; a window that commits takes the newer revision
+  its commit made and toasts its receipt in the same frame. A window toasts a receipt of its own graph only when the
+  graph's document changed since its last look (its commits, undo, redo, outside changes it adopts), or when the receipt
+  ends that edit's Pending one in the same toast; loads that are no edit say nothing (an entity started mid-play with a
+  graph no entity ran, a scene loaded, a graph first used in a play session). One toast per undo step: a drag's commits
+  say the latest in place, and an undo's toast says what it did to the game. A library's window sums the receipts of
+  the graphs that call it, and those graphs' windows stay silent. The pill opens the Live popover: since when the graph
+  runs, what of it the game does not run (with the outline switch and Show first error), the last receipt in full (an
+  instance's line shows that entity), the runtime problems, and for a library what each caller runs. The canvas
+  outlines in dashed amber the nodes and wires the game does not run yet (`FindVisualScriptNotRunning`); a red or amber
+  disc on a node's corner shows its runtime problems with their count, and for four seconds after an edit discs show
+  where it cancelled a wait or reset a node's state. The problems pill counts runtime problems after a lightning bolt,
+  and the drawer lists them in a Runtime section (Go to, Caller, Select Entity), kept after Stop as the last run until
+  Play or Clear; a node's first runtime error of a play session toasts, with Show and Break on errors. Simulate is not a
+  play session: the last run's runtime problems stay "Runtime (last run)" and do not toast again. The Instance combo picks
+  the context entity among those whose component runs the graph (the open request's, else the one kept in the views
+  file, else the only one; "Any instance" first while playing): entity drops write values to it, and My Script shows its
+  values. A deleted context entity is kept but not used until an undo brings it back ("Instance: Enemy 3 (destroyed)").
+  My Script shows every variable's live value in a cell between its name and its type: colours as swatches (with ImGui's
+  colour tooltip), entities by name (a click selects), arrays and strings on one line cut before the type column
+  (`RenderTextEllipsis`), a flash when a value changes, and the stopped frame's values while an execution is stopped. The
+  Timeline drawer draws a playhead at the instance's time while playing. Steps made while playing stay undoable after
+  Stop.
+- **Debugging in the editor**: a graph window draws debugging from one pure view per frame. The window manager tells
+  each window what the debug session shows of its document (`VisualScriptWindowDebugInput`: breakpoints with their
+  states, the selected stop frame, callers, the computed path, wire values, the flow take, the debug strip), and the
+  window maps it onto its canvas after its own sync, because link indices change with that sync; the renderer only draws
+  the result. The visible windows' sub-graphs are the session's watches, each window pushes its Instance combo's entity
+  as its graph's target, and automation's targets come back through the target listener; a window that has not chosen
+  its entity adopts the target the session already has, so `graph.target` holds across the window a stop opens.
+  - **The canvas**: flow lies behind the nodes (the `Flow` layer) and markers, the current instruction, callers, run
+    counts, value pills and live marks above them (the `Debug` layer). A value pill sits at its wire's midpoint, else
+    slides along the wire to the nearest place that covers no node and no pill or run count drawn before it, else to one
+    that covers no pill. Flow decays on the flow clock: it halves every
+    0.25 s of game frames and holds while no frame runs, so a paused game, a stop or an agent's frame-stepped session
+    shows exactly the frames that ran. Run counts are exact and count each run once: a call or a latent node counts its
+    entry and return together, while a sequence's outputs and a loop's iterations each count. At Far and Overview,
+    comment boxes glow with their brightest node. Breakpoint markers sit on a node's top-left corner; a ghost marker
+    shows where a click adds one, and dragging from it moves the node; a real marker leaves the mouse to a pin whose
+    anchor lies inside its circle. One formatter (`FormatVisualScriptDebugValue`) shows every value, on the canvas, in
+    My Script, the Debugger panel and the receipts: colours as swatches, entities by name, arrays as "[n] a, b, c",
+    strings quoted with `\n` shown dimmed. With Wire Values set to Always, only windows that show their canvas read live
+    values, for the sources of at most 200 wires in view. A comment title needs the measured room of its first three
+    glyphs and the ellipsis, so a drawn title never shows fewer.
+  - **Stops**: a new stop opens its innermost frame's document on its node (a library's own window for a library
+    frame), once per new stop; these opens push at most one Back entry per stop session, so Back after any number of
+    steps returns to the view from before debugging. The debug strip under the toolbar says why the execution stopped,
+    passed, failed, waits or stepped, with its buttons (Only <entity> when one frame stopped many instances); a window
+    whose graph holds a member waiting inside a Send or Broadcast shows Waiting ("Waiting in <Send> (node n): its
+    receiver on <entity> is stopped in <graph>") with Show, and a window that only holds a call that led to the stop
+    draws the call outlined, with no strip. The LIVE pill gains a STOPPED segment while the window holds the selected
+    stop's frame.
+  - **Keys and toolbar**: F9, Ctrl+F9 and Ctrl+F10 act on the selection. F5, F10, F11, Ctrl+F11 and Shift+F11 are the
+    editor's global chords while an execution is stopped (`VisualScriptDebugControls`), listed in
+    `VisualScriptEditorChords` and shown in the shortcut sheet as `Global` rows, and never act behind a modal. Pause while
+    stopped is Continue then the unpause, queued for the next `BeginFrame` (windows never run graph code while drawing),
+    Step is refused with its reason, and the toolbar gains Continue, Step Over, Step Into, Step Out and Break. While the
+    debugger holds the pause the editor keeps the keyboard (`UpdateInput` takes the game's input back every frame), so F5
+    and F10 always work, and the game gets its input back when play resumes where the Game View shows without a tab
+    change; a graph window sharing the Game View's dock node stays in front.
+  - **The Debugger panel** ("Visual Script Debugger", docked with the Console): the call stack (with a stop picker),
+    the frame's values as the canvas shows them (loops' positions, the computed nodes by title) with a one-shot Evaluate
+    whose result belongs to the stop and frame it was evaluated in and which lists the names a formula can read, every
+    breakpoint of the project (Disable All, Remove All, Break on errors), and the running instances. `graph.debug-panel`
+    picks its tab, stop and frame.
+- **The game beside the graph**: while the game plays and the Game View is not visible (another tab in front, or
+  closed), each graph window shows the game in a corner of its canvas, by default bottom-right, at 0.3 of the canvas's
+  width (at least 12 F, at most 0.6 of the canvas), framed in the play colour (the border drawn over the image). Its
+  header says "Game · Click to play" while the game does not have the input; the game takes input only through the
+  Game View. Expand, or a click on the image, brings the Game View forward with the input; Beside docks the Game View
+  beside the window; Close hides the preview, and the window's view menu shows it again (a per-user setting). Dragging
+  the header moves the preview to another corner, and dragging its inner edge resizes it. The editor renders the game
+  for the preview only when the Game View rendered nothing that frame (`WantsHiddenGameRender`), so the scene renders at
+  most once per frame; the preview says "No camera renders the game" only once the game has rendered without an image.
+  **Game View Beside** splits the graph window's dock node at the start of the next frame: the Game View goes above the
+  graph at 0.45 of the height, or to its left when that shows a larger game, leaving the graph at least 20 F. A floating
+  graph window joins the Game View's node (or the Scene View's) and splits it, also when the Game View shows, and a
+  closed Game View opens. Beside is offered from the preview, the Game View's toolbar (while a graph window shares its
+  node), the window's and the editor's View menus, a one-time hint the first time Play hides a graph window, and
+  `graph.open {besideGameView}`, which on a window the call opens waits for the window's first draw (at most 10 frames).
+  The outcome shows in `graph.editors`' `gameView.beside` and is toasted unless Applied; it is never a history step.
+- **Window captures**: `viewport.screenshot {window}` cuts one editor window out of the editor's image at the rectangle
+  ImGui drew it (`FindEditorWindowRect`, title bar and tab included), scaled to the back buffer (`Image::Crop`).
+  `StradaEditor --maximized` and `--window-size WxH` make captures reproducible.
+- **Per-user views** (`VisualScriptViewSettings`, `<user data>/Editor/VisualScriptViews.json`, version 2; never in
   `.sgraph` files, the undo history or exported games): the panes' widths and visibility (shared by every window), the
   toggles (Context palette, Reduce Motion, scroll mode, Snap to Grid, Move Comment Contents), the 20 recent palette
-  entries and 10 recent types, the last comment colour and variable type, the hints seen, and per project (at most 32,
-  the most recently used first) the graph windows that were open in tab order and, per graph (at most 256), the
-  sub-graph shown last, a view per sub-graph (at most 64), the context entity and the bookmarks (9 slots, names of at
-  most 64 bytes). Projects are keyed by `RecentProjects::NormalizePath` of their file when the file is read: another
+  entries and 10 recent types, the last comment colour and variable type, the hints seen, the debugger's and the live
+  game's options (break on errors, Wire Values, Show Flow While Playing, the outline of what does not run, the game
+  preview's corner, width and visibility), and per project (at most 32, the most recently used first) the graph windows
+  that were open in tab order and, per graph (at most 256), the sub-graph shown last, a view per sub-graph (at most 64),
+  the context entity, the bookmarks (9 slots, names of at most 64 bytes) and the breakpoints (at most 256 per graph, in
+  node order: node, type, enabled, condition, hit count). A version-1 file is read with version 2's members at their
+  defaults and written as version 2 at the next save point. An older editor reads a version-2 file as nothing, starts
+  with default views and overwrites the file at its next save point, so going back to it loses every view. Projects are keyed by `RecentProjects::NormalizePath` of their file when the file is read: another
   spelling of the same file finds its entry, a hand-written repeat of a project is skipped with a warning, and a
   directory renamed in letter case only keeps its windows and views on file systems that ignore case. It is read at
   start and written when graph windows close, when the project changes and at exit, never per frame; what is not valid
@@ -1963,7 +2225,13 @@ inspector's primary entity as the context entity; without an asset directory the
   (framing, size limits, parsing, authentication) and never touches editor state; the editor layer runs queued requests
   on the main thread once per frame (`ProcessRequests`). The editor writes `{pid, port, token, project, version}` to
   `<user data>/Editor/Instances/<pid>.json` (user-only permissions), rewrites it when the open project changes and
-  removes it on exit.
+  removes it on exit. `AutomationInstanceFile` is its only writer: what the file states changes only when a write
+  succeeds, and a failed write (on Windows the atomic replace fails while another process has the file open, as the
+  strada tool does when it scans every 50 ms) is retried on later frames, at most every 100 ms by a `steady_clock`
+  deadline, with the newest project, until one succeeds. A streak of failures is logged once as an error; what ends it
+  is logged once at info, naming the project: the write that succeeds, or a change back to the project the file already
+  states. Nothing touches the file system while nothing is pending. At exit the file is removed, even if no write
+  succeeded, and a pending retry is dropped.
 - The editor model (`EditorContext`: scene, file, undo `CommandHistory`, selection; `EditorOperations`) is shared by UI
   panels and automation. The protocol and the command reference are in [Automation.md](Automation.md).
 - `strada` tool (C#, `StradaTool`, no dependencies beyond .NET): `strada mcp` (MCP stdio server written against the
@@ -1986,7 +2254,11 @@ inspector's primary entity as the context entity; without an asset directory the
   scripts an edit breaks; arrange lays a graph out as the window's Arrange does, copy copies elements for edit's Paste,
   interface tells what a graph offers others; edits are undoable without marking the scene modified, and revisions refuse
   edits of a graph that changed since; library and types list the runtime's node kinds and types; open, close, editors and
-  palette drive the graph windows; find searches scripts), `prefab.*`,
+  palette drive the graph windows; find searches scripts; the debug commands, `GraphDebugCommands` over the debug
+  session, set breakpoints and targets, read the debugger's state, stopped frames, live values, running instances and
+  the live log, continue, step and break, trace frames, and wait for a stop: `graph.wait` completes asynchronously on the
+  main thread exactly once, also when play stops or the editor closes (Cancelled), and never blocks a frame;
+  `graph.debug-panel` drives the Debugger panel), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
   `input.*` (inject keys/mouse during play), `ui.*` (where the screen-space UI's elements and buttons are in the game
   view), `viewport.*` (screenshot, camera, frame entities, overlays, renderer statistics),
@@ -2013,6 +2285,8 @@ asset directory and the script assembly relative to the game's directory (`Proje
   window's framebuffer size and drawn into the swapchain image (`TextureBlitter`); without a primary camera the
   screen-space UI, sprites and text are drawn over black, and a scene with neither leaves the window black (logged
   once). `Application.Quit` closes the player.
+- The player attaches no visual-script debugger: its graphs run untraced, so the debugger costs it nothing, and
+  breakpoints, traces and the editor's views never ship (they live in the editor's user data, not in the project).
 - `--headless` runs without a window, rendering or sound (no GPU needed); the scenes see the game's window size.
   `--frames N` and `--screenshot <png>` serve smoke tests.
 - `--test` runs headless with a fixed time step (`--timestep`, default 1/60 s) until the scripts call
@@ -2092,7 +2366,10 @@ data directory, and compile out asserts and script debug lines.
   InternalError, the scene stays loadable, undoing and redoing everything restores it, and nothing outside the project
   changes. The graph commands are tested with and without the scripting runtime: strict refusals naming every issue,
   renamed variables, layout, undo restoring the file's bytes, the library's filters, and edits of running graphs and
-  their variables while playing; `graph.edit` also runs the docs' example batch
+  their variables while playing; the debug commands run against a real scripting runtime and play mode, every command,
+  parameter and error, a sequence fuzz of random debug sessions (seed 11700) that must leave a consistent state, and the
+  documented debugging session (`Tests/Data/VisualScripting/Agents/Debugging.json`, run headless; a test holds
+  Automation.md, Scripting.md and the game-making skill to its steps and their answers, verbatim and in order, as one block); `graph.edit` also runs the docs' example batch
   (`Tests/Data/VisualScripting/Agents/Spinner.json`, which a test holds the docs and the game-making skill to, verbatim). `GraphEditFuzzTests` sends random
   batches drawn from a document's own nodes, pins, variables and functions, with labels and every operation kind: each
   either fails naming an operation and changes nothing, or writes one undo step that loads strictly and undoes byte for
@@ -2115,12 +2392,17 @@ data directory, and compile out asserts and script debug lines.
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
   stand-in editor, Poly Haven downloads against a stand-in server, and MCP sessions with the real editor started
   headless (`STRADA_EDITOR`; ctest sets it), among them an agent's whole workflow: a project, a script it writes and
-  builds, a scene that uses it, a test run in play mode, and an export whose player passes the same checks.
+  builds, a scene that uses it, a test run in play mode, and an export whose player passes the same checks; and the
+  documented debugging session through `strada mcp`, after which the scene is saved and exported, the exported graph
+  holds the fix and the exported player runs it without a problem.
 - `ScriptCoreTests` (xUnit): math types, the visual script VM and an API-coverage test asserting every public
   `Strada.ScriptCore` member is used by the FeatureTest scripts. The VM's tests build runtimes of their own over fake
   engines (`IVisualScriptEnvironment`) and never touch native code: the library (inclusion, purity, resolution,
   identical bytes in every culture), analysis and its diagnostics, every node kind, suspension and timing, budgets,
-  live edits, game-assembly reloads, the protocol of the entry points, the C# API and the debug hook. The coverage test
+  live edits, game-assembly reloads, the protocol of the entry points, the C# API, the debugger (stops by node kind,
+  conditions, steps across every construct, chains, live edit of stopped executions, values and their currencies,
+  traces and recordings, the protocol with a fuzz of mutated requests, a differential test against plain runs, zero
+  allocations when untraced), the live log and carry plans, and dependents' kept analyses against fresh runtimes. The coverage test
   reads the scripts' compiled metadata: references to every type, method (accessors and operators included, overloads
   matched by signature) and field; Script's callbacks and protected constructors count when derived types override or
   call them; constants and enumerators, which compile to literals, count through their types.
@@ -2195,4 +2477,33 @@ data directory, and compile out asserts and script debug lines.
   exhibit, the volumes, the night and the tour's night interlude, the tour's cues and replay, the music, the HUD's
   buttons, the free cursor, where the camera flies and the walker climbing, running, jumping, pushing, riding the lift,
   waiting under it, pressing the plate and staying on the ground (its checks do not need the downloads).
+- `Projects/PrismBreak`: a game made of visual scripts alone (13 graphs, no C#), a neon brick breaker, built by
+  `Tools/Author.py` through `strada mcp`: one batch per graph declares its variables, events and functions first, then
+  one batch per region adds its nodes, arranges them and frames them in a titled comment box, each answering no error
+  and no warning. Its test scene's 29 checks are graphs too (`Tests.sgraph`, a latent function per check called in
+  order from a Sequence, reporting through the `Checks` library); `StradaRuntimeTests` runs them through the player
+  ("Tests passed: 29 checks"), plays the title and runs the exported game, refusing any line from a visual script;
+  `PlayModeTests` plays it through `input.set`, and the fuzz test of damaged graphs includes its `Game.sgraph`.
+- The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
+  authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
+  any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.
+- **Sample graphs read well**: `SampleGraphsTests` (StradaEditorTests) requires of every graph of Prism Break and the
+  Graph Garden that every node is placed in exactly one titled comment box, none overlapping or closer than 16 units,
+  that no link joins two boxes, that every graph has a description and every public variable a tooltip, and that
+  arranging each box's nodes moves none; its message names the authoring tool to run again after a change to arranging.
+  `SampleProjectsTests` (StradaTests) checks that AGENTS.md and README.md name every folder of `Projects/` and that the
+  scripting guide's table names every graph of Prism Break.
+- **Performance bounds** (Release, `STRADA_PERFORMANCE_TESTS=1`; each asserted at 3 times its measured figure, the
+  deterministic counters always): the untraced interpreter runs about 70 M steps a second, an attached idle debugger at
+  95.9 to 99.5 % of that, Break and Record runs at 72 to 79 % and Values runs at 43 %; a 2,000-node instance's snapshot
+  takes 0.02 ms; a `graph.step` round trip on 2,000 nodes 0.22 ms; a default 600-frame trace of a 200-node graph is 36,780
+  bytes of compact JSON (bounded at 64 KB). Formulas run 3.7 times faster than the graphs of nodes they replace. The
+  new-link frame of a 2,000-node graph takes 63.2 ms (5.97 ms at 200 nodes; 58.9 ms and 6.49 ms while playing), against a
+  target of 60 ms that it misses: the analysis takes 48.9 to 51.6 ms of it, of which the managed analysis is 41 to 45 ms
+  (reading the document, writing the analysis and the collections their allocations cause), the native read 4 ms. A
+  watched 2,000-node graph's whole flow frame takes 1.75 ms, against a target of 1 ms: the window's own part (the flow
+  model and the overlays) is 0.35 to 0.38 ms, the rest the runtime's traced runs and the trace's take and read. 200 value
+  pills with their request take 1.02 to 1.12 ms against 0.4 ms, mostly the managed `Values` JSON round trip; the editor
+  reads values 10 times a second, about 0.15 ms per frame. The remainders are runtime work (a cheaper Record mode, a
+  binary value block, reading only the sources that changed, a document reader without a JSON document per member).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.

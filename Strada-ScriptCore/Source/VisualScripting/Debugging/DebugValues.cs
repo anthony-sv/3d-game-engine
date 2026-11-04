@@ -92,7 +92,9 @@ internal sealed class DebugValueWriter
 				WriteString("Value", value as string ?? string.Empty, stringBytes, withLength: true);
 				return;
 			case TypeKind.Entity:
-				WriteEntity(value as Entity, type.IsScriptClass);
+				// Once a component's member ran, its Target input holds the component the interpreter fetched for it
+				// (Interpreter.InvokeMember): it crosses as that component's entity, the value the input was given.
+				WriteEntity(value as Entity ?? (value as Component)?.Entity, type.IsScriptClass);
 				return;
 			case TypeKind.Component:
 				if (value is Component component)

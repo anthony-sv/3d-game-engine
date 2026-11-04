@@ -57,6 +57,7 @@ add_executable(StradaTests
     Source/Project/GameExporterTests.cpp
     Source/Project/ProjectFileFuzzTests.cpp
     Source/Project/ProjectTests.cpp
+    Source/Project/SampleProjectsTests.cpp
     Source/Project/SceneRunnerTests.cpp
     Source/Project/ScriptProjectTests.cpp
     Source/RHI/GraphicsDeviceTests.cpp
@@ -128,7 +129,10 @@ target_compile_definitions(StradaTests PRIVATE
     STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
     # The scripting guide and the test scripts that are its examples, which the scripting tests compare and run.
     STRADA_SCRIPTING_GUIDE_PATH="${PROJECT_SOURCE_DIR}/Docs/Scripting.md"
-    STRADA_GUIDE_EXAMPLES_PATH="${PROJECT_SOURCE_DIR}/Tests/TestScripts/Source/GuideExamples.cs")
+    STRADA_GUIDE_EXAMPLES_PATH="${PROJECT_SOURCE_DIR}/Tests/TestScripts/Source/GuideExamples.cs"
+    # The repository map of AGENTS.md and the layout of README.md, which must name every sample project.
+    STRADA_AGENTS_PATH="${PROJECT_SOURCE_DIR}/AGENTS.md"
+    STRADA_README_PATH="${PROJECT_SOURCE_DIR}/README.md")
 
 strada_configure_target(StradaTests)
 

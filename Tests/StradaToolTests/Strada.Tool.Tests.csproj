@@ -16,6 +16,12 @@
 		<PackageReference Include="xunit.v3" Version="4.0.2" />
 	</ItemGroup>
 
+	<!-- The documented debugging session (Tests/Data/VisualScripting/Agents), as Agents/ next to the tests, which run it
+	     through strada mcp. -->
+	<ItemGroup>
+		<None Include="../Data/VisualScripting/Agents/Debugging.json" Link="Agents/Debugging.json" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
 	<!-- CMake tests the strada it builds next to the editor: building the project again into this output would share its
 	     intermediate files, and MSBuild would remove one of the two copies. -->
 	<ItemGroup Condition="'$(StradaToolDirectory)' != ''">

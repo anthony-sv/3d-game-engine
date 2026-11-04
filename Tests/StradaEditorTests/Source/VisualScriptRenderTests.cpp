@@ -2052,6 +2052,66 @@ TEST_CASE("VisualScriptEditor: value pills show at most 24 code points, earlier 
 	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::ValuePill, data) == nullptr);
 }
 
+TEST_CASE("VisualScriptEditor: value pills slide along their wires clear of each other and of the nodes the wires pass behind")
+{
+	// Two wires close together, whose midpoints' pills would cover each other, and a third passing behind a Delay at its middle.
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Reroute", glm::vec2(0.0f, 0.0f)),       MakeNode(2, "Reroute", glm::vec2(400.0f, 0.0f)),
+	                        MakeNode(3, "Reroute", glm::vec2(0.0f, 12.0f)),      MakeNode(4, "Reroute", glm::vec2(400.0f, 12.0f)),
+	                        MakeNode(5, "Reroute", glm::vec2(0.0f, 160.0f)),     MakeNode(6, "Reroute", glm::vec2(400.0f, 160.0f)),
+	                        MakeNode(7, "Flow.Delay", glm::vec2(160.0f, 120.0f))};
+	document.Graph.Links = {MakeLink(1, "Out", 2, "In"), MakeLink(3, "Out", 4, "In"), MakeLink(5, "Out", 6, "In")};
+	Testing::CanvasRenderFixture fixture(document);
+	fixture.SetView(glm::vec2(200.0f, 100.0f), 1.0f);
+	REQUIRE(fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Detail);
+	std::vector<VisualScriptValueMark> values;
+	for (uint32_t const from : {1u, 3u, 5u})
+	{
+		values.push_back({FindLinkIndex(fixture, from, "Out"), "(-7.94, 0, -4.23)", std::nullopt, VisualScriptValueCurrency::Current});
+	}
+	VisualScriptCanvasDebugView view;
+	view.Values = values;
+	fixture.Draw.Debug = &view;
+	fixture.Frame();
+
+	auto const overlaps = [](VisualScriptRect const& a, VisualScriptRect const& b)
+	{
+		return a.Min.x < b.Max.x && b.Min.x < a.Max.x && a.Min.y < b.Max.y && b.Min.y < a.Max.y;
+	};
+	std::vector<VisualScriptRect> pills;
+	std::vector<VisualScriptRect> nodes;
+	for (VisualScriptDrawRecordItem const& item : fixture.Record.Items)
+	{
+		if (item.Kind == VisualScriptDrawItemKind::ValuePill)
+		{
+			pills.push_back(item.Screen);
+		}
+		else if (item.Kind == VisualScriptDrawItemKind::Node || item.Kind == VisualScriptDrawItemKind::Reroute)
+		{
+			nodes.push_back(item.Screen);
+		}
+	}
+	REQUIRE(pills.size() == 3);
+	REQUIRE(nodes.size() == 7);
+	for (size_t a = 0; a < pills.size(); a++)
+	{
+		CAPTURE(a);
+		for (size_t b = a + 1; b < pills.size(); b++)
+		{
+			CHECK_FALSE(overlaps(pills[a], pills[b]));
+		}
+		for (VisualScriptRect const& node : nodes)
+		{
+			CHECK_FALSE(overlaps(pills[a], node));
+		}
+	}
+	// The first wire's pill keeps its midpoint, where nothing was drawn before it.
+	VisualScriptDrawRecordItem const& first = fixture.Item(VisualScriptDrawItemKind::ValuePill, values[0].Link);
+	glm::vec2 const from = fixture.Item(VisualScriptDrawItemKind::Reroute, 1).Screen.GetCenter();
+	glm::vec2 const to = fixture.Item(VisualScriptDrawItemKind::Reroute, 2).Screen.GetCenter();
+	CHECK(first.Screen.GetCenter().x == doctest::Approx((from.x + to.x) * 0.5f).epsilon(0.02));
+}
+
 TEST_CASE("VisualScriptEditor: the current instruction points at its entered pin, or past the exit about to fire with its pill, and "
           "a read-only stop draws it hollow")
 {

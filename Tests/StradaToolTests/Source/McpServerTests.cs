@@ -46,6 +46,13 @@ public sealed class McpServerTests
 		Assert.Contains("graph_interface", instructions);
 		// graph_open is how agents show a graph to the user.
 		Assert.Contains("graph_open", instructions);
+		// The debugger's tools: breakpoints, the instance they stop, steps, values, traces, what live edits did, the Debugger
+		// panel and window captures.
+		foreach (string tool in new[] { "graph_breakpoints", "graph_target", "graph_step", "graph_values", "graph_trace", "graph_live",
+			"graph_debug_panel", "viewport_screenshot" })
+		{
+			Assert.Contains(tool, instructions);
+		}
 
 		JsonObject unknown = await client.ResultAsync("initialize", new JsonObject { ["protocolVersion"] = "1999-01-01" });
 		Assert.Equal(McpServer.ProtocolVersions[0], unknown["protocolVersion"]!.GetValue<string>());

@@ -115,6 +115,27 @@ public sealed class DebugStepTests
 		Assert.Equal(At(last), session.Position());
 	}
 
+	// Step Into stops at the function's Entry with the call's inputs written: its parameters, the Entry's outputs, are current.
+	[Fact]
+	public void AStopAtAFunctionsEntryShowsTheParametersTheCallGaveAsCurrent()
+	{
+		DocumentBuilder document = new();
+		FunctionBuilder turn = document.Function("Turn", inputs: ["Degrees:float"]);
+		uint inside = turn.Graph.Write("inside");
+		turn.Graph.Flow(turn.Entry, inside);
+		GraphBuilder graph = document.Graph;
+		uint call = graph.Node("Function.Call", turn.Settings, """{ "Degrees": -30 }""");
+		graph.Flow(graph.Node("Event.Create"), call);
+
+		(_, DebugSession session) = Started(document, call);
+		Assert.Equal("Stopped", DebugSession.Text(session.Resume("StepInto"), "Outcome"));
+		Assert.Equal(At(turn.Entry), session.Position());
+		JsonElement entry = session.Describe(DebugSession.IdOf(session.SingleStop()));
+		string current = """[{"Name":"Degrees","Type":"float","Value":-30,"Currency":"Current"}]""";
+		Assert.Equal(current, entry.GetProperty("Parameters").GetRawText());
+		Assert.Equal(current, entry.GetProperty("Node").GetProperty("Outputs").GetRawText());
+	}
+
 	// A library's function is entered like the graph's own: Into stops at its Entry, in a frame of the library's document.
 	[Fact]
 	public void StepIntoEntersALibrarysFunction()

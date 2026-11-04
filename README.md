@@ -7,14 +7,15 @@ an exporter for distributable games.
 > **Status: in development.** In place: the engine core (application loop, windowing, input, events, logging, file
 > system, command line), the Vulkan/NVRHI device and swapchains, build-time shader compilation, the ImGui renderer with
 > docking and multi-viewports, the ECS scene system (components, hierarchy, reflection-driven JSON scenes, prefabs),
-> projects, the asset system (registry, glTF/FBX/OBJ import, materials, textures, HDR environments, built-in
-> primitives and font), the forward PBR scene renderer (image-based lighting, soft shadows, GTAO, bloom, FXAA,
-> tonemapping, post-process volumes, particles, signed-distance text and sprites), the screen-space UI, Jolt physics
-> (rigid bodies, joints, character controllers) and miniaudio sound (spatial and streamed audio sources, listeners)
-> driven by the scene runtime, C# scripting with hot reload, the editor (scene and game views with gizmos, overlays and
-> picking, hierarchy, generated inspector with inline materials, content browser, project settings, undo/redo, play
-> mode, AI automation server), the game player, game export, the `strada` tool with its MCP server for AI agents, a
-> feature-test project exercising every component and the whole scripting API, and CI on all three platforms.
+> projects, the asset system (registry, glTF/FBX/OBJ import, materials, textures, HDR environments, built-in primitives
+> and font), the forward PBR scene renderer (image-based lighting, soft shadows, GTAO, bloom, FXAA, tonemapping,
+> post-process volumes, particles, signed-distance text and sprites), the screen-space UI, Jolt physics (rigid bodies,
+> joints, character controllers) and miniaudio sound (spatial and streamed audio sources, listeners) driven by the scene
+> runtime, C# scripting with hot reload, visual scripting with a debugger, the editor (scene and game views with gizmos,
+> overlays and picking, hierarchy, generated inspector with inline materials, content browser, project settings,
+> undo/redo, play mode, AI automation server), the game player, game export, the `strada` tool with its MCP server for
+> AI agents, a feature-test project exercising every component and the whole scripting API, and CI on all three
+> platforms.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Features
@@ -32,6 +33,10 @@ an exporter for distributable games.
   with rounded corners, wrapped text and buttons that scripts hear.
 - **Scripting**: C# on .NET 10, hosted in-process, with hot reload in the editor
   ([scripting guide](Docs/Scripting.md)).
+- **Visual scripting**: graphs of nodes instead of code, beside C# or instead of it: events, flow and waiting, functions
+  and libraries, formulas, text and arrays, curve-keyed timelines, your own C# members as nodes, graphs that send,
+  broadcast and read each other's variables; edit them while the game runs, watch them run, pause on a node and step
+  through it with every value shown; agents author, arrange, debug and fix them through MCP.
 - **Editor**: docking + multi-viewport ImGui; scene and game views with gizmos and overlays (light shapes, colliders,
   joints, post-process volumes, UI canvases); create menus of ready-made entities; an inspector with a categorized,
   searchable Add Component menu, asset fields with previews and every mesh's materials edited in place; a content
@@ -71,7 +76,7 @@ Third-party libraries are downloaded automatically by CMake (pinned versions, ve
 | `StradaRuntime/` | Game player (`StradaRuntime --help` lists its options) |
 | `Strada-ScriptCore/` | C# scripting API |
 | `StradaTool/` | `strada`: command-line tool and MCP server for the editor (`strada --help`) |
-| `Projects/` | `Blocks`, a sample game, `Showcase`, every feature in a forest clearing, and `FeatureTest`, which tests every feature |
+| `Projects/` | `Blocks`, a sample game, `PrismBreak`, a game made of visual scripts alone, `Showcase`, every feature in a forest clearing, and `FeatureTest`, which tests every feature |
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |
@@ -85,13 +90,16 @@ automation commands: they create projects, scenes, entities, materials and scrip
 it. In this repository `.mcp.json` registers it for Claude Code; build the engine first, and strada attaches to a
 running editor or starts one. [Docs/Automation.md](Docs/Automation.md) describes the tools and how to register them for
 a game project of your own. `Projects/Blocks`, a falling-blocks game, was made this way: open
-`Projects/Blocks/Blocks.sproj` in the editor and press Play.
+`Projects/Blocks/Blocks.sproj` in the editor and press Play. So was `Projects/PrismBreak`, a neon brick breaker made of
+visual scripts alone, whose tests are graphs too: open `Projects/PrismBreak/PrismBreak.sproj`, press Play, then open
+`Scripts/Game.sgraph` while it plays and watch it run.
 
 `Projects/Showcase` shows every feature of the engine in an autumn forest clearing at golden hour, laid out in exhibit
 areas with signposts around a fountain: a gallery of physically based materials (a metallic and roughness sweep, Poly
 Haven texture sets shown as sprites, a neon sign that blooms), glass, alpha-tested lattice and two-sided banners, a
 lighthouse and a light show of colored spot lights, a physics yard (a wrecking ball on a joint, a crate tower, prefab
-dominoes, a plank bridge of hinges), a ball launcher that scores in a goal whose pressure plate opens a gate, fire,
+dominoes, a plank bridge of hinges), a ball launcher that scores in a goal whose pressure plate opens a gate, a garden of
+chimes that visual scripts play to a score kept in a timeline, fire,
 water, sparks and fireflies, 3D sound and streamed music, graded by post-process volumes (the light show stands in an
 evening of its own), and a yard to walk in; the clearing's ground fades into the forest floor of the sky. A camera tour
 opens it under a neon sign that flickers on, with the music up, and lets night fall for a while on its way (any key or

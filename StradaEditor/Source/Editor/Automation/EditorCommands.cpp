@@ -3784,18 +3784,18 @@ namespace Strada
 					"browser does; with the parameters, shows a sub-graph (function), selects nodes and comments (select, the first "
 					"the primary selection), frames them or the whole sub-graph (frame), sets the zoom and the view's centre, picks "
 					"the context entity whose live values the window shows while playing, opens the problems drawer, the find bar "
-					"(find, going to the first match, which becomes the selection) or a Timeline node's tracks and curves in the drawer "
-					"(timeline), and selects a variable or local, a function or a custom event (its Event.Custom node) in My Script, "
-					"which Details then shows (reveal), and scrolls Details to one of its rows (detailsRow). It sets the per-user "
-					"view settings wireValues, showFlow, outlineNotRunning and gamePreview, and with besideGameView docks the Game "
-					"View beside the window at the next frame. The view parameters apply in order: the framing, "
+					"(find, going to the first match, which becomes the selection), the drawer's Find on the references of a variable, "
+					"function or custom event (references, as Find References does) or a Timeline node's tracks and curves in the "
+					"drawer (timeline), and selects a variable or local, a function or a custom event (its Event.Custom node) in My "
+					"Script, which Details then shows (reveal), and scrolls Details to one of its rows (detailsRow). It sets the "
+					"per-user view settings wireValues, showFlow, outlineNotRunning and gamePreview, and with besideGameView docks "
+					"the Game View beside the window at the next frame. The view parameters apply in order: the framing, "
 					"then zoom around its centre, then center. Applied when the window is next drawn: graph.editors a frame later "
 					"shows the result. Works while playing. A file that is missing or does not load opens on its card (loaded false): "
-					"function, select, frame, find, timeline, reveal and show are then ignored, which warnings says. Returns { asset, "
-					"path, function (the "
-					"sub-graph shown), selection (the select given, as applied: empty without one; an empty select keeps the window's "
-					"selection), loaded, warnings, besideGameView (Queued, when asked) }. Unavailable without the editor's UI "
-					"(headless); InvalidOperation while a dialog is open.",
+					"function, select, frame, find, references, timeline, reveal and show are then ignored, which warnings says. "
+					"Returns { asset, path, function (the sub-graph shown), selection (the select given, as applied: empty without "
+					"one; an empty select keeps the window's selection), loaded, warnings, besideGameView (Queued, when asked) }. "
+					"Unavailable without the editor's UI (headless); InvalidOperation while a dialog is open.",
 					SchemaBuilder::Object()
 						.Property("graph", graphParameter, true)
 						.Property("function", SchemaBuilder::Integer("The sub-graph to show: 0 for the event graph, else a function's ID "
@@ -3819,6 +3819,8 @@ namespace Strada
 						.Property("entity", EntityIdSchema("The context entity: an entity of the scene that runs the graph"))
 						.Property("problems", SchemaBuilder::Boolean("Opens the problems drawer"))
 						.Property("find", SchemaBuilder::String("Opens the find bar with this text and goes to the first match"))
+						.Property("references", MakeReferencesSchema("Opens the drawer's Find on the references of a variable, "
+				                                                     "function or custom event, as Find References does"))
 						.Property("timeline", SchemaBuilder::Integer("A Flow.Timeline node of that sub-graph: opens the drawer on its "
 				                                                     "tracks and curves")
 				                                  .Minimum(0)
@@ -3968,6 +3970,17 @@ namespace Strada
 								}
 								request.Timeline = timeline;
 							}
+							// Checked only when the window's own graph loads: on its card the references are ignored, also when
+						    // they name that graph.
+							if (params.contains("references"))
+							{
+								CommandValue<VisualScriptReference> references = ParseReferences(params["references"], "references");
+								if (!references)
+								{
+									return references.TakeError();
+								}
+								request.References = references.TakeValue();
+							}
 							if (params.contains("reveal"))
 							{
 								Json const& reveal = params["reveal"];
@@ -4012,7 +4025,8 @@ namespace Strada
 						else
 						{
 							// The window shows the file's card: nothing of the document can be shown or checked.
-							for (char const* const ignored : {"function", "select", "frame", "find", "timeline", "reveal", "show"})
+							for (char const* const ignored :
+						         {"function", "select", "frame", "find", "references", "timeline", "reveal", "show"})
 							{
 								if (params.contains(ignored))
 								{
@@ -4337,22 +4351,7 @@ namespace Strada
 				              "skipped (the scripts that do not load: [{ asset, path, error }]) }. Works headless and changes nothing.",
 				              SchemaBuilder::Object()
 				                  .Property("query", SchemaBuilder::String("The text to find"))
-				                  .Property(
-									  "references",
-									  SchemaBuilder::Object("The element whose references to list")
-										  .Property(
-											  "kind",
-											  SchemaBuilder::String("What the element is").Enum({"Variable", "Function", "CustomEvent"}),
-											  true)
-										  .Property("graph", SchemaBuilder::String("The visual script that has the element (a handle or "
-				                                                                   "\"asset://<path>.sgraph\"): required for Variable and "
-				                                                                   "Function; for CustomEvent it restricts the event and "
-				                                                                   "the typed senders to that graph's")
-				                                                 .MinLength(1))
-										  .Property("id", SchemaBuilder::Integer("Variable and Function: the element's ID")
-				                                              .Minimum(0)
-				                                              .Maximum(VisualScriptSerializer::MaxID))
-										  .Property("name", SchemaBuilder::String("CustomEvent: the event's name").MinLength(1)))
+				                  .Property("references", MakeReferencesSchema("The element whose references to list"))
 				                  .Property(
 									  "graph",
 									  SchemaBuilder::String("Only this visual script: a handle or \"asset://<path>.sgraph\"").MinLength(1))
@@ -4485,64 +4484,12 @@ namespace Strada
 				}
 				else
 				{
-					Json const& references = params["references"];
-					std::string const kind = references["kind"].get<std::string>();
-					VisualScriptReference reference;
-					if (kind == "CustomEvent")
+					CommandValue<VisualScriptReference> reference = ParseReferences(params["references"], "references");
+					if (!reference)
 					{
-						if (!references.contains("name"))
-						{
-							return MakeParameterError("references.name", "a custom event's references need its name");
-						}
-						reference.ReferenceKind = VisualScriptReference::Kind::CustomEvent;
-						reference.Name = references["name"].get<std::string>();
-						if (references.contains("graph"))
-						{
-							CommandValue<AssetHandle> graph = ParseGraph(references["graph"], "references.graph");
-							if (!graph)
-							{
-								return graph.TakeError();
-							}
-							reference.Graph = graph.GetValue();
-						}
+						return reference.TakeError();
 					}
-					else
-					{
-						reference.ReferenceKind =
-							kind == "Function" ? VisualScriptReference::Kind::Function : VisualScriptReference::Kind::Variable;
-						if (!references.contains("graph"))
-						{
-							return MakeParameterError("references.graph", fmt::format("a {}'s references need the visual script that "
-							                                                          "has it",
-							                                                          kind == "Function" ? "function" : "variable"));
-						}
-						if (!references.contains("id"))
-						{
-							return MakeParameterError("references.id", fmt::format("a {}'s references need its ID",
-							                                                       kind == "Function" ? "function" : "variable"));
-						}
-						CommandValue<AssetHandle> graph = ParseGraph(references["graph"], "references.graph");
-						if (!graph)
-						{
-							return graph.TakeError();
-						}
-						Result<Ref<VisualScriptAsset>> const asset = LoadGraph(graph.GetValue());
-						if (!asset)
-						{
-							return MakeCommandError(AutomationErrorCode::FileError,
-							                        "references.graph: the visual script does not load ({})", asset.GetError());
-						}
-						reference.ID = GetElementId(references["id"]);
-						Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
-						if (!HasReferencedElement(*document, reference))
-						{
-							return MakeParameterError("references.id", fmt::format("the visual script has no {} {}",
-							                                                       kind == "Function" ? "function" : "variable or local",
-							                                                       references["id"].dump()));
-						}
-						reference.Graph = graph.GetValue();
-					}
-					query.References = std::move(reference);
+					query.References = reference.TakeValue();
 				}
 
 				// The scripts searched, by path (memory assets, which have none, first): other scripts name a variable or a
@@ -4637,6 +4584,89 @@ namespace Strada
 									   });
 				}
 				return HasReferencedElement(document, reference);
+			}
+
+			// A references parameter (graph.find's and graph.open's) at path: a custom event by name, from any graph or one; a
+			// variable, local or function by its graph and ID, which that graph must have.
+			static CommandValue<VisualScriptReference> ParseReferences(Json const& references, std::string_view path)
+			{
+				std::string const name = fmt::format("{}.name", path);
+				std::string const graphPath = fmt::format("{}.graph", path);
+				std::string const id = fmt::format("{}.id", path);
+				std::string const kind = references["kind"].get<std::string>();
+				VisualScriptReference reference;
+				if (kind == "CustomEvent")
+				{
+					if (!references.contains("name"))
+					{
+						return MakeParameterError(name, "a custom event's references need its name");
+					}
+					reference.ReferenceKind = VisualScriptReference::Kind::CustomEvent;
+					reference.Name = references["name"].get<std::string>();
+					if (references.contains("graph"))
+					{
+						CommandValue<AssetHandle> graph = ParseGraph(references["graph"], graphPath);
+						if (!graph)
+						{
+							return graph.TakeError();
+						}
+						reference.Graph = graph.GetValue();
+					}
+				}
+				else
+				{
+					reference.ReferenceKind =
+						kind == "Function" ? VisualScriptReference::Kind::Function : VisualScriptReference::Kind::Variable;
+					if (!references.contains("graph"))
+					{
+						return MakeParameterError(graphPath, fmt::format("a {}'s references need the visual script that "
+						                                                 "has it",
+						                                                 kind == "Function" ? "function" : "variable"));
+					}
+					if (!references.contains("id"))
+					{
+						return MakeParameterError(
+							id, fmt::format("a {}'s references need its ID", kind == "Function" ? "function" : "variable"));
+					}
+					CommandValue<AssetHandle> graph = ParseGraph(references["graph"], graphPath);
+					if (!graph)
+					{
+						return graph.TakeError();
+					}
+					Result<Ref<VisualScriptAsset>> const asset = LoadGraph(graph.GetValue());
+					if (!asset)
+					{
+						return MakeCommandError(AutomationErrorCode::FileError, "{}: the visual script does not load ({})", graphPath,
+						                        asset.GetError());
+					}
+					reference.ID = GetElementId(references["id"]);
+					Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
+					if (!HasReferencedElement(*document, reference))
+					{
+						return MakeParameterError(id, fmt::format("the visual script has no {} {}",
+						                                          kind == "Function" ? "function" : "variable or local",
+						                                          references["id"].dump()));
+					}
+					reference.Graph = graph.GetValue();
+				}
+				return reference;
+			}
+
+			// The schema of a references parameter.
+			static SchemaBuilder MakeReferencesSchema(std::string_view description)
+			{
+				return SchemaBuilder::Object(description)
+				    .Property("kind", SchemaBuilder::String("What the element is").Enum({"Variable", "Function", "CustomEvent"}), true)
+				    .Property("graph",
+				              SchemaBuilder::String("The visual script that has the element (a handle or \"asset://<path>.sgraph\"): "
+				                                    "required for Variable and Function; for CustomEvent it restricts the event "
+				                                    "and the typed senders to that graph's, and without it every graph's event "
+				                                    "of the name and every sender of it are listed")
+				                  .MinLength(1))
+				    .Property(
+						"id",
+						SchemaBuilder::Integer("Variable and Function: the element's ID").Minimum(0).Maximum(VisualScriptSerializer::MaxID))
+				    .Property("name", SchemaBuilder::String("CustomEvent: the event's name").MinLength(1));
 			}
 
 			// Whether the document has the variable or local, or the function, whose references graph.find lists.

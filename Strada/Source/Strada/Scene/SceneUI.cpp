@@ -88,9 +88,8 @@ namespace Strada
 			}
 		}
 
-		// Input's pressed and released flags last one application frame, and updates can be further apart (a paused scene
-		// stepped, automation setting the buttons a frame before advancing the scene): changes of the button since the latest
-		// update count too.
+		// Outside the editor's play mode, Input's pressed and released flags last one application frame, and a scene updated
+		// after that frame ended (a scene stepped by hand, tests) still sees the button's changes since its latest update.
 		bool const down = Input::IsMouseButtonDown(MouseButton::Left);
 		bool const pressed = Input::IsMouseButtonPressed(MouseButton::Left) || (down && !m_UIMouseWasDown);
 		bool const released = Input::IsMouseButtonReleased(MouseButton::Left) || (!down && m_UIMouseWasDown);

@@ -42,6 +42,17 @@ internal sealed class McpServer
 		"what a graph offers other graphs. graph_get reads a graph, graph_set replaces a whole document and graph_check checks " +
 		"one without saving. graph_open shows a graph in its window (graph_editors then reports what each window shows), " +
 		"graph_copy copies nodes for graph_edit's Paste, and graph_find searches the scripts. " +
+		"While the game plays (play_start; pass paused true to step it frame by frame with play_advance), graph_edit and " +
+		"graph_set change running graphs at once and their result's live tells what the game took. To find a bug in a visual " +
+		"script: graph_breakpoints sets breakpoints on nodes, with conditions such as \"Health < 0\" or \"Index == 3\" " +
+		"(graph_breakpoints with clear true removes them all: clear yours before handing the editor back); when many entities " +
+		"run the graph, graph_target picks the one instance to stop (one enemy among many); play_advance runs frames and stops " +
+		"early when an execution stops (graph_wait waits in real time, and says at once when no frame can run); graph_debug " +
+		"shows where it stopped and the call stack; graph_values reads every value there and evaluates formulas against it; " +
+		"graph_step (Into, Over, Out) and graph_continue move on; graph_trace summarizes which nodes ran and with which values " +
+		"over some frames (pass graphs and nodes to narrow it; summary false lists every step); graph_live lists what edits did " +
+		"to the running game and the errors graphs met while it ran. viewport_screenshot shows the editor or one of its windows, " +
+		"and graph_debug_panel picks what the Debugger panel shows. " +
 		"polyhaven_search_hdris and polyhaven_import_hdri bring CC0 skies from Poly Haven into the project for a SkyLight.";
 
 	private readonly EditorSession m_Session;

@@ -149,6 +149,8 @@ public sealed class DebugValueTests
 		component.Entity = new Entity(Player);
 		Assert.Equal("""{"Type":"Strada.RigidBodyComponent","Text":"Rigid Body of Player (123)","Entity":"123"}""", Encode(component, rigidBody, environment));
 		Assert.Equal("""{"Type":"Strada.RigidBodyComponent","Value":null}""", Encode(null, rigidBody, environment));
+		// A component member's Target input after the node ran holds the component fetched for it: it is still its entity.
+		Assert.Equal("""{"Type":"Strada.Entity","Entity":"123"}""", Encode(component, entity, environment));
 	}
 
 	private sealed class Chatty(string text)

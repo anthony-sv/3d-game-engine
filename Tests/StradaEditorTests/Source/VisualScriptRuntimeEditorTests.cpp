@@ -1314,6 +1314,36 @@ TEST_CASE("VisualScriptEditor: a commit while playing toasts its receipt and gra
 	CHECK(fixture.Window(counter).GetModel().GetDisplayDocument().Graph.Nodes.size() == 7);
 }
 
+TEST_CASE("VisualScriptEditor: an agent's graph.edit of a graph whose window shows it toasts its receipt there, also while stopped")
+{
+	LiveFixture fixture;
+	AssetHandle const counter = fixture.CreateGraph("Scripts/Counter.sgraph", MakeLiveCounterDocument());
+	fixture.CreateRunner("Counter", counter);
+	fixture.Open(counter);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Start();
+	fixture.Frames(3);
+	REQUIRE(fixture.Toasts(counter, "Live: ").empty());
+
+	fixture.Ok("graph.edit",
+	           Json::object({{"graph", counter.ToString()},
+	                         {"operations", Json::array({Json::object({{"op", "SetInput"}, {"node", 12}, {"pin", "B"}, {"value", 2}})})}}));
+	fixture.Frames(2);
+	CHECK(fixture.Toasts(counter, "Live: ") == std::vector<std::string>{"Live: applied to 1 instance"});
+
+	// Stopped at Set Steps: the edit keeps the stopped node, and the toast says the stopped execution continues with it.
+	fixture.Ok("graph.breakpoints", Json::object({{"graph", counter.ToString()}, {"add", Json::array({Json::object({{"node", 14}})})}}));
+	fixture.Frames(2);
+	REQUIRE(fixture.Editor(counter)["debug"]["state"] == "Stopped");
+	fixture.Ok("graph.edit",
+	           Json::object({{"graph", counter.ToString()},
+	                         {"operations", Json::array({Json::object({{"op", "SetInput"}, {"node", 12}, {"pin", "B"}, {"value", 3}})})}}));
+	fixture.Frames(2);
+	std::vector<std::string> const toasts = fixture.Toasts(counter, "Live: ");
+	REQUIRE(toasts.size() == 2);
+	CHECK(toasts.back().find("the stopped execution continues with the edit") != std::string::npos);
+}
+
 TEST_CASE("VisualScriptEditor: a broken edit while playing toasts that the game keeps the last version, shows LAST WORKING and outlines "
           "exactly what does not run; fixing it applies and the outline goes")
 {
@@ -1510,6 +1540,122 @@ TEST_CASE("VisualScriptEditor: while playing the Timeline drawer draws the playh
 	fixture.Play.Stop();
 	fixture.Frames(1);
 	CHECK_FALSE(curves.GetPlayhead().has_value());
+}
+
+TEST_CASE("VisualScriptEditor: graph.open with references opens the drawer's Find on a custom event's senders in every script")
+{
+	LiveFixture fixture;
+	VisualScriptDocument receiver;
+	receiver.Graph.Nodes = {MakeNode(10, "Event.Custom", glm::vec2(0.0f, 0.0f), Json::object({{"Name", "Ping"}}))};
+	VisualScriptDocument sender;
+	sender.Graph.Nodes = {MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)),
+	                      MakeNode(11, "Event.Send", glm::vec2(320.0f, 0.0f), Json::object({{"Name", "Ping"}}))};
+	sender.Graph.Links = {MakeLink(10, "Then", 11, "Execute")};
+	AssetHandle const listener = fixture.CreateGraph("Scripts/Listener.sgraph", receiver);
+	AssetHandle const caller = fixture.CreateGraph("Scripts/Caller.sgraph", sender);
+	fixture.Open(listener);
+
+	fixture.Ok("graph.open",
+	           Json::object({{"graph", listener.ToString()}, {"references", Json::object({{"kind", "CustomEvent"}, {"name", "Ping"}})}}));
+	fixture.Frames(2);
+	VisualScriptDrawer const& drawer = fixture.Window(listener).GetDrawer();
+	CHECK(drawer.GetMode() == VisualScriptDrawerMode::Find);
+	std::vector<std::pair<std::string, uint32_t>> found;
+	for (VisualScriptDrawerFindRow const& row : drawer.GetFindRows())
+	{
+		found.emplace_back(row.Script, row.Match.Node);
+	}
+	CHECK(found == std::vector<std::pair<std::string, uint32_t>>{{"Scripts/Listener.sgraph", 10}, {"Scripts/Caller.sgraph", 11}});
+	Json const editors = fixture.Ok("graph.editors");
+	CHECK(editors["editors"][0]["drawer"] == "Find");
+	fixture.CheckDrawingChangesNothing();
+
+	// The parameter is checked as graph.find checks it, at its own path.
+	std::optional<CommandResult> refused;
+	fixture.Registry.Execute(
+		"graph.open", Json::object({{"graph", listener.ToString()}, {"references", Json::object({{"kind", "Variable"}, {"id", 1}})}}),
+		[&refused](CommandResult value)
+		{
+			refused.emplace(std::move(value));
+		});
+	REQUIRE(refused.has_value());
+	REQUIRE(refused->IsError());
+	CHECK(refused->GetError().Code == AutomationErrorCode::InvalidParams);
+	CHECK(refused->GetError().Data == Json::object({{"path", "references.graph"}}));
+	CHECK(caller.IsValid());
+}
+
+TEST_CASE("VisualScriptEditor: graph.open's references list what graph.find lists, also in the window of a graph that only sends the "
+          "event, typed to another graph; on a graph that does not load they are ignored with a warning")
+{
+	LiveFixture fixture;
+	VisualScriptDocument receiver;
+	receiver.Graph.Nodes = {MakeNode(10, "Event.Custom", glm::vec2(0.0f, 0.0f), Json::object({{"Name", "Ping"}}))};
+	AssetHandle const listener = fixture.CreateGraph("Scripts/Listener.sgraph", receiver);
+	AssetHandle const echo = fixture.CreateGraph("Scripts/Echo.sgraph", receiver);
+	// The caller declares no Ping: it sends one untyped and one typed to the listener.
+	VisualScriptDocument sender;
+	sender.Graph.Nodes = {
+		MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)),
+		MakeNode(11, "Event.Send", glm::vec2(320.0f, 0.0f), Json::object({{"Name", "Ping"}})),
+		MakeNode(12, "Event.Send", glm::vec2(640.0f, 0.0f), Json::object({{"Name", "Ping"}, {"Graph", listener.ToString()}}))};
+	sender.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(11, "Then", 12, "Execute")};
+	AssetHandle const caller = fixture.CreateGraph("Scripts/Caller.sgraph", sender);
+	fixture.Open(caller);
+	fixture.CheckDrawingChangesNothing();
+
+	auto const listed = [&fixture](Json const& references)
+	{
+		std::vector<std::pair<std::string, uint32_t>> found;
+		Json const results = fixture.Ok("graph.find", Json::object({{"references", references}}))["results"];
+		for (Json const& result : results)
+		{
+			found.emplace_back(result["path"].get<std::string>(), result["node"].get<uint32_t>());
+		}
+		std::sort(found.begin(), found.end());
+		return found;
+	};
+	auto const shown = [&fixture, caller]()
+	{
+		std::vector<std::pair<std::string, uint32_t>> found;
+		for (VisualScriptDrawerFindRow const& row : fixture.Window(caller).GetDrawer().GetFindRows())
+		{
+			found.emplace_back(row.Script, row.Match.Node);
+		}
+		std::sort(found.begin(), found.end());
+		return found;
+	};
+
+	// Without graph: every script's event of the name and every sender of it, as graph.find lists them.
+	Json const everywhere = Json::object({{"kind", "CustomEvent"}, {"name", "Ping"}});
+	fixture.Ok("graph.open", Json::object({{"graph", caller.ToString()}, {"references", everywhere}}));
+	fixture.Frames(2);
+	CHECK(fixture.Window(caller).GetDrawer().GetMode() == VisualScriptDrawerMode::Find);
+	std::vector<std::pair<std::string, uint32_t>> const all = {
+		{"Scripts/Caller.sgraph", 11}, {"Scripts/Caller.sgraph", 12}, {"Scripts/Echo.sgraph", 10}, {"Scripts/Listener.sgraph", 10}};
+	CHECK(listed(everywhere) == all);
+	CHECK(shown() == all);
+
+	// With graph: the listener's event, the typed sender aimed at it and the untyped one; the echo's event is not its.
+	Json const theListener = Json::object({{"kind", "CustomEvent"}, {"name", "Ping"}, {"graph", listener.ToString()}});
+	fixture.Ok("graph.open", Json::object({{"graph", caller.ToString()}, {"references", theListener}}));
+	fixture.Frames(2);
+	std::vector<std::pair<std::string, uint32_t>> const listenerOnly = {
+		{"Scripts/Caller.sgraph", 11}, {"Scripts/Caller.sgraph", 12}, {"Scripts/Listener.sgraph", 10}};
+	CHECK(listed(theListener) == listenerOnly);
+	CHECK(shown() == listenerOnly);
+	fixture.CheckDrawingChangesNothing();
+	CHECK(echo.IsValid());
+
+	// A graph that does not load opens on its card, and references naming it are ignored, which the warnings say.
+	std::string const damaged = fixture.Ok("graph.create", Json::object({{"path", "Scripts/Damaged.sgraph"}}))["asset"].get<std::string>();
+	REQUIRE(FileSystem::WriteTextFile(AssetManager::GetAssetDirectory() / "Scripts" / "Damaged.sgraph", "{ \"Strada\": 1 }").IsOk());
+	Json const card =
+		fixture.Ok("graph.open",
+	               Json::object({{"graph", damaged}, {"references", Json::object({{"kind", "Variable"}, {"graph", damaged}, {"id", 1}})}}));
+	CHECK(card["loaded"] == false);
+	REQUIRE(card["warnings"].size() == 1);
+	CHECK(card["warnings"][0].get<std::string>().starts_with("references is ignored: the visual script does not load"));
 }
 
 TEST_CASE("VisualScriptEditor: a runtime error badges its node with its count, toasts once, fills the Runtime section, and Go to frames "

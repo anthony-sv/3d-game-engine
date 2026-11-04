@@ -252,11 +252,17 @@ namespace Strada
 		if (isLibrary)
 		{
 			m_LibraryLine = DescribeVisualScriptLibraryUse(model.GetProjectGraphs(), context.Graph);
+			// Wrapped: in a narrow pane the line goes on below rather than past the pane's edge.
+			ImGui::PushTextWrapPos(0.0f);
 			ImGui::TextDisabled("%s", m_LibraryLine.c_str());
+			ImGui::PopTextWrapPos();
+			m_LibraryLineRect.emplace(glm::vec2(ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y),
+			                          glm::vec2(ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y));
 		}
 		else
 		{
 			m_LibraryLine.clear();
+			m_LibraryLineRect.reset();
 		}
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		ImGui::InputTextWithHint("##search", "Search", &m_Search);

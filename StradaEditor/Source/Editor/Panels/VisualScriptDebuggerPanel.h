@@ -47,6 +47,8 @@ namespace Strada
 		InstanceRow,
 		EvaluateButton,
 		EvaluateName,
+		// The Values tab's table of the frame's values.
+		ValuesTable,
 		Count
 	};
 

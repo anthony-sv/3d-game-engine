@@ -382,7 +382,13 @@ TEST_CASE("VisualScriptDebug: every debug command is registered, documented and 
 		bool const readOnly = name == "graph.debug" || name == "graph.values" || name == "graph.instances" || name == "graph.live";
 		CHECK(command->ReadOnly == readOnly);
 		CHECK(command->IsAsync() == (name == "graph.wait"));
-		CHECK(reference.GetValue().find("`" + name + "`") != std::string::npos);
+	}
+	// Every command the fixture registers (the editor's, play mode's and the debug commands) has its row, so a debug command
+	// registered later is held to the reference as soon as it exists.
+	for (CommandDefinition const* command : fixture.Registry.GetCommands())
+	{
+		CAPTURE(command->Name);
+		CHECK(reference.GetValue().find("`" + command->Name + "`") != std::string::npos);
 	}
 	// The play commands' debugging members, and graph.edit's and graph.set's live, are documented with them.
 	for (std::string_view const member : {"`stopped`", "`pauseHeld`", "`paused` (default false", "`live` (`{ playState, paused, edits }`"})
@@ -1146,6 +1152,45 @@ TEST_CASE("VisualScriptDebug: graph.trace records frames as a summary or step by
 	CHECK(refused.Message.find("graph.continue or graph.step it first") != std::string::npos);
 }
 
+TEST_CASE("VisualScriptDebug: graph.trace shows a component member's Target input as the entity it was given")
+{
+	// On every update: the Mover's translation set at node 11, its Target from the Get at node 12.
+	DebugFixture fixture;
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Mover", "Strada.Entity", Json()));
+	document.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	document.Graph.Nodes.push_back(
+		MakeNode(11, "Set:Strada.TransformComponent.Translation", Json::object(), Json::object({{"Value", Json::array({1.0, 2.0, 3.0})}})));
+	document.Graph.Nodes.push_back(MakeNode(12, "Variable.Get", Json::object({{"Variable", 1}})));
+	document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	document.Graph.Links.push_back(MakeLink(12, "Value", 11, "Target"));
+	std::string const graph = fixture.CreateGraph("Scripts/Mover.sgraph", document);
+	std::string const box = fixture.Ok("entity.create", Json::object({{"name", "Box"}}))["id"].get<std::string>();
+	fixture.Ok(
+		"entity.create",
+		Json::object(
+			{{"name", "Runner"},
+	         {"components",
+	          Json::object(
+				  {{"VisualScript",
+	                Json::object({{"Graph", graph},
+	                              {"Variables", Json::object({{"Mover", Json::object({{"Type", "Entity"}, {"Value", box}})}})}})}})}}));
+	fixture.Start(true);
+
+	// The interpreter swaps the input for the component it fetched; the value shown is still the entity linked to it.
+	Json const traced = fixture.Ok(
+		"graph.trace", Json::object({{"frames", 1}, {"summary", false}, {"graphs", Json::array({graph})}, {"nodes", Json::array({11})}}));
+	CHECK_FALSE(FindMismatch(Json::array({Json::object({{"node", 11},
+	                                                    {"pin", "Target"},
+	                                                    {"direction", "In"},
+	                                                    {"type", "Strada.Entity"},
+	                                                    {"entity", box},
+	                                                    {"entityName", "Box"},
+	                                                    {"valid", true}})}),
+	                         traced["values"], "values")
+	                .has_value());
+}
+
 TEST_CASE("VisualScriptDebug: a default 600-frame trace of a 200-node graph stays under 64 KB of compact JSON")
 {
 	DebugFixture fixture;
@@ -1476,6 +1521,48 @@ TEST_CASE("VisualScriptDebug: the documented agent session (Agents/Debugging.jso
 		std::optional<std::string> const mismatch = FindMismatch(step["expect"], result, "result");
 		CHECK_MESSAGE(!mismatch.has_value(), "step ", index + 1, " ", command, ": ", mismatch.value_or(""), "\nresult: ", result.dump());
 	}
+}
+
+TEST_CASE("VisualScriptDebug: the docs and the game-making skill show every step of the documented agent session verbatim")
+{
+	auto const read = [](char const* path)
+	{
+		Result<std::string> text = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(path));
+		REQUIRE_MESSAGE(text.IsOk(), path);
+		std::string content = text.TakeValue();
+		std::erase(content, '\r');
+		return content;
+	};
+	std::string const automation = read(STRADA_AUTOMATION_DOC_PATH);
+	std::string const scripting = read(STRADA_SCRIPTING_DOC_PATH);
+	std::string const skill = read(STRADA_MAKE_GAME_SKILL_PATH);
+	Json const session = LoadAgentFile("Debugging.json");
+	REQUIRE(session.size() == 22);
+	// Each document shows the whole session as one block, so a step missing, repeated, moved or answered otherwise fails. The
+	// guide and the skill show each step as the MCP tool (named as strada's catalog names it) and its compact JSON arguments,
+	// then what it answers; the command reference shows the JSON-RPC requests and replies, numbered from 3 (after
+	// authenticate and project.create).
+	std::string tools;
+	std::string rpc;
+	for (size_t index = 0; index < session.size(); index++)
+	{
+		std::string const command = session[index]["command"].get<std::string>();
+		std::string const arguments = session[index]["arguments"].dump();
+		std::string const expect = session[index]["expect"].dump();
+		std::string tool = command;
+		std::replace(tool.begin(), tool.end(), '.', '_');
+		std::replace(tool.begin(), tool.end(), '-', '_');
+		// The arrows are U+2192 and U+2190, spelled as UTF-8.
+		tools += fmt::format("{} {}\n  \xE2\x86\x92 {}\n", tool, arguments, expect);
+		size_t const id = index + 3;
+		rpc += fmt::format("\xE2\x86\x92 {{\"jsonrpc\":\"2.0\",\"id\":{},\"method\":\"{}\",\"params\":{}}}\n", id, command, arguments);
+		rpc += fmt::format("\xE2\x86\x90 {{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{}}}\n", id, expect);
+	}
+	std::string const toolBlock = "```\n" + tools + "```\n";
+	std::string const rpcBlock = "```\n" + rpc + "```\n";
+	CHECK_MESSAGE(scripting.find(toolBlock) != std::string::npos, "Docs/Scripting.md does not show the session as:\n", toolBlock);
+	CHECK_MESSAGE(skill.find(toolBlock) != std::string::npos, "the strada-make-game skill does not show the session as:\n", toolBlock);
+	CHECK_MESSAGE(automation.find(rpcBlock) != std::string::npos, "Docs/Automation.md does not show the session as:\n", rpcBlock);
 }
 
 namespace

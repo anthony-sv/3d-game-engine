@@ -21,6 +21,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <cmath>
 #include <span>
 #include <utility>
 
@@ -571,8 +572,13 @@ namespace Strada
 			return;
 		}
 		ImFont* const monospace = m_MonospaceFont;
-		float const evaluateHeight = ImGui::GetFrameHeightWithSpacing() * 2.0f + ImGui::GetTextLineHeightWithSpacing() * EvaluateNameRows;
-		if (ImGui::BeginTable("##values", 3, TableFlags, ImVec2(0.0f, std::max(ImGui::GetContentRegionAvail().y - evaluateHeight, 0.0f))))
+		// Evaluate's row and the names it can read go below the values; in a short tab the names yield to the values, taking
+		// at most a third of the height (and one row at least).
+		float const nameLine = ImGui::GetTextLineHeightWithSpacing();
+		float const available = ImGui::GetContentRegionAvail().y;
+		float const nameRows = std::clamp(std::floor(available / 3.0f / nameLine), 1.0f, EvaluateNameRows);
+		float const evaluateHeight = ImGui::GetFrameHeightWithSpacing() * 2.0f + nameLine * nameRows;
+		if (ImGui::BeginTable("##values", 3, TableFlags, ImVec2(0.0f, std::max(available - evaluateHeight, 0.0f))))
 		{
 			ImGui::TableSetupColumn(Texts::Name.data(), ImGuiTableColumnFlags_WidthStretch, 0.3f);
 			ImGui::TableSetupColumn(Texts::Type.data(), ImGuiTableColumnFlags_WidthStretch, 0.2f);
@@ -626,7 +632,15 @@ namespace Strada
 				}
 			};
 			rows(Texts::Inputs, values->Node.Inputs, atEnter ? Texts::EvaluatedWhenItRuns : std::string_view());
-			rows(Texts::Outputs, values->Node.Outputs, {});
+			// At a function's Entry the node's outputs are the function's parameters: they are listed once, as Parameters.
+			bool const outputsAreParameters =
+				!values->Parameters.empty() &&
+				std::equal(values->Node.Outputs.begin(), values->Node.Outputs.end(), values->Parameters.begin(), values->Parameters.end(),
+			               [](VisualScriptDebugValue const& output, VisualScriptDebugValue const& parameter)
+			               {
+							   return output.Name == parameter.Name && output.Type == parameter.Type && output.Value == parameter.Value;
+						   });
+			rows(Texts::Outputs, outputsAreParameters ? std::span<VisualScriptDebugValue const>() : values->Node.Outputs, {});
 			rows(Texts::Event, values->Event, {});
 			rows(Texts::Parameters, values->Parameters, {});
 			rows(Texts::Locals, values->Locals, {});
@@ -683,6 +697,8 @@ namespace Strada
 				}
 			}
 			ImGui::EndTable();
+			// EndTable submits the table (its child window) as the last item.
+			RecordItem(VisualScriptDebuggerItem::ValuesTable);
 		}
 
 		// Evaluate: a formula read against the frame's snapshot, once (nothing is watched), with the names it can read there (read
@@ -726,8 +742,7 @@ namespace Strada
 		if (!m_EvaluateScope.empty())
 		{
 			ImGui::TextDisabled("%s", Texts::EvaluateNames.data());
-			float const listHeight =
-				std::min(static_cast<float>(m_EvaluateScope.size()), EvaluateNameRows) * ImGui::GetTextLineHeightWithSpacing();
+			float const listHeight = std::min(static_cast<float>(m_EvaluateScope.size()), nameRows) * nameLine;
 			std::optional<std::string> inserted;
 			if (ImGui::BeginChild("##evaluateNames", ImVec2(0.0f, listHeight), ImGuiChildFlags_None))
 			{

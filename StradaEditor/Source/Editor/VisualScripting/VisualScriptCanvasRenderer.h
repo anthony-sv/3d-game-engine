@@ -565,6 +565,8 @@ namespace Strada
 		void DrawNotRunning(Frame& frame);
 		void DrawLiveDiscs(Frame& frame);
 		void DrawLiveDisc(Frame& frame, uint32_t markIndex, glm::vec2 center, float radius, std::string_view count);
+		// At the wire's midpoint, else slid along the wire to the nearest place that covers no node and no pill drawn before it
+		// (run counts included), else to one that covers no pill, else at the midpoint (spec-slice4 §13.4).
 		void DrawValuePill(Frame& frame, VisualScriptValueMark const& mark);
 		// A node's rectangle on the screen as this frame draws it (moved, gliding, expanded).
 		VisualScriptRect GetNodeScreen(Frame const& frame, uint32_t index) const;
@@ -636,6 +638,12 @@ namespace Strada
 		std::string m_PillText;
 		// A value pill's text as drawn.
 		std::string m_DebugText;
+		// The run counts and value pills drawn this frame, which later value pills keep clear of, and the screen rectangles of
+		// the visible nodes and the placed pills near the wire being labelled.
+		std::vector<VisualScriptRect> m_PillRects;
+		std::vector<VisualScriptRect> m_NodeRects;
+		std::vector<VisualScriptRect> m_NearNodes;
+		std::vector<VisualScriptRect> m_NearPills;
 		// The live marks' discs drawn this frame, and per node index how far left of the corner they reach (screen pixels).
 		std::vector<VisualScriptLiveMarkPlace> m_LiveMarkPlaces;
 		std::vector<std::pair<uint32_t, float>> m_LiveMarkReach;

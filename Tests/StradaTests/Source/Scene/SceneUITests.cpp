@@ -130,7 +130,7 @@ TEST_CASE("Scene: the mouse hovers, presses and clicks UI buttons")
 
 	SUBCASE("presses and releases count between updates after Input's one-frame flags passed")
 	{
-		// As when a paused scene is stepped, or automation sets the button a frame before it advances the scene.
+		// As when a scene is updated after Input's frame ended: a scene stepped by hand, outside the editor's play mode.
 		Input::SetMousePosition({400.0f, 300.0f});
 		Input::SetMouseButtonState(MouseButton::Left, true);
 		Input::EndFrame();

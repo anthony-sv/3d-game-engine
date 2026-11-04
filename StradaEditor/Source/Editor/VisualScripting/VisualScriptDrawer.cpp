@@ -418,13 +418,14 @@ namespace Strada
 		m_FocusText = true;
 	}
 
-	void VisualScriptDrawer::ShowReferences(VisualScriptReference const& reference)
+	void VisualScriptDrawer::ShowReferences(VisualScriptReference const& reference, VisualScriptReferenceGraph graph)
 	{
 		m_Mode = VisualScriptDrawerMode::Find;
 		m_Text.clear();
 		m_Reference = reference;
-		// Read when found: the window's own graph is the one the reference declares unless it names another.
-		m_ReferenceOwnGraph = !reference.Graph.IsValid();
+		// Read when found: the window's own graph is the one the reference declares unless it names another, or is taken as
+		// given.
+		m_ReferenceOwnGraph = graph == VisualScriptReferenceGraph::Window && !reference.Graph.IsValid();
 	}
 
 	void VisualScriptDrawer::ShowTimeline(uint32_t node, std::optional<uint32_t> track)
