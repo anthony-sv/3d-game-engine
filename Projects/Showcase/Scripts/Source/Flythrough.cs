@@ -329,8 +329,8 @@ public sealed class Flythrough : Script
 	}
 
 	// A cue is a script that is an ITourCue, or a visual script with the custom events Perform and TourEnded (a graph without
-	// the event gets SendEvent's warning).
-	private static void Perform(Entity? cue)
+	// the event gets SendEvent's warning). The test scene cues the Graph Garden's conductor through these two, as the tour does.
+	internal static void Perform(Entity? cue)
 	{
 		if (cue?.As<Script>() is ITourCue tourCue)
 		{
@@ -342,7 +342,7 @@ public sealed class Flythrough : Script
 		}
 	}
 
-	private static void EndTour(Entity? cue)
+	internal static void EndTour(Entity? cue)
 	{
 		if (cue?.As<Script>() is ITourCue tourCue)
 		{

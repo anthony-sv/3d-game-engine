@@ -858,13 +858,22 @@ TEST_CASE("Runtime: the Showcase sample plays and passes its tests")
 	CAPTURE(tests.Output);
 	CHECK(tests.ExitCode == 0);
 	CHECK(Contains(tests.Output, "Tests passed: 68 checks"));
-	// The Graph Garden's visual scripts run without a word: the VM puts a graph's path before its errors and warnings.
-	CHECK_FALSE(Contains(tests.Output, ".sgraph:"));
 
 	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});
 	CAPTURE(game.Output);
 	CHECK(game.ExitCode == 0);
-	CHECK_FALSE(Contains(game.Output, ".sgraph:"));
+
+	// The Graph Garden's visual scripts run without a word, in the tests and in the game. A graph's messages name its file:
+	// "<path>.sgraph: " before a node's error or warning, "<path>.sgraph on <entity>" before a warning of the API scripts
+	// call it through (SendEvent, GetVariable) or of its variables. A graph that cannot run says "Visual script" or "runs no
+	// visual script".
+	constexpr std::string_view GraphMessages[] = {".sgraph", "Visual script", " runs no visual script"};
+	for (std::string_view const message : GraphMessages)
+	{
+		CAPTURE(message);
+		CHECK_FALSE(Contains(tests.Output, message));
+		CHECK_FALSE(Contains(game.Output, message));
+	}
 }
 
 TEST_CASE("Runtime: the Blocks sample plays and passes its tests")

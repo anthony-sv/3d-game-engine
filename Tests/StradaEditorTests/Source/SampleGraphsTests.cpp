@@ -42,11 +42,14 @@ namespace
 		std::string_view Project;
 		// The folder below Assets that holds the graphs, with forward slashes; empty for all of Assets.
 		std::string_view Folder;
+		// The command, from the repository's root, that authors the graphs again. The Showcase's exhibit is authored in place:
+		// a rebuild of the whole project would rewrite the materials made from its downloaded assets.
+		std::string_view Author;
 	};
 
 	constexpr SampleGraphSet SampleGraphSets[] = {
-		{"PrismBreak", ""},
-		{"Showcase", "Scripts/GraphGarden"},
+		{"PrismBreak", "", "python Projects/PrismBreak/Tools/Author.py"},
+		{"Showcase", "Scripts/GraphGarden", "python Projects/Showcase/Tools/Author.py --exhibit GraphGarden"},
 	};
 
 	// The longest title a region's comment box may have.
@@ -117,8 +120,8 @@ namespace
 	};
 
 	// Checks one sub-graph (0: the event graph, else a function's ID) of a sample graph as section 18.6 reads it.
-	void CheckSubGraph(SampleGraph const& graph, uint32_t function, VisualScriptGraph const& subGraph, VisualScriptAnalysis const& analysis,
-	                   VisualScriptLibrary const& library, VisualScriptGraphResolver const& resolve)
+	void CheckSubGraph(SampleGraphSet const& set, SampleGraph const& graph, uint32_t function, VisualScriptGraph const& subGraph,
+	                   VisualScriptAnalysis const& analysis, VisualScriptLibrary const& library, VisualScriptGraphResolver const& resolve)
 	{
 		bool placed = true;
 		for (VisualScriptNode const& node : subGraph.Nodes)
@@ -232,10 +235,9 @@ namespace
 					moved += fmt::format("{}{}", moved.empty() ? "" : ", ", subGraph.Nodes[index].ID);
 				}
 			}
-			CHECK_MESSAGE(
-				moved.empty(),
-				fmt::format("arranging the box moves the nodes {}: re-run the project's Tools/Author.py after a change to arranging",
-			                moved));
+			CHECK_MESSAGE(moved.empty(),
+			              fmt::format("arranging the box moves the nodes {}: after a change to arranging, author the graphs again with {}",
+			                          moved, set.Author));
 		}
 	}
 }
@@ -298,12 +300,12 @@ TEST_CASE("VisualScriptEditor: the sample projects' graphs read well: every node
 			{
 				std::string_view const subGraph = "the event graph";
 				CAPTURE(subGraph);
-				CheckSubGraph(graph, 0, graph.Document.Graph, *analysis.GetValue(), *library, resolve);
+				CheckSubGraph(set, graph, 0, graph.Document.Graph, *analysis.GetValue(), *library, resolve);
 			}
 			for (VisualScriptFunction const& function : graph.Document.Functions)
 			{
 				CAPTURE(function.Name);
-				CheckSubGraph(graph, function.ID, function.Graph, *analysis.GetValue(), *library, resolve);
+				CheckSubGraph(set, graph, function.ID, function.Graph, *analysis.GetValue(), *library, resolve);
 			}
 		}
 	}

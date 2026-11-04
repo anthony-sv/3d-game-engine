@@ -11,7 +11,8 @@ The project is rebuilt from scratch: everything but this Tools folder, the .giti
 With --exhibit, one exhibit is authored in place instead: the project is opened as it is, the exhibit's entities are made
 anew in the main and test scenes, its graphs and materials are written (keeping their asset handles), and the tests run.
 Every other asset stays as it is (a rebuild imports the Poly Haven assets with new handles and rewrites the materials made
-from them): the run fails, naming the files, when anything outside the exhibit's own files changed.
+from them). The run compares every file under Assets before and after: when anything outside the exhibit's own files
+changed, it names the files and fails, also when the authoring itself failed.
 
 The clearing is laid out in exhibit areas around a fountain, each with a signpost: physically based materials (west), glass
 and cutouts (east), lights and shadows (north-west) in an evening zone of post-processing (with a signpost of its own),
@@ -26,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import posixpath
 import random
 import shutil
 import subprocess
@@ -406,10 +408,10 @@ def use_engine_sources(csproj):
 
 
 # The exhibits Author.py can author in place, and the files under Assets each may write (paths relative to Assets, with
-# forward slashes; a trailing "/" takes a folder's files).
+# forward slashes; "<folder>/*<extension>" takes the folder's own files of that extension, not those of its subfolders).
 EXHIBITS = {
-    "GraphGarden": ("Scenes/Main.sscene", "Scenes/Tests.sscene", "AssetRegistry.sreg", "Audio/Chime.wav", "Scripts/GraphGarden/",
-                    "Materials/GraphGarden/"),
+    "GraphGarden": ("Scenes/Main.sscene", "Scenes/Tests.sscene", "AssetRegistry.sreg", "Audio/Chime.wav", "Scripts/GraphGarden/*.sgraph",
+                    "Materials/GraphGarden/*.smat"),
 }
 # The checks of the test scene (ShowcaseTests.cs).
 TEST_CHECKS = 68
@@ -440,26 +442,50 @@ def hash_assets():
     return hashes
 
 
+def owns(owned, path):
+    """Whether a path under Assets is one of an exhibit's own files (EXHIBITS)."""
+    folder, name = posixpath.split(path)
+    for own in owned:
+        own_folder, own_name = posixpath.split(own)
+        if own_name.startswith("*"):
+            if folder == own_folder and name.endswith(own_name[1:]):
+                return True
+        elif path == own:
+            return True
+    return False
+
+
+def check_owned_changes(before, exhibit):
+    """Lists what changed under Assets since the hashes were taken, and returns the changed files the exhibit does not own."""
+    after = hash_assets()
+    changed = sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
+    print("changed under Assets:", ", ".join(changed) if changed else "nothing")
+    return [path for path in changed if not owns(EXHIBITS[exhibit], path)]
+
+
 def author_exhibit(command, exhibit):
     """Authors one exhibit in the project as it is (spec-slice4 section 19.7): a rebuild would give every Poly Haven asset a
     new handle and rewrite the materials made from them. Fails, naming the files, when a file the exhibit does not own
-    changed."""
+    changed, whether the authoring succeeded or not."""
     before = hash_assets()
-    client = McpClient(command + ["mcp", "--headless", "--new"])
     try:
-        session = Showcase(client)
-        session.call("project_open", {"path": os.path.join(PROJECT, "Showcase.sproj")})
-        built = session.call("script_build")
-        if not built["succeeded"]:
-            raise SystemExit(f"the scripts did not build: {built}")
-        session.author_graph_garden_in_place()
-    finally:
-        client.close()
-    after = hash_assets()
-    owned = EXHIBITS[exhibit]
-    changed = sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
-    foreign = [path for path in changed if not any(path == own or (own.endswith("/") and path.startswith(own)) for own in owned)]
-    print("changed under Assets:", ", ".join(changed) if changed else "nothing")
+        client = McpClient(command + ["mcp", "--headless", "--new"])
+        try:
+            session = Showcase(client)
+            session.call("project_open", {"path": os.path.join(PROJECT, "Showcase.sproj")})
+            built = session.call("script_build")
+            if not built["succeeded"]:
+                raise SystemExit(f"the scripts did not build: {built}")
+            session.author_graph_garden_in_place()
+        finally:
+            client.close()
+    except BaseException:
+        # The failure goes on as it is, after the files it changed that the exhibit does not own are named.
+        foreign = check_owned_changes(before, exhibit)
+        if foreign:
+            print("authoring the exhibit changed files it does not own: " + ", ".join(foreign), file=sys.stderr)
+        raise
+    foreign = check_owned_changes(before, exhibit)
     if foreign:
         raise SystemExit("authoring the exhibit changed files it does not own: " + ", ".join(foreign))
 
