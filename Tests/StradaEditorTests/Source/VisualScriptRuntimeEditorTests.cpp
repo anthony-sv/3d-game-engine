@@ -25,6 +25,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
@@ -33,7 +34,11 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <iterator>
 #include <optional>
 #include <span>
 #include <string>
@@ -774,5 +779,151 @@ TEST_CASE("VisualScriptEditor: a timeline the runtime plays gives the values the
 		CAPTURE(time);
 		float const expected = EvaluateVisualScriptTimelineTrack(timeline.GetValue().Tracks[0], time).x;
 		CHECK(std::abs(read[sample] - expected) <= 1e-6f * std::max(1.0f, std::abs(expected)));
+	}
+}
+
+namespace
+{
+	// A graph that runs, laid out as a grid: on every update (node 10) a chain of increments of Count, each a Get of Count
+	// (12 + 3i), an Add of 1 (13 + 3i) and a Set (14 + 3i) in a row, the chain's rows one below the other in columns of rows;
+	// node 11, a Get of Step (5), links nowhere. A link from its Value to the first increment's B (node 13) changes the
+	// program: each update then adds increments + 4. 2 + 3 × increments nodes.
+	VisualScriptDocument MakeIncrementGrid(uint32_t increments, uint32_t rows)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Count", "int", 0));
+		document.Variables.push_back(MakeVariable(2, "Step", "int", 5));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Update", glm::vec2(0.0f, 0.0f)));
+		document.Graph.Nodes.push_back(MakeNode(11, "Variable.Get", glm::vec2(0.0f, 180.0f), Json::object({{"Variable", 2}})));
+		uint32_t previous = 10;
+		for (uint32_t index = 0; index < increments; index++)
+		{
+			uint32_t const get = 12 + 3 * index;
+			glm::vec2 const at(320.0f + static_cast<float>(index / rows) * 960.0f, static_cast<float>(index % rows) * 180.0f);
+			document.Graph.Nodes.push_back(MakeNode(get, "Variable.Get", at, Json::object({{"Variable", 1}})));
+			document.Graph.Nodes.push_back(
+				MakeNode(get + 1, "Operator.Add", at + glm::vec2(320.0f, 0.0f), Json::object(), Json::object({{"B", 1}})));
+			document.Graph.Nodes.push_back(
+				MakeNode(get + 2, "Variable.Set", at + glm::vec2(640.0f, 0.0f), Json::object({{"Variable", 1}})));
+			document.Graph.Links.push_back(MakeLink(get, "Value", get + 1, "A"));
+			document.Graph.Links.push_back(MakeLink(get + 1, "Result", get + 2, "Value"));
+			document.Graph.Links.push_back(MakeLink(previous, "Then", get + 2, "Execute"));
+			previous = get + 2;
+		}
+		return document;
+	}
+
+	double Median(std::vector<double> values)
+	{
+		std::sort(values.begin(), values.end());
+		return values.empty() ? 0.0 : values[values.size() / 2];
+	}
+
+	// The medians track L measured on its machine for the play-time new-link frame of 200 and 2,000 nodes (spec-slice4
+	// section 21; five runs in Release, three in Debug), in milliseconds; the wall-clock checks allow 3 times them. Release
+	// has the targets, 12 and 100 ms (100 without the managed analysis memo, which was not taken: ruling S4-R9.2).
+#if defined(ST_DEBUG)
+	constexpr std::array<double, 2> PlayLinkFrameMilliseconds = {41.8, 373.0};
+	constexpr std::array<double, 2> PlayLinkFrameTargets = {0.0, 0.0};
+#else
+	constexpr std::array<double, 2> PlayLinkFrameMilliseconds = {6.49, 58.9};
+	constexpr std::array<double, 2> PlayLinkFrameTargets = {12.0, 100.0};
+#endif
+}
+
+TEST_CASE("VisualScriptEditor: the frame that commits a new link while the game plays loads it into the running instance, with "
+          "one receipt")
+{
+	// A program-changing commit while playing also loads the program into the running game, in the commit's own frame
+	// (spec-slice4 section 8.1): one load and one receipt, Applied to the instance. 200 nodes, and 2,000 as well on request,
+	// with seven commits each, undone between them.
+	bool const performance = Testing::ArePerformanceTestsEnabled();
+	struct Grid
+	{
+		uint32_t Increments = 0;
+		uint32_t Rows = 0;
+	};
+	std::vector<Grid> grids = {{66, 20}};
+	if (performance)
+	{
+		grids.push_back({666, 50});
+	}
+	VisualScriptLink const link{{11, "Value"}, {13, "B"}};
+	for (size_t size = 0; size < grids.size(); size++)
+	{
+		uint32_t const nodes = 2 + 3 * grids[size].Increments;
+		CAPTURE(nodes);
+		RuntimeFixture fixture(MakeIncrementGrid(grids[size].Increments, grids[size].Rows));
+		fixture.Window.CheckDrawingChangesNothing();
+		VisualScriptOpenRequest request;
+		request.Graph = fixture.Window.Graph;
+		request.Center = glm::vec2(400.0f, 300.0f);
+		request.Zoom = 1.0f;
+		request.Focus = false;
+		fixture.Window.Panel->Apply(request);
+		fixture.Window.Frames(2);
+		REQUIRE(fixture.Model().GetAnalysis() != nullptr);
+		REQUIRE_FALSE(fixture.Window.HasLink(link));
+		UUID const counter = fixture.CreateRunner("Counter");
+		REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+		fixture.Play.Advance(2, Timestep(FrameTime));
+		fixture.Window.Frames(2);
+		REQUIRE(VisualScriptEngine::HasInstance(counter));
+
+		std::vector<double> times;
+		for (int commit = 0, commits = performance ? 7 : 1; commit < commits; commit++)
+		{
+			uint64_t const generation = VisualScriptEngine::GetProgramGeneration(fixture.Window.Graph);
+			uint64_t const serial = VisualScriptEngine::GetLiveLog()->Serial;
+			size_t const undo = fixture.Window.GetUndoCount();
+			glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), link.From.Node, link.From.Pin, VisualScriptPinDirection::Out);
+			glm::vec2 const to = Testing::CanvasPoint(fixture.Model(), link.To.Node, link.To.Pin);
+			fixture.Window.MoveMouse(from);
+			fixture.Window.SetButton(ImGuiMouseButton_Left, true);
+			fixture.Window.MoveMouse((from + to) * 0.5f);
+			fixture.Window.MoveMouse(to);
+			auto const start = std::chrono::steady_clock::now();
+			fixture.Window.SetButton(ImGuiMouseButton_Left, false);
+			times.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+			REQUIRE(fixture.Window.GetUndoCount() == undo + 1);
+			REQUIRE(fixture.Window.HasLink(link));
+
+			// One load in the commit's frame, and its receipt.
+			CHECK(VisualScriptEngine::GetProgramGeneration(fixture.Window.Graph) == generation + 1);
+			Ref<VisualScriptLiveLog const> const log = VisualScriptEngine::GetLiveLog();
+			std::vector<Ref<VisualScriptLiveEdit const>> receipts;
+			std::copy_if(log->Edits.begin(), log->Edits.end(), std::back_inserter(receipts),
+			             [serial](Ref<VisualScriptLiveEdit const> const& edit)
+			             {
+							 return edit->Serial > serial;
+						 });
+			REQUIRE(receipts.size() == 1);
+			CHECK(receipts[0]->Graph == fixture.Window.Graph);
+			CHECK_FALSE(receipts[0]->Cause.IsValid());
+			CHECK(receipts[0]->Outcome == VisualScriptLiveOutcome::Applied);
+			CHECK(receipts[0]->Instances == 1);
+			// The instance runs it: the first increment adds Step.
+			int32_t const before = fixture.GetVariable(counter, "Count").GetInt32();
+			fixture.Play.Advance(1, Timestep(FrameTime));
+			CHECK(fixture.GetVariable(counter, "Count").GetInt32() == before + static_cast<int32_t>(grids[size].Increments) + 4);
+
+			// Undone for the next commit, which the window shows in its next frames.
+			REQUIRE(fixture.Window.Operations.Undo().IsOk());
+			fixture.Window.Frames(2);
+			REQUIRE_FALSE(fixture.Window.HasLink(link));
+		}
+		fixture.Play.Stop();
+		if (performance)
+		{
+			double const median = Median(times);
+			MESSAGE("play-time commit frame of a new link, ", nodes, " nodes: median ", median, " ms");
+			// A target is printed as met or missed, not asserted (spec-slice4 section 21).
+			if (PlayLinkFrameTargets[size] > 0.0)
+			{
+				std::string const verdict = median <= PlayLinkFrameTargets[size] ? "met" : "missed";
+				MESSAGE("target ", PlayLinkFrameTargets[size], " ms: ", verdict);
+			}
+			CHECK(median <= 3.0 * PlayLinkFrameMilliseconds[size]);
+		}
 	}
 }

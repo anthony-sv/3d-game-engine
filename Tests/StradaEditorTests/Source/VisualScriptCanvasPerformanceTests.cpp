@@ -374,9 +374,9 @@ namespace
 	constexpr double T4Milliseconds = 22.9;
 	// The commit frames of a move and of a new link, as track S measured them after its follow-ups (spec §5.8).
 	constexpr double CommitFrameMilliseconds = 70.2;
-	// The new link's frame once its analysis is read with the graph's last one (track I, spec-slice4 section 9.1; track S
-	// measured 3420 ms before).
-	constexpr double LinkFrameMilliseconds = 366.0;
+	// The new link's frame once its analysis is read with the graph's last one (spec-slice4 section 9.1), as track L measured
+	// it again on the tree with tracks I and V2 (ruling S4-R7.2; track I measured 366 ms, track S 3420 ms before).
+	constexpr double LinkFrameMilliseconds = 435.0;
 	// T2 with the live widget of a vector and of an enum chip (track U's report, step U-fix).
 	constexpr double T2VectorMilliseconds = 8.08;
 	constexpr double T2EnumMilliseconds = 8.12;
@@ -390,9 +390,10 @@ namespace
 	// The commit frames as track G measured them once a commit after the editor's own write no longer read the file back
 	// (ruling S-R5.1; track S measured 13.6 ms and 128 ms before).
 	constexpr double CommitFrameMilliseconds = 7.41;
-	// The new link's frame once its analysis is read with the graph's last one (track I, spec-slice4 section 9.1; track G
-	// measured 119 ms before).
-	constexpr double LinkFrameMilliseconds = 65.8;
+	// The new link's frame once its analysis is read with the graph's last one (spec-slice4 section 9.1), as track L measured
+	// it again on the tree with tracks I and V2 (ruling S4-R7.2: the target is 60 ms without the managed analysis memo; track
+	// I measured 65.8 ms, track G 119 ms before).
+	constexpr double LinkFrameMilliseconds = 63.2;
 	constexpr double T2VectorMilliseconds = 0.821;
 	constexpr double T2EnumMilliseconds = 0.829;
 	constexpr std::array<double, 3> WindowFrameMilliseconds = {0.447, 0.445, 0.462};

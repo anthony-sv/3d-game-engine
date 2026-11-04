@@ -4,6 +4,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/Platform.h"
 #include "Strada/Core/Timer.h"
 #include "Strada/Script/ScriptEngineInternal.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
@@ -317,11 +318,12 @@ namespace Strada
 			return text;
 		}
 
-		// Whether a graph a program was compiled with changed since: it appeared, disappeared or was renamed (a rename is told
-		// by a change of the registry), or has another program (a library) or link interface (another script). A reference
-		// whose graph holds the same program or interface in a new document takes it, in the working references too, so an
-		// unchanged graph costs a lookup and a pointer comparison. Graphs beyond MaxReferencedGraphs are not looked up.
-		bool HaveReferencesChanged(VisualScriptProgramRecord& record, bool registryChanged)
+		// The first graph a program was compiled with that changed since: it appeared, disappeared or was renamed (a rename is
+		// told by a change of the registry), or has another program (a library) or link interface (another script); nothing
+		// when none did. A reference whose graph holds the same program or interface in a new document takes it, in the
+		// working references too, so an unchanged graph costs a lookup and a pointer comparison. Graphs beyond
+		// MaxReferencedGraphs are not looked up.
+		std::optional<AssetHandle> FindChangedReference(VisualScriptProgramRecord& record, bool registryChanged)
 		{
 			for (SentReference& reference : record.References)
 			{
@@ -332,11 +334,11 @@ namespace Strada
 				Result<Ref<VisualScriptAsset>> const found = FindReferencedGraph(reference.Graph);
 				if (found.IsOk() != (reference.Document != nullptr))
 				{
-					return true;
+					return reference.Graph;
 				}
 				if (registryChanged && GetReferenceName(reference.Graph) != reference.Name)
 				{
-					return true;
+					return reference.Graph;
 				}
 				if (!found || reference.Use == VisualScriptReferenceUse::Verification)
 				{
@@ -352,7 +354,7 @@ namespace Strada
 				                      : HaveSameVisualScriptLinkInterface(*reference.Document, *document);
 				if (!same)
 				{
-					return true;
+					return reference.Graph;
 				}
 				for (SentReference& working : record.WorkingReferences)
 				{
@@ -363,26 +365,61 @@ namespace Strada
 				}
 				reference.Document = document;
 			}
-			return false;
+			return std::nullopt;
 		}
 
-		// Sends a document of the graph to the runtime with the references it is compiled with, and the runtime compiles a
-		// program of them for the handle: a working one replaces the program of the handle's instances, a broken one leaves it
-		// running. Every document sent goes through here, so while development nodes do not run, the runtime receives each,
-		// and each document of its references, with its DevelopmentOnly nodes Disabled. Answers the errors of its Error
-		// diagnostics (empty when it compiles), or nothing when the runtime failed or its answer cannot be read (logged).
-		std::optional<std::string> LoadDocument(ScriptEngineData& data, AssetHandle graph, std::string const& name,
-		                                        VisualScriptDocument const& document, std::vector<SentReference> const& references)
+		// Whether a graph a program was compiled with still holds what was sent of it: the same absence, name, and program (a
+		// library) or link interface (another script). FindChangedReference without taking the new documents.
+		bool IsReferenceCurrent(SentReference const& reference)
+		{
+			if (IsBeyondLimit(reference))
+			{
+				return true;
+			}
+			Result<Ref<VisualScriptAsset>> const found = FindReferencedGraph(reference.Graph);
+			if (found.IsOk() != (reference.Document != nullptr) || GetReferenceName(reference.Graph) != reference.Name)
+			{
+				return false;
+			}
+			if (!found || reference.Use == VisualScriptReferenceUse::Verification)
+			{
+				return true;
+			}
+			Ref<VisualScriptDocument const> const document = found.GetValue()->GetSharedDocument();
+			if (document == reference.Document)
+			{
+				return true;
+			}
+			return reference.Use == VisualScriptReferenceUse::Library ? HaveSameVisualScriptProgram(*reference.Document, *document)
+			                                                          : HaveSameVisualScriptLinkInterface(*reference.Document, *document);
+		}
+
+		// Sends a document of the graph to the runtime under the record's name, with the references it is compiled with, and
+		// the runtime compiles a program of them for the handle: a working one replaces the program of the handle's instances,
+		// a broken one leaves it running. Every document sent goes through here, so while development nodes do not run, the
+		// runtime receives each, and each document of its references, with its DevelopmentOnly nodes Disabled. The record
+		// keeps the text of the document last sent, which a send of the same document object reuses (spec-slice4 section
+		// 9.4: a dependent of an edited library is not written again). Answers the errors of its Error diagnostics (empty when
+		// it compiles), or nothing when the runtime failed or its answer cannot be read (logged).
+		std::optional<std::string> LoadDocument(ScriptEngineData& data, AssetHandle graph, VisualScriptProgramRecord& record,
+		                                        Ref<VisualScriptDocument const> const& document,
+		                                        std::vector<SentReference> const& references)
 		{
 			bool const disableDevelopmentNodes = !data.DevelopmentNodesEnabled;
 			VisualScriptLoadTimings& timings = data.LoadTimings;
 			Timer timer;
-			std::string const text =
-				disableDevelopmentNodes ? ToDocumentText(DisableDevelopmentOnlyNodes(document)) : ToDocumentText(document);
-			timings.Text += timer.GetElapsedMilliseconds();
+			if (record.TextDocument != document || record.Text.empty())
+			{
+				// Whether development nodes run is set before any graph loads, so a kept text was written with the setting.
+				record.Text = disableDevelopmentNodes ? ToDocumentText(DisableDevelopmentOnlyNodes(*document)) : ToDocumentText(*document);
+				record.TextDocument = document;
+				timings.Text += timer.GetElapsedMilliseconds();
+			}
+			std::string const& name = record.Name;
+			std::string const& text = record.Text;
 			timer.Reset();
 			std::string const referencesText =
-				SendsReferences(document, references) ? WriteReferences(data, references, graph, disableDevelopmentNodes) : std::string();
+				SendsReferences(*document, references) ? WriteReferences(data, references, graph, disableDevelopmentNodes) : std::string();
 			timings.References += timer.GetElapsedMilliseconds();
 			timer.Reset();
 			std::string answer;
@@ -407,14 +444,102 @@ namespace Strada
 			return DescribeVisualScriptErrors(diagnostics.GetValue());
 		}
 
+		// Logs a failure of the live channel once, until the events are taken again.
+		void ReportLiveFailure(ScriptEngineData& data, std::string_view failure)
+		{
+			if (!std::exchange(data.IsLiveLogFailureLogged, true))
+			{
+				ST_CORE_ERROR("The live events of the visual scripts cannot be taken: {}", failure);
+			}
+		}
+
+		// What a send of a document knows of the receipt the runtime made for it: the other graph whose change made the
+		// graph compile again (invalid for its own document), and the errors of the document as the log gives them.
+		struct SendReceipt
+		{
+			AssetHandle Graph;
+			AssetHandle Cause;
+			std::optional<std::string> Errors;
+		};
+
+		// Takes the runtime's events after the last serial taken into a new revision of the live log (spec-slice4 section
+		// 8.5), the receipts completed: Time; Kept as KeptLastWorking exactly when the graph's working program runs, else
+		// NotRunning (R1.1: the receipt, the pill and the log tell the same); and for a send, its receipt's Cause and errors.
+		void TakeLiveEvents(ScriptEngineData& data, SendReceipt const* send)
+		{
+			std::string text;
+			auto const status = static_cast<ScriptStatus>(data.Host.VisualScriptTakeLiveEvents(data.LiveLog->Serial, &text, &ReceiveText));
+			if (status == ScriptStatus::NotFound)
+			{
+				return;
+			}
+			if (status != ScriptStatus::Success)
+			{
+				ReportLiveFailure(data, "the scripting runtime failed (see the log)");
+				return;
+			}
+			uint64_t last = 0;
+			uint32_t dropped = 0;
+			Result<std::pair<std::vector<VisualScriptLiveEdit>, std::vector<VisualScriptRuntimeProblem>>> events =
+				ParseVisualScriptLiveEvents(text, last, dropped);
+			if (!events)
+			{
+				ReportLiveFailure(data, events.GetError());
+				return;
+			}
+			data.IsLiveLogFailureLogged = false;
+			double const now = Platform::GetTime();
+			std::vector<VisualScriptLiveEdit>& edits = events.GetValue().first;
+			std::vector<VisualScriptRuntimeProblem>& problems = events.GetValue().second;
+			for (VisualScriptLiveEdit& edit : edits)
+			{
+				edit.Time = now;
+				if (edit.Outcome == VisualScriptLiveOutcome::KeptLastWorking)
+				{
+					auto const record = data.VisualScriptPrograms.find(edit.Graph);
+					if (record == data.VisualScriptPrograms.end() || !record->second.HasWorkingProgram())
+					{
+						edit.Outcome = VisualScriptLiveOutcome::NotRunning;
+					}
+				}
+			}
+			if (send != nullptr)
+			{
+				// The send's receipt is the graph's last one that ends no earlier swap.
+				auto const receipt = std::find_if(edits.rbegin(), edits.rend(),
+				                                  [send](VisualScriptLiveEdit const& edit)
+				                                  {
+													  return edit.Graph == send->Graph && !edit.Deferred;
+												  });
+				if (receipt != edits.rend())
+				{
+					receipt->Cause = send->Cause;
+					bool const kept = receipt->Outcome == VisualScriptLiveOutcome::KeptLastWorking ||
+					                  receipt->Outcome == VisualScriptLiveOutcome::NotRunning;
+					if (kept && send->Errors && !send->Errors->empty())
+					{
+						receipt->Errors = *send->Errors;
+					}
+				}
+			}
+			for (VisualScriptRuntimeProblem& problem : problems)
+			{
+				problem.FirstTime = now;
+				problem.LastTime = now;
+			}
+			data.LiveLog = AppendVisualScriptLiveEvents(*data.LiveLog, std::move(edits), std::move(problems), last, dropped);
+		}
+
 		// Gives the runtime a document of the graph under the graph's name, with the other graphs it refers to as they are now,
 		// and records both whatever the outcome, so that a document that does not compile is not sent again every frame; its
 		// errors are logged once. The working program (its document with the references it was compiled with) goes first
 		// when the runtime must hear of it again: under a new name, which the runtime's messages give, and after a
 		// game-assembly change, when only compiling it again tells whether it still runs (and so whether a broken document
-		// leaves it running). A send of the same program tells that itself, so no program is compiled twice.
+		// leaves it running). A send of the same program tells that itself, so no program is compiled twice. cause is the
+		// other graph whose change makes the send (invalid when the graph's own document, name or game assembly changed):
+		// each load's receipt goes into the live log as soon as the record tells what runs.
 		void SendDocument(ScriptEngineData& data, AssetHandle graph, VisualScriptProgramRecord& record,
-		                  Ref<VisualScriptDocument const> document, std::string name)
+		                  Ref<VisualScriptDocument const> document, std::string name, AssetHandle cause = {})
 		{
 			bool const renamed = name != record.Name;
 			record.Name = std::move(name);
@@ -424,8 +549,9 @@ namespace Strada
 			if (record.WorkingDocument != nullptr && (renamed || record.IsStale) &&
 			    !HaveSameProgram(record.WorkingDocument, record.WorkingReferences, document, references))
 			{
-				if (std::optional<std::string> const working =
-				        LoadDocument(data, graph, record.Name, *record.WorkingDocument, record.WorkingReferences))
+				std::optional<std::string> const working =
+					LoadDocument(data, graph, record, record.WorkingDocument, record.WorkingReferences);
+				if (working)
 				{
 					record.IsStale = false;
 					if (!working->empty())
@@ -436,19 +562,25 @@ namespace Strada
 						record.WorkingReferences.clear();
 					}
 				}
+				SendReceipt const receipt{graph, cause, working};
+				TakeLiveEvents(data, &receipt);
 			}
 			record.Document = std::move(document);
 			record.References = std::move(references);
-			std::optional<std::string> const errors = LoadDocument(data, graph, record.Name, *record.Document, record.References);
+			std::optional<std::string> const errors = LoadDocument(data, graph, record, record.Document, record.References);
 			record.DocumentCompiles = errors.has_value() && errors->empty();
 			if (record.DocumentCompiles)
 			{
+				if (record.WorkingDocument == nullptr ||
+				    !HaveSameProgram(record.WorkingDocument, record.WorkingReferences, record.Document, record.References))
+				{
+					record.WorkingTime = Platform::GetTime();
+				}
 				record.WorkingDocument = record.Document;
 				record.WorkingReferences = record.References;
 				record.IsStale = false;
-				return;
 			}
-			if (errors)
+			else if (errors)
 			{
 				// After a game-assembly change, a document of the working program that does not compile tells that the working
 				// program does not either (the runtime compiled it again and dropped it), as sending it first would have.
@@ -462,6 +594,8 @@ namespace Strada
 				ST_CORE_ERROR("Visual script '{}' has {}{}", record.Name, *errors,
 				              record.HasWorkingProgram() ? "; the previous version keeps running" : "");
 			}
+			SendReceipt const receipt{graph, cause, errors};
+			TakeLiveEvents(data, &receipt);
 		}
 
 		// The runtime has no instance for the entity: the engine forgets it too.
@@ -721,11 +855,11 @@ namespace Strada
 		// Only a change of the registry can give the graph, or a graph it refers to, another name.
 		uint64_t const registryVersion = AssetManager::GetVersion();
 		bool const registryChanged = registryVersion != program.RegistryVersion;
-		if (HaveReferencesChanged(program, registryChanged))
+		if (std::optional<AssetHandle> const changed = FindChangedReference(program, registryChanged))
 		{
 			// The program compiled with them is another one now.
 			program.Generation = NextGeneration(*data);
-			SendDocument(*data, graph, program, program.Document, GetGraphName(graph));
+			SendDocument(*data, graph, program, program.Document, GetGraphName(graph), *changed);
 			return {};
 		}
 		if (registryChanged)
@@ -813,6 +947,168 @@ namespace Strada
 		return data == nullptr || data->DevelopmentNodesEnabled;
 	}
 
+	Ref<VisualScriptLiveLog const> VisualScriptEngine::GetLiveLog()
+	{
+		ScriptEngineData* const data = GetData();
+		if (data == nullptr)
+		{
+			static Ref<VisualScriptLiveLog const> const s_Empty = CreateRef<VisualScriptLiveLog const>();
+			return s_Empty;
+		}
+		TakeLiveEvents(*data, nullptr);
+		return data->LiveLog;
+	}
+
+	void VisualScriptEngine::ClearLiveLog()
+	{
+		ScriptEngineData* const data = GetData();
+		if (data == nullptr)
+		{
+			return;
+		}
+		if (static_cast<ScriptStatus>(data->Host.VisualScriptClearLiveEvents()) != ScriptStatus::Success)
+		{
+			ST_CORE_ERROR("The live events of the visual scripts cannot be cleared (see the log)");
+		}
+		// Serials go on after a clear: the next take reads after the last one taken.
+		VisualScriptLiveLog cleared;
+		cleared.Serial = data->LiveLog->Serial;
+		data->LiveLog = CreateRef<VisualScriptLiveLog const>(std::move(cleared));
+		data->IsLiveLogFailureLogged = false;
+	}
+
+	std::vector<VisualScriptLibraryUser> VisualScriptEngine::DescribeLibraryUsers(AssetHandle library)
+	{
+		std::vector<VisualScriptLibraryUser> users;
+		ScriptEngineData const* const data = GetData();
+		if (data == nullptr)
+		{
+			return users;
+		}
+		auto const holds = [library](SentReference const& reference)
+		{
+			return reference.Graph == library && reference.Use == VisualScriptReferenceUse::Library;
+		};
+		Result<Ref<VisualScriptAsset>> const found = FindGraphAsset(library);
+		Ref<VisualScriptDocument const> const current = found ? found.GetValue()->GetSharedDocument() : nullptr;
+		std::unordered_map<AssetHandle, uint32_t> instances;
+		for (auto const& instance : data->GraphInstances)
+		{
+			instances[instance.second]++;
+		}
+		for (auto const& [graph, record] : data->VisualScriptPrograms)
+		{
+			// A graph that is gone (or became a library) runs nowhere any more.
+			if (record.IsAbsent ||
+			    (!std::ranges::any_of(record.References, holds) && !std::ranges::any_of(record.WorkingReferences, holds)))
+			{
+				continue;
+			}
+			VisualScriptLibraryUser& user = users.emplace_back();
+			user.Graph = graph;
+			user.Name = record.Name;
+			if (auto const counted = instances.find(graph); counted != instances.end())
+			{
+				user.Instances = counted->second;
+			}
+			if (!record.HasWorkingProgram())
+			{
+				continue;
+			}
+			for (SentReference const& reference : record.WorkingReferences)
+			{
+				if (!holds(reference) || reference.Document == nullptr)
+				{
+					continue;
+				}
+				user.Compiled = true;
+				// A library document of the same program (a node moved since) runs as current as the very document.
+				user.RunsCurrent =
+					current != nullptr && (reference.Document == current || HaveSameVisualScriptProgram(*reference.Document, *current));
+			}
+		}
+		std::sort(users.begin(), users.end(),
+		          [](VisualScriptLibraryUser const& a, VisualScriptLibraryUser const& b)
+		          {
+					  if (a.Name != b.Name)
+					  {
+						  return a.Name < b.Name;
+					  }
+					  return a.Graph.GetUUID().GetValue() < b.Graph.GetUUID().GetValue();
+				  });
+		return users;
+	}
+
+	bool VisualScriptEngine::RunsStoredProgram(AssetHandle graph)
+	{
+		ScriptEngineData const* const data = GetData();
+		if (data == nullptr)
+		{
+			return false;
+		}
+		auto const record = data->VisualScriptPrograms.find(graph);
+		if (record == data->VisualScriptPrograms.end())
+		{
+			return false;
+		}
+		VisualScriptProgramRecord const& program = record->second;
+		// The last document sent compiled, and so is the working program, which runs.
+		if (program.IsAbsent || !program.HasWorkingProgram() || !program.DocumentCompiles || program.Document == nullptr ||
+		    !HaveSameProgram(program.WorkingDocument, program.WorkingReferences, program.Document, program.References))
+		{
+			return false;
+		}
+		// It is the stored document's program, compiled with the graphs it refers to as they are now (an edit not sent yet,
+		// after Stop, is not running).
+		Result<Ref<VisualScriptAsset>> const found = FindGraphAsset(graph);
+		if (!found)
+		{
+			return false;
+		}
+		Ref<VisualScriptDocument const> const stored = found.GetValue()->GetSharedDocument();
+		if (stored == nullptr || stored->Kind == VisualScriptDocumentKind::Library ||
+		    (stored != program.Document && !HaveSameVisualScriptProgram(*stored, *program.Document)))
+		{
+			return false;
+		}
+		return std::ranges::all_of(program.References, &IsReferenceCurrent);
+	}
+
+	double VisualScriptEngine::GetWorkingSince(AssetHandle graph)
+	{
+		ScriptEngineData const* const data = GetData();
+		if (data == nullptr)
+		{
+			return 0.0;
+		}
+		auto const record = data->VisualScriptPrograms.find(graph);
+		return record != data->VisualScriptPrograms.end() && record->second.HasWorkingProgram() ? record->second.WorkingTime : 0.0;
+	}
+
+	std::vector<AssetHandle> VisualScriptEngine::GetLoadedGraphs()
+	{
+		std::vector<AssetHandle> graphs;
+		ScriptEngineData const* const data = GetData();
+		if (data == nullptr)
+		{
+			return graphs;
+		}
+		graphs.reserve(data->VisualScriptPrograms.size());
+		for (auto const& [graph, record] : data->VisualScriptPrograms)
+		{
+			if (!record.IsAbsent)
+			{
+				graphs.push_back(graph);
+			}
+		}
+		std::sort(graphs.begin(), graphs.end(),
+		          [](AssetHandle a, AssetHandle b)
+		          {
+					  return a.GetUUID().GetValue() < b.GetUUID().GetValue();
+				  });
+		return graphs;
+	}
+
 	Result<void> VisualScriptEngine::CreateInstance(UUID entity, AssetHandle graph, ScriptFieldMap const& variables)
 	{
 		if (Result<void> loaded = EnsureLoaded(graph); !loaded)
@@ -827,7 +1123,7 @@ namespace Strada
 		switch (status)
 		{
 			case ScriptStatus::Success:
-				data.GraphInstances.insert(entity);
+				data.GraphInstances.insert_or_assign(entity, graph);
 				// After a game-assembly change the runtime compiled the working program again: it still runs.
 				record.IsStale = false;
 				return {};

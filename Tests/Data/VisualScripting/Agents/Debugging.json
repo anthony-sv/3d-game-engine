@@ -9,7 +9,7 @@
 	{"command": "graph.values", "arguments": {"graph": "asset://Scripts/Spinner.sgraph", "stop": 1, "nodes": [7]}, "expect": {"source": "Stop", "variables": [{"name": "Speed", "value": 90}, {"name": "Angle", "value": 34.5}], "nodes": [{"node": 7, "outputs": [{"name": "Result", "value": 34.5, "currency": "Earlier"}]}]}},
 	{"command": "graph.step", "arguments": {"kind": "Over"}, "expect": {"outcome": "Stopped", "stop": {"id": 2, "frames": [{"node": 10}]}}},
 	{"command": "graph.values", "arguments": {"graph": "asset://Scripts/Spinner.sgraph", "stop": 2, "nodes": [7]}, "expect": {"nodes": [{"node": 7, "outputs": [{"name": "Result", "value": 0, "currency": "Current"}]}], "variables": [{"name": "Angle", "value": 0}]}},
-	{"command": "graph.edit", "arguments": {"graph": "asset://Scripts/Spinner.sgraph", "operations": [{"op": "SetFormula", "node": 7, "formula": "(angle + speed * dt) % 360"}]}, "expect": {"changed": true}},
+	{"command": "graph.edit", "arguments": {"graph": "asset://Scripts/Spinner.sgraph", "operations": [{"op": "SetFormula", "node": 7, "formula": "(angle + speed * dt) % 360"}]}, "expect": {"changed": true, "live": {"edits": [{"outcome": "Applied", "instances": 1, "instanceNotes": [{"stopsKept": 1}]}]}}},
 	{"command": "graph.debug", "arguments": {}, "expect": {"state": "Stopped", "stops": [{"id": 2, "migrated": true}]}},
 	{"command": "graph.breakpoints", "arguments": {"graph": "asset://Scripts/Spinner.sgraph", "clear": true}, "expect": {"breakpoints": []}},
 	{"command": "graph.continue", "arguments": {}, "expect": {"outcome": "Ended", "paused": true}},

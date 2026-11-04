@@ -140,12 +140,14 @@ namespace Strada
 		bool IsUIPointerEnabled() const { return m_UIPointerEnabled; }
 
 		// Advances the running scene by the editor's frame time, then follows what its scripts asked for and tells the
-		// observer when a frame ran. Runs no frame while the observer refuses frames, whatever frames are queued.
+		// observer when a frame ran. Runs no frame while the observer refuses frames, whatever frames are queued. A scene that a
+		// frame of a paused scene loads is paused too, with the steps still queued (Step's frames all run, then play stays
+		// paused); one that a running scene loads runs.
 		void Update(Timestep timestep);
 		// Runs frames at once with a fixed time step (paused scenes too), each ending like an editor frame ends (input
 		// pressed in a frame is seen by that frame only): deterministic play for automation and tests. Stops early when the
 		// scripts quit and when the observer pauses the scene after a frame; runs none while it refuses frames (brought up to
-		// date first). Returns the number of frames run.
+		// date first). A paused scene stays paused, a scene its frames load included. Returns the number of frames run.
 		uint32_t Advance(uint32_t frames, Timestep timestep);
 
 		// The test results and script exceptions of the current run, or of the last one once it stopped (the scripts may end
@@ -155,6 +157,9 @@ namespace Strada
 	private:
 		// Stops when the scripts quit; shows the scene the scripts loaded.
 		void FollowRunner();
+		// After a frame that ran scene `ran`, paused when it began (by the agent, the debugger's held pause or a step): a scene
+		// that frame loaded is paused too, with the frame steps ran still had queued.
+		void KeepPaused(Scene const& ran, bool paused);
 		// Tells the observer that a frame ran (or the scene started) and pauses the running scene when it asks to; true then.
 		bool NotifyFrame(Timestep timestep);
 

@@ -3,6 +3,7 @@
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Project/ProjectSettings.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 namespace Strada
 {
@@ -46,6 +47,11 @@ namespace Strada
 		if (m_Observer != nullptr)
 		{
 			m_Observer->OnPlayStarting(state, options);
+		}
+		if (state == EditorPlayState::Play)
+		{
+			// The runtime problems of a play session count from its start; those its scripts' OnCreate raise are its own.
+			VisualScriptEngine::ClearLiveLog();
 		}
 		m_Runner = CreateScope<SceneRunner>(settings);
 		m_Runner->Start(running);
@@ -221,9 +227,11 @@ namespace Strada
 		// without queued steps runs none.
 		Ref<Scene> const scene = m_Runner->GetScene();
 		uint64_t const frame = scene->GetRuntimeFrame();
+		bool const paused = scene->IsPaused();
 		scene->SetUIPointerEnabled(m_UIPointerEnabled);
 		m_Runner->Update(timestep);
 		FollowRunner();
+		KeepPaused(*scene, paused);
 		if (scene->GetRuntimeFrame() != frame)
 		{
 			NotifyFrame(timestep);
@@ -242,10 +250,12 @@ namespace Strada
 				scene->Step(1);
 			}
 			uint64_t const frame = scene->GetRuntimeFrame();
+			bool const paused = scene->IsPaused();
 			scene->SetUIPointerEnabled(m_UIPointerEnabled);
 			m_Runner->Update(timestep);
 			run++;
 			FollowRunner();
+			KeepPaused(*scene, paused);
 			bool const held = scene->GetRuntimeFrame() != frame && NotifyFrame(timestep);
 			Input::EndFrame();
 			if (held)
@@ -268,6 +278,19 @@ namespace Strada
 			m_Runner->GetScene()->SetPaused(true);
 		}
 		return true;
+	}
+
+	void PlayMode::KeepPaused(Scene const& ran, bool paused)
+	{
+		// A scene starts running when it loads (Scene::OnRuntimeStart), and the steps queued for the scene it replaced went
+		// with that scene: an agent stepping a paused game would see the game run on otherwise.
+		if (!paused || m_Runner == nullptr || m_Runner->GetScene().get() == &ran)
+		{
+			return;
+		}
+		Ref<Scene> const loaded = m_Runner->GetScene();
+		loaded->SetPaused(true);
+		loaded->Step(ran.GetQueuedSteps());
 	}
 
 	void PlayMode::FollowRunner()

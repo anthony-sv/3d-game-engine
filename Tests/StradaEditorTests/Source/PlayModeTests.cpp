@@ -10,12 +10,14 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <doctest/doctest.h>
 
@@ -272,6 +274,32 @@ namespace
 	private:
 		PlayMode& m_Play;
 	};
+
+	// Writes Scenes/Second.sscene (an entity, no scripts) and Scripts/Loader.sgraph, whose update loads the second scene, into
+	// the directory and opens it as the asset directory; returns the loader.
+	AssetHandle WriteSceneLoader(std::filesystem::path const& directory)
+	{
+		REQUIRE(FileSystem::CreateDirectories(directory / "Scenes").IsOk());
+		REQUIRE(FileSystem::CreateDirectories(directory / "Scripts").IsOk());
+		Scene second("Second");
+		second.CreateEntity("Arrival");
+		REQUIRE(SceneSerializer::SaveToFile(second, directory / "Scenes" / "Second.sscene").IsOk());
+		VisualScriptDocument loader;
+		VisualScriptNode update;
+		update.ID = 10;
+		update.Type = "Event.Update";
+		VisualScriptNode load;
+		load.ID = 11;
+		load.Type = "Call:Strada.SceneManager.LoadScene(string)";
+		load.Inputs = Json::object({{"Path", "Scenes/Second.sscene"}});
+		loader.Graph.Nodes = {update, load};
+		loader.Graph.Links.push_back({{10, "Then"}, {11, "Execute"}});
+		REQUIRE(VisualScriptSerializer::SaveToFile(loader, directory / "Scripts" / "Loader.sgraph").IsOk());
+		REQUIRE(AssetManager::OpenAssetDirectory(directory).IsOk());
+		AssetHandle const graph = AssetManager::FindByPath("Scripts/Loader.sgraph");
+		REQUIRE(graph.IsValid());
+		return graph;
+	}
 }
 
 TEST_CASE("PlayMode: playing shows and edits a copy that stopping discards")
@@ -1353,4 +1381,122 @@ TEST_CASE("PlayCommands: frames are refused with the debugger's reason, play.pau
 	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 2}}))["framesRun"] == 2);
 	fixture.Ok("play.stop");
 	fixture.Play.SetObserver(nullptr);
+}
+
+TEST_CASE("PlayMode: a scene that a frame of a paused game loads stays paused, the frames still asked for run, and a running "
+          "game's load runs")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	InputScope input;
+	Testing::TemporaryDirectory directory;
+	AssetHandle const loader = WriteSceneLoader(directory.GetPath());
+	PlayFixture fixture;
+	fixture.Create("Loader", Json::object({{"VisualScript", Json::object({{"Graph", loader.ToString()}})}}));
+	Timestep const frame(1.0f / 60.0f);
+
+	SUBCASE("play.advance runs its frames, the first loading the scene, and leaves play paused")
+	{
+		fixture.Ok("play.start", Json::object({{"paused", true}}));
+		CHECK(fixture.Ok("play.advance", Json::object({{"frames", 3}}))["framesRun"] == 3);
+		CHECK(fixture.Context.GetScene().GetName() == "Second");
+		CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 2);
+		CHECK(fixture.Ok("play.state")["paused"] == true);
+		for (int editorFrame = 0; editorFrame < 5; editorFrame++)
+		{
+			fixture.Play.Update(frame);
+		}
+		CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 2);
+		CHECK(fixture.Play.IsPaused());
+	}
+
+	SUBCASE("play.step's frames carry over to the scene the first of them loads, one per editor frame, and play stays paused")
+	{
+		fixture.Ok("play.start", Json::object({{"paused", true}}));
+		fixture.Ok("play.step", Json::object({{"frames", 3}}));
+		fixture.Play.Update(frame);
+		CHECK(fixture.Context.GetScene().GetName() == "Second");
+		CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 0);
+		CHECK(fixture.Context.GetScene().GetQueuedSteps() == 2);
+		for (int editorFrame = 0; editorFrame < 6; editorFrame++)
+		{
+			fixture.Play.Update(frame);
+		}
+		CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 2);
+		CHECK(fixture.Context.GetScene().GetQueuedSteps() == 0);
+		CHECK(fixture.Ok("play.state")["paused"] == true);
+	}
+
+	SUBCASE("a running game's load runs the scene it loads")
+	{
+		fixture.Ok("play.start");
+		for (int editorFrame = 0; editorFrame < 3; editorFrame++)
+		{
+			fixture.Play.Update(frame);
+		}
+		CHECK(fixture.Context.GetScene().GetName() == "Second");
+		CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 2);
+		CHECK_FALSE(fixture.Play.IsPaused());
+		CHECK(fixture.Ok("play.advance", Json::object({{"frames", 2}}))["framesRun"] == 2);
+		CHECK_FALSE(fixture.Play.IsPaused());
+	}
+	fixture.Ok("play.stop");
+}
+
+TEST_CASE("PlayMode: playing clears the live log first, so a run's problems are its own, those of its OnCreate included, and "
+          "stay after Stop")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	// Sets Result to 1 divided by Zero (0) when created: an aborting error at node 12.
+	VisualScriptDocument division;
+	VisualScriptVariable result;
+	result.ID = 1;
+	result.Name = "Result";
+	result.Type = "int";
+	result.Value = 0;
+	VisualScriptVariable zero = result;
+	zero.ID = 2;
+	zero.Name = "Zero";
+	division.Variables = {result, zero};
+	VisualScriptNode create;
+	create.ID = 10;
+	create.Type = "Event.Create";
+	VisualScriptNode set;
+	set.ID = 11;
+	set.Type = "Variable.Set";
+	set.Settings = Json::object({{"Variable", 1}});
+	VisualScriptNode divide;
+	divide.ID = 12;
+	divide.Type = "Operator.Divide";
+	divide.Inputs = Json::object({{"A", 1}});
+	VisualScriptNode get;
+	get.ID = 13;
+	get.Type = "Variable.Get";
+	get.Settings = Json::object({{"Variable", 2}});
+	division.Graph.Nodes = {create, set, divide, get};
+	division.Graph.Links = {{{10, "Then"}, {11, "Execute"}}, {{13, "Value"}, {12, "B"}}, {{12, "Result"}, {11, "Value"}}};
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(std::move(division)), "Division");
+	PlayFixture fixture;
+	fixture.Create("Divider", Json::object({{"VisualScript", Json::object({{"Graph", graph.ToString()}})}}));
+
+	auto const countProblems = []
+	{
+		Ref<VisualScriptLiveLog const> const live = VisualScriptEngine::GetLiveLog();
+		REQUIRE(live->Problems.size() <= 1);
+		return live->Problems.empty() ? 0u : live->Problems[0]->Count;
+	};
+	for (int run = 0; run < 2; run++)
+	{
+		CAPTURE(run);
+		fixture.Ok("play.start");
+		CHECK(countProblems() == 1);
+		fixture.Ok("play.stop");
+		// The last run's problems stay until the next one starts.
+		CHECK(countProblems() == 1);
+	}
+	// Simulating runs no graph and keeps them.
+	fixture.Ok("play.start", Json::object({{"mode", "simulate"}}));
+	CHECK(countProblems() == 1);
+	fixture.Ok("play.stop");
 }

@@ -4186,3 +4186,81 @@ namespace Strada::VisualScriptEditing
 		return rebased;
 	}
 }
+
+namespace Strada
+{
+	namespace
+	{
+		VisualScriptGraph const* FindSubGraph(VisualScriptDocument const& document, uint32_t function)
+		{
+			if (function == 0)
+			{
+				return &document.Graph;
+			}
+			auto const found = std::find_if(document.Functions.begin(), document.Functions.end(),
+			                                [function](VisualScriptFunction const& candidate)
+			                                {
+												return candidate.ID == function;
+											});
+			return found != document.Functions.end() ? &found->Graph : nullptr;
+		}
+
+		auto LinkOrder(VisualScriptLink const& link)
+		{
+			return std::tie(link.From.Node, link.From.Pin, link.To.Node, link.To.Pin);
+		}
+	}
+
+	VisualScriptNotRunning FindVisualScriptNotRunning(VisualScriptDocument const& working, VisualScriptDocument const& current,
+	                                                  uint32_t function)
+	{
+		VisualScriptNotRunning notRunning;
+		VisualScriptGraph const* const shown = FindSubGraph(current, function);
+		if (shown == nullptr)
+		{
+			return notRunning;
+		}
+		VisualScriptGraph const* const running = FindSubGraph(working, function);
+		std::unordered_map<uint32_t, VisualScriptNode const*> runningNodes;
+		std::vector<VisualScriptLink const*> runningLinks;
+		if (running != nullptr)
+		{
+			runningNodes.reserve(running->Nodes.size());
+			for (VisualScriptNode const& node : running->Nodes)
+			{
+				runningNodes.emplace(node.ID, &node);
+			}
+			runningLinks.reserve(running->Links.size());
+			for (VisualScriptLink const& link : running->Links)
+			{
+				runningLinks.push_back(&link);
+			}
+			std::sort(runningLinks.begin(), runningLinks.end(),
+			          [](VisualScriptLink const* a, VisualScriptLink const* b)
+			          {
+						  return LinkOrder(*a) < LinkOrder(*b);
+					  });
+		}
+		for (VisualScriptNode const& node : shown->Nodes)
+		{
+			auto const counterpart = runningNodes.find(node.ID);
+			if (counterpart == runningNodes.end() || !HaveSameVisualScriptProgram(*counterpart->second, node))
+			{
+				notRunning.Nodes.push_back(node.ID);
+			}
+		}
+		for (VisualScriptLink const& link : shown->Links)
+		{
+			auto const found = std::lower_bound(runningLinks.begin(), runningLinks.end(), &link,
+			                                    [](VisualScriptLink const* a, VisualScriptLink const* b)
+			                                    {
+													return LinkOrder(*a) < LinkOrder(*b);
+												});
+			if (found == runningLinks.end() || !(**found == link))
+			{
+				notRunning.Links.push_back(link);
+			}
+		}
+		return notRunning;
+	}
+}

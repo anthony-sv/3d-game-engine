@@ -373,18 +373,18 @@ TEST_CASE("VisualScriptDebug: every debug command is registered, documented and 
 	Result<std::string> const reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
 	REQUIRE(reference.IsOk());
 	for (std::string const name : {"graph.breakpoints", "graph.target", "graph.debug", "graph.continue", "graph.step", "graph.break",
-	                               "graph.wait", "graph.trace", "graph.values", "graph.instances"})
+	                               "graph.wait", "graph.trace", "graph.values", "graph.instances", "graph.live"})
 	{
 		CAPTURE(name);
 		CommandDefinition const* command = fixture.Registry.Find(name);
 		REQUIRE(command != nullptr);
-		bool const readOnly = name == "graph.debug" || name == "graph.values" || name == "graph.instances";
+		bool const readOnly = name == "graph.debug" || name == "graph.values" || name == "graph.instances" || name == "graph.live";
 		CHECK(command->ReadOnly == readOnly);
 		CHECK(command->IsAsync() == (name == "graph.wait"));
 		CHECK(reference.GetValue().find("`" + name + "`") != std::string::npos);
 	}
-	// The play commands' debugging members are documented with them.
-	for (std::string_view const member : {"`stopped`", "`pauseHeld`", "`paused` (default false"})
+	// The play commands' debugging members, and graph.edit's and graph.set's live, are documented with them.
+	for (std::string_view const member : {"`stopped`", "`pauseHeld`", "`paused` (default false", "`live` (`{ playState, paused, edits }`"})
 	{
 		CAPTURE(member);
 		CHECK(reference.GetValue().find(member) != std::string::npos);
@@ -472,6 +472,18 @@ TEST_CASE("VisualScriptDebug: without play, the scripting runtime or a debugger 
 		CHECK(fixture.Fails(name, params).Code == AutomationErrorCode::Unavailable);
 	}
 	CHECK(fixture.Ok("graph.debug")["state"] == "Detached");
+	// graph.live reads what the engine knows, which without the runtime is nothing.
+	Json const live = fixture.Ok("graph.live");
+	CHECK(live["playState"] == "play");
+	CHECK(live["paused"] == true);
+	CHECK(live["serial"] == 0);
+	CHECK(live["graphs"] == Json::array());
+	CHECK(live["edits"] == Json::array());
+	CHECK(live["problems"] == Json::array());
+	Json const one = fixture.Ok("graph.live", Json::object({{"graph", graph}}));
+	REQUIRE(one["graphs"].size() == 1);
+	CHECK(one["graphs"][0]["running"] == "None");
+	CHECK(one["graphs"][0]["instances"] == Json::array());
 }
 
 TEST_CASE("VisualScriptDebug: graph.breakpoints checks, merges, removes and clears breakpoints and reports what the runtime counts")
@@ -1506,6 +1518,56 @@ namespace
 	};
 }
 
+namespace
+{
+	// What the sequence fuzz checks of the live channel: an edit's receipts keep no more stopped executions than there were
+	// before it (the stops graph.debug listed), and graph.live answers in its form with only newer serials.
+	void CheckLive(std::string const& name, Json const& params, Json const& result, size_t stopsBefore)
+	{
+		if (name == "graph.edit" || name == "graph.set")
+		{
+			REQUIRE(result.contains("live"));
+			Json const& live = result["live"];
+			CHECK(live["playState"].is_string());
+			CHECK(live["paused"].is_boolean());
+			REQUIRE(live["edits"].is_array());
+			if (result.value("dryRun", false) || result["changed"] == false)
+			{
+				CHECK(live["edits"] == Json::array());
+			}
+			for (Json const& edit : live["edits"])
+			{
+				uint64_t kept = 0;
+				for (Json const& note : edit["instanceNotes"])
+				{
+					kept += note["stopsKept"].get<uint64_t>();
+				}
+				CHECK_MESSAGE(kept <= stopsBefore, "a receipt keeps ", kept, " stops of ", stopsBefore, ": ", edit.dump());
+				CHECK(edit["outcome"].is_string());
+			}
+		}
+		if (name == "graph.live")
+		{
+			REQUIRE(result["graphs"].is_array());
+			uint64_t const after = params.value("after", uint64_t(0));
+			for (char const* const list : {"edits", "problems"})
+			{
+				REQUIRE(result[list].is_array());
+				for (Json const& entry : result[list])
+				{
+					CHECK(entry["serial"].get<uint64_t>() > after);
+					CHECK(entry["serial"].get<uint64_t>() <= result["serial"].get<uint64_t>());
+				}
+			}
+			for (Json const& graph : result["graphs"])
+			{
+				CHECK((graph["running"] == "Current" || graph["running"] == "LastWorking" || graph["running"] == "None"));
+				CHECK(graph["notRunning"].is_null() == (graph["running"] == "None" || graph["kind"] == "Library"));
+			}
+		}
+	}
+}
+
 TEST_CASE("VisualScriptDebug: random debug sessions answer once and leave a consistent state")
 {
 	SequenceFixture fixture;
@@ -1541,7 +1603,7 @@ TEST_CASE("VisualScriptDebug: random debug sessions answer once and leave a cons
 			SequenceFixture::GraphInfo const& info = fixture.Graphs[random.Pick(fixture.Graphs.size())];
 			std::string name;
 			Json params = Json::object();
-			switch (random.Pick(17))
+			switch (random.Pick(18))
 			{
 				case 0:
 				{
@@ -1740,6 +1802,17 @@ TEST_CASE("VisualScriptDebug: random debug sessions answer once and leave a cons
 					params["entities"] = Json::array({entity});
 					break;
 				}
+				case 16:
+					name = "graph.live";
+					if (random.Pick(2) == 0)
+					{
+						params["graph"] = info.Graph;
+					}
+					if (random.Pick(3) == 0)
+					{
+						params["after"] = random.Pick(4) == 0 ? uint64_t(1000000) : static_cast<uint64_t>(random.Pick(200));
+					}
+					break;
 				default:
 					// Rarely, so that most rounds make their forty calls.
 					name = random.Pick(5) == 0 ? "play.stop" : "play.advance";
@@ -1756,8 +1829,9 @@ TEST_CASE("VisualScriptDebug: random debug sessions answer once and leave a cons
 			// A wait may answer after this iteration: its count outlives it.
 			Ref<int> const answers = CreateRef<int>(0);
 			unanswered++;
+			size_t const stopsBefore = stops.size();
 			fixture.Registry.Execute(name, params,
-			                         [answers, &unanswered, &outcomes, name, request](CommandResult result)
+			                         [answers, &unanswered, &outcomes, name, params, request, stopsBefore](CommandResult result)
 			                         {
 										 (*answers)++;
 										 unanswered--;
@@ -1765,6 +1839,8 @@ TEST_CASE("VisualScriptDebug: random debug sessions answer once and leave a cons
 										 if (result.IsOk())
 										 {
 											 outcomes[name].first++;
+											 CAPTURE(request);
+											 CheckLive(name, params, result.GetValue(), stopsBefore);
 											 return;
 										 }
 										 outcomes[name].second++;
@@ -1831,7 +1907,7 @@ TEST_CASE("VisualScriptDebug: random debug sessions answer once and leave a cons
 
 	// The sessions reached the commands' work.
 	for (char const* const command : {"graph.breakpoints", "graph.target", "graph.continue", "graph.step", "graph.values",
-	                                  "graph.instances", "graph.trace", "play.advance"})
+	                                  "graph.instances", "graph.trace", "play.advance", "graph.live", "graph.edit"})
 	{
 		CAPTURE(command);
 		CHECK(outcomes[command].first > 0);

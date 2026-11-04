@@ -405,4 +405,21 @@ namespace Strada
 		[[nodiscard]] std::optional<VisualScriptDocument>
 		RebaseVisualScriptEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending, VisualScriptDocument const& current);
 	}
+
+	// What of a sub-graph the game does not run as it is shown (spec-slice4 section 15.3): its nodes and links in the
+	// shown document's order.
+	struct VisualScriptNotRunning
+	{
+		std::vector<uint32_t> Nodes;
+		std::vector<VisualScriptLink> Links;
+
+		bool operator==(VisualScriptNotRunning const& other) const = default;
+	};
+
+	// The nodes and links of a sub-graph of current (function: 0 for the event graph) that the document the game runs
+	// (working: VisualScriptEngine::GetWorkingDocument) does not have as current has them: a node missing from working's
+	// sub-graph, or not HaveSameVisualScriptProgram as its counterpart there (a node only moved, commented or collapsed is
+	// not listed); a link working's sub-graph lacks. Empty when current has no such sub-graph. Pure; any thread.
+	[[nodiscard]] VisualScriptNotRunning FindVisualScriptNotRunning(VisualScriptDocument const& working,
+	                                                                VisualScriptDocument const& current, uint32_t function);
 }

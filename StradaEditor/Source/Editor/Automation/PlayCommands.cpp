@@ -21,20 +21,6 @@ namespace Strada
 	{
 		constexpr double DefaultTimestep = 1.0 / 60.0;
 
-		char const* GetStateName(EditorPlayState state)
-		{
-			switch (state)
-			{
-				case EditorPlayState::Play:
-					return "play";
-				case EditorPlayState::Simulate:
-					return "simulate";
-				case EditorPlayState::Edit:
-					break;
-			}
-			return "edit";
-		}
-
 		Json DescribeTestReport(TestRunReport const& report)
 		{
 			Json results = Json::array();
@@ -54,7 +40,7 @@ namespace Strada
 		Json DescribePlay(PlayMode& playMode, EditorContext& context)
 		{
 			playMode.RefreshObserver();
-			Json description = Json::object({{"state", GetStateName(context.GetPlayState())},
+			Json description = Json::object({{"state", GetEditorPlayStateName(context.GetPlayState())},
 			                                 {"paused", playMode.IsPaused()},
 			                                 {"startPending", playMode.IsStartPending()},
 			                                 {"scene", context.GetScene().GetName()}});
@@ -227,6 +213,20 @@ namespace Strada
 		{
 			return SchemaBuilder::Number("Seconds per frame").Minimum(0.0001).Maximum(1.0).Default(DefaultTimestep);
 		}
+	}
+
+	char const* GetEditorPlayStateName(EditorPlayState state)
+	{
+		switch (state)
+		{
+			case EditorPlayState::Play:
+				return "play";
+			case EditorPlayState::Simulate:
+				return "simulate";
+			case EditorPlayState::Edit:
+				break;
+		}
+		return "edit";
 	}
 
 	Result<void> RegisterPlayCommands(CommandRegistry& registry, PlayMode& playMode, EditorContext& context,

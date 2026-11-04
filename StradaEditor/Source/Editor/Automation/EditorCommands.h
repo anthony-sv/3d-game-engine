@@ -19,6 +19,7 @@ namespace Strada
 	struct SceneViewOverlays;
 	class VisualScriptEditors;
 	class VisualScriptLibrary;
+	struct VisualScriptDocument;
 
 	// What the automation commands need from the running editor besides the document state.
 	struct EditorCommandEnvironment
@@ -70,4 +71,8 @@ namespace Strada
 	// one or lies below it (any for an empty one) and whose member or message contains the query (any for an empty one), both
 	// ignoring the case of ASCII letters, in library order: [{ member, category, message }].
 	[[nodiscard]] Json ListVisualScriptLibraryNotes(VisualScriptLibrary const& library, std::string_view query, std::string_view category);
+
+	// The programRevision the graph commands give a document: 16 lowercase hex digits of the FNV-1a hash of what
+	// HaveSameVisualScriptProgram compares, so moves, comments, arranging and collapsing leave it unchanged.
+	[[nodiscard]] std::string GetVisualScriptProgramRevision(VisualScriptDocument const& document);
 }

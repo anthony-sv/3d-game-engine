@@ -192,6 +192,8 @@ namespace Strada
 		void Step(uint32_t frames = 1) { m_StepFrames += frames; }
 		// Drops the frames Step queued that have not run yet (a debugger stopping the game keeps it where it stopped).
 		void CancelSteps() { m_StepFrames = 0; }
+		// The frames Step queued that have not run yet.
+		uint32_t GetQueuedSteps() const { return m_StepFrames; }
 		uint64_t GetRuntimeFrame() const { return m_RuntimeFrame; }
 		double GetRuntimeTime() const { return m_RuntimeTime; }
 		// Seconds per physics step (and OnFixedUpdate) of the running scene: the runtime settings' step.

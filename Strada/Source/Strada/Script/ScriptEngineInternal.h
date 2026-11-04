@@ -14,6 +14,7 @@
 #include "Strada/Script/ScriptField.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLive.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -87,6 +88,11 @@ namespace Strada::ScriptEngineInternal
 		// replies included), and the binary trace block (NotFound, receive not called, while no debugger is attached).
 		int32_t (*VisualScriptDebug)(char const* request, int32_t requestLength, void* context, ReceiveFunction receive) = nullptr;
 		int32_t (*VisualScriptTakeTrace)(void* context, ReceiveFunction receive) = nullptr;
+		// The live channel (VisualScriptEngine::GetLiveLog): the events JSON of the receipts and runtime problems whose serial
+		// is after `after` (NotFound, receive not called, when there are none), and the clearing of the log at a play
+		// session's start.
+		int32_t (*VisualScriptTakeLiveEvents)(uint64_t after, void* context, ReceiveFunction receive) = nullptr;
+		int32_t (*VisualScriptClearLiveEvents)() = nullptr;
 	};
 
 	// A graph a sent document refers to, with what was sent for it (the full document of a library, the interface of the
@@ -151,6 +157,12 @@ namespace Strada::ScriptEngineInternal
 		// Changes whenever another program is sent or one is sent again after a game-assembly change, the graph comes back
 		// after being absent, or the game assembly changes: the entities whose instance could not be created may get one now.
 		uint64_t Generation = 0;
+		// Platform::GetTime() when the working program last became another program (VisualScriptEngine::GetWorkingSince).
+		double WorkingTime = 0.0;
+		// The content text of the document last sent and the document it was written of, so that a document sent again
+		// unchanged (a dependent of an edited library, a moved graph) is not written again; empty until a document is sent.
+		Ref<VisualScriptDocument const> TextDocument;
+		std::string Text;
 
 		// Whether the working program runs: the handle has one, compiled for the game assembly the runtime has (after a
 		// game-assembly change, sending it again or creating an instance tells). VisualScriptEngine::HasWorkingProgram answers
@@ -173,7 +185,8 @@ namespace Strada::ScriptEngineInternal
 		std::unordered_map<AssetHandle, VisualScriptProgramRecord> VisualScriptPrograms;
 		// The texts references send of each graph referred to so far, by handle.
 		std::unordered_map<AssetHandle, VisualScriptReferenceText> VisualScriptReferenceTexts;
-		std::unordered_set<UUID> GraphInstances;
+		// The entities with a graph instance, each with the graph it runs (VisualScriptEngine::DescribeLibraryUsers counts them).
+		std::unordered_map<UUID, AssetHandle> GraphInstances;
 		Ref<VisualScriptLibrary const> Library;
 		bool IsLibraryUnavailable = false;
 		// The last generation given to a program record.
@@ -190,6 +203,10 @@ namespace Strada::ScriptEngineInternal
 		// VisualScriptEngine::GetLastAnalysisTimings and TakeLoadTimings.
 		VisualScriptAnalysisTimings LastAnalysisTimings;
 		VisualScriptLoadTimings LoadTimings;
+		// The live log's current revision (VisualScriptEngine::GetLiveLog); its Serial is the last event's the engine took.
+		Ref<VisualScriptLiveLog const> LiveLog = CreateRef<VisualScriptLiveLog const>();
+		// Whether a failure to take or read the live events was logged, so that it is logged once until a take succeeds.
+		bool IsLiveLogFailureLogged = false;
 	};
 
 	// The engine's state; null while ScriptEngine is not initialized.
