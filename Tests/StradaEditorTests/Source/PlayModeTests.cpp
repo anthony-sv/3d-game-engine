@@ -14,6 +14,7 @@
 #include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/Log.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -953,8 +954,8 @@ TEST_CASE("PlayCommands: automation finds the UI with ui.layout and clicks its b
 	auto const advance = [&fixture, canvas](Json const& devices)
 	{
 		fixture.Ok("input.set", devices);
-		// The editor's frame ends between the two requests, and Input's one-frame pressed and released flags with it.
-		Input::EndFrame();
+		// The editor's frame ends between the two requests; the paused game keeps its input for its next frame.
+		Input::EndApplicationFrame();
 		fixture.Ok("play.advance", Json::object({{"frames", 1}}));
 		Entity const recorder = fixture.Context.GetScene().GetEntityByUUID(canvas);
 		REQUIRE(recorder);
@@ -979,11 +980,164 @@ TEST_CASE("PlayCommands: automation finds the UI with ui.layout and clicks its b
 	// A press that input.release ends (the window losing the focus) is canceled.
 	advance(Json::object({{"mousePosition", buttonElement["center"]}, {"mouseButtons", Json::object({{"Left", true}})}}));
 	fixture.Ok("input.release");
-	Input::EndFrame();
+	Input::EndApplicationFrame();
 	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
 	CHECK(fixture.Context.GetScene().GetEntityByUUID(canvas).GetName() ==
 	      "Clicks=1;Last=" + buttonId + ";InClick=True;Polled=False;State=Hovered;Over=True");
 	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+}
+
+TEST_CASE("PlayCommands: a paused game keeps what input.set gave it for its next frame, whatever editor frames come between")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptEngineScope scripting;
+	InputScope input;
+	// Logs when Space is pressed and when it is released.
+	VisualScriptDocument keys;
+	VisualScriptNode pressed;
+	pressed.ID = 10;
+	pressed.Type = "Event.KeyPressed";
+	pressed.Settings = Json::object({{"Key", "Space"}});
+	VisualScriptNode logPress;
+	logPress.ID = 11;
+	logPress.Type = "Call:Strada.Log.Info(string)";
+	logPress.Inputs = Json::object({{"Message", "Space pressed in the graph"}});
+	VisualScriptNode released = pressed;
+	released.ID = 12;
+	released.Type = "Event.KeyReleased";
+	VisualScriptNode logRelease = logPress;
+	logRelease.ID = 13;
+	logRelease.Inputs = Json::object({{"Message", "Space released in the graph"}});
+	keys.Graph.Nodes = {pressed, logPress, released, logRelease};
+	keys.Graph.Links = {{{10, "Then"}, {11, "Execute"}}, {{12, "Then"}, {13, "Execute"}}};
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(std::move(keys)), "Keys");
+	PlayFixture fixture;
+	fixture.Create("Keys", Json::object({{"VisualScript", Json::object({{"Graph", graph.ToString()}})}}));
+	UUID const probe = fixture.Create("Probe", Json::object({{"Script", Json::object({{"ClassName", "Strada.Tests.InputFrameProbe"}})}}));
+
+	uint64_t const firstEntry = Log::GetNextEntryIndex();
+	auto const countLogged = [firstEntry](std::string_view text)
+	{
+		std::vector<LogEntry> const entries = Log::GetEntries(firstEntry);
+		return std::count_if(entries.begin(), entries.end(),
+		                     [text](LogEntry const& entry)
+		                     {
+								 return entry.Message.find(text) != std::string::npos;
+							 });
+	};
+	auto const probed = [&fixture, probe]
+	{
+		Entity const entity = fixture.Context.GetScene().GetEntityByUUID(probe);
+		REQUIRE(entity);
+		return entity.GetName();
+	};
+	// An editor frame between two requests, as EditorLayer::OnUpdate runs it after automation: play mode's update, then the
+	// application's end of frame.
+	constexpr float Frame = 1.0f / 60.0f;
+	auto const editorFrames = [&fixture](int count)
+	{
+		for (int frame = 0; frame < count; frame++)
+		{
+			fixture.Play.Update(Timestep(Frame));
+			Input::EndApplicationFrame();
+		}
+	};
+
+	// The mouse's first known position is no movement.
+	fixture.Ok("input.set", Json::object({{"mousePosition", Json::array({100.0, 100.0})}}));
+	REQUIRE(fixture.Ok("play.start", Json::object({{"paused", true}}))["paused"] == true);
+	CHECK(Input::IsFrameOwned());
+	editorFrames(2);
+
+	// A press, movement and scroll given to the paused game reach the next play.advance frame, which sees them once.
+	fixture.Ok("input.set", Json::object({{"keys", Json::object({{"Space", true}})},
+	                                      {"mouseButtons", Json::object({{"Left", true}})},
+	                                      {"mousePosition", Json::array({130.0, 90.0})},
+	                                      {"scroll", Json::array({0.0, 2.0})}}));
+	editorFrames(3);
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+	CHECK(countLogged("Space pressed in the graph") == 1);
+	CHECK(probed() == "Pressed=1;Released=0;Clicked=1;Moved=1;Delta=30,-10;Scrolled=1;Scroll=0,2");
+	editorFrames(1);
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+	CHECK(countLogged("Space pressed in the graph") == 1);
+	CHECK(probed() == "Pressed=1;Released=0;Clicked=1;Moved=1;Delta=0,0;Scrolled=1;Scroll=0,0");
+
+	// A release reaches the frame play.step runs at the next editor frame; the frames after it run none and see nothing.
+	fixture.Ok("input.set", Json::object({{"keys", Json::object({{"Space", false}})}}));
+	editorFrames(2);
+	fixture.Ok("play.step");
+	editorFrames(3);
+	CHECK(countLogged("Space released in the graph") == 1);
+	CHECK(probed() == "Pressed=1;Released=1;Clicked=1;Moved=1;Delta=0,0;Scrolled=1;Scroll=0,0");
+	CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 3);
+
+	// A running game sees a press in the next editor frame, once.
+	REQUIRE(fixture.Ok("play.pause", Json::object({{"paused", false}}))["paused"] == false);
+	fixture.Ok("input.set", Json::object({{"keys", Json::object({{"Space", true}})}}));
+	editorFrames(2);
+	CHECK(countLogged("Space pressed in the graph") == 2);
+	CHECK(probed() == "Pressed=2;Released=1;Clicked=1;Moved=1;Delta=0,0;Scrolled=1;Scroll=0,0");
+	CHECK(fixture.Context.GetScene().GetRuntimeFrame() == 5);
+
+	// Stopping gives the input frame back to the application, whose frames end it again in edit mode.
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+	CHECK_FALSE(Input::IsFrameOwned());
+	CHECK_FALSE(Input::IsKeyDown(KeyCode::Space));
+	fixture.Ok("input.set", Json::object({{"keys", Json::object({{"A", true}})}, {"scroll", Json::array({0.0, 1.0})}}));
+	CHECK(Input::IsKeyPressed(KeyCode::A));
+	editorFrames(1);
+	CHECK_FALSE(Input::IsKeyPressed(KeyCode::A));
+	CHECK(Input::IsKeyDown(KeyCode::A));
+	CHECK(Input::GetScrollDelta() == glm::vec2(0.0f));
+}
+
+TEST_CASE("PlayMode: frames refused at a stop keep the game's input for the first frame that runs, and Start and Stop begin a "
+          "clean input frame")
+{
+	InputScope input;
+	PlayFixture fixture;
+	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
+	fixture.Play.SetObserver(&observer);
+	constexpr float Frame = 1.0f / 60.0f;
+
+	// What came before playing is not the game's; a key held stays down.
+	Input::SetKeyState(KeyCode::W, true);
+	Input::AddScrollDelta({0.0f, 3.0f});
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	CHECK(Input::IsFrameOwned());
+	CHECK_FALSE(Input::IsKeyPressed(KeyCode::W));
+	CHECK(Input::IsKeyDown(KeyCode::W));
+	CHECK(Input::GetScrollDelta() == glm::vec2(0.0f));
+
+	// While an execution is stopped no frame runs, and the editor's frames keep the press for the first frame that does.
+	Scene& scene = fixture.Context.GetScene();
+	observer.Refusal = "an execution is stopped at a breakpoint (stop 1): graph.continue or graph.step it first";
+	Input::SetKeyState(KeyCode::Space, true);
+	for (int frame = 0; frame < 3; frame++)
+	{
+		fixture.Play.Update(Timestep(Frame));
+		Input::EndApplicationFrame();
+	}
+	CHECK(scene.GetRuntimeFrame() == 0);
+	CHECK(Input::IsKeyPressed(KeyCode::Space));
+	observer.Refusal.reset();
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(scene.GetRuntimeFrame() == 1);
+	CHECK_FALSE(Input::IsKeyPressed(KeyCode::Space));
+	CHECK(Input::IsKeyDown(KeyCode::Space));
+
+	// Stopping releases the keys held and begins a clean frame of the application's.
+	REQUIRE(fixture.Play.SetPaused(true));
+	Input::SetMouseButtonState(MouseButton::Left, true);
+	fixture.Play.Stop();
+	CHECK_FALSE(Input::IsFrameOwned());
+	CHECK_FALSE(Input::IsKeyDown(KeyCode::Space));
+	CHECK_FALSE(Input::IsKeyReleased(KeyCode::Space));
+	CHECK_FALSE(Input::IsMouseButtonPressed(MouseButton::Left));
+	CHECK_FALSE(Input::IsMouseButtonDown(MouseButton::Left));
+	fixture.Play.SetObserver(nullptr);
 }
 
 TEST_CASE("PlayCommands: test runs report the scripts' checks and time out")

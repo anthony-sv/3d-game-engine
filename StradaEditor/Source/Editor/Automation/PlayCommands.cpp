@@ -316,7 +316,8 @@ namespace Strada
 		result = result
 		             ? Add(registry, "play.step",
 		                   "Advances the paused scene by frames, one per editor frame with the editor's frame time (play.advance runs "
-		                   "frames at once). Refused while an execution is stopped at a breakpoint.",
+		                   "frames at once). The input set while paused reaches the first frame stepped. Refused while an execution "
+		                   "is stopped at a breakpoint.",
 		                   SchemaBuilder::Object()
 		                       .Property("frames", SchemaBuilder::Integer("Frames to advance").Minimum(1).Maximum(100000).Default(1))
 		                       .Build(),
@@ -343,7 +344,8 @@ namespace Strada
 
 		result =
 			result ? Add(registry, "play.advance",
-		                 "Runs frames at once with a fixed time step, paused or not; input set before applies to the first frame. "
+		                 "Runs frames at once with a fixed time step, paused or not; input set before applies to the first frame, "
+		                 "also input set while paused with editor frames between. "
 		                 "Pause first for deterministic runs: the editor keeps playing in real time otherwise. Stops early when "
 		                 "the scripts quit (Application.Quit) and after a frame in which an execution stopped at a breakpoint; "
 		                 "refused while one is stopped. Returns the play state with framesRun, stopped (an execution stopped) and "
@@ -398,8 +400,11 @@ namespace Strada
 			result
 				? Add(registry, "input.set",
 		              "Sets the game's input like devices would: keys and mouse buttons down (true) or up (false) by name "
-		              "(KeyCode and MouseButton names), the mouse position in pixels of the game view and scroll for this frame. "
-		              "Pressed and released last one frame. Returns the keys and buttons down and the mouse position.",
+		              "(KeyCode and MouseButton names), the mouse position in pixels of the game view and scroll for one frame. "
+		              "Pressed and released last one frame. While playing that is the game's next frame: a paused game keeps the "
+		              "presses, releases, mouse movement and scroll until its next frame (play.step, play.advance), however many "
+		              "editor frames come between; graph code that resuming a stopped execution runs reads it too. Returns the "
+		              "keys and buttons down and the mouse position.",
 		              SchemaBuilder::Object()
 		                  .Property("keys", SchemaBuilder::Object("Key name -> down").AdditionalProperties(SchemaBuilder::Boolean()))
 		                  .Property("mouseButtons",

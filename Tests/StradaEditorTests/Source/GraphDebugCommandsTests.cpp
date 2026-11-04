@@ -17,6 +17,7 @@
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Input.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 #include "Strada/Script/VisualScriptDebugger.h"
@@ -815,6 +816,77 @@ TEST_CASE("VisualScriptDebug: graph.continue continues one stop or every stop, r
 	CHECK(resumed["outcome"] == "Resumed");
 	CHECK(resumed["paused"] == false);
 	CHECK(resumed["state"]["pauseHeld"] == false);
+}
+
+TEST_CASE("VisualScriptDebug: input given while an execution is stopped is read by the code the resume runs, then again by the next "
+          "frame")
+{
+	// Input is the application's: what this case presses must not reach the cases after it.
+	struct InputGuard
+	{
+		InputGuard() { Input::Reset(); }
+		~InputGuard() { Input::Reset(); }
+		InputGuard(InputGuard const&) = delete;
+		InputGuard& operator=(InputGuard const&) = delete;
+	} const inputGuard;
+	DebugFixture fixture;
+	// On every update: Ticks += 1 at node 11, then Saw += 1 at node 14 when Space was pressed (the Branch at node 20, its
+	// condition read by node 21). Event.KeyPressed (node 30) adds one to Events at node 31.
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Ticks", "int", 0));
+	document.Variables.push_back(MakeVariable(2, "Saw", "int", 0));
+	document.Variables.push_back(MakeVariable(3, "Events", "int", 0));
+	document.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	AddIncrement(document.Graph, 11, 1);
+	document.Graph.Nodes.push_back(MakeNode(20, "Flow.Branch"));
+	document.Graph.Nodes.push_back(
+		MakeNode(21, "Call:Strada.Input.IsKeyPressed(Strada.KeyCode)", Json::object(), Json::object({{"Key", "Space"}})));
+	AddIncrement(document.Graph, 14, 2);
+	document.Graph.Nodes.push_back(MakeNode(30, "Event.KeyPressed", Json::object({{"Key", "Space"}})));
+	AddIncrement(document.Graph, 31, 3);
+	document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	document.Graph.Links.push_back(MakeLink(11, "Then", 20, "Execute"));
+	document.Graph.Links.push_back(MakeLink(21, "Result", 20, "Condition"));
+	document.Graph.Links.push_back(MakeLink(20, "True", 14, "Execute"));
+	document.Graph.Links.push_back(MakeLink(30, "Then", 31, "Execute"));
+	std::string const graph = fixture.CreateGraph("Scripts/Keys.sgraph", document);
+	std::string const runner = fixture.CreateRunner("Keys", graph);
+	auto const counts = [&fixture, &runner]
+	{
+		return Json::array({fixture.Variable(runner, "Ticks"), fixture.Variable(runner, "Saw"), fixture.Variable(runner, "Events")});
+	};
+
+	// The first frame stops before Ticks is counted.
+	fixture.Start(true);
+	fixture.Breakpoint(graph, Json::object({{"node", 11}}));
+	REQUIRE(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["stopped"] == true);
+
+	// Space is pressed while the execution is stopped; the editor's frames run no game frame and keep the press.
+	fixture.Ok("input.set", Json::object({{"keys", Json::object({{"Space", true}})}}));
+	for (int frame = 0; frame < 3; frame++)
+	{
+		fixture.EditorFrame();
+		Input::EndApplicationFrame();
+	}
+	CHECK(counts() == Json::array({0, 0, 0}));
+	fixture.Ok("graph.breakpoints", Json::object({{"graph", graph}, {"clear", true}}));
+
+	// The resumed code reads the input of that moment (spec-slice4 section 4.12): it sees the press. The frame's key events
+	// were dispatched before the press, and the scene stays paused (the debugger did not pause it).
+	Json const continued = fixture.Ok("graph.continue");
+	CHECK(continued["outcome"] == "Ended");
+	CHECK(continued["paused"] == true);
+	CHECK(counts() == Json::array({1, 1, 0}));
+
+	// The input frame ends only after a game frame (S4-R15.5): the next frame sees the press again, its key event included.
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+	CHECK(counts() == Json::array({2, 2, 1}));
+	// The frame after it sees the key held, not pressed.
+	fixture.EditorFrame();
+	Input::EndApplicationFrame();
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+	CHECK(counts() == Json::array({3, 2, 1}));
+	CHECK(Input::IsKeyDown(KeyCode::Space));
 }
 
 TEST_CASE("VisualScriptDebug: graph.step steps between frames, waits in a Delay with needsFrames, and arms after the execution ended")

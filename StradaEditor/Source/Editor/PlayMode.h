@@ -74,7 +74,14 @@ namespace Strada
 	// The editor's play mode. It runs a copy of the edited scene (Play: scripts, physics and audio; Simulate: physics only)
 	// through a SceneRunner and makes it the scene the panels and automation show and edit (EditorContext::BeginPlay).
 	// Stopping discards the copy and every change made to it. Scenes the scripts load replace the copy, and
-	// Application.Quit stops playing. Main thread only.
+	// Application.Quit stops playing.
+	//
+	// While it plays, play mode owns the game's input frame (Input::SetFrameOwned): the frame ends after each game frame that
+	// Update or Advance ran, and only then, so the input given while no game frame runs (a paused scene, frames refused at a
+	// stop) reaches the next game frame once, whatever editor frames come between. Graph code that a resume of a stopped
+	// execution runs between frames reads the input of that moment, so it reads that input too, and the next game frame then
+	// sees it again. Start begins a clean input frame, keys and buttons held staying down; Stop releases them, then begins
+	// one. Main thread only.
 	class PlayMode
 	{
 	public:
@@ -102,8 +109,8 @@ namespace Strada
 		void RequestStart(EditorPlayState state, uint32_t viewportWidth, uint32_t viewportHeight, Ref<Scene> scene = nullptr,
 		                  StartCallback callback = {}, PlayStartOptions const& options = {});
 		bool IsStartPending() const { return m_StartPending; }
-		// Stops the running scene (its scripts get OnDestroy) and returns to the edited scene. Game input is released. The
-		// observer is told before the scene stops.
+		// Stops the running scene (its scripts get OnDestroy) and returns to the edited scene. Game input is released, and the
+		// input frame is the application's again. The observer is told before the scene stops.
 		void Stop();
 		bool IsPlaying() const { return m_Runner != nullptr; }
 
@@ -139,15 +146,16 @@ namespace Strada
 		void SetUIPointerEnabled(bool enabled) { m_UIPointerEnabled = enabled; }
 		bool IsUIPointerEnabled() const { return m_UIPointerEnabled; }
 
-		// Advances the running scene by the editor's frame time, then follows what its scripts asked for and tells the
-		// observer when a frame ran. Runs no frame while the observer refuses frames, whatever frames are queued. A scene that a
-		// frame of a paused scene loads is paused too, with the steps still queued (Step's frames all run, then play stays
-		// paused); one that a running scene loads runs.
+		// Advances the running scene by the editor's frame time, then follows what its scripts asked for and, when a frame ran,
+		// tells the observer and ends the input frame. Runs no frame while the observer refuses frames, whatever frames are
+		// queued, and the input then waits for the next frame that runs. A scene that a frame of a paused scene loads is paused
+		// too, with the steps still queued (Step's frames all run, then play stays paused); one that a running scene loads runs.
 		void Update(Timestep timestep);
-		// Runs frames at once with a fixed time step (paused scenes too), each ending like an editor frame ends (input
-		// pressed in a frame is seen by that frame only): deterministic play for automation and tests. Stops early when the
-		// scripts quit and when the observer pauses the scene after a frame; runs none while it refuses frames (brought up to
-		// date first). A paused scene stays paused, a scene its frames load included. Returns the number of frames run.
+		// Runs frames at once with a fixed time step (paused scenes too), each ending the input frame (the input given before
+		// the call, also while paused, is seen by the first frame only): deterministic play for automation and tests. Stops
+		// early when the scripts quit and when the observer pauses the scene after a frame; runs none while it refuses frames
+		// (brought up to date first). A paused scene stays paused, a scene its frames load included. Returns the number of
+		// frames run.
 		uint32_t Advance(uint32_t frames, Timestep timestep);
 
 		// The test results and script exceptions of the current run, or of the last one once it stopped (the scripts may end

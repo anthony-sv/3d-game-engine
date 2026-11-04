@@ -1297,7 +1297,7 @@ TEST_CASE("GameInput: the game's UI follows the cursor only while the game has t
 			{
 				fixture.Draw();
 			});
-		Input::EndFrame();
+		Input::EndApplicationFrame();
 	};
 	glm::vec2 const point = GameViewFixture::ViewPoint;
 

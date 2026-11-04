@@ -86,6 +86,83 @@ public sealed class EditorIntegrationTests
 	}
 
 	[Fact]
+	public async Task APausedGameKeepsTheInputAnAgentGivesItForItsNextFrame()
+	{
+		string editor = TestEditor.Require();
+		using TemporaryDirectory directory = new();
+		await using McpTestClient client = new(TestEditor.IsolatedSession(editor, Path.Combine(directory.Path, "UserData")));
+		await client.ResultAsync("initialize", new JsonObject { ["protocolVersion"] = "2025-06-18" });
+		async Task<JsonNode> CallAsync(string tool, JsonObject arguments)
+		{
+			JsonObject result = await client.CallToolAsync(tool, arguments);
+			Assert.False(result["isError"]!.GetValue<bool>(), $"{tool}: {McpTestClient.Text(result)}");
+			return McpTestClient.ParseText(result);
+		}
+
+		await CallAsync("project_create",
+			new JsonObject { ["directory"] = Path.Combine(directory.Path, "Game"), ["name"] = "Game", ["discardChanges"] = true });
+		// A graph that logs each frame Space is pressed in.
+		string graph = (await CallAsync("graph_create", new JsonObject { ["path"] = "Keys.sgraph", ["template"] = "Empty" }))["asset"]!
+			.GetValue<string>();
+		JsonNode edited = await CallAsync("graph_edit", new JsonObject
+		{
+			["graph"] = graph,
+			["operations"] = new JsonArray
+			{
+				new JsonObject { ["op"] = "AddNode", ["type"] = "Event.KeyPressed", ["settings"] = new JsonObject { ["Key"] = "Space" }, ["as"] = "$key" },
+				new JsonObject
+				{
+					["op"] = "AddNode",
+					["type"] = "Call:Strada.Log.Info(string)",
+					["literals"] = new JsonObject { ["Message"] = "Space pressed in the graph" },
+					["as"] = "$log",
+				},
+				new JsonObject { ["op"] = "Connect", ["from"] = new JsonArray("$key", "Then"), ["to"] = new JsonArray("$log", "Execute") },
+				new JsonObject { ["op"] = "Arrange" },
+			},
+		});
+		Assert.Empty(edited["diagnostics"]!.AsArray());
+		await CallAsync("entity_create", new JsonObject
+		{
+			["name"] = "Keys",
+			["components"] = new JsonObject { ["VisualScript"] = new JsonObject { ["Graph"] = graph } },
+		});
+
+		Assert.True((await CallAsync("play_start", new JsonObject { ["paused"] = true }))["paused"]!.GetValue<bool>());
+		// log_read reads oldest first, a page at a time: reads every entry from an index to the log's end, giving the index after
+		// it and how many entries the graph logged.
+		async Task<(long Next, int Presses)> ReadLogAsync(long from)
+		{
+			long next = from;
+			int presses = 0;
+			while (true)
+			{
+				JsonNode read = await CallAsync("log_read", new JsonObject { ["since"] = next });
+				JsonArray entries = read["entries"]!.AsArray();
+				if (entries.Count == 0)
+				{
+					return (next, presses);
+				}
+				presses += entries.Count(entry => entry!["message"]!.GetValue<string>().Contains("Space pressed in the graph", StringComparison.Ordinal));
+				next = read["next"]!.GetValue<long>();
+			}
+		}
+		long since = (await ReadLogAsync(0)).Next;
+		async Task<int> CountPressesAsync() => (await ReadLogAsync(since)).Presses;
+
+		// The editor answers each request in a frame of its own and ends that frame before it reads the next one, so editor
+		// frames, which run no game frame while the game is paused, come between the press and the advance.
+		await CallAsync("input_set", new JsonObject { ["keys"] = new JsonObject { ["Space"] = true } });
+		Assert.Equal(0, await CountPressesAsync());
+		Assert.Equal(1, (await CallAsync("play_advance", new JsonObject { ["frames"] = 1 }))["framesRun"]!.GetValue<int>());
+		Assert.Equal(1, await CountPressesAsync());
+		// The next frame sees the key held, not pressed.
+		await CallAsync("play_advance", new JsonObject { ["frames"] = 1 });
+		Assert.Equal(1, await CountPressesAsync());
+		Assert.Equal("edit", (await CallAsync("play_stop", new JsonObject()))["state"]!.GetValue<string>());
+	}
+
+	[Fact]
 	public async Task EditorsCloseOnceTheProcessThatStartedThemExits()
 	{
 		string editor = TestEditor.Require();

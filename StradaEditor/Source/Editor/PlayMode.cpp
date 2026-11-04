@@ -53,6 +53,9 @@ namespace Strada
 			// The runtime problems of a play session count from its start; those its scripts' OnCreate raise are its own.
 			VisualScriptEngine::ClearLiveLog();
 		}
+		// The game's input frame is play mode's while it plays, and begins clean: what came before playing is not the game's.
+		Input::EndFrame();
+		Input::SetFrameOwned(true);
 		m_Runner = CreateScope<SceneRunner>(settings);
 		m_Runner->Start(running);
 		if (options.Paused)
@@ -122,9 +125,12 @@ namespace Strada
 		m_LastTestReport = m_Runner->GetTestReport();
 		m_Runner.reset();
 		m_Context.EndPlay();
-		// Keys held and a cursor the game locked must not carry over into editing.
+		// Keys held and a cursor the game locked must not carry over into editing, whose input frame is the application's again
+		// and begins clean.
 		Input::ReleaseKeysAndMouseButtons();
 		Input::SetCursorMode(CursorMode::Normal);
+		Input::SetFrameOwned(false);
+		Input::EndFrame();
 		ST_INFO("Stopped playing");
 	}
 
@@ -235,6 +241,9 @@ namespace Strada
 		if (scene->GetRuntimeFrame() != frame)
 		{
 			NotifyFrame(timestep);
+			// The game's input frame ends with a game frame, and only then: an editor frame that runs none (the scene paused,
+			// frames refused at a stop) keeps what the game's input received for the next one.
+			Input::EndFrame();
 		}
 	}
 

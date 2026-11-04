@@ -356,7 +356,8 @@ namespace Strada
 				GraphicsDevice::EndFrame();
 			}
 
-			Input::EndFrame();
+			// Unless something that runs frames of its own owns the input frame and ends it after them (Input::SetFrameOwned).
+			Input::EndApplicationFrame();
 
 			m_FrameCount++;
 			if (m_Specification.MaxFrames != 0 && m_FrameCount >= m_Specification.MaxFrames)
