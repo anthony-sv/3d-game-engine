@@ -1,0 +1,512 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "A shard of a broken prism: it bursts out, then shrinks away.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Kick",
+				"Type": "float",
+				"Value": 2.5,
+				"Public": true,
+				"Tooltip": "The impulse that throws the shard out",
+				"Range": [
+					0.0,
+					20.0
+				]
+			},
+			{
+				"ID": 2,
+				"Name": "Life",
+				"Type": "float",
+				"Value": 1.1,
+				"Public": true,
+				"Tooltip": "Seconds before the shard starts to shrink",
+				"Range": [
+					0.10000000149011612,
+					5.0
+				]
+			},
+			{
+				"ID": 3,
+				"Name": "Fade",
+				"Type": "float",
+				"Value": 0.6,
+				"Public": true,
+				"Tooltip": "Seconds the shard takes to shrink away",
+				"Range": [
+					0.05000000074505806,
+					3.0
+				]
+			},
+			{
+				"ID": 4,
+				"Name": "Size",
+				"Type": "Strada.Vector3",
+				"Value": [
+					1.0,
+					1.0,
+					1.0
+				]
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 6,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						192.0
+					]
+				},
+				{
+					"ID": 7,
+					"Type": "Get:Strada.Random.OnUnitSphere",
+					"Position": [
+						0.0,
+						304.0
+					]
+				},
+				{
+					"ID": 8,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						432.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 9,
+					"Type": "Expression",
+					"Position": [
+						208.0,
+						192.0
+					],
+					"Settings": {
+						"Formula": "(direction + vec3(0, 1.5, 0)) * kick"
+					}
+				},
+				{
+					"ID": 10,
+					"Type": "Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)",
+					"Position": [
+						432.0,
+						192.0
+					],
+					"Inputs": {
+						"Mode": "Impulse"
+					}
+				},
+				{
+					"ID": 11,
+					"Type": "Get:Strada.Random.OnUnitSphere",
+					"Position": [
+						0.0,
+						496.0
+					]
+				},
+				{
+					"ID": 12,
+					"Type": "Expression",
+					"Position": [
+						208.0,
+						336.0
+					],
+					"Settings": {
+						"Formula": "axis * 0.05"
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Call:Strada.RigidBodyComponent.AddTorque(Strada.Vector3,Strada.ForceMode)",
+					"Position": [
+						688.0,
+						192.0
+					],
+					"Inputs": {
+						"Mode": "Impulse"
+					}
+				},
+				{
+					"ID": 14,
+					"Type": "Self",
+					"Position": [
+						0.0,
+						624.0
+					]
+				},
+				{
+					"ID": 15,
+					"Type": "Event.Send",
+					"Position": [
+						944.0,
+						192.0
+					],
+					"Settings": {
+						"Name": "FadeAway",
+						"Parameters": []
+					},
+					"Comment": "The shard's own event: fading waits, in a region of its own"
+				},
+				{
+					"ID": 17,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						800.0
+					],
+					"Settings": {
+						"Name": "FadeAway",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 18,
+					"Type": "Get:Strada.Entity.Scale",
+					"Position": [
+						0.0,
+						912.0
+					]
+				},
+				{
+					"ID": 19,
+					"Type": "Variable.Set",
+					"Position": [
+						240.0,
+						800.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 20,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1040.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 21,
+					"Type": "Flow.Delay",
+					"Position": [
+						432.0,
+						800.0
+					]
+				},
+				{
+					"ID": 22,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1104.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 23,
+					"Type": "Flow.Tween",
+					"Position": [
+						672.0,
+						800.0
+					],
+					"Settings": {
+						"Easing": "EaseIn"
+					}
+				},
+				{
+					"ID": 24,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1168.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 25,
+					"Type": "Expression",
+					"Position": [
+						912.0,
+						800.0
+					],
+					"Settings": {
+						"Formula": "size * (1 - alpha)"
+					}
+				},
+				{
+					"ID": 26,
+					"Type": "Set:Strada.Entity.Scale",
+					"Position": [
+						1120.0,
+						800.0
+					]
+				},
+				{
+					"ID": 27,
+					"Type": "Call:Strada.Entity.Destroy()",
+					"Position": [
+						912.0,
+						944.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						7,
+						"Value"
+					],
+					"To": [
+						9,
+						"direction"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Value"
+					],
+					"To": [
+						9,
+						"kick"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Result"
+					],
+					"To": [
+						10,
+						"Force"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Value"
+					],
+					"To": [
+						12,
+						"axis"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Result"
+					],
+					"To": [
+						13,
+						"Torque"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Self"
+					],
+					"To": [
+						15,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						6,
+						"Then"
+					],
+					"To": [
+						10,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						10,
+						"Then"
+					],
+					"To": [
+						13,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Then"
+					],
+					"To": [
+						15,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Value"
+					],
+					"To": [
+						19,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Value"
+					],
+					"To": [
+						21,
+						"Duration"
+					]
+				},
+				{
+					"From": [
+						22,
+						"Value"
+					],
+					"To": [
+						23,
+						"Duration"
+					]
+				},
+				{
+					"From": [
+						24,
+						"Value"
+					],
+					"To": [
+						25,
+						"size"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Alpha"
+					],
+					"To": [
+						25,
+						"alpha"
+					]
+				},
+				{
+					"From": [
+						25,
+						"Result"
+					],
+					"To": [
+						26,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						17,
+						"Then"
+					],
+					"To": [
+						19,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Then"
+					],
+					"To": [
+						21,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						21,
+						"Completed"
+					],
+					"To": [
+						23,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Update"
+					],
+					"To": [
+						26,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Completed"
+					],
+					"To": [
+						27,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 16,
+					"Text": "Burst out: a kick and a spin in random directions",
+					"Position": [
+						-32.0,
+						120.0
+					],
+					"Size": [
+						1128.0,
+						564.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 28,
+					"Text": "Fade and go: wait, shrink, destroy",
+					"Position": [
+						-32.0,
+						728.0
+					],
+					"Size": [
+						1315.13623046875,
+						500.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

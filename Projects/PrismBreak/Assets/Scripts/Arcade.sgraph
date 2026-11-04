@@ -1,0 +1,1721 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Kind": "Library",
+		"Description": "The arcade rules every graph shares: scores, the prisms' colours, the chimes' notes and pitches, digits in groups and the top-five table.",
+		"Variables": [],
+		"Functions": [
+			{
+				"ID": 1,
+				"Name": "ScoreFor",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Points",
+						"Type": "int"
+					},
+					{
+						"Name": "Combo",
+						"Type": "int"
+					},
+					{
+						"Name": "Level",
+						"Type": "int"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Score",
+						"Type": "int"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 2,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 3,
+							"Type": "Function.Return",
+							"Position": [
+								400.0,
+								0.0
+							]
+						},
+						{
+							"ID": 23,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "points * (10 + 5 * min(combo, 10)) * level / 10"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								2,
+								"Points"
+							],
+							"To": [
+								23,
+								"points"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Combo"
+							],
+							"To": [
+								23,
+								"combo"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Level"
+							],
+							"To": [
+								23,
+								"level"
+							]
+						},
+						{
+							"From": [
+								23,
+								"Result"
+							],
+							"To": [
+								3,
+								"Score"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 24,
+							"Text": "Score: points times the combo factor times the level",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								584.0,
+								234.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 4,
+				"Name": "BrickColor",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Hits",
+						"Type": "int"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Color",
+						"Type": "Strada.Color"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 5,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 6,
+							"Type": "Function.Return",
+							"Position": [
+								592.0,
+								0.0
+							]
+						},
+						{
+							"ID": 25,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Type": "Strada.Color[]",
+								"Value": [
+									[
+										0.08,
+										0.85,
+										1.0,
+										1.0
+									],
+									[
+										1.0,
+										0.12,
+										0.72,
+										1.0
+									],
+									[
+										1.0,
+										0.7,
+										0.08,
+										1.0
+									],
+									[
+										1.0,
+										1.0,
+										1.0,
+										1.0
+									]
+								]
+							}
+						},
+						{
+							"ID": 26,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "clamp(hits - 1, 0, 3)"
+							}
+						},
+						{
+							"ID": 27,
+							"Type": "Array.Get",
+							"Position": [
+								384.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								5,
+								"Hits"
+							],
+							"To": [
+								26,
+								"hits"
+							]
+						},
+						{
+							"From": [
+								25,
+								"Value"
+							],
+							"To": [
+								27,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								26,
+								"Result"
+							],
+							"To": [
+								27,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								27,
+								"Element"
+							],
+							"To": [
+								6,
+								"Color"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 28,
+							"Text": "Brick colour: cyan, magenta, gold, white by hits left",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								776.0,
+								298.0
+							],
+							"Color": [
+								0.6200000047683716,
+								0.30000001192092896,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 7,
+				"Name": "RowNote",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Row",
+						"Type": "int"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Semitones",
+						"Type": "int"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 8,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 9,
+							"Type": "Function.Return",
+							"Position": [
+								592.0,
+								0.0
+							]
+						},
+						{
+							"ID": 29,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								112.0
+							],
+							"Settings": {
+								"Type": "int[]",
+								"Value": [
+									16,
+									14,
+									12,
+									9,
+									7,
+									4,
+									2,
+									0
+								]
+							}
+						},
+						{
+							"ID": 30,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "clamp(row, 0, 7)"
+							}
+						},
+						{
+							"ID": 31,
+							"Type": "Array.Get",
+							"Position": [
+								384.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								8,
+								"Row"
+							],
+							"To": [
+								30,
+								"row"
+							]
+						},
+						{
+							"From": [
+								29,
+								"Value"
+							],
+							"To": [
+								31,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								30,
+								"Result"
+							],
+							"To": [
+								31,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								31,
+								"Element"
+							],
+							"To": [
+								9,
+								"Semitones"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 32,
+							"Text": "Row note: the A minor pentatonic, higher towards the back",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								776.0,
+								298.0
+							],
+							"Color": [
+								0.6200000047683716,
+								0.30000001192092896,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 10,
+				"Name": "PitchOf",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Semitones",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Pitch",
+						"Type": "float"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 11,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 12,
+							"Type": "Function.Return",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 33,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "pow(2, semitones / 12.0)"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								11,
+								"Semitones"
+							],
+							"To": [
+								33,
+								"semitones"
+							]
+						},
+						{
+							"From": [
+								33,
+								"Result"
+							],
+							"To": [
+								12,
+								"Pitch"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 34,
+							"Text": "Pitch: twelve semitones make an octave",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								600.0,
+								186.0
+							],
+							"Color": [
+								0.6200000047683716,
+								0.30000001192092896,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 13,
+				"Name": "GroupDigits",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Value",
+						"Type": "int"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Text",
+						"Type": "string"
+					}
+				],
+				"Locals": [
+					{
+						"ID": 16,
+						"Name": "Digits",
+						"Type": "string",
+						"Value": ""
+					},
+					{
+						"ID": 17,
+						"Name": "Grouped",
+						"Type": "string",
+						"Value": ""
+					}
+				],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 14,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 15,
+							"Type": "Function.Return",
+							"Position": [
+								1296.0,
+								0.0
+							]
+						},
+						{
+							"ID": 35,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "abs(value)"
+							}
+						},
+						{
+							"ID": 36,
+							"Type": "FormatString",
+							"Position": [
+								384.0,
+								0.0
+							],
+							"Settings": {
+								"Format": "{Value}"
+							}
+						},
+						{
+							"ID": 37,
+							"Type": "Variable.Set",
+							"Position": [
+								608.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 16
+							}
+						},
+						{
+							"ID": 38,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 16
+							}
+						},
+						{
+							"ID": 39,
+							"Type": "Variable.Set",
+							"Position": [
+								816.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 17
+							}
+						},
+						{
+							"ID": 40,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								192.0
+							],
+							"Settings": {
+								"Variable": 16
+							}
+						},
+						{
+							"ID": 41,
+							"Type": "String.Length",
+							"Position": [
+								192.0,
+								256.0
+							]
+						},
+						{
+							"ID": 42,
+							"Type": "Expression",
+							"Position": [
+								384.0,
+								272.0
+							],
+							"Settings": {
+								"Formula": "(length - 1) / 3"
+							}
+						},
+						{
+							"ID": 43,
+							"Type": "Flow.ForLoop",
+							"Position": [
+								1008.0,
+								0.0
+							],
+							"Inputs": {
+								"First": 1
+							}
+						},
+						{
+							"ID": 44,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 16
+							}
+						},
+						{
+							"ID": 45,
+							"Type": "String.Length",
+							"Position": [
+								192.0,
+								384.0
+							]
+						},
+						{
+							"ID": 46,
+							"Type": "Expression",
+							"Position": [
+								1296.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "length - 3 * group"
+							}
+						},
+						{
+							"ID": 47,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								320.0
+							],
+							"Settings": {
+								"Variable": 17
+							}
+						},
+						{
+							"ID": 48,
+							"Type": "String.Substring",
+							"Position": [
+								1504.0,
+								0.0
+							],
+							"Inputs": {
+								"Start": 0
+							}
+						},
+						{
+							"ID": 49,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								384.0
+							],
+							"Settings": {
+								"Variable": 17
+							}
+						},
+						{
+							"ID": 50,
+							"Type": "String.Substring",
+							"Position": [
+								1504.0,
+								176.0
+							],
+							"Inputs": {
+								"Length": -1
+							}
+						},
+						{
+							"ID": 51,
+							"Type": "FormatString",
+							"Position": [
+								1776.0,
+								0.0
+							],
+							"Settings": {
+								"Format": "{Head} {Tail}"
+							}
+						},
+						{
+							"ID": 52,
+							"Type": "Variable.Set",
+							"Position": [
+								1968.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 17
+							}
+						},
+						{
+							"ID": 53,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "value < 0"
+							}
+						},
+						{
+							"ID": 54,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								448.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": "-"
+							}
+						},
+						{
+							"ID": 55,
+							"Type": "Literal",
+							"Position": [
+								0.0,
+								576.0
+							],
+							"Settings": {
+								"Type": "string",
+								"Value": ""
+							}
+						},
+						{
+							"ID": 56,
+							"Type": "Select",
+							"Position": [
+								384.0,
+								112.0
+							]
+						},
+						{
+							"ID": 57,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								704.0
+							],
+							"Settings": {
+								"Variable": 17
+							}
+						},
+						{
+							"ID": 58,
+							"Type": "FormatString",
+							"Position": [
+								608.0,
+								128.0
+							],
+							"Settings": {
+								"Format": "{Sign}{Digits}"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								14,
+								"Value"
+							],
+							"To": [
+								35,
+								"value"
+							]
+						},
+						{
+							"From": [
+								35,
+								"Result"
+							],
+							"To": [
+								36,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								36,
+								"Result"
+							],
+							"To": [
+								37,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								38,
+								"Value"
+							],
+							"To": [
+								39,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								40,
+								"Value"
+							],
+							"To": [
+								41,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								41,
+								"Length"
+							],
+							"To": [
+								42,
+								"length"
+							]
+						},
+						{
+							"From": [
+								42,
+								"Result"
+							],
+							"To": [
+								43,
+								"Last"
+							]
+						},
+						{
+							"From": [
+								44,
+								"Value"
+							],
+							"To": [
+								45,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								45,
+								"Length"
+							],
+							"To": [
+								46,
+								"length"
+							]
+						},
+						{
+							"From": [
+								43,
+								"Index"
+							],
+							"To": [
+								46,
+								"group"
+							]
+						},
+						{
+							"From": [
+								47,
+								"Value"
+							],
+							"To": [
+								48,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								46,
+								"Result"
+							],
+							"To": [
+								48,
+								"Length"
+							]
+						},
+						{
+							"From": [
+								49,
+								"Value"
+							],
+							"To": [
+								50,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								46,
+								"Result"
+							],
+							"To": [
+								50,
+								"Start"
+							]
+						},
+						{
+							"From": [
+								48,
+								"Result"
+							],
+							"To": [
+								51,
+								"Head"
+							]
+						},
+						{
+							"From": [
+								50,
+								"Result"
+							],
+							"To": [
+								51,
+								"Tail"
+							]
+						},
+						{
+							"From": [
+								51,
+								"Result"
+							],
+							"To": [
+								52,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								14,
+								"Value"
+							],
+							"To": [
+								53,
+								"value"
+							]
+						},
+						{
+							"From": [
+								53,
+								"Result"
+							],
+							"To": [
+								56,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								54,
+								"Value"
+							],
+							"To": [
+								56,
+								"True"
+							]
+						},
+						{
+							"From": [
+								55,
+								"Value"
+							],
+							"To": [
+								56,
+								"False"
+							]
+						},
+						{
+							"From": [
+								56,
+								"Result"
+							],
+							"To": [
+								58,
+								"Sign"
+							]
+						},
+						{
+							"From": [
+								57,
+								"Value"
+							],
+							"To": [
+								58,
+								"Digits"
+							]
+						},
+						{
+							"From": [
+								58,
+								"Result"
+							],
+							"To": [
+								15,
+								"Text"
+							]
+						},
+						{
+							"From": [
+								14,
+								"Then"
+							],
+							"To": [
+								37,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								37,
+								"Then"
+							],
+							"To": [
+								39,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								39,
+								"Then"
+							],
+							"To": [
+								43,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								43,
+								"Body"
+							],
+							"To": [
+								52,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								43,
+								"Completed"
+							],
+							"To": [
+								15,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 59,
+							"Text": "Group digits: a space before every three from the right",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								2157.572509765625,
+								836.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 18,
+				"Name": "InsertScore",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Scores",
+						"Type": "int[]"
+					},
+					{
+						"Name": "Score",
+						"Type": "int"
+					},
+					{
+						"Name": "Keep",
+						"Type": "int"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Result",
+						"Type": "int[]"
+					}
+				],
+				"Locals": [
+					{
+						"ID": 21,
+						"Name": "At",
+						"Type": "int",
+						"Value": 0
+					},
+					{
+						"ID": 22,
+						"Name": "Kept",
+						"Type": "int[]",
+						"Value": []
+					}
+				],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 19,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 20,
+							"Type": "Function.Return",
+							"Position": [
+								1296.0,
+								128.0
+							]
+						},
+						{
+							"ID": 60,
+							"Type": "Array.Length",
+							"Position": [
+								192.0,
+								0.0
+							]
+						},
+						{
+							"ID": 61,
+							"Type": "Variable.Set",
+							"Position": [
+								400.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 21
+							}
+						},
+						{
+							"ID": 62,
+							"Type": "Flow.ForEach",
+							"Position": [
+								608.0,
+								0.0
+							]
+						},
+						{
+							"ID": 63,
+							"Type": "Expression",
+							"Position": [
+								848.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "score > element"
+							}
+						},
+						{
+							"ID": 64,
+							"Type": "Flow.Branch",
+							"Position": [
+								1056.0,
+								0.0
+							]
+						},
+						{
+							"ID": 65,
+							"Type": "Variable.Set",
+							"Position": [
+								1296.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 21
+							}
+						},
+						{
+							"ID": 66,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 21
+							}
+						},
+						{
+							"ID": 67,
+							"Type": "Array.Insert",
+							"Position": [
+								192.0,
+								128.0
+							]
+						},
+						{
+							"ID": 68,
+							"Type": "Variable.Set",
+							"Position": [
+								848.0,
+								144.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						},
+						{
+							"ID": 69,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								240.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						},
+						{
+							"ID": 70,
+							"Type": "Array.Length",
+							"Position": [
+								192.0,
+								304.0
+							]
+						},
+						{
+							"ID": 71,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "count > keep"
+							}
+						},
+						{
+							"ID": 72,
+							"Type": "Flow.While",
+							"Position": [
+								1056.0,
+								128.0
+							]
+						},
+						{
+							"ID": 73,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								304.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						},
+						{
+							"ID": 74,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								368.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						},
+						{
+							"ID": 75,
+							"Type": "Array.Length",
+							"Position": [
+								192.0,
+								432.0
+							]
+						},
+						{
+							"ID": 76,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								272.0
+							],
+							"Settings": {
+								"Formula": "count - 1"
+							}
+						},
+						{
+							"ID": 77,
+							"Type": "Array.RemoveAt",
+							"Position": [
+								608.0,
+								176.0
+							]
+						},
+						{
+							"ID": 78,
+							"Type": "Variable.Set",
+							"Position": [
+								1296.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						},
+						{
+							"ID": 79,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								432.0
+							],
+							"Settings": {
+								"Variable": 22
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								19,
+								"Scores"
+							],
+							"To": [
+								60,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								60,
+								"Length"
+							],
+							"To": [
+								61,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Scores"
+							],
+							"To": [
+								62,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Score"
+							],
+							"To": [
+								63,
+								"score"
+							]
+						},
+						{
+							"From": [
+								62,
+								"Element"
+							],
+							"To": [
+								63,
+								"element"
+							]
+						},
+						{
+							"From": [
+								63,
+								"Result"
+							],
+							"To": [
+								64,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								62,
+								"Index"
+							],
+							"To": [
+								65,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Scores"
+							],
+							"To": [
+								67,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								66,
+								"Value"
+							],
+							"To": [
+								67,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Score"
+							],
+							"To": [
+								67,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								67,
+								"Result"
+							],
+							"To": [
+								68,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								69,
+								"Value"
+							],
+							"To": [
+								70,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								70,
+								"Length"
+							],
+							"To": [
+								71,
+								"count"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Keep"
+							],
+							"To": [
+								71,
+								"keep"
+							]
+						},
+						{
+							"From": [
+								71,
+								"Result"
+							],
+							"To": [
+								72,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								74,
+								"Value"
+							],
+							"To": [
+								75,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								75,
+								"Length"
+							],
+							"To": [
+								76,
+								"count"
+							]
+						},
+						{
+							"From": [
+								73,
+								"Value"
+							],
+							"To": [
+								77,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								76,
+								"Result"
+							],
+							"To": [
+								77,
+								"Index"
+							]
+						},
+						{
+							"From": [
+								77,
+								"Result"
+							],
+							"To": [
+								78,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Then"
+							],
+							"To": [
+								61,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								61,
+								"Then"
+							],
+							"To": [
+								62,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								62,
+								"Body"
+							],
+							"To": [
+								64,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								64,
+								"True"
+							],
+							"To": [
+								65,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								65,
+								"Then"
+							],
+							"To": [
+								62,
+								"Break"
+							]
+						},
+						{
+							"From": [
+								62,
+								"Completed"
+							],
+							"To": [
+								68,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								68,
+								"Then"
+							],
+							"To": [
+								72,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								72,
+								"Body"
+							],
+							"To": [
+								78,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								72,
+								"Completed"
+							],
+							"To": [
+								20,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								79,
+								"Value"
+							],
+							"To": [
+								20,
+								"Result"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 80,
+							"Text": "Insert a score: in order, highest first, keeping the best",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1485.572509765625,
+								618.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [],
+			"Links": [],
+			"Comments": []
+		}
+	}
+}

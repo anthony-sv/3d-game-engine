@@ -1,0 +1,828 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "A ball: it keeps the level's speed and never flies flat, the paddle aims it, and walls tick.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Game",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The entity whose Game.sgraph sets the ball's speed"
+			},
+			{
+				"ID": 2,
+				"Name": "Paddle",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The paddle that aims the ball"
+			},
+			{
+				"ID": 3,
+				"Name": "MinZ",
+				"Type": "float",
+				"Value": 0.35,
+				"Public": true,
+				"Tooltip": "The least share of the speed along the arena's length, so the ball never flies flat",
+				"Range": [
+					0.10000000149011612,
+					0.8999999761581421
+				]
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 4,
+					"Type": "Event.FixedUpdate",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 5,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						128.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 6,
+					"Type": "RunsGraph",
+					"Position": [
+						240.0,
+						0.0
+					],
+					"Settings": {
+						"Graph": "16187624615347949468"
+					}
+				},
+				{
+					"ID": 7,
+					"Type": "Flow.Branch",
+					"Position": [
+						448.0,
+						0.0
+					]
+				},
+				{
+					"ID": 8,
+					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
+					"Position": [
+						0.0,
+						192.0
+					]
+				},
+				{
+					"ID": 9,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						112.0
+					],
+					"Settings": {
+						"Formula": "length(v) > 0.5"
+					}
+				},
+				{
+					"ID": 10,
+					"Type": "Flow.Branch",
+					"Position": [
+						672.0,
+						0.0
+					]
+				},
+				{
+					"ID": 11,
+					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
+					"Position": [
+						0.0,
+						320.0
+					]
+				},
+				{
+					"ID": 12,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						240.0
+					],
+					"Settings": {
+						"Formula": "normalize(vec3(v.x, 0, v.z))"
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						448.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 14,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						512.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 15,
+					"Type": "Variable.Get",
+					"Position": [
+						240.0,
+						368.0
+					],
+					"Settings": {
+						"Variable": 33,
+						"Graph": "16187624615347949468"
+					}
+				},
+				{
+					"ID": 16,
+					"Type": "Expression",
+					"Position": [
+						448.0,
+						128.0
+					],
+					"Settings": {
+						"Formula": "(abs(d.z) < minZ ? vec3(sign(d.x) * sqrt(1 - minZ * minZ), 0, d.z < 0 ? -minZ : minZ) : d) * speed"
+					}
+				},
+				{
+					"ID": 17,
+					"Type": "Set:Strada.RigidBodyComponent.LinearVelocity",
+					"Position": [
+						896.0,
+						0.0
+					]
+				},
+				{
+					"ID": 19,
+					"Type": "Event.CollisionEnter",
+					"Position": [
+						0.0,
+						688.0
+					]
+				},
+				{
+					"ID": 20,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						816.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 21,
+					"Type": "Operator.Equal",
+					"Position": [
+						240.0,
+						688.0
+					]
+				},
+				{
+					"ID": 22,
+					"Type": "Flow.Branch",
+					"Position": [
+						448.0,
+						688.0
+					]
+				},
+				{
+					"ID": 23,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						0.0,
+						880.0
+					]
+				},
+				{
+					"ID": 24,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1008.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 25,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						240.0,
+						768.0
+					]
+				},
+				{
+					"ID": 26,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1072.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 27,
+					"Type": "Variable.Get",
+					"Position": [
+						240.0,
+						896.0
+					],
+					"Settings": {
+						"Variable": 3,
+						"Graph": "4765866712185969363"
+					}
+				},
+				{
+					"ID": 28,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1136.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 29,
+					"Type": "Variable.Get",
+					"Position": [
+						240.0,
+						1024.0
+					],
+					"Settings": {
+						"Variable": 33,
+						"Graph": "16187624615347949468"
+					}
+				},
+				{
+					"ID": 30,
+					"Type": "Expression",
+					"Position": [
+						448.0,
+						816.0
+					],
+					"Settings": {
+						"Formula": "normalize(vec3(clamp((p.x - q.x) / (w * 0.5), -1, 1) * 1.2, 0, -1)) * speed"
+					}
+				},
+				{
+					"ID": 31,
+					"Type": "Set:Strada.RigidBodyComponent.LinearVelocity",
+					"Position": [
+						672.0,
+						688.0
+					]
+				},
+				{
+					"ID": 32,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1200.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 33,
+					"Type": "Event.Send",
+					"Position": [
+						880.0,
+						688.0
+					],
+					"Settings": {
+						"Name": "PaddleHit",
+						"Graph": "16187624615347949468",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 35,
+					"Type": "Event.CollisionExit",
+					"Position": [
+						0.0,
+						1376.0
+					]
+				},
+				{
+					"ID": 36,
+					"Type": "RunsGraph",
+					"Position": [
+						192.0,
+						1376.0
+					],
+					"Settings": {
+						"Graph": "13847948380584221262"
+					}
+				},
+				{
+					"ID": 37,
+					"Type": "Operator.Not",
+					"Position": [
+						400.0,
+						1376.0
+					]
+				},
+				{
+					"ID": 38,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1504.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 39,
+					"Type": "Operator.NotEqual",
+					"Position": [
+						192.0,
+						1488.0
+					]
+				},
+				{
+					"ID": 40,
+					"Type": "Operator.And",
+					"Position": [
+						592.0,
+						1376.0
+					]
+				},
+				{
+					"ID": 41,
+					"Type": "Flow.Branch",
+					"Position": [
+						720.0,
+						1376.0
+					]
+				},
+				{
+					"ID": 42,
+					"Type": "Call:Strada.AudioSourceComponent.Play()",
+					"Position": [
+						944.0,
+						1376.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						5,
+						"Value"
+					],
+					"To": [
+						6,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						6,
+						"Result"
+					],
+					"To": [
+						7,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Value"
+					],
+					"To": [
+						9,
+						"v"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Result"
+					],
+					"To": [
+						10,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Value"
+					],
+					"To": [
+						12,
+						"v"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Value"
+					],
+					"To": [
+						15,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Result"
+					],
+					"To": [
+						16,
+						"d"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Value"
+					],
+					"To": [
+						16,
+						"minZ"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Value"
+					],
+					"To": [
+						16,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						16,
+						"Result"
+					],
+					"To": [
+						17,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						4,
+						"Then"
+					],
+					"To": [
+						7,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						7,
+						"True"
+					],
+					"To": [
+						10,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						10,
+						"True"
+					],
+					"To": [
+						17,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Other"
+					],
+					"To": [
+						21,
+						"A"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Value"
+					],
+					"To": [
+						21,
+						"B"
+					]
+				},
+				{
+					"From": [
+						21,
+						"Result"
+					],
+					"To": [
+						22,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						24,
+						"Value"
+					],
+					"To": [
+						25,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						26,
+						"Value"
+					],
+					"To": [
+						27,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						28,
+						"Value"
+					],
+					"To": [
+						29,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Value"
+					],
+					"To": [
+						30,
+						"p"
+					]
+				},
+				{
+					"From": [
+						25,
+						"Value"
+					],
+					"To": [
+						30,
+						"q"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Value"
+					],
+					"To": [
+						30,
+						"w"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Value"
+					],
+					"To": [
+						30,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						30,
+						"Result"
+					],
+					"To": [
+						31,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Value"
+					],
+					"To": [
+						33,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Then"
+					],
+					"To": [
+						22,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						22,
+						"True"
+					],
+					"To": [
+						31,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						31,
+						"Then"
+					],
+					"To": [
+						33,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Other"
+					],
+					"To": [
+						36,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Result"
+					],
+					"To": [
+						37,
+						"A"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Other"
+					],
+					"To": [
+						39,
+						"A"
+					]
+				},
+				{
+					"From": [
+						38,
+						"Value"
+					],
+					"To": [
+						39,
+						"B"
+					]
+				},
+				{
+					"From": [
+						37,
+						"Result"
+					],
+					"To": [
+						40,
+						"A"
+					]
+				},
+				{
+					"From": [
+						39,
+						"Result"
+					],
+					"To": [
+						40,
+						"B"
+					]
+				},
+				{
+					"From": [
+						40,
+						"Result"
+					],
+					"To": [
+						41,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Then"
+					],
+					"To": [
+						41,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						41,
+						"True"
+					],
+					"To": [
+						42,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 18,
+					"Text": "Keep the speed and the angle: never slower, never flat",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						1093.5875244140625,
+						644.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 34,
+					"Text": "Bounce off the paddle: where it hits aims the ball",
+					"Position": [
+						-32.0,
+						616.0
+					],
+					"Size": [
+						1064.0,
+						644.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 43,
+					"Text": "Sounds: walls tick as the ball leaves them",
+					"Position": [
+						-32.0,
+						1304.0
+					],
+					"Size": [
+						1139.13623046875,
+						264.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

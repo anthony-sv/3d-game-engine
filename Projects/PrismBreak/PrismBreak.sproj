@@ -1,0 +1,35 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Project"
+	},
+	"Project": {
+		"Name": "Prism Break",
+		"AssetDirectory": "Assets",
+		"ScriptModule": "Scripts/Binaries/Game.dll",
+		"StartScene": "3940582745491761191",
+		"Window": {
+			"Title": "Prism Break",
+			"Width": 1600,
+			"Height": 900,
+			"Fullscreen": false,
+			"VSync": true,
+			"Resizable": true,
+			"Icon": "0"
+		},
+		"Physics": {
+			"FixedTimestep": 0.01666666753590107,
+			"Layers": [
+				"Default",
+				"Ball",
+				"Debris"
+			],
+			"IgnoredCollisions": [
+				{
+					"First": 1,
+					"Second": 2
+				}
+			]
+		}
+	}
+}

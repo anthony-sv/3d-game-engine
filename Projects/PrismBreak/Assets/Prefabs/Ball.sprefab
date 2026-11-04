@@ -1,0 +1,151 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "6904226259725856014",
+			"Components": {
+				"Tag": {
+					"Tag": "Ball"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-100.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.5,
+						0.5,
+						0.5
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"12077860853820750418"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"PointLight": {
+					"Color": [
+						0.6000000238418579,
+						0.8999999761581421,
+						1.0
+					],
+					"Intensity": 5.0,
+					"Range": 4.5,
+					"CastShadows": false
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 1.0,
+					"LinearDamping": 0.0,
+					"AngularDamping": 0.0,
+					"GravityFactor": 0.0,
+					"Layer": 1,
+					"LockTranslation": [
+						false,
+						true,
+						false
+					],
+					"LockRotation": [
+						true,
+						true,
+						true
+					],
+					"ContinuousCollision": true,
+					"AllowSleep": false,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"SphereCollider": {
+					"Radius": 0.5,
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.0,
+					"Restitution": 1.0
+				},
+				"AudioSource": {
+					"Clip": "3103140741877324617",
+					"Stream": false,
+					"Volume": 0.5,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				},
+				"VisualScript": {
+					"Graph": "15510458703511364141",
+					"Variables": {}
+				},
+				"ParticleSystem": {
+					"Emitting": true,
+					"Rate": 90.0,
+					"Burst": 0,
+					"MaxParticles": 120,
+					"LifetimeMin": 0.2199999988079071,
+					"LifetimeMax": 0.3199999928474426,
+					"SpeedMin": 0.0,
+					"SpeedMax": 0.20000000298023224,
+					"Shape": "Point",
+					"ConeAngle": 25.0,
+					"Radius": 0.10000000149011612,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.0,
+					"Drag": 0.0,
+					"StartSize": 0.41999998688697815,
+					"EndSize": 0.0,
+					"StartColor": [
+						0.550000011920929,
+						0.8999999761581421,
+						1.0,
+						0.800000011920929
+					],
+					"EndColor": [
+						0.699999988079071,
+						0.30000001192092896,
+						1.0,
+						0.0
+					],
+					"Intensity": 4.0,
+					"Texture": "17062519787716811591",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		}
+	]
+}

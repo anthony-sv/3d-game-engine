@@ -1,0 +1,228 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "AssetRegistry"
+	},
+	"Assets": [
+		{
+			"Handle": "11547800488507733217",
+			"Type": "AudioClip",
+			"Path": "Audio/Break.wav"
+		},
+		{
+			"Handle": "13179911639738533020",
+			"Type": "AudioClip",
+			"Path": "Audio/Chime.wav"
+		},
+		{
+			"Handle": "16024554301025726134",
+			"Type": "AudioClip",
+			"Path": "Audio/GameOver.wav"
+		},
+		{
+			"Handle": "8291703953977282527",
+			"Type": "AudioClip",
+			"Path": "Audio/Launch.wav"
+		},
+		{
+			"Handle": "6602817633436078800",
+			"Type": "AudioClip",
+			"Path": "Audio/LevelClear.wav"
+		},
+		{
+			"Handle": "5241107635047197754",
+			"Type": "AudioClip",
+			"Path": "Audio/Lose.wav"
+		},
+		{
+			"Handle": "15818379475557133030",
+			"Type": "AudioClip",
+			"Path": "Audio/Music.wav"
+		},
+		{
+			"Handle": "5170520405645817114",
+			"Type": "AudioClip",
+			"Path": "Audio/Paddle.wav"
+		},
+		{
+			"Handle": "6062470823272377371",
+			"Type": "AudioClip",
+			"Path": "Audio/PowerUp.wav"
+		},
+		{
+			"Handle": "3103140741877324617",
+			"Type": "AudioClip",
+			"Path": "Audio/Wall.wav"
+		},
+		{
+			"Handle": "12077860853820750418",
+			"Type": "Material",
+			"Path": "Materials/Ball.smat"
+		},
+		{
+			"Handle": "8570142900335388656",
+			"Type": "Material",
+			"Path": "Materials/Capsule S.smat"
+		},
+		{
+			"Handle": "5112360305477460651",
+			"Type": "Material",
+			"Path": "Materials/Capsule W.smat"
+		},
+		{
+			"Handle": "10948100864844623601",
+			"Type": "Material",
+			"Path": "Materials/Floor.smat"
+		},
+		{
+			"Handle": "2968067456274945838",
+			"Type": "Material",
+			"Path": "Materials/Neon Cyan.smat"
+		},
+		{
+			"Handle": "8889971154062778474",
+			"Type": "Material",
+			"Path": "Materials/Neon Magenta.smat"
+		},
+		{
+			"Handle": "2097412967789710364",
+			"Type": "Material",
+			"Path": "Materials/Paddle.smat"
+		},
+		{
+			"Handle": "14621940172495473550",
+			"Type": "Material",
+			"Path": "Materials/Prism.smat"
+		},
+		{
+			"Handle": "18280849970005906929",
+			"Type": "Material",
+			"Path": "Materials/Shard.smat"
+		},
+		{
+			"Handle": "16321436330243259267",
+			"Type": "Material",
+			"Path": "Materials/Wall.smat"
+		},
+		{
+			"Handle": "3115835014970922486",
+			"Type": "Mesh",
+			"Path": "Meshes/Prism.gltf"
+		},
+		{
+			"Handle": "16568725629833532187",
+			"Type": "Prefab",
+			"Path": "Prefabs/Ball.sprefab"
+		},
+		{
+			"Handle": "9805890593768152517",
+			"Type": "Prefab",
+			"Path": "Prefabs/Brick.sprefab"
+		},
+		{
+			"Handle": "13894868768383662743",
+			"Type": "Prefab",
+			"Path": "Prefabs/Burst.sprefab"
+		},
+		{
+			"Handle": "16507470848903541304",
+			"Type": "Prefab",
+			"Path": "Prefabs/PowerUp.sprefab"
+		},
+		{
+			"Handle": "15474098767377082864",
+			"Type": "Prefab",
+			"Path": "Prefabs/Shard.sprefab"
+		},
+		{
+			"Handle": "3940582745491761191",
+			"Type": "Scene",
+			"Path": "Scenes/Main.sscene"
+		},
+		{
+			"Handle": "287140964645058347",
+			"Type": "Scene",
+			"Path": "Scenes/Tests.sscene"
+		},
+		{
+			"Handle": "15550966734022881573",
+			"Type": "VisualScript",
+			"Path": "Scripts/Arcade.sgraph"
+		},
+		{
+			"Handle": "15510458703511364141",
+			"Type": "VisualScript",
+			"Path": "Scripts/Ball.sgraph"
+		},
+		{
+			"Handle": "13847948380584221262",
+			"Type": "VisualScript",
+			"Path": "Scripts/Brick.sgraph"
+		},
+		{
+			"Handle": "5259334590175331865",
+			"Type": "VisualScript",
+			"Path": "Scripts/CameraRig.sgraph"
+		},
+		{
+			"Handle": "12750201027211558374",
+			"Type": "VisualScript",
+			"Path": "Scripts/Checks.sgraph"
+		},
+		{
+			"Handle": "11895894818145791944",
+			"Type": "VisualScript",
+			"Path": "Scripts/Drain.sgraph"
+		},
+		{
+			"Handle": "16187624615347949468",
+			"Type": "VisualScript",
+			"Path": "Scripts/Game.sgraph"
+		},
+		{
+			"Handle": "2431995185977692121",
+			"Type": "VisualScript",
+			"Path": "Scripts/Hud.sgraph"
+		},
+		{
+			"Handle": "12244870154176650040",
+			"Type": "VisualScript",
+			"Path": "Scripts/Lights.sgraph"
+		},
+		{
+			"Handle": "4765866712185969363",
+			"Type": "VisualScript",
+			"Path": "Scripts/Paddle.sgraph"
+		},
+		{
+			"Handle": "16237280789620136492",
+			"Type": "VisualScript",
+			"Path": "Scripts/PowerUp.sgraph"
+		},
+		{
+			"Handle": "556801530665048118",
+			"Type": "VisualScript",
+			"Path": "Scripts/Shard.sgraph"
+		},
+		{
+			"Handle": "1467206060255884811",
+			"Type": "Texture",
+			"Path": "Textures/Glow.png"
+		},
+		{
+			"Handle": "17139266264462451748",
+			"Type": "Texture",
+			"Path": "Textures/Grid.png"
+		},
+		{
+			"Handle": "10404948983529078583",
+			"Type": "Texture",
+			"Path": "Textures/Life.png"
+		},
+		{
+			"Handle": "17062519787716811591",
+			"Type": "Texture",
+			"Path": "Textures/Spark.png"
+		}
+	]
+}
