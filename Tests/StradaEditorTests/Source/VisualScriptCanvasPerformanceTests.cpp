@@ -5,9 +5,15 @@
 #include "VisualScriptTestUtilities.h"
 
 #include "Editor/Commands/AssetCommands.h"
+#include "Editor/Commands/EntityCommands.h"
+#include "Editor/EditorScripts.h"
+#include "Editor/PlayMode.h"
 #include "Editor/VisualScripting/VisualScriptBrushes.h"
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
+#include "Editor/VisualScripting/VisualScriptDebugSession.h"
+#include "Editor/VisualScripting/VisualScriptDebugValues.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
+#include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptLiteralEditor.h"
 #include "Editor/VisualScripting/VisualScriptThemeStyle.h"
@@ -18,6 +24,7 @@
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Script/VisualScriptDebugger.h"
 #include "Strada/Script/VisualScriptEngine.h"
 
 #include <doctest/doctest.h>
@@ -382,6 +389,10 @@ namespace
 	constexpr double T2EnumMilliseconds = 8.12;
 	// The graph window's whole frame (ImGui's included) with the mouse on the live widget of a float, a vector and an enum chip.
 	constexpr std::array<double, 3> WindowFrameMilliseconds = {3.08, 3.07, 3.07};
+	// The debugger's frames (spec-slice4 §21): a watched 2,000-node graph's flow, and 200 value pills with their request, as
+	// track U1 measured them in Debug.
+	constexpr double WatchedFlowMilliseconds = 10.5;
+	constexpr double ValuePillsMilliseconds = 27.5;
 #else
 	constexpr double T1Milliseconds = 1.03;
 	constexpr double T2Milliseconds = 0.832;
@@ -396,6 +407,10 @@ namespace
 	constexpr double T2VectorMilliseconds = 0.821;
 	constexpr double T2EnumMilliseconds = 0.829;
 	constexpr std::array<double, 3> WindowFrameMilliseconds = {0.447, 0.445, 0.462};
+	// Track U1 measured them (3 runs of 60 frames, medians): the flow 0.349-0.379 ms against the 1 ms target; the pills
+	// 1.00-1.04 ms against the 0.4 ms target, most of it the managed read of the values, which the window makes 10 times a second.
+	constexpr double WatchedFlowMilliseconds = 0.379;
+	constexpr double ValuePillsMilliseconds = 1.04;
 #endif
 
 	// The chips of T2's live widget: a float, a vector and an enum (the grid's Delay and Add Force).
@@ -810,6 +825,180 @@ TEST_CASE("VisualScriptEditor: the frame that commits a new link in a graph of 2
 				CHECK(Median(milliseconds) <= 3.0 * LinkFrameMilliseconds);
 			}
 		}
+	}
+}
+
+namespace
+{
+	// On every update a chain of 666 increments of one variable (each a Set, an Add and a Get): 1,999 nodes and 666 exec wires
+	// that fire every frame, laid out in rows of columns increments spacing apart (spec-slice4 §21).
+	VisualScriptDocument MakeIncrementChain(uint32_t columns, glm::vec2 spacing)
+	{
+		VisualScriptDocument document;
+		VisualScriptVariable count;
+		count.ID = 1;
+		count.Name = "Count";
+		count.Type = "int";
+		count.Value = 0;
+		document.Variables.push_back(std::move(count));
+		auto const node = [](uint32_t id, std::string type, glm::vec2 position, Json settings, Json inputs)
+		{
+			VisualScriptNode made;
+			made.ID = id;
+			made.Type = std::move(type);
+			made.Position = position;
+			made.Settings = std::move(settings);
+			made.Inputs = std::move(inputs);
+			return made;
+		};
+		document.Graph.Nodes.push_back(node(2, "Event.Update", glm::vec2(-400.0f, 0.0f), Json::object(), Json::object()));
+		uint32_t previous = 2;
+		for (uint32_t index = 0; index < 666; index++)
+		{
+			uint32_t const set = 10 + index * 3;
+			glm::vec2 const at = glm::vec2(static_cast<float>(index % columns), static_cast<float>(index / columns)) * spacing;
+			document.Graph.Nodes.push_back(node(set, "Variable.Set", at, Json::object({{"Variable", 1}}), Json::object()));
+			document.Graph.Nodes.push_back(
+				node(set + 1, "Operator.Add", at + glm::vec2(0.0f, 160.0f), Json::object(), Json::object({{"B", 1}})));
+			document.Graph.Nodes.push_back(
+				node(set + 2, "Variable.Get", at + glm::vec2(-160.0f, 160.0f), Json::object({{"Variable", 1}}), Json::object()));
+			document.Graph.Links.push_back({{set + 2, "Value"}, {set + 1, "A"}});
+			document.Graph.Links.push_back({{set + 1, "Result"}, {set, "Value"}});
+			document.Graph.Links.push_back({{previous, "Then"}, {set, "Execute"}});
+			previous = set;
+		}
+		return document;
+	}
+
+	// The chain's window, the scripting runtime, play mode and the debug session, playing with a runner of the chain.
+	struct WatchedChain
+	{
+		explicit WatchedChain(uint32_t columns = 37, glm::vec2 spacing = glm::vec2(480.0f, 420.0f))
+			: Window(MakeIncrementChain(columns, spacing), &Engine)
+		{
+			EntityCreateInfo info;
+			info.Name = "Runner";
+			info.Components = Json::object({{"VisualScript", Json::object({{"Graph", Window.Graph.ToString()}})}});
+			Result<UUID> const runner = Window.Operations.CreateEntity(info);
+			REQUIRE(runner.IsOk());
+			Runner = runner.GetValue();
+			Play.SetObserver(&Session);
+			Session.SetWatches({VisualScriptDebugWatch{Window.Graph, 0}});
+			REQUIRE(Play.Start(EditorPlayState::Play, 640, 480, nullptr, PlayStartOptions()).IsOk());
+			REQUIRE(Session.IsAttached());
+		}
+
+		Testing::ScriptRuntimeScope Runtime;
+		EngineVisualScriptSemantics Engine;
+		Testing::PanelFixture Window;
+		EditorScripts Scripts{Window.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+		PlayMode Play{Window.Context, Scripts};
+		VisualScriptDebugSession Session{Window.Context, Play};
+		UUID Runner = UUID::Invalid();
+
+		~WatchedChain()
+		{
+			Play.Stop();
+			Play.SetObserver(nullptr);
+		}
+
+		WatchedChain(WatchedChain const&) = delete;
+		WatchedChain& operator=(WatchedChain const&) = delete;
+	};
+}
+
+TEST_CASE("VisualScriptDebug: a watched 2,000-node graph's flow frame")
+{
+	// Spec-slice4 §21: one watched graph of 2,000 nodes whose every exit fires each frame: the session's take, the window's flow
+	// model and the overlays it draws, beside the same window drawn without them.
+	WatchedChain chain;
+	VisualScriptEditorPanel& panel = *chain.Window.Panel;
+	VisualScriptWindowDebugInput input;
+	input.Attached = true;
+	input.Attachment = 1;
+	input.ShowFlow = true;
+	VisualScriptDrawRecord record;
+	panel.SetDrawRecord(&record);
+	bool const performance = Testing::ArePerformanceTestsEnabled();
+	std::vector<double> withFlow;
+	std::vector<double> without;
+	for (int frame = 0, frames = performance ? 60 : 4; frame < frames; frame++)
+	{
+		chain.Play.Update(Timestep(1.0f / 60.0f));
+		chain.Session.EndFrame();
+		auto const start = std::chrono::steady_clock::now();
+		input.Flow = chain.Session.TakeFlow(chain.Window.Graph, 0);
+		input.FlowTime = chain.Session.GetFlowTime();
+		panel.SetDebugInput(&input);
+		chain.Window.Frames(1);
+		withFlow.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+		// Every one of the 666 increments ran, and the overlays keep to their caps.
+		CHECK(record.Count(VisualScriptDrawItemKind::FlowWire) <= 512);
+		CHECK(record.Count(VisualScriptDrawItemKind::RunGlow) <= 512);
+		CHECK(panel.GetFlowModel().GetCount(10 + 665 * 3) >= 1);
+		panel.SetDebugInput(nullptr);
+		auto const plainStart = std::chrono::steady_clock::now();
+		chain.Window.Frames(1);
+		without.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - plainStart).count());
+	}
+	panel.SetDrawRecord(nullptr);
+	if (performance)
+	{
+		double const flowCost = Median(withFlow) - Median(without);
+		MESSAGE("a watched 2,000-node graph's flow frame: ", Median(withFlow), " ms with the take, the flow model and the overlays, ",
+		        Median(without), " ms without (", flowCost, " ms for the flow)");
+		CHECK(flowCost <= 3.0 * WatchedFlowMilliseconds);
+	}
+}
+
+TEST_CASE("VisualScriptDebug: 200 value pills with their request")
+{
+	// Spec-slice4 §21: the running instance's values of the chain's nodes read (Wire Values: Always), formatted and drawn on
+	// the data wires, at most 200 pills.
+	// A hundred increments (200 data wires) in a view at the Compact level, where pills are drawn.
+	WatchedChain chain(10, glm::vec2(180.0f, 150.0f));
+	chain.Play.Update(Timestep(1.0f / 60.0f));
+	VisualScriptEditorPanel& panel = *chain.Window.Panel;
+	VisualScriptOpenRequest view;
+	view.Graph = chain.Window.Graph;
+	view.Center = glm::vec2(800.0f, 700.0f);
+	view.Zoom = 0.55f;
+	panel.Apply(view);
+	chain.Window.Frames(2);
+	VisualScriptWindowDebugInput input;
+	input.Attached = true;
+	input.Attachment = 1;
+	input.WireValues = true;
+	input.LiveWireValues = true;
+	VisualScriptDrawRecord record;
+	panel.SetDrawRecord(&record);
+	bool const performance = Testing::ArePerformanceTestsEnabled();
+	std::vector<double> withValues;
+	std::vector<double> without;
+	for (int frame = 0, frames = performance ? 60 : 3; frame < frames; frame++)
+	{
+		// The window manager's read of the wires in view (VisualScriptEditors::ReadLiveWireValues), and the frame that draws them.
+		auto const start = std::chrono::steady_clock::now();
+		input.Values = VisualScriptEditors::ReadLiveWireValues(chain.Window.Model(), chain.Runner, chain.Engine.GetLibrary().get(),
+		                                                       chain.Window.Context.GetScene());
+		panel.SetDebugInput(&input);
+		chain.Window.Frames(1);
+		withValues.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+		CHECK(record.Count(VisualScriptDrawItemKind::ValuePill) <= 200);
+		CHECK(record.Count(VisualScriptDrawItemKind::ValuePill) >= 100);
+		CHECK(input.Values.size() <= 200);
+		panel.SetDebugInput(nullptr);
+		auto const plainStart = std::chrono::steady_clock::now();
+		chain.Window.Frames(1);
+		without.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - plainStart).count());
+	}
+	panel.SetDrawRecord(nullptr);
+	if (performance)
+	{
+		double const pillCost = Median(withValues) - Median(without);
+		MESSAGE("200 value pills with their request: ", Median(withValues), " ms with them, ", Median(without), " ms without (", pillCost,
+		        " ms for the pills)");
+		CHECK(pillCost <= 3.0 * ValuePillsMilliseconds);
 	}
 }
 

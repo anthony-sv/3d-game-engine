@@ -2,6 +2,8 @@
 
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/VisualScripting/VisualScriptDebugSession.h"
+#include "Editor/VisualScripting/VisualScriptDebugValues.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
@@ -12,7 +14,10 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Project/Project.h"
+#include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/VisualScriptDebugger.h"
 
 #include <imgui_internal.h>
 
@@ -49,6 +54,98 @@ namespace Strada
 		bool IsRegisteredVisualScript(AssetHandle graph)
 		{
 			return AssetManager::IsInitialized() && AssetManager::GetAssetType(graph) == AssetType::VisualScript;
+		}
+
+		// Live wire values are read at most this often (seconds): 10 times a second (spec-slice4 §13.4).
+		constexpr double LiveWireValueInterval = 0.1;
+
+		// The first code points of a text (a value pill's), with an ellipsis when it was longer.
+		std::string CutToCodePoints(std::string const& text, size_t codePoints)
+		{
+			size_t count = 0;
+			for (size_t index = 0; index < text.size(); index++)
+			{
+				if ((static_cast<unsigned char>(text[index]) & 0xC0) != 0x80)
+				{
+					if (count == codePoints)
+					{
+						return text.substr(0, index) + std::string(VisualScriptDebugValueTexts::Ellipsis);
+					}
+					count++;
+				}
+			}
+			return text;
+		}
+
+		// "Enemy 3 (1234)": an entity of the running scene by name, with its ID.
+		std::string DescribeDebugEntity(Scene& scene, UUID entity)
+		{
+			if (!entity.IsValid())
+			{
+				return "no entity";
+			}
+			if (!scene.HasEntity(entity))
+			{
+				return fmt::format("Missing ({})", entity);
+			}
+			return fmt::format("{} ({})", scene.GetEntityByUUID(entity).GetName(), entity);
+		}
+
+		// The words a stop's reason ends its strip's line with.
+		std::string_view GetStopReasonWords(VisualScriptStopReason reason)
+		{
+			switch (reason)
+			{
+				case VisualScriptStopReason::Breakpoint:
+					return "breakpoint";
+				case VisualScriptStopReason::Step:
+					return "step";
+				case VisualScriptStopReason::Break:
+					return "break";
+				case VisualScriptStopReason::RunTo:
+					return "run to node";
+				case VisualScriptStopReason::Error:
+					return "error";
+				case VisualScriptStopReason::Passed:
+					return "passed breakpoint";
+			}
+			return "breakpoint";
+		}
+
+		// What a stop-ended reason says in the strip's parenthesis.
+		std::string_view GetHeldCause(std::string_view reason)
+		{
+			if (reason == VisualScriptDebugSession::StopEndedByEdit)
+			{
+				return "cancelled by your edit";
+			}
+			if (reason == VisualScriptDebugSession::StopEndedByDestroy)
+			{
+				return "its entity was destroyed";
+			}
+			if (reason == VisualScriptDebugSession::StopEndedBySceneLoad)
+			{
+				return "a script loaded another scene";
+			}
+			return "it ended without a resume";
+		}
+
+		// Why a breakpoint does not stop now (spec-slice4 §2.6), as graph.breakpoints says it; empty while it is active.
+		std::string GetInactiveReason(VisualScriptBreakpointState const* counted, bool library, UUID target, bool targetGone)
+		{
+			if (counted != nullptr && counted->Reason == VisualScriptBreakpointInactivity::NotInProgram)
+			{
+				return "not in the running program: the graph has errors";
+			}
+			if (!library && target.IsValid() && targetGone)
+			{
+				return fmt::format("the target {} was destroyed", target);
+			}
+			if (counted == nullptr || !counted->Active)
+			{
+				return library ? "no running graph calls this library" : "no entity runs it";
+			}
+			return {};
 		}
 
 		bool HasElement(VisualScriptGraph const& graph, uint32_t id)
@@ -174,9 +271,12 @@ namespace Strada
 				CreateScope<VisualScriptEditorPanel>(request.Graph, m_Operations, m_Semantics, m_Settings, m_EditSession, m_Services),
 				{},
 				false,
-				{}});
+				{},
+				CreateScope<VisualScriptWindowDebugInput>(),
+				-1.0e30});
 			window = &m_Windows.back();
 			window->Panel->SetProjectIndex(&m_ProjectIndex);
+			window->Panel->SetDebugInput(m_DebugSession != nullptr ? window->Debug.get() : nullptr);
 			RefreshPath(*window);
 		}
 		window->Panel->Apply(applied);
@@ -299,6 +399,7 @@ namespace Strada
 		EndInteractions();
 		OpenOtherGraphRequests();
 		UpdateTitles();
+		UpdateDebugging();
 
 		std::vector<size_t> closed;
 		for (size_t i = 0; i < m_Windows.size(); i++)
@@ -333,6 +434,7 @@ namespace Strada
 			RemoveWindows(closed);
 			SaveViews();
 		}
+		ApplyDebugRequests();
 
 		// Taken first: a callback may ask for the draw after this one.
 		std::vector<std::function<void()>> const callbacks = std::exchange(m_AfterDraw, {});
@@ -615,17 +717,601 @@ namespace Strada
 
 	void VisualScriptEditors::OpenOtherGraphRequests()
 	{
-		std::vector<VisualScriptOpenRequest> requests;
+		// Each request with the window that asked, which learns of a failure (spec-slice4 §13.10).
+		std::vector<std::pair<AssetHandle, VisualScriptOpenRequest>> requests;
 		for (GraphWindow& window : m_Windows)
 		{
-			std::vector<VisualScriptOpenRequest> taken = window.Panel->TakeOtherGraphRequests();
-			requests.insert(requests.end(), std::make_move_iterator(taken.begin()), std::make_move_iterator(taken.end()));
-		}
-		for (VisualScriptOpenRequest const& request : requests)
-		{
-			if (Result<VisualScriptEditorState> opened = Open(request); !opened)
+			for (VisualScriptOpenRequest& request : window.Panel->TakeOtherGraphRequests())
 			{
-				ST_WARN("Could not open the visual script: {}", opened.GetError());
+				requests.emplace_back(window.Panel->GetGraph(), std::move(request));
+			}
+		}
+		for (auto const& [from, request] : requests)
+		{
+			Result<VisualScriptEditorState> const opened = Open(request);
+			if (opened)
+			{
+				continue;
+			}
+			ST_WARN("Could not open the visual script: {}", opened.GetError());
+			if (GraphWindow* asking = FindGraphWindow(from))
+			{
+				asking->Panel->OnOtherGraphOpenFailed(request, opened.GetError());
+			}
+		}
+	}
+
+	void VisualScriptEditors::SetDebugSession(VisualScriptDebugSession* session)
+	{
+		m_DebugSession = session;
+		for (GraphWindow& window : m_Windows)
+		{
+			*window.Debug = VisualScriptWindowDebugInput();
+			window.Panel->SetDebugInput(session != nullptr ? window.Debug.get() : nullptr);
+		}
+	}
+
+	void VisualScriptEditors::FollowStop(VisualScriptStop const& stop)
+	{
+		// The innermost frame that is a graph's (a passed stop's innermost frames can be engine code).
+		for (uint32_t frame = 0; frame < stop.Frames.size(); frame++)
+		{
+			if (stop.Frames[frame].Kind != VisualScriptStopFrameKind::Native)
+			{
+				FollowFrame(stop, frame);
+				return;
+			}
+		}
+	}
+
+	void VisualScriptEditors::FollowFrame(VisualScriptStop const& stop, uint32_t frame)
+	{
+		if (frame >= stop.Frames.size() || stop.Frames[frame].Kind == VisualScriptStopFrameKind::Native)
+		{
+			return;
+		}
+		VisualScriptStopFrame const& shown = stop.Frames[frame];
+		VisualScriptOpenRequest request;
+		request.Graph = shown.Document;
+		request.Function = shown.Function;
+		request.ShowNode = shown.Node;
+		request.FromDebugger = true;
+		request.Focus = true;
+		if (Result<VisualScriptEditorState> const opened = Open(request); !opened)
+		{
+			ST_WARN("The debugger could not show where the execution stopped: {}", opened.GetError());
+		}
+	}
+
+	void VisualScriptEditors::OnTargetChanged(AssetHandle graph, UUID entity)
+	{
+		if (GraphWindow* window = FindGraphWindow(graph); window != nullptr && window->Panel->GetDebugTarget() != entity)
+		{
+			window->Panel->ChooseContextEntity(entity);
+		}
+	}
+
+	void VisualScriptEditors::OnStopEnded(AssetHandle graph, std::string const& reason)
+	{
+		m_HeldGraph = graph;
+		m_HeldReason = reason;
+		VisualScriptEditorPanel* panel = graph.IsValid() ? FindPanel(graph) : nullptr;
+		if (panel == nullptr)
+		{
+			panel = GetEditTarget();
+		}
+		if (panel != nullptr)
+		{
+			panel->ShowToast(reason);
+		}
+		else
+		{
+			ST_INFO("{}", reason);
+		}
+	}
+
+	VisualScriptWindowDebugInput const* VisualScriptEditors::FindDebugInput(AssetHandle graph)
+	{
+		GraphWindow* window = FindGraphWindow(graph);
+		return window != nullptr && m_DebugSession != nullptr ? window->Debug.get() : nullptr;
+	}
+
+	void VisualScriptEditors::UpdateDebugging()
+	{
+		if (m_DebugSession == nullptr)
+		{
+			return;
+		}
+		VisualScriptDebugSession& session = *m_DebugSession;
+		bool const attached = session.IsAttached();
+		if (attached && !m_WasAttached)
+		{
+			m_Attachment++;
+		}
+		if (!attached && m_WasAttached)
+		{
+			// The debugger's opens leave the history's stop session with it.
+			for (GraphWindow const& window : m_Windows)
+			{
+				window.Panel->EndDebuggerNavigation();
+			}
+			m_LastStopGraph = AssetHandle();
+		}
+		m_WasAttached = attached;
+		VisualScriptDebugState const& state = session.GetState();
+		if (state.Current)
+		{
+			if (VisualScriptStop const* current = session.FindStop(*state.Current); current != nullptr && !current->Frames.empty())
+			{
+				m_LastStopGraph = current->Frames.front().Document;
+			}
+		}
+		if (!attached || !session.HasPausedScene() || !state.Stops.empty())
+		{
+			m_HeldGraph = AssetHandle();
+			m_HeldReason.clear();
+		}
+
+		std::vector<VisualScriptDebugWatch> watches;
+		for (GraphWindow& window : m_Windows)
+		{
+			BuildDebugInput(window, watches);
+		}
+		session.SetWatches(std::move(watches));
+		// The flow of the watched sub-graphs, taken once the watches are what the windows show.
+		for (GraphWindow& window : m_Windows)
+		{
+			VisualScriptWindowDebugInput& input = *window.Debug;
+			input.Flow = VisualScriptFlowTake();
+			if (input.ShowFlow && window.Panel->IsVisible())
+			{
+				input.Flow = session.TakeFlow(window.Panel->GetGraph(), input.FlowFunction);
+			}
+		}
+	}
+
+	void VisualScriptEditors::BuildDebugInput(GraphWindow& window, std::vector<VisualScriptDebugWatch>& watches)
+	{
+		VisualScriptDebugSession& session = *m_DebugSession;
+		VisualScriptEditorPanel& panel = *window.Panel;
+		VisualScriptWindowDebugInput& input = *window.Debug;
+		panel.SetDebugInput(&input);
+		AssetHandle const graph = panel.GetGraph();
+		VisualScriptEditorModel const& model = panel.GetModel();
+		bool const library = model.GetStoredDocument() != nullptr && model.GetDisplayDocument().Kind == VisualScriptDocumentKind::Library;
+		uint32_t const function = model.GetFunction();
+		bool const attached = session.IsAttached();
+		bool const mac = ImGui::GetIO().ConfigMacOSXBehaviors;
+		Scene& scene = m_Operations.GetContext().GetScene();
+		VisualScriptDebugState const& state = session.GetState();
+
+		VisualScriptWindowDebugInput previous = std::move(input);
+		input = VisualScriptWindowDebugInput();
+		input.Attached = attached;
+		input.Attachment = m_Attachment;
+		input.BreakpointChord = FormatVisualScriptChord(ImGuiKey_F9, mac);
+		VisualScriptWireValues const wireValues = m_Settings.GetWireValues();
+		input.WireValues = wireValues != VisualScriptWireValues::Off;
+		input.LiveWireValues = wireValues == VisualScriptWireValues::Always;
+		input.ShowFlow = attached && m_Settings.IsShowFlow();
+		input.FlowFunction = function;
+		input.FlowTime = session.GetFlowTime();
+		if (panel.IsVisible() && model.GetStoredDocument() != nullptr)
+		{
+			watches.push_back(VisualScriptDebugWatch{graph, function});
+		}
+		// The window's target: what its Instance combo shows (spec-slice4 §13.6). A function library runs on no entity.
+		if (!library && model.GetStoredDocument() != nullptr)
+		{
+			session.SetTarget(graph, panel.GetDebugTarget());
+		}
+		UUID const target = library ? UUID::Invalid() : session.GetTarget(graph);
+
+		// The stop selected, and where it stands in this document.
+		std::optional<uint64_t> const selected = session.GetSelectedStop();
+		VisualScriptStop const* stop = selected ? session.FindStop(*selected) : nullptr;
+		uint32_t const frameIndex = session.GetSelectedFrame();
+
+		// The breakpoints of the document.
+		for (VisualScriptBreakpoint const& breakpoint : session.GetBreakpoints().Get(graph))
+		{
+			VisualScriptWindowBreakpoint& shown = input.Breakpoints.emplace_back();
+			shown.Breakpoint = breakpoint;
+			auto const counted = std::find_if(state.Breakpoints.begin(), state.Breakpoints.end(),
+			                                  [graph, &breakpoint](VisualScriptBreakpointState const& candidate)
+			                                  {
+												  return candidate.Document == graph && candidate.Node == breakpoint.Node;
+											  });
+			VisualScriptBreakpointState const* report = counted != state.Breakpoints.end() ? &*counted : nullptr;
+			if (report != nullptr)
+			{
+				shown.Reached = report->Reached;
+				shown.Hits = report->Hits;
+				shown.Error = report->Error;
+			}
+			shown.State = !breakpoint.Enabled                                        ? VisualScriptBreakpointMarkState::Disabled
+			              : !shown.Error.empty()                                     ? VisualScriptBreakpointMarkState::Invalid
+			              : !breakpoint.Condition.empty() || breakpoint.HitCount > 1 ? VisualScriptBreakpointMarkState::Conditional
+			                                                                         : VisualScriptBreakpointMarkState::Enabled;
+			if (attached)
+			{
+				shown.InactiveReason = GetInactiveReason(report, library, target, target.IsValid() && !scene.HasEntity(target));
+			}
+			shown.CausedStop =
+				stop != nullptr && stop->Breakpoint && *stop->Breakpoint == std::pair<AssetHandle, uint32_t>(graph, breakpoint.Node);
+		}
+
+		std::string const graphName = model.GetGraphName(graph);
+		auto const chord = [mac](ImGuiKeyChord key)
+		{
+			return FormatVisualScriptChord(key, mac);
+		};
+		auto const stoppedButtons = [&chord]
+		{
+			return std::vector<VisualScriptDebugStripButton>{
+				{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)},
+				{VisualScriptDebugStripAction::StepOver, "Step Over", chord(ImGuiKey_F10)},
+				{VisualScriptDebugStripAction::StepInto, "Step Into", chord(ImGuiKey_F11)},
+				{VisualScriptDebugStripAction::StepOut, "Step Out", chord(ImGuiMod_Shift | ImGuiKey_F11)},
+			};
+		};
+
+		if (stop != nullptr && frameIndex < stop->Frames.size() && stop->Frames[frameIndex].Kind != VisualScriptStopFrameKind::Native &&
+		    stop->Frames[frameIndex].Document == graph)
+		{
+			// The selected stop frame is this document's.
+			VisualScriptStopFrame const& frame = stop->Frames[frameIndex];
+			input.Stop = stop->ID;
+			input.Frame = frameIndex;
+			input.Function = frame.Function;
+			VisualScriptInstructionMark instruction;
+			instruction.Node = frame.Node;
+			instruction.Place = frameIndex == 0 ? stop->Place : VisualScriptStopPlace::Enter;
+			instruction.Pin = frame.Pin;
+			instruction.Note = frame.Note;
+			instruction.ReadOnly = !stop->Resumable;
+			input.Instruction = std::move(instruction);
+			input.State = stop->Reason == VisualScriptStopReason::Passed  ? VisualScriptWindowDebugState::Passed
+			              : stop->Reason == VisualScriptStopReason::Error ? VisualScriptWindowDebugState::Error
+			                                                              : VisualScriptWindowDebugState::Stopped;
+			input.StoppedHere = true;
+			std::string const where = fmt::format("{} (node {}) on {}", frame.Title, frame.Node, DescribeDebugEntity(scene, frame.Entity));
+			input.StoppedTooltip =
+				fmt::format("Stopped at {}. Edits apply at once and reach the stopped execution when they keep its nodes.", where);
+			switch (input.State)
+			{
+				case VisualScriptWindowDebugState::Passed:
+					input.Strip.push_back({fmt::format("Passed breakpoint at {}: {}. These are its values as it passed", where,
+					                                   stop->Message.empty() ? std::string("it could not stop") : stop->Message),
+					                       {{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)}}});
+					break;
+				case VisualScriptWindowDebugState::Error:
+					input.Strip.push_back({fmt::format("Failed at {}: {}", where, stop->Message),
+					                       {{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)}}});
+					break;
+				default:
+					input.Strip.push_back({fmt::format("Stopped at {}: {}", where, GetStopReasonWords(stop->Reason)), stoppedButtons()});
+					break;
+			}
+			// One frame's breakpoint stopped several instances of this graph under any instance (spec-slice4 §4.7).
+			if (stop->Breakpoint && !target.IsValid() && !library)
+			{
+				size_t const others = static_cast<size_t>(std::count_if(state.Stops.begin(), state.Stops.end(),
+				                                                        [stop](VisualScriptStop const& other)
+				                                                        {
+																			return other.ID != stop->ID && other.Resumable &&
+					                                                               other.Graph == stop->Graph &&
+					                                                               other.Breakpoint == stop->Breakpoint;
+																		}));
+				if (others > 0)
+				{
+					std::string const entity =
+						scene.HasEntity(stop->Entity) ? scene.GetEntityByUUID(stop->Entity).GetName() : stop->Entity.ToString();
+					input.Strip.push_back({fmt::format("+{} more {} stopped here", others, others == 1 ? "instance" : "instances"),
+					                       {{VisualScriptDebugStripAction::OnlyInstance, "Only " + entity, {}}}});
+				}
+			}
+			// The other frames of the stop in this document (calls, sends): outlined as callers.
+			for (uint32_t index = 0; index < stop->Frames.size(); index++)
+			{
+				VisualScriptStopFrame const& other = stop->Frames[index];
+				if (index != frameIndex && other.Kind != VisualScriptStopFrameKind::Native && other.Document == graph)
+				{
+					input.Callers.emplace_back(other.Function, other.Node);
+				}
+			}
+			// The values of the frame: the path it computed, and the wires' values.
+			if (VisualScriptStopValues const* values = session.GetStopValues(stop->ID, frameIndex))
+			{
+				for (VisualScriptNodeValues const& computed : values->Computed)
+				{
+					input.Computed.push_back(computed.Node);
+				}
+				if (input.WireValues)
+				{
+					VisualScriptLibrary const* nodeLibrary = m_Semantics.GetLibrary().get();
+					VisualScriptEnumLookup const enums = MakeVisualScriptEnumLookup(nodeLibrary);
+					auto const describe = [&scene](UUID entity)
+					{
+						return scene.HasEntity(entity) ? scene.GetEntityByUUID(entity).GetName() : fmt::format("Missing ({})", entity);
+					};
+					VisualScriptAssetNameLookup const assetName = [](AssetHandle handle)
+					{
+						std::optional<AssetMetadata> const metadata =
+							AssetManager::IsInitialized() ? AssetManager::GetMetadata(handle) : std::nullopt;
+						return metadata ? (metadata->Path.empty() ? metadata->Name : metadata->Path) : handle.ToString();
+					};
+					auto const add = [&](uint32_t node, VisualScriptDebugValue const& value, bool output)
+					{
+						VisualScriptValueCell const cell = FormatVisualScriptDebugValue(value, nodeLibrary, enums, describe, assetName);
+						VisualScriptDebugPinValue& pin = input.Values.emplace_back();
+						pin.Node = node;
+						pin.Pin = value.Name;
+						pin.Output = output;
+						pin.Text = CutToCodePoints(cell.Text, VisualScriptValuePillCodePoints);
+						pin.Swatch = cell.Kind == VisualScriptValueCellKind::Swatch ? cell.Color : std::nullopt;
+						pin.Currency = value.Currency;
+						pin.Tooltip = cell.Tooltip.empty() ? cell.Text : cell.Tooltip;
+					};
+					for (VisualScriptNodeValues const& computed : values->Computed)
+					{
+						for (VisualScriptDebugValue const& output : computed.Outputs)
+						{
+							add(computed.Node, output, true);
+						}
+					}
+					for (VisualScriptDebugValue const& output : values->Node.Outputs)
+					{
+						add(values->Node.Node, output, true);
+					}
+					for (VisualScriptDebugValue const& inputValue : values->Node.Inputs)
+					{
+						add(values->Node.Node, inputValue, false);
+					}
+					input.ValuesFunction = values->Function;
+				}
+			}
+		}
+		else if (stop != nullptr && std::any_of(stop->Frames.begin(), stop->Frames.end(),
+		                                        [graph](VisualScriptStopFrame const& frame)
+		                                        {
+													return frame.Kind != VisualScriptStopFrameKind::Native && frame.Document == graph;
+												}))
+		{
+			// A member of the stop's chain waits in this document, inside its Send or Broadcast.
+			auto const member = std::find_if(stop->Frames.begin(), stop->Frames.end(),
+			                                 [graph](VisualScriptStopFrame const& frame)
+			                                 {
+												 return frame.Kind != VisualScriptStopFrameKind::Native && frame.Document == graph;
+											 });
+			uint32_t const memberIndex = static_cast<uint32_t>(member - stop->Frames.begin());
+			input.State = VisualScriptWindowDebugState::Waiting;
+			input.Stop = stop->ID;
+			input.Frame = memberIndex;
+			input.Function = member->Function;
+			input.StoppedHere = true;
+			VisualScriptStopFrame const& leaf = stop->Frames.front();
+			std::string const receiverGraph = model.GetGraphName(leaf.Document);
+			input.StoppedTooltip = fmt::format("Stopped at {} (node {}) on {}. Edits apply at once and reach the stopped execution when "
+			                                   "they keep its nodes.",
+			                                   leaf.Title, leaf.Node, DescribeDebugEntity(scene, leaf.Entity));
+			for (uint32_t index = 0; index < stop->Frames.size(); index++)
+			{
+				VisualScriptStopFrame const& other = stop->Frames[index];
+				if (other.Kind != VisualScriptStopFrameKind::Native && other.Document == graph)
+				{
+					input.Callers.emplace_back(other.Function, other.Node);
+				}
+			}
+			input.Strip.push_back({fmt::format("Waiting in {} (node {}): its receiver on {} is stopped in {}", member->Title, member->Node,
+			                                   DescribeDebugEntity(scene, leaf.Entity), receiverGraph),
+			                       {{VisualScriptDebugStripAction::Show, "Show", {}}}});
+		}
+		else if (state.Stepping && state.Stepping->WaitsIn && state.Stepping->WaitsIn->Document == graph && state.Stops.empty())
+		{
+			VisualScriptStepWait const& wait = *state.Stepping->WaitsIn;
+			input.State = VisualScriptWindowDebugState::Stepping;
+			input.Function = wait.Function;
+			std::string text =
+				fmt::format("Stepping: the execution waits in {} (node {}) and stops when it completes", wait.Title, wait.Node);
+			if (m_Operations.GetContext().IsPlaying() && m_Operations.GetContext().GetScene().IsPaused() && !session.HasPausedScene())
+			{
+				text += ". The game is paused: frames must run for it to complete";
+			}
+			input.Strip.push_back({std::move(text), {{VisualScriptDebugStripAction::Break, "Break", {}}}});
+		}
+		else if (session.GetSessionState() == VisualScriptDebugSessionState::StepEnded && m_LastStopGraph == graph)
+		{
+			input.State = VisualScriptWindowDebugState::StepEnded;
+			input.Strip.push_back({fmt::format("The execution ended. Continue ({}) resumes the game; Step ({}) stops at this graph's next "
+			                                   "instruction",
+			                                   chord(ImGuiKey_F5), chord(ImGuiKey_F10)),
+			                       {{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)},
+			                        {VisualScriptDebugStripAction::StepOver, "Step Over", chord(ImGuiKey_F10)}}});
+		}
+		else if (m_HeldGraph == graph && graph.IsValid() && session.HasPausedScene() && state.Stops.empty())
+		{
+			input.Strip.push_back({fmt::format("The stopped execution ended ({}). The game stays paused: Continue ({}) resumes it",
+			                                   GetHeldCause(m_HeldReason), chord(ImGuiKey_F5)),
+			                       {{VisualScriptDebugStripAction::Continue, "Continue", chord(ImGuiKey_F5)}}});
+		}
+
+		// Values of the running game on the wires (Wire Values: Always), while no stop of this graph shows its own.
+		if (input.LiveWireValues && attached && !input.Stop && !library)
+		{
+			input.Values = std::move(previous.Values);
+			input.ValuesFunction = previous.ValuesFunction;
+			ReadLiveWireValues(window, input);
+		}
+	}
+
+	void VisualScriptEditors::ReadLiveWireValues(GraphWindow& window, VisualScriptWindowDebugInput& input)
+	{
+		double const now = ImGui::GetTime();
+		VisualScriptEditorPanel const& panel = *window.Panel;
+		uint32_t const function = panel.GetModel().GetFunction();
+		if (now - window.LiveValuesRead < LiveWireValueInterval && input.ValuesFunction == function)
+		{
+			return;
+		}
+		window.LiveValuesRead = now;
+		input.ValuesFunction = function;
+		input.Values = ReadLiveWireValues(panel.GetModel(), panel.GetDebugTarget(), m_Semantics.GetLibrary().get(),
+		                                  m_Operations.GetContext().GetScene());
+	}
+
+	std::vector<VisualScriptDebugPinValue> VisualScriptEditors::ReadLiveWireValues(VisualScriptEditorModel const& model, UUID entity,
+	                                                                               VisualScriptLibrary const* library, Scene& scene)
+	{
+		std::vector<VisualScriptDebugPinValue> values;
+		if (!entity.IsValid() || !ScriptEngine::IsInitialized())
+		{
+			return values;
+		}
+		// Only the sources of the data wires in view, at most as many wires as pills are drawn: the request's cost follows the
+		// view, not the graph.
+		VisualScriptCanvasModel const& canvas = model.GetCanvas();
+		std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+		VisualScriptRect const visible = model.GetView().GetVisibleRect();
+		auto const shown = [&visible, &nodes](uint32_t index)
+		{
+			VisualScriptNodeVisual const& node = nodes[index];
+			return node.Position.x <= visible.Max.x && node.Position.x + node.Size.x >= visible.Min.x && node.Position.y <= visible.Max.y &&
+			       node.Position.y + node.Size.y >= visible.Min.y;
+		};
+		VisualScriptValueRequest request;
+		request.Entity = entity;
+		request.Function = model.GetFunction();
+		size_t wires = 0;
+		for (VisualScriptLinkVisual const& link : canvas.GetLinks())
+		{
+			if (wires == VisualScriptValuePillLimit)
+			{
+				break;
+			}
+			if (link.HasFlag(VisualScriptLinkFlags::Exec) || link.FromNode >= nodes.size() || link.ToNode >= nodes.size() ||
+			    (!shown(link.FromNode) && !shown(link.ToNode)))
+			{
+				continue;
+			}
+			wires++;
+			uint32_t const source = nodes[link.FromNode].ID;
+			if (std::find(request.Nodes.begin(), request.Nodes.end(), source) == request.Nodes.end())
+			{
+				request.Nodes.push_back(source);
+			}
+		}
+		if (request.Nodes.empty())
+		{
+			return values;
+		}
+		Result<VisualScriptLiveValues> const read = VisualScriptDebugger::ReadValues(request);
+		if (!read)
+		{
+			return values;
+		}
+		VisualScriptEnumLookup const enums = MakeVisualScriptEnumLookup(library);
+		auto const describe = [&scene](UUID value)
+		{
+			return scene.HasEntity(value) ? scene.GetEntityByUUID(value).GetName() : fmt::format("Missing ({})", value);
+		};
+		VisualScriptAssetNameLookup const assetName = [](AssetHandle handle)
+		{
+			std::optional<AssetMetadata> const metadata = AssetManager::IsInitialized() ? AssetManager::GetMetadata(handle) : std::nullopt;
+			return metadata ? (metadata->Path.empty() ? metadata->Name : metadata->Path) : handle.ToString();
+		};
+		for (VisualScriptNodeValues const& node : read.GetValue().Nodes)
+		{
+			for (VisualScriptDebugValue const& output : node.Outputs)
+			{
+				VisualScriptValueCell const cell = FormatVisualScriptDebugValue(output, library, enums, describe, assetName);
+				VisualScriptDebugPinValue& pin = values.emplace_back();
+				pin.Node = node.Node;
+				pin.Pin = output.Name;
+				pin.Output = true;
+				pin.Text = CutToCodePoints(cell.Text, VisualScriptValuePillCodePoints);
+				pin.Swatch = cell.Kind == VisualScriptValueCellKind::Swatch ? cell.Color : std::nullopt;
+				pin.Currency = output.Currency;
+				pin.Tooltip = cell.Tooltip.empty() ? cell.Text : cell.Tooltip;
+			}
+		}
+		return values;
+	}
+
+	void VisualScriptEditors::ApplyDebugRequests()
+	{
+		if (m_DebugSession == nullptr)
+		{
+			return;
+		}
+		VisualScriptDebugSession& session = *m_DebugSession;
+		// Taken from every window first: a request may open a window (the strip's Show).
+		std::vector<std::pair<AssetHandle, VisualScriptDebugRequest>> requests;
+		for (GraphWindow& window : m_Windows)
+		{
+			for (VisualScriptDebugRequest& request : window.Panel->TakeDebugRequests())
+			{
+				requests.emplace_back(window.Panel->GetGraph(), std::move(request));
+			}
+		}
+		for (auto const& [graph, request] : requests)
+		{
+			switch (request.RequestKind)
+			{
+				case VisualScriptDebugRequest::Kind::ToggleBreakpoints:
+					session.ToggleBreakpoints(graph, request.Nodes);
+					break;
+				case VisualScriptDebugRequest::Kind::SetBreakpointsEnabled:
+					session.SetBreakpointsEnabled(graph, request.Nodes, request.Enabled);
+					break;
+				case VisualScriptDebugRequest::Kind::SetBreakpoint:
+					if (Result<void> const set = session.SetBreakpoint(graph, request.Breakpoint); !set)
+					{
+						if (VisualScriptEditorPanel* panel = FindPanel(graph))
+						{
+							panel->ShowToast(fmt::format("The breakpoint was not changed: {}", set.GetError()));
+						}
+					}
+					break;
+				case VisualScriptDebugRequest::Kind::RemoveBreakpoints:
+					session.RemoveBreakpoints(graph, request.Nodes);
+					break;
+				case VisualScriptDebugRequest::Kind::RunTo:
+					if (!request.Nodes.empty())
+					{
+						session.RequestRunTo(graph, request.Nodes.front());
+					}
+					break;
+				case VisualScriptDebugRequest::Kind::Resume:
+					// Continue without a stop is every stop's (F5); steps step the stop shown.
+					session.RequestResume(request.Stop, request.Action,
+					                      request.Action == VisualScriptDebugAction::Continue && !request.Stop);
+					break;
+				case VisualScriptDebugRequest::Kind::OnlyInstance:
+					if (request.Stop)
+					{
+						session.RequestOnlyInstance(*request.Stop);
+					}
+					break;
+				case VisualScriptDebugRequest::Kind::CancelStep:
+					if (Result<void> const cancelled = session.Break(true); !cancelled)
+					{
+						ST_WARN("The step was not cancelled: {}", cancelled.GetError());
+					}
+					break;
+				case VisualScriptDebugRequest::Kind::ShowFrame:
+					if (request.Stop)
+					{
+						if (VisualScriptStop const* stop = session.FindStop(*request.Stop))
+						{
+							// The receiver a waiting member's strip names: the chain's leaf.
+							VisualScriptStop const shown = *stop;
+							session.SelectStop(shown.ID);
+							session.SelectFrame(0);
+							FollowFrame(shown, 0);
+						}
+					}
+					break;
 			}
 		}
 	}

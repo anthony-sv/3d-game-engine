@@ -2,10 +2,13 @@
 #include "VisualScriptPanelTestUtilities.h"
 #include "VisualScriptTestUtilities.h"
 
+#include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
+#include "Editor/VisualScripting/VisualScriptDebugControls.h"
+#include "Editor/VisualScripting/VisualScriptDebugSession.h"
 #include "Editor/VisualScripting/VisualScriptDebugValues.h"
 #include "Editor/VisualScripting/VisualScriptFlow.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
@@ -164,6 +167,10 @@ TEST_CASE("VisualScriptEditor: the editor's UI font has every character the canv
 	}
 	// The graph window's notices, cards, pills and hints, and the shortcut sheet's rows on both platforms.
 	texts.insert(texts.end(), VisualScriptPanelTexts::All.begin(), VisualScriptPanelTexts::All.end());
+	// The debugger's: the Debugger panel's, the debug controls' tooltips and the session's texts the UI shows (spec-slice4 §14).
+	texts.insert(texts.end(), VisualScriptDebuggerPanel::Texts::All.begin(), VisualScriptDebuggerPanel::Texts::All.end());
+	texts.insert(texts.end(), VisualScriptDebugControls::Texts::All.begin(), VisualScriptDebugControls::Texts::All.end());
+	texts.insert(texts.end(), VisualScriptDebugSession::Texts.begin(), VisualScriptDebugSession::Texts.end());
 	// The separators the panes put between the parts of their texts (spec §15.4: the strings the panes format): Details' middle
 	// dots and its mixed-values dash, the palette's and the drawer's chevron between a place's parts, My Script's function sign.
 	texts.emplace_back("Node 1 \xC2\xB7 Flow.Delay");

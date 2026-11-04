@@ -122,7 +122,14 @@ namespace Strada
 			Play = 0,
 			Stop,
 			Pause,
-			Step
+			Step,
+			// The debugger's (spec-slice4 §14.2): a bar and a triangle, a hop over a dot, a drop into a dot, a rise out of a
+			// dot, and two bars on a disc.
+			Continue,
+			StepOver,
+			StepInto,
+			StepOut,
+			Break
 		};
 
 		// The size of toolbar buttons at the current font size.

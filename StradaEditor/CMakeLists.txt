@@ -102,6 +102,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/SceneSettingsPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
+    Source/Editor/Panels/VisualScriptDebuggerPanel.cpp
+    Source/Editor/Panels/VisualScriptDebuggerPanel.h
     Source/Editor/Panels/VisualScriptEditorPanel.cpp
     Source/Editor/Panels/VisualScriptEditorPanel.h
     Source/Editor/PlayMode.cpp
@@ -156,6 +158,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptCurveEditor.h
     Source/Editor/VisualScripting/VisualScriptCurveView.cpp
     Source/Editor/VisualScripting/VisualScriptCurveView.h
+    Source/Editor/VisualScripting/VisualScriptDebugControls.cpp
+    Source/Editor/VisualScripting/VisualScriptDebugControls.h
     Source/Editor/VisualScripting/VisualScriptDebugSession.cpp
     Source/Editor/VisualScripting/VisualScriptDebugSession.h
     Source/Editor/VisualScripting/VisualScriptDebugValues.cpp

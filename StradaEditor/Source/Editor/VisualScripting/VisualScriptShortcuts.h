@@ -27,6 +27,10 @@ namespace Strada
 		Find,
 		// The drawer's Timeline mode (spec-slice3 §9.5).
 		Timeline,
+		// Breakpoints and Run to Here on the canvas (spec-slice4 §13.6).
+		Debug,
+		// The editor's global debug keys while an execution is stopped (spec-slice4 §14.4), listed for reference.
+		DebugWhileStopped,
 		Help
 	};
 
@@ -52,6 +56,10 @@ namespace Strada
 				return "Find";
 			case VisualScriptShortcutGroup::Timeline:
 				return "Timeline";
+			case VisualScriptShortcutGroup::Debug:
+				return "Debugging";
+			case VisualScriptShortcutGroup::DebugWhileStopped:
+				return "Debugging (while stopped)";
 			case VisualScriptShortcutGroup::Help:
 				return "Help";
 		}
@@ -75,7 +83,10 @@ namespace Strada
 		// The Timeline drawer's keys, while it has the keyboard and no text field has (spec-slice3 §9.5): matched exactly under
 		// the drawer's key owner, as the canvas's are, except the chords a Focused row claims (Delete, Ctrl+A), which reach the
 		// drawer through the window's claim. Escape cancels the drawer's gesture, else gives the keyboard back to the canvas.
-		Timeline
+		Timeline,
+		// Display only: one of the editor's global chords (VisualScriptEditorChords), which the editor routes
+		// (VisualScriptDebugControls, spec-slice4 §14.4) and a graph window never does; the shortcut sheet lists it.
+		Global
 	};
 
 	struct VisualScriptShortcut
@@ -100,7 +111,7 @@ namespace Strada
 		inline constexpr ImGuiKeyChord Shift = ImGuiMod_Shift;
 		inline constexpr ImGuiKeyChord Alt = ImGuiMod_Alt;
 
-		inline constexpr std::array<VisualScriptShortcut, 68> Shortcuts = {{
+		inline constexpr std::array<VisualScriptShortcut, 76> Shortcuts = {{
 			{ImGuiKey_Tab, Action::OpenPalette, Group::Create, Route::Canvas, false, "Add a node (the palette)"},
 			{ImGuiKey_Space, Action::OpenPalette, Group::Create, Route::Owned, false,
 		     "Add a node: tap Space, or hold it and type the node's name"},
@@ -184,18 +195,31 @@ namespace Strada
 			{ImGuiKey_Escape, Action::Cancel, Group::Timeline, Route::Timeline, false,
 		     "Cancel the drag; else give the keyboard back to the canvas"},
 
+			{ImGuiKey_F9, Action::ToggleBreakpoint, Group::Debug, Route::Canvas, false, "Add or remove breakpoints on the selected nodes"},
+			{Ctrl | ImGuiKey_F9, Action::ToggleBreakpointEnabled, Group::Debug, Route::Canvas, false,
+		     "Enable or disable the selected nodes' breakpoints"},
+			{Ctrl | ImGuiKey_F10, Action::RunToNode, Group::Debug, Route::Canvas, false, "Run to the selected node (while playing)"},
+
+			{ImGuiKey_F5, Action::Continue, Group::DebugWhileStopped, Route::Global, false,
+		     "Continue: the stopped executions, then the game"},
+			{ImGuiKey_F10, Action::StepOver, Group::DebugWhileStopped, Route::Global, false, "Step over"},
+			{ImGuiKey_F11, Action::StepInto, Group::DebugWhileStopped, Route::Global, false, "Step into"},
+			{Ctrl | ImGuiKey_F11, Action::StepInto, Group::DebugWhileStopped, Route::Global, false,
+		     "Step into (macOS keeps F11 for Show Desktop)"},
+			{Shift | ImGuiKey_F11, Action::StepOut, Group::DebugWhileStopped, Route::Global, false, "Step out"},
+
 			{ImGuiKey_F1, Action::ShowShortcuts, Group::Help, Route::Canvas, false, "Show these shortcuts"},
 		}};
 	}
 
 	// Every key of the graph windows, grouped as the shortcut sheet lists them. An action may have several keys (Delete and
 	// Ctrl+Backspace); its first row names it in menus.
-	inline constexpr std::array<VisualScriptShortcut, 68> const& VisualScriptShortcuts = VisualScriptShortcutsDetail::Shortcuts;
+	inline constexpr std::array<VisualScriptShortcut, 76> const& VisualScriptShortcuts = VisualScriptShortcutsDetail::Shortcuts;
 
-	// The editor's global chords (EditorLayer's and its editing keys', EditorEditingKeys), which no canvas key equals: graph
-	// windows shadow only the editing chords they claim while focused (Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+D, Delete,
-	// Ctrl+Backspace, Ctrl+A), and Ctrl+S saves the scene everywhere.
-	inline constexpr std::array<ImGuiKeyChord, 18> VisualScriptEditorChords = {
+	// The editor's global chords (EditorLayer's, its editing keys', EditorEditingKeys, and its debug keys while an execution is
+	// stopped, VisualScriptDebugControls), which no canvas key equals: graph windows shadow only the editing chords they claim
+	// while focused (Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+D, Delete, Ctrl+Backspace, Ctrl+A), and Ctrl+S saves the scene everywhere.
+	inline constexpr std::array<ImGuiKeyChord, 23> VisualScriptEditorChords = {
 		ImGuiMod_Ctrl | ImGuiKey_N,
 		ImGuiMod_Ctrl | ImGuiKey_O,
 		ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S,
@@ -214,6 +238,11 @@ namespace Strada
 		ImGuiKey_Delete,
 		ImGuiMod_Ctrl | ImGuiKey_Backspace,
 		ImGuiMod_Ctrl | ImGuiKey_A,
+		ImGuiKey_F5,
+		ImGuiKey_F10,
+		ImGuiKey_F11,
+		ImGuiMod_Ctrl | ImGuiKey_F11,
+		ImGuiMod_Shift | ImGuiKey_F11,
 	};
 
 	// Chords macOS keeps for itself (screenshots, Spotlight, the app switcher, hide, minimize, quit), with Ctrl read as Cmd:

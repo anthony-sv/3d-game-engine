@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptCanvasDebug.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptCommit.h"
@@ -28,6 +29,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -452,7 +454,9 @@ namespace Strada
 		ReadOnlyFile,
 		NewFunction,
 		FirstCanvas,
-		GestureHint
+		GestureHint,
+		// The debug strip (spec-slice4 §13.6): under the toolbar, after the other notices.
+		Debug
 	};
 
 	enum class VisualScriptCard : uint8_t
@@ -554,6 +558,16 @@ namespace Strada
 		// Whether Back and Forward have somewhere to go, in this window or across graphs.
 		bool CanGoBack = false;
 		bool CanGoForward = false;
+		// What the window shows of debugging (spec-slice4 §17.4): the selected stop and frame when its graph holds them, where
+		// it stands, the breakpoints of the document, and whether flow is drawn and its clock holds.
+		VisualScriptWindowDebugState DebugState = VisualScriptWindowDebugState::None;
+		std::optional<uint64_t> DebugStop;
+		uint32_t DebugFrame = 0;
+		std::optional<uint32_t> DebugNode;
+		uint32_t DebugFunction = 0;
+		uint32_t Breakpoints = 0;
+		bool FlowDrawn = false;
+		bool FlowHeld = false;
 	};
 
 	// The model of one graph window: which document it shows and how (the asset's document, with its unplaced nodes placed in
@@ -619,6 +633,17 @@ namespace Strada
 		// Shows a sub-graph (0 for the event graph, else a function's ID; an ID the document does not have is ignored), keeping
 		// the view and selection of the one left, and pushing its view on the history. The next Sync lays it out.
 		void ShowFunction(uint32_t function);
+		// An open request for another graph that this window's Back or Forward made could not be done (its graph was deleted):
+		// goes on to the next entry of that history, as Back and Forward skip views of deleted functions (spec-slice4 §13.10).
+		// Jump does nothing.
+		void ContinueHistory(VisualScriptHistoryStep step);
+		// The debugger's opens (VisualScriptOpenRequest::FromDebugger) push at most one Back entry per stop session: the view the
+		// user had before the first one. The user's own navigation ends the session's mark, and so does this (the debugger
+		// detached).
+		void EndDebuggerNavigation() { m_DebuggerEntry = false; }
+		// The name another graph of the history is shown by: the project's file stem, else the name its window's origin gave
+		// when this window's history was made (a graph deleted since), else its handle.
+		std::string GetHistoryGraphName(AssetHandle graph) const;
 		// Changes the shown sub-graph's selection; IDs of elements not on the canvas are ignored.
 		void Select(std::span<uint32_t const> elements, VisualScriptSelectMode mode = VisualScriptSelectMode::Replace);
 		// The document as a widget's uncommitted value makes it, drawn (and analyzed at the policy's pace) until the widget
@@ -879,6 +904,9 @@ namespace Strada
 			VisualScriptViewState View;
 			// Invalid for this window's own views.
 			AssetHandle Graph;
+			// The other graph's display name, as the origin of its window's request named it (a toast names it when it cannot be
+			// opened).
+			std::string Name;
 		};
 
 		// What an outside change did to the shown sub-graph, for the gesture in progress (spec-slice4 §16.1): the nodes and
@@ -948,6 +976,16 @@ namespace Strada
 		VisualScriptHitContext MakeHitContext(bool skipMoved);
 		void UpdateMinimap(double deltaTime, bool first);
 		void ApplyPendingView(double time);
+		// The view that brings a node into view from target (spec-slice4 §13.7): the least pan that shows it with a margin of
+		// 2 font sizes at target's zoom, else centred and zoomed to fit when it is larger than the view; target when the node
+		// is not on the canvas.
+		VisualScriptViewState GetShowNodeTarget(VisualScriptViewState target, uint32_t node) const;
+		// Whether an open request may push the view it leaves on the history (a debugger's open pushes once per stop session),
+		// and the note that it did.
+		bool MayPushForOpen(VisualScriptOpenRequest const& request) const;
+		void NotePushForOpen(VisualScriptOpenRequest const& request);
+		// Whether a cross-graph entry's graph is gone: the project list is known (its revision is not 0) and lacks it.
+		bool IsGraphGone(AssetHandle graph) const;
 		// Whether Space was held during the frame (its keys then type).
 		bool UpdateSpace(VisualScriptCanvasInput const& input, std::vector<VisualScriptEditorIntent>& intents);
 		void ApplyAction(VisualScriptEditorAction action, VisualScriptCanvasInput const& input,
@@ -1132,6 +1170,12 @@ namespace Strada
 		std::optional<PendingOpen> m_PendingOpen;
 		std::vector<HistoryEntry> m_Back;
 		std::vector<HistoryEntry> m_Forward;
+		// A debugger's open pushed this stop session's Back entry (EndDebuggerNavigation).
+		bool m_DebuggerEntry = false;
+		// The names of the other graphs Back and Forward asked for (GetHistoryGraphName).
+		std::unordered_map<AssetHandle, std::string> m_HistoryNames;
+		// The canvas's font size at the last Update, in pixels (ShowNode's margin).
+		float m_FontSize = 15.0f;
 		// What Back and Forward from cross-graph entries asked of the window manager, until the panel takes them.
 		std::vector<VisualScriptOpenRequest> m_OtherGraphRequests;
 		std::vector<SubGraphState> m_SubGraphs;

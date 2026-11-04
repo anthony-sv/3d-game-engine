@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/Commands/ComponentCommands.h"
+#include "Editor/VisualScripting/VisualScriptCanvasDebug.h"
 #include "Editor/VisualScripting/VisualScriptCommit.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
@@ -110,6 +111,9 @@ namespace Strada
 		glm::vec4 CommentColor = VisualScriptComment().Color;
 		// Entity drops only; null refuses them.
 		VisualScriptSceneContext const* Scene = nullptr;
+		// What the window shows of debugging (its breakpoints, whether the game plays); null leaves the node menu's debug items
+		// out (no debug session: headless windows, tests).
+		VisualScriptWindowDebugInput const* Debug = nullptr;
 	};
 
 	// An in-place text editor the window opens over the canvas.

@@ -1,3 +1,4 @@
+#include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
 
@@ -138,6 +139,10 @@ TEST_CASE("VisualScriptEditor: the graph windows claim only their editing chords
 				// claim.
 				CHECK((!IsListed(VisualScriptEditorChords, shortcut.Chord) || IsListed(focused, shortcut.Chord)));
 				break;
+			case VisualScriptKeyRoute::Global:
+				// Listed for reference: the editor routes them, so they are its chords.
+				CHECK(IsListed(VisualScriptEditorChords, shortcut.Chord));
+				break;
 		}
 	}
 	std::sort(claimed.begin(), claimed.end());
@@ -150,6 +155,50 @@ TEST_CASE("VisualScriptEditor: the graph windows claim only their editing chords
 	                   {
 						   return shortcut.Chord == (ImGuiMod_Ctrl | ImGuiKey_S);
 					   }));
+}
+
+TEST_CASE("VisualScriptEditor: the debugger's keys are canvas keys for breakpoints and the editor's global keys while stopped")
+{
+	// Spec-slice4 §13.6: F9, Ctrl+F9 and Ctrl+F10 on the canvas; F5, F10, F11, Ctrl+F11 and Shift+F11 the editor's, listed.
+	std::vector<std::pair<ImGuiKeyChord, VisualScriptEditorAction>> canvas;
+	std::vector<std::pair<ImGuiKeyChord, VisualScriptEditorAction>> global;
+	for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)
+	{
+		CAPTURE(shortcut.Label);
+		CHECK((shortcut.Group == VisualScriptShortcutGroup::DebugWhileStopped) == (shortcut.Route == VisualScriptKeyRoute::Global));
+		if (shortcut.Group == VisualScriptShortcutGroup::Debug)
+		{
+			CHECK(shortcut.Route == VisualScriptKeyRoute::Canvas);
+			canvas.emplace_back(shortcut.Chord, shortcut.Action);
+		}
+		if (shortcut.Route == VisualScriptKeyRoute::Global)
+		{
+			global.emplace_back(shortcut.Chord, shortcut.Action);
+		}
+	}
+	CHECK(canvas == std::vector<std::pair<ImGuiKeyChord, Action>>{{ImGuiKey_F9, Action::ToggleBreakpoint},
+	                                                              {ImGuiMod_Ctrl | ImGuiKey_F9, Action::ToggleBreakpointEnabled},
+	                                                              {ImGuiMod_Ctrl | ImGuiKey_F10, Action::RunToNode}});
+	CHECK(global == std::vector<std::pair<ImGuiKeyChord, Action>>{{ImGuiKey_F5, Action::Continue},
+	                                                              {ImGuiKey_F10, Action::StepOver},
+	                                                              {ImGuiKey_F11, Action::StepInto},
+	                                                              {ImGuiMod_Ctrl | ImGuiKey_F11, Action::StepInto},
+	                                                              {ImGuiMod_Shift | ImGuiKey_F11, Action::StepOut}});
+	CHECK(VisualScriptShortcuts.size() == 76);
+	// The groups' names on the shortcut sheet, and the keys as a Mac names them.
+	CHECK(GetVisualScriptShortcutGroupName(VisualScriptShortcutGroup::Debug) == "Debugging");
+	CHECK(GetVisualScriptShortcutGroupName(VisualScriptShortcutGroup::DebugWhileStopped) == "Debugging (while stopped)");
+	CHECK(FormatVisualScriptChord(ImGuiMod_Ctrl | ImGuiKey_F11, true) == "Cmd+F11");
+	CHECK(FormatVisualScriptChord(ImGuiMod_Ctrl | ImGuiKey_F11, false) == "Ctrl+F11");
+	CHECK(FormatVisualScriptChord(ImGuiMod_Shift | ImGuiKey_F11, true) == "Shift+F11");
+	CHECK(FormatVisualScriptChord(ImGuiMod_Ctrl | ImGuiKey_F9, true) == "Cmd+F9");
+	CHECK(FormatVisualScriptChord(ImGuiKey_F5, true) == "F5");
+	// The canvas's debug actions are no edits: read-only documents take breakpoints too.
+	for (Action const action : {Action::ToggleBreakpoint, Action::ToggleBreakpointEnabled, Action::BreakpointSettings, Action::RunToNode,
+	                            Action::Continue, Action::StepOver, Action::StepInto, Action::StepOut})
+	{
+		CHECK_FALSE(IsVisualScriptEditAction(action));
+	}
 }
 
 TEST_CASE("VisualScriptEditor: no key of the graph windows is one macOS keeps for itself")

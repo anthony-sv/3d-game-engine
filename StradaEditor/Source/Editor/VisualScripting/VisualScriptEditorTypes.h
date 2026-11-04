@@ -112,6 +112,9 @@ namespace Strada
 		glm::vec2 Center{0.0f};
 		float Zoom = 1.0f;
 		VisualScriptHistoryStep Step = VisualScriptHistoryStep::Jump;
+		// The requesting graph's display name ("Door"), which a toast names when the open fails (spec-slice4 §13.10); empty
+		// when unknown.
+		std::string Name;
 
 		bool operator==(VisualScriptOrigin const& other) const = default;
 	};
@@ -142,6 +145,13 @@ namespace Strada
 		std::optional<VisualScriptReference> Reveal;
 		// The window that asked, for a request of another graph (spec-slice3 §10.7).
 		std::optional<VisualScriptOrigin> Origin;
+		// A node of the sub-graph shown to bring into view (spec-slice4 §13.7): the view pans the least distance that shows it
+		// with a margin of 2 font sizes, keeping the zoom unless the node is larger than the view (then it is centred and
+		// zoomed to fit), and keeps the selection. Applied after the request's framing, zoom and centre.
+		std::optional<uint32_t> ShowNode;
+		// The debugger opened it (following a stop or a call-stack row, spec-slice4 §13.8): it pushes at most one Back entry
+		// per stop session, so following steps does not bury the user's own navigation.
+		bool FromDebugger = false;
 		bool Focus = true;
 
 		bool operator==(VisualScriptOpenRequest const& other) const = default;
@@ -226,7 +236,20 @@ namespace Strada
 		GoToBookmark9,
 		// The Timeline drawer's Shift+Left and Shift+Right: its selected keys nudged ten time steps.
 		NudgeLeftCoarse,
-		NudgeRightCoarse
+		NudgeRightCoarse,
+		// The debugger's (spec-slice4 §13.5, §13.6): the selection's breakpoints added or removed (F9), enabled or disabled
+		// (Ctrl+F9), the primary node's breakpoint popup, and Run to Here (Ctrl+F10). Not edits: the window hands them to the
+		// debug session.
+		ToggleBreakpoint,
+		ToggleBreakpointEnabled,
+		BreakpointSettings,
+		RunToNode,
+		// The editor's global debug keys while an execution is stopped (spec-slice4 §14.4), which the shortcut sheet lists:
+		// the editor routes them (VisualScriptDebugControls), never a graph window.
+		Continue,
+		StepOver,
+		StepInto,
+		StepOut
 	};
 
 	// Editor services the graph windows and their panes use, which the editor injects as it injects the console's font and

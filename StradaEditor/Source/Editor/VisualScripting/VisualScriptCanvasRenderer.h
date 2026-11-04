@@ -413,7 +413,7 @@ namespace Strada
 		// The most debugging items of a kind a frame draws (the most intense first; box glows count as run glows).
 		static constexpr size_t MaxFlowWires = 512;
 		static constexpr size_t MaxRunGlows = 512;
-		static constexpr size_t MaxValuePills = 200;
+		static constexpr size_t MaxValuePills = VisualScriptValuePillLimit;
 		// A value pill shows at most this many code points of its value.
 		static constexpr size_t ValuePillMaxGlyphs = 24;
 

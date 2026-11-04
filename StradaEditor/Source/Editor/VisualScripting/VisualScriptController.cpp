@@ -2227,8 +2227,12 @@ namespace Strada
 				{
 					// Back in the window opened returns to this view (spec-slice3 §10.7).
 					VisualScriptViewState const view = m_Model.GetView().GetTargetState();
-					remote->Request.Origin =
-						VisualScriptOrigin{m_Context.Graph, view.Function, view.Center, view.Zoom, VisualScriptHistoryStep::Jump};
+					remote->Request.Origin = VisualScriptOrigin{m_Context.Graph,
+					                                            view.Function,
+					                                            view.Center,
+					                                            view.Zoom,
+					                                            VisualScriptHistoryStep::Jump,
+					                                            std::string(m_Context.ScriptName)};
 					m_Result.Open = std::move(remote->Request);
 					return {};
 				}
@@ -2708,6 +2712,41 @@ namespace Strada
 			{
 				group = true;
 				edit(Action::UpdateNode, "Update Node", true);
+			}
+
+			// Debug (spec-slice4 §13.5): breakpoints are view state, so read-only documents take them too.
+			if (VisualScriptWindowDebugInput const* debug = m_Context.Debug)
+			{
+				auto const findBreakpoint = [debug](uint32_t node) -> VisualScriptWindowBreakpoint const*
+				{
+					auto const found = std::find_if(debug->Breakpoints.begin(), debug->Breakpoints.end(),
+					                                [node](VisualScriptWindowBreakpoint const& candidate)
+					                                {
+														return candidate.Breakpoint.Node == node;
+													});
+					return found != debug->Breakpoints.end() ? &*found : nullptr;
+				};
+				bool const every = std::all_of(nodes.begin(), nodes.end(),
+				                               [&findBreakpoint](uint32_t node)
+				                               {
+												   return findBreakpoint(node) != nullptr;
+											   });
+				group = true;
+				add(Action::ToggleBreakpoint, (every ? "Remove Breakpoint" : "Add Breakpoint") + std::string(nodes.size() == 1 ? "" : "s"));
+				VisualScriptWindowBreakpoint const* primaryBreakpoint = findBreakpoint(primary);
+				VisualScriptMenuItem* enable = add(
+					Action::ToggleBreakpointEnabled,
+					primaryBreakpoint != nullptr && !primaryBreakpoint->Breakpoint.Enabled ? "Enable Breakpoint" : "Disable Breakpoint");
+				if (primaryBreakpoint == nullptr)
+				{
+					disable(enable, "The node has no breakpoint");
+				}
+				add(Action::BreakpointSettings, "Breakpoint Settings...");
+				VisualScriptMenuItem* runTo = add(Action::RunToNode, "Run to Here");
+				if (!debug->Attached)
+				{
+					disable(runTo, "Runs the game to the node while it plays");
+				}
 			}
 			return items;
 		}

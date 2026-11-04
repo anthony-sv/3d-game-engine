@@ -303,6 +303,67 @@ namespace Strada
 					                        ImVec2(center.x + half * 0.55f + bar, center.y + half), color, 1.0f);
 					break;
 				}
+				case ToolbarIcon::Continue:
+				{
+					// A bar, then the play triangle: run on from where it stands.
+					float const bar = half * 0.4f;
+					drawList->AddRectFilled(ImVec2(center.x - half, center.y - half), ImVec2(center.x - half + bar, center.y + half), color,
+					                        1.0f);
+					drawList->AddTriangleFilled(ImVec2(center.x - half * 0.35f, center.y - half),
+					                            ImVec2(center.x - half * 0.35f, center.y + half), ImVec2(center.x + half, center.y), color);
+					break;
+				}
+				case ToolbarIcon::StepOver:
+				case ToolbarIcon::StepInto:
+				case ToolbarIcon::StepOut:
+				{
+					// A dot on the line of the statements, and the arrow the step takes: over it, down into it, up out of it.
+					float const thickness = std::max(1.0f, std::floor(size.y * 0.07f));
+					float const dot = half * 0.28f;
+					ImVec2 const statement(center.x, center.y + half * 0.7f);
+					drawList->AddCircleFilled(statement, dot, color);
+					ImVec2 tip;
+					ImVec2 direction;
+					if (icon == ToolbarIcon::StepOver)
+					{
+						drawList->PathArcTo(ImVec2(center.x, center.y + half * 0.1f), half * 0.85f, IM_PI, IM_PI * 2.0f);
+						drawList->PathStroke(color, thickness);
+						tip = ImVec2(center.x + half * 0.85f, center.y + half * 0.45f);
+						direction = ImVec2(0.0f, 1.0f);
+					}
+					else if (icon == ToolbarIcon::StepInto)
+					{
+						drawList->AddLine(ImVec2(center.x, center.y - half), ImVec2(center.x, center.y + half * 0.05f), color, thickness);
+						tip = ImVec2(center.x, center.y + half * 0.3f);
+						direction = ImVec2(0.0f, 1.0f);
+					}
+					else
+					{
+						drawList->AddLine(ImVec2(center.x, center.y + half * 0.3f), ImVec2(center.x, center.y - half * 0.55f), color,
+						                  thickness);
+						tip = ImVec2(center.x, center.y - half);
+						direction = ImVec2(0.0f, -1.0f);
+					}
+					// The arrow's head: a triangle whose tip is at tip, pointing along direction.
+					float const head = half * 0.45f;
+					ImVec2 const base(tip.x - direction.x * head, tip.y - direction.y * head);
+					ImVec2 const side(-direction.y * head * 0.75f, direction.x * head * 0.75f);
+					drawList->AddTriangleFilled(tip, ImVec2(base.x + side.x, base.y + side.y), ImVec2(base.x - side.x, base.y - side.y),
+					                            color);
+					break;
+				}
+				case ToolbarIcon::Break:
+				{
+					// Two bars on a disc: pause the code, not only the game.
+					drawList->AddCircleFilled(center, half, color);
+					ImU32 const cut = ImGui::GetColorU32(background);
+					float const bar = half * 0.28f;
+					drawList->AddRectFilled(ImVec2(center.x - half * 0.45f, center.y - half * 0.5f),
+					                        ImVec2(center.x - half * 0.45f + bar, center.y + half * 0.5f), cut);
+					drawList->AddRectFilled(ImVec2(center.x + half * 0.45f - bar, center.y - half * 0.5f),
+					                        ImVec2(center.x + half * 0.45f, center.y + half * 0.5f), cut);
+					break;
+				}
 			}
 			return pressed;
 		}

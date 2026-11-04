@@ -14,6 +14,7 @@
 #include "Editor/UI/EditorUI.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/Application.h"
 #include "Strada/Core/Events/ApplicationEvent.h"
 #include "Strada/Core/FileSystem.h"
@@ -29,6 +30,8 @@
 #include <imgui_stdlib.h>
 
 #include <array>
+#include <optional>
+#include <string>
 #include <utility>
 
 namespace Strada
@@ -156,6 +159,10 @@ namespace Strada
 			{
 				return *m_VisualScripts;
 			};
+			environment.DebuggerPanel = [this]() -> VisualScriptDebuggerPanel&
+			{
+				return m_DebuggerPanel;
+			};
 		}
 		environment.RequestQuit = []
 		{
@@ -197,6 +204,7 @@ namespace Strada
 					m_GameInput.SetGameCursorMode(mode);
 				});
 			m_ConsolePanel.SetFont(imgui->GetMonospaceFont());
+			m_DebuggerPanel.SetMonospaceFont(imgui->GetMonospaceFont());
 			m_HierarchyPanel.SetFocusCallback(
 				[this](UUID entity)
 				{
@@ -263,6 +271,7 @@ namespace Strada
 			// The graph windows' index of the project's visual scripts says which graphs use the one inspected or deleted.
 			m_ContentBrowserPanel.SetVisualScriptIndex(&m_VisualScripts->GetProjectIndex());
 			m_InspectorPanel.SetVisualScriptIndex(&m_VisualScripts->GetProjectIndex());
+			ConnectDebugger();
 		}
 
 		if (Result<void> loaded = m_RecentProjects.Load(); !loaded)
@@ -361,6 +370,13 @@ namespace Strada
 		{
 			m_VisualScripts->Flush();
 			m_VisualScripts->SaveViews();
+			// The windows and the views file go with the layer; the session (headless parts) stays.
+			m_DebugSession.SetStopListener({});
+			m_DebugSession.SetResumeListener({});
+			m_DebugSession.SetStopEndedListener({});
+			m_DebugSession.SetTargetListener({});
+			m_VisualScripts->SetDebugSession(nullptr);
+			m_DebugSession.SetViewSettings(nullptr);
 		}
 		m_AutomationServer.Stop();
 		if (m_InstanceFileWritten)
@@ -431,6 +447,91 @@ namespace Strada
 				m_ContentBrowserPanel.DropFiles(dropped.GetPaths());
 				return true;
 			});
+	}
+
+	void EditorLayer::ConnectDebugger()
+	{
+		// Breakpoints persist per user and project in the views file, which the windows loaded.
+		m_DebugSession.SetViewSettings(&m_VisualScriptViews);
+		m_VisualScripts->SetDebugSession(&m_DebugSession);
+		// A new stop: its window comes forward on its node, the Debugger panel at the session's first stop, and the game gives
+		// the input back so the debug keys reach the editor (spec-slice4 §13.8, §14.4).
+		m_DebugSession.SetStopListener(
+			[this](VisualScriptStop const& stop)
+			{
+				m_VisualScripts->FollowStop(stop);
+				m_DebuggerPanel.OnStop(stop);
+				m_DebugControls.OnStop(stop);
+			});
+		m_DebugSession.SetResumeListener(
+			[this]
+			{
+				m_DebugControls.OnResume();
+			});
+		m_DebugSession.SetStopEndedListener(
+			[this](AssetHandle graph, std::string const& reason)
+			{
+				m_VisualScripts->OnStopEnded(graph, reason);
+			});
+		m_DebugSession.SetTargetListener(
+			[this](AssetHandle graph, UUID entity)
+			{
+				m_VisualScripts->OnTargetChanged(graph, entity);
+			});
+		m_DebuggerPanel.SetFollowFrame(
+			[this](VisualScriptStop const& stop, uint32_t frame)
+			{
+				m_VisualScripts->FollowFrame(stop, frame);
+			});
+		m_DebuggerPanel.SetOpenNode(
+			[this](AssetHandle graph, uint32_t node)
+			{
+				// The node's sub-graph, found in the stored document.
+				VisualScriptOpenRequest request;
+				request.Graph = graph;
+				request.ShowNode = node;
+				request.Select = {node};
+				if (Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph))
+				{
+					for (VisualScriptFunction const& function : asset->GetDocument().Functions)
+					{
+						for (VisualScriptNode const& candidate : function.Graph.Nodes)
+						{
+							if (candidate.ID == node)
+							{
+								request.Function = function.ID;
+							}
+						}
+					}
+					request.Function = request.Function.value_or(0);
+				}
+				UI::ReportFailure(m_VisualScripts->Open(request), "Opening the visual script");
+			});
+		m_DebuggerPanel.SetOpenGraph(
+			[this](AssetHandle graph, UUID entity)
+			{
+				OpenVisualScript(graph, entity);
+			});
+		VisualScriptDebugControlsHost host;
+		host.IsGameViewVisible = [this]
+		{
+			return m_ShowGameView && VisualScriptDebugControls::IsWindowShownWithoutTabChange("Game View");
+		};
+		host.GetBreakGraph = [this]
+		{
+			VisualScriptEditorPanel const* target = m_VisualScripts->GetEditTarget();
+			return target != nullptr ? target->GetGraph() : AssetHandle();
+		};
+		host.GetGraphName = [](AssetHandle graph)
+		{
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(graph);
+			if (!metadata)
+			{
+				return graph.ToString();
+			}
+			return metadata->Path.empty() ? metadata->Name : FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).filename());
+		};
+		m_DebugControls.SetHost(std::move(host));
 	}
 
 	void EditorLayer::UpdateThumbnails()
@@ -511,6 +612,13 @@ namespace Strada
 		{
 			m_ConsolePanel.OnImGuiRender(m_ShowConsole);
 		}
+		if (m_VisualScripts)
+		{
+			// Docked beside the Console the first time it shows in a layout that does not have it.
+			ImGuiWindow const* console = ImGui::FindWindowByName("Console");
+			m_DebuggerPanel.OnImGuiRender(console != nullptr && console->DockId != 0 ? std::optional<ImGuiID>(console->DockId)
+			                                                                         : std::nullopt);
+		}
 		if (m_ShowRendererInfo)
 		{
 			m_RendererInfoPanel.OnImGuiRender(m_ShowRendererInfo, m_ViewportPanel ? m_ViewportPanel->GetRendererStatistics() : nullptr,
@@ -583,6 +691,7 @@ namespace Strada
 		ImGui::DockBuilderDockWindow("Project Settings", right);
 		ImGui::DockBuilderDockWindow(ContentBrowserPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
+		ImGui::DockBuilderDockWindow(VisualScriptDebuggerPanel::WindowName, bottom);
 		// The graph windows that are open join the scene view.
 		if (m_VisualScripts)
 		{
@@ -725,6 +834,11 @@ namespace Strada
 			ImGui::MenuItem("Renderer Info", nullptr, &m_ShowRendererInfo);
 			if (m_VisualScripts)
 			{
+				bool debugger = m_DebuggerPanel.IsOpen();
+				if (ImGui::MenuItem(VisualScriptDebuggerPanel::WindowName, nullptr, &debugger))
+				{
+					m_DebuggerPanel.SetOpen(debugger);
+				}
 				m_VisualScripts->DrawViewMenuItems();
 			}
 			ImGui::Separator();
@@ -732,6 +846,7 @@ namespace Strada
 			{
 				m_ShowViewport = m_ShowGameView = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowProjectSettings =
 					m_ShowContentBrowser = m_ShowConsole = m_ShowRendererInfo = true;
+				m_DebuggerPanel.SetOpen(true);
 				m_ResetLayout = true;
 			}
 			ImGui::MenuItem("ImGui Demo", nullptr, &m_ShowImGuiDemo);
@@ -777,13 +892,23 @@ namespace Strada
 			StartPlay(EditorPlayState::Simulate);
 		}
 		ImGui::Separator();
+		// While an execution is stopped, Pause continues it (then the game) and Step is refused (spec-slice4 §4.9, §14.3).
 		if (ImGui::MenuItem("Pause", "Ctrl+Shift+P", m_PlayMode.IsPaused(), playing))
 		{
-			m_PlayMode.SetPaused(!m_PlayMode.IsPaused());
+			m_DebugControls.TogglePause();
 		}
-		if (ImGui::MenuItem("Step", "Ctrl+Alt+P", false, m_PlayMode.IsPaused()))
+		if (playing)
 		{
-			m_PlayMode.Step();
+			ImGui::SetItemTooltip("%s", m_DebugControls.GetPauseTooltip().c_str());
+		}
+		if (ImGui::MenuItem("Step", "Ctrl+Alt+P", false, m_DebugControls.CanStepFrame()))
+		{
+			m_DebugControls.StepFrame();
+		}
+		if (std::optional<std::string> const refusal = m_DebugControls.GetStepRefusal();
+		    refusal && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+		{
+			ImGui::SetTooltip("%s", refusal->c_str());
 		}
 		ImGui::EndMenu();
 	}
@@ -825,12 +950,14 @@ namespace Strada
 		}
 		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P, route) && m_PlayMode.IsPlaying())
 		{
-			m_PlayMode.SetPaused(!m_PlayMode.IsPaused());
+			m_DebugControls.TogglePause();
 		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_P, route) && m_PlayMode.IsPaused())
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_P, route))
 		{
-			m_PlayMode.Step();
+			m_DebugControls.StepFrame();
 		}
+		// F5, F10, F11, Ctrl+F11 and Shift+F11 while an execution is stopped.
+		m_DebugControls.HandleKeys();
 
 		// Undo and Redo, then Cut, Copy, Paste, Duplicate, Delete and Select All: on the Edit menu's target, as its items, but
 		// for the chords the window that has the keyboard claims. None runs while a text field has the keyboard or a modal is
@@ -1088,7 +1215,7 @@ namespace Strada
 		bool const simulating = m_Context.GetPlayState() == EditorPlayState::Simulate;
 		float const buttonWidth = UI::GetToolbarButtonSize().x;
 		float const simulateWidth = ImGui::CalcTextSize("Simulate").x + style.FramePadding.x * 2.0f;
-		float const width = buttonWidth * 3.0f + simulateWidth + style.ItemSpacing.x * 4.0f;
+		float const width = buttonWidth * 3.0f + simulateWidth + style.ItemSpacing.x * 4.0f + m_DebugControls.GetToolbarButtonsWidth();
 		ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), (ImGui::GetWindowWidth() - width) * 0.5f));
 
 		ImGui::BeginDisabled(m_PlayMode.IsStartPending());
@@ -1110,18 +1237,21 @@ namespace Strada
 		ImGui::BeginDisabled(!playing);
 		if (UI::ToolbarButton("##Pause", UI::ToolbarIcon::Pause, paused))
 		{
-			m_PlayMode.SetPaused(!paused);
+			m_DebugControls.TogglePause();
 		}
-		ImGui::SetItemTooltip(paused ? "Resume (Ctrl+Shift+P)" : "Pause (Ctrl+Shift+P)");
+		ImGui::SetItemTooltip("%s", m_DebugControls.GetPauseTooltip().c_str());
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		ImGui::BeginDisabled(!paused);
+		std::optional<std::string> const stepRefusal = m_DebugControls.GetStepRefusal();
+		ImGui::BeginDisabled(!m_DebugControls.CanStepFrame());
 		if (UI::ToolbarButton("##Step", UI::ToolbarIcon::Step, false))
 		{
-			m_PlayMode.Step();
+			m_DebugControls.StepFrame();
 		}
-		ImGui::SetItemTooltip("Advance the paused scene by one frame (Ctrl+Alt+P)");
+		ImGui::SetItemTooltip("%s", stepRefusal ? stepRefusal->c_str() : VisualScriptDebugControls::Texts::Step.data());
 		ImGui::EndDisabled();
+		// Continue, Step Over, Step Into, Step Out and Break while playing.
+		m_DebugControls.DrawToolbarButtons();
 		ImGui::SameLine(0.0f, style.ItemSpacing.x * 2.0f);
 		ImGui::BeginDisabled(playing && !simulating);
 		if (simulating)

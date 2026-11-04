@@ -1561,6 +1561,46 @@ TEST_CASE("GraphCommands: graph.open opens a window that its next draw applies, 
 	CHECK(fixture.Editor(graph)["focused"] == false);
 }
 
+TEST_CASE("GraphCommands: graph.open brings a node into view and sets the debugger's options, which graph.editors reports")
+{
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"center", Json::array({0.0, 0.0})}, {"zoom", 1.0}}));
+	fixture.Frames(3);
+
+	// show: the least pan that brings node 15 (far below and to the right) into view, at the same zoom.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"show", 15}, {"wireValues", "Always"}, {"showFlow", false}}));
+	fixture.Frames(3);
+	Json const editor = fixture.Editor(graph);
+	CHECK(editor["view"]["zoom"] == doctest::Approx(1.0));
+	CHECK(editor["view"]["center"][0].get<double>() > 0.0);
+	CHECK(editor["view"]["center"][1].get<double>() > 0.0);
+	// Without a debug session the window shows nothing of debugging.
+	CHECK(editor["debug"]["state"] == "None");
+	CHECK(editor["debug"]["stop"].is_null());
+	CHECK(editor["breakpoints"] == 0);
+	CHECK(editor["flow"] == Json::object({{"drawn", false}, {"held", false}}));
+	Json const editors = fixture.Ok("graph.editors");
+	CHECK(editors["settings"] == Json::object({{"wireValues", "Always"}, {"showFlow", false}}));
+	CHECK(editors["debugPanel"].is_null());
+	CHECK(fixture.Settings.GetWireValues() == VisualScriptWireValues::Always);
+	CHECK_FALSE(fixture.Settings.IsShowFlow());
+
+	// Refusals: a node the sub-graph shown does not have, and values outside the enumeration.
+	CommandResult const missing = fixture.Run("graph.open", Json::object({{"graph", graph}, {"show", 999}}));
+	REQUIRE(missing.IsError());
+	CHECK(missing.GetError().Code == AutomationErrorCode::InvalidParams);
+	CHECK(missing.GetError().Data["path"] == "show");
+	CommandResult const wrong = fixture.Run("graph.open", Json::object({{"graph", graph}, {"wireValues", "Sometimes"}}));
+	REQUIRE(wrong.IsError());
+	CHECK(wrong.GetError().Code == AutomationErrorCode::InvalidParams);
+
+	// graph.debug-panel needs the Debugger panel, which an editor without one (headless) does not have.
+	CommandResult const panel = fixture.Run("graph.debug-panel", Json::object({{"tab", "Values"}}));
+	REQUIRE(panel.IsError());
+	CHECK(panel.GetError().Code == AutomationErrorCode::Unavailable);
+}
+
 TEST_CASE("GraphCommands: graph.open frames, then zooms around the framed centre, then centres, in every combination")
 {
 	GraphWindowFixture fixture;
