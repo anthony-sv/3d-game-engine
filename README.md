@@ -8,6 +8,7 @@
 with a Vulkan renderer and an editor that AI agents can drive from start to finish.**
 
 [![CI](https://github.com/anthony-sv/3d-game-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/anthony-sv/3d-game-engine/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-3da639)](LICENSE)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)
 ![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
 ![Vulkan](https://img.shields.io/badge/Vulkan-NVRHI-AC162C?logo=vulkan&logoColor=white)
@@ -299,6 +300,10 @@ options and the development workflow.
 
 Read [AGENTS.md](AGENTS.md) first. In short: Hazel naming conventions, Allman braces, east const, tabs; every change
 ships with tests; every commit is reviewed before it is made; CI must pass on all three platforms.
+
+## License
+
+Strada is released under the [MIT License](LICENSE).
 
 ## Third-party software
 
