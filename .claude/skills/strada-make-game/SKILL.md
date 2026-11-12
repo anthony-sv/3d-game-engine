@@ -101,8 +101,8 @@ undo history as the UI: work in small, checked steps.
 ## 6. Behavior in visual scripts
 
 Visual scripts are graphs of nodes (`.sgraph` assets) that a `VisualScript` component runs on its entity, with or
-without C# scripts; they need no C# project, only the scripting runtime (.NET 10). The "Visual scripts" section of
-[Docs/Scripting.md](../../../Docs/Scripting.md) explains them with examples; the `graph` section of Docs/Automation.md
+without C# scripts; they need no C# project, only the scripting runtime (.NET 10).
+[Docs/VisualScripting.md](../../../Docs/VisualScripting.md) explains them with examples; the `graph` section of Docs/Automation.md
 describes documents, `graph_edit`'s operations, literals and every diagnostic code.
 
 **Make and edit graphs with `graph_edit`.**
@@ -144,7 +144,7 @@ describes documents, `graph_edit`'s operations, literals and every diagnostic co
   Script `Fields` (an entity is `{"Type": "Entity", "Value": "<id>"}`). A `Variables` patch replaces the whole map.
 - Show the result: `graph_open` with `graph` opens its window, then `viewport_screenshot` (below).
 
-This batch, the one Docs/Scripting.md and Docs/Automation.md show, turns its entity at `Speed` degrees per second in a
+This batch, the one Docs/VisualScripting.md and Docs/Automation.md show, turns its entity at `Speed` degrees per second in a
 graph `graph_create` just made from the Events template:
 
 ```json
@@ -237,7 +237,7 @@ Errors and what to do:
   member, left unlinked, is the entity the graph runs on.
 - Maths: an `Expression` node with the setting `Formula` (`"(angle + speed * dt) % 360"`, `"vec3(0, a, 0)"`) does what a
   chain of operator nodes does, in one step. Every name not followed by `(` becomes an input pin of that name; unlinked
-  inputs are floats. Docs/Scripting.md lists the functions and rules.
+  inputs are floats. Docs/VisualScripting.md lists the functions and rules.
 - Text and arrays: the `Utilities/String` and `Utilities/Array` nodes (`graph_library` with `category`). Arrays (`float[]`,
   ...) can be private variables, locals and parameters, never public; their literals are JSON arrays; nodes give changed
   copies, never change an array.
@@ -348,7 +348,7 @@ Errors and what to do:
   on a tab, a stop and a frame, and `viewport_screenshot` with `window` (`Graph` with `graph`, `Debugger`, `GameView`)
   captures one window. Test runs (`test_run`), the player and exported games ignore breakpoints.
 
-The documented session (`Tests/Data/VisualScripting/Agents/Debugging.json`; Docs/Scripting.md and Docs/Automation.md show
+The documented session (`Tests/Data/VisualScripting/Agents/Debugging.json`; Docs/VisualScripting.md and Docs/Automation.md show
 it too) makes the Spinner with a mistake, `% 36` for `% 360` (it shakes instead of turning), finds it with a breakpoint,
 fixes it while the execution is stopped, traces the fix, and undoes and redoes it after Stop. Each call is followed by
 the members of its result the session checks:

@@ -104,7 +104,8 @@ to walk.
   asset fields with previews, and every mesh's materials edited in place.
 - **A content browser** with previews of textures, materials, meshes, fonts and sounds; drop files from the desktop to
   import them, models with their textures.
-- **Undo and redo for everything**, including what agents do; play, pause and step, or Simulate for physics alone.
+- **Undo and redo** for every edit of scenes, materials and visual scripts, including what agents do; play, pause and
+  step, or Simulate for physics alone.
 - **Build Game** exports a self-contained game folder for the host platform.
 
 ## Visual scripting
@@ -135,9 +136,10 @@ graph), values sit on the wires, and the inspector shows the graph's variables.<
 
 The editor runs an automation server, and `strada mcp` serves its 96 commands as Model Context Protocol tools (plus
 Poly Haven search and import, 102 tools in all). Claude Code and any other MCP client can then drive the editor you are
-looking at, or a headless one. Every command has a JSON schema and an entry in [Docs/Automation.md](Docs/Automation.md),
-every edit made through them is an undo step like any other, and the editor's tests fuzz them all, except the five that
-replace the open project or build scripts, which have tests of their own.
+looking at, or a headless one. Every command has a JSON schema and an entry in [Docs/Automation.md](Docs/Automation.md);
+the edits they make to scenes and graphs are undo steps like any other; and the editor's tests fuzz every command except
+five that replace the open project or need a .NET build, which have tests of their own. [Docs/Agents.md](Docs/Agents.md)
+shows how to set an agent up.
 
 Here an agent finds and fixes a bug in a graph that should spin an object but only shakes it, while the game is paused
 (abridged from a session that the editor's tests replay, headless and through `strada mcp`):
@@ -188,7 +190,8 @@ Particles, signed-distance text and sprites, frustum and light culling, GPU timi
 time.
 </td></tr>
 <tr><td><b>Scene and assets</b></td><td>
-EnTT entities with 31 components, hierarchies, prefabs, JSON scenes. glTF/GLB, FBX and OBJ import with materials and
+EnTT entities with 28 components (the <a href="Docs/Components.md">component reference</a> lists every field),
+hierarchies, prefabs, JSON scenes. glTF/GLB, FBX and OBJ import with materials and
 textures; HDR environments; WAV, FLAC, Ogg and MP3; TrueType fonts; built-in primitives.
 </td></tr>
 <tr><td><b>Physics</b></td><td>
@@ -204,8 +207,9 @@ Screen-space HUDs and menus built from entities: canvases that fit any screen, a
 corners, wrapped text, and buttons that scripts hear.
 </td></tr>
 <tr><td><b>Scripting</b></td><td>
-C# on .NET 10, hosted in-process, with hot reload in the editor (<a href="Docs/Scripting.md">scripting guide</a>), and
-visual scripts with a debugger and live editing (<a href="Docs/Scripting.md#visual-scripts">visual scripts</a>). The
+C# on .NET 10, hosted in-process, with hot reload in the editor (<a href="Docs/Scripting.md">scripting guide</a>,
+<a href="Docs/ScriptingAPI.md">API reference</a>), and visual scripts with a debugger and live editing
+(<a href="Docs/VisualScripting.md">visual scripting guide</a>). The
 two mix freely: graphs call C#, and C# sends events to graphs.
 </td></tr>
 <tr><td><b>Editor</b></td><td>
@@ -255,13 +259,14 @@ build/macos-release/bin/StradaEditor --project Projects/Showcase/Showcase.sproj 
 Press Play. In the Showcase, hold the right mouse button to look, move with WASD, click to throw a ball, press F to walk
 (the mouse looks, Space jumps, Shift runs), L for night and C to replay the tour; the screen lists the other keys.
 
-`python Tools/build.py --test` builds Debug and runs every test suite. [AGENTS.md](AGENTS.md) covers the presets,
-options and the development workflow.
+`python Tools/build.py --test` builds Debug and runs every test suite. [Getting started](Docs/GettingStarted.md) goes
+on from here to a first game of your own, and [AGENTS.md](AGENTS.md) covers the presets, options and the development
+workflow.
 
 ## Quality
 
-- **More than 2,500 tests** in five suites: 1,866 C++ test cases (doctest) for the engine, the editor and the player,
-  and 708 C# test methods (xUnit) for the scripting API and the `strada` tool.
+- **More than 2,500 tests** in five suites: 1,867 C++ test cases (doctest) for the engine, the editor and the player,
+  and 709 C# test methods (xUnit) for the scripting API and the `strada` tool.
 - **Fuzzing.** Every file format users write is fuzzed (damaged documents are refused or repaired; what loads saves and
   loads again), and so are the automation commands, with parameters built from their schemas: each must answer once,
   never with an internal error, and undoing everything must restore the scene.
@@ -284,16 +289,24 @@ options and the development workflow.
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |
-| `Docs/` | Architecture and design documentation, the automation reference and the scripting guide |
+| `Docs/` | The documentation: guides, generated references and the architecture ([Docs/README.md](Docs/README.md)) |
 | `.claude/skills/` | Development playbooks for AI agents |
 
 ## Documentation
 
+[Docs/README.md](Docs/README.md) is the documentation's home, with an inventory of everything the engine has.
+
 | Document | What it covers |
 |---|---|
-| [Docs/Architecture.md](Docs/Architecture.md) | The architectural contract: modules, rendering, scene and ECS, physics, audio, scripting, editor, automation, runtime |
-| [Docs/Scripting.md](Docs/Scripting.md) | Writing games in C# and in visual scripts, from a first script to debugging graphs and testing a game |
-| [Docs/Automation.md](Docs/Automation.md) | The automation protocol, every command, the `strada` tool and its MCP server |
+| [Getting started](Docs/GettingStarted.md) | Building Strada, the samples, a first game step by step, testing and exporting it |
+| [Editor](Docs/Editor.md) | The editor: panels, the scene view, assets and materials, prefabs, settings, play mode, Build Game, shortcuts |
+| [Scripting](Docs/Scripting.md) | C# scripts: fields, entities and components, input, physics, sound, UI, particles, testing, exporting |
+| [Visual scripting](Docs/VisualScripting.md) | Graphs, from a first graph to functions, formulas, timelines, debugging and live editing; Prism Break |
+| [AI agents](Docs/Agents.md) | Building games with agents through `strada mcp`, and debugging their graphs |
+| [Components](Docs/Components.md) | Every component and field, generated from the engine |
+| [Scripting API](Docs/ScriptingAPI.md) | Every public type and member of the C# API, generated from the engine |
+| [Automation](Docs/Automation.md) | The automation protocol, every command, the `strada` tool and its MCP server |
+| [Architecture](Docs/Architecture.md) | The architectural contract: modules, rendering, scene and ECS, physics, audio, scripting, editor, automation, runtime |
 | [AGENTS.md](AGENTS.md) | The development guide for people and agents: building, style, testing and the commit process |
 
 ## Contributing

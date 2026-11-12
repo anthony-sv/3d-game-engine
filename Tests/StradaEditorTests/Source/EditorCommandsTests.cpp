@@ -212,7 +212,7 @@ TEST_CASE("EditorCommands: the docs and the game-making skill show graph.edit's 
 		batch.pop_back();
 	}
 	REQUIRE(batch.starts_with("{ \"graph\": \"asset://Scripts/Spinner.sgraph\""));
-	for (char const* const document : {STRADA_AUTOMATION_DOC_PATH, STRADA_SCRIPTING_DOC_PATH, STRADA_MAKE_GAME_SKILL_PATH})
+	for (char const* const document : {STRADA_AUTOMATION_DOC_PATH, STRADA_VISUAL_SCRIPTING_DOC_PATH, STRADA_MAKE_GAME_SKILL_PATH})
 	{
 		CAPTURE(document);
 		CHECK(read(FileSystem::PathFromUtf8(document)).find("```json\n" + batch + "\n```") != std::string::npos);

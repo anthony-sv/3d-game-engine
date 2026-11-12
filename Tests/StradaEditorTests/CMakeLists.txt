@@ -97,9 +97,9 @@ target_compile_definitions(StradaEditorTests PRIVATE
     STRADA_AUTOMATION_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/Automation.md"
     # The architecture; a test checks that section 11 lists every key and mouse gesture of the visual script editor.
     STRADA_ARCHITECTURE_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/Architecture.md"
-    # The scripting guide and the agents' game-making skill: a test checks that they show graph.edit's example batch as
-    # the graph command tests run it.
-    STRADA_SCRIPTING_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/Scripting.md"
+    # The visual scripting guide and the agents' game-making skill: tests check that they show graph.edit's example batch
+    # as the graph command tests run it, and the documented debugging session step by step.
+    STRADA_VISUAL_SCRIPTING_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/VisualScripting.md"
     STRADA_MAKE_GAME_SKILL_PATH="${PROJECT_SOURCE_DIR}/.claude/skills/strada-make-game/SKILL.md"
     # The shared fuzzing helpers (Fuzzing.h) take their seed documents from the FeatureTest project.
     STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"

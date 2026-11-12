@@ -18,6 +18,11 @@
 		<PackageReference Include="xunit.v3" Version="4.0.2" />
 	</ItemGroup>
 
+	<!-- The API reference test reads and writes Docs/ScriptingAPI.md, so the assembly records the repository's directory. -->
+	<ItemGroup>
+		<AssemblyMetadata Include="StradaSourceDirectory" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../..'))" />
+	</ItemGroup>
+
 	<!-- The visual-script documents the tracks share (Tests/Data/VisualScripting), as VisualScripting/ next to the tests. -->
 	<ItemGroup>
 		<None Include="../Data/VisualScripting/**" LinkBase="VisualScripting" CopyToOutputDirectory="PreserveNewest" />

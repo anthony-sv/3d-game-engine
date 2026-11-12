@@ -1534,7 +1534,7 @@ TEST_CASE("VisualScriptDebug: the docs and the game-making skill show every step
 		return content;
 	};
 	std::string const automation = read(STRADA_AUTOMATION_DOC_PATH);
-	std::string const scripting = read(STRADA_SCRIPTING_DOC_PATH);
+	std::string const scripting = read(STRADA_VISUAL_SCRIPTING_DOC_PATH);
 	std::string const skill = read(STRADA_MAKE_GAME_SKILL_PATH);
 	Json const session = LoadAgentFile("Debugging.json");
 	REQUIRE(session.size() == 22);
@@ -1560,7 +1560,7 @@ TEST_CASE("VisualScriptDebug: the docs and the game-making skill show every step
 	}
 	std::string const toolBlock = "```\n" + tools + "```\n";
 	std::string const rpcBlock = "```\n" + rpc + "```\n";
-	CHECK_MESSAGE(scripting.find(toolBlock) != std::string::npos, "Docs/Scripting.md does not show the session as:\n", toolBlock);
+	CHECK_MESSAGE(scripting.find(toolBlock) != std::string::npos, "Docs/VisualScripting.md does not show the session as:\n", toolBlock);
 	CHECK_MESSAGE(skill.find(toolBlock) != std::string::npos, "the strada-make-game skill does not show the session as:\n", toolBlock);
 	CHECK_MESSAGE(automation.find(rpcBlock) != std::string::npos, "Docs/Automation.md does not show the session as:\n", rpcBlock);
 }

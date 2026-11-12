@@ -157,4 +157,8 @@ public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testi
 
 ## 6. Docs
 
-Update `Docs/Architecture.md` §10.4 (API list and semantics), and §10.3 for new field types or lifecycle rules.
+Update `Docs/Architecture.md` §10.4 (API list and semantics), and §10.3 for new field types or lifecycle rules. Regenerate
+the API reference: run ScriptCoreTests with `STRADA_UPDATE_DOCS=1` (`Strada.ScriptCore.Tests -class
+Strada.ScriptCore.Tests.ApiReferenceTests` in `build/<preset>/bin/ScriptCoreTests`), which rewrites `Docs/ScriptingAPI.md`
+from the API and its XML documentation; ScriptCoreTests fails until the committed page matches. A new callback or
+event also gets its place in `Docs/VisualScripting.md`'s tables where the guide lists events.

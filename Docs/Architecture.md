@@ -762,7 +762,7 @@ order, else the primary camera, else the origin facing -Z. `Scene::SetPaused` ho
 ## 10. Scripting (C# / .NET 10)
 
 This section is the contract of the scripting runtime; [Scripting.md](Scripting.md) shows game developers how to write
-scripts and visual scripts.
+scripts and [VisualScripting.md](VisualScripting.md) how to write visual scripts.
 
 ### 10.1 Hosting
 
@@ -2369,7 +2369,7 @@ data directory, and compile out asserts and script debug lines.
   their variables while playing; the debug commands run against a real scripting runtime and play mode, every command,
   parameter and error, a sequence fuzz of random debug sessions (seed 11700) that must leave a consistent state, and the
   documented debugging session (`Tests/Data/VisualScripting/Agents/Debugging.json`, run headless; a test holds
-  Automation.md, Scripting.md and the game-making skill to its steps and their answers, verbatim and in order, as one block); `graph.edit` also runs the docs' example batch
+  Automation.md, VisualScripting.md and the game-making skill to its steps and their answers, verbatim and in order, as one block); `graph.edit` also runs the docs' example batch
   (`Tests/Data/VisualScripting/Agents/Spinner.json`, which a test holds the docs and the game-making skill to, verbatim). `GraphEditFuzzTests` sends random
   batches drawn from a document's own nodes, pins, variables and functions, with labels and every operation kind: each
   either fails naming an operation and changes nothing, or writes one undo step that loads strictly and undoes byte for

@@ -764,7 +764,7 @@ as an integer (a decimal string for 64-bit enums); arrays (`float[]`, `Strada.Ve
 elements' literals, at most 4096 (`[1.5, 2]`, `[[0, 0, 0], [1, 0, 0.5]]`; `[]` is empty, and an array is never None).
 Other types have no literal, nor do arrays of them: link their inputs.
 
-**Settings that are not literals.** An `Expression`'s `Formula` is the formula's text (at most 4096 bytes; Docs/Scripting.md
+**Settings that are not literals.** An `Expression`'s `Formula` is the formula's text (at most 4096 bytes; Docs/VisualScripting.md
 describes formulas): every name in it that is not followed by `(` is an input pin of that name, in the order the names
 first appear. A `Flow.Timeline`'s `Timeline` is an object (no `Default`; missing, the timeline is 1 s long, does not
 loop and has no tracks), written by the editor in this canonical form:

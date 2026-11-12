@@ -193,7 +193,7 @@ public sealed class AgentWorkflowTests
 		JsonNode created = await ToolAsync(client, "project_create", new JsonObject { ["directory"] = Path.Combine(directory.Path, "Spinner"), ["name"] = "Spinner" });
 		string createdScene = created["scene"]!["path"]!.GetValue<string>();
 
-		// Tests/Data/VisualScripting/Agents/Debugging.json, the session Docs/Scripting.md, Docs/Automation.md and the
+		// Tests/Data/VisualScripting/Agents/Debugging.json, the session Docs/VisualScripting.md, Docs/Automation.md and the
 		// strada-make-game skill show: the Spinner with a mistake (% 36 for % 360), stopped at a conditional breakpoint,
 		// fixed while stopped, traced, then undone and redone after Stop. Each step is the tool of its command.
 		JsonArray session = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Agents", "Debugging.json")))!.AsArray();

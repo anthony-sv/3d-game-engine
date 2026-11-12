@@ -95,7 +95,7 @@ except the migration fixtures; the content form has no version.
   `Ponger` and `Pinger` each and one for the others, and give each round the graphs back as they were made. `Editor/Views.json`
   and `Editor/Views-v1.json` are track E's (above).
 
-- **Slice 4, track N** (StradaEditorTests and StradaToolTests): a test holds `Docs/Scripting.md` and the `strada-make-game`
+- **Slice 4, track N** (StradaEditorTests and StradaToolTests): a test holds `Docs/VisualScripting.md` and the `strada-make-game`
   skill to the whole of `Agents/Debugging.json` as one block, each step shown as the MCP tool and its compact JSON
   arguments and then its `expect`, and `Docs/Automation.md` to the JSON-RPC requests and replies of the same steps (ids
   from 3), so a step missing, repeated, moved or answered otherwise fails; StradaToolTests copies `Agents/Debugging.json` next to

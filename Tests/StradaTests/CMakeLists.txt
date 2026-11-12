@@ -75,6 +75,7 @@ add_executable(StradaTests
     Source/Renderer/TextLayoutTests.cpp
     Source/Renderer/TextureBlitterTests.cpp
     Source/Renderer/UIRenderingTests.cpp
+    Source/Scene/ComponentReferenceTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
     Source/Scene/ParticleEmitterTests.cpp
     Source/Scene/PostProcessVolumeTests.cpp
@@ -130,6 +131,10 @@ target_compile_definitions(StradaTests PRIVATE
     # The scripting guide and the test scripts that are its examples, which the scripting tests compare and run.
     STRADA_SCRIPTING_GUIDE_PATH="${PROJECT_SOURCE_DIR}/Docs/Scripting.md"
     STRADA_GUIDE_EXAMPLES_PATH="${PROJECT_SOURCE_DIR}/Tests/TestScripts/Source/GuideExamples.cs"
+    # The visual scripting guide, whose table of Prism Break's graphs must name every graph of the project.
+    STRADA_VISUAL_SCRIPTING_GUIDE_PATH="${PROJECT_SOURCE_DIR}/Docs/VisualScripting.md"
+    # The component reference, generated from the component registry by a test that fails when it differs.
+    STRADA_COMPONENT_REFERENCE_PATH="${PROJECT_SOURCE_DIR}/Docs/Components.md"
     # The repository map of AGENTS.md and the layout of README.md, which must name every sample project.
     STRADA_AGENTS_PATH="${PROJECT_SOURCE_DIR}/AGENTS.md"
     STRADA_README_PATH="${PROJECT_SOURCE_DIR}/README.md")

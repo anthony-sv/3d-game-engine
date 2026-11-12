@@ -395,7 +395,8 @@ TEST_CASE("Components: schemas include ranges, value lists, presentation hints a
 	CHECK(range["Min"] == 0.0);
 	CHECK_FALSE(range.contains("Max"));
 	CHECK(range["Description"] == "Distance in meters at which the light fades out completely.");
-	CHECK_FALSE(spot["Fields"][5].contains("Description"));
+	// A field without a description has no Description member (every field users edit has one; the internal ID has none).
+	CHECK_FALSE(ComponentRegistry::Get<IDComponent>().Describe()["Fields"][0].contains("Description"));
 
 	Json const body = ComponentRegistry::Get<RigidBodyComponent>().Describe();
 	CHECK(body["Fields"][0]["Values"] == Json::array({"Static", "Dynamic", "Kinematic"}));

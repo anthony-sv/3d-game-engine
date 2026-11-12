@@ -12,8 +12,8 @@
 
 using namespace Strada;
 
-// The documents that name the sample projects (AGENTS.md's repository map, README.md's layout and the scripting guide's
-// table of Prism Break's graphs) name exactly what the repository holds.
+// The documents that name the sample projects (AGENTS.md's repository map, README.md's layout and the visual scripting
+// guide's table of Prism Break's graphs) name exactly what the repository holds.
 namespace
 {
 	std::string ReadDocument(char const* path)
@@ -116,13 +116,13 @@ TEST_CASE("Project: AGENTS.md's repository map and README.md's layout name every
 	}
 }
 
-TEST_CASE("Project: the scripting guide's table of Prism Break's graphs names every graph of the project and nothing else")
+TEST_CASE("Project: the visual scripting guide's table of Prism Break's graphs names every graph of the project and nothing else")
 {
 	std::set<std::string> const graphs =
 		ListEntries(FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / "PrismBreak" / "Assets" / "Scripts", false, ".sgraph");
 	REQUIRE(graphs.size() == 13);
-	std::string const guide = ReadDocument(STRADA_SCRIPTING_GUIDE_PATH);
-	std::vector<std::string> const named = ReadFirstColumn(guide, "### A complete game: Prism Break", "| Graph |");
+	std::string const guide = ReadDocument(STRADA_VISUAL_SCRIPTING_GUIDE_PATH);
+	std::vector<std::string> const named = ReadFirstColumn(guide, "## A complete game: Prism Break", "| Graph |");
 	std::set<std::string> const listed(named.begin(), named.end());
 	CHECK_MESSAGE(listed.size() == named.size(), "the table names a graph twice");
 	CHECK(listed == graphs);

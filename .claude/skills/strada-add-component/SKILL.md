@@ -93,4 +93,6 @@ range rejects files that use values outside it, so it is a format change too (mi
 
 ## 9. Docs
 
-Update the component table in `Docs/Architecture.md` §7.2.
+Update the component table in `Docs/Architecture.md` §7.2. Give every field a `.Doc(...)` description, then
+regenerate the component reference: `STRADA_UPDATE_DOCS=1 StradaTests -tc="Components: Docs/Components.md*"` rewrites
+`Docs/Components.md` from the registry, and StradaTests fails until the committed page matches.
