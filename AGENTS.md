@@ -36,7 +36,7 @@ before changing anything structural; it is the architectural contract.
 | `Projects/Showcase/` | Every engine feature in exhibit areas of a forest clearing (materials, glass, lights, post-processing, physics, triggers, a yard to walk in, particles, sound, a garden of chimes played by visual scripts (`Tools/GraphGarden.py`; `Tools/Author.py --exhibit GraphGarden` rebuilds it in place)) with an opening camera tour, a HUD and day and night, built by `Tools/Author.py` through the agent tools; `Tools/FetchAssets.py` downloads its Poly Haven assets |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
 | `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format and dotnet format) |
-| `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference), `Scripting.md` (guide to writing game scripts) |
+| `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference), `Scripting.md` (guide to writing game scripts), `Images/` (the README's screenshots, captured by the player's `--screenshot` and the editor's `viewport.screenshot`) |
 | `.claude/skills/` | Task-specific playbooks (see [Skills](#skills)) |
 
 ## Building
