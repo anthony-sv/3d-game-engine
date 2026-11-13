@@ -79,6 +79,9 @@ usage.
 - Editors strada starts with a window stay open for the user. Editors it starts headless close with `strada mcp`: they
   get `--parent-process <strada's process ID>`, the editor option that closes the editor, discarding unsaved changes,
   once that process has exited (a safeguard for when strada itself is ended without closing them).
+- An editor strada starts gets standard streams of its own and holds none of strada's (on Windows strada makes its own
+  standard handles non-inheritable when it starts), so a program reading strada's output, `strada launch`'s among them,
+  sees it end when strada exits, even while the editor runs on.
 
 The repository's `.mcp.json` registers `strada mcp` for agents working in the checkout (through `dotnet run`, which
 builds strada when needed). A game project elsewhere registers the built tool (`strada.exe` on Windows):

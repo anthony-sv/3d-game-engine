@@ -42,7 +42,7 @@ sample scene. `StradaEditor --help` prints the options:
 | Option | What it does |
 |--------|--------------|
 | `--help` | Shows the options and exits |
-| `--project <path>` | Opens this project file (`.sproj`) at startup |
+| `--project <path>` | Opens this project file (`.sproj`) at startup; when it cannot be opened, the start screen says why |
 | `--scene <path>` | Opens this scene file at startup, after the project; a scene that cannot be opened keeps the project's start scene |
 | `--no-start-screen` | Starts without the [start screen](#the-start-screen) when no project opens; File > Start Screen shows it all the same (`strada mcp` starts its editors with it) |
 | `--maximized` | Opens the editor window maximized |

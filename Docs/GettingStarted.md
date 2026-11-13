@@ -131,7 +131,7 @@ Some of the editor's command-line options (`StradaEditor --help` lists them all)
 
 | Option | What it does |
 |--------|--------------|
-| `--project <path>` | Open this project file (`.sproj`) at startup |
+| `--project <path>` | Open this project file (`.sproj`) at startup (when it cannot be opened, the start screen says why) |
 | `--scene <path>` | Open this scene file at startup, after the project |
 | `--maximized`, `--window-size <W>x<H>` | Open the window maximized, or at this size (default 1600x900) |
 | `--headless` | Run without a window or UI, for automation |
