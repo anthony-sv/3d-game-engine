@@ -2360,31 +2360,39 @@ data directory, and compile out asserts and script debug lines.
   recipe (inputs, settings, components, a child target, held keys or buttons), a recipe for every member of its type, or
   a checked exclusion naming a graph FeatureTest's scenes run that holds it. The fuzz test of damaged graphs runs, every
   third round, the shared language document (expressions, arrays, strings, generics, a timeline).
-- `StradaEditorTests`: automation commands executed headlessly on a temporary project. A fuzz test sends every command
-  parameters built from its schema and the editor's state (mostly names of what exists, plus values to refuse; damaged
-  graph documents to `graph.set` and `graph.check`), while editing and playing: every request answers once without
-  InternalError, the scene stays loadable, undoing and redoing everything restores it, and nothing outside the project
-  changes. The graph commands are tested with and without the scripting runtime: strict refusals naming every issue,
-  renamed variables, layout, undo restoring the file's bytes, the library's filters, and edits of running graphs and
-  their variables while playing; the debug commands run against a real scripting runtime and play mode, every command,
-  parameter and error, a sequence fuzz of random debug sessions (seed 11700) that must leave a consistent state, and the
-  documented debugging session (`Tests/Data/VisualScripting/Agents/Debugging.json`, run headless; a test holds
-  Automation.md, VisualScripting.md and the game-making skill to its steps and their answers, verbatim and in order, as one block); `graph.edit` also runs the docs' example batch
-  (`Tests/Data/VisualScripting/Agents/Spinner.json`, which a test holds the docs and the game-making skill to, verbatim). `GraphEditFuzzTests` sends random
-  batches drawn from a document's own nodes, pins, variables and functions, with labels and every operation kind: each
-  either fails naming an operation and changes nothing, or writes one undo step that loads strictly and undoes byte for
-  byte, and a dry run answers what the call then does. With `STRADA_PERFORMANCE_TESTS=1`, the commit tests print the
-  phases of a commit (`VisualScriptCommitTimings`: Normalize, Check, Text, ReadBack, Compare, Write, SetDocument, Adopt,
-  Analysis, Canvas, Index) for 2,000 and 200 nodes, for a move and for a new link, and check wall-clock bounds of three
-  times the measured figures; without it they check that every phase that does work is filled. The visual script editor (§11.1) is tested headless: its pure layers with plain cases
-  (the node library and analyses from `Tests/Data/VisualScripting/Editor`, checked against the real runtime's), its
-  panes and graph windows drawn through `HeadlessImGui` with real mouse and key input, the window manager and the
+- `StradaEditorTests`: automation commands executed headlessly on a temporary project. ctest runs it as shards, one
+  entry each, defined once in `Tests/StradaEditorTests/Shards.cmake` as doctest source-file filters:
+  `StradaEditorTests.AutomationFuzz`, `.Graph` (the graph and debug command tests and `GraphEditFuzzTests`),
+  `.VisualScriptPanels` (the visual script editor's panels, panes, windows and canvases), `.VisualScriptModel` (the rest
+  of the visual script editor) and `.Core` (every other file). `StradaEditorTests.Partition` lists the test cases
+  unfiltered and through each shard's filters and fails when one is in no shard or in two, or when a shard selects
+  nothing; a shard that passes 450 s on CI's Windows MSVC Debug job is split again by source-file patterns. A fuzz test
+  sends every command parameters built from its schema and the editor's state (mostly names of what exists, plus values
+  to refuse; damaged graph documents to `graph.set` and `graph.check`), while editing and playing: every request answers
+  once without InternalError, the scene stays loadable, undoing and redoing everything restores it, and nothing outside
+  the project changes. The graph commands are tested with and without the scripting runtime: strict refusals naming
+  every issue, renamed variables, layout, undo restoring the file's bytes, the library's filters, and edits of running
+  graphs and their variables while playing; the debug commands run against a real scripting runtime and play mode, every
+  command, parameter and error, a sequence fuzz of random debug sessions (seed 11700) that must leave a consistent
+  state, and the documented debugging session (`Tests/Data/VisualScripting/Agents/Debugging.json`, run headless; a test
+  holds Automation.md, VisualScripting.md and the game-making skill to its steps and their answers, verbatim and in
+  order, as one block); `graph.edit` also runs the docs' example batch
+  (`Tests/Data/VisualScripting/Agents/Spinner.json`, which a test holds the docs and the game-making skill to,
+  verbatim). `GraphEditFuzzTests` sends random batches drawn from a document's own nodes, pins, variables and functions,
+  with labels and every operation kind: each either fails naming an operation and changes nothing, or writes one undo
+  step that loads strictly and undoes byte for byte, and a dry run answers what the call then does. With
+  `STRADA_PERFORMANCE_TESTS=1`, the commit tests print the phases of a commit (`VisualScriptCommitTimings`: Normalize,
+  Check, Text, ReadBack, Compare, Write, SetDocument, Adopt, Analysis, Canvas, Index) for 2,000 and 200 nodes, for a
+  move and for a new link, and check wall-clock bounds of three times the measured figures; without it they check that
+  every phase that does work is filled. The visual script editor (§11.1) is tested headless: its pure layers with plain
+  cases (the node library and analyses from `Tests/Data/VisualScripting/Editor`, checked against the real runtime's),
+  its panes and graph windows drawn through `HeadlessImGui` with real mouse and key input, the window manager and the
   `graph.*` window commands between draws, the canvas's draw counters on graphs of up to 10,000 nodes, and the key and
-  gesture tables against §11.1 of this document. A copy of the Blocks sample plays through
-  `input.set` the way a player plays it: it opens at the title's view with its sign shown and a field of view widened
-  for the 4:3 game view, then takes clicks on its menus' buttons where `ui.layout` shows them, the arrow keys and Enter
-  in its menus, and Escape, P, R and Space on its title, game, pause and game-over screens (Space mashed through the
-  end of a game leaves the game-over screen up), down to the title's Quit, which ends play mode.
+  gesture tables against §11.1 of this document. A copy of the Blocks sample plays through `input.set` the way a player
+  plays it: it opens at the title's view with its sign shown and a field of view widened for the 4:3 game view, then
+  takes clicks on its menus' buttons where `ui.layout` shows them, the arrow keys and Enter in its menus, and Escape, P,
+  R and Space on its title, game, pause and game-over screens (Space mashed through the end of a game leaves the
+  game-over screen up), down to the title's Quit, which ends play mode.
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
   layouts, test runs and their exit codes, games whose only scripts are visual scripts, among them one whose graph calls
   a function library and broadcasts to two entities, development-only nodes the project runs and the exported game

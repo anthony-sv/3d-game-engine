@@ -201,6 +201,10 @@ namespace Strada
   `"<Module>: <behavior>"`. Tests that touch global state (Input, Log) restore it; temporary files go through
   `Testing::TemporaryDirectory`.
 - Run everything with `python Tools/build.py --test`; CI runs the same command on Windows, Linux and macOS.
+- No ctest entry may outgrow its timeout: an entry that passes 450 s on CI's Windows MSVC Debug job is split by
+  source-file patterns. StradaEditorTests runs as the shards of `Tests/StradaEditorTests/Shards.cmake`
+  (`StradaEditorTests.<shard>`, `ctest -R StradaEditorTests` runs them all), and `StradaEditorTests.Partition` keeps
+  them a partition: it fails when a test case is in no shard or in two, or when a shard selects nothing.
 - Every file format users write gets a fuzz test (`Testing::DocumentMutator` in `Tests/StradaTests/Source/Fuzzing.h`):
   damaged documents must be refused or repaired, what loads must save and load again, and what runs must run. Set
   `STRADA_FUZZ_SCALE=<n>` for n times more rounds after changing a loader (Debug builds keep Jolt's asserts).

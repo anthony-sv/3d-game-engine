@@ -118,5 +118,7 @@ add_dependencies(StradaEditorTests StradaRuntime)
 strada_configure_target(StradaEditorTests)
 set_target_properties(StradaEditorTests PROPERTIES FOLDER "Tests")
 
-add_test(NAME StradaEditorTests COMMAND StradaEditorTests --reporters=console --no-intro=true)
-set_tests_properties(StradaEditorTests PROPERTIES TIMEOUT 600)
+# One ctest entry per shard (StradaEditorTests.<shard>) and StradaEditorTests.Partition, which checks that the shards
+# hold every test case exactly once.
+include("${CMAKE_CURRENT_SOURCE_DIR}/Shards.cmake")
+strada_add_editor_test_shards(StradaEditorTests)

@@ -43,6 +43,30 @@ STRADA_EDITOR=build/<preset>/bin/StradaEditor dotnet build/<preset>/bin/StradaTo
 
 Test cases are named `"<Module>: <behavior>"`, so module filters such as `-tc="Input*"` work.
 
+## Editor test shards
+
+ctest runs StradaEditorTests as shards, one entry each with its own 600 s timeout, defined once in
+`Tests/StradaEditorTests/Shards.cmake` as doctest source-file filters (`--source-file=`, `--source-file-exclude=`):
+`StradaEditorTests.<shard>` for every shard listed there, with `StradaEditorTests.Core` taking every file no other shard
+names. `StradaEditorTests.Partition` (a `cmake -P` script, `CheckShardPartition.cmake`) lists the test cases unfiltered
+and through each shard's filters and fails when a test case is in no shard or in two, or a shard selects nothing.
+
+```sh
+ctest --preset windows-debug -R StradaEditorTests          # every shard and the partition check
+ctest --preset windows-debug -R StradaEditorTests.Graph    # one shard
+build/<preset>/bin/StradaEditorTests "--source-file=*GraphEditFuzzTests.cpp"   # a shard's filter, run directly
+```
+
+- A new test file lands in Core unless its name matches another shard's pattern; the partition check catches a file two
+  shards take.
+- Patterns match the test case's full `__FILE__` path, without regard to case. Never write a path separator in a
+  pattern (Windows paths use `\`): `*Source?PanelTests.cpp` selects `PanelTests.cpp` alone.
+- A shard that passes 450 s on CI's Windows MSVC Debug job is split by source-file patterns: add the shard to
+  `Shards.cmake`, take its files out of the shard that held them (for Core: add its patterns to Core's exclusions), and
+  check the partition with
+  `cmake -DTEST_EXECUTABLE=<StradaEditorTests> -P Tests/StradaEditorTests/CheckShardPartition.cmake` (pass
+  `-DSHARDS_FILE=<file>` to check a changed copy first).
+
 ## Adding source files
 
 Sources are listed explicitly in each target's `CMakeLists.txt` (no globbing). Add both the `.cpp` and the `.h` to the
