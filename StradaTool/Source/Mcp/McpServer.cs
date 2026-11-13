@@ -34,7 +34,17 @@ internal sealed class McpServer
 		"Entities are UUIDs written as strings; component fields use the scene-file format (asset references " +
 		"\"asset://<path in Assets>\" or \"builtin://<name>\", rotations as quaternions [x, y, z, w] or \"RotationEuler\" in " +
 		"degrees). editor_status shows the open project and scene, component_types lists the components and their fields, and " +
-		"log_read reads the editor's log. Visual scripts are graphs of nodes that a VisualScript component runs on its entity. " +
+		"log_read reads the editor's log. " +
+		"To start a game: project_templates lists the templates a project starts from and project_examples the example games; " +
+		"project_create makes a project in a new or empty directory from a template (template, default empty-3d), with a " +
+		".gitignore unless gitIgnore is false and set up for coding agents (AGENTS.md, CLAUDE.md, .mcp.json, the game-making " +
+		"skill, the guides) unless agents is false; project_copy_example copies an example to a new directory and opens the " +
+		"copy; project_open opens a .sproj. project_agents shows the state of a project's agent files, and " +
+		"project_setup_agents writes them only with confirmed true: ask the user first, show them what dryRun true answers, and " +
+		"pass confirmed only when they agree. An editor started for these tools shows no start screen: start_show shows it to " +
+		"the user, start_info tells what it offers (recent projects, templates, examples, the default location), editor_recent " +
+		"lists or edits the recent projects, and editor_dialog opens File > New Project or Set Up for Coding Agents. " +
+		"Visual scripts are graphs of nodes that a VisualScript component runs on its entity. " +
 		"graph_create makes one (or a function library); graph_library and graph_types list the kinds of nodes, with their pins " +
 		"and settings, and the types. graph_edit applies a list of operations (add nodes, connect pins, set values and " +
 		"settings, variables, functions, comments, arrange) as one undo step: name new nodes with \"$labels\", and read the " +

@@ -121,6 +121,11 @@ namespace Strada
 		return std::nullopt;
 	}
 
+	std::string DescribeStartScreenFailure(std::string_view doing, std::string_view error)
+	{
+		return fmt::format("{} failed: {}", doing, error);
+	}
+
 	StartScreenModel::StartScreenModel(EditorLocations locations, StartScreenServices services)
 		: m_Locations(std::move(locations)),
 		  m_Services(std::move(services)),
@@ -135,6 +140,15 @@ namespace Strada
 		if (!visible)
 		{
 			m_Error.clear();
+		}
+	}
+
+	void StartScreenModel::ShowAtStart(std::string projectFailure)
+	{
+		SetVisible(true);
+		if (!projectFailure.empty())
+		{
+			ReportError(std::move(projectFailure));
 		}
 	}
 

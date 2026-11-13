@@ -9,6 +9,7 @@
 #include "Strada/Project/Project.h"
 
 #include <doctest/doctest.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -186,6 +187,33 @@ TEST_CASE("StartScreenModel: the error line keeps a failure while the screen sho
 	fixture.Model.SetVisible(true);
 	fixture.Model.ReportError("Copying the example failed: full");
 	REQUIRE(fixture.Model.OnProjectOpened(fixture.Directory.GetPath() / "A" / "A.sproj").IsOk());
+	CHECK(fixture.Model.GetError().empty());
+}
+
+TEST_CASE("StartScreenModel: at the editor's start the screen says why the project of the command line did not open")
+{
+	Testing::AssetManagerScope const assets;
+	ModelFixture fixture;
+	EditorContext context;
+	EditorOperations operations(context);
+	std::filesystem::path const missing = fixture.Directory.GetPath() / "Gone" / "Gone.sproj";
+	Result<std::vector<std::string>> const opened = operations.OpenProject(missing);
+	REQUIRE(opened.IsError());
+	std::string const failure =
+		DescribeStartScreenFailure(fmt::format("Opening the project '{}'", FileSystem::PathToUtf8(missing)), opened.GetError());
+	CHECK(failure == fmt::format("Opening the project '{}' failed: {}", FileSystem::PathToUtf8(missing), opened.GetError()));
+
+	// Reported to the hidden screen, the failure would be lost: the screen comes up first.
+	CHECK_FALSE(fixture.Model.IsVisible());
+	fixture.Model.ShowAtStart(failure);
+	CHECK(fixture.Model.IsVisible());
+	CHECK(fixture.Model.GetError() == failure);
+	fixture.Model.SetVisible(false);
+	CHECK(fixture.Model.GetError().empty());
+
+	// Without a failure the screen comes up with an empty error line.
+	fixture.Model.ShowAtStart({});
+	CHECK(fixture.Model.IsVisible());
 	CHECK(fixture.Model.GetError().empty());
 }
 

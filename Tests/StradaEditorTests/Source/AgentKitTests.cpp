@@ -1116,6 +1116,16 @@ TEST_CASE("AgentKit: the game-making skill reads correctly both in the engine's 
 		CAPTURE(required);
 		CHECK(skill.find(required) != std::string::npos);
 	}
+	// Starting a project: the templates and examples, project_create's options, the agent setup with its consent, and the
+	// start screen that editors strada mcp started do not show.
+	for (std::string_view const required :
+	     {"`project_templates`", "`project_examples`", "`project_copy_example`", "`project_create`", "`template`", "`gitIgnore`",
+	      "`agents`", "`project_agents`", "`project_setup_agents`", "`confirmed: true`", "`dryRun: true`", "`start_show`", "`start_info`",
+	      "`editor_recent`", "`editor_dialog`"})
+	{
+		CAPTURE(required);
+		CHECK(skill.find(required) != std::string::npos);
+	}
 	// "Docs/" only as the repository's folder of the guides, which the skill names beside .strada/docs/.
 	for (size_t position = skill.find("Docs/"); position != std::string::npos; position = skill.find("Docs/", position + 1))
 	{
@@ -1138,12 +1148,12 @@ TEST_CASE("AgentKit: the game-making skill reads correctly both in the engine's 
 		examples++;
 	}
 	CHECK(examples > 0);
-	// The guides it names are the ones a setup copies.
+	// The guides it names are the ones a setup copies; the other files it names are the project's agent files.
 	std::regex const guide(R"(([A-Za-z]+\.md)\b)");
 	for (auto match = std::sregex_iterator(skill.begin(), skill.end(), guide); match != std::sregex_iterator(); ++match)
 	{
 		std::string const name = (*match)[1].str();
-		if (name != "AGENTS.md" && name != "SKILL.md")
+		if (name != "AGENTS.md" && name != "CLAUDE.md" && name != "SKILL.md")
 		{
 			CAPTURE(name);
 			CHECK(std::ranges::find(AgentKit::Guides, std::string_view(name)) != AgentKit::Guides.end());

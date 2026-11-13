@@ -451,6 +451,8 @@ namespace Strada
 		}
 
 		bool sceneOpened = false;
+		// Why the project the command line named did not open, for the start screen's error line.
+		std::string projectFailure;
 		if (!m_Specification.ProjectPath.empty())
 		{
 			Result<std::vector<std::string>> opened = m_Operations.OpenProject(m_Specification.ProjectPath);
@@ -461,7 +463,9 @@ namespace Strada
 			}
 			else
 			{
-				ST_ERROR("Could not open the project '{}': {}", FileSystem::PathToUtf8(m_Specification.ProjectPath), opened.GetError());
+				std::string const project = FileSystem::PathToUtf8(m_Specification.ProjectPath);
+				ST_ERROR("Could not open the project '{}': {}", project, opened.GetError());
+				projectFailure = DescribeStartScreenFailure(fmt::format("Opening the project '{}'", project), opened.GetError());
 			}
 		}
 		if (!m_Specification.ScenePath.empty())
@@ -480,9 +484,10 @@ namespace Strada
 		{
 			m_Context.SetScene(CreateDefaultScene(), {});
 		}
-		if (m_Specification.StartScreen && m_Context.GetProject() == nullptr)
+		// Only an editor with a window shows the screen (ShowStartScreen).
+		if (m_Specification.StartScreen && m_Context.GetProject() == nullptr && Application::Get().GetImGuiLayer() != nullptr)
 		{
-			ShowStartScreen(true);
+			m_StartScreen.ShowAtStart(std::move(projectFailure));
 		}
 
 		if (!m_Specification.EnableAutomation)
@@ -1836,7 +1841,7 @@ namespace Strada
 
 	void EditorLayer::ReportActionFailure(std::string_view doing, std::string const& error)
 	{
-		std::string message = fmt::format("{} failed: {}", doing, error);
+		std::string message = DescribeStartScreenFailure(doing, error);
 		ST_ERROR("{}", message);
 		m_StartScreen.ReportError(std::move(message));
 	}

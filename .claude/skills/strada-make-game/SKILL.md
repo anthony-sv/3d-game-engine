@@ -28,8 +28,24 @@ component and the whole scripting API.
 ## 2. Project
 
 - In a game project set up for coding agents, the `strada` server works on the folder's project (its `.mcp.json` names
-  it with `--project`): `editor_status` shows it open. Elsewhere, `project_create` with `directory` (new or empty) and
-  `name`, or `project_open` with `path` (a `.sproj`).
+  it with `--project`): `editor_status` shows it open. Elsewhere, start one:
+  - `project_templates` lists the templates: `empty-3d` (a camera, a sun, a sky, a floor and a few shapes),
+    `graph-starter` (a small game whose rules are all graphs) and `csharp-starter` (the same game in C#; it needs the
+    .NET 10 SDK). `project_create` with `directory` (new or empty), `name` and `template` (default `empty-3d`) makes the
+    project and opens it. It writes a `.gitignore` unless `gitIgnore` is false, and sets the project up for coding
+    agents unless `agents` is false (its result's `agents` lists the files).
+  - `project_examples` lists the example games, and `project_copy_example` with `example` and `directory` (new or
+    empty) copies one there and opens the copy: an example is only ever opened as a copy. One that is not `available`
+    says why in its `hint`.
+  - `project_open` with `path` (a `.sproj`) opens an existing project.
+- `project_agents` gives the state of a project's agent files (`AGENTS.md`, `CLAUDE.md`, `.mcp.json`, this skill and the
+  guides under `.strada/docs/`). `project_setup_agents` writes or refreshes them only with `confirmed: true`: ask the user
+  first, show them what `dryRun: true` answers, and pass `confirmed` only when they agree (`ConsentRequired` without it).
+- An editor that `strada mcp` started shows no start screen. To show it to the user, `start_show` with `visible: true`;
+  `start_info` tells what it offers (the recent projects, the templates, the examples, the guides and the default
+  location), `editor_recent` removes a project from the recent list or clears it, and `editor_dialog` opens the File
+  menu's `new-project` or `agent-setup` dialog. While the start screen shows, `viewport_screenshot` captures only the
+  `Editor` window.
 - New projects start in `Assets/Scenes/Main.sscene`, their start scene. `project_settings` changes the window, the
   physics layers and ignored layer pairs, and the start scene.
 

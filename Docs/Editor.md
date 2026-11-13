@@ -63,18 +63,21 @@ An unknown option or a missing value prints the error and the help text, and a w
 ### The start screen
 
 When the editor starts without a project (none given, or the one given cannot be opened), it shows the start screen
-over its whole window, under the menu bar. File > Close Project comes back to it, File > Start Screen shows it at any
-time, and opening or creating a project, in any way, hides it. An editor without a window (`--headless`) never shows
-it, and `--no-start-screen` starts without it.
+over its whole window, under the menu bar; when the project given with `--project` cannot be opened, the screen says
+why. File > Close Project comes back to it (closing a project through automation, `project.close`, does not), File >
+Start Screen shows it at any time, and opening or creating a project, in any way, hides it. An editor without a window
+(`--headless`) never shows it, and `--no-start-screen` starts without it.
+
+![The start screen: recent projects (one Missing, one Unreadable), the New Project form with its three template cards, the three examples, the guides and what the editor found on the machine](Images/StartScreen.jpg)
 
 | Area | What it holds |
 |------|---------------|
-| Header | Strada and its version, and under it, in orange, what went wrong with the last thing you did on the screen (a project that does not open, a project that cannot be created, an example that does not copy, a file dropped that is not a project); hover it for the whole message. It goes when you do something else on the screen |
+| Header | Strada and its version, and under it, in orange, what went wrong with the last thing you did on the screen (a project that does not open, the one the editor was started with included, a project that cannot be created, an example that does not copy, a file dropped that is not a project); hover it for the whole message. It goes when you do something else on the screen, or when the screen hides |
 | Recent projects | The last 10 projects you opened or created, each with its folder (a long folder keeps its last folders and starts with "..."; hover the project for its whole path). Click one to open it. A project whose file is gone says **Missing**, one whose file does not read as a project says **Unreadable**; neither opens. Right-click a project for Open, Show in Folder (the system's file manager; not for a Missing one) and Remove from List. **Open Project...** below the list picks a `.sproj` file with the system's file dialog. Without recent projects the list says so |
 | New project | The [New Project form](#the-new-project-form), with its **Create** button right below it |
 | Examples | The example games, a card each with a picture, what they are and what they need: **Visual scripts: no SDK needed** or **C#: needs the .NET 10 SDK**. **Open** copies the example into the form's location, in a folder named after it (`<Name> 2`, `<Name> 3`... when that is taken), shows the copy's progress ("Copying 37%") with Cancel, and opens the copy. The engine's own example folders are never opened in place. An example whose files are missing (the Showcase before its assets are downloaded) says what restores them, and its Open is disabled. The list scrolls when the window is too short for it |
 | Learn | Under the examples: Getting started, The editor, Scripting, Visual scripting and Agents. Each opens that guide with the system's handler; a guide that is not there is not listed |
-| The bottom line | What the editor found on this machine: the .NET runtime scripting started with (".NET runtime not found: scripts are off" without one), ".NET SDK found" (it builds C# scripts) or ".NET SDK not found: needed to build C# scripts", the GPU and its Vulkan version (hover the line for the SDK's path); and **Continue without a project**, which hides the screen and leaves you with the scene behind it |
+| The bottom line | What the editor found on this machine: ".NET 10" when scripting started on the .NET runtime (".NET runtime not found: scripts are off" without one), ".NET SDK found" (it builds C# scripts) or ".NET SDK not found: needed to build C# scripts", the GPU and its Vulkan version (hover the line for the SDK's path); and **Continue without a project**, which hides the screen and leaves you with the scene behind it |
 
 The cards of the templates and the examples are as tall as their longest description needs, so they show their texts
 whole; a card whose name or description is still cut (a very long one, or a very small window) shows it in its tooltip.
@@ -82,7 +85,9 @@ whole; a card whose name or description is still cut (a very long one, or a very
 The sample scene "Untitled" is loaded behind the screen while it shows, but nothing behind it is drawn or reacts to
 the mouse or the keyboard, and no [shortcut](#keyboard-shortcuts) acts; the menu bar works as usual. A project file
 (`.sproj`) dropped onto the window opens; other files dropped there are not imported. Automation works on the scene
-behind the screen all the same.
+behind the screen all the same, except where it needs a window the screen covers: `viewport.screenshot` captures only
+the `Editor` window (the others are not open), `graph.palette` and `inspector.add-component-menu` refuse to open their
+menus (a palette that was already waiting is cancelled), and a game playing behind the screen gets no input from you.
 
 ### The new project form
 
@@ -94,9 +99,11 @@ projects the same way:
   needs the .NET 10 SDK on a machine without one shows a warning; it can still be created, and its scripts build once
   the SDK is installed.
 - **Name** (`New Game` at first) and **Location**, the folder the project's folder goes into (at first
-  `<Documents>/Strada Projects`, which is created with the first project made in it; Browse... picks another). The
-  line under them shows the folder Create makes: named after the project, with only characters that are valid in file
-  names everywhere.
+  `<Documents>/Strada Projects`, which is created with the first project made in it; Browse... picks another). To start
+  somewhere else, set the environment variable `STRADA_PROJECTS_DIR` to a full path before starting the editor: that
+  folder is then the location itself. A value that is not a full path is ignored, and the editor's log says so when it
+  starts. The line under them shows the folder Create makes: named after the project, with only characters that are
+  valid in file names everywhere.
 - **Set up for coding agents** (on): writes `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, the game-making skill and the guides
   into the project, as [Set Up for Coding Agents](#setting-a-project-up-for-coding-agents) does; **Files it writes** lists them.
 - **Add a .gitignore** (on): writes a `.gitignore` that keeps build output, caches and machine-specific files out of

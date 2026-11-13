@@ -254,8 +254,9 @@ form in a dialog.
 1. Click the **Empty 3D** card. Graph Starter and C# Starter are small finished games, Orb Run, made of visual scripts
    or of C#; try them later.
 2. Type a **Name** (for example `First Game`). The **Location**, the folder the project goes into, starts at
-   `Documents/Strada Projects` (Browse... picks another). The line below shows the folder it creates: a folder named
-   after the project inside the location.
+   `Documents/Strada Projects` (Browse... picks another; to start elsewhere, set the environment variable
+   `STRADA_PROJECTS_DIR` to a full path before starting the editor, and that folder is the location). The line below
+   shows the folder it creates: a folder named after the project inside the location.
 3. Leave **Set up for coding agents** and **Add a .gitignore** on, and click **Create**. If the open scene has unsaved
    changes, the editor first asks whether to save them.
 

@@ -689,6 +689,33 @@ TEST_CASE("StartScreenPanel: a recent project that no longer opens says why on t
 	CHECK_FALSE(fixture.Model.IsVisible());
 }
 
+TEST_CASE("StartScreenPanel: the screen that comes up at the editor's start shows why the command line's project did not open")
+{
+	ScreenFixture fixture;
+	fixture.Model.SetVisible(false);
+	fixture.Frames();
+	CHECK(fixture.Panel.GetItems().empty());
+
+	// As EditorLayer::OnAttach: the project given with --project does not open, so the editor starts without one.
+	std::filesystem::path const missing = fixture.Directory.GetPath() / "Gone" / "Gone.sproj";
+	Result<std::vector<std::string>> const opened = fixture.Operations.OpenProject(missing);
+	REQUIRE(opened.IsError());
+	std::string const failure =
+		DescribeStartScreenFailure(fmt::format("Opening the project '{}'", FileSystem::PathToUtf8(missing)), opened.GetError());
+	fixture.Model.ShowAtStart(failure);
+
+	// The first frames of the screen read its content and keep the line.
+	fixture.Frames();
+	CHECK(fixture.Model.GetError() == failure);
+	CHECK(fixture.Require("Error").Visible);
+	CHECK(fixture.Require("Open Project...").Visible);
+
+	// The next action of the screen starts without it.
+	fixture.Click("Open Project...");
+	CHECK(fixture.Model.GetError().empty());
+	CHECK(fixture.Find("Error") == nullptr);
+}
+
 TEST_CASE("StartScreenPanel: Continue without a project hides the screen; the guides open with the system's handler")
 {
 	ScreenFixture fixture;

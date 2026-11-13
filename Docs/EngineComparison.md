@@ -11,8 +11,8 @@ Door's start screen, project templates, examples and agent-ready projects (§2.1
 ## 1. Summary
 
 - **Strada is a sound foundation with the breadth of an early engine.** About 58,000 lines of engine code (C++ and
-  HLSL), 6,800 of C# scripting API plus 29,000 of the visual-script VM, about 120,000 of editor (77,000 of it the
-  visual-script editor) and about 155,000 of tests cover rendering, physics, sound, UI, scripting in C# and in visual
+  HLSL), 6,800 of C# scripting API plus 29,000 of the visual-script VM, about 122,000 of editor (77,000 of it the
+  visual-script editor) and about 157,000 of tests cover rendering, physics, sound, UI, scripting in C# and in visual
   scripts, an editor and export cleanly. But every 3D game ships with systems Strada does not have yet: skeletal
   animation, compressed and streamed textures, LODs and instancing, temporal anti-aliasing, input actions, an audio
   mixer, a UI widget set and a profiler. Neither visual scripting nor Front Door closed any of those gaps.
@@ -49,9 +49,9 @@ Door's start screen, project templates, examples and agent-ready projects (§2.1
 
 Line counts are physical lines per directory and file type (C++ and HLSL under `Strada/`, C# under
 `Strada-ScriptCore/`, C++ under `StradaEditor/`, C++ and C# under `Tests/`), measured the same way at every commit. On
-2026-11-13, before the start screen's code lands, the engine library has 57,700 lines, the C# scripting API and the
-visual-script VM 6,800 and 29,000, the editor 118,900 (76,600 of them visual scripting) and the tests 154,400; the
-figures in the text are rounded. At `d130bc1` they were 55,600, 6,800 and 29,000, 115,800 (76,600) and 148,200.
+2026-11-13, at the end of Front Door, the engine library has 57,700 lines, the C# scripting API and the visual-script VM
+6,800 and 29,000, the editor 122,100 (76,600 of them visual scripting) and the tests 157,000; the figures in the text
+are rounded. At `d130bc1` they were 55,600, 6,800 and 29,000, 115,800 (76,600) and 148,200.
 
 | Area | Strada |
 |---|---|
@@ -65,7 +65,7 @@ figures in the text are rounded. At `d130bc1` they were 55,600, 6,800 and 29,000
 | Scripting | C# on .NET 10 (CoreCLR) with hot reload, typed component views, inspector fields, an in-game test framework. Visual scripts in the same runtime: statically typed graphs whose node library holds 92 built-in kinds plus a node for every usable member of the scripting API and every `[VisualNode]` game member; formulas compiled to one VM step; latent flow; typed events across graphs; function libraries; timelines; a debugger; edits that apply to the running game |
 | Editor | Docking ImGui editor: hierarchy, generated inspector, content browser with thumbnails, scene and game views, gizmos and overlays, undo/redo of every edit of a scene, material or graph, play/simulate/pause/step, game export with a smoke test. A start screen when no project is open (recent projects, a New Project form with a card per template, examples that open as copies, the guides, and the .NET and GPU the machine has) and File > Set Up for Coding Agents.... Graph windows (palette, comments, find, quick fixes, minimap, bookmarks, arranging, a curve editor for timelines), the Visual Script Debugger panel, a game preview in the graph canvas and Game View Beside, window captures, and the `--maximized` and `--window-size` options |
 | Automation | 105 JSON-RPC commands over an authenticated local socket (78 plus 27 `graph.*`: 15 for authoring and windows, 12 for debugging and live edits), the `strada` CLI and MCP server (111 tools: the commands plus 6 Poly Haven tools), Poly Haven imports |
-| Quality | About 1,960 C++ test cases and 710 C# test methods (counted on 2026-11-13, before the start screen's tests); fuzzing of every file format and automation command (templates, the example catalog, the build-tree marker and the agent kit's files included), graph documents, the views file, `graph.edit` batches, debug sessions and the debug protocol included; a coverage test that builds and runs a graph for every node of the library; enforced feature-test coverage of every component and scripting API member; readability tests of sample graphs; doc tests that hold documented agent sessions verbatim; 4 golden images; the editor's tests in five ctest shards whose partition a test checks; CI on three platforms (8 jobs) |
+| Quality | 2,004 C++ test cases and 714 C# test methods (counted on 2026-11-13); fuzzing of every file format and automation command (templates, the example catalog, the build-tree marker and the agent kit's files included), graph documents, the views file, `graph.edit` batches, debug sessions and the debug protocol included; a coverage test that builds and runs a graph for every node of the library; enforced feature-test coverage of every component and scripting API member; readability tests of sample graphs; doc tests that hold documented agent sessions verbatim; 4 golden images; the editor's tests in five ctest shards whose partition a test checks; CI on three platforms (8 jobs) |
 | Samples | FeatureTest (every component, the whole scripting API, graphs that use every built-in node kind); Blocks (falling blocks in C#); the Showcase (every engine feature in exhibits, among them a garden of chimes played by six graphs); Prism Break (a brick breaker made of 13 graphs and no C#, authored through MCP, whose 29 test checks are graphs too and pass in the exported game) |
 | Templates and examples | Three templates that new projects start from: Empty 3D (the editor's default scene), Graph Starter (Orb Run, a game made of visual scripts that needs no .NET SDK) and C# Starter (Orb Run in C#, with one graph that calls a node of its code); the test scenes of the two games pass in the player. Three examples that open as copies and never in place: Prism Break, Blocks and the Showcase, which says which command restores its downloaded assets when they are missing. `template.json` and `catalog.json` are versioned and fuzzed |
 | Agent kit | A new project is set up for coding agents by default: a managed block in `AGENTS.md`, `CLAUDE.md`, a `.mcp.json` entry for the engine's `strada` MCP server, the game-making skill and the guides under `.strada/docs/`. Text outside the managed parts is never touched, and an existing project is changed only through a plan the user confirms (error 1010; File > Set Up for Coding Agents...) |
@@ -144,7 +144,7 @@ since `d130bc1`); neither visual scripting nor Front Door lifted any of the firs
   research).
 - **A small engine library.** The engine library stays small (58,000 lines) and builds from pinned, permissively
   licensed sources with CMake on three platforms; neither visual scripting nor Front Door added a dependency. The editor
-  (about 120,000 lines, 77,000 of them visual scripting) and the tests (about 155,000) are large.
+  (about 122,000 lines, 77,000 of them visual scripting) and the tests (about 157,000) are large.
 
 ## 3. The engines compared
 

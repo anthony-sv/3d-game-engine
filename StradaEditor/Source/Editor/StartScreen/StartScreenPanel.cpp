@@ -91,7 +91,8 @@ namespace Strada
 		model.Refresh();
 		m_Form.Invalidate();
 		m_Examples.clear();
-		model.ClearError();
+		// The error line stays: a failure reported as the screen came up (the project the command line named, which did not
+		// open) is what it shows first. Hiding the screen cleared any older one.
 		if (std::optional<ExampleCatalog> const& catalog = model.GetExamples())
 		{
 			for (ExampleEntry const& example : catalog->GetExamples())
@@ -107,7 +108,7 @@ namespace Strada
 		{
 			return;
 		}
-		std::string message = fmt::format("{} failed: {}", doing, result.GetError());
+		std::string message = DescribeStartScreenFailure(doing, result.GetError());
 		ST_ERROR("{}", message);
 		model.ReportError(std::move(message));
 	}
