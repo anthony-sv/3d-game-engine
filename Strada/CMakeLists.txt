@@ -250,6 +250,8 @@ set(STRADA_SERIALIZATION_SOURCES
     Source/Strada/Serialization/JsonSerialization.h
     Source/Strada/Serialization/JsonTextWriter.cpp
     Source/Strada/Serialization/JsonTextWriter.h
+    Source/Strada/Serialization/ProfilerCaptureSerializer.cpp
+    Source/Strada/Serialization/ProfilerCaptureSerializer.h
     Source/Strada/Serialization/StructSerialization.cpp
     Source/Strada/Serialization/StructSerialization.h
 )

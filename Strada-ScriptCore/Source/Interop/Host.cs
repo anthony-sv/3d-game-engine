@@ -400,6 +400,22 @@ internal static unsafe class Host
 		}
 	}
 
+	// The steps the visual-script runtime's outermost executions ran since it started (its nested executions' included):
+	// the engine's profiler reads it before and after an invoke, while it records, to give a graph's zone its steps.
+	[UnmanagedCallersOnly]
+	internal static int VisualScriptReadSteps(ulong* steps)
+	{
+		try
+		{
+			*steps = VisualScripts.StepsRun;
+			return Success;
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
 	// A play session starts (spec-slice4 section 8.5, ClearLiveLog): the live log drops its receipts and runtime problems, and
 	// problems count from 1 again. Serials go on growing, so the engine keeps reading after the last serial it took.
 	[UnmanagedCallersOnly]

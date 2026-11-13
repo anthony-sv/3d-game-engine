@@ -49,7 +49,7 @@ namespace Strada
 		ApplyWindowIcon();
 		if (Application::Get().GetWindow() != nullptr && Renderer::IsInitialized())
 		{
-			m_Renderer = CreateScope<SceneRenderer>();
+			m_Renderer = CreateScope<SceneRenderer>("Game");
 			m_Blitter = CreateScope<TextureBlitter>();
 		}
 		// The scripts see the view's size and the cursor from their first callback on.

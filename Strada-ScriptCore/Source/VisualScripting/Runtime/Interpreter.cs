@@ -67,6 +67,8 @@ internal sealed partial class VisualScriptRuntime
 			m_Depth = depth;
 			if (freshBudget)
 			{
+				// The decrement that runs out leaves -1, so the count includes the step that failed.
+				m_StepsRun += (ulong)(budget - (long)m_StepsRemaining);
 				m_StepsRemaining = steps;
 			}
 		}

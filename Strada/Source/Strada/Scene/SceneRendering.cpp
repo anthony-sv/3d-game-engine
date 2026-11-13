@@ -7,6 +7,7 @@
 #include "Strada/Asset/FontAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/PostProcessVolumes.h"
@@ -337,44 +338,49 @@ namespace Strada
 
 	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options)
 	{
-		// The scene's post-process volumes change its settings around the camera.
-		renderer.BeginScene(camera, options.DrawWorld ? PostProcessVolumes::Resolve(scene, camera.Position) : GetScreenSpaceOnlySettings());
-		if (options.DrawWorld)
+		ST_PROFILE_SCOPE("Renderer.RenderScene");
 		{
-			SubmitMeshes(scene, renderer, options);
-		}
-		SubmitSprites(scene, renderer, options, !options.DrawWorld);
-		if (options.DrawWorld)
-		{
-			SubmitParticles(scene, renderer, camera);
-		}
-		SubmitTexts(scene, renderer, options, !options.DrawWorld);
-		if (options.DrawWorld)
-		{
-			SubmitLights(scene, renderer);
-		}
-		if (options.DrawUI)
-		{
-			SubmitUI(scene, renderer, options);
-		}
-		// Lines scripts drew for debugging have linear colors; lines are drawn after tonemapping, in sRGB. Their width follows
-		// the display, and a dark outline keeps them visible on bright ground (the editor's overlays may restyle them).
-		if (options.DrawWorld && options.DrawDebugLines && !scene.GetDebugLines().empty())
-		{
-			SceneRendererOverlays overlays;
-			overlays.LineWidth = SceneRenderOptions::DebugLineWidth * options.DisplayScale;
-			overlays.LineOutlineWidth = SceneRenderOptions::DebugLineOutlineWidth * options.DisplayScale;
-			renderer.SetOverlays(overlays);
-			for (SceneDebugLine const& line : scene.GetDebugLines())
+			ST_PROFILE_SCOPE("Renderer.Submit");
+			// The scene's post-process volumes change its settings around the camera.
+			renderer.BeginScene(camera,
+			                    options.DrawWorld ? PostProcessVolumes::Resolve(scene, camera.Position) : GetScreenSpaceOnlySettings());
+			if (options.DrawWorld)
 			{
-				glm::vec4 const color(Math::LinearToSrgb(line.Color.r), Math::LinearToSrgb(line.Color.g), Math::LinearToSrgb(line.Color.b),
-				                      line.Color.a);
-				renderer.SubmitLine(line.From, line.To, color);
+				SubmitMeshes(scene, renderer, options);
 			}
-		}
-		if (options.SubmitOverlays)
-		{
-			options.SubmitOverlays(renderer);
+			SubmitSprites(scene, renderer, options, !options.DrawWorld);
+			if (options.DrawWorld)
+			{
+				SubmitParticles(scene, renderer, camera);
+			}
+			SubmitTexts(scene, renderer, options, !options.DrawWorld);
+			if (options.DrawWorld)
+			{
+				SubmitLights(scene, renderer);
+			}
+			if (options.DrawUI)
+			{
+				SubmitUI(scene, renderer, options);
+			}
+			// Lines scripts drew for debugging have linear colors; lines are drawn after tonemapping, in sRGB. Their width follows
+			// the display, and a dark outline keeps them visible on bright ground (the editor's overlays may restyle them).
+			if (options.DrawWorld && options.DrawDebugLines && !scene.GetDebugLines().empty())
+			{
+				SceneRendererOverlays overlays;
+				overlays.LineWidth = SceneRenderOptions::DebugLineWidth * options.DisplayScale;
+				overlays.LineOutlineWidth = SceneRenderOptions::DebugLineOutlineWidth * options.DisplayScale;
+				renderer.SetOverlays(overlays);
+				for (SceneDebugLine const& line : scene.GetDebugLines())
+				{
+					glm::vec4 const color(Math::LinearToSrgb(line.Color.r), Math::LinearToSrgb(line.Color.g),
+					                      Math::LinearToSrgb(line.Color.b), line.Color.a);
+					renderer.SubmitLine(line.From, line.To, color);
+				}
+			}
+			if (options.SubmitOverlays)
+			{
+				options.SubmitOverlays(renderer);
+			}
 		}
 		renderer.EndScene();
 	}

@@ -1,11 +1,14 @@
 #include "stpch.h"
 #include "Strada/Core/Profiler.h"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -953,5 +956,205 @@ namespace Strada
 		thread.DepthRecording = 0;
 		thread.NameLength = 0;
 		thread.Name[0] = '\0';
+	}
+
+	namespace
+	{
+		// The subsystem of zones that neither name one nor lie in a zone that does.
+		constexpr std::string_view OtherSubsystem = "Other";
+
+		double ToMilliseconds(int64_t nanoseconds)
+		{
+			return static_cast<double>(nanoseconds) / 1.0e6;
+		}
+
+		// The median of the values (the mean of the two middle ones for an even count); 0 for none. Reorders them.
+		double TakeMedian(std::vector<double>& values)
+		{
+			if (values.empty())
+			{
+				return 0.0;
+			}
+			size_t const middle = values.size() / 2;
+			std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(middle), values.end());
+			double const upper = values[middle];
+			if (values.size() % 2 != 0)
+			{
+				return upper;
+			}
+			double const lower = *std::max_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(middle));
+			return (lower + upper) / 2.0;
+		}
+
+		// The nearest-rank percentile (0 to 100) of the values; 0 for none. Reorders them.
+		double TakePercentile(std::vector<double>& values, double percentile)
+		{
+			if (values.empty())
+			{
+				return 0.0;
+			}
+			double const rank = std::ceil(percentile / 100.0 * static_cast<double>(values.size()));
+			size_t const index = static_cast<size_t>(std::clamp(rank, 1.0, static_cast<double>(values.size()))) - 1;
+			std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(index), values.end());
+			return values[index];
+		}
+
+		// A zone open on its thread while the zones after it are read: the nearest earlier zone of a smaller depth is the
+		// parent (Docs/Architecture.md §4.4).
+		struct OpenZone
+		{
+			uint32_t Depth = 0;
+			std::string_view Name;
+			std::string_view Subsystem;
+		};
+
+		struct ZoneSeries
+		{
+			std::vector<double> PerFrame;
+			std::vector<double> PerCall;
+			uint64_t Calls = 0;
+		};
+
+		std::vector<ProfilerMedian> TakeMedians(std::map<std::string, std::vector<double>, std::less<>>& series)
+		{
+			std::vector<ProfilerMedian> medians;
+			medians.reserve(series.size());
+			for (auto& [name, values] : series)
+			{
+				medians.push_back({name, TakeMedian(values)});
+			}
+			return medians;
+		}
+
+		// The per-frame series of a name, made with a value per frame when first met.
+		std::vector<double>& GetSeries(std::map<std::string, std::vector<double>, std::less<>>& series, std::string_view name,
+		                               size_t frameCount)
+		{
+			auto found = series.find(name);
+			if (found == series.end())
+			{
+				found = series.emplace(std::string(name), std::vector<double>(frameCount, 0.0)).first;
+			}
+			return found->second;
+		}
+	}
+
+	std::string_view GetProfilerSubsystem(std::string_view zoneName)
+	{
+		size_t const dot = zoneName.find('.');
+		return dot == std::string_view::npos ? std::string_view() : zoneName.substr(0, dot);
+	}
+
+	ProfilerMedians ComputeProfilerMedians(ProfilerCapture const& capture)
+	{
+		ProfilerMedians medians;
+		size_t const frameCount = capture.Frames.size();
+		if (frameCount == 0)
+		{
+			return medians;
+		}
+
+		std::vector<double> frameTimes;
+		frameTimes.reserve(frameCount);
+		std::map<std::string, std::vector<double>, std::less<>> subsystems;
+		std::map<std::string, std::vector<double>, std::less<>> threads;
+		std::map<std::string, ZoneSeries, std::less<>> zones;
+		std::map<std::string, std::vector<double>, std::less<>> gpuPasses;
+		std::map<std::string, double, std::less<>> framePasses;
+		std::vector<std::vector<OpenZone>> stacks(capture.Threads.size());
+		std::string passName;
+
+		for (size_t frameIndex = 0; frameIndex < frameCount; frameIndex++)
+		{
+			ProfilerFrame const& frame = capture.Frames[frameIndex];
+			frameTimes.push_back(ToMilliseconds(frame.EndNanoseconds - frame.StartNanoseconds));
+			for (std::vector<OpenZone>& stack : stacks)
+			{
+				stack.clear();
+			}
+
+			for (ProfilerZone const& zone : frame.Zones)
+			{
+				if (zone.Thread >= stacks.size() || zone.Name >= capture.Names.size())
+				{
+					continue;
+				}
+				std::vector<OpenZone>& stack = stacks[zone.Thread];
+				while (!stack.empty() && stack.back().Depth >= zone.Depth)
+				{
+					stack.pop_back();
+				}
+				std::string_view const name = capture.Names[zone.Name];
+				std::string_view const own = GetProfilerSubsystem(name);
+				std::string_view const subsystem = !own.empty() ? own : !stack.empty() ? stack.back().Subsystem : OtherSubsystem;
+				double const milliseconds = ToMilliseconds(zone.DurationNanoseconds);
+
+				bool const nestedInSameName = std::any_of(stack.begin(), stack.end(),
+				                                          [name](OpenZone const& open)
+				                                          {
+															  return open.Name == name;
+														  });
+				if (!nestedInSameName)
+				{
+					auto found = zones.find(name);
+					if (found == zones.end())
+					{
+						found = zones.emplace(std::string(name), ZoneSeries{std::vector<double>(frameCount, 0.0), {}, 0}).first;
+					}
+					found->second.PerFrame[frameIndex] += milliseconds;
+					found->second.PerCall.push_back(milliseconds);
+					found->second.Calls++;
+				}
+
+				if (zone.Thread == 0)
+				{
+					bool const nestedInSubsystem = std::any_of(stack.begin(), stack.end(),
+					                                           [subsystem](OpenZone const& open)
+					                                           {
+																   return open.Subsystem == subsystem;
+															   });
+					if (!nestedInSubsystem)
+					{
+						GetSeries(subsystems, subsystem, frameCount)[frameIndex] += milliseconds;
+					}
+				}
+				else if (stack.empty())
+				{
+					GetSeries(threads, capture.Threads[zone.Thread].Name, frameCount)[frameIndex] += milliseconds;
+				}
+				stack.push_back({zone.Depth, name, subsystem});
+			}
+
+			framePasses.clear();
+			for (ProfilerGpuPass const& pass : frame.GpuPasses)
+			{
+				if (pass.View >= capture.Names.size() || pass.Name >= capture.Names.size())
+				{
+					continue;
+				}
+				passName.assign(capture.Names[pass.View]);
+				passName += '/';
+				passName += capture.Names[pass.Name];
+				framePasses[passName] += ToMilliseconds(pass.DurationNanoseconds);
+			}
+			for (auto const& [name, milliseconds] : framePasses)
+			{
+				gpuPasses[name].push_back(milliseconds);
+			}
+		}
+
+		std::vector<double> percentileTimes = frameTimes;
+		medians.FrameMilliseconds = TakeMedian(frameTimes);
+		medians.FramePercentile99Milliseconds = TakePercentile(percentileTimes, 99.0);
+		medians.Subsystems = TakeMedians(subsystems);
+		medians.Threads = TakeMedians(threads);
+		medians.GpuPasses = TakeMedians(gpuPasses);
+		medians.Zones.reserve(zones.size());
+		for (auto& [name, series] : zones)
+		{
+			double const calls = static_cast<double>(series.Calls) / static_cast<double>(frameCount);
+			medians.Zones.push_back({name, TakeMedian(series.PerFrame), TakeMedian(series.PerCall), calls});
+		}
+		return medians;
 	}
 }

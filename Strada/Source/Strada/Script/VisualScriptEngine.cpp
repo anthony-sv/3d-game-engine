@@ -5,6 +5,7 @@
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Platform.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Core/Timer.h"
 #include "Strada/Script/ScriptEngineInternal.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
@@ -605,15 +606,51 @@ namespace Strada
 			return MakeError("entity {} runs no visual script", entity);
 		}
 
+		// The profiler's zone name of a graph's instances: "Graph.<asset path>" (the path's dots stay out of the subsystem
+		// rule), or the handle for a graph without a path. Taken only while the profiler records.
+		std::string GetGraphProfileName(ScriptEngineData const& data, AssetHandle graph)
+		{
+			auto const record = data.VisualScriptPrograms.find(graph);
+			if (record != data.VisualScriptPrograms.end() && !record->second.Name.empty())
+			{
+				return fmt::format("Graph.{}", record->second.Name);
+			}
+			return fmt::format("Graph.{}", graph);
+		}
+
 		void Invoke(UUID entity, ScriptEvent scriptEvent, float timeStep, UUID other)
 		{
 			ScriptEngineData* const data = GetData();
-			if (data == nullptr || !data->GraphInstances.contains(entity))
+			if (data == nullptr)
 			{
 				return;
 			}
+			auto const instance = data->GraphInstances.find(entity);
+			if (instance == data->GraphInstances.end())
+			{
+				return;
+			}
+			ST_PROFILE_ZONE_DYNAMIC(zone, GetGraphProfileName(*data, instance->second));
+#ifdef ST_ENABLE_PROFILING
+			// While recording, the zone carries the steps the VM ran: those of the executions the invoke started, and of the
+			// graphs they ran in turn.
+			bool const countSteps = Profiler::IsRecording();
+			uint64_t stepsBefore = 0;
+			if (countSteps)
+			{
+				static_cast<void>(data->Host.VisualScriptReadSteps(&stepsBefore));
+			}
+#endif
 			auto const status = static_cast<ScriptStatus>(
 				data->Host.VisualScriptInvoke(entity.GetValue(), static_cast<int32_t>(scriptEvent), timeStep, other.GetValue()));
+#ifdef ST_ENABLE_PROFILING
+			uint64_t stepsAfter = 0;
+			if (countSteps && static_cast<ScriptStatus>(data->Host.VisualScriptReadSteps(&stepsAfter)) == ScriptStatus::Success &&
+			    stepsAfter >= stepsBefore)
+			{
+				ST_PROFILE_ZONE_VALUE(zone, "Steps", stepsAfter - stepsBefore);
+			}
+#endif
 			// The runtime logged the error; the application learns of it (test runs fail on it).
 			if (status == ScriptStatus::Failure)
 			{

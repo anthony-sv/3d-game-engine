@@ -11,6 +11,7 @@
 #include "Strada/Asset/TextureAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/Renderer/FontAtlas.h"
@@ -449,7 +450,7 @@ namespace Strada
 
 		if (!m_Renderer)
 		{
-			m_Renderer = CreateScope<SceneRenderer>();
+			m_Renderer = CreateScope<SceneRenderer>("Thumbnails");
 			m_Renderer->SetViewportSize(Size, Size);
 		}
 		if (!m_CommandList)
@@ -724,6 +725,7 @@ namespace Strada
 			job.Future = std::async(std::launch::async,
 			                        [source = job.Source, &cancel = m_CancelTexture]()
 			                        {
+										ST_PROFILE_THREAD("Texture Thumbnails");
 										return ShrinkTexture(*source, Size, &cancel);
 									});
 		}
@@ -827,6 +829,7 @@ namespace Strada
 			job.Future = std::async(std::launch::async,
 			                        [source = job.Source, &cancel = m_CancelWaveform]()
 			                        {
+										ST_PROFILE_THREAD("Waveform Thumbnails");
 										return ComputeAudioWaveform(*source, WaveformParts, &cancel);
 									});
 		}

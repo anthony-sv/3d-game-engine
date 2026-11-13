@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/Scene/Scene.h"
 
+#include "Strada/Core/Profiler.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptEngine.h"
@@ -18,6 +19,9 @@ namespace Strada
 			CSharp = 0,
 			Visual
 		};
+
+		// What the profiler's zones of C# scripts are named by: "Script.<class>".
+		constexpr std::string_view ScriptProfileZonePrefix = "Script.";
 	}
 
 	void Scene::StartScripts()
@@ -261,6 +265,7 @@ namespace Strada
 		std::vector<UUID> const visualScripts = GetVisualScriptInstanceIDs();
 		for (UUID const id : scripts)
 		{
+			ST_PROFILE_SCOPE_DYNAMIC(GetScriptProfileName(id));
 			ScriptEngine::InvokeOnUpdate(id, deltaTime);
 		}
 		for (UUID const id : visualScripts)
@@ -279,6 +284,7 @@ namespace Strada
 		std::vector<UUID> const visualScripts = GetVisualScriptInstanceIDs();
 		for (UUID const id : scripts)
 		{
+			ST_PROFILE_SCOPE_DYNAMIC(GetScriptProfileName(id));
 			ScriptEngine::InvokeOnFixedUpdate(id, fixedDeltaTime);
 		}
 		for (UUID const id : visualScripts)
@@ -349,6 +355,13 @@ namespace Strada
 				DestroyVisualScriptInstance(handle);
 			}
 		}
+	}
+
+	std::string Scene::GetScriptProfileName(UUID id) const
+	{
+		auto const entity = m_EntityMap.find(id);
+		auto const instance = entity != m_EntityMap.end() ? m_ScriptInstances.find(entity->second) : m_ScriptInstances.end();
+		return fmt::format("{}{}", ScriptProfileZonePrefix, instance != m_ScriptInstances.end() ? instance->second.ClassName : "");
 	}
 
 	std::vector<UUID> Scene::GetScriptInstanceIDs() const

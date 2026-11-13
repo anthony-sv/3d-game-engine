@@ -3,6 +3,7 @@
 
 #include "Strada/Audio/AudioStream.h"
 #include "Strada/Audio/MiniaudioContext.h"
+#include "Strada/Core/Profiler.h"
 
 #include <algorithm>
 
@@ -23,6 +24,23 @@ namespace Strada
 		};
 
 		Scope<AudioEngineData> s_Data;
+
+		// The device's data callback, on miniaudio's audio thread: what ma_engine's own callback does (the engine is the
+		// device's user data), inside the profiler's zone of the mix. Neither allocates nor locks.
+		void MixIntoDevice(ma_device* device, void* output, void const* input, ma_uint32 frameCount)
+		{
+			static_cast<void>(input);
+#ifdef ST_ENABLE_PROFILING
+			// miniaudio has no reliable hook at the thread's start, so it names itself while a recording runs (a copy into
+			// thread-local storage); it keeps its buffer until the recording stops.
+			if (Profiler::IsRecording())
+			{
+				Profiler::SetThreadName("Audio Mixer");
+			}
+#endif
+			ST_PROFILE_SCOPE("Audio.Mix");
+			ma_engine_read_pcm_frames(static_cast<ma_engine*>(device->pUserData), output, frameCount, nullptr);
+		}
 
 		char const* AudioOutputToString(AudioOutput output)
 		{
@@ -51,6 +69,7 @@ namespace Strada
 		{
 			case AudioOutput::Device:
 				// miniaudio tries every backend of the platform and ends with the null backend.
+				config.dataCallback = MixIntoDevice;
 				break;
 			case AudioOutput::Null:
 			{
@@ -62,6 +81,7 @@ namespace Strada
 				}
 				data->HasContext = true;
 				config.pContext = &data->Context;
+				config.dataCallback = MixIntoDevice;
 				break;
 			}
 			case AudioOutput::Manual:
@@ -181,6 +201,7 @@ namespace Strada
 		{
 			return 0;
 		}
+		ST_PROFILE_SCOPE("Audio.Mix");
 		// The node graph fills every requested frame, with silence where nothing plays; with no sound at all it reports
 		// its end instead of success.
 		ma_result const result = ma_engine_read_pcm_frames(&s_Data->Engine, samples.data(), frameCount, nullptr);

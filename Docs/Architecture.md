@@ -113,7 +113,7 @@ header functions, as every Strada file is read.
 |--------|----------------|-----------|
 | Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4) | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler` |
 | Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum` |
-| Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext` |
+| Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; profiler captures (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `ProfilerCaptureSerializer` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
 | Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, model importers, built-in primitives, the visual script format and its layout | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter` |
@@ -179,10 +179,40 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   bytes of user data, and the token is trivially copyable and smaller than that (the header asserts both). Zones that a
   subsystem's time is read from are named `<Subsystem>.<Phase>` (`Physics.Step`, `Scene.UpdateScripts`). A name without
   a `.` belongs to the subsystem of its nearest enclosing zone on its thread that has one, and to `Other` when none has,
-  so class names, graph names and function names need no prefix. A subsystem's figure is the main thread's: per frame,
+  so function names and Jolt's own zones need no prefix. Names given at run time carry one, because class names and
+  asset paths hold dots of their own: a C# script's zones are `Script.<class>` and a graph's `Graph.<asset path>`. A
+  subsystem's figure is the main thread's: per frame,
   the summed durations of its outermost zones on the main thread, the frame's wall time spent in it. The work other
   threads do in parallel (Jolt's workers, the audio and streaming threads) is measured per thread as busy time, and is
   never added to a subsystem, so Jolt's own unprefixed zones need no subsystem.
+- **Where the engine records.** These zones are the figures plan targets are read from:
+  - the main loop: `Application.Events`, `Application.MainThreadQueue`, `Application.BeginFrame` (the swapchain image and
+    its clear), `Application.Update` (the layers), `Application.ImGui` and `Application.Present`; the waits are a
+    subsystem of their own, `Wait.Gpu` (`GraphicsDevice::EndFrame`) and `Wait.FrameLimit`, so that `Application`'s
+    figure is work;
+  - `Scene.Update` around `Scene::OnUpdateRuntime`'s phases, in their order: `Scene.UpdateUI`, `Scene.UpdateScripts`,
+    `Scene.UpdatePhysics`, `Scene.ContactEvents`, `Scene.UpdateAudio`, `Scene.UpdateParticles`, `Scene.Destroy`; in
+    each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`;
+  - each C# script's update and fixed update under `Script.<class>`, and each graph invoke (every event) under
+    `Graph.<asset path>` with the count `Steps`: the steps of the VM's outermost executions the invoke ran, the graphs
+    they ran in turn included. The engine reads the VM's step counter (`VisualScriptReadSteps`) before and after the
+    invoke only while recording, so an idle profiler adds no call;
+  - Jolt's own zones (`JPH_PROFILE`) in Debug builds only: Jolt defines `JPH_EXTERNAL_PROFILE` there
+    (`cmake/StradaDependencies.cmake`), and `PhysicsSystem.cpp` defines its `ExternalProfileMeasurement` as a zone whose
+    token lives in the measurement's 64 bytes. Release and Dist builds compile them out of every step; whether they would
+    cost under 1 % of a Release frame is not measured;
+  - `Audio.Mix` around `ma_engine_read_pcm_frames`: on miniaudio's device thread through a device data callback of the
+    engine's own (`ma_engine_config::dataCallback`, `miniaudio.h:11290`), which does what miniaudio's own callback does
+    and names its thread `Audio Mixer` while a recording runs, and in `AudioEngine::ReadFrames` (manual output);
+    `Audio.Stream` around each pass of the streaming thread (`Audio Streaming`), never its waits;
+  - `Renderer.RenderScene`, with `Renderer.Submit` (the scene's draws, lights and UI) and `Renderer.EndScene`, which
+    holds `Renderer.Cull`, `Renderer.Sort`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings) and
+    `Renderer.Record` (recording and submitting the frame); `Renderer.UploadTexture`, `Renderer.UploadMesh` and
+    `Renderer.ProcessEnvironment` on a cache miss only, and `Asset.Load` when an asset is loaded;
+  - the editor's graph phases: `GraphEditor.Sync` with `GraphEditor.Adopt`, `GraphEditor.Analysis`,
+    `GraphEditor.Canvas` and `GraphEditor.Index`, and `GraphEditor.PrepareCommit`;
+  - zones are placed per phase, never per item, except per script instance and graph invoke: a recorded zone costs
+    about 70 ns, and a thread's buffer holds `ZonesPerThread` (4,096) zones a frame.
 - **Who writes.** Any thread may record: the main thread, Jolt's workers (named by the job system's thread init
   function and ended by its exit function), miniaudio's device thread, the audio streaming thread and background
   workers. A zone is written once, when it ends, as one complete record: name, start, end, the thread's depth when it
@@ -259,11 +289,19 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   that frame in the history. Passes of a frame still in progress wait for its end, and passes of a frame the history
   no longer holds are dropped. Adapters without timer queries (`AdapterInfo::SupportsTimerQueries`) report CPU zones
   only.
+  - **The passes** (`SceneRenderer::PassScope`, which pairs the marker with the timer): `Upload`, `Shadows`, `Opaque`,
+    `AmbientOcclusion`, `Sky`, `Transparent` (blended surfaces and world sprites), `EntityIds`, `Bloom`, `Tonemap`,
+    `Overlays`, `FXAA`, `SelectionOutline` and `ScreenSpace`, each only when the frame draws it. The view is the name
+    the renderer was made with: `Viewport`, `Game View` and `Thumbnails` in the editor, `Game` in the player, `Scene` by
+    default.
   - **The timer budget.** NVRHI's Vulkan device holds 256 timer queries by default (`nvrhi/vulkan.h:74`) and reports
     running out as an error, which GPU tests fail on. `GraphicsDevice` raises `maxTimerQueries` to 8,192.
-  - A renderer creates its per-pass timers the first time it renders while recording, and keeps them until it is
-    destroyed. It times at most 64 passes per frame, so with 4 frames in flight and its 4 frame timers it uses 260
-    queries. The pool therefore holds 31 renderers; the editor has four. Passes past the 64th of a frame are not timed.
+  - A renderer creates its per-pass timers the first time it renders while recording, all of a frame timer's or none,
+    and keeps them until it is destroyed; a device that cannot make them reported it once, and the renderer stops
+    timing passes. It times at most `SceneRenderer::MaxTimedPasses` (64) passes per frame, so with 4 frames in flight
+    and its 4 frame timers it uses 260 queries. The pool therefore holds 31 renderers; the editor has four. Passes past
+    the 64th of a frame are not timed. A finished frame's pass timers are read when its frame timer is, whether or not
+    the recording still runs, so that they are free again.
   - A view that renders twice in one frame (thumbnails) reports both sets in order. The frame keeps both, and the
     medians add them per pass name.
 - **Start, Stop and Shutdown while other threads record.** Each recording has a number. A zone token remembers whether
@@ -743,41 +781,58 @@ skill that differs from both the engine's and its record was changed by someone 
 replaced. A missing, damaged or newer state file counts as empty, and the next setup replaces it.
 
 Profiler capture (`ProfilerCaptureSerializer`, §4.4). `profiler.capture` and `StradaRuntime --profile <file>` write it,
-and `profiler.open` reads it. It is a Chrome trace event document in its object form, so `chrome://tracing` and
-Perfetto open it as it is:
+and `profiler.open` reads it. It is a Chrome trace event document in its object form, which `chrome://tracing` and
+Perfetto are meant to open as it is (the trace event format's object form treats other top-level members as metadata;
+no viewer was run against it yet):
 `{ "Strada": { "Version": 1, "Type": "ProfilerCapture" }, "displayTimeUnit": "ms", "traceEvents": [ ... ] }`, compact
-(one line). The events are:
+(one line). The events are told apart by their structure, never by their names, so a zone may be named `Frame` or
+`GPU.Opaque` and a thread `GPU Viewport`:
 
-- metadata events (`"ph": "M"`, `"pid": 1`): `process_name`, then a `thread_name` for every recorded thread
-  (`"tid"`: its index + 1, so the main thread is `"tid": 1`) and for every GPU view's track (`"GPU <view>"`, after the
-  threads);
-- one complete event (`"ph": "X"`) per frame, named `Frame` with `"cat": "Frame"`, on the main thread's track
-  (`"tid": 1`), with `"args": { "Frame": <index>, "DroppedZones": <n> }`;
-- one complete event per zone, its `"cat"` its subsystem (`Other` when it has none), with
-  `"args": { "Frame": <index>, "Depth": <depth> }`, plus `"<label>": <count>` when the zone carries a count;
-- one complete event per GPU pass with `"cat": "GPU"` on its view's track, with `"args": { "Frame": <index>, "View":
-  "<view>" }`. Only durations are measured, so a frame's passes are laid end to end from the frame's start.
+- metadata events (`"ph": "M"`): `process_name` of process 1 (`"Strada"`) and, when there are GPU passes, of process 2
+  (`"GPU"`); then a `thread_name` (`"args": { "name": ... }`) for every thread of process 1 (`"tid"`: its index + 1,
+  so the main thread is `"tid": 1`, named in order from 1) and for every GPU view of process 2 (`"tid"`: the view's
+  index + 1, named in order from 1). Other metadata is ignored;
+- one complete event (`"ph": "X"`) per frame on process 1, thread 1, named `Frame` with `"cat": "Frame"`, with
+  `"args": { "Frame": <index>, "DroppedZones": <n> }`. A frame's events follow it;
+- one complete event per zone on process 1, its `"cat"` its subsystem (`Other` when it has none), with
+  `"args": { "Frame": <index>, "Depth": <depth> }`, plus `"Value": { "<label>": <count> }` when the zone carries a
+  count. A complete event of process 1 whose arguments have `Depth` is a zone, one without is a frame;
+- one complete event per GPU pass on process 2, on its view's thread, with `"cat": "GPU"` and
+  `"args": { "Frame": <index> }`. Only durations are measured, so a frame's passes of one view are laid end to end
+  from the frame's start.
 
 `"ts"` and `"dur"` are microseconds from the recording's start: the double `nanoseconds / 1000.0`, written by
 `JsonTextWriter` as the shortest text that reads back as the same double. The reader rounds `value * 1000` to the
-nearest nanosecond, which gives back every value below 2^51 ns (26 days) exactly. Frames are rebuilt from the `Frame`
-arguments, so a zone stays in the frame that collected it. The writer writes the events frame by frame: the frame,
-then its zones thread by thread in the order of the thread table, each thread's in pre-order (§4.4), then its GPU
-passes. The reader keeps that order and never sorts by `ts`, since zones that begin on one clock tick share a time:
-each frame's zones and passes come back in the order the file holds them.
+nearest nanosecond, which gives back every value below 2^51 ns (26 days) exactly; times from 2^51 ns on are refused, and
+so are frames that end there and passes laid out to end there, which the writer refuses to write. Frames are rebuilt
+from the `Frame` arguments, so a zone stays in the frame that collected it. The writer writes the events frame by
+frame: the frame, then its zones thread by thread in the order of the thread table, each thread's in pre-order (§4.4),
+then its GPU passes. The reader keeps that order and never sorts by `ts`, since zones that begin on one clock tick share
+a time: each frame's zones and passes come back in the order the file holds them.
+
+The writer writes only the threads, names and views the frames use (the main thread always), renumbered in their
+tables' order, with names made valid UTF-8 (`Utf8::Sanitize`) and cut at a character boundary to `MaxNameBytes` (thread
+names `MaxThreadNameBytes`). It refuses a capture whose text would exceed `Profiler::MaxCaptureBytes` (checked after each
+frame, so it never builds more than one frame past the bound), or holding more than the reader accepts.
 
 The reader refuses:
 
-- a document without the header, of another type or of a newer version, or larger than `Profiler::MaxCaptureBytes`
-  (512 MiB; the writer refuses to write a larger one);
-- an event of another phase, or with a missing or mistyped member;
-- a negative or non-finite time;
-- a `Frame` argument that no `Frame` event declares, or a `tid` that no `thread_name` declares;
-- more frames, zones, names, threads or views than a recording holds (`Profiler::MaxHistoryFrames`, `MaxHistoryZones`,
-  `MaxCaptureNames`, `MaxRecordedThreads`, `MaxGpuViews`);
-- a name longer than `Profiler::MaxNameBytes` or not UTF-8.
+- a document larger than `Profiler::MaxCaptureBytes` (512 MiB; `Load` checks the file's size before reading it), not
+  an object, without the header, of another type or of a newer version, with `Strada` or `traceEvents` twice, or whose
+  `traceEvents` is not an array;
+- an event of another phase than `M` and `X`, or with a missing or mistyped member;
+- a negative, non-finite or too large time;
+- a frame whose index does not follow the previous frame's (a capture's frames are consecutive), or not on thread 1;
+- a `Frame` argument that no `Frame` event before it declares, or a `tid` that no `thread_name` before it names, a
+  thread or view named out of order, and a capture that names no main thread;
+- a `Value` that is not an object of one unsigned count;
+- more frames, zones, GPU passes, names, threads or views than a recording holds (`Profiler::MaxHistoryFrames`,
+  `MaxHistoryZones`, `ProfilerCaptureSerializer::MaxGpuPasses`, `MaxCaptureNames`, `MaxRecordedThreads`,
+  `MaxGpuViews`);
+- a name longer than `Profiler::MaxNameBytes` (a thread's, `MaxThreadNameBytes`) or not UTF-8.
 
-Unknown members are ignored. What the reader accepts, the writer writes back as the same frames.
+Unknown members are ignored. What the reader accepts, the writer writes back as the same frames, and that text reads and
+writes again unchanged.
 
 Visual script (`.sgraph`, `VisualScriptSerializer`; `Tests/Data/VisualScripting/Example.sgraph` is the writer's golden
 file):
@@ -1171,9 +1226,11 @@ of their own, whose graphs talk through custom events (`Event.Send` runs the `Ev
 public variables set per component (`Self` in a child's graph is the child). C++ owns the document (format, validation
 and repair, editor, undo, automation) and the scene integration. The graph VM in `Strada.ScriptCore` (namespace
 `Strada.VisualScripting`, internal) owns the semantics: the node library, pin resolution and type rules, analysis,
-compilation and execution. C++ never derives pins or types itself; it asks the VM through the ten `VisualScript*` entry
+compilation and execution. C++ never derives pins or types itself; it asks the VM through the `VisualScript*` entry
 points of `Strada.Interop.Host` (§10.1: `VisualScriptDescribeLibrary`, `VisualScriptAnalyze`, `VisualScriptLoad`,
-`VisualScriptCreateInstance`, `VisualScriptInvoke`, ...; `VisualScriptAnalyze` and `VisualScriptLoad` also take the
+`VisualScriptCreateInstance`, `VisualScriptInvoke`, ...; `VisualScriptReadSteps` gives the steps the VM's outermost
+executions ran since it started, which the profiler reads around each invoke while it records, §4.4;
+`VisualScriptAnalyze` and `VisualScriptLoad` also take the
 reference bundle of the other graphs a document names, below, a length of 0 meaning none). They are thin adapters that
 marshal UTF-8 and answer a status:
 Success 0, Failure 1 or NotFound 2. On Success, and only then, the JSON answer goes to the `receive` callback, exactly
@@ -2598,6 +2655,12 @@ asset directory and the script assembly relative to the game's directory (`Proje
   breakpoints, traces and the editor's views never ship (they live in the editor's user data, not in the project).
 - `--headless` runs without a window, rendering or sound (no GPU needed); the scenes see the game's window size.
   `--frames N` and `--screenshot <png>` serve smoke tests.
+- `--profile <file>` (§4.4) starts a recording before the game's layer attaches, so its first frame is the main loop's
+  first. At exit it logs the medians of the history (`ComputeProfilerMedians`: the frame and its 99th percentile, each
+  subsystem, each thread name, each GPU pass and each zone name, one `Profile ...` line each), which plan targets are
+  read from, and saves the capture (the last `HistoryFrames`, 600). A file in a folder that does not exist is a usage
+  error (2); a capture that cannot be saved is logged and makes a run that would have exited with 0 exit with 1. Dist
+  players have no profiler and refuse the option.
 - `--test` runs headless with a fixed time step (`--timestep`, default 1/60 s) until the scripts call
   `TestReporter.Finish`, quit, or `--timeout` game seconds (default 60) pass. It logs a summary and exits with the
   number of failures: failed checks plus script exceptions, plus one when the scripts did not finish testing, at most

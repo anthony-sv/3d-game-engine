@@ -408,6 +408,9 @@ namespace Strada
 		void DestroyRemovedScriptInstances();
 		std::vector<UUID> GetScriptInstanceIDs() const;
 		std::vector<UUID> GetVisualScriptInstanceIDs() const;
+		// The profiler's zone name of an entity's C# script: "Script.<class>" (class names may hold namespaces' dots, so the
+		// prefix keeps them out of the subsystem rule). Taken only while the profiler records.
+		std::string GetScriptProfileName(UUID id) const;
 
 		// UI runtime (SceneUI.cpp).
 		void ResetUI();

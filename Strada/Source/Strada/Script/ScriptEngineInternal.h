@@ -93,6 +93,9 @@ namespace Strada::ScriptEngineInternal
 		// session's start.
 		int32_t (*VisualScriptTakeLiveEvents)(uint64_t after, void* context, ReceiveFunction receive) = nullptr;
 		int32_t (*VisualScriptClearLiveEvents)() = nullptr;
+		// The steps the runtime's outermost executions ran since it started, their nested executions' included: read before
+		// and after an invoke while the profiler records (VisualScriptEngine), to give the graph's zone its steps.
+		int32_t (*VisualScriptReadSteps)(uint64_t* steps) = nullptr;
 	};
 
 	// A graph a sent document refers to, with what was sent for it (the full document of a library, the interface of the

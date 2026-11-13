@@ -1,7 +1,8 @@
+#include "Core/ProfilerTestUtilities.h"
+#include "Fuzzing.h"
+
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/Profiler.h"
-
-#include "Fuzzing.h"
 
 #include <doctest/doctest.h>
 
@@ -17,20 +18,7 @@
 #include <vector>
 
 using namespace Strada;
-
-namespace
-{
-	// Initializes the profiler for as long as it lives (a test may shut it down earlier).
-	class ProfilerScope
-	{
-	public:
-		ProfilerScope() { Profiler::Init(); }
-		~ProfilerScope() { Profiler::Shutdown(); }
-
-		ProfilerScope(ProfilerScope const&) = delete;
-		ProfilerScope& operator=(ProfilerScope const&) = delete;
-	};
-}
+using Testing::ProfilerScope;
 
 TEST_CASE("Profiler: every function does nothing before Init and after Shutdown")
 {

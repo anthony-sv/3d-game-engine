@@ -232,6 +232,7 @@ them. Prism Break has no C# scripts and runs at once.
 | `--headless` | Run without a window, rendering or sound |
 | `--frames <count>` | Exit after this many frames |
 | `--screenshot <path>` | Save a PNG of the window (on the last frame with `--frames`, otherwise frame 60) |
+| `--profile <path>` | Record the profiler while the game runs, save the capture of its last 600 frames to this file at exit, and log the median time per frame of each subsystem, thread, GPU pass and zone (not in Dist builds) |
 | `--gpu <index>` | Use the GPU with this adapter index |
 | `--validation`, `--no-validation` | Enable or disable Vulkan and NVRHI validation |
 | `--no-vsync` | Present without waiting for vertical sync |

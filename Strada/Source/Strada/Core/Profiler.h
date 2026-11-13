@@ -204,10 +204,11 @@ namespace Strada
 	};
 
 	// The subsystem of a zone name written "<Subsystem>.<Phase>" ("Physics.Step" is in "Physics"): the text before the
-	// first '.', or empty when the name has none (a zone named by ST_PROFILE_FUNCTION, a script class, a graph, one of
-	// Jolt's own zones), in which case the zone belongs to the subsystem of its nearest enclosing zone on its thread that
-	// has one, and to "Other" when none has. Subsystem medians read the main thread only; the work of other threads is
-	// measured per thread (ProfilerMedians::Threads), so their unprefixed zones need no subsystem. Pure; any thread.
+	// first '.', or empty when the name has none (a zone named by ST_PROFILE_FUNCTION, one of Jolt's own zones), in which
+	// case the zone belongs to the subsystem of its nearest enclosing zone on its thread that has one, and to "Other" when
+	// none has. Names given at run time carry a prefix, since class names and asset paths hold dots of their own: a C#
+	// script's zones are "Script.<class>", a graph's "Graph.<asset path>". Subsystem medians read the main thread only; the work of other
+	// threads is measured per thread (ProfilerMedians::Threads), so their unprefixed zones need no subsystem. Pure; any thread.
 	[[nodiscard]] std::string_view GetProfilerSubsystem(std::string_view zoneName);
 
 	// Medians of a capture's frames (the figures StradaRuntime --profile logs at exit). Pure; any thread.

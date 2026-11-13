@@ -5,9 +5,11 @@
 #include "Strada/Core/EntryPoint.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Project/ScriptProject.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptEngine.h"
+#include "Strada/Serialization/ProfilerCaptureSerializer.h"
 
 #include <cmath>
 #include <cstdio>
@@ -29,8 +31,34 @@ namespace Strada
 			ProjectFileKind GameKind = ProjectFileKind::Game;
 			// A scene file relative to the asset directory to start with; empty for the game's start scene.
 			std::string StartScene;
+			// Where the profiler's capture of the run goes (--profile); empty when the run is not profiled.
+			std::filesystem::path ProfilePath;
 			RuntimeLayerSpecification Layer;
 		};
+
+		// The figures plan targets are read from: the frame, each subsystem, each thread, each GPU pass and each zone name.
+		void LogProfileMedians(ProfilerMedians const& medians, size_t frames)
+		{
+			ST_INFO("Profile: {} frames, frame median {:.3f} ms, 99th percentile {:.3f} ms", frames, medians.FrameMilliseconds,
+			        medians.FramePercentile99Milliseconds);
+			for (ProfilerMedian const& subsystem : medians.Subsystems)
+			{
+				ST_INFO("Profile subsystem {}: {:.3f} ms per frame", subsystem.Name, subsystem.Milliseconds);
+			}
+			for (ProfilerMedian const& thread : medians.Threads)
+			{
+				ST_INFO("Profile thread {}: {:.3f} ms busy per frame", thread.Name, thread.Milliseconds);
+			}
+			for (ProfilerMedian const& pass : medians.GpuPasses)
+			{
+				ST_INFO("Profile GPU pass {}: {:.3f} ms per frame", pass.Name, pass.Milliseconds);
+			}
+			for (ProfilerZoneMedian const& zone : medians.Zones)
+			{
+				ST_INFO("Profile zone {}: {:.3f} ms per frame, {:.4f} ms per call, {:.2f} calls per frame", zone.Name,
+				        zone.MillisecondsPerFrame, zone.MillisecondsPerCall, zone.CallsPerFrame);
+			}
+		}
 
 		// The exported game next to the executable, or in the app bundle's Resources directory on macOS.
 		std::filesystem::path FindExportedGame()
@@ -81,8 +109,42 @@ namespace Strada
 			{
 				return Error{scene.GetError()};
 			}
+			if (!m_RuntimeSpecification.ProfilePath.empty())
+			{
+				// The recording's frames are the main loop's: what the game does as it starts is discarded at the first one.
+				if (Result<void> started = Profiler::Start(); !started)
+				{
+					return MakeError("the run cannot be profiled: {}", started.GetError());
+				}
+				ST_INFO("Profiling the run into '{}'", FileSystem::PathToUtf8(m_RuntimeSpecification.ProfilePath));
+			}
 			PushLayer<RuntimeLayer>(m_RuntimeSpecification.Layer, std::move(game), scene.TakeValue());
 			return {};
+		}
+
+		void OnShutdown() override
+		{
+			if (m_RuntimeSpecification.ProfilePath.empty() || !Profiler::GetStatus().Recording)
+			{
+				return;
+			}
+			// The main loop has ended its last frame; the history holds the last ProfilerSettings::HistoryFrames of them.
+			Profiler::Stop();
+			ProfilerCapture const& capture = Profiler::GetRecording();
+			LogProfileMedians(ComputeProfilerMedians(capture), capture.Frames.size());
+			if (Result<void> saved = ProfilerCaptureSerializer::Save(capture, m_RuntimeSpecification.ProfilePath); !saved)
+			{
+				ST_ERROR("The profile could not be saved to '{}': {}", FileSystem::PathToUtf8(m_RuntimeSpecification.ProfilePath),
+				         saved.GetError());
+				// A run whose capture was asked for and lost did not do what it was asked.
+				if (GetExitCode() == 0)
+				{
+					SetExitCode(1);
+				}
+				return;
+			}
+			ST_INFO("Saved the profile of {} frames to '{}'", capture.Frames.size(),
+			        FileSystem::PathToUtf8(m_RuntimeSpecification.ProfilePath));
 		}
 
 	private:
@@ -166,6 +228,8 @@ namespace Strada
 			.AddFlag("headless", "Run without a window, rendering or sound")
 			.AddOption("frames", "count", "Exit after the given number of frames")
 			.AddOption("screenshot", "path", "Save a PNG of the window (on the last frame with --frames, otherwise frame 60)")
+			.AddOption("profile", "path",
+		               "Record the profiler and save its capture (the last 600 frames) here at exit, logging the medians")
 			.AddOption("gpu", "index", "Use the GPU with this adapter index")
 			.AddFlag("validation", "Enable Vulkan and NVRHI validation")
 			.AddFlag("no-validation", "Disable Vulkan and NVRHI validation")
@@ -217,6 +281,24 @@ namespace Strada
 		{
 			return fail("--screenshot needs a window (not --headless or --test)");
 		}
+		std::filesystem::path profile;
+		if (std::optional<std::string> const value = arguments.GetValue("profile"))
+		{
+			if (!Profiler::GetStatus().Available)
+			{
+				return fail("--profile needs a player with a profiler: Dist builds have none");
+			}
+			profile = FileSystem::PathFromUtf8(*value);
+			std::error_code error;
+			std::filesystem::path const absolute = std::filesystem::absolute(profile, error);
+			if (value->empty() || error || !absolute.has_filename() || FileSystem::IsDirectory(absolute) ||
+			    !FileSystem::IsDirectory(absolute.parent_path()))
+			{
+				return fail(fmt::format("--profile must name a file in a folder that exists, not '{}'", *value));
+			}
+			// Saved where it was checked, whatever the working directory is at exit.
+			profile = absolute;
+		}
 
 		RuntimeSpecification runtime;
 		runtime.GameKind = project ? ProjectFileKind::Project : ProjectFileKind::Game;
@@ -231,6 +313,7 @@ namespace Strada
 		{
 			runtime.StartScene = FileSystem::PathToUtf8(FileSystem::PathFromUtf8(*scene));
 		}
+		runtime.ProfilePath = std::move(profile);
 
 		// The window comes from the game, and opens before the engine starts.
 		Result<ProjectWindowSettings> window = Project::ReadWindowSettings(runtime.GameFile, runtime.GameKind);

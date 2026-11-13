@@ -1,5 +1,7 @@
 #include "Editor/ExampleCopyTask.h"
 
+#include "Strada/Core/Profiler.h"
+
 #include <chrono>
 #include <utility>
 
@@ -40,6 +42,7 @@ namespace Strada
 		m_Copy = std::async(std::launch::async,
 		                    [this, source = std::move(catalog), entry = std::move(example), target = std::move(directory)]
 		                    {
+								ST_PROFILE_THREAD("Example Copy");
 								ProjectCopyOptions options;
 								options.Cancel = &m_Cancel;
 								options.Progress = &m_Progress;

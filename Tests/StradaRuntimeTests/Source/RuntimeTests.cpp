@@ -8,6 +8,7 @@
 #include "Strada/Core/EngineLayout.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Platform/Process.h"
 #include "Strada/Project/GameExporter.h"
 #include "Strada/Project/Project.h"
@@ -16,6 +17,7 @@
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Serialization/ProfilerCaptureSerializer.h"
 
 #include <doctest/doctest.h>
 
@@ -523,6 +525,60 @@ TEST_CASE("Runtime: games that cannot start and wrong command lines fail before 
 	CHECK(noScene.ExitCode == 1);
 	CHECK(Contains(noScene.Output, "the game has no scene 'Scenes/Missing.sscene'"));
 }
+
+#ifdef ST_ENABLE_PROFILING
+TEST_CASE("Runtime: a profiled run saves a capture of its frames and logs each subsystem's median")
+{
+	TestGame game(ProjectFileKind::Game);
+	game.AddScene("Pass", MakeScene("Pass", ScriptFieldMap{}));
+	game.AddScripts();
+	std::string const file = Native(game.Write("Scenes/Pass.sscene"));
+	Testing::TemporaryDirectory const directory;
+	std::filesystem::path const capturePath = directory.GetPath() / "Run.json";
+
+	ProcessResult const run = RunPlayer({"--game", file, "--headless", "--frames", "20", "--profile", Native(capturePath)});
+	CAPTURE(run.Output);
+	CHECK(run.ExitCode == 0);
+	CHECK(Contains(run.Output, "Profile: 20 frames, frame median "));
+	CHECK(Contains(run.Output, "Profile subsystem Scene: "));
+	CHECK(Contains(run.Output, "Profile subsystem Application: "));
+	CHECK(Contains(run.Output, "Profile zone Script.Strada.Tests.SelfTest: "));
+	CHECK(Contains(run.Output, "Saved the profile of 20 frames"));
+
+	Result<ProfilerCapture> const capture = ProfilerCaptureSerializer::Load(capturePath);
+	REQUIRE_MESSAGE(capture.IsOk(), (capture ? std::string() : capture.GetError()));
+	REQUIRE(capture.GetValue().Frames.size() == 20);
+	CHECK(capture.GetValue().Threads.front().Name == "Main");
+	size_t sceneUpdates = 0;
+	for (ProfilerFrame const& frame : capture.GetValue().Frames)
+	{
+		for (ProfilerZone const& zone : frame.Zones)
+		{
+			sceneUpdates += capture.GetValue().Names[zone.Name] == "Scene.Update" ? 1 : 0;
+		}
+	}
+	CHECK(sceneUpdates == 20);
+
+	// A test run is profiled too, and keeps its exit code.
+	ProcessResult const tested = RunPlayer({"--game", file, "--test", "--profile", Native(directory.GetPath() / "Test.json")});
+	CAPTURE(tested.Output);
+	CHECK(tested.ExitCode == 0);
+	CHECK(ProfilerCaptureSerializer::Load(directory.GetPath() / "Test.json").IsOk());
+
+	// A capture needs a file in a folder that exists.
+	for (std::vector<std::string> const& arguments : std::vector<std::vector<std::string>>{
+			 {"--game", file, "--headless", "--profile"},
+			 {"--game", file, "--headless", "--profile", Native(directory.GetPath() / "Missing" / "Run.json")},
+			 {"--game", file, "--headless", "--profile", Native(directory.GetPath())},
+		 })
+	{
+		ProcessResult const result = RunPlayer(arguments);
+		CAPTURE(result.Output);
+		CHECK(result.ExitCode == 2);
+		CHECK(Contains(result.Output, "--profile"));
+	}
+}
+#endif
 
 TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 {

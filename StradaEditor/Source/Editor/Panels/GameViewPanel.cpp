@@ -142,7 +142,7 @@ namespace Strada
 	{
 		if (!m_Render && Renderer::IsInitialized())
 		{
-			m_Renderer = CreateScope<SceneRenderer>();
+			m_Renderer = CreateScope<SceneRenderer>("Game View");
 		}
 		m_Input.SetCoverageTest(
 			[this](glm::vec2 position)

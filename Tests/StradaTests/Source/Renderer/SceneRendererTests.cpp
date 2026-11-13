@@ -1,3 +1,4 @@
+#include "Core/ProfilerTestUtilities.h"
 #include "Renderer/RenderTestUtilities.h"
 #include "TestUtilities.h"
 
@@ -220,6 +221,75 @@ TEST_CASE("SceneRenderer: frames report their GPU time when the GPU can measure 
 		CHECK_FALSE(renderer.GetStatistics().GpuMilliseconds.has_value());
 	}
 }
+
+#ifdef ST_ENABLE_PROFILING
+TEST_CASE("SceneRenderer: while the profiler records, each pass's GPU time reaches the frame that rendered it")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	Testing::ProfilerScope const profiler;
+	Scope<Scene> scene = MakeShowcaseScene();
+	SceneRenderer renderer("Probe");
+	CHECK(renderer.GetViewName() == "Probe");
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+	SceneRendererCamera const camera = MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f});
+
+	// Rendering before the recording times no pass.
+	RenderScene(*scene, renderer, camera);
+	REQUIRE(Profiler::Start().IsOk());
+	for (int frame = 0; frame < 12; frame++)
+	{
+		Profiler::BeginFrame();
+		RenderScene(*scene, renderer, camera);
+		Profiler::EndFrame();
+		if (frame % 4 == 3)
+		{
+			// The GPU finishes the frames; the next frame's EndScene reads their timers.
+			GraphicsDevice::WaitForIdle();
+		}
+	}
+	Profiler::Stop();
+	// Frames rendered after the recording read the last timers and hand them to no recording.
+	GraphicsDevice::WaitForIdle();
+	RenderScene(*scene, renderer, camera);
+
+	ProfilerCapture const& capture = Profiler::GetRecording();
+	REQUIRE(capture.Frames.size() == 12);
+	// Every frame's CPU phases of the renderer.
+	for (std::string_view const phase : {"Renderer.Submit", "Renderer.Cull", "Renderer.Sort", "Renderer.Prepare", "Renderer.Record"})
+	{
+		CAPTURE(phase);
+		CHECK(Testing::FindZones(capture, phase).size() == 12);
+	}
+	size_t measuredFrames = 0;
+	for (ProfilerFrame const& frame : capture.Frames)
+	{
+		if (frame.GpuPasses.empty())
+		{
+			continue;
+		}
+		measuredFrames++;
+		std::vector<std::string> passes;
+		for (ProfilerGpuPass const& pass : frame.GpuPasses)
+		{
+			CHECK(capture.Names[pass.View] == "Probe");
+			CHECK(pass.DurationNanoseconds >= 0);
+			passes.push_back(capture.Names[pass.Name]);
+		}
+		// The showcase's passes in the order they are recorded (its settings draw ambient occlusion and bloom).
+		CHECK(passes == std::vector<std::string>{"Upload", "Shadows", "Opaque", "AmbientOcclusion", "Transparent", "Bloom", "Tonemap",
+		                                         "Overlays", "FXAA", "ScreenSpace"});
+	}
+	if (GraphicsDevice::GetAdapterInfo().SupportsTimerQueries)
+	{
+		CHECK(measuredFrames > 0);
+	}
+	else
+	{
+		CHECK(measuredFrames == 0);
+	}
+}
+#endif
 
 TEST_CASE("SceneRenderer: the primary camera's far distance culls what lies beyond it")
 {

@@ -14,6 +14,7 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/EmbeddedResources.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Profiler.h"
 
 #include <glm/gtc/constants.hpp>
 
@@ -1167,6 +1168,7 @@ namespace Strada
 			return Error{failed->second};
 		}
 
+		ST_PROFILE_SCOPE("Asset.Load");
 		AssetMetadata const* registered = data.Registry.Find(handle);
 		if (registered == nullptr)
 		{

@@ -39,6 +39,8 @@ add_executable(StradaTests
     Source/Core/LogTests.cpp
     Source/Core/PlatformTests.cpp
     Source/Core/ProfilerDistFormTests.cpp
+    Source/Core/ProfilerMediansTests.cpp
+    Source/Core/ProfilerTestUtilities.h
     Source/Core/ProfilerTests.cpp
     Source/Core/ResultTests.cpp
     Source/Core/UUIDTests.cpp
@@ -91,6 +93,7 @@ add_executable(StradaTests
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFuzzTests.cpp
+    Source/Scene/SceneProfilingTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneScriptingApiTests.cpp
     Source/Scene/SceneScriptingGuideTests.cpp
@@ -114,6 +117,7 @@ add_executable(StradaTests
     Source/Serialization/JsonScannerTests.cpp
     Source/Serialization/JsonSerializationTests.cpp
     Source/Serialization/JsonTextWriterTests.cpp
+    Source/Serialization/ProfilerCaptureSerializerTests.cpp
     Source/Serialization/StructSerializationTests.cpp
     Source/TestUtilities.h
 )
