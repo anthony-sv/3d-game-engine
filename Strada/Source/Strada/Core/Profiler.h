@@ -10,6 +10,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 // The engine's CPU and GPU profiler (Docs/Architecture.md §4.4). Zones are recorded by any thread into per-thread
@@ -60,6 +61,9 @@ namespace Strada
 		uint32_t Depth = 0;
 	};
 
+	static_assert(sizeof(ProfilerZoneToken) <= 64, "Jolt's external profile measurement keeps the token in 64 bytes");
+	static_assert(std::is_trivially_copyable_v<ProfilerZoneToken>, "callers keep the token in raw storage");
+
 	// --- Recorded data: what the history holds and what a capture file stores. Plain data, read on the main thread. ---
 
 	// Names (zones, value labels, views, GPU passes) are indices into ProfilerCapture::Names; this one means none.
@@ -102,7 +106,8 @@ namespace Strada
 		// In the order the renderers measured them. A frame's passes arrive frames later; frames whose GPU work was not
 		// measured have none.
 		std::vector<ProfilerGpuPass> GpuPasses;
-		// Zones lost because a thread's buffer was full, a thread found no free buffer, or a name could not be stored.
+		// Zones lost because a thread's buffer was full, a thread found no free buffer or no thread entry left
+		// (Profiler::MaxRecordedThreads), or a run-time name could not be stored.
 		uint32_t DroppedZones = 0;
 	};
 
@@ -113,10 +118,15 @@ namespace Strada
 	};
 
 	// Frames with the tables their zones index: the recorder's history (Profiler::GetRecording) or a capture opened again.
+	// The recorder adds table entries as a recording meets new names and threads, and keeps them while it records (frames
+	// leave the history, entries stay); a capture's writer writes only the entries its frames use, renumbered, so a
+	// capture opened again holds no unused entry. Both stay within the limits a capture's reader accepts
+	// (Profiler::MaxCaptureNames, MaxRecordedThreads, MaxGpuViews).
 	struct ProfilerCapture
 	{
 		std::vector<std::string> Names;
-		// One entry per buffer a thread took during the recording, in the order threads took them.
+		// One entry per buffer a thread took during the recording, in the order threads took them. Entry 0 is always the
+		// main thread (the one that called Profiler::Init), whether or not it recorded a zone: frames belong to it.
 		std::vector<ProfilerThread> Threads;
 		// Oldest first.
 		std::deque<ProfilerFrame> Frames;
@@ -151,19 +161,24 @@ namespace Strada
 		// Frame durations (EndNanoseconds - StartNanoseconds).
 		double FrameMilliseconds = 0.0;
 		// Per subsystem (GetProfilerSubsystem), sorted by name: per frame, the summed durations of the subsystem's outermost
-		// zones on every thread. Subsystems overlap where zones of one nest in another's.
+		// zones on the main thread, the frame's wall time spent in it. Subsystems overlap where zones of one nest in
+		// another's (scripts inside the scene's update). Work other threads do in parallel is in Threads, never added here.
 		std::vector<ProfilerMedian> Subsystems;
+		// Per thread other than the main thread, by thread name (threads of one name, such as Jolt's workers, merged), sorted
+		// by name: per frame, the summed durations of the thread's outermost zones, its busy time.
+		std::vector<ProfilerMedian> Threads;
 		// Per view and pass ("<view>/<pass>"), sorted by name, over the frames that measured the pass.
 		std::vector<ProfilerMedian> GpuPasses;
 	};
 
 	// The subsystem of a zone name written "<Subsystem>.<Phase>" ("Physics.Step" is in "Physics"): the text before the
-	// first '.', or empty when the name has none (a zone named by ST_PROFILE_FUNCTION, a script class, a graph), in which
-	// case the zone belongs to the subsystem of its nearest enclosing zone that has one. Pure; any thread.
+	// first '.', or empty when the name has none (a zone named by ST_PROFILE_FUNCTION, a script class, a graph, one of
+	// Jolt's own zones), in which case the zone belongs to the subsystem of its nearest enclosing zone on its thread that
+	// has one, and to "Other" when none has. Subsystem medians read the main thread only; the work of other threads is
+	// measured per thread (ProfilerMedians::Threads), so their unprefixed zones need no subsystem. Pure; any thread.
 	[[nodiscard]] std::string_view GetProfilerSubsystem(std::string_view zoneName);
 
-	// Medians of a capture's frames (the figures StradaRuntime --profile logs at exit). Zones without a subsystem and
-	// without an enclosing zone that has one count as "Other". Pure; any thread.
+	// Medians of a capture's frames (the figures StradaRuntime --profile logs at exit). Pure; any thread.
 	[[nodiscard]] ProfilerMedians ComputeProfilerMedians(ProfilerCapture const& capture);
 
 	// The recorder. A static facade (Init/Shutdown); Application initializes it before every other subsystem and shuts
@@ -183,6 +198,13 @@ namespace Strada
 		static constexpr uint64_t MaxHeldZones = 4000000;
 		// Run-time names stored at most between Init and Shutdown (InternName); past it, their zones are dropped.
 		static constexpr uint32_t MaxInternedNames = 65536;
+		// Entries a capture's name table may hold: every run-time name and as many names with static storage.
+		static constexpr uint32_t MaxCaptureNames = 2 * MaxInternedNames;
+		// Thread entries one recording makes at most (threads that took a buffer, counting a thread again each recording
+		// it takes one); zones of threads past it are dropped. Thread churn this large is a defect of the program profiled.
+		static constexpr uint32_t MaxRecordedThreads = 1024;
+		// Renderers whose GPU passes one recording keeps at most (RecordGpuPasses); passes of further views are dropped.
+		static constexpr uint32_t MaxGpuViews = 16;
 		// Longest run-time name in bytes; longer names are cut at a UTF-8 character boundary.
 		static constexpr uint32_t MaxNameBytes = 256;
 		// Longest thread name in bytes; longer names are cut at a UTF-8 character boundary.
@@ -206,7 +228,8 @@ namespace Strada
 		static void Stop();
 
 		// Begins a frame: gives it the next index. Called by the main loop at the top of each iteration, and by tests and
-		// tools that run frames of their own. Counts frames even when not recording.
+		// tools that run frames of their own. Counts frames even when not recording. Frames do not nest: a BeginFrame while
+		// a frame is in progress ends that frame first, as EndFrame would.
 		static void BeginFrame();
 		// Ends the frame begun last: while recording, collects every thread's buffer into it and appends it to the
 		// history; then attaches GPU passes that waited for it. Does nothing when no frame is in progress.

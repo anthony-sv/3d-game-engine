@@ -175,9 +175,13 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   `ST_PROFILE_ZONE(variable, name)` and `ST_PROFILE_ZONE_DYNAMIC` declare a zone that `ST_PROFILE_ZONE_VALUE` can give
   a count to (a graph's VM steps). `ST_PROFILE_THREAD(name)` names a thread for its whole body. Code whose scopes are
   not C++ scopes calls `Profiler::BeginZone`/`EndZone` and keeps the token: Jolt's `ExternalProfileMeasurement` has 64
-  bytes of user data, and the token is trivially copyable and smaller than that. Zones that a subsystem's time is read
-  from are named `<Subsystem>.<Phase>` (`Physics.Step`, `Scene.UpdateScripts`). A name without a `.` belongs to the
-  subsystem of its nearest enclosing zone that has one, so class names, graph names and function names need no prefix.
+  bytes of user data, and the token is trivially copyable and smaller than that (the header asserts both). Zones that a
+  subsystem's time is read from are named `<Subsystem>.<Phase>` (`Physics.Step`, `Scene.UpdateScripts`). A name without
+  a `.` belongs to the subsystem of its nearest enclosing zone on its thread that has one, and to `Other` when none has,
+  so class names, graph names and function names need no prefix. A subsystem's figure is the main thread's: per frame,
+  the summed durations of its outermost zones on the main thread, the frame's wall time spent in it. The work other
+  threads do in parallel (Jolt's workers, the audio and streaming threads) is measured per thread as busy time, and is
+  never added to a subsystem, so Jolt's own unprefixed zones need no subsystem.
 - **Who writes.** Any thread may record: the main thread, Jolt's workers (named by the job system's thread init
   function and ended by its exit function), miniaudio's device thread, the audio streaming thread and background
   workers. A zone is written once, when it ends, as one complete record: name, start, end, the thread's depth when it
@@ -212,7 +216,14 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   (each thread's zones in pre-order). It then appends the frame to the history, which holds `HistoryFrames` frames
   (600 by default, at most 36,000) and at most 4,000,000 zones, dropping the oldest frames first. A zone belongs to the
   frame whose collection finds it: the frame during which it ended. Zones of the audio and streaming threads run
-  independently of frames and may begin before their frame does.
+  independently of frames and may begin before their frame does. Frames do not nest: a `BeginFrame` while a frame is in
+  progress ends that frame first.
+- **Tables.** A recording's name and thread tables grow as it meets new names and threads, and entries stay while it
+  records even when their frames leave the history. Thread 0 is always the main thread, whether or not it recorded a
+  zone, because frames belong to it. A thread counts again each recording it takes a buffer in, up to
+  `MaxRecordedThreads` (1024) entries per recording, beyond which its zones are dropped. GPU views count up to
+  `MaxGpuViews` (16). A capture's writer writes only the entries its frames use, renumbered, so everything it writes is
+  within what its reader accepts.
 - **GPU passes.** NVRHI's timer queries measure durations only, their results arrive frames later, and the editor
   draws with several `SceneRenderer`s per frame. Every pass is wrapped in an NVRHI marker in every build, so a
   RenderDoc capture reads by pass name. While `Profiler::IsRecording()`, each renderer also extends its ring of frame
@@ -701,16 +712,19 @@ Perfetto open it as it is:
 (one line). The events are:
 
 - metadata events (`"ph": "M"`, `"pid": 1`): `process_name`, then a `thread_name` for every recorded thread
-  (`"tid"`: its index + 1) and for every GPU view's track (`"GPU <view>"`);
-- one complete event (`"ph": "X"`) per frame, named `Frame` with `"cat": "Frame"`, on the main thread's track, with
-  `"args": { "Frame": <index>, "DroppedZones": <n> }`;
+  (`"tid"`: its index + 1, so the main thread is `"tid": 1`) and for every GPU view's track (`"GPU <view>"`, after the
+  threads);
+- one complete event (`"ph": "X"`) per frame, named `Frame` with `"cat": "Frame"`, on the main thread's track
+  (`"tid": 1`), with `"args": { "Frame": <index>, "DroppedZones": <n> }`;
 - one complete event per zone, its `"cat"` its subsystem (`Other` when it has none), with
   `"args": { "Frame": <index>, "Depth": <depth> }`, plus `"<label>": <count>` when the zone carries a count;
 - one complete event per GPU pass with `"cat": "GPU"` on its view's track, with `"args": { "Frame": <index>, "View":
   "<view>" }`. Only durations are measured, so a frame's passes are laid end to end from the frame's start.
 
-`"ts"` and `"dur"` are microseconds from the recording's start, written with three decimals so nanoseconds survive.
-Frames are rebuilt from the `Frame` arguments, so a zone stays in the frame that collected it.
+`"ts"` and `"dur"` are microseconds from the recording's start: the double `nanoseconds / 1000.0`, written by
+`JsonTextWriter` as the shortest text that reads back as the same double. The reader rounds `value * 1000` to the
+nearest nanosecond, which gives back every value below 2^51 ns (26 days) exactly. Frames are rebuilt from the `Frame`
+arguments, so a zone stays in the frame that collected it.
 
 The reader refuses:
 
@@ -718,8 +732,8 @@ The reader refuses:
 - an event of another phase, or with a missing or mistyped member;
 - a negative or non-finite time;
 - a `Frame` argument that no `Frame` event declares, or a `tid` that no `thread_name` declares;
-- more frames, zones or threads than the recorder holds (`Profiler::MaxHistoryFrames`, `MaxHeldZones`, `MaxThreads`
-  plus one track per view);
+- more frames, zones, names, threads or views than a recording holds (`Profiler::MaxHistoryFrames`, `MaxHeldZones`,
+  `MaxCaptureNames`, `MaxRecordedThreads`, `MaxGpuViews`);
 - a name longer than `Profiler::MaxNameBytes` or not UTF-8.
 
 Unknown members are ignored. What the reader accepts, the writer writes back as the same frames.
