@@ -1,6 +1,8 @@
 # Strada editor: StradaEditorCore (testable library) + StradaEditor (executable).
 
 set(STRADA_EDITOR_CORE_SOURCES
+    Source/Editor/Agents/AgentKit.cpp
+    Source/Editor/Agents/AgentKit.h
     Source/Editor/AssetAutoRefresh.cpp
     Source/Editor/AssetAutoRefresh.h
     Source/Editor/AssetBrowsing.cpp
@@ -9,6 +11,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/AssetDrops.h
     Source/Editor/AssetThumbnails.cpp
     Source/Editor/AssetThumbnails.h
+    Source/Editor/Automation/AgentCommands.cpp
+    Source/Editor/Automation/AgentCommands.h
     Source/Editor/Automation/AutomationInstance.cpp
     Source/Editor/Automation/AutomationInstance.h
     Source/Editor/Automation/AutomationInstanceFile.cpp
@@ -88,6 +92,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/HierarchyEditing.h
     Source/Editor/MaterialSlots.cpp
     Source/Editor/MaterialSlots.h
+    Source/Editor/Panels/AgentSetupDialog.cpp
+    Source/Editor/Panels/AgentSetupDialog.h
     Source/Editor/Panels/BuildGameDialog.cpp
     Source/Editor/Panels/BuildGameDialog.h
     Source/Editor/Panels/ConsolePanel.cpp

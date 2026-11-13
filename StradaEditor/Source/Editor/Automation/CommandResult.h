@@ -46,16 +46,19 @@ namespace Strada
 		// The edited scene has unsaved changes that the command would discard.
 		UnsavedChanges = 1007,
 		// A parameter names an asset that is not registered.
-		AssetNotFound = 1008
+		AssetNotFound = 1008,
+		// The command needs an explicit decision of the user that its parameters did not state (project.setup-agents without
+		// confirmed): an agent asks the user, then passes it.
+		ConsentRequired = 1010
 	};
 
-	inline constexpr std::array<AutomationErrorCode, 16> AllAutomationErrorCodes = {
+	inline constexpr std::array<AutomationErrorCode, 17> AllAutomationErrorCodes = {
 		AutomationErrorCode::ParseError,        AutomationErrorCode::InvalidRequest,   AutomationErrorCode::MethodNotFound,
 		AutomationErrorCode::InvalidParams,     AutomationErrorCode::InternalError,    AutomationErrorCode::Unauthenticated,
 		AutomationErrorCode::ServerBusy,        AutomationErrorCode::MessageTooLarge,  AutomationErrorCode::EntityNotFound,
 		AutomationErrorCode::ComponentNotFound, AutomationErrorCode::InvalidOperation, AutomationErrorCode::FileError,
 		AutomationErrorCode::Unavailable,       AutomationErrorCode::Cancelled,        AutomationErrorCode::UnsavedChanges,
-		AutomationErrorCode::AssetNotFound};
+		AutomationErrorCode::AssetNotFound,     AutomationErrorCode::ConsentRequired};
 
 	// The enumerator name, as used in the documentation.
 	std::string_view GetAutomationErrorCodeName(AutomationErrorCode code);

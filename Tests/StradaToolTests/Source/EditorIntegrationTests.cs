@@ -46,6 +46,8 @@ public sealed class EditorIntegrationTests
 			JsonArray tools = (await client.ResultAsync("tools/list"))["tools"]!.AsArray();
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "entity_create");
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "asset_create_folder");
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_agents");
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_setup_agents");
 			// The session keeps the headless editor it started for the list.
 			EditorInstance instance = Assert.Single(EditorInstance.FindRunning(instances));
 			processId = instance.ProcessId;

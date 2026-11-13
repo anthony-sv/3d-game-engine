@@ -5,10 +5,16 @@ description: How to make or change a game with the Strada editor through its MCP
 
 # Making a game with the Strada editor
 
-`.mcp.json` registers `strada mcp`: every editor automation command is a tool named `domain_action`
-(`entity.create` is `entity_create`). [Docs/Automation.md](../../../Docs/Automation.md) is the reference for every
-command's parameters and results. The tools act on the editor the user sees, or on a headless one, through the same
-undo history as the UI: work in small, checked steps.
+The editor is reached through the `strada` MCP server that the folder's `.mcp.json` registers (`strada mcp`): every
+editor automation command is a tool named `domain_action` (`entity.create` is `entity_create`). The tools act on the
+editor the user sees, or on a headless one, through the same undo history as the UI: work in small, checked steps. When
+no `strada` tools are available, ask the user to start their agent in the folder that holds `.mcp.json` and to allow its
+`strada` server.
+
+The guides this skill names lie under `.strada/docs/` in a game project set up for coding agents, and under `Docs/` in
+the engine's repository: `Automation.md` is the reference for every command's parameters and results, `Scripting.md`
+and `VisualScripting.md` explain C# scripts and visual scripts, and `Components.md` and `ScriptingAPI.md` list every
+component and the whole scripting API.
 
 ## 1. Orient
 
@@ -21,7 +27,9 @@ undo history as the UI: work in small, checked steps.
 
 ## 2. Project
 
-- `project_create` with `directory` (new or empty) and `name`, or `project_open` with `path` (a `.sproj`).
+- In a game project set up for coding agents, the `strada` server works on the folder's project (its `.mcp.json` names
+  it with `--project`): `editor_status` shows it open. Elsewhere, `project_create` with `directory` (new or empty) and
+  `name`, or `project_open` with `path` (a `.sproj`).
 - New projects start in `Assets/Scenes/Main.sscene`, their start scene. `project_settings` changes the window, the
   physics layers and ignored layer pairs, and the start scene.
 
@@ -42,7 +50,7 @@ undo history as the UI: work in small, checked steps.
   `Move(velocity)` in `OnFixedUpdate`, jumps by setting `Velocity` and checks with `IsGrounded`; it climbs `StepHeight`
   steps and `MaxSlopeAngle` slopes and pushes dynamic bodies. Put the camera on a child entity at eye height; colliders
   of its children (a held item, a reach trigger) are its own parts and never block it. Start from the first-person
-  controller in `Docs/Scripting.md` (yaw kept in a field, jump buffer and coyote time for stair edges).
+  controller in `Scripting.md` (yaw kept in a field, jump buffer and coyote time for stair edges).
 - `scene_hierarchy`, `entity_find` and `entity_get` show what was built. `scene_save` writes the scene (a `path` such as
   `Scenes/Level.sscene`, relative to Assets, the first time; scenes inside Assets become assets).
 
@@ -57,7 +65,8 @@ undo history as the UI: work in small, checked steps.
 - Models and materials: `polyhaven_search_models` / `polyhaven_import_model` bring CC0 props, furniture, plants and rocks
   (meters, with their materials; give dynamic ones a box or convex mesh collider fitted to the model's bounds), and
   `polyhaven_search_textures` / `polyhaven_import_texture` make a material from a PBR texture set (set its `UVTiling`
-  for large surfaces). `Projects/Showcase/Tools/Author.py` builds a whole scene this way, exhibit by exhibit.
+  for large surfaces). The engine's repository builds its Showcase sample this way, exhibit by exhibit
+  (`Projects/Showcase/Tools/Author.py`).
 - Skies and image-based lighting: `polyhaven_search_hdris` finds CC0 HDRIs ("sunset", "overcast", "studio"),
   `polyhaven_import_hdri` imports one (1k lights well, 4k makes a sharp skybox); set the SkyLight's `Environment` to the
   returned `reference`.
@@ -92,7 +101,7 @@ undo history as the UI: work in small, checked steps.
 - `script_create` with `className` adds a class to the project's C# project and returns its file; write the class
   (a `Strada.Script` with `OnCreate`, `OnUpdate(float)`, `OnFixedUpdate(float)`, `OnCollisionEnter(Entity)`...,
   using `Entity`, the component classes, `Input`, `Physics`, `Time`, `Assets`, `SceneManager`, `Application`, `Log`).
-  [Docs/Scripting.md](../../../Docs/Scripting.md) shows the API in use, with examples.
+  `Scripting.md` shows the API in use, with examples.
 - `script_build` compiles and loads the scripts; fix every diagnostic it returns. `script_classes` lists the classes
   and their fields.
 - Attach scripts with a `Script` component: `{"ClassName": "Game.Player", "Fields": {"Speed": {"Type": "Float",
@@ -102,8 +111,8 @@ undo history as the UI: work in small, checked steps.
 
 Visual scripts are graphs of nodes (`.sgraph` assets) that a `VisualScript` component runs on its entity, with or
 without C# scripts; they need no C# project, only the scripting runtime (.NET 10).
-[Docs/VisualScripting.md](../../../Docs/VisualScripting.md) explains them with examples; the `graph` section of Docs/Automation.md
-describes documents, `graph_edit`'s operations, literals and every diagnostic code.
+`VisualScripting.md` explains them with examples; the `graph` section of `Automation.md` describes documents,
+`graph_edit`'s operations, literals and every diagnostic code.
 
 **Make and edit graphs with `graph_edit`.**
 
@@ -144,7 +153,7 @@ describes documents, `graph_edit`'s operations, literals and every diagnostic co
   Script `Fields` (an entity is `{"Type": "Entity", "Value": "<id>"}`). A `Variables` patch replaces the whole map.
 - Show the result: `graph_open` with `graph` opens its window, then `viewport_screenshot` (below).
 
-This batch, the one Docs/VisualScripting.md and Docs/Automation.md show, turns its entity at `Speed` degrees per second in a
+This batch, the one `VisualScripting.md` and `Automation.md` show, turns its entity at `Speed` degrees per second in a
 graph `graph_create` just made from the Events template:
 
 ```json
@@ -169,7 +178,7 @@ graph `graph_create` just made from the Events template:
 ] }
 ```
 
-Operations used most (Docs/Automation.md lists all 51 with their fields and results):
+Operations used most (`Automation.md` lists all 51 with their fields and results):
 
 | Op | Fields | Does |
 |----|--------|------|
@@ -199,7 +208,7 @@ Errors and what to do:
 | a node added but never run | `hints`: `NeverRuns` | connect flow into its `Execute` |
 | an Expression input left unlinked | `hints`: `UnlinkedInput` (`reads dt as 0`) | link it, or store a value with SetInput |
 | too few Sequence outputs, a missing Switch case | `node 7 has no output Then3` | SetSetting of `Count` (renumbers), SetSwitchCases |
-| a literal of the wrong form | `InvalidValue`, `EntityValue` | Docs/Automation.md's literals; entities come from public `Strada.Entity` variables; `asset://` paths are converted |
+| a literal of the wrong form | `InvalidValue`, `EntityValue` | `Automation.md`'s literals; entities come from public `Strada.Entity` variables; `asset://` paths are converted |
 | a formula mistake | `InvalidExpression` with `Setting`, `Span` and a line and column in the message; for a misspelled function a `Fixes` entry "Use sin" | the Fix, or a corrected formula with SetFormula (inputs renamed in order keep their links) |
 | a formula input named like a function (`distance / speed`) | nothing: any name not followed by `(` is an input | – |
 | `DuplicateEvent` after adding an `Event.Update` | the diagnostic, `New: true` | connect to the existing event (node 2 of the Events template) |
@@ -210,8 +219,8 @@ Errors and what to do:
 | the user changed the graph meanwhile | InvalidOperation on `programRevision` (the program changed) or `revision` (anything changed) | `graph_get`, then edit again; prefer `programRevision`, which the user's moves leave alone |
 | no .NET runtime | Unavailable for the operations that need pins; deletions and measured arranging run degraded | `graph_set` writes links as given |
 
-**Build a game of graphs.** Write graphs that read well and refer to each other safely, as
-`Projects/PrismBreak/Tools/Author.py` does:
+**Build a game of graphs.** Write graphs that read well and refer to each other safely, as the Prism Break sample of
+the engine's repository does (`Projects/PrismBreak/Tools/Author.py`):
 
 - Declare first: one `graph_edit` per graph that adds only its variables (with tooltips, and ranges for numbers), its
   `Event.Custom` nodes with their `Parameters`, and its functions with their inputs and outputs. Then every typed Send,
@@ -225,7 +234,7 @@ Errors and what to do:
   stack from top to bottom in reading order, and inside a region the nodes run from left to right. Regions share no nodes
   and no links: give each its own Get nodes and calls. Name events for what happened or what to do and functions as
   verbs; put node comments where the reason is not plain; give every graph a `description` and every public variable a
-  tooltip. `SampleGraphsTests` holds the samples to these rules (every node in exactly one titled box, none closer than
+  tooltip. The engine's tests hold its samples to these rules (every node in exactly one titled box, none closer than
   16 units, no link between boxes, each box arranged).
 - Verify at the end: `graph_check` of each graph's `graph_get` document has no diagnostic, `graph_arrange` with
   `dryRun: true` per box changes nothing, and `graph_interface` of each library lists its callers in `usedBy`.
@@ -237,7 +246,7 @@ Errors and what to do:
   member, left unlinked, is the entity the graph runs on.
 - Maths: an `Expression` node with the setting `Formula` (`"(angle + speed * dt) % 360"`, `"vec3(0, a, 0)"`) does what a
   chain of operator nodes does, in one step. Every name not followed by `(` becomes an input pin of that name; unlinked
-  inputs are floats. Docs/VisualScripting.md lists the functions and rules.
+  inputs are floats. `VisualScripting.md` lists the functions and rules.
 - Text and arrays: the `Utilities/String` and `Utilities/Array` nodes (`graph_library` with `category`). Arrays (`float[]`,
   ...) can be private variables, locals and parameters, never public; their literals are JSON arrays; nodes give changed
   copies, never change an array.
@@ -300,8 +309,9 @@ Errors and what to do:
   names, or lists the references of a variable, function or custom event across every script, and works without the
   editor's UI. `graph_close` closes windows. The window tools need the editor's window (Unavailable when headless);
   `graph_palette` also needs the scripting runtime.
-- The graphs FeatureTest's scenes run, and `MathLibrary.sgraph` they call, use every built-in kind of node and every
-  `[VisualNode]` member of its scripts (`FormatSample.sgraph` is a format sample no scene runs): read them for examples.
+- In the engine's repository, the graphs the scenes of `Projects/FeatureTest` run, and the `MathLibrary.sgraph` they
+  call, use every built-in kind of node and every `[VisualNode]` member of its scripts (`FormatSample.sgraph` is a
+  format sample no scene runs): read them for examples.
 
 ## 7. Watch, debug and fix graphs while the game plays
 
@@ -348,8 +358,8 @@ Errors and what to do:
   on a tab, a stop and a frame, and `viewport_screenshot` with `window` (`Graph` with `graph`, `Debugger`, `GameView`)
   captures one window. Test runs (`test_run`), the player and exported games ignore breakpoints.
 
-The documented session (`Tests/Data/VisualScripting/Agents/Debugging.json`; Docs/VisualScripting.md and Docs/Automation.md show
-it too) makes the Spinner with a mistake, `% 36` for `% 360` (it shakes instead of turning), finds it with a breakpoint,
+The documented session (`VisualScripting.md` and `Automation.md` show it too, and the engine's tests run it) makes the
+Spinner with a mistake, `% 36` for `% 360` (it shakes instead of turning), finds it with a breakpoint,
 fixes it while the execution is stopped, traces the fix, and undoes and redoes it after Stop. Each call is followed by
 the members of its result the session checks:
 
@@ -412,7 +422,7 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
   real mouse).
 - Verify behavior with test scripts: `Strada.Testing` (`TestReporter.Run(name, check)`, `Assert`,
   `TestReporter.Finish()`) in a scene, run by `test_run` with `scene` and `timeout`, which returns every check's
-  result. Projects/FeatureTest shows the pattern.
+  result. The engine repository's `Projects/FeatureTest` shows the pattern.
 - Or test with graphs alone, as Prism Break's `Tests.sgraph` does: a `Checks` function library (a `Check(Name, Passed,
   Detail)` that calls `TestReporter.Pass` or `Fail`, and comparisons such as `Near`), one latent function per check that
   acts, notes `Time.Elapsed`, waits with `Flow.WaitUntil` on a formula such as `done || now - start > 2` (what it
@@ -422,16 +432,17 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
 
 ## 9. Ship
 
-- Save everything (`scene_save`), then `project_export` with `directory`: it builds the scripts and writes a game
-  that runs on its own (with the scripting runtime's API for visual scripts); the result names the executable.
+- Ask the user before exporting. Save everything (`scene_save`), then `project_export` with `directory`: it builds the
+  scripts and writes a game that runs on its own (with the scripting runtime's API for visual scripts); the result
+  names the executable.
 
-## Example
+## Examples
 
-`Projects/Blocks` is a complete game made with these tools: rules in plain C# classes that tests can check (with an AI
-that plays the title screen's demo), a game script that creates its entities and materials at run time, a HUD and menus
-on a UI canvas built with `entity_create` (its `Tools/Author.py` shows the helpers) and brought to life by a script,
-sounds, and a test scene (`Scenes/Tests.sscene`) whose script checks the rules, plays the game through its public
-methods and clicks its buttons.
+The engine's repository holds sample games made with these tools. `Projects/Blocks` is a complete game: rules in plain
+C# classes that tests can check (with an AI that plays the title screen's demo), a game script that creates its entities
+and materials at run time, a HUD and menus on a UI canvas built with `entity_create` (its `Tools/Author.py` shows the
+helpers) and brought to life by a script, sounds, and a test scene (`Scenes/Tests.sscene`) whose script checks the
+rules, plays the game through its public methods and clicks its buttons.
 
 `Projects/PrismBreak` is a game made of 13 visual scripts and no C#, a neon brick breaker, built entirely through
 `graph_edit` by its `Tools/Author.py` (declare first, then one batch per region): its graphs read well by the rules of
@@ -444,3 +455,7 @@ guarded by `RunsGraph`, and its test scene's 29 checks are graphs too. Read it f
   and the undo history consistent.
 - Read every result. Errors say what to fix: `InvalidParams` errors name the offending field in `data.path`.
 - `UnsavedChanges` errors protect work: save first, and pass `discardChanges` only when losing the changes is intended.
+- Ask the user before deleting assets (`asset_delete`, `asset_delete_folder`), exporting the game, discarding unsaved
+  changes or changing anything outside the project. `project_setup_agents` writes the project's agent files only with
+  `confirmed: true`, which only the user's agreement allows (`ConsentRequired` without it; `dryRun: true` shows what it
+  would change).

@@ -13,7 +13,7 @@ and the [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill 
   - [The safety model](#the-safety-model)
 - [Setup](#setup)
   - [In this repository](#in-this-repository)
-  - [In a game project elsewhere](#in-a-game-project-elsewhere)
+  - [Projects set up for coding agents](#projects-set-up-for-coding-agents)
   - [Other MCP clients](#other-mcp-clients)
   - [How strada finds or starts an editor](#how-strada-finds-or-starts-an-editor)
   - [The strada command line](#the-strada-command-line)
@@ -111,10 +111,49 @@ The repository's `.mcp.json` registers `strada mcp` for agents working in the ch
 `build/*/bin/StradaEditor` below the repository root. Claude Code reads `.mcp.json` when you start it in the checkout,
 and the skills in `.claude/skills/` (among them `strada-make-game`) teach it the workflow.
 
-### In a game project elsewhere
+### Projects set up for coding agents
 
-A game project outside the repository registers the built tool, which sits next to the editor in `build/<preset>/bin/`
-(`strada.exe` on Windows):
+A game project outside the repository gets what agents need from the editor: File > Set Up for Coding Agents... with the
+project open (the editor manual describes the dialog), or the `project_setup_agents` tool. The
+setup writes only inside the project:
+
+| File | What it holds |
+|------|---------------|
+| `AGENTS.md` | Strada's block, between the lines `<!-- BEGIN strada-agents -->` and `<!-- END strada-agents -->`: the project and its project file, how to work through the `strada` tools, what to read first (`.strada/docs/Agents.md` and the skill), how to prove a change in the game, and what to ask the user first. Text outside the markers is kept byte for byte, line endings and a byte order mark included; a file without them gets the block appended |
+| `CLAUDE.md` | The line `@AGENTS.md` (Claude Code reads `CLAUDE.md`), appended to a file that lacks it |
+| `.mcp.json` | The `strada` server, `{"command": "<tool>", "args": ["mcp", "--project", "<Name>.sproj"]}`, merged with the file's other servers and members |
+| `.claude/skills/strada-make-game/SKILL.md` | The game-making skill |
+| `.strada/docs/` | Copies of the guides agents need (`GettingStarted.md`, `Scripting.md`, `VisualScripting.md`, `Automation.md`, `Agents.md`, `Components.md`, `ScriptingAPI.md`) and a `README.md` that says Strada manages the folder. In the copies, the links between the guides and to the skill lead to the project's files, and a link to another file of the engine's repository becomes its text and that file's path there |
+| `.gitignore` | The `.strada/` line; a project without the file gets Strada's ignores |
+| `.strada/agents.json` | The setup's state: hashes of the whole files it last wrote (versioned JSON) |
+
+`<tool>` is `strada` when the `strada` on `PATH` is the one next to the editor, or when there is none next to it (the
+setup then warns that strada must be put on `PATH`). Otherwise it is the absolute path of the `strada` next to the
+editor (`strada.exe` on Windows, in `build/<preset>/bin/` of a build), and the setup warns that `.mcp.json` then holds a
+path of this machine: put the editor's folder on `PATH` to keep the file portable. With `--project`, strada uses the
+editor that has the project open, and an editor it starts opens it; the relative project file is found from the
+directory the MCP client starts strada in, the project's folder. Unless `--editor` or `STRADA_EDITOR` names another,
+strada starts the `StradaEditor` next to it. An agent started in the project's folder reads `AGENTS.md` (or
+`CLAUDE.md`) and `.mcp.json`; in this guide's copy under `.strada/docs/`, the links to the skill lead to the project's
+`.claude/skills/strada-make-game/SKILL.md`.
+
+**Refreshing.** Set the project up again after updating the engine. `project_agents` reports each file's state:
+`Missing`, `Current`, `Outdated` (a setup updates it), `UserModified` or `Damaged`; `project_setup_agents` with
+`dryRun: true` answers what a setup would do to each file (`Create`, `Update`, `Unchanged`, `SkipUserModified`,
+`SkipDamaged`) with a diff of Strada's part, and the dialog shows the same. A second setup changes nothing. The skill is
+a whole file: once someone changes it, setups keep that version (`UserModified`); delete it to get the engine's again.
+The guides under `.strada/docs/` are Strada's and always replaced. A file the setup cannot read as what it should be
+(unbalanced or repeated markers in `AGENTS.md`, a `.mcp.json` that is not a JSON object, a folder, a link or a file over
+16 MiB) is
+`Damaged` and never rewritten: fix or remove it, then set up again.
+
+**What an agent asks first.** Setting a project up writes the user's files, so `project_setup_agents` writes only with
+`confirmed: true` and fails with `ConsentRequired` without it: ask the user, show them what `dryRun: true` answers, and
+pass `confirmed` only when they agree. The block asks agents to check with the user too before they delete assets
+(`asset_delete`, `asset_delete_folder`), export the game (`project_export`), drop unsaved changes (`discardChanges`) or
+change anything outside the project.
+
+To register strada by hand instead, write the entry yourself:
 
 ```json
 {
@@ -123,10 +162,6 @@ A game project outside the repository registers the built tool, which sits next 
   }
 }
 ```
-
-With `--project`, strada uses the editor that has this project open, and an editor it starts opens it. A relative path
-is taken relative to the directory strada runs in. Unless `--editor` or `STRADA_EDITOR` names another, strada starts the
-`StradaEditor` next to it.
 
 ### Other MCP clients
 
@@ -459,6 +494,7 @@ parameter of a validation error.
 | 1006 | Cancelled | An asynchronous command was abandoned | Run it again |
 | 1007 | UnsavedChanges | The command would discard unsaved changes | `scene_save` first, or pass `"discardChanges": true` when losing them is intended |
 | 1008 | AssetNotFound | An asset parameter names no registered asset | `asset_list`, or `asset_refresh` after files changed on disk |
+| 1010 | ConsentRequired | The command needs an explicit decision of the user (`project_setup_agents` without `confirmed`) | Ask the user; pass `"confirmed": true` only when they agree (`"dryRun": true` shows what would change) |
 
 ### Reading the log
 

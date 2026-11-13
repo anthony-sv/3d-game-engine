@@ -104,7 +104,7 @@ same scene as `Assets/Scenes/Main.sscene`.
 
 | Menu | Items |
 |------|-------|
-| File | New Project..., Open Project..., Recent Projects, Close Project, New Scene (Ctrl+N), Open Scene... (Ctrl+O), Save Scene (Ctrl+S), Save Scene As... (Ctrl+Shift+S), Build Game..., Exit |
+| File | New Project..., Open Project..., Recent Projects, Close Project, New Scene (Ctrl+N), Open Scene... (Ctrl+O), Save Scene (Ctrl+S), Save Scene As... (Ctrl+Shift+S), Build Game..., Set Up for Coding Agents..., Exit |
 | Edit | Undo and Redo (named after the step they apply), Duplicate (Ctrl+D), Delete (Delete), Select All (Ctrl+A), Deselect All; while a graph window is the target, its own editing items instead |
 | Entity | Create Empty, then the submenus 3D Object, 2D Object, Rendering, Effects, Physics, Audio and UI of [ready-made entities](#creating-entities) |
 | Scripts | New Script..., Build Scripts (Ctrl+B) |
@@ -932,7 +932,7 @@ is open, undo and the editing keys do nothing.
 | Gizmo moves, rotations and scales | Project settings (also those of the Build Game dialog) |
 | Placing prefabs and dropping assets and scripts onto entities | Selection and the camera |
 | The scene's name and settings | The layout and overlays |
-| Edits of materials and visual scripts (which change their files) | |
+| Edits of materials and visual scripts (which change their files) | Setting the project up for coding agents |
 
 A continuous interaction (a drag, typing into a field) is one step. The history keeps up to 256 steps. Opening another
 scene of the project keeps the steps that edited asset files and drops the rest; opening another project starts a new
@@ -1035,3 +1035,24 @@ editor's instance file.
 
 [Agents.md](Agents.md) explains how to let an agent build a game with the editor, and [Automation.md](Automation.md)
 is the reference of the protocol and of every command.
+
+### Setting a project up for coding agents
+
+File > Set Up for Coding Agents... (with a project open) writes into the project what coding agents such as Claude Code
+need to make the game through the editor: an `AGENTS.md` block that tells them how to work, the line `@AGENTS.md` in
+`CLAUDE.md`, the `strada` server in `.mcp.json`, the game-making skill under `.claude/skills/`, and the guides under
+`.strada/docs/` ([Agents.md](Agents.md#projects-set-up-for-coding-agents) lists every file). The dialog lists each file
+with what the setup does to it:
+
+| Action | Meaning |
+|--------|---------|
+| Create, Update | The setup writes the file, or Strada's part of it (the block of `AGENTS.md`, the line of `CLAUDE.md`, the `strada` entry of `.mcp.json`); the rest of the file is kept |
+| Up to date | The file already holds what the setup writes |
+| Keep: changed by you | A file Strada wrote whole (the skill) that was changed since: the setup keeps that version |
+| Keep: cannot be read | The file is not what it should be (unbalanced markers in `AGENTS.md`, a `.mcp.json` that is not a JSON object, a folder): the setup never rewrites it |
+
+Select a file to see the diff of Strada's part of it. Apply writes the files and shows the result, or the file that could
+not be written (the files before it stay written); Cancel or Escape writes nothing, and Apply is disabled when every
+file is up to date. The setup is not an undo step. Warnings below the list say what to know, such as `.mcp.json` naming
+the `strada` next to this editor by its path when the `strada` on `PATH` is another. Set the project up again after
+updating the engine to refresh the files.

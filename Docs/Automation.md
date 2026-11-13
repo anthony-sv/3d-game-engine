@@ -127,6 +127,7 @@ the offending parameter for validation errors.
 | 1006 | Cancelled | An asynchronous command was abandoned |
 | 1007 | UnsavedChanges | The command would discard unsaved changes (pass `"discardChanges": true`) |
 | 1008 | AssetNotFound | An asset parameter names no registered asset |
+| 1010 | ConsentRequired | The command needs an explicit decision of the user that its parameters did not state (`project.setup-agents` without `confirmed`): ask the user, then pass it |
 
 ## Commands
 
@@ -145,7 +146,8 @@ Parameters marked * are required.
 
 ### project
 
-Project settings are saved to the project file immediately and are not part of the undo history.
+Project settings are saved to the project file immediately and are not part of the undo history. Setting a project up
+for coding agents writes files in it directly and is not part of the undo history either.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
@@ -155,6 +157,8 @@ Project settings are saved to the project file immediately and are not part of t
 | `project.close` | `discardChanges` | `closed`, `scene` (empty); InvalidOperation without a project |
 | `project.settings` | `settings` (partial patch, e.g. `{"Window": {"Width": 1920}, "Physics": {"Layers": ["Default", "Player"]}}`) | `settings`; InvalidOperation without a project |
 | `project.export` | `directory` (new or empty directory, or an earlier export, which is replaced; absolute or relative to the project directory; default `Build`), `smokeTest` (runs the exported game headless for a few frames; default false) | `succeeded`, `error`, `directory`, `executable` (on macOS the application bundle, whose program is `Contents/MacOS/<name>`), `unsavedChanges` (the game uses the saved files), `seconds`, `bytes` and `files` (what the export wrote), `smokeTest` (`{ passed, output }`: whether the game started and exited cleanly, the end of its output; null without one), `scripts`: `{ built, errors, warnings, diagnostics }`; asynchronous. Scripts that do not compile end it with `succeeded` false and leave the earlier export. InvalidOperation without a project, while playing or exporting, or without a start scene; FileError when the game cannot be written; Cancelled when cancelled |
+| `project.agents` | — | `files`: `[{ path, state }]`, the files `project.setup-agents` writes (`AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `.claude/skills/strada-make-game/SKILL.md`, the guides under `.strada/docs/`, `.gitignore`, `.strada/agents.json`) with their state: `Missing`, `Current`, `Outdated` (a setup updates it), `UserModified` (a whole file changed since Strada wrote it, which a setup keeps; the guides under `.strada/docs/` are replaced anyway) or `Damaged` (it cannot be read as what it should be, such as `AGENTS.md` with unbalanced `strada-agents` markers or a `.mcp.json` that is not a JSON object; never rewritten); `tool` (the command `.mcp.json`'s `strada` entry names: `strada`, or the tool's absolute path when the `strada` on PATH is another); `warnings`; read-only. InvalidOperation without a project; FileError when the engine's agent kit is incomplete |
+| `project.setup-agents` | `dryRun` (default false: only answer what it would do), `confirmed` (default false: the user agreed) | Sets the open project up for coding agents: the block between the `<!-- BEGIN strada-agents -->` and `<!-- END strada-agents -->` lines of `AGENTS.md` (text outside them is kept byte for byte, a byte order mark included; a file without them gets the block appended), the `@AGENTS.md` line of `CLAUDE.md`, the `strada` entry of `.mcp.json` (`{ "command": <tool>, "args": ["mcp", "--project", "<project file>"] }`, merged with every other server and member kept), the game-making skill, the guides under `.strada/docs/`, the `.strada/` line of `.gitignore` and the state `.strada/agents.json`. Returns `files`: `[{ path, action (Create, Update, Unchanged, SkipUserModified, SkipDamaged), diff (a unified-style diff of the managed part, at most 200 lines, each cut after 400 bytes; empty unless created or updated) }]`, `warnings`. A second run answers `Unchanged` everywhere. Not an undo step. ConsentRequired without `confirmed: true` (unless `dryRun`): an agent asks the user first; InvalidOperation without a project; FileError when a file cannot be written (`data.file` names it, `data.files` lists the files handled before it, which stay written) or the engine's agent kit is incomplete |
 
 ### scene
 

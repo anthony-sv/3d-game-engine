@@ -38,6 +38,8 @@ namespace Strada
 				return "UnsavedChanges";
 			case AutomationErrorCode::AssetNotFound:
 				return "AssetNotFound";
+			case AutomationErrorCode::ConsentRequired:
+				return "ConsentRequired";
 		}
 		return "Unknown";
 	}

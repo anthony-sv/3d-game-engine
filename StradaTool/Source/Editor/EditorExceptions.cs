@@ -36,6 +36,7 @@ internal sealed class EditorCommandException : Exception
 		1006 => "Cancelled",
 		1007 => "UnsavedChanges",
 		1008 => "AssetNotFound",
+		1010 => "ConsentRequired",
 		_ => "Error",
 	};
 

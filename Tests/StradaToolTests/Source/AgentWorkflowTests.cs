@@ -5,14 +5,16 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Strada.Tool.Editor;
 using Xunit;
 
 namespace Strada.Tool.Tests;
 
 /// <summary>What an agent does to make a game, through strada mcp and the real editor (headless): a project, a script it
 /// writes and builds, a scene that uses it, a test run that checks it in play mode, and an export whose player passes
-/// the same check without the editor; and the documented debugging session, which finds and fixes a graph's bug while the
-/// game plays, then ships the fix. STRADA_EDITOR names the editor; ctest sets it.</summary>
+/// the same check without the editor; the documented debugging session, which finds and fixes a graph's bug while the
+/// game plays, then ships the fix; and a project set up for coding agents, whose .mcp.json starts a strada that reaches the
+/// editor with the project. STRADA_EDITOR names the editor; ctest sets it.</summary>
 public sealed class AgentWorkflowTests
 {
 	// The namespace is replaced by the project's.
@@ -181,6 +183,148 @@ public sealed class AgentWorkflowTests
 		(int exitCode, string output) = await RunAsync(export["executable"]!.GetValue<string>(), "--test");
 		Assert.True(exitCode == 0, output);
 		Assert.Contains("Tests passed: 2 checks", output);
+	}
+
+	// The next JSON-RPC response with this ID from a strada mcp process (notifications in between are skipped), within the
+	// time an editor needs to answer.
+	private static async Task<JsonObject> ReadResponseAsync(Process server, int id)
+	{
+		while (true)
+		{
+			// WaitAsync bounds the read even where cancelling a read of the process's pipe does not interrupt it.
+			string? line = await server.StandardOutput.ReadLineAsync(TestContext.Current.CancellationToken).AsTask()
+				.WaitAsync(TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
+			Assert.True(line is not null, "strada mcp ended before it answered");
+			if (JsonNode.Parse(line) is JsonObject message && message["id"] is JsonValue value && value.GetValue<int>() == id)
+			{
+				return message;
+			}
+		}
+	}
+
+	// The directory's absolute path with its symbolic links resolved, as a process's working directory reads it (macOS's
+	// temporary directory lies below /var, a link to /private/var).
+	private static string ResolveLinks(string path)
+	{
+		string full = Path.GetFullPath(path);
+		string root = Path.GetPathRoot(full)!;
+		string resolved = root;
+		foreach (string part in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+		{
+			string next = Path.Combine(resolved, part);
+			resolved = new DirectoryInfo(next).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? next;
+		}
+		return resolved;
+	}
+
+	private static async Task<JsonObject> RequestAsync(Process server, int id, string method, JsonObject? parameters = null)
+	{
+		await server.StandardInput.WriteLineAsync(McpTestClient.Request(id, method, parameters).ToJsonString());
+		await server.StandardInput.FlushAsync(TestContext.Current.CancellationToken);
+		JsonObject response = await ReadResponseAsync(server, id);
+		Assert.True(response["error"] is null, response.ToJsonString());
+		return response["result"]!.AsObject();
+	}
+
+	[Fact]
+	public async Task AProjectSetUpForAgentsReachesItsEditorThroughTheStradaEntryOfItsMcpJson()
+	{
+		string editor = TestEditor.Require();
+		using TemporaryDirectory directory = new();
+		string userData = Path.Combine(directory.Path, "UserData");
+		EditorSessionOptions options = TestEditor.IsolatedSession(editor, userData);
+		string instances = options.InstanceDirectory!;
+		await using McpTestClient client = new(options);
+		await client.ResultAsync("initialize", new JsonObject { ["protocolVersion"] = "2025-06-18" });
+		// Spelled as the working directory of a process started in it reads it, which strada resolves --project against.
+		string projectDirectory = Path.Combine(ResolveLinks(directory.Path), "Orb Run");
+		JsonNode created = await ToolAsync(client, "project_create", new JsonObject { ["directory"] = projectDirectory, ["name"] = "Orb Run" });
+		string projectFile = created["project"]!["file"]!.GetValue<string>();
+
+		// The agent asks the user first: without their consent nothing is written.
+		JsonObject refused = await client.CallToolAsync("project_setup_agents");
+		Assert.True(refused["isError"]!.GetValue<bool>());
+		Assert.StartsWith("ConsentRequired (1010)", McpTestClient.Text(refused));
+		Assert.False(File.Exists(Path.Combine(projectDirectory, ".mcp.json")));
+		JsonNode setup = await ToolAsync(client, "project_setup_agents", new JsonObject { ["confirmed"] = true });
+		Assert.DoesNotContain(setup["warnings"]!.AsArray(), warning => warning!.GetValue<string>().StartsWith("strada is not beside the editor", StringComparison.Ordinal));
+
+		// The strada entry names the project file relative to the project's directory, and the strada beside the editor: by
+		// its path, or as strada when that is the one on PATH.
+		JsonNode entry = JsonNode.Parse(File.ReadAllText(Path.Combine(projectDirectory, ".mcp.json")))!["mcpServers"]!["strada"]!;
+		string command = entry["command"]!.GetValue<string>();
+		string[] arguments = entry["args"]!.AsArray().Select(argument => argument!.GetValue<string>()).ToArray();
+		Assert.Equal(["mcp", "--project", Path.GetFileName(projectFile)], arguments);
+		if (command != "strada")
+		{
+			Assert.True(Path.IsPathRooted(command), command);
+			Assert.True(File.Exists(command), $"{command} does not exist");
+			Assert.True(PathNames.AreSame(Path.GetDirectoryName(Path.GetFullPath(editor))!, Path.GetDirectoryName(command)!), command);
+		}
+		// The relative project file names the project the editor has open, seen from the project's directory.
+		string resolved = Path.GetFullPath(Path.Combine(projectDirectory, arguments[2]));
+		Assert.True(PathNames.AreSame(projectFile, resolved), resolved);
+		bool announced = false;
+		for (int attempt = 0; attempt < 600 && !announced; attempt++)
+		{
+			announced = EditorInstance.FindRunning(instances) is [{ } open] && open.HasProject(projectFile);
+			if (!announced)
+			{
+				await Task.Delay(50, TestContext.Current.CancellationToken);
+			}
+		}
+		Assert.True(announced, "the editor's instance file does not name the project");
+
+		// Run as an MCP client runs it: the command and its arguments in the project's directory, with the test's user data.
+		ProcessStartInfo startInfo = new(command)
+		{
+			WorkingDirectory = projectDirectory,
+			UseShellExecute = false,
+			RedirectStandardInput = true,
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
+			CreateNoWindow = true,
+		};
+		foreach (string argument in arguments)
+		{
+			startInfo.ArgumentList.Add(argument);
+		}
+		foreach ((string name, string value) in IsolatedUserData.Environment(userData))
+		{
+			startInfo.Environment[name] = value;
+		}
+		using Process server = Process.Start(startInfo)!;
+		Task<string> errors = server.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+		try
+		{
+			await RequestAsync(server, 1, "initialize", new JsonObject
+			{
+				["protocolVersion"] = "2025-06-18",
+				["capabilities"] = new JsonObject(),
+				["clientInfo"] = new JsonObject { ["name"] = "tests", ["version"] = "1" },
+			});
+			await server.StandardInput.WriteLineAsync("""{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+			JsonArray tools = (await RequestAsync(server, 2, "tools/list"))["tools"]!.AsArray();
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "entity_create");
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_setup_agents");
+
+			// Its tools act on the editor that has the project open.
+			JsonObject status = await RequestAsync(server, 3, "tools/call", new JsonObject { ["name"] = "editor_status", ["arguments"] = new JsonObject() });
+			Assert.False(status["isError"]!.GetValue<bool>(), McpTestClient.Text(status));
+			string statusProject = McpTestClient.ParseText(status)["project"]!["file"]!.GetValue<string>();
+			Assert.True(PathNames.AreSame(projectFile, statusProject), statusProject);
+		}
+		finally
+		{
+			server.StandardInput.Close();
+			if (!server.WaitForExit(TimeSpan.FromSeconds(60)))
+			{
+				server.Kill(entireProcessTree: true);
+			}
+		}
+		Assert.True(server.ExitCode == 0, await errors);
+		// It used the editor that was running, and started none.
+		Assert.True(EditorInstance.FindRunning(instances) is [{ } only] && only.HasProject(projectFile));
 	}
 
 	[Fact]
