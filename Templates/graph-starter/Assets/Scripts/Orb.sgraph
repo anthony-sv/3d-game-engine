@@ -72,7 +72,7 @@
 							"ID": 8,
 							"Type": "Function.Entry",
 							"Position": [
-								-208.0,
+								-416.0,
 								0.0
 							]
 						},
@@ -86,31 +86,42 @@
 						},
 						{
 							"ID": 10,
-							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Type": "Variable.Get",
 							"Position": [
-								-208.0,
-								144.0
+								-416.0,
+								800.0
 							],
-							"Inputs": {
-								"Key": "W"
+							"Settings": {
+								"Variable": 2
 							}
 						},
 						{
 							"ID": 11,
 							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
 							"Position": [
-								-208.0,
-								272.0
+								-416.0,
+								144.0
 							],
 							"Inputs": {
-								"Key": "Up"
+								"Key": "D"
 							}
 						},
 						{
 							"ID": 12,
 							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
 							"Position": [
-								-208.0,
+								-416.0,
+								272.0
+							],
+							"Inputs": {
+								"Key": "Right"
+							}
+						},
+						{
+							"ID": 13,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
 								400.0
 							],
 							"Inputs": {
@@ -118,10 +129,10 @@
 							}
 						},
 						{
-							"ID": 13,
+							"ID": 14,
 							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
 							"Position": [
-								-208.0,
+								-416.0,
 								528.0
 							],
 							"Inputs": {
@@ -129,95 +140,108 @@
 							}
 						},
 						{
-							"ID": 14,
-							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
-							"Position": [
-								-208.0,
-								656.0
-							],
-							"Inputs": {
-								"Key": "S"
-							}
-						},
-						{
 							"ID": 15,
-							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
-							"Position": [
-								-208.0,
-								784.0
-							],
-							"Inputs": {
-								"Key": "Down"
-							}
-						},
-						{
-							"ID": 16,
-							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
-							"Position": [
-								-208.0,
-								912.0
-							],
-							"Inputs": {
-								"Key": "D"
-							}
-						},
-						{
-							"ID": 17,
-							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
-							"Position": [
-								-208.0,
-								1040.0
-							],
-							"Inputs": {
-								"Key": "Right"
-							}
-						},
-						{
-							"ID": 18,
 							"Type": "Call:Strada.Input.GetGamepadAxis(Strada.GamepadAxis,int)",
 							"Position": [
-								-208.0,
-								1168.0
+								-416.0,
+								656.0
 							],
 							"Inputs": {
 								"Axis": "LeftX"
 							}
 						},
 						{
+							"ID": 16,
+							"Type": "Expression",
+							"Position": [
+								-112.0,
+								144.0
+							],
+							"Settings": {
+								"Formula": "(d || right ? 1 : 0) - (a || left ? 1 : 0) + (abs(stick) > dead ? stick : 0)"
+							},
+							"Comment": "Right is +x"
+						},
+						{
+							"ID": 17,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								864.0
+							],
+							"Inputs": {
+								"Key": "S"
+							}
+						},
+						{
+							"ID": 18,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								992.0
+							],
+							"Inputs": {
+								"Key": "Down"
+							}
+						},
+						{
 							"ID": 19,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								1120.0
+							],
+							"Inputs": {
+								"Key": "W"
+							}
+						},
+						{
+							"ID": 20,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								1248.0
+							],
+							"Inputs": {
+								"Key": "Up"
+							}
+						},
+						{
+							"ID": 21,
 							"Type": "Call:Strada.Input.GetGamepadAxis(Strada.GamepadAxis,int)",
 							"Position": [
-								-208.0,
-								1312.0
+								-416.0,
+								1376.0
 							],
 							"Inputs": {
 								"Axis": "LeftY"
 							}
 						},
 						{
-							"ID": 20,
-							"Type": "Variable.Get",
-							"Position": [
-								-208.0,
-								1456.0
-							],
-							"Settings": {
-								"Variable": 2
-							}
-						},
-						{
-							"ID": 21,
+							"ID": 22,
 							"Type": "Expression",
 							"Position": [
-								96.0,
+								-112.0,
+								384.0
+							],
+							"Settings": {
+								"Formula": "(s || down ? 1 : 0) - (w || up ? 1 : 0) + (abs(stick) > dead ? stick : 0)"
+							},
+							"Comment": "Up the screen is -z, away from the camera"
+						},
+						{
+							"ID": 23,
+							"Type": "Expression",
+							"Position": [
+								80.0,
 								144.0
 							],
 							"Settings": {
-								"Formula": "vec3((d || right ? 1 : 0) - (a || left ? 1 : 0) + (abs(sx) > dead ? sx : 0), 0, (s || down ? 1 : 0) - (w || up ? 1 : 0) + (abs(sy) > dead ? sy : 0))"
+								"Formula": "vec3(across, 0, along)"
 							}
 						},
 						{
-							"ID": 22,
+							"ID": 24,
 							"Type": "Expression",
 							"Position": [
 								288.0,
@@ -225,58 +249,19 @@
 							],
 							"Settings": {
 								"Formula": "length(v) > 1 ? normalize(v) : v"
-							}
+							},
+							"Comment": "A diagonal is no faster than a straight push"
 						}
 					],
 					"Links": [
-						{
-							"From": [
-								18,
-								"Result"
-							],
-							"To": [
-								21,
-								"sx"
-							]
-						},
-						{
-							"From": [
-								19,
-								"Result"
-							],
-							"To": [
-								21,
-								"sy"
-							]
-						},
-						{
-							"From": [
-								20,
-								"Value"
-							],
-							"To": [
-								21,
-								"dead"
-							]
-						},
-						{
-							"From": [
-								10,
-								"Result"
-							],
-							"To": [
-								21,
-								"w"
-							]
-						},
 						{
 							"From": [
 								11,
 								"Result"
 							],
 							"To": [
-								21,
-								"up"
+								16,
+								"d"
 							]
 						},
 						{
@@ -285,8 +270,8 @@
 								"Result"
 							],
 							"To": [
-								21,
-								"a"
+								16,
+								"right"
 							]
 						},
 						{
@@ -295,8 +280,8 @@
 								"Result"
 							],
 							"To": [
-								21,
-								"left"
+								16,
+								"a"
 							]
 						},
 						{
@@ -305,8 +290,8 @@
 								"Result"
 							],
 							"To": [
-								21,
-								"s"
+								16,
+								"left"
 							]
 						},
 						{
@@ -315,18 +300,18 @@
 								"Result"
 							],
 							"To": [
-								21,
-								"down"
+								16,
+								"stick"
 							]
 						},
 						{
 							"From": [
-								16,
-								"Result"
+								10,
+								"Value"
 							],
 							"To": [
-								21,
-								"d"
+								16,
+								"dead"
 							]
 						},
 						{
@@ -335,8 +320,38 @@
 								"Result"
 							],
 							"To": [
-								21,
-								"right"
+								22,
+								"s"
+							]
+						},
+						{
+							"From": [
+								18,
+								"Result"
+							],
+							"To": [
+								22,
+								"down"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Result"
+							],
+							"To": [
+								22,
+								"w"
+							]
+						},
+						{
+							"From": [
+								20,
+								"Result"
+							],
+							"To": [
+								22,
+								"up"
 							]
 						},
 						{
@@ -346,12 +361,52 @@
 							],
 							"To": [
 								22,
-								"v"
+								"stick"
+							]
+						},
+						{
+							"From": [
+								10,
+								"Value"
+							],
+							"To": [
+								22,
+								"dead"
+							]
+						},
+						{
+							"From": [
+								16,
+								"Result"
+							],
+							"To": [
+								23,
+								"across"
 							]
 						},
 						{
 							"From": [
 								22,
+								"Result"
+							],
+							"To": [
+								23,
+								"along"
+							]
+						},
+						{
+							"From": [
+								23,
+								"Result"
+							],
+							"To": [
+								24,
+								"v"
+							]
+						},
+						{
+							"From": [
+								24,
 								"Result"
 							],
 							"To": [
@@ -362,15 +417,15 @@
 					],
 					"Comments": [
 						{
-							"ID": 23,
+							"ID": 25,
 							"Text": "Steer: WASD, the arrows or the left stick give a direction",
 							"Position": [
-								-240.0,
+								-448.0,
 								-72.0
 							],
 							"Size": [
-								872.0,
-								1588.0
+								1080.0,
+								1586.0
 							],
 							"Color": [
 								0.20000000298023224,
@@ -386,7 +441,7 @@
 		"Graph": {
 			"Nodes": [
 				{
-					"ID": 24,
+					"ID": 26,
 					"Type": "Event.FixedUpdate",
 					"Position": [
 						0.0,
@@ -394,7 +449,7 @@
 					]
 				},
 				{
-					"ID": 25,
+					"ID": 27,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -405,7 +460,7 @@
 					}
 				},
 				{
-					"ID": 26,
+					"ID": 28,
 					"Type": "Flow.Branch",
 					"Position": [
 						192.0,
@@ -413,7 +468,7 @@
 					]
 				},
 				{
-					"ID": 27,
+					"ID": 29,
 					"Type": "Function.Call",
 					"Position": [
 						0.0,
@@ -424,7 +479,7 @@
 					}
 				},
 				{
-					"ID": 28,
+					"ID": 30,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -435,7 +490,7 @@
 					}
 				},
 				{
-					"ID": 29,
+					"ID": 31,
 					"Type": "Expression",
 					"Position": [
 						192.0,
@@ -446,7 +501,7 @@
 					}
 				},
 				{
-					"ID": 30,
+					"ID": 32,
 					"Type": "Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)",
 					"Position": [
 						416.0,
@@ -457,7 +512,7 @@
 					}
 				},
 				{
-					"ID": 32,
+					"ID": 34,
 					"Type": "Event.Update",
 					"Position": [
 						0.0,
@@ -465,7 +520,7 @@
 					]
 				},
 				{
-					"ID": 33,
+					"ID": 35,
 					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
 					"Position": [
 						0.0,
@@ -473,7 +528,7 @@
 					]
 				},
 				{
-					"ID": 34,
+					"ID": 36,
 					"Type": "Expression",
 					"Position": [
 						240.0,
@@ -484,7 +539,7 @@
 					}
 				},
 				{
-					"ID": 35,
+					"ID": 37,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -495,7 +550,7 @@
 					}
 				},
 				{
-					"ID": 36,
+					"ID": 38,
 					"Type": "Expression",
 					"Position": [
 						432.0,
@@ -506,7 +561,7 @@
 					}
 				},
 				{
-					"ID": 37,
+					"ID": 39,
 					"Type": "Set:Strada.AudioSourceComponent.Pitch",
 					"Position": [
 						640.0,
@@ -514,7 +569,7 @@
 					]
 				},
 				{
-					"ID": 38,
+					"ID": 40,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -525,7 +580,7 @@
 					}
 				},
 				{
-					"ID": 39,
+					"ID": 41,
 					"Type": "Expression",
 					"Position": [
 						432.0,
@@ -536,7 +591,7 @@
 					}
 				},
 				{
-					"ID": 40,
+					"ID": 42,
 					"Type": "Set:Strada.AudioSourceComponent.Volume",
 					"Position": [
 						832.0,
@@ -544,7 +599,7 @@
 					]
 				},
 				{
-					"ID": 42,
+					"ID": 44,
 					"Type": "Event.CollisionEnter",
 					"Position": [
 						0.0,
@@ -552,7 +607,7 @@
 					]
 				},
 				{
-					"ID": 43,
+					"ID": 45,
 					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
 					"Position": [
 						0.0,
@@ -560,7 +615,7 @@
 					]
 				},
 				{
-					"ID": 44,
+					"ID": 46,
 					"Type": "Expression",
 					"Position": [
 						240.0,
@@ -571,7 +626,7 @@
 					}
 				},
 				{
-					"ID": 45,
+					"ID": 47,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -582,7 +637,7 @@
 					}
 				},
 				{
-					"ID": 46,
+					"ID": 48,
 					"Type": "Operator.NotEqual",
 					"Position": [
 						240.0,
@@ -590,7 +645,7 @@
 					]
 				},
 				{
-					"ID": 47,
+					"ID": 49,
 					"Type": "Expression",
 					"Position": [
 						432.0,
@@ -601,7 +656,7 @@
 					}
 				},
 				{
-					"ID": 48,
+					"ID": 50,
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
@@ -609,7 +664,7 @@
 					]
 				},
 				{
-					"ID": 49,
+					"ID": 51,
 					"Type": "Flow.Branch",
 					"Position": [
 						768.0,
@@ -617,7 +672,7 @@
 					]
 				},
 				{
-					"ID": 50,
+					"ID": 52,
 					"Type": "Expression",
 					"Position": [
 						432.0,
@@ -628,7 +683,7 @@
 					}
 				},
 				{
-					"ID": 51,
+					"ID": 53,
 					"Type": "Set:Strada.AudioSourceComponent.Volume",
 					"Position": [
 						992.0,
@@ -636,7 +691,7 @@
 					]
 				},
 				{
-					"ID": 52,
+					"ID": 54,
 					"Type": "Call:Strada.AudioSourceComponent.Play()",
 					"Position": [
 						1200.0,
@@ -644,7 +699,7 @@
 					]
 				},
 				{
-					"ID": 54,
+					"ID": 56,
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
@@ -661,7 +716,7 @@
 					}
 				},
 				{
-					"ID": 55,
+					"ID": 57,
 					"Type": "Operator.Equal",
 					"Position": [
 						192.0,
@@ -672,7 +727,7 @@
 					}
 				},
 				{
-					"ID": 56,
+					"ID": 58,
 					"Type": "Variable.Set",
 					"Position": [
 						480.0,
@@ -686,82 +741,62 @@
 			"Links": [
 				{
 					"From": [
-						25,
+						27,
 						"Value"
 					],
 					"To": [
-						26,
+						28,
 						"Condition"
 					]
 				},
 				{
 					"From": [
-						27,
+						29,
 						"Direction"
 					],
 					"To": [
-						29,
+						31,
 						"direction"
 					]
 				},
 				{
 					"From": [
-						28,
+						30,
 						"Value"
 					],
 					"To": [
-						29,
+						31,
 						"push"
 					]
 				},
 				{
 					"From": [
-						29,
+						31,
 						"Result"
 					],
 					"To": [
-						30,
+						32,
 						"Force"
 					]
 				},
 				{
 					"From": [
-						24,
+						26,
 						"Then"
 					],
 					"To": [
-						26,
+						28,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						26,
+						28,
 						"True"
 					],
 					"To": [
-						30,
+						32,
 						"Execute"
-					]
-				},
-				{
-					"From": [
-						33,
-						"Value"
-					],
-					"To": [
-						34,
-						"v"
-					]
-				},
-				{
-					"From": [
-						34,
-						"Result"
-					],
-					"To": [
-						36,
-						"speed"
 					]
 				},
 				{
@@ -770,8 +805,8 @@
 						"Value"
 					],
 					"To": [
-						37,
-						"Target"
+						36,
+						"v"
 					]
 				},
 				{
@@ -780,78 +815,78 @@
 						"Result"
 					],
 					"To": [
+						38,
+						"speed"
+					]
+				},
+				{
+					"From": [
 						37,
+						"Value"
+					],
+					"To": [
+						39,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						38,
+						"Result"
+					],
+					"To": [
+						39,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Result"
+					],
+					"To": [
+						41,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						40,
+						"Value"
+					],
+					"To": [
+						42,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Result"
+					],
+					"To": [
+						42,
 						"Value"
 					]
 				},
 				{
 					"From": [
 						34,
-						"Result"
-					],
-					"To": [
-						39,
-						"speed"
-					]
-				},
-				{
-					"From": [
-						38,
-						"Value"
-					],
-					"To": [
-						40,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						39,
-						"Result"
-					],
-					"To": [
-						40,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						32,
 						"Then"
 					],
 					"To": [
-						37,
+						39,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						37,
+						39,
 						"Then"
 					],
 					"To": [
-						40,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						43,
-						"Value"
-					],
-					"To": [
-						44,
-						"v"
-					]
-				},
-				{
-					"From": [
 						42,
-						"Other"
-					],
-					"To": [
-						46,
-						"A"
+						"Execute"
 					]
 				},
 				{
@@ -861,17 +896,27 @@
 					],
 					"To": [
 						46,
-						"B"
+						"v"
 					]
 				},
 				{
 					"From": [
 						44,
-						"Result"
+						"Other"
 					],
 					"To": [
+						48,
+						"A"
+					]
+				},
+				{
+					"From": [
 						47,
-						"speed"
+						"Value"
+					],
+					"To": [
+						48,
+						"B"
 					]
 				},
 				{
@@ -880,114 +925,124 @@
 						"Result"
 					],
 					"To": [
-						48,
-						"A"
-					]
-				},
-				{
-					"From": [
-						47,
-						"Result"
-					],
-					"To": [
-						48,
-						"B"
-					]
-				},
-				{
-					"From": [
-						48,
-						"Result"
-					],
-					"To": [
 						49,
-						"Condition"
-					]
-				},
-				{
-					"From": [
-						44,
-						"Result"
-					],
-					"To": [
-						50,
 						"speed"
 					]
 				},
 				{
 					"From": [
-						50,
+						48,
 						"Result"
 					],
 					"To": [
-						51,
-						"Value"
-					]
-				},
-				{
-					"From": [
-						42,
-						"Then"
-					],
-					"To": [
-						49,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						49,
-						"True"
-					],
-					"To": [
-						51,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						51,
-						"Then"
-					],
-					"To": [
-						52,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						54,
-						"State"
-					],
-					"To": [
-						55,
+						50,
 						"A"
 					]
 				},
 				{
 					"From": [
-						55,
+						49,
 						"Result"
 					],
 					"To": [
-						56,
+						50,
+						"B"
+					]
+				},
+				{
+					"From": [
+						50,
+						"Result"
+					],
+					"To": [
+						51,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						46,
+						"Result"
+					],
+					"To": [
+						52,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						52,
+						"Result"
+					],
+					"To": [
+						53,
 						"Value"
 					]
 				},
 				{
 					"From": [
-						54,
+						44,
 						"Then"
 					],
 					"To": [
+						51,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						51,
+						"True"
+					],
+					"To": [
+						53,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						53,
+						"Then"
+					],
+					"To": [
+						54,
+						"Execute"
+					]
+				},
+				{
+					"From": [
 						56,
+						"State"
+					],
+					"To": [
+						57,
+						"A"
+					]
+				},
+				{
+					"From": [
+						57,
+						"Result"
+					],
+					"To": [
+						58,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						56,
+						"Then"
+					],
+					"To": [
+						58,
 						"Execute"
 					]
 				}
 			],
 			"Comments": [
 				{
-					"ID": 31,
+					"ID": 33,
 					"Text": "Roll: each physics step pushes the orb the way it is steered",
 					"Position": [
 						-32.0,
@@ -1005,7 +1060,7 @@
 					]
 				},
 				{
-					"ID": 41,
+					"ID": 43,
 					"Text": "Hum: the faster the orb rolls, the higher and louder it hums",
 					"Position": [
 						-32.0,
@@ -1023,7 +1078,7 @@
 					]
 				},
 				{
-					"ID": 53,
+					"ID": 55,
 					"Text": "Bump: a wall hit hard thuds, louder the harder",
 					"Position": [
 						-32.0,
@@ -1041,7 +1096,7 @@
 					]
 				},
 				{
-					"ID": 57,
+					"ID": 59,
 					"Text": "Control: the orb rolls only while a run is on",
 					"Position": [
 						-32.0,

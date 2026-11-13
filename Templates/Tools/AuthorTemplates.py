@@ -491,6 +491,7 @@ def declare_all(author):
     ), events=(("StateChanged", (("State", "string"),)), ("ShowHint", ())), functions=(
         ("ShowSparks", False, (), ()),
         ("ShowClock", False, (), ()),
+        ("PulseClock", False, (), ()),
         ("ShowResult", False, (("State", "string"),), ()),
     ))
     author.declare(CAMERA_RIG, "The camera rig: it drifts after the orb, so the camera leans towards where the orb rolls.",
@@ -507,15 +508,22 @@ def declare_all(author):
 
 def write_orb(author):
     with author.region(ORB, "Steer: WASD, the arrows or the left stick give a direction", EVENTS, "Steer") as b:
-        keys = {name: b.pure("Call:Strada.Input.IsKeyDown(Strada.KeyCode)", Key=key)
-                for name, key in (("w", "W"), ("up", "Up"), ("a", "A"), ("left", "Left"), ("s", "S"), ("down", "Down"), ("d", "D"),
-                                  ("right", "Right"))}
-        stick_x = b.pure("Call:Strada.Input.GetGamepadAxis(Strada.GamepadAxis,int)", Axis="LeftX")
-        stick_y = b.pure("Call:Strada.Input.GetGamepadAxis(Strada.GamepadAxis,int)", Axis="LeftY")
-        steer = b.expr("vec3((d || right ? 1 : 0) - (a || left ? 1 : 0) + (abs(sx) > dead ? sx : 0), 0, "
-                       "(s || down ? 1 : 0) - (w || up ? 1 : 0) + (abs(sy) > dead ? sy : 0))",
-                       sx=stick_x, sy=stick_y, dead=b.get("DeadZone"), **keys)
-        b.link(b.expr("length(v) > 1 ? normalize(v) : v", v=steer), b.ret["Direction"])
+        def key(name):
+            return b.pure("Call:Strada.Input.IsKeyDown(Strada.KeyCode)", Key=name)
+
+        def stick(axis):
+            return b.pure("Call:Strada.Input.GetGamepadAxis(Strada.GamepadAxis,int)", Axis=axis)
+
+        dead = b.get("DeadZone")
+        across = b.add("Expression", {"Formula": "(d || right ? 1 : 0) - (a || left ? 1 : 0) + (abs(stick) > dead ? stick : 0)"}, "Result",
+                       comment="Right is +x", d=key("D"), right=key("Right"), a=key("A"), left=key("Left"), stick=stick("LeftX"),
+                       dead=dead).out
+        along = b.add("Expression", {"Formula": "(s || down ? 1 : 0) - (w || up ? 1 : 0) + (abs(stick) > dead ? stick : 0)"}, "Result",
+                      comment="Up the screen is -z, away from the camera", s=key("S"), down=key("Down"), w=key("W"), up=key("Up"),
+                      stick=stick("LeftY"), dead=dead).out
+        steer = b.expr("vec3(across, 0, along)", across=across, along=along)
+        b.link(b.add("Expression", {"Formula": "length(v) > 1 ? normalize(v) : v"}, "Result",
+                     comment="A diagonal is no faster than a straight push", v=steer).out, b.ret["Direction"])
     with author.region(ORB, "Roll: each physics step pushes the orb the way it is steered", RULES) as b:
         step = b.event("Event.FixedUpdate")
         rolling = b.branch(b.get("Rolling"))
@@ -667,26 +675,26 @@ def write_hud(author):
         b.chain(changed["True"], shown, counter, b.ret)
         b.flow(changed["False"], b.ret)
     with author.region(HUD, "Clock: whole seconds, red and ticking in the last ten", RULES, "ShowClock") as b:
+        shown = b.get("ShownSeconds")
         seconds = b.expr("int(ceil(left))", left=of_game(b, "TimeLeft"))
-        urgent = b.expr("shown <= 10", shown=b.get("ShownSeconds"))
-        changed = b.branch(b.not_equal(seconds, b.get("ShownSeconds")))
-        shown = b.set("ShownSeconds", seconds)
-        clock = text(b, "TimeText", b.fmt("{Seconds}", Seconds=b.get("ShownSeconds")))
-        color = b.call("Set:Strada.UITextComponent.Color", Target=b.get("TimeText"),
-                       Value=b.select(urgent, b.get("UrgentColor"), b.get("TimeColor")))
-        tick = b.branch(b.expr("shown <= 10 && shown > 0 && playing", shown=b.get("ShownSeconds"),
-                               playing=b.equal(of_game(b, "State"), "Play")))
+        changed = b.branch(b.not_equal(seconds, shown))
+        store = b.set("ShownSeconds", seconds)
+        clock = b.get("TimeText")
+        number = b.call("Set:Strada.UITextComponent.Text", Target=clock, Value=b.fmt("{Seconds}", Seconds=shown))
+        color = b.call("Set:Strada.UITextComponent.Color", Target=clock,
+                       Value=b.select(b.expr("shown <= 10", shown=shown), b.get("UrgentColor"), b.get("TimeColor")))
+        tick = b.branch(b.expr("shown <= 10 && shown > 0 && playing", shown=shown, playing=b.equal(of_game(b, "State"), "Play")))
         ring = b.call("Call:Strada.AudioSourceComponent.Play()", Target=b.get("TickSound"))
-        pulse = b.call("Set:Strada.UITextComponent.FontSize", Target=b.get("TimeText"),
-                       Value=b.expr("72 * (1 + (shown <= 10 ? 0.35 * pow(frac(left), 3) : 0))", shown=b.get("ShownSeconds"),
-                                    left=of_game(b, "TimeLeft")),
-                       comment="Each of the last ten seconds starts large and shrinks back")
         b.chain(b.entry, changed)
-        b.chain(changed["True"], shown, clock, color, tick)
-        b.chain(tick["True"], ring, pulse)
-        b.flow(tick["False"], pulse)
-        b.flow(changed["False"], pulse)
-        b.flow(pulse, b.ret)
+        b.chain(changed["True"], store, number, color, tick)
+        b.chain(tick["True"], ring, b.ret)
+        b.flow(tick["False"], b.ret)
+        b.flow(changed["False"], b.ret)
+    with author.region(HUD, "Pulse: each of the last ten seconds starts large and shrinks", EFFECTS, "PulseClock") as b:
+        left = of_game(b, "TimeLeft")
+        size = b.call("Set:Strada.UITextComponent.FontSize", Target=b.get("TimeText"),
+                      Value=b.expr("72 * (1 + (left <= 10 ? 0.35 * pow(frac(left), 3) : 0))", left=left))
+        b.chain(b.entry, size, b.ret)
     with author.region(HUD, "Result: the seconds to spare, or the sparks found", RULES, "ShowResult") as b:
         won = b.branch(b.equal(b.entry["State"], "Won"))
         spare = text(b, "WinDetail", b.fmt("{Seconds} SECONDS TO SPARE", Seconds=b.expr("int(ceil(left))", left=of_game(b, "TimeLeft"))))
@@ -698,7 +706,7 @@ def write_hud(author):
         tick = b.event("Event.Update")
         game = b.branch(b.runs(GAME, b.get("Game")), comment="Reads the Game's variables only when its entity runs Game.sgraph")
         b.chain(tick, game)
-        b.chain(game["True"], b.own("ShowSparks"), b.own("ShowClock"))
+        b.chain(game["True"], b.own("ShowSparks"), b.own("ShowClock"), b.own("PulseClock"))
     with author.region(HUD, "Screens: each state of the run shows its screen", EVENTS) as b:
         changed = b.custom("StateChanged")
         state = changed["State"]
