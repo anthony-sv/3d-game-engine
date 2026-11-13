@@ -267,7 +267,8 @@ TEST_CASE("EngineLayout: the tests run in a build tree whose content is this che
 	CHECK(ReadFileHeader(manifest.GetValue(), EngineLayout::ManifestType, EngineLayout::ManifestVersion).IsOk());
 	CHECK(text.GetValue() == DumpJson(manifest.GetValue()));
 
-	std::filesystem::path const checkout = FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / ".." / "..";
+	// The data directory's parents, not "Data/../..": lexically_normal() keeps a separator after a trailing "..".
+	std::filesystem::path const checkout = FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR).parent_path().parent_path();
 	CHECK(FileSystem::GetStoredSpelling(layout.GetSourceDirectory()) == FileSystem::GetStoredSpelling(checkout));
 	std::filesystem::path const docs = layout.GetContentPath(EngineContent::Docs);
 	CHECK(FileSystem::GetStoredSpelling(docs) == FileSystem::GetStoredSpelling(checkout / "Docs"));
