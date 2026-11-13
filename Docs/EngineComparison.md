@@ -19,13 +19,12 @@ Door's start screen, project templates, examples and agent-ready projects (§2.1
 - **It is ahead where others are weak.** Every editor operation, graph authoring and debugging included, is an
   authenticated, fuzz-tested automation command behind an MCP server, and every edit of a scene, material or graph is
   one undo step. Unreal (Unreal MCP, experimental in 5.8, without authentication) and Unity (the Unity CLI with an MCP
-  mode, in beta and free since July 2026) are building the same thing; Godot leaves it to community add-ons, and
-  nothing was found for O3DE. Since Front Door a new project is also set up for agents by default (§4.10). Strada's
-  testing culture (fuzzing of every file format and command, golden images, enforced coverage of the scripting API and
-  of every graph node) goes further than the test frameworks the four engines give game projects. It runs C# on .NET 10
-  CoreCLR, which Unity
-  reaches with Unity 7. And it now has visual scripting with a debugger that agents drive; Godot removed its visual
-  scripting in 4.0.
+  mode, in beta and free since July 2026) are building the same thing; Godot leaves it to community add-ons, and nothing
+  was found for O3DE. Since Front Door a new project is also set up for agents by default (§4.10). Strada's testing
+  culture (fuzzing of every file format and command, golden images, enforced coverage of the scripting API and of every
+  graph node) goes further than the test frameworks the four engines give game projects. It runs C# on .NET 10 CoreCLR,
+  which Unity reaches with Unity 7. And it now has visual scripting with a debugger that agents drive; Godot removed its
+  visual scripting in 4.0.
 - **It cannot be installed yet, but it has a first run.** All four engines ship an editor that people download and
   start (§4.10). Strada is a source build whose editor runs from the build folder, with no installer or release; it has
   been MIT-licensed since `ea34866`, and the maintainer decided on 2026-11-10 that signing and installing are not worth
@@ -64,7 +63,7 @@ figures in the text are rounded. At `d130bc1` they were 55,600, 6,800 and 29,000
 | Audio | miniaudio: 2D and 3D sources with inverse-distance attenuation, streamed music, a listener |
 | UI | Entity-based screen-space UI: canvases with scale modes, anchored rectangles, images with rounded corners, wrapped text, buttons |
 | Scripting | C# on .NET 10 (CoreCLR) with hot reload, typed component views, inspector fields, an in-game test framework. Visual scripts in the same runtime: statically typed graphs whose node library holds 92 built-in kinds plus a node for every usable member of the scripting API and every `[VisualNode]` game member; formulas compiled to one VM step; latent flow; typed events across graphs; function libraries; timelines; a debugger; edits that apply to the running game |
-| Editor | Docking ImGui editor: hierarchy, generated inspector, content browser with thumbnails, scene and game views, gizmos and overlays, undo/redo for everything, play/simulate/pause/step, game export with a smoke test. A start screen when no project is open (recent projects, a New Project form with a card per template, examples that open as copies, the guides, and the .NET and GPU the machine has) and File > Set Up for Coding Agents.... Graph windows (palette, comments, find, quick fixes, minimap, bookmarks, arranging, a curve editor for timelines), the Visual Script Debugger panel, a game preview in the graph canvas and Game View Beside, window captures, and the `--maximized` and `--window-size` options |
+| Editor | Docking ImGui editor: hierarchy, generated inspector, content browser with thumbnails, scene and game views, gizmos and overlays, undo/redo of every edit of a scene, material or graph, play/simulate/pause/step, game export with a smoke test. A start screen when no project is open (recent projects, a New Project form with a card per template, examples that open as copies, the guides, and the .NET and GPU the machine has) and File > Set Up for Coding Agents.... Graph windows (palette, comments, find, quick fixes, minimap, bookmarks, arranging, a curve editor for timelines), the Visual Script Debugger panel, a game preview in the graph canvas and Game View Beside, window captures, and the `--maximized` and `--window-size` options |
 | Automation | 105 JSON-RPC commands over an authenticated local socket (78 plus 27 `graph.*`: 15 for authoring and windows, 12 for debugging and live edits), the `strada` CLI and MCP server (111 tools: the commands plus 6 Poly Haven tools), Poly Haven imports |
 | Quality | About 1,960 C++ test cases and 710 C# test methods (counted on 2026-11-13, before the start screen's tests); fuzzing of every file format and automation command (templates, the example catalog, the build-tree marker and the agent kit's files included), graph documents, the views file, `graph.edit` batches, debug sessions and the debug protocol included; a coverage test that builds and runs a graph for every node of the library; enforced feature-test coverage of every component and scripting API member; readability tests of sample graphs; doc tests that hold documented agent sessions verbatim; 4 golden images; the editor's tests in five ctest shards whose partition a test checks; CI on three platforms (8 jobs) |
 | Samples | FeatureTest (every component, the whole scripting API, graphs that use every built-in node kind); Blocks (falling blocks in C#); the Showcase (every engine feature in exhibits, among them a garden of chimes played by six graphs); Prism Break (a brick breaker made of 13 graphs and no C#, authored through MCP, whose 29 test checks are graphs too and pass in the exported game) |
@@ -120,10 +119,10 @@ since `d130bc1`); neither visual scripting nor Front Door lifted any of the firs
 - **Agent control.** Complete (every editor operation, graphs included), authenticated and fuzzed, and every edit of a
   scene, material or graph is one undo step. Agents author, arrange, debug and live-fix graphs through 27 `graph.*`
   commands; Prism Break's 13 graphs were all authored that way. A new project is set up for agents by default (§4.10),
-  and an existing one only through a plan the user confirms. `graph.edit` applies up to 10,000 operations
-  of 51 kinds as one undo step, with dry runs and revision checks, so agents and users can edit the same graph. CI runs
-  a 22-step debugging session through `strada mcp`, and AGENTS.md requires every new graph-editing operation to ship
-  with its `graph.edit` operation, fuzz entries and documentation. By comparison:
+  and an existing one only through a plan the user confirms. `graph.edit` applies up to 10,000 operations of 51 kinds as
+  one undo step, with dry runs and revision checks, so agents and users can edit the same graph. CI runs a 22-step
+  debugging session through `strada mcp`, and AGENTS.md requires every new graph-editing operation to ship with its
+  `graph.edit` operation, fuzz entries and documentation. By comparison:
   - Unreal 5.8's Unreal MCP (experimental) runs inside the editor over HTTP on 127.0.0.1, is off by default, has "no
     authentication layer" by Epic's own documentation, and exposes the tools its plugins register.
   - Unity moved its agent path to the Unity CLI (beta since 2026-07-15, free). `unity mcp` bridges agents to running

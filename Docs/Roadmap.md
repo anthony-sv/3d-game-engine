@@ -4,17 +4,19 @@ Planning document, October 2026, revised November 2026. The first version was wr
 (2026-10-13). Since then Strada gained visual scripting (2026-10-21 to 2026-11-04), which the maintainer (the
 repository's owner, who makes the decisions of §9) asked for before anything else and which the first version had listed
 as "Not planned", and Front Door (from 2026-11-12): a start screen, project templates, examples that open as copies and
-projects set up for coding agents. "The user" means anyone who uses Strada. This revision re-bases the plan on the tree
-as Front Door leaves it and on the maintainer's decisions of 2026-11-10 and 2026-11-12 (§9). It records what visual
-scripting built and what it now costs every later item, scales the plan by the velocity visual scripting measured, and
-plans the next four efforts. The distribution of the engine itself (an installer, signing, side-by-side versions) was
-designed in full and then cut, except for the four pieces Front Door built; what is left is in the backlog, not
-scheduled (§3.10). Code citations (`file:line`) point into `d130bc1`, where the audits read the code, and were checked
-on the current tree: the files they name are unchanged since, and the few that Front Door edited are cited by symbol.
-The plan builds on the research in [EngineComparison.md](EngineComparison.md), which compares Strada with Unreal Engine,
-Unity, Godot and O3DE and studies what a realistic motorcycle game needs. Nothing here changes the architectural
-contract: each item lands the usual way ([AGENTS.md](../AGENTS.md)), with its design added to
-[Architecture.md](Architecture.md) first, then code, tests, docs and review, on all three platforms.
+projects set up for coding agents, and the documentation set (the guides, the generated component and scripting-API
+references that tests check, and a home page, `Docs/README.md`; EngineComparison.md §2.1 lists it). "The user" means
+anyone who uses Strada. This revision re-bases the plan on the tree as Front Door leaves it and on the maintainer's
+decisions of 2026-11-10 and 2026-11-12 (§9). It records what visual scripting built and what it now costs every later
+item, scales the plan by the velocity visual scripting measured, and plans the next four efforts. The distribution of
+the engine itself (an installer, signing, side-by-side versions) was designed in full and then cut, except for the four
+pieces Front Door built; what is left is in the backlog, not scheduled (§3.10). Code citations (`file:line`) point into
+`d130bc1`, where the audits read the code, and were checked on the current tree: the files they name are unchanged
+since, and the few that Front Door edited are cited by symbol. The plan builds on the research in
+[EngineComparison.md](EngineComparison.md), which compares Strada with Unreal Engine, Unity, Godot and O3DE and studies
+what a realistic motorcycle game needs. Nothing here changes the architectural contract: each item lands the usual way
+([AGENTS.md](../AGENTS.md)), with its design added to [Architecture.md](Architecture.md) first, then code, tests, docs
+and review, on all three platforms.
 
 ## 1. Goals
 
@@ -33,12 +35,12 @@ needs is built as a general engine feature (curves, telemetry, high-rate simulat
 animation, input actions, replays), except the bike model itself, which becomes a module of its own (§5).
 
 **Ship what exists, then grow it.** Strada is MIT-licensed (since `ea34866`) but has no installer, release or signed
-build, and its editor runs from the build folder; the maintainer's own copy was a build from 2026-10-13, a week before
-visual scripting began, which is the trap of that arrangement. The maintainer weighed making Strada installable first
-and decided on 2026-11-10 that signing and installing are not worth their time now, and that the rest of the plan's
-three distribution steps (D0 to D2, §3.10) waits (§9). Effort 1, Front Door (§4.3), keeps the part of that plan a person
-meets first, the editor's start screen, templates, examples and agent-ready projects, on a small set of seams that an
-installer could use later without code changes. First Ride follows it.
+build, and its editor runs from the build folder; a copy of the editor in a build folder can fall behind the source
+(`strada` picks the newest `build/*/bin`), which is the trap of that arrangement. The maintainer weighed making Strada
+installable first and decided on 2026-11-10 that signing and installing are not worth their time now, and that the rest
+of the plan's three distribution steps (D0 to D2, §3.10) waits (§9). Effort 1, Front Door (§4.3), keeps the part of that
+plan a person meets first, the editor's start screen, templates, examples and agent-ready projects, on a small set of
+seams that an installer could use later without code changes. First Ride follows it.
 
 **Not a goal: matching Unreal feature for feature.** Nanite, Lumen, MetaHumans, World Partition at continent scale and a
 marketplace took thousands of engineer-years. Strada's niche is to be the best small engine for vehicle simulation and
@@ -272,10 +274,10 @@ never touch a user's. An installer would only have to produce the layout `Engine
 | DI9 | Package managers: winget after the first signed release; Strada's own Scoop bucket and Homebrew tap; no Flathub, Snap or Store | 3 | 1 | S | 2 | 13 | Backlog, after a first signed release | Not started |
 
 None of DI1 to DI9 is scheduled. Their sizes sum to about 50 engineer-weeks (§4.2), of which Front Door built about 6,
-so about 44 remain: DI1's 1.5, about 18 of DI2 and DI3 together (8-11 and about 8 by the track sizes of the earlier
-plan, less what Front Door and E11's core took), and the 24 of DI4 to DI9. If the maintainer brings distribution back,
-the design's own order applies, DI1, DI2, DI3, then DI4 to DI9 by the decisions they wait for (§9), and DI2's project
-format takes over First Ride's per-game identity as it is (§4.3).
+and E11's core (about 2) moved to First Ride, so about 42-44 remain: DI1's 1.5, 16-19 of DI2 and DI3 together (8-11 and
+about 8 by the track sizes of the earlier plan, less what Front Door and E11's core took), and the 24 of DI4 to DI9. If
+the maintainer brings distribution back, the design's own order applies, DI1, DI2, DI3, then DI4 to DI9 by the decisions
+they wait for (§9), and DI2's project format takes over First Ride's per-game identity as it is (§4.3).
 
 ### 3.11 Visual scripting follow-ups
 
@@ -330,7 +332,7 @@ the audit read it; none of those files has changed since.
 
 | Hidden prerequisite | Evidence | Resolved by |
 |---|---|---|
-| Jolt builds with `/fp:fast` on MSVC unless `CROSS_PLATFORM_DETERMINISTIC` is set; engine targets set no floating-point model, and Clang contracts multiply-adds on CI's Apple Silicon | `cmake/StradaDependencies.cmake:210-240` (Jolt's options set no `CROSS_PLATFORM_DETERMINISTIC`, so Jolt's own CMake applies `/fp:fast` on MSVC); `cmake/StradaCompilerSettings.cmake:14-59`; `ci.yml:56-57` | P3b |
+| Jolt builds with `/fp:fast` on MSVC unless `CROSS_PLATFORM_DETERMINISTIC` is set; engine targets set no floating-point model, and Clang contracts multiply-adds on CI's Apple Silicon | `cmake/StradaDependencies.cmake:210-240` (Jolt's options set no `CROSS_PLATFORM_DETERMINISTIC`, so Jolt's own CMake applies `/fp:fast` on MSVC); `cmake/StradaCompilerSettings.cmake:14-59`; `ci.yml:57-58` | P3b |
 | Jolt is called in `std::unordered_map` order before every step, and Jolt needs the same order on every run | `Scene.h:443`; `ScenePhysics.cpp:831-859` | P3a (body-UUID order) |
 | `MaxStepsPerFrame = 8` is a constant, and the fixed step cannot go below 0.001 s | `Scene.h:66-79`; `ProjectSettings.h:84-86` | P3a |
 | Dynamic bodies are not interpolated between steps; only characters are | `ScenePhysics.cpp:760`, `:826`, `:861-893` | E7, in P3a |
@@ -365,8 +367,10 @@ and compute queues (T2, T5); the pinned Jolt 5.6.0's `MotorcycleController`, `Es
 T1); miniaudio's filter, EQ and delay nodes, velocity and doppler setters, and the reverb node in its extras (AU1);
 world-placed UI canvases (`SceneRendering.h:15-23`, R12); the player's `--timestep` option (determinism tests); the
 sub-asset mechanism (`AssetManager.cpp:279`, `:305`, A1's clips); the node canvas (A4, R14 and a DSP graph, through
-VS3); and Front Door's `EngineLayout` and `EditorLocations` (the engine's content and the editor's folders, with the
-fixtures that tests use instead of a user's), its example catalog, which Moto joins, and its editor test shards.
+VS3); the generated references of the components and the scripting API, which tests fail on when they disagree with the
+code (every item that adds a component or an API member regenerates them in the same change); and Front Door's
+`EngineLayout` and `EditorLocations` (the engine's content and the editor's folders, with the fixtures that tests use
+instead of a user's), its example catalog, which Moto joins, and its editor test shards.
 
 ### 3.14 What the items build on
 
@@ -441,20 +445,21 @@ joins from Phase 1 on (§8).
 
 | Phase | Theme | Engineer-weeks (sizes summed at S 1.5, M 4.5, L 12, XL 30) | Calendar at the measured factors | Efforts | Milestone |
 |---|---|---|---|---|---|
-| – | Distribution | ≈ 50 (about 6 built in Front Door, about 44 in the backlog, not scheduled) | Front Door: from 2026-11-12 to its gate (§4.3); the rest is not scheduled | 1 | Front Door's gate |
+| – | Distribution | ≈ 50 (about 6 built in Front Door, about 2 moved to First Ride as E11's core, about 42-44 in the backlog, not scheduled) | Front Door: from 2026-11-12 to its gate (§4.3); the rest is not scheduled | 1 | Front Door's gate |
 | 0 | Foundations | ≈ 36 (First Ride: about 60 on lanes A and B with enablers, obligations, Moto, R5's first part and E11's core; about 13.5 more on the third lane) | About 4.5 weeks after First Ride's start, about 6 with the third lane (§4.4) | 2 | M1, First Ride |
-| 1 | The simulated superbike | ≈ 120 | About 11-20 weeks | 3, 4 | M1.5, The Rider; M2, Handles like a superbike |
+| 1 | The simulated superbike | ≈ 120 | About 11-20 weeks (10-19 if the third lane delivered A1's first three slices) | 3, 4 | M1.5, The Rider; M2, Handles like a superbike |
 | 2 | A real circuit | ≈ 152 | About 10-16 weeks | – | M3, A real circuit |
 | 3 | Race weekend | ≈ 174 | About 13-22 weeks | – | M4, Race weekend |
 | Later | High-end options | ≈ 111 | As needed | – | |
 
 The whole backlog sums to about 640 engineer-weeks (§2's sums): about 540 in October, plus about 20 from the
-re-estimates, 50 for distribution (about 6 of them built in Front Door) and 30 for the visual-scripting follow-ups. At
-the measured pace, counting from First Ride's start (§4.4), M1 is about 4.5 weeks away with the third lane paused and
-about 6 with it running, M2 roughly 10-19 weeks after M1, and M4 about 37-65 calendar weeks from the start (late summer
-2027 to early 2028, if First Ride starts in late November 2026). Those figures exclude content, which runs at the speed
-of the people who make it, and the obligations' +5-10%. If the allowance binds harder than during visual scripting,
-every range stretches.
+re-estimates, 50 for distribution (about 6 of them built in Front Door and about 2 moved to First Ride) and 30 for the
+visual-scripting follow-ups. At the measured pace, counting from First Ride's start (§4.4), M1 is about 4.5 weeks away
+with the third lane paused and about 6 with it running, M2 roughly 11-20 weeks after M1 (10-19 if the third lane
+delivered A1's first three slices, which otherwise come first in Effort 3), and M4 about 38-65 calendar weeks from the
+start (late summer 2027 to early 2028, if First Ride starts in late November 2026). Those figures exclude content, which
+runs at the speed of the people who make it, and the obligations' +5-10%. If the allowance binds harder than during
+visual scripting, every range stretches.
 
 The efforts map onto the October phases this way:
 
@@ -520,7 +525,7 @@ The bike simulation, and the rendering, animation and audio features that a curr
 
 - Effort 3: T3 jobs, T4 textures, T5 asynchronous loading; R4 render graph, then the rest of R5; A1 skeletal animation,
   the largest gap of the engine, whose first three slices ride on First Ride's third lane, so that Effort 3 carries the
-  fourth (layers, masks, events and the editor preview); AU3 sound events; I2 SDL3 devices; S3 camera system; P1's
+  fourth (layers, masks and the editor preview); AU3 sound events; I2 SDL3 devices; S3 camera system; P1's
   constraints.
 - Effort 4: V1 simulation core, V2 tires, V3 chassis, V4 powertrain and electronics, V5 rider controls, V6 validation;
   P3b cross-platform determinism; V7's UDP output on E12; R12 render targets.
@@ -584,7 +589,7 @@ when a game needs it.
 |---|---|---|---|---|
 | 1, Front Door | The start screen, templates, examples that open as copies and agent-ready projects, on content roots and locations; the editor test shards; these documents | About 6 | From 2026-11-12 to its gate | Front Door's gate |
 | 2, First Ride | Phase 0 as above, in four slices on lanes A and B, with a third lane below the cut line | About 60 on lanes A and B (about 55 without R5's track), about 13.5 on the third lane | About 4.5 weeks after First Ride's start, about 6 with the third lane (§4.4) | M1 |
-| 3, The Rider | A1's fourth slice, S3, R4 then the rest of R5, T4, T3, T5, P1's constraints, AU3, I2 | About 46 | About 4-5 weeks (3.5-6.5) | M1.5 |
+| 3, The Rider | A1's fourth slice, S3, R4 then the rest of R5, T4, T3, T5, P1's constraints, AU3, I2 | About 46 if the third lane delivered A1's first three slices, about 55 if not | About 4-5 weeks (3.5-6.5) with them, about 5-6 (4.5-7.5) without | M1.5 |
 | 4, The simulated superbike | V1-V6, P3b, V7's UDP output with E12, R12 | About 60-70 | About 9 weeks (6.5-13), with the maintainer's playtests | M2 |
 
 #### Effort 1: Front Door
@@ -601,7 +606,7 @@ kept (§3.10).
 | CR, content roots and locations | A, 1 | `EngineLayout`: where the engine's templates, examples, guides, agent kit and game-making skill lie, seen from any of its executables, with the build-tree marker `engine.json`; `Platform::GetDocumentsDirectory`; `EditorLocations`, the folders an editor works in besides the open project, which tests replace with temporary ones; a fixture content tree | The seams every later track uses; the editor behaves as before |
 | TS, the editor test shards | B, 1 | StradaEditorTests as five ctest entries (AutomationFuzz, Graph, VisualScriptPanels, VisualScriptModel, Core) and a partition check that fails when a test case is in no shard or in two | Room for the commands the next rounds add, each entry far under the 450 s alarm |
 | TE, templates and examples | A, 2 | `template.json` and `catalog.json` (versioned, fuzzed), the project copy filter, `ProjectTemplate` and `ExampleCatalog`; three templates (`empty-3d`; `graph-starter`, the game Orb Run made of visual scripts; `csharp-starter`, Orb Run in C#); three examples that open as copies (Prism Break, Blocks, the Showcase); `project.templates`, `project.examples`, `project.copy-example` and `project.create`'s `template` and `gitIgnore` | New projects start from a game that plays; an example is never opened in place |
-| AK, the agent kit | B, 2 | A managed `AGENTS.md` block, `CLAUDE.md`, `.mcp.json` for the engine's `strada`, the game-making skill and the guides in `.strada/docs/`, planned, diffed and applied atomically; `project.agents`, `project.setup-agents` and the error 1010 `ConsentRequired`; File > Set Up for Coding Agents... and its dialog; the game-making skill, rewritten to read the same inside this repository and in a game project | A project agents can work in; an existing project only through a plan the user confirms |
+| AK, the agent kit | B, 2 | A managed `AGENTS.md` block, `CLAUDE.md`, `.mcp.json` for the engine's `strada`, the game-making skill and the guides in `.strada/docs/`, planned and diffed, then applied file by file (each file is written atomically; a failure stops and names the file); `project.agents`, `project.setup-agents` and the error 1010 `ConsentRequired`; File > Set Up for Coding Agents... and its dialog; the game-making skill, rewritten to read the same inside this repository and in a game project | A project agents can work in; an existing project only through a plan the user confirms |
 | SS, the start screen | A, 3 | The start screen (recent projects in three states, New Project with template cards, examples, guides, the environment strip); the New Project form as one widget; the shortcut gate (no global shortcut acts behind a modal dialog or the start screen); `--no-start-screen`, which `strada mcp` passes; `start.info`, `start.show`, `editor.recent`, `editor.dialog` and `project.create`'s `agents` | A first run that works |
 | DOC, the planning documents | B, 3 | This document and EngineComparison.md on main, re-based on the tree and on the maintainer's decisions | The plan matches the code |
 | N, the gate | A, after round 3 | The counts of the README, `Docs/README.md`, `Docs/Agents.md` and AGENTS.md re-counted; the start screen in the README with a capture; the MCP instructions; a two-lens review of the whole diff; the final gate in Debug and Release; a demonstration from the programs' own captures | Main fast-forwarded and CI green |
@@ -615,8 +620,9 @@ kept (§3.10).
    with no .NET SDK, and `csharp-starter`'s card says it needs one.
 3. Each example opens as a copy; one whose downloaded assets are missing (the Showcase) says so and names the command
    that restores them.
-4. A project set up for agents lets `claude`, started in its folder, drive the editor through the `.mcp.json` entry the
-   kit wrote (a session test); setting up an existing project needs the user's decision (error 1010).
+4. A project set up for agents reaches its editor through the `strada` entry of the `.mcp.json` the kit wrote: a session
+   test starts that entry from the project's folder and lists the tools; setting up an existing project needs the user's
+   decision (error 1010).
 5. Every new capability is an automation command, documented in `Automation.md` and fuzzed by `AutomationFuzzTests`;
    every new format (`template.json`, `catalog.json`, the build-tree marker, `.strada/agents.json`) has a
    `Testing::DocumentMutator` test.
@@ -662,7 +668,7 @@ must (AGENTS.md: a changed format is versioned and migrated).
 **What the effort leaves out, and why:** T3, T4 and T5 (low readiness, no consumer before A1 and T5; Effort 3); new
 joint kinds, constraint springs, breakable joints and an `Event.JointBreak` callback (M1 does not need them, and
 event-heavy work costs the most obligations; Effort 3); V7's UDP output and the engine socket layer (Effort 4);
-cross-platform determinism (P3b, before V1); A1's fourth slice (layers, masks, events, the editor preview), which stays
+cross-platform determinism (P3b, before V1); A1's fourth slice (layers, masks, the editor preview), which stays
 in Effort 3 with the rest of The Rider; and the rest of distribution (§3.10), which is not scheduled.
 
 **Rules the slice specs carry:**
@@ -748,7 +754,7 @@ later project format can take them over.
 
 #### Effort 3: The Rider
 
-A1's fourth slice (layers, masks, events and the editor preview), after the three that ride on First Ride's third lane
+A1's fourth slice (layers, masks and the editor preview), after the three that ride on First Ride's third lane
 (import of skeletons, skins and clips; compute skinning on R1's instance path that keeps the three passes and their
 48-byte vertex layout; Animator playback and crossfades with API, nodes and an animation event kind), and whatever of
 those three has not landed by M1 comes first; S3 cameras, with collision through P1's casts; R4, then the rest of R5; T4
@@ -781,8 +787,8 @@ binds harder, every range stretches. The third lane draws on the same allowance 
 | Slice 1 | Week 1 (about 11-30) | Week 1 (about 11-30) | About ±20 % |
 | Slice 2 | Week 2 (about 12-07) | Week 3 (about 12-14) | About ±20 % |
 | Slice 3 | Week 3.5 (about 12-17) | Week 4.5 (about 12-25) | About ±20 % |
-| M1, First Ride | Week 4.5 (about 12-25) | Week 6 (about 01-04) | About −20 % to +22 %: weeks 3.5-5.5 (12-17 to 12-31), or 5-7.5 (12-28 to 01-14) |
-| Effort 3, The Rider | About 4-5 weeks after M1 | | 3.5-6.5 weeks |
+| M1, First Ride | Week 4.5 (about 12-25) | Week 6 (about 01-04) | About ±20-25 %: weeks 3.5-5.5 (12-17 to 12-31) paused, or 5-7.5 (12-28 to 01-14) with the third lane |
+| Effort 3, The Rider | About 5-6 weeks after M1 (about 55 engineer-weeks: A1's three slices come first) | About 4-5 weeks after M1 (about 46) | 4.5-7.5 weeks paused, 3.5-6.5 with the third lane |
 | Effort 4, The simulated superbike, to M2 | About 9 weeks after Effort 3, with the maintainer's playtests | | 6.5-13 weeks |
 
 The central dates divide each step's engineer-weeks by the factors of §4.1 (central values); the figures in brackets
@@ -1118,7 +1124,7 @@ Web facts in §7, §8 and §9 are as of 2026-11-07; their sources are in EngineC
 | Mobile and web | Not where sim racing players are; the renderer targets desktop GPUs |
 | Destruction and fracture systems | Not needed by the target game |
 | A hub application, accounts, or a separate "with C#" edition | The editor's start screen covers what hubs do (recent projects, templates, examples, what the machine has); nothing needs an account or goes online without consent; one edition serves graphs and C# |
-| Flathub, Snap and the Microsoft Store | Flathub calls broad-scope IDEs "generally not well-suited", builds without network access and bans AI-written manifests and AI-opened submissions; Snap's classic confinement needs a manual store review *(unverified)*; MSIX's packaged-app rules (no writes to the install folder; Microsoft's guidance to avoid writing generated code to disk and to avoid starting command utilities) conflict with an editor that builds scripts and launches the player. if distribution resumes, winget, Strada's own Scoop bucket and Homebrew tap (DI9) cover installs |
+| Flathub, Snap and the Microsoft Store | Flathub calls broad-scope IDEs "generally not well-suited", builds without network access and bans AI-written manifests and AI-opened submissions; Snap's classic confinement needs a manual store review *(unverified)*; MSIX's packaged-app rules (no writes to the install folder; Microsoft's guidance to avoid writing generated code to disk and to avoid starting command utilities) conflict with an editor that builds scripts and launches the player. If distribution resumes, winget, Strada's own Scoop bucket and Homebrew tap (DI9) cover installs |
 | Bundling the .NET SDK | 640-810 MB raw, patched monthly, and invisible to IDEs; the SDK stays a detected prerequisite for C# only (the start screen shows whether it is found; DI3 would add guidance) |
 
 Visual scripting, which the October version listed here ("a graph language is a large, permanent cost"), has been built:
@@ -1144,7 +1150,7 @@ its permanent cost is now a risk (§8) and a set of obligations (§2.1). Visual 
 |---|---|
 | Scope: chasing every engine feature and finishing none | Efforts and phases end in playable milestones; the score and the game decide what comes next; every effort carries a cut order |
 | The allowance: two pauses (about 98 h and 129 h) took about two thirds of visual scripting's calendar, and it, not the number of engineers, sets every date in §4 | Pause-inclusive factors; tracks of 0.5-1.5 active days; a heartbeat cron that resumes the workflow; capped specs; active hours per track as a second velocity point; cut orders; the third lane waits first if it binds |
-| Distribution's cost is easy to underrate: it is about 50 engineer-weeks (§3.10), about as much as First Ride, and its pieces keep asking to come back | The maintainer cut it on 2026-11-10; Front Door took about 6 engineer-weeks of it, on seams that let the rest wait; the backlog stays rated and unscheduled, and a decision to resume (§9) is priced against First Ride's dates with §4.4's formula |
+| Distribution's cost is easy to underrate: it is about 50 engineer-weeks (§3.10), about as much as First Ride, and its pieces keep asking to come back | The maintainer cut it on 2026-11-10; Front Door took about 6 engineer-weeks of it, and E11's core about 2 more moved to First Ride, on seams that let the rest wait; the backlog stays rated and unscheduled, and a decision to resume (§9) is priced against First Ride's dates with §4.4's formula |
 | CI time: every new command goes through the automation fuzzer, jobs have 60 minutes, and StradaToolTests hung once for 600 s on Linux Clang Debug | StradaEditorTests is split into shards with a partition check (Front Door: on CI's first run with them the slowest shard took 76 s and StradaTests 155 s, where the single entry had taken 446 s of its 600 s timeout); alarms at 450 s per entry and 45 minutes per job; StradaTests sharded past 300 s; long rides and the 10,000-prop benchmark behind an environment switch; a nightly ThreadSanitizer job instead of a per-push one; a per-test timeout in StradaToolTests is not scheduled |
 | Visual scripting's permanent cost: every scripting-API item pays its obligations; the visual-script editor was a 77,000-line component with about 92,000 lines of tests at `d130bc1`; three performance targets were missed (Architecture.md §15: a watched 2,000-node graph's flow frame at 1.75 ms against 1 ms; 200 value pills at 1.02-1.12 ms against 0.4 ms; a new link on a 2,000-node graph at 63.2 ms against 60 ms) | Obligations counted in every estimate and enforced by tests; T1's VM zones measure the targets before VS4 is scheduled; no state graphs, macros or player debugging until a game needs them |
 | The bike is unrideable on a gamepad | Assists (§5.6) from the first simulated ride; playtests at every milestone; the pro mode stays a separate layer |
@@ -1202,7 +1208,7 @@ each row stands: **Decided**; **Default**, a recommended default that stands unt
 | Agent files in new projects | Decided, built in Front Door | On by default, visible, one click to turn off; never automatic for existing projects (a plan the user confirms) | Nothing now |
 | R5 in First Ride | Default | Yes, below the cut line; FXAA stays as the fallback | Slice 2's TA track |
 | Moto's art direction | Default | A stylized procedural bike, a rigid rider, a CC0 environment and a synthesized engine sound; a sourced bike model as the fallback after slice 2's look review | MO1-MO3; slice 2's look review |
-| Worktrees | Default | Reuse `vs-a` and `vs-b` for lanes A and B, as Front Door did, and give the third lane its own; remove the stale `build\windows-release` only on the maintainer's word | The third lane's start |
+| Worktrees | Default | Reuse `vs-a` and `vs-b` for lanes A and B, as Front Door did, and give the third lane its own; remove the `build\windows-release` folder only on the maintainer's word | The third lane's start |
 | Publisher name, identifiers, repository name and description | Waits | `io.github.anthony-sv.strada` (macOS bundle), `io.github.anthony-sv.strada.project` (document type), `io.github.anthony_sv.Strada` (Linux), `Strada.Project.1` (ProgID), `io.github.anthony-sv.strada.Editor` and `io.github.anthony-sv.strada.Editor.Dev` (AppUserModelIDs, derived from the bundle identifier), `AnthonySV.Strada` (winget). Rename the repository and replace its description ("Testing claude capabilities...") before the first public release, since the update URL is compiled in | The identifiers DI2 and DI3 would compile in as CMake defaults; the update URL; a first public release |
 | Windows signing | Waits | Azure Artifact Signing if the maintainer is an individual in the USA or Canada (about USD 9.99 a month); otherwise an OV certificate on a cloud key at USD 150-300 a year. Unsigned until then | Signed releases; winget; machines with Smart App Control |
 | Apple Developer Program | Waits | Join (USD 99 a year) before announcing macOS; until then macOS is built and tested in CI only | Public macOS releases; notarization; the Homebrew tap |
@@ -1237,7 +1243,7 @@ Two lanes. TE and AK use CR's layout and locations as merged.
 | Templates | `Templates/<id>/template.json` (a versioned format with a fuzz test) and `ProjectTemplate`. `empty-3d` is the editor's default scene. `graph-starter` and `csharp-starter` are Orb Run, a game in which an orb is rolled with the keyboard or a gamepad to collect 12 sparks before a timer runs out, with a HUD, win and lose screens and sound: made of graphs in titled, arranged comment boxes (13 checks, which are graphs too), or of C# with one `[VisualNode]` member that a graph calls (14 checks; the card says it needs the .NET 10 SDK). `Templates/Tools/AuthorTemplates.py` builds them through the editor's MCP tools, with generated sounds and textures. `project.create` takes `template` and `gitIgnore` | StradaRuntimeTests plays each test scene with its pinned count; `SampleGraphsTests` covers the graphs; fuzz cases over `template.json` and the example catalog |
 | The copy filter | One function for templates and examples: it leaves out `Tools/`, `Scripts/bin/`, `Scripts/obj/`, `Scripts/Binaries/`, `Scripts/Strada.props`, `Build/`, `.strada/`, `.git/` and `__pycache__/`; follows no link out of the source; writes nothing outside the target; removes what it wrote when it fails or is cancelled; and writes a copied `.csproj` without the lines between `strada:repository-only` markers, so that a copy outside the repository never references the scripting API's source | Copy tests (the filter, the markers, cleanup, cancellation, links); the Blocks and Showcase script projects carry the markers |
 | Examples | `Projects/catalog.json` (a versioned format with a fuzz test) lists Prism Break, Blocks and the Showcase, with thumbnails the player took. An example is available when its project file and the files it needs exist: the Showcase needs its downloaded assets and names the command that fetches them. `project.examples` lists them and `project.copy-example` copies one off the main thread, with progress and cancellation, then opens the copy: nothing opens an example in place | Every error and both values of `open` in the commands' tests; the three commands fuzzed as registered |
-| Agent kit | `AgentKit`, free of ImGui: a managed block in `AGENTS.md` between markers, `CLAUDE.md` with `@AGENTS.md`, the `strada` entry of `.mcp.json`, the game-making skill and the guides in `.strada/docs/`, with a state file `.strada/agents.json`. Text outside the managed parts is never touched, a damaged file is never rewritten, a user-modified skill is skipped, and a plan with diffs is applied atomically and idempotently. `project.agents` and `project.setup-agents` (error 1010 `ConsentRequired` unless `confirmed`, so an agent asks the user first), File > Set Up for Coding Agents... and its dialog. The game-making skill reads the same inside this repository and in a game project | AgentKit tests of every file's states, a fuzz case over `.mcp.json`, `AGENTS.md` and the state file, and a session test in which the `strada` entry the kit wrote starts an MCP server that answers `tools/list` |
+| Agent kit | `AgentKit`, free of ImGui: a managed block in `AGENTS.md` between markers, `CLAUDE.md` with `@AGENTS.md`, the `strada` entry of `.mcp.json`, the game-making skill and the guides in `.strada/docs/`, with a state file `.strada/agents.json`. Text outside the managed parts is never touched, a damaged file is never rewritten, a user-modified skill is skipped, and a plan with diffs is applied file by file, each file written atomically and a setup idempotent (a failure stops at the file it names, and the files before it stay written). `project.agents` and `project.setup-agents` (error 1010 `ConsentRequired` unless `confirmed`, so an agent asks the user first), File > Set Up for Coding Agents... and its dialog. The game-making skill reads the same inside this repository and in a game project | AgentKit tests of every file's states, a fuzz case over `.mcp.json`, `AGENTS.md` and the state file, and a session test in which the `strada` entry the kit wrote starts an MCP server that answers `tools/list` |
 
 **Exit:** all suites in both configurations, and `AutomationFuzzTests` at `STRADA_FUZZ_SCALE=10`.
 
@@ -1298,12 +1304,14 @@ physics zones once they exist.
   post-processing; an opening camera tour as a Timeline graph; `Tests.sscene` with its first checks; a pinned count in
   StradaRuntimeTests, Moto's graphs in `SampleGraphsTests`, and a Moto row in AGENTS.md.
 - **E11's core (lane B, 2.0).** A per-game identity in the project settings (company, product and identifier; empty
-  values resolve at export to the project's name and `org.strada.<portable name in lower case>`, the macOS bundle
-  identifier that exports use today, so existing games keep it) and a per-game data folder, which scripts and graphs
-  reach as `Application.DataDirectory`: the identity's own folder in an exported game and a per-identity play folder in
-  the editor and in tests, so that games stop sharing one user-data folder (`FileSystem.cpp:524-550`). It is a
-  compatible addition to the project settings, which older readers skip with a warning; whether it needs a version bump
-  is the slice spec's to decide (AGENTS.md: a changed format is versioned and migrated). No engine line and no registry.
+  values resolve at export to the project's name and to `org.strada.` followed by the project's name, each character
+  that is not an ASCII letter or digit replaced by '-' and its case kept ("game" when none is left), which is the macOS
+  bundle identifier that exports make today (`GameExporter.cpp:298-310`), so existing games keep it) and a per-game data
+  folder, which scripts and graphs reach as `Application.DataDirectory`: the identity's own folder in an exported game
+  and a per-identity play folder in the editor and in tests, so that games stop sharing one user-data folder
+  (`FileSystem.cpp:524-550`). It is a compatible addition to the project settings, which older readers skip with a
+  warning; whether it needs a version bump is the slice spec's to decide (AGENTS.md: a changed format is versioned and
+  migrated). No engine line and no registry.
 - **W2, splines (third lane, below the cut line, 4.5 across slices 1 and 2).** A spline component with a field table and
   editor handles in the scene view in slice 1; meshes extruded along splines (roads with camber and banking, kerbs,
   walls, fences) and placement along them in slice 2. Moto's circuit uses them where they have landed; M1 does not wait
