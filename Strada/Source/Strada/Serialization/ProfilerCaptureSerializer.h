@@ -25,16 +25,22 @@ namespace Strada
 		// GPU passes a capture holds at most over all its frames (the recorder bounds zones, not passes).
 		static constexpr uint32_t MaxGpuPasses = Profiler::MaxHistoryZones;
 
+		// maxBytes below is the largest text the functions write or read: Profiler::MaxCaptureBytes, or less for a caller
+		// that wants a smaller bound.
+
 		// The capture's text. Refuses a capture holding more than a reader accepts (frames, zones, GPU passes, names,
-		// threads, views; see Profiler's bounds) or whose text would exceed Profiler::MaxCaptureBytes, which the error names
-		// with what makes a capture smaller (fewer frames or zones: ProfilerSettings::HistoryFrames, HistoryZones).
-		[[nodiscard]] static Result<std::string> Write(ProfilerCapture const& capture);
-		// Reads a capture's text. Refuses a damaged capture, saying what is wrong and with which event.
-		[[nodiscard]] static Result<ProfilerCapture> Read(std::string_view text);
+		// threads, views; see Profiler's bounds) or whose text would exceed maxBytes (checked after each frame, so it never
+		// grows far past it), which the error names with what makes a capture smaller (fewer frames or zones:
+		// ProfilerSettings::HistoryFrames, HistoryZones).
+		[[nodiscard]] static Result<std::string> Write(ProfilerCapture const& capture, uint64_t maxBytes = Profiler::MaxCaptureBytes);
+		// Reads a capture's text. Refuses a damaged capture, saying what is wrong and with which event, and an event longer
+		// than any capture's (64 KiB).
+		[[nodiscard]] static Result<ProfilerCapture> Read(std::string_view text, uint64_t maxBytes = Profiler::MaxCaptureBytes);
 
 		// Write, then FileSystem::WriteTextFile (atomic; creates missing parent directories).
-		[[nodiscard]] static Result<void> Save(ProfilerCapture const& capture, std::filesystem::path const& path);
-		// Reads a capture file, refusing one larger than Profiler::MaxCaptureBytes before reading it.
-		[[nodiscard]] static Result<ProfilerCapture> Load(std::filesystem::path const& path);
+		[[nodiscard]] static Result<void> Save(ProfilerCapture const& capture, std::filesystem::path const& path,
+		                                       uint64_t maxBytes = Profiler::MaxCaptureBytes);
+		// Reads a capture file, refusing one larger than maxBytes before reading it.
+		[[nodiscard]] static Result<ProfilerCapture> Load(std::filesystem::path const& path, uint64_t maxBytes = Profiler::MaxCaptureBytes);
 	};
 }

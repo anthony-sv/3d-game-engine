@@ -40,7 +40,15 @@ namespace
 		builder.SetValue(depthZone, "Depth", 18446744073709551615ull);
 		builder.AddZone(0, "GPU.Opaque", 1, 0, 0);
 		builder.AddZone(gpuLookalike, "Quote \" backslash \\ newline \n tab \t", 0, 3, 1);
-		builder.AddZone(gpuLookalike, "Ünïcødé ✓ 🚲", 0, 3, 1);
+		builder.AddZone(gpuLookalike,
+		                "\xC3\x9C"
+		                "n"
+		                "\xC3\xAF"
+		                "c"
+		                "\xC3\xB8"
+		                "d"
+		                "\xC3\xA9 \xE2\x9C\x93 \xF0\x9F\x9A\xB2",
+		                0, 3, 1);
 		builder.AddZone(gpuLookalike, std::string(Profiler::MaxNameBytes, 'x'), 0, 3, 1);
 		builder.AddGpuPass("Viewport", "Frame", 7 * Microsecond);
 		builder.AddGpuPass("Viewport", "Opaque", 0);
@@ -272,6 +280,11 @@ TEST_CASE("ProfilerCaptureSerializer: damaged captures are refused")
 	refused(R"({ "Strada": { "Version": 2, "Type": "ProfilerCapture" }, "traceEvents": [] })", "newer");
 	refused(R"({ "Strada": { "Version": 1, "Type": "ProfilerCapture" }, "traceEvents": {} })", "not an array");
 	refused(R"({ "Strada": { "Version": 1, "Type": "ProfilerCapture" }, "traceEvents": [] })", "no main thread");
+	refused(R"({ "Strada": { "Version": 1, "Type": "ProfilerCapture" }, "traceEvents": [ { "ph": "M", "name": ")" +
+	            std::string(70000, 'n') + R"(" } ] })",
+	        "longer than 65536 bytes");
+	refused(R"({ "Strada": { "Version": 1, "Type": "ProfilerCapture", "Note": ")" + std::string(70000, 'n') + R"(" }, "traceEvents": [] })",
+	        "header is too long");
 	refused(
 		R"({ "Strada": { "Version": 1, "Type": "ProfilerCapture" }, "Strada": { "Version": 1, "Type": "ProfilerCapture" }, "traceEvents": [] })",
 		"twice");
@@ -305,6 +318,12 @@ TEST_CASE("ProfilerCaptureSerializer: damaged captures are refused")
 							FindEvent(document, "X", "Scene.Update")["tid"] = 9;
 						}),
 	        "thread 9");
+	refused(EditCapture(valid,
+	                    [](Json& document)
+	                    {
+							FindEvent(document, "X", "Scene.Update")["pid"] = 0;
+						}),
+	        "process 0");
 	refused(EditCapture(valid,
 	                    [](Json& document)
 	                    {
@@ -375,6 +394,29 @@ TEST_CASE("ProfilerCaptureSerializer: damaged captures are refused or read, and 
 	}
 	// Mutations of members a reader ignores (categories, process names) leave captures readable.
 	CHECK(accepted > 0);
+}
+
+TEST_CASE("ProfilerCaptureSerializer: the writer, the reader and files keep within a capture's size")
+{
+	ProfilerCapture const capture = MakeTrickyCapture();
+	std::string const text = WriteCapture(capture);
+	uint64_t const size = text.size();
+	CHECK(ProfilerCaptureSerializer::Write(capture, size).IsOk());
+	Result<std::string> const larger = ProfilerCaptureSerializer::Write(capture, size - 1);
+	REQUIRE(larger.IsError());
+	CHECK(larger.GetError().find("HistoryFrames") != std::string::npos);
+	CHECK(ProfilerCaptureSerializer::Read(text, size).IsOk());
+	CHECK(ProfilerCaptureSerializer::Read(text, size - 1).IsError());
+
+	Testing::TemporaryDirectory const directory;
+	std::filesystem::path const path = directory.GetPath() / "Capture.json";
+	CHECK(ProfilerCaptureSerializer::Save(capture, path, size - 1).IsError());
+	CHECK_FALSE(FileSystem::Exists(path));
+	REQUIRE(ProfilerCaptureSerializer::Save(capture, path).IsOk());
+	CHECK(ProfilerCaptureSerializer::Load(path, size).IsOk());
+	Result<ProfilerCapture> const refused = ProfilerCaptureSerializer::Load(path, size - 1);
+	REQUIRE(refused.IsError());
+	CHECK(refused.GetError().find("is larger than") != std::string::npos);
 }
 
 TEST_CASE("ProfilerCaptureSerializer: captures are saved to files and loaded from them")

@@ -279,12 +279,22 @@ namespace Strada
 			writer.BeginObject();
 		}
 
-		Error MakeSizeError()
+		// Profiler::MaxCaptureBytes is a whole number of MiB; smaller bounds are told in bytes.
+		std::string DescribeBytes(uint64_t bytes)
 		{
-			return MakeError("the capture would take more than {} MiB, the most a capture may take: record fewer frames or zones "
-			                 "(HistoryFrames, HistoryZones)",
-			                 Profiler::MaxCaptureBytes / (1024 * 1024));
+			return bytes % (1024 * 1024) == 0 ? fmt::format("{} MiB", bytes / (1024 * 1024)) : fmt::format("{} bytes", bytes);
 		}
+
+		Error MakeSizeError(uint64_t maxBytes)
+		{
+			return MakeError("the capture would take more than {}, the most a capture may take: record fewer frames or zones "
+			                 "(HistoryFrames, HistoryZones)",
+			                 DescribeBytes(maxBytes));
+		}
+
+		// The longest event and file header a reader parses: a capture's events are far shorter (names of at most
+		// MaxNameBytes), so a longer one is damage, and refusing it keeps the reader from building large documents.
+		constexpr size_t MaxEventBytes = 64 * 1024;
 
 		// --- Reading ---
 
@@ -468,6 +478,10 @@ namespace Strada
 				{
 					return Error{frameIndex.GetError()};
 				}
+				if (process.GetValue() != static_cast<uint64_t>(ThreadsProcess) && process.GetValue() != static_cast<uint64_t>(GpuProcess))
+				{
+					return MakeError("its process {} is neither the threads' (1) nor the GPU's (2)", process.GetValue());
+				}
 				if (process.GetValue() == static_cast<uint64_t>(ThreadsProcess) && !args.contains("Depth"))
 				{
 					return ReadFrame(thread.GetValue(), frameIndex.GetValue(), start.GetValue(), duration.GetValue(), args);
@@ -635,7 +649,7 @@ namespace Strada
 		};
 	}
 
-	Result<std::string> ProfilerCaptureSerializer::Write(ProfilerCapture const& capture)
+	Result<std::string> ProfilerCaptureSerializer::Write(ProfilerCapture const& capture, uint64_t maxBytes)
 	{
 		Result<WrittenTables> prepared = MakeWrittenTables(capture);
 		if (!prepared)
@@ -644,7 +658,9 @@ namespace Strada
 		}
 		WrittenTables const& tables = prepared.GetValue();
 
-		JsonTextWriter writer(JsonTextWriter::Style{.Pretty = false});
+		JsonTextWriter::Style style;
+		style.Pretty = false;
+		JsonTextWriter writer(style);
 		writer.BeginObject();
 		writer.Key("Strada");
 		writer.BeginObject();
@@ -724,33 +740,32 @@ namespace Strada
 				writer.EndObject();
 			}
 
-			if (writer.GetSize() > Profiler::MaxCaptureBytes)
+			if (writer.GetSize() > maxBytes)
 			{
-				return MakeSizeError();
+				return MakeSizeError(maxBytes);
 			}
 		}
 
 		writer.EndArray();
 		writer.EndObject();
-		if (writer.GetSize() > Profiler::MaxCaptureBytes)
+		if (writer.GetSize() > maxBytes)
 		{
-			return MakeSizeError();
+			return MakeSizeError(maxBytes);
 		}
 		return writer.TakeText();
 	}
 
-	Result<ProfilerCapture> ProfilerCaptureSerializer::Read(std::string_view text)
+	Result<ProfilerCapture> ProfilerCaptureSerializer::Read(std::string_view text, uint64_t maxBytes)
 	{
-		if (text.size() > Profiler::MaxCaptureBytes)
+		if (text.size() > maxBytes)
 		{
-			return MakeError("the capture is larger than {} MiB, the most a capture may take", Profiler::MaxCaptureBytes / (1024 * 1024));
+			return MakeError("the capture is larger than {}, the most a capture may take", DescribeBytes(maxBytes));
 		}
 		std::optional<std::vector<JsonScanMember>> const members = ScanJsonTopLevel(text);
 		if (!members)
 		{
-			// Parsing gives the position of the problem.
-			Result<Json> const parsed = ParseJson(text);
-			return MakeError("the capture is not a JSON object: {}", parsed ? std::string("it is another value") : parsed.GetError());
+			// The whole text is never parsed: it may be large.
+			return Error{"the capture is not a JSON object"};
 		}
 		JsonScanMember const* header = nullptr;
 		JsonScanMember const* events = nullptr;
@@ -770,6 +785,10 @@ namespace Strada
 		if (header == nullptr)
 		{
 			return Error{"missing \"Strada\" file header"};
+		}
+		if (header->Value.second > MaxEventBytes)
+		{
+			return Error{"the file header is too long"};
 		}
 		Result<Json> headerValue = ParseJson(text.substr(header->Value.first, header->Value.second));
 		if (!headerValue)
@@ -791,6 +810,10 @@ namespace Strada
 		for (size_t index = 0; index < events->Elements.size(); index++)
 		{
 			std::pair<uint32_t, uint32_t> const element = events->Elements[index];
+			if (element.second > MaxEventBytes)
+			{
+				return MakeError("event {}: it is longer than {} bytes", index, MaxEventBytes);
+			}
 			Result<Json> const event = ParseJson(text.substr(element.first, element.second));
 			Result<void> const read = event ? reader.ReadEvent(event.GetValue()) : Result<void>(Error{event.GetError()});
 			if (!read)
@@ -801,9 +824,9 @@ namespace Strada
 		return reader.TakeCapture();
 	}
 
-	Result<void> ProfilerCaptureSerializer::Save(ProfilerCapture const& capture, std::filesystem::path const& path)
+	Result<void> ProfilerCaptureSerializer::Save(ProfilerCapture const& capture, std::filesystem::path const& path, uint64_t maxBytes)
 	{
-		Result<std::string> const text = Write(capture);
+		Result<std::string> const text = Write(capture, maxBytes);
 		if (!text)
 		{
 			return Error{text.GetError()};
@@ -811,23 +834,22 @@ namespace Strada
 		return FileSystem::WriteTextFile(path, text.GetValue());
 	}
 
-	Result<ProfilerCapture> ProfilerCaptureSerializer::Load(std::filesystem::path const& path)
+	Result<ProfilerCapture> ProfilerCaptureSerializer::Load(std::filesystem::path const& path, uint64_t maxBytes)
 	{
 		std::optional<uint64_t> const size = FileSystem::GetFileSize(path);
 		if (!size)
 		{
 			return MakeError("'{}' is not a file that can be read", FileSystem::PathToUtf8(path));
 		}
-		if (*size > Profiler::MaxCaptureBytes)
+		if (*size > maxBytes)
 		{
-			return MakeError("'{}' is larger than {} MiB, the most a capture may take", FileSystem::PathToUtf8(path),
-			                 Profiler::MaxCaptureBytes / (1024 * 1024));
+			return MakeError("'{}' is larger than {}, the most a capture may take", FileSystem::PathToUtf8(path), DescribeBytes(maxBytes));
 		}
 		Result<std::string> const text = FileSystem::ReadTextFile(path);
 		if (!text)
 		{
 			return Error{text.GetError()};
 		}
-		return Read(text.GetValue());
+		return Read(text.GetValue(), maxBytes);
 	}
 }

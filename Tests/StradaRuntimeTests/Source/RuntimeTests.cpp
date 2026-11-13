@@ -540,6 +540,7 @@ TEST_CASE("Runtime: a profiled run saves a capture of its frames and logs each s
 	CAPTURE(run.Output);
 	CHECK(run.ExitCode == 0);
 	CHECK(Contains(run.Output, "Profile: 20 frames, frame median "));
+	CHECK(Contains(run.Output, " ms, 0 zones dropped"));
 	CHECK(Contains(run.Output, "Profile subsystem Scene: "));
 	CHECK(Contains(run.Output, "Profile subsystem Application: "));
 	CHECK(Contains(run.Output, "Profile zone Script.Strada.Tests.SelfTest: "));

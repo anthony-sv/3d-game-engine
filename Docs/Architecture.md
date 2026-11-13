@@ -817,10 +817,12 @@ frame, so it never builds more than one frame past the bound), or holding more t
 
 The reader refuses:
 
-- a document larger than `Profiler::MaxCaptureBytes` (512 MiB; `Load` checks the file's size before reading it), not
-  an object, without the header, of another type or of a newer version, with `Strada` or `traceEvents` twice, or whose
+- a document larger than `Profiler::MaxCaptureBytes` (512 MiB, or a smaller bound the caller gives; `Load` checks the
+  file's size before reading it), not an object (the whole text is never parsed), without the header or with one longer
+  than 64 KiB, of another type or of a newer version, with `Strada` or `traceEvents` twice, or whose
   `traceEvents` is not an array;
-- an event of another phase than `M` and `X`, or with a missing or mistyped member;
+- an event longer than 64 KiB (each event is parsed alone), of another phase than `M` and `X`, of another process than
+  1 and 2, or with a missing or mistyped member;
 - a negative, non-finite or too large time;
 - a frame whose index does not follow the previous frame's (a capture's frames are consecutive), or not on thread 1;
 - a `Frame` argument that no `Frame` event before it declares, or a `tid` that no `thread_name` before it names, a

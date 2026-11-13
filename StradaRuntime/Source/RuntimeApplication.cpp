@@ -37,10 +37,15 @@ namespace Strada
 		};
 
 		// The figures plan targets are read from: the frame, each subsystem, each thread, each GPU pass and each zone name.
-		void LogProfileMedians(ProfilerMedians const& medians, size_t frames)
+		void LogProfileMedians(ProfilerMedians const& medians, size_t frames, uint64_t droppedZones)
 		{
-			ST_INFO("Profile: {} frames, frame median {:.3f} ms, 99th percentile {:.3f} ms", frames, medians.FrameMilliseconds,
-			        medians.FramePercentile99Milliseconds);
+			ST_INFO("Profile: {} frames, frame median {:.3f} ms, 99th percentile {:.3f} ms, {} zones dropped", frames,
+			        medians.FrameMilliseconds, medians.FramePercentile99Milliseconds, droppedZones);
+			if (droppedZones > 0)
+			{
+				// The figures below then undercount: a thread ended more zones in a frame than its buffer holds.
+				ST_WARN("The profile dropped {} zones: the medians leave them out", droppedZones);
+			}
 			for (ProfilerMedian const& subsystem : medians.Subsystems)
 			{
 				ST_INFO("Profile subsystem {}: {:.3f} ms per frame", subsystem.Name, subsystem.Milliseconds);
@@ -129,9 +134,10 @@ namespace Strada
 				return;
 			}
 			// The main loop has ended its last frame; the history holds the last ProfilerSettings::HistoryFrames of them.
+			uint64_t const droppedZones = Profiler::GetStatus().DroppedZones;
 			Profiler::Stop();
 			ProfilerCapture const& capture = Profiler::GetRecording();
-			LogProfileMedians(ComputeProfilerMedians(capture), capture.Frames.size());
+			LogProfileMedians(ComputeProfilerMedians(capture), capture.Frames.size(), droppedZones);
 			if (Result<void> saved = ProfilerCaptureSerializer::Save(capture, m_RuntimeSpecification.ProfilePath); !saved)
 			{
 				ST_ERROR("The profile could not be saved to '{}': {}", FileSystem::PathToUtf8(m_RuntimeSpecification.ProfilePath),
