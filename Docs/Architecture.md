@@ -1753,7 +1753,13 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   drawn (`ImGuiDockNodeFlags_KeepAliveOnly`, so docked panels stay docked), no toolbar, panel, viewport, gizmo or
   floating window is submitted (so none can take the mouse or the keyboard), the game view's input goes back to the
   editor, a dropped `.sproj` opens (`FindDroppedProject`) and nothing is imported; the tabs that were in front come back
-  to the front when it hides. The New Project form is one widget (`NewProjectFormWidget`) that the screen and
+  to the front when it hides. Commands that need a panel or graph window drawn (`graph.palette`,
+  `inspector.add-component-menu`) refuse while it shows (`EditorCommandEnvironment::IsStartScreenVisible`), and what
+  waits for the graph windows' draw is dropped in each frame it covers them (`VisualScriptEditors::DropAfterDraw`), so no
+  command waits for the screen to hide. The screen's actions run once its lists are drawn (an open that fails takes the
+  project off the list it draws), and what fails in them, in the screen or in the layer, shows on its error line
+  (`StartScreenModel::ReportError`) while nothing else, the Console included, is drawn. An example's copy opens without
+  asking about unsaved changes again when the scene is as it was when they were answered (`EditorContext::GetSceneMark`). The New Project form is one widget (`NewProjectFormWidget`) that the screen and
   File > New Project... (`NewProjectDialog`) draw over the model's `NewProjectForm`; Create hands a `NewProjectRequest`
   (the form as it was) to the layer, which asks about unsaved changes and then runs `CreateProjectFromRequest`
   (`EditorOperations::CreateProject` from the template, then `SetUpNewProjectForAgents`), as `project.create` does.

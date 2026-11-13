@@ -1442,8 +1442,6 @@ namespace
 			return result.TakeValue();
 		}
 
-		// Puts entities with components back into a scene the fuzzer emptied: an instance of the prefab of everything, or
-		// a few entities when the prefab was deleted or moved.
 		// Lists the fuzzed project, a missing one and a file that is no project as the recent projects (all three states), as
 		// at the start and whenever the commands cleared the list.
 		void SeedRecentProjects()
@@ -1455,6 +1453,8 @@ namespace
 			REQUIRE(recent.Save().IsOk());
 		}
 
+		// Puts entities with components back into a scene the fuzzer emptied: an instance of the prefab of everything, or
+		// a few entities when the prefab was deleted or moved.
 		void Replenish()
 		{
 			if (Run("prefab.instantiate", Json::object({{"prefab", "asset://Prefabs/Everything.sprefab"}})).IsOk())

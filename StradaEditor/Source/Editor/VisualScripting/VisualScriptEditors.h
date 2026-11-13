@@ -123,6 +123,9 @@ namespace Strada
 		// palette showed in that draw). A callback given while they run waits for the draw after. Callbacks still waiting when
 		// the windows are destroyed are dropped uncalled.
 		void AfterNextDraw(std::function<void()> callback);
+		// Drops the callbacks waiting for a draw uncalled: the editor does not draw the windows in this frame (the start screen
+		// covers them), so whatever waits on them (graph.palette's completion) is abandoned and answers at once.
+		void DropAfterDraw();
 		// The graph's window; null when it is not open.
 		VisualScriptEditorPanel* FindPanel(AssetHandle graph);
 		// The project's visual scripts, what each offers other graphs and who refers to whom (spec-slice3 §10.1): refreshed

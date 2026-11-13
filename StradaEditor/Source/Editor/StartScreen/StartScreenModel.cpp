@@ -129,9 +129,26 @@ namespace Strada
 		ResetForm();
 	}
 
+	void StartScreenModel::SetVisible(bool visible)
+	{
+		m_Visible = visible;
+		if (!visible)
+		{
+			m_Error.clear();
+		}
+	}
+
+	void StartScreenModel::ReportError(std::string message)
+	{
+		if (m_Visible)
+		{
+			m_Error = std::move(message);
+		}
+	}
+
 	Result<void> StartScreenModel::OnProjectOpened(std::filesystem::path const& projectFile)
 	{
-		m_Visible = false;
+		SetVisible(false);
 		m_RecentProjects.Add(projectFile);
 		return m_RecentProjects.Save();
 	}

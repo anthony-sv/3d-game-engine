@@ -165,6 +165,30 @@ TEST_CASE("StartScreenModel: opening a project lists it first, saves the list an
 	CHECK(memoryOnly.GetRecentProjects().GetFile().empty());
 }
 
+TEST_CASE("StartScreenModel: the error line keeps a failure while the screen shows, until it is cleared or the screen hides")
+{
+	ModelFixture fixture;
+	// Hidden: the failure is only in the log.
+	fixture.Model.ReportError("Opening the project failed: gone");
+	CHECK(fixture.Model.GetError().empty());
+
+	fixture.Model.SetVisible(true);
+	fixture.Model.ReportError("Opening the project failed: gone");
+	CHECK(fixture.Model.GetError() == "Opening the project failed: gone");
+	fixture.Model.ReportError("Creating the project failed: denied");
+	CHECK(fixture.Model.GetError() == "Creating the project failed: denied");
+	fixture.Model.ClearError();
+	CHECK(fixture.Model.GetError().empty());
+
+	fixture.Model.ReportError("Copying the example failed: full");
+	fixture.Model.SetVisible(false);
+	CHECK(fixture.Model.GetError().empty());
+	fixture.Model.SetVisible(true);
+	fixture.Model.ReportError("Copying the example failed: full");
+	REQUIRE(fixture.Model.OnProjectOpened(fixture.Directory.GetPath() / "A" / "A.sproj").IsOk());
+	CHECK(fixture.Model.GetError().empty());
+}
+
 TEST_CASE("StartScreenModel: the New Project form says what it creates and why it cannot")
 {
 	ModelFixture fixture;

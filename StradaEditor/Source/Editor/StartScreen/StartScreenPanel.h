@@ -51,12 +51,9 @@ namespace Strada
 
 		// What the screen drew in its last frame (none while hidden): its buttons, cards, rows, links and menu items, named
 		// "Open Project...", "Continue without a project", "Recent:<path>", "Recent menu:Open", "Recent menu:Show in Folder",
-		// "Recent menu:Remove from List", "Example:<id>" (its Open), "Cancel copy", "Guide:<title>", and the form's
-		// (NewProjectFormWidget).
+		// "Recent menu:Remove from List", "Example:<id>" (its Open), "Cancel copy", "Guide:<title>", the error line ("Error",
+		// while StartScreenModel::GetError is not empty) and the form's (NewProjectFormWidget).
 		std::vector<StartScreenItem> const& GetItems() const { return m_Items; }
-		// What the last action of the screen that failed said (Show in Folder, a guide, an example's copy target); empty
-		// when none failed.
-		std::string const& GetLastError() const { return m_LastError; }
 
 	private:
 		// Reads what the screen shows again (the model's content, the examples' availability and thumbnails).
@@ -66,10 +63,10 @@ namespace Strada
 		void DrawNewProject(StartScreenModel& model, StartScreenThumbnails* thumbnails, StartScreenActions const& actions);
 		void DrawExamples(StartScreenModel& model, ExampleCopyTask& copies, StartScreenThumbnails* thumbnails,
 		                  StartScreenActions const& actions);
-		void DrawLearn(StartScreenModel const& model);
+		void DrawLearn(StartScreenModel& model);
 		void DrawFooter(StartScreenModel const& model, StartScreenActions const& actions);
-		// Reports a failed action in the log and on the screen.
-		void Report(Result<void> const& result, std::string_view doing);
+		// Reports a failed action in the log and on the screen's error line (StartScreenModel::ReportError).
+		static void Report(StartScreenModel& model, Result<void> const& result, std::string_view doing);
 
 		// An example as the screen last read it.
 		struct ExampleView
@@ -82,7 +79,6 @@ namespace Strada
 		// By example id.
 		std::map<std::string, ExampleView> m_Examples;
 		std::vector<StartScreenItem> m_Items;
-		std::string m_LastError;
 		// The frame the screen was last drawn in (ImGui's frame count); -1 before the first.
 		int m_LastFrame = -1;
 	};

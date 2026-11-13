@@ -74,6 +74,8 @@ namespace
 		std::vector<std::pair<bool, std::string>> EntityMenuRequests;
 		// Whether the editor shows a dialog, over which no menu opens.
 		bool DialogOpen = false;
+		// Whether the start screen covers the panels, which are not drawn then.
+		bool StartScreenVisible = false;
 		// Where viewport.screenshot finds the editor's windows in the captured image (EditorCommandEnvironment::FindWindowRect).
 		std::function<Result<ScreenshotRect>(ScreenshotWindow, AssetHandle)> WindowRect;
 
@@ -114,6 +116,10 @@ namespace
 				environment.IsDialogOpen = [this]
 				{
 					return DialogOpen;
+				};
+				environment.IsStartScreenVisible = [this]
+				{
+					return StartScreenVisible;
 				};
 				environment.ShowAddComponentMenu = [this](bool open, std::string const& search, std::string const& category)
 				{
@@ -425,8 +431,17 @@ TEST_CASE("EditorCommands: inspector.add-component-menu opens the inspector's me
 	fixture.DialogOpen = true;
 	CHECK(fixture.Fails("inspector.add-component-menu") == AutomationErrorCode::InvalidOperation);
 	CHECK(fixture.AddComponentMenuRequests.size() == requests);
+	// Nor while the start screen covers the inspector, which is not drawn then: the menu would pop up once it hides.
+	fixture.DialogOpen = false;
+	fixture.StartScreenVisible = true;
+	CommandResult const covered = fixture.Run("inspector.add-component-menu");
+	REQUIRE(covered.IsError());
+	CHECK(covered.GetError().Code == AutomationErrorCode::InvalidOperation);
+	CHECK(covered.GetError().Message.find("start.show") != std::string::npos);
+	CHECK(fixture.AddComponentMenuRequests.size() == requests);
+	fixture.DialogOpen = true;
 
-	// Closing needs no selection, also with a dialog open.
+	// Closing needs no selection, also with a dialog open or the start screen showing.
 	fixture.Ok("entity.select", Json::object({{"entities", {scripted}}, {"mode", "remove"}}));
 	REQUIRE(fixture.Context.GetSelection().IsEmpty());
 	Json const closed = fixture.Ok("inspector.add-component-menu", Json::object({{"open", false}}));

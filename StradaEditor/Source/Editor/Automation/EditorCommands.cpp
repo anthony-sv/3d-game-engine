@@ -1746,6 +1746,17 @@ namespace Strada
 				return std::nullopt;
 			}
 
+			// What needs its panel or graph window drawn waits for no draw while the start screen covers them.
+			std::optional<CommandError> CheckNotCovered() const
+			{
+				if (m_Environment.IsStartScreenVisible && m_Environment.IsStartScreenVisible())
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidOperation,
+					                        "the start screen covers the editor's panels: start.show {{\"visible\": false}} hides it");
+				}
+				return std::nullopt;
+			}
+
 			Result<void> RegisterEditor()
 			{
 				Result<void> result =
@@ -4327,8 +4338,8 @@ namespace Strada
 					"each entry { title, subtitle, category, type (the node type it adds; empty for actions that add none), settings, "
 					"connects (with from: the entry's pin that the wire links to), converts (with from: the link converts its value) }. "
 					"Unavailable without the editor's UI (headless) and without the scripting runtime (the palette lists the node "
-					"library); InvalidOperation when the graph's window is not open or not shown, its file does not load, or a dialog "
-					"is open; InvalidParams for a from node the sub-graph shown does not have, a pin it does not have and an at "
+					"library); InvalidOperation when the graph's window is not open or not shown, its file does not load, a dialog is "
+					"open or the start screen covers the windows; InvalidParams for a from node the sub-graph shown does not have, a pin it does not have and an at "
 					"beyond the canvas.";
 				palette.Parameters =
 					SchemaBuilder::Object()
@@ -4441,6 +4452,10 @@ namespace Strada
 				{
 					return MakeCommandError(AutomationErrorCode::InvalidOperation,
 					                        "a dialog is open in the editor: no menu opens until it is answered");
+				}
+				if (std::optional<CommandError> covered = CheckNotCovered())
+				{
+					return *covered;
 				}
 				Result<Ref<VisualScriptAsset>> const asset = LoadGraph(handle);
 				if (!asset)
@@ -5723,8 +5738,8 @@ namespace Strada
 				              "of their submenus as if the user pointed at it), or closes it (open false). Returns { open, search, "
 				              "category, components }: the components the menu offers, in its order (those of the open submenu with a "
 				              "category). Changes nothing in the scene (component.add adds components). InvalidParams for a search with "
-				              "a category; InvalidOperation without selected entities, for a category the menu offers no components of "
-				              "and while a dialog is open; Unavailable without the editor's UI (headless).",
+				              "a category; InvalidOperation without selected entities, for a category the menu offers no components of, "
+				              "while a dialog is open and while the start screen shows; Unavailable without the editor's UI (headless).",
 				              SchemaBuilder::Object()
 				                  .Property("search", SchemaBuilder::String("Text typed into the menu's search field"))
 				                  .Property("category", SchemaBuilder::String("Without search text: the category whose submenu opens")
@@ -5763,6 +5778,10 @@ namespace Strada
 									  if (std::optional<CommandError> dialog = CheckNoDialog())
 									  {
 										  return *dialog;
+									  }
+									  if (std::optional<CommandError> covered = CheckNotCovered())
+									  {
+										  return *covered;
 									  }
 								  }
 

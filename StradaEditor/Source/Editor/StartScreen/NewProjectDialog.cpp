@@ -46,7 +46,12 @@ namespace Strada
 		ImGui::SetNextWindowViewport(viewport->ID);
 		float const width = std::min(ImGui::GetFontSize() * 46.0f, viewport->WorkSize.x * 0.9f);
 		ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.0f), ImVec2(width, viewport->WorkSize.y * 0.95f));
+		// Opaque: the theme's popups are slightly translucent, and the panels behind would show through its text.
+		ImVec4 opaque = ImGui::GetStyleColorVec4(ImGuiCol_PopupBg);
+		opaque.w = 1.0f;
+		ImGui::PushStyleColor(ImGuiCol_PopupBg, opaque);
 		m_Open = ImGui::BeginPopupModal(PopupName, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+		ImGui::PopStyleColor();
 		if (!m_Open)
 		{
 			m_CloseRequested = false;

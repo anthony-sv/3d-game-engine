@@ -254,6 +254,8 @@ namespace Strada
 			NewProjectRequest request;
 			request.Form = model.GetForm();
 			request.Directory = check.Directory;
+			// What failed before is not what this does.
+			model.ClearError();
 			actions.Create(request);
 			// The new project's folder exists now (or the editor asks about unsaved changes first): look again.
 			Invalidate();

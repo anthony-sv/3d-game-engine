@@ -471,3 +471,54 @@ TEST_CASE("StartCommands: editor.dialog opens and closes the File menu's dialogs
 	CHECK_FALSE(fixture.Registry.Find("editor.dialog")->ReadOnly);
 	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
 }
+
+TEST_CASE("StartCommands: editor.dialog opens a dialog that is not shown, keeps one that is, and refuses over another or without a project")
+{
+	EditorDialogState state;
+	state.HasProject = true;
+	auto const decide = [&state](EditorDialog dialog)
+	{
+		return DecideEditorDialogOpen(dialog, state);
+	};
+	auto const refusal = [&state](EditorDialog dialog)
+	{
+		Result<EditorDialogOpening> const decided = DecideEditorDialogOpen(dialog, state);
+		REQUIRE_FALSE(decided.IsOk());
+		return decided.GetError();
+	};
+
+	// Nothing open: either opens at the next frame.
+	CHECK(decide(EditorDialog::NewProject).GetValue() == EditorDialogOpening::OpenAtNextFrame);
+	CHECK(decide(EditorDialog::AgentSetup).GetValue() == EditorDialogOpening::OpenAtNextFrame);
+
+	// Shown already: it stays as it is; the other cannot open over it.
+	state.OpenModal = "New Project";
+	CHECK(decide(EditorDialog::NewProject).GetValue() == EditorDialogOpening::KeepShown);
+	CHECK(refusal(EditorDialog::AgentSetup) == "another dialog is open (New Project): close it first");
+	state.OpenModal = "Set Up for Coding Agents";
+	CHECK(decide(EditorDialog::AgentSetup).GetValue() == EditorDialogOpening::KeepShown);
+	CHECK(refusal(EditorDialog::NewProject) == "another dialog is open (Set Up for Coding Agents): close it first");
+	// Any other modal of the editor blocks both.
+	state.OpenModal = "Unsaved Changes";
+	CHECK(refusal(EditorDialog::NewProject) == "another dialog is open (Unsaved Changes): close it first");
+	CHECK(refusal(EditorDialog::AgentSetup) == "another dialog is open (Unsaved Changes): close it first");
+	state.OpenModal.clear();
+
+	// Asked to open at the next frame: the other dialog, or one of the editor's others, blocks; asking again for the same
+	// one does not.
+	state.NewProjectRequested = true;
+	CHECK(decide(EditorDialog::NewProject).GetValue() == EditorDialogOpening::OpenAtNextFrame);
+	CHECK(refusal(EditorDialog::AgentSetup) == "another dialog opens at the next frame: close it first");
+	state.NewProjectRequested = false;
+	state.AgentSetupRequested = true;
+	CHECK(refusal(EditorDialog::NewProject) == "another dialog opens at the next frame: close it first");
+	state.AgentSetupRequested = false;
+	state.OtherRequested = true;
+	CHECK(refusal(EditorDialog::NewProject) == "another dialog opens at the next frame: close it first");
+	state.OtherRequested = false;
+
+	// The agent setup sets the open project up; New Project needs none.
+	state.HasProject = false;
+	CHECK(refusal(EditorDialog::AgentSetup) == "no project is open: Set Up for Coding Agents sets the open project up");
+	CHECK(decide(EditorDialog::NewProject).GetValue() == EditorDialogOpening::OpenAtNextFrame);
+}

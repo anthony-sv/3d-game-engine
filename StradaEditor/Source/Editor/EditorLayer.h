@@ -46,6 +46,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 
 struct ImGuiWindow;
 
@@ -158,6 +159,9 @@ namespace Strada
 		void DrawDialogs();
 		// Shows or hides the start screen (start.show, File > Start Screen, Continue without a project); only with the UI.
 		void ShowStartScreen(bool visible);
+		// Logs an action that failed and shows it on the start screen's error line while the screen shows (nothing else is
+		// drawn then, the Console included).
+		void ReportActionFailure(std::string_view doing, std::string const& error);
 		// What the start screen and the New Project dialog ask of the editor.
 		StartScreenActions MakeStartScreenActions();
 		// Starts copying the example of the request; the copy opens once it is made.

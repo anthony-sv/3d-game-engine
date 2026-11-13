@@ -27,6 +27,8 @@ namespace Strada
 		void Open();
 		// Closes the dialog in the next frame as Cancel does, writing nothing (and drops a pending Open): editor.dialog.
 		void Close();
+		// Drops a pending Close and leaves the dialog as it is: editor.dialog asked to open it while it is shown.
+		void KeepShown() { m_CloseRequested = false; }
 		bool IsOpenRequested() const { return m_OpenRequested; }
 		// Whether the dialog was drawn open in the last frame.
 		bool IsOpen() const { return m_Open; }

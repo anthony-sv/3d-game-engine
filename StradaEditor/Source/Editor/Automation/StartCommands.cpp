@@ -2,6 +2,8 @@
 
 #include "Editor/Automation/JsonSchema.h"
 #include "Editor/Automation/ProjectContentCommands.h"
+#include "Editor/Panels/AgentSetupDialog.h"
+#include "Editor/StartScreen/NewProjectDialog.h"
 
 #include "Strada/Core/FileSystem.h"
 
@@ -94,6 +96,27 @@ namespace Strada
 			}
 		}
 		return std::nullopt;
+	}
+
+	Result<EditorDialogOpening> DecideEditorDialogOpen(EditorDialog dialog, EditorDialogState const& state)
+	{
+		bool const newProject = dialog == EditorDialog::NewProject;
+		std::string_view const popup = newProject ? NewProjectDialog::PopupName : AgentSetupDialog::PopupName;
+		bool const shown = state.OpenModal == popup;
+		if (!state.OpenModal.empty() && !shown)
+		{
+			return MakeError("another dialog is open ({}): close it first", state.OpenModal);
+		}
+		bool const otherRequested = newProject ? state.AgentSetupRequested : state.NewProjectRequested;
+		if (otherRequested || state.OtherRequested)
+		{
+			return Error{"another dialog opens at the next frame: close it first"};
+		}
+		if (!newProject && !state.HasProject)
+		{
+			return Error{"no project is open: Set Up for Coding Agents sets the open project up"};
+		}
+		return shown ? EditorDialogOpening::KeepShown : EditorDialogOpening::OpenAtNextFrame;
 	}
 
 	Json DescribeRecentProjectInfo(RecentProjectInfo const& project)
@@ -193,7 +216,8 @@ namespace Strada
 			"closes it as its Cancel does (open false): new-project (File > New Project..., the New Project form: templates, "
 			"name, location, the setup for coding agents, the .gitignore) or agent-setup (File > Set Up for Coding Agents..., "
 			"what setting the open project up for coding agents would write). It opens at the next frame and changes nothing "
-			"else: project.create and project.setup-agents do the work. Returns { name, open }. Not an undo step. "
+			"else: project.create and project.setup-agents do the work; a dialog shown already stays as it is. Returns { name, "
+			"open }. Not an undo step. "
 			"InvalidOperation for agent-setup without an open project and while another dialog is open; Unavailable when the "
 			"editor has no window (headless).";
 		dialog.Parameters =

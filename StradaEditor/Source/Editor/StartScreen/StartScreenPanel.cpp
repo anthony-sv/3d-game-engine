@@ -91,7 +91,7 @@ namespace Strada
 		model.Refresh();
 		m_Form.Invalidate();
 		m_Examples.clear();
-		m_LastError.clear();
+		model.ClearError();
 		if (std::optional<ExampleCatalog> const& catalog = model.GetExamples())
 		{
 			for (ExampleEntry const& example : catalog->GetExamples())
@@ -101,14 +101,15 @@ namespace Strada
 		}
 	}
 
-	void StartScreenPanel::Report(Result<void> const& result, std::string_view doing)
+	void StartScreenPanel::Report(StartScreenModel& model, Result<void> const& result, std::string_view doing)
 	{
 		if (result)
 		{
 			return;
 		}
-		m_LastError = fmt::format("{}: {}", doing, result.GetError());
-		ST_ERROR("{}", m_LastError);
+		std::string message = fmt::format("{} failed: {}", doing, result.GetError());
+		ST_ERROR("{}", message);
+		model.ReportError(std::move(message));
 	}
 
 	void StartScreenPanel::OnImGuiRender(StartScreenModel& model, ExampleCopyTask& copies, StartScreenThumbnails* thumbnails,
@@ -154,12 +155,13 @@ namespace Strada
 
 		ImGuiStyle const& style = ImGui::GetStyle();
 		DrawHeader();
-		if (!m_LastError.empty())
+		if (std::string const& error = model.GetError(); !error.empty())
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text, GetStartScreenWarningColor());
-			TextEllipsis(m_LastError, std::max(ImGui::GetContentRegionAvail().x, 1.0f));
+			TextEllipsis(error, std::max(ImGui::GetContentRegionAvail().x, 1.0f));
 			ImGui::PopStyleColor();
-			ImGui::SetItemTooltip("%s", m_LastError.c_str());
+			RecordStartScreenItem(&m_Items, "Error", false);
+			ImGui::SetItemTooltip("%s", error.c_str());
 		}
 		ImGui::Spacing();
 
@@ -213,6 +215,9 @@ namespace Strada
 		DrawSectionTitle("Recent projects");
 		ImGuiStyle const& style = ImGui::GetStyle();
 		float const listHeight = std::max(ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight() - style.ItemSpacing.y, 1.0f);
+		// What the rows asked for, done once the list is drawn: opening a project that fails takes it off the list the loop
+		// reads (EditorLayer), and removing one does.
+		std::optional<std::filesystem::path> opened;
 		std::optional<std::filesystem::path> removed;
 		if (ImGui::BeginChild("##RecentList", ImVec2(0.0f, listHeight), ImGuiChildFlags_Borders))
 		{
@@ -241,20 +246,21 @@ namespace Strada
 				RecordStartScreenItem(&m_Items, "Recent:" + path, canOpen, rowMin, ImVec2(rowMin.x + rowWidth, rowMin.y + rowHeight));
 				if (clicked && canOpen && actions.OpenProject)
 				{
-					actions.OpenProject(project.File);
+					opened = project.File;
 				}
 				// Right after the row, whose item it opens over.
 				if (ImGui::BeginPopupContextItem("##RecentMenu"))
 				{
 					if (ImGui::MenuItem("Open", nullptr, false, canOpen) && actions.OpenProject)
 					{
-						actions.OpenProject(project.File);
+						opened = project.File;
 					}
 					RecordStartScreenItem(&m_Items, "Recent menu:Open", canOpen);
 					bool const canShow = project.State != RecentProjectState::Missing;
 					if (ImGui::MenuItem("Show in Folder", nullptr, false, canShow))
 					{
-						Report(model.ShowInFolder(project.File), "Showing the project's folder");
+						model.ClearError();
+						Report(model, model.ShowInFolder(project.File), "Showing the project's folder");
 					}
 					RecordStartScreenItem(&m_Items, "Recent menu:Show in Folder", canShow);
 					if (ImGui::MenuItem("Remove from List"))
@@ -298,12 +304,19 @@ namespace Strada
 		ImGui::EndChild();
 		if (removed)
 		{
-			Report(model.RemoveRecentProject(*removed), "Removing the project from the list");
+			model.ClearError();
+			Report(model, model.RemoveRecentProject(*removed), "Removing the project from the list");
+		}
+		if (opened)
+		{
+			model.ClearError();
+			actions.OpenProject(*opened);
 		}
 		bool const canBrowse = static_cast<bool>(actions.BrowseProject);
 		ImGui::BeginDisabled(!canBrowse);
 		if (ImGui::Button("Open Project...", ImVec2(-FLT_MIN, 0.0f)) && canBrowse)
 		{
+			model.ClearError();
 			actions.BrowseProject();
 		}
 		ImGui::EndDisabled();
@@ -351,6 +364,8 @@ namespace Strada
 			ImGui::PopTextWrapPos();
 			bool const copying = copies.IsRunning();
 			std::vector<ExampleEntry> const* const examples = catalog ? &catalog->GetExamples() : nullptr;
+			// Asked for by an Open, done once the list is drawn (as the recent projects' are).
+			std::optional<std::pair<ExampleEntry, std::filesystem::path>> opened;
 			std::vector<StartScreenCard> cards;
 			for (size_t index = 0; examples != nullptr && index < examples->size(); index++)
 			{
@@ -400,17 +415,19 @@ namespace Strada
 					ImGui::BeginDisabled(!enabled);
 					if (ImGui::Button("Open", ImVec2(buttonWidth, 0.0f)) && enabled)
 					{
-						m_LastError.clear();
-						if (std::optional<std::filesystem::path> const target = model.GetExampleCopyTarget(example))
+						model.ClearError();
+						if (std::optional<std::filesystem::path> target = model.GetExampleCopyTarget(example))
 						{
-							actions.OpenExample(example, *target);
+							opened.emplace(example, std::move(*target));
 						}
 						else
 						{
-							m_LastError =
+							std::string message =
 								fmt::format("{} cannot be copied: choose a location (a full path) in the New Project form, which the "
 							                "example is copied into",
 							                example.Name);
+							ST_WARN("{}", message);
+							model.ReportError(std::move(message));
 						}
 					}
 					ImGui::EndDisabled();
@@ -453,11 +470,15 @@ namespace Strada
 				}
 				ImGui::PopID();
 			}
+			if (opened)
+			{
+				actions.OpenExample(opened->first, opened->second);
+			}
 		}
 		ImGui::EndChild();
 	}
 
-	void StartScreenPanel::DrawLearn(StartScreenModel const& model)
+	void StartScreenPanel::DrawLearn(StartScreenModel& model)
 	{
 		ImGui::Spacing();
 		DrawSectionTitle("Learn");
@@ -470,7 +491,8 @@ namespace Strada
 		{
 			if (ImGui::TextLink(guide.Title.c_str()))
 			{
-				Report(model.OpenWithSystem(guide.File), "Opening the guide");
+				model.ClearError();
+				Report(model, model.OpenWithSystem(guide.File), "Opening the guide");
 			}
 			RecordStartScreenItem(&m_Items, "Guide:" + guide.Title, true);
 			ImGui::SetItemTooltip("%s", FileSystem::PathToUtf8(guide.File).c_str());

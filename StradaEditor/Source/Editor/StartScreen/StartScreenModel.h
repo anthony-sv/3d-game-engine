@@ -194,7 +194,19 @@ namespace Strada
 		// --- Visibility (the panel draws the screen while it is visible; a headless editor never shows it) ---
 
 		bool IsVisible() const { return m_Visible; }
-		void SetVisible(bool visible) { m_Visible = visible; }
+		// Hiding the screen clears its error line.
+		void SetVisible(bool visible);
+
+		// --- What failed (the screen's error line) ---
+
+		// An action of the screen failed (opening, creating or copying a project, Show in Folder, a guide, a dropped file): the
+		// message shows on the screen's error line until another replaces it, an action of the screen starts or the screen
+		// appears again. Kept only while the screen is visible: a hidden screen's failures are only in the log (the Console
+		// shows them). The caller logs it.
+		void ReportError(std::string message);
+		void ClearError() { m_Error.clear(); }
+		// The error line; empty when nothing failed.
+		std::string const& GetError() const { return m_Error; }
 
 		// --- Recent projects ---
 
@@ -260,6 +272,7 @@ namespace Strada
 		StartScreenServices m_Services;
 		RecentProjects m_RecentProjects;
 		bool m_Visible = false;
+		std::string m_Error;
 		NewProjectForm m_Form;
 		ProjectTemplateList m_Templates;
 		std::optional<ExampleCatalog> m_Examples;

@@ -1542,6 +1542,36 @@ TEST_CASE("SetMaterialCommand: a material edit names its material and records it
 	CHECK_FALSE(command.ModifiesScene());
 }
 
+TEST_CASE("EditorContext: the scene mark changes with the scene and with every change of it, and comes back when undoing to it")
+{
+	EditorContext context;
+	EditorOperations operations(context);
+	EditorSceneMark const start = context.GetSceneMark();
+	CHECK(context.GetSceneMark() == start);
+	EntityCreateInfo info;
+	info.Name = "Crate";
+	REQUIRE(operations.CreateEntity(info).IsOk());
+	EditorSceneMark const created = context.GetSceneMark();
+	CHECK(created != start);
+	REQUIRE(context.Undo().IsOk());
+	CHECK(context.GetSceneMark() == start);
+	REQUIRE(context.Redo().IsOk());
+	CHECK(context.GetSceneMark() == created);
+
+	// Undone and edited otherwise: as many steps as before, but another state.
+	REQUIRE(context.Undo().IsOk());
+	info.Name = "Barrel";
+	REQUIRE(operations.CreateEntity(info).IsOk());
+	CHECK(context.GetHistory().GetUndoCount() == 1);
+	CHECK(context.GetSceneMark() != created);
+	CHECK(context.GetSceneMark() != start);
+
+	// Another scene, with an empty history as the first had.
+	REQUIRE(operations.NewScene("Other").IsOk());
+	CHECK(context.GetSceneMark() != start);
+	CHECK(context.GetSceneMark().SceneVersion != start.SceneVersion);
+}
+
 TEST_CASE("CommandHistory: undo steps keep at most DefaultMaxMemory, the oldest dropped first, but the last MinStepsKept always stay")
 {
 	EditorContext context;

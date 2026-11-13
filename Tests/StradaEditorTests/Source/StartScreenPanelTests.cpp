@@ -4,6 +4,7 @@
 #include "TestUtilities.h"
 
 #include "Editor/Agents/AgentKit.h"
+#include "Editor/Automation/StartCommands.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorShortcuts.h"
 #include "Editor/ExampleCopyTask.h"
@@ -26,6 +27,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -588,23 +590,103 @@ TEST_CASE("StartScreenPanel: Open copies an example next to the form's location 
 	CHECK_FALSE(FileSystem::Exists(copy / "Tools"));
 	CHECK_FALSE(fixture.Model.IsVisible());
 
-	// Once more: the copy goes to "Tiny 2". While it copies, the card shows its progress and no other Open works.
+	// Once more: the copy goes to "Tiny 2". It runs until a frame completes it (ExampleCopyTask::Update, which only
+	// FinishCopy calls here): meanwhile the card shows its progress and Cancel, and no other Open works.
 	fixture.Model.SetVisible(true);
 	fixture.Frames();
 	fixture.Click("Example:tiny");
-	if (fixture.Copies.IsRunning())
-	{
-		fixture.Gui.Frame(fixture.Draw);
-		if (fixture.Copies.IsRunning())
-		{
-			CHECK(fixture.Find("Cancel copy") != nullptr);
-			CHECK_FALSE(fixture.Require("Example:fetched").Enabled);
-		}
-	}
+	REQUIRE(fixture.Copies.IsRunning());
+	CHECK(fixture.Require("Cancel copy").Visible);
+	CHECK(fixture.Find("Example:tiny") == nullptr);
+	CHECK_FALSE(fixture.Require("Example:fetched").Enabled);
 	fixture.FinishCopy();
 	REQUIRE(fixture.Context.GetProject() != nullptr);
-	CHECK(RecentProjects::NormalizePath(fixture.Context.GetProject()->GetFilePath()) ==
-	      RecentProjects::NormalizePath(fixture.Locations.DefaultProjectLocation / "Tiny 2" / "Tiny.sproj"));
+	std::filesystem::path const second = fixture.Locations.DefaultProjectLocation / "Tiny 2" / "Tiny.sproj";
+	CHECK(RecentProjects::NormalizePath(fixture.Context.GetProject()->GetFilePath()) == RecentProjects::NormalizePath(second));
+
+	// A third copy, cancelled from its card: it ends cancelled, leaves nothing behind and opens nothing; the screen stays.
+	fixture.Model.SetVisible(true);
+	fixture.Frames();
+	fixture.Click("Example:tiny");
+	REQUIRE(fixture.Copies.IsRunning());
+	fixture.Click("Cancel copy");
+	fixture.FinishCopy();
+	CHECK(fixture.Calls.back() == "CopyCancelled");
+	CHECK_FALSE(FileSystem::Exists(fixture.Locations.DefaultProjectLocation / "Tiny 3"));
+	REQUIRE(fixture.Context.GetProject() != nullptr);
+	CHECK(RecentProjects::NormalizePath(fixture.Context.GetProject()->GetFilePath()) == RecentProjects::NormalizePath(second));
+	CHECK(fixture.Model.IsVisible());
+	CHECK(fixture.Require("Example:tiny").Enabled);
+	CHECK(fixture.Find("Cancel copy") == nullptr);
+}
+
+TEST_CASE("StartScreenPanel: a recent project that no longer opens says why on the screen and leaves the list, from a click or its menu")
+{
+	ScreenFixture fixture;
+	std::filesystem::path const first = fixture.WriteProject("First");
+	std::filesystem::path const middle = fixture.WriteProject("Middle");
+	std::filesystem::path const last = fixture.WriteProject("Last");
+	// Listed most recent first: Last, Middle, First.
+	for (std::filesystem::path const& project : {first, middle, last})
+	{
+		fixture.Model.GetRecentProjects().Add(project);
+	}
+	// As EditorLayer::OpenProject: a project that does not open is reported on the screen, and taken off the list when its
+	// file is gone, while the screen draws the list (the screen opens it once the list is drawn).
+	fixture.Actions.OpenProject = [&fixture](std::filesystem::path const& projectFile)
+	{
+		fixture.Calls.emplace_back("OpenProject");
+		Result<std::vector<std::string>> const opened = fixture.Operations.OpenProject(projectFile);
+		if (opened)
+		{
+			CHECK(fixture.Model.OnProjectOpened(fixture.Context.GetProject()->GetFilePath()).IsOk());
+			return;
+		}
+		fixture.Model.ReportError(
+			fmt::format("Opening the project '{}' failed: {}", FileSystem::PathToUtf8(projectFile), opened.GetError()));
+		if (!FileSystem::Exists(projectFile))
+		{
+			CHECK(fixture.Model.RemoveRecentProject(projectFile).IsOk());
+		}
+	};
+	fixture.Frames();
+	CHECK(fixture.Find("Error") == nullptr);
+
+	// The files go after the screen read the list, which still offers them.
+	REQUIRE(FileSystem::RemoveAll(first.parent_path()).IsOk());
+	REQUIRE(FileSystem::RemoveAll(last.parent_path()).IsOk());
+	REQUIRE(fixture.Require(RecentItem(first)).Enabled);
+	REQUIRE(fixture.Require(RecentItem(last)).Enabled);
+
+	// The last row, clicked: the list loses it while the screen is still drawing its rows.
+	fixture.Click(RecentItem(first));
+	CHECK(fixture.Calls == std::vector<std::string>{"OpenProject"});
+	CHECK(fixture.Context.GetProject() == nullptr);
+	CHECK(fixture.Model.IsVisible());
+	CHECK(fixture.Find(RecentItem(first)) == nullptr);
+	CHECK(fixture.Find(RecentItem(middle)) != nullptr);
+	CHECK(fixture.Find(RecentItem(last)) != nullptr);
+	CHECK(fixture.Model.GetError().find("Opening the project") == 0);
+	CHECK(fixture.Require("Error").Visible);
+
+	// The first row, from its menu's Open: the row after it stays as it was.
+	fixture.Click(RecentItem(last), ImGuiMouseButton_Right);
+	fixture.Click("Recent menu:Open");
+	CHECK(fixture.Calls.size() == 2);
+	CHECK(fixture.Find(RecentItem(last)) == nullptr);
+	StartScreenItem const remaining = fixture.Require(RecentItem(middle));
+	CHECK(remaining.Enabled);
+	CHECK(remaining.Visible);
+	CHECK(fixture.Model.GetError().find("Last.sproj") != std::string::npos);
+	RecentProjects saved(fixture.Model.GetRecentProjects().GetFile());
+	REQUIRE(saved.Load().IsOk());
+	CHECK(saved.GetProjects() == std::vector<std::filesystem::path>{RecentProjects::NormalizePath(middle)});
+
+	// The next action starts without the old error, and the project that opens hides the screen.
+	fixture.Click(RecentItem(middle));
+	REQUIRE(fixture.Context.GetProject() != nullptr);
+	CHECK(fixture.Model.GetError().empty());
+	CHECK_FALSE(fixture.Model.IsVisible());
 }
 
 TEST_CASE("StartScreenPanel: Continue without a project hides the screen; the guides open with the system's handler")
@@ -629,6 +711,8 @@ namespace
 	struct ShortcutFixture
 	{
 		std::vector<std::string> Ran;
+		// The frames in which the debugger keys were read (they run every frame the shortcuts act).
+		int DebugKeyFrames = 0;
 		EditorShortcutActions Actions;
 
 		ShortcutFixture()
@@ -648,6 +732,10 @@ namespace
 			Actions.TogglePlay = record("TogglePlay");
 			Actions.TogglePause = record("TogglePause");
 			Actions.StepFrame = record("StepFrame");
+			Actions.DebugKeys = [this]
+			{
+				DebugKeyFrames++;
+			};
 		}
 
 		// Every global chord: the actions', then Undo, Redo and the editing keys.
@@ -665,10 +753,18 @@ namespace
 				ImGuiMod_Ctrl | ImGuiKey_Z,
 				ImGuiMod_Ctrl | ImGuiKey_Y,
 				ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z,
+				ImGuiMod_Ctrl | ImGuiKey_X,
+				ImGuiMod_Ctrl | ImGuiKey_C,
+				ImGuiMod_Ctrl | ImGuiKey_V,
 				ImGuiMod_Ctrl | ImGuiKey_D,
 				ImGuiKey_Delete,
 				ImGuiMod_Ctrl | ImGuiKey_Backspace,
 				ImGuiMod_Ctrl | ImGuiKey_A,
+				ImGuiKey_F5,
+				ImGuiKey_F10,
+				ImGuiKey_F11,
+				ImGuiMod_Ctrl | ImGuiKey_F11,
+				ImGuiMod_Shift | ImGuiKey_F11,
 			};
 			return s_Chords;
 		}
@@ -717,7 +813,8 @@ TEST_CASE("StartScreenPanel: while it shows, a click on a panel behind it and ev
 		fixture.Panel.OnImGuiRender(fixture.Model, fixture.Copies, nullptr, fixture.Actions);
 	};
 
-	// Without the screen: where a click selects the crate, and that every shortcut runs.
+	// Without the screen: where a click selects the crate, and that every shortcut runs. The crate is copied, so that a
+	// Paste behind the screen would have something to paste.
 	fixture.Model.SetVisible(false);
 	fixture.Frames();
 	std::optional<ImVec2> row;
@@ -730,24 +827,37 @@ TEST_CASE("StartScreenPanel: while it shows, a click on a panel behind it and ev
 		}
 	}
 	REQUIRE(row.has_value());
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_C, fixture.Draw);
+	CHECK(shortcuts.DebugKeyFrames > 0);
 	REQUIRE(fixture.Operations.Select({}).IsOk());
 
+	// With the screen: a click where the crate's row was selects nothing.
 	fixture.Model.SetVisible(true);
 	fixture.Frames();
+	int const debugKeyFrames = shortcuts.DebugKeyFrames;
 	SceneState const before = Capture(fixture.Context);
 	fixture.Gui.Click(*row, fixture.Draw);
 	fixture.Gui.MouseClick(*row, ImGuiMouseButton_Right, fixture.Draw);
+	CHECK(Capture(fixture.Context) == before);
+
+	// With the crate selected (as automation can), no key cuts, deletes, duplicates or pastes it, or acts otherwise; the
+	// debugger keys are not read.
+	std::array<UUID, 1> const crateOnly = {crate.GetValue()};
+	REQUIRE(fixture.Operations.Select(crateOnly).IsOk());
+	SceneState const selected = Capture(fixture.Context);
 	for (ImGuiKeyChord const chord : ShortcutFixture::GetChords())
 	{
 		CAPTURE(chord);
 		fixture.Gui.Chord(chord, fixture.Draw);
 	}
 	CHECK(shortcuts.Ran.empty());
-	CHECK(Capture(fixture.Context) == before);
+	CHECK(shortcuts.DebugKeyFrames == debugKeyFrames);
+	CHECK(Capture(fixture.Context) == selected);
 	CHECK(fixture.Model.IsVisible());
 
 	// Once it hides, the same keys act.
 	fixture.Click("Continue without a project");
+	CHECK(shortcuts.DebugKeyFrames > debugKeyFrames);
 	for (size_t index = 0; index < 8; index++)
 	{
 		fixture.Gui.Chord(ShortcutFixture::GetChords()[index], fixture.Draw);
@@ -791,21 +901,99 @@ TEST_CASE("StartScreenPanel: no global shortcut acts while a modal dialog is ope
 		fixture.Frames();
 		REQUIRE(ImGui::GetTopMostPopupModal() != nullptr);
 		SceneState const before = Capture(fixture.Context);
+		int const debugKeyFrames = shortcuts.DebugKeyFrames;
 		for (ImGuiKeyChord const chord : ShortcutFixture::GetChords())
 		{
 			CAPTURE(chord);
 			fixture.Gui.Chord(chord, fixture.Draw);
 		}
 		CHECK(shortcuts.Ran.empty());
+		CHECK(shortcuts.DebugKeyFrames == debugKeyFrames);
 		CHECK(Capture(fixture.Context) == before);
 		REQUIRE(ImGui::GetTopMostPopupModal() != nullptr);
 		fixture.Gui.Press(ImGuiKey_Escape, fixture.Draw);
 		fixture.Frames();
 		REQUIRE(ImGui::GetTopMostPopupModal() == nullptr);
 	}
-	// Without a dialog the shortcuts act again.
+	// Without a dialog the shortcuts act again, and the debugger keys are read.
+	int const debugKeyFrames = shortcuts.DebugKeyFrames;
 	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_N, fixture.Draw);
 	CHECK(shortcuts.Ran == std::vector<std::string>{"NewScene"});
+	CHECK(shortcuts.DebugKeyFrames > debugKeyFrames);
+}
+
+TEST_CASE("StartScreenPanel: editor.dialog keeps a dialog shown with its form, and opens neither dialog over the other")
+{
+	ScreenFixture fixture;
+	REQUIRE(fixture.Operations.CreateProject(fixture.Directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	fixture.Model.SetVisible(false);
+	NewProjectDialog newProject;
+	AgentSetupDialog agentSetup;
+	std::optional<AgentProject> const project = AgentProject{
+		fixture.Directory.GetPath() / "Game", "Game", FileSystem::PathToUtf8(fixture.Context.GetProject()->GetFilePath().filename())};
+	fixture.Draw = [&]
+	{
+		ScreenFixture::DrawMenuBar();
+		newProject.OnImGuiRender(fixture.Model, nullptr, fixture.Actions.Form);
+		agentSetup.OnImGuiRender(project, fixture.Locations.Layout, {});
+	};
+	// What EditorLayer::ShowDialog reads of the dialogs, as the last frame left them.
+	auto const readDialogs = [&]
+	{
+		EditorDialogState gathered;
+		ImGuiWindow const* const modal = ImGui::GetTopMostPopupModal();
+		gathered.OpenModal = modal != nullptr ? std::string(modal->Name) : std::string();
+		gathered.NewProjectRequested = newProject.IsOpenRequested();
+		gathered.AgentSetupRequested = agentSetup.IsOpenRequested();
+		gathered.HasProject = true;
+		return gathered;
+	};
+	fixture.Frames();
+
+	REQUIRE(DecideEditorDialogOpen(EditorDialog::NewProject, readDialogs()).GetValue() == EditorDialogOpening::OpenAtNextFrame);
+	newProject.Open();
+	// Asked to open at the next frame: the agent setup does not open with it.
+	Result<EditorDialogOpening> const requested = DecideEditorDialogOpen(EditorDialog::AgentSetup, readDialogs());
+	REQUIRE_FALSE(requested.IsOk());
+	CHECK(requested.GetError() == "another dialog opens at the next frame: close it first");
+	fixture.Frames();
+	REQUIRE(newProject.IsOpen());
+	fixture.Model.GetForm().Name = "Kept";
+
+	// Shown: the agent setup cannot open over it, and it stays as it is.
+	Result<EditorDialogOpening> const over = DecideEditorDialogOpen(EditorDialog::AgentSetup, readDialogs());
+	REQUIRE_FALSE(over.IsOk());
+	CHECK(over.GetError() == "another dialog is open (New Project): close it first");
+	CHECK(DecideEditorDialogOpen(EditorDialog::NewProject, readDialogs()).GetValue() == EditorDialogOpening::KeepShown);
+
+	// Closed and opened again before a frame (open false, then open true): it stays open, its form as the user left it.
+	newProject.Close();
+	REQUIRE(DecideEditorDialogOpen(EditorDialog::NewProject, readDialogs()).GetValue() == EditorDialogOpening::KeepShown);
+	newProject.KeepShown();
+	fixture.Frames();
+	CHECK(newProject.IsOpen());
+	CHECK(fixture.Model.GetForm().Name == "Kept");
+
+	// Closed alone, it closes; then the agent setup opens, and New Project cannot open over it.
+	newProject.Close();
+	fixture.Frames();
+	REQUIRE_FALSE(newProject.IsOpen());
+	REQUIRE(DecideEditorDialogOpen(EditorDialog::AgentSetup, readDialogs()).GetValue() == EditorDialogOpening::OpenAtNextFrame);
+	agentSetup.Open();
+	fixture.Frames();
+	REQUIRE(agentSetup.IsOpen());
+	Result<EditorDialogOpening> const underneath = DecideEditorDialogOpen(EditorDialog::NewProject, readDialogs());
+	REQUIRE_FALSE(underneath.IsOk());
+	CHECK(underneath.GetError() == "another dialog is open (Set Up for Coding Agents): close it first");
+	agentSetup.Close();
+	REQUIRE(DecideEditorDialogOpen(EditorDialog::AgentSetup, readDialogs()).GetValue() == EditorDialogOpening::KeepShown);
+	agentSetup.KeepShown();
+	fixture.Frames();
+	CHECK(agentSetup.IsOpen());
+	agentSetup.Close();
+	fixture.Frames();
+	CHECK_FALSE(agentSetup.IsOpen());
+	CHECK(ImGui::GetTopMostPopupModal() == nullptr);
 }
 
 TEST_CASE("StartScreenPanel: File > New Project... shows the same form with a project open, and creates from it")
