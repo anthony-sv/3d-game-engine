@@ -931,6 +931,10 @@ namespace Strada
 
 	Result<void> VisualScriptViewSettings::Save() const
 	{
+		if (m_File.empty())
+		{
+			return {};
+		}
 		return FileSystem::WriteTextFile(m_File, DumpJson(Serialize(m_Views)));
 	}
 

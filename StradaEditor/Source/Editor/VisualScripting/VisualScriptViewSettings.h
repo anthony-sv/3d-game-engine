@@ -200,7 +200,8 @@ namespace Strada
 		static constexpr float MinGamePreviewWidth = 0.15f;
 		static constexpr float MaxGamePreviewWidth = 0.6f;
 
-		// Starts with the defaults and no project; Load reads the file.
+		// Starts with the defaults and no project; Load reads the file. An empty file keeps the views in memory only: nothing
+		// is read or written.
 		explicit VisualScriptViewSettings(std::filesystem::path file);
 
 		std::filesystem::path const& GetFile() const { return m_File; }
@@ -213,7 +214,7 @@ namespace Strada
 		// directory renamed in letter case only, finds its entry), and a later entry of the same file is skipped with a
 		// warning. Returns the warnings, which the caller logs: a file this class wrote has none.
 		[[nodiscard]] std::vector<std::string> Load();
-		// Writes the file atomically, creating its directory.
+		// Writes the file atomically, creating its directory; does nothing without a file.
 		[[nodiscard]] Result<void> Save() const;
 
 		VisualScriptViews const& GetViews() const { return m_Views; }

@@ -64,6 +64,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EditorExport.h
     Source/Editor/EditorLayer.cpp
     Source/Editor/EditorLayer.h
+    Source/Editor/EditorLocations.cpp
+    Source/Editor/EditorLocations.h
     Source/Editor/EditorOperations.cpp
     Source/Editor/EditorOperations.h
     Source/Editor/EditorScripts.cpp

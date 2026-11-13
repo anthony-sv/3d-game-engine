@@ -14,6 +14,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/CrashHandler.cpp
     Source/Strada/Core/CrashHandler.h
     Source/Strada/Core/EmbeddedResources.h
+    Source/Strada/Core/EngineLayout.cpp
+    Source/Strada/Core/EngineLayout.h
     Source/Strada/Core/EntryPoint.cpp
     Source/Strada/Core/EntryPoint.h
     Source/Strada/Core/Events/ApplicationEvent.cpp

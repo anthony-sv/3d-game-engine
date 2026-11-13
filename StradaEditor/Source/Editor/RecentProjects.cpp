@@ -69,6 +69,10 @@ namespace Strada
 
 	Result<void> RecentProjects::Save() const
 	{
+		if (m_File.empty())
+		{
+			return {};
+		}
 		Json projects = Json::array();
 		for (std::filesystem::path const& project : m_Projects)
 		{

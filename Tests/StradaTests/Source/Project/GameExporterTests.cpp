@@ -1,6 +1,7 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Core/EngineLayout.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Project/GameExporter.h"
 #include "Strada/Project/Project.h"
@@ -232,6 +233,29 @@ TEST_CASE("GameExporter: games whose only scripts are visual scripts ship the sc
 	settings.Project.ScriptModule = "Scripts/Binaries/Game.dll";
 	fixture.Export(settings);
 	CheckGameDirectory(fixture.GetOutputDirectory());
+}
+
+TEST_CASE("GameExporter: games never ship the build tree's engine marker")
+{
+	// A build tree's engine folder holds engine.json (EngineLayout), which names the checkout: a game has no use for it.
+	ExportFixture fixture;
+	Write(fixture.GetEngineDirectory() / EngineLayout::ManifestFileName,
+	      R"({ "Strada": { "Version": 1, "Type": "EngineManifest" }, "Content": "C:/Dev/Strada" })");
+	for (ExportPlatform const platform : {ExportPlatform::Windows, ExportPlatform::Linux, ExportPlatform::MacOS})
+	{
+		CAPTURE(static_cast<int>(platform));
+		fixture.Export(fixture.MakeSettings(platform));
+		std::error_code errorCode;
+		int files = 0;
+		for (std::filesystem::directory_entry const& entry :
+		     std::filesystem::recursive_directory_iterator(fixture.GetOutputDirectory(), errorCode))
+		{
+			files++;
+			CHECK(entry.path().filename() != EngineLayout::ManifestFileName);
+		}
+		CHECK_FALSE(errorCode);
+		CHECK(files > 0);
+	}
 }
 
 TEST_CASE("GameExporter: exports that cannot finish leave the earlier game and no partial one")

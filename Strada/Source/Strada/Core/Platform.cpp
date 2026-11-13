@@ -1,15 +1,21 @@
 #include "stpch.h"
 #include "Strada/Core/Platform.h"
 
+#include "Strada/Core/FileSystem.h"
+
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
+#include <utility>
 
 #if defined(ST_PLATFORM_WINDOWS)
 #include <Windows.h>
 #include <objbase.h>
 #include <shellapi.h>
+
+// Needs Windows.h first.
+#include <ShlObj.h>
 #elif defined(ST_PLATFORM_LINUX)
 #include <signal.h>
 #include <unistd.h>
@@ -23,9 +29,107 @@
 
 namespace Strada
 {
-#if defined(ST_PLATFORM_WINDOWS)
 	namespace
 	{
+		// "/home/ana/Documents/" and "/home/ana/Documents" name one folder.
+		std::filesystem::path WithoutTrailingSeparator(std::filesystem::path const& path)
+		{
+			std::filesystem::path normal = path.lexically_normal();
+			if (!normal.has_filename() && normal.has_relative_path())
+			{
+				normal = normal.parent_path();
+			}
+			return normal;
+		}
+
+		// One line of user-dirs.dirs: the folder it gives the key, or nothing when it is about another key or not valid.
+		std::optional<std::filesystem::path> ParseUserDirectoryLine(std::string_view line, std::string_view key,
+		                                                            std::filesystem::path const& home)
+		{
+			auto const skipBlanks = [&line]
+			{
+				while (!line.empty() && (line.front() == ' ' || line.front() == '\t'))
+				{
+					line.remove_prefix(1);
+				}
+			};
+			skipBlanks();
+			if (!line.starts_with(key))
+			{
+				return std::nullopt;
+			}
+			line.remove_prefix(key.size());
+			skipBlanks();
+			if (!line.starts_with('='))
+			{
+				return std::nullopt;
+			}
+			line.remove_prefix(1);
+			skipBlanks();
+			if (!line.starts_with('"'))
+			{
+				return std::nullopt;
+			}
+			line.remove_prefix(1);
+
+			constexpr std::string_view HomeVariable = "$HOME";
+			bool const underHome = line.starts_with(HomeVariable);
+			if (underHome)
+			{
+				line.remove_prefix(HomeVariable.size());
+				if (!line.starts_with('/') && !line.starts_with('"'))
+				{
+					return std::nullopt;
+				}
+			}
+			else if (!line.starts_with('/'))
+			{
+				return std::nullopt;
+			}
+
+			std::string value;
+			bool closed = false;
+			while (!line.empty())
+			{
+				char character = line.front();
+				line.remove_prefix(1);
+				if (character == '"')
+				{
+					closed = true;
+					break;
+				}
+				if (character == '\\' && !line.empty())
+				{
+					character = line.front();
+					line.remove_prefix(1);
+				}
+				if (static_cast<unsigned char>(character) < 0x20)
+				{
+					return std::nullopt;
+				}
+				value.push_back(character);
+			}
+			skipBlanks();
+			if (!closed || !line.empty())
+			{
+				return std::nullopt;
+			}
+
+			if (underHome)
+			{
+				if (home.empty())
+				{
+					return std::nullopt;
+				}
+				// "$HOME", "$HOME/" and "$HOME//Documents/" name folders below home (never the root a leading '/' would).
+				size_t const start = value.find_first_not_of('/');
+				std::string_view const relative = start == std::string::npos ? std::string_view() : std::string_view(value).substr(start);
+				return WithoutTrailingSeparator(relative.empty() ? home : home / FileSystem::PathFromUtf8(relative));
+			}
+			return WithoutTrailingSeparator(FileSystem::PathFromUtf8(value));
+		}
+
+#if defined(ST_PLATFORM_WINDOWS)
 		std::string WideToUtf8(std::wstring_view text)
 		{
 			if (text.empty())
@@ -41,8 +145,8 @@ namespace Strada
 			}
 			return utf8;
 		}
-	}
 #endif
+	}
 
 	bool Platform::IsDebuggerAttached()
 	{
@@ -192,5 +296,82 @@ namespace Strada
 #if !defined(ST_PLATFORM_WINDOWS)
 		::signal(SIGPIPE, SIG_IGN);
 #endif
+	}
+
+	std::optional<std::filesystem::path> Platform::GetDocumentsDirectory()
+	{
+#if defined(ST_PLATFORM_WINDOWS)
+		PWSTR folder = nullptr;
+		HRESULT const result = ::SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_DEFAULT, nullptr, &folder);
+		std::optional<std::filesystem::path> documents;
+		if (SUCCEEDED(result) && folder != nullptr)
+		{
+			documents = std::filesystem::path(std::wstring(folder));
+		}
+		// Freed whether or not the call succeeded, as SHGetKnownFolderPath requires.
+		::CoTaskMemFree(folder);
+		return documents;
+#else
+		std::optional<std::string> const home = ReadEnvironmentVariable("HOME");
+		std::filesystem::path const homeDirectory = home && !home->empty() ? FileSystem::PathFromUtf8(*home) : std::filesystem::path();
+#if defined(ST_PLATFORM_LINUX)
+		// xdg-user-dirs keeps the folder's name in the user's language there; XDG_CONFIG_HOME counts only when absolute.
+		std::filesystem::path configDirectory;
+		if (std::optional<std::string> const configHome = ReadEnvironmentVariable("XDG_CONFIG_HOME");
+		    configHome && FileSystem::PathFromUtf8(*configHome).is_absolute())
+		{
+			configDirectory = FileSystem::PathFromUtf8(*configHome);
+		}
+		else if (!homeDirectory.empty())
+		{
+			configDirectory = homeDirectory / ".config";
+		}
+		if (!configDirectory.empty())
+		{
+			std::filesystem::path const file = configDirectory / "user-dirs.dirs";
+			if (FileSystem::IsRegularFile(file))
+			{
+				Result<std::string> const text = FileSystem::ReadTextFile(file);
+				std::optional<std::filesystem::path> documents =
+					text ? ParseUserDirectory(text.GetValue(), "XDG_DOCUMENTS_DIR", homeDirectory) : std::nullopt;
+				if (documents)
+				{
+					return documents;
+				}
+			}
+		}
+#endif
+		if (homeDirectory.empty())
+		{
+			return std::nullopt;
+		}
+		return homeDirectory / "Documents";
+#endif
+	}
+
+	std::optional<std::filesystem::path> Platform::ParseUserDirectory(std::string_view text, std::string_view key,
+	                                                                  std::filesystem::path const& home)
+	{
+		if (key.empty())
+		{
+			return std::nullopt;
+		}
+		std::optional<std::filesystem::path> directory;
+		while (!text.empty())
+		{
+			size_t const end = text.find('\n');
+			std::string_view line = text.substr(0, end);
+			text.remove_prefix(end == std::string_view::npos ? text.size() : end + 1);
+			if (line.ends_with('\r'))
+			{
+				line.remove_suffix(1);
+			}
+			// Later lines win, as they do for the shell that sources the file.
+			if (std::optional<std::filesystem::path> parsed = ParseUserDirectoryLine(line, key, home))
+			{
+				directory = std::move(parsed);
+			}
+		}
+		return directory;
 	}
 }

@@ -58,7 +58,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 │   ├── ScriptCoreTests/                              C# unit tests (math, API coverage, the visual script VM)
 │   ├── StradaToolTests/                              C# tests of strada (MCP server, sessions with the headless editor)
 │   ├── TestScripts/                                  C# script assembly used by C++ scripting tests
-│   └── Data/                                         Test assets, visual script documents and golden images
+│   └── Data/                                         Test assets, visual script documents, golden images, engine content
 ├── Projects/FeatureTest/                             Project whose scene exercises every feature and the whole script API
 ├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
 ├── Projects/Showcase/                                Showcase of every feature (exhibits, camera tour, Poly Haven assets)
@@ -69,6 +69,25 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 
 Build output: `build/<preset>/bin/` contains every executable, `Strada.ScriptCore.dll` and the `strada` tool. Fonts
 and other binary resources are compiled into the binaries (`cmake/StradaResources.cmake`, `EmbeddedResources`).
+Beside the executables CMake writes the build-tree marker `engine.json` (`cmake/StradaEngineManifest.cmake`, §7.3),
+which names the checkout: `EngineLayout` (`Strada/Core/EngineLayout.h`) reads the engine content (`EngineContent`:
+templates, examples, guides, the agent kit, the game-making skill) from the checkout while an executable runs from the
+build tree, and from the resources directory (the executable's folder, `Contents/Resources` in a macOS bundle)
+otherwise:
+
+| `EngineContent` | Source tree (C = the checkout) | Otherwise (R = the resources directory) |
+|---|---|---|
+| Templates | `C/Templates` | `R/Templates` |
+| Examples | `C/Projects` | `R/Examples` |
+| Docs | `C/Docs` | `R/Docs` |
+| AgentKit | `C/Agents` | `R/Agents` |
+| MakeGameSkill | `C/.claude/skills/strada-make-game` | `R/Agents/skills/strada-make-game` |
+
+`EngineLayout::Resolve(executablePath)` is pure (tests resolve fake trees, and `Tests/Data/FrontDoor/Content` is a tiny
+tree of the right-hand layout); `EngineLayout::Get()` is the process's, resolved once and readable from any thread, and
+the entry point logs what was wrong with its marker after `Log::Init`. The files exports take from beside the
+executables (the player, the scripting API, `Redist/`, the Vulkan files of macOS bundles) are not engine content: they
+are looked up beside the executables.
 
 ## 4. Engine library modules (`Strada/Source/Strada/`)
 
@@ -81,11 +100,13 @@ Core ← Math ← Serialization ← Platform ← RHI ← Asset ← Renderer ← 
 
 `Scene` sits on top: it owns the ECS and drives the physics/audio/script runtimes and submits to the renderer.
 Physics, Audio and Script read component data through `Scene`/`Entity` forward declarations, never the reverse
-through includes of `Scene.h` in headers.
+through includes of `Scene.h` in headers. Two Core translation units reach to the right, never their headers:
+`Application.cpp` starts the subsystems above Core, and `EngineLayout.cpp` reads its marker with Serialization's file
+header functions, as every Strada file is read.
 
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
-| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries, images, embedded resources, command line | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `Image`, `Result<T>` |
+| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>` |
 | Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum` |
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
@@ -540,6 +561,12 @@ of the project and its exported games). Invalid entries are skipped with warning
 would break references).
 
 Material (`.smat`): `"Material": { <MaterialAsset fields> }`; missing fields keep their defaults.
+
+Engine marker (`engine.json` beside a build tree's executables, written by CMake, never shipped in a game):
+`{ "Strada": { "Version": 1, "Type": "EngineManifest" }, "Content": "<the checkout, absolute, forward slashes>" }`.
+`Content` is optional and unknown members are ignored. A marker that cannot be read, is larger than 64 KiB, is not
+JSON, has another type or a newer version, or whose `Content` is not a string naming an existing directory by an
+absolute path makes the layout not a source tree, with one warning; reading it never throws or asserts.
 
 Visual script (`.sgraph`, `VisualScriptSerializer`; `Tests/Data/VisualScripting/Example.sgraph` is the writer's golden
 file):
@@ -1673,9 +1700,18 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   directly, and `ui.layout` tells where the UI's elements and buttons are in the game view.
 - Project management: File > New Project (name and location; the start scene is the editor's sample scene),
   Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
-  command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
-  matrix); they are saved to the project file when an edit ends and are not part of the scene's undo history. Scenes
-  saved inside the asset directory are registered as assets. Without a project the editor works on loose scene files.
+  command line. The folders the editor works with besides the open project are its `EditorLocations`
+  (`Editor/EditorLocations.h`): the engine's `EngineLayout`, the user data directory `<user data>/Editor` (recent
+  projects, graph views; empty: nothing is persisted) and the default location of new projects,
+  `<Documents>/Strada Projects` (`Platform::GetDocumentsDirectory`; nothing creates it but a project created in it).
+  `EditorLocations::FromProcess()` is the editor's only reader of the process's layout, user data and Documents folders
+  (besides it, the entry point resolves the layout once at startup to log its warnings); the editor layer builds its
+  locations once (`EditorLayerSpecification::Locations` injects others) and hands them to the commands
+  (`EditorCommandEnvironment::Locations`, which names no folder when default-constructed). Tests pass folders inside
+  their temporary directory and the test content (`Testing::MakeEditorLocations`). The Project Settings panel edits the
+  settings (generated like the inspector, with a layer collision matrix); they are saved to the project file when an
+  edit ends and are not part of the scene's undo history. Scenes saved inside the asset directory are registered as
+  assets. Without a project the editor works on loose scene files.
 - Scripts (`EditorScripts`): the project's C# project is kept pointing at this engine; Scripts > New Script and the
   content browser's "+" > C# Script create a class from the template in the script folder the browser shows (else in
   `Scripts/Source`) and show it there, C# sources imported into the browser are copied into a folder of

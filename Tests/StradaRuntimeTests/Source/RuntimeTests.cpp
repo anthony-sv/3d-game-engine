@@ -5,6 +5,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/EngineLayout.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Platform/Process.h"
@@ -56,6 +57,19 @@ namespace
 	{
 		return text.find(part) != std::string_view::npos;
 	}
+
+	size_t CountOccurrences(std::string_view text, std::string_view part)
+	{
+		size_t count = 0;
+		for (size_t found = text.find(part); found != std::string_view::npos; found = text.find(part, found + part.size()))
+		{
+			++count;
+		}
+		return count;
+	}
+
+	// What every application logs at startup about the engine marker beside it (Strada/Core/EntryPoint.cpp).
+	constexpr std::string_view EngineLayoutWarning = "Engine layout: ";
 
 	// The test run's summary in a player's output ("Tests passed: <checks> checks in <frames> frames"); empty without one.
 	std::string_view TestSummary(std::string_view output)
@@ -662,6 +676,53 @@ TEST_CASE("Runtime: exported games run from their own directory")
 	CAPTURE(failed.Output);
 	CHECK(failed.ExitCode == 1);
 	CHECK(Contains(failed.Output, "Tests failed: 1 of 2 checks failed"));
+}
+
+TEST_CASE("Runtime: players tell once at startup what is wrong with the engine marker beside them, and still run")
+{
+	// The build tree's marker names this checkout: nothing to tell.
+	ProcessResult const help = RunPlayer({"--help"});
+	CAPTURE(help.Output);
+	CHECK(help.ExitCode == 0);
+	CHECK_FALSE(Contains(help.Output, EngineLayoutWarning));
+
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path player;
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> created = Project::Create(directory.GetPath() / "Project", "Marker Test", *MakeScene("Main", std::nullopt));
+		REQUIRE(created.IsOk());
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*created.GetValue(), directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		if (player.extension() == ".app")
+		{
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+	}
+
+	// An exported game carries no marker: nothing to tell.
+	ProcessResult const plain = RunProgram(player, {"--headless", "--frames", "2"});
+	CAPTURE(plain.Output);
+	CHECK(plain.ExitCode == 0);
+	CHECK_FALSE(Contains(plain.Output, EngineLayoutWarning));
+
+	// A damaged marker where the player reads one (Contents/Resources of a macOS bundle) is told once, and the game runs.
+	std::filesystem::path resources = player.parent_path();
+	if (resources.filename() == "MacOS")
+	{
+		resources = resources.parent_path() / "Resources";
+	}
+	REQUIRE(FileSystem::CreateDirectories(resources).IsOk());
+	REQUIRE(FileSystem::WriteTextFile(resources / EngineLayout::ManifestFileName, "{ \"Strada\": ").IsOk());
+	ProcessResult const damaged = RunProgram(player, {"--headless", "--frames", "2"});
+	CAPTURE(damaged.Output);
+	CHECK(damaged.ExitCode == 0);
+	CHECK(CountOccurrences(damaged.Output, EngineLayoutWarning) == 1);
+	CHECK(Contains(damaged.Output, std::string(EngineLayout::ManifestFileName) + "' is ignored: "));
 }
 
 TEST_CASE("Runtime: projects whose only scripts are visual scripts run them without a C# project")
