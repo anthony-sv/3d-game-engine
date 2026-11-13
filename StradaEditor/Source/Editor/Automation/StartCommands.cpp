@@ -129,7 +129,8 @@ namespace Strada
 			"The recent projects the start screen and File > Recent Projects list, most recent first, read now: { projects: [{ "
 			"name, path, state (Ok, Missing: the file is gone, or Unreadable: it does not read as a project file) }] }. remove "
 			"takes a project file off the list (any spelling of its path; one that is not listed changes nothing) and clear "
-			"empties it; the list is saved in the editor's user data. Not an undo step. InvalidParams when both are given.";
+			"empties it; the list is saved in the editor's user data. Not an undo step. InvalidParams when both are given; "
+			"FileError when the list cannot be saved.";
 		recent.Parameters = SchemaBuilder::Object()
 		                        .Property("remove", SchemaBuilder::String("A project file to take off the list").MinLength(1))
 		                        .Property("clear", SchemaBuilder::Boolean("Empty the list").Default(false))

@@ -150,7 +150,8 @@ TEST_CASE("ProjectCreateParameters: names and directories with separators and re
 			CHECK(file.parent_path().lexically_normal() == target.lexically_normal());
 			CHECK(result.GetValue()["project"]["name"] == name);
 			// Set up for coding agents (the default) under any name: the kit wrote its files in the directory.
-			Json const& agents = result.GetValue()["agents"];
+			Json const& created = result.GetValue();
+			Json const& agents = created["agents"];
 			REQUIRE(agents.is_object());
 			CHECK_FALSE(agents["files"].empty());
 			for (Json const& written : agents["files"])
