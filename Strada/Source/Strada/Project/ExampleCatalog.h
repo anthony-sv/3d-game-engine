@@ -42,7 +42,8 @@ namespace Strada
 	//                     "Needs": { "Paths": ["Assets/Models"], "Hint": "Run: ..." } } ] }
 	//
 	// Id, Name, Order, Directory and ProjectFile are required; Id, Name, Description and Order follow template.json's limits
-	// (ProjectContent). Unknown members are ignored. Thread-safe: a catalog is a value.
+	// (ProjectContent); ProjectFile and the needed paths do not lie where a copy leaves files out (ProjectCopy::IsExcluded),
+	// since an example is only ever opened as a copy. Unknown members are ignored. Thread-safe: a catalog is a value.
 	class ExampleCatalog
 	{
 	public:

@@ -584,11 +584,11 @@ Example catalog (`Projects/catalog.json` in a source tree, `Examples/catalog.jso
 `{ "Strada": { "Version": 1, "Type": "ExampleCatalog" }, "Examples": [ { "Id", "Name", "Order", "Description",
 "Directory", "ProjectFile", "Thumbnail", "Requires": { "Sdk" }, "Needs": { "Paths", "Hint" } } ] }` with the template's
 limits; `Directory` and `Thumbnail` lie under the catalog's folder, `ProjectFile` and the needed paths (at most 16, the
-hint at most 400 bytes) under the example's. An example is available when its project file and every needed path exist
-(the Showcase needs the assets `Tools/FetchAssets.py` downloads). A damaged entry, or a repeated id, is left out with a
-warning; a damaged catalog is an error. Examples are only ever opened as copies, without the example's root `.gitignore`
-(the engine repository's: the Showcase's ignores the assets its fetch script downloads, which a copy has and cannot
-fetch).
+hint at most 400 bytes) under the example's, outside what the copy filter leaves out. An example is available when its
+project file and every needed path exist (the Showcase needs the assets `Tools/FetchAssets.py` downloads). A damaged
+entry, or a repeated id, is left out with a warning; a damaged catalog is an error. Examples are only ever opened as
+copies, without the example's root `.gitignore` (the engine repository's: the Showcase's ignores the assets its fetch
+script downloads, which a copy has and cannot fetch).
 
 The project copy filter (`ProjectCopy`), which templates and examples share, copies a project into a new or empty
 directory without `Tools/`, `Build/`, `.strada/`, `.git/`, `Scripts/bin/`, `Scripts/obj/`, `Scripts/Binaries/`,

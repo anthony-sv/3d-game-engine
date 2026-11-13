@@ -3,6 +3,7 @@
 
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Project/Project.h"
+#include "Strada/Project/ProjectCopy.h"
 #include "Strada/Project/ProjectTemplate.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
@@ -141,6 +142,12 @@ namespace Strada
 			{
 				return MakeError("ProjectFile: '{}' is not a project file (.sproj)", projectFile.GetValue());
 			}
+			// The example is only ever opened as a copy, which would lack it.
+			if (ProjectCopy::IsExcluded(projectFile.GetValue()))
+			{
+				return MakeError("ProjectFile: '{}' lies where a copy of the example leaves files out (tools, build output)",
+				                 projectFile.GetValue());
+			}
 			example.ProjectFile = projectFile.TakeValue();
 			Result<std::string> thumbnail = ReadPath(json, "Thumbnail", false);
 			if (!thumbnail)
@@ -171,6 +178,11 @@ namespace Strada
 						if (!checked)
 						{
 							return Error{checked.GetError()};
+						}
+						// What the copy needs, so nothing the copy filter leaves out.
+						if (ProjectCopy::IsExcluded(checked.GetValue()))
+						{
+							return MakeError("Needs.Paths: '{}' lies where a copy of the example leaves files out", checked.GetValue());
 						}
 						example.NeedsPaths.push_back(checked.TakeValue());
 					}

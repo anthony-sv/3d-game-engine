@@ -151,6 +151,18 @@ TEST_CASE("ExampleCatalog: damaged entries are left out with a warning; a damage
 		},
 		[](Json& entry)
 		{
+			entry["ProjectFile"] = "Tools/Tiny.sproj";
+		},
+		[](Json& entry)
+		{
+			entry["ProjectFile"] = "Scripts/bin/Tiny.sproj";
+		},
+		[](Json& entry)
+		{
+			entry["Needs"] = Json::object({{"Paths", Json::array({"Tools/FetchAssets.py"})}});
+		},
+		[](Json& entry)
+		{
 			entry["Thumbnail"] = "C:/Thumbnails/tiny.png";
 		},
 		[](Json& entry)
