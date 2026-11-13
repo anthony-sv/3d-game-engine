@@ -54,11 +54,12 @@ TEST_CASE("EngineLayout: damaged markers are ignored or name a checkout, and the
 		EngineLayout const& layout = resolved.GetValue();
 		CHECK(layout.GetWarnings().size() <= 1);
 		CHECK(layout.GetResourcesDirectory().lexically_normal() == bin.lexically_normal());
-		std::filesystem::path const root = layout.IsSourceTree() ? checkout : bin;
+		std::filesystem::path const root = layout.IsSourceTree() ? layout.GetSourceDirectory() : bin;
 		if (layout.IsSourceTree())
 		{
+			// A changed byte may spell the checkout another way the file system takes (a letter's case, a separator).
 			CHECK(layout.GetWarnings().empty());
-			CHECK(FileSystem::IsDirectory(layout.GetSourceDirectory()));
+			CHECK(FileSystem::GetStoredSpelling(layout.GetSourceDirectory()) == FileSystem::GetStoredSpelling(checkout));
 			sourceTrees++;
 		}
 		else

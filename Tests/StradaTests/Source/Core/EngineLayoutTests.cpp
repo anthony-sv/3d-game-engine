@@ -105,6 +105,22 @@ TEST_CASE("EngineLayout: a build tree's marker names the checkout the content is
 	EngineLayout const trailing = Resolve(bin / "StradaEditor.exe");
 	CHECK(trailing.GetWarnings().empty());
 	CheckSourceContent(trailing, checkout);
+
+	// The checkout under another spelling the file system takes is the checkout, spelled as the marker spells it.
+	std::string spelled = FileSystem::PathToUtf8(checkout);
+	spelled.back() = spelled.back() == 't' ? 'T' : 't';
+	Write(bin / EngineLayout::ManifestFileName, DumpJson(MakeManifest(spelled)));
+	EngineLayout const respelled = Resolve(bin / "StradaEditor.exe");
+	if (FileSystem::IsDirectory(FileSystem::PathFromUtf8(spelled)))
+	{
+		CHECK(respelled.IsSourceTree());
+		CHECK(FileSystem::GetStoredSpelling(respelled.GetSourceDirectory()) == FileSystem::GetStoredSpelling(checkout));
+	}
+	else
+	{
+		CheckInstalledContent(respelled, bin);
+		CHECK(respelled.GetWarnings().size() == 1);
+	}
 }
 
 TEST_CASE("EngineLayout: without a marker the content lies beside the executable")
