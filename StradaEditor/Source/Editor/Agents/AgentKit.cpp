@@ -145,11 +145,6 @@ namespace Strada
 			return result;
 		}
 
-		bool IsBlank(std::string_view text)
-		{
-			return text.find_first_not_of(" \t\r\n") == std::string_view::npos;
-		}
-
 		std::string_view Trim(std::string_view text)
 		{
 			constexpr std::string_view Blank = " \t\r";
@@ -515,29 +510,25 @@ namespace Strada
 				entry.NewPart = DumpJsonWithStyle(wanted, JsonStyle{}) + "\n";
 				return;
 			}
-			Json document = Json::object();
-			JsonStyle style;
-			if (!IsBlank(file.Text))
+			// An empty file is no JSON object either: Damaged, as every file that is not one.
+			Result<Json> parsed = ParseJson(file.Text);
+			if (!parsed)
 			{
-				Result<Json> parsed = ParseJson(file.Text);
-				if (!parsed)
-				{
-					entry.State = AgentFileState::Damaged;
-					entry.Problem = parsed.GetError();
-					return;
-				}
-				document = parsed.TakeValue();
-				if (!document.is_object())
-				{
-					entry.State = AgentFileState::Damaged;
-					entry.Problem = "it is not a JSON object";
-					return;
-				}
-				style = DetectJsonStyle(file.Text);
-				if (style.Indent < 0 && document.empty())
-				{
-					style = JsonStyle{};
-				}
+				entry.State = AgentFileState::Damaged;
+				entry.Problem = parsed.GetError();
+				return;
+			}
+			Json document = parsed.TakeValue();
+			if (!document.is_object())
+			{
+				entry.State = AgentFileState::Damaged;
+				entry.Problem = "it is not a JSON object";
+				return;
+			}
+			JsonStyle style = DetectJsonStyle(file.Text);
+			if (style.Indent < 0 && document.empty())
+			{
+				style = JsonStyle{};
 			}
 			auto const servers = document.find("mcpServers");
 			if (servers != document.end() && !servers->is_object())

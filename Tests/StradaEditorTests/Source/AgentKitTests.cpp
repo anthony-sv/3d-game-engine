@@ -405,9 +405,9 @@ TEST_CASE("AgentKit: .mcp.json gets its strada entry merged, with every other se
 		fixture.Write(".mcp.json", R"({"mcpServers": {"strada": {"args": ["mcp", "--project", "Orb Run.sproj"], "command": "strada"}}})");
 		CHECK(fixture.States()[".mcp.json"] == AgentFileState::Current);
 	}
-	SUBCASE("an empty file or object gets the entry")
+	SUBCASE("an empty object gets the entry")
 	{
-		for (std::string_view const text : {"", "  \n", "{}", "{\"mcpServers\": {}}"})
+		for (std::string_view const text : {"{}", "{\"mcpServers\": {}}"})
 		{
 			CAPTURE(text);
 			KitFixture fixture;
@@ -418,10 +418,11 @@ TEST_CASE("AgentKit: .mcp.json gets its strada entry merged, with every other se
 			CHECK(fixture.States()[".mcp.json"] == AgentFileState::Current);
 		}
 	}
-	SUBCASE("comments, trailing commas, arrays and servers that are no object make it Damaged, never rewritten")
+	SUBCASE("empty files, comments, trailing commas, arrays and servers that are no object make it Damaged, never rewritten")
 	{
-		for (std::string_view const text : {"{\n  // mine\n  \"mcpServers\": {}\n}\n", "{\"mcpServers\": {\"a\": {\"command\": \"a\"},}}",
-		                                    "[]", "[{\"mcpServers\": {}}]", "{\"mcpServers\": []}", "\"text\"", "{\"mcpServers\": {"})
+		for (std::string_view const text :
+		     {"", "  \n", "{\n  // mine\n  \"mcpServers\": {}\n}\n", "{\"mcpServers\": {\"a\": {\"command\": \"a\"},}}", "[]",
+		      "[{\"mcpServers\": {}}]", "{\"mcpServers\": []}", "\"text\"", "{\"mcpServers\": {"})
 		{
 			CAPTURE(text);
 			KitFixture fixture;
@@ -813,12 +814,19 @@ TEST_CASE("AgentKit: damaged .mcp.json, AGENTS.md and state files never crash th
 			WriteFile(project.Directory / FileSystem::PathFromUtf8(relative), text);
 		};
 
-		std::string mcp = mutator.Damage(mcpSeed, round).dump(static_cast<int>(random.Pick(4)) - 1, random.Pick(2) == 0 ? ' ' : '\t');
+		// One pick per statement: the order in which a call's arguments are evaluated differs between compilers, and a round must
+		// damage the same documents everywhere.
+		int const indent = static_cast<int>(random.Pick(4)) - 1;
+		char const indentCharacter = random.Pick(2) == 0 ? ' ' : '\t';
+		std::string mcp = mutator.Damage(mcpSeed, round).dump(indent, indentCharacter);
 		switch (random.Pick(6))
 		{
 			case 0:
-				mcp.insert(random.Pick(mcp.size() + 1), random.Pick(2) == 0 ? "," : "// note\n");
+			{
+				size_t const position = random.Pick(mcp.size() + 1);
+				mcp.insert(position, random.Pick(2) == 0 ? "," : "// note\n");
 				break;
+			}
 			case 1:
 				mcp.resize(random.Pick(mcp.size() + 1));
 				break;
