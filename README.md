@@ -308,6 +308,8 @@ workflow.
 | [Scripting API](Docs/ScriptingAPI.md) | Every public type and member of the C# API, generated from the engine |
 | [Automation](Docs/Automation.md) | The automation protocol, every command, the `strada` tool and its MCP server |
 | [Architecture](Docs/Architecture.md) | The architectural contract: modules, rendering, scene and ECS, physics, audio, scripting, editor, automation, runtime |
+| [Roadmap](Docs/Roadmap.md) | The plan: the backlog, the efforts and their schedule, the technical plan of a motorcycle game, risks and open decisions |
+| [Engine comparison](Docs/EngineComparison.md) | Strada against Unreal Engine, Unity, Godot and O3DE, how they reach their users, and what a motorcycle game needs |
 | [AGENTS.md](AGENTS.md) | The development guide for people and agents: building, style, testing and the commit process |
 
 ## Contributing
