@@ -30,7 +30,8 @@ EXCLUDED_DIRECTORY_NAMES = {"build", "bin", "obj", "ThirdParty", "Output"}
 DOTNET_PROJECTS = ["Strada-ScriptCore/Strada.ScriptCore.csproj", "Tests/TestScripts/Strada.TestScripts.csproj",
                    "Tests/ScriptCoreTests/Strada.ScriptCore.Tests.csproj", "Projects/FeatureTest/Scripts/FeatureTest.csproj",
                    "StradaTool/StradaTool.csproj", "Tests/StradaToolTests/Strada.Tool.Tests.csproj",
-                   "Projects/Blocks/Scripts/Blocks.csproj", "Projects/Showcase/Scripts/Showcase.csproj"]
+                   "Projects/Blocks/Scripts/Blocks.csproj", "Projects/Showcase/Scripts/Showcase.csproj",
+                   "Templates/csharp-starter/Scripts/Game.csproj"]
 
 
 def find_clang_format() -> str:

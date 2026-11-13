@@ -7,10 +7,12 @@
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/PlayCommands.h"
+#include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/ExampleCopyTask.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/PlayMode.h"
@@ -32,6 +34,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -43,6 +46,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -237,12 +241,14 @@ namespace
 	class ParameterGenerator
 	{
 	public:
-		ParameterGenerator(uint64_t seed, EditorState const& state, std::filesystem::path outside, std::vector<std::string> importFiles)
+		ParameterGenerator(uint64_t seed, EditorState const& state, std::filesystem::path outside, std::vector<std::string> importFiles,
+		                   std::filesystem::path project)
 			: m_Random(seed),
 			  m_Mutator(seed ^ 0xA5A5A5A5A5A5A5A5ull),
 			  m_State(state),
 			  m_Outside(std::move(outside)),
-			  m_ImportFiles(std::move(importFiles))
+			  m_ImportFiles(std::move(importFiles)),
+			  m_Project(std::move(project))
 		{
 		}
 
@@ -258,6 +264,10 @@ namespace
 			if (params.is_object() && m_Command.starts_with("graph."))
 			{
 				AdjustGraphParameters(params);
+			}
+			if (params.is_object() && m_Command.starts_with("project."))
+			{
+				AdjustProjectParameters(params);
 			}
 			return params;
 		}
@@ -418,6 +428,24 @@ namespace
 			}
 			std::array<double, 8> const candidates = {minimum, maximum, 0.0, 0.5, -1.0, 1.0e6, -1.0e6, (minimum + maximum) / 2.0};
 			return std::clamp(candidates[m_Random.Pick(candidates.size())], minimum, maximum);
+		}
+
+		// project.copy-example never opens its copy (which would replace the fuzzed project), and its directory is mostly a fresh
+		// one inside the project or the fixture's Outside folder, where copies may go; about one in ten stays as drawn, so bad
+		// directories are still tried (they must fail without writing).
+		void AdjustProjectParameters(Json& params)
+		{
+			if (m_Command != "project.copy-example")
+			{
+				return;
+			}
+			params["open"] = false;
+			if (m_Random.Pick(10) == 0)
+			{
+				return;
+			}
+			std::string const name = "Copy" + std::to_string(m_Copies++);
+			params["directory"] = m_Random.Pick(2) == 0 ? FileSystem::PathToUtf8(m_Outside / "Copies" / name) : "Copies/" + name;
 		}
 
 		// Parameters of the graph commands that combine as the commands expect most of the time, so their work is reached in a
@@ -1010,6 +1038,19 @@ namespace
 			{
 				return {m_State.Entities, invalidIds};
 			}
+			// project.copy-example's examples are the test content's (Tests/Data/FrontDoor/Content/Examples).
+			if (property == "example")
+			{
+				return {{"tiny", "fetched"}, {"", "nope", "Tiny", "../tiny", "showcase"}};
+			}
+			// Its directories as drawn (AdjustProjectParameters replaces most): ones taken, climbing out, the project's, and its
+			// asset directory in another letter case (refused where the file system ignores case, a new folder elsewhere).
+			if (property == "directory")
+			{
+				return {
+					{"Copies/Drawn", FileSystem::PathToUtf8(m_Outside / "Drawn")},
+					{"", ".", "..", "../..", "Assets", "Assets/Copy", "assets/Copy", FileSystem::PathToUtf8(m_Project), "C:Escape", "/"}};
+			}
 			if (property == "component")
 			{
 				std::vector<std::string> const unknown = {"Nope", "", "transform"};
@@ -1174,6 +1215,10 @@ namespace
 		EditorState const& m_State;
 		std::filesystem::path m_Outside;
 		std::vector<std::string> m_ImportFiles;
+		// The fuzzed project's directory, which project.copy-example's directories are relative to.
+		std::filesystem::path m_Project;
+		// The fresh directories project.copy-example was given so far.
+		uint64_t m_Copies = 0;
 		std::string_view m_Command;
 		// The sub-graph the last graph.edit batch drew its elements from.
 		int64_t m_BatchFunction = 0;
@@ -1213,6 +1258,9 @@ namespace
 		VisualScriptDebugSession DebugSession{Context, Play};
 		// The Debugger panel graph.debug-panel reaches, never drawn.
 		VisualScriptDebuggerPanel DebuggerPanel{DebugSession, Context};
+		// Copies examples of the test content for project.copy-example; a running copy finishes within the frame it started in
+		// (Tick).
+		ExampleCopyTask Copies;
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 
@@ -1263,6 +1311,7 @@ namespace
 			            .IsOk());
 			REQUIRE(RegisterScriptCommands(Registry, Scripts, Context).IsOk());
 			REQUIRE(RegisterGraphDebugCommands(Registry, DebugSession, Play, Context).IsOk());
+			REQUIRE(RegisterProjectContentCommands(Registry, Operations, Copies, Locations, {}).IsOk());
 			DebugSession.SetViewSettings(&ViewSettings);
 			Play.SetObserver(&DebugSession);
 
@@ -1409,6 +1458,15 @@ namespace
 		// the frame, then the start of the next frame's (its queued resumes).
 		void Tick()
 		{
+			// A copy is a few small files: it ends in this frame, so the history checks never meet one writing.
+			while (Copies.IsRunning())
+			{
+				Copies.Update();
+				if (Copies.IsRunning())
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				}
+			}
 			Scripts.Update();
 			Play.Update(Timestep(1.0f / 60.0f));
 			DebugSession.EndFrame();
@@ -1693,6 +1751,8 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	// Closing graph windows writes the per-user views file.
 	std::vector<std::filesystem::path> const writable = {fixture.ProjectDirectory, fixture.Outside, fixture.ViewsDirectory};
 	FileSnapshot const filesBefore = SnapshotFiles(fixture.Directory.GetPath(), writable);
+	// The engine content the commands read (the examples project.copy-example copies) is never written.
+	FileSnapshot const contentBefore = SnapshotFiles(Testing::GetTestContentDirectory(), {});
 
 	std::vector<CommandDefinition const*> commands;
 	for (CommandDefinition const* command : fixture.Registry.GetCommands())
@@ -1704,7 +1764,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	}
 
 	EditorState state = fixture.ReadState();
-	ParameterGenerator generator(7, state, fixture.Outside, fixture.ImportFiles());
+	ParameterGenerator generator(7, state, fixture.Outside, fixture.ImportFiles(), fixture.ProjectDirectory);
 	Testing::FuzzRandom random(11);
 	std::set<int> unanswered;
 	// Command name -> how often it succeeded and failed; graph.find's by query and by references, and graph.palette's errors.
@@ -1743,13 +1803,23 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		std::string const findKind = params.is_object() && params.contains("references") ? "references" : "query";
 		CAPTURE(round);
 		CAPTURE(request);
+		// project.copy-example refuses before it copies (a bad directory, an unknown or unavailable example), and then writes
+		// nothing anywhere, also where copies may go.
+		bool const copiesExample = command.Name == "project.copy-example";
+		std::optional<FileSnapshot> const beforeCopy =
+			copiesExample ? std::optional<FileSnapshot>(SnapshotFiles(fixture.Directory.GetPath(), {})) : std::nullopt;
+		std::optional<int> refusedRound;
 		unanswered.insert(round);
 		fixture.Registry.Execute(command.Name, params,
-		                         [&unanswered, &outcomes, &findSuccesses, &paletteErrors, &debugErrors, &recent, name = command.Name, round,
-		                          request, findKind](CommandResult result)
+		                         [&unanswered, &outcomes, &findSuccesses, &paletteErrors, &debugErrors, &recent, &refusedRound,
+		                          name = command.Name, round, request, findKind](CommandResult result)
 		                         {
 									 CHECK_MESSAGE(unanswered.erase(round) == 1, "answered twice: " << request);
 									 recent.push_back(request + (result.IsOk() ? " -> ok" : " -> " + result.GetError().Message));
+									 if (result.IsError())
+									 {
+										 refusedRound = round;
+									 }
 									 if (result.IsOk())
 									 {
 										 outcomes[name].first++;
@@ -1780,6 +1850,11 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		if (!command.IsAsync())
 		{
 			CHECK_MESSAGE(!unanswered.contains(round), "a synchronous command did not answer");
+		}
+		if (beforeCopy && refusedRound == round)
+		{
+			CHECK_MESSAGE(SnapshotFiles(fixture.Directory.GetPath(), {}) == *beforeCopy, "a refused copy wrote files: " << request);
+			CHECK(SnapshotFiles(Testing::GetTestContentDirectory(), {}) == contentBefore);
 		}
 		fixture.Tick();
 		if (round % 50 == 49)
@@ -1828,6 +1903,13 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		CAPTURE(graphCommand);
 		CHECK(outcomes[graphCommand].first > 0);
 	}
+	// The project content commands reach their work: an example is copied.
+	for (std::string const contentCommand : {"project.templates", "project.examples", "project.copy-example"})
+	{
+		CAPTURE(contentCommand);
+		CHECK(outcomes[contentCommand].first > 0);
+	}
+	CHECK(outcomes["project.copy-example"].second > 0);
 	CHECK(findSuccesses["query"] > 0);
 	CHECK(findSuccesses["references"] > 0);
 	// The debug commands that need no game work; the others are refused, for their parameters or for the state.
@@ -1865,6 +1947,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	CHECK(FileSystem::Exists(fixture.ViewsDirectory / "VisualScriptViews.json"));
 	CHECK(views.Load().empty());
 
-	// Nothing outside the project changed, but where absolute scene paths pointed.
+	// Nothing outside the project changed, but where absolute scene paths pointed, and nothing of the engine content.
 	CHECK(SnapshotFiles(fixture.Directory.GetPath(), writable) == filesBefore);
+	CHECK(SnapshotFiles(Testing::GetTestContentDirectory(), {}) == contentBefore);
 }

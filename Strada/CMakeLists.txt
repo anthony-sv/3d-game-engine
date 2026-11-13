@@ -138,12 +138,18 @@ set(STRADA_PLATFORM_SOURCES
 )
 
 set(STRADA_PROJECT_SOURCES
+    Source/Strada/Project/ExampleCatalog.cpp
+    Source/Strada/Project/ExampleCatalog.h
     Source/Strada/Project/GameExporter.cpp
     Source/Strada/Project/GameExporter.h
     Source/Strada/Project/Project.cpp
     Source/Strada/Project/Project.h
+    Source/Strada/Project/ProjectCopy.cpp
+    Source/Strada/Project/ProjectCopy.h
     Source/Strada/Project/ProjectSettings.cpp
     Source/Strada/Project/ProjectSettings.h
+    Source/Strada/Project/ProjectTemplate.cpp
+    Source/Strada/Project/ProjectTemplate.h
     Source/Strada/Project/SceneRunner.cpp
     Source/Strada/Project/SceneRunner.h
     Source/Strada/Project/ScriptProject.cpp

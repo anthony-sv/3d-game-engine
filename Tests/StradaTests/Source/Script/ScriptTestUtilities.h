@@ -108,14 +108,20 @@ namespace Strada::Testing
 	{
 	public:
 		explicit ProjectScriptsScope(std::filesystem::path const& project)
+			: ProjectScriptsScope(project, FileSystem::PathToUtf8(project.filename()),
+		                          FileSystem::GetExecutableDirectory() / project.filename())
 		{
-			std::string const name = FileSystem::PathToUtf8(project.filename());
-			if (!FileSystem::Exists(project / "Scripts" / (name + ".csproj")))
+		}
+
+		// For a project whose folder is not named after its scripts (a template's, which CMake builds to a folder of its own):
+		// loads <binaries>/<name>.dll when the project has Scripts/<name>.csproj.
+		ProjectScriptsScope(std::filesystem::path const& project, std::string const& name, std::filesystem::path const& binaries)
+		{
+			if (!FileSystem::Exists(project / "Scripts" / FileSystem::PathFromUtf8(name + ".csproj")))
 			{
 				return;
 			}
-			Result<void> const loaded =
-				ScriptEngine::LoadGameAssembly(FileSystem::GetExecutableDirectory() / project.filename() / (name + ".dll"));
+			Result<void> const loaded = ScriptEngine::LoadGameAssembly(binaries / FileSystem::PathFromUtf8(name + ".dll"));
 			REQUIRE_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
 			m_Loaded = true;
 		}

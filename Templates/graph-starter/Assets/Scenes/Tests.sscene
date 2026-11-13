@@ -1,0 +1,3016 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Scene"
+	},
+	"Scene": {
+		"Name": "Tests",
+		"Settings": {
+			"Physics": {
+				"Gravity": [
+					0.0,
+					-9.8100004196167,
+					0.0
+				]
+			},
+			"Renderer": {
+				"EV100": 0.0,
+				"Tonemapper": "ACES",
+				"Dithering": true,
+				"Shadows": true,
+				"SoftShadows": true,
+				"ShadowDistance": 50.0,
+				"CascadeCount": 4,
+				"CascadeSplitLambda": 0.75,
+				"ShadowMapSize": 2048,
+				"LocalShadowMapSize": 1024,
+				"AmbientOcclusion": true,
+				"AmbientOcclusionRadius": 0.75,
+				"AmbientOcclusionIntensity": 1.5,
+				"Bloom": true,
+				"BloomIntensity": 0.15000000596046448,
+				"FXAA": true,
+				"Contrast": 1.0,
+				"Saturation": 1.0,
+				"Temperature": 0.0,
+				"Tint": 0.0,
+				"ColorFilter": [
+					1.0,
+					1.0,
+					1.0
+				],
+				"ChromaticAberration": 0.0,
+				"Vignette": 0.0,
+				"VignetteSmoothness": 0.44999998807907104,
+				"FilmGrain": 0.0
+			}
+		}
+	},
+	"Entities": [
+		{
+			"ID": "10268204994239631671",
+			"Components": {
+				"Tag": {
+					"Tag": "Sun"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						-0.46829017996788025,
+						0.2263682633638382,
+						0.12547796964645386,
+						0.8448178768157959
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"DirectionalLight": {
+					"Color": [
+						0.6000000238418579,
+						0.6600000262260437,
+						1.0
+					],
+					"Intensity": 0.6000000238418579,
+					"CastShadows": true,
+					"LightSize": 0.5
+				}
+			}
+		},
+		{
+			"ID": "9036017795616692696",
+			"Components": {
+				"Tag": {
+					"Tag": "Sky"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"SkyLight": {
+					"Environment": "400",
+					"Intensity": 0.11999999731779099,
+					"Rotation": 0.0,
+					"SkyboxBlur": 0.0,
+					"DrawSkybox": false,
+					"AmbientColor": [
+						0.4000000059604645,
+						0.5,
+						0.6499999761581421
+					]
+				}
+			}
+		},
+		{
+			"ID": "4661271245832034797",
+			"Components": {
+				"Tag": {
+					"Tag": "Camera Rig"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						17.5,
+						15.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"18324910641755257893"
+					]
+				},
+				"VisualScript": {
+					"Graph": "12227313969974478729",
+					"Variables": {
+						"Home": {
+							"Type": "Vector3",
+							"Value": [
+								0.0,
+								17.5,
+								15.0
+							]
+						},
+						"Orb": {
+							"Type": "Entity",
+							"Value": "3955546124963557792"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "18324910641755257893",
+			"Components": {
+				"Tag": {
+					"Tag": "Main Camera"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						-0.4411329925060272,
+						0.0,
+						0.0,
+						0.8974418640136719
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "4661271245832034797",
+					"Children": []
+				},
+				"Camera": {
+					"Projection": "Perspective",
+					"PerspectiveFOV": 50.0,
+					"PerspectiveNear": 0.10000000149011612,
+					"PerspectiveFar": 200.0,
+					"OrthographicSize": 10.0,
+					"OrthographicNear": -100.0,
+					"OrthographicFar": 100.0,
+					"Primary": true,
+					"FixedAspectRatio": false,
+					"AspectRatio": 1.7777777910232544
+				},
+				"AudioListener": {
+					"Active": true
+				}
+			}
+		},
+		{
+			"ID": "4577137567341102775",
+			"Components": {
+				"Tag": {
+					"Tag": "Look"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"PostProcess": {
+					"Global": true,
+					"BlendDistance": 1.0,
+					"Priority": 0.0,
+					"Weight": 1.0,
+					"OverrideEV100": false,
+					"EV100": 0.0,
+					"OverrideTonemapper": false,
+					"Tonemapper": "ACES",
+					"OverrideAmbientOcclusion": false,
+					"AmbientOcclusion": true,
+					"OverrideAmbientOcclusionIntensity": false,
+					"AmbientOcclusionIntensity": 1.5,
+					"OverrideBloom": true,
+					"Bloom": true,
+					"OverrideBloomIntensity": true,
+					"BloomIntensity": 0.30000001192092896,
+					"OverrideContrast": true,
+					"Contrast": 1.0499999523162842,
+					"OverrideSaturation": true,
+					"Saturation": 1.100000023841858,
+					"OverrideTemperature": false,
+					"Temperature": 0.0,
+					"OverrideTint": false,
+					"Tint": 0.0,
+					"OverrideColorFilter": false,
+					"ColorFilter": [
+						1.0,
+						1.0,
+						1.0
+					],
+					"OverrideChromaticAberration": false,
+					"ChromaticAberration": 0.0,
+					"OverrideVignette": true,
+					"Vignette": 0.3499999940395355,
+					"OverrideVignetteSmoothness": false,
+					"VignetteSmoothness": 0.44999998807907104,
+					"OverrideFilmGrain": false,
+					"FilmGrain": 0.0
+				}
+			}
+		},
+		{
+			"ID": "792783158358894348",
+			"Components": {
+				"Tag": {
+					"Tag": "Arena"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"14094150980691248153",
+						"11493688932713082338",
+						"13077855156374396614",
+						"9708592241534530776",
+						"10827462333455442458",
+						"7336751258488698788",
+						"15338851804133414968",
+						"16285112027332373113",
+						"13623517946544271475",
+						"4058009665245315996",
+						"16457472154882889705",
+						"6739519811382574570",
+						"13208239464477492018"
+					]
+				}
+			}
+		},
+		{
+			"ID": "14094150980691248153",
+			"Components": {
+				"Tag": {
+					"Tag": "Floor"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-0.10000000149011612,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						23.200000762939453,
+						0.20000000298023224,
+						23.200000762939453
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5917536419641979196"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.4000000059604645
+				}
+			}
+		},
+		{
+			"ID": "11493688932713082338",
+			"Components": {
+				"Tag": {
+					"Tag": "North Wall"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.699999988079071,
+						-11.300000190734863
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						23.200000762939453,
+						1.399999976158142,
+						0.6000000238418579
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"3914929839993270219"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.4000000059604645
+				}
+			}
+		},
+		{
+			"ID": "13077855156374396614",
+			"Components": {
+				"Tag": {
+					"Tag": "South Wall"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.699999988079071,
+						11.300000190734863
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						23.200000762939453,
+						1.399999976158142,
+						0.6000000238418579
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"3914929839993270219"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.4000000059604645
+				}
+			}
+		},
+		{
+			"ID": "9708592241534530776",
+			"Components": {
+				"Tag": {
+					"Tag": "West Wall"
+				},
+				"Transform": {
+					"Translation": [
+						-11.300000190734863,
+						0.699999988079071,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.6000000238418579,
+						1.399999976158142,
+						22.0
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"3914929839993270219"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.4000000059604645
+				}
+			}
+		},
+		{
+			"ID": "10827462333455442458",
+			"Components": {
+				"Tag": {
+					"Tag": "East Wall"
+				},
+				"Transform": {
+					"Translation": [
+						11.300000190734863,
+						0.699999988079071,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.6000000238418579,
+						1.399999976158142,
+						22.0
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"3914929839993270219"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.4000000059604645
+				}
+			}
+		},
+		{
+			"ID": "7336751258488698788",
+			"Components": {
+				"Tag": {
+					"Tag": "North Neon"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.4299999475479126,
+						-11.300000190734863
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						23.200000762939453,
+						0.05999999865889549,
+						0.11999999731779099
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"1889685780980798419"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "15338851804133414968",
+			"Components": {
+				"Tag": {
+					"Tag": "South Neon"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.4299999475479126,
+						11.300000190734863
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						23.200000762939453,
+						0.05999999865889549,
+						0.11999999731779099
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"1889685780980798419"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "16285112027332373113",
+			"Components": {
+				"Tag": {
+					"Tag": "West Neon"
+				},
+				"Transform": {
+					"Translation": [
+						-11.300000190734863,
+						1.4299999475479126,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.11999999731779099,
+						0.05999999865889549,
+						22.0
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"17209555451018030057"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "13623517946544271475",
+			"Components": {
+				"Tag": {
+					"Tag": "East Neon"
+				},
+				"Transform": {
+					"Translation": [
+						11.300000190734863,
+						1.4299999475479126,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.11999999731779099,
+						0.05999999865889549,
+						22.0
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"17209555451018030057"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "4058009665245315996",
+			"Components": {
+				"Tag": {
+					"Tag": "Corner Light 1"
+				},
+				"Transform": {
+					"Translation": [
+						-10.0,
+						2.5,
+						-10.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"PointLight": {
+					"Color": [
+						0.10000000149011612,
+						0.800000011920929,
+						1.0
+					],
+					"Intensity": 6.0,
+					"Range": 12.0,
+					"CastShadows": false
+				}
+			}
+		},
+		{
+			"ID": "16457472154882889705",
+			"Components": {
+				"Tag": {
+					"Tag": "Corner Light 2"
+				},
+				"Transform": {
+					"Translation": [
+						10.0,
+						2.5,
+						-10.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"PointLight": {
+					"Color": [
+						0.550000011920929,
+						0.25,
+						1.0
+					],
+					"Intensity": 6.0,
+					"Range": 12.0,
+					"CastShadows": false
+				}
+			}
+		},
+		{
+			"ID": "6739519811382574570",
+			"Components": {
+				"Tag": {
+					"Tag": "Corner Light 3"
+				},
+				"Transform": {
+					"Translation": [
+						10.0,
+						2.5,
+						10.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"PointLight": {
+					"Color": [
+						0.10000000149011612,
+						0.800000011920929,
+						1.0
+					],
+					"Intensity": 6.0,
+					"Range": 12.0,
+					"CastShadows": false
+				}
+			}
+		},
+		{
+			"ID": "13208239464477492018",
+			"Components": {
+				"Tag": {
+					"Tag": "Corner Light 4"
+				},
+				"Transform": {
+					"Translation": [
+						-10.0,
+						2.5,
+						10.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "792783158358894348",
+					"Children": []
+				},
+				"PointLight": {
+					"Color": [
+						0.550000011920929,
+						0.25,
+						1.0
+					],
+					"Intensity": 6.0,
+					"Range": 12.0,
+					"CastShadows": false
+				}
+			}
+		},
+		{
+			"ID": "3955546124963557792",
+			"Components": {
+				"Tag": {
+					"Tag": "Orb"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.5,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"13816427793317125364"
+					]
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"5165147654784930513"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"PointLight": {
+					"Color": [
+						0.15000000596046448,
+						0.699999988079071,
+						1.0
+					],
+					"Intensity": 12.0,
+					"Range": 7.0,
+					"CastShadows": false
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 1.0,
+					"LinearDamping": 1.2000000476837158,
+					"AngularDamping": 0.4000000059604645,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": false,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"SphereCollider": {
+					"Radius": 0.5,
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.8999999761581421,
+					"Restitution": 0.3499999940395355
+				},
+				"AudioSource": {
+					"Clip": "17083164930384723429",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				},
+				"VisualScript": {
+					"Graph": "15309082661618086975",
+					"Variables": {
+						"Floor": {
+							"Type": "Entity",
+							"Value": "14094150980691248153"
+						},
+						"Hum": {
+							"Type": "Entity",
+							"Value": "13816427793317125364"
+						}
+					}
+				},
+				"ParticleSystem": {
+					"Emitting": true,
+					"Rate": 45.0,
+					"Burst": 0,
+					"MaxParticles": 60,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.6000000238418579,
+					"SpeedMin": 0.0,
+					"SpeedMax": 0.30000001192092896,
+					"Shape": "Sphere",
+					"ConeAngle": 25.0,
+					"Radius": 0.25,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.0,
+					"Drag": 0.0,
+					"StartSize": 0.3499999940395355,
+					"EndSize": 0.0,
+					"StartColor": [
+						0.5,
+						0.8999999761581421,
+						1.0,
+						0.699999988079071
+					],
+					"EndColor": [
+						0.44999998807907104,
+						0.30000001192092896,
+						1.0,
+						0.0
+					],
+					"Intensity": 3.0,
+					"Texture": "18014076826635958682",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
+			"ID": "13816427793317125364",
+			"Components": {
+				"Tag": {
+					"Tag": "Hum"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3955546124963557792",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "4266240245281976582",
+					"Stream": false,
+					"Volume": 0.0,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				}
+			}
+		},
+		{
+			"ID": "16950139546149513063",
+			"Components": {
+				"Tag": {
+					"Tag": "Sparks"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				}
+			}
+		},
+		{
+			"ID": "16374049204833416815",
+			"Components": {
+				"Tag": {
+					"Tag": "Game"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"15916701954635178219"
+					]
+				},
+				"VisualScript": {
+					"Graph": "11942996875119097908",
+					"Variables": {
+						"LoseSound": {
+							"Type": "Entity",
+							"Value": "13670307498075647663"
+						},
+						"Orb": {
+							"Type": "Entity",
+							"Value": "3955546124963557792"
+						},
+						"PickupSound": {
+							"Type": "Entity",
+							"Value": "4243191504315682895"
+						},
+						"SparkPrefab": {
+							"Type": "Prefab",
+							"Value": "7294623359626821135"
+						},
+						"Sparks": {
+							"Type": "Entity",
+							"Value": "16950139546149513063"
+						},
+						"WinSound": {
+							"Type": "Entity",
+							"Value": "4952551831889545463"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "15916701954635178219",
+			"Components": {
+				"Tag": {
+					"Tag": "Sounds"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "16374049204833416815",
+					"Children": [
+						"4243191504315682895",
+						"4952551831889545463",
+						"13670307498075647663",
+						"6165290542863173512"
+					]
+				}
+			}
+		},
+		{
+			"ID": "4243191504315682895",
+			"Components": {
+				"Tag": {
+					"Tag": "Pickup"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "15916701954635178219",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "8044157747399251963",
+					"Stream": false,
+					"Volume": 0.800000011920929,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				}
+			}
+		},
+		{
+			"ID": "4952551831889545463",
+			"Components": {
+				"Tag": {
+					"Tag": "Win"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "15916701954635178219",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "16664500732674235851",
+					"Stream": false,
+					"Volume": 0.8999999761581421,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				}
+			}
+		},
+		{
+			"ID": "13670307498075647663",
+			"Components": {
+				"Tag": {
+					"Tag": "Lose"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "15916701954635178219",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "6393731908938691165",
+					"Stream": false,
+					"Volume": 0.8999999761581421,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				}
+			}
+		},
+		{
+			"ID": "6165290542863173512",
+			"Components": {
+				"Tag": {
+					"Tag": "Tick"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "15916701954635178219",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "10456443945115999804",
+					"Stream": false,
+					"Volume": 0.6000000238418579,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				}
+			}
+		},
+		{
+			"ID": "11149161339656286371",
+			"Components": {
+				"Tag": {
+					"Tag": "Screen"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						6.0,
+						-13.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"11050962944025247997",
+						"12801279957233192491",
+						"3220854070057332659",
+						"1120405312027957065",
+						"4930626451450804312",
+						"18157727616161059316"
+					]
+				},
+				"VisualScript": {
+					"Graph": "15322676212881917239",
+					"Variables": {
+						"Game": {
+							"Type": "Entity",
+							"Value": "16374049204833416815"
+						},
+						"Hint": {
+							"Type": "Entity",
+							"Value": "3220854070057332659"
+						},
+						"LoseDetail": {
+							"Type": "Entity",
+							"Value": "7916475356766658865"
+						},
+						"LoseScreen": {
+							"Type": "Entity",
+							"Value": "4930626451450804312"
+						},
+						"Prompt": {
+							"Type": "Entity",
+							"Value": "18157727616161059316"
+						},
+						"SparksText": {
+							"Type": "Entity",
+							"Value": "9085446173510484609"
+						},
+						"TickSound": {
+							"Type": "Entity",
+							"Value": "6165290542863173512"
+						},
+						"TimeText": {
+							"Type": "Entity",
+							"Value": "9126097083585363289"
+						},
+						"WinDetail": {
+							"Type": "Entity",
+							"Value": "14084881760089803747"
+						},
+						"WinScreen": {
+							"Type": "Entity",
+							"Value": "1120405312027957065"
+						}
+					}
+				},
+				"UICanvas": {
+					"ScaleMode": "ScaleWithScreenSize",
+					"ReferenceResolution": [
+						1920.0,
+						1080.0
+					]
+				}
+			}
+		},
+		{
+			"ID": "11050962944025247997",
+			"Components": {
+				"Tag": {
+					"Tag": "Sparks Panel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11149161339656286371",
+					"Children": [
+						"14880864265632442692",
+						"2773442404793886593",
+						"9085446173510484609"
+					]
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						0.0,
+						0.0
+					],
+					"Position": [
+						48.0,
+						40.0
+					],
+					"Size": [
+						400.0,
+						128.0
+					],
+					"Pivot": [
+						0.0,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						0.004000000189989805,
+						0.006000000052154064,
+						0.019999999552965164,
+						0.7200000286102295
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 24.0
+				}
+			}
+		},
+		{
+			"ID": "14880864265632442692",
+			"Components": {
+				"Tag": {
+					"Tag": "Spark Icon"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11050962944025247997",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.5
+					],
+					"AnchorMax": [
+						0.0,
+						0.5
+					],
+					"Position": [
+						24.0,
+						0.0
+					],
+					"Size": [
+						84.0,
+						84.0
+					],
+					"Pivot": [
+						0.0,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"Texture": "12670215337370104751",
+					"PreserveAspect": false,
+					"CornerRadius": 0.0
+				}
+			}
+		},
+		{
+			"ID": "2773442404793886593",
+			"Components": {
+				"Tag": {
+					"Tag": "Sparks Caption"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11050962944025247997",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						0.0,
+						0.0
+					],
+					"Position": [
+						128.0,
+						16.0
+					],
+					"Size": [
+						250.0,
+						30.0
+					],
+					"Pivot": [
+						0.0,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "SPARKS",
+					"Font": "0",
+					"Color": [
+						0.44999998807907104,
+						0.6000000238418579,
+						0.8500000238418579,
+						1.0
+					],
+					"FontSize": 24.0,
+					"Alignment": "Left",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "9085446173510484609",
+			"Components": {
+				"Tag": {
+					"Tag": "Sparks Text"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11050962944025247997",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						0.0,
+						0.0
+					],
+					"Position": [
+						128.0,
+						44.0
+					],
+					"Size": [
+						260.0,
+						70.0
+					],
+					"Pivot": [
+						0.0,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "0 / 12",
+					"Font": "0",
+					"Color": [
+						0.9599999785423279,
+						0.9800000190734863,
+						1.0,
+						1.0
+					],
+					"FontSize": 60.0,
+					"Alignment": "Left",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "12801279957233192491",
+			"Components": {
+				"Tag": {
+					"Tag": "Time Panel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11149161339656286371",
+					"Children": [
+						"7694650518617044803",
+						"9126097083585363289"
+					]
+				},
+				"UIRect": {
+					"AnchorMin": [
+						1.0,
+						0.0
+					],
+					"AnchorMax": [
+						1.0,
+						0.0
+					],
+					"Position": [
+						-48.0,
+						40.0
+					],
+					"Size": [
+						300.0,
+						128.0
+					],
+					"Pivot": [
+						1.0,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						0.004000000189989805,
+						0.006000000052154064,
+						0.019999999552965164,
+						0.7200000286102295
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 24.0
+				}
+			}
+		},
+		{
+			"ID": "7694650518617044803",
+			"Components": {
+				"Tag": {
+					"Tag": "Time Caption"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "12801279957233192491",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						1.0,
+						0.0
+					],
+					"AnchorMax": [
+						1.0,
+						0.0
+					],
+					"Position": [
+						-28.0,
+						16.0
+					],
+					"Size": [
+						240.0,
+						30.0
+					],
+					"Pivot": [
+						1.0,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "TIME",
+					"Font": "0",
+					"Color": [
+						0.44999998807907104,
+						0.6000000238418579,
+						0.8500000238418579,
+						1.0
+					],
+					"FontSize": 24.0,
+					"Alignment": "Right",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "9126097083585363289",
+			"Components": {
+				"Tag": {
+					"Tag": "Time Text"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "12801279957233192491",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						1.0,
+						0.0
+					],
+					"AnchorMax": [
+						1.0,
+						0.0
+					],
+					"Position": [
+						-28.0,
+						40.0
+					],
+					"Size": [
+						240.0,
+						80.0
+					],
+					"Pivot": [
+						1.0,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "35",
+					"Font": "0",
+					"Color": [
+						0.9599999785423279,
+						0.9800000190734863,
+						1.0,
+						1.0
+					],
+					"FontSize": 72.0,
+					"Alignment": "Right",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "3220854070057332659",
+			"Components": {
+				"Tag": {
+					"Tag": "Hint"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11149161339656286371",
+					"Children": [
+						"6001648088208867217",
+						"8426738884801356354"
+					]
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						1.0
+					],
+					"AnchorMax": [
+						0.5,
+						1.0
+					],
+					"Position": [
+						0.0,
+						-96.0
+					],
+					"Size": [
+						1360.0,
+						150.0
+					],
+					"Pivot": [
+						0.5,
+						1.0
+					],
+					"Visible": false,
+					"Opacity": 0.0
+				},
+				"UIImage": {
+					"Color": [
+						0.004000000189989805,
+						0.006000000052154064,
+						0.019999999552965164,
+						0.7200000286102295
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 28.0
+				}
+			}
+		},
+		{
+			"ID": "6001648088208867217",
+			"Components": {
+				"Tag": {
+					"Tag": "Hint Goal"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3220854070057332659",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.0
+					],
+					"AnchorMax": [
+						0.5,
+						0.0
+					],
+					"Position": [
+						0.0,
+						22.0
+					],
+					"Size": [
+						1300.0,
+						60.0
+					],
+					"Pivot": [
+						0.5,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "COLLECT ALL 12 SPARKS BEFORE THE TIME RUNS OUT",
+					"Font": "0",
+					"Color": [
+						1.0,
+						0.7599999904632568,
+						0.25,
+						1.0
+					],
+					"FontSize": 46.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "8426738884801356354",
+			"Components": {
+				"Tag": {
+					"Tag": "Hint Controls"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "3220854070057332659",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.0
+					],
+					"AnchorMax": [
+						0.5,
+						0.0
+					],
+					"Position": [
+						0.0,
+						90.0
+					],
+					"Size": [
+						1300.0,
+						40.0
+					],
+					"Pivot": [
+						0.5,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "ROLL WITH WASD, THE ARROW KEYS OR A GAMEPAD'S LEFT STICK",
+					"Font": "0",
+					"Color": [
+						0.44999998807907104,
+						0.6000000238418579,
+						0.8500000238418579,
+						1.0
+					],
+					"FontSize": 30.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "1120405312027957065",
+			"Components": {
+				"Tag": {
+					"Tag": "Win Screen"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11149161339656286371",
+					"Children": [
+						"11782579449623906344"
+					]
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						1.0,
+						1.0
+					],
+					"Position": [
+						0.0,
+						0.0
+					],
+					"Size": [
+						0.0,
+						0.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": false,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						0.0,
+						0.0,
+						0.019999999552965164,
+						0.5
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 0.0
+				}
+			}
+		},
+		{
+			"ID": "11782579449623906344",
+			"Components": {
+				"Tag": {
+					"Tag": "Win Panel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "1120405312027957065",
+					"Children": [
+						"9907466956114252097",
+						"14084881760089803747"
+					]
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.5
+					],
+					"AnchorMax": [
+						0.5,
+						0.5
+					],
+					"Position": [
+						0.0,
+						-40.0
+					],
+					"Size": [
+						1000.0,
+						330.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						0.004000000189989805,
+						0.006000000052154064,
+						0.019999999552965164,
+						0.7200000286102295
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 32.0
+				}
+			}
+		},
+		{
+			"ID": "9907466956114252097",
+			"Components": {
+				"Tag": {
+					"Tag": "Win Title"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11782579449623906344",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.0
+					],
+					"AnchorMax": [
+						0.5,
+						0.0
+					],
+					"Position": [
+						0.0,
+						50.0
+					],
+					"Size": [
+						960.0,
+						130.0
+					],
+					"Pivot": [
+						0.5,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "ALL SPARKS FOUND!",
+					"Font": "0",
+					"Color": [
+						1.0,
+						0.7599999904632568,
+						0.25,
+						1.0
+					],
+					"FontSize": 110.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "14084881760089803747",
+			"Components": {
+				"Tag": {
+					"Tag": "Win Detail"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11782579449623906344",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.0
+					],
+					"AnchorMax": [
+						0.5,
+						0.0
+					],
+					"Position": [
+						0.0,
+						205.0
+					],
+					"Size": [
+						960.0,
+						70.0
+					],
+					"Pivot": [
+						0.5,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "0 SECONDS TO SPARE",
+					"Font": "0",
+					"Color": [
+						0.9599999785423279,
+						0.9800000190734863,
+						1.0,
+						1.0
+					],
+					"FontSize": 52.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "4930626451450804312",
+			"Components": {
+				"Tag": {
+					"Tag": "Lose Screen"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11149161339656286371",
+					"Children": [
+						"15015561576866117700"
+					]
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						1.0,
+						1.0
+					],
+					"Position": [
+						0.0,
+						0.0
+					],
+					"Size": [
+						0.0,
+						0.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": false,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						0.0,
+						0.0,
+						0.019999999552965164,
+						0.5
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 0.0
+				}
+			}
+		},
+		{
+			"ID": "15015561576866117700",
+			"Components": {
+				"Tag": {
+					"Tag": "Lose Panel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "4930626451450804312",
+					"Children": [
+						"11382156198680118114",
+						"7916475356766658865"
+					]
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.5
+					],
+					"AnchorMax": [
+						0.5,
+						0.5
+					],
+					"Position": [
+						0.0,
+						-40.0
+					],
+					"Size": [
+						1000.0,
+						330.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						0.004000000189989805,
+						0.006000000052154064,
+						0.019999999552965164,
+						0.7200000286102295
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 32.0
+				}
+			}
+		},
+		{
+			"ID": "11382156198680118114",
+			"Components": {
+				"Tag": {
+					"Tag": "Lose Title"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "15015561576866117700",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.0
+					],
+					"AnchorMax": [
+						0.5,
+						0.0
+					],
+					"Position": [
+						0.0,
+						50.0
+					],
+					"Size": [
+						960.0,
+						130.0
+					],
+					"Pivot": [
+						0.5,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "TIME'S UP",
+					"Font": "0",
+					"Color": [
+						1.0,
+						0.3199999928474426,
+						0.4000000059604645,
+						1.0
+					],
+					"FontSize": 110.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "7916475356766658865",
+			"Components": {
+				"Tag": {
+					"Tag": "Lose Detail"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "15015561576866117700",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.0
+					],
+					"AnchorMax": [
+						0.5,
+						0.0
+					],
+					"Position": [
+						0.0,
+						205.0
+					],
+					"Size": [
+						960.0,
+						70.0
+					],
+					"Pivot": [
+						0.5,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "0 OF 12 SPARKS",
+					"Font": "0",
+					"Color": [
+						0.9599999785423279,
+						0.9800000190734863,
+						1.0,
+						1.0
+					],
+					"FontSize": 52.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "18157727616161059316",
+			"Components": {
+				"Tag": {
+					"Tag": "Prompt"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11149161339656286371",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.5
+					],
+					"AnchorMax": [
+						0.5,
+						0.5
+					],
+					"Position": [
+						0.0,
+						210.0
+					],
+					"Size": [
+						1400.0,
+						60.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": false,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "PRESS SPACE OR (A) TO PLAY AGAIN",
+					"Font": "0",
+					"Color": [
+						0.9599999785423279,
+						0.9800000190734863,
+						1.0,
+						1.0
+					],
+					"FontSize": 40.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "16491809620607015817",
+			"Components": {
+				"Tag": {
+					"Tag": "Tests"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"VisualScript": {
+					"Graph": "4945772919402266256",
+					"Variables": {
+						"Game": {
+							"Type": "Entity",
+							"Value": "16374049204833416815"
+						},
+						"LoseDetail": {
+							"Type": "Entity",
+							"Value": "7916475356766658865"
+						},
+						"LoseScreen": {
+							"Type": "Entity",
+							"Value": "4930626451450804312"
+						},
+						"Orb": {
+							"Type": "Entity",
+							"Value": "3955546124963557792"
+						},
+						"Prompt": {
+							"Type": "Entity",
+							"Value": "18157727616161059316"
+						},
+						"Sparks": {
+							"Type": "Entity",
+							"Value": "16950139546149513063"
+						},
+						"SparksText": {
+							"Type": "Entity",
+							"Value": "9085446173510484609"
+						},
+						"TimeText": {
+							"Type": "Entity",
+							"Value": "9126097083585363289"
+						},
+						"WinDetail": {
+							"Type": "Entity",
+							"Value": "14084881760089803747"
+						},
+						"WinScreen": {
+							"Type": "Entity",
+							"Value": "1120405312027957065"
+						}
+					}
+				}
+			}
+		}
+	]
+}

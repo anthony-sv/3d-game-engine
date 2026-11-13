@@ -1,0 +1,38 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "ExampleCatalog"
+	},
+	"Examples": [
+		{
+			"Id": "tiny",
+			"Name": "Tiny",
+			"Order": 1,
+			"Directory": "Tiny",
+			"ProjectFile": "Tiny.sproj",
+			"Description": "A test fixture: one entity running one graph.",
+			"Thumbnail": "Thumbnails/tiny.png",
+			"Requires": {
+				"Sdk": false
+			}
+		},
+		{
+			"Id": "fetched",
+			"Name": "Fetched",
+			"Order": 2,
+			"Directory": "Fetched",
+			"ProjectFile": "Fetched.sproj",
+			"Description": "A test fixture whose downloaded files are missing.",
+			"Thumbnail": "Thumbnails/fetched.png",
+			"Requires": {
+				"Sdk": true
+			},
+			"Needs": {
+				"Paths": [
+					"Assets/Downloaded/Big.bin"
+				],
+				"Hint": "Run: python Tools/Fetch.py (a test fixture: nothing to download)"
+			}
+		}
+	]
+}

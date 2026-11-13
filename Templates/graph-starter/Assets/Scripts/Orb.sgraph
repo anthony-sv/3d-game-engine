@@ -1,0 +1,1119 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "The orb: the keys or the left stick roll it during a run, it hums with its speed, and walls thud.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Push",
+				"Type": "float",
+				"Value": 12.0,
+				"Public": true,
+				"Tooltip": "The force the controls push the orb with, in newtons",
+				"Range": [
+					0.0,
+					100.0
+				]
+			},
+			{
+				"ID": 2,
+				"Name": "DeadZone",
+				"Type": "float",
+				"Value": 0.2,
+				"Public": true,
+				"Tooltip": "How far the stick must lean before it pushes",
+				"Range": [
+					0.0,
+					0.8999999761581421
+				]
+			},
+			{
+				"ID": 3,
+				"Name": "Hum",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The child whose looping sound hums with the orb's speed"
+			},
+			{
+				"ID": 4,
+				"Name": "Floor",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The floor the orb rolls on without a thud"
+			},
+			{
+				"ID": 5,
+				"Name": "Rolling",
+				"Type": "bool",
+				"Value": true,
+				"Public": true,
+				"Tooltip": "Read-out: the controls push the orb only during a run"
+			}
+		],
+		"Functions": [
+			{
+				"ID": 7,
+				"Name": "Steer",
+				"Pure": true,
+				"Inputs": [],
+				"Outputs": [
+					{
+						"Name": "Direction",
+						"Type": "Strada.Vector3"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 8,
+							"Type": "Function.Entry",
+							"Position": [
+								-416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 9,
+							"Type": "Function.Return",
+							"Position": [
+								480.0,
+								144.0
+							]
+						},
+						{
+							"ID": 10,
+							"Type": "Variable.Get",
+							"Position": [
+								-416.0,
+								800.0
+							],
+							"Settings": {
+								"Variable": 2
+							}
+						},
+						{
+							"ID": 11,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								144.0
+							],
+							"Inputs": {
+								"Key": "D"
+							}
+						},
+						{
+							"ID": 12,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								272.0
+							],
+							"Inputs": {
+								"Key": "Right"
+							}
+						},
+						{
+							"ID": 13,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								400.0
+							],
+							"Inputs": {
+								"Key": "A"
+							}
+						},
+						{
+							"ID": 14,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								528.0
+							],
+							"Inputs": {
+								"Key": "Left"
+							}
+						},
+						{
+							"ID": 15,
+							"Type": "Call:Strada.Input.GetGamepadAxis(Strada.GamepadAxis,int)",
+							"Position": [
+								-416.0,
+								656.0
+							],
+							"Inputs": {
+								"Axis": "LeftX"
+							}
+						},
+						{
+							"ID": 16,
+							"Type": "Expression",
+							"Position": [
+								-112.0,
+								144.0
+							],
+							"Settings": {
+								"Formula": "(d || right ? 1 : 0) - (a || left ? 1 : 0) + (abs(stick) > dead ? stick : 0)"
+							},
+							"Comment": "Right is +x"
+						},
+						{
+							"ID": 17,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								864.0
+							],
+							"Inputs": {
+								"Key": "S"
+							}
+						},
+						{
+							"ID": 18,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								992.0
+							],
+							"Inputs": {
+								"Key": "Down"
+							}
+						},
+						{
+							"ID": 19,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								1120.0
+							],
+							"Inputs": {
+								"Key": "W"
+							}
+						},
+						{
+							"ID": 20,
+							"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+							"Position": [
+								-416.0,
+								1248.0
+							],
+							"Inputs": {
+								"Key": "Up"
+							}
+						},
+						{
+							"ID": 21,
+							"Type": "Call:Strada.Input.GetGamepadAxis(Strada.GamepadAxis,int)",
+							"Position": [
+								-416.0,
+								1376.0
+							],
+							"Inputs": {
+								"Axis": "LeftY"
+							}
+						},
+						{
+							"ID": 22,
+							"Type": "Expression",
+							"Position": [
+								-112.0,
+								384.0
+							],
+							"Settings": {
+								"Formula": "(s || down ? 1 : 0) - (w || up ? 1 : 0) + (abs(stick) > dead ? stick : 0)"
+							},
+							"Comment": "Up the screen is -z, away from the camera"
+						},
+						{
+							"ID": 23,
+							"Type": "Expression",
+							"Position": [
+								80.0,
+								144.0
+							],
+							"Settings": {
+								"Formula": "vec3(across, 0, along)"
+							}
+						},
+						{
+							"ID": 24,
+							"Type": "Expression",
+							"Position": [
+								288.0,
+								144.0
+							],
+							"Settings": {
+								"Formula": "length(v) > 1 ? normalize(v) : v"
+							},
+							"Comment": "A diagonal is no faster than a straight push"
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								11,
+								"Result"
+							],
+							"To": [
+								16,
+								"d"
+							]
+						},
+						{
+							"From": [
+								12,
+								"Result"
+							],
+							"To": [
+								16,
+								"right"
+							]
+						},
+						{
+							"From": [
+								13,
+								"Result"
+							],
+							"To": [
+								16,
+								"a"
+							]
+						},
+						{
+							"From": [
+								14,
+								"Result"
+							],
+							"To": [
+								16,
+								"left"
+							]
+						},
+						{
+							"From": [
+								15,
+								"Result"
+							],
+							"To": [
+								16,
+								"stick"
+							]
+						},
+						{
+							"From": [
+								10,
+								"Value"
+							],
+							"To": [
+								16,
+								"dead"
+							]
+						},
+						{
+							"From": [
+								17,
+								"Result"
+							],
+							"To": [
+								22,
+								"s"
+							]
+						},
+						{
+							"From": [
+								18,
+								"Result"
+							],
+							"To": [
+								22,
+								"down"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Result"
+							],
+							"To": [
+								22,
+								"w"
+							]
+						},
+						{
+							"From": [
+								20,
+								"Result"
+							],
+							"To": [
+								22,
+								"up"
+							]
+						},
+						{
+							"From": [
+								21,
+								"Result"
+							],
+							"To": [
+								22,
+								"stick"
+							]
+						},
+						{
+							"From": [
+								10,
+								"Value"
+							],
+							"To": [
+								22,
+								"dead"
+							]
+						},
+						{
+							"From": [
+								16,
+								"Result"
+							],
+							"To": [
+								23,
+								"across"
+							]
+						},
+						{
+							"From": [
+								22,
+								"Result"
+							],
+							"To": [
+								23,
+								"along"
+							]
+						},
+						{
+							"From": [
+								23,
+								"Result"
+							],
+							"To": [
+								24,
+								"v"
+							]
+						},
+						{
+							"From": [
+								24,
+								"Result"
+							],
+							"To": [
+								9,
+								"Direction"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 25,
+							"Text": "Steer: WASD, the arrows or the left stick give a direction",
+							"Position": [
+								-448.0,
+								-72.0
+							],
+							"Size": [
+								1080.0,
+								1586.0
+							],
+							"Color": [
+								0.20000000298023224,
+								0.41999998688697815,
+								0.949999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 26,
+					"Type": "Event.FixedUpdate",
+					"Position": [
+						0.0,
+						208.0
+					]
+				},
+				{
+					"ID": 27,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						336.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 28,
+					"Type": "Flow.Branch",
+					"Position": [
+						192.0,
+						208.0
+					]
+				},
+				{
+					"ID": 29,
+					"Type": "Function.Call",
+					"Position": [
+						0.0,
+						400.0
+					],
+					"Settings": {
+						"Function": 7
+					}
+				},
+				{
+					"ID": 30,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						512.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 31,
+					"Type": "Expression",
+					"Position": [
+						192.0,
+						336.0
+					],
+					"Settings": {
+						"Formula": "direction * push"
+					}
+				},
+				{
+					"ID": 32,
+					"Type": "Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)",
+					"Position": [
+						416.0,
+						208.0
+					],
+					"Inputs": {
+						"Mode": "Force"
+					}
+				},
+				{
+					"ID": 34,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						688.0
+					]
+				},
+				{
+					"ID": 35,
+					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
+					"Position": [
+						0.0,
+						816.0
+					]
+				},
+				{
+					"ID": 36,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						688.0
+					],
+					"Settings": {
+						"Formula": "length(v)"
+					}
+				},
+				{
+					"ID": 37,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						944.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 38,
+					"Type": "Expression",
+					"Position": [
+						432.0,
+						688.0
+					],
+					"Settings": {
+						"Formula": "0.7 + speed * 0.08"
+					}
+				},
+				{
+					"ID": 39,
+					"Type": "Set:Strada.AudioSourceComponent.Pitch",
+					"Position": [
+						640.0,
+						688.0
+					]
+				},
+				{
+					"ID": 40,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1008.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 41,
+					"Type": "Expression",
+					"Position": [
+						432.0,
+						816.0
+					],
+					"Settings": {
+						"Formula": "min(0.45, speed * 0.06)"
+					}
+				},
+				{
+					"ID": 42,
+					"Type": "Set:Strada.AudioSourceComponent.Volume",
+					"Position": [
+						832.0,
+						688.0
+					]
+				},
+				{
+					"ID": 44,
+					"Type": "Event.CollisionEnter",
+					"Position": [
+						0.0,
+						1312.0
+					]
+				},
+				{
+					"ID": 45,
+					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
+					"Position": [
+						0.0,
+						1184.0
+					]
+				},
+				{
+					"ID": 46,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						1184.0
+					],
+					"Settings": {
+						"Formula": "length(v)"
+					}
+				},
+				{
+					"ID": 47,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1440.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 48,
+					"Type": "Operator.NotEqual",
+					"Position": [
+						240.0,
+						1312.0
+					]
+				},
+				{
+					"ID": 49,
+					"Type": "Expression",
+					"Position": [
+						432.0,
+						1184.0
+					],
+					"Settings": {
+						"Formula": "speed > 1.5"
+					}
+				},
+				{
+					"ID": 50,
+					"Type": "Operator.And",
+					"Position": [
+						640.0,
+						1184.0
+					]
+				},
+				{
+					"ID": 51,
+					"Type": "Flow.Branch",
+					"Position": [
+						768.0,
+						1184.0
+					]
+				},
+				{
+					"ID": 52,
+					"Type": "Expression",
+					"Position": [
+						432.0,
+						1312.0
+					],
+					"Settings": {
+						"Formula": "min(1, speed / 8)"
+					}
+				},
+				{
+					"ID": 53,
+					"Type": "Set:Strada.AudioSourceComponent.Volume",
+					"Position": [
+						992.0,
+						1184.0
+					]
+				},
+				{
+					"ID": 54,
+					"Type": "Call:Strada.AudioSourceComponent.Play()",
+					"Position": [
+						1200.0,
+						1184.0
+					]
+				},
+				{
+					"ID": 56,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						1616.0
+					],
+					"Settings": {
+						"Name": "StateChanged",
+						"Parameters": [
+							{
+								"Name": "State",
+								"Type": "string"
+							}
+						]
+					}
+				},
+				{
+					"ID": 57,
+					"Type": "Operator.Equal",
+					"Position": [
+						192.0,
+						1616.0
+					],
+					"Inputs": {
+						"B": "Play"
+					}
+				},
+				{
+					"ID": 58,
+					"Type": "Variable.Set",
+					"Position": [
+						480.0,
+						1616.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						27,
+						"Value"
+					],
+					"To": [
+						28,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Direction"
+					],
+					"To": [
+						31,
+						"direction"
+					]
+				},
+				{
+					"From": [
+						30,
+						"Value"
+					],
+					"To": [
+						31,
+						"push"
+					]
+				},
+				{
+					"From": [
+						31,
+						"Result"
+					],
+					"To": [
+						32,
+						"Force"
+					]
+				},
+				{
+					"From": [
+						26,
+						"Then"
+					],
+					"To": [
+						28,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						28,
+						"True"
+					],
+					"To": [
+						32,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Value"
+					],
+					"To": [
+						36,
+						"v"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Result"
+					],
+					"To": [
+						38,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						37,
+						"Value"
+					],
+					"To": [
+						39,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						38,
+						"Result"
+					],
+					"To": [
+						39,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Result"
+					],
+					"To": [
+						41,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						40,
+						"Value"
+					],
+					"To": [
+						42,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Result"
+					],
+					"To": [
+						42,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						34,
+						"Then"
+					],
+					"To": [
+						39,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						39,
+						"Then"
+					],
+					"To": [
+						42,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						45,
+						"Value"
+					],
+					"To": [
+						46,
+						"v"
+					]
+				},
+				{
+					"From": [
+						44,
+						"Other"
+					],
+					"To": [
+						48,
+						"A"
+					]
+				},
+				{
+					"From": [
+						47,
+						"Value"
+					],
+					"To": [
+						48,
+						"B"
+					]
+				},
+				{
+					"From": [
+						46,
+						"Result"
+					],
+					"To": [
+						49,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						48,
+						"Result"
+					],
+					"To": [
+						50,
+						"A"
+					]
+				},
+				{
+					"From": [
+						49,
+						"Result"
+					],
+					"To": [
+						50,
+						"B"
+					]
+				},
+				{
+					"From": [
+						50,
+						"Result"
+					],
+					"To": [
+						51,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						46,
+						"Result"
+					],
+					"To": [
+						52,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						52,
+						"Result"
+					],
+					"To": [
+						53,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						44,
+						"Then"
+					],
+					"To": [
+						51,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						51,
+						"True"
+					],
+					"To": [
+						53,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						53,
+						"Then"
+					],
+					"To": [
+						54,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						56,
+						"State"
+					],
+					"To": [
+						57,
+						"A"
+					]
+				},
+				{
+					"From": [
+						57,
+						"Result"
+					],
+					"To": [
+						58,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						56,
+						"Then"
+					],
+					"To": [
+						58,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 33,
+					"Text": "Roll: each physics step pushes the orb the way it is steered",
+					"Position": [
+						-32.0,
+						136.0
+					],
+					"Size": [
+						671.7862548828125,
+						436.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 43,
+					"Text": "Hum: the faster the orb rolls, the higher and louder it hums",
+					"Position": [
+						-32.0,
+						616.0
+					],
+					"Size": [
+						1016.0,
+						452.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 55,
+					"Text": "Bump: a wall hit hard thuds, louder the harder",
+					"Position": [
+						-32.0,
+						1112.0
+					],
+					"Size": [
+						1395.13623046875,
+						388.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 59,
+					"Text": "Control: the orb rolls only while a run is on",
+					"Position": [
+						-32.0,
+						1544.0
+					],
+					"Size": [
+						669.572509765625,
+						194.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

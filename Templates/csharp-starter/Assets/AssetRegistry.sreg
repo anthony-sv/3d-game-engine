@@ -1,0 +1,118 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "AssetRegistry"
+	},
+	"Assets": [
+		{
+			"Handle": "14050866589051244661",
+			"Type": "AudioClip",
+			"Path": "Audio/Bump.wav"
+		},
+		{
+			"Handle": "3266082730699870396",
+			"Type": "AudioClip",
+			"Path": "Audio/Hum.wav"
+		},
+		{
+			"Handle": "9709066586037956758",
+			"Type": "AudioClip",
+			"Path": "Audio/Lose.wav"
+		},
+		{
+			"Handle": "13924571665204472347",
+			"Type": "AudioClip",
+			"Path": "Audio/Pickup.wav"
+		},
+		{
+			"Handle": "5921600081357098528",
+			"Type": "AudioClip",
+			"Path": "Audio/Tick.wav"
+		},
+		{
+			"Handle": "17794789816344175370",
+			"Type": "AudioClip",
+			"Path": "Audio/Win.wav"
+		},
+		{
+			"Handle": "10336947371304885309",
+			"Type": "Material",
+			"Path": "Materials/Floor.smat"
+		},
+		{
+			"Handle": "18369575379498299192",
+			"Type": "Material",
+			"Path": "Materials/Neon Cyan.smat"
+		},
+		{
+			"Handle": "15577929849133417048",
+			"Type": "Material",
+			"Path": "Materials/Neon Violet.smat"
+		},
+		{
+			"Handle": "11109942267403837170",
+			"Type": "Material",
+			"Path": "Materials/Orb.smat"
+		},
+		{
+			"Handle": "12901546284698113256",
+			"Type": "Material",
+			"Path": "Materials/Spark.smat"
+		},
+		{
+			"Handle": "9666501934873283451",
+			"Type": "Material",
+			"Path": "Materials/Wall.smat"
+		},
+		{
+			"Handle": "3142678946792127289",
+			"Type": "Mesh",
+			"Path": "Meshes/Spark.gltf"
+		},
+		{
+			"Handle": "9236803845616069255",
+			"Type": "Prefab",
+			"Path": "Prefabs/Spark Burst.sprefab"
+		},
+		{
+			"Handle": "3400236333704136070",
+			"Type": "Prefab",
+			"Path": "Prefabs/Spark.sprefab"
+		},
+		{
+			"Handle": "853174202014584004",
+			"Type": "Scene",
+			"Path": "Scenes/Main.sscene"
+		},
+		{
+			"Handle": "7604826491810511935",
+			"Type": "Scene",
+			"Path": "Scenes/Tests.sscene"
+		},
+		{
+			"Handle": "4621470159410882380",
+			"Type": "VisualScript",
+			"Path": "Scripts/Hover.sgraph"
+		},
+		{
+			"Handle": "7354833779325603638",
+			"Type": "Texture",
+			"Path": "Textures/Glow.png"
+		},
+		{
+			"Handle": "4728111968440280147",
+			"Type": "Texture",
+			"Path": "Textures/Grid.png"
+		},
+		{
+			"Handle": "16397563865429798304",
+			"Type": "Texture",
+			"Path": "Textures/Orb.png"
+		},
+		{
+			"Handle": "3423111548268891502",
+			"Type": "Texture",
+			"Path": "Textures/SparkIcon.png"
+		}
+	]
+}

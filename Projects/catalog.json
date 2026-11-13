@@ -1,0 +1,52 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "ExampleCatalog"
+	},
+	"Examples": [
+		{
+			"Id": "prism-break",
+			"Name": "Prism Break",
+			"Order": 1,
+			"Directory": "PrismBreak",
+			"ProjectFile": "PrismBreak.sproj",
+			"Description": "A neon brick breaker made of visual scripts alone: every rule is a graph.",
+			"Thumbnail": "Thumbnails/prism-break.png",
+			"Requires": {
+				"Sdk": false
+			}
+		},
+		{
+			"Id": "blocks",
+			"Name": "Blocks",
+			"Order": 2,
+			"Directory": "Blocks",
+			"ProjectFile": "Blocks.sproj",
+			"Description": "A falling-blocks game written in C#, with a test scene that checks its rules.",
+			"Thumbnail": "Thumbnails/blocks.png",
+			"Requires": {
+				"Sdk": true
+			}
+		},
+		{
+			"Id": "showcase",
+			"Name": "Showcase",
+			"Order": 3,
+			"Directory": "Showcase",
+			"ProjectFile": "Showcase.sproj",
+			"Description": "Every engine feature in exhibits of a forest clearing, with C# scripts and visual scripts.",
+			"Thumbnail": "Thumbnails/showcase.png",
+			"Requires": {
+				"Sdk": true
+			},
+			"Needs": {
+				"Paths": [
+					"Assets/Environments/autumn_forest_04_4k.hdr",
+					"Assets/Models/shrub_02/shrub_02_1k.gltf",
+					"Assets/Textures/bark_brown_02/bark_brown_02_diff_1k.jpg"
+				],
+				"Hint": "Run: python Projects/Showcase/Tools/FetchAssets.py (about 95 MB of CC0 assets from Poly Haven)"
+			}
+		}
+	]
+}

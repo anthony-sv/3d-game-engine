@@ -22,6 +22,7 @@
 			<Private>false</Private>
 		</Reference>
 	</ItemGroup>
+	<!-- strada:repository-only -->
 	<!-- In the engine's repository, builds without Strada.props (dotnet format, IDEs) use the scripting API from source;
 	     CMake builds pass StradaScriptCoreAssembly. -->
 	<ItemGroup Condition="'$(StradaScriptCoreAssembly)' == ''">
@@ -29,4 +30,5 @@
 			<Private>false</Private>
 		</ProjectReference>
 	</ItemGroup>
+	<!-- /strada:repository-only -->
 </Project>

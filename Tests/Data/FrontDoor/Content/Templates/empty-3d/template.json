@@ -1,0 +1,19 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "ProjectTemplate"
+	},
+	"Template": {
+		"Id": "empty-3d",
+		"Name": "Empty 3D",
+		"Order": 1,
+		"Description": "A camera, a sun, a sky, a floor and a few shapes to start a 3D game from.",
+		"Requires": {
+			"Sdk": false
+		},
+		"Tags": [
+			"3D"
+		],
+		"Thumbnail": "thumbnail.png"
+	}
+}

@@ -48,6 +48,10 @@ public sealed class EditorIntegrationTests
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "asset_create_folder");
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_agents");
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_setup_agents");
+			// The project content tools: new projects from templates, and copies of the example games.
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_copy_example");
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_examples");
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_templates");
 			// The session keeps the headless editor it started for the list.
 			EditorInstance instance = Assert.Single(EditorInstance.FindRunning(instances));
 			processId = instance.ProcessId;

@@ -4,7 +4,6 @@
 #include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/JsonSchema.h"
 #include "Editor/ComponentInspection.h"
-#include "Editor/DefaultScene.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EntityBounds.h"
 #include "Editor/EntityPresets.h"
@@ -43,6 +42,7 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Version.h"
 #include "Strada/Project/Project.h"
+#include "Strada/Project/ProjectTemplate.h"
 #include "Strada/Project/ScriptProject.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
@@ -1890,9 +1890,11 @@ namespace Strada
 				result =
 					result
 						? Add("project.create",
-				              "Creates a project in an empty or new directory (the project file <name>.sproj, an Assets directory and the "
-				              "start scene Assets/Scenes/Main.sscene) and opens it with its start scene. Fails on unsaved scene changes "
-				              "unless discardChanges is true.",
+				              "Creates a project from a template (project.templates lists them; default empty-3d, the editor's default "
+				              "scene, whose start scene is Assets/Scenes/Main.sscene) in an empty or new directory: the project file "
+				              "<name>.sproj and an Assets directory, with a .gitignore for build output and caches unless gitIgnore is "
+				              "false. Then opens it with its start scene. Not an undo step: it writes files. Fails on unsaved scene "
+				              "changes unless discardChanges is true.",
 				              SchemaBuilder::Object()
 				                  .Property("directory",
 				                            SchemaBuilder::String(
@@ -1900,11 +1902,25 @@ namespace Strada
 				                                .MinLength(1),
 				                            true)
 				                  .Property("name", SchemaBuilder::String("Project name").MinLength(1), true)
+				                  .Property("template", SchemaBuilder::String("The template's id, as project.templates lists it")
+				                                            .MinLength(1)
+				                                            .Default(std::string(ProjectTemplate::DefaultId)))
+				                  .Property("gitIgnore",
+				                            SchemaBuilder::Boolean("Write a .gitignore for build output and caches").Default(true))
 				                  .Property("discardChanges", SchemaBuilder::Boolean("Discard unsaved scene changes").Default(false))
 				                  .Build(),
 				              false,
 				              [this](Json const& params) -> CommandResult
 				              {
+								  std::string const templateId = GetString(params, "template", std::string(ProjectTemplate::DefaultId));
+								  ProjectTemplateList const templates =
+									  EditorOperations::ListProjectTemplates(m_Environment.Locations.Layout);
+								  ProjectTemplate const* projectTemplate = templates.Find(templateId);
+								  if (projectTemplate == nullptr)
+								  {
+									  return MakeParameterError(
+										  "template", fmt::format("there is no template '{}' (project.templates lists them)", templateId));
+								  }
 								  if (std::optional<CommandError> playing = CheckNotPlaying())
 								  {
 									  return *playing;
@@ -1913,15 +1929,19 @@ namespace Strada
 								  {
 									  return UnsavedChangesError(Context());
 								  }
+								  TemplateOptions options;
+								  options.GitIgnore = GetBool(params, "gitIgnore", true);
 								  Result<void> created =
 									  m_Operations.CreateProject(FileSystem::PathFromUtf8(GetString(params, "directory")),
-					                                             GetString(params, "name"), *CreateDefaultScene());
+					                                             GetString(params, "name"), *projectTemplate, options);
 								  if (!created)
 								  {
 									  return Failure(AutomationErrorCode::FileError, created);
 								  }
 								  NotifyProjectOpened();
-								  return Json::object({{"project", DescribeProject(Context())}, {"scene", DescribeScene(Context())}});
+								  return Json::object({{"project", DescribeProject(Context())},
+					                                   {"scene", DescribeScene(Context())},
+					                                   {"template", templateId}});
 							  })
 						: result;
 				result = result
@@ -6071,6 +6091,16 @@ namespace Strada
 		AgentToolLookup findTool = environment.FindToolOnPath;
 		Result<void> registered = CreateRef<CommandSet>(registry, operations, std::move(environment))->RegisterAll();
 		return registered ? RegisterAgentCommands(registry, operations.GetContext(), std::move(layout), std::move(findTool)) : registered;
+	}
+
+	Json DescribeEditorProject(EditorContext const& context)
+	{
+		return DescribeProject(context);
+	}
+
+	Json DescribeEditorScene(EditorContext const& context)
+	{
+		return DescribeScene(context);
 	}
 
 	std::string GetVisualScriptProgramRevision(VisualScriptDocument const& document)

@@ -68,13 +68,16 @@ def use_engine_sources(csproj):
     if reference not in text:
         raise SystemExit(f"{csproj} does not reference Strada.ScriptCore as expected")
     text = text.replace(reference, '\t<ItemGroup Condition="\'$(StradaScriptCoreAssembly)\' != \'\'">\n\t\t<Reference Include="Strada.ScriptCore">')
-    text = text.replace("</Project>", """\t<!-- In the engine's repository, builds without Strada.props (dotnet format, IDEs) use the scripting API from source;
+    # The fallback is marked repository-only: copies of the project outside the repository (examples) leave it out.
+    text = text.replace("</Project>", """\t<!-- strada:repository-only -->
+\t<!-- In the engine's repository, builds without Strada.props (dotnet format, IDEs) use the scripting API from source;
 \t     CMake builds pass StradaScriptCoreAssembly. -->
 \t<ItemGroup Condition="'$(StradaScriptCoreAssembly)' == ''">
 \t\t<ProjectReference Include="../../../Strada-ScriptCore/Strada.ScriptCore.csproj">
 \t\t\t<Private>false</Private>
 \t\t</ProjectReference>
 \t</ItemGroup>
+\t<!-- /strada:repository-only -->
 </Project>""")
     with open(csproj, "w", encoding="utf-8", newline="\n") as file:
         file.write(text)
@@ -341,7 +344,7 @@ def main():
     shutil.move(TOOLS, os.path.join(aside, "Tools"))
     try:
         shutil.rmtree(PROJECT)
-        client.call("project_create", {"directory": PROJECT, "name": "Blocks"})
+        client.call("project_create", {"directory": PROJECT, "name": "Blocks", "gitIgnore": False})
     except BaseException:
         # The sources come back when the project could not be made (on success the scripts are created from them).
         if not os.path.isdir(os.path.join(PROJECT, "Scripts", "Source")):

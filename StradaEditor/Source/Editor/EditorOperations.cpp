@@ -6,6 +6,7 @@
 #include "Editor/Commands/CompositeCommand.h"
 #include "Editor/Commands/PrefabCommands.h"
 #include "Editor/Commands/SceneCommands.h"
+#include "Editor/DefaultScene.h"
 #include "Editor/FileCopies.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -73,6 +74,97 @@ namespace Strada
 		}
 		Result<std::vector<std::string>> opened = UseProject(created.TakeValue());
 		return opened ? Result<void>() : Result<void>(Error{opened.GetError()});
+	}
+
+	ProjectTemplate const* ProjectTemplateList::Find(std::string_view id) const
+	{
+		auto const found = std::ranges::find_if(Templates,
+		                                        [id](ProjectTemplate const& candidate)
+		                                        {
+													return candidate.Id == id;
+												});
+		return found != Templates.end() ? &*found : nullptr;
+	}
+
+	Result<void> EditorOperations::CreateProject(std::filesystem::path const& directory, std::string const& name,
+	                                             ProjectTemplate const& projectTemplate, TemplateOptions const& options)
+	{
+		if (Result<void> notPlaying = CheckNotPlaying(); !notPlaying)
+		{
+			return notPlaying;
+		}
+		Ref<Scene> const startScene = projectTemplate.IsDefaultScene() ? CreateDefaultScene() : nullptr;
+		Result<std::filesystem::path> created = ProjectTemplate::Instantiate(projectTemplate, directory, name, options, startScene.get());
+		if (!created)
+		{
+			return Error{created.GetError()};
+		}
+		Result<std::vector<std::string>> opened = OpenProject(created.GetValue());
+		if (!opened)
+		{
+			return MakeError("the project was written to '{}' but does not open: {}", FileSystem::PathToUtf8(created.GetValue()),
+			                 opened.GetError());
+		}
+		return {};
+	}
+
+	ProjectTemplateList EditorOperations::ListProjectTemplates(EngineLayout const& layout)
+	{
+		ProjectTemplateList list;
+		std::filesystem::path const root = layout.GetContentPath(EngineContent::Templates);
+		list.Templates = ProjectTemplate::List(root, list.Warnings);
+		if (list.Find(ProjectTemplate::DefaultId) == nullptr)
+		{
+			// New projects can always start from the default scene.
+			list.Warnings.push_back(root.empty()
+			                            ? fmt::format("the engine content has no templates: the editor's default scene stands in for '{}'",
+			                                          ProjectTemplate::DefaultId)
+			                            : fmt::format("'{}' has no template '{}': the editor's default scene stands in for it",
+			                                          FileSystem::PathToUtf8(root), ProjectTemplate::DefaultId));
+			list.Templates.push_back(ProjectTemplate::MakeDefault());
+			std::sort(list.Templates.begin(), list.Templates.end(),
+			          [](ProjectTemplate const& left, ProjectTemplate const& right)
+			          {
+						  return left.Order != right.Order ? left.Order < right.Order : left.Id < right.Id;
+					  });
+		}
+		return list;
+	}
+
+	Result<ExampleCatalog> EditorOperations::LoadExampleCatalog(EngineLayout const& layout)
+	{
+		std::filesystem::path const catalog = layout.GetExampleCatalogPath();
+		if (catalog.empty())
+		{
+			return Error{"the engine content has no examples"};
+		}
+		return ExampleCatalog::Load(catalog);
+	}
+
+	Result<ExampleCopyOutcome> EditorOperations::CopyExample(ExampleCatalog const& catalog, ExampleEntry const& example,
+	                                                         std::filesystem::path const& directory, ProjectCopyOptions const& options)
+	{
+		if (!catalog.IsAvailable(example))
+		{
+			return example.NeedsHint.empty() ? MakeError("the example '{}' is not available: its files are missing", example.Id)
+			                                 : MakeError("the example '{}' is not available: {}", example.Id, example.NeedsHint);
+		}
+		// An example's root .gitignore is the engine repository's (the Showcase's ignores the assets its fetch script downloads,
+		// which the copy has and cannot download again): a copy put under version control keeps everything it has.
+		ProjectCopyOptions copyOptions = options;
+		copyOptions.ExcludedFiles.push_back(".gitignore");
+		Result<ProjectCopyResult> copied = ProjectCopy::Copy(catalog.GetDirectory(example), directory, copyOptions);
+		if (!copied)
+		{
+			return Error{copied.GetError()};
+		}
+		ExampleCopyOutcome outcome;
+		outcome.Directory = MakeAbsolute(directory);
+		outcome.ProjectFile = outcome.Directory / FileSystem::PathFromUtf8(example.ProjectFile);
+		outcome.Bytes = copied.GetValue().Bytes;
+		outcome.Files = copied.GetValue().Files;
+		outcome.Warnings = std::move(copied.GetValue().Warnings);
+		return outcome;
 	}
 
 	Result<std::vector<std::string>> EditorOperations::OpenProject(std::filesystem::path const& file)

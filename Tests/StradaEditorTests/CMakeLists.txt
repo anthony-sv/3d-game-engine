@@ -32,6 +32,8 @@ add_executable(StradaEditorTests
     Source/PanelTests.cpp
     Source/PlayModeTests.cpp
     Source/PrefabEditingTests.cpp
+    Source/ProjectContentCommandsTests.cpp
+    Source/ProjectCreateParametersTests.cpp
     Source/ProjectEditingTests.cpp
     Source/SampleGraphsTests.cpp
     Source/ScriptCommandsTests.cpp
@@ -111,12 +113,14 @@ target_compile_definitions(StradaEditorTests PRIVATE
     # The repository's projects: the play mode tests play the Blocks sample with the scripts CMake builds and the Prism Break
     # sample, and a test reads the sample projects' graphs.
     STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
+    # The project templates: the sample graphs' test reads the graphs of the graph-starter and csharp-starter templates too.
+    STRADA_TEMPLATES_DIR="${PROJECT_SOURCE_DIR}/Templates"
     # Shared test data: the visual script editor's tests read their node library and documents from it.
     STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data")
 
 # The inspector tests show the fields of the test scripts; the play mode tests play the Blocks sample; the sample graphs'
-# test reads the Showcase's graphs with its scripts.
-add_dependencies(StradaEditorTests StradaTestScripts StradaBlocksScripts StradaShowcaseScripts)
+# test reads the Showcase's and the csharp-starter template's graphs with their scripts.
+add_dependencies(StradaEditorTests StradaTestScripts StradaBlocksScripts StradaCSharpStarterScripts StradaShowcaseScripts)
 # The export tests ship the game player.
 add_dependencies(StradaEditorTests StradaRuntime)
 

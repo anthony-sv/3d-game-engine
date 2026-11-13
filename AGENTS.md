@@ -34,6 +34,8 @@ before changing anything structural; it is the architectural contract.
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
 | `Projects/PrismBreak/` | A game made of visual scripts alone (a neon brick breaker), built by `Tools/Author.py` through the agent tools; its test scene's checks are graphs too |
 | `Projects/Showcase/` | Every engine feature in exhibit areas of a forest clearing (materials, glass, lights, post-processing, physics, triggers, a yard to walk in, particles, sound, a garden of chimes played by visual scripts (`Tools/GraphGarden.py`; `Tools/Author.py --exhibit GraphGarden` rebuilds it in place)) with an opening camera tour, a HUD and day and night, built by `Tools/Author.py` through the agent tools; `Tools/FetchAssets.py` downloads its Poly Haven assets |
+| `Projects/Thumbnails/` | The examples' thumbnails (640x360, taken with the player's `--screenshot`), which `Projects/catalog.json`, the catalog of the examples the editor copies (PrismBreak, Blocks, Showcase), names |
+| `Templates/` | Project templates (`<id>/template.json`, `thumbnail.png` and, but for `empty-3d`, a project whose file is `Template.sproj`) that `project.create` and the editor start new projects from; `Tools/AuthorTemplates.py` builds `graph-starter` (Orb Run, made of visual scripts) and `csharp-starter` (Orb Run in C#, whose sources in `Scripts/Source` are written by hand) through the agent tools |
 | `Agents/` | The agent kit: `AGENTS.block.md`, the block a project set up for coding agents gets in its `AGENTS.md` (File > Set Up for Coding Agents..., `project.setup-agents`), which also copies the `strada-make-game` skill and the guides into the project: keep the skill free of repository paths (a StradaEditorTests case checks it) |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
 | `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format and dotnet format) |
@@ -227,11 +229,14 @@ Rules for the other suites:
 - Editor automation tests live in `Tests/StradaEditorTests` and run the editor headless against a temporary project.
 - Game player tests live in `Tests/StradaRuntimeTests`: they write games to temporary directories and run the
   `StradaRuntime` executable on them, checking exit codes and output (windowed runs skip like windowed tests).
-- Sample projects are played by `StradaRuntimeTests`; a change to a sample updates its pinned check count. Sample graphs
-  must read well: `Tests/StradaEditorTests/Source/SampleGraphsTests.cpp` requires every node placed in a titled comment
-  box, none overlapping, each box arranged. After a change to arranging, re-run the authoring command its failure names:
-  `python Projects/PrismBreak/Tools/Author.py` for Prism Break, and `python Projects/Showcase/Tools/Author.py --exhibit
-  GraphGarden` for the Showcase's garden. Never rebuild the whole Showcase for it: a full rebuild deletes the project,
+- Sample projects and the templates are played by `StradaRuntimeTests` (a template through a project made from it); a
+  change to a sample or a template updates its pinned check count. Their graphs must read well:
+  `Tests/StradaEditorTests/Source/SampleGraphsTests.cpp` requires every node placed in a titled comment box, none
+  overlapping, each box arranged. After a change to arranging, re-run the authoring command its failure names:
+  `python Projects/PrismBreak/Tools/Author.py` for Prism Break, `python Projects/Showcase/Tools/Author.py --exhibit
+  GraphGarden` for the Showcase's garden, and `python Templates/Tools/AuthorTemplates.py --template graph-starter` (or
+  `--template csharp-starter`) for a template (two runs write the same files; it keeps the thumbnail and the C# sources
+  unless given `--thumbnail`). Never rebuild the whole Showcase for it: a full rebuild deletes the project,
   imports its downloaded assets again and rewrites the materials made from them.
 - Scripting tests (`Testing::ScriptEngineScope`) run the game scripts of `Tests/TestScripts`; scripts report what they
   saw through entity names and the log.

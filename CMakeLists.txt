@@ -40,6 +40,13 @@ if(STRADA_BUILD_TESTS)
         OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Blocks"
         DEPENDS StradaScriptCore
         PROPERTIES "StradaScriptCoreAssembly=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Strada.ScriptCore.dll")
+    # The csharp-starter template's scripts: StradaRuntimeTests plays the test scene of a project made from the template and
+    # StradaEditorTests reads the graph that calls one of them.
+    strada_add_dotnet_project(StradaCSharpStarterScripts
+        PROJECT "${PROJECT_SOURCE_DIR}/Templates/csharp-starter/Scripts/Game.csproj"
+        OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/CSharpStarter"
+        DEPENDS StradaScriptCore
+        PROPERTIES "StradaScriptCoreAssembly=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Strada.ScriptCore.dll")
     # The Showcase sample's scripts: StradaRuntimeTests plays its test scene.
     strada_add_dotnet_project(StradaShowcaseScripts
         PROJECT "${PROJECT_SOURCE_DIR}/Projects/Showcase/Scripts/Showcase.csproj"

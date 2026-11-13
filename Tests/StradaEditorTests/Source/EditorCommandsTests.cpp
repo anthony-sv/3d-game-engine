@@ -3,9 +3,11 @@
 #include "TestUtilities.h"
 
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/EntityPresets.h"
+#include "Editor/ExampleCopyTask.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/UI/WindowCapture.h"
 #include "Editor/Viewport/ViewportOverlays.h"
@@ -41,6 +43,8 @@ namespace
 		Testing::TemporaryDirectory LocationsRoot;
 		EditorContext Context;
 		EditorOperations Operations{Context};
+		// Copies examples for project.copy-example (ProjectContentCommandsTests runs them).
+		ExampleCopyTask Copies;
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 		int ProjectsOpened = 0;
@@ -123,7 +127,14 @@ namespace
 					return WindowRect(window, graph);
 				};
 			}
+			EditorLocations const locations = environment.Locations;
 			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
+			REQUIRE(RegisterProjectContentCommands(Registry, Operations, Copies, locations,
+			                                       [this]
+			                                       {
+													   ProjectsOpened++;
+												   })
+			            .IsOk());
 		}
 
 		CommandResult Run(std::string_view name, Json params = Json::object())

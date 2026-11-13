@@ -285,7 +285,8 @@ workflow.
 | `StradaRuntime/` | Game player (`StradaRuntime --help` lists its options) |
 | `Strada-ScriptCore/` | C# scripting API |
 | `StradaTool/` | `strada`: command-line tool and MCP server for the editor (`strada --help`) |
-| `Projects/` | `Showcase`, every feature in a forest clearing; `PrismBreak`, a game made of visual scripts alone; `Blocks`, a falling-blocks game in C#; and `FeatureTest`, which tests every feature |
+| `Projects/` | `Showcase`, every feature in a forest clearing; `PrismBreak`, a game made of visual scripts alone; `Blocks`, a falling-blocks game in C#; and `FeatureTest`, which tests every feature; `catalog.json` lists the examples the editor copies, with their pictures in `Thumbnails` |
+| `Templates/` | The templates new projects start from |
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |

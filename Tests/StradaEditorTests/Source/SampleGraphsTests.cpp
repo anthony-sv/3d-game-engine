@@ -32,24 +32,34 @@
 
 using namespace Strada;
 
-// Spec-slice4 section 18.6: the sample projects' graphs read well, as their authoring tools arrange and frame them.
+// Spec-slice4 section 18.6: the sample projects' graphs read well, as their authoring tools arrange and frame them; so do the
+// graphs of the graph-starter and csharp-starter templates, the first games a new user reads.
 namespace
 {
-	// The graphs of a sample project that must read well: every .sgraph below a folder of its Assets.
+	// The graphs of a sample project or a project template that must read well: every .sgraph below a folder of its Assets.
 	struct SampleGraphSet
 	{
-		// The project's folder in Projects.
+		// The folder that holds the project: the repository's Projects or Templates.
+		std::string_view Root;
+		// The project's folder in Root.
 		std::string_view Project;
 		// The folder below Assets that holds the graphs, with forward slashes; empty for all of Assets.
 		std::string_view Folder;
 		// The command, from the repository's root, that authors the graphs again. The Showcase's exhibit is authored in place:
 		// a rebuild of the whole project would rewrite the materials made from its downloaded assets.
 		std::string_view Author;
+		// For a project whose scripts are not named after its folder: the name of its C# project and assembly, and the folder
+		// below the executable's where CMake builds them. Empty: the scripts, when there are some, are named after the folder.
+		std::string_view ScriptModule = {};
+		std::string_view ScriptBinaries = {};
 	};
 
 	constexpr SampleGraphSet SampleGraphSets[] = {
-		{"PrismBreak", "", "python Projects/PrismBreak/Tools/Author.py"},
-		{"Showcase", "Scripts/GraphGarden", "python Projects/Showcase/Tools/Author.py --exhibit GraphGarden"},
+		{STRADA_PROJECTS_DIR, "PrismBreak", "", "python Projects/PrismBreak/Tools/Author.py"},
+		{STRADA_PROJECTS_DIR, "Showcase", "Scripts/GraphGarden", "python Projects/Showcase/Tools/Author.py --exhibit GraphGarden"},
+		{STRADA_TEMPLATES_DIR, "graph-starter", "", "python Templates/Tools/AuthorTemplates.py --template graph-starter"},
+		{STRADA_TEMPLATES_DIR, "csharp-starter", "", "python Templates/Tools/AuthorTemplates.py --template csharp-starter", "Game",
+	     "CSharpStarter"},
 	};
 
 	// The longest title a region's comment box may have.
@@ -249,14 +259,25 @@ TEST_CASE("VisualScriptEditor: the sample projects' graphs read well: every node
 	for (SampleGraphSet const& set : SampleGraphSets)
 	{
 		CAPTURE(set.Project);
-		std::filesystem::path const project = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / FileSystem::PathFromUtf8(set.Project);
+		std::filesystem::path const project = FileSystem::PathFromUtf8(set.Root) / FileSystem::PathFromUtf8(set.Project);
 		std::filesystem::path const assets = project / "Assets";
 		// The graphs are analyzed with a copy of the project's registry and graphs as the asset directory, where the graphs
 		// they name are found, and with the project's game scripts when it has some: its graphs may use their members.
 		Testing::TemporaryDirectory directory;
 		Testing::AssetManagerScope manager;
 		Testing::OpenVisualScriptsCopy(assets, directory.GetPath());
-		Testing::ProjectScriptsScope scripts(project);
+		std::optional<Testing::ProjectScriptsScope> scripts;
+		if (set.ScriptModule.empty())
+		{
+			scripts.emplace(project);
+		}
+		else
+		{
+			// Its graphs call members of its scripts: the scripts must be there.
+			std::string const scriptModule(set.ScriptModule);
+			REQUIRE(FileSystem::IsRegularFile(project / "Scripts" / FileSystem::PathFromUtf8(scriptModule + ".csproj")));
+			scripts.emplace(project, scriptModule, FileSystem::GetExecutableDirectory() / FileSystem::PathFromUtf8(set.ScriptBinaries));
+		}
 		Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
 		REQUIRE(library != nullptr);
 
@@ -297,6 +318,12 @@ TEST_CASE("VisualScriptEditor: the sample projects' graphs read well: every node
 
 			Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(graph.Document, graph.Handle);
 			REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
+			// Every node is measured as it resolves: a member of the project's scripts too.
+			for (VisualScriptAnalyzedNode const& node : analysis.GetValue()->Nodes)
+			{
+				CAPTURE(node.Type);
+				CHECK((node.Resolved == VisualScriptResolution::Exact || node.Resolved == VisualScriptResolution::Redirect));
+			}
 			{
 				std::string_view const subGraph = "the event graph";
 				CAPTURE(subGraph);

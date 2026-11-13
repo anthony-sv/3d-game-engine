@@ -80,8 +80,12 @@ File menu commands for projects:
 - New Project... opens a dialog with the project's Name (`New Game` at first) and Location (at first the folder that
   holds your most recent project's folder; Browse... picks another). The dialog shows the folder it creates, named
   after the project with only characters that are valid in file names everywhere. Create makes the folder, the
-  project file and `Assets/Scenes/Main.sscene` (the sample scene described below) and opens the project. The folder
-  must be new or empty.
+  project file, `Assets/Scenes/Main.sscene` (the sample scene described below) and a `.gitignore` that keeps build
+  output, caches and machine-specific files out of git, and opens the project: it is the template `empty-3d`. The
+  folder must be new or empty. Automation creates projects from any template of the engine's `Templates/`
+  (`project.templates`, `project.create`'s `template`: `empty-3d`; `graph-starter`, the game Orb Run made of visual
+  scripts; or `csharp-starter`, Orb Run in C#, which needs the .NET 10 SDK and builds its scripts when it opens) and
+  copies the example games (`project.examples`, `project.copy-example`).
 - Open Project... picks a `.sproj` file with the system's file dialog. The project's start scene opens; when it
   cannot be opened, the console says why and you get an empty scene.
 - Recent Projects lists the last 10 projects you opened or created (hover one to see its path); Clear Recent

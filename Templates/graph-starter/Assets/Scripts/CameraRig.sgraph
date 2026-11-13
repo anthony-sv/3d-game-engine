@@ -1,0 +1,279 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "The camera rig: it drifts after the orb, so the camera leans towards where the orb rolls.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Orb",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The orb the camera follows"
+			},
+			{
+				"ID": 2,
+				"Name": "Home",
+				"Type": "Strada.Vector3",
+				"Value": [
+					0.0,
+					17.5,
+					15.0
+				],
+				"Public": true,
+				"Tooltip": "Where the rig stands while the orb is in the middle"
+			},
+			{
+				"ID": 3,
+				"Name": "Follow",
+				"Type": "float",
+				"Value": 0.3,
+				"Public": true,
+				"Tooltip": "The share of the orb's way from the middle the camera follows",
+				"Range": [
+					0.0,
+					1.0
+				]
+			},
+			{
+				"ID": 4,
+				"Name": "Ease",
+				"Type": "float",
+				"Value": 2.5,
+				"Public": true,
+				"Tooltip": "How quickly the camera catches up, per second",
+				"Range": [
+					0.10000000149011612,
+					20.0
+				]
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 5,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 6,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						128.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 7,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						192.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 8,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						240.0,
+						0.0
+					]
+				},
+				{
+					"ID": 9,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						256.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 10,
+					"Type": "Expression",
+					"Position": [
+						448.0,
+						0.0
+					],
+					"Settings": {
+						"Formula": "home + vec3(orb.x, 0, orb.z) * follow"
+					}
+				},
+				{
+					"ID": 11,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						0.0,
+						320.0
+					]
+				},
+				{
+					"ID": 12,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						448.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Expression",
+					"Position": [
+						656.0,
+						0.0
+					],
+					"Settings": {
+						"Formula": "lerp(here, target, 1 - exp(-ease * dt))"
+					}
+				},
+				{
+					"ID": 14,
+					"Type": "Set:Strada.Entity.Translation",
+					"Position": [
+						864.0,
+						0.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						7,
+						"Value"
+					],
+					"To": [
+						8,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						6,
+						"Value"
+					],
+					"To": [
+						10,
+						"home"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Value"
+					],
+					"To": [
+						10,
+						"orb"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Value"
+					],
+					"To": [
+						10,
+						"follow"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Value"
+					],
+					"To": [
+						13,
+						"here"
+					]
+				},
+				{
+					"From": [
+						10,
+						"Result"
+					],
+					"To": [
+						13,
+						"target"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Value"
+					],
+					"To": [
+						13,
+						"ease"
+					]
+				},
+				{
+					"From": [
+						5,
+						"DeltaTime"
+					],
+					"To": [
+						13,
+						"dt"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Result"
+					],
+					"To": [
+						14,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						5,
+						"Then"
+					],
+					"To": [
+						14,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 15,
+					"Text": "Follow: the camera drifts after the orb",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						1059.13623046875,
+						580.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}
