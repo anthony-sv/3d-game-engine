@@ -20,7 +20,8 @@ target_compile_definitions(StradaRuntimeTests PRIVATE
     STRADA_TEMPLATES_DIR="${PROJECT_SOURCE_DIR}/Templates")
 
 # The games run the test scripts.
-add_dependencies(StradaRuntimeTests StradaRuntime StradaTestScripts StradaFeatureTestScripts StradaBlocksScripts StradaShowcaseScripts)
+add_dependencies(StradaRuntimeTests StradaRuntime StradaTestScripts StradaFeatureTestScripts StradaBlocksScripts StradaCSharpStarterScripts
+    StradaShowcaseScripts)
 
 strada_configure_target(StradaRuntimeTests)
 set_target_properties(StradaRuntimeTests PROPERTIES FOLDER "Tests")

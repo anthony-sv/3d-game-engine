@@ -1,0 +1,77 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "615416367555089489",
+			"Components": {
+				"Tag": {
+					"Tag": "Spark Burst"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-100.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 60,
+					"MaxParticles": 80,
+					"LifetimeMin": 0.3499999940395355,
+					"LifetimeMax": 0.800000011920929,
+					"SpeedMin": 3.0,
+					"SpeedMax": 7.0,
+					"Shape": "Sphere",
+					"ConeAngle": 25.0,
+					"Radius": 0.30000001192092896,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.30000001192092896,
+					"Drag": 2.5,
+					"StartSize": 0.3199999928474426,
+					"EndSize": 0.0,
+					"StartColor": [
+						1.0,
+						0.8999999761581421,
+						0.550000011920929,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.44999998807907104,
+						0.10000000149011612,
+						0.0
+					],
+					"Intensity": 7.0,
+					"Texture": "7354833779325603638",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": true
+				}
+			}
+		}
+	]
+}

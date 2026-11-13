@@ -1,0 +1,303 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "A spark's float: its gem bobs where the spark's C# Hover puts it, and spins.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Spin",
+				"Type": "float",
+				"Value": 120.0,
+				"Public": true,
+				"Tooltip": "Degrees per second the gem turns",
+				"Range": [
+					0.0,
+					720.0
+				]
+			},
+			{
+				"ID": 2,
+				"Name": "Clock",
+				"Type": "float",
+				"Value": 0.0
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 3,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 4,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						128.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 5,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						0.0
+					],
+					"Settings": {
+						"Formula": "clock + dt"
+					}
+				},
+				{
+					"ID": 6,
+					"Type": "Variable.Set",
+					"Position": [
+						512.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 7,
+					"Type": "Get:Strada.Entity.Children",
+					"Position": [
+						0.0,
+						192.0
+					]
+				},
+				{
+					"ID": 8,
+					"Type": "Array.Get",
+					"Position": [
+						240.0,
+						288.0
+					],
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 9,
+					"Type": "Call:Game.Spark.Hover(float)",
+					"Position": [
+						240.0,
+						144.0
+					],
+					"Comment": "Spark.Hover in Scripts/Source/Spark.cs, a [VisualNode] member"
+				},
+				{
+					"ID": 10,
+					"Type": "Set:Strada.TransformComponent.Translation",
+					"Position": [
+						704.0,
+						0.0
+					]
+				},
+				{
+					"ID": 11,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						320.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 12,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						432.0
+					],
+					"Settings": {
+						"Formula": "vec3(0, (clock * spin) % 360, 0)"
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Set:Strada.TransformComponent.EulerAngles",
+					"Position": [
+						896.0,
+						0.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						4,
+						"Value"
+					],
+					"To": [
+						5,
+						"clock"
+					]
+				},
+				{
+					"From": [
+						3,
+						"DeltaTime"
+					],
+					"To": [
+						5,
+						"dt"
+					]
+				},
+				{
+					"From": [
+						5,
+						"Result"
+					],
+					"To": [
+						6,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						7,
+						"Value"
+					],
+					"To": [
+						8,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						4,
+						"Value"
+					],
+					"To": [
+						9,
+						"Time"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Element"
+					],
+					"To": [
+						10,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Result"
+					],
+					"To": [
+						10,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						4,
+						"Value"
+					],
+					"To": [
+						12,
+						"clock"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Value"
+					],
+					"To": [
+						12,
+						"spin"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Element"
+					],
+					"To": [
+						13,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Result"
+					],
+					"To": [
+						13,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						3,
+						"Then"
+					],
+					"To": [
+						6,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						6,
+						"Then"
+					],
+					"To": [
+						10,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						10,
+						"Then"
+					],
+					"To": [
+						13,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 14,
+					"Text": "Float: the gem bobs where C# Hover puts it, and spins",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						1080.0,
+						642.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

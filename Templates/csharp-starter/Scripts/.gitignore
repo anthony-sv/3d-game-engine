@@ -1,0 +1,5 @@
+# Build output and the machine-specific Strada.props, written by the Strada editor.
+Binaries/
+bin/
+obj/
+Strada.props

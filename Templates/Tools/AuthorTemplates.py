@@ -1,27 +1,35 @@
-"""Builds the project templates through `strada mcp`, the way an agent does. Today it builds graph-starter, the game Orb Run
-made of visual scripts alone: roll a glowing orb with the keyboard or a gamepad and collect 12 sparks before the time runs
-out. In order:
+"""Builds the project templates through `strada mcp`, the way an agent does. Both are the game Orb Run: roll a glowing orb
+with the keyboard or a gamepad and collect 12 sparks before the time runs out, in the same arena, with the same screen.
+graph-starter is made of visual scripts alone; csharp-starter is written in C# (the assembly and namespace Game, whose
+sources are kept in Templates/csharp-starter/Scripts/Source and written by hand), and one small graph calls a C# member
+marked [VisualNode]. In order:
 
-1. the project (Template.sproj, named Orb Run) and its settings, the generated sounds, spark mesh and textures
-   (GenerateAssets.py), and the materials;
-2. the graphs (the Checks function library first), declared first: one graph_edit batch per graph adds its variables,
-   custom events and functions, so the graphs that send to, read from and call each other never meet a missing event;
+1. the project (Template.sproj, named Orb Run) and its settings; for csharp-starter, the C# project the editor makes, the
+   sources put in its place, the engine's repository-only fallback marked in Game.csproj, and the scripts built; then the
+   generated sounds, spark mesh and textures (GenerateAssets.py), and the materials;
+2. the graphs (for graph-starter, the Checks function library first), declared first: one graph_edit batch per graph adds
+   its variables, custom events and functions, so the graphs that send to, read from and call each other never meet a
+   missing event;
 3. the bodies, one graph_edit batch per region of a graph: the region's nodes and links, arranged (scope Created, then
    Nodes) and framed by a comment box titled for what it does, in its role's colour. Every batch must answer no error, no
    warning and no hint, or the tool stops;
-4. the prefabs, the main scene and the test scene;
+4. the prefabs, the main scene and the test scene, whose entities run the graphs or the C# scripts;
 5. the editor closes, and the IDs the engine drew at random (asset handles and entity IDs) are replaced by IDs derived from
    what they name (an asset's path, an entity's place in its file), so two runs write the same bytes; then the template's
    template.json;
 6. checks of the files as written, in a new editor session: every graph analyzes without a diagnostic and every node
    resolves exactly, each box stays arranged, the test scene's checks pass, the keys roll the orb, the clock runs out and
-   Space starts a new run, nothing in the project changes, and saving each scene again writes the same bytes.
+   Space starts a new run, nothing the template ships changes, and saving each scene again writes the same bytes.
 
-    python Templates/Tools/AuthorTemplates.py [--template graph-starter] [--strada <strada executable>] [--output <folder>]
+What building the scripts writes (Scripts/Binaries, Scripts/Strada.props, Scripts/bin and Scripts/obj, which the project
+copy filter leaves out of every new project) is removed at the end.
+
+    python Templates/Tools/AuthorTemplates.py [--template <id>]... [--strada <strada executable>] [--output <folder>]
                                               [--thumbnail]
 
-The template is rebuilt from scratch in Templates/<id> (or --output): everything but its thumbnail is replaced. --thumbnail
-takes the thumbnail again with the player's --screenshot. Without --strada, strada runs from the repository (dotnet run).
+The template is rebuilt from scratch in Templates/<id> (or --output): everything but its thumbnail and its C# sources is
+replaced. --thumbnail takes the thumbnail again with the player's --screenshot. Without --strada, strada runs from the
+repository (dotnet run).
 """
 import argparse
 import hashlib
@@ -393,6 +401,9 @@ TESTS = script("Tests")
 LIBRARIES = (CHECKS,)
 # The order the graphs are written in: the library first, then each graph before the graphs that read or call it most.
 ORDER = (CHECKS, ORB, SPARK, GAME, HUD, CAMERA_RIG, TESTS)
+# csharp-starter's one graph, on every spark: it floats the gem where the spark's C# Hover, a [VisualNode] member, puts it.
+HOVER = script("Hover")
+HOVER_NODE = "Call:Game.Spark.Hover(float)"
 
 # Comment boxes are coloured by role.
 EVENTS = [0.2, 0.42, 0.95, 0.22]
@@ -1062,11 +1073,8 @@ def make_materials(client):
                    "EmissiveIntensity": 8.0})
 
 
-def make_prefab(client, name, components, children=(), variables=None, graph=None):
+def make_prefab(client, name, components, children=()):
     """An entity (with child entities: (name, components)) saved as Prefabs/<name>.sprefab, then removed from the scene."""
-    if graph is not None:
-        components = dict(components)
-        components["VisualScript"] = {"Graph": graph, "Variables": variables or {}}
     entity = client.call("entity_create", {"name": name, "components": components})["id"]
     for child_name, child_components in children:
         client.call("entity_create", {"name": child_name, "parent": entity, "components": child_components})
@@ -1075,7 +1083,9 @@ def make_prefab(client, name, components, children=(), variables=None, graph=Non
     return reference
 
 
-def make_prefabs(client, handles):
+def make_prefabs(client, spark_behaviour):
+    """The burst a collected spark leaves and the spark; spark_behaviour(burst) gives the components that make a spark act
+    (its visual script, or its C# script and the graph that floats its gem)."""
     burst = make_prefab(client, "Spark Burst", {
         "Transform": transform((0.0, -100.0, 0.0)),
         "ParticleSystem": {"Emitting": False, "Burst": 60, "MaxParticles": 80, "Shape": "Sphere", "Radius": 0.3, "LifetimeMin": 0.35,
@@ -1083,7 +1093,7 @@ def make_prefabs(client, handles):
                            "EndSize": 0.0, "StartColor": [1.0, 0.9, 0.55, 1.0], "EndColor": [1.0, 0.45, 0.1, 0.0], "Intensity": 7.0,
                            "Texture": "asset://Textures/Glow.png", "BlendMode": "Additive", "WorldSpace": True, "DestroyWhenFinished": True},
     })
-    spark = make_prefab(client, "Spark", {
+    spark = make_prefab(client, "Spark", dict({
         "Transform": transform((0.0, -100.0, 0.0)),
         "RigidBody": {"Type": "Static"},
         "SphereCollider": {"Radius": 0.8, "IsTrigger": True},
@@ -1092,9 +1102,9 @@ def make_prefabs(client, handles):
                            "LifetimeMax": 1.1, "SpeedMin": 0.2, "SpeedMax": 0.6, "GravityFactor": -0.15, "StartSize": 0.16, "EndSize": 0.0,
                            "StartColor": [1.0, 0.85, 0.45, 1.0], "EndColor": [1.0, 0.5, 0.1, 0.0], "Intensity": 5.0,
                            "Texture": "asset://Textures/Glow.png", "BlendMode": "Additive", "WorldSpace": True},
-    }, children=(("Gem", {"Transform": transform((0.0, 0.0, 0.0), scale=(1.4, 1.4, 1.4)),
-                          "Mesh": {"Mesh": "asset://Meshes/Spark.gltf", "Materials": [material("Spark")], "CastShadows": False}}),),
-        graph=handles[SPARK], variables={"Burst": {"Type": "Prefab", "Value": burst}})
+    }, **spark_behaviour(burst)), children=(("Gem", {"Transform": transform((0.0, 0.0, 0.0), scale=(1.4, 1.4, 1.4)),
+                                                    "Mesh": {"Mesh": "asset://Meshes/Spark.gltf", "Materials": [material("Spark")],
+                                                             "CastShadows": False}}),))
     return {"Spark": spark}
 
 
@@ -1182,9 +1192,10 @@ def build_screen(client):
     return screen, elements
 
 
-def build_scene(client, handles, prefabs):
-    """The main scene: the camera rig, the light and the look, the arena, the orb, the Game and the screen. Returns the
-    entities the test scene names."""
+def build_scene(client, prefabs, attach):
+    """The main scene: the camera rig, the light and the look, the arena, the orb, the Game and the screen. attach(entity,
+    role, values) gives the entities of the roles Orb, CameraRig, Game and Hud what makes them act, with these values for
+    their variables or fields. Returns the entities the test scene names."""
     found = {entity["name"]: entity["id"] for entity in client.call("entity_find", {})["entities"]}
     client.call("entity_delete", {"entities": [found[name] for name in ("Floor", "Cube", "Sphere", "Capsule") if name in found]})
     client.call("scene_settings", {"name": "Main", "settings": {"Renderer": {
@@ -1257,10 +1268,8 @@ def build_scene(client, handles, prefabs):
         "AudioSource": {"Clip": clip("Bump"), "Volume": 0.8, "Spatial": False},
     })
     hum = create("Hum", {"AudioSource": {"Clip": clip("Hum"), "Loop": True, "PlayOnStart": True, "Volume": 0.0, "Spatial": False}}, orb)
-    client.call("component_add", {"entity": orb, "component": "VisualScript", "fields": {"Graph": handles[ORB], "Variables": {
-        "Hum": entity_value(hum), "Floor": entity_value(floor)}}})
-    client.call("component_add", {"entity": rig, "component": "VisualScript", "fields": {"Graph": handles[CAMERA_RIG], "Variables": {
-        "Orb": entity_value(orb), "Home": {"Type": "Vector3", "Value": CAMERA_HOME}}}})
+    attach(orb, "Orb", {"Hum": entity_value(hum), "Floor": entity_value(floor)})
+    attach(rig, "CameraRig", {"Orb": entity_value(orb), "Home": {"Type": "Vector3", "Value": CAMERA_HOME}})
 
     sparks = create("Sparks", {"Transform": transform((0.0, 0.0, 0.0))})
     game = create("Game", {"Transform": transform((0.0, 0.0, 0.0))})
@@ -1277,27 +1286,27 @@ def build_scene(client, handles, prefabs):
         "WinSound": entity_value(sound["Win"]),
         "LoseSound": entity_value(sound["Lose"]),
     }
-    client.call("component_add", {"entity": game, "component": "VisualScript", "fields": {"Graph": handles[GAME], "Variables": game_variables}})
+    attach(game, "Game", game_variables)
     hud_variables = {"Game": entity_value(game), "TickSound": entity_value(sound["Tick"])}
     for name, entity in elements.items():
         hud_variables[name] = entity_value(entity)
-    client.call("component_add", {"entity": screen, "component": "VisualScript", "fields": {"Graph": handles[HUD], "Variables": hud_variables}})
+    attach(screen, "Hud", hud_variables)
     known = {"Game": game, "Orb": orb, "Sparks": sparks}
     known.update(elements)
     return {name: known[name] for name, _ in TEST_ENTITIES}
 
 
-def build_test_scene(client, handles, entities):
-    """The test scene: the main scene saved as Tests (its entities keep their IDs) and the entity whose graph runs the checks."""
+def build_test_scene(client, checks, entities):
+    """The test scene: the main scene saved as Tests (its entities keep their IDs) and the entity whose graph or script runs
+    the checks; checks(values) gives its components, with these values for the entities the checks name."""
     client.call("scene_save", {"path": "Scenes/Tests.sscene"})
     client.call("scene_settings", {"name": "Tests"})
-    client.call("entity_create", {"name": "Tests", "components": {"VisualScript": {"Graph": handles[TESTS], "Variables": {
-        name: entity_value(entity) for name, entity in entities.items()}}}})
+    client.call("entity_create", {"name": "Tests", "components": checks({name: entity_value(entity) for name, entity in entities.items()})})
     client.call("scene_save")
     client.call("scene_open", {"path": "Scenes/Main.sscene"})
 
 
-def author_graph_starter(client, project):
+def author_graph_starter(client, project, sources):
     client.call("project_settings", {"settings": {"Name": "Orb Run", "Window": {"Title": "Orb Run", "Width": 1600, "Height": 900},
                                                   "Physics": {"FixedTimestep": 1.0 / 60.0}}})
     subprocess.run([sys.executable, os.path.join(TOOLS, "GenerateAssets.py"), project], check=True)
@@ -1314,10 +1323,118 @@ def author_graph_starter(client, project):
         author.finish(graph)
     print(f"wrote {len(ORDER)} graphs in {author.batches} batches")
 
-    prefabs = make_prefabs(client, author.handles)
-    entities = build_scene(client, author.handles, prefabs)
+    def spark_behaviour(burst):
+        return {"VisualScript": {"Graph": author.handles[SPARK], "Variables": {"Burst": {"Type": "Prefab", "Value": burst}}}}
+
+    roles = {"Orb": ORB, "CameraRig": CAMERA_RIG, "Game": GAME, "Hud": HUD}
+
+    def attach(entity, role, values):
+        client.call("component_add", {"entity": entity, "component": "VisualScript", "fields": {"Graph": author.handles[roles[role]],
+                                                                                               "Variables": values}})
+
+    prefabs = make_prefabs(client, spark_behaviour)
+    entities = build_scene(client, prefabs, attach)
     client.call("scene_save")
-    build_test_scene(client, author.handles, entities)
+    build_test_scene(client, lambda values: {"VisualScript": {"Graph": author.handles[TESTS], "Variables": values}}, entities)
+
+
+# --- csharp-starter: Orb Run in C# ----------------------------------------------------------------------------------------
+
+# The C# classes of the roles the scene's entities play (namespace Game).
+CSHARP_CLASSES = {"Orb": "Game.Orb", "CameraRig": "Game.CameraRig", "Game": "Game.OrbRun", "Hud": "Game.Hud", "Spark": "Game.Spark",
+                  "Tests": "Game.OrbRunTests"}
+SCRIPT_PROJECT = os.path.join("Scripts", "Game.csproj")
+SCRIPT_SOURCES = os.path.join("Scripts", "Source")
+REPOSITORY_ONLY = """\t<!-- strada:repository-only -->
+\t<!-- In the engine's repository, builds without Strada.props (dotnet format, IDEs) use the scripting API from source;
+\t     CMake builds pass StradaScriptCoreAssembly. -->
+\t<ItemGroup Condition="'$(StradaScriptCoreAssembly)' == ''">
+\t\t<ProjectReference Include="../../../Strada-ScriptCore/Strada.ScriptCore.csproj">
+\t\t\t<Private>false</Private>
+\t\t</ProjectReference>
+\t</ItemGroup>
+\t<!-- /strada:repository-only -->
+"""
+
+
+def use_engine_sources(csproj):
+    """In the engine's repository, builds without the machine's Strada.props (dotnet format in CI, IDEs) take the scripting
+    API from its sources; CMake builds pass StradaScriptCoreAssembly. The fallback is marked repository-only, so the projects
+    made from the template leave it out."""
+    with open(csproj, encoding="utf-8") as file:
+        text = file.read()
+    reference = '\t<ItemGroup>\n\t\t<Reference Include="Strada.ScriptCore">'
+    if text.count(reference) != 1 or text.count("</Project>") != 1:
+        raise SystemExit(f"{csproj} does not reference Strada.ScriptCore as expected")
+    text = text.replace(reference, '\t<ItemGroup Condition="\'$(StradaScriptCoreAssembly)\' != \'\'">\n\t\t<Reference Include="Strada.ScriptCore">')
+    text = text.replace("</Project>", REPOSITORY_ONLY + "</Project>")
+    with open(csproj, "w", encoding="utf-8", newline="\n") as file:
+        file.write(text)
+
+
+def declare_hover(author):
+    author.declare(HOVER, "A spark's float: its gem bobs where the spark's C# Hover puts it, and spins.", variables=(
+        public("Spin", "float", 120.0, "Degrees per second the gem turns", (0.0, 720.0)),
+        private("Clock", "float", 0.0),
+    ))
+
+
+def write_hover(author):
+    with author.region(HOVER, "Float: the gem bobs where C# Hover puts it, and spins", EFFECTS) as b:
+        tick = b.event("Event.Update")
+        clock = b.get("Clock")
+        count = b.set("Clock", b.expr("clock + dt", clock=clock, dt=tick["DeltaTime"]))
+        gem = b.element(b.children(), 0)
+        hover = b.add(HOVER_NODE, None, "Result", comment="Spark.Hover in Scripts/Source/Spark.cs, a [VisualNode] member",
+                      Time=clock).out
+        bob = b.call("Set:Strada.TransformComponent.Translation", Target=gem, Value=hover)
+        spin = b.call("Set:Strada.TransformComponent.EulerAngles", Target=gem,
+                      Value=b.expr("vec3(0, (clock * spin) % 360, 0)", clock=clock, spin=b.get("Spin")))
+        b.chain(tick, count, bob, spin)
+
+
+def author_csharp_starter(client, project, sources):
+    client.call("project_settings", {"settings": {"Name": "Orb Run", "Window": {"Title": "Orb Run", "Width": 1600, "Height": 900},
+                                                  "Physics": {"FixedTimestep": 1.0 / 60.0}}})
+    # The editor makes the C# project (Scripts/Game.csproj: the default script module, Game) with the first class; the
+    # sources replace what it wrote.
+    created = client.call("script_create", {"className": "OrbRun"})
+    if created["class"] != "Game.OrbRun":
+        raise SystemExit(f"the editor made the class {created['class']}, not Game.OrbRun")
+    shutil.copytree(sources, os.path.join(project, SCRIPT_SOURCES), dirs_exist_ok=True)
+    use_engine_sources(os.path.join(project, SCRIPT_PROJECT))
+    built = client.call("script_build")
+    if not built["succeeded"] or built["warnings"]:
+        raise SystemExit(f"the scripts did not build cleanly: {built}")
+    found = [node["Type"] for node in client.call("graph_library", {"query": "Hover"})["nodes"] if node.get("Game")]
+    if found != [HOVER_NODE]:
+        raise SystemExit(f"the scripts' [VisualNode] members are the nodes {found}, not {HOVER_NODE}")
+
+    subprocess.run([sys.executable, os.path.join(TOOLS, "GenerateAssets.py"), project], check=True)
+    client.call("asset_refresh")
+    make_materials(client)
+
+    author = Author(client)
+    author.handles[HOVER] = client.call("graph_create", {"path": HOVER[len("asset://"):], "template": "Empty"})["asset"]
+    declare_hover(author)
+    write_hover(author)
+    author.finish(HOVER)
+    print(f"wrote 1 graph in {author.batches} batches")
+
+    def spark_behaviour(burst):
+        return {"Script": {"ClassName": CSHARP_CLASSES["Spark"], "Fields": {"Burst": {"Type": "Prefab", "Value": burst}}},
+                "VisualScript": {"Graph": author.handles[HOVER], "Variables": {}}}
+
+    def attach(entity, role, values):
+        if role == "Game":
+            values = dict(values, TimeLimit={"Type": "Float", "Value": TIME_LIMIT})
+        client.call("component_add", {"entity": entity, "component": "Script", "fields": {"ClassName": CSHARP_CLASSES[role],
+                                                                                         "Fields": values}})
+
+    prefabs = make_prefabs(client, spark_behaviour)
+    entities = build_scene(client, prefabs, attach)
+    client.call("scene_save")
+    build_test_scene(client, lambda values: {"Script": {"ClassName": CSHARP_CLASSES["Tests"], "Fields": values}}, entities)
 
 
 # --- IDs that two runs share -------------------------------------------------------------------------------------------------
@@ -1406,10 +1523,10 @@ def contains(box, node):
     return left <= x <= left + width and top <= y <= top + height
 
 
-def verify_graphs(client):
+def verify_graphs(client, graphs, library_use=None):
     """Every graph analyzes without a diagnostic and every node resolves exactly; every node stands in exactly one comment
-    box, and every box stands arranged; the Checks library is used by the test graph."""
-    for graph in ORDER:
+    box, and every box stands arranged; library_use, (a library, the path of a graph), is a library that graph uses."""
+    for graph in graphs:
         document = client.call("graph_get", {"graph": graph})["document"]
         checked = client.call("graph_check", {"graph": graph, "document": document})
         if not checked["valid"] or not checked["analyzed"] or checked["diagnostics"]:
@@ -1428,9 +1545,11 @@ def verify_graphs(client):
                 arranged = client.call("graph_arrange", {"graph": graph, "function": function, "nodes": inside, "dryRun": True})
                 if arranged["changed"]:
                     raise SystemExit(f"the box '{box['Text']}' of {graph} does not stand arranged")
-    used_by = {entry["path"] for entry in client.call("graph_interface", {"graph": CHECKS})["usedBy"]}
-    if "Scripts/Tests.sgraph" not in used_by:
-        raise SystemExit(f"Checks is used by {sorted(used_by)}, not by Scripts/Tests.sgraph")
+    if library_use is not None:
+        library, user = library_use
+        used_by = {entry["path"] for entry in client.call("graph_interface", {"graph": library})["usedBy"]}
+        if user not in used_by:
+            raise SystemExit(f"{library} is used by {sorted(used_by)}, not by {user}")
 
 
 def read_log(client, since, level):
@@ -1488,31 +1607,94 @@ def play_graph_starter(client):
         raise SystemExit("playing logged problems of visual scripts:\n  " + "\n  ".join(problems))
 
 
+def play_csharp_starter(client):
+    """Plays the main scene: W rolls the orb away from the camera, the clock runs out into the lose screen, Space starts a
+    new run with a full clock, and no script throws and no visual script warns meanwhile."""
+    _, start = read_log(client, 0, "critical")
+    orb = find_entity(client, "Orb")
+    lose_screen = find_entity(client, "Lose Screen")
+    time_text = find_entity(client, "Time Text")
+
+    def component(entity, name):
+        return client.call("entity_get", {"entity": entity})["components"][name]
+
+    client.call("play_start", {"paused": True})
+    client.call("play_advance", {"frames": 30})
+    before = component(orb, "Transform")["Translation"]
+    client.call("input_set", {"keys": {"W": True}})
+    client.call("play_advance", {"frames": 60})
+    client.call("input_set", {"keys": {"W": False}})
+    after = component(orb, "Transform")["Translation"]
+    if before[2] - after[2] < 1.5:
+        raise SystemExit(f"W did not roll the orb away from the camera: from {before} to {after}")
+    client.call("play_advance", {"frames": int(TIME_LIMIT * 60) + 30})
+    if not component(lose_screen, "UIRect")["Visible"]:
+        raise SystemExit("the lose screen did not show when the time ran out")
+    client.call("input_set", {"keys": {"Space": True}})
+    client.call("play_advance", {"frames": 2})
+    client.call("input_set", {"keys": {"Space": False}})
+    client.call("play_advance", {"frames": 2})
+    clock = component(time_text, "UIText")["Text"]
+    if component(lose_screen, "UIRect")["Visible"] or clock != str(int(TIME_LIMIT)):
+        raise SystemExit(f"Space after the loss did not start a new run: the clock reads {clock}")
+    entries, _ = read_log(client, start, "warn")
+    client.call("play_stop")
+    problems = [entry["message"] for entry in entries
+                if "Exception" in entry["message"] or "isual script" in entry["message"] or ".sgraph" in entry["message"]]
+    if problems:
+        raise SystemExit("playing logged problems of the scripts:\n  " + "\n  ".join(problems))
+
+
+def is_shipped(relative):
+    """Whether a file of a template (a path relative to it, with forward slashes) is part of it: what the project copy filter
+    copies into new projects. Building the scripts writes the rest."""
+    parts = relative.split("/")
+    if relative == "Scripts/Strada.props" or parts[0] in ("Tools", "Build", ".strada", ".git") or "__pycache__" in parts[:-1]:
+        return False
+    return not (len(parts) > 2 and parts[0] == "Scripts" and parts[1] in ("bin", "obj", "Binaries"))
+
+
+def remove_build_outputs(folder):
+    """Removes what building the scripts wrote into the template."""
+    for name in ("Binaries", "bin", "obj"):
+        shutil.rmtree(os.path.join(folder, "Scripts", name), ignore_errors=True)
+    props = os.path.join(folder, "Scripts", "Strada.props")
+    if os.path.isfile(props):
+        os.remove(props)
+
+
 def snapshot(folder):
-    """Every file of a folder with its bytes, by its path relative to the folder."""
+    """Every file the template ships with its bytes, by its path relative to the folder."""
     files = {}
     for directory, _, names in os.walk(folder):
         for name in names:
             path = os.path.join(directory, name)
-            with open(path, "rb") as file:
-                files[os.path.relpath(path, folder).replace(os.sep, "/")] = file.read()
+            relative = os.path.relpath(path, folder).replace(os.sep, "/")
+            if is_shipped(relative):
+                with open(path, "rb") as file:
+                    files[relative] = file.read()
     return files
 
 
-def check_graph_starter(command, project):
-    """Opens the written template in a new editor and checks it, changing nothing in it."""
+def check_template(command, project, graphs, library_use, checks, play):
+    """Opens the written template in a new editor and checks it: its graphs, its test scene (checks checks, all passed) and
+    a play of its main scene; nothing it ships changes."""
     before = snapshot(project)
     client = McpClient(command + ["mcp", "--headless", "--new"])
     try:
         client.call("project_open", {"path": os.path.join(project, "Template.sproj")})
-        verify_graphs(client)
+        if os.path.isfile(os.path.join(project, SCRIPT_PROJECT)):
+            built = client.call("script_build")
+            if not built["succeeded"] or built["warnings"]:
+                raise SystemExit(f"the scripts did not build cleanly: {built}")
+        verify_graphs(client, graphs, library_use)
         result = client.call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": 90})
         print("test run:", {key: result[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})
         for entry in result["results"]:
             print("  ", "PASS" if entry["passed"] else "FAIL", entry["name"], entry.get("message", ""))
-        if result["failed"] or result["exceptions"] or not result["finished"] or result["passed"] != len(TEST_CHECKS):
+        if result["failed"] or result["exceptions"] or not result["finished"] or result["passed"] != checks:
             raise SystemExit("the tests failed")
-        play_graph_starter(client)
+        play(client)
         # Saving each scene again writes what the normalized file holds: nothing in a scene is ordered by its IDs' values.
         for scene in ("Scenes/Tests.sscene", "Scenes/Main.sscene"):
             client.call("scene_open", {"path": scene})
@@ -1527,14 +1709,28 @@ def check_graph_starter(command, project):
 
 # --- The templates ----------------------------------------------------------------------------------------------------------
 
+# The checks of csharp-starter's test scene (Scripts/Source/OrbRunTests.cs).
+CSHARP_TEST_CHECKS = 14
+
 TEMPLATES_BUILT = {
     "graph-starter": {
         "author": author_graph_starter,
-        "check": check_graph_starter,
+        "check": lambda command, project: check_template(command, project, ORDER, (CHECKS, "Scripts/Tests.sgraph"), len(TEST_CHECKS),
+                                                         play_graph_starter),
+        "sources": None,
         "template": {"Id": "graph-starter", "Name": "Graph Starter", "Order": 2,
                      "Description": f"Roll a glowing orb and collect {len(SPOTS)} sparks before time runs out: every rule is a graph.",
                      "Requires": {"Sdk": False}, "Tags": ["3D", "Visual scripts"], "Thumbnail": "thumbnail.png",
                      "ProjectFile": "Template.sproj"},
+    },
+    "csharp-starter": {
+        "author": author_csharp_starter,
+        "check": lambda command, project: check_template(command, project, (HOVER,), None, CSHARP_TEST_CHECKS, play_csharp_starter),
+        "sources": SCRIPT_SOURCES,
+        "template": {"Id": "csharp-starter", "Name": "C# Starter", "Order": 3,
+                     "Description": f"Roll a glowing orb and collect {len(SPOTS)} sparks before time runs out, written in C#, with a "
+                                    "C# member that a graph calls as a node.",
+                     "Requires": {"Sdk": True}, "Tags": ["3D", "C#"], "Thumbnail": "thumbnail.png", "ProjectFile": "Template.sproj"},
     },
 }
 THUMBNAIL = "thumbnail.png"
@@ -1660,24 +1856,39 @@ def take_thumbnail(player, folder):
 
 def build_template(command, template_id, folder):
     spec = TEMPLATES_BUILT[template_id]
-    # The editor creates projects in new or empty folders only: the thumbnail waits outside meanwhile.
+    # The editor creates projects in new or empty folders only: the thumbnail and the C# sources wait outside meanwhile. The
+    # sources are the template's in the repository, also when it is built elsewhere (--output).
     aside = tempfile.mkdtemp(prefix="template-author-")
     kept = os.path.join(folder, THUMBNAIL)
+    sources = None
+    if spec["sources"] is not None:
+        repository_sources = os.path.join(TEMPLATES, template_id, spec["sources"])
+        if not os.path.isdir(repository_sources):
+            raise SystemExit(f"{repository_sources} holds no C# sources")
+        sources = os.path.join(aside, "Source")
+        shutil.copytree(repository_sources, sources)
     if os.path.isfile(kept):
         shutil.move(kept, os.path.join(aside, THUMBNAIL))
+    authored = False
     try:
         if os.path.isdir(folder):
             shutil.rmtree(folder)
         client = McpClient(command + ["mcp", "--headless", "--new"])
         try:
             client.call("project_create", {"directory": folder, "name": "Template", "gitIgnore": False})
-            spec["author"](client, folder)
+            spec["author"](client, folder, sources)
+            authored = True
         finally:
             client.close()
     finally:
         if os.path.isfile(os.path.join(aside, THUMBNAIL)):
             os.makedirs(folder, exist_ok=True)
             shutil.move(os.path.join(aside, THUMBNAIL), kept)
+        # The sources are written by hand: a build that failed puts them back as they were.
+        if sources is not None and not authored:
+            target = os.path.join(folder, spec["sources"])
+            shutil.rmtree(target, ignore_errors=True)
+            shutil.copytree(sources, target)
         shutil.rmtree(aside, ignore_errors=True)
     normalize_ids(folder, template_id)
     write_template_file(folder, spec["template"])
@@ -1705,6 +1916,7 @@ def main():
         if arguments.thumbnail:
             player = os.path.join(os.path.dirname(os.path.abspath(arguments.strada)), "StradaRuntime" + (".exe" if os.name == "nt" else ""))
             take_thumbnail(player, folder)
+        remove_build_outputs(folder)
         if not os.path.isfile(os.path.join(folder, THUMBNAIL)):
             print(f"warning: {folder} has no {THUMBNAIL}: take one with --thumbnail")
         print(f"built {template_id} in {folder}")

@@ -114,16 +114,26 @@ TEST_CASE("ProjectTemplate: the repository's templates load without warnings")
 	std::vector<std::string> warnings;
 	std::vector<ProjectTemplate> const templates = ProjectTemplate::List(FileSystem::PathFromUtf8(STRADA_TEMPLATES_DIR), warnings);
 	CHECK_MESSAGE(warnings.empty(), (warnings.empty() ? std::string() : warnings.front()));
-	REQUIRE_FALSE(templates.empty());
-	CHECK(templates.front().Id == ProjectTemplate::DefaultId);
-	CHECK(templates.front().IsDefaultScene());
+	// Spec section 4.2: the editor's default scene, Orb Run made of graphs, and Orb Run in C#, which needs the .NET SDK.
+	REQUIRE(templates.size() == 3);
+	CHECK(templates[0].Id == ProjectTemplate::DefaultId);
+	CHECK(templates[0].IsDefaultScene());
 	ProjectTemplate const made = ProjectTemplate::MakeDefault();
-	CHECK(templates.front().Name == made.Name);
-	CHECK(templates.front().Description == made.Description);
+	CHECK(templates[0].Name == made.Name);
+	CHECK(templates[0].Description == made.Description);
+	CHECK(templates[1].Id == "graph-starter");
+	CHECK_FALSE(templates[1].RequiresSdk);
+	CHECK(templates[2].Id == "csharp-starter");
+	CHECK(templates[2].RequiresSdk);
 	for (ProjectTemplate const& projectTemplate : templates)
 	{
 		CAPTURE(projectTemplate.Id);
-		CHECK_FALSE(projectTemplate.GetThumbnailPath().empty());
+		CHECK(FileSystem::IsRegularFile(projectTemplate.GetThumbnailPath()));
+		if (!projectTemplate.IsDefaultScene())
+		{
+			CHECK(projectTemplate.ProjectFile == "Template.sproj");
+			CHECK(FileSystem::IsRegularFile(projectTemplate.Directory / FileSystem::PathFromUtf8(projectTemplate.ProjectFile)));
+		}
 	}
 }
 

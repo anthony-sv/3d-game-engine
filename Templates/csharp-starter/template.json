@@ -1,0 +1,21 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "ProjectTemplate"
+	},
+	"Template": {
+		"Id": "csharp-starter",
+		"Name": "C# Starter",
+		"Order": 3,
+		"Description": "Roll a glowing orb and collect 12 sparks before time runs out, written in C#, with a C# member that a graph calls as a node.",
+		"Requires": {
+			"Sdk": true
+		},
+		"Tags": [
+			"3D",
+			"C#"
+		],
+		"Thumbnail": "thumbnail.png",
+		"ProjectFile": "Template.sproj"
+	}
+}
