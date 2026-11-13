@@ -8,6 +8,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -20,12 +21,23 @@ namespace Strada
 		constexpr ImVec4 SuccessColor = ImVec4(0.45f, 0.85f, 0.45f, 1.0f);
 		constexpr ImVec4 FailureColor = ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
 		constexpr ImVec4 WarningColor = ImVec4(1.0f, 0.75f, 0.3f, 1.0f);
-		// The rows the file list shows before it scrolls (every file of the kit) and the lines of a diff, each at most this
-		// share of the window's height, so that the whole dialog fits a small window.
+		// The rows the file list shows before it scrolls (every file of the kit) and the lines of a diff. The list takes at
+		// most MaxFilesShare of the window's height; the diff takes what the list leaves of MaxListsShare, and at least
+		// MinDiffShare, so that the whole dialog fits a small window.
 		constexpr float VisibleFiles = 14.0f;
-		constexpr float VisibleDiffLines = 10.0f;
+		constexpr float VisibleDiffLines = 16.0f;
 		constexpr float MaxFilesShare = 0.3f;
-		constexpr float MaxDiffShare = 0.2f;
+		constexpr float MaxListsShare = 0.55f;
+		constexpr float MinDiffShare = 0.2f;
+
+		// The height of a bordered child of rows of text: as many rows as wanted, or as fit whole in maxHeight (at least one).
+		float FitRows(float rows, float maxHeight)
+		{
+			float const rowHeight = ImGui::GetTextLineHeightWithSpacing();
+			float const padding = ImGui::GetStyle().WindowPadding.y * 2.0f;
+			float const fitting = std::max(std::floor((maxHeight - padding) / rowHeight), 1.0f);
+			return std::min(rows, fitting) * rowHeight + padding;
+		}
 
 		bool IsSameProject(AgentProject const& first, AgentProject const& second)
 		{
@@ -213,8 +225,11 @@ namespace Strada
 
 		bool const applied = m_Result.has_value();
 		AgentPlan const& shown = applied ? m_Result->Plan : *m_Plan;
-		DrawFiles(shown, applied);
-		DrawSelection(shown, applied);
+		float const workHeight = viewport->WorkSize.y;
+		float const filesHeight = FitRows(std::min(static_cast<float>(shown.Files.size()), VisibleFiles), workHeight * MaxFilesShare);
+		float const diffHeight = FitRows(VisibleDiffLines, std::max(workHeight * MaxListsShare - filesHeight, workHeight * MinDiffShare));
+		DrawFiles(shown, applied, filesHeight);
+		DrawSelection(shown, applied, diffHeight);
 		for (std::string const& warning : shown.Warnings)
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text, WarningColor);
@@ -267,13 +282,9 @@ namespace Strada
 		ImGui::EndPopup();
 	}
 
-	void AgentSetupDialog::DrawFiles(AgentPlan const& plan, bool applied)
+	void AgentSetupDialog::DrawFiles(AgentPlan const& plan, bool applied, float height)
 	{
 		ImGui::SeparatorText(applied ? "What the setup did" : "What the setup does");
-		ImGuiStyle const& style = ImGui::GetStyle();
-		float const rows = std::min(static_cast<float>(plan.Files.size()), VisibleFiles);
-		float const height = std::min(rows * ImGui::GetTextLineHeightWithSpacing() + style.WindowPadding.y * 2.0f,
-		                              ImGui::GetMainViewport()->WorkSize.y * MaxFilesShare);
 		if (ImGui::BeginChild("##files", ImVec2(0.0f, height), ImGuiChildFlags_Borders))
 		{
 			float const actionColumn = ImGui::GetContentRegionAvail().x * 0.62f;
@@ -293,7 +304,7 @@ namespace Strada
 		ImGui::EndChild();
 	}
 
-	void AgentSetupDialog::DrawSelection(AgentPlan const& plan, bool applied)
+	void AgentSetupDialog::DrawSelection(AgentPlan const& plan, bool applied, float diffHeight)
 	{
 		AgentFilePlan const* const file = FindFile(plan, m_Selected);
 		if (file == nullptr)
@@ -308,14 +319,15 @@ namespace Strada
 			return;
 		}
 		ImGui::TextDisabled(applied ? "What changed in Strada's part of the file:" : "What changes in Strada's part of the file:");
-		float const height = std::min(VisibleDiffLines * ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().WindowPadding.y * 2.0f,
-		                              ImGui::GetMainViewport()->WorkSize.y * MaxDiffShare);
-		if (ImGui::BeginChild("##diff", ImVec2(0.0f, height), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar))
+		if (ImGui::BeginChild("##diff", ImVec2(0.0f, diffHeight), ImGuiChildFlags_Borders))
 		{
 			if (m_MonospaceFont != nullptr)
 			{
 				ImGui::PushFont(m_MonospaceFont, 0.0f);
 			}
+			// Long lines wrap at the pane's right edge (TextUnformatted wraps at the pushed position), each in its line's
+			// colour, so that nothing needs a horizontal scroll to be read.
+			ImGui::PushTextWrapPos(0.0f);
 			std::string_view const diff = file->Diff;
 			for (size_t start = 0; start < diff.size();)
 			{
@@ -326,6 +338,7 @@ namespace Strada
 				ImGui::PopStyleColor();
 				start = end + 1;
 			}
+			ImGui::PopTextWrapPos();
 			if (m_MonospaceFont != nullptr)
 			{
 				ImGui::PopFont();

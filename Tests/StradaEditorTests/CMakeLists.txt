@@ -115,7 +115,7 @@ target_compile_definitions(StradaEditorTests PRIVATE
     STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"
     # The repository's projects: the play mode tests play the Blocks sample with the scripts CMake builds and the Prism Break
     # sample, and a test reads the sample projects' graphs.
-    STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
+    STRADA_SAMPLE_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
     # The project templates: the sample graphs' test reads the graphs of the graph-starter and csharp-starter templates too.
     STRADA_TEMPLATES_DIR="${PROJECT_SOURCE_DIR}/Templates"
     # Shared test data: the visual script editor's tests read their node library and documents from it.

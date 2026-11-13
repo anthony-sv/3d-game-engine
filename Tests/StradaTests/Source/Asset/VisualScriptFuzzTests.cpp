@@ -883,7 +883,7 @@ TEST_CASE("VisualScript: damaged graphs that load also run")
 	};
 	// Prism Break's match (spec-slice4 section 18.10): a game made of graphs alone, which calls its library, instantiates,
 	// sends to and remotely sets the graphs of what it spawns, broadcasts and waits in latent functions.
-	std::filesystem::path const prismBreak = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / "PrismBreak" / "Assets";
+	std::filesystem::path const prismBreak = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "PrismBreak" / "Assets";
 	Result<std::string> const gameText = FileSystem::ReadTextFile(prismBreak / "Scripts" / "Game.sgraph");
 	REQUIRE(gameText.IsOk());
 	Result<Json> const game = ParseJson(gameText.GetValue());

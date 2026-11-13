@@ -17,10 +17,11 @@ makes it: scenes of entities and components, materials, prefabs, C# scripts and 
   `component_types`, `graph_library` and `asset_list` list what exists. Read `log_read` whenever a result surprises you.
 - **Save your work.** `scene_save` writes the scene; an editor without a window drops unsaved changes when the session
   ends.
-- **Prove it in the game before you say it works.** `script_build` must report no errors, and `graph_get` no Error
-  in a graph's `diagnostics` (a graph with one does not run). Then play: `play_start` (with `paused: true` for exact
-  steps), `play_advance` with `frames`, `input_set` for keys, `viewport_screenshot` to look, `play_stop` to end. Run
-  the test scene with `test_run` and read every check.
+- **Prove it in the game before you say it works.** When the project has C# scripts (`script_status` shows
+  `scriptProject`), `script_build` must report no errors; a project made of graphs alone has nothing to build. No
+  graph's `diagnostics` in `graph_get` may hold an Error (a graph with one does not run). Then play: `play_start` (with
+  `paused: true` for exact steps), `play_advance` with `frames`, `input_set` for keys, `viewport_screenshot` to look,
+  `play_stop` to end. Run the test scene with `test_run` and read every check.
 - **Ask the user first** before you delete assets (`asset_delete`, `asset_delete_folder`), export the game
   (`project_export`), drop unsaved changes (`discardChanges: true`), or change anything outside this folder.
 

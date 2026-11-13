@@ -700,9 +700,9 @@ TEST_CASE("StartScreenPanel: the screen that comes up at the editor's start show
 	std::filesystem::path const missing = fixture.Directory.GetPath() / "Gone" / "Gone.sproj";
 	Result<std::vector<std::string>> const opened = fixture.Operations.OpenProject(missing);
 	REQUIRE(opened.IsError());
-	std::string const failure =
-		DescribeStartScreenFailure(fmt::format("Opening the project '{}'", FileSystem::PathToUtf8(missing)), opened.GetError());
-	fixture.Model.ShowAtStart(failure);
+	std::string const failure = DescribeProjectOpenFailure(missing, opened.GetError());
+	fixture.Model.SetVisible(true);
+	fixture.Model.ReportError(failure);
 
 	// The first frames of the screen read its content and keep the line.
 	fixture.Frames();

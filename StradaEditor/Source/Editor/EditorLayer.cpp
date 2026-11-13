@@ -463,9 +463,8 @@ namespace Strada
 			}
 			else
 			{
-				std::string const project = FileSystem::PathToUtf8(m_Specification.ProjectPath);
-				ST_ERROR("Could not open the project '{}': {}", project, opened.GetError());
-				projectFailure = DescribeStartScreenFailure(fmt::format("Opening the project '{}'", project), opened.GetError());
+				projectFailure = DescribeProjectOpenFailure(m_Specification.ProjectPath, opened.GetError());
+				ST_ERROR("{}", projectFailure);
 			}
 		}
 		if (!m_Specification.ScenePath.empty())
@@ -484,10 +483,15 @@ namespace Strada
 		{
 			m_Context.SetScene(CreateDefaultScene(), {});
 		}
-		// Only an editor with a window shows the screen (ShowStartScreen).
-		if (m_Specification.StartScreen && m_Context.GetProject() == nullptr && Application::Get().GetImGuiLayer() != nullptr)
+		if (m_Specification.StartScreen && m_Context.GetProject() == nullptr)
 		{
-			m_StartScreen.ShowAtStart(std::move(projectFailure));
+			// The screen comes up first: its error line keeps a message only while it shows, which only an editor with a
+			// window does (ShowStartScreen).
+			ShowStartScreen(true);
+			if (!projectFailure.empty())
+			{
+				m_StartScreen.ReportError(std::move(projectFailure));
+			}
 		}
 
 		if (!m_Specification.EnableAutomation)

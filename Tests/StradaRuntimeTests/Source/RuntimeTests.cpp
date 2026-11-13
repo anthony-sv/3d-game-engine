@@ -349,7 +349,7 @@ namespace
 	// copy's project file.
 	std::filesystem::path CopyRepositoryProject(std::string const& name, std::filesystem::path const& directory)
 	{
-		std::filesystem::path const source = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / FileSystem::PathFromUtf8(name);
+		std::filesystem::path const source = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / FileSystem::PathFromUtf8(name);
 		std::filesystem::path const project = directory / FileSystem::PathFromUtf8(name);
 		std::filesystem::path const file = FileSystem::PathFromUtf8(name + ".sproj");
 		REQUIRE(FileSystem::CopyDirectory(source / "Assets", project / "Assets").IsOk());

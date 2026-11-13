@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <system_error>
 #include <utility>
 
 namespace Strada
@@ -126,6 +127,22 @@ namespace Strada
 		return fmt::format("{} failed: {}", doing, error);
 	}
 
+	std::string DescribeProjectOpenFailure(std::filesystem::path const& projectFile, std::string_view error)
+	{
+		std::string const file = FileSystem::PathToUtf8(projectFile);
+		// status() gives not_found, whatever error it also reports, when the file or a folder on its way is missing.
+		std::error_code statusError;
+		if (std::filesystem::status(projectFile, statusError).type() == std::filesystem::file_type::not_found)
+		{
+			return fmt::format("The project '{}' given with --project does not exist", file);
+		}
+		if (!file.empty() && error.find(file) != std::string_view::npos)
+		{
+			return fmt::format("The project given with --project did not open: {}", error);
+		}
+		return fmt::format("The project '{}' given with --project did not open: {}", file, error);
+	}
+
 	StartScreenModel::StartScreenModel(EditorLocations locations, StartScreenServices services)
 		: m_Locations(std::move(locations)),
 		  m_Services(std::move(services)),
@@ -140,15 +157,6 @@ namespace Strada
 		if (!visible)
 		{
 			m_Error.clear();
-		}
-	}
-
-	void StartScreenModel::ShowAtStart(std::string projectFailure)
-	{
-		SetVisible(true);
-		if (!projectFailure.empty())
-		{
-			ReportError(std::move(projectFailure));
 		}
 	}
 

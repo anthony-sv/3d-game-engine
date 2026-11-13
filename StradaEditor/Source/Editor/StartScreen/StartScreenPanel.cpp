@@ -282,15 +282,17 @@ namespace Strada
 				ImDrawList* const drawList = ImGui::GetWindowDrawList();
 				std::string const state = DescribeState(project.State);
 				float const stateWidth = state.empty() ? 0.0f : ImGui::CalcTextSize(state.c_str()).x + style.ItemSpacing.x;
-				float const textWidth = std::max(rowWidth - stateWidth - style.FramePadding.x, 1.0f);
+				// The state shares the name's line only: the folder below has the whole row.
+				float const folderWidth = std::max(rowWidth - style.FramePadding.x, 1.0f);
+				float const nameWidth = std::max(folderWidth - stateWidth, 1.0f);
 				ImVec2 const namePosition(rowMin.x + style.FramePadding.x * 0.5f, rowMin.y + rowPadding);
 				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(canOpen ? ImGuiCol_Text : ImGuiCol_TextDisabled));
-				ImGui::RenderTextEllipsis(drawList, namePosition, ImVec2(namePosition.x + textWidth, namePosition.y + lineHeight),
-				                          namePosition.x + textWidth, project.Name.c_str(), project.Name.c_str() + project.Name.size(),
+				ImGui::RenderTextEllipsis(drawList, namePosition, ImVec2(namePosition.x + nameWidth, namePosition.y + lineHeight),
+				                          namePosition.x + nameWidth, project.Name.c_str(), project.Name.c_str() + project.Name.size(),
 				                          nullptr);
 				ImGui::PopStyleColor();
 				// The folder keeps its last folders, which tell the projects apart, and gives way at its start.
-				std::string const folder = UI::FitPath(FileSystem::PathToUtf8(project.File.parent_path()), textWidth);
+				std::string const folder = UI::FitPath(FileSystem::PathToUtf8(project.File.parent_path()), folderWidth);
 				ImVec2 const folderPosition(namePosition.x, namePosition.y + lineHeight);
 				drawList->AddText(folderPosition, ImGui::GetColorU32(ImGuiCol_TextDisabled), folder.c_str(),
 				                  folder.c_str() + folder.size());

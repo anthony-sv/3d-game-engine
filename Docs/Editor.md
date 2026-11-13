@@ -106,6 +106,9 @@ projects the same way:
   valid in file names everywhere.
 - **Set up for coding agents** (on): writes `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, the game-making skill and the guides
   into the project, as [Set Up for Coding Agents](#setting-a-project-up-for-coding-agents) does; **Files it writes** lists them.
+  What the setup warns about after Create goes to the Console only: most often that `.mcp.json` names this machine's
+  path of `strada` because the `strada` on `PATH` is not the one next to the editor (always so for an editor run from
+  a build folder that is not on `PATH`). File > Set Up for Coding Agents... shows the same warnings for the open project.
 - **Add a .gitignore** (on): writes a `.gitignore` that keeps build output, caches and machine-specific files out of
   git.
 - **Create** is disabled, with the reason beside it (hover the reason to read all of it), while the name is empty, the

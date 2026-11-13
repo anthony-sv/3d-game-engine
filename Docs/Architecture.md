@@ -1749,8 +1749,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   area (under the menu bar) while the model is visible: at start without a project in an editor with a window (unless
   `--no-start-screen`, `EditorLayerSpecification::StartScreen`, which `strada mcp` passes), after File > Close Project,
   from File > Start Screen and `start.show`; any project opened or created hides it (`OnProjectOpened`). At start it
-  comes up with why the project given with `--project` did not open on its error line (`StartScreenModel::ShowAtStart`:
-  shown first, since the line keeps a message only while the screen is visible). While it shows,
+  comes up with why the project given with `--project` did not open on its error line (`DescribeProjectOpenFailure`, which
+  says when the file does not exist; the screen is shown first, since the line keeps a message only while the screen is
+  visible). While it shows,
   `EditorLayer` draws the menu bar, the screen and the modal dialogs only: the dockspace is kept alive without being
   drawn (`ImGuiDockNodeFlags_KeepAliveOnly`, so docked panels stay docked), no toolbar, panel, viewport, gizmo or
   floating window is submitted (so none can take the mouse or the keyboard), the game view's input goes back to the

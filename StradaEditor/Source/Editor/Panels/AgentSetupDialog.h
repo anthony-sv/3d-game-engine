@@ -45,8 +45,8 @@ namespace Strada
 
 	private:
 		void MakePlan(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool);
-		void DrawFiles(AgentPlan const& plan, bool applied);
-		void DrawSelection(AgentPlan const& plan, bool applied);
+		void DrawFiles(AgentPlan const& plan, bool applied, float height);
+		void DrawSelection(AgentPlan const& plan, bool applied, float diffHeight);
 		void DrawResult(AgentApplyResult const& result);
 
 		bool m_OpenRequested = false;

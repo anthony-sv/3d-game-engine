@@ -84,7 +84,12 @@ usage.
   sees it end when strada exits, even while the editor runs on.
 
 The repository's `.mcp.json` registers `strada mcp` for agents working in the checkout (through `dotnet run`, which
-builds strada when needed). A game project elsewhere registers the built tool (`strada.exe` on Windows):
+builds strada when needed). A game project elsewhere gets its entry from the editor when it is set up for coding
+agents (`project.setup-agents`, `project.create`'s `agents`, File > Set Up for Coding Agents...):
+`"command": "strada"` when the `strada` on `PATH` is the one next to the editor (or none is next to it), which keeps
+the file portable, else the absolute path of the `strada` next to the editor, with a warning
+([Agents.md](Agents.md#projects-set-up-for-coding-agents)). Written by hand, the entry names the built tool
+(`strada.exe` on Windows):
 
 ```json
 {

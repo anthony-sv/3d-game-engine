@@ -13,6 +13,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -281,6 +282,49 @@ TEST_CASE("AgentSetupDialog: Apply sets the project up and shows what it did; op
 	CHECK(Snapshot(fixture.Project.Directory) == before);
 	fixture.Click("Cancel");
 	CHECK_FALSE(fixture.IsOpen());
+}
+
+TEST_CASE("AgentSetupDialog: a diff's long lines wrap in a pane that leaves the dialog inside a small window")
+{
+	DialogFixture fixture;
+	// An engine whose AGENTS.md block has a line far wider than the dialog.
+	std::filesystem::path const content = fixture.Directory.GetPath() / "WideEngine";
+	REQUIRE(FileSystem::CopyDirectory(Testing::GetTestContentDirectory(), content).IsOk());
+	std::string block = ReadFile(content / "Agents" / "AGENTS.block.md");
+	for (int word = 0; word < 60; word++)
+	{
+		block += "wide ";
+	}
+	block += "end.\n";
+	REQUIRE(FileSystem::WriteTextFile(content / "Agents" / "AGENTS.block.md", block).IsOk());
+	Result<EngineLayout> layout = EngineLayout::Resolve(content / "StradaEditor");
+	REQUIRE(layout.IsOk());
+	fixture.Layout = layout.TakeValue();
+
+	ImVec2 const display(1280.0f, 720.0f);
+	fixture.Gui.SetDisplaySize(display);
+	fixture.Open();
+	REQUIRE(fixture.IsOpen());
+	REQUIRE(fixture.Dialog.GetSelectedFile() == "AGENTS.md");
+	ImGuiWindow const* const popup = fixture.GetPopup();
+	auto const diff = std::ranges::find_if(GImGui->Windows,
+	                                       [popup](ImGuiWindow const* window)
+	                                       {
+											   return window->ParentWindow == popup && window->Active &&
+		                                              std::string_view(window->Name).find("##diff") != std::string_view::npos;
+										   });
+	REQUIRE_MESSAGE(diff != GImGui->Windows.end(), "the dialog shows no diff");
+	// The file list shows whole rows (it scrolls to the others).
+	ImGuiWindow const* const list = fixture.GetFileList();
+	float const rowPitch = GImGui->FontSize + GImGui->Style.ItemSpacing.y;
+	float const shownRows = (list->Size.y - list->WindowPadding.y * 2.0f) / rowPitch;
+	CHECK(shownRows == doctest::Approx(std::round(shownRows)));
+	// Nothing to scroll to sideways: the long line wrapped at the pane's edge.
+	CHECK((*diff)->ScrollMax.x == 0.0f);
+	CHECK((*diff)->ContentSize.x <= (*diff)->InnerRect.GetWidth());
+	CHECK(popup->ScrollMax.y == 0.0f);
+	CHECK(popup->Pos.y >= 0.0f);
+	CHECK(popup->Pos.y + popup->Size.y <= display.y);
 }
 
 TEST_CASE("AgentSetupDialog: a file that cannot be written stops Apply, and the dialog shows which")

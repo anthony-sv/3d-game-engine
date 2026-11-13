@@ -242,7 +242,7 @@ TEST_CASE("ExampleCatalog: damaged entries are left out with a warning; a damage
 
 TEST_CASE("ExampleCatalog: the repository's catalog lists its samples without warnings, each with a thumbnail")
 {
-	std::filesystem::path const projects = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR);
+	std::filesystem::path const projects = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR);
 	Result<ExampleCatalog> loaded = ExampleCatalog::Load(projects / "catalog.json");
 	REQUIRE_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
 	ExampleCatalog const& catalog = loaded.GetValue();
@@ -283,7 +283,7 @@ TEST_CASE("ExampleCatalog: the repository's catalog lists its samples without wa
 
 TEST_CASE("ExampleCatalog: the repository's examples copy without their tools and their repository-only blocks")
 {
-	Result<ExampleCatalog> loaded = ExampleCatalog::Load(FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / "catalog.json");
+	Result<ExampleCatalog> loaded = ExampleCatalog::Load(FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "catalog.json");
 	REQUIRE(loaded.IsOk());
 	for (char const* const id : {"prism-break", "blocks"})
 	{

@@ -134,7 +134,7 @@ target_compile_definitions(StradaTests PRIVATE
     # The feature-test project, whose scenes must use every component.
     STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"
     # The repository's projects, whose scenes' visual scripts must analyze without errors (with the scripts CMake builds).
-    STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
+    STRADA_SAMPLE_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
     # The repository's project templates, which must load without warnings.
     STRADA_TEMPLATES_DIR="${PROJECT_SOURCE_DIR}/Templates"
     # The scripting guide and the test scripts that are its examples, which the scripting tests compare and run.

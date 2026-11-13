@@ -163,6 +163,12 @@ namespace Strada
 	// "<doing> failed: <error>": how the start screen's error line words a failure ("Opening the project '<file>'"). Pure.
 	[[nodiscard]] std::string DescribeStartScreenFailure(std::string_view doing, std::string_view error);
 
+	// How the start screen's error line words the project file the command line named (--project) when it did not open
+	// (error, from EditorOperations::OpenProject), naming the file once: "The project '<file>' given with --project does not
+	// exist" when nothing is there, else "The project '<file>' given with --project did not open: <error>", without the file
+	// in the first part when the error already names it as the editor spells it. Reads whether the file exists.
+	[[nodiscard]] std::string DescribeProjectOpenFailure(std::filesystem::path const& projectFile, std::string_view error);
+
 	// What the start screen needs from the editor besides its folders. Each may be unset; the model never starts a process
 	// or detects anything itself.
 	struct StartScreenServices
@@ -199,10 +205,6 @@ namespace Strada
 		bool IsVisible() const { return m_Visible; }
 		// Hiding the screen clears its error line.
 		void SetVisible(bool visible);
-		// The editor's start without a project: shows the screen, then puts why the project its command line named did not
-		// open on the error line (projectFailure, as DescribeStartScreenFailure words it; empty when none failed). In that
-		// order, since the line keeps a message only while the screen is visible.
-		void ShowAtStart(std::string projectFailure);
 
 		// --- What failed (the screen's error line) ---
 

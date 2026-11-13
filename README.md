@@ -281,7 +281,9 @@ python Projects/Showcase/Tools/FetchAssets.py   # once: the Showcase's Poly Have
 ```
 
 Then start the editor. Without a project it opens on its start screen: create a project from a template (Graph
-Starter is a small game that plays at once), or open an example as a copy.
+Starter is a small game that plays at once), or open an example as a copy. New projects are set up for coding agents
+(`AGENTS.md`, `.mcp.json`; File > Set Up for Coding Agents... sets up one you already have): start Claude Code in the
+project's folder and it drives the editor.
 
 ```sh
 build/windows-release/bin/StradaEditor    # Windows (PowerShell)
@@ -306,7 +308,7 @@ workflow.
 
 ## Quality
 
-- **More than 2,700 tests** in five suites: 2,004 C++ test cases (doctest) for the engine, the editor and the player,
+- **More than 2,700 tests** in five suites: 2,005 C++ test cases (doctest) for the engine, the editor and the player,
   and 714 C# test methods (xUnit) for the scripting API and the `strada` tool.
 - **Fuzzing.** Every file format users write is fuzzed (damaged documents are refused or repaired; what loads saves and
   loads again), and so are the automation commands, with parameters built from their schemas: each must answer once,

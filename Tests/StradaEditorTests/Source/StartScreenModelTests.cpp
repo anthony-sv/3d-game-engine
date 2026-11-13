@@ -196,24 +196,44 @@ TEST_CASE("StartScreenModel: at the editor's start the screen says why the proje
 	ModelFixture fixture;
 	EditorContext context;
 	EditorOperations operations(context);
-	std::filesystem::path const missing = fixture.Directory.GetPath() / "Gone" / "Gone.sproj";
-	Result<std::vector<std::string>> const opened = operations.OpenProject(missing);
-	REQUIRE(opened.IsError());
-	std::string const failure =
-		DescribeStartScreenFailure(fmt::format("Opening the project '{}'", FileSystem::PathToUtf8(missing)), opened.GetError());
-	CHECK(failure == fmt::format("Opening the project '{}' failed: {}", FileSystem::PathToUtf8(missing), opened.GetError()));
+	auto const countOf = [](std::string const& text, std::string const& part)
+	{
+		size_t count = 0;
+		for (size_t found = text.find(part); found != std::string::npos; found = text.find(part, found + part.size()))
+		{
+			count++;
+		}
+		return count;
+	};
 
-	// Reported to the hidden screen, the failure would be lost: the screen comes up first.
+	// A file that is not there is said to be missing, not reported as a file that cannot be read.
+	std::filesystem::path const missing = fixture.Directory.GetPath() / "Gone" / "Gone.sproj";
+	Result<std::vector<std::string>> const missingOpened = operations.OpenProject(missing);
+	REQUIRE(missingOpened.IsError());
+	std::string const failure = DescribeProjectOpenFailure(missing, missingOpened.GetError());
+	CHECK(failure == fmt::format("The project '{}' given with --project does not exist", FileSystem::PathToUtf8(missing)));
+
+	// A file that is there but does not open gives the reason, naming the file once.
+	std::filesystem::path const broken = fixture.Directory.GetPath() / "Broken" / "Broken.sproj";
+	REQUIRE(FileSystem::WriteTextFile(broken, "not a project\n").IsOk());
+	Result<std::vector<std::string>> const brokenOpened = operations.OpenProject(broken);
+	REQUIRE(brokenOpened.IsError());
+	std::string const brokenFailure = DescribeProjectOpenFailure(broken, brokenOpened.GetError());
+	CHECK(brokenFailure.starts_with("The project "));
+	CHECK(brokenFailure.find(brokenOpened.GetError()) != std::string::npos);
+	CHECK(countOf(brokenFailure, FileSystem::PathToUtf8(broken)) == 1);
+	// A reason that does not name the file gets it from the first part.
+	CHECK(DescribeProjectOpenFailure(broken, "the assets cannot be read") ==
+	      fmt::format("The project '{}' given with --project did not open: the assets cannot be read", FileSystem::PathToUtf8(broken)));
+
+	// As EditorLayer::OnAttach does: reported to the hidden screen, the failure would be lost, so the screen comes up first.
 	CHECK_FALSE(fixture.Model.IsVisible());
-	fixture.Model.ShowAtStart(failure);
-	CHECK(fixture.Model.IsVisible());
+	fixture.Model.ReportError(failure);
+	CHECK(fixture.Model.GetError().empty());
+	fixture.Model.SetVisible(true);
+	fixture.Model.ReportError(failure);
 	CHECK(fixture.Model.GetError() == failure);
 	fixture.Model.SetVisible(false);
-	CHECK(fixture.Model.GetError().empty());
-
-	// Without a failure the screen comes up with an empty error line.
-	fixture.Model.ShowAtStart({});
-	CHECK(fixture.Model.IsVisible());
 	CHECK(fixture.Model.GetError().empty());
 }
 

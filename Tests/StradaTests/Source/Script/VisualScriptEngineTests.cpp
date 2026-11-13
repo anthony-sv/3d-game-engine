@@ -3535,7 +3535,7 @@ namespace
 	// The projects of Projects/ that have assets.
 	std::vector<std::filesystem::path> FindProjects()
 	{
-		std::filesystem::path const projectsDirectory = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR);
+		std::filesystem::path const projectsDirectory = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR);
 		std::vector<std::filesystem::path> projects;
 		for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(projectsDirectory))
 		{
