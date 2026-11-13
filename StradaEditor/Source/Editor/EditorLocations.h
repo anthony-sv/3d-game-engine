@@ -20,8 +20,9 @@ namespace Strada
 		// Nothing creates it but creating a project in it.
 		std::filesystem::path DefaultProjectLocation;
 
-		// The only reader of the process's layout (EngineLayout::Get), user-data (FileSystem::GetUserDataDirectory) and
-		// Documents (Platform::GetDocumentsDirectory) folders. Reads, never creates. Any thread.
+		// The editor's only reader of the process's layout (EngineLayout::Get), user-data (FileSystem::GetUserDataDirectory)
+		// and Documents (Platform::GetDocumentsDirectory) folders; besides it, only the entry point reads the layout, once at
+		// startup to log its warnings. Reads, never creates. Any thread.
 		static EditorLocations FromProcess();
 
 		// The file of this name in UserDataDirectory ("RecentProjects.json"); empty when nothing is persisted.

@@ -1704,12 +1704,14 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   (`Editor/EditorLocations.h`): the engine's `EngineLayout`, the user data directory `<user data>/Editor` (recent
   projects, graph views; empty: nothing is persisted) and the default location of new projects,
   `<Documents>/Strada Projects` (`Platform::GetDocumentsDirectory`; nothing creates it but a project created in it).
-  `EditorLocations::FromProcess()` is the only reader of the process's layout, user data and Documents folders; the
-  editor layer builds its locations once (`EditorLayerSpecification::Locations` injects others) and hands them to the
-  commands (`EditorCommandEnvironment::Locations`, which names no folder when default-constructed). Tests pass folders
-  inside their temporary directory and the test content (`Testing::MakeEditorLocations`). The Project Settings panel edits the settings (generated like the inspector, with a layer collision
-  matrix); they are saved to the project file when an edit ends and are not part of the scene's undo history. Scenes
-  saved inside the asset directory are registered as assets. Without a project the editor works on loose scene files.
+  `EditorLocations::FromProcess()` is the editor's only reader of the process's layout, user data and Documents folders
+  (besides it, the entry point resolves the layout once at startup to log its warnings); the editor layer builds its
+  locations once (`EditorLayerSpecification::Locations` injects others) and hands them to the commands
+  (`EditorCommandEnvironment::Locations`, which names no folder when default-constructed). Tests pass folders inside
+  their temporary directory and the test content (`Testing::MakeEditorLocations`). The Project Settings panel edits the
+  settings (generated like the inspector, with a layer collision matrix); they are saved to the project file when an
+  edit ends and are not part of the scene's undo history. Scenes saved inside the asset directory are registered as
+  assets. Without a project the editor works on loose scene files.
 - Scripts (`EditorScripts`): the project's C# project is kept pointing at this engine; Scripts > New Script and the
   content browser's "+" > C# Script create a class from the template in the script folder the browser shows (else in
   `Scripts/Source`) and show it there, C# sources imported into the browser are copied into a folder of

@@ -2,8 +2,10 @@
 # which the editor reads the engine content (templates, examples, guides, the agent kit) while it runs from the build tree.
 # Written when CMake generates, rewritten only when its text changes; the game exporter never ships it.
 
-file(TO_CMAKE_PATH "${PROJECT_SOURCE_DIR}" strada_manifest_content)
-# A JSON string: backslashes (possible in POSIX paths) and quotes are escaped.
+# PROJECT_SOURCE_DIR is already a CMake path (forward slashes) on every host. It is taken as one path, never converted as a
+# search path, which would split a POSIX checkout whose name holds ':'. In the JSON string backslashes (legal in POSIX
+# names) and quotes are escaped.
+set(strada_manifest_content "${PROJECT_SOURCE_DIR}")
 string(REPLACE "\\" "\\\\" strada_manifest_content "${strada_manifest_content}")
 string(REPLACE "\"" "\\\"" strada_manifest_content "${strada_manifest_content}")
 
