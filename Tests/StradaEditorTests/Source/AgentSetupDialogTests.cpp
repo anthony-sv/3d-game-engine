@@ -69,6 +69,8 @@ namespace
 
 		DialogFixture()
 		{
+			// The editor's fonts, theme and keyboard navigation, and its fixed-width font in the diffs.
+			Dialog.SetMonospaceFont(Gui.UseEditorStyle());
 			REQUIRE(FileSystem::CreateDirectories(Project.Directory).IsOk());
 			REQUIRE(FileSystem::WriteTextFile(Project.Directory / "Orb Run.sproj", "{}\n").IsOk());
 		}
@@ -238,13 +240,13 @@ TEST_CASE("AgentSetupDialog: Apply sets the project up and shows what it did; op
 {
 	DialogFixture fixture;
 	REQUIRE(FileSystem::WriteTextFile(fixture.Project.Directory / "AGENTS.md", "# My notes\n").IsOk());
-	// The dialog fits a small window before and after Apply.
+	// The dialog fits a small window before and after Apply, with nothing to scroll to (its buttons show).
 	ImVec2 const display(1280.0f, 720.0f);
 	fixture.Gui.SetDisplaySize(display);
 	auto const fits = [&fixture, display]
 	{
 		ImGuiWindow const* const popup = fixture.GetPopup();
-		return popup->Pos.x >= 0.0f && popup->Pos.y >= 0.0f && popup->Pos.x + popup->Size.x <= display.x &&
+		return popup->ScrollMax.y == 0.0f && popup->Pos.x >= 0.0f && popup->Pos.y >= 0.0f && popup->Pos.x + popup->Size.x <= display.x &&
 		       popup->Pos.y + popup->Size.y <= display.y;
 	};
 	fixture.Open();

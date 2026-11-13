@@ -572,9 +572,9 @@ absolute path makes the layout not a source tree, with one warning; reading it n
 Agent kit state (`.strada/agents.json` in a project set up for coding agents, written by `AgentKit`, §11):
 `{ "Strada": { "Version": 1, "Type": "AgentKitState" }, "Files": { "<project-relative path>": "<hash>" } }`, the hash
 (64-bit FNV-1a of the text without carriage returns, 16 lowercase hex digits) of each whole file the kit last wrote: the
-game-making skill and the guides under `.strada/docs/`. A whole file whose hash is recorded is the kit's to update; one
-that differs from both the engine's and its record was changed by someone and is kept. A missing, damaged or newer state
-file counts as empty, and the next setup replaces it.
+game-making skill and the guides under `.strada/docs/`. A whole file whose hash is recorded is the kit's to update; a
+skill that differs from both the engine's and its record was changed by someone and is kept, while the guides are always
+replaced. A missing, damaged or newer state file counts as empty, and the next setup replaces it.
 
 Visual script (`.sgraph`, `VisualScriptSerializer`; `Tests/Data/VisualScripting/Example.sgraph` is the writer's golden
 file):

@@ -114,7 +114,7 @@ and the skills in `.claude/skills/` (among them `strada-make-game`) teach it the
 ### Projects set up for coding agents
 
 A game project outside the repository gets what agents need from the editor: File > Set Up for Coding Agents... with the
-project open ([Editor.md](Editor.md#setting-a-project-up-for-coding-agents)), or the `project_setup_agents` tool. The
+project open (the editor manual describes the dialog), or the `project_setup_agents` tool. The
 setup writes only inside the project:
 
 | File | What it holds |

@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Threading;
 using System.Threading.Tasks;
 using Strada.Tool.Editor;
 using Xunit;
@@ -190,11 +189,11 @@ public sealed class AgentWorkflowTests
 	// time an editor needs to answer.
 	private static async Task<JsonObject> ReadResponseAsync(Process server, int id)
 	{
-		using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-		timeout.CancelAfter(TimeSpan.FromSeconds(120));
 		while (true)
 		{
-			string? line = await server.StandardOutput.ReadLineAsync(timeout.Token);
+			// WaitAsync bounds the read even where cancelling a read of the process's pipe does not interrupt it.
+			string? line = await server.StandardOutput.ReadLineAsync(TestContext.Current.CancellationToken).AsTask()
+				.WaitAsync(TimeSpan.FromSeconds(120), TestContext.Current.CancellationToken);
 			Assert.True(line is not null, "strada mcp ended before it answered");
 			if (JsonNode.Parse(line) is JsonObject message && message["id"] is JsonValue value && value.GetValue<int>() == id)
 			{

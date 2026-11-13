@@ -18,9 +18,12 @@ namespace Strada
 		constexpr ImVec4 SuccessColor = ImVec4(0.45f, 0.85f, 0.45f, 1.0f);
 		constexpr ImVec4 FailureColor = ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
 		constexpr ImVec4 WarningColor = ImVec4(1.0f, 0.75f, 0.3f, 1.0f);
-		// The rows the file list shows before it scrolls (every file of the kit), and the lines of a diff.
+		// The rows the file list shows before it scrolls (every file of the kit) and the lines of a diff, each at most this
+		// share of the window's height, so that the whole dialog fits a small window.
 		constexpr float VisibleFiles = 14.0f;
-		constexpr float VisibleDiffLines = 8.0f;
+		constexpr float VisibleDiffLines = 10.0f;
+		constexpr float MaxFilesShare = 0.3f;
+		constexpr float MaxDiffShare = 0.2f;
 
 		bool IsSameProject(AgentProject const& first, AgentProject const& second)
 		{
@@ -248,7 +251,8 @@ namespace Strada
 		ImGui::SeparatorText(applied ? "What the setup did" : "What the setup does");
 		ImGuiStyle const& style = ImGui::GetStyle();
 		float const rows = std::min(static_cast<float>(plan.Files.size()), VisibleFiles);
-		float const height = rows * ImGui::GetTextLineHeightWithSpacing() + style.WindowPadding.y * 2.0f;
+		float const height = std::min(rows * ImGui::GetTextLineHeightWithSpacing() + style.WindowPadding.y * 2.0f,
+		                              ImGui::GetMainViewport()->WorkSize.y * MaxFilesShare);
 		if (ImGui::BeginChild("##files", ImVec2(0.0f, height), ImGuiChildFlags_Borders))
 		{
 			float const actionColumn = ImGui::GetContentRegionAvail().x * 0.62f;
@@ -283,7 +287,8 @@ namespace Strada
 			return;
 		}
 		ImGui::TextDisabled(applied ? "What changed in Strada's part of the file:" : "What changes in Strada's part of the file:");
-		float const height = VisibleDiffLines * ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().WindowPadding.y * 2.0f;
+		float const height = std::min(VisibleDiffLines * ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().WindowPadding.y * 2.0f,
+		                              ImGui::GetMainViewport()->WorkSize.y * MaxDiffShare);
 		if (ImGui::BeginChild("##diff", ImVec2(0.0f, height), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar))
 		{
 			if (m_MonospaceFont != nullptr)
