@@ -111,7 +111,7 @@ header functions, as every Strada file is read.
 
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
-| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>` |
+| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4) | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler` |
 | Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum` |
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
@@ -128,13 +128,14 @@ header functions, as every Strada file is read.
 ### 4.1 Subsystem lifetime
 
 Subsystems are static facades with explicit `Init()`/`Shutdown()` (Hazel style). The entry point initializes the log;
-`Application` then initializes, in this order: AssetManager → PhysicsSystem → AudioEngine (a null device when
-headless) → ScriptEngine (optional: without .NET, scenes run without scripts) → the window (unless headless) →
-GraphicsDevice → ShaderLibrary → Renderer → the ImGui layer. The graphics subsystems are skipped when `EnableGraphics`
-is off (the headless player), and applications that do not require them (the headless editor) continue without a
-GPU when none is available. Shutdown detaches the layers, then shuts down scripting, audio, physics and the assets
-(before the renderer, which owns the GPU objects created from them), the graphics and the window. Every `Init` asserts
-it is not already initialized and every `Shutdown` must leave no state behind so tests can init/shutdown repeatedly.
+`Application` then initializes, in this order: Profiler (§4.4) → AssetManager → PhysicsSystem → AudioEngine (a null
+device when headless) → ScriptEngine (optional: without .NET, scenes run without scripts) → the window (unless
+headless) → GraphicsDevice → ShaderLibrary → Renderer → the ImGui layer. The graphics subsystems are skipped when
+`EnableGraphics` is off (the headless player), and applications that do not require them (the headless editor) continue
+without a GPU when none is available. Shutdown detaches the layers, then shuts down scripting, audio, physics and the
+assets (before the renderer, which owns the GPU objects created from them), the graphics, the window and, last, the
+Profiler. Every `Init` asserts it is not already initialized and every `Shutdown` must leave no state behind so tests
+can init/shutdown repeatedly.
 
 ### 4.2 Threading model
 
@@ -146,6 +147,8 @@ it is not already initialized and every `Shutdown` must leave no state behind so
   marshalled with `Application::SubmitToMainThread(std::function<void()>)`. The editor notices edited scripts by
   checking their modification times on the main thread once a second, and rescans the assets on the main thread when
   it gets the focus back.
+- The profiler (§4.4) is the one engine service every thread writes to: any thread records zones into a buffer of its
+  own without allocating or locking, and only the main thread collects them.
 
 ### 4.3 Error handling
 
@@ -158,6 +161,85 @@ it is not already initialized and every `Shutdown` must leave no state behind so
   uncaught C++ exception: the cause, the stack on Linux and macOS, and on Windows a minidump next to it. It writes
   without allocating or logging (the crash may be inside either); uncaught exceptions are logged with their message
   first. .NET's own handlers come first for managed code and pass native crashes on.
+
+### 4.4 Profiling
+
+`Strada/Core/Profiler.h` is the engine's own recorder of CPU zones and GPU pass times. It is not a port of Tracy: it
+adds no dependency and opens no port (the authenticated automation socket stays the only one). It lies in Core so that
+every module can record, and everything that reads it lies to its right: Serialization's `ProfilerCaptureSerializer`
+writes and reads captures (§7.3), each `SceneRenderer` hands the recorder its GPU pass durations, and the editor's
+Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its history.
+
+- **Zones.** `ST_PROFILE_SCOPE(name)` takes a name with static storage duration and `ST_PROFILE_FUNCTION()` uses
+  `__func__`. `ST_PROFILE_SCOPE_DYNAMIC(name)` takes a name known only at run time (a script class, a graph).
+  `ST_PROFILE_ZONE(variable, name)` and `ST_PROFILE_ZONE_DYNAMIC` declare a zone that `ST_PROFILE_ZONE_VALUE` can give
+  a count to (a graph's VM steps). `ST_PROFILE_THREAD(name)` names a thread for its whole body. Code whose scopes are
+  not C++ scopes calls `Profiler::BeginZone`/`EndZone` and keeps the token: Jolt's `ExternalProfileMeasurement` has 64
+  bytes of user data, and the token is trivially copyable and smaller than that. Zones that a subsystem's time is read
+  from are named `<Subsystem>.<Phase>` (`Physics.Step`, `Scene.UpdateScripts`). A name without a `.` belongs to the
+  subsystem of its nearest enclosing zone that has one, so class names, graph names and function names need no prefix.
+- **Who writes.** Any thread may record: the main thread, Jolt's workers (named by the job system's thread init
+  function and ended by its exit function), miniaudio's device thread, the audio streaming thread and background
+  workers. A zone is written once, when it ends, as one complete record: name, start, end, the thread's depth when it
+  began, and an optional count. The record goes into the calling thread's buffer, a single-producer, single-consumer
+  ring that the thread fills and the main thread empties. Recording a zone takes atomic operations only: it never
+  allocates and never locks, so the audio callback can record.
+- **What an idle zone costs.** `BeginZone` does a relaxed load of the recording flag and branches. When nothing records,
+  it returns an empty token without reading the clock, and the zone's end branches on that token. Both are defined
+  inline in the header, so an idle zone is one predictable branch at each end. The run-time forms evaluate and store
+  their name only while recording, at the price of a second branch. The targets on the reference machine are at most
+  3 % of the frame while recording and at most 0.5 % while idle. They are measured with `StradaRuntime --profile`, as
+  plan targets are.
+- **Threads that start and end.** The buffer headers are a fixed table of `Profiler::MaxThreads` (64) slots with
+  static storage. `Start` allocates rings for the machine's hardware threads plus spares. Each `EndFrame` tops the
+  spares up on the main thread, so no thread ever allocates its own ring. A thread takes a free slot with an atomic
+  exchange on its first zone of a recording. It remembers the slot in a trivially destructible `thread_local` (the slot
+  index and the recording's number). A `thread_local` with a destructor is avoided because registering its destructor
+  may allocate on the audio thread. Thread names are copied into a 63-byte `thread_local` array, without allocating, and
+  into the slot when the thread takes one, so threads name themselves before their first zone. A thread the engine
+  owns ends with `ST_PROFILE_THREAD` or `Profiler::EndThread`, and its slot returns to the free ones once the main
+  thread has emptied it. A thread that ends without that, such as miniaudio's device thread, keeps its slot until the
+  recording stops. miniaudio has no reliable hook at that thread's start: its "started" notification comes from the
+  device thread for synchronous backends but from the caller of `ma_device_start` for asynchronous ones
+  (`miniaudio.h:42827`, `:44312`).
+- **A full buffer.** A zone that finds its thread's ring full is dropped and counted, and so is a zone whose thread
+  finds no free slot or whose run-time name cannot be stored. Its frame reports `DroppedZones`. Records are written when
+  zones end, so a dropped zone can leave its children without a parent: a consumer that builds trees places a zone with
+  no enclosing zone of a smaller depth at its thread's root.
+- **Frames and collection.** A frame is one iteration of the main loop, from `Profiler::BeginFrame` at its top to
+  `Profiler::EndFrame` after the frame limiter. Tests and tools without an `Application` call both themselves. On the
+  main thread, `EndFrame` empties every ring into the frame, ordering zones by thread, then by start, then by depth
+  (each thread's zones in pre-order). It then appends the frame to the history, which holds `HistoryFrames` frames
+  (600 by default, at most 36,000) and at most 4,000,000 zones, dropping the oldest frames first. A zone belongs to the
+  frame whose collection finds it: the frame during which it ended. Zones of the audio and streaming threads run
+  independently of frames and may begin before their frame does.
+- **GPU passes.** NVRHI's timer queries measure durations only, their results arrive frames later, and the editor
+  draws with several `SceneRenderer`s per frame. Every pass is wrapped in an NVRHI marker in every build, so a
+  RenderDoc capture reads by pass name. While `Profiler::IsRecording()`, each renderer also extends its ring of frame
+  timers (one entry per frame in flight) with a timer per pass, noting the frame's `Profiler::GetFrameIndex()`. When
+  the queries resolve, it calls `Profiler::RecordGpuPasses(frameIndex, view, passes)`, which attaches the passes to
+  that frame in the history. Passes of a frame still in progress wait for its end, and passes of a frame the history
+  no longer holds are dropped. Adapters without timer queries (`AdapterInfo::SupportsTimerQueries`) report CPU zones
+  only.
+- **Start, Stop and Shutdown while other threads record.** Each recording has a number. A zone token remembers whether
+  its zone began and in which recording, and its end writes nothing when the zone did not begin or the recording has
+  changed. Before writing, a writer marks its slot busy (a sequentially consistent store) and then checks the
+  recording number. `Stop` and `Shutdown` clear the recording flag, change the number and wait for every busy slot
+  (each busy for a few instructions). Only then do they empty and free the rings. The flag, the number and the slot
+  headers are static and never freed, so a writer that races `Shutdown` touches only memory that lives on. Run-time
+  names are copied into a store that lives from `Init` to `Shutdown`, guarded by a static mutex (they are never
+  recorded on the audio callback), and the history copies every name it holds. A capture therefore never points into a
+  script class that hot reload unloaded. Every function may be called before `Init` and after `Shutdown`: zones
+  record nothing, `Start` refuses, and the main-thread functions do nothing, which keeps Init and Shutdown repeatable.
+- **Dist builds.** In Dist builds the macros compile to nothing. Their arguments are referenced in `sizeof` and never
+  evaluated, so a local used only as a zone name raises no unused warning. The `Profiler` class is still compiled, but
+  `Start` refuses, so no ring is allocated and no GPU timer is issued. A translation unit that defines
+  `ST_DISABLE_PROFILING` before its first include gets the Dist form in any configuration; StradaTests compiles one.
+- **Captures.** A capture is written from the history with `JsonTextWriter`, one element at a time, and read back with
+  `ScanJsonTopLevel` and `ParseJson` per event. Neither side builds the whole document (§7.3).
+- **ThreadSanitizer.** `.github/workflows/tsan.yml` runs nightly and on manual dispatch, on Linux with Clang. It runs
+  the suites' threading cases: the profiler, the main-thread queue, audio with manual output and the asset loads. It
+  never gates a merge.
 
 ## 5. Core conventions
 
@@ -611,6 +693,36 @@ Agent kit state (`.strada/agents.json` in a project set up for coding agents, wr
 game-making skill and the guides under `.strada/docs/`. A whole file whose hash is recorded is the kit's to update; a
 skill that differs from both the engine's and its record was changed by someone and is kept, while the guides are always
 replaced. A missing, damaged or newer state file counts as empty, and the next setup replaces it.
+
+Profiler capture (`ProfilerCaptureSerializer`, §4.4). `profiler.capture` and `StradaRuntime --profile <file>` write it,
+and `profiler.open` reads it. It is a Chrome trace event document in its object form, so `chrome://tracing` and
+Perfetto open it as it is:
+`{ "Strada": { "Version": 1, "Type": "ProfilerCapture" }, "displayTimeUnit": "ms", "traceEvents": [ ... ] }`, compact
+(one line). The events are:
+
+- metadata events (`"ph": "M"`, `"pid": 1`): `process_name`, then a `thread_name` for every recorded thread
+  (`"tid"`: its index + 1) and for every GPU view's track (`"GPU <view>"`);
+- one complete event (`"ph": "X"`) per frame, named `Frame` with `"cat": "Frame"`, on the main thread's track, with
+  `"args": { "Frame": <index>, "DroppedZones": <n> }`;
+- one complete event per zone, its `"cat"` its subsystem (`Other` when it has none), with
+  `"args": { "Frame": <index>, "Depth": <depth> }`, plus `"<label>": <count>` when the zone carries a count;
+- one complete event per GPU pass with `"cat": "GPU"` on its view's track, with `"args": { "Frame": <index>, "View":
+  "<view>" }`. Only durations are measured, so a frame's passes are laid end to end from the frame's start.
+
+`"ts"` and `"dur"` are microseconds from the recording's start, written with three decimals so nanoseconds survive.
+Frames are rebuilt from the `Frame` arguments, so a zone stays in the frame that collected it.
+
+The reader refuses:
+
+- a document without the header, of another type or of a newer version, or larger than 512 MiB;
+- an event of another phase, or with a missing or mistyped member;
+- a negative or non-finite time;
+- a `Frame` argument that no `Frame` event declares, or a `tid` that no `thread_name` declares;
+- more frames, zones or threads than the recorder holds (`Profiler::MaxHistoryFrames`, `MaxHeldZones`, `MaxThreads`
+  plus one track per view);
+- a name longer than `Profiler::MaxNameBytes` or not UTF-8.
+
+Unknown members are ignored. What the reader accepts, the writer writes back as the same frames.
 
 Visual script (`.sgraph`, `VisualScriptSerializer`; `Tests/Data/VisualScripting/Example.sgraph` is the writer's golden
 file):
@@ -2472,11 +2584,11 @@ data directory, and compile out asserts and script debug lines.
 
 ## 14. Build configurations
 
-| Config | Optimization | Asserts | Logging | Vulkan validation |
-|--------|--------------|---------|---------|-------------------|
-| Debug | off | on | all | on if available |
-| Release | on (+ debug info) | on | all | opt-in (`--validation`) |
-| Dist | on | off | warnings+ to file | off |
+| Config | Optimization | Asserts | Logging | Vulkan validation | Profiler (§4.4) |
+|--------|--------------|---------|---------|-------------------|-----------------|
+| Debug | off | on | all | on if available | zones and GPU passes |
+| Release | on (+ debug info) | on | all | opt-in (`--validation`) | zones and GPU passes |
+| Dist | on | off | warnings+ to file | off | macros compiled out; `Profiler::Start` refuses |
 
 ## 15. Testing
 
