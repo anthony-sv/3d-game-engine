@@ -64,6 +64,8 @@ set(STRADA_ASSET_SOURCES
     Source/Strada/Asset/AudioClipAsset.h
     Source/Strada/Asset/BuiltInAssets.cpp
     Source/Strada/Asset/BuiltInAssets.h
+    Source/Strada/Asset/DataAsset.cpp
+    Source/Strada/Asset/DataAsset.h
     Source/Strada/Asset/EnvironmentAsset.cpp
     Source/Strada/Asset/EnvironmentAsset.h
     Source/Strada/Asset/FontAsset.cpp

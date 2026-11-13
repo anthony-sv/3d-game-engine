@@ -58,6 +58,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Commands/PrefabCommands.h
     Source/Editor/Commands/SceneCommands.cpp
     Source/Editor/Commands/SceneCommands.h
+    Source/Editor/Commands/SetDataAssetCommand.cpp
+    Source/Editor/Commands/SetDataAssetCommand.h
     Source/Editor/ComponentInspection.cpp
     Source/Editor/ComponentInspection.h
     Source/Editor/DefaultScene.cpp
@@ -148,6 +150,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/StartScreen/StartScreenPanel.h
     Source/Editor/StartScreen/StartScreenThumbnails.cpp
     Source/Editor/StartScreen/StartScreenThumbnails.h
+    Source/Editor/UI/DataAssetEditor.cpp
+    Source/Editor/UI/DataAssetEditor.h
     Source/Editor/UI/EditorUI.cpp
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp
