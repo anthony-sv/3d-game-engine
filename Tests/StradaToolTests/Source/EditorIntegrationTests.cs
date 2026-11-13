@@ -52,6 +52,10 @@ public sealed class EditorIntegrationTests
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_copy_example");
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_examples");
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "project_templates");
+			// The start screen's tools: what it shows, showing it, and the recent projects.
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "editor_recent");
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "start_info");
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "start_show");
 			// The session keeps the headless editor it started for the list.
 			EditorInstance instance = Assert.Single(EditorInstance.FindRunning(instances));
 			processId = instance.ProcessId;

@@ -1746,11 +1746,14 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   scene updates) and the editor works as usual. Automation's `input.set` and `input.release` act on the game's input
   directly, and `ui.layout` tells where the UI's elements and buttons are in the game view.
 - Project management: File > New Project (name and location; the project starts from the template `empty-3d`, the
-  editor's sample scene, with a `.gitignore`; `project.create` takes any template of `project.templates`, and
+  editor's sample scene, with a `.gitignore`; `project.create` takes any template of `project.templates` and sets the new
+  project up for coding agents unless its `agents` is false (`SetUpNewProjectForAgents`, `AgentKit::Apply`), and
   `project.copy-example` copies an example of `project.examples` off the main thread (`ExampleCopyTask`) and opens the
   copy; `EditorOperations` holds what both share: `ListProjectTemplates`, `CreateProject` from a template,
   `LoadExampleCatalog`, `CopyExample`),
-  Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
+  Open Project, Recent Projects (user data `Editor/RecentProjects.json`; the start screen's model, `StartScreenModel` in
+  `Editor/StartScreen/`, owns the list, which the File menu and the start commands `start.info`, `start.show` and
+  `editor.recent` reach through it), Close Project, and `--project <file>` on the
   command line. The folders the editor works with besides the open project are its `EditorLocations`
   (`Editor/EditorLocations.h`): the engine's `EngineLayout`, the user data directory `<user data>/Editor` (recent
   projects, graph views; empty: nothing is persisted) and the default location of new projects,

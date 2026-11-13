@@ -265,7 +265,9 @@ with `template`; `project.templates` lists them). Both are Orb Run, a small game
 collect 12 sparks before the time runs out, with a test scene, `Scenes/Tests.sscene`: `graph-starter` is made of visual
 scripts alone ([A first game: Orb Run](VisualScripting.md#a-first-game-orb-run)), and `csharp-starter` is written in C#
 (the C# project `Scripts/Game.csproj`, its namespace `Game`), with one C# member that a graph calls as a node. A project
-made from `csharp-starter` needs the .NET 10 SDK: the editor builds its scripts when it opens.
+made from `csharp-starter` needs the .NET 10 SDK: the editor builds its scripts when it opens. `project.create` also sets
+the new project up for coding agents (`AGENTS.md`, `CLAUDE.md`, `.mcp.json`, the game-making skill and the guides under
+`.strada/docs/`; [Agents](Agents.md#projects-set-up-for-coding-agents)) unless its `agents` is false.
 
 ### Build the scene
 

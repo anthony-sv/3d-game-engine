@@ -11,6 +11,7 @@
 #include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/ProjectImport.h"
+#include "Editor/StartScreen/StartScreenModel.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 #include "Editor/VisualScripting/VisualScriptArrange.h"
 #include "Editor/VisualScripting/VisualScriptBatch.h"
@@ -1893,8 +1894,12 @@ namespace Strada
 				              "Creates a project from a template (project.templates lists them; default empty-3d, the editor's default "
 				              "scene, whose start scene is Assets/Scenes/Main.sscene) in an empty or new directory: the project file "
 				              "<name>.sproj and an Assets directory, with a .gitignore for build output and caches unless gitIgnore is "
-				              "false. Then opens it with its start scene. Not an undo step: it writes files. Fails on unsaved scene "
-				              "changes unless discardChanges is true.",
+				              "false. Then opens it with its start scene and, unless agents is false, sets it up for coding agents "
+				              "as project.setup-agents does (AGENTS.md, CLAUDE.md, .mcp.json, the strada-make-game skill, the guides "
+				              "under .strada/docs/, .strada/agents.json, and the .strada/ line of the .gitignore when there is one). "
+				              "Returns { project, scene, template, agents: { files: [{ path, action }], warnings } (null when agents "
+				              "is false; a setup that fails leaves the project created and says why in its warnings) }. Not an undo "
+				              "step: it writes files. Fails on unsaved scene changes unless discardChanges is true.",
 				              SchemaBuilder::Object()
 				                  .Property("directory",
 				                            SchemaBuilder::String(
@@ -1907,6 +1912,7 @@ namespace Strada
 				                                            .Default(std::string(ProjectTemplate::DefaultId)))
 				                  .Property("gitIgnore",
 				                            SchemaBuilder::Boolean("Write a .gitignore for build output and caches").Default(true))
+				                  .Property("agents", SchemaBuilder::Boolean("Set the new project up for coding agents").Default(true))
 				                  .Property("discardChanges", SchemaBuilder::Boolean("Discard unsaved scene changes").Default(false))
 				                  .Build(),
 				              false,
@@ -1938,10 +1944,25 @@ namespace Strada
 								  {
 									  return Failure(AutomationErrorCode::FileError, created);
 								  }
+								  Json agents;
+								  std::optional<AgentProject> const agentProject = GetAgentProject(Context());
+								  if (GetBool(params, "agents", true) && agentProject)
+								  {
+									  NewProjectAgentSetup const setup = SetUpNewProjectForAgents(
+										  *agentProject, m_Environment.Locations.Layout, m_Environment.FindToolOnPath, options.GitIgnore);
+									  Json files = Json::array();
+									  for (AgentFilePlan const& file : setup.Files)
+									  {
+										  files.push_back(Json::object(
+											  {{"path", file.Path}, {"action", std::string(GetAgentFileActionName(file.Action))}}));
+									  }
+									  agents = Json::object({{"files", std::move(files)}, {"warnings", setup.Warnings}});
+								  }
 								  NotifyProjectOpened();
 								  return Json::object({{"project", DescribeProject(Context())},
 					                                   {"scene", DescribeScene(Context())},
-					                                   {"template", templateId}});
+					                                   {"template", templateId},
+					                                   {"agents", std::move(agents)}});
 							  })
 						: result;
 				result = result

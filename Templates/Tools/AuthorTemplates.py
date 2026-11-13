@@ -1875,7 +1875,7 @@ def build_template(command, template_id, folder):
             shutil.rmtree(folder)
         client = McpClient(command + ["mcp", "--headless", "--new"])
         try:
-            client.call("project_create", {"directory": folder, "name": "Template", "gitIgnore": False})
+            client.call("project_create", {"directory": folder, "name": "Template", "gitIgnore": False, "agents": False})
             spec["author"](client, folder, sources)
             authored = True
         finally:

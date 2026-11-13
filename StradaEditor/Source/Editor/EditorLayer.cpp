@@ -9,6 +9,7 @@
 #include "Editor/Automation/PlayCommands.h"
 #include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
+#include "Editor/Automation/StartCommands.h"
 #include "Editor/DefaultScene.h"
 #include "Editor/EditorEditingKeys.h"
 #include "Editor/EntityPresets.h"
@@ -27,8 +28,12 @@
 #include "Strada/Core/Version.h"
 #include "Strada/Core/Window.h"
 #include "Strada/ImGui/ImGuiLayer.h"
+#include "Strada/Platform/Desktop.h"
 #include "Strada/Platform/Process.h"
+#include "Strada/Project/ScriptProject.h"
+#include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/Scene/Entity.h"
+#include "Strada/Script/ScriptEngine.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -57,6 +62,36 @@ namespace Strada
 		std::optional<std::filesystem::path> FindStradaOnPath()
 		{
 			return Process::FindExecutable("strada");
+		}
+
+		// What the start screen's environment strip shows: only what the editor found already. Scripting runs on .NET 10
+		// (Strada.ScriptCore's runtimeconfig.json asks for 10.0 and rolls forward to its latest minor version only).
+		StartScreenEnvironment DescribeEditorEnvironment()
+		{
+			StartScreenEnvironment environment;
+			if (ScriptEngine::IsInitialized())
+			{
+				environment.DotNetRuntime = ".NET 10";
+			}
+			environment.DotNetSdk = ScriptProject::FindDotNet();
+			if (GraphicsDevice::IsInitialized())
+			{
+				AdapterInfo const& adapter = GraphicsDevice::GetAdapterInfo();
+				environment.Gpu = adapter.Name;
+				environment.Vulkan = adapter.ApiVersion;
+			}
+			return environment;
+		}
+
+		StartScreenServices MakeStartScreenServices()
+		{
+			StartScreenServices services;
+			services.DescribeEnvironment = DescribeEditorEnvironment;
+			services.OpenWithSystem = [](std::filesystem::path const& path)
+			{
+				return Desktop::Open(path);
+			};
+			return services;
 		}
 
 		std::array<FileDialogFilter, 1> const& GetSceneFilters()
@@ -110,7 +145,7 @@ namespace Strada
 		  m_Export(m_Context, m_Scripts),
 		  m_AutomationServer(m_Commands),
 		  m_VisualScriptViews(m_Locations.GetUserDataFile("VisualScriptViews.json")),
-		  m_RecentProjects(m_Locations.GetUserDataFile("RecentProjects.json"))
+		  m_StartScreen(m_Locations, MakeStartScreenServices())
 	{
 	}
 
@@ -128,6 +163,7 @@ namespace Strada
 		}
 
 		Application& application = Application::Get();
+		StartCommandsHost startHost;
 		EditorCommandEnvironment environment;
 		environment.Locations = m_Locations;
 		if (application.GetWindow() != nullptr)
@@ -182,6 +218,10 @@ namespace Strada
 			{
 				return FindWindowRect(window, graph);
 			};
+			startHost.ShowStartScreen = [this](bool visible)
+			{
+				m_StartScreen.SetVisible(visible);
+			};
 		}
 		environment.RequestQuit = []
 		{
@@ -208,6 +248,7 @@ namespace Strada
 																	 RememberProject();
 																 })
 		                        : registered;
+		registered = registered ? RegisterStartCommands(m_Commands, m_StartScreen, std::move(startHost)) : registered;
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
 		// What is wrong with the templates (the default scene standing in for a missing empty-3d) is said once, at start.
@@ -321,7 +362,7 @@ namespace Strada
 			ConnectDebugger();
 		}
 
-		if (Result<void> loaded = m_RecentProjects.Load(); !loaded)
+		if (Result<void> loaded = m_StartScreen.GetRecentProjects().Load(); !loaded)
 		{
 			ST_WARN("The recent projects list cannot be read: {}", loaded.GetError());
 		}
@@ -871,7 +912,7 @@ namespace Strada
 			if (ImGui::MenuItem("New Project..."))
 			{
 				m_NewProjectName = "New Game";
-				std::vector<std::filesystem::path> const& recent = m_RecentProjects.GetProjects();
+				std::vector<std::filesystem::path> const& recent = m_StartScreen.GetRecentProjects().GetProjects();
 				m_NewProjectLocation = recent.empty() ? std::string() : FileSystem::PathToUtf8(recent.front().parent_path().parent_path());
 				m_OpenNewProjectPopup = true;
 			}
@@ -1520,7 +1561,7 @@ namespace Strada
 
 	void EditorLayer::DrawRecentProjectsMenu()
 	{
-		std::vector<std::filesystem::path> const recent = m_RecentProjects.GetProjects();
+		std::vector<std::filesystem::path> const recent = m_StartScreen.GetRecentProjects().GetProjects();
 		if (!ImGui::BeginMenu("Recent Projects", !recent.empty()))
 		{
 			return;
@@ -1540,8 +1581,7 @@ namespace Strada
 		ImGui::Separator();
 		if (ImGui::MenuItem("Clear Recent Projects"))
 		{
-			m_RecentProjects.Clear();
-			UI::ReportFailure(m_RecentProjects.Save(), "Saving the recent projects");
+			UI::ReportFailure(m_StartScreen.ClearRecentProjects(), "Saving the recent projects");
 		}
 		ImGui::EndMenu();
 	}
@@ -1623,8 +1663,7 @@ namespace Strada
 		ST_ERROR("Could not open the project '{}': {}", FileSystem::PathToUtf8(file), opened.GetError());
 		if (!FileSystem::Exists(file))
 		{
-			m_RecentProjects.Remove(file);
-			UI::ReportFailure(m_RecentProjects.Save(), "Saving the recent projects");
+			UI::ReportFailure(m_StartScreen.RemoveRecentProject(file), "Saving the recent projects");
 		}
 	}
 
@@ -1632,8 +1671,7 @@ namespace Strada
 	{
 		if (Project const* project = m_Context.GetProject())
 		{
-			m_RecentProjects.Add(project->GetFilePath());
-			UI::ReportFailure(m_RecentProjects.Save(), "Saving the recent projects");
+			UI::ReportFailure(m_StartScreen.OnProjectOpened(project->GetFilePath()), "Saving the recent projects");
 		}
 	}
 

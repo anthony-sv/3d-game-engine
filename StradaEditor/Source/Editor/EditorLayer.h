@@ -26,7 +26,7 @@
 #include "Editor/Panels/ViewportPanel.h"
 #include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/PlayMode.h"
-#include "Editor/RecentProjects.h"
+#include "Editor/StartScreen/StartScreenModel.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
 #include "Editor/VisualScripting/VisualScriptDebugControls.h"
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
@@ -96,7 +96,8 @@ namespace Strada
 		CommandRegistry const& GetCommands() const { return m_Commands; }
 		AutomationServer const& GetAutomationServer() const { return m_AutomationServer; }
 		EditorLocations const& GetLocations() const { return m_Locations; }
-		RecentProjects const& GetRecentProjects() const { return m_RecentProjects; }
+		RecentProjects const& GetRecentProjects() const { return m_StartScreen.GetRecentProjects(); }
+		StartScreenModel& GetStartScreen() { return m_StartScreen; }
 		VisualScriptViewSettings const& GetVisualScriptViews() const { return m_VisualScriptViews; }
 
 	private:
@@ -256,7 +257,8 @@ namespace Strada
 		std::string m_PendingProjectName;
 		bool m_OpenUnsavedChangesPopup = false;
 
-		RecentProjects m_RecentProjects;
+		// The start screen's state, which owns the recent projects (the File menu and the start commands use them through it).
+		StartScreenModel m_StartScreen;
 		bool m_OpenNewProjectPopup = false;
 		std::string m_NewProjectName;
 		std::string m_NewProjectLocation;

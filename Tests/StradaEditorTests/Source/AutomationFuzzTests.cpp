@@ -9,6 +9,7 @@
 #include "Editor/Automation/PlayCommands.h"
 #include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
+#include "Editor/Automation/StartCommands.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
@@ -269,6 +270,10 @@ namespace
 			{
 				AdjustProjectParameters(params);
 			}
+			if (params.is_object() && m_Command == "editor.recent")
+			{
+				AdjustRecentParameters(params);
+			}
 			return params;
 		}
 
@@ -446,6 +451,20 @@ namespace
 			}
 			std::string const name = "Copy" + std::to_string(m_Copies++);
 			params["directory"] = m_Random.Pick(2) == 0 ? FileSystem::PathToUtf8(m_Outside / "Copies" / name) : "Copies/" + name;
+		}
+
+		// editor.recent mostly gets one of remove and clear (both are refused), and half the time removes a listed project: the
+		// fixture lists one that is missing (SeedRecentProjects).
+		void AdjustRecentParameters(Json& params)
+		{
+			if (params.contains("remove") && params.contains("clear") && m_Random.Pick(4) != 0)
+			{
+				params.erase(m_Random.Pick(2) == 0 ? "remove" : "clear");
+			}
+			if (params.contains("remove") && m_Random.Pick(2) == 0)
+			{
+				params["remove"] = FileSystem::PathToUtf8(m_Outside / "Missing" / "Missing.sproj");
+			}
 		}
 
 		// Parameters of the graph commands that combine as the commands expect most of the time, so their work is reached in a
@@ -727,12 +746,17 @@ namespace
 				}
 				return Json(std::move(text));
 			}
-			// graph.find's references: an element of the document, a member left out now and then.
+			// graph.find's references: an element of the document, mostly with the ID of an element of its kind (a variable's, a
+			// function's), a member left out now and then.
 			if (property == "references" && m_Random.Pick(4) != 0)
 			{
 				auto const graphs = m_State.AssetsByType.find("VisualScript");
 				std::array<char const*, 3> const kinds = {"Variable", "Function", "CustomEvent"};
-				Json reference = Json::object({{"kind", kinds[m_Random.Pick(kinds.size())]}});
+				size_t const kind = m_Random.Pick(kinds.size());
+				Json reference = Json::object({{"kind", kinds[kind]}});
+				std::vector<int64_t> const& ofKind = kind == 0   ? m_State.GraphVariables
+				                                     : kind == 1 ? m_State.GraphFunctions
+				                                                 : m_State.GraphReferences;
 				// Mostly the state's script, which has the IDs below: the project has a library and other scripts too.
 				if (!m_State.Graph.empty() && m_Random.Pick(4) != 0)
 				{
@@ -744,7 +768,7 @@ namespace
 				}
 				if (!m_State.GraphReferences.empty() && m_Random.Pick(8) != 0)
 				{
-					reference["id"] = PickFrom(m_State.GraphReferences);
+					reference["id"] = PickFrom(ofKind.empty() || m_Random.Pick(8) == 0 ? m_State.GraphReferences : ofKind);
 				}
 				if (!m_State.GraphEvents.empty() && m_Random.Pick(8) != 0)
 				{
@@ -1261,6 +1285,9 @@ namespace
 		// Copies examples of the test content for project.copy-example; a running copy finishes within the frame it started in
 		// (Tick).
 		ExampleCopyTask Copies;
+		// The start screen's state behind start.info, start.show and editor.recent: the recent projects file lies in the
+		// commands' user data, which the fuzz may write. Headless: start.show is Unavailable.
+		StartScreenModel StartScreen{Locations};
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 
@@ -1312,6 +1339,7 @@ namespace
 			REQUIRE(RegisterScriptCommands(Registry, Scripts, Context).IsOk());
 			REQUIRE(RegisterGraphDebugCommands(Registry, DebugSession, Play, Context).IsOk());
 			REQUIRE(RegisterProjectContentCommands(Registry, Operations, Copies, Locations, {}).IsOk());
+			REQUIRE(RegisterStartCommands(Registry, StartScreen, {}).IsOk());
 			DebugSession.SetViewSettings(&ViewSettings);
 			Play.SetObserver(&DebugSession);
 
@@ -1321,6 +1349,8 @@ namespace
 			std::array<float, 64> const silence{};
 			REQUIRE(FileSystem::WriteBinaryFile(Imports / "Sound.wav", Testing::MakeWav(silence).GetSpan()).IsOk());
 			REQUIRE(Operations.CreateProject(ProjectDirectory, "Fuzz", Scene("Main")).IsOk());
+			REQUIRE(FileSystem::WriteTextFile(Directory.GetPath() / "NotAProject.sproj", "{ not json").IsOk());
+			SeedRecentProjects();
 
 			// An entity for each component, in one hierarchy, a material, a visual script, a prefab, a folder and imported files.
 			std::string parent;
@@ -1407,6 +1437,17 @@ namespace
 
 		// Puts entities with components back into a scene the fuzzer emptied: an instance of the prefab of everything, or
 		// a few entities when the prefab was deleted or moved.
+		// Lists the fuzzed project, a missing one and a file that is no project as the recent projects (all three states), as
+		// at the start and whenever the commands cleared the list.
+		void SeedRecentProjects()
+		{
+			RecentProjects& recent = StartScreen.GetRecentProjects();
+			recent.Add(Directory.GetPath() / "NotAProject.sproj");
+			recent.Add(Outside / "Missing" / "Missing.sproj");
+			recent.Add(Context.GetProject()->GetFilePath());
+			REQUIRE(recent.Save().IsOk());
+		}
+
 		void Replenish()
 		{
 			if (Run("prefab.instantiate", Json::object({{"prefab", "asset://Prefabs/Everything.sprefab"}})).IsOk())
@@ -1781,6 +1822,10 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		if (round % 5 == 0)
 		{
 			state = fixture.ReadState();
+			if (fixture.StartScreen.GetRecentProjects().GetProjects().empty())
+			{
+				fixture.SeedRecentProjects();
+			}
 			if (state.Entities.size() < 3)
 			{
 				fixture.Replenish();
@@ -1937,6 +1982,13 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	CHECK(outcomes["project.agents"].first > 0);
 	CHECK(outcomes["project.setup-agents"].first > 0);
 	CHECK(debugErrors["project.setup-agents"].contains(AutomationErrorCode::ConsentRequired));
+	// The start commands: what the start screen shows is read and the recent projects change; a headless editor shows no
+	// start screen.
+	CHECK(outcomes["start.info"].first > 0);
+	CHECK(outcomes["editor.recent"].first > 0);
+	CHECK(outcomes["start.show"].first == 0);
+	CHECK(debugErrors["start.show"].contains(AutomationErrorCode::Unavailable));
+	CHECK(fixture.Ok("editor.recent")["projects"].is_array());
 	// The palette needs the runtime, so it opens nowhere: its parameters are still checked before that.
 	CHECK(paletteErrors[AutomationErrorCode::InvalidParams] > 0);
 	CHECK(paletteErrors[AutomationErrorCode::Unavailable] > 0);

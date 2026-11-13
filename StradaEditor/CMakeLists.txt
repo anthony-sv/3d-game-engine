@@ -39,6 +39,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Automation/ProjectContentCommands.h
     Source/Editor/Automation/ScriptCommands.cpp
     Source/Editor/Automation/ScriptCommands.h
+    Source/Editor/Automation/StartCommands.cpp
+    Source/Editor/Automation/StartCommands.h
     Source/Editor/Commands/AssetCommands.cpp
     Source/Editor/Commands/AssetCommands.h
     Source/Editor/Commands/CommandHistory.cpp
@@ -132,6 +134,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/ScriptBrowsing.h
     Source/Editor/ScriptFieldInspection.cpp
     Source/Editor/ScriptFieldInspection.h
+    Source/Editor/StartScreen/StartScreenModel.cpp
+    Source/Editor/StartScreen/StartScreenModel.h
     Source/Editor/UI/EditorUI.cpp
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp

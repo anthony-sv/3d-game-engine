@@ -114,8 +114,9 @@ and the skills in `.claude/skills/` (among them `strada-make-game`) teach it the
 ### Projects set up for coding agents
 
 A game project outside the repository gets what agents need from the editor: File > Set Up for Coding Agents... with the
-project open (the editor manual describes the dialog), or the `project_setup_agents` tool. The
-setup writes only inside the project:
+project open (the editor manual describes the dialog), or the `project_setup_agents` tool. `project_create` sets every new
+project up this way unless its `agents` is false (its result lists the files in `agents`). The setup writes only inside
+the project:
 
 | File | What it holds |
 |------|---------------|
@@ -244,9 +245,10 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
    explains what went wrong whenever something is unexpected.
 2. **Make or open the project.** `project_create` with a new or empty `directory` and a `name`, or `project_open`
    with a `.sproj` path. `project_create` starts from a template (`template`, as `project_templates` lists them;
-   `empty-3d` by default, whose start scene is `Assets/Scenes/Main.sscene`) and writes a `.gitignore` unless
-   `gitIgnore` is false; `project_copy_example` copies an example game of `project_examples` and opens the copy. `project_settings`
-   changes the window, the physics layers and the start scene.
+   `empty-3d` by default, whose start scene is `Assets/Scenes/Main.sscene`), writes a `.gitignore` unless
+   `gitIgnore` is false, and sets the project up for coding agents ([below](#projects-set-up-for-coding-agents))
+   unless `agents` is false; `project_copy_example` copies an example game of `project_examples` and opens the copy.
+   `project_settings` changes the window, the physics layers and the start scene.
 3. **Build scenes in small, checked steps.** `entity_create` takes a `name`, a `parent` and `components` in the
    scene-file format. Entities are UUIDs written as strings, asset fields take `asset://<path in Assets>` or
    `builtin://<Name>`, and rotations are quaternions `[x, y, z, w]` or `RotationEuler` in degrees on Transform.

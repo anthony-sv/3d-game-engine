@@ -238,7 +238,8 @@ public sealed class AgentWorkflowTests
 		await client.ResultAsync("initialize", new JsonObject { ["protocolVersion"] = "2025-06-18" });
 		// Spelled as the working directory of a process started in it reads it, which strada resolves --project against.
 		string projectDirectory = Path.Combine(ResolveLinks(directory.Path), "Orb Run");
-		JsonNode created = await ToolAsync(client, "project_create", new JsonObject { ["directory"] = projectDirectory, ["name"] = "Orb Run" });
+		// Created without the agent kit (project_create sets new projects up by default), which the agent then asks the user for.
+		JsonNode created = await ToolAsync(client, "project_create", new JsonObject { ["directory"] = projectDirectory, ["name"] = "Orb Run", ["agents"] = false });
 		string projectFile = created["project"]!["file"]!.GetValue<string>();
 
 		// The agent asks the user first: without their consent nothing is written.
