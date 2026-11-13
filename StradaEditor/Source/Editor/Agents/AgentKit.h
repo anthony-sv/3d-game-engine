@@ -62,7 +62,8 @@ namespace Strada
 		std::string Path;
 		AgentFileAction Action = AgentFileAction::Unchanged;
 		// A short unified-style text of what changes in the managed part ("@@ -1,2 +1,3 @@" hunks with three lines of context,
-		// at most AgentKit::MaxDiffLines lines and then one saying how many more); empty unless the file is created or
+		// at most AgentKit::MaxDiffLines lines and then one saying how many more, each line cut after
+		// AgentKit::MaxDiffLineBytes bytes with a note of how many more it holds); empty unless the file is created or
 		// updated.
 		std::string Diff;
 	};
@@ -110,13 +111,24 @@ namespace Strada
 		std::string ProjectFile;
 	};
 
+	// What a setup includes besides the files every setup writes.
+	struct AgentSetupOptions
+	{
+		// The .gitignore row: the .strada/ line added to the project's .gitignore, or the file created with it. False leaves
+		// .gitignore out of the status, the plan and the files (the New Project form's "Add a .gitignore" unchecked).
+		bool GitIgnore = true;
+	};
+
 	// Finds the strada tool on PATH. The editor's is Process::FindExecutable("strada"); an unset lookup finds nothing, so
 	// tests never depend on what the machine has.
 	using AgentToolLookup = std::function<std::optional<std::filesystem::path>()>;
 
 	// The agent kit: the files that set a project up for coding agents (an AGENTS.md block, CLAUDE.md, .mcp.json's strada
 	// entry, the game-making skill, the guides under .strada/docs/, the .strada/ line of .gitignore) and the state file
-	// .strada/agents.json, which records the hashes of the whole files the kit last wrote. The sources are the engine
+	// .strada/agents.json, which records the hashes of the whole files the kit last wrote. The text a setup adds to a file
+	// it keeps (AGENTS.md, CLAUDE.md, .mcp.json, .gitignore) changes nothing outside the managed part, a UTF-8 byte order
+	// mark included. The guides' copies link to each other, and to the skill, where they lie in the project; a link to a
+	// file a setup does not copy names that file's path in the engine's repository instead. The sources are the engine
 	// content of a layout (EngineContent::AgentKit, MakeGameSkill and Docs). Reads and writes only inside the project's
 	// directory and never follows a symbolic link there. Free of ImGui; any thread, one call at a time per project.
 	class AgentKit
@@ -135,23 +147,25 @@ namespace Strada
 		// Files larger than this are not read (and so never rewritten): Damaged in a project, missing in the engine.
 		static constexpr uint64_t MaxFileBytes = 16ull * 1024 * 1024;
 		static constexpr size_t MaxDiffLines = 200;
+		// A diff line longer than this is cut (at a UTF-8 character's start) and ends with "... (N more bytes)".
+		static constexpr size_t MaxDiffLineBytes = 400;
 
 		// The files a setup of a project writes, relative with forward slashes, in the order plans list them: what the New
 		// Project form shows before the project exists. Leaves out the guides the layout's Docs folder lacks.
-		[[nodiscard]] static std::vector<std::string> ListFiles(EngineLayout const& layout);
+		[[nodiscard]] static std::vector<std::string> ListFiles(EngineLayout const& layout, AgentSetupOptions const& options = {});
 
 		// The state of every file of the kit in the project. Fails when the engine's agent kit is incomplete (its block or
 		// the game-making skill cannot be read). Writes nothing.
 		[[nodiscard]] static Result<AgentStatus> GetStatus(AgentProject const& project, EngineLayout const& layout,
-		                                                   AgentToolLookup const& findTool);
+		                                                   AgentToolLookup const& findTool, AgentSetupOptions const& options = {});
 		// What a setup would do. Fails as GetStatus does. Writes nothing.
 		[[nodiscard]] static Result<AgentPlan> Plan(AgentProject const& project, EngineLayout const& layout,
-		                                            AgentToolLookup const& findTool);
+		                                            AgentToolLookup const& findTool, AgentSetupOptions const& options = {});
 		// Sets the project up: writes every file the plan creates or updates, each atomically, then the state file. Running it
 		// again changes nothing. A file that cannot be written (read-only, or the write fails) stops it there: the files
 		// written before stay, and the state file records them.
 		[[nodiscard]] static AgentApplyResult Apply(AgentProject const& project, EngineLayout const& layout,
-		                                            AgentToolLookup const& findTool);
+		                                            AgentToolLookup const& findTool, AgentSetupOptions const& options = {});
 
 		// The command of .mcp.json's strada entry: "strada" when the tool beside the editor (EngineLayout::GetToolPath) is the
 		// strada findTool finds, or when there is no tool beside the editor (with a warning to put one on PATH); otherwise

@@ -364,11 +364,9 @@ TEST_CASE("AgentSetupDialog: a project opened while the dialog shows gets a plan
 TEST_CASE("AgentSetupDialog: the texts the agent kit writes name the File menu's item")
 {
 	std::string const item = std::string("File > ") + AgentSetupDialog::MenuItem;
-	// The engine's own block.
-	Result<EngineLayout> const layout = EngineLayout::Resolve(FileSystem::GetExecutablePath());
-	REQUIRE(layout.IsOk());
-	REQUIRE(layout.GetValue().IsSourceTree());
-	CHECK(ReadFile(layout.GetValue().GetContentPath(EngineContent::AgentKit) / AgentKit::BlockFileName).find(item) != std::string::npos);
+	// The engine's own block, in the repository's Agents/ folder.
+	std::filesystem::path const repository = FileSystem::PathFromUtf8(STRADA_AUTOMATION_DOC_PATH).parent_path().parent_path();
+	CHECK(ReadFile(repository / "Agents" / FileSystem::PathFromUtf8(AgentKit::BlockFileName)).find(item) != std::string::npos);
 	// The README of the guides a setup writes.
 	DialogFixture fixture;
 	AgentApplyResult const applied = AgentKit::Apply(fixture.Project, fixture.Layout, fixture.FindTool);

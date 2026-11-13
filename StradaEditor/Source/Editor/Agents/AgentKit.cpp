@@ -1,5 +1,6 @@
 #include "Editor/Agents/AgentKit.h"
 
+#include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Hash.h"
 #include "Strada/Serialization/JsonSerialization.h"
@@ -40,7 +41,12 @@ namespace Strada
 			"\n"
 			"Strada manages this folder: it holds copies of the engine's guides for coding agents. Setting the project up for\n"
 			"coding agents again replaces them with the engine's (the editor's File > Set Up for Coding Agents..., or the\n"
-			"`project_setup_agents` tool), so do not edit them here. Git ignores `.strada/`.\n";
+			"`project_setup_agents` tool), so do not edit them here. Git ignores `.strada/`.\n"
+			"\n"
+			"The guides link to each other and to the game-making skill where they lie in this project. A link to a file that is\n"
+			"not copied here names that file's path in the engine's repository instead.\n";
+		// A UTF-8 byte order mark, which a setup keeps at the start of a file it adds to.
+		constexpr std::string_view ByteOrderMark = "\xEF\xBB\xBF";
 		// Lines of context around each change of a diff.
 		constexpr size_t DiffContext = 3;
 		// Above this many cells the middle of a diff is shown as removed and added instead of matched line by line.
@@ -66,7 +72,9 @@ namespace Strada
 			bool Exists = false;
 			// Why it cannot be read as a file of the kit; empty when it can (or does not exist).
 			std::string Problem;
+			// The text without its UTF-8 byte order mark, and whether it had one.
 			std::string Text;
+			bool HasByteOrderMark = false;
 		};
 
 		// A file of the kit, judged.
@@ -266,13 +274,20 @@ namespace Strada
 				found.Problem = size ? fmt::format("it is larger than {} bytes", AgentKit::MaxFileBytes) : "its size cannot be read";
 				return found;
 			}
-			Result<std::string> text = FileSystem::ReadTextFile(current);
-			if (!text)
+			// As bytes: FileSystem::ReadTextFile drops a byte order mark, which a rewrite must put back.
+			Result<Buffer> bytes = FileSystem::ReadBinaryFile(current);
+			if (!bytes)
 			{
-				found.Problem = text.GetError();
+				found.Problem = bytes.GetError();
 				return found;
 			}
-			found.Text = text.TakeValue();
+			Buffer const& buffer = bytes.GetValue();
+			found.Text.assign(reinterpret_cast<char const*>(buffer.GetData()), static_cast<size_t>(buffer.GetSize()));
+			if (found.Text.starts_with(ByteOrderMark))
+			{
+				found.HasByteOrderMark = true;
+				found.Text.erase(0, ByteOrderMark.size());
+			}
 			return found;
 		}
 
@@ -343,6 +358,208 @@ namespace Strada
 			if (!result.empty() && result.back() != '\n')
 			{
 				result += '\n';
+			}
+			return result;
+		}
+
+		// The length of the run of this character that starts at position.
+		size_t CountRun(std::string_view text, size_t position, char character)
+		{
+			size_t const end = text.find_first_not_of(character, position);
+			return (end == std::string_view::npos ? text.size() : end) - position;
+		}
+
+		// Where a run of exactly length backticks starts at or after from (what closes a code span); npos when none does.
+		size_t FindBacktickRun(std::string_view line, size_t from, size_t length)
+		{
+			size_t index = from;
+			while (index < line.size())
+			{
+				if (line[index] != '`')
+				{
+					index++;
+					continue;
+				}
+				size_t const run = CountRun(line, index, '`');
+				if (run == length)
+				{
+					return index;
+				}
+				index += run;
+			}
+			return std::string_view::npos;
+		}
+
+		// A guide's relative link target resolved against the engine repository's Docs/ folder ("../AGENTS.md" is
+		// "AGENTS.md"); empty when it leads out of the repository.
+		std::string ResolveRepositoryPath(std::string_view target)
+		{
+			std::vector<std::string_view> parts = {"Docs"};
+			size_t position = 0;
+			while (position <= target.size())
+			{
+				size_t const slash = std::min(target.find('/', position), target.size());
+				std::string_view const part = target.substr(position, slash - position);
+				if (part == "..")
+				{
+					if (parts.empty())
+					{
+						return {};
+					}
+					parts.pop_back();
+				}
+				else if (!part.empty() && part != ".")
+				{
+					parts.push_back(part);
+				}
+				position = slash + 1;
+			}
+			std::string path;
+			for (std::string_view const part : parts)
+			{
+				if (!path.empty())
+				{
+					path += '/';
+				}
+				path += part;
+			}
+			return path;
+		}
+
+		// A link of a guide, [text](target), as its copy under .strada/docs/ shows it: a link to a copied guide or to the
+		// skill points where that file lies in the project; a link to another file of the repository becomes its text and the
+		// file's path in the engine's repository. Links to anchors and to other sites stay as they are.
+		std::string RewriteGuideLink(std::string_view text, std::string_view target)
+		{
+			if (target.starts_with('#') || target.find(':') != std::string_view::npos)
+			{
+				return fmt::format("[{}]({})", text, target);
+			}
+			size_t const anchorStart = target.find('#');
+			std::string_view const path = target.substr(0, anchorStart);
+			std::string_view const anchor = anchorStart == std::string_view::npos ? std::string_view() : target.substr(anchorStart);
+			std::string const repositoryPath = ResolveRepositoryPath(path);
+			if (repositoryPath.empty())
+			{
+				return std::string(text);
+			}
+			for (std::string_view const guide : AgentKit::Guides)
+			{
+				if (repositoryPath == fmt::format("Docs/{}", guide))
+				{
+					return fmt::format("[{}]({}{})", text, guide, anchor);
+				}
+			}
+			if (repositoryPath == SkillPath)
+			{
+				// From .strada/docs/ up to the project's directory.
+				return fmt::format("[{}](../../{}{})", text, SkillPath, anchor);
+			}
+			return fmt::format("{} (`{}` in the engine's repository)", text, repositoryPath);
+		}
+
+		// Where the text of a link that opens at position ends (its closing bracket), skipping code spans and nested
+		// brackets; npos when the line does not close it.
+		size_t FindLinkTextEnd(std::string_view line, size_t position)
+		{
+			size_t depth = 0;
+			for (size_t index = position; index < line.size(); index++)
+			{
+				if (line[index] == '`')
+				{
+					size_t const run = CountRun(line, index, '`');
+					size_t const close = FindBacktickRun(line, index + run, run);
+					if (close == std::string_view::npos)
+					{
+						return std::string_view::npos;
+					}
+					index = close + run - 1;
+				}
+				else if (line[index] == '[')
+				{
+					depth++;
+				}
+				else if (line[index] == ']' && --depth == 0)
+				{
+					return index;
+				}
+			}
+			return std::string_view::npos;
+		}
+
+		// The links of one line outside code spans, rewritten (RewriteGuideLink). Images and escaped brackets stay as they
+		// are, and so do targets with a title, spaces or brackets, which no guide links a file with.
+		std::string RewriteLineLinks(std::string_view line)
+		{
+			std::string result;
+			result.reserve(line.size());
+			size_t position = 0;
+			while (position < line.size())
+			{
+				char const character = line[position];
+				if (character == '`')
+				{
+					size_t const run = CountRun(line, position, '`');
+					size_t const close = FindBacktickRun(line, position + run, run);
+					size_t const end = close == std::string_view::npos ? position + run : close + run;
+					result += line.substr(position, end - position);
+					position = end;
+					continue;
+				}
+				bool const opensLink = character == '[' && (position == 0 || (line[position - 1] != '!' && line[position - 1] != '\\'));
+				size_t const textEnd = opensLink ? FindLinkTextEnd(line, position) : std::string_view::npos;
+				if (textEnd != std::string_view::npos && textEnd + 1 < line.size() && line[textEnd + 1] == '(')
+				{
+					size_t const targetBegin = textEnd + 2;
+					size_t const targetEnd = line.find(')', targetBegin);
+					if (targetEnd != std::string_view::npos && targetEnd > targetBegin)
+					{
+						std::string_view const target = line.substr(targetBegin, targetEnd - targetBegin);
+						if (target.find_first_of(" \t(<\"") == std::string_view::npos)
+						{
+							result += RewriteGuideLink(line.substr(position + 1, textEnd - position - 1), target);
+							position = targetEnd + 1;
+							continue;
+						}
+					}
+				}
+				result += character;
+				position++;
+			}
+			return result;
+		}
+
+		// A guide as a setup copies it to .strada/docs/: its links outside code adapted to that folder (RewriteGuideLink),
+		// every other byte as it is.
+		std::string RewriteGuideLinks(std::string_view text)
+		{
+			std::string result;
+			result.reserve(text.size());
+			// The fence that opened the fenced code block the line is in ("```", "~~~~"); empty outside one.
+			std::string_view fence;
+			for (LineSpan const& line : SplitLines(text))
+			{
+				std::string_view const content = text.substr(line.Begin, line.ContentEnd - line.Begin);
+				std::string_view const lineEnding = text.substr(line.ContentEnd, line.End - line.ContentEnd);
+				std::string_view const indented = content.substr(std::min(content.find_first_not_of(' '), content.size()));
+				if (!fence.empty())
+				{
+					if (indented.starts_with(fence))
+					{
+						fence = {};
+					}
+					result += content;
+				}
+				else if (indented.starts_with("```") || indented.starts_with("~~~"))
+				{
+					fence = indented.substr(0, CountRun(indented, 0, indented.front()));
+					result += content;
+				}
+				else
+				{
+					result += RewriteLineLinks(content);
+				}
+				result += lineEnding;
 			}
 			return result;
 		}
@@ -692,7 +909,15 @@ namespace Strada
 			return fmt::format("'{}' is left as it is: {}", entry.Path, file.Problem.empty() ? entry.Problem : file.Problem);
 		}
 
-		Result<Evaluation> Evaluate(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool)
+		// The kinds of files a setup adds to rather than replaces: their byte order mark lies outside the managed part.
+		bool KeepsByteOrderMark(FileKind kind)
+		{
+			return kind == FileKind::AgentsBlock || kind == FileKind::ClaudeLine || kind == FileKind::McpEntry ||
+			       kind == FileKind::GitIgnore;
+		}
+
+		Result<Evaluation> Evaluate(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool,
+		                            AgentSetupOptions const& options)
 		{
 			std::filesystem::path const kit = layout.GetContentPath(EngineContent::AgentKit);
 			std::filesystem::path const skillDirectory = layout.GetContentPath(EngineContent::MakeGameSkill);
@@ -747,6 +972,10 @@ namespace Strada
 					return;
 				}
 				judgeFile(read);
+				if (read.HasByteOrderMark && !judged.NewText.empty() && KeepsByteOrderMark(judged.Kind))
+				{
+					judged.NewText.insert(0, ByteOrderMark);
+				}
 			};
 
 			Entry& agents = add(AgentsPath, FileKind::AgentsBlock);
@@ -784,11 +1013,12 @@ namespace Strada
 					evaluation.Warnings.push_back(fmt::format("the engine has no guide '{}', so '{}' is left out", guide, path));
 					continue;
 				}
+				std::string const copy = RewriteGuideLinks(*source);
 				Entry& guideEntry = add(path, FileKind::Guide);
 				judge(guideEntry,
-				      [&guideEntry, &source, &evaluation](FoundFile const& file)
+				      [&guideEntry, &copy, &evaluation](FoundFile const& file)
 				      {
-						  JudgeWholeFile(guideEntry, file, *source, evaluation.Records);
+						  JudgeWholeFile(guideEntry, file, copy, evaluation.Records);
 					  });
 			}
 			Entry& readme = add(GuidesReadmePath, FileKind::Guide);
@@ -797,12 +1027,15 @@ namespace Strada
 			      {
 					  JudgeWholeFile(readme, file, std::string(GuidesReadmeText), evaluation.Records);
 				  });
-			Entry& gitIgnore = add(GitIgnorePath, FileKind::GitIgnore);
-			judge(gitIgnore,
-			      [&gitIgnore](FoundFile const& file)
-			      {
-					  JudgeLine(gitIgnore, file, GitIgnoreLine, {".strada/", ".strada", "/.strada/", "/.strada"}, GitIgnoreText);
-				  });
+			if (options.GitIgnore)
+			{
+				Entry& gitIgnore = add(GitIgnorePath, FileKind::GitIgnore);
+				judge(gitIgnore,
+				      [&gitIgnore](FoundFile const& file)
+				      {
+						  JudgeLine(gitIgnore, file, GitIgnoreLine, {".strada/", ".strada", "/.strada/", "/.strada"}, GitIgnoreText);
+					  });
+			}
 
 			for (size_t index = 0; index < evaluation.Entries.size(); index++)
 			{
@@ -830,6 +1063,21 @@ namespace Strada
 			}
 			evaluation.Entries.push_back(std::move(state));
 			return evaluation;
+		}
+
+		// A line of a diff, cut after AgentKit::MaxDiffLineBytes bytes at the start of a UTF-8 character.
+		std::string CutDiffLine(std::string_view line)
+		{
+			if (line.size() <= AgentKit::MaxDiffLineBytes)
+			{
+				return std::string(line);
+			}
+			size_t cut = AgentKit::MaxDiffLineBytes;
+			while (cut > 0 && (static_cast<unsigned char>(line[cut]) & 0xC0) == 0x80)
+			{
+				cut--;
+			}
+			return fmt::format("{}... ({} more bytes)", line.substr(0, cut), line.size() - cut);
 		}
 
 		std::vector<std::string_view> SplitDiffLines(std::string_view text)
@@ -981,7 +1229,7 @@ namespace Strada
 				                             newLength > 0 ? newBefore[start] + 1 : newBefore[start], newLength));
 				for (size_t line = start; line < end; line++)
 				{
-					output.push_back(fmt::format("{}{}", edits[line].Kind, edits[line].Line));
+					output.push_back(fmt::format("{}{}", edits[line].Kind, CutDiffLine(edits[line].Line)));
 				}
 				index = end;
 			}
@@ -1070,7 +1318,7 @@ namespace Strada
 		return "SkipDamaged";
 	}
 
-	std::vector<std::string> AgentKit::ListFiles(EngineLayout const& layout)
+	std::vector<std::string> AgentKit::ListFiles(EngineLayout const& layout, AgentSetupOptions const& options)
 	{
 		std::vector<std::string> files = {std::string(AgentsPath), std::string(ClaudePath), std::string(McpPath), std::string(SkillPath)};
 		std::filesystem::path const docs = layout.GetContentPath(EngineContent::Docs);
@@ -1082,14 +1330,18 @@ namespace Strada
 			}
 		}
 		files.emplace_back(GuidesReadmePath);
-		files.emplace_back(GitIgnorePath);
+		if (options.GitIgnore)
+		{
+			files.emplace_back(GitIgnorePath);
+		}
 		files.emplace_back(StateFilePath);
 		return files;
 	}
 
-	Result<AgentStatus> AgentKit::GetStatus(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool)
+	Result<AgentStatus> AgentKit::GetStatus(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool,
+	                                        AgentSetupOptions const& options)
 	{
-		Result<Evaluation> evaluation = Evaluate(project, layout, findTool);
+		Result<Evaluation> evaluation = Evaluate(project, layout, findTool, options);
 		if (!evaluation)
 		{
 			return Error{evaluation.GetError()};
@@ -1104,9 +1356,10 @@ namespace Strada
 		return status;
 	}
 
-	Result<AgentPlan> AgentKit::Plan(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool)
+	Result<AgentPlan> AgentKit::Plan(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool,
+	                                 AgentSetupOptions const& options)
 	{
-		Result<Evaluation> evaluation = Evaluate(project, layout, findTool);
+		Result<Evaluation> evaluation = Evaluate(project, layout, findTool, options);
 		if (!evaluation)
 		{
 			return Error{evaluation.GetError()};
@@ -1114,10 +1367,11 @@ namespace Strada
 		return MakePlan(evaluation.GetValue());
 	}
 
-	AgentApplyResult AgentKit::Apply(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool)
+	AgentApplyResult AgentKit::Apply(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool,
+	                                 AgentSetupOptions const& options)
 	{
 		AgentApplyResult result;
-		Result<Evaluation> evaluated = Evaluate(project, layout, findTool);
+		Result<Evaluation> evaluated = Evaluate(project, layout, findTool, options);
 		if (!evaluated)
 		{
 			result.Error = evaluated.GetError();

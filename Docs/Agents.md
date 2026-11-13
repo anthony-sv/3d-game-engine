@@ -119,11 +119,11 @@ setup writes only inside the project:
 
 | File | What it holds |
 |------|---------------|
-| `AGENTS.md` | Strada's block, between the lines `<!-- BEGIN strada-agents -->` and `<!-- END strada-agents -->`: the project and its project file, how to work through the `strada` tools, what to read first (`.strada/docs/Agents.md` and the skill), how to prove a change in the game, and what to ask the user first. Text outside the markers is kept byte for byte; a file without them gets the block appended |
+| `AGENTS.md` | Strada's block, between the lines `<!-- BEGIN strada-agents -->` and `<!-- END strada-agents -->`: the project and its project file, how to work through the `strada` tools, what to read first (`.strada/docs/Agents.md` and the skill), how to prove a change in the game, and what to ask the user first. Text outside the markers is kept byte for byte, line endings and a byte order mark included; a file without them gets the block appended |
 | `CLAUDE.md` | The line `@AGENTS.md` (Claude Code reads `CLAUDE.md`), appended to a file that lacks it |
 | `.mcp.json` | The `strada` server, `{"command": "<tool>", "args": ["mcp", "--project", "<Name>.sproj"]}`, merged with the file's other servers and members |
 | `.claude/skills/strada-make-game/SKILL.md` | The game-making skill |
-| `.strada/docs/` | Copies of the guides agents need (`GettingStarted.md`, `Scripting.md`, `VisualScripting.md`, `Automation.md`, `Agents.md`, `Components.md`, `ScriptingAPI.md`) and a `README.md` that says Strada manages the folder |
+| `.strada/docs/` | Copies of the guides agents need (`GettingStarted.md`, `Scripting.md`, `VisualScripting.md`, `Automation.md`, `Agents.md`, `Components.md`, `ScriptingAPI.md`) and a `README.md` that says Strada manages the folder. In the copies, the links between the guides and to the skill lead to the project's files, and a link to another file of the engine's repository becomes its text and that file's path there |
 | `.gitignore` | The `.strada/` line; a project without the file gets Strada's ignores |
 | `.strada/agents.json` | The setup's state: hashes of the whole files it last wrote (versioned JSON) |
 
@@ -134,7 +134,7 @@ path of this machine: put the editor's folder on `PATH` to keep the file portabl
 editor that has the project open, and an editor it starts opens it; the relative project file is found from the
 directory the MCP client starts strada in, the project's folder. Unless `--editor` or `STRADA_EDITOR` names another,
 strada starts the `StradaEditor` next to it. An agent started in the project's folder reads `AGENTS.md` (or
-`CLAUDE.md`) and `.mcp.json`; in this guide's copy under `.strada/docs/`, the skill is the project's
+`CLAUDE.md`) and `.mcp.json`; in this guide's copy under `.strada/docs/`, the links to the skill lead to the project's
 `.claude/skills/strada-make-game/SKILL.md`.
 
 **Refreshing.** Set the project up again after updating the engine. `project_agents` reports each file's state:
@@ -143,7 +143,8 @@ strada starts the `StradaEditor` next to it. An agent started in the project's f
 `SkipDamaged`) with a diff of Strada's part, and the dialog shows the same. A second setup changes nothing. The skill is
 a whole file: once someone changes it, setups keep that version (`UserModified`); delete it to get the engine's again.
 The guides under `.strada/docs/` are Strada's and always replaced. A file the setup cannot read as what it should be
-(unbalanced or repeated markers in `AGENTS.md`, a `.mcp.json` that is not a JSON object, a folder or a link) is
+(unbalanced or repeated markers in `AGENTS.md`, a `.mcp.json` that is not a JSON object, a folder, a link or a file over
+16 MiB) is
 `Damaged` and never rewritten: fix or remove it, then set up again.
 
 **What an agent asks first.** Setting a project up writes the user's files, so `project_setup_agents` writes only with

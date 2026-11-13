@@ -29,6 +29,7 @@ using namespace Strada;
 namespace
 {
 	constexpr std::string_view SkillPath = ".claude/skills/strada-make-game/SKILL.md";
+	constexpr std::string_view ByteOrderMark = "\xEF\xBB\xBF";
 	constexpr std::string_view GitIgnoreText = "# Strada: build output, caches and machine-specific files.\n"
 											   "Build/\n"
 											   ".strada/\n"
@@ -42,6 +43,14 @@ namespace
 		Result<std::string> text = FileSystem::ReadTextFile(path);
 		REQUIRE_MESSAGE(text.IsOk(), FileSystem::PathToUtf8(path));
 		return text.TakeValue();
+	}
+
+	// A file's bytes, a byte order mark included (FileSystem::ReadTextFile drops it).
+	std::string ReadBytes(std::filesystem::path const& path)
+	{
+		Result<Buffer> bytes = FileSystem::ReadBinaryFile(path);
+		REQUIRE_MESSAGE(bytes.IsOk(), FileSystem::PathToUtf8(path));
+		return std::string(reinterpret_cast<char const*>(bytes.GetValue().GetData()), static_cast<size_t>(bytes.GetValue().GetSize()));
 	}
 
 	void WriteFile(std::filesystem::path const& path, std::string_view text)
@@ -76,7 +85,7 @@ namespace
 		{
 			if (entry.is_regular_file(error))
 			{
-				files.emplace(FileSystem::PathToUtf8(entry.path().lexically_relative(directory)), ReadFile(entry.path()));
+				files.emplace(FileSystem::PathToUtf8(entry.path().lexically_relative(directory)), ReadBytes(entry.path()));
 			}
 		}
 		return files;
@@ -185,6 +194,56 @@ namespace
 		std::string withoutReturns(text);
 		std::erase(withoutReturns, '\r');
 		return fmt::format("{:016x}", Hash::FNV1a(withoutReturns));
+	}
+
+	// The engine repository's own agent kit, skill and guides, copied into the temporary directory as an engine's content.
+	EngineLayout MakeRepositoryContentCopy(Testing::TemporaryDirectory const& directory)
+	{
+		std::filesystem::path const repository = FileSystem::PathFromUtf8(STRADA_AUTOMATION_DOC_PATH).parent_path().parent_path();
+		std::filesystem::path const content = directory.GetPath() / "RepositoryEngine";
+		auto const copy = [](std::filesystem::path const& from, std::filesystem::path const& to)
+		{
+			REQUIRE(FileSystem::CreateDirectories(to.parent_path()).IsOk());
+			REQUIRE_MESSAGE(FileSystem::Copy(from, to, false).IsOk(), FileSystem::PathToUtf8(from));
+		};
+		copy(repository / "Agents" / "AGENTS.block.md", content / "Agents" / "AGENTS.block.md");
+		copy(FileSystem::PathFromUtf8(STRADA_MAKE_GAME_SKILL_PATH), content / "Agents" / "skills" / "strada-make-game" / "SKILL.md");
+		for (std::string_view const guide : AgentKit::Guides)
+		{
+			copy(repository / "Docs" / FileSystem::PathFromUtf8(guide), content / "Docs" / FileSystem::PathFromUtf8(guide));
+		}
+		Result<EngineLayout> layout = EngineLayout::Resolve(content / "StradaEditor");
+		REQUIRE(layout.IsOk());
+		return layout.TakeValue();
+	}
+
+	// The targets of the Markdown links of a text, [text](target), outside fenced code blocks.
+	std::vector<std::string> FindLinkTargets(std::string_view text)
+	{
+		std::vector<std::string> targets;
+		std::string unfenced;
+		bool fenced = false;
+		for (size_t begin = 0; begin < text.size();)
+		{
+			size_t const newline = std::min(text.find('\n', begin), text.size());
+			std::string_view const line = text.substr(begin, newline - begin);
+			if (line.find_first_not_of(' ') != std::string_view::npos && line.substr(line.find_first_not_of(' ')).starts_with("```"))
+			{
+				fenced = !fenced;
+			}
+			else if (!fenced)
+			{
+				unfenced += line;
+				unfenced += '\n';
+			}
+			begin = newline + 1;
+		}
+		std::regex const link(R"(\]\(([^)\s]+)\))");
+		for (auto match = std::sregex_iterator(unfenced.begin(), unfenced.end(), link); match != std::sregex_iterator(); ++match)
+		{
+			targets.push_back((*match)[1].str());
+		}
+		return targets;
 	}
 }
 
@@ -719,13 +778,52 @@ TEST_CASE("AgentKit: diffs are short unified-style texts")
 	}
 }
 
+TEST_CASE("AgentKit: a diff cuts long lines, at the start of a character, and stays short")
+{
+	KitFixture fixture;
+	fixture.Layout = MakeContentCopy(fixture.Directory, "Engine");
+	// One line of 4 MiB in two-byte characters, after a single-byte one, so that the cut falls inside a character.
+	std::string huge = "x";
+	for (size_t index = 0; index < 2 * 1024 * 1024; index++)
+	{
+		huge += "\xC3\xA9";
+	}
+	WriteFile(fixture.Layout.GetContentPath(EngineContent::Docs) / "Components.md", fmt::format("Short\n{}\nEnd\n", huge));
+	// And an outdated .mcp.json entry with one long argument.
+	fixture.Write(".mcp.json",
+	              fmt::format(R"({{"mcpServers": {{"strada": {{"command": "strada", "args": ["{}"]}}}}}})", std::string(100000, 'a')));
+	AgentPlan const plan = fixture.Plan();
+	auto const find = [&plan](std::string_view path) -> AgentFilePlan const&
+	{
+		auto const file = std::ranges::find(plan.Files, std::string(path), &AgentFilePlan::Path);
+		REQUIRE(file != plan.Files.end());
+		return *file;
+	};
+	std::string const& components = find(".strada/docs/Components.md").Diff;
+	size_t const cut = AgentKit::MaxDiffLineBytes;
+	std::string const shown = huge.substr(0, cut - 1);
+	CHECK(components == fmt::format("@@ -0,0 +1,3 @@\n+Short\n+{}... ({} more bytes)\n+End\n", shown, huge.size() - shown.size()));
+	CHECK(components.size() < 2 * cut);
+	std::string const& mcp = find(".mcp.json").Diff;
+	CHECK(mcp.find("... (") != std::string::npos);
+	CHECK(mcp.size() < 4 * cut);
+	for (AgentFilePlan const& file : plan.Files)
+	{
+		CAPTURE(file.Path);
+		size_t begin = 0;
+		while (begin < file.Diff.size())
+		{
+			size_t const end = std::min(file.Diff.find('\n', begin), file.Diff.size());
+			CHECK(end - begin <= cut + 1 + std::string_view("... (99999999 more bytes)").size());
+			begin = end + 1;
+		}
+	}
+}
+
 TEST_CASE("AgentKit: the engine's own kit sets a project up, and its block names only real tools and files")
 {
-	Result<EngineLayout> layout = EngineLayout::Resolve(FileSystem::GetExecutablePath());
-	REQUIRE(layout.IsOk());
-	REQUIRE(layout.GetValue().IsSourceTree());
 	KitFixture fixture;
-	fixture.Layout = layout.TakeValue();
+	fixture.Layout = MakeRepositoryContentCopy(fixture.Directory);
 	AgentApplyResult const applied = fixture.Apply();
 	CHECK(applied.Plan.Files.size() == AgentKit::ListFiles(fixture.Layout).size());
 	for (std::string const& warning : applied.Plan.Warnings)
@@ -778,6 +876,227 @@ TEST_CASE("AgentKit: the engine's own kit sets a project up, and its block names
 			CHECK(std::ranges::find(AgentKit::Guides, std::string_view(name)) != AgentKit::Guides.end());
 		}
 	}
+
+	// Every relative link of the guides' copies leads to a file of the project, and none to the folder's own README, which
+	// is not the documentation home the repository's README.md is.
+	size_t links = 0;
+	for (std::string_view const guideName : AgentKit::Guides)
+	{
+		std::string const copy = fixture.Read(fmt::format(".strada/docs/{}", guideName));
+		for (std::string const& target : FindLinkTargets(copy))
+		{
+			if (target.starts_with('#') || target.find("://") != std::string::npos)
+			{
+				continue;
+			}
+			CAPTURE(guideName);
+			CAPTURE(target);
+			std::filesystem::path const linked =
+				fixture.PathOf(".strada/docs") / FileSystem::PathFromUtf8(target.substr(0, target.find('#')));
+			CHECK(FileSystem::IsRegularFile(linked));
+			CHECK(linked.filename() != "README.md");
+			links++;
+		}
+	}
+	CHECK(links > 20);
+	// The links that leave the copied files name the repository's files instead.
+	std::string const gettingStarted = fixture.Read(".strada/docs/GettingStarted.md");
+	CHECK(gettingStarted.find("Docs/README.md (`Docs/README.md` in the engine's repository)") != std::string::npos);
+	CHECK(gettingStarted.find("(`AGENTS.md` in the engine's repository)") != std::string::npos);
+	CHECK(fixture.Read(".strada/docs/Agents.md").find("](../../.claude/skills/strada-make-game/SKILL.md)") != std::string::npos);
+}
+
+TEST_CASE("AgentKit: the guides' copies link to each other and to the skill in the project, and name the repository's other files")
+{
+	KitFixture fixture;
+	fixture.Layout = MakeContentCopy(fixture.Directory, "Engine");
+	std::string const guide =
+		"# Guide\r\n"
+		"See [Scripting](Scripting.md), [its first script](Scripting.md#a-first-script) and [this part](#here).\r\n"
+		"The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill; [ScriptingAPI](../Docs/ScriptingAPI.md).\r\n"
+		"| [Docs/README.md](README.md) | [Editor.md](Editor.md#menus) | [AGENTS.md](../AGENTS.md) |\r\n"
+		"Code stays: `[a](Editor.md)` and ``[b](`Editor.md`)``; so do ![an image](Images/Editor.jpg), \\[x](Editor.md),\r\n"
+		"[a site](https://example.com/Editor.md), [a title](Editor.md \"Editor\") and [outside](../../Elsewhere.md).\r\n"
+		"```md\r\n"
+		"[fenced](Editor.md)\r\n"
+		"```\r\n"
+		"[nested [brackets]](Architecture.md)";
+	WriteFile(fixture.Layout.GetContentPath(EngineContent::Docs) / "GettingStarted.md", guide);
+	std::string const expected =
+		"# Guide\r\n"
+		"See [Scripting](Scripting.md), [its first script](Scripting.md#a-first-script) and [this part](#here).\r\n"
+		"The [`strada-make-game`](../../.claude/skills/strada-make-game/SKILL.md) skill; [ScriptingAPI](ScriptingAPI.md).\r\n"
+		"| Docs/README.md (`Docs/README.md` in the engine's repository) | Editor.md (`Docs/Editor.md` in the engine's repository) | "
+		"AGENTS.md (`AGENTS.md` in the engine's repository) |\r\n"
+		"Code stays: `[a](Editor.md)` and ``[b](`Editor.md`)``; so do ![an image](Images/Editor.jpg), \\[x](Editor.md),\r\n"
+		"[a site](https://example.com/Editor.md), [a title](Editor.md \"Editor\") and outside.\r\n"
+		"```md\r\n"
+		"[fenced](Editor.md)\r\n"
+		"```\r\n"
+		"nested [brackets] (`Docs/Architecture.md` in the engine's repository)";
+	AgentPlan const plan = fixture.Plan();
+	auto const planned = std::ranges::find(plan.Files, std::string(".strada/docs/GettingStarted.md"), &AgentFilePlan::Path);
+	REQUIRE(planned != plan.Files.end());
+	CHECK(planned->Diff.find("\n+| Docs/README.md (`Docs/README.md` in the engine's repository) |") != std::string::npos);
+	fixture.Apply();
+	CHECK(ReadBytes(fixture.PathOf(".strada/docs/GettingStarted.md")) == expected);
+	// The copy is the kit's: current, and recorded by the hash of what was written.
+	auto const states = fixture.States();
+	CHECK(states.at(".strada/docs/GettingStarted.md") == AgentFileState::Current);
+	CHECK(Json::parse(fixture.Read(".strada/agents.json"))["Files"][".strada/docs/GettingStarted.md"] == HashOf(expected));
+	// A guide without such links is copied byte for byte.
+	CHECK(fixture.Read(".strada/docs/Scripting.md") == ReadFile(fixture.Layout.GetContentPath(EngineContent::Docs) / "Scripting.md"));
+	CHECK(fixture.Read(".strada/docs/README.md").find("names that file's path in the engine's repository") != std::string::npos);
+}
+
+TEST_CASE("AgentKit: a byte order mark at the start of a file a setup adds to stays there, with every other byte outside the "
+          "managed part")
+{
+	KitFixture fixture;
+	std::string const crlfBlock = WithCrLf(fixture.ExpectedBlock());
+	SUBCASE("AGENTS.md without markers gets the block appended")
+	{
+		fixture.Write("AGENTS.md", fmt::format("{}# Mine\r\nNotes\r\n", ByteOrderMark));
+		CHECK(fixture.States()["AGENTS.md"] == AgentFileState::Outdated);
+		fixture.Apply();
+		CHECK(ReadBytes(fixture.PathOf("AGENTS.md")) == fmt::format("{}# Mine\r\nNotes\r\n\r\n{}", ByteOrderMark, crlfBlock));
+		CHECK(fixture.States()["AGENTS.md"] == AgentFileState::Current);
+	}
+	SUBCASE("AGENTS.md that is a byte order mark alone gets the block after it")
+	{
+		fixture.Write("AGENTS.md", ByteOrderMark);
+		fixture.Apply();
+		CHECK(ReadBytes(fixture.PathOf("AGENTS.md")) == fmt::format("{}{}", ByteOrderMark, fixture.ExpectedBlock()));
+	}
+	SUBCASE("an outdated block is replaced, and only the block")
+	{
+		fixture.Write("AGENTS.md", fmt::format("{}Before\r\n<!-- BEGIN strada-agents -->\r\nold\r\n<!-- END strada-agents -->\r\nAfter\r\n",
+		                                       ByteOrderMark));
+		fixture.Apply();
+		CHECK(ReadBytes(fixture.PathOf("AGENTS.md")) == fmt::format("{}Before\r\n{}After\r\n", ByteOrderMark, crlfBlock));
+		CHECK(fixture.States()["AGENTS.md"] == AgentFileState::Current);
+	}
+	SUBCASE("CLAUDE.md and .gitignore get their line")
+	{
+		fixture.Write("CLAUDE.md", fmt::format("{}Read the notes.\r\n", ByteOrderMark));
+		fixture.Write(".gitignore", fmt::format("{}Build/", ByteOrderMark));
+		fixture.Apply();
+		CHECK(ReadBytes(fixture.PathOf("CLAUDE.md")) == fmt::format("{}Read the notes.\r\n@AGENTS.md\r\n", ByteOrderMark));
+		CHECK(ReadBytes(fixture.PathOf(".gitignore")) == fmt::format("{}Build/\n.strada/\n", ByteOrderMark));
+		auto const states = fixture.States();
+		CHECK(states.at("CLAUDE.md") == AgentFileState::Current);
+		CHECK(states.at(".gitignore") == AgentFileState::Current);
+	}
+	SUBCASE(".mcp.json gets its entry merged")
+	{
+		fixture.Write(
+			".mcp.json",
+			fmt::format("{}{{\r\n\t\"mcpServers\": {{\r\n\t\t\"other\": {{\"command\": \"other\"}}\r\n\t}}\r\n}}\r\n", ByteOrderMark));
+		CHECK(fixture.States()[".mcp.json"] == AgentFileState::Outdated);
+		fixture.Apply();
+		std::string const written = ReadBytes(fixture.PathOf(".mcp.json"));
+		REQUIRE(written.starts_with(fmt::format("{}{{\r\n\t\"mcpServers\": {{\r\n\t\t\"other\": {{\r\n", ByteOrderMark)));
+		Json const document = Json::parse(written.substr(ByteOrderMark.size()));
+		CHECK(document["mcpServers"]["other"] == Json::parse(R"({"command": "other"})"));
+		CHECK(document["mcpServers"]["strada"]["args"] == Json::parse(R"(["mcp", "--project", "Orb Run.sproj"])"));
+		CHECK(fixture.States()[".mcp.json"] == AgentFileState::Current);
+	}
+	SUBCASE("a current file keeps its bytes")
+	{
+		fixture.Write("CLAUDE.md", fmt::format("{}@AGENTS.md\r\n", ByteOrderMark));
+		CHECK(fixture.Actions()["CLAUDE.md"] == AgentFileAction::Unchanged);
+		fixture.Apply();
+		CHECK(ReadBytes(fixture.PathOf("CLAUDE.md")) == fmt::format("{}@AGENTS.md\r\n", ByteOrderMark));
+	}
+}
+
+TEST_CASE("AgentKit: a path the kit cannot read as its file, a folder or a file in a folder's place or a file too large, is Damaged "
+          "and never rewritten")
+{
+	KitFixture fixture;
+	SUBCASE(".strada is a file")
+	{
+		fixture.Write(".strada", "mine");
+		auto const states = fixture.States();
+		CHECK(states.at(".strada/agents.json") == AgentFileState::Damaged);
+		CHECK(states.at(".strada/docs/README.md") == AgentFileState::Damaged);
+		CHECK(states.at(".strada/docs/Agents.md") == AgentFileState::Damaged);
+		CHECK(fixture.Actions().at(".strada/docs/Agents.md") == AgentFileAction::SkipDamaged);
+		AgentApplyResult const applied = fixture.Apply();
+		CHECK(HasWarning(applied.Plan.Warnings, "'.strada' is not a folder"));
+		CHECK(ReadBytes(fixture.PathOf(".strada")) == "mine");
+		CHECK(fixture.Read(SkillPath) ==
+		      ReadFile(Testing::GetTestContentDirectory() / "Agents" / "skills" / "strada-make-game" / "SKILL.md"));
+	}
+	SUBCASE(".claude is a file")
+	{
+		fixture.Write(".claude", "mine");
+		CHECK(fixture.States().at(std::string(SkillPath)) == AgentFileState::Damaged);
+		AgentApplyResult const applied = fixture.Apply();
+		CHECK(HasWarning(applied.Plan.Warnings, "'.claude' is not a folder"));
+		CHECK(ReadBytes(fixture.PathOf(".claude")) == "mine");
+		CHECK(fixture.Read("CLAUDE.md") == "@AGENTS.md\n");
+	}
+	SUBCASE("AGENTS.md and a guide are folders")
+	{
+		REQUIRE(FileSystem::CreateDirectories(fixture.PathOf("AGENTS.md")).IsOk());
+		REQUIRE(FileSystem::CreateDirectories(fixture.PathOf(".strada/docs/Scripting.md")).IsOk());
+		auto const states = fixture.States();
+		CHECK(states.at("AGENTS.md") == AgentFileState::Damaged);
+		CHECK(states.at(".strada/docs/Scripting.md") == AgentFileState::Damaged);
+		auto const actions = fixture.Actions();
+		CHECK(actions.at("AGENTS.md") == AgentFileAction::SkipDamaged);
+		CHECK(actions.at(".strada/docs/Scripting.md") == AgentFileAction::SkipDamaged);
+		AgentApplyResult const applied = fixture.Apply();
+		CHECK(HasWarning(applied.Plan.Warnings, "'AGENTS.md' is left as it is: it is not a file"));
+		CHECK(FileSystem::IsDirectory(fixture.PathOf("AGENTS.md")));
+		CHECK(FileSystem::IsDirectory(fixture.PathOf(".strada/docs/Scripting.md")));
+		CHECK(fixture.Read(".strada/docs/Agents.md") == ReadFile(Testing::GetTestContentDirectory() / "Docs" / "Agents.md"));
+	}
+	SUBCASE("AGENTS.md is larger than the kit reads")
+	{
+		std::string const large = std::string(static_cast<size_t>(AgentKit::MaxFileBytes) + 1, 'x');
+		fixture.Write("AGENTS.md", large);
+		CHECK(fixture.States().at("AGENTS.md") == AgentFileState::Damaged);
+		AgentApplyResult const applied = fixture.Apply();
+		CHECK(HasWarning(applied.Plan.Warnings,
+		                 fmt::format("'AGENTS.md' is left as it is: it is larger than {} bytes", AgentKit::MaxFileBytes)));
+		CHECK(FileSystem::GetFileSize(fixture.PathOf("AGENTS.md")) == AgentKit::MaxFileBytes + 1);
+		CHECK(ReadBytes(fixture.PathOf("AGENTS.md")) == large);
+		CHECK(fixture.Read("CLAUDE.md") == "@AGENTS.md\n");
+	}
+}
+
+TEST_CASE("AgentKit: without the .gitignore option a setup leaves .gitignore out")
+{
+	KitFixture fixture;
+	AgentSetupOptions const options{.GitIgnore = false};
+	std::vector<std::string> const files = AgentKit::ListFiles(fixture.Layout, options);
+	CHECK(std::ranges::find(files, ".gitignore") == files.end());
+	CHECK(files.size() + 1 == AgentKit::ListFiles(fixture.Layout).size());
+	Result<AgentStatus> const status = AgentKit::GetStatus(fixture.Project, fixture.Layout, fixture.FindTool, options);
+	REQUIRE(status.IsOk());
+	CHECK(std::ranges::find(status.GetValue().Files, std::string(".gitignore"), &AgentFileStatus::Path) == status.GetValue().Files.end());
+	AgentApplyResult const applied = AgentKit::Apply(fixture.Project, fixture.Layout, fixture.FindTool, options);
+	REQUIRE(applied.Succeeded());
+	REQUIRE(applied.Plan.Files.size() == files.size());
+	for (size_t index = 0; index < files.size(); index++)
+	{
+		CHECK(applied.Plan.Files[index].Path == files[index]);
+	}
+	CHECK_FALSE(FileSystem::Exists(fixture.PathOf(".gitignore")));
+	CHECK(fixture.Read("CLAUDE.md") == "@AGENTS.md\n");
+
+	// An existing .gitignore is not touched either; a setup with the option adds the line later.
+	fixture.Write(".gitignore", "Build/\n");
+	Result<AgentPlan> const plan = AgentKit::Plan(fixture.Project, fixture.Layout, fixture.FindTool, options);
+	REQUIRE(plan.IsOk());
+	for (AgentFilePlan const& file : plan.GetValue().Files)
+	{
+		CAPTURE(file.Path);
+		CHECK(file.Action == AgentFileAction::Unchanged);
+	}
+	CHECK(fixture.Actions().at(".gitignore") == AgentFileAction::Update);
 }
 
 TEST_CASE("AgentKit: the game-making skill reads correctly both in the engine's repository and copied into a game project")
@@ -885,6 +1204,11 @@ TEST_CASE("AgentKit: damaged .mcp.json, AGENTS.md and state files never crash th
 			default:
 				break;
 		}
+		// Some files start with a byte order mark, which a setup keeps.
+		if (random.Pick(4) == 0)
+		{
+			mcp.insert(0, ByteOrderMark);
+		}
 		write(".mcp.json", mcp);
 		std::string agents;
 		for (size_t line = 0, lines = random.Pick(9); line < lines; line++)
@@ -894,6 +1218,10 @@ TEST_CASE("AgentKit: damaged .mcp.json, AGENTS.md and state files never crash th
 			{
 				agents += random.Pick(3) == 0 ? "\r\n" : "\n";
 			}
+		}
+		if (random.Pick(4) == 0)
+		{
+			agents.insert(0, ByteOrderMark);
 		}
 		write("AGENTS.md", agents);
 		write(".strada/agents.json", random.Pick(4) == 0 ? std::string("{\"Strada\": ") : mutator.Damage(stateSeed, round).dump());
@@ -922,13 +1250,20 @@ TEST_CASE("AgentKit: damaged .mcp.json, AGENTS.md and state files never crash th
 			{
 				damaged++;
 				CHECK(action == AgentFileAction::SkipDamaged);
-				CHECK(ReadFile(path) == before.at(file.Path));
+				CHECK(ReadBytes(path) == before.at(file.Path));
 				CHECK(after.GetValue().Files[index].State == AgentFileState::Damaged);
 			}
 			else if (action == AgentFileAction::Create || action == AgentFileAction::Update)
 			{
 				written++;
 				CHECK(after.GetValue().Files[index].State == AgentFileState::Current);
+				// A file the setup added to keeps its byte order mark.
+				auto const old = before.find(file.Path);
+				if (old != before.end() && old->second.starts_with(ByteOrderMark) && file.Path != ".strada/agents.json" &&
+				    file.Path != SkillPath)
+				{
+					CHECK(ReadBytes(path).starts_with(ByteOrderMark));
+				}
 			}
 		}
 		Result<AgentPlan> const again = AgentKit::Plan(project, locations.Layout, AgentToolLookup());
