@@ -38,6 +38,8 @@ add_executable(StradaTests
     Source/Core/LayerStackTests.cpp
     Source/Core/LogTests.cpp
     Source/Core/PlatformTests.cpp
+    Source/Core/ProfilerDistFormTests.cpp
+    Source/Core/ProfilerTests.cpp
     Source/Core/ResultTests.cpp
     Source/Core/UUIDTests.cpp
     Source/Core/Utf8Tests.cpp

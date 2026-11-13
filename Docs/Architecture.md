@@ -173,7 +173,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
 - **Zones.** `ST_PROFILE_SCOPE(name)` takes a name with static storage duration and `ST_PROFILE_FUNCTION()` uses
   `__func__`. `ST_PROFILE_SCOPE_DYNAMIC(name)` takes a name known only at run time (a script class, a graph).
   `ST_PROFILE_ZONE(variable, name)` and `ST_PROFILE_ZONE_DYNAMIC` declare a zone that `ST_PROFILE_ZONE_VALUE` can give
-  a count to (a graph's VM steps). `ST_PROFILE_THREAD(name)` names a thread for its whole body. Code whose scopes are
+  a count to (a graph's VM steps). `ST_PROFILE_THREAD(name)` names a thread for its whole body, or a pooled thread for
+  one task: every `std::async` or pooled task body that can reach a zone opens one. Code whose scopes are
   not C++ scopes calls `Profiler::BeginZone`/`EndZone` and keeps the token: Jolt's `ExternalProfileMeasurement` has 64
   bytes of user data, and the token is trivially copyable and smaller than that (the header asserts both). Zones that a
   subsystem's time is read from are named `<Subsystem>.<Phase>` (`Physics.Step`, `Scene.UpdateScripts`). A name without
@@ -187,43 +188,69 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   workers. A zone is written once, when it ends, as one complete record: name, start, end, the thread's depth when it
   began, and an optional count. The record goes into the calling thread's buffer, a single-producer, single-consumer
   ring that the thread fills and the main thread empties. Recording a zone takes atomic operations only: it never
-  allocates and never locks, so the audio callback can record.
+  allocates, never locks and never logs, so the audio callback can record. Apple platforms are the one exception:
+  there, a thread's first access to thread-local storage makes dyld allocate its block, so a thread's first zone or name
+  allocates once. Windows and Linux executables use static thread-local storage and never allocate.
 - **What an idle zone costs.** `BeginZone` does a relaxed load of the recording flag and branches. When nothing records,
   it returns an empty token without reading the clock, and the zone's end branches on that token. Both are defined
   inline in the header, so an idle zone is one predictable branch at each end. The run-time forms evaluate and store
-  their name only while recording, at the price of a second branch. The targets on the reference machine are at most
-  3 % of the frame while recording and at most 0.5 % while idle. They are measured with `StradaRuntime --profile`, as
-  plan targets are.
+  their name only while recording (`Profiler::BeginDynamicZone`). They take the recording's number before they store
+  the name, so a name that a later `Shutdown` frees can never reach a recording. The targets on the reference machine
+  are at most 3 % of the frame while recording and at most 0.5 % while idle. They are measured with
+  `StradaRuntime --profile`, as plan targets are.
 - **Threads that start and end.** The buffer headers are a fixed table of `Profiler::MaxThreads` (64) slots with
-  static storage. `Start` allocates rings for the machine's hardware threads plus spares. Each `EndFrame` tops the
-  spares up on the main thread, so no thread ever allocates its own ring. A thread takes a free slot with an atomic
-  exchange on its first zone of a recording. It remembers the slot in a trivially destructible `thread_local` (the slot
-  index and the recording's number). A `thread_local` with a destructor is avoided because registering its destructor
-  may allocate on the audio thread. Thread names are copied into a 63-byte `thread_local` array, without allocating, and
-  into the slot when the thread takes one, so threads name themselves before their first zone. A thread the engine
-  owns ends with `ST_PROFILE_THREAD` or `Profiler::EndThread`, and its slot returns to the free ones once the main
-  thread has emptied it. A thread that ends without that, such as miniaudio's device thread, keeps its slot until the
-  recording stops. miniaudio has no reliable hook at that thread's start: its "started" notification comes from the
-  device thread for synchronous backends but from the caller of `ma_device_start` for asynchronous ones
+  static storage. `Start` allocates rings for the machine's hardware threads plus four spares. Each `EndFrame` tops the
+  spares up on the main thread, so no thread ever allocates its own ring. A slot's state word holds the recording's
+  number and the slot's state (free, being claimed, owned or ending). On its first zone of a recording, a thread takes a
+  free slot of that recording with a compare-exchange. It remembers the slot in a constant-initialized, trivially
+  destructible `thread_local` holding the slot index, the recording's number, its depth and its name. A `thread_local`
+  with a destructor is avoided because registering its destructor may allocate on the audio thread. Thread names are
+  copied into a 63-byte `thread_local` array, without allocating, and into the slot when the thread takes one, so
+  threads name themselves before their first zone. `Profiler::EndThread`, which the end of `ST_PROFILE_THREAD`'s scope
+  calls, marks the slot ending and makes the thread forget its slot and its name. The thread's next zone takes a new
+  slot. The old slot returns to the free ones once the main thread has emptied it at the next collection. So at most
+  64 threads can record between two collections, each task of a pooled thread counting again; the zones of any others
+  are dropped and counted. A thread that ends without calling `EndThread`, such as miniaudio's device thread, keeps its
+  slot until the recording stops. miniaudio has no reliable hook at that thread's start: its "started" notification
+  comes from the device thread for synchronous backends but from the caller of `ma_device_start` for asynchronous ones
   (`miniaudio.h:42827`, `:44312`).
 - **A full buffer.** A zone that finds its thread's ring full is dropped and counted, and so is a zone whose thread
   finds no free slot or whose run-time name cannot be stored. Its frame reports `DroppedZones`. Records are written when
-  zones end, so a dropped zone can leave its children without a parent: a consumer that builds trees places a zone with
-  no enclosing zone of a smaller depth at its thread's root.
+  zones end, so a dropped zone can leave its children without a parent. A consumer that builds trees places each zone
+  under the nearest zone before it on its thread with a smaller depth, or at the thread's root when there is none.
 - **Frames and collection.** A frame is one iteration of the main loop, from `Profiler::BeginFrame` at its top to
   `Profiler::EndFrame` after the frame limiter. Tests and tools without an `Application` call both themselves. On the
-  main thread, `EndFrame` empties every ring into the frame, ordering zones by thread, then by start, then by depth
-  (each thread's zones in pre-order). It then appends the frame to the history, which holds `HistoryFrames` frames
-  (600 by default, at most 36,000) and at most 4,000,000 zones, dropping the oldest frames first. A zone belongs to the
-  frame whose collection finds it: the frame during which it ended. Zones of the audio and streaming threads run
-  independently of frames and may begin before their frame does. Frames do not nest: a `BeginFrame` while a frame is in
-  progress ends that frame first.
+  main thread, `EndFrame` empties every ring into the frame, grouped by thread.
+  - A ring holds its thread's zones in the order they ended, each zone after the zones nested in it. The collection
+    turns that into pre-order: each zone before the zones nested in it, and siblings in the order they began.
+  - It does this from the depths alone, because a zone adopts the deeper zones that ended just before it. It never
+    sorts by time, because zones that begin on the same tick of the clock (100 ns on Windows) would then come out in the
+    wrong order.
+  - The frame then joins the history. The history holds `HistoryFrames` frames (600 by default, at most 36,000) and
+    `HistoryZones` zones (2,000,000 by default, at most 3,000,000), and drops the oldest frames first.
+  - A frame that alone collects more zones than that keeps the first ones and counts the rest as dropped.
+  - A zone belongs to the frame whose collection finds it: the frame during which it ended. Zones of the audio and
+    streaming threads run independently of frames and may begin before their frame does.
+  - Frames do not nest: a `BeginFrame` while a frame is in progress ends that frame first.
+  - A recording's first frame is the first one that `BeginFrame` begins after `Start`. The frame in progress when
+    `Start` is called is not recorded; the editor's `profiler.start` always runs inside one. Zones that ended before the
+    first frame began are discarded when it begins. Nothing in a recording therefore starts before the recording does,
+    and no recorded time is negative.
 - **Tables.** A recording's name and thread tables grow as it meets new names and threads, and entries stay while it
   records even when their frames leave the history. Thread 0 is always the main thread, whether or not it recorded a
-  zone, because frames belong to it. A thread counts again each recording it takes a buffer in, up to
-  `MaxRecordedThreads` (1024) entries per recording, beyond which its zones are dropped. GPU views count up to
-  `MaxGpuViews` (16). A capture's writer writes only the entries its frames use, renumbered, so everything it writes is
-  within what its reader accepts.
+  zone, because frames belong to it.
+  - A slot's owner is bound to a thread entry when the main thread first collects its zones: a free entry of the same
+    name if there is one, otherwise a new one.
+  - The entry is freed with the slot, at the end of that collection. A later thread of the same name then reuses it, so
+    a pool's tasks share as many entries as ran at once, and two threads never share an entry in one frame.
+  - Unnamed threads each get an entry of their own, named `Thread <n>`.
+  - A recording makes at most `MaxRecordedThreads` (1024) entries; beyond them, zones are dropped. GPU views count up to
+    `MaxGpuViews` (16).
+  - A capture's writer writes only the entries its frames use, renumbered, so it never writes more names, threads or
+    views than its reader accepts.
+  - A capture's size in bytes depends on its names. The writer refuses a capture larger than `Profiler::MaxCaptureBytes`
+    (512 MiB, what the reader accepts), with an error that names the limit, rather than write one its reader would
+    refuse. At the default `HistoryZones`, a capture with ordinary names takes about 270 MB.
 - **GPU passes.** NVRHI's timer queries measure durations only, their results arrive frames later, and the editor
   draws with several `SceneRenderer`s per frame. Every pass is wrapped in an NVRHI marker in every build, so a
   RenderDoc capture reads by pass name. While `Profiler::IsRecording()`, each renderer also extends its ring of frame
@@ -232,18 +259,28 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   that frame in the history. Passes of a frame still in progress wait for its end, and passes of a frame the history
   no longer holds are dropped. Adapters without timer queries (`AdapterInfo::SupportsTimerQueries`) report CPU zones
   only.
+  - **The timer budget.** NVRHI's Vulkan device holds 256 timer queries by default (`nvrhi/vulkan.h:74`) and reports
+    running out as an error, which GPU tests fail on. `GraphicsDevice` raises `maxTimerQueries` to 8,192.
+  - A renderer creates its per-pass timers the first time it renders while recording, and keeps them until it is
+    destroyed. It times at most 64 passes per frame, so with 4 frames in flight and its 4 frame timers it uses 260
+    queries. The pool therefore holds 31 renderers; the editor has four. Passes past the 64th of a frame are not timed.
+  - A view that renders twice in one frame (thumbnails) reports both sets in order. The frame keeps both, and the
+    medians add them per pass name.
 - **Start, Stop and Shutdown while other threads record.** Each recording has a number. A zone token remembers whether
   its zone began and in which recording, and its end writes nothing when the zone did not begin or the recording has
-  changed. Before writing, a writer marks its slot busy (a sequentially consistent store) and then checks the
-  recording number. `Stop` and `Shutdown` clear the recording flag, change the number and wait for every busy slot
-  (each busy for a few instructions). Only then do they empty and free the rings. The flag, the number and the slot
-  headers are static and never freed, so a writer that races `Shutdown` touches only memory that lives on. Run-time
-  names are copied into a store that lives from `Init` to `Shutdown`, guarded by a static mutex (they are never
-  recorded on the audio callback), and the history copies every name it holds. A capture therefore never points into a
-  script class that hot reload unloaded. Every function may be called before `Init` and after `Shutdown`: zones
+  changed. A depth counts the zones of the thread's current recording only, so a token of an ended recording never
+  shifts a later recording's depths. Before it touches a slot (claiming it or writing a zone), a writer counts itself
+  in the slot's writers (a sequentially consistent increment) and then checks the recording number. `Stop` and
+  `Shutdown` clear the recording flag, change the number and wait until every slot has no writer (each counted for a
+  few instructions). Only then do they empty and free the rings. The flag, the number and the slot headers are static
+  and never freed, so a writer that races `Shutdown` touches only memory that lives on. Run-time names are copied into
+  a store that lives from `Init` to `Shutdown`, guarded by a static mutex (they are never recorded on the audio
+  callback), and the history copies every name it holds. A capture therefore never points into a script class that hot
+  reload unloaded. Every function may be called before `Init` and after `Shutdown`: zones
   record nothing, `Start` refuses, and the main-thread functions do nothing, which keeps Init and Shutdown repeatable.
-- **Dist builds.** In Dist builds the macros compile to nothing. Their arguments are referenced in `sizeof` and never
-  evaluated, so a local used only as a zone name raises no unused warning. The `Profiler` class is still compiled, but
+- **Dist builds.** In Dist builds the macros compile to nothing. Their arguments are referenced in a lambda that is
+  never called, so they are never evaluated, yet a local or a function used only as a zone name raises no unused
+  warning (`sizeof` would leave Clang to report such a function as never needed). The `Profiler` class is still compiled, but
   `Start` refuses, so no ring is allocated and no GPU timer is issued. A translation unit that defines
   `ST_DISABLE_PROFILING` before its first include gets the Dist form in any configuration; StradaTests compiles one.
 - **Captures.** A capture is written from the history with `JsonTextWriter`, one element at a time, and read back with
@@ -724,15 +761,19 @@ Perfetto open it as it is:
 `"ts"` and `"dur"` are microseconds from the recording's start: the double `nanoseconds / 1000.0`, written by
 `JsonTextWriter` as the shortest text that reads back as the same double. The reader rounds `value * 1000` to the
 nearest nanosecond, which gives back every value below 2^51 ns (26 days) exactly. Frames are rebuilt from the `Frame`
-arguments, so a zone stays in the frame that collected it.
+arguments, so a zone stays in the frame that collected it. The writer writes the events frame by frame: the frame,
+then its zones thread by thread in the order of the thread table, each thread's in pre-order (§4.4), then its GPU
+passes. The reader keeps that order and never sorts by `ts`, since zones that begin on one clock tick share a time:
+each frame's zones and passes come back in the order the file holds them.
 
 The reader refuses:
 
-- a document without the header, of another type or of a newer version, or larger than 512 MiB;
+- a document without the header, of another type or of a newer version, or larger than `Profiler::MaxCaptureBytes`
+  (512 MiB; the writer refuses to write a larger one);
 - an event of another phase, or with a missing or mistyped member;
 - a negative or non-finite time;
 - a `Frame` argument that no `Frame` event declares, or a `tid` that no `thread_name` declares;
-- more frames, zones, names, threads or views than a recording holds (`Profiler::MaxHistoryFrames`, `MaxHeldZones`,
+- more frames, zones, names, threads or views than a recording holds (`Profiler::MaxHistoryFrames`, `MaxHistoryZones`,
   `MaxCaptureNames`, `MaxRecordedThreads`, `MaxGpuViews`);
 - a name longer than `Profiler::MaxNameBytes` or not UTF-8.
 
