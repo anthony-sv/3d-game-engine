@@ -148,7 +148,11 @@ Parameters marked * are required.
 Project settings are saved to the project file immediately and are not part of the undo history. The project content
 commands (`project.templates`, `project.examples`, `project.copy-example`, and `project.create`'s templates) read the
 engine's templates (`Templates/<id>/template.json`) and its catalog of examples (`Projects/catalog.json` in a source
-tree); they act on files, not on the undo history. An example is only ever opened as a copy.
+tree); they act on files, not on the undo history. An example is only ever opened as a copy. The engine's templates are
+`empty-3d` (the editor's default scene), `graph-starter` (the game Orb Run, made of visual scripts) and `csharp-starter`
+(Orb Run in C#, with one member marked `[VisualNode]` that a graph calls; `requires.sdk`: the editor builds its scripts
+when the project opens, and `script.build` builds them again). Each of the two games has a test scene,
+`Scenes/Tests.sscene`, for `test.run`.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|

@@ -731,7 +731,10 @@ sitting, and each graph shows a few ideas of this guide:
 | `Checks.sgraph` | a function library (Tests calls it) | Reporting a check and comparing numbers and points |
 | `Tests.sgraph` | Tests (the test scene) | 13 checks of the rules and the screen, in the form Prism Break's checks take |
 
-Its graphs read as Prism Break's do, and `Templates/Tools/AuthorTemplates.py` built it through the agent tools.
+Its graphs read as Prism Break's do, and `Templates/Tools/AuthorTemplates.py` built it through the agent tools. The
+template C# Starter (`csharp-starter`) is the same game written in C#, with one graph: `Scripts/Hover.sgraph` floats
+each spark's gem where `Spark.Hover`, a C# method marked `[VisualNode]`, puts it (the node
+`Call:Game.Spark.Hover(float)`, see [Your own nodes](#your-own-nodes)).
 
 **Try it:** in a project made from Graph Starter, select the Game entity and lower its `TimeLimit`, or the Orb and raise
 its `Push`, then press Play; open `Scripts/Orb.sgraph` while it plays and watch Steer's wires light up as you roll.

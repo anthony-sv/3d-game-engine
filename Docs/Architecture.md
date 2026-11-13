@@ -64,6 +64,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── Projects/Showcase/                                Showcase of every feature (exhibits, camera tour, Poly Haven assets)
 ├── Projects/catalog.json, Projects/Thumbnails/       The catalog of the examples the editor copies, and their thumbnails
 ├── Templates/                                        Project templates (<id>/template.json, thumbnail.png, a project)
+├── Templates/csharp-starter/Scripts/Source/          The C# template's sources, written by hand
 ├── Templates/Tools/                                  The tool that builds the templates through the agent tools
 ├── Tools/                                            Developer scripts (configure/build/test, formatting)
 ├── Docs/                                             Architecture contract, automation reference, scripting guide
@@ -847,7 +848,10 @@ too: documents in their content form (§7.3, compact), the values of public vari
 the runtime's node library and analyses (§10.6).
 
 CMake builds the C# projects with the .NET SDK (`strada_add_dotnet_project`; MSBuild decides what is out of date, and
-`Directory.Build.props` keeps outputs in the build tree): `Strada.ScriptCore.dll` lands next to the executables.
+`Directory.Build.props` keeps outputs in the build tree): `Strada.ScriptCore.dll` lands next to the executables. With the
+tests, the scripts of the samples and of the `csharp-starter` template build too, each into a folder beside the
+executables (`StradaBlocksScripts` into `Blocks/`, `StradaShowcaseScripts` into `Showcase/`, `StradaFeatureTestScripts`
+into `FeatureTest/`, `StradaCSharpStarterScripts` into `CSharpStarter/`), where the tests that play them find them.
 
 ### 10.2 Bindings
 

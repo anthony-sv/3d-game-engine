@@ -260,6 +260,13 @@ The editor opens the new project, made from the template `empty-3d`. Its folder 
 The start scene is open. It holds a camera (Main Camera), a directional light (Sun), a sky light with the built-in sky
 (Sky), and a floor plane, a cube, a sphere and a capsule made of built-in meshes.
 
+Agents and other automation clients can also start a project from one of the engine's other templates (`project.create`
+with `template`; `project.templates` lists them). Both are Orb Run, a small game in which you roll a glowing orb to
+collect 12 sparks before the time runs out, with a test scene, `Scenes/Tests.sscene`: `graph-starter` is made of visual
+scripts alone ([A first game: Orb Run](VisualScripting.md#a-first-game-orb-run)), and `csharp-starter` is written in C#
+(the C# project `Scripts/Game.csproj`, its namespace `Game`), with one C# member that a graph calls as a node. A project
+made from `csharp-starter` needs the .NET 10 SDK: the editor builds its scripts when it opens.
+
 ### Build the scene
 
 The Entity menu creates entities from presets: Create Empty, then the submenus 3D Object, 2D Object, Rendering,

@@ -757,6 +757,12 @@ the scripting API they run on, also without C# scripts. Players of games with C#
   rows open as the camera nears their exhibits, `Debug.DrawLine` previews of throws and trigger bounds, and tests that
   play every exhibit, click the HUD's buttons and walk the yard (run `Tools/FetchAssets.py` first for its models and
   sky).
+- The template C# Starter (`csharp-starter`, which `project.create` makes projects from): the game Orb Run in six
+  scripts. `OrbRun` places the sparks from a prefab, runs the clock and ends a run in a win or a loss that a key plays
+  again; `Orb` pushes its rigid body the way the keys or a gamepad's stick steer, in `OnFixedUpdate`, and hums and thuds;
+  `Spark` is a trigger that raises a C# event the run listens to, and its `Hover`, marked `[VisualNode]`, is the node
+  that the graph `Scripts/Hover.sgraph` calls to float the spark's gem; `Hud` and `CameraRig` follow the run and the
+  orb; `OrbRunTests` makes 14 checks through `Strada.Testing`, each waiting in seconds of the game.
 - `Projects/PrismBreak`: a neon brick breaker made of 13 visual scripts and no C#, authored through the agent tools by
   its `Tools/Author.py`, with a test scene whose 29 checks are graphs too
   ([A complete game: Prism Break](VisualScripting.md#a-complete-game-prism-break)).

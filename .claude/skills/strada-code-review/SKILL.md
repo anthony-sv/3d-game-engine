@@ -92,7 +92,8 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
   nothing. Breakpoints, traces and the views file never reach the player or an exported game.
 - Sample projects and templates: their graphs pass `SampleGraphsTests` (after a change to arranging, re-run the authoring
   command the failure names: `python Projects/PrismBreak/Tools/Author.py`, `python Templates/Tools/AuthorTemplates.py
-  --template graph-starter`, or `python Projects/Showcase/Tools/Author.py --exhibit GraphGarden` for the Showcase, never
+  --template graph-starter` (or `--template csharp-starter`), or `python Projects/Showcase/Tools/Author.py --exhibit
+  GraphGarden` for the Showcase, never
   the Showcase's full rebuild, which rewrites its materials); a change to a sample or a template updates the check counts
   its tests pin (`RuntimeTests.cpp`); doc fixtures
   (`Agents/Spinner.json`, `Agents/Debugging.json`) are shown verbatim where the docs show them, which their doc tests
