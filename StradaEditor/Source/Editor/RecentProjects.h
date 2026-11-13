@@ -16,7 +16,10 @@ namespace Strada
 		static constexpr size_t MaxCount = 10;
 		static constexpr int FormatVersion = 1;
 
+		// An empty file keeps the list in memory only: nothing is read or written.
 		explicit RecentProjects(std::filesystem::path file);
+
+		std::filesystem::path const& GetFile() const { return m_File; }
 
 		// The form under which the spellings of one project file's path compare equal: lexically normal, with the leading
 		// parts that exist made absolute and spelled as stored (their real letter case on case-insensitive file systems); a
@@ -25,6 +28,7 @@ namespace Strada
 
 		// Reads the list; a missing file is an empty list. Entries that are not valid paths are skipped.
 		[[nodiscard]] Result<void> Load();
+		// Writes the list, creating the file's directory; does nothing without a file.
 		[[nodiscard]] Result<void> Save() const;
 
 		// Moves the project to the front (adding it when new) and drops the oldest entries beyond MaxCount.

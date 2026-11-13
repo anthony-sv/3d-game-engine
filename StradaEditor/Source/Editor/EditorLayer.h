@@ -8,6 +8,7 @@
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorExport.h"
+#include "Editor/EditorLocations.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/GameInputRouter.h"
@@ -56,6 +57,10 @@ namespace Strada
 		// The editor closes, discarding unsaved changes, once this process has exited (checked about once a second):
 		// tools that start editors for themselves (strada mcp) do not leave them running when they end.
 		std::optional<uint32_t> ParentProcessID;
+		// The folders the editor works with besides the project (its user data: recent projects and views; the engine
+		// content; the default location of new projects). Unset: the process's (EditorLocations::FromProcess). Tests that
+		// construct a layer pass folders of their own.
+		std::optional<EditorLocations> Locations;
 	};
 
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
@@ -88,6 +93,9 @@ namespace Strada
 		VisualScriptDebugSession& GetDebugSession() { return m_DebugSession; }
 		CommandRegistry const& GetCommands() const { return m_Commands; }
 		AutomationServer const& GetAutomationServer() const { return m_AutomationServer; }
+		EditorLocations const& GetLocations() const { return m_Locations; }
+		RecentProjects const& GetRecentProjects() const { return m_RecentProjects; }
+		VisualScriptViewSettings const& GetVisualScriptViews() const { return m_VisualScriptViews; }
 
 	private:
 		// Actions that discard the edited scene; they ask about unsaved changes first.
@@ -174,6 +182,8 @@ namespace Strada
 		glm::vec3 GetSpawnPosition() const;
 
 		EditorLayerSpecification m_Specification;
+		// Built once, before the members that keep files in its user data directory (the views and the recent projects).
+		EditorLocations m_Locations;
 		EditorContext m_Context;
 		EditorOperations m_Operations;
 		EditorScripts m_Scripts;

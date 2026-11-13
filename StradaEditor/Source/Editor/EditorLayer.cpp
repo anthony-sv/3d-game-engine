@@ -93,14 +93,15 @@ namespace Strada
 	EditorLayer::EditorLayer(EditorLayerSpecification specification)
 		: Layer("EditorLayer"),
 		  m_Specification(std::move(specification)),
+		  m_Locations(m_Specification.Locations ? *m_Specification.Locations : EditorLocations::FromProcess()),
 		  m_Operations(m_Context),
 		  m_Scripts(m_Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"),
 		  m_PlayMode(m_Context, m_Scripts),
 		  m_DebugSession(m_Context, m_PlayMode),
 		  m_Export(m_Context, m_Scripts),
 		  m_AutomationServer(m_Commands),
-		  m_VisualScriptViews(FileSystem::GetUserDataDirectory() / "Editor" / "VisualScriptViews.json"),
-		  m_RecentProjects(FileSystem::GetUserDataDirectory() / "Editor" / "RecentProjects.json")
+		  m_VisualScriptViews(m_Locations.GetUserDataFile("VisualScriptViews.json")),
+		  m_RecentProjects(m_Locations.GetUserDataFile("RecentProjects.json"))
 	{
 	}
 
@@ -119,6 +120,7 @@ namespace Strada
 
 		Application& application = Application::Get();
 		EditorCommandEnvironment environment;
+		environment.Locations = m_Locations;
 		if (application.GetWindow() != nullptr)
 		{
 			environment.CaptureScreenshot = [](EditorCommandEnvironment::ScreenshotCallback callback)

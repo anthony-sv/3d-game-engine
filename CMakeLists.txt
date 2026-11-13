@@ -18,6 +18,7 @@ include(StradaOptions)
 include(StradaCompilerSettings)
 include(StradaDependencies)
 include(StradaDotNet)
+include(StradaEngineManifest)
 
 add_subdirectory(Strada)
 add_subdirectory(StradaEditor)

@@ -2,6 +2,7 @@
 #include "Strada/Core/Application.h"
 
 #include "Strada/Core/CrashHandler.h"
+#include "Strada/Core/EngineLayout.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Platform.h"
 
@@ -33,6 +34,11 @@ namespace Strada
 #endif
 		Log::Init(logSpecification);
 		CrashHandler::Install(FileSystem::GetUserDataDirectory() / "Crashes", logName);
+		// The layout is resolved here, before any thread may read it, and what was wrong with it is told once.
+		for (std::string const& warning : EngineLayout::Get().GetWarnings())
+		{
+			ST_CORE_WARN("Engine layout: {}", warning);
+		}
 
 		// UTF-8 arguments (non-ASCII project paths on Windows), alive until the application is destroyed.
 		std::vector<std::string> arguments = Platform::ReadCommandLineArguments(argc, argv);

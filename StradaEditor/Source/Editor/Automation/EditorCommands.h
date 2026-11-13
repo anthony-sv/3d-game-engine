@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/Automation/CommandRegistry.h"
+#include "Editor/EditorLocations.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/UI/WindowCapture.h"
 
@@ -92,6 +93,10 @@ namespace Strada
 		// The visual-script Debugger panel. Unset when the editor has no UI (headless); graph.debug-panel then fails with
 		// AutomationErrorCode::Unavailable, and graph.editors reports debugPanel as null.
 		std::function<VisualScriptDebuggerPanel&()> DebuggerPanel;
+		// The folders the commands work with besides the open project: the engine content, the editor's user data and the
+		// default location of new projects (the editor's are the process's, EditorLocations::FromProcess). Default-constructed
+		// it names no folder (tests pass folders of their own, Testing::MakeEditorLocations).
+		EditorLocations Locations;
 	};
 
 	// Registers the editor, project, scene, entity, component, asset, material, graph (visual script), prefab, inspector, log and

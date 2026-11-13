@@ -10,6 +10,8 @@ add_executable(StradaEditorTests
     Source/ContentBrowsingTests.cpp
     Source/EditorCameraTests.cpp
     Source/EditorCommandsTests.cpp
+    Source/EditorLocationsTests.cpp
+    Source/EditorLocationsTestUtilities.h
     Source/EditorOperationsTests.cpp
     Source/EditorUITests.cpp
     Source/EditorWindowOptionsTests.cpp

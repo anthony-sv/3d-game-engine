@@ -1,4 +1,5 @@
 #include "Audio/AudioTestUtilities.h"
+#include "EditorLocationsTestUtilities.h"
 #include "Fuzzing.h"
 #include "Physics/PhysicsTestUtilities.h"
 #include "TestUtilities.h"
@@ -1200,9 +1201,11 @@ namespace
 		EditorCamera Camera;
 		SceneViewOverlays Overlays;
 		ContentBrowserPanel ContentBrowser;
+		// The commands' folders besides the project: the test content, and the user data in the temporary directory.
+		EditorLocations Locations = Testing::MakeEditorLocations(Directory.GetPath());
 		// The graph windows, never drawn and without the scripting runtime (degraded): every command but graph.find only records
-		// state between frames, which needs no ImGui. Closing a window writes the views file.
-		std::filesystem::path ViewsDirectory = Directory.GetPath() / "UserData" / "Editor";
+		// state between frames, which needs no ImGui. Closing a window writes the views file, in the commands' user data.
+		std::filesystem::path ViewsDirectory = Locations.UserDataDirectory;
 		VisualScriptViewSettings ViewSettings{ViewsDirectory / "VisualScriptViews.json"};
 		EngineVisualScriptSemantics Semantics;
 		VisualScriptEditors GraphEditors{Operations, Semantics, ViewSettings};
@@ -1218,6 +1221,7 @@ namespace
 			// Files and folders dropped onto the content browser go to its folders, C# sources to the scripts.
 			ContentBrowser.SetScripts(&Scripts);
 			EditorCommandEnvironment environment;
+			environment.Locations = Locations;
 			environment.RequestQuit = [this]
 			{
 				QuitRequested = true;

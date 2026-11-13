@@ -1,3 +1,4 @@
+#include "EditorLocationsTestUtilities.h"
 #include "HeadlessImGui.h"
 #include "TestUtilities.h"
 
@@ -36,6 +37,8 @@ namespace
 	// An editor model with every command registered, as the editor layer sets it up.
 	struct CommandFixture
 	{
+		// Holds the commands' user data and default project location (EditorCommandEnvironment::Locations).
+		Testing::TemporaryDirectory LocationsRoot;
 		EditorContext Context;
 		EditorOperations Operations{Context};
 		CommandRegistry Registry;
@@ -68,6 +71,7 @@ namespace
 		explicit CommandFixture(bool withWindow = false)
 		{
 			EditorCommandEnvironment environment;
+			environment.Locations = Testing::MakeEditorLocations(LocationsRoot.GetPath());
 			environment.RequestQuit = [this]
 			{
 				QuitRequested = true;
