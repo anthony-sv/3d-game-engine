@@ -62,6 +62,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── Projects/FeatureTest/                             Project whose scene exercises every feature and the whole script API
 ├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
 ├── Projects/Showcase/                                Showcase of every feature (exhibits, camera tour, Poly Haven assets)
+├── Agents/                                           Agent kit: the AGENTS.md block of projects set up for coding agents
 ├── Tools/                                            Developer scripts (configure/build/test, formatting)
 ├── Docs/                                             Architecture contract, automation reference, scripting guide
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration
@@ -567,6 +568,13 @@ Engine marker (`engine.json` beside a build tree's executables, written by CMake
 `Content` is optional and unknown members are ignored. A marker that cannot be read, is larger than 64 KiB, is not
 JSON, has another type or a newer version, or whose `Content` is not a string naming an existing directory by an
 absolute path makes the layout not a source tree, with one warning; reading it never throws or asserts.
+
+Agent kit state (`.strada/agents.json` in a project set up for coding agents, written by `AgentKit`, §11):
+`{ "Strada": { "Version": 1, "Type": "AgentKitState" }, "Files": { "<project-relative path>": "<hash>" } }`, the hash
+(64-bit FNV-1a of the text without carriage returns, 16 lowercase hex digits) of each whole file the kit last wrote: the
+game-making skill and the guides under `.strada/docs/`. A whole file whose hash is recorded is the kit's to update; one
+that differs from both the engine's and its record was changed by someone and is kept. A missing, damaged or newer state
+file counts as empty, and the next setup replaces it.
 
 Visual script (`.sgraph`, `VisualScriptSerializer`; `Tests/Data/VisualScripting/Example.sgraph` is the writer's golden
 file):
@@ -1733,6 +1741,15 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   export's progress with a cancel button, and the executable with the export's size and file count, the smoke test's
   result, and buttons that open the folder (`Desktop::Open`) and run the game (stopped when the editor closes), or the
   reason it failed (with the scripts' compile errors); the menu bar shows a running export.
+- File > Set Up for Coding Agents (`AgentSetupDialog`) shows what `AgentKit` (`Editor/Agents/`, free of ImGui) would do
+  to set the open project up for coding agents: each file (the `strada-agents` block of `AGENTS.md`, the `@AGENTS.md`
+  line of `CLAUDE.md`, the `strada` entry of `.mcp.json`, the game-making skill, the guides under `.strada/docs/`, the
+  `.strada/` line of `.gitignore` and the state `.strada/agents.json`) with its action and the diff of its managed part;
+  Apply writes them atomically and shows the result or the file that stopped it. The plan is made when the dialog opens
+  and when the project changes under it, never per frame. The kit's sources are the layout's engine content (`AgentKit`,
+  `MakeGameSkill`, `Docs`); `.mcp.json` names `strada` when the one on `PATH` (`Process::FindExecutable`) is the one
+  beside the editor, else that tool's absolute path. `project.agents` and `project.setup-agents` (`AgentCommands`) are
+  the same for agents; neither the dialog nor the commands are undo steps.
 - Headless mode (`--headless`): no window/ImGui; offscreen rendering if a GPU is available; used by automation and CI.
 
 ### 11.1 Visual script editor
@@ -2279,7 +2296,8 @@ inspector's primary entity as the context entity; without an asset directory the
   `strada models`, `strada model`, `strada textures`, `strada texture`. Editors ignore SIGPIPE (`Platform::IgnoreBrokenPipeSignal`), so the ones strada starts with a
   window outlive its output pipes.
 - Command domains: `editor.*` (status, undo, redo, commands, quit, the Entity menu as users see it), `project.*` (info,
-  create, open, close, settings, export),
+  create, open, close, settings, export, and the agent kit's agents and setup-agents, which needs the user's consent:
+  ConsentRequired without `confirmed`),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
   `asset.*` (list, get, select, import, refresh, browse and drop in the content browser, move, delete, create-folder,
@@ -2301,7 +2319,9 @@ inspector's primary entity as the context entity; without an asset directory the
   `inspector.*` (the Add Component menu, as users see it), `log.*` (read since index), `test.*` (run a test scene and
   return results). Renderer settings are scene settings (`scene.settings`).
 - Claude Code integration: `.mcp.json` registers `strada mcp` (through `dotnet run`, so it works in any checkout);
-  the `strada-make-game` skill in `.claude/skills/` documents building games with the tools.
+  the `strada-make-game` skill in `.claude/skills/` documents building games with the tools. It reads correctly both
+  there and copied into a game project by the agent kit, which registers the built `strada` in the project's own
+  `.mcp.json` (§11).
 
 ## 13. Runtime and export
 

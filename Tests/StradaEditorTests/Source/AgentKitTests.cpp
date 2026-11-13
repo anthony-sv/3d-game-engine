@@ -780,6 +780,58 @@ TEST_CASE("AgentKit: the engine's own kit sets a project up, and its block names
 	}
 }
 
+TEST_CASE("AgentKit: the game-making skill reads correctly both in the engine's repository and copied into a game project")
+{
+	// A setup copies the skill into a project's .claude/skills/, where nothing of the repository exists: it names the editor's
+	// MCP server and the guides by where they lie in both places, and the repository's samples only as code-formatted paths
+	// introduced as the engine repository's.
+	std::string skill = ReadFile(FileSystem::PathFromUtf8(STRADA_MAKE_GAME_SKILL_PATH));
+	std::erase(skill, '\r');
+	for (std::string_view const forbidden : {"dotnet run", "StradaTool/", "build/", "Tests/", "](../", "](Docs", "](Projects"})
+	{
+		CAPTURE(forbidden);
+		CHECK(skill.find(forbidden) == std::string::npos);
+	}
+	for (std::string_view const required : {"`.mcp.json`", "`strada` MCP server", "`.strada/docs/`", "`Docs/`"})
+	{
+		CAPTURE(required);
+		CHECK(skill.find(required) != std::string::npos);
+	}
+	// "Docs/" only as the repository's folder of the guides, which the skill names beside .strada/docs/.
+	for (size_t position = skill.find("Docs/"); position != std::string::npos; position = skill.find("Docs/", position + 1))
+	{
+		CAPTURE(skill.substr(position > 20 ? position - 20 : 0, 60));
+		CHECK((position > 0 && skill.compare(position - 1, 7, "`Docs/`") == 0));
+	}
+	// "Projects/" only in these code-formatted examples.
+	constexpr std::array<std::string_view, 5> Examples = {"`Projects/Blocks`", "`Projects/FeatureTest`", "`Projects/PrismBreak`",
+	                                                      "`Projects/PrismBreak/Tools/Author.py`", "`Projects/Showcase/Tools/Author.py`"};
+	size_t examples = 0;
+	for (size_t position = skill.find("Projects/"); position != std::string::npos; position = skill.find("Projects/", position + 1))
+	{
+		CAPTURE(skill.substr(position > 20 ? position - 20 : 0, 60));
+		bool const listed = position > 0 && std::ranges::any_of(Examples,
+		                                                        [&skill, position](std::string_view example)
+		                                                        {
+																	return skill.compare(position - 1, example.size(), example) == 0;
+																});
+		CHECK(listed);
+		examples++;
+	}
+	CHECK(examples > 0);
+	// The guides it names are the ones a setup copies.
+	std::regex const guide(R"(([A-Za-z]+\.md)\b)");
+	for (auto match = std::sregex_iterator(skill.begin(), skill.end(), guide); match != std::sregex_iterator(); ++match)
+	{
+		std::string const name = (*match)[1].str();
+		if (name != "AGENTS.md" && name != "SKILL.md")
+		{
+			CAPTURE(name);
+			CHECK(std::ranges::find(AgentKit::Guides, std::string_view(name)) != AgentKit::Guides.end());
+		}
+	}
+}
+
 TEST_CASE("AgentKit: damaged .mcp.json, AGENTS.md and state files never crash the kit, Damaged files are never rewritten, and what it "
           "writes is current")
 {

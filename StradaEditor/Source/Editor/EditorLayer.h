@@ -12,6 +12,7 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/GameInputRouter.h"
+#include "Editor/Panels/AgentSetupDialog.h"
 #include "Editor/Panels/BuildGameDialog.h"
 #include "Editor/Panels/ConsolePanel.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
@@ -261,6 +262,7 @@ namespace Strada
 		std::string m_NewScriptName;
 		std::string m_NewScriptFolder;
 		BuildGameDialog m_BuildGameDialog;
+		AgentSetupDialog m_AgentSetupDialog;
 		std::string m_WindowTitle;
 
 		std::filesystem::path m_ScreenshotPath;

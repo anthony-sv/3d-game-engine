@@ -1,6 +1,7 @@
 #include "Editor/EditorLayer.h"
 
 #include "Editor/AssetBrowsing.h"
+#include "Editor/Automation/AgentCommands.h"
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/Automation/ExportCommands.h"
@@ -50,6 +51,12 @@ namespace Strada
 		constexpr char const* NewProjectPopup = "New Project";
 		constexpr char const* NewScriptPopup = "New Script";
 		constexpr char const* SceneExtension = ".sscene";
+
+		// The strada on PATH: the .mcp.json of projects set up for agents names strada when it is the one beside the editor.
+		std::optional<std::filesystem::path> FindStradaOnPath()
+		{
+			return Process::FindExecutable("strada");
+		}
 
 		std::array<FileDialogFilter, 1> const& GetSceneFilters()
 		{
@@ -183,11 +190,7 @@ namespace Strada
 		{
 			RememberProject();
 		};
-		// The .mcp.json of projects set up for agents names strada when the one on PATH is the one beside the editor.
-		environment.FindToolOnPath = []
-		{
-			return Process::FindExecutable("strada");
-		};
+		environment.FindToolOnPath = FindStradaOnPath;
 		Result<void> registered = RegisterEditorCommands(m_Commands, m_Operations, std::move(environment));
 		registered = registered ? RegisterScriptCommands(m_Commands, m_Scripts, m_Context) : registered;
 		registered = registered ? RegisterPlayCommands(m_Commands, m_PlayMode, m_Context,
@@ -221,6 +224,7 @@ namespace Strada
 				});
 			m_ConsolePanel.SetFont(imgui->GetMonospaceFont());
 			m_DebuggerPanel.SetMonospaceFont(imgui->GetMonospaceFont());
+			m_AgentSetupDialog.SetMonospaceFont(imgui->GetMonospaceFont());
 			m_HierarchyPanel.SetFocusCallback(
 				[this](UUID entity)
 				{
@@ -765,6 +769,7 @@ namespace Strada
 		DrawNewProjectPopup();
 		DrawNewScriptPopup();
 		m_BuildGameDialog.OnImGuiRender(m_Operations, m_Export);
+		m_AgentSetupDialog.OnImGuiRender(GetAgentProject(m_Context), m_Locations.Layout, FindStradaOnPath);
 		if (m_GameViewPanel)
 		{
 			// After every panel: the game may have given the input back while the view was not drawn.
@@ -887,6 +892,10 @@ namespace Strada
 			if (ImGui::MenuItem("Build Game...", nullptr, false, m_Context.GetProject() != nullptr))
 			{
 				m_BuildGameDialog.Open(*m_Context.GetProject());
+			}
+			if (ImGui::MenuItem(AgentSetupDialog::MenuItem, nullptr, false, m_Context.GetProject() != nullptr))
+			{
+				m_AgentSetupDialog.Open();
 			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Exit", "Alt+F4"))
