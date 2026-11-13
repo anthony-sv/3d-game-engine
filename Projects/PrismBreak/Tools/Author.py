@@ -2503,7 +2503,7 @@ def main():
     try:
         if os.path.isdir(PROJECT):
             shutil.rmtree(PROJECT)
-        client.call("project_create", {"directory": PROJECT, "name": "PrismBreak", "gitIgnore": False})
+        client.call("project_create", {"directory": PROJECT, "name": "PrismBreak", "gitIgnore": False, "agents": False})
     finally:
         shutil.move(os.path.join(aside, "Tools"), TOOLS)
         os.rmdir(aside)

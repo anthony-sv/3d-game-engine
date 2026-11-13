@@ -11,6 +11,7 @@
 #include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/ProjectImport.h"
+#include "Editor/StartScreen/StartScreenModel.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 #include "Editor/VisualScripting/VisualScriptArrange.h"
 #include "Editor/VisualScripting/VisualScriptBatch.h"
@@ -1745,6 +1746,17 @@ namespace Strada
 				return std::nullopt;
 			}
 
+			// What needs its panel or graph window drawn waits for no draw while the start screen covers them.
+			std::optional<CommandError> CheckNotCovered() const
+			{
+				if (m_Environment.IsStartScreenVisible && m_Environment.IsStartScreenVisible())
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidOperation,
+					                        "the start screen covers the editor's panels: start.show {{\"visible\": false}} hides it");
+				}
+				return std::nullopt;
+			}
+
 			Result<void> RegisterEditor()
 			{
 				Result<void> result =
@@ -1893,8 +1905,12 @@ namespace Strada
 				              "Creates a project from a template (project.templates lists them; default empty-3d, the editor's default "
 				              "scene, whose start scene is Assets/Scenes/Main.sscene) in an empty or new directory: the project file "
 				              "<name>.sproj and an Assets directory, with a .gitignore for build output and caches unless gitIgnore is "
-				              "false. Then opens it with its start scene. Not an undo step: it writes files. Fails on unsaved scene "
-				              "changes unless discardChanges is true.",
+				              "false. Then opens it with its start scene and, unless agents is false, sets it up for coding agents "
+				              "as project.setup-agents does (AGENTS.md, CLAUDE.md, .mcp.json, the strada-make-game skill, the guides "
+				              "under .strada/docs/, .strada/agents.json, and the .strada/ line of the .gitignore when there is one). "
+				              "Returns { project, scene, template, agents: { files: [{ path, action }], warnings } (null when agents "
+				              "is false; a setup that fails leaves the project created and says why in its warnings) }. Not an undo "
+				              "step: it writes files. Fails on unsaved scene changes unless discardChanges is true.",
 				              SchemaBuilder::Object()
 				                  .Property("directory",
 				                            SchemaBuilder::String(
@@ -1907,6 +1923,7 @@ namespace Strada
 				                                            .Default(std::string(ProjectTemplate::DefaultId)))
 				                  .Property("gitIgnore",
 				                            SchemaBuilder::Boolean("Write a .gitignore for build output and caches").Default(true))
+				                  .Property("agents", SchemaBuilder::Boolean("Set the new project up for coding agents").Default(true))
 				                  .Property("discardChanges", SchemaBuilder::Boolean("Discard unsaved scene changes").Default(false))
 				                  .Build(),
 				              false,
@@ -1938,10 +1955,25 @@ namespace Strada
 								  {
 									  return Failure(AutomationErrorCode::FileError, created);
 								  }
+								  Json agents;
+								  std::optional<AgentProject> const agentProject = GetAgentProject(Context());
+								  if (GetBool(params, "agents", true) && agentProject)
+								  {
+									  NewProjectAgentSetup const setup = SetUpNewProjectForAgents(
+										  *agentProject, m_Environment.Locations.Layout, m_Environment.FindToolOnPath, options.GitIgnore);
+									  Json files = Json::array();
+									  for (AgentFilePlan const& file : setup.Files)
+									  {
+										  files.push_back(Json::object(
+											  {{"path", file.Path}, {"action", std::string(GetAgentFileActionName(file.Action))}}));
+									  }
+									  agents = Json::object({{"files", std::move(files)}, {"warnings", setup.Warnings}});
+								  }
 								  NotifyProjectOpened();
 								  return Json::object({{"project", DescribeProject(Context())},
 					                                   {"scene", DescribeScene(Context())},
-					                                   {"template", templateId}});
+					                                   {"template", templateId},
+					                                   {"agents", std::move(agents)}});
 							  })
 						: result;
 				result = result
@@ -4306,8 +4338,8 @@ namespace Strada
 					"each entry { title, subtitle, category, type (the node type it adds; empty for actions that add none), settings, "
 					"connects (with from: the entry's pin that the wire links to), converts (with from: the link converts its value) }. "
 					"Unavailable without the editor's UI (headless) and without the scripting runtime (the palette lists the node "
-					"library); InvalidOperation when the graph's window is not open or not shown, its file does not load, or a dialog "
-					"is open; InvalidParams for a from node the sub-graph shown does not have, a pin it does not have and an at "
+					"library); InvalidOperation when the graph's window is not open or not shown, its file does not load, a dialog is "
+					"open or the start screen covers the windows; InvalidParams for a from node the sub-graph shown does not have, a pin it does not have and an at "
 					"beyond the canvas.";
 				palette.Parameters =
 					SchemaBuilder::Object()
@@ -4420,6 +4452,10 @@ namespace Strada
 				{
 					return MakeCommandError(AutomationErrorCode::InvalidOperation,
 					                        "a dialog is open in the editor: no menu opens until it is answered");
+				}
+				if (std::optional<CommandError> covered = CheckNotCovered())
+				{
+					return *covered;
 				}
 				Result<Ref<VisualScriptAsset>> const asset = LoadGraph(handle);
 				if (!asset)
@@ -5702,8 +5738,8 @@ namespace Strada
 				              "of their submenus as if the user pointed at it), or closes it (open false). Returns { open, search, "
 				              "category, components }: the components the menu offers, in its order (those of the open submenu with a "
 				              "category). Changes nothing in the scene (component.add adds components). InvalidParams for a search with "
-				              "a category; InvalidOperation without selected entities, for a category the menu offers no components of "
-				              "and while a dialog is open; Unavailable without the editor's UI (headless).",
+				              "a category; InvalidOperation without selected entities, for a category the menu offers no components of, "
+				              "while a dialog is open and while the start screen shows; Unavailable without the editor's UI (headless).",
 				              SchemaBuilder::Object()
 				                  .Property("search", SchemaBuilder::String("Text typed into the menu's search field"))
 				                  .Property("category", SchemaBuilder::String("Without search text: the category whose submenu opens")
@@ -5742,6 +5778,10 @@ namespace Strada
 									  if (std::optional<CommandError> dialog = CheckNoDialog())
 									  {
 										  return *dialog;
+									  }
+									  if (std::optional<CommandError> covered = CheckNotCovered())
+									  {
+										  return *covered;
 									  }
 								  }
 

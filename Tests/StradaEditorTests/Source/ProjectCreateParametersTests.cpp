@@ -18,8 +18,8 @@
 
 using namespace Strada;
 
-// project.create replaces the open project, so the automation fuzz leaves it out (AutomationFuzzTests.cpp): its template and
-// gitIgnore parameters get their damaged values here.
+// project.create replaces the open project, so the automation fuzz leaves it out (AutomationFuzzTests.cpp): its template,
+// gitIgnore and agents parameters get their damaged values here.
 namespace
 {
 	// Every file and folder below a directory with its size, to tell what a command wrote.
@@ -66,7 +66,7 @@ namespace
 	};
 }
 
-TEST_CASE("ProjectCreateParameters: damaged template and gitIgnore values are refused without writing anything")
+TEST_CASE("ProjectCreateParameters: damaged template, gitIgnore and agents values are refused without writing anything")
 {
 	CreateFixture fixture;
 	std::string const directory = FileSystem::PathToUtf8(fixture.Directory.GetPath() / "Game");
@@ -100,6 +100,11 @@ TEST_CASE("ProjectCreateParameters: damaged template and gitIgnore values are re
 		{"gitIgnore", 1},
 		{"gitIgnore", Json()},
 		{"gitIgnore", Json::array()},
+		{"agents", "yes"},
+		{"agents", 0},
+		{"agents", Json()},
+		{"agents", Json::object()},
+		{"agents", Json::array({true})},
 	};
 	for (auto const& [parameter, value] : damaged)
 	{
@@ -144,6 +149,16 @@ TEST_CASE("ProjectCreateParameters: names and directories with separators and re
 			CHECK(FileSystem::IsInside(file, target));
 			CHECK(file.parent_path().lexically_normal() == target.lexically_normal());
 			CHECK(result.GetValue()["project"]["name"] == name);
+			// Set up for coding agents (the default) under any name: the kit wrote its files in the directory.
+			Json const& created = result.GetValue();
+			Json const& agents = created["agents"];
+			REQUIRE(agents.is_object());
+			CHECK_FALSE(agents["files"].empty());
+			for (Json const& written : agents["files"])
+			{
+				CAPTURE(written.dump());
+				CHECK(FileSystem::IsRegularFile(target / FileSystem::PathFromUtf8(written["path"].get<std::string>())));
+			}
 		}
 	}
 

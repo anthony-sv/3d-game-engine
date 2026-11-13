@@ -6,11 +6,13 @@
 #include "Editor/Automation/AutomationServer.h"
 #include "Editor/Automation/CommandRegistry.h"
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/Automation/StartCommands.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorExport.h"
 #include "Editor/EditorLocations.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/EditorShortcuts.h"
 #include "Editor/ExampleCopyTask.h"
 #include "Editor/GameInputRouter.h"
 #include "Editor/Panels/AgentSetupDialog.h"
@@ -26,7 +28,10 @@
 #include "Editor/Panels/ViewportPanel.h"
 #include "Editor/Panels/VisualScriptDebuggerPanel.h"
 #include "Editor/PlayMode.h"
-#include "Editor/RecentProjects.h"
+#include "Editor/StartScreen/NewProjectDialog.h"
+#include "Editor/StartScreen/StartScreenModel.h"
+#include "Editor/StartScreen/StartScreenPanel.h"
+#include "Editor/StartScreen/StartScreenThumbnails.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
 #include "Editor/VisualScripting/VisualScriptDebugControls.h"
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
@@ -41,6 +46,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 
 struct ImGuiWindow;
 
@@ -63,6 +69,9 @@ namespace Strada
 		// content; the default location of new projects). Unset: the process's (EditorLocations::FromProcess). Tests that
 		// construct a layer pass folders of their own.
 		std::optional<EditorLocations> Locations;
+		// Show the start screen at start when no project opened (--no-start-screen clears it; start.show and File > Start
+		// Screen show it all the same). An editor without a window never shows it.
+		bool StartScreen = true;
 	};
 
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
@@ -73,7 +82,9 @@ namespace Strada
 	// and the windows' input is shared between the editor and the game in the game view (GameInputRouter, as ImGuiLayer's
 	// input filter). Playing brings the game view to the front with the input; stopping, the scene view. Replacing the scene
 	// (new or opened scenes and projects) or closing the editor with unsaved changes asks to save them first; playing stops
-	// first.
+	// first. Without a project the editor starts at the start screen (StartScreenPanel), which covers the window under the
+	// menu bar: nothing else is drawn behind it, so no panel, viewport, gizmo or camera reacts to the mouse or the keyboard
+	// and no global shortcut acts (EditorShortcuts), while the scene behind it stays loaded for automation.
 	class EditorLayer : public Layer
 	{
 	public:
@@ -96,7 +107,10 @@ namespace Strada
 		CommandRegistry const& GetCommands() const { return m_Commands; }
 		AutomationServer const& GetAutomationServer() const { return m_AutomationServer; }
 		EditorLocations const& GetLocations() const { return m_Locations; }
-		RecentProjects const& GetRecentProjects() const { return m_RecentProjects; }
+		RecentProjects const& GetRecentProjects() const { return m_StartScreen.GetRecentProjects(); }
+		StartScreenModel& GetStartScreen() { return m_StartScreen; }
+		// The one example copy, which project.copy-example and the start screen share.
+		ExampleCopyTask& GetExampleCopies() { return m_ExampleCopies; }
 		VisualScriptViewSettings const& GetVisualScriptViews() const { return m_VisualScriptViews; }
 
 	private:
@@ -109,7 +123,16 @@ namespace Strada
 			NewProject,
 			OpenProject,
 			CloseProject,
+			// Copies an example (m_PendingExampleCopy) and opens the copy once it is made.
+			CopyExample,
 			Quit
+		};
+
+		// An example the start screen asked to copy, until the unsaved-changes prompt is answered.
+		struct PendingExampleCopy
+		{
+			std::string Example;
+			std::filesystem::path Target;
 		};
 
 		// What editor.entity-menu asks of the next frame.
@@ -129,9 +152,22 @@ namespace Strada
 		void DrawToolbar();
 		// Brings the game view forward when playing starts and the scene view when it stops.
 		void FollowPlayState();
-		void HandleShortcuts();
+		void HandleShortcuts(bool startScreenVisible);
 		void DrawUnsavedChangesPopup();
-		void DrawNewProjectPopup();
+		// The modal dialogs (unsaved changes, New Project, New Script, Build Game, Set Up for Coding Agents), last, over the
+		// panels or the start screen.
+		void DrawDialogs();
+		// Shows or hides the start screen (start.show, File > Start Screen, Continue without a project); only with the UI.
+		void ShowStartScreen(bool visible);
+		// Logs an action that failed and shows it on the start screen's error line while the screen shows (nothing else is
+		// drawn then, the Console included).
+		void ReportActionFailure(std::string_view doing, std::string const& error);
+		// What the start screen and the New Project dialog ask of the editor.
+		StartScreenActions MakeStartScreenActions();
+		// Starts copying the example of the request; the copy opens once it is made.
+		void StartExampleCopy(PendingExampleCopy const& request);
+		// editor.dialog: opens or closes a File menu dialog at the next frame.
+		[[nodiscard]] Result<void> ShowDialog(EditorDialog dialog, bool open);
 		// Asks for the class name of a new script in a folder of the scripts' sources (relative to them, "" for themselves).
 		void OpenNewScriptPopup(std::string folder);
 		void DrawNewScriptPopup();
@@ -240,8 +276,13 @@ namespace Strada
 		bool m_ShowRendererInfo = true;
 		bool m_ShowImGuiDemo = false;
 		bool m_ResetLayout = false;
-		// Frames until the default layout's scene view, inspector and content browser tabs come to the front (0: nothing to do).
-		uint8_t m_FocusDefaultTabsFrames = 0;
+		// Frames until the tabs of m_TabsToFocus come to the front, focused in order (0: nothing to do): the default layout's
+		// content browser, inspector and scene view, or the tabs that were in front when the start screen covered the panels
+		// (the panels appear again together, and ImGui would bring the last one of each dock node to the front).
+		uint8_t m_FocusTabsFrames = 0;
+		std::vector<std::string> m_TabsToFocus;
+		// The start screen covered the panels in the last frame.
+		bool m_StartScreenCovered = false;
 		// Bring the console to the front after the panels are drawn.
 		bool m_FocusConsole = false;
 		// The window that has the keyboard, kept while a menu, a popup or a side bar has it instead (FindKeyboardWindow): the
@@ -253,13 +294,21 @@ namespace Strada
 
 		SceneAction m_PendingAction = SceneAction::None;
 		std::filesystem::path m_PendingPath;
-		std::string m_PendingProjectName;
+		// What NewProject and CopyExample act on once the unsaved-changes prompt is answered.
+		std::optional<NewProjectRequest> m_PendingNewProject;
+		std::optional<PendingExampleCopy> m_PendingExampleCopy;
 		bool m_OpenUnsavedChangesPopup = false;
 
-		RecentProjects m_RecentProjects;
-		bool m_OpenNewProjectPopup = false;
-		std::string m_NewProjectName;
-		std::string m_NewProjectLocation;
+		// The start screen's state, which owns the recent projects (the File menu and the start commands use them through it).
+		StartScreenModel m_StartScreen;
+		// The start screen and File > New Project..., which share the model's New Project form, and their cards' images
+		// (released in OnDetach, before the graphics device goes).
+		StartScreenPanel m_StartScreenPanel;
+		NewProjectDialog m_NewProjectDialog;
+		StartScreenThumbnails m_StartScreenThumbnails;
+		StartScreenActions m_StartScreenActions;
+		// What the global shortcuts run (HandleEditorShortcuts).
+		EditorShortcutActions m_ShortcutActions;
 		EditorPlayState m_FollowedPlayState = EditorPlayState::Edit;
 		bool m_OpenNewScriptPopup = false;
 		std::string m_NewScriptName;

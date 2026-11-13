@@ -56,6 +56,10 @@ namespace Strada
 		// Ends the current run of mergeable edits (for example when a drag ends): the next command starts a new step.
 		void BreakMerge() { m_MergeAllowed = false; }
 
+		// Identifies the scene's state: each step that changes the scene (done, or merged into the last) and Clear give a new
+		// one; undoing and redoing go back to the states steps left. Equal identifiers of one history mean the scene is as it
+		// was.
+		uint64_t GetCurrentStateID() const { return m_UndoStack.empty() ? m_BaseStateID : m_UndoStack.back().StateID; }
 		// True when the scene differs from the state recorded by the last MarkSaved (or Clear).
 		bool IsDirty() const { return GetCurrentStateID() != m_SavedStateID; }
 		void MarkSaved() { m_SavedStateID = GetCurrentStateID(); }
@@ -91,7 +95,6 @@ namespace Strada
 			uint64_t StateID = 0;
 		};
 
-		uint64_t GetCurrentStateID() const { return m_UndoStack.empty() ? m_BaseStateID : m_UndoStack.back().StateID; }
 		bool TryMerge(EditorCommand& command);
 		// Drops the oldest undo steps beyond the maximum size, then while they keep more than DefaultMaxMemory and more than
 		// MinStepsKept remain.

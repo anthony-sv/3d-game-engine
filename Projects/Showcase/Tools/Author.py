@@ -506,7 +506,7 @@ def rebuild(command):
             shutil.move(os.path.join(PROJECT, entry), os.path.join(aside, entry))
     try:
         shutil.rmtree(PROJECT)
-        client.call("project_create", {"directory": PROJECT, "name": "Showcase", "gitIgnore": False})
+        client.call("project_create", {"directory": PROJECT, "name": "Showcase", "gitIgnore": False, "agents": False})
     except BaseException:
         # The sources come back when the project could not be made (on success the scripts are created from them).
         if not os.path.isdir(os.path.join(PROJECT, "Scripts", "Source")):

@@ -74,6 +74,8 @@ usage.
   same for models (the result's `mesh` goes into a MeshComponent) and texture sets (the result's `material`); a
   SkyLight's `Environment` takes the returned asset. Downloads are checked against the size and MD5 that Poly Haven
   lists; nothing is downloaded when no project is open.
+- Editors `strada mcp` starts get `--no-start-screen`: the editor's start screen does not cover what an agent drives
+  and captures (`start.show` shows it). `strada launch` does not pass it.
 - Editors strada starts with a window stay open for the user. Editors it starts headless close with `strada mcp`: they
   get `--parent-process <strada's process ID>`, the editor option that closes the editor, discarding unsaved changes,
   once that process has exited (a safeguard for when strada itself is ended without closing them).
@@ -142,7 +144,9 @@ Parameters marked * are required.
 | `editor.undo` | — | `undone` (description), `scene` |
 | `editor.redo` | — | `redone`, `scene` |
 | `editor.quit` | `discardChanges` | `quitting`; fails with UnsavedChanges when the scene is dirty |
+| `editor.dialog` | `name`* (`new-project` or `agent-setup`), `open` (default true; false closes it as its Cancel does) | Opens a dialog of the File menu at the next frame as if the user chose its item, so that `viewport.screenshot` can show it: `new-project` (File > New Project..., the New Project form) or `agent-setup` (File > Set Up for Coding Agents...). Returns `name`, `open`. A dialog shown already stays as it is (a close asked for in the same frame is dropped). Changes nothing else (`project.create` and `project.setup-agents` do the work); not an undo step. InvalidOperation for `agent-setup` without an open project and while another dialog is open; Unavailable when headless |
 | `editor.entity-menu` | `submenu` (`3D Object`, `2D Object`, `Rendering`, `Effects`, `Physics`, `Audio` or `UI`), `open` (default true; false closes the menu) | Opens the menu bar's Entity menu, which creates entities from presets (the hierarchy's create menus are the same), as if the user clicked Entity and pointed at `submenu`; returns `open`, `submenu`, `sections`: `[{ category, submenu, presets }]`, the menu in its order (Core's Create Empty in the menu itself, then a submenu per category with the labels of its presets). Changes nothing in the scene (`entity.create` creates entities); InvalidOperation while a dialog is open; Unavailable when headless |
+| `editor.recent` | `remove` (a project file to take off the list; any spelling of its path), `clear` (default false: true empties the list) | `projects`: `[{ name, path, state }]`, the recent projects the start screen and File > Recent Projects list, most recent first, read now: `name` is the project's name (the file's name when it does not read), `state` is `Ok`, `Missing` (the file is gone) or `Unreadable` (it does not read as a project file). The list is saved in the editor's user data (`Editor/RecentProjects.json`); a project that is not listed changes nothing. Not an undo step. InvalidParams when both `remove` and `clear` are given; FileError when the list cannot be saved |
 
 ### project
 
@@ -159,7 +163,7 @@ project opens, and `script.build` builds them again). Each of the two games has 
 | Command | Parameters | Result |
 |---------|-----------|--------|
 | `project.info` | — | `project` { name, file, assetDirectory } (null when none is open), `settings` (the `.sproj` "Project" object) |
-| `project.create` | `directory`* (new or empty), `name`*, `template` (a template's id, as `project.templates` lists it; default `empty-3d`, the editor's default scene), `gitIgnore` (default true: writes a `.gitignore` for build output and caches when the template brings none), `discardChanges` | `project` (its file is `<name>.sproj`, the name in a form every platform can store), `scene` (the start scene; `Assets/Scenes/Main.sscene` for `empty-3d`), `template`; InvalidParams for an unknown template; FileError when the directory is not new or empty or a file cannot be written (nothing is left behind) |
+| `project.create` | `directory`* (new or empty), `name`*, `template` (a template's id, as `project.templates` lists it; default `empty-3d`, the editor's default scene), `gitIgnore` (default true: writes a `.gitignore` for build output and caches when the template brings none), `agents` (default true: sets the new project up for coding agents as `project.setup-agents` does, with the `.gitignore` only when `gitIgnore` is true), `discardChanges` | `project` (its file is `<name>.sproj`, the name in a form every platform can store), `scene` (the start scene; `Assets/Scenes/Main.sscene` for `empty-3d`), `template`, `agents`: `{ files: [{ path, action }], warnings }` (null when `agents` is false; a setup that fails leaves the project created, with the files written before the failure, and says why in its `warnings`); InvalidParams for an unknown template; FileError when the directory is not new or empty or a file cannot be written (nothing is left behind) |
 | `project.open` | `path`* (`.sproj` file), `discardChanges` | `project`, `scene` (its start scene), `warnings` (skipped unknown settings, start scene problems) |
 | `project.close` | `discardChanges` | `closed`, `scene` (empty); InvalidOperation without a project |
 | `project.settings` | `settings` (partial patch, e.g. `{"Window": {"Width": 1920}, "Physics": {"Layers": ["Default", "Player"]}}`) | `settings`; InvalidOperation without a project |
@@ -169,6 +173,24 @@ project opens, and `script.build` builds them again). Each of the two games has 
 | `project.examples` | — | `examples`: `[{ id, name, description, order, requires: { sdk }, thumbnail (absolute path of a PNG, or null), available (its project file and the files it needs exist), hint (only when not available: what to run, or null) }]` sorted by order, `warnings` (entries left out, or why there is no catalog) |
 | `project.setup-agents` | `dryRun` (default false: only answer what it would do), `confirmed` (default false: the user agreed) | Sets the open project up for coding agents: the block between the `<!-- BEGIN strada-agents -->` and `<!-- END strada-agents -->` lines of `AGENTS.md` (text outside them is kept byte for byte, a byte order mark included; a file without them gets the block appended), the `@AGENTS.md` line of `CLAUDE.md`, the `strada` entry of `.mcp.json` (`{ "command": <tool>, "args": ["mcp", "--project", "<project file>"] }`, merged with every other server and member kept), the game-making skill, the guides under `.strada/docs/`, the `.strada/` line of `.gitignore` and the state `.strada/agents.json`. Returns `files`: `[{ path, action (Create, Update, Unchanged, SkipUserModified, SkipDamaged), diff (a unified-style diff of the managed part, at most 200 lines, each cut after 400 bytes; empty unless created or updated) }]`, `warnings`. A second run answers `Unchanged` everywhere. Not an undo step. ConsentRequired without `confirmed: true` (unless `dryRun`): an agent asks the user first; InvalidOperation without a project; FileError when a file cannot be written (`data.file` names it, `data.files` lists the files handled before it, which stay written) or the engine's agent kit is incomplete |
 | `project.templates` | — | `templates`: `[{ id, name, description, order, tags, requires: { sdk } (the .NET 10 SDK is needed before the project plays), thumbnail (absolute path of a PNG, or null) }]` sorted by order, `warnings` (templates left out; the editor's default scene standing in for a missing `empty-3d`) |
+
+### start
+
+The start screen shows in an editor with a window when no project is open: recent projects, the New Project form, the
+example games, the guides and what the machine has. These commands read what it shows and show or hide it; they act on
+no scene and none is an undo step.
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `start.info` | — | `visible` (whether the screen shows; a headless editor never shows it), `defaultLocation` (the folder new projects go into by default, `<Documents>/Strada Projects`, or null), `recent`: `[{ name, path, state }]` (as `editor.recent` lists them), `templates` and `examples` (as `project.templates` and `project.examples` list them), `docs`: `[{ title, path }]` (the guides it links to that exist: Getting started, The editor, Scripting, Visual scripting, Agents), `environment`: `{ dotnetRuntime (the .NET runtime scripting started with, or null when scripting is off), dotnetSdk (the .NET SDK's `dotnet`, which builds C# scripts, or null), gpu, vulkan (the graphics adapter and its Vulkan version, or null) }`; read-only |
+| `start.show` | `visible`* | `visible`: shows the start screen over the editor's window or hides it. The scene behind it still loads, and the commands act on it; opening or creating a project hides it. Unavailable when headless |
+
+An editor started with `--no-start-screen` starts without the screen; `start.show` and File > Start Screen still show
+it. `strada mcp` starts its editors with the option: an editor started for an agent session is there to be driven and
+captured. `strada launch` starts them without it, for you. While the screen shows, the editor draws nothing behind it
+but the menu bar: `viewport.screenshot` with a `window` other than `Editor` answers that the window is not open, and
+`graph.palette` and `inspector.add-component-menu`, which need their window drawn, answer InvalidOperation (a palette
+already waiting for a draw answers Cancelled). `editor.entity-menu` and `editor.dialog` work, over the screen.
 
 ### scene
 
@@ -233,7 +255,7 @@ inspector, such as `Mesh.Materials`, which the material slot sections edit; set 
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `inspector.add-component-menu` | `search` (text typed into the menu's search field), `category` (without `search`: `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`, the category whose submenu opens), `open` (default true; false closes the menu) | Brings the inspector to the front with its Add Component menu open for the selected entities, as if the user clicked Add Component and typed `search` (without one the menu shows the categories, and `category` opens one of their submenus as if the user pointed at it); returns `open`, `search`, `category`, `components` (the components the menu offers, in its order: those of the open submenu with a `category`). Changes nothing in the scene; InvalidParams for `search` with `category`; InvalidOperation without selected entities, for a category the menu offers nothing of (the entities have its components) and while a dialog is open; Unavailable when headless |
+| `inspector.add-component-menu` | `search` (text typed into the menu's search field), `category` (without `search`: `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`, the category whose submenu opens), `open` (default true; false closes the menu) | Brings the inspector to the front with its Add Component menu open for the selected entities, as if the user clicked Add Component and typed `search` (without one the menu shows the categories, and `category` opens one of their submenus as if the user pointed at it); returns `open`, `search`, `category`, `components` (the components the menu offers, in its order: those of the open submenu with a `category`). Changes nothing in the scene; InvalidParams for `search` with `category`; InvalidOperation without selected entities, for a category the menu offers nothing of (the entities have its components), while a dialog is open and while the start screen shows (the inspector is not drawn behind it); Unavailable when headless |
 
 ### asset
 
@@ -352,7 +374,9 @@ Retarget, a `SetSetting` of `Name`).
 
 **Graph windows.** `graph.open`, `graph.close`, `graph.editors` and `graph.palette` drive the editor's graph windows, one
 per open visual script (Docs/Architecture.md section 11); without the editor's UI (headless) they fail with Unavailable,
-and `graph.open` and `graph.palette` with InvalidOperation while a dialog is open. `graph.open` works while playing and
+and `graph.open` and `graph.palette` with InvalidOperation while a dialog is open. While the start screen shows, the
+graph windows are not drawn: `graph.palette` answers InvalidOperation, a palette that was waiting for its window's draw
+when the screen appeared answers Cancelled, and a window `graph.open` opens shows once the screen hides. `graph.open` works while playing and
 applies at the window's next draw: `graph.editors` a frame later shows what the user sees, its members as that draw saw
 them. A file that is missing or does not load opens on its card (`loaded` false); `function`, `select`, `frame`,
 `find`, `timeline`, `reveal` and `show` cannot be checked then and are ignored, which `warnings` says. The view parameters combine in a fixed order: the
@@ -383,7 +407,7 @@ add none), and with `from`, `connects` is the row's pin the wire links to and `c
 value. A query of `=` followed by a formula (`=a*b+sin(t)`) lists the `Expression` entry alone, titled
 `Expression: <formula>` with the settings `{ "Formula": "<formula>" }`; `=` alone and `==` rank as other queries. Each
 call opens the palette again with its own query, even a frame after the previous call. Its checks come in this order: Unavailable without the UI; the asset checks; InvalidOperation when the graph's
-window is not open (`graph.open` first), its file does not load, or a dialog is open; InvalidParams for a `from.node`
+window is not open (`graph.open` first), a dialog is open, the start screen shows, or its file does not load; InvalidParams for a `from.node`
 that is not a node of the sub-graph shown, a `from.pin` that is no pin name and an `at` beyond ±1e7 (`data.path`
 `from.node`, `from.pin`, `at`); Unavailable without the scripting runtime (the palette lists the node library); then
 InvalidOperation when the window is not shown (another tab in front of it) after a draw; then InvalidParams (`from.pin`)

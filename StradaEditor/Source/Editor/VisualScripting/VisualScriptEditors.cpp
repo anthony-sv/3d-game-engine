@@ -383,6 +383,13 @@ namespace Strada
 		m_AfterDraw.push_back(std::move(callback));
 	}
 
+	void VisualScriptEditors::DropAfterDraw()
+	{
+		// Taken out of the list before they go: releasing a callback's captures answers a command, which may wait again.
+		std::vector<std::function<void()>> dropped;
+		dropped.swap(m_AfterDraw);
+	}
+
 	VisualScriptEditorPanel* VisualScriptEditors::FindPanel(AssetHandle graph)
 	{
 		Maintain();

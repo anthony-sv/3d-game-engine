@@ -20,6 +20,9 @@ internal sealed class EditorLaunchOptions
 	public string? Project { get; init; }
 	/// <summary>The editor closes once this process has exited (its --parent-process option).</summary>
 	public int? ParentProcessId { get; init; }
+	/// <summary>The editor starts without its start screen (--no-start-screen): an editor started for an agent session is
+	/// there to be driven and captured. Its start.show command and File > Start Screen still show it.</summary>
+	public bool NoStartScreen { get; init; }
 	/// <summary>Environment variables the editor gets in addition to this process's.</summary>
 	public IReadOnlyDictionary<string, string> Environment { get; init; } = new Dictionary<string, string>();
 	/// <summary>How long the editor may take to start its automation server.</summary>
@@ -48,19 +51,9 @@ internal static class EditorLauncher
 			RedirectStandardError = true,
 			CreateNoWindow = true,
 		};
-		if (options.Headless)
+		foreach (string argument in GetArguments(options))
 		{
-			startInfo.ArgumentList.Add("--headless");
-		}
-		if (options.Project is not null)
-		{
-			startInfo.ArgumentList.Add("--project");
-			startInfo.ArgumentList.Add(options.Project);
-		}
-		if (options.ParentProcessId is { } parent)
-		{
-			startInfo.ArgumentList.Add("--parent-process");
-			startInfo.ArgumentList.Add(parent.ToString(CultureInfo.InvariantCulture));
+			startInfo.ArgumentList.Add(argument);
 		}
 		foreach ((string name, string value) in options.Environment)
 		{
@@ -99,6 +92,31 @@ internal static class EditorLauncher
 				process.Dispose();
 			}
 		}
+	}
+
+	/// <summary>The editor's command line for the options, after its executable.</summary>
+	internal static List<string> GetArguments(EditorLaunchOptions options)
+	{
+		List<string> arguments = [];
+		if (options.Headless)
+		{
+			arguments.Add("--headless");
+		}
+		if (options.NoStartScreen)
+		{
+			arguments.Add("--no-start-screen");
+		}
+		if (options.Project is not null)
+		{
+			arguments.Add("--project");
+			arguments.Add(options.Project);
+		}
+		if (options.ParentProcessId is { } parent)
+		{
+			arguments.Add("--parent-process");
+			arguments.Add(parent.ToString(CultureInfo.InvariantCulture));
+		}
+		return arguments;
 	}
 
 	private static async Task<EditorInstance> WaitForInstanceAsync(Process process, EditorOutput output, EditorLaunchOptions options,

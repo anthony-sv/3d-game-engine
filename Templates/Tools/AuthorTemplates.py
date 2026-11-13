@@ -28,8 +28,9 @@ copy filter leaves out of every new project) is removed at the end.
                                               [--thumbnail]
 
 The template is rebuilt from scratch in Templates/<id> (or --output): everything but its thumbnail and its C# sources is
-replaced. --thumbnail takes the thumbnail again with the player's --screenshot. Without --strada, strada runs from the
-repository (dotnet run).
+replaced. --thumbnail takes the thumbnail again with the player's --screenshot (csharp-starter's from a camera closer to
+the orb than the game's, so that the two cards on the start screen do not look alike). Without --strada, strada runs
+from the repository (dotnet run).
 """
 import argparse
 import hashlib
@@ -1727,6 +1728,9 @@ TEMPLATES_BUILT = {
         "author": author_csharp_starter,
         "check": lambda command, project: check_template(command, project, (HOVER,), None, CSHARP_TEST_CHECKS, play_csharp_starter),
         "sources": SCRIPT_SOURCES,
+        # Its thumbnail's camera rig stands closer to the orb than the game's (Home is 0, 17.5, 15): both templates play the same
+        # game, and their cards on the start screen must not look alike.
+        "thumbnail_rig": [0.0, 8.5, 6.6],
         "template": {"Id": "csharp-starter", "Name": "C# Starter", "Order": 3,
                      "Description": f"Roll a glowing orb and collect {len(SPOTS)} sparks before time runs out, written in C#, with a "
                                     "C# member that a graph calls as a node.",
@@ -1833,9 +1837,24 @@ def write_scaled_png(source, target, size):
         file.write(PNG_SIGNATURE + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(bytes(pixels), 9)) + chunk(b"IEND", b""))
 
 
-def take_thumbnail(player, folder):
+def place_thumbnail_rig(project, home):
+    """Moves the camera rig of the copy's main scene, and the Home its CameraRig script keeps it at, to home."""
+    scene_file = os.path.join(project, "Assets", "Scenes", "Main.sscene")
+    with open(scene_file, encoding="utf-8") as file:
+        scene = json.load(file)
+    rigs = [entity for entity in scene["Entities"] if entity["Components"].get("Tag", {}).get("Tag") == "Camera Rig"]
+    if len(rigs) != 1:
+        raise SystemExit(f"{scene_file} has {len(rigs)} entities named Camera Rig, not one")
+    components = rigs[0]["Components"]
+    components["Transform"]["Translation"] = list(home)
+    components["Script"]["Fields"]["Home"]["Value"] = list(home)
+    with open(scene_file, "w", encoding="utf-8") as file:
+        json.dump(scene, file, indent="\t")
+
+
+def take_thumbnail(player, folder, rig_home=None):
     """Plays a copy of the template in the player for two and a half seconds and keeps its last frame, scaled to 640 x 360,
-    as thumbnail.png."""
+    as thumbnail.png. With rig_home, the copy's camera rig stands there (place_thumbnail_rig)."""
     work = tempfile.mkdtemp(prefix="template-thumbnail-")
     try:
         copy = os.path.join(work, "Project")
@@ -1847,6 +1866,8 @@ def take_thumbnail(player, folder):
         settings["Project"]["Window"]["Width"], settings["Project"]["Window"]["Height"] = (2 * THUMBNAIL_SIZE[0], 2 * THUMBNAIL_SIZE[1])
         with open(project_file, "w", encoding="utf-8") as file:
             json.dump(settings, file, indent="\t")
+        if rig_home is not None:
+            place_thumbnail_rig(copy, rig_home)
         shot = os.path.join(work, "capture.png")
         subprocess.run([player, "--project", project_file, "--frames", "150", "--screenshot", shot], check=True)
         write_scaled_png(shot, os.path.join(folder, THUMBNAIL), THUMBNAIL_SIZE)
@@ -1875,7 +1896,7 @@ def build_template(command, template_id, folder):
             shutil.rmtree(folder)
         client = McpClient(command + ["mcp", "--headless", "--new"])
         try:
-            client.call("project_create", {"directory": folder, "name": "Template", "gitIgnore": False})
+            client.call("project_create", {"directory": folder, "name": "Template", "gitIgnore": False, "agents": False})
             spec["author"](client, folder, sources)
             authored = True
         finally:
@@ -1915,7 +1936,7 @@ def main():
         build_template(command, template_id, folder)
         if arguments.thumbnail:
             player = os.path.join(os.path.dirname(os.path.abspath(arguments.strada)), "StradaRuntime" + (".exe" if os.name == "nt" else ""))
-            take_thumbnail(player, folder)
+            take_thumbnail(player, folder, TEMPLATES_BUILT[template_id].get("thumbnail_rig"))
         remove_build_outputs(folder)
         if not os.path.isfile(os.path.join(folder, THUMBNAIL)):
             print(f"warning: {folder} has no {THUMBNAIL}: take one with --thumbnail")

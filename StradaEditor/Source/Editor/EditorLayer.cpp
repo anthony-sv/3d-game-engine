@@ -9,6 +9,7 @@
 #include "Editor/Automation/PlayCommands.h"
 #include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
+#include "Editor/Automation/StartCommands.h"
 #include "Editor/DefaultScene.h"
 #include "Editor/EditorEditingKeys.h"
 #include "Editor/EntityPresets.h"
@@ -27,8 +28,12 @@
 #include "Strada/Core/Version.h"
 #include "Strada/Core/Window.h"
 #include "Strada/ImGui/ImGuiLayer.h"
+#include "Strada/Platform/Desktop.h"
 #include "Strada/Platform/Process.h"
+#include "Strada/Project/ScriptProject.h"
+#include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/Scene/Entity.h"
+#include "Strada/Script/ScriptEngine.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -49,7 +54,6 @@ namespace Strada
 		// layout.
 		constexpr char const* DockspaceName = "Strada.Dockspace.v8";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
-		constexpr char const* NewProjectPopup = "New Project";
 		constexpr char const* NewScriptPopup = "New Script";
 		constexpr char const* SceneExtension = ".sscene";
 
@@ -57,6 +61,36 @@ namespace Strada
 		std::optional<std::filesystem::path> FindStradaOnPath()
 		{
 			return Process::FindExecutable("strada");
+		}
+
+		// What the start screen's environment strip shows: only what the editor found already. Scripting runs on .NET 10
+		// (Strada.ScriptCore's runtimeconfig.json asks for 10.0 and rolls forward to its latest minor version only).
+		StartScreenEnvironment DescribeEditorEnvironment()
+		{
+			StartScreenEnvironment environment;
+			if (ScriptEngine::IsInitialized())
+			{
+				environment.DotNetRuntime = ".NET 10";
+			}
+			environment.DotNetSdk = ScriptProject::FindDotNet();
+			if (GraphicsDevice::IsInitialized())
+			{
+				AdapterInfo const& adapter = GraphicsDevice::GetAdapterInfo();
+				environment.Gpu = adapter.Name;
+				environment.Vulkan = adapter.ApiVersion;
+			}
+			return environment;
+		}
+
+		StartScreenServices MakeStartScreenServices()
+		{
+			StartScreenServices services;
+			services.DescribeEnvironment = DescribeEditorEnvironment;
+			services.OpenWithSystem = [](std::filesystem::path const& path)
+			{
+				return Desktop::Open(path);
+			};
+			return services;
 		}
 
 		std::array<FileDialogFilter, 1> const& GetSceneFilters()
@@ -76,6 +110,32 @@ namespace Strada
 		{
 			std::string const fileName = FileSystem::MakePortableFileName(sceneName);
 			return (fileName.empty() ? std::string("Untitled") : fileName) + SceneExtension;
+		}
+
+		// The docked windows whose tabs were in front in the last frame, the window that had the keyboard last (it keeps the
+		// keyboard when they are focused in this order).
+		std::vector<std::string> FindFrontTabs(ImGuiWindow const* keyboardWindow)
+		{
+			std::vector<std::string> tabs;
+			std::string keyboard;
+			for (ImGuiWindow const* window : GImGui->Windows)
+			{
+				if (!window->WasActive || !window->DockIsActive || !window->DockTabIsVisible)
+				{
+					continue;
+				}
+				if (window == keyboardWindow)
+				{
+					keyboard = window->Name;
+					continue;
+				}
+				tabs.emplace_back(window->Name);
+			}
+			if (!keyboard.empty())
+			{
+				tabs.push_back(std::move(keyboard));
+			}
+			return tabs;
 		}
 
 		// Whether one of the editor's windows has the focus: the main window or a panel dragged out of it.
@@ -110,7 +170,7 @@ namespace Strada
 		  m_Export(m_Context, m_Scripts),
 		  m_AutomationServer(m_Commands),
 		  m_VisualScriptViews(m_Locations.GetUserDataFile("VisualScriptViews.json")),
-		  m_RecentProjects(m_Locations.GetUserDataFile("RecentProjects.json"))
+		  m_StartScreen(m_Locations, MakeStartScreenServices())
 	{
 	}
 
@@ -128,6 +188,7 @@ namespace Strada
 		}
 
 		Application& application = Application::Get();
+		StartCommandsHost startHost;
 		EditorCommandEnvironment environment;
 		environment.Locations = m_Locations;
 		if (application.GetWindow() != nullptr)
@@ -160,6 +221,10 @@ namespace Strada
 			{
 				return ImGui::GetTopMostPopupModal() != nullptr;
 			};
+			environment.IsStartScreenVisible = [this]
+			{
+				return m_StartScreen.IsVisible();
+			};
 			environment.ShowAddComponentMenu = [this](bool open, std::string const& search, std::string const& category)
 			{
 				m_ShowInspector = m_ShowInspector || open;
@@ -181,6 +246,14 @@ namespace Strada
 			environment.FindWindowRect = [this](ScreenshotWindow window, AssetHandle graph)
 			{
 				return FindWindowRect(window, graph);
+			};
+			startHost.ShowStartScreen = [this](bool visible)
+			{
+				ShowStartScreen(visible);
+			};
+			startHost.ShowDialog = [this](EditorDialog dialog, bool open)
+			{
+				return ShowDialog(dialog, open);
 			};
 		}
 		environment.RequestQuit = []
@@ -208,6 +281,7 @@ namespace Strada
 																	 RememberProject();
 																 })
 		                        : registered;
+		registered = registered ? RegisterStartCommands(m_Commands, m_StartScreen, std::move(startHost)) : registered;
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
 		// What is wrong with the templates (the default scene standing in for a missing empty-3d) is said once, at start.
@@ -319,9 +393,59 @@ namespace Strada
 			m_ContentBrowserPanel.SetVisualScriptIndex(&m_VisualScripts->GetProjectIndex());
 			m_InspectorPanel.SetVisualScriptIndex(&m_VisualScripts->GetProjectIndex());
 			ConnectDebugger();
+			m_StartScreenActions = MakeStartScreenActions();
 		}
+		m_ShortcutActions.NewScene = [this]
+		{
+			RequestSceneAction(SceneAction::NewScene);
+		};
+		m_ShortcutActions.OpenScene = [this]
+		{
+			ShowOpenSceneDialog();
+		};
+		m_ShortcutActions.SaveScene = [this]
+		{
+			SaveScene();
+		};
+		m_ShortcutActions.SaveSceneAs = [this]
+		{
+			SaveSceneAs();
+		};
+		m_ShortcutActions.BuildScripts = [this]
+		{
+			if (m_Scripts.HasScriptProject())
+			{
+				m_Scripts.Build();
+			}
+		};
+		m_ShortcutActions.TogglePlay = [this]
+		{
+			if (m_PlayMode.IsPlaying())
+			{
+				m_PlayMode.Stop();
+			}
+			else
+			{
+				StartPlay(EditorPlayState::Play);
+			}
+		};
+		m_ShortcutActions.TogglePause = [this]
+		{
+			if (m_PlayMode.IsPlaying())
+			{
+				m_DebugControls.TogglePause();
+			}
+		};
+		m_ShortcutActions.StepFrame = [this]
+		{
+			m_DebugControls.StepFrame();
+		};
+		m_ShortcutActions.DebugKeys = [this]
+		{
+			m_DebugControls.HandleKeys();
+		};
 
-		if (Result<void> loaded = m_RecentProjects.Load(); !loaded)
+		if (Result<void> loaded = m_StartScreen.GetRecentProjects().Load(); !loaded)
 		{
 			ST_WARN("The recent projects list cannot be read: {}", loaded.GetError());
 		}
@@ -350,10 +474,15 @@ namespace Strada
 				ST_ERROR("Could not open '{}': {}", FileSystem::PathToUtf8(m_Specification.ScenePath), opened.GetError());
 			}
 		}
-		// Without a project the editor starts with a sample scene made of built-in assets.
+		// Without a project the editor starts with a sample scene made of built-in assets, behind the start screen when it has
+		// a window.
 		if (!sceneOpened)
 		{
 			m_Context.SetScene(CreateDefaultScene(), {});
+		}
+		if (m_Specification.StartScreen && m_Context.GetProject() == nullptr)
+		{
+			ShowStartScreen(true);
 		}
 
 		if (!m_Specification.EnableAutomation)
@@ -406,6 +535,8 @@ namespace Strada
 		}
 		m_ProjectSettingsPanel.Flush(m_Operations);
 		m_BuildGameDialog.Flush(m_Operations);
+		// The cards' images go before the graphics device does.
+		m_StartScreenThumbnails.Release();
 		if (m_VisualScripts)
 		{
 			m_VisualScripts->Flush();
@@ -479,6 +610,23 @@ namespace Strada
 				if (Application::Get().GetImGuiLayer() == nullptr)
 				{
 					return false;
+				}
+				// Over the start screen a project file opens; nothing is imported into what lies behind it.
+				if (m_StartScreen.IsVisible())
+				{
+					m_StartScreen.ClearError();
+					if (std::optional<std::filesystem::path> const project = FindDroppedProject(dropped.GetPaths()))
+					{
+						RequestSceneAction(SceneAction::OpenProject, *project);
+					}
+					else
+					{
+						std::string message =
+							"Only a project file (.sproj) dropped on the start screen is opened: open or create a project to import files";
+						ST_INFO("{}", message);
+						m_StartScreen.ReportError(std::move(message));
+					}
+					return true;
 				}
 				m_ShowContentBrowser = true;
 				m_ContentBrowserPanel.DropFiles(dropped.GetPaths());
@@ -682,11 +830,42 @@ namespace Strada
 		UpdateVisualScriptEnumLookup();
 		// Before the menu bar, whose Edit menu reads it.
 		m_KeyboardWindow = FindKeyboardWindow(GImGui->NavWindow, m_KeyboardWindow);
+		// The start screen covers everything but the menu bar: no toolbar, panel or window is drawn behind it.
+		bool const startScreen = m_StartScreen.IsVisible();
+		if (startScreen != m_StartScreenCovered)
+		{
+			// Covering: the tabs in front now (the panels were drawn in the last frame) come to the front again once the
+			// panels are drawn again (DrawDockspace replaces them with the default layout's when it builds that).
+			m_StartScreenCovered = startScreen;
+			if (startScreen)
+			{
+				m_TabsToFocus = FindFrontTabs(m_KeyboardWindow);
+			}
+			m_FocusTabsFrames = !startScreen && !m_TabsToFocus.empty() ? 2 : 0;
+		}
 		// The menu bar and the toolbar take their space from the main viewport before the dockspace fills the rest.
 		DrawMenuBar();
+		if (startScreen)
+		{
+			// The dockspace is kept alive without being drawn, so that the panels docked into it stay docked (imgui.cpp
+			// DockSpaceOverViewport and DockSpace with ImGuiDockNodeFlags_KeepAliveOnly).
+			ImGui::DockSpaceOverViewport(ImHashStr(DockspaceName), ImGui::GetMainViewport(), ImGuiDockNodeFlags_KeepAliveOnly);
+			HandleShortcuts(true);
+			// A game playing behind the screen has no view, and so no input.
+			m_GameInput.SetView({});
+			// The graph windows are not drawn: what waits for their draw (graph.palette) is abandoned rather than kept waiting
+			// until the screen hides.
+			if (m_VisualScripts)
+			{
+				m_VisualScripts->DropAfterDraw();
+			}
+			m_StartScreenPanel.OnImGuiRender(m_StartScreen, m_ExampleCopies, &m_StartScreenThumbnails, m_StartScreenActions);
+			DrawDialogs();
+			return;
+		}
 		DrawToolbar();
 		DrawDockspace();
-		HandleShortcuts();
+		HandleShortcuts(false);
 		FollowPlayState();
 
 		if (m_ViewportPanel && m_ShowViewport)
@@ -767,11 +946,15 @@ namespace Strada
 			m_VisualScripts->OnImGuiRender();
 		}
 
-		if (m_FocusDefaultTabsFrames > 0 && --m_FocusDefaultTabsFrames == 0)
+		if (m_FocusTabsFrames > 0 && --m_FocusTabsFrames == 0)
 		{
-			ImGui::SetWindowFocus(ContentBrowserPanel::WindowName);
-			ImGui::SetWindowFocus("Inspector");
-			ImGui::SetWindowFocus("Scene View");
+			for (std::string const& tab : std::exchange(m_TabsToFocus, {}))
+			{
+				if (ImGui::FindWindowByName(tab.c_str()) != nullptr)
+				{
+					ImGui::SetWindowFocus(tab.c_str());
+				}
+			}
 		}
 		// Asked for by the content browser's notice; the console was drawn above, so it exists.
 		if (std::exchange(m_FocusConsole, false))
@@ -779,8 +962,13 @@ namespace Strada
 			ImGui::SetWindowFocus("Console");
 		}
 
+		DrawDialogs();
+	}
+
+	void EditorLayer::DrawDialogs()
+	{
 		DrawUnsavedChangesPopup();
-		DrawNewProjectPopup();
+		m_NewProjectDialog.OnImGuiRender(m_StartScreen, &m_StartScreenThumbnails, m_StartScreenActions.Form);
 		DrawNewScriptPopup();
 		m_BuildGameDialog.OnImGuiRender(m_Operations, m_Export);
 		m_AgentSetupDialog.OnImGuiRender(GetAgentProject(m_Context), m_Locations.Layout, FindStradaOnPath);
@@ -856,7 +1044,8 @@ namespace Strada
 		ImGui::DockBuilderFinish(dockspace);
 		// The windows docked last would be the tabs in front. Windows can be focused once they exist: after the panels are
 		// drawn in this frame, so in the next one.
-		m_FocusDefaultTabsFrames = 2;
+		m_TabsToFocus = {ContentBrowserPanel::WindowName, "Inspector", "Scene View"};
+		m_FocusTabsFrames = 2;
 	}
 
 	void EditorLayer::DrawMenuBar()
@@ -868,12 +1057,9 @@ namespace Strada
 
 		if (ImGui::BeginMenu("File"))
 		{
-			if (ImGui::MenuItem("New Project..."))
+			if (ImGui::MenuItem(NewProjectDialog::MenuItem))
 			{
-				m_NewProjectName = "New Game";
-				std::vector<std::filesystem::path> const& recent = m_RecentProjects.GetProjects();
-				m_NewProjectLocation = recent.empty() ? std::string() : FileSystem::PathToUtf8(recent.front().parent_path().parent_path());
-				m_OpenNewProjectPopup = true;
+				m_NewProjectDialog.Open();
 			}
 			if (ImGui::MenuItem("Open Project..."))
 			{
@@ -883,6 +1069,10 @@ namespace Strada
 			if (ImGui::MenuItem("Close Project", nullptr, false, m_Context.GetProject() != nullptr))
 			{
 				RequestSceneAction(SceneAction::CloseProject);
+			}
+			if (ImGui::MenuItem("Start Screen", nullptr, m_StartScreen.IsVisible()))
+			{
+				ShowStartScreen(true);
 			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("New Scene", "Ctrl+N"))
@@ -1082,57 +1272,11 @@ namespace Strada
 		ImGui::EndMenu();
 	}
 
-	void EditorLayer::HandleShortcuts()
+	void EditorLayer::HandleShortcuts(bool startScreenVisible)
 	{
-		// Global routes: a focused text field keeps its own keys (Ctrl+Z inside a text field undoes typing).
-		ImGuiInputFlags const route = ImGuiInputFlags_RouteGlobal;
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_N, route))
-		{
-			RequestSceneAction(SceneAction::NewScene);
-		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, route))
-		{
-			ShowOpenSceneDialog();
-		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, route))
-		{
-			SaveSceneAs();
-		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, route))
-		{
-			SaveScene();
-		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_B, route) && m_Scripts.HasScriptProject())
-		{
-			m_Scripts.Build();
-		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_P, route))
-		{
-			if (m_PlayMode.IsPlaying())
-			{
-				m_PlayMode.Stop();
-			}
-			else
-			{
-				StartPlay(EditorPlayState::Play);
-			}
-		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P, route) && m_PlayMode.IsPlaying())
-		{
-			m_DebugControls.TogglePause();
-		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_P, route))
-		{
-			m_DebugControls.StepFrame();
-		}
-		// F5, F10, F11, Ctrl+F11 and Shift+F11 while an execution is stopped.
-		m_DebugControls.HandleKeys();
-
-		// Undo and Redo, then Cut, Copy, Paste, Duplicate, Delete and Select All: on the Edit menu's target, as its items, but
-		// for the chords the window that has the keyboard claims. None runs while a text field has the keyboard or a modal is
-		// open.
-		HandleEditorHistoryKeys(m_Operations, m_VisualScripts.get());
-		HandleEditorEditingKeys(m_Operations, m_VisualScripts.get(), FindClaimedEditingChords(m_KeyboardWindow));
+		// None acts while a modal dialog is open or the start screen shows (EditorShortcuts).
+		HandleEditorShortcuts(m_ShortcutActions, m_Operations, m_VisualScripts.get(), FindClaimedEditingChords(m_KeyboardWindow),
+		                      startScreenVisible);
 	}
 
 	void EditorLayer::DrawUnsavedChangesPopup()
@@ -1240,66 +1384,6 @@ namespace Strada
 		m_PendingAction = action;
 		m_PendingPath = std::move(path);
 		m_OpenUnsavedChangesPopup = true;
-	}
-
-	void EditorLayer::DrawNewProjectPopup()
-	{
-		if (m_OpenNewProjectPopup)
-		{
-			ImGui::OpenPopup(NewProjectPopup);
-			m_OpenNewProjectPopup = false;
-		}
-		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-		ImGui::SetNextWindowSize(ImVec2(520.0f, 0.0f), ImGuiCond_Appearing);
-		if (!ImGui::BeginPopupModal(NewProjectPopup, nullptr, ImGuiWindowFlags_NoSavedSettings))
-		{
-			return;
-		}
-
-		ImGui::TextUnformatted("Name");
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		ImGui::InputText("##name", &m_NewProjectName);
-		ImGui::TextUnformatted("Location");
-		float const browseWidth = ImGui::CalcTextSize("Browse...").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-		ImGui::SetNextItemWidth(-(browseWidth + ImGui::GetStyle().ItemSpacing.x));
-		ImGui::InputText("##location", &m_NewProjectLocation);
-		ImGui::SameLine();
-		if (ImGui::Button("Browse..."))
-		{
-			Result<std::optional<std::filesystem::path>> chosen = FileDialogs::PickFolder(FileSystem::PathFromUtf8(m_NewProjectLocation));
-			if (!chosen)
-			{
-				ST_ERROR("{}", chosen.GetError());
-			}
-			else if (chosen.GetValue())
-			{
-				m_NewProjectLocation = FileSystem::PathToUtf8(*chosen.GetValue());
-			}
-		}
-
-		// The directory is named after the project, restricted to characters valid in file names everywhere.
-		std::string const directoryName = FileSystem::MakePortableFileName(m_NewProjectName);
-		std::filesystem::path const directory = FileSystem::PathFromUtf8(m_NewProjectLocation) / FileSystem::PathFromUtf8(directoryName);
-		bool const valid = !directoryName.empty() && !m_NewProjectLocation.empty();
-		if (valid)
-		{
-			ImGui::TextDisabled("Creates %s", FileSystem::PathToUtf8(directory).c_str());
-		}
-		ImGui::Spacing();
-		ImGui::BeginDisabled(!valid);
-		if (ImGui::Button("Create"))
-		{
-			ImGui::CloseCurrentPopup();
-			m_PendingProjectName = m_NewProjectName;
-			RequestSceneAction(SceneAction::NewProject, directory);
-		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
-		{
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndPopup();
 	}
 
 	void EditorLayer::OpenNewScriptPopup(std::string folder)
@@ -1520,7 +1604,7 @@ namespace Strada
 
 	void EditorLayer::DrawRecentProjectsMenu()
 	{
-		std::vector<std::filesystem::path> const recent = m_RecentProjects.GetProjects();
+		std::vector<std::filesystem::path> const recent = m_StartScreen.GetRecentProjects().GetProjects();
 		if (!ImGui::BeginMenu("Recent Projects", !recent.empty()))
 		{
 			return;
@@ -1540,8 +1624,7 @@ namespace Strada
 		ImGui::Separator();
 		if (ImGui::MenuItem("Clear Recent Projects"))
 		{
-			m_RecentProjects.Clear();
-			UI::ReportFailure(m_RecentProjects.Save(), "Saving the recent projects");
+			UI::ReportFailure(m_StartScreen.ClearRecentProjects(), "Saving the recent projects");
 		}
 		ImGui::EndMenu();
 	}
@@ -1575,22 +1658,50 @@ namespace Strada
 			}
 			case SceneAction::NewProject:
 			{
-				// The dialog's projects start from the default scene, with a .gitignore.
-				ProjectTemplateList const templates = EditorOperations::ListProjectTemplates(m_Locations.Layout);
-				Result<void> created =
-					m_Operations.CreateProject(path, m_PendingProjectName, *templates.Find(ProjectTemplate::DefaultId), TemplateOptions{});
-				if (created)
+				// As the New Project form was when Create was clicked, from the templates it offered.
+				std::optional<NewProjectRequest> const request = std::exchange(m_PendingNewProject, std::nullopt);
+				if (!request)
+				{
+					break;
+				}
+				Result<NewProjectOutcome> created =
+					CreateProjectFromRequest(m_Operations, *request, m_StartScreen.GetTemplates(), m_Locations.Layout, FindStradaOnPath);
+				if (!created)
+				{
+					ReportActionFailure("Creating the project", created.GetError());
+				}
+				else
 				{
 					RememberProject();
+					if (std::optional<NewProjectAgentSetup> const& agents = created.GetValue().Agents)
+					{
+						for (std::string const& warning : agents->Warnings)
+						{
+							ST_WARN("Setting the project up for coding agents: {}", warning);
+						}
+					}
 				}
-				UI::ReportFailure(created, "Creating the project");
 				break;
 			}
 			case SceneAction::OpenProject:
 				OpenProject(path);
 				break;
 			case SceneAction::CloseProject:
-				UI::ReportFailure(m_Operations.CloseProject(), "Closing the project");
+			{
+				Result<void> const closed = m_Operations.CloseProject();
+				UI::ReportFailure(closed, "Closing the project");
+				// File > Close Project goes back to the start screen.
+				if (closed)
+				{
+					ShowStartScreen(true);
+				}
+				break;
+			}
+			case SceneAction::CopyExample:
+				if (std::optional<PendingExampleCopy> const request = std::exchange(m_PendingExampleCopy, std::nullopt))
+				{
+					StartExampleCopy(*request);
+				}
 				break;
 			case SceneAction::Quit:
 				Application::Get().Close();
@@ -1603,7 +1714,7 @@ namespace Strada
 		Result<std::optional<std::filesystem::path>> chosen = FileDialogs::OpenFile(GetProjectFilters());
 		if (!chosen)
 		{
-			ST_ERROR("{}", chosen.GetError());
+			ReportActionFailure("Choosing a project", chosen.GetError());
 			return;
 		}
 		if (chosen.GetValue())
@@ -1620,11 +1731,10 @@ namespace Strada
 			RememberProject();
 			return;
 		}
-		ST_ERROR("Could not open the project '{}': {}", FileSystem::PathToUtf8(file), opened.GetError());
+		ReportActionFailure(fmt::format("Opening the project '{}'", FileSystem::PathToUtf8(file)), opened.GetError());
 		if (!FileSystem::Exists(file))
 		{
-			m_RecentProjects.Remove(file);
-			UI::ReportFailure(m_RecentProjects.Save(), "Saving the recent projects");
+			UI::ReportFailure(m_StartScreen.RemoveRecentProject(file), "Saving the recent projects");
 		}
 	}
 
@@ -1632,8 +1742,7 @@ namespace Strada
 	{
 		if (Project const* project = m_Context.GetProject())
 		{
-			m_RecentProjects.Add(project->GetFilePath());
-			UI::ReportFailure(m_RecentProjects.Save(), "Saving the recent projects");
+			UI::ReportFailure(m_StartScreen.OnProjectOpened(project->GetFilePath()), "Saving the recent projects");
 		}
 	}
 
@@ -1707,5 +1816,156 @@ namespace Strada
 	glm::vec3 EditorLayer::GetSpawnPosition() const
 	{
 		return m_ViewportPanel ? m_ViewportPanel->GetCamera().GetFocalPoint() : glm::vec3(0.0f);
+	}
+
+	void EditorLayer::ShowStartScreen(bool visible)
+	{
+		// Only an editor with a window shows it.
+		if (Application::Get().GetImGuiLayer() == nullptr)
+		{
+			return;
+		}
+		m_StartScreen.SetVisible(visible);
+		if (visible)
+		{
+			// The inspector is not drawn behind the screen: an Add Component menu asked for (inspector.add-component-menu) does
+			// not wait to pop up when the screen hides.
+			m_InspectorPanel.ShowAddComponentMenu(false, {});
+		}
+	}
+
+	void EditorLayer::ReportActionFailure(std::string_view doing, std::string const& error)
+	{
+		std::string message = fmt::format("{} failed: {}", doing, error);
+		ST_ERROR("{}", message);
+		m_StartScreen.ReportError(std::move(message));
+	}
+
+	StartScreenActions EditorLayer::MakeStartScreenActions()
+	{
+		StartScreenActions actions;
+		actions.OpenProject = [this](std::filesystem::path const& projectFile)
+		{
+			RequestSceneAction(SceneAction::OpenProject, projectFile);
+		};
+		actions.BrowseProject = [this]
+		{
+			ShowOpenProjectDialog();
+		};
+		actions.OpenExample = [this](ExampleEntry const& example, std::filesystem::path const& target)
+		{
+			// Unsaved changes are decided before anything is copied.
+			m_PendingExampleCopy = PendingExampleCopy{example.Id, target};
+			RequestSceneAction(SceneAction::CopyExample);
+		};
+		actions.Continue = [this]
+		{
+			ShowStartScreen(false);
+		};
+		actions.Form.PickFolder = [](std::filesystem::path const& start)
+		{
+			return FileDialogs::PickFolder(start);
+		};
+		actions.Form.Create = [this](NewProjectRequest const& request)
+		{
+			m_PendingNewProject = request;
+			RequestSceneAction(SceneAction::NewProject, request.Directory);
+		};
+		return actions;
+	}
+
+	void EditorLayer::StartExampleCopy(PendingExampleCopy const& request)
+	{
+		std::optional<ExampleCatalog> const& catalog = m_StartScreen.GetExamples();
+		ExampleEntry const* const example = catalog ? catalog->Find(request.Example) : nullptr;
+		if (example == nullptr)
+		{
+			ReportActionFailure("Copying the example", fmt::format("there is no example '{}'", request.Example));
+			return;
+		}
+		// The unsaved-changes prompt was answered (or the scene had no unsaved changes) for the scene as it is now.
+		EditorSceneMark const decided = m_Context.GetSceneMark();
+		Result<void> started =
+			m_ExampleCopies.Start(*catalog, *example, request.Target,
+		                          [this, name = example->Name, decided](Result<ExampleCopyOutcome> outcome, bool cancelled)
+		                          {
+									  if (cancelled)
+									  {
+										  ST_INFO("Copying {} was cancelled: nothing was left behind", name);
+										  return;
+									  }
+									  if (!outcome)
+									  {
+										  ReportActionFailure("Copying the example", outcome.GetError());
+										  return;
+									  }
+									  for (std::string const& warning : outcome.GetValue().Warnings)
+									  {
+										  ST_WARN("Copying {}: {}", name, warning);
+									  }
+									  ST_INFO("Copied {} to {}", name, FileSystem::PathToUtf8(outcome.GetValue().Directory));
+									  // The answer about unsaved changes holds for the scene it was given for; a scene that changed
+			                          // (or play started) while it copied is asked about again. The copy stays either way.
+									  if (m_Context.GetSceneMark() == decided)
+									  {
+										  PerformSceneAction(SceneAction::OpenProject, outcome.GetValue().ProjectFile);
+									  }
+									  else
+									  {
+										  RequestSceneAction(SceneAction::OpenProject, outcome.GetValue().ProjectFile);
+									  }
+								  });
+		if (!started)
+		{
+			ReportActionFailure("Copying the example", started.GetError());
+		}
+	}
+
+	Result<void> EditorLayer::ShowDialog(EditorDialog dialog, bool open)
+	{
+		bool const newProject = dialog == EditorDialog::NewProject;
+		if (!open)
+		{
+			if (newProject)
+			{
+				m_NewProjectDialog.Close();
+			}
+			else
+			{
+				m_AgentSetupDialog.Close();
+			}
+			return {};
+		}
+		// The modal open now, as the last frame left it, and the dialogs asked to open in the next frame.
+		EditorDialogState state;
+		ImGuiWindow const* const modal = ImGui::GetTopMostPopupModal();
+		state.OpenModal = modal != nullptr ? std::string(modal->Name) : std::string();
+		state.NewProjectRequested = m_NewProjectDialog.IsOpenRequested();
+		state.AgentSetupRequested = m_AgentSetupDialog.IsOpenRequested();
+		state.OtherRequested = m_OpenUnsavedChangesPopup || m_OpenNewScriptPopup;
+		state.HasProject = GetAgentProject(m_Context).has_value();
+		Result<EditorDialogOpening> const decided = DecideEditorDialogOpen(dialog, state);
+		if (!decided)
+		{
+			return Error{decided.GetError()};
+		}
+		bool const keep = decided.GetValue() == EditorDialogOpening::KeepShown;
+		if (newProject && keep)
+		{
+			m_NewProjectDialog.KeepShown();
+		}
+		else if (newProject)
+		{
+			m_NewProjectDialog.Open();
+		}
+		else if (keep)
+		{
+			m_AgentSetupDialog.KeepShown();
+		}
+		else
+		{
+			m_AgentSetupDialog.Open();
+		}
+		return {};
 	}
 }

@@ -1285,6 +1285,8 @@ namespace
 		VisualScriptEditors Editors{Operations, Semantics, Settings};
 		CommandRegistry Registry;
 		bool DialogOpen = false;
+		// Whether the start screen covers the windows, which the editor does not draw then.
+		bool StartScreenVisible = false;
 
 		// With docking, windows can be docked together, so one hides another behind its tab.
 		explicit GraphWindowFixture(bool docking = false)
@@ -1300,6 +1302,10 @@ namespace
 			environment.IsDialogOpen = [this]
 			{
 				return DialogOpen;
+			};
+			environment.IsStartScreenVisible = [this]
+			{
+				return StartScreenVisible;
 			};
 			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
 			REQUIRE(Operations.CreateProject(Directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
@@ -2089,6 +2095,43 @@ TEST_CASE("GraphCommands: graph.palette answers for a window graph.open opened i
 	CommandError const unloadable = fixture.Fails("graph.palette", Json::object({{"graph", other}}));
 	CHECK(unloadable.Code == AutomationErrorCode::InvalidOperation);
 	CHECK(unloadable.Message.find("does not load") != std::string::npos);
+}
+
+TEST_CASE("GraphCommands: graph.palette refuses to open while the start screen covers the windows, and one waiting for their draw "
+          "then answers Cancelled")
+{
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Frames(2);
+
+	// The editor does not draw the windows behind the screen: nothing would answer.
+	fixture.StartScreenVisible = true;
+	CommandError const covered = fixture.Fails("graph.palette", Json::object({{"graph", graph}, {"query", "br"}}));
+	CHECK(covered.Code == AutomationErrorCode::InvalidOperation);
+	CHECK(covered.Message.find("start.show") != std::string::npos);
+	fixture.StartScreenVisible = false;
+
+	// Asked for before the screen appeared in the same frame: in each frame the screen covers the windows, the editor drops
+	// what waits for their draw (EditorLayer), and the palette answers at once.
+	std::optional<CommandResult> palette;
+	fixture.Registry.Execute("graph.palette", Json::object({{"graph", graph}, {"query", "br"}}),
+	                         [&palette](CommandResult result)
+	                         {
+								 palette.emplace(std::move(result));
+							 });
+	REQUIRE_FALSE(palette.has_value());
+	fixture.StartScreenVisible = true;
+	fixture.Editors.DropAfterDraw();
+	REQUIRE(palette.has_value());
+	REQUIRE(palette->IsError());
+	CHECK(palette->GetError().Code == AutomationErrorCode::Cancelled);
+
+	// Once the screen hides, the palette opens and answers again.
+	fixture.StartScreenVisible = false;
+	Json const listed = fixture.Ok("graph.palette", Json::object({{"graph", graph}, {"query", "br"}}));
+	CHECK(listed["open"] == true);
+	CHECK_FALSE(listed["entries"].empty());
 }
 
 TEST_CASE("GraphCommands: graph.editors reports what a window shows beyond its defaults")

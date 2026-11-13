@@ -80,6 +80,10 @@ namespace Strada
 		// Whether a dialog (a modal popup such as the unsaved changes prompt) is open: menus do not open over it, as users
 		// cannot open them then either. May be unset (the editor shows no dialogs).
 		std::function<bool()> IsDialogOpen;
+		// Whether the start screen covers the editor's panels and graph windows, which are not drawn while it shows:
+		// graph.palette and inspector.add-component-menu, which need their window drawn, refuse to open then. May be unset (the
+		// editor shows no start screen).
+		std::function<bool()> IsStartScreenVisible;
 		// Shows the inspector with its Add Component menu open and the search text typed in or, without search text, the
 		// submenu of a component category open (none when empty), or closes the menu (open false). Unset when the editor has
 		// no UI (headless); inspector.add-component-menu then fails with AutomationErrorCode::Unavailable.

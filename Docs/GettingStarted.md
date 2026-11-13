@@ -105,7 +105,9 @@ build/linux-gcc-release/bin/StradaEditor --project Projects/PrismBreak/PrismBrea
 build/macos-release/bin/StradaEditor --project Projects/PrismBreak/PrismBreak.sproj      # macOS
 ```
 
-Without a project, the editor starts with a sample scene made of built-in assets. The default layout puts the Scene
+Without a project, the editor starts at its start screen ([Create a project](#create-a-project) uses it), over a
+sample scene made of built-in assets; **Continue without a project** at its bottom right hides the screen and leaves
+you with that scene. The default layout puts the Scene
 View, the Game View and Renderer Info in the middle, the Scene Hierarchy on the left, the Inspector (with Scene
 Settings and Project Settings) on the right, and the Content Browser, the Console and the Visual Script Debugger at the
 bottom. The View menu shows and hides each of them, and View > Reset Layout brings the default back. The toolbar above
@@ -133,14 +135,17 @@ Some of the editor's command-line options (`StradaEditor --help` lists them all)
 | `--scene <path>` | Open this scene file at startup, after the project |
 | `--maximized`, `--window-size <W>x<H>` | Open the window maximized, or at this size (default 1600x900) |
 | `--headless` | Run without a window or UI, for automation |
+| `--no-start-screen` | Start without the start screen when no project opens |
 | `--automation-port <port>`, `--no-automation` | Fix the automation server's port on 127.0.0.1, or do not start it |
 
 ### Open the samples
 
 Open a project with File > Open Project..., File > Recent Projects, or `--project` on the command line. The samples
-are in the repository, so you can open them in place to look at them. To make one your own, take a copy: an agent (or
-any automation client) copies Prism Break, Blocks or the Showcase with `project.copy-example` (`project.examples` lists
-them), leaving out their authoring tools and build output, and opens the copy.
+are in the repository, so you can open them in place to look at them. To make one your own, take a copy: **Open** on
+an example's card on the start screen copies Prism Break, Blocks or the Showcase into the New Project form's location
+(in a folder named after it) and opens the copy, and an agent (or any automation client) does the same with
+`project.copy-example` (`project.examples` lists them). A copy leaves out the example's authoring tools and build
+output.
 
 - **Showcase** (`Projects/Showcase/Showcase.sproj`). Its Poly Haven sky, models and texture maps are not in the
   repository (about 95 MB, CC0). Download them once after cloning, before you open the project:
@@ -241,10 +246,18 @@ seconds when you press Space), a cube that a C# script turns, and a line of text
 
 ### Create a project
 
-1. Choose File > New Project....
-2. Type a **Name** (for example `First Game`) and a **Location**, the folder the project goes into (Browse... picks
-   one). The dialog shows the directory it creates: a folder named after the project inside the location.
-3. Click **Create**. If the open scene has unsaved changes, the editor first asks whether to save them.
+The editor starts at its start screen: your recent projects on the left, the New Project form in the middle, the
+example games and the guides on the right, and at the bottom what the editor found on your machine (.NET, its SDK,
+the GPU). File > Start Screen shows it again at any time, and with a project open File > New Project... shows the same
+form in a dialog.
+
+1. Click the **Empty 3D** card. Graph Starter and C# Starter are small finished games, Orb Run, made of visual scripts
+   or of C#; try them later.
+2. Type a **Name** (for example `First Game`). The **Location**, the folder the project goes into, starts at
+   `Documents/Strada Projects` (Browse... picks another). The line below shows the folder it creates: a folder named
+   after the project inside the location.
+3. Leave **Set up for coding agents** and **Add a .gitignore** on, and click **Create**. If the open scene has unsaved
+   changes, the editor first asks whether to save them.
 
 The editor opens the new project, made from the template `empty-3d`. Its folder holds:
 
@@ -255,6 +268,7 @@ The editor opens the new project, made from the template `empty-3d`. Its folder 
 | `Assets/AssetRegistry.sreg` | The registry that gives every asset file a handle, so references survive moving files |
 | `Assets/Scenes/Main.sscene` | The start scene |
 | `.gitignore` | Keeps build output, caches and machine-specific files (`Build/`, `.strada/`, the script build) out of git |
+| `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `.claude/`, `.strada/` | What coding agents read to work in the project through the editor ([Agents.md](Agents.md)) |
 | `Scripts/` | Created with the first C# script: the C# project `Game.csproj`, the sources in `Source/`, the build in `Binaries/` |
 
 The start scene is open. It holds a camera (Main Camera), a directional light (Sun), a sky light with the built-in sky
@@ -265,7 +279,9 @@ with `template`; `project.templates` lists them). Both are Orb Run, a small game
 collect 12 sparks before the time runs out, with a test scene, `Scenes/Tests.sscene`: `graph-starter` is made of visual
 scripts alone ([A first game: Orb Run](VisualScripting.md#a-first-game-orb-run)), and `csharp-starter` is written in C#
 (the C# project `Scripts/Game.csproj`, its namespace `Game`), with one C# member that a graph calls as a node. A project
-made from `csharp-starter` needs the .NET 10 SDK: the editor builds its scripts when it opens.
+made from `csharp-starter` needs the .NET 10 SDK: the editor builds its scripts when it opens. `project.create` also sets
+the new project up for coding agents (`AGENTS.md`, `CLAUDE.md`, `.mcp.json`, the game-making skill and the guides under
+`.strada/docs/`; [Agents](Agents.md#projects-set-up-for-coding-agents)) unless its `agents` is false.
 
 ### Build the scene
 

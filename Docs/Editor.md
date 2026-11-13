@@ -36,14 +36,15 @@ Option key. The editor's own menus write their shortcuts with Ctrl on every plat
 ### Command line
 
 Run `StradaEditor` from the build's `bin` folder (for example `build/windows-debug/bin/StradaEditor.exe`). Without
-options it opens a window of 1600 x 900 pixels with a sample scene and no project. `StradaEditor --help` prints the
-options:
+options it opens a window of 1600 x 900 pixels with no project, showing the [start screen](#the-start-screen) over a
+sample scene. `StradaEditor --help` prints the options:
 
 | Option | What it does |
 |--------|--------------|
 | `--help` | Shows the options and exits |
 | `--project <path>` | Opens this project file (`.sproj`) at startup |
 | `--scene <path>` | Opens this scene file at startup, after the project; a scene that cannot be opened keeps the project's start scene |
+| `--no-start-screen` | Starts without the [start screen](#the-start-screen) when no project opens; File > Start Screen shows it all the same (`strada mcp` starts its editors with it) |
 | `--maximized` | Opens the editor window maximized |
 | `--window-size <WxH>` | The editor window's size in pixels, such as `1920x1080` (default 1600x900) |
 | `--no-vsync` | Presents without waiting for vertical sync |
@@ -58,6 +59,52 @@ options:
 
 An unknown option or a missing value prints the error and the help text, and a wrong `--window-size`,
 `--automation-port` or `--parent-process` value prints the error; both exit with code 2.
+
+### The start screen
+
+When the editor starts without a project (none given, or the one given cannot be opened), it shows the start screen
+over its whole window, under the menu bar. File > Close Project comes back to it, File > Start Screen shows it at any
+time, and opening or creating a project, in any way, hides it. An editor without a window (`--headless`) never shows
+it, and `--no-start-screen` starts without it.
+
+| Area | What it holds |
+|------|---------------|
+| Header | Strada and its version, and under it, in orange, what went wrong with the last thing you did on the screen (a project that does not open, a project that cannot be created, an example that does not copy, a file dropped that is not a project); hover it for the whole message. It goes when you do something else on the screen |
+| Recent projects | The last 10 projects you opened or created, each with its folder (a long folder keeps its last folders and starts with "..."; hover the project for its whole path). Click one to open it. A project whose file is gone says **Missing**, one whose file does not read as a project says **Unreadable**; neither opens. Right-click a project for Open, Show in Folder (the system's file manager; not for a Missing one) and Remove from List. **Open Project...** below the list picks a `.sproj` file with the system's file dialog. Without recent projects the list says so |
+| New project | The [New Project form](#the-new-project-form), with its **Create** button right below it |
+| Examples | The example games, a card each with a picture, what they are and what they need: **Visual scripts: no SDK needed** or **C#: needs the .NET 10 SDK**. **Open** copies the example into the form's location, in a folder named after it (`<Name> 2`, `<Name> 3`... when that is taken), shows the copy's progress ("Copying 37%") with Cancel, and opens the copy. The engine's own example folders are never opened in place. An example whose files are missing (the Showcase before its assets are downloaded) says what restores them, and its Open is disabled. The list scrolls when the window is too short for it |
+| Learn | Under the examples: Getting started, The editor, Scripting, Visual scripting and Agents. Each opens that guide with the system's handler; a guide that is not there is not listed |
+| The bottom line | What the editor found on this machine: the .NET runtime scripting started with (".NET runtime not found: scripts are off" without one), ".NET SDK found" (it builds C# scripts) or ".NET SDK not found: needed to build C# scripts", the GPU and its Vulkan version (hover the line for the SDK's path); and **Continue without a project**, which hides the screen and leaves you with the scene behind it |
+
+The cards of the templates and the examples are as tall as their longest description needs, so they show their texts
+whole; a card whose name or description is still cut (a very long one, or a very small window) shows it in its tooltip.
+
+The sample scene "Untitled" is loaded behind the screen while it shows, but nothing behind it is drawn or reacts to
+the mouse or the keyboard, and no [shortcut](#keyboard-shortcuts) acts; the menu bar works as usual. A project file
+(`.sproj`) dropped onto the window opens; other files dropped there are not imported. Automation works on the scene
+behind the screen all the same.
+
+### The new project form
+
+The start screen and File > New Project... (a dialog holding the same form, also with a project open) create
+projects the same way:
+
+- A card per template of the engine: **Empty 3D** (the sample scene described below), **Graph Starter** (the game
+  Orb Run, made of visual scripts) and **C# Starter** (Orb Run in C#). Click a card to choose it. A template that
+  needs the .NET 10 SDK on a machine without one shows a warning; it can still be created, and its scripts build once
+  the SDK is installed.
+- **Name** (`New Game` at first) and **Location**, the folder the project's folder goes into (at first
+  `<Documents>/Strada Projects`, which is created with the first project made in it; Browse... picks another). The
+  line under them shows the folder Create makes: named after the project, with only characters that are valid in file
+  names everywhere.
+- **Set up for coding agents** (on): writes `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, the game-making skill and the guides
+  into the project, as [Set Up for Coding Agents](#setting-a-project-up-for-coding-agents) does; **Files it writes** lists them.
+- **Add a .gitignore** (on): writes a `.gitignore` that keeps build output, caches and machine-specific files out of
+  git.
+- **Create** is disabled, with the reason beside it (hover the reason to read all of it), while the name is empty, the
+  location is empty or not a full path, or the folder exists and is not empty. It creates the project, opens it and
+  its start scene, and adds it to the recent projects. Neither checkbox nor the location is remembered: the form
+  starts afresh each time the dialog opens and each time the editor starts.
 
 ### Projects
 
@@ -77,12 +124,9 @@ building the game) need an open project; without one the editor still edits loos
 
 File menu commands for projects:
 
-- New Project... opens a dialog with the project's Name (`New Game` at first) and Location (at first the folder that
-  holds your most recent project's folder; Browse... picks another). The dialog shows the folder it creates, named
-  after the project with only characters that are valid in file names everywhere. Create makes the folder, the
-  project file, `Assets/Scenes/Main.sscene` (the sample scene described below) and a `.gitignore` that keeps build
-  output, caches and machine-specific files out of git, and opens the project: it is the template `empty-3d`. The
-  folder must be new or empty. Automation creates projects from any template of the engine's `Templates/`
+- New Project... opens a dialog with the [New Project form](#the-new-project-form): a template (`empty-3d` makes the
+  project file and `Assets/Scenes/Main.sscene`, the sample scene described below), the name, the location, the setup
+  for coding agents and the `.gitignore`. Automation creates projects from any template of the engine's `Templates/`
   (`project.templates`, `project.create`'s `template`: `empty-3d`; `graph-starter`, the game Orb Run made of visual
   scripts; or `csharp-starter`, Orb Run in C#, which needs the .NET 10 SDK and builds its scripts when it opens) and
   copies the example games (`project.examples`, `project.copy-example`).
@@ -90,7 +134,9 @@ File menu commands for projects:
   cannot be opened, the console says why and you get an empty scene.
 - Recent Projects lists the last 10 projects you opened or created (hover one to see its path); Clear Recent
   Projects empties the list. A project whose file no longer exists is removed from the list when you try to open it.
-- Close Project closes the project and leaves an empty scene named "Untitled".
+- Close Project closes the project, leaves an empty scene named "Untitled" and shows the
+  [start screen](#the-start-screen).
+- Start Screen shows the start screen.
 
 Opening, creating or closing a project, like opening or creating a scene, first asks to save unsaved changes (see
 [Unsaved changes](#unsaved-changes)) and stops play mode.
@@ -108,7 +154,7 @@ same scene as `Assets/Scenes/Main.sscene`.
 
 | Menu | Items |
 |------|-------|
-| File | New Project..., Open Project..., Recent Projects, Close Project, New Scene (Ctrl+N), Open Scene... (Ctrl+O), Save Scene (Ctrl+S), Save Scene As... (Ctrl+Shift+S), Build Game..., Set Up for Coding Agents..., Exit |
+| File | New Project..., Open Project..., Recent Projects, Close Project, Start Screen, New Scene (Ctrl+N), Open Scene... (Ctrl+O), Save Scene (Ctrl+S), Save Scene As... (Ctrl+Shift+S), Build Game..., Set Up for Coding Agents..., Exit |
 | Edit | Undo and Redo (named after the step they apply), Duplicate (Ctrl+D), Delete (Delete), Select All (Ctrl+A), Deselect All; while a graph window is the target, its own editing items instead |
 | Entity | Create Empty, then the submenus 3D Object, 2D Object, Rendering, Effects, Physics, Audio and UI of [ready-made entities](#creating-entities) |
 | Scripts | New Script..., Build Scripts (Ctrl+B) |
@@ -965,7 +1011,9 @@ On macOS, Cmd replaces Ctrl in every shortcut below.
 
 ### Everywhere
 
-These work in every panel, also while you type in a text field.
+These work in every panel, also while you type in a text field. No shortcut of this page acts while a dialog is open
+(New Project, Set Up for Coding Agents, Build Game, the unsaved-changes prompt) or while the
+[start screen](#the-start-screen) shows.
 
 | Shortcut | What it does |
 |----------|--------------|

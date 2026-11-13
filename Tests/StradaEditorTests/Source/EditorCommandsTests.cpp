@@ -4,6 +4,7 @@
 
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/Automation/ProjectContentCommands.h"
+#include "Editor/Automation/StartCommands.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/EntityPresets.h"
@@ -18,6 +19,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Project/Project.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/ComponentTraits.h"
@@ -45,6 +47,9 @@ namespace
 		EditorOperations Operations{Context};
 		// Copies examples for project.copy-example (ProjectContentCommandsTests runs them).
 		ExampleCopyTask Copies;
+		// The start screen's state behind start.info, start.show and editor.recent (StartCommandsTests runs them), with the
+		// commands' locations.
+		StartScreenModel StartScreen{Testing::MakeEditorLocations(LocationsRoot.GetPath())};
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 		int ProjectsOpened = 0;
@@ -69,6 +74,8 @@ namespace
 		std::vector<std::pair<bool, std::string>> EntityMenuRequests;
 		// Whether the editor shows a dialog, over which no menu opens.
 		bool DialogOpen = false;
+		// Whether the start screen covers the panels, which are not drawn then.
+		bool StartScreenVisible = false;
 		// Where viewport.screenshot finds the editor's windows in the captured image (EditorCommandEnvironment::FindWindowRect).
 		std::function<Result<ScreenshotRect>(ScreenshotWindow, AssetHandle)> WindowRect;
 
@@ -82,7 +89,7 @@ namespace
 			};
 			environment.ProjectOpened = [this]
 			{
-				ProjectsOpened++;
+				OnProjectOpened();
 			};
 			if (withWindow)
 			{
@@ -110,6 +117,10 @@ namespace
 				{
 					return DialogOpen;
 				};
+				environment.IsStartScreenVisible = [this]
+				{
+					return StartScreenVisible;
+				};
 				environment.ShowAddComponentMenu = [this](bool open, std::string const& search, std::string const& category)
 				{
 					AddComponentMenuRequests.push_back({open, search, category});
@@ -132,9 +143,28 @@ namespace
 			REQUIRE(RegisterProjectContentCommands(Registry, Operations, Copies, locations,
 			                                       [this]
 			                                       {
-													   ProjectsOpened++;
+													   OnProjectOpened();
 												   })
 			            .IsOk());
+			StartCommandsHost startHost;
+			if (withWindow)
+			{
+				startHost.ShowStartScreen = [this](bool visible)
+				{
+					StartScreen.SetVisible(visible);
+				};
+			}
+			REQUIRE(RegisterStartCommands(Registry, StartScreen, std::move(startHost)).IsOk());
+		}
+
+		// As the editor layer does: the project goes to the recent projects, and the start screen hides.
+		void OnProjectOpened()
+		{
+			ProjectsOpened++;
+			if (Project const* project = Context.GetProject())
+			{
+				CHECK(StartScreen.OnProjectOpened(project->GetFilePath()).IsOk());
+			}
 		}
 
 		CommandResult Run(std::string_view name, Json params = Json::object())
@@ -401,8 +431,17 @@ TEST_CASE("EditorCommands: inspector.add-component-menu opens the inspector's me
 	fixture.DialogOpen = true;
 	CHECK(fixture.Fails("inspector.add-component-menu") == AutomationErrorCode::InvalidOperation);
 	CHECK(fixture.AddComponentMenuRequests.size() == requests);
+	// Nor while the start screen covers the inspector, which is not drawn then: the menu would pop up once it hides.
+	fixture.DialogOpen = false;
+	fixture.StartScreenVisible = true;
+	CommandResult const covered = fixture.Run("inspector.add-component-menu");
+	REQUIRE(covered.IsError());
+	CHECK(covered.GetError().Code == AutomationErrorCode::InvalidOperation);
+	CHECK(covered.GetError().Message.find("start.show") != std::string::npos);
+	CHECK(fixture.AddComponentMenuRequests.size() == requests);
+	fixture.DialogOpen = true;
 
-	// Closing needs no selection, also with a dialog open.
+	// Closing needs no selection, also with a dialog open or the start screen showing.
 	fixture.Ok("entity.select", Json::object({{"entities", {scripted}}, {"mode", "remove"}}));
 	REQUIRE(fixture.Context.GetSelection().IsEmpty());
 	Json const closed = fixture.Ok("inspector.add-component-menu", Json::object({{"open", false}}));

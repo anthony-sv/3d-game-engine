@@ -115,6 +115,10 @@ namespace Strada
 		                                          std::string_view distinct = {});
 		// A length of time as a label: "40 ms" below a second, "2.4 s" below ten seconds, "1:05" (minutes and seconds) above.
 		std::string FormatDuration(double seconds);
+		// A message of a result or a log line ("no strada on PATH ...", which start in lower case and end without a full
+		// stop) as a sentence of a dialog: its first letter in upper case and a full stop at its end, unless it ends with one
+		// or with '!', '?' or ':'. Empty stays empty.
+		std::string FormatSentence(std::string_view message);
 
 		// Icons of the toolbar buttons, drawn as shapes (the editor needs no icon font).
 		enum class ToolbarIcon : uint8_t

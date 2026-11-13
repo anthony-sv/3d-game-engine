@@ -56,6 +56,7 @@ namespace Strada
 			.AddFlag("no-automation", "Do not start the automation server")
 			.AddOption("project", "path", "Open this project file (.sproj) at startup")
 			.AddOption("scene", "path", "Open this scene file at startup (after the project)")
+			.AddFlag("no-start-screen", "Start without the start screen (File > Start Screen shows it)")
 			.AddOption("parent-process", "id", "Close, discarding unsaved changes, once the process with this ID has exited");
 
 		Result<CommandLineArguments> parsed = parser.Parse(args.Count, args.Args);
@@ -133,6 +134,7 @@ namespace Strada
 		{
 			editorSpecification.ProjectPath = FileSystem::PathFromUtf8(*project);
 		}
+		editorSpecification.StartScreen = !arguments.HasFlag("no-start-screen");
 		if (std::optional<std::string> const scene = arguments.GetValue("scene"))
 		{
 			editorSpecification.ScenePath = FileSystem::PathFromUtf8(*scene);

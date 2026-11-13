@@ -33,6 +33,7 @@ namespace Strada
 		m_Progress.TotalBytes = 0;
 		m_Progress.TotalFiles = 0;
 		m_Callback = std::move(callback);
+		m_ExampleId = example.Id;
 		// Before the worker writes anything: how the target was (new, or empty) is what a cancelled copy puts back.
 		m_Cleanup = CreateScope<NewDirectoryCleanup>(directory);
 		// The worker owns its inputs; it shares only the flag and the counters with this thread.

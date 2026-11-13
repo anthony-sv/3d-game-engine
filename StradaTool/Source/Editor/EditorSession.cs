@@ -213,7 +213,9 @@ internal sealed class EditorSession : IAsyncDisposable
 		return connection;
 	}
 
-	private EditorLaunchOptions CreateLaunchOptions(bool headless, string? project) => new()
+	/// <summary>How this session starts an editor: without its start screen, as editors started for agent sessions
+	/// are there to be driven and captured.</summary>
+	internal EditorLaunchOptions CreateLaunchOptions(bool headless, string? project) => new()
 	{
 		Executable = EditorLocator.Find(m_Options.EditorPath, Environment.GetEnvironmentVariable, m_Options.ToolDirectory,
 										m_Options.WorkingDirectory),
@@ -222,6 +224,7 @@ internal sealed class EditorSession : IAsyncDisposable
 		Project = project is null ? null : Path.GetFullPath(project),
 		// Without a window nobody can close it: it ends with strada.
 		ParentProcessId = headless ? Environment.ProcessId : null,
+		NoStartScreen = true,
 		Environment = m_Options.EditorEnvironment,
 		Timeout = m_Options.LaunchTimeout,
 	};

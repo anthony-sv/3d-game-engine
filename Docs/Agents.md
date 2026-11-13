@@ -114,8 +114,9 @@ and the skills in `.claude/skills/` (among them `strada-make-game`) teach it the
 ### Projects set up for coding agents
 
 A game project outside the repository gets what agents need from the editor: File > Set Up for Coding Agents... with the
-project open (the editor manual describes the dialog), or the `project_setup_agents` tool. The
-setup writes only inside the project:
+project open (the editor manual describes the dialog), or the `project_setup_agents` tool. `project_create` sets every new
+project up this way unless its `agents` is false (its result lists the files in `agents`). The setup writes only inside
+the project:
 
 | File | What it holds |
 |------|---------------|
@@ -184,7 +185,9 @@ strada connects to an editor at its first call that needs one, and keeps using i
 2. **Else an editor it starts.** strada starts the editor that `--editor <path>` names, else the one the
    `STRADA_EDITOR` environment variable names, else the `StradaEditor` next to strada, else the most recently built
    `build/*/bin/StradaEditor` below the working directory. The editor opens `--project` when given, and runs without a
-   window with `--headless`. It must start its automation server within 60 seconds.
+   window with `--headless`. Editors `strada mcp` starts get `--no-start-screen`, so that the editor's start screen does
+   not cover the window an agent drives and captures (`start_show` shows it); `strada launch` starts them with it. It
+   must start its automation server within 60 seconds.
 3. **What happens to it.** Editors strada starts with a window stay open for you. Editors it starts headless close with
    `strada mcp`, discarding unsaved changes: they get `--parent-process <strada's process ID>`, so they also close when
    strada is ended without closing them.
@@ -244,9 +247,13 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
    explains what went wrong whenever something is unexpected.
 2. **Make or open the project.** `project_create` with a new or empty `directory` and a `name`, or `project_open`
    with a `.sproj` path. `project_create` starts from a template (`template`, as `project_templates` lists them;
-   `empty-3d` by default, whose start scene is `Assets/Scenes/Main.sscene`) and writes a `.gitignore` unless
-   `gitIgnore` is false; `project_copy_example` copies an example game of `project_examples` and opens the copy. `project_settings`
-   changes the window, the physics layers and the start scene.
+   `empty-3d` by default, whose start scene is `Assets/Scenes/Main.sscene`), writes a `.gitignore` unless
+   `gitIgnore` is false, and sets the project up for coding agents ([below](#projects-set-up-for-coding-agents))
+   unless `agents` is false; `project_copy_example` copies an example game of `project_examples` and opens the copy.
+   `project_settings` changes the window, the physics layers and the start scene. `start_info` tells what the user's
+   start screen offers (the recent projects and their states, the templates, the examples, the guides, the default
+   location and what the editor found on the machine), and `editor_recent` removes a project from the recent list or
+   clears it.
 3. **Build scenes in small, checked steps.** `entity_create` takes a `name`, a `parent` and `components` in the
    scene-file format. Entities are UUIDs written as strings, asset fields take `asset://<path in Assets>` or
    `builtin://<Name>`, and rotations are quaternions `[x, y, z, w]` or `RotationEuler` in degrees on Transform.
@@ -267,7 +274,9 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
    `viewport_camera` sets the view, `viewport_overlays` chooses what the scene view draws over the scene (`colliders`
    `all` shows every physics shape), and `viewport_screenshot` returns an image of the editor or of one window
    (`window`: `SceneView`, `GameView`, `Hierarchy`, `Inspector`, `ContentBrowser`, `Console`, `Debugger` or `Graph`
-   with `graph`). MCP clients receive the screenshot as image content.
+   with `graph`). MCP clients receive the screenshot as image content. To show the user the start screen or the File
+   menu's dialogs, `start_show` and `editor_dialog` (`new-project` or `agent-setup`) open them and change nothing
+   else; while the start screen shows, only `window` `Editor` can be captured.
 9. **Play and test.** `play_start`, then `play_pause` and `play_advance` with `frames` for exact steps; `input_set`
    presses keys and mouse buttons in the game; `play_stop` discards what the run changed. To click a UI button, read its
    `center` from `ui_layout`, set the `mousePosition` there with `input_set`, press and release `Left` a frame apart.

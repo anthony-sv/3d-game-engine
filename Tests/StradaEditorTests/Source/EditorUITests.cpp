@@ -268,6 +268,20 @@ TEST_CASE("UI: display names split PascalCase words and keep acronyms together")
 	CHECK(UI::FormatDisplayName("").empty());
 }
 
+TEST_CASE("UI: messages become sentences for dialogs, with their first letter in upper case and a full stop")
+{
+	CHECK(UI::FormatSentence("no strada on PATH is the one beside the editor") == "No strada on PATH is the one beside the editor.");
+	CHECK(UI::FormatSentence("'Game.sproj' was not found") == "'Game.sproj' was not found.");
+	CHECK(UI::FormatSentence("Already a sentence.") == "Already a sentence.");
+	CHECK(UI::FormatSentence("what now?") == "What now?");
+	CHECK(UI::FormatSentence("stopped!") == "Stopped!");
+	CHECK(UI::FormatSentence("these files:") == "These files:");
+	CHECK(UI::FormatSentence(".mcp.json is damaged") == ".mcp.json is damaged.");
+	// Only ASCII letters change: the first byte of a UTF-8 character stays as it is.
+	CHECK(UI::FormatSentence("\xC3\xA9t\xC3\xA9") == "\xC3\xA9t\xC3\xA9.");
+	CHECK(UI::FormatSentence("").empty());
+}
+
 TEST_CASE("UI: arrows in text are drawn as shapes, which the editor's fonts have no glyphs for, and measured with the text")
 {
 	Testing::HeadlessImGui imgui;
@@ -1526,6 +1540,36 @@ TEST_CASE("SetMaterialCommand: a material edit names its material and records it
 	CHECK(command.GetEditedAsset() == material);
 	CHECK(command.GetMemoryUse() == 0);
 	CHECK_FALSE(command.ModifiesScene());
+}
+
+TEST_CASE("EditorContext: the scene mark changes with the scene and with every change of it, and comes back when undoing to it")
+{
+	EditorContext context;
+	EditorOperations operations(context);
+	EditorSceneMark const start = context.GetSceneMark();
+	CHECK(context.GetSceneMark() == start);
+	EntityCreateInfo info;
+	info.Name = "Crate";
+	REQUIRE(operations.CreateEntity(info).IsOk());
+	EditorSceneMark const created = context.GetSceneMark();
+	CHECK(created != start);
+	REQUIRE(context.Undo().IsOk());
+	CHECK(context.GetSceneMark() == start);
+	REQUIRE(context.Redo().IsOk());
+	CHECK(context.GetSceneMark() == created);
+
+	// Undone and edited otherwise: as many steps as before, but another state.
+	REQUIRE(context.Undo().IsOk());
+	info.Name = "Barrel";
+	REQUIRE(operations.CreateEntity(info).IsOk());
+	CHECK(context.GetHistory().GetUndoCount() == 1);
+	CHECK(context.GetSceneMark() != created);
+	CHECK(context.GetSceneMark() != start);
+
+	// Another scene, with an empty history as the first had.
+	REQUIRE(operations.NewScene("Other").IsOk());
+	CHECK(context.GetSceneMark() != start);
+	CHECK(context.GetSceneMark().SceneVersion != start.SceneVersion);
 }
 
 TEST_CASE("CommandHistory: undo steps keep at most DefaultMaxMemory, the oldest dropped first, but the last MinStepsKept always stay")

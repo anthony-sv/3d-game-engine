@@ -3,6 +3,7 @@
 #include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Hash.h"
+#include "Strada/Project/ProjectTemplate.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <spdlog/fmt/fmt.h>
@@ -28,14 +29,6 @@ namespace Strada
 		constexpr std::string_view GitIgnorePath = ".gitignore";
 		constexpr std::string_view ClaudeImportLine = "@AGENTS.md";
 		constexpr std::string_view GitIgnoreLine = ".strada/";
-		// The root .gitignore of a new project (spec §4.1), written when a setup finds none.
-		constexpr std::string_view GitIgnoreText = "# Strada: build output, caches and machine-specific files.\n"
-												   "Build/\n"
-												   ".strada/\n"
-												   "Scripts/Binaries/\n"
-												   "Scripts/bin/\n"
-												   "Scripts/obj/\n"
-												   "Scripts/Strada.props\n";
 		constexpr std::string_view GuidesReadmeText =
 			"# Strada's guides\n"
 			"\n"
@@ -1033,7 +1026,8 @@ namespace Strada
 				judge(gitIgnore,
 				      [&gitIgnore](FoundFile const& file)
 				      {
-						  JudgeLine(gitIgnore, file, GitIgnoreLine, {".strada/", ".strada", "/.strada/", "/.strada"}, GitIgnoreText);
+						  JudgeLine(gitIgnore, file, GitIgnoreLine, {".strada/", ".strada", "/.strada/", "/.strada"},
+					                ProjectTemplate::GitIgnoreText);
 					  });
 			}
 

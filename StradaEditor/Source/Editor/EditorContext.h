@@ -35,6 +35,17 @@ namespace Strada
 		Simulate
 	};
 
+	// The scene the editor shows and its state, as EditorContext::GetSceneMark gives them.
+	struct EditorSceneMark
+	{
+		// EditorContext::GetSceneVersion: which scene it is.
+		uint64_t SceneVersion = 0;
+		// CommandHistory::GetCurrentStateID of its history: what state it is in.
+		uint64_t StateID = 0;
+
+		bool operator==(EditorSceneMark const& other) const = default;
+	};
+
 	// The editor's document state, shared by the UI panels and the automation commands: the open project, the edited
 	// scene and its file, the undo history (which also tracks unsaved changes) and the entity selection. Main thread only.
 	//
@@ -73,6 +84,9 @@ namespace Strada
 		// Changes whenever SetScene replaces the edited scene with a new or opened one (not when play mode starts or stops),
 		// so views show it from a fitting place.
 		uint64_t GetOpenedSceneVersion() const { return m_OpenedSceneVersion; }
+		// What the scene GetScene returns is now: equal marks mean the same scene in the same state (undoing back to it
+		// included), so that a decision made about it (the unsaved-changes prompt's answer) still holds.
+		EditorSceneMark GetSceneMark() const { return EditorSceneMark{m_SceneVersion, m_History.GetCurrentStateID()}; }
 
 		// --- Play mode (driven by PlayMode) ---
 
