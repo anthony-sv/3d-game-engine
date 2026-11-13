@@ -24,8 +24,8 @@ namespace Strada
 
 	struct ProjectCopyOptions
 	{
-		// Files left out besides the filter's (paths relative to the source with forward slashes, compared exactly): a
-		// template's template.json and thumbnail.
+		// Files left out besides the filter's (paths relative to the source with forward slashes, compared exactly; folders of
+		// these names are copied): a template's template.json and thumbnail.
 		std::vector<std::string> ExcludedFiles;
 		// Set from another thread to stop the copy; it then fails and removes what it wrote. May be null.
 		std::atomic<bool> const* Cancel = nullptr;

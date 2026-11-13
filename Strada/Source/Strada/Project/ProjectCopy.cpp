@@ -106,7 +106,9 @@ namespace Strada
 					continue;
 				}
 				bool const directory = std::filesystem::is_directory(status);
-				if (ProjectCopy::IsExcluded(name) || std::ranges::find(options.ExcludedFiles, name) != options.ExcludedFiles.end())
+				// The options name files only: a folder of that name is copied.
+				bool const excludedFile = !directory && std::ranges::find(options.ExcludedFiles, name) != options.ExcludedFiles.end();
+				if (ProjectCopy::IsExcluded(name) || excludedFile)
 				{
 					if (directory)
 					{

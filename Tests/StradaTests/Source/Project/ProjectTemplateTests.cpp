@@ -204,6 +204,18 @@ TEST_CASE("ProjectTemplate: damaged, foreign and newer template files are refuse
 		},
 		[](Json& value)
 		{
+			value["Thumbnail"] = "Assets";
+		},
+		[](Json& value)
+		{
+			value["Thumbnail"] = "Assets/AssetRegistry.sreg";
+		},
+		[](Json& value)
+		{
+			value["Thumbnail"] = "Template.sproj";
+		},
+		[](Json& value)
+		{
 			value["ProjectFile"] = "/Template.sproj";
 		},
 		[](Json& value)

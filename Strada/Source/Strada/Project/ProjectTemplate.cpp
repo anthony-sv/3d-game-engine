@@ -235,9 +235,9 @@ namespace Strada
 				}
 				*target = path.TakeValue();
 			}
-			if (!result.ProjectFile.empty() && result.ProjectFile == result.Thumbnail)
+			if (!result.Thumbnail.empty() && FileSystem::PathToUtf8(FileSystem::PathFromUtf8(result.Thumbnail).extension()) != ".png")
 			{
-				return Error{"Template.Thumbnail: the project file is not a thumbnail"};
+				return MakeError("Template.Thumbnail: '{}' is not a PNG image (.png)", result.Thumbnail);
 			}
 			if (!result.ProjectFile.empty())
 			{

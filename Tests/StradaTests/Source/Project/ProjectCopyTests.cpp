@@ -149,7 +149,8 @@ TEST_CASE("ProjectCopy: a copy takes the project's files through the filter and 
 	ProjectCopyProgress progress;
 	ProjectCopyOptions options;
 	options.Progress = &progress;
-	options.ExcludedFiles = {"Assets/Scenes/Main.sscene"};
+	// A folder of an excluded file's name is copied all the same.
+	options.ExcludedFiles = {"Assets/Scenes/Main.sscene", "Assets/Tools", "Scripts"};
 	Result<ProjectCopyResult> copied = ProjectCopy::Copy(source, target, options);
 	REQUIRE_MESSAGE(copied.IsOk(), (copied ? std::string() : copied.GetError()));
 	std::vector<std::string> const expected = {"Assets/Build/Site.sscene", "Assets/Tools/Hammer.smat", "Game.sproj", "Scripts/Game.csproj",
