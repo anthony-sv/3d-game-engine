@@ -30,7 +30,50 @@ namespace
 		ProfilerScope(ProfilerScope const&) = delete;
 		ProfilerScope& operator=(ProfilerScope const&) = delete;
 	};
+}
 
+TEST_CASE("Profiler: every function does nothing before Init and after Shutdown")
+{
+	for (int round = 0; round < 2; ++round)
+	{
+		CHECK_FALSE(Profiler::IsInitialized());
+		CHECK_FALSE(Profiler::IsRecording());
+		CHECK(Profiler::Start().IsError());
+		Profiler::BeginFrame();
+		{
+			ST_PROFILE_SCOPE("Ignored");
+			ST_PROFILE_SCOPE_DYNAMIC(std::string("Ignored"));
+		}
+		Profiler::EndFrame();
+		Profiler::Stop();
+		Profiler::RecordGpuPasses(1, "View", {});
+		Profiler::SetThreadName("Ignored");
+		Profiler::EndThread();
+		CHECK(Profiler::InternName("Ignored") == nullptr);
+		CHECK(Profiler::GetFrameIndex() == 0);
+		CHECK(Profiler::GetRecording().Frames.empty());
+		ProfilerStatus const status = Profiler::GetStatus();
+		CHECK_FALSE(status.Initialized);
+		CHECK_FALSE(status.Recording);
+
+		Profiler::Init();
+		Profiler::Shutdown();
+	}
+}
+
+#ifdef ST_DIST
+
+TEST_CASE("Profiler: Dist builds refuse to record")
+{
+	ProfilerScope const profiler;
+	CHECK_FALSE(Profiler::GetStatus().Available);
+	CHECK(Profiler::Start().IsError());
+}
+
+#else
+
+namespace
+{
 	// Settings with the given limits (designated initializers that leave members out draw -Wmissing-field-initializers
 	// from some versions of Clang).
 	constexpr ProfilerSettings DefaultSettings{};
@@ -145,46 +188,6 @@ namespace
 		return "Counted";
 	}
 }
-
-TEST_CASE("Profiler: every function does nothing before Init and after Shutdown")
-{
-	for (int round = 0; round < 2; ++round)
-	{
-		CHECK_FALSE(Profiler::IsInitialized());
-		CHECK_FALSE(Profiler::IsRecording());
-		CHECK(Profiler::Start().IsError());
-		Profiler::BeginFrame();
-		{
-			ST_PROFILE_SCOPE("Ignored");
-			ST_PROFILE_SCOPE_DYNAMIC(std::string("Ignored"));
-		}
-		Profiler::EndFrame();
-		Profiler::Stop();
-		Profiler::RecordGpuPasses(1, "View", {});
-		Profiler::SetThreadName("Ignored");
-		Profiler::EndThread();
-		CHECK(Profiler::InternName("Ignored") == nullptr);
-		CHECK(Profiler::GetFrameIndex() == 0);
-		CHECK(Profiler::GetRecording().Frames.empty());
-		ProfilerStatus const status = Profiler::GetStatus();
-		CHECK_FALSE(status.Initialized);
-		CHECK_FALSE(status.Recording);
-
-		Profiler::Init();
-		Profiler::Shutdown();
-	}
-}
-
-#ifdef ST_DIST
-
-TEST_CASE("Profiler: Dist builds refuse to record")
-{
-	ProfilerScope const profiler;
-	CHECK_FALSE(Profiler::GetStatus().Available);
-	CHECK(Profiler::Start().IsError());
-}
-
-#else
 
 TEST_CASE("Profiler: initializing again records again from scratch")
 {

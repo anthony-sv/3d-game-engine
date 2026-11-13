@@ -44,7 +44,17 @@ namespace
 
 TEST_CASE("Profiler: the Dist form of the macros records and evaluates nothing")
 {
+	// Shuts the profiler down also when a check stops the test, so that the next test can initialize it.
+	struct ProfilerShutdown
+	{
+		ProfilerShutdown() = default;
+		ProfilerShutdown(ProfilerShutdown const&) = delete;
+		ProfilerShutdown& operator=(ProfilerShutdown const&) = delete;
+		~ProfilerShutdown() { Profiler::Shutdown(); }
+	};
+
 	Profiler::Init();
+	ProfilerShutdown const shutdown;
 	// Dist builds refuse to record; other builds record here, and must see no zone from this translation unit.
 	bool const recording = Profiler::Start().IsOk();
 	Profiler::BeginFrame();
@@ -58,5 +68,4 @@ TEST_CASE("Profiler: the Dist form of the macros records and evaluates nothing")
 		CHECK(capture.Frames[0].Zones.empty());
 		CHECK(capture.Frames[0].DroppedZones == 0);
 	}
-	Profiler::Shutdown();
 }
