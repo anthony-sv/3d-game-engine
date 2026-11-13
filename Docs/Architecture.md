@@ -64,6 +64,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── Projects/Showcase/                                Showcase of every feature (exhibits, camera tour, Poly Haven assets)
 ├── Projects/catalog.json, Projects/Thumbnails/       The catalog of the examples the editor copies, and their thumbnails
 ├── Templates/                                        Project templates (<id>/template.json, thumbnail.png, a project)
+├── Templates/Tools/                                  The tool that builds the templates through the agent tools
 ├── Tools/                                            Developer scripts (configure/build/test, formatting)
 ├── Docs/                                             Architecture contract, automation reference, scripting guide
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration

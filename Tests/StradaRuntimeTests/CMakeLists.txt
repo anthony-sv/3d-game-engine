@@ -15,7 +15,9 @@ target_compile_definitions(StradaRuntimeTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
     STRADA_RUNTIME_PATH="$<TARGET_FILE:StradaRuntime>"
     # The repository's projects (the feature test and the Blocks and Showcase samples), run with the scripts CMake builds.
-    STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects")
+    STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
+    # The project templates, which the tests instantiate and play.
+    STRADA_TEMPLATES_DIR="${PROJECT_SOURCE_DIR}/Templates")
 
 # The games run the test scripts.
 add_dependencies(StradaRuntimeTests StradaRuntime StradaTestScripts StradaFeatureTestScripts StradaBlocksScripts StradaShowcaseScripts)

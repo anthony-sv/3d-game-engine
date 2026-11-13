@@ -1,0 +1,148 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "AssetRegistry"
+	},
+	"Assets": [
+		{
+			"Handle": "17083164930384723429",
+			"Type": "AudioClip",
+			"Path": "Audio/Bump.wav"
+		},
+		{
+			"Handle": "4266240245281976582",
+			"Type": "AudioClip",
+			"Path": "Audio/Hum.wav"
+		},
+		{
+			"Handle": "6393731908938691165",
+			"Type": "AudioClip",
+			"Path": "Audio/Lose.wav"
+		},
+		{
+			"Handle": "8044157747399251963",
+			"Type": "AudioClip",
+			"Path": "Audio/Pickup.wav"
+		},
+		{
+			"Handle": "10456443945115999804",
+			"Type": "AudioClip",
+			"Path": "Audio/Tick.wav"
+		},
+		{
+			"Handle": "16664500732674235851",
+			"Type": "AudioClip",
+			"Path": "Audio/Win.wav"
+		},
+		{
+			"Handle": "5917536419641979196",
+			"Type": "Material",
+			"Path": "Materials/Floor.smat"
+		},
+		{
+			"Handle": "17209555451018030057",
+			"Type": "Material",
+			"Path": "Materials/Neon Cyan.smat"
+		},
+		{
+			"Handle": "1889685780980798419",
+			"Type": "Material",
+			"Path": "Materials/Neon Violet.smat"
+		},
+		{
+			"Handle": "5165147654784930513",
+			"Type": "Material",
+			"Path": "Materials/Orb.smat"
+		},
+		{
+			"Handle": "10867065906222554498",
+			"Type": "Material",
+			"Path": "Materials/Spark.smat"
+		},
+		{
+			"Handle": "3914929839993270219",
+			"Type": "Material",
+			"Path": "Materials/Wall.smat"
+		},
+		{
+			"Handle": "9594373469195479795",
+			"Type": "Mesh",
+			"Path": "Meshes/Spark.gltf"
+		},
+		{
+			"Handle": "187915608132859864",
+			"Type": "Prefab",
+			"Path": "Prefabs/Spark Burst.sprefab"
+		},
+		{
+			"Handle": "7294623359626821135",
+			"Type": "Prefab",
+			"Path": "Prefabs/Spark.sprefab"
+		},
+		{
+			"Handle": "3831146828413068094",
+			"Type": "Scene",
+			"Path": "Scenes/Main.sscene"
+		},
+		{
+			"Handle": "10396376961284735856",
+			"Type": "Scene",
+			"Path": "Scenes/Tests.sscene"
+		},
+		{
+			"Handle": "12227313969974478729",
+			"Type": "VisualScript",
+			"Path": "Scripts/CameraRig.sgraph"
+		},
+		{
+			"Handle": "17223869147130701410",
+			"Type": "VisualScript",
+			"Path": "Scripts/Checks.sgraph"
+		},
+		{
+			"Handle": "11942996875119097908",
+			"Type": "VisualScript",
+			"Path": "Scripts/Game.sgraph"
+		},
+		{
+			"Handle": "15322676212881917239",
+			"Type": "VisualScript",
+			"Path": "Scripts/Hud.sgraph"
+		},
+		{
+			"Handle": "15309082661618086975",
+			"Type": "VisualScript",
+			"Path": "Scripts/Orb.sgraph"
+		},
+		{
+			"Handle": "17791806436550995232",
+			"Type": "VisualScript",
+			"Path": "Scripts/Spark.sgraph"
+		},
+		{
+			"Handle": "4945772919402266256",
+			"Type": "VisualScript",
+			"Path": "Scripts/Tests.sgraph"
+		},
+		{
+			"Handle": "18014076826635958682",
+			"Type": "Texture",
+			"Path": "Textures/Glow.png"
+		},
+		{
+			"Handle": "5523130394417274939",
+			"Type": "Texture",
+			"Path": "Textures/Grid.png"
+		},
+		{
+			"Handle": "17311038728535742821",
+			"Type": "Texture",
+			"Path": "Textures/Orb.png"
+		},
+		{
+			"Handle": "12670215337370104751",
+			"Type": "Texture",
+			"Path": "Textures/SparkIcon.png"
+		}
+	]
+}

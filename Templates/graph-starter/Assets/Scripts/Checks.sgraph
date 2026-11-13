@@ -1,0 +1,433 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Kind": "Library",
+		"Description": "What the test scene's checks share: reporting a check and comparing numbers and points.",
+		"Variables": [],
+		"Functions": [
+			{
+				"ID": 1,
+				"Name": "Check",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Name",
+						"Type": "string"
+					},
+					{
+						"Name": "Passed",
+						"Type": "bool"
+					},
+					{
+						"Name": "Detail",
+						"Type": "string"
+					}
+				],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 2,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 3,
+							"Type": "Function.Return",
+							"Position": [
+								608.0,
+								0.0
+							]
+						},
+						{
+							"ID": 10,
+							"Type": "Flow.Branch",
+							"Position": [
+								192.0,
+								0.0
+							]
+						},
+						{
+							"ID": 11,
+							"Type": "Call:Strada.Testing.TestReporter.Pass(string)",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 12,
+							"Type": "Call:Strada.Testing.TestReporter.Fail(string,string)",
+							"Position": [
+								416.0,
+								144.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								2,
+								"Passed"
+							],
+							"To": [
+								10,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Name"
+							],
+							"To": [
+								11,
+								"Name"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Name"
+							],
+							"To": [
+								12,
+								"Name"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Detail"
+							],
+							"To": [
+								12,
+								"Message"
+							]
+						},
+						{
+							"From": [
+								2,
+								"Then"
+							],
+							"To": [
+								10,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								10,
+								"True"
+							],
+							"To": [
+								11,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								11,
+								"Then"
+							],
+							"To": [
+								3,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								10,
+								"False"
+							],
+							"To": [
+								12,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								12,
+								"Then"
+							],
+							"To": [
+								3,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 13,
+							"Text": "Check: report a pass, or a failure with its detail",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								792.0,
+								378.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 4,
+				"Name": "Near",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "A",
+						"Type": "float"
+					},
+					{
+						"Name": "B",
+						"Type": "float"
+					},
+					{
+						"Name": "Tolerance",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Result",
+						"Type": "bool"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 5,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 6,
+							"Type": "Function.Return",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 14,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "abs(a - b) <= tolerance"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								5,
+								"A"
+							],
+							"To": [
+								14,
+								"a"
+							]
+						},
+						{
+							"From": [
+								5,
+								"B"
+							],
+							"To": [
+								14,
+								"b"
+							]
+						},
+						{
+							"From": [
+								5,
+								"Tolerance"
+							],
+							"To": [
+								14,
+								"tolerance"
+							]
+						},
+						{
+							"From": [
+								14,
+								"Result"
+							],
+							"To": [
+								6,
+								"Result"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 15,
+							"Text": "Near: two numbers within a tolerance",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								600.0,
+								234.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 7,
+				"Name": "NearPoint",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "A",
+						"Type": "Strada.Vector3"
+					},
+					{
+						"Name": "B",
+						"Type": "Strada.Vector3"
+					},
+					{
+						"Name": "Tolerance",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Result",
+						"Type": "bool"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 8,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 9,
+							"Type": "Function.Return",
+							"Position": [
+								416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 16,
+							"Type": "Expression",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "distance(a, b) <= tolerance"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								8,
+								"A"
+							],
+							"To": [
+								16,
+								"a"
+							]
+						},
+						{
+							"From": [
+								8,
+								"B"
+							],
+							"To": [
+								16,
+								"b"
+							]
+						},
+						{
+							"From": [
+								8,
+								"Tolerance"
+							],
+							"To": [
+								16,
+								"tolerance"
+							]
+						},
+						{
+							"From": [
+								16,
+								"Result"
+							],
+							"To": [
+								9,
+								"Result"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 17,
+							"Text": "Near point: two points within a tolerance",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								600.0,
+								234.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [],
+			"Links": [],
+			"Comments": []
+		}
+	}
+}

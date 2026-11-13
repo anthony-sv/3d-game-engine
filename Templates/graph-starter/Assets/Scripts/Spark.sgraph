@@ -1,0 +1,719 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "A spark: it bobs and spins above its spot, and the rolling orb collects it.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Burst",
+				"Type": "Strada.Prefab",
+				"Public": true,
+				"Tooltip": "The flash of light a collected spark leaves"
+			},
+			{
+				"ID": 2,
+				"Name": "Spin",
+				"Type": "float",
+				"Value": 120.0,
+				"Public": true,
+				"Tooltip": "Degrees per second the gem turns",
+				"Range": [
+					0.0,
+					720.0
+				]
+			},
+			{
+				"ID": 3,
+				"Name": "Bob",
+				"Type": "float",
+				"Value": 0.18,
+				"Public": true,
+				"Tooltip": "Metres the gem rises and falls",
+				"Range": [
+					0.0,
+					1.0
+				]
+			},
+			{
+				"ID": 4,
+				"Name": "Clock",
+				"Type": "float",
+				"Value": 0.0
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 5,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 6,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						0.0,
+						112.0
+					]
+				},
+				{
+					"ID": 7,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						0.0
+					],
+					"Settings": {
+						"Formula": "p.x * 0.7 + p.z * 0.4"
+					}
+				},
+				{
+					"ID": 8,
+					"Type": "Variable.Set",
+					"Position": [
+						432.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 4
+					},
+					"Comment": "Sparks at different spots start at different points of their bob"
+				},
+				{
+					"ID": 10,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						336.0
+					]
+				},
+				{
+					"ID": 11,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						464.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 12,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						336.0
+					],
+					"Settings": {
+						"Formula": "clock + dt"
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Variable.Set",
+					"Position": [
+						512.0,
+						336.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 14,
+					"Type": "Get:Strada.Entity.Children",
+					"Position": [
+						0.0,
+						528.0
+					]
+				},
+				{
+					"ID": 15,
+					"Type": "Array.Get",
+					"Position": [
+						240.0,
+						480.0
+					],
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 16,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						656.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 17,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						720.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 18,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						624.0
+					],
+					"Settings": {
+						"Formula": "vec3(0, sin(clock * 2.4) * bob, 0)"
+					}
+				},
+				{
+					"ID": 19,
+					"Type": "Set:Strada.TransformComponent.Translation",
+					"Position": [
+						704.0,
+						336.0
+					]
+				},
+				{
+					"ID": 20,
+					"Type": "Get:Strada.Entity.Children",
+					"Position": [
+						0.0,
+						784.0
+					]
+				},
+				{
+					"ID": 21,
+					"Type": "Array.Get",
+					"Position": [
+						240.0,
+						768.0
+					],
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 22,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						912.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 23,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						976.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 24,
+					"Type": "Expression",
+					"Position": [
+						240.0,
+						912.0
+					],
+					"Settings": {
+						"Formula": "vec3(0, (clock * spin) % 360, 0)"
+					}
+				},
+				{
+					"ID": 25,
+					"Type": "Set:Strada.TransformComponent.EulerAngles",
+					"Position": [
+						896.0,
+						336.0
+					]
+				},
+				{
+					"ID": 27,
+					"Type": "Event.TriggerEnter",
+					"Position": [
+						0.0,
+						1168.0
+					]
+				},
+				{
+					"ID": 28,
+					"Type": "RunsGraph",
+					"Position": [
+						240.0,
+						1168.0
+					],
+					"Settings": {
+						"Graph": "15309082661618086975"
+					}
+				},
+				{
+					"ID": 29,
+					"Type": "Variable.Get",
+					"Position": [
+						240.0,
+						1280.0
+					],
+					"Settings": {
+						"Variable": 5,
+						"Graph": "15309082661618086975"
+					}
+				},
+				{
+					"ID": 30,
+					"Type": "Expression",
+					"Position": [
+						448.0,
+						1168.0
+					],
+					"Settings": {
+						"Formula": "orb && rolling"
+					}
+				},
+				{
+					"ID": 31,
+					"Type": "Flow.Branch",
+					"Position": [
+						656.0,
+						1168.0
+					],
+					"Comment": "Only the orb collects, and only during a run"
+				},
+				{
+					"ID": 32,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1296.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 33,
+					"Type": "Get:Strada.Entity.Translation",
+					"Position": [
+						0.0,
+						1360.0
+					]
+				},
+				{
+					"ID": 34,
+					"Type": "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)",
+					"Position": [
+						880.0,
+						1168.0
+					],
+					"Inputs": {
+						"Rotation": [
+							0.0,
+							0.0,
+							0.0,
+							1.0
+						]
+					}
+				},
+				{
+					"ID": 35,
+					"Type": "Event.Broadcast",
+					"Position": [
+						1232.0,
+						1168.0
+					],
+					"Settings": {
+						"Name": "SparkCollected",
+						"Graph": "11942996875119097908",
+						"Parameters": []
+					},
+					"Comment": "The Game counts it"
+				},
+				{
+					"ID": 36,
+					"Type": "Call:Strada.Entity.Destroy()",
+					"Position": [
+						1488.0,
+						1168.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						6,
+						"Value"
+					],
+					"To": [
+						7,
+						"p"
+					]
+				},
+				{
+					"From": [
+						7,
+						"Result"
+					],
+					"To": [
+						8,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						5,
+						"Then"
+					],
+					"To": [
+						8,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Value"
+					],
+					"To": [
+						12,
+						"clock"
+					]
+				},
+				{
+					"From": [
+						10,
+						"DeltaTime"
+					],
+					"To": [
+						12,
+						"dt"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Result"
+					],
+					"To": [
+						13,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Value"
+					],
+					"To": [
+						15,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						16,
+						"Value"
+					],
+					"To": [
+						18,
+						"clock"
+					]
+				},
+				{
+					"From": [
+						17,
+						"Value"
+					],
+					"To": [
+						18,
+						"bob"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Element"
+					],
+					"To": [
+						19,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Result"
+					],
+					"To": [
+						19,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Value"
+					],
+					"To": [
+						21,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						22,
+						"Value"
+					],
+					"To": [
+						24,
+						"clock"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Value"
+					],
+					"To": [
+						24,
+						"spin"
+					]
+				},
+				{
+					"From": [
+						21,
+						"Element"
+					],
+					"To": [
+						25,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						24,
+						"Result"
+					],
+					"To": [
+						25,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						10,
+						"Then"
+					],
+					"To": [
+						13,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Then"
+					],
+					"To": [
+						19,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Then"
+					],
+					"To": [
+						25,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Other"
+					],
+					"To": [
+						28,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Other"
+					],
+					"To": [
+						29,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						28,
+						"Result"
+					],
+					"To": [
+						30,
+						"orb"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Value"
+					],
+					"To": [
+						30,
+						"rolling"
+					]
+				},
+				{
+					"From": [
+						30,
+						"Result"
+					],
+					"To": [
+						31,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Value"
+					],
+					"To": [
+						34,
+						"Prefab"
+					]
+				},
+				{
+					"From": [
+						33,
+						"Value"
+					],
+					"To": [
+						34,
+						"Position"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Then"
+					],
+					"To": [
+						31,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						31,
+						"True"
+					],
+					"To": [
+						34,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						34,
+						"Then"
+					],
+					"To": [
+						35,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Then"
+					],
+					"To": [
+						36,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 9,
+					"Text": "Start: each spark bobs in a time of its own",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						621.572509765625,
+						298.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 26,
+					"Text": "Float: the gem bobs and spins above its spot",
+					"Position": [
+						-32.0,
+						264.0
+					],
+					"Size": [
+						1080.0,
+						786.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 37,
+					"Text": "Collect: the rolling orb takes the spark, which flashes and goes",
+					"Position": [
+						-32.0,
+						1096.0
+					],
+					"Size": [
+						1683.13623046875,
+						378.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

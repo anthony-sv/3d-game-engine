@@ -32,13 +32,16 @@
 
 using namespace Strada;
 
-// Spec-slice4 section 18.6: the sample projects' graphs read well, as their authoring tools arrange and frame them.
+// Spec-slice4 section 18.6: the sample projects' graphs read well, as their authoring tools arrange and frame them; so do the
+// graphs of the graph-starter template, the first game a new user reads.
 namespace
 {
-	// The graphs of a sample project that must read well: every .sgraph below a folder of its Assets.
+	// The graphs of a sample project or a project template that must read well: every .sgraph below a folder of its Assets.
 	struct SampleGraphSet
 	{
-		// The project's folder in Projects.
+		// The folder that holds the project: the repository's Projects or Templates.
+		std::string_view Root;
+		// The project's folder in Root.
 		std::string_view Project;
 		// The folder below Assets that holds the graphs, with forward slashes; empty for all of Assets.
 		std::string_view Folder;
@@ -48,8 +51,9 @@ namespace
 	};
 
 	constexpr SampleGraphSet SampleGraphSets[] = {
-		{"PrismBreak", "", "python Projects/PrismBreak/Tools/Author.py"},
-		{"Showcase", "Scripts/GraphGarden", "python Projects/Showcase/Tools/Author.py --exhibit GraphGarden"},
+		{STRADA_PROJECTS_DIR, "PrismBreak", "", "python Projects/PrismBreak/Tools/Author.py"},
+		{STRADA_PROJECTS_DIR, "Showcase", "Scripts/GraphGarden", "python Projects/Showcase/Tools/Author.py --exhibit GraphGarden"},
+		{STRADA_TEMPLATES_DIR, "graph-starter", "", "python Templates/Tools/AuthorTemplates.py --template graph-starter"},
 	};
 
 	// The longest title a region's comment box may have.
@@ -249,7 +253,7 @@ TEST_CASE("VisualScriptEditor: the sample projects' graphs read well: every node
 	for (SampleGraphSet const& set : SampleGraphSets)
 	{
 		CAPTURE(set.Project);
-		std::filesystem::path const project = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / FileSystem::PathFromUtf8(set.Project);
+		std::filesystem::path const project = FileSystem::PathFromUtf8(set.Root) / FileSystem::PathFromUtf8(set.Project);
 		std::filesystem::path const assets = project / "Assets";
 		// The graphs are analyzed with a copy of the project's registry and graphs as the asset directory, where the graphs
 		// they name are found, and with the project's game scripts when it has some: its graphs may use their members.

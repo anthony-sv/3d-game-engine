@@ -1,0 +1,21 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "ProjectTemplate"
+	},
+	"Template": {
+		"Id": "graph-starter",
+		"Name": "Graph Starter",
+		"Order": 2,
+		"Description": "Roll a glowing orb and collect 12 sparks before time runs out: every rule is a graph.",
+		"Requires": {
+			"Sdk": false
+		},
+		"Tags": [
+			"3D",
+			"Visual scripts"
+		],
+		"Thumbnail": "thumbnail.png",
+		"ProjectFile": "Template.sproj"
+	}
+}

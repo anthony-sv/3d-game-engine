@@ -83,7 +83,8 @@ File menu commands for projects:
   project file, `Assets/Scenes/Main.sscene` (the sample scene described below) and a `.gitignore` that keeps build
   output, caches and machine-specific files out of git, and opens the project: it is the template `empty-3d`. The
   folder must be new or empty. Automation creates projects from any template of the engine's `Templates/`
-  (`project.templates`, `project.create`'s `template`) and copies the example games (`project.examples`,
+  (`project.templates`, `project.create`'s `template`: `empty-3d`, or `graph-starter`, the game Orb Run made of visual
+  scripts) and copies the example games (`project.examples`,
   `project.copy-example`).
 - Open Project... picks a `.sproj` file with the system's file dialog. The project's start scene opens; when it
   cannot be opened, the console says why and you get an empty scene.

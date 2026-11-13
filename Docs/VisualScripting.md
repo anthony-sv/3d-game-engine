@@ -9,7 +9,8 @@ runtime as C# scripts but need no C# project: a game can be made of graphs alone
 This guide goes the way you learn them: a first graph, the events and the flow, variables, functions, formulas, text
 and arrays, timelines, graphs that talk to each other, nodes of your own and C# beside graphs; then what to do when a
 graph has a problem, how to watch graphs run, how to stop one on a node and step through it with every value shown, and
-how edits reach the game while it plays; then Prism Break, a whole game made of graphs, and the editor's reference.
+how edits reach the game while it plays; then Orb Run, the starter game, and Prism Break, a whole game made of graphs,
+and the editor's reference.
 Each section ends with something to try. The [scripting guide](Scripting.md) covers C# scripts and testing a game,
 [ScriptingAPI.md](ScriptingAPI.md) lists every member of the API that graphs call, and the graph commands of
 [Automation.md](Automation.md) are what agents use to build and debug graphs.
@@ -711,6 +712,29 @@ Edits made while playing stay in the script after Stop, and stay undoable.
 **Try it:** while the Spinner turns, change its formula to `(angle + speed * dt * 4) % 360`: the toast says "Live: applied
 to 1 instance", and the cube turns four times as fast at once, keeping its angle. Undo gives the formula back just as
 fast.
+
+## A first game: Orb Run
+
+The template Graph Starter (`graph-starter`, as `project.create`'s `template` names it) makes a project of the game Orb
+Run, made of five graphs (and two for its tests) and no C#. WASD, the arrow keys or a gamepad's left stick roll a
+glowing orb across a square arena to collect 12 sparks before 35 seconds run out; the last ten seconds tick in red, and
+Space, Enter or a gamepad's A or Start plays again after the win or the loss. It is small enough to read in one
+sitting, and each graph shows a few ideas of this guide:
+
+| Graph | Runs on | What it shows |
+|-------|---------|---------------|
+| `Orb.sgraph` | Orb | A pure function (`Steer`) that reads the keys and the stick, physics in `FixedUpdate`, a sound that follows the speed, and a broadcast event it listens to |
+| `Spark.sgraph` | every spark | Bobbing with formulas, and a trigger that checks what entered with Runs Graph before it broadcasts to the Game |
+| `Game.sgraph` | Game | The rules: functions that place the sparks and start, win and lose a run, the clock, and the events that play again |
+| `Hud.sgraph` | Screen | Remote Gets of the Game's variables, guarded by Runs Graph, a Timeline that fades the hint, and the win and lose screens |
+| `CameraRig.sgraph` | Camera Rig | A camera that eases after the orb |
+| `Checks.sgraph` | a function library (Tests calls it) | Reporting a check and comparing numbers and points |
+| `Tests.sgraph` | Tests (the test scene) | 13 checks of the rules and the screen, in the form Prism Break's checks take |
+
+Its graphs read as Prism Break's do, and `Templates/Tools/AuthorTemplates.py` built it through the agent tools.
+
+**Try it:** in a project made from Graph Starter, select the Game entity and lower its `TimeLimit`, or the Orb and raise
+its `Push`, then press Play; open `Scripts/Orb.sgraph` while it plays and watch Steer's wires light up as you roll.
 
 ## A complete game: Prism Break
 
