@@ -26,7 +26,7 @@ namespace Strada
 		constexpr std::string_view GuidesDirectory = ".strada/docs/";
 		constexpr std::string_view GuidesReadmePath = ".strada/docs/README.md";
 		constexpr std::string_view GitIgnorePath = ".gitignore";
-		constexpr std::string_view ClaudeLine = "@AGENTS.md";
+		constexpr std::string_view ClaudeImportLine = "@AGENTS.md";
 		constexpr std::string_view GitIgnoreLine = ".strada/";
 		// The root .gitignore of a new project (spec §4.1), written when a setup finds none.
 		constexpr std::string_view GitIgnoreText = "# Strada: build output, caches and machine-specific files.\n"
@@ -988,7 +988,7 @@ namespace Strada
 			judge(claude,
 			      [&claude](FoundFile const& file)
 			      {
-					  JudgeLine(claude, file, ClaudeLine, {ClaudeLine}, fmt::format("{}\n", ClaudeLine));
+					  JudgeLine(claude, file, ClaudeImportLine, {ClaudeImportLine}, fmt::format("{}\n", ClaudeImportLine));
 				  });
 			Entry& mcp = add(McpPath, FileKind::McpEntry);
 			judge(mcp,
