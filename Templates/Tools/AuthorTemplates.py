@@ -28,8 +28,9 @@ copy filter leaves out of every new project) is removed at the end.
                                               [--thumbnail]
 
 The template is rebuilt from scratch in Templates/<id> (or --output): everything but its thumbnail and its C# sources is
-replaced. --thumbnail takes the thumbnail again with the player's --screenshot. Without --strada, strada runs from the
-repository (dotnet run).
+replaced. --thumbnail takes the thumbnail again with the player's --screenshot (csharp-starter's from a camera closer to
+the orb than the game's, so that the two cards on the start screen do not look alike). Without --strada, strada runs
+from the repository (dotnet run).
 """
 import argparse
 import hashlib

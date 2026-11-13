@@ -438,7 +438,19 @@ namespace Strada
 					ImGui::PopTextWrapPos();
 					ImGui::PopStyleColor();
 				}
-				ImGui::Dummy(ImVec2(0.0f, style.ItemSpacing.y));
+				if (index + 1 < examples->size())
+				{
+					ImGui::Dummy(ImVec2(0.0f, style.ItemSpacing.y));
+				}
+				else
+				{
+					// The list ends where the last card (or its hint) ends: the spacing after it would make the list scroll for
+					// nothing. An item must follow SetCursorScreenPos (imgui.cpp
+					// ErrorCheckUsingSetCursorPosToExtendParentBoundaries): a zero-sized one at the end adds no height.
+					float const end = view.Available ? drawn.Max.y : ImGui::GetCursorScreenPos().y - style.ItemSpacing.y;
+					ImGui::SetCursorScreenPos(ImVec2(below.x, end));
+					ImGui::Dummy(ImVec2(0.0f, 0.0f));
+				}
 				ImGui::PopID();
 			}
 		}

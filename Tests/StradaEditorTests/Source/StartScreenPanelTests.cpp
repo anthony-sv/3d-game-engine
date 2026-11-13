@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <functional>
 #include <optional>
@@ -335,6 +336,23 @@ TEST_CASE("StartScreenPanel: every area draws at 1600x900 and at 1280x720 with i
 			CHECK_MESSAGE(fixture.Require(card).TextWhole, card);
 		}
 		CHECK_FALSE(fixture.Require("Template:third-project").TextWhole);
+		// The example list ends with its last card (no margin after it makes the list scroll for nothing), and at 1600x900
+		// the three examples fit their column without scrolling.
+		ImGuiWindow const* exampleList = nullptr;
+		for (ImGuiWindow const* const window : ImGui::GetCurrentContext()->Windows)
+		{
+			if (std::string_view(window->Name).find("##ExampleList") != std::string_view::npos)
+			{
+				exampleList = window;
+			}
+		}
+		REQUIRE(exampleList != nullptr);
+		float const listEnd = exampleList->DC.CursorStartPos.y + exampleList->ContentSize.y;
+		CHECK(std::abs(listEnd - fixture.Require("Example card:tiny-again").Max.y) <= 1.0f);
+		if (size.x == 1600.0f)
+		{
+			CHECK_FALSE(exampleList->ScrollbarY);
+		}
 		// Create follows the form's last field, and Learn the last example, rather than the bottom of their columns.
 		float const rowHeight = ImGui::GetFrameHeightWithSpacing();
 		CHECK(fixture.Require("Create").Min.y - fixture.Require("Add a .gitignore").Max.y < rowHeight * 2.0f);
