@@ -42,6 +42,10 @@ namespace
 		StartScreenModel StartScreen;
 		CommandRegistry Registry;
 		std::optional<std::filesystem::path> ToolOnPath;
+		// With a window: what editor.dialog asked of the editor, and why the editor refuses the next request (none: it
+		// accepts).
+		std::vector<std::pair<EditorDialog, bool>> Dialogs;
+		std::optional<std::string> DialogRefusal;
 
 		// The locations come from the temporary directory: the test content's by default.
 		explicit StartFixture(bool withWindow = false, std::function<EditorLocations(std::filesystem::path const&)> const& makeLocations =
@@ -72,6 +76,15 @@ namespace
 				host.ShowStartScreen = [this](bool visible)
 				{
 					StartScreen.SetVisible(visible);
+				};
+				host.ShowDialog = [this](EditorDialog dialog, bool open) -> Result<void>
+				{
+					if (DialogRefusal)
+					{
+						return Error{*DialogRefusal};
+					}
+					Dialogs.emplace_back(dialog, open);
+					return {};
 				};
 			}
 			REQUIRE(RegisterStartCommands(Registry, StartScreen, std::move(host)).IsOk());
@@ -410,7 +423,7 @@ TEST_CASE("StartCommands: project.create names the strada the lookup finds, and 
 TEST_CASE("StartCommands: the commands are documented, and none is an undo step")
 {
 	StartFixture fixture;
-	for (char const* const name : {"start.info", "start.show", "editor.recent"})
+	for (char const* const name : {"start.info", "start.show", "editor.recent", "editor.dialog"})
 	{
 		CAPTURE(name);
 		CommandDefinition const* command = fixture.Registry.Find(name);
@@ -420,5 +433,41 @@ TEST_CASE("StartCommands: the commands are documented, and none is an undo step"
 	// Nothing they do enters the history.
 	fixture.Ok("start.info");
 	fixture.Ok("editor.recent", Json::object({{"clear", true}}));
+	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
+}
+
+TEST_CASE("StartCommands: editor.dialog opens and closes the File menu's dialogs; headless it is unavailable")
+{
+	for (EditorDialog const dialog : {EditorDialog::NewProject, EditorDialog::AgentSetup})
+	{
+		CHECK(ParseEditorDialog(GetEditorDialogName(dialog)) == dialog);
+	}
+	CHECK_FALSE(ParseEditorDialog("about").has_value());
+	{
+		StartFixture headless;
+		CHECK(headless.Fails("editor.dialog", Json::object({{"name", "new-project"}})) == AutomationErrorCode::Unavailable);
+	}
+
+	StartFixture fixture(true);
+	CHECK(fixture.Fails("editor.dialog") == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("editor.dialog", Json::object({{"name", "about"}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("editor.dialog", Json::object({{"name", "new-project"}, {"open", "yes"}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Dialogs.empty());
+
+	// Opened by default, closed with open false.
+	CHECK(fixture.Ok("editor.dialog", Json::object({{"name", "new-project"}})) == Json::object({{"name", "new-project"}, {"open", true}}));
+	CHECK(fixture.Ok("editor.dialog", Json::object({{"name", "agent-setup"}, {"open", false}})) ==
+	      Json::object({{"name", "agent-setup"}, {"open", false}}));
+	CHECK(fixture.Dialogs ==
+	      std::vector<std::pair<EditorDialog, bool>>{{EditorDialog::NewProject, true}, {EditorDialog::AgentSetup, false}});
+
+	// What the editor refuses (another dialog is open, no project for the agent setup) is an InvalidOperation saying why.
+	fixture.DialogRefusal = "another dialog is open (Unsaved Changes): close it first";
+	CommandResult const refused = fixture.Run("editor.dialog", Json::object({{"name", "agent-setup"}}));
+	REQUIRE(refused.IsError());
+	CHECK(refused.GetError().Code == AutomationErrorCode::InvalidOperation);
+	CHECK(refused.GetError().Message == *fixture.DialogRefusal);
+	CHECK(fixture.Dialogs.size() == 2);
+	CHECK_FALSE(fixture.Registry.Find("editor.dialog")->ReadOnly);
 	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
 }

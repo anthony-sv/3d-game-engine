@@ -72,6 +72,30 @@ namespace Strada
 		}
 	}
 
+	std::string_view GetEditorDialogName(EditorDialog dialog)
+	{
+		switch (dialog)
+		{
+			case EditorDialog::NewProject:
+				return "new-project";
+			case EditorDialog::AgentSetup:
+				return "agent-setup";
+		}
+		return "new-project";
+	}
+
+	std::optional<EditorDialog> ParseEditorDialog(std::string_view name)
+	{
+		for (EditorDialog const dialog : {EditorDialog::NewProject, EditorDialog::AgentSetup})
+		{
+			if (GetEditorDialogName(dialog) == name)
+			{
+				return dialog;
+			}
+		}
+		return std::nullopt;
+	}
+
 	Json DescribeRecentProjectInfo(RecentProjectInfo const& project)
 	{
 		return Json::object({{"name", project.Name},
@@ -160,6 +184,45 @@ namespace Strada
 			}
 			return Json::object({{"projects", DescribeRecentList(startScreen.DescribeRecentProjects())}});
 		};
-		return result ? registry.Register(std::move(recent)) : result;
+		result = result ? registry.Register(std::move(recent)) : result;
+
+		CommandDefinition dialog;
+		dialog.Name = "editor.dialog";
+		dialog.Description =
+			"Opens a dialog of the File menu as if the user chose its item, so that it can be looked at (viewport.screenshot), or "
+			"closes it as its Cancel does (open false): new-project (File > New Project..., the New Project form: templates, "
+			"name, location, the setup for coding agents, the .gitignore) or agent-setup (File > Set Up for Coding Agents..., "
+			"what setting the open project up for coding agents would write). It opens at the next frame and changes nothing "
+			"else: project.create and project.setup-agents do the work. Returns { name, open }. Not an undo step. "
+			"InvalidOperation for agent-setup without an open project and while another dialog is open; Unavailable when the "
+			"editor has no window (headless).";
+		dialog.Parameters =
+			SchemaBuilder::Object()
+				.Property("name", SchemaBuilder::String("The dialog: new-project or agent-setup").Enum({"new-project", "agent-setup"}),
+		                  true)
+				.Property("open", SchemaBuilder::Boolean("False closes the dialog").Default(true))
+				.Build();
+		dialog.Handler = [state](Json const& params) -> CommandResult
+		{
+			if (!state->Host.ShowDialog)
+			{
+				return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no window (headless): it shows no dialogs");
+			}
+			std::string const name = params["name"].get<std::string>();
+			std::optional<EditorDialog> const which = ParseEditorDialog(name);
+			if (!which)
+			{
+				CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "there is no dialog '{}'", name);
+				error.Data = Json::object({{"path", "name"}});
+				return error;
+			}
+			bool const open = params.value("open", true);
+			if (Result<void> shown = state->Host.ShowDialog(*which, open); !shown)
+			{
+				return MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", shown.GetError());
+			}
+			return Json::object({{"name", name}, {"open", open}});
+		};
+		return result ? registry.Register(std::move(dialog)) : result;
 	}
 }

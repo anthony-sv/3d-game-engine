@@ -23,8 +23,13 @@ namespace Strada
 		// The modal popup's name.
 		static constexpr char const* PopupName = "Set Up for Coding Agents";
 
-		// Opens the dialog in the next frame.
+		// Opens the dialog in the next frame (and drops a pending Close).
 		void Open();
+		// Closes the dialog in the next frame as Cancel does, writing nothing (and drops a pending Open): editor.dialog.
+		void Close();
+		bool IsOpenRequested() const { return m_OpenRequested; }
+		// Whether the dialog was drawn open in the last frame.
+		bool IsOpen() const { return m_Open; }
 		// Draws the dialog while it is open, for the open project (none: the dialog says so). The layout gives the engine's
 		// agent kit and guides; findTool is the editor's lookup of strada on PATH.
 		void OnImGuiRender(std::optional<AgentProject> const& project, EngineLayout const& layout, AgentToolLookup const& findTool);
@@ -43,6 +48,8 @@ namespace Strada
 		void DrawResult(AgentApplyResult const& result);
 
 		bool m_OpenRequested = false;
+		bool m_CloseRequested = false;
+		bool m_Open = false;
 		// The frames in which the dialog is centered again.
 		int m_RecenterFrames = 0;
 		ImFont* m_MonospaceFont = nullptr;

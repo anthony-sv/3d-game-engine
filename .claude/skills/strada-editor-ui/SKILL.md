@@ -61,9 +61,13 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   step (`EditorOperations::SetVisualScriptGraph`), without the scripting runtime.
 - Files dropped onto the editor from the OS arrive as `WindowFileDropEvent`s (from every window, floating panels
   included) and go to `ContentBrowserPanel::DropFiles`; what an import does lives in `ProjectImport`, and the browser's
-  `ImportDropped` (which `asset.drop` calls for agents) selects what came in and shows a notice of what did not.
-- Global shortcuts use `ImGui::Shortcut(chord, ImGuiInputFlags_RouteGlobal)` in `EditorLayer::HandleShortcuts` and skip
-  editing keys while `io.WantTextInput`; show the chord in the matching menu item. The editing keys and the Edit menu's
+  `ImportDropped` (which `asset.drop` calls for agents) selects what came in and shows a notice of what did not. While
+  the start screen shows, a dropped `.sproj` opens instead (`FindDroppedProject`) and nothing is imported.
+- Global shortcuts use `ImGui::Shortcut(chord, ImGuiInputFlags_RouteGlobal)` in `EditorShortcuts`
+  (`HandleEditorShortcuts`, with an `EditorShortcutActions` the layer fills and the tests record) and skip editing keys
+  while `io.WantTextInput`; show the chord in the matching menu item. ImGui's global routes ignore modals, so
+  `HandleEditorShortcuts` holds every global shortcut back while a modal popup is open or the start screen shows
+  (`AreEditorShortcutsHeldBack`); a new global shortcut goes into its table. The editing keys and the Edit menu's
   editing items live in `EditorEditingKeys` (`HandleEditorEditingKeys(operations, visualScripts,
   FindClaimedEditingChords(keyboardWindow))`, `DrawEditorEditingMenuItems`, and Undo and Redo in
   `HandleEditorHistoryKeys`, `UndoEditorStep` and `RedoEditorStep`), which the editor and the tests both run: they act on

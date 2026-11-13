@@ -1745,8 +1745,27 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   `PlayMode::SetUIPointerEnabled` follows `GameInputRouter::HasInput` from the frame the input changes hands, before the
   scene updates) and the editor works as usual. Automation's `input.set` and `input.release` act on the game's input
   directly, and `ui.layout` tells where the UI's elements and buttons are in the game view.
-- Project management: File > New Project (name and location; the project starts from the template `empty-3d`, the
-  editor's sample scene, with a `.gitignore`; `project.create` takes any template of `project.templates` and sets the new
+- The start screen (`Editor/StartScreen/`): `StartScreenPanel` draws `StartScreenModel` over the main viewport's work
+  area (under the menu bar) while the model is visible: at start without a project in an editor with a window (unless
+  `--no-start-screen`, `EditorLayerSpecification::StartScreen`, which `strada mcp` passes), after File > Close Project,
+  from File > Start Screen and `start.show`; any project opened or created hides it (`OnProjectOpened`). While it shows,
+  `EditorLayer` draws the menu bar, the screen and the modal dialogs only: the dockspace is kept alive without being
+  drawn (`ImGuiDockNodeFlags_KeepAliveOnly`, so docked panels stay docked), no toolbar, panel, viewport, gizmo or
+  floating window is submitted (so none can take the mouse or the keyboard), the game view's input goes back to the
+  editor, a dropped `.sproj` opens (`FindDroppedProject`) and nothing is imported; the tabs that were in front come back
+  to the front when it hides. The New Project form is one widget (`NewProjectFormWidget`) that the screen and
+  File > New Project... (`NewProjectDialog`) draw over the model's `NewProjectForm`; Create hands a `NewProjectRequest`
+  (the form as it was) to the layer, which asks about unsaved changes and then runs `CreateProjectFromRequest`
+  (`EditorOperations::CreateProject` from the template, then `SetUpNewProjectForAgents`), as `project.create` does.
+  Examples open as copies through the layer's one `ExampleCopyTask`, shared with `project.copy-example`. Thumbnails are
+  GPU textures (`StartScreenThumbnails`, none without a graphics device, released in `OnDetach`). `editor.dialog`
+  opens the File menu's two dialogs so that captures can show them.
+- The global shortcut gate (`EditorShortcuts`): the editor's global shortcuts (New, Open and Save Scene, Build Scripts,
+  Play, Pause, Step, the debugger's keys, Undo, Redo and the editing keys) are one unit the layer and its tests run.
+  ImGui's global routes ignore modal popups (`ImGuiInputFlags_RouteGlobal` scores the same whatever popup is open), so
+  the unit holds every one back while a modal dialog is open (`ImGui::GetTopMostPopupModal`) or the start screen shows.
+- Project management: File > New Project (the New Project form: a template, name and location, the setup for coding
+  agents and the `.gitignore`; `project.create` takes any template of `project.templates` and sets the new
   project up for coding agents unless its `agents` is false (`SetUpNewProjectForAgents`, `AgentKit::Apply`), and
   `project.copy-example` copies an example of `project.examples` off the main thread (`ExampleCopyTask`) and opens the
   copy; `EditorOperations` holds what both share: `ListProjectTemplates`, `CreateProject` from a template,

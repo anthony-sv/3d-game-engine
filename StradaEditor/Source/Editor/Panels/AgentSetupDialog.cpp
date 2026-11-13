@@ -98,6 +98,13 @@ namespace Strada
 	void AgentSetupDialog::Open()
 	{
 		m_OpenRequested = true;
+		m_CloseRequested = false;
+	}
+
+	void AgentSetupDialog::Close()
+	{
+		m_CloseRequested = true;
+		m_OpenRequested = false;
 	}
 
 	void AgentSetupDialog::MakePlan(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool)
@@ -147,14 +154,20 @@ namespace Strada
 		// Apply, and the window takes its height in the frame after that.
 		m_RecenterFrames = m_RecenterFrames > 0 ? m_RecenterFrames - 1 : 0;
 		ImGui::SetNextWindowPos(viewport->GetCenter(), m_RecenterFrames > 0 ? ImGuiCond_Always : ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		// In the editor window, never in a window of its own (imgui.cpp WindowSelectViewport gives an appearing popup that does
+		// not fit its host viewport one), so that captures of the editor window show it.
+		ImGui::SetNextWindowViewport(viewport->ID);
 		// A fixed width, and the height of what it shows: the result appears below the list after Apply.
 		float const width = ImGui::GetFontSize() * 46.0f;
 		ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.0f), ImVec2(width, viewport->WorkSize.y));
-		if (!ImGui::BeginPopupModal(PopupName, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize))
+		m_Open = ImGui::BeginPopupModal(PopupName, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize);
+		if (!m_Open)
 		{
+			m_CloseRequested = false;
 			return;
 		}
-		bool const escape = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+		// Closed as Cancel closes it (editor.dialog): Escape's path below.
+		bool const escape = ImGui::IsKeyPressed(ImGuiKey_Escape, false) || std::exchange(m_CloseRequested, false);
 		if (!project)
 		{
 			ImGui::TextDisabled("No project is open.");

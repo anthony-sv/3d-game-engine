@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -92,6 +93,8 @@ namespace Strada
 		bool SetUpAgents = true;
 		// Write the root .gitignore (TemplateOptions::GitIgnore and AgentSetupOptions::GitIgnore).
 		bool GitIgnore = true;
+
+		bool operator==(NewProjectForm const& other) const = default;
 	};
 
 	// What the form would create, and why it cannot.
@@ -125,6 +128,37 @@ namespace Strada
 	// the project: the failure is a warning, and the files written before it stay.
 	[[nodiscard]] NewProjectAgentSetup SetUpNewProjectForAgents(AgentProject const& project, EngineLayout const& layout,
 	                                                            AgentToolLookup const& findTool, bool gitIgnore);
+
+	// What the New Project form asks to create, as the form was when Create was clicked: the editor may ask about unsaved
+	// changes before it creates anything, and the form may change meanwhile.
+	struct NewProjectRequest
+	{
+		NewProjectForm Form;
+		// <location>/<portable name> (NewProjectCheck::Directory).
+		std::filesystem::path Directory;
+	};
+
+	// What creating a project from the New Project form did.
+	struct NewProjectOutcome
+	{
+		// The new project's file.
+		std::filesystem::path ProjectFile;
+		// What setting it up for coding agents did; none when the form left that off.
+		std::optional<NewProjectAgentSetup> Agents;
+	};
+
+	// Creates the project a New Project form asked for in its directory and opens it (EditorOperations::CreateProject with the
+	// form's template and .gitignore choice), then sets it up for coding agents when the form says so
+	// (SetUpNewProjectForAgents), as project.create does. A setup that fails is in the outcome's warnings and leaves the
+	// project created. Fails for a template the list does not hold and when the project cannot be created or opened. Main
+	// thread only.
+	[[nodiscard]] Result<NewProjectOutcome> CreateProjectFromRequest(EditorOperations& operations, NewProjectRequest const& request,
+	                                                                 ProjectTemplateList const& templates, EngineLayout const& layout,
+	                                                                 AgentToolLookup const& findTool);
+
+	// The project file a drop of files onto the editor's window opens while the start screen shows: the first file whose
+	// extension is .sproj in any letter case; none when the drop holds none (the start screen imports nothing). Pure.
+	[[nodiscard]] std::optional<std::filesystem::path> FindDroppedProject(std::span<std::filesystem::path const> paths);
 
 	// What the start screen needs from the editor besides its folders. Each may be unset; the model never starts a process
 	// or detects anything itself.

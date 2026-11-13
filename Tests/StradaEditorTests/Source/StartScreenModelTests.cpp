@@ -1,9 +1,12 @@
 #include "EditorLocationsTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Editor/EditorContext.h"
+#include "Editor/EditorOperations.h"
 #include "Editor/StartScreen/StartScreenModel.h"
 
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Project/Project.h"
 
 #include <doctest/doctest.h>
 
@@ -386,4 +389,58 @@ TEST_CASE("StartScreenModel: the templates and examples are the engine content's
 	CHECK(fixture.Model.GetExamplesError().empty());
 	ExampleEntry const fetched = FindExample(fixture.Model, "fetched");
 	CHECK_FALSE(fixture.Model.GetExamples()->IsAvailable(fetched));
+}
+
+TEST_CASE("StartScreenModel: a drop opens its first project file, in any letter case, and nothing else")
+{
+	std::vector<std::filesystem::path> const none = {"C:/Art/Rock.png", "C:/Art/Notes.sproj.txt", "C:/Art/sproj"};
+	CHECK_FALSE(FindDroppedProject(none).has_value());
+	CHECK_FALSE(FindDroppedProject({}).has_value());
+	std::vector<std::filesystem::path> const dropped = {"C:/Art/Rock.png", "C:/Games/Orb/Orb Run.SPROJ", "C:/Games/Other/Other.sproj"};
+	CHECK(FindDroppedProject(dropped) == std::filesystem::path("C:/Games/Orb/Orb Run.SPROJ"));
+}
+
+TEST_CASE("StartScreenModel: a request of the form creates its project, set up for agents when asked, and refuses an unknown template")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::TemporaryDirectory const directory;
+	EditorLocations const locations = Testing::MakeEditorLocations(directory.GetPath());
+	EditorContext context;
+	EditorOperations operations(context);
+	ProjectTemplateList const templates = EditorOperations::ListProjectTemplates(locations.Layout);
+
+	NewProjectRequest request;
+	request.Form.Name = "Orb Run";
+	request.Form.TemplateId = "no-such-template";
+	request.Directory = directory.GetPath() / "Orb Run";
+	Result<NewProjectOutcome> const unknown = CreateProjectFromRequest(operations, request, templates, locations.Layout, {});
+	REQUIRE(unknown.IsError());
+	CHECK(unknown.GetError() == "there is no template 'no-such-template'");
+	CHECK_FALSE(FileSystem::Exists(request.Directory));
+	CHECK(context.GetProject() == nullptr);
+
+	request.Form.TemplateId = "tiny-project";
+	request.Form.SetUpAgents = false;
+	request.Form.GitIgnore = false;
+	Result<NewProjectOutcome> const plain = CreateProjectFromRequest(operations, request, templates, locations.Layout, {});
+	REQUIRE(plain.IsOk());
+	CHECK_FALSE(plain.GetValue().Agents.has_value());
+	CHECK(FileSystem::IsRegularFile(request.Directory / "Orb Run.sproj"));
+	CHECK_FALSE(FileSystem::Exists(request.Directory / ".gitignore"));
+	CHECK_FALSE(FileSystem::Exists(request.Directory / "AGENTS.md"));
+
+	request.Form.SetUpAgents = true;
+	request.Form.GitIgnore = true;
+	request.Directory = directory.GetPath() / "Agents";
+	Result<NewProjectOutcome> const agents = CreateProjectFromRequest(operations, request, templates, locations.Layout, {});
+	REQUIRE(agents.IsOk());
+	REQUIRE(agents.GetValue().Agents.has_value());
+	CHECK(agents.GetValue().Agents->Files.size() == AgentKit::ListFiles(locations.Layout).size());
+	CHECK(FileSystem::IsRegularFile(request.Directory / "AGENTS.md"));
+	CHECK(FileSystem::IsRegularFile(request.Directory / ".gitignore"));
+	REQUIRE(context.GetProject() != nullptr);
+	CHECK(agents.GetValue().ProjectFile == context.GetProject()->GetFilePath());
+	// Creating fails for a folder that is taken, and nothing changes there.
+	Result<NewProjectOutcome> const taken = CreateProjectFromRequest(operations, request, templates, locations.Layout, {});
+	CHECK(taken.IsError());
 }

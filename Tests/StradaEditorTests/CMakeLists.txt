@@ -40,6 +40,7 @@ add_executable(StradaEditorTests
     Source/ScriptFieldInspectionTests.cpp
     Source/StartCommandsTests.cpp
     Source/StartScreenModelTests.cpp
+    Source/StartScreenPanelTests.cpp
     Source/TcpTestClient.cpp
     Source/TcpTestClient.h
     Source/UIEditingTests.cpp

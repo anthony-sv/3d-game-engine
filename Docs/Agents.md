@@ -185,7 +185,9 @@ strada connects to an editor at its first call that needs one, and keeps using i
 2. **Else an editor it starts.** strada starts the editor that `--editor <path>` names, else the one the
    `STRADA_EDITOR` environment variable names, else the `StradaEditor` next to strada, else the most recently built
    `build/*/bin/StradaEditor` below the working directory. The editor opens `--project` when given, and runs without a
-   window with `--headless`. It must start its automation server within 60 seconds.
+   window with `--headless`. Editors `strada mcp` starts get `--no-start-screen`, so that the editor's start screen does
+   not cover the window an agent drives and captures (`start_show` shows it); `strada launch` starts them with it. It
+   must start its automation server within 60 seconds.
 3. **What happens to it.** Editors strada starts with a window stay open for you. Editors it starts headless close with
    `strada mcp`, discarding unsaved changes: they get `--parent-process <strada's process ID>`, so they also close when
    strada is ended without closing them.

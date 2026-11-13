@@ -236,13 +236,9 @@ internal static class Program
 		string instanceDirectory = UserDataDirectory.GetInstanceDirectory() ??
 			throw new EditorUnavailableException("there is no user data directory for editors (HOME, or APPDATA on Windows, is not set)");
 		string? project = arguments.Project is null ? null : Path.GetFullPath(arguments.Project);
-		using LaunchedEditor editor = await EditorLauncher.LaunchAsync(new EditorLaunchOptions
-		{
-			Executable = EditorLocator.Find(arguments.Editor, Environment.GetEnvironmentVariable, AppContext.BaseDirectory, Environment.CurrentDirectory),
-			InstanceDirectory = instanceDirectory,
-			Headless = arguments.Headless,
-			Project = project,
-		}, cancellationToken);
+		using LaunchedEditor editor = await EditorLauncher.LaunchAsync(CreateLaunchOptions(arguments,
+			EditorLocator.Find(arguments.Editor, Environment.GetEnvironmentVariable, AppContext.BaseDirectory, Environment.CurrentDirectory),
+			instanceDirectory, project), cancellationToken);
 		await output.WriteLineAsync(Describe(editor.Instance).ToJsonString(JsonText.Indented));
 		if (project is not null && !editor.Instance.HasProject(project))
 		{
@@ -251,6 +247,16 @@ internal static class Program
 		}
 		return Success;
 	}
+
+	/// <summary>How strada launch starts an editor: for the user, so with its start screen when it opens no project.</summary>
+	internal static EditorLaunchOptions CreateLaunchOptions(ToolArguments arguments, string executable, string instanceDirectory,
+		string? project) => new()
+		{
+			Executable = executable,
+			InstanceDirectory = instanceDirectory,
+			Headless = arguments.Headless,
+			Project = project,
+		};
 
 	private static async Task<int> ListInstancesAsync(ToolArguments arguments, TextWriter output)
 	{

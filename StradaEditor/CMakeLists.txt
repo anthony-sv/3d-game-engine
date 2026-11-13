@@ -78,6 +78,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EditorOperations.h
     Source/Editor/EditorScripts.cpp
     Source/Editor/EditorScripts.h
+    Source/Editor/EditorShortcuts.cpp
+    Source/Editor/EditorShortcuts.h
     Source/Editor/EditorWindowOptions.cpp
     Source/Editor/EditorWindowOptions.h
     Source/Editor/EntityBounds.cpp
@@ -134,8 +136,18 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/ScriptBrowsing.h
     Source/Editor/ScriptFieldInspection.cpp
     Source/Editor/ScriptFieldInspection.h
+    Source/Editor/StartScreen/NewProjectDialog.cpp
+    Source/Editor/StartScreen/NewProjectDialog.h
+    Source/Editor/StartScreen/NewProjectFormWidget.cpp
+    Source/Editor/StartScreen/NewProjectFormWidget.h
+    Source/Editor/StartScreen/StartScreenCards.cpp
+    Source/Editor/StartScreen/StartScreenCards.h
     Source/Editor/StartScreen/StartScreenModel.cpp
     Source/Editor/StartScreen/StartScreenModel.h
+    Source/Editor/StartScreen/StartScreenPanel.cpp
+    Source/Editor/StartScreen/StartScreenPanel.h
+    Source/Editor/StartScreen/StartScreenThumbnails.cpp
+    Source/Editor/StartScreen/StartScreenThumbnails.h
     Source/Editor/UI/EditorUI.cpp
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp

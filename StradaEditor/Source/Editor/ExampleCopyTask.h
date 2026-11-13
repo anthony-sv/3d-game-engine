@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <functional>
 #include <future>
+#include <string>
 
 namespace Strada
 {
@@ -33,6 +34,8 @@ namespace Strada
 		[[nodiscard]] Result<void> Start(ExampleCatalog catalog, ExampleEntry example, std::filesystem::path directory,
 		                                 CompletionCallback callback);
 		bool IsRunning() const { return m_Copy.valid(); }
+		// The id of the example the running (or last) copy copies; empty before the first copy.
+		std::string const& GetExampleId() const { return m_ExampleId; }
 		// How far the running (or last) copy got; any thread may read it.
 		ProjectCopyProgress const& GetProgress() const { return m_Progress; }
 		// Stops the running copy: it completes as cancelled, leaving nothing behind, also when its thread had already finished
@@ -47,6 +50,7 @@ namespace Strada
 		std::atomic<bool> m_Cancel = false;
 		ProjectCopyProgress m_Progress;
 		CompletionCallback m_Callback;
+		std::string m_ExampleId;
 		// The running copy's target, put back as it was when a copy that succeeded is cancelled before it completes (a failed
 		// copy has removed what it wrote itself).
 		Scope<NewDirectoryCleanup> m_Cleanup;

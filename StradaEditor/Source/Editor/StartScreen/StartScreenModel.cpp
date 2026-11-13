@@ -1,5 +1,7 @@
 #include "Editor/StartScreen/StartScreenModel.h"
 
+#include "Editor/Automation/AgentCommands.h"
+
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/ProjectCopy.h"
@@ -7,6 +9,7 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <algorithm>
 #include <array>
 #include <utility>
 
@@ -16,6 +19,8 @@ namespace Strada
 	{
 		// The header type of a project file (Project.h: { "Strada": { "Version": 1, "Type": "Project" }, "Project": {...} }).
 		constexpr std::string_view ProjectHeaderType = "Project";
+		// What project files end with, in lower case.
+		constexpr std::string_view ProjectFileExtension = ".sproj";
 
 		struct GuideLink
 		{
@@ -66,6 +71,54 @@ namespace Strada
 					: fmt::format("setting the project up for coding agents stopped at {}: {}", applied.FailedPath, applied.Error));
 		}
 		return setup;
+	}
+
+	Result<NewProjectOutcome> CreateProjectFromRequest(EditorOperations& operations, NewProjectRequest const& request,
+	                                                   ProjectTemplateList const& templates, EngineLayout const& layout,
+	                                                   AgentToolLookup const& findTool)
+	{
+		ProjectTemplate const* const projectTemplate = templates.Find(request.Form.TemplateId);
+		if (projectTemplate == nullptr)
+		{
+			return MakeError("there is no template '{}'", request.Form.TemplateId);
+		}
+		TemplateOptions options;
+		options.GitIgnore = request.Form.GitIgnore;
+		if (Result<void> created = operations.CreateProject(request.Directory, request.Form.Name, *projectTemplate, options); !created)
+		{
+			return Error{created.GetError()};
+		}
+		Project const* const project = operations.GetContext().GetProject();
+		if (project == nullptr)
+		{
+			return MakeError("the new project in '{}' is not open", FileSystem::PathToUtf8(request.Directory));
+		}
+		NewProjectOutcome outcome;
+		outcome.ProjectFile = project->GetFilePath();
+		if (std::optional<AgentProject> const agentProject = GetAgentProject(operations.GetContext());
+		    request.Form.SetUpAgents && agentProject)
+		{
+			outcome.Agents = SetUpNewProjectForAgents(*agentProject, layout, findTool, request.Form.GitIgnore);
+		}
+		return outcome;
+	}
+
+	std::optional<std::filesystem::path> FindDroppedProject(std::span<std::filesystem::path const> paths)
+	{
+		for (std::filesystem::path const& path : paths)
+		{
+			std::string extension = FileSystem::PathToUtf8(path.extension());
+			std::ranges::transform(extension, extension.begin(),
+			                       [](char character)
+			                       {
+									   return character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character;
+								   });
+			if (extension == ProjectFileExtension)
+			{
+				return path;
+			}
+		}
+		return std::nullopt;
 	}
 
 	StartScreenModel::StartScreenModel(EditorLocations locations, StartScreenServices services)

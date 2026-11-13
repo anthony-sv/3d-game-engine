@@ -74,6 +74,8 @@ usage.
   same for models (the result's `mesh` goes into a MeshComponent) and texture sets (the result's `material`); a
   SkyLight's `Environment` takes the returned asset. Downloads are checked against the size and MD5 that Poly Haven
   lists; nothing is downloaded when no project is open.
+- Editors `strada mcp` starts get `--no-start-screen`: the editor's start screen does not cover what an agent drives
+  and captures (`start.show` shows it). `strada launch` does not pass it.
 - Editors strada starts with a window stay open for the user. Editors it starts headless close with `strada mcp`: they
   get `--parent-process <strada's process ID>`, the editor option that closes the editor, discarding unsaved changes,
   once that process has exited (a safeguard for when strada itself is ended without closing them).
@@ -142,6 +144,7 @@ Parameters marked * are required.
 | `editor.undo` | — | `undone` (description), `scene` |
 | `editor.redo` | — | `redone`, `scene` |
 | `editor.quit` | `discardChanges` | `quitting`; fails with UnsavedChanges when the scene is dirty |
+| `editor.dialog` | `name`* (`new-project` or `agent-setup`), `open` (default true; false closes it as its Cancel does) | Opens a dialog of the File menu at the next frame as if the user chose its item, so that `viewport.screenshot` can show it: `new-project` (File > New Project..., the New Project form) or `agent-setup` (File > Set Up for Coding Agents...). Returns `name`, `open`. Changes nothing else (`project.create` and `project.setup-agents` do the work); not an undo step. InvalidOperation for `agent-setup` without an open project and while another dialog is open; Unavailable when headless |
 | `editor.entity-menu` | `submenu` (`3D Object`, `2D Object`, `Rendering`, `Effects`, `Physics`, `Audio` or `UI`), `open` (default true; false closes the menu) | Opens the menu bar's Entity menu, which creates entities from presets (the hierarchy's create menus are the same), as if the user clicked Entity and pointed at `submenu`; returns `open`, `submenu`, `sections`: `[{ category, submenu, presets }]`, the menu in its order (Core's Create Empty in the menu itself, then a submenu per category with the labels of its presets). Changes nothing in the scene (`entity.create` creates entities); InvalidOperation while a dialog is open; Unavailable when headless |
 | `editor.recent` | `remove` (a project file to take off the list; any spelling of its path), `clear` (default false: true empties the list) | `projects`: `[{ name, path, state }]`, the recent projects the start screen and File > Recent Projects list, most recent first, read now: `name` is the project's name (the file's name when it does not read), `state` is `Ok`, `Missing` (the file is gone) or `Unreadable` (it does not read as a project file). The list is saved in the editor's user data (`Editor/RecentProjects.json`); a project that is not listed changes nothing. Not an undo step. InvalidParams when both `remove` and `clear` are given; FileError when the list cannot be saved |
 
@@ -181,6 +184,11 @@ no scene and none is an undo step.
 |---------|-----------|--------|
 | `start.info` | — | `visible` (whether the screen shows; a headless editor never shows it), `defaultLocation` (the folder new projects go into by default, `<Documents>/Strada Projects`, or null), `recent`: `[{ name, path, state }]` (as `editor.recent` lists them), `templates` and `examples` (as `project.templates` and `project.examples` list them), `docs`: `[{ title, path }]` (the guides it links to that exist: Getting started, The editor, Scripting, Visual scripting, Agents), `environment`: `{ dotnetRuntime (the .NET runtime scripting started with, or null when scripting is off), dotnetSdk (the .NET SDK's `dotnet`, which builds C# scripts, or null), gpu, vulkan (the graphics adapter and its Vulkan version, or null) }`; read-only |
 | `start.show` | `visible`* | `visible`: shows the start screen over the editor's window or hides it. The scene behind it still loads, and the commands act on it; opening or creating a project hides it. Unavailable when headless |
+
+An editor started with `--no-start-screen` starts without the screen; `start.show` and File > Start Screen still show
+it. `strada mcp` starts its editors with the option: an editor started for an agent session is there to be driven and
+captured. `strada launch` starts them without it, for you. While the screen shows, the editor draws nothing behind it:
+`viewport.screenshot` with a `window` other than `Editor` answers that the window is not open.
 
 ### scene
 

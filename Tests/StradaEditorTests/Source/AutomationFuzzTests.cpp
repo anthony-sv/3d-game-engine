@@ -471,8 +471,8 @@ namespace
 		// run's few rounds of each command: half of them name the state's script, graph.find gets one of query and references
 		// (each half the time when it had neither), graph.open selects elements of the sub-graph it shows (and a third of the
 		// time opens the state's script with no other parameter, which its many independent ones would refuse), graph.arrange and
-		// graph.copy name nodes and elements of one sub-graph and mostly no revision, graph.set mostly no revision, and
-		// graph.close mostly closes one window.
+		// graph.copy name nodes and elements of one sub-graph and mostly no revision, graph.set mostly no revision,
+		// graph.close mostly closes one window, and graph.debug-panel is often called without a stop or a frame.
 		void AdjustGraphParameters(Json& params)
 		{
 			// Half the time the script whose document the state read, which every graph command can work on.
@@ -511,6 +511,13 @@ namespace
 			    !m_State.Graph.empty() && m_Random.Pick(3) == 0)
 			{
 				params = Json::object({{"graph", m_State.Graph}});
+			}
+			// graph.debug-panel: a third of the time no stop and no frame (showing, hiding or reading the panel), which are refused
+			// while nothing is stopped, as it mostly is in the fuzz.
+			if (m_Command == "graph.debug-panel" && m_Random.Pick(3) == 0)
+			{
+				params.erase("stop");
+				params.erase("frame");
 			}
 			if (m_Command == "graph.open" && params.contains("select") && m_Random.Pick(5) != 0)
 			{
@@ -1286,7 +1293,7 @@ namespace
 		// (Tick).
 		ExampleCopyTask Copies;
 		// The start screen's state behind start.info, start.show and editor.recent: the recent projects file lies in the
-		// commands' user data, which the fuzz may write. Headless: start.show is Unavailable.
+		// commands' user data, which the fuzz may write. Headless: start.show and editor.dialog are Unavailable.
 		StartScreenModel StartScreen{Locations};
 		CommandRegistry Registry;
 		bool QuitRequested = false;
@@ -1988,6 +1995,9 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	CHECK(outcomes["editor.recent"].first > 0);
 	CHECK(outcomes["start.show"].first == 0);
 	CHECK(debugErrors["start.show"].contains(AutomationErrorCode::Unavailable));
+	// Nor any dialog: editor.dialog is Unavailable headless.
+	CHECK(outcomes["editor.dialog"].first == 0);
+	CHECK(debugErrors["editor.dialog"].contains(AutomationErrorCode::Unavailable));
 	CHECK(fixture.Ok("editor.recent")["projects"].is_array());
 	// The palette needs the runtime, so it opens nowhere: its parameters are still checked before that.
 	CHECK(paletteErrors[AutomationErrorCode::InvalidParams] > 0);
