@@ -54,13 +54,16 @@ and through each shard's filters and fails when a test case is in no shard or in
 ```sh
 ctest --preset windows-debug -R StradaEditorTests          # every shard and the partition check
 ctest --preset windows-debug -R StradaEditorTests.Graph    # one shard
-build/<preset>/bin/StradaEditorTests "--source-file=*GraphEditFuzzTests.cpp"   # a shard's filter, run directly
+build/<preset>/bin/StradaEditorTests "--source-file=*AutomationFuzzTests.cpp"   # the AutomationFuzz shard, run directly
 ```
 
 - A new test file lands in Core unless its name matches another shard's pattern; the partition check catches a file two
   shards take.
 - Patterns match the test case's full `__FILE__` path, without regard to case. Never write a path separator in a
   pattern (Windows paths use `\`): `*Source?PanelTests.cpp` selects `PanelTests.cpp` alone.
+- `*` matches separators too, so an inner `*` can reach into the checkout's path (in a clone under `D:\VisualScriptLab`,
+  `*VisualScript*Tests.cpp` matches every file). Anchor a pattern with an inner `*` to the suite's directory:
+  `*StradaEditorTests?Source?VisualScript*Tests.cpp`.
 - A shard that passes 450 s on CI's Windows MSVC Debug job is split by source-file patterns: add the shard to
   `Shards.cmake`, take its files out of the shard that held them (for Core: add its patterns to Core's exclusions), and
   check the partition with
