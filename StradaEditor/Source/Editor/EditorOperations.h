@@ -6,8 +6,12 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Core/EngineLayout.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/UUID.h"
+#include "Strada/Project/ExampleCatalog.h"
+#include "Strada/Project/ProjectCopy.h"
+#include "Strada/Project/ProjectTemplate.h"
 #include "Strada/Scene/ComponentSerialization.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Serialization/JsonSerialization.h"
@@ -22,6 +26,29 @@
 
 namespace Strada
 {
+	// The templates the editor offers (EditorOperations::ListProjectTemplates).
+	struct ProjectTemplateList
+	{
+		// Sorted by Order, then Id; always holds empty-3d (ProjectTemplate::DefaultId).
+		std::vector<ProjectTemplate> Templates;
+		// Templates left out, and a synthesized empty-3d.
+		std::vector<std::string> Warnings;
+
+		// Null when no template has the id.
+		ProjectTemplate const* Find(std::string_view id) const;
+	};
+
+	// What copying an example wrote (EditorOperations::CopyExample).
+	struct ExampleCopyOutcome
+	{
+		// The copy's directory and project file, absolute.
+		std::filesystem::path Directory;
+		std::filesystem::path ProjectFile;
+		uint64_t Bytes = 0;
+		uint32_t Files = 0;
+		std::vector<std::string> Warnings;
+	};
+
 	// Every editing operation of the editor, used alike by the UI panels and the automation commands. Scene modifications
 	// are undoable commands executed through the context's history; scene files and the selection are handled directly.
 	// Failures leave the scene unchanged and return a message for the user. Main thread only.
@@ -38,6 +65,25 @@ namespace Strada
 
 		// Creates a project in an empty or new directory (see Project::Create) and opens it with its start scene.
 		[[nodiscard]] Result<void> CreateProject(std::filesystem::path const& directory, std::string const& name, Scene const& startScene);
+		// Creates a project from a template in an empty or new directory (ProjectTemplate::Instantiate; a default-scene template
+		// gets the editor's default scene, CreateDefaultScene) and opens it with its start scene. When the new project does not
+		// open, its files stay (they are a complete project) and the error says where they are.
+		[[nodiscard]] Result<void> CreateProject(std::filesystem::path const& directory, std::string const& name,
+		                                         ProjectTemplate const& projectTemplate, TemplateOptions const& options);
+		// The templates new projects can start from: those of the engine content (ProjectTemplate::List on
+		// EngineContent::Templates), with a synthesized empty-3d (ProjectTemplate::MakeDefault) sorted in when it has none and
+		// a warning saying so. Reads the folder on every call. Any thread.
+		static ProjectTemplateList ListProjectTemplates(EngineLayout const& layout);
+		// The examples (ExampleCatalog::Load of EngineLayout::GetExampleCatalogPath); the error of a missing or damaged catalog.
+		// Any thread.
+		[[nodiscard]] static Result<ExampleCatalog> LoadExampleCatalog(EngineLayout const& layout);
+		// Copies an example into a new or empty directory through the project copy filter (ProjectCopy::Copy), for opening the
+		// copy afterwards (OpenProject): examples are only ever opened as copies. Fails for an example that is not available
+		// (the message carries its hint). Any thread: it touches no editor state, so it runs off the main thread
+		// (ExampleCopyTask).
+		[[nodiscard]] static Result<ExampleCopyOutcome> CopyExample(ExampleCatalog const& catalog, ExampleEntry const& example,
+		                                                            std::filesystem::path const& directory,
+		                                                            ProjectCopyOptions const& options = {});
 		// Opens a project and its start scene (an empty scene when it has none or it cannot be read). Returns warnings
 		// (skipped settings, scene problems). When opening fails, the previous project stays open if its assets still are.
 		[[nodiscard]] Result<std::vector<std::string>> OpenProject(std::filesystem::path const& file);

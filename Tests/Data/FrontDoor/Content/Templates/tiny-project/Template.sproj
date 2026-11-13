@@ -1,0 +1,28 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Project"
+	},
+	"Project": {
+		"Name": "Tiny Template",
+		"AssetDirectory": "Assets",
+		"ScriptModule": "Scripts/Binaries/Game.dll",
+		"StartScene": "8836451448650650354",
+		"Window": {
+			"Title": "Tiny Template",
+			"Width": 1280,
+			"Height": 720,
+			"Fullscreen": false,
+			"VSync": true,
+			"Resizable": true,
+			"Icon": "0"
+		},
+		"Physics": {
+			"FixedTimestep": 0.01666666753590107,
+			"Layers": [
+				"Default"
+			],
+			"IgnoredCollisions": []
+		}
+	}
+}

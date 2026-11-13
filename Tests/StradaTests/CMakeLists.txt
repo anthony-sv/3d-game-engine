@@ -55,9 +55,14 @@ add_executable(StradaTests
     Source/Physics/PhysicsSceneTests.cpp
     Source/Physics/PhysicsTestUtilities.h
     Source/Platform/ProcessTests.cpp
+    Source/Project/ExampleCatalogFuzzTests.cpp
+    Source/Project/ExampleCatalogTests.cpp
     Source/Project/FeatureTestProjectTests.cpp
     Source/Project/GameExporterTests.cpp
+    Source/Project/ProjectCopyTests.cpp
     Source/Project/ProjectFileFuzzTests.cpp
+    Source/Project/ProjectTemplateFuzzTests.cpp
+    Source/Project/ProjectTemplateTests.cpp
     Source/Project/ProjectTests.cpp
     Source/Project/SampleProjectsTests.cpp
     Source/Project/SceneRunnerTests.cpp
@@ -130,6 +135,8 @@ target_compile_definitions(StradaTests PRIVATE
     STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"
     # The repository's projects, whose scenes' visual scripts must analyze without errors (with the scripts CMake builds).
     STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
+    # The repository's project templates, which must load without warnings.
+    STRADA_TEMPLATES_DIR="${PROJECT_SOURCE_DIR}/Templates"
     # The scripting guide and the test scripts that are its examples, which the scripting tests compare and run.
     STRADA_SCRIPTING_GUIDE_PATH="${PROJECT_SOURCE_DIR}/Docs/Scripting.md"
     STRADA_GUIDE_EXAMPLES_PATH="${PROJECT_SOURCE_DIR}/Tests/TestScripts/Source/GuideExamples.cs"

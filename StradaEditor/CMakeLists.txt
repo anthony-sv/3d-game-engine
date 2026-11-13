@@ -31,6 +31,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Automation/JsonSchema.h
     Source/Editor/Automation/PlayCommands.cpp
     Source/Editor/Automation/PlayCommands.h
+    Source/Editor/Automation/ProjectContentCommands.cpp
+    Source/Editor/Automation/ProjectContentCommands.h
     Source/Editor/Automation/ScriptCommands.cpp
     Source/Editor/Automation/ScriptCommands.h
     Source/Editor/Commands/AssetCommands.cpp
@@ -78,6 +80,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EntityPresets.h
     Source/Editor/EntitySelection.cpp
     Source/Editor/EntitySelection.h
+    Source/Editor/ExampleCopyTask.cpp
+    Source/Editor/ExampleCopyTask.h
     Source/Editor/FileCopies.cpp
     Source/Editor/FileCopies.h
     Source/Editor/FileDialogs.cpp

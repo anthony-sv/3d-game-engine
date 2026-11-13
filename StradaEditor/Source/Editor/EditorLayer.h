@@ -11,6 +11,7 @@
 #include "Editor/EditorLocations.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/ExampleCopyTask.h"
 #include "Editor/GameInputRouter.h"
 #include "Editor/Panels/BuildGameDialog.h"
 #include "Editor/Panels/ConsolePanel.h"
@@ -194,6 +195,8 @@ namespace Strada
 		// The Debugger panel (drawn with the UI; graph.debug-panel reaches it only then).
 		VisualScriptDebuggerPanel m_DebuggerPanel{m_DebugSession, m_Context};
 		EditorExport m_Export;
+		// Copies examples for project.copy-example off the main thread.
+		ExampleCopyTask m_ExampleCopies;
 		AssetAutoRefresh m_AssetAutoRefresh;
 		CommandRegistry m_Commands;
 		AutomationServer m_AutomationServer;

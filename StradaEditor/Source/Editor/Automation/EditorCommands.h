@@ -105,6 +105,11 @@ namespace Strada
 	[[nodiscard]] Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations,
 	                                                  EditorCommandEnvironment environment);
 
+	// The open project as the project commands describe it ({ name, file, assetDirectory }; null when none is open), and the
+	// edited scene ({ name, path, dirty, entityCount }).
+	[[nodiscard]] Json DescribeEditorProject(EditorContext const& context);
+	[[nodiscard]] Json DescribeEditorScene(EditorContext const& context);
+
 	// graph.library's notes: the library's notes (the game's [VisualNode] members without a node) whose category is the given
 	// one or lies below it (any for an empty one) and whose member or message contains the query (any for an empty one), both
 	// ignoring the case of ASCII letters, in library order: [{ member, category, message }].

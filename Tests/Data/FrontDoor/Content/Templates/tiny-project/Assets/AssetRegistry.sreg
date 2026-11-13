@@ -1,0 +1,18 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "AssetRegistry"
+	},
+	"Assets": [
+		{
+			"Handle": "8836451448650650354",
+			"Type": "Scene",
+			"Path": "Scenes/Main.sscene"
+		},
+		{
+			"Handle": "1059418836329214952",
+			"Type": "VisualScript",
+			"Path": "Scripts/Rule.sgraph"
+		}
+	]
+}

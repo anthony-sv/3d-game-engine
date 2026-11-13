@@ -137,7 +137,10 @@ Some of the editor's command-line options (`StradaEditor --help` lists them all)
 
 ### Open the samples
 
-Open a project with File > Open Project..., File > Recent Projects, or `--project` on the command line.
+Open a project with File > Open Project..., File > Recent Projects, or `--project` on the command line. The samples
+are in the repository, so you can open them in place to look at them. To make one your own, take a copy: an agent (or
+any automation client) copies Prism Break, Blocks or the Showcase with `project.copy-example` (`project.examples` lists
+them), leaving out their authoring tools and build output, and opens the copy.
 
 - **Showcase** (`Projects/Showcase/Showcase.sproj`). Its Poly Haven sky, models and texture maps are not in the
   repository (about 95 MB, CC0). Download them once after cloning, before you open the project:
@@ -243,7 +246,7 @@ seconds when you press Space), a cube that a C# script turns, and a line of text
    one). The dialog shows the directory it creates: a folder named after the project inside the location.
 3. Click **Create**. If the open scene has unsaved changes, the editor first asks whether to save them.
 
-The editor opens the new project. Its folder holds:
+The editor opens the new project, made from the template `empty-3d`. Its folder holds:
 
 | Path | What it is |
 |------|------------|
@@ -251,6 +254,7 @@ The editor opens the new project. Its folder holds:
 | `Assets/` | The asset directory: scenes, materials, meshes, textures, sounds, fonts, visual scripts and prefabs |
 | `Assets/AssetRegistry.sreg` | The registry that gives every asset file a handle, so references survive moving files |
 | `Assets/Scenes/Main.sscene` | The start scene |
+| `.gitignore` | Keeps build output, caches and machine-specific files (`Build/`, `.strada/`, the script build) out of git |
 | `Scripts/` | Created with the first C# script: the C# project `Game.csproj`, the sources in `Source/`, the build in `Binaries/` |
 
 The start scene is open. It holds a camera (Main Camera), a directional light (Sun), a sky light with the built-in sky

@@ -6,6 +6,7 @@
 #include "Editor/Automation/ExportCommands.h"
 #include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/PlayCommands.h"
+#include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/DefaultScene.h"
 #include "Editor/EditorEditingKeys.h"
@@ -192,8 +193,20 @@ namespace Strada
 		                        : registered;
 		registered = registered ? RegisterGraphDebugCommands(m_Commands, m_DebugSession, m_PlayMode, m_Context) : registered;
 		registered = registered ? RegisterExportCommands(m_Commands, m_Export, m_Context) : registered;
+		registered = registered ? RegisterProjectContentCommands(m_Commands, m_Operations, m_ExampleCopies, m_Locations,
+		                                                         [this]
+		                                                         {
+																	 RememberProject();
+																 })
+		                        : registered;
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
+		// What is wrong with the templates (the default scene standing in for a missing empty-3d) is said once, at start.
+		ProjectTemplateList const templates = EditorOperations::ListProjectTemplates(m_Locations.Layout);
+		for (std::string const& warning : templates.Warnings)
+		{
+			ST_WARN("Project templates: {}", warning);
+		}
 
 		if (ImGuiLayer* const imgui = application.GetImGuiLayer())
 		{
@@ -411,6 +424,7 @@ namespace Strada
 		UpdateInstanceFile();
 		m_Scripts.Update();
 		m_Export.Update();
+		m_ExampleCopies.Update();
 		if (Application::Get().GetImGuiLayer() != nullptr)
 		{
 			m_AssetAutoRefresh.Update(IsEditorFocused(), !m_Export.IsRunning(), m_Operations);
@@ -1546,7 +1560,10 @@ namespace Strada
 			}
 			case SceneAction::NewProject:
 			{
-				Result<void> created = m_Operations.CreateProject(path, m_PendingProjectName, *CreateDefaultScene());
+				// The dialog's projects start from the default scene, with a .gitignore.
+				ProjectTemplateList const templates = EditorOperations::ListProjectTemplates(m_Locations.Layout);
+				Result<void> created =
+					m_Operations.CreateProject(path, m_PendingProjectName, *templates.Find(ProjectTemplate::DefaultId), TemplateOptions{});
 				if (created)
 				{
 					RememberProject();

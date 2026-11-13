@@ -395,13 +395,16 @@ def use_engine_sources(csproj):
     if reference not in text:
         raise SystemExit(f"{csproj} does not reference Strada.ScriptCore as expected")
     text = text.replace(reference, '\t<ItemGroup Condition="\'$(StradaScriptCoreAssembly)\' != \'\'">\n\t\t<Reference Include="Strada.ScriptCore">')
-    text = text.replace("</Project>", """\t<!-- In the engine's repository, builds without Strada.props (dotnet format, IDEs) use the scripting API from source;
+    # The fallback is marked repository-only: copies of the project outside the repository (examples) leave it out.
+    text = text.replace("</Project>", """\t<!-- strada:repository-only -->
+\t<!-- In the engine's repository, builds without Strada.props (dotnet format, IDEs) use the scripting API from source;
 \t     CMake builds pass StradaScriptCoreAssembly. -->
 \t<ItemGroup Condition="'$(StradaScriptCoreAssembly)' == ''">
 \t\t<ProjectReference Include="../../../Strada-ScriptCore/Strada.ScriptCore.csproj">
 \t\t\t<Private>false</Private>
 \t\t</ProjectReference>
 \t</ItemGroup>
+\t<!-- /strada:repository-only -->
 </Project>""")
     with open(csproj, "w", encoding="utf-8", newline="\n") as file:
         file.write(text)

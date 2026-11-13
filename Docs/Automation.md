@@ -145,16 +145,22 @@ Parameters marked * are required.
 
 ### project
 
-Project settings are saved to the project file immediately and are not part of the undo history.
+Project settings are saved to the project file immediately and are not part of the undo history. The project content
+commands (`project.templates`, `project.examples`, `project.copy-example`, and `project.create`'s templates) read the
+engine's templates (`Templates/<id>/template.json`) and its catalog of examples (`Projects/catalog.json` in a source
+tree); they act on files, not on the undo history. An example is only ever opened as a copy.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
 | `project.info` | — | `project` { name, file, assetDirectory } (null when none is open), `settings` (the `.sproj` "Project" object) |
-| `project.create` | `directory`* (new or empty), `name`*, `discardChanges` | `project`, `scene` (the start scene `Assets/Scenes/Main.sscene`) |
+| `project.create` | `directory`* (new or empty), `name`*, `template` (a template's id, as `project.templates` lists it; default `empty-3d`, the editor's default scene), `gitIgnore` (default true: writes a `.gitignore` for build output and caches when the template brings none), `discardChanges` | `project` (its file is `<name>.sproj`, the name in a form every platform can store), `scene` (the start scene; `Assets/Scenes/Main.sscene` for `empty-3d`), `template`; InvalidParams for an unknown template; FileError when the directory is not new or empty or a file cannot be written (nothing is left behind) |
 | `project.open` | `path`* (`.sproj` file), `discardChanges` | `project`, `scene` (its start scene), `warnings` (skipped unknown settings, start scene problems) |
 | `project.close` | `discardChanges` | `closed`, `scene` (empty); InvalidOperation without a project |
 | `project.settings` | `settings` (partial patch, e.g. `{"Window": {"Width": 1920}, "Physics": {"Layers": ["Default", "Player"]}}`) | `settings`; InvalidOperation without a project |
 | `project.export` | `directory` (new or empty directory, or an earlier export, which is replaced; absolute or relative to the project directory; default `Build`), `smokeTest` (runs the exported game headless for a few frames; default false) | `succeeded`, `error`, `directory`, `executable` (on macOS the application bundle, whose program is `Contents/MacOS/<name>`), `unsavedChanges` (the game uses the saved files), `seconds`, `bytes` and `files` (what the export wrote), `smokeTest` (`{ passed, output }`: whether the game started and exited cleanly, the end of its output; null without one), `scripts`: `{ built, errors, warnings, diagnostics }`; asynchronous. Scripts that do not compile end it with `succeeded` false and leave the earlier export. InvalidOperation without a project, while playing or exporting, or without a start scene; FileError when the game cannot be written; Cancelled when cancelled |
+| `project.copy-example` | `example`* (an id, as `project.examples` lists it), `directory`* (new or empty; absolute, or relative to the open project's directory as `project.export`'s is), `open` (default true), `discardChanges` | `directory`, `bytes` and `files` (what the copy wrote), `warnings` (an unclosed repository-only block of a script project; with `open`, the warnings of `project.open`) and, with `open`: `project`, `scene`; asynchronous: the copy runs in the background, without the example's `Tools/`, build output and caches, and its script projects without their repository-only blocks. InvalidParams for an unknown example or a bad directory (not new or empty, relative without a project, inside the example or the open project's asset directory); InvalidOperation when the example is not available (the message and `data.hint` carry its hint), while playing (with `open`) or while another example is copied; UnsavedChanges (with `open`, before anything is copied, unless `discardChanges`); FileError when the copy fails (nothing is left behind) or does not open (the copy stays; the scene may also have changed or play started while it copied, which fail likewise with UnsavedChanges or InvalidOperation naming the copy); Cancelled when the editor closes first |
+| `project.examples` | — | `examples`: `[{ id, name, description, order, requires: { sdk }, thumbnail (absolute path of a PNG, or null), available (its project file and the files it needs exist), hint (only when not available: what to run, or null) }]` sorted by order, `warnings` (entries left out, or why there is no catalog) |
+| `project.templates` | — | `templates`: `[{ id, name, description, order, tags, requires: { sdk } (the .NET 10 SDK is needed before the project plays), thumbnail (absolute path of a PNG, or null) }]` sorted by order, `warnings` (templates left out; the editor's default scene standing in for a missing `empty-3d`) |
 
 ### scene
 

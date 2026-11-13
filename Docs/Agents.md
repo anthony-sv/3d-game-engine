@@ -208,7 +208,9 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
    `Cylinder`, `Plane`, ...), materials, textures, fonts and the built-in sky (`builtin://DefaultSky`). `log_read`
    explains what went wrong whenever something is unexpected.
 2. **Make or open the project.** `project_create` with a new or empty `directory` and a `name`, or `project_open`
-   with a `.sproj` path. New projects start in `Assets/Scenes/Main.sscene`, their start scene. `project_settings`
+   with a `.sproj` path. `project_create` starts from a template (`template`, as `project_templates` lists them;
+   `empty-3d` by default, whose start scene is `Assets/Scenes/Main.sscene`) and writes a `.gitignore` unless
+   `gitIgnore` is false; `project_copy_example` copies an example game of `project_examples` and opens the copy. `project_settings`
    changes the window, the physics layers and the start scene.
 3. **Build scenes in small, checked steps.** `entity_create` takes a `name`, a `parent` and `components` in the
    scene-file format. Entities are UUIDs written as strings, asset fields take `asset://<path in Assets>` or

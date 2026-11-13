@@ -1,0 +1,22 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "ProjectTemplate"
+	},
+	"Template": {
+		"Id": "tiny-project",
+		"Name": "Tiny Project",
+		"Order": 2,
+		"Description": "A test fixture: one entity running one graph, a C# script project and authoring tools.",
+		"Requires": {
+			"Sdk": true
+		},
+		"Tags": [
+			"3D",
+			"Visual scripts",
+			"C#"
+		],
+		"Thumbnail": "thumbnail.png",
+		"ProjectFile": "Template.sproj"
+	}
+}
