@@ -476,11 +476,8 @@ TEST_CASE("Runtime: games that cannot start and wrong command lines fail before 
 	std::string const withoutStartScene = Native(game.Write(""));
 
 	ProcessResult const help = RunPlayer({"--help"});
-	CAPTURE(help.Output);
 	CHECK(help.ExitCode == 0);
 	CHECK(Contains(help.Output, "--project"));
-	// The build tree's marker names this checkout, so the player has nothing to say about it.
-	CHECK_FALSE(Contains(help.Output, EngineLayoutWarning));
 
 	for (std::vector<std::string> const& arguments : std::vector<std::vector<std::string>>{
 			 {"--game", withoutStartScene, "--project", "Game.sproj"},
@@ -633,7 +630,7 @@ TEST_CASE("Runtime: a windowed run of a menu without a camera shows its UI over 
 	CHECK(Contains(nothing.Output, "has no primary camera and no screen-space UI: nothing is drawn"));
 }
 
-TEST_CASE("Runtime: exported games run from their own directory, and tell once what is wrong with a marker beside them")
+TEST_CASE("Runtime: exported games run from their own directory")
 {
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path player;
@@ -674,16 +671,46 @@ TEST_CASE("Runtime: exported games run from their own directory, and tell once w
 	CAPTURE(passed.Output);
 	CHECK(passed.ExitCode == 0);
 	CHECK(Contains(passed.Output, "Tests passed: 3 checks in 1 frame"));
-	// An exported game carries no marker, and its player has nothing to say about one.
-	CHECK_FALSE(Contains(passed.Output, EngineLayoutWarning));
 
 	ProcessResult const failed = RunProgram(player, {"--test", "--scene", "Scenes/Fail.sscene"});
 	CAPTURE(failed.Output);
 	CHECK(failed.ExitCode == 1);
 	CHECK(Contains(failed.Output, "Tests failed: 1 of 2 checks failed"));
+}
 
-	// A damaged marker beside the player (in Contents/Resources of a macOS bundle) is told once at startup, and the game
-	// still runs.
+TEST_CASE("Runtime: players tell once at startup what is wrong with the engine marker beside them, and still run")
+{
+	// The build tree's marker names this checkout: nothing to tell.
+	ProcessResult const help = RunPlayer({"--help"});
+	CAPTURE(help.Output);
+	CHECK(help.ExitCode == 0);
+	CHECK_FALSE(Contains(help.Output, EngineLayoutWarning));
+
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path player;
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> created = Project::Create(directory.GetPath() / "Project", "Marker Test", *MakeScene("Main", std::nullopt));
+		REQUIRE(created.IsOk());
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*created.GetValue(), directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		if (player.extension() == ".app")
+		{
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+	}
+
+	// An exported game carries no marker: nothing to tell.
+	ProcessResult const plain = RunProgram(player, {"--headless", "--frames", "2"});
+	CAPTURE(plain.Output);
+	CHECK(plain.ExitCode == 0);
+	CHECK_FALSE(Contains(plain.Output, EngineLayoutWarning));
+
+	// A damaged marker where the player reads one (Contents/Resources of a macOS bundle) is told once, and the game runs.
 	std::filesystem::path resources = player.parent_path();
 	if (resources.filename() == "MacOS")
 	{
@@ -691,10 +718,9 @@ TEST_CASE("Runtime: exported games run from their own directory, and tell once w
 	}
 	REQUIRE(FileSystem::CreateDirectories(resources).IsOk());
 	REQUIRE(FileSystem::WriteTextFile(resources / EngineLayout::ManifestFileName, "{ \"Strada\": ").IsOk());
-	ProcessResult const damaged = RunProgram(player, {"--test"});
+	ProcessResult const damaged = RunProgram(player, {"--headless", "--frames", "2"});
 	CAPTURE(damaged.Output);
 	CHECK(damaged.ExitCode == 0);
-	CHECK(Contains(damaged.Output, "Tests passed: 3 checks in 1 frame"));
 	CHECK(CountOccurrences(damaged.Output, EngineLayoutWarning) == 1);
 	CHECK(Contains(damaged.Output, std::string(EngineLayout::ManifestFileName) + "' is ignored: "));
 }
