@@ -418,10 +418,17 @@ manager: `AssetManager::Init` initializes it first and `Shutdown` shuts it down 
 That matters: an asset registry keeps no entry of a type it does not know (`AssetRegistry::Deserialize` skips it with a
 warning) and a scan registers no file of an unknown extension, so a host that missed a type would drop the handles of
 its files the next time it saves the registry, and every reference to them would break. Hence the placement rule: a
-data asset's struct lives in the Asset module or below it (Core, Math, Serialization), and the subsystems that use it
-include it from there, as the renderer uses `MaterialData` (§4). An enum the struct shares with a higher module moves
-down with it, as `MaterialAlphaMode` lives beside `MaterialData`. Tests register types of their own after
-`AssetManager::Init` and before opening a directory; registrations last until the asset manager shuts down.
+data asset's struct lives in the Asset module or below it (Core, Math), and the subsystems that use it include it from
+there, as the renderer uses `MaterialData` (§4). Its field table needs Serialization, so it lives in the Asset module
+beside the registration: a struct of the Asset module carries it in its own header, as `MaterialData` does, and a
+struct of Core or Math (a curve in `Math/`) gets it in its type's header `Asset/<Name>Asset.h`, which every user of the
+asset includes. An enum the struct shares with a higher module moves down with it, as `MaterialAlphaMode` lives beside
+`MaterialData`; data that is a higher module's own settings (the renderer's quality settings live in
+`Renderer/SceneRendererSettings.h`) is a project setting or a struct of its own that the module maps, not a data asset
+of that module's struct. Tests register types of their own after `AssetManager::Init` and before opening a directory;
+registrations last until the asset manager shuts down. While the registry is not initialized (an asset registry read
+without the asset manager, editor commands registered without assets), it knows no type and the `Asset.h` lookups know
+the built-in types only.
 
 **What comes from the registration.**
 
@@ -492,8 +499,8 @@ scripts reach data assets through the Script module's bindings.
   inside other data (a curve inside a vehicle definition) gets a drawer of the field editor instead, used wherever that
   struct appears (§11, `FieldEditor::SetStructDrawer`).
 - *The content browser.* Its New menu has an item per registered type (`New <Name>`, the description as its tooltip),
-  which writes `New <Name><extension>` with the default fields into the displayed folder, selects it and starts renaming
-  it, as New Material does. Tiles of data assets show a data glyph with the type's name as their label.
+  which writes a file of the default fields named `New <Name>` (made unique) into the displayed folder, selects it and
+  starts renaming it, as New Material does. Tiles of data assets show a data glyph with the type's name as their label.
 - *The commands.* Every type registered when the editor's commands are registered gets three, documented in
   Automation.md with each shipped type's rows:
   - `<domain>.create { path, fields? }` writes a file (path relative to `Assets/`, ending in the type's extension) with
@@ -1865,8 +1872,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   takes the element at `Index` out and puts it back at `Target`. `MakePatch(values)` applies the change to the object
   whose fields `values` holds and gives the whole new value of the top-level field: an element edit, a removal or a move
   at an index that object's array does not have leaves its array as it is, and an insertion past its end appends. With
-  several objects selected, the rows show the first object's elements, and a value is flagged as differing when the
-  objects' arrays differ in length or in that value. `FieldEditor::SetStructDrawer(structName, drawer)` gives a reflected
+  several objects selected, the rows show the first object's elements, and when the objects' arrays differ the whole
+  array is flagged as differing, as a nested struct is (the selection's differing fields are named at the top level). `FieldEditor::SetStructDrawer(structName, drawer)` gives a reflected
   struct type (`StructTraits<T>::Name`) a drawer of its own wherever it appears (a field, a nested struct, an element):
   the drawer gets the struct's descriptor and value and returns its whole new value, which the field editor reports as a
   change at that path, so a curve embedded in other data is edited with the curve editor and undone like any field. The

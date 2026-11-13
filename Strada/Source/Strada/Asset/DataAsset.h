@@ -30,7 +30,9 @@ namespace Strada
 
 	// What one registration names. The data struct TData has a field table (StructTraits<TData>) whose field descriptions,
 	// ranges and hints are the type's documentation, editor and automation schema. TData lives in the Asset module or below
-	// it (Core, Math, Serialization), so that every host registers the same types (DataAssetRegistry).
+	// it (Core, Math), so that every host registers the same types (DataAssetRegistry); its field table, which needs
+	// Serialization, lives in the Asset module beside the registration (for a struct of Core or Math, in the type's own
+	// header Asset/<Name>Asset.h, which every user of the asset includes).
 	template<ReflectedStruct TData>
 	struct DataAssetTypeSpecification
 	{
@@ -186,7 +188,9 @@ namespace Strada
 	// the handles of its files when it saves the registry.
 	//
 	// AssetTypeToString, AssetTypeFromString, GetAssetTypeForExtension and GetSupportedAssetExtensions (Asset.h) consult it
-	// after the built-in types. Main thread only.
+	// after the built-in types. While it is not initialized (no asset manager: an asset registry read on its own, editor
+	// commands registered without assets), the lookups below find nothing, GetTypes is empty, and those functions know the
+	// built-in types only. Main thread only.
 	class DataAssetRegistry
 	{
 	public:
