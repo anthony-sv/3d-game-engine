@@ -19,8 +19,10 @@ namespace Strada
 	{
 		// How often the checks that look at the disk run again while the form stays the same (the target may appear).
 		constexpr double CheckSeconds = 1.0;
-		// Lines of a card's description (the whole of it is in the card's tooltip).
-		constexpr float DescriptionLines = 3.0f;
+		// Lines of a template card's description: as many as the longest takes, within these (a longer one is cut, and the card's
+		// tooltip shows it).
+		constexpr float MinimumDescriptionLines = 2.0f;
+		constexpr float MaximumDescriptionLines = 6.0f;
 
 		std::string GetLocationStart(NewProjectForm const& form, EditorLocations const& locations)
 		{
@@ -95,18 +97,11 @@ namespace Strada
 		size_t const fitting = static_cast<size_t>(std::max(1.0f, std::floor((available + spacing) / (minimumWidth + spacing))));
 		size_t const perRow = std::min(fitting, templates.size());
 		float const cardWidth = std::floor((available - spacing * static_cast<float>(perRow - 1)) / static_cast<float>(perRow));
-		StartScreenCardLayout const layout = StartScreenCardLayout::Vertical(cardWidth, DescriptionLines);
 
-		NewProjectForm& form = model.GetForm();
-		for (size_t index = 0; index < templates.size(); index++)
+		std::vector<StartScreenCard> cards;
+		cards.reserve(templates.size());
+		for (ProjectTemplate const& projectTemplate : templates)
 		{
-			ProjectTemplate const& projectTemplate = templates[index];
-			if (index % perRow != 0)
-			{
-				ImGui::SameLine(0.0f, spacing);
-			}
-			ImGui::PushID(projectTemplate.Id.c_str());
-			bool const selected = form.TemplateId == projectTemplate.Id;
 			StartScreenCard card;
 			card.Name = projectTemplate.Name;
 			card.Description = projectTemplate.Description;
@@ -120,13 +115,33 @@ namespace Strada
 				}
 				card.Thumbnail = thumbnails->Get(found->second);
 			}
-			StartScreenCardResult const drawn = DrawStartScreenCard("##card", card, layout, selected);
+			cards.push_back(card);
+		}
+		// The cards are as tall as the longest text needs, so none is cut and the row stays even.
+		StartScreenCardLayout const layout = StartScreenCardLayout::Vertical(cardWidth, MinimumDescriptionLines)
+		                                         .FitText(cards, MinimumDescriptionLines, MaximumDescriptionLines);
+
+		NewProjectForm& form = model.GetForm();
+		for (size_t index = 0; index < templates.size(); index++)
+		{
+			ProjectTemplate const& projectTemplate = templates[index];
+			if (index % perRow != 0)
+			{
+				ImGui::SameLine(0.0f, spacing);
+			}
+			ImGui::PushID(projectTemplate.Id.c_str());
+			bool const selected = form.TemplateId == projectTemplate.Id;
+			StartScreenCardResult const drawn = DrawStartScreenCard("##card", cards[index], layout, selected);
 			if (drawn.Clicked)
 			{
 				form.TemplateId = projectTemplate.Id;
 			}
-			// The card as drawn (a selectable's item reaches half the item spacing past it).
+			// The card as drawn, and whether its text shows whole.
 			RecordStartScreenItem(items, "Template:" + projectTemplate.Id, true, drawn.Min, drawn.Max);
+			if (items != nullptr)
+			{
+				items->back().TextWhole = drawn.TextWhole;
+			}
 			ImGui::PopID();
 		}
 	}
@@ -197,7 +212,9 @@ namespace Strada
 		if (form.SetUpAgents)
 		{
 			ImGui::Indent();
-			if (ImGui::TreeNodeEx("Files it writes", ImGuiTreeNodeFlags_SpanAvailWidth))
+			bool const listed = ImGui::TreeNodeEx("Files it writes", ImGuiTreeNodeFlags_SpanAvailWidth);
+			RecordStartScreenItem(items, "Files it writes", true);
+			if (listed)
 			{
 				for (std::string const& file : GetAgentFiles(model))
 				{

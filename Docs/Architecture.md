@@ -1758,8 +1758,13 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   (the form as it was) to the layer, which asks about unsaved changes and then runs `CreateProjectFromRequest`
   (`EditorOperations::CreateProject` from the template, then `SetUpNewProjectForAgents`), as `project.create` does.
   Examples open as copies through the layer's one `ExampleCopyTask`, shared with `project.copy-example`. Thumbnails are
-  GPU textures (`StartScreenThumbnails`, none without a graphics device, released in `OnDetach`). `editor.dialog`
-  opens the File menu's two dialogs so that captures can show them.
+  GPU textures (`StartScreenThumbnails`, none without a graphics device, released in `OnDetach`). The cards
+  (`StartScreenCards`) are as tall as their longest text needs at the width they get (`StartScreenCardLayout::FitText`,
+  within a maximum of description lines), so cards side by side and one under another stay even and show their texts
+  whole; a card whose text is still cut shows it in its tooltip. The form's fields and the example list take the height
+  of their content up to what their column leaves (`ImGuiChildFlags_AutoResizeY` with a size constraint), so Create and
+  Learn follow them and the fields or the list scroll only when the column is too short. `editor.dialog` opens the File
+  menu's two dialogs so that captures can show them.
 - The global shortcut gate (`EditorShortcuts`): the editor's global shortcuts (New, Open and Save Scene, Build Scripts,
   Play, Pause, Step, the debugger's keys, Undo, Redo and the editing keys) are one unit the layer and its tests run.
   ImGui's global routes ignore modal popups (`ImGuiInputFlags_RouteGlobal` scores the same whatever popup is open), so

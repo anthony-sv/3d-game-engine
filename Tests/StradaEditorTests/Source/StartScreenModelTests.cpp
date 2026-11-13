@@ -200,7 +200,8 @@ TEST_CASE("StartScreenModel: the New Project form says what it creates and why i
 	form.Name = "   ";
 	check = fixture.Model.CheckForm();
 	CHECK(check.Problem == NewProjectProblem::NoName);
-	CHECK_FALSE(check.Reason.empty());
+	// Only an empty name has no portable form (any other character becomes '_'): the reason asks for one.
+	CHECK(check.Reason == "Enter a name for the project.");
 	CHECK(check.Directory.empty());
 
 	form.Name = "Game";

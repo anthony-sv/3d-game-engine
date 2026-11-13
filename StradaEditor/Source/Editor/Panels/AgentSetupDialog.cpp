@@ -1,5 +1,7 @@
 #include "Editor/Panels/AgentSetupDialog.h"
 
+#include "Editor/UI/EditorUI.h"
+
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 
@@ -211,7 +213,8 @@ namespace Strada
 		for (std::string const& warning : shown.Warnings)
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text, WarningColor);
-			ImGui::TextWrapped("%s", warning.c_str());
+			// The kit's warnings are messages (also in project.setup-agents' result): the dialog shows them as sentences.
+			ImGui::TextWrapped("%s", UI::FormatSentence(warning).c_str());
 			ImGui::PopStyleColor();
 		}
 		if (applied)

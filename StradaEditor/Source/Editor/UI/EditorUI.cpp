@@ -894,6 +894,25 @@ namespace Strada
 			return fmt::format("{}:{:02}", total / 60, total % 60);
 		}
 
+		std::string FormatSentence(std::string_view message)
+		{
+			std::string sentence(message);
+			if (sentence.empty())
+			{
+				return sentence;
+			}
+			// ASCII letters only: the byte of a multi-byte UTF-8 character is never changed.
+			if (sentence.front() >= 'a' && sentence.front() <= 'z')
+			{
+				sentence.front() = static_cast<char>(sentence.front() - 'a' + 'A');
+			}
+			if (std::string_view(".!?:").find(sentence.back()) == std::string_view::npos)
+			{
+				sentence.push_back('.');
+			}
+			return sentence;
+		}
+
 		EntityPreset const* DrawEntityPresetMenuItems(std::string_view openSubmenu)
 		{
 			EntityPreset const* chosen = nullptr;

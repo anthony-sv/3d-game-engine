@@ -268,7 +268,7 @@ namespace Strada
 		if (check.DirectoryName.empty())
 		{
 			check.Problem = NewProjectProblem::NoName;
-			check.Reason = "Enter a name with a letter or a digit.";
+			check.Reason = "Enter a name for the project.";
 		}
 		else if (m_Form.Location.empty())
 		{

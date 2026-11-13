@@ -69,7 +69,7 @@ namespace Strada
 	enum class NewProjectProblem : uint8_t
 	{
 		None = 0,
-		// The name gives no portable file name (FileSystem::MakePortableFileName is empty).
+		// The name gives no portable file name (FileSystem::MakePortableFileName is empty: the name is empty or spaces).
 		NoName,
 		NoLocation,
 		// The location is not an absolute path.

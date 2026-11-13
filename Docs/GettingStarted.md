@@ -105,7 +105,9 @@ build/linux-gcc-release/bin/StradaEditor --project Projects/PrismBreak/PrismBrea
 build/macos-release/bin/StradaEditor --project Projects/PrismBreak/PrismBreak.sproj      # macOS
 ```
 
-Without a project, the editor starts with a sample scene made of built-in assets. The default layout puts the Scene
+Without a project, the editor starts at its start screen ([Create a project](#create-a-project) uses it), over a
+sample scene made of built-in assets; **Continue without a project** at its bottom right hides the screen and leaves
+you with that scene. The default layout puts the Scene
 View, the Game View and Renderer Info in the middle, the Scene Hierarchy on the left, the Inspector (with Scene
 Settings and Project Settings) on the right, and the Content Browser, the Console and the Visual Script Debugger at the
 bottom. The View menu shows and hides each of them, and View > Reset Layout brings the default back. The toolbar above
@@ -139,9 +141,11 @@ Some of the editor's command-line options (`StradaEditor --help` lists them all)
 ### Open the samples
 
 Open a project with File > Open Project..., File > Recent Projects, or `--project` on the command line. The samples
-are in the repository, so you can open them in place to look at them. To make one your own, take a copy: an agent (or
-any automation client) copies Prism Break, Blocks or the Showcase with `project.copy-example` (`project.examples` lists
-them), leaving out their authoring tools and build output, and opens the copy.
+are in the repository, so you can open them in place to look at them. To make one your own, take a copy: **Open** on
+an example's card on the start screen copies Prism Break, Blocks or the Showcase into the New Project form's location
+(in a folder named after it) and opens the copy, and an agent (or any automation client) does the same with
+`project.copy-example` (`project.examples` lists them). A copy leaves out the example's authoring tools and build
+output.
 
 - **Showcase** (`Projects/Showcase/Showcase.sproj`). Its Poly Haven sky, models and texture maps are not in the
   repository (about 95 MB, CC0). Download them once after cloning, before you open the project:
@@ -243,7 +247,9 @@ seconds when you press Space), a cube that a C# script turns, and a line of text
 ### Create a project
 
 The editor starts at its start screen: your recent projects on the left, the New Project form in the middle, the
-example games and the guides on the right. (With a project open, File > New Project... shows the same form.)
+example games and the guides on the right, and at the bottom what the editor found on your machine (.NET, its SDK,
+the GPU). File > Start Screen shows it again at any time, and with a project open File > New Project... shows the same
+form in a dialog.
 
 1. Click the **Empty 3D** card. Graph Starter and C# Starter are small finished games, Orb Run, made of visual scripts
    or of C#; try them later.

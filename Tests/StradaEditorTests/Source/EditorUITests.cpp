@@ -268,6 +268,20 @@ TEST_CASE("UI: display names split PascalCase words and keep acronyms together")
 	CHECK(UI::FormatDisplayName("").empty());
 }
 
+TEST_CASE("UI: messages become sentences for dialogs, with their first letter in upper case and a full stop")
+{
+	CHECK(UI::FormatSentence("no strada on PATH is the one beside the editor") == "No strada on PATH is the one beside the editor.");
+	CHECK(UI::FormatSentence("'Game.sproj' was not found") == "'Game.sproj' was not found.");
+	CHECK(UI::FormatSentence("Already a sentence.") == "Already a sentence.");
+	CHECK(UI::FormatSentence("what now?") == "What now?");
+	CHECK(UI::FormatSentence("stopped!") == "Stopped!");
+	CHECK(UI::FormatSentence("these files:") == "These files:");
+	CHECK(UI::FormatSentence(".mcp.json is damaged") == ".mcp.json is damaged.");
+	// Only ASCII letters change: the first byte of a UTF-8 character stays as it is.
+	CHECK(UI::FormatSentence("\xC3\xA9t\xC3\xA9") == "\xC3\xA9t\xC3\xA9.");
+	CHECK(UI::FormatSentence("").empty());
+}
+
 TEST_CASE("UI: arrows in text are drawn as shapes, which the editor's fonts have no glyphs for, and measured with the text")
 {
 	Testing::HeadlessImGui imgui;

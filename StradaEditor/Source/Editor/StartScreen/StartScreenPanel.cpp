@@ -3,6 +3,7 @@
 #include "Editor/ExampleCopyTask.h"
 #include "Editor/StartScreen/StartScreenCards.h"
 #include "Editor/StartScreen/StartScreenThumbnails.h"
+#include "Editor/UI/EditorUI.h"
 
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
@@ -28,8 +29,10 @@ namespace Strada
 		// takes the rest.
 		constexpr float RecentShare = 0.26f;
 		constexpr float ExamplesShare = 0.30f;
-		// Lines of an example card's description (the whole of it is in the card's tooltip).
-		constexpr float ExampleDescriptionLines = 2.0f;
+		// Lines of an example card's description: as many as the longest takes, within these (a longer one is cut, and the
+		// card's tooltip shows it).
+		constexpr float MinimumExampleLines = 2.0f;
+		constexpr float MaximumExampleLines = 4.0f;
 
 		void DrawSectionTitle(char const* title)
 		{
@@ -221,6 +224,9 @@ namespace Strada
 				ImGui::PopTextWrapPos();
 			}
 			float const lineHeight = ImGui::GetTextLineHeight();
+			// The name above its folder, with a little room around them.
+			float const rowPadding = std::round(style.FramePadding.y * 0.5f);
+			float const rowHeight = lineHeight * 2.0f + rowPadding * 2.0f;
 			for (size_t index = 0; index < recent.size(); index++)
 			{
 				RecentProjectInfo const& project = recent[index];
@@ -229,11 +235,10 @@ namespace Strada
 				ImGui::PushID(static_cast<int>(index));
 				ImVec2 const rowMin = ImGui::GetCursorScreenPos();
 				float const rowWidth = ImGui::GetContentRegionAvail().x;
-				bool const clicked = ImGui::Selectable("##row", false, ImGuiSelectableFlags_None, ImVec2(0.0f, lineHeight * 2.0f + 2.0f));
+				bool const clicked = ImGui::Selectable("##row", false, ImGuiSelectableFlags_None, ImVec2(0.0f, rowHeight));
 				bool const hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort);
 				// The row as drawn (a selectable's item reaches half the item spacing past it).
-				RecordStartScreenItem(&m_Items, "Recent:" + path, canOpen, rowMin,
-				                      ImVec2(rowMin.x + rowWidth, rowMin.y + lineHeight * 2.0f + 2.0f));
+				RecordStartScreenItem(&m_Items, "Recent:" + path, canOpen, rowMin, ImVec2(rowMin.x + rowWidth, rowMin.y + rowHeight));
 				if (clicked && canOpen && actions.OpenProject)
 				{
 					actions.OpenProject(project.File);
@@ -271,18 +276,17 @@ namespace Strada
 				std::string const state = DescribeState(project.State);
 				float const stateWidth = state.empty() ? 0.0f : ImGui::CalcTextSize(state.c_str()).x + style.ItemSpacing.x;
 				float const textWidth = std::max(rowWidth - stateWidth - style.FramePadding.x, 1.0f);
-				ImVec2 const namePosition(rowMin.x + style.FramePadding.x * 0.5f, rowMin.y + 1.0f);
+				ImVec2 const namePosition(rowMin.x + style.FramePadding.x * 0.5f, rowMin.y + rowPadding);
 				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(canOpen ? ImGuiCol_Text : ImGuiCol_TextDisabled));
 				ImGui::RenderTextEllipsis(drawList, namePosition, ImVec2(namePosition.x + textWidth, namePosition.y + lineHeight),
 				                          namePosition.x + textWidth, project.Name.c_str(), project.Name.c_str() + project.Name.size(),
 				                          nullptr);
 				ImGui::PopStyleColor();
-				std::string const folder = FileSystem::PathToUtf8(project.File.parent_path());
+				// The folder keeps its last folders, which tell the projects apart, and gives way at its start.
+				std::string const folder = UI::FitPath(FileSystem::PathToUtf8(project.File.parent_path()), textWidth);
 				ImVec2 const folderPosition(namePosition.x, namePosition.y + lineHeight);
-				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-				ImGui::RenderTextEllipsis(drawList, folderPosition, ImVec2(folderPosition.x + textWidth, folderPosition.y + lineHeight),
-				                          folderPosition.x + textWidth, folder.c_str(), folder.c_str() + folder.size(), nullptr);
-				ImGui::PopStyleColor();
+				drawList->AddText(folderPosition, ImGui::GetColorU32(ImGuiCol_TextDisabled), folder.c_str(),
+				                  folder.c_str() + folder.size());
 				if (!state.empty())
 				{
 					drawList->AddText(ImVec2(rowMin.x + rowWidth - stateWidth + style.ItemSpacing.x * 0.5f, namePosition.y),
@@ -310,8 +314,10 @@ namespace Strada
 	void StartScreenPanel::DrawNewProject(StartScreenModel& model, StartScreenThumbnails* thumbnails, StartScreenActions const& actions)
 	{
 		DrawSectionTitle("New project");
+		// Create follows the fields; the fields scroll when they need more height than the column leaves above Create.
 		float const fieldsHeight = std::max(ImGui::GetContentRegionAvail().y - NewProjectFormWidget::GetCreateRowHeight(), 1.0f);
-		if (ImGui::BeginChild("##NewProjectFields", ImVec2(0.0f, fieldsHeight)))
+		ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, fieldsHeight));
+		if (ImGui::BeginChild("##NewProjectFields", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY))
 		{
 			m_Form.DrawFields(model, thumbnails, actions.Form, &m_Items);
 		}
@@ -328,7 +334,9 @@ namespace Strada
 		float const learnHeight =
 			GetSectionTitleHeight() + static_cast<float>(guides) * ImGui::GetTextLineHeightWithSpacing() + style.ItemSpacing.y * 3.0f;
 		float const listHeight = std::max(ImGui::GetContentRegionAvail().y - learnHeight, ImGui::GetFrameHeight() * 2.0f);
-		if (ImGui::BeginChild("##ExampleList", ImVec2(0.0f, listHeight)))
+		// Learn follows the examples; the list scrolls when it needs more height than the column leaves above Learn.
+		ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, listHeight));
+		if (ImGui::BeginChild("##ExampleList", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY))
 		{
 			std::optional<ExampleCatalog> const& catalog = model.GetExamples();
 			ImGui::PushTextWrapPos(0.0f);
@@ -343,18 +351,28 @@ namespace Strada
 			ImGui::PopTextWrapPos();
 			bool const copying = copies.IsRunning();
 			std::vector<ExampleEntry> const* const examples = catalog ? &catalog->GetExamples() : nullptr;
+			std::vector<StartScreenCard> cards;
+			for (size_t index = 0; examples != nullptr && index < examples->size(); index++)
+			{
+				ExampleEntry const& example = (*examples)[index];
+				StartScreenCard card;
+				card.Name = example.Name;
+				card.Description = example.Description;
+				card.RequiresSdk = example.RequiresSdk;
+				card.Thumbnail = thumbnails != nullptr ? thumbnails->Get(m_Examples[example.Id].Thumbnail) : nullptr;
+				cards.push_back(card);
+			}
+			// The cards are as tall as the longest text needs, so none is cut and the list stays even.
+			StartScreenCardLayout const layout = StartScreenCardLayout::Horizontal(ImGui::GetContentRegionAvail().x, MinimumExampleLines)
+			                                         .FitText(cards, MinimumExampleLines, MaximumExampleLines);
 			for (size_t index = 0; examples != nullptr && index < examples->size(); index++)
 			{
 				ExampleEntry const& example = (*examples)[index];
 				ExampleView const& view = m_Examples[example.Id];
 				ImGui::PushID(example.Id.c_str());
-				StartScreenCard card;
-				card.Name = example.Name;
-				card.Description = example.Description;
-				card.RequiresSdk = example.RequiresSdk;
-				card.Thumbnail = thumbnails != nullptr ? thumbnails->Get(view.Thumbnail) : nullptr;
-				StartScreenCardResult const drawn = DrawStartScreenCard(
-					"##card", card, StartScreenCardLayout::Horizontal(ImGui::GetContentRegionAvail().x, ExampleDescriptionLines), false);
+				StartScreenCardResult const drawn = DrawStartScreenCard("##card", cards[index], layout, false);
+				RecordStartScreenItem(&m_Items, "Example card:" + example.Id, true, drawn.Min, drawn.Max);
+				m_Items.back().TextWhole = drawn.TextWhole;
 				ImVec2 const below = ImGui::GetCursorScreenPos();
 
 				ImGui::SetCursorScreenPos(drawn.ActionPosition);

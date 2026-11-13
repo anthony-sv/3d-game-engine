@@ -36,8 +36,8 @@ Option key. The editor's own menus write their shortcuts with Ctrl on every plat
 ### Command line
 
 Run `StradaEditor` from the build's `bin` folder (for example `build/windows-debug/bin/StradaEditor.exe`). Without
-options it opens a window of 1600 x 900 pixels with a sample scene and no project. `StradaEditor --help` prints the
-options:
+options it opens a window of 1600 x 900 pixels with no project, showing the [start screen](#the-start-screen) over a
+sample scene. `StradaEditor --help` prints the options:
 
 | Option | What it does |
 |--------|--------------|
@@ -70,11 +70,14 @@ it, and `--no-start-screen` starts without it.
 | Area | What it holds |
 |------|---------------|
 | Header | Strada and its version |
-| Recent projects | The last 10 projects you opened or created, with their folder. Click one to open it. A project whose file is gone says **Missing**, one whose file does not read as a project says **Unreadable**; neither opens. Right-click a project for Open, Show in Folder (the system's file manager) and Remove from List. **Open Project...** below the list picks a `.sproj` file with the system's file dialog |
-| New project | The [New Project form](#the-new-project-form) and its **Create** button |
-| Examples | The example games, a card each with a picture, what they are and what they need: **Visual scripts: no SDK needed** or **C#: needs the .NET 10 SDK**. **Open** copies the example into the form's location, in a folder named after it (`<Name> 2`, `<Name> 3`... when that is taken), shows the copy's progress with Cancel, and opens the copy. The engine's own example folders are never opened in place. An example whose files are missing (the Showcase before its assets are downloaded) says what restores them, and its Open is disabled |
-| Learn | Getting started, The editor, Scripting, Visual scripting and Agents: each opens that guide with the system's handler |
-| The bottom line | What the editor found on this machine: the .NET runtime scripting started with (or "not found: scripts are off"), whether the .NET SDK was found (it builds C# scripts), the GPU and its Vulkan version; and **Continue without a project**, which hides the screen and leaves you with the scene behind it |
+| Recent projects | The last 10 projects you opened or created, each with its folder (a long folder keeps its last folders and starts with "..."; hover the project for its whole path). Click one to open it. A project whose file is gone says **Missing**, one whose file does not read as a project says **Unreadable**; neither opens. Right-click a project for Open, Show in Folder (the system's file manager; not for a Missing one) and Remove from List. **Open Project...** below the list picks a `.sproj` file with the system's file dialog. Without recent projects the list says so |
+| New project | The [New Project form](#the-new-project-form), with its **Create** button right below it |
+| Examples | The example games, a card each with a picture, what they are and what they need: **Visual scripts: no SDK needed** or **C#: needs the .NET 10 SDK**. **Open** copies the example into the form's location, in a folder named after it (`<Name> 2`, `<Name> 3`... when that is taken), shows the copy's progress ("Copying 37%") with Cancel, and opens the copy. The engine's own example folders are never opened in place. An example whose files are missing (the Showcase before its assets are downloaded) says what restores them, and its Open is disabled. The list scrolls when the window is too short for it |
+| Learn | Under the examples: Getting started, The editor, Scripting, Visual scripting and Agents. Each opens that guide with the system's handler; a guide that is not there is not listed |
+| The bottom line | What the editor found on this machine: the .NET runtime scripting started with (".NET runtime not found: scripts are off" without one), ".NET SDK found" (it builds C# scripts) or ".NET SDK not found: needed to build C# scripts", the GPU and its Vulkan version (hover the line for the SDK's path); and **Continue without a project**, which hides the screen and leaves you with the scene behind it |
+
+The cards of the templates and the examples are as tall as their longest description needs, so they show their texts
+whole; a card whose name or description is still cut (a very long one, or a very small window) shows it in its tooltip.
 
 The sample scene "Untitled" is loaded behind the screen while it shows, but nothing behind it is drawn or reacts to
 the mouse or the keyboard, and no [shortcut](#keyboard-shortcuts) acts; the menu bar works as usual. A project file
@@ -98,10 +101,10 @@ projects the same way:
   into the project, as [Set Up for Coding Agents](#setting-a-project-up-for-coding-agents) does; **Files it writes** lists them.
 - **Add a .gitignore** (on): writes a `.gitignore` that keeps build output, caches and machine-specific files out of
   git.
-- **Create** is disabled, with the reason beside it, while the name has no letter or digit, the location is empty or
-  not a full path, or the folder exists and is not empty. It creates the project, opens it and its start scene, and
-  adds it to the recent projects. Neither checkbox nor the location is remembered: the form starts afresh each time
-  the dialog opens.
+- **Create** is disabled, with the reason beside it (hover the reason to read all of it), while the name is empty, the
+  location is empty or not a full path, or the folder exists and is not empty. It creates the project, opens it and
+  its start scene, and adds it to the recent projects. Neither checkbox nor the location is remembered: the form
+  starts afresh each time the dialog opens and each time the editor starts.
 
 ### Projects
 

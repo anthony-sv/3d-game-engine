@@ -54,6 +54,12 @@ namespace
 		Result<Json> templateDocument = ParseJson(templateText.GetValue());
 		REQUIRE(templateDocument.IsOk());
 		Json described = templateDocument.TakeValue();
+		// The project template describes itself at the length of the engine's longest description (csharp-starter's), which
+		// the cards show whole.
+		Json longer = described;
+		longer["Template"]["Description"] = "Roll a glowing orb and collect 12 sparks before time runs out, written in C#, with a C# "
+											"member that a graph calls as a node.";
+		REQUIRE(FileSystem::WriteTextFile(content / "Templates" / "tiny-project" / "template.json", longer.dump(1, '\t')).IsOk());
 		described["Template"]["Id"] = "third-project";
 		described["Template"]["Name"] = "Third Project With A Name Long Enough To Be Cut";
 		described["Template"]["Order"] = 3;
@@ -70,7 +76,8 @@ namespace
 		                                            {"Order", 3},
 		                                            {"Directory", "Tiny"},
 		                                            {"ProjectFile", "Tiny.sproj"},
-		                                            {"Description", "The tiny fixture once more, so that the list holds three."},
+		                                            {"Description", "The tiny fixture once more, so that the list holds three, with a "
+		                                                            "description as long as the Showcase's."},
 		                                            {"Thumbnail", "Thumbnails/tiny.png"},
 		                                            {"Requires", Json::object({{"Sdk", false}})}}));
 		REQUIRE(FileSystem::WriteTextFile(catalogFile, catalog.dump(1, '\t')).IsOk());
@@ -320,6 +327,18 @@ TEST_CASE("StartScreenPanel: every area draws at 1600x900 and at 1280x720 with i
 		{
 			CHECK_MESSAGE(fixture.Find(guide) != nullptr, guide);
 		}
+		// Every card shows its badge and description whole, and its name unless it is wider than the card (the third
+		// template's, which its tooltip shows).
+		for (std::string_view const card :
+		     {"Template:empty-3d", "Template:tiny-project", "Example card:tiny", "Example card:fetched", "Example card:tiny-again"})
+		{
+			CHECK_MESSAGE(fixture.Require(card).TextWhole, card);
+		}
+		CHECK_FALSE(fixture.Require("Template:third-project").TextWhole);
+		// Create follows the form's last field, and Learn the last example, rather than the bottom of their columns.
+		float const rowHeight = ImGui::GetFrameHeightWithSpacing();
+		CHECK(fixture.Require("Create").Min.y - fixture.Require("Add a .gitignore").Max.y < rowHeight * 2.0f);
+		CHECK(fixture.Require("Guide:Getting started").Min.y - fixture.Require("Example card:tiny-again").Max.y < rowHeight * 3.0f);
 		// The unavailable example's Open is disabled; Create can create the default form.
 		CHECK_FALSE(fixture.Require("Example:fetched").Enabled);
 		CHECK(fixture.Require("Example:tiny").Enabled);
@@ -356,6 +375,50 @@ TEST_CASE("StartScreenPanel: an empty screen says what there is to do, and a hid
 	fixture.Frames();
 	CHECK(fixture.Panel.GetItems().empty());
 	CHECK(ImGui::FindWindowByName(StartScreenPanel::WindowName)->Active == false);
+}
+
+TEST_CASE("StartScreenPanel: with the files the agent setup writes listed, Create stays on the screen and in the dialog at 1280x720")
+{
+	ScreenFixture fixture(MakeFullContent);
+	fixture.Gui.SetDisplaySize(ImVec2(1280.0f, 720.0f));
+	fixture.Frames();
+	fixture.Click("Files it writes");
+	fixture.Frames();
+	// Expanded, the form can be taller than its column: the fields scroll above Create, which stays whole.
+	CHECK(fixture.Require("Create").Visible);
+	CHECK(fixture.Require("Create").Max.y <= 720.0f);
+	CHECK(fixture.Require("Continue without a project").Visible);
+
+	REQUIRE(fixture.Operations.CreateProject(fixture.Directory.GetPath() / "Open", "Open", Scene("Main")).IsOk());
+	fixture.Model.SetVisible(false);
+	NewProjectDialog dialog;
+	fixture.Draw = [&]
+	{
+		ScreenFixture::DrawMenuBar();
+		dialog.OnImGuiRender(fixture.Model, nullptr, fixture.Actions.Form);
+	};
+	dialog.Open();
+	fixture.Frames();
+	REQUIRE(dialog.IsOpen());
+	auto const findItem = [&dialog](std::string_view itemName)
+	{
+		std::vector<StartScreenItem> const& dialogItems = dialog.GetItems();
+		auto const found = std::ranges::find(dialogItems, itemName, &StartScreenItem::Name);
+		REQUIRE_MESSAGE(found != dialogItems.end(), itemName);
+		return *found;
+	};
+	fixture.Gui.Click(findItem("Files it writes").GetCenter(), fixture.Draw);
+	fixture.Frames();
+	for (char const* const name : {"Create", "Cancel"})
+	{
+		StartScreenItem const item = findItem(name);
+		CHECK_MESSAGE(item.Visible, name);
+		CHECK_MESSAGE(item.Max.y <= 720.0f, name);
+	}
+	for (std::string_view const card : {"Template:empty-3d", "Template:tiny-project"})
+	{
+		CHECK_MESSAGE(findItem(card).TextWhole, card);
+	}
 }
 
 TEST_CASE("StartScreenPanel: clicking a recent project opens it; the context menu shows its folder and removes it from the list")

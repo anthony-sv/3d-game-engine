@@ -21,8 +21,8 @@ namespace Strada
 	// captures can be explained by it.
 	struct StartScreenItem
 	{
-		// What it is: "Create", "Browse...", "Template:<id>" (a template's card), "Set up for coding agents", "Add a .gitignore",
-		// and the start screen's own (StartScreenPanel::OnImGuiRender).
+		// What it is: "Create", "Browse...", "Template:<id>" (a template's card), "Set up for coding agents", "Files it writes",
+		// "Add a .gitignore", and the start screen's own (StartScreenPanel::OnImGuiRender).
 		std::string Name;
 		// Where it is on the screen.
 		ImVec2 Min = ImVec2(0.0f, 0.0f);
@@ -31,6 +31,8 @@ namespace Strada
 		bool Visible = false;
 		// Whether it could be clicked.
 		bool Enabled = false;
+		// For a card (a template's, or an example's "Example card:<id>"): whether its name, badge and description show whole.
+		bool TextWhole = true;
 
 		ImVec2 GetCenter() const { return ImVec2((Min.x + Max.x) * 0.5f, (Min.y + Max.y) * 0.5f); }
 	};
