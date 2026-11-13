@@ -16,6 +16,8 @@ inventory below lists what the engine has, area by area, with the page that cove
 | [ScriptingAPI.md](ScriptingAPI.md) | Look up the scripting API: every public type and member with its summary (generated) |
 | [Automation.md](Automation.md) | Look up an automation command: the protocol, every command's parameters and results, the `strada` tool |
 | [Architecture.md](Architecture.md) | Understand how the engine is built: modules, rendering, ECS, physics, audio, scripting, editor, runtime |
+| [Roadmap.md](Roadmap.md) | See where Strada is going: the backlog, the efforts and their schedule, the technical plan of a motorcycle game, risks and open decisions |
+| [EngineComparison.md](EngineComparison.md) | See where Strada stands against Unreal Engine, Unity, Godot and O3DE, how those engines reach their users, and what a motorcycle game needs |
 
 The root [README](../README.md) shows the engine in screenshots, and [AGENTS.md](../AGENTS.md) is the guide for
 working on the engine itself (building, style, tests, commits).
