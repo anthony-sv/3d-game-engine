@@ -16,6 +16,8 @@
 #include <array>
 #include <filesystem>
 #include <optional>
+#include <string>
+#include <vector>
 
 using namespace Strada;
 
@@ -91,8 +93,64 @@ TEST_CASE("EditorLocations: the process's are the engine's build tree, the user 
 	CHECK(locations.Layout.GetSourceDirectory() == process.GetSourceDirectory());
 	CHECK(locations.Layout.GetResourcesDirectory() == process.GetResourcesDirectory());
 	CHECK(locations.UserDataDirectory == FileSystem::GetUserDataDirectory() / "Editor");
-	std::optional<std::filesystem::path> const documents = Platform::GetDocumentsDirectory();
-	CHECK(locations.DefaultProjectLocation == (documents ? *documents / "Strada Projects" : std::filesystem::path()));
+	// STRADA_PROJECTS_DIR (read, never set here) or the Documents folder.
+	CHECK(locations.DefaultProjectLocation ==
+	      EditorLocations::ResolveDefaultProjectLocation(Platform::ReadEnvironmentVariable(EditorLocations::ProjectsDirectoryVariable),
+	                                                     Platform::GetDocumentsDirectory()));
+}
+
+TEST_CASE("EditorLocations: STRADA_PROJECTS_DIR names the default project location when it is an absolute path")
+{
+	// Absolute on every platform: the working directory's root ("C:\" or "/").
+	std::filesystem::path const root = std::filesystem::current_path().root_path();
+	std::filesystem::path const documents = root / "Users" / "Someone" / "Documents";
+	std::filesystem::path const games = root / "Games" / "Strada";
+	std::string const gamesText = FileSystem::PathToUtf8(games);
+
+	// Unset or empty: the Documents folder's "Strada Projects", or nothing without one.
+	std::vector<std::string> warnings;
+	CHECK(EditorLocations::ResolveDefaultProjectLocation(std::nullopt, documents, &warnings) == documents / "Strada Projects");
+	CHECK(EditorLocations::ResolveDefaultProjectLocation(std::string(), documents, &warnings) == documents / "Strada Projects");
+	CHECK(EditorLocations::ResolveDefaultProjectLocation(std::nullopt, std::nullopt, &warnings).empty());
+	CHECK(EditorLocations::ResolveDefaultProjectLocation(std::string(), std::nullopt, &warnings).empty());
+	CHECK(warnings.empty());
+
+	// An absolute path is the location itself, with or without a Documents folder, and without a trailing separator.
+	CHECK(EditorLocations::ResolveDefaultProjectLocation(gamesText, documents, &warnings) == games);
+	CHECK(EditorLocations::ResolveDefaultProjectLocation(gamesText, std::nullopt, &warnings) == games);
+	std::filesystem::path const trailing = EditorLocations::ResolveDefaultProjectLocation(gamesText + "/", documents, &warnings);
+	CHECK(trailing == games);
+	CHECK(trailing.has_filename());
+	CHECK(EditorLocations::ResolveDefaultProjectLocation(FileSystem::PathToUtf8(root / "Games" / "Old" / ".." / "Strada"), documents,
+	                                                     &warnings) == games);
+	// A root stays a root.
+	CHECK(EditorLocations::ResolveDefaultProjectLocation(FileSystem::PathToUtf8(root), documents, &warnings) == root);
+	CHECK(warnings.empty());
+
+	// A relative value is ignored, with one warning that names the variable and the value.
+	for (std::string const relative : {"Games", "Games/Strada", "./Strada", "../Strada"})
+	{
+		CAPTURE(relative);
+		std::vector<std::string> ignored;
+		CHECK(EditorLocations::ResolveDefaultProjectLocation(relative, documents, &ignored) == documents / "Strada Projects");
+		REQUIRE(ignored.size() == 1);
+		CHECK(ignored.front().find(EditorLocations::ProjectsDirectoryVariable) != std::string::npos);
+		CHECK(ignored.front().find("'" + relative + "'") != std::string::npos);
+		CHECK(EditorLocations::ResolveDefaultProjectLocation(relative, std::nullopt, &ignored).empty());
+		CHECK(ignored.size() == 2);
+		// Without a list the value is still ignored.
+		CHECK(EditorLocations::ResolveDefaultProjectLocation(relative, documents) == documents / "Strada Projects");
+	}
+#ifdef ST_PLATFORM_WINDOWS
+	// Rooted without a drive, or on a drive without a root: relative on Windows.
+	for (std::string const relative : {"/Games", "C:Games"})
+	{
+		CAPTURE(relative);
+		std::vector<std::string> ignored;
+		CHECK(EditorLocations::ResolveDefaultProjectLocation(relative, documents, &ignored) == documents / "Strada Projects");
+		CHECK(ignored.size() == 1);
+	}
+#endif
 }
 
 TEST_CASE("EditorLocations: the editor layer keeps its recent projects and graph views in the user data of its locations")

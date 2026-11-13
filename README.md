@@ -13,9 +13,9 @@ with a Vulkan renderer and an editor that AI agents can drive from start to fini
 ![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
 ![Vulkan](https://img.shields.io/badge/Vulkan-NVRHI-AC162C?logo=vulkan&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-2f81f7)
-![MCP](https://img.shields.io/badge/MCP-102%20tools-8957e5)
+![MCP](https://img.shields.io/badge/MCP-111%20tools-8957e5)
 
-[Showcase](#the-showcase) · [Editor](#the-editor) · [Visual scripting](#visual-scripting) ·
+[Showcase](#the-showcase) · [Editor](#the-editor) · [Start screen](#the-start-screen) · [Visual scripting](#visual-scripting) ·
 [AI agents](#built-for-ai-agents) · [Samples](#sample-projects) · [Features](#features) ·
 [Quick start](#quick-start) · [Docs](#documentation)
 
@@ -31,9 +31,11 @@ took of itself, with its own screenshot commands.</sub>
 Strada is a cross-platform engine for 3D games, built to a production bar: every change ships with tests, every file
 format users write is versioned and fuzzed, and CI builds and tests it on Windows, macOS and Linux.
 
-- **An editor that agents can drive.** Every editor operation is one of 96 documented automation commands, served to AI
+- **An editor that agents can drive.** Every editor operation is one of 105 documented automation commands, served to AI
   agents as MCP tools. Agents build scenes, materials, prefabs and scripts, then play, test, debug and export the game,
-  through the same undo history as a person at the keyboard.
+  through the same undo history as a person at the keyboard, and every new project is set up for coding agents.
+- **A first run that works.** A start screen with your recent projects, three templates to start from (two of them
+  small finished games), example games that open as copies, and the guides.
 - **Two ways to script.** C# on .NET 10, hosted in the engine with hot reload, and visual scripts: typed graphs with a
   real debugger (conditional breakpoints, stepping across graphs, values on the wires) that you can edit while the game
   runs.
@@ -108,6 +110,22 @@ to walk.
   step, or Simulate for physics alone.
 - **Build Game** exports a self-contained game folder for the host platform.
 
+### The start screen
+
+<img src="Docs/Images/StartScreen.jpg" alt="The start screen: recent projects with one Missing and one Unreadable, the New Project form with the Empty 3D, Graph Starter and C# Starter cards, the Prism Break, Blocks and Showcase examples, links to the guides, and the .NET SDK and GPU the editor found" width="100%">
+
+Started without a project, the editor opens on its start screen:
+
+- **Recent projects**, each marked when its file is missing or no longer reads as a project.
+- **A new project from a template:** Empty 3D (a camera, a sun, a sky and a few shapes), Graph Starter (Orb Run, a
+  small game whose every rule is a visual script; no .NET SDK needed) or C# Starter (the same game in C#). New projects
+  get a `.gitignore` and are set up for coding agents: an `AGENTS.md` block, `CLAUDE.md`, a `.mcp.json` that registers
+  the editor's MCP server, the game-making skill and the guides.
+- **Example games** (Prism Break, Blocks and the Showcase) that open as copies, so the engine's own stay as they are.
+- **The guides**, and what the editor found on the machine: .NET, its SDK, the GPU.
+
+File > Set Up for Coding Agents... sets an existing project up the same way, after showing what it would change.
+
 ## Visual scripting
 
 Graphs of nodes instead of code, beside C# or instead of it. Every public member of the scripting API is a node, and so
@@ -134,8 +152,8 @@ graph), values sit on the wires, and the inspector shows the graph's variables.<
 
 ## Built for AI agents
 
-The editor runs an automation server, and `strada mcp` serves its 96 commands as Model Context Protocol tools (plus
-Poly Haven search and import, 102 tools in all). Claude Code and any other MCP client can then drive the editor you are
+The editor runs an automation server, and `strada mcp` serves its 105 commands as Model Context Protocol tools (plus
+Poly Haven search and import, 111 tools in all). Claude Code and any other MCP client can then drive the editor you are
 looking at, or a headless one. Every command has a JSON schema and an entry in [Docs/Automation.md](Docs/Automation.md);
 the edits they make to scenes and graphs are undo steps like any other; and the editor's tests fuzz every command except
 five that replace the open project or need a .NET build, which have tests of their own. [Docs/Agents.md](Docs/Agents.md)
@@ -160,7 +178,11 @@ Here an agent finds and fixes a bug in a graph that should spin an object but on
 ```
 
 This repository's `.mcp.json` registers `strada mcp` for agents working in the checkout, and the
-[`strada-make-game`](.claude/skills/strada-make-game/SKILL.md) skill teaches them the workflow. The sample games were
+[`strada-make-game`](.claude/skills/strada-make-game/SKILL.md) skill teaches them the workflow. A game project gets the
+same: the editor sets every new project up for coding agents (an `AGENTS.md` block, `CLAUDE.md`, a `.mcp.json` entry
+for `strada mcp`, the skill and the guides), and an agent can start one itself from a template or an example
+(`project_templates`, `project_create`, `project_examples`, `project_copy_example`); setting up an existing project
+waits for the user's consent. The sample games were
 made this way: Prism Break's thirteen graphs, Blocks and the Showcase were all authored by scripts that drive the
 editor through the same tools.
 
@@ -172,7 +194,8 @@ editor through the same tools.
 | <img src="Docs/Images/Blocks.jpg" alt="Blocks: a falling-blocks game on a neon arcade stage" width="280"> | **[Blocks](Projects/Blocks)** | A falling-blocks game in C#, with an attract mode, a HUD, hold and preview queues, music, debris and camera shake; 57 test checks. |
 | <img src="Docs/Images/ShowcaseThumbnail.jpg" alt="The Showcase clearing at golden hour" width="280"> | **[Showcase](Projects/Showcase)** | Every feature of the engine in a forest clearing (above), with a camera tour, a HUD, day and night, and 68 test checks. |
 
-Open a project's `.sproj` in the editor and press Play, or run it with the player:
+Open one as a copy from the start screen's examples, or its `.sproj` in the editor, and press Play, or run it with the
+player:
 `StradaRuntime --project Projects/PrismBreak/PrismBreak.sproj`. A fourth project,
 [FeatureTest](Projects/FeatureTest), uses every component, the entire scripting API and every built-in node kind; CI
 plays it and fails on any failed check.
@@ -213,12 +236,21 @@ C# on .NET 10, hosted in-process, with hot reload in the editor (<a href="Docs/S
 two mix freely: graphs call C#, and C# sends events to graphs.
 </td></tr>
 <tr><td><b>Editor</b></td><td>
-Docking and multi-viewport ImGui; scene and game views with gizmos, overlays and picking; hierarchy with create menus of
+Docking and multi-viewport ImGui; a start screen with recent projects, templates, examples and the guides; scene and
+game views with gizmos, overlays and picking; hierarchy with create menus of
 ready-made entities; generated inspector; content browser with previews; project and scene settings; undo and redo;
 play, pause, step and simulate; a node editor for visual scripts with a debugger.
 </td></tr>
+<tr><td><b>Projects</b></td><td>
+Three templates new projects start from: Empty 3D, and Orb Run, a small game, made of visual scripts (Graph Starter, no
+.NET SDK needed) or in C# (C# Starter), each with a test scene. Three example games (Prism Break, Blocks and the
+Showcase) that open as copies. New projects are set up for coding agents, with an <code>AGENTS.md</code> block,
+<code>CLAUDE.md</code>, a <code>.mcp.json</code> entry for the editor's MCP server, the game-making skill and the
+guides; File &gt; Set Up for Coding Agents... does the same for an existing project
+(<a href="Docs/Agents.md#projects-set-up-for-coding-agents">agent setup</a>).
+</td></tr>
 <tr><td><b>Automation</b></td><td>
-An automation server with 96 commands, the <code>strada</code> command-line tool and its MCP server
+An automation server with 105 commands, the <code>strada</code> command-line tool and its MCP server
 (<a href="Docs/Automation.md">automation reference</a>); Poly Haven HDRIs, models and texture sets searched and imported
 by name.
 </td></tr>
@@ -248,7 +280,18 @@ python Tools/build.py --config release          # configure and build: build/<pr
 python Projects/Showcase/Tools/FetchAssets.py   # once: the Showcase's Poly Haven assets (CC0, about 95 MB)
 ```
 
-Then open a sample in the editor:
+Then start the editor. Without a project it opens on its start screen: create a project from a template (Graph
+Starter is a small game that plays at once), or open an example as a copy. New projects are set up for coding agents
+(`AGENTS.md`, `.mcp.json`; File > Set Up for Coding Agents... sets up one you already have): start Claude Code in the
+project's folder and it drives the editor.
+
+```sh
+build/windows-release/bin/StradaEditor    # Windows (PowerShell)
+build/linux-gcc-release/bin/StradaEditor  # Linux
+build/macos-release/bin/StradaEditor      # macOS
+```
+
+Or open a sample in place:
 
 ```sh
 build/windows-release/bin/StradaEditor --project Projects/Showcase/Showcase.sproj    # Windows (PowerShell)
@@ -265,8 +308,8 @@ workflow.
 
 ## Quality
 
-- **More than 2,500 tests** in five suites: 1,867 C++ test cases (doctest) for the engine, the editor and the player,
-  and 709 C# test methods (xUnit) for the scripting API and the `strada` tool.
+- **More than 2,700 tests** in five suites: 2,005 C++ test cases (doctest) for the engine, the editor and the player,
+  and 714 C# test methods (xUnit) for the scripting API and the `strada` tool.
 - **Fuzzing.** Every file format users write is fuzzed (damaged documents are refused or repaired; what loads saves and
   loads again), and so are the automation commands, with parameters built from their schemas: each must answer once,
   never with an internal error, and undoing everything must restore the scene.
@@ -287,6 +330,7 @@ workflow.
 | `StradaTool/` | `strada`: command-line tool and MCP server for the editor (`strada --help`) |
 | `Projects/` | `Showcase`, every feature in a forest clearing; `PrismBreak`, a game made of visual scripts alone; `Blocks`, a falling-blocks game in C#; and `FeatureTest`, which tests every feature; `catalog.json` lists the examples the editor copies, with their pictures in `Thumbnails` |
 | `Templates/` | The templates new projects start from |
+| `Agents/` | The agent kit: the `AGENTS.md` block projects set up for coding agents get |
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |
@@ -300,7 +344,7 @@ workflow.
 | Document | What it covers |
 |---|---|
 | [Getting started](Docs/GettingStarted.md) | Building Strada, the samples, a first game step by step, testing and exporting it |
-| [Editor](Docs/Editor.md) | The editor: panels, the scene view, assets and materials, prefabs, settings, play mode, Build Game, shortcuts |
+| [Editor](Docs/Editor.md) | The editor: the start screen, panels, the scene view, assets and materials, prefabs, settings, play mode, Build Game, shortcuts |
 | [Scripting](Docs/Scripting.md) | C# scripts: fields, entities and components, input, physics, sound, UI, particles, testing, exporting |
 | [Visual scripting](Docs/VisualScripting.md) | Graphs, from a first graph to functions, formulas, timelines, debugging and live editing; Prism Break |
 | [AI agents](Docs/Agents.md) | Building games with agents through `strada mcp`, and debugging their graphs |

@@ -1748,7 +1748,10 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 - The start screen (`Editor/StartScreen/`): `StartScreenPanel` draws `StartScreenModel` over the main viewport's work
   area (under the menu bar) while the model is visible: at start without a project in an editor with a window (unless
   `--no-start-screen`, `EditorLayerSpecification::StartScreen`, which `strada mcp` passes), after File > Close Project,
-  from File > Start Screen and `start.show`; any project opened or created hides it (`OnProjectOpened`). While it shows,
+  from File > Start Screen and `start.show`; any project opened or created hides it (`OnProjectOpened`). At start it
+  comes up with why the project given with `--project` did not open on its error line (`DescribeProjectOpenFailure`, which
+  says when the file does not exist; the screen is shown first, since the line keeps a message only while the screen is
+  visible). While it shows,
   `EditorLayer` draws the menu bar, the screen and the modal dialogs only: the dockspace is kept alive without being
   drawn (`ImGuiDockNodeFlags_KeepAliveOnly`, so docked panels stay docked), no toolbar, panel, viewport, gizmo or
   floating window is submitted (so none can take the mouse or the keyboard), the game view's input goes back to the
@@ -1786,9 +1789,12 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   `editor.recent` reach through it), Close Project, and `--project <file>` on the
   command line. The folders the editor works with besides the open project are its `EditorLocations`
   (`Editor/EditorLocations.h`): the engine's `EngineLayout`, the user data directory `<user data>/Editor` (recent
-  projects, graph views; empty: nothing is persisted) and the default location of new projects,
-  `<Documents>/Strada Projects` (`Platform::GetDocumentsDirectory`; nothing creates it but a project created in it).
-  `EditorLocations::FromProcess()` is the editor's only reader of the process's layout, user data and Documents folders
+  projects, graph views; empty: nothing is persisted) and the default location of new projects: the absolute path that
+  the environment variable `STRADA_PROJECTS_DIR` names, else `<Documents>/Strada Projects`
+  (`Platform::GetDocumentsDirectory`; nothing creates it but a project created in it). The pure
+  `EditorLocations::ResolveDefaultProjectLocation` decides it from the variable's value and the Documents folder (a
+  relative value is ignored, with a warning in the log at startup). `EditorLocations::FromProcess()` is the editor's only
+  reader of the process's layout, user data and Documents folders and of that variable
   (besides it, the entry point resolves the layout once at startup to log its warnings); the editor layer builds its
   locations once (`EditorLayerSpecification::Locations` injects others) and hands them to the commands
   (`EditorCommandEnvironment::Locations`, which names no folder when default-constructed). Tests pass folders inside
@@ -2370,10 +2376,14 @@ inspector's primary entity as the context entity; without an asset directory the
   failed commands are tool results with `isError`; strada's own tools search and import Poly Haven HDRIs),
   `strada call <command> [json]`, `strada launch`, `strada commands`, `strada instances`, `strada hdris`, `strada hdri`,
   `strada models`, `strada model`, `strada textures`, `strada texture`. Editors ignore SIGPIPE (`Platform::IgnoreBrokenPipeSignal`), so the ones strada starts with a
-  window outlive its output pipes.
-- Command domains: `editor.*` (status, undo, redo, commands, quit, the Entity menu as users see it), `project.*` (info,
-  create, open, close, settings, export, and the agent kit's agents and setup-agents, which needs the user's consent:
-  ConsentRequired without `confirmed`),
+  window outlive its output pipes. Each editor strada starts gets pipes of its own, and on Windows strada makes its own
+  standard handles non-inheritable at its start (`StandardHandles.KeepFromChildProcesses`: every process .NET starts
+  there inherits every inheritable handle), so a program reading strada's output sees it end when strada exits while an
+  editor it started runs on.
+- Command domains: `editor.*` (status, undo, redo, commands, quit, the Entity menu as users see it, the recent
+  projects, the File menu's dialogs), `start.*` (info, show: the start screen), `project.*` (info, create from a
+  template, open, close, settings, export, the templates, the examples and copy-example, and the agent kit's agents and
+  setup-agents, which needs the user's consent: ConsentRequired without `confirmed`),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
   `asset.*` (list, get, select, import, refresh, browse and drop in the content browser, move, delete, create-folder,

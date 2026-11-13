@@ -451,6 +451,8 @@ namespace Strada
 		}
 
 		bool sceneOpened = false;
+		// Why the project the command line named did not open, for the start screen's error line.
+		std::string projectFailure;
 		if (!m_Specification.ProjectPath.empty())
 		{
 			Result<std::vector<std::string>> opened = m_Operations.OpenProject(m_Specification.ProjectPath);
@@ -461,7 +463,8 @@ namespace Strada
 			}
 			else
 			{
-				ST_ERROR("Could not open the project '{}': {}", FileSystem::PathToUtf8(m_Specification.ProjectPath), opened.GetError());
+				projectFailure = DescribeProjectOpenFailure(m_Specification.ProjectPath, opened.GetError());
+				ST_ERROR("{}", projectFailure);
 			}
 		}
 		if (!m_Specification.ScenePath.empty())
@@ -482,7 +485,13 @@ namespace Strada
 		}
 		if (m_Specification.StartScreen && m_Context.GetProject() == nullptr)
 		{
+			// The screen comes up first: its error line keeps a message only while it shows, which only an editor with a
+			// window does (ShowStartScreen).
 			ShowStartScreen(true);
+			if (!projectFailure.empty())
+			{
+				m_StartScreen.ReportError(std::move(projectFailure));
+			}
 		}
 
 		if (!m_Specification.EnableAutomation)
@@ -1836,7 +1845,7 @@ namespace Strada
 
 	void EditorLayer::ReportActionFailure(std::string_view doing, std::string const& error)
 	{
-		std::string message = fmt::format("{} failed: {}", doing, error);
+		std::string message = DescribeStartScreenFailure(doing, error);
 		ST_ERROR("{}", message);
 		m_StartScreen.ReportError(std::move(message));
 	}

@@ -32,6 +32,14 @@ public sealed class McpServerTests
 		Assert.False(result["capabilities"]!["tools"]!["listChanged"]!.GetValue<bool>());
 		string instructions = result["instructions"]!.GetValue<string>();
 		Assert.Contains("editor_status", instructions);
+		// Starting a game: the templates and examples, project_create's options, the agent setup with its consent, and the start
+		// screen an editor started for the tools does not show.
+		foreach (string word in new[] { "project_templates", "project_examples", "project_copy_example", "project_create", "project_open",
+			"template", "gitIgnore", "agents", "project_agents", "project_setup_agents", "confirmed", "dryRun", "start_show", "start_info",
+			"editor_recent", "editor_dialog" })
+		{
+			Assert.Matches($@"\b{word}\b", instructions);
+		}
 		// Visual scripts are written through the graph tools, which the instructions name.
 		Assert.Contains("visual scripts", instructions);
 		Assert.Contains("graph_library", instructions);

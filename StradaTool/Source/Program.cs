@@ -61,6 +61,9 @@ internal static class Program
 
 	public static async Task<int> Main(string[] args)
 	{
+		// The editors strada starts get pipes of their own and must not hold strada's streams: a program that reads strada's
+		// output (an MCP client, a script running strada launch) then sees it end when strada exits.
+		StandardHandles.KeepFromChildProcesses();
 		// Ctrl+C and SIGTERM end the command cleanly: headless editors that strada started are closed.
 		using CancellationTokenSource stop = new();
 		Console.CancelKeyPress += (_, cancel) =>

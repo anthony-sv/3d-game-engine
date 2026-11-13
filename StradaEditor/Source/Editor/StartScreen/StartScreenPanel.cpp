@@ -91,7 +91,8 @@ namespace Strada
 		model.Refresh();
 		m_Form.Invalidate();
 		m_Examples.clear();
-		model.ClearError();
+		// The error line stays: a failure reported as the screen came up (the project the command line named, which did not
+		// open) is what it shows first. Hiding the screen cleared any older one.
 		if (std::optional<ExampleCatalog> const& catalog = model.GetExamples())
 		{
 			for (ExampleEntry const& example : catalog->GetExamples())
@@ -107,7 +108,7 @@ namespace Strada
 		{
 			return;
 		}
-		std::string message = fmt::format("{} failed: {}", doing, result.GetError());
+		std::string message = DescribeStartScreenFailure(doing, result.GetError());
 		ST_ERROR("{}", message);
 		model.ReportError(std::move(message));
 	}
@@ -281,15 +282,17 @@ namespace Strada
 				ImDrawList* const drawList = ImGui::GetWindowDrawList();
 				std::string const state = DescribeState(project.State);
 				float const stateWidth = state.empty() ? 0.0f : ImGui::CalcTextSize(state.c_str()).x + style.ItemSpacing.x;
-				float const textWidth = std::max(rowWidth - stateWidth - style.FramePadding.x, 1.0f);
+				// The state shares the name's line only: the folder below has the whole row.
+				float const folderWidth = std::max(rowWidth - style.FramePadding.x, 1.0f);
+				float const nameWidth = std::max(folderWidth - stateWidth, 1.0f);
 				ImVec2 const namePosition(rowMin.x + style.FramePadding.x * 0.5f, rowMin.y + rowPadding);
 				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(canOpen ? ImGuiCol_Text : ImGuiCol_TextDisabled));
-				ImGui::RenderTextEllipsis(drawList, namePosition, ImVec2(namePosition.x + textWidth, namePosition.y + lineHeight),
-				                          namePosition.x + textWidth, project.Name.c_str(), project.Name.c_str() + project.Name.size(),
+				ImGui::RenderTextEllipsis(drawList, namePosition, ImVec2(namePosition.x + nameWidth, namePosition.y + lineHeight),
+				                          namePosition.x + nameWidth, project.Name.c_str(), project.Name.c_str() + project.Name.size(),
 				                          nullptr);
 				ImGui::PopStyleColor();
 				// The folder keeps its last folders, which tell the projects apart, and gives way at its start.
-				std::string const folder = UI::FitPath(FileSystem::PathToUtf8(project.File.parent_path()), textWidth);
+				std::string const folder = UI::FitPath(FileSystem::PathToUtf8(project.File.parent_path()), folderWidth);
 				ImVec2 const folderPosition(namePosition.x, namePosition.y + lineHeight);
 				drawList->AddText(folderPosition, ImGui::GetColorU32(ImGuiCol_TextDisabled), folder.c_str(),
 				                  folder.c_str() + folder.size());

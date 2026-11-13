@@ -160,6 +160,15 @@ namespace Strada
 	// extension is .sproj in any letter case; none when the drop holds none (the start screen imports nothing). Pure.
 	[[nodiscard]] std::optional<std::filesystem::path> FindDroppedProject(std::span<std::filesystem::path const> paths);
 
+	// "<doing> failed: <error>": how the start screen's error line words a failure ("Opening the project '<file>'"). Pure.
+	[[nodiscard]] std::string DescribeStartScreenFailure(std::string_view doing, std::string_view error);
+
+	// How the start screen's error line words the project file the command line named (--project) when it did not open
+	// (error, from EditorOperations::OpenProject), naming the file once: "The project '<file>' given with --project does not
+	// exist" when nothing is there, else "The project '<file>' given with --project did not open: <error>", without the file
+	// in the first part when the error already names it as the editor spells it. Reads whether the file exists.
+	[[nodiscard]] std::string DescribeProjectOpenFailure(std::filesystem::path const& projectFile, std::string_view error);
+
 	// What the start screen needs from the editor besides its folders. Each may be unset; the model never starts a process
 	// or detects anything itself.
 	struct StartScreenServices
@@ -201,7 +210,7 @@ namespace Strada
 
 		// An action of the screen failed (opening, creating or copying a project, Show in Folder, a guide, a dropped file): the
 		// message shows on the screen's error line until another replaces it, an action of the screen starts or the screen
-		// appears again. Kept only while the screen is visible: a hidden screen's failures are only in the log (the Console
+		// hides. Kept only while the screen is visible: a hidden screen's failures are only in the log (the Console
 		// shows them). The caller logs it.
 		void ReportError(std::string message);
 		void ClearError() { m_Error.clear(); }

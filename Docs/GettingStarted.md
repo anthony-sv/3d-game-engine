@@ -131,7 +131,7 @@ Some of the editor's command-line options (`StradaEditor --help` lists them all)
 
 | Option | What it does |
 |--------|--------------|
-| `--project <path>` | Open this project file (`.sproj`) at startup |
+| `--project <path>` | Open this project file (`.sproj`) at startup (when it cannot be opened, the start screen says why) |
 | `--scene <path>` | Open this scene file at startup, after the project |
 | `--maximized`, `--window-size <W>x<H>` | Open the window maximized, or at this size (default 1600x900) |
 | `--headless` | Run without a window or UI, for automation |
@@ -254,8 +254,9 @@ form in a dialog.
 1. Click the **Empty 3D** card. Graph Starter and C# Starter are small finished games, Orb Run, made of visual scripts
    or of C#; try them later.
 2. Type a **Name** (for example `First Game`). The **Location**, the folder the project goes into, starts at
-   `Documents/Strada Projects` (Browse... picks another). The line below shows the folder it creates: a folder named
-   after the project inside the location.
+   `Documents/Strada Projects` (Browse... picks another; to start elsewhere, set the environment variable
+   `STRADA_PROJECTS_DIR` to a full path before starting the editor, and that folder is the location). The line below
+   shows the folder it creates: a folder named after the project inside the location.
 3. Leave **Set up for coding agents** and **Add a .gitignore** on, and click **Create**. If the open scene has unsaved
    changes, the editor first asks whether to save them.
 

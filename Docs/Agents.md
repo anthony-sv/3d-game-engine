@@ -30,12 +30,13 @@ and the [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill 
 
 The editor runs an automation server: a JSON-RPC 2.0 endpoint on `127.0.0.1`. Every command runs on the editor's main
 thread through the same operations and undo history as the UI, so an agent and a person see and edit the same state.
-The editor has 96 commands, each with a JSON schema of its parameters (`editor.commands` lists them at run time):
+The editor has 105 commands, each with a JSON schema of its parameters (`editor.commands` lists them at run time):
 
 | Group | Commands | What they cover |
 |-------|----------|-----------------|
-| `editor` | 6 | The editor's status, the command list, undo and redo, quitting, and the Entity menu as users see it |
-| `project` | 6 | Creating, opening and closing projects, their settings, and exporting the game |
+| `editor` | 8 | The editor's status, the command list, undo and redo, quitting, the Entity menu as users see it, the recent projects, and the File menu's New Project and agent setup dialogs |
+| `project` | 11 | Creating projects from templates, copying examples, opening and closing projects, their settings, setting them up for coding agents, and exporting the game |
+| `start` | 2 | What the start screen offers, and showing or hiding it |
 | `scene` | 6 | New, open and save, the hierarchy, the whole scene file, and the scene's settings (physics, renderer) |
 | `entity` | 8 | Creating entities with their components, deleting, duplicating, renaming, reparenting, finding, reading and selecting them |
 | `component` | 5 | Every component type with its fields, and adding, removing, reading and setting components |
@@ -54,7 +55,7 @@ The editor has 96 commands, each with a JSON schema of its parameters (`editor.c
 six tools of its own that search and import [Poly Haven](https://polyhaven.com) assets (CC0):
 `polyhaven_search_hdris` and `polyhaven_import_hdri` (skies for image-based lighting), `polyhaven_search_models` and
 `polyhaven_import_model` (glTF models with their textures), and `polyhaven_search_textures` and
-`polyhaven_import_texture` (PBR texture sets, made into a material). That is 102 tools in all.
+`polyhaven_import_texture` (PBR texture sets, made into a material). That is 111 tools in all.
 
 ### The safety model
 
@@ -186,8 +187,10 @@ strada connects to an editor at its first call that needs one, and keeps using i
    `STRADA_EDITOR` environment variable names, else the `StradaEditor` next to strada, else the most recently built
    `build/*/bin/StradaEditor` below the working directory. The editor opens `--project` when given, and runs without a
    window with `--headless`. Editors `strada mcp` starts get `--no-start-screen`, so that the editor's start screen does
-   not cover the window an agent drives and captures (`start_show` shows it); `strada launch` starts them with it. It
-   must start its automation server within 60 seconds.
+   not cover the window an agent drives and captures (`start_show` shows it); `strada launch` starts them with the
+   start screen. It must start its automation server within 60 seconds. An editor strada starts gets standard streams
+   of its own and holds none of strada's, so a program that reads strada's output sees it end when strada exits, even
+   while the editor runs on.
 3. **What happens to it.** Editors strada starts with a window stay open for you. Editors it starts headless close with
    `strada mcp`, discarding unsaved changes: they get `--parent-process <strada's process ID>`, so they also close when
    strada is ended without closing them.

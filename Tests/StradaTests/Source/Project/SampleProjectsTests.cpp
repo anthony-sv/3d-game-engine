@@ -90,7 +90,7 @@ namespace
 
 TEST_CASE("Project: AGENTS.md's repository map and README.md's layout name every folder of Projects")
 {
-	std::set<std::string> const projects = ListEntries(FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR), true);
+	std::set<std::string> const projects = ListEntries(FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR), true);
 	REQUIRE_FALSE(projects.empty());
 	std::string const agents = ReadDocument(STRADA_AGENTS_PATH);
 	std::string const readme = ReadDocument(STRADA_README_PATH);
@@ -119,7 +119,7 @@ TEST_CASE("Project: AGENTS.md's repository map and README.md's layout name every
 TEST_CASE("Project: the visual scripting guide's table of Prism Break's graphs names every graph of the project and nothing else")
 {
 	std::set<std::string> const graphs =
-		ListEntries(FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / "PrismBreak" / "Assets" / "Scripts", false, ".sgraph");
+		ListEntries(FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "PrismBreak" / "Assets" / "Scripts", false, ".sgraph");
 	REQUIRE(graphs.size() == 13);
 	std::string const guide = ReadDocument(STRADA_VISUAL_SCRIPTING_GUIDE_PATH);
 	std::vector<std::string> const named = ReadFirstColumn(guide, "## A complete game: Prism Break", "| Graph |");

@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -44,8 +45,9 @@ internal static class EditorLauncher
 		ProcessStartInfo startInfo = new(options.Executable)
 		{
 			UseShellExecute = false,
-			// Pipes of its own: the editor must not hold on to strada's standard streams (the MCP channel). Editors ignore
-			// writes to pipes that closed (SIGPIPE), so the ones that stay open outlive strada.
+			// Pipes of its own: the editor must not hold on to strada's standard streams (the MCP channel; on Windows also
+			// StandardHandles.KeepFromChildProcesses). Editors ignore writes to pipes that closed (SIGPIPE), so the ones that
+			// stay open outlive strada.
 			RedirectStandardInput = true,
 			RedirectStandardOutput = true,
 			RedirectStandardError = true,
@@ -176,6 +178,45 @@ internal static class EditorLauncher
 			// It exited in the meantime, or cannot be ended by this user.
 		}
 	}
+}
+
+/// <summary>strada's own standard input, output and error, which the editors it starts must not hold.</summary>
+internal static class StandardHandles
+{
+	private const int StandardInputHandle = -10;
+	private const int StandardOutputHandle = -11;
+	private const int StandardErrorHandle = -12;
+	private const uint HandleFlagInherit = 0x1;
+
+	/// <summary>Windows: makes this process's standard handles not inheritable, for the rest of its life. On Windows every
+	/// process that .NET starts inherits every inheritable handle of its parent, besides the streams it is given: an editor
+	/// that strada started would otherwise hold the writing end of the pipe strada's output goes to, and whoever reads
+	/// that pipe would wait for the editor to exit before reading its end. The editors get pipes of their own
+	/// (<see cref="EditorLauncher.LaunchAsync"/>), and strada starts no other process. Nothing elsewhere: a process started
+	/// on Linux or macOS gets the streams it is given in place of its parent's. Called once, at strada's start.</summary>
+	public static void KeepFromChildProcesses()
+	{
+		if (!OperatingSystem.IsWindows())
+		{
+			return;
+		}
+		foreach (int standard in new[] { StandardInputHandle, StandardOutputHandle, StandardErrorHandle })
+		{
+			IntPtr handle = GetStdHandle(standard);
+			// None, or not a handle (INVALID_HANDLE_VALUE): nothing to keep. A handle whose flag cannot be changed stays as it is.
+			if (handle != IntPtr.Zero && handle != new IntPtr(-1))
+			{
+				_ = SetHandleInformation(handle, HandleFlagInherit, 0);
+			}
+		}
+	}
+
+	[DllImport("kernel32.dll")]
+	private static extern IntPtr GetStdHandle(int standardHandle);
+
+	[DllImport("kernel32.dll")]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
 }
 
 /// <summary>An editor that strada started: its process and the automation endpoint it published.</summary>

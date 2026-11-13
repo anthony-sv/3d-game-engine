@@ -310,7 +310,7 @@ namespace
 	public:
 		PrismBreakPlay()
 		{
-			std::filesystem::path const sample = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / "PrismBreak";
+			std::filesystem::path const sample = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "PrismBreak";
 			REQUIRE(FileSystem::CopyDirectory(sample / "Assets", m_Directory.GetPath() / "Assets").IsOk());
 			REQUIRE(FileSystem::Copy(sample / "PrismBreak.sproj", m_Directory.GetPath() / "PrismBreak.sproj", false).IsOk());
 			REQUIRE(m_Fixture.Operations.OpenProject(m_Directory.GetPath() / "PrismBreak.sproj").IsOk());
@@ -1179,7 +1179,7 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in i
 	Testing::ScriptEngineScope scripting(FileSystem::GetExecutableDirectory() / "Blocks" / "Blocks.dll");
 	InputScope input;
 	Testing::TemporaryDirectory directory;
-	std::filesystem::path const sample = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / "Blocks";
+	std::filesystem::path const sample = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Blocks";
 	REQUIRE(FileSystem::CopyDirectory(sample / "Assets", directory.GetPath() / "Assets").IsOk());
 	REQUIRE(FileSystem::Copy(sample / "Blocks.sproj", directory.GetPath() / "Blocks.sproj", false).IsOk());
 
