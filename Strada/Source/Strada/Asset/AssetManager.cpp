@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/AudioClipAsset.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/EnvironmentAsset.h"
 #include "Strada/Asset/FontAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
@@ -328,6 +329,23 @@ namespace Strada
 
 		Result<Ref<Asset>> LoadFileAsset(AssetMetadata const& metadata, std::filesystem::path const& path)
 		{
+			if (DataAssetType const* dataType = DataAssetRegistry::Find(metadata.Type))
+			{
+				// Unknown fields only warn so files written by newer engine versions still load.
+				std::vector<std::string> warnings;
+				Result<Ref<DataAsset>> asset = DataAssetSerializer::LoadFromFile(
+					*dataType, path, AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn, &warnings));
+				for (std::string const& warning : warnings)
+				{
+					ST_CORE_WARN("'{}': {}", metadata.Path, warning);
+				}
+				if (!asset)
+				{
+					return Error{asset.GetError()};
+				}
+				return Ref<Asset>(asset.GetValue());
+			}
+
 			switch (metadata.Type)
 			{
 				case AssetType::Texture:
@@ -424,6 +442,7 @@ namespace Strada
 		MarkChanged();
 		ST_CORE_ASSERT(s_Data, "AssetManager is not initialized");
 		s_Data.reset();
+		DataAssetRegistry::NotifyUnloaded();
 	}
 
 	bool AssetManager::IsInitialized()
@@ -509,6 +528,7 @@ namespace Strada
 		data.RecordedWrites.clear();
 		data.ChangedFiles.clear();
 		data.AssetDirectory.clear();
+		DataAssetRegistry::NotifyUnloaded();
 	}
 
 	bool AssetManager::HasAssetDirectory()
@@ -944,6 +964,10 @@ namespace Strada
 		auto const it = data.RuntimeAssets.find(handle);
 		if (it != data.RuntimeAssets.end() && it->second.IsMemoryAsset())
 		{
+			if (DataAssetRegistry::IsDataAssetValue(it->second.Type))
+			{
+				DataAssetRegistry::NotifyUnloaded();
+			}
 			data.RuntimeAssets.erase(it);
 			data.LoadedAssets.erase(handle);
 		}
@@ -1236,7 +1260,14 @@ namespace Strada
 			return;
 		}
 		RemoveSubAssets(handle);
-		data.LoadedAssets.erase(handle);
+		if (auto const loaded = data.LoadedAssets.find(handle); loaded != data.LoadedAssets.end())
+		{
+			if (DataAssetRegistry::IsDataAssetValue(loaded->second->GetAssetType()))
+			{
+				DataAssetRegistry::NotifyUnloaded();
+			}
+			data.LoadedAssets.erase(loaded);
+		}
 		data.LoadedWriteTimes.erase(handle);
 		data.RecordedWrites.erase(handle);
 		data.ChangedFiles.erase(handle);

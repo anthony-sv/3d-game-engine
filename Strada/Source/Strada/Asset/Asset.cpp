@@ -1,6 +1,8 @@
 #include "stpch.h"
 #include "Strada/Asset/Asset.h"
 
+#include "Strada/Asset/DataAsset.h"
+
 #include <array>
 #include <cctype>
 #include <utility>
@@ -61,10 +63,27 @@ namespace Strada
 				return name;
 			}
 		}
+		if (DataAssetType const* dataType = DataAssetRegistry::Find(type))
+		{
+			return dataType->GetName().c_str();
+		}
 		return "None";
 	}
 
 	std::optional<AssetType> AssetTypeFromString(std::string_view name)
+	{
+		if (std::optional<AssetType> const builtIn = BuiltInAssetTypeFromString(name))
+		{
+			return builtIn;
+		}
+		if (DataAssetType const* dataType = DataAssetRegistry::FindByName(name))
+		{
+			return dataType->GetAssetType();
+		}
+		return std::nullopt;
+	}
+
+	std::optional<AssetType> BuiltInAssetTypeFromString(std::string_view name)
 	{
 		for (auto const& [value, typeName] : s_TypeNames)
 		{
@@ -115,10 +134,27 @@ namespace Strada
 			extensions.push_back(mapping.Extension);
 		}
 		extensions.insert(extensions.end(), s_FontExtensions.begin(), s_FontExtensions.end());
+		for (DataAssetType const* type : DataAssetRegistry::GetTypes())
+		{
+			extensions.push_back(type->GetExtension());
+		}
 		return extensions;
 	}
 
 	AssetType GetAssetTypeForExtension(std::string_view extension)
+	{
+		if (AssetType const builtIn = GetBuiltInAssetTypeForExtension(extension); builtIn != AssetType::None)
+		{
+			return builtIn;
+		}
+		if (DataAssetType const* dataType = DataAssetRegistry::FindByExtension(extension))
+		{
+			return dataType->GetAssetType();
+		}
+		return AssetType::None;
+	}
+
+	AssetType GetBuiltInAssetTypeForExtension(std::string_view extension)
 	{
 		std::string lower(extension);
 		for (char& character : lower)

@@ -6,11 +6,14 @@ add_executable(StradaTests
     Source/Asset/AssetManagerTests.cpp
     Source/Asset/AssetRegistryTests.cpp
     Source/Asset/AssetTypeTests.cpp
+    Source/Asset/DataAssetFuzzTests.cpp
+    Source/Asset/DataAssetTests.cpp
     Source/Asset/GltfTestBuilder.h
     Source/Asset/MeshFactoryTests.cpp
     Source/Asset/MeshImporterFuzzTests.cpp
     Source/Asset/MeshImporterTests.cpp
     Source/Asset/MeshSourceTests.cpp
+    Source/Asset/TestDataAsset.h
     Source/Asset/TrueTypeSanitizerTests.cpp
     Source/Asset/VisualScriptFuzzTests.cpp
     Source/Asset/VisualScriptLayoutTests.cpp
@@ -112,6 +115,7 @@ add_executable(StradaTests
     Source/Serialization/JsonScannerTests.cpp
     Source/Serialization/JsonSerializationTests.cpp
     Source/Serialization/JsonTextWriterTests.cpp
+    Source/Serialization/StructDocumentTests.cpp
     Source/Serialization/StructSerializationTests.cpp
     Source/TestUtilities.h
 )

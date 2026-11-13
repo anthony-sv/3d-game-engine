@@ -4,14 +4,19 @@
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Serialization/JsonSerialization.h"
+#include "Strada/Serialization/StructDocument.h"
 #include "Strada/Serialization/StructSerialization.h"
 
+#include <concepts>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 #include <typeindex>
+#include <typeinfo>
+#include <utility>
 #include <vector>
 
 // Data assets: asset types made of one reflected struct, each from one registration (Docs/Architecture.md §6.4). A
@@ -21,18 +26,15 @@
 namespace Strada
 {
 	class DataAsset;
-
-	// Upgrades the content object of a data asset file (the member named after the type, without the header) from one format
-	// version to the next, in place. It may assume only that the content is a JSON object: what it reads it checks first,
-	// and it refuses what it cannot convert. The loader also refuses the file when a migration throws (nlohmann throws on a
-	// value of the wrong kind), so a missed check refuses instead of crashing. Pure; any thread.
-	using DataAssetMigration = Result<void> (*)(Json& content);
+	template<ReflectedStruct TData>
+	class TypedDataAsset;
 
 	// What one registration names. The data struct TData has a field table (StructTraits<TData>) whose field descriptions,
-	// ranges and hints are the type's documentation, editor and automation schema. TData lives in the Asset module or below
-	// it (Core, Math), so that every host registers the same types (DataAssetRegistry); its field table, which needs
-	// Serialization, lives in the Asset module beside the registration (for a struct of Core or Math, in the type's own
-	// header Asset/<Name>Asset.h, which every user of the asset includes).
+	// ranges and hints are the type's documentation, editor and automation schema; every value in it has an editor and a
+	// schema of its own (no FieldKind::Custom value, down through nested structs and array elements, and no array of
+	// arrays; checked at compile time). TData lives in the Asset module or below it (Core, Math); its field table, which
+	// needs Serialization, lives in the Asset module beside the registration (for a struct of Core or Math, in the type's
+	// own header Asset/<Name>Asset.h, which every user of the asset includes).
 	template<ReflectedStruct TData>
 	struct DataAssetTypeSpecification
 	{
@@ -51,17 +53,18 @@ namespace Strada
 		std::string_view Description;
 		// One migration per version before FormatVersion (FormatVersion - 1 of them): Migrations[i] upgrades version i + 1 to
 		// version i + 2. The span's storage must outlive the registration (a static array).
-		std::span<DataAssetMigration const> Migrations;
+		std::span<DocumentMigration const> Migrations;
 		// Rules the field table cannot state (names that must be unique, keys in order, counts that depend on each other);
-		// called with every value an asset is about to take (loaded, patched or set). Null when the field table says all.
-		// Pure; any thread.
+		// called with every value an asset is about to take (loaded, patched or set). It refuses and never repairs. Null when
+		// the field table says all. Pure; any thread.
 		Result<void> (*Validate)(TData const& data) = nullptr;
 	};
 
-	// One registered data asset type: what its registration named, and what the registry derived from it. Owned by the
-	// DataAssetRegistry, which keeps it at a stable address until the registry shuts down. Main thread only, like the
+	// One registered data asset type: what its registration named, and what the registry derived from it. Shared by the
+	// registry and every asset of the type, so a type and its strings stay valid while either holds it: the engine's types
+	// for the whole process, a type registered by Register at least until it is unregistered. Main thread only, like the
 	// registry.
-	class DataAssetType
+	class DataAssetType : public std::enable_shared_from_this<DataAssetType>
 	{
 	public:
 		virtual ~DataAssetType() = default;
@@ -69,43 +72,54 @@ namespace Strada
 		DataAssetType(DataAssetType const&) = delete;
 		DataAssetType& operator=(DataAssetType const&) = delete;
 
-		// The AssetType value the registry assigned: DataAssetRegistry::FirstAssetTypeValue and up, in registration order.
-		AssetType GetAssetType() const;
-		std::string const& GetName() const;
+		// The AssetType value the registry assigned: DataAssetRegistry::FirstAssetTypeValue and up (the engine's types first,
+		// in the order of their list).
+		AssetType GetAssetType() const { return m_AssetType; }
+		std::string const& GetName() const { return m_Name; }
 		// Lowercase, with the dot.
-		std::string const& GetExtension() const;
-		uint32_t GetFormatVersion() const;
-		std::string const& GetDescription() const;
-		std::span<DataAssetMigration const> GetMigrations() const;
-		// The domain of the type's automation commands: the name in kebab case ("PhysicsMaterial": "physics-material").
-		std::string const& GetCommandDomain() const;
+		std::string const& GetExtension() const { return m_Extension; }
+		uint32_t GetFormatVersion() const { return m_FormatVersion; }
+		std::string const& GetDescription() const { return m_Description; }
+		std::span<DocumentMigration const> GetMigrations() const { return m_Migrations; }
+		// The format of the type's files (the name, the format version and the migrations).
+		StructDocumentFormat GetFormat() const { return {m_Name, m_FormatVersion, m_Migrations}; }
+		// The domain of the type's automation commands: the name in kebab case ("PhysicsMaterial": "physics-material",
+		// "UIStyle": "ui-style", "Curve2D": "curve2d").
+		std::string const& GetCommandDomain() const { return m_CommandDomain; }
 		// The name of the commands' asset parameter and of the asset in their results: the name in lower camel case
-		// ("PhysicsMaterial": "physicsMaterial").
-		std::string const& GetCommandParameter() const;
+		// ("PhysicsMaterial": "physicsMaterial", "UIStyle": "uiStyle", "Curve2D": "curve2D").
+		std::string const& GetCommandParameter() const { return m_CommandParameter; }
 		// The data struct's fields as generic editors and schemas see them (GetFieldDescriptors).
-		std::span<FieldDescriptor const> GetFields() const;
+		std::span<FieldDescriptor const> GetFields() const { return m_Fields; }
 		// The content object of a value-initialized TData: every field at its default.
-		Json const& GetDefaultFields() const;
+		Json const& GetDefaultFields() const { return m_DefaultFields; }
 		// The struct's C++ type, which the registry finds the type by (DataAssetRegistry::Find<TData>).
-		std::type_index GetDataType() const;
+		std::type_index GetDataType() const { return m_DataType; }
+		// One of the engine's own types (registered for the whole process), not one registered by Register.
+		bool IsEngineType() const { return m_IsEngineType; }
 
 		// A new asset of the type with the default data, not known to the asset manager (its Handle is invalid).
 		[[nodiscard]] virtual Ref<DataAsset> CreateAsset() const = 0;
 
 	protected:
-		DataAssetType(std::type_index dataType, std::string name, std::string extension, uint32_t formatVersion, std::string description,
-		              std::vector<DataAssetMigration> migrations, std::vector<FieldDescriptor> fields, Json defaultFields);
+		DataAssetType(std::type_index dataType, std::string_view name, std::string_view extension, uint32_t formatVersion,
+		              std::string_view description, std::span<DocumentMigration const> migrations, std::vector<FieldDescriptor> fields,
+		              Json defaultFields);
 
 	private:
 		friend class DataAssetRegistry;
 
+		// Whether a value-initialized TData serializes into fields that read back and passes the type's Validate.
+		[[nodiscard]] virtual Result<void> CheckDefaultData() const = 0;
+
 		AssetType m_AssetType = AssetType::None;
+		bool m_IsEngineType = false;
 		std::type_index m_DataType;
 		std::string m_Name;
 		std::string m_Extension;
 		uint32_t m_FormatVersion = 1;
 		std::string m_Description;
-		std::vector<DataAssetMigration> m_Migrations;
+		std::vector<DocumentMigration> m_Migrations;
 		std::string m_CommandDomain;
 		std::string m_CommandParameter;
 		std::vector<FieldDescriptor> m_Fields;
@@ -113,17 +127,56 @@ namespace Strada
 	};
 
 	// The registration of a data struct TData: the typed half of DataAssetType, which keeps the specification's validation.
+	// Made with CreateRef (assets of the type share it).
 	template<ReflectedStruct TData>
 	class TypedDataAssetType final : public DataAssetType
 	{
 	public:
-		explicit TypedDataAssetType(DataAssetTypeSpecification<TData> const& specification);
+		static_assert(Detail::IsDescribedFieldType<TData>(),
+		              "Every value of a data asset needs an editor and a schema: no field of a type with its own JSON format (FieldKind::"
+		              "Custom), in nested structs and array elements too, and no array of arrays (Docs/Architecture.md §6.4)");
+
+		explicit TypedDataAssetType(DataAssetTypeSpecification<TData> const& specification)
+			: DataAssetType(std::type_index(typeid(TData)), specification.Name, specification.Extension, specification.FormatVersion,
+		                    specification.Description, specification.Migrations, GetFieldDescriptors<StructTraits<TData>, TData>(),
+		                    SerializeFields<StructTraits<TData>>(TData{})),
+			  m_Validate(specification.Validate)
+		{
+		}
 
 		[[nodiscard]] Ref<DataAsset> CreateAsset() const override;
-		// The specification's Validate, or success without one.
-		[[nodiscard]] Result<void> Validate(TData const& data) const;
+
+		// Whether the data can be an asset's: it serializes into fields that read back (every number finite and within its
+		// field's range, every array within its MaxCount, in nested structs and elements too) and passes the type's Validate.
+		[[nodiscard]] Result<void> Check(TData const& data) const
+		{
+			TData readBack{};
+			if (Result<void> read = DeserializeFields<StructTraits<TData>>(SerializeFields<StructTraits<TData>>(data), readBack,
+			                                                               DeserializationContext{}, "data asset");
+			    !read)
+			{
+				return read;
+			}
+			return Validate(data);
+		}
+
+		// The specification's Validate, with the type's name in front of its message, or success without one.
+		[[nodiscard]] Result<void> Validate(TData const& data) const
+		{
+			if (m_Validate == nullptr)
+			{
+				return {};
+			}
+			if (Result<void> valid = m_Validate(data); !valid)
+			{
+				return MakeError("{}: {}", GetName(), valid.GetError());
+			}
+			return {};
+		}
 
 	private:
+		[[nodiscard]] Result<void> CheckDefaultData() const override { return Check(TData{}); }
+
 		Result<void> (*m_Validate)(TData const& data) = nullptr;
 	};
 
@@ -132,13 +185,14 @@ namespace Strada
 	class DataAsset : public Asset
 	{
 	public:
-		AssetType GetAssetType() const final;
-		DataAssetType const& GetDataAssetType() const;
+		AssetType GetAssetType() const final { return m_Type->GetAssetType(); }
+		// Valid as long as the asset (it shares its type).
+		DataAssetType const& GetDataAssetType() const { return *m_Type; }
 
 		// A number no other data asset object had or will have within the process: drawn when the object is created and again
 		// by every change of its data. Users keep the version of what they derived from the asset and compare it at their
 		// next use; a refresh that reloads the file creates another object, whose version differs as well.
-		uint64_t GetVersion() const;
+		uint64_t GetVersion() const { return m_Version; }
 
 		// The data as the content object of its file: every field, in field table order.
 		[[nodiscard]] virtual Json SerializeFields() const = 0;
@@ -148,13 +202,13 @@ namespace Strada
 		[[nodiscard]] virtual Result<void> ApplyFields(Json const& patch, DeserializationContext const& context) = 0;
 
 	protected:
-		explicit DataAsset(DataAssetType const& type);
+		explicit DataAsset(Ref<DataAssetType const> type);
 
-		// Draws the version of a change (DataAssetRegistry::DrawVersion).
+		// Draws the version of a change.
 		void MarkChanged();
 
 	private:
-		DataAssetType const* m_Type = nullptr;
+		Ref<DataAssetType const> m_Type;
 		uint64_t m_Version = 0;
 	};
 
@@ -163,57 +217,107 @@ namespace Strada
 	class TypedDataAsset final : public DataAsset
 	{
 	public:
-		explicit TypedDataAsset(TypedDataAssetType<TData> const& type);
+		explicit TypedDataAsset(Ref<TypedDataAssetType<TData> const> type)
+			: DataAsset(type)
+		{
+		}
 
 		// The registered type of TData; AssetType::None when TData is not registered (then no asset is of this class).
 		static AssetType GetStaticType();
 
 		// Valid until the next change of the data.
-		TData const& GetData() const;
-		// Takes the data when it would serialize into JSON that reads back (every number within its field's range) and it
-		// passes the type's Validate; nothing changes otherwise. Draws a new version when the data differs.
-		[[nodiscard]] Result<void> SetData(TData data);
+		TData const& GetData() const { return m_Data; }
+		// Takes the data when it can be an asset's (TypedDataAssetType::Check); nothing changes otherwise. Draws a new version
+		// when the data differs.
+		[[nodiscard]] Result<void> SetData(TData data)
+		{
+			if (Result<void> valid = GetTypedType().Check(data); !valid)
+			{
+				return valid;
+			}
+			if (!IsSameData(data, m_Data))
+			{
+				m_Data = std::move(data);
+				MarkChanged();
+			}
+			return {};
+		}
 
-		[[nodiscard]] Json SerializeFields() const override;
-		[[nodiscard]] Result<void> ApplyFields(Json const& patch, DeserializationContext const& context) override;
+		[[nodiscard]] Json SerializeFields() const override { return Strada::SerializeFields<StructTraits<TData>>(m_Data); }
+
+		[[nodiscard]] Result<void> ApplyFields(Json const& patch, DeserializationContext const& context) override
+		{
+			TData updated = m_Data;
+			if (Result<void> read = DeserializeFields<StructTraits<TData>>(patch, updated, context, "data asset"); !read)
+			{
+				return read;
+			}
+			if (Result<void> valid = GetTypedType().Validate(updated); !valid)
+			{
+				return valid;
+			}
+			if (!IsSameData(updated, m_Data))
+			{
+				m_Data = std::move(updated);
+				MarkChanged();
+			}
+			return {};
+		}
 
 	private:
+		TypedDataAssetType<TData> const& GetTypedType() const { return static_cast<TypedDataAssetType<TData> const&>(GetDataAssetType()); }
+
+		static bool IsSameData(TData const& first, TData const& second)
+		{
+			if constexpr (std::equality_comparable<TData>)
+			{
+				return first == second;
+			}
+			else
+			{
+				return Strada::SerializeFields<StructTraits<TData>>(first) == Strada::SerializeFields<StructTraits<TData>>(second);
+			}
+		}
+
 		TData m_Data{};
 	};
 
-	// The registry of data asset types: the engine's own types, registered when it initializes, and types tests register.
-	// Its lifetime is the AssetManager's (AssetManager::Init initializes it first, Shutdown shuts it down last), so every host
-	// that opens a project (the editor, the player, tests) knows the same types: an asset registry keeps no entry of a type
-	// it does not know, and a scan does not register files of an unknown extension, so a host that missed a type would drop
-	// the handles of its files when it saves the registry.
+	// The registry of data asset types. It has two kinds of types:
+	// - The engine's own types, one list in DataAsset.cpp (one line per type, sorted by name). They are registered when the
+	//   registry is first used (by any function below or any Asset.h lookup, on whichever host) and stay for the whole
+	//   process, with fixed AssetType values from FirstAssetTypeValue in the list's order, so every host, tool and test
+	//   knows them by name, whether or not it initializes the asset manager: an asset registry keeps no entry of a type it
+	//   does not know and a scan registers no file of an unknown extension, so a host that missed a type would drop the
+	//   handles of its files when it saves the registry, and a parser of the visual script library or of script metadata
+	//   would refuse the type's name.
+	// - Types registered by Register (the tests' types), from the next free value, until Unregister. Neither works while
+	//   the asset manager has an asset directory open (its files were scanned with the types it knew).
 	//
 	// AssetTypeToString, AssetTypeFromString, GetAssetTypeForExtension and GetSupportedAssetExtensions (Asset.h) consult it
-	// after the built-in types. While it is not initialized (no asset manager: an asset registry read on its own, editor
-	// commands registered without assets), the lookups below find nothing, GetTypes is empty, and those functions know the
-	// built-in types only. Main thread only.
+	// after the built-in types. Main thread only (the engine's types are registered safely on any thread, but types
+	// registered by Register are not guarded).
 	class DataAssetRegistry
 	{
 	public:
-		// Data asset types take the AssetType values from here up, in registration order; the built-in AssetType enumerators
-		// stay below.
+		// Data asset types take the AssetType values from here up; the built-in AssetType enumerators stay below.
 		static constexpr uint32_t FirstAssetTypeValue = 128;
-		// The most types registered at once (the values left in AssetType's uint8_t).
+		// The most types registered at once, the engine's included (the values left in AssetType's uint8_t).
 		static constexpr uint32_t MaxTypes = 256 - FirstAssetTypeValue;
 
-		// Registers the engine's types (one list, in DataAsset.cpp), asserting each succeeds. Called by AssetManager::Init.
-		static void Init();
-		// Forgets every type. Called by AssetManager::Shutdown, after every asset was dropped.
-		static void Shutdown();
-		static bool IsInitialized();
-
-		// Registers TData as a data asset type and returns its AssetType. Fails, registering nothing, when the name, the
-		// extension, the version or the migrations break DataAssetTypeSpecification's rules, when they collide with a built-in
-		// or registered type, when a value-initialized TData is outside its field ranges or fails Validate, when TData or
-		// MaxTypes types are registered already, or when the asset manager has an asset directory open (its files were scanned
-		// without the type). Types stay registered until the registry shuts down. The editor's commands of a type exist only
-		// when it was registered before RegisterEditorCommands ran.
+		// Registers TData as a data asset type and returns its AssetType, the lowest value no registered type has. Fails,
+		// registering nothing, when the name, the extension, the version or the migrations break DataAssetTypeSpecification's
+		// rules, when the name, the extension, the command domain or the command parameter repeat a built-in or registered
+		// type's, when a value-initialized TData does not read back from its fields or fails Validate, when TData or MaxTypes
+		// types are registered already, or while the asset manager has an asset directory open. The editor's commands of a
+		// type exist only when it was registered before RegisterEditorCommands ran.
 		template<ReflectedStruct TData>
-		[[nodiscard]] static Result<AssetType> Register(DataAssetTypeSpecification<TData> const& specification);
+		[[nodiscard]] static Result<AssetType> Register(DataAssetTypeSpecification<TData> const& specification)
+		{
+			return Add(CreateRef<TypedDataAssetType<TData>>(specification), false);
+		}
+		// Forgets a type registered by Register. Fails for the engine's types, for values no type has, and while the asset
+		// manager has an asset directory open. Assets of the type that are still held keep it alive, but no lookup finds it.
+		[[nodiscard]] static Result<void> Unregister(AssetType type);
 
 		// Null when the value is no registered data asset type (built-in types included).
 		static DataAssetType const* Find(AssetType type);
@@ -223,16 +327,22 @@ namespace Strada
 		static DataAssetType const* FindByExtension(std::string_view extension);
 		// By data struct.
 		template<ReflectedStruct TData>
-		static TypedDataAssetType<TData> const* Find();
-		// Every registered type, in registration order.
+		static TypedDataAssetType<TData> const* Find()
+		{
+			return static_cast<TypedDataAssetType<TData> const*>(FindByDataType(std::type_index(typeid(TData))));
+		}
+		// Every registered type: the engine's in the order of their list, then the others in registration order.
 		static std::vector<DataAssetType const*> GetTypes();
+		// Whether the value lies in the range of data asset types (registered or not).
+		static constexpr bool IsDataAssetValue(AssetType type) { return static_cast<uint32_t>(type) >= FirstAssetTypeValue; }
 
 		// Changes whenever what a data asset handle resolves to may have changed: a data asset object was created (loaded,
-		// reloaded or made in memory), changed its data, or was unloaded by the asset manager. Never repeats within the
-		// process (it outlives the registry's shutdown). The scripting runtime compares it before running scripts to tell
+		// reloaded or made in memory), changed its data, or was dropped by the asset manager, or a type was registered or
+		// unregistered. Never repeats within the process. The scripting runtime compares it before running scripts to tell
 		// managed caches of data assets to read again.
 		static uint64_t GetEpoch();
-		// The asset manager unloaded a data asset: moves the epoch.
+		// The asset manager dropped loaded data assets (unloaded one, closed the directory, removed a memory asset, shut
+		// down): moves the epoch.
 		static void NotifyUnloaded();
 
 	private:
@@ -241,11 +351,17 @@ namespace Strada
 		// A new version for a data asset object: the epoch, moved first.
 		static uint64_t DrawVersion();
 		// Checks the type's specification and the registry's state, then assigns the AssetType value and keeps the type.
-		[[nodiscard]] static Result<AssetType> Add(Scope<DataAssetType> type);
+		[[nodiscard]] static Result<AssetType> Add(Ref<DataAssetType> type, bool engineType);
 		static DataAssetType const* FindByDataType(std::type_index dataType);
+		// Registers the engine's types (the list in DataAsset.cpp) once per process, before any lookup.
+		static void EnsureEngineTypes();
+		static bool AddEngineTypes();
+		// One line of the engine's list: registers the type, which must succeed.
+		template<ReflectedStruct TData>
+		static void AddEngineType(DataAssetTypeSpecification<TData> const& specification);
 	};
 
-	// Files of data assets:
+	// Files of data assets, versioned struct documents (StructDocument.h) of the type's format:
 	//   { "Strada": { "Version": <format version>, "Type": "<Name>" }, "<Name>": { <the fields> } }
 	// Reading checks the header (the type's name, a version from 1 to the type's FormatVersion), takes the content object,
 	// runs the migrations from the file's version to the current one, reads the fields (missing fields keep their defaults,
@@ -262,4 +378,17 @@ namespace Strada
 		[[nodiscard]] static Result<Ref<DataAsset>> LoadFromFile(DataAssetType const& type, std::filesystem::path const& path,
 		                                                         DeserializationContext const& context);
 	};
+
+	template<ReflectedStruct TData>
+	Ref<DataAsset> TypedDataAssetType<TData>::CreateAsset() const
+	{
+		return CreateRef<TypedDataAsset<TData>>(std::static_pointer_cast<TypedDataAssetType<TData> const>(shared_from_this()));
+	}
+
+	template<ReflectedStruct TData>
+	AssetType TypedDataAsset<TData>::GetStaticType()
+	{
+		TypedDataAssetType<TData> const* type = DataAssetRegistry::Find<TData>();
+		return type != nullptr ? type->GetAssetType() : AssetType::None;
+	}
 }

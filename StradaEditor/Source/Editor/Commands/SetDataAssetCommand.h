@@ -23,22 +23,26 @@ namespace Strada
 	// format version, or holding fields this engine does not know, leaves it in the current version with the same values,
 	// as materials do. Every write is recorded (AssetManager::RecordFileWrite), so a refresh keeps the loaded asset object
 	// and its users see the change through its version. The asset is looked up by its handle each time, so moving the file
-	// keeps the step working. Steps of the same asset with the same non-zero merge key (one drag in the inspector) merge.
+	// keeps the step working. Steps of the same asset with the same non-zero merge key merge: one interaction of the inspector
+	// (its EditSession's key), or a run of edits a drawer keys itself (a curve editor's arrow-key nudges, merged by time
+	// while no ImGui item is active).
 	class SetDataAssetCommand final : public EditorCommand
 	{
 	public:
-		SetDataAssetCommand(AssetHandle asset, Json patch, uint64_t mergeKey = 0);
+		// The description names the edit in the undo history ("Set Length on Timeline (moves 2 keys)"); empty for the default,
+		// "Edit <type name>".
+		SetDataAssetCommand(AssetHandle asset, Json patch, std::string description = {}, uint64_t mergeKey = 0);
 
 		[[nodiscard]] Result<void> Execute(EditorContext& context) override;
 		[[nodiscard]] Result<void> Undo(EditorContext& context) override;
-		// "Edit <type name>" ("Edit Curve"), recorded by the first execution.
+		// The description given, or "Edit <type name>" ("Edit Curve") recorded by the first execution.
 		std::string GetDescription() const override;
 		bool HasEffect() const override;
 		// False: the edit is of an asset file, which saves itself.
 		bool ModifiesScene() const override;
 		// The same asset and the same non-zero merge key.
 		bool CanMergeWith(EditorCommand const& next) const override;
-		// Takes next's state after; keeps its own state before.
+		// Takes next's state after and description; keeps its own state before.
 		void MergeWith(EditorCommand& next) override;
 		AssetHandle GetEditedAsset() const override;
 

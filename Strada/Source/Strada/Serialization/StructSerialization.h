@@ -45,7 +45,7 @@ namespace Strada
 	struct FieldHints
 	{
 		// The most values a visibility condition names.
-		static constexpr size_t MaxVisibleWhenValues = 4;
+		static constexpr size_t MaxVisibleWhenValues = 16;
 
 		// Inclusive bounds of numeric values (of every component of vectors and every element of arrays).
 		double Min = -std::numeric_limits<double>::infinity();
@@ -68,6 +68,9 @@ namespace Strada
 		// Editors leave the field to UI of its own (the material slot sections of Mesh components edit its Materials): the
 		// generic field editors draw no row for it. Files and automation read and write it as usual.
 		bool HiddenInEditors = false;
+		// Arrays: the most elements they hold, enforced whenever JSON is read (like ranges; editors stop adding there). 0 for
+		// arrays of any length.
+		size_t MaxCount = 0;
 
 		constexpr bool HasMin() const { return Min != -std::numeric_limits<double>::infinity(); }
 		constexpr bool HasMax() const { return Max != std::numeric_limits<double>::infinity(); }
@@ -151,6 +154,15 @@ namespace Strada
 		{
 			StructField field = *this;
 			field.Hints.HiddenInEditors = true;
+			return field;
+		}
+
+		// Arrays (std::vector fields) only, checked at compile time: the most elements the field holds (see
+		// FieldHints::MaxCount).
+		constexpr StructField MaxCount(size_t count) const
+		{
+			StructField field = *this;
+			field.Hints.MaxCount = count;
 			return field;
 		}
 
@@ -239,7 +251,8 @@ namespace Strada
 
 	// Schema used by the automation API: { "Name", ["Description"], "Fields": [ { "Name", "Type", "Default", ... }, ... ] }.
 	// Optional keys per field: "Values" (enums), "Min"/"Max", "Display", "AssetType", "Description", "VisibleWhen"
-	// ({ "Field", "Values" }), "EnabledBy" (the switch), "HiddenInEditors" (true) and "Fields" (nested structs).
+	// ({ "Field", "Values" }), "EnabledBy" (the switch), "HiddenInEditors" (true), "MaxCount" (arrays) and "Fields" (nested
+	// structs).
 	Json DescribeFields(std::string_view name, std::span<FieldDescriptor const> fields, std::string_view description = {});
 
 	namespace Detail
@@ -359,6 +372,31 @@ namespace Strada
 			}
 		}
 
+		// Whether generic code has an editor and a schema for every value of T: no FieldKind::Custom value, down through nested
+		// structs and array elements, and no array of arrays. Data asset types require it (DataAssetRegistry::Register).
+		template<typename T>
+		constexpr bool IsDescribedFieldType()
+		{
+			if constexpr (VectorTraits<T>::value)
+			{
+				using Element = typename VectorTraits<T>::Element;
+				return !VectorTraits<Element>::value && IsDescribedFieldType<Element>();
+			}
+			else if constexpr (ReflectedStruct<T>)
+			{
+				return std::apply(
+					[]<typename... TFields>(TFields const&...)
+					{
+						return (IsDescribedFieldType<StructFieldType<T, TFields>>() && ...);
+					},
+					StructTraits<T>::Fields);
+			}
+			else
+			{
+				return GetFieldKind<T>() != FieldKind::Custom;
+			}
+		}
+
 		// Whether the hints of a field fit its type (checked at compile time for every field table).
 		template<typename T>
 		constexpr bool AreHintsValid(FieldHints const& hints)
@@ -392,7 +430,7 @@ namespace Strada
 			}
 			// Nested structs are switched by their own fields (editors show them as groups, without a value to disable).
 			return (hints.AssetTypeName.empty() || IsAssetField<T>()) &&
-			       (hints.EnabledBy.empty() || GetFieldKind<T>() != FieldKind::Struct);
+			       (hints.EnabledBy.empty() || GetFieldKind<T>() != FieldKind::Struct) && (hints.MaxCount == 0 || VectorTraits<T>::value);
 		}
 
 		// Whether the field is the enum field `name` with the enumerator `value`, or the bool field `name` and `value` is "true"
@@ -572,6 +610,13 @@ namespace Strada
 		template<typename T>
 		Result<void> CheckFieldRange(T const& value, FieldHints const& hints)
 		{
+			if constexpr (VectorTraits<T>::value)
+			{
+				if (hints.MaxCount != 0 && value.size() > hints.MaxCount)
+				{
+					return MakeError("must hold at most {} elements", hints.MaxCount);
+				}
+			}
 			if constexpr (SupportsRange<T>())
 			{
 				if (hints.HasRange() && !IsInRange(value, hints.Min, hints.Max))

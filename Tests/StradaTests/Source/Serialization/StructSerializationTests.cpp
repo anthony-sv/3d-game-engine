@@ -505,3 +505,105 @@ TEST_CASE("StructSerialization: renderer settings and material defaults satisfy 
 	checkDefaults(std::type_identity<SceneRendererSettings>{});
 	checkDefaults(std::type_identity<MaterialData>{});
 }
+
+namespace
+{
+	enum class Note : uint8_t
+	{
+		C = 0,
+		CSharp,
+		D,
+		DSharp,
+		E,
+		F,
+		FSharp,
+		G,
+		GSharp,
+		A,
+		ASharp,
+		B,
+		HighC,
+		HighCSharp,
+		HighD,
+		HighDSharp,
+		HighE
+	};
+
+	struct Chord
+	{
+		Note Root = Note::C;
+		float Level = 1.0f;
+		std::vector<float> Steps;
+		std::vector<std::string> Names;
+	};
+}
+
+template<>
+struct Strada::EnumTraits<Note>
+{
+	static constexpr std::array<std::pair<Note, std::string_view>, 17> Values = {{
+		{Note::C, "C"},
+		{Note::CSharp, "CSharp"},
+		{Note::D, "D"},
+		{Note::DSharp, "DSharp"},
+		{Note::E, "E"},
+		{Note::F, "F"},
+		{Note::FSharp, "FSharp"},
+		{Note::G, "G"},
+		{Note::GSharp, "GSharp"},
+		{Note::A, "A"},
+		{Note::ASharp, "ASharp"},
+		{Note::B, "B"},
+		{Note::HighC, "HighC"},
+		{Note::HighCSharp, "HighCSharp"},
+		{Note::HighD, "HighD"},
+		{Note::HighDSharp, "HighDSharp"},
+		{Note::HighE, "HighE"},
+	}};
+};
+
+// A visibility condition of 16 values, and arrays with a bound.
+template<>
+struct Strada::StructTraits<Chord>
+{
+	static constexpr std::string_view Name = "Chord";
+	static constexpr auto Fields =
+		std::make_tuple(Field("Root", &Chord::Root),
+	                    Field("Level", &Chord::Level)
+	                        .VisibleWhen("Root", "C", "CSharp", "D", "DSharp", "E", "F", "FSharp", "G", "GSharp", "A", "ASharp", "B",
+	                                     "HighC", "HighCSharp", "HighD", "HighDSharp"),
+	                    Field("Steps", &Chord::Steps).Range(0.0, 12.0).MaxCount(3), Field("Names", &Chord::Names).MaxCount(1));
+};
+
+TEST_CASE("StructSerialization: arrays hold at most their MaxCount elements, and conditions name up to 16 values")
+{
+	static_assert(FieldHints::MaxVisibleWhenValues == 16);
+	static_assert(Detail::IsFieldTableValid<StructTraits<Chord>, Chord>());
+	static_assert(Detail::AreHintsValid<std::vector<float>>(Field("Steps", &Chord::Steps).MaxCount(3).Hints));
+	static_assert(!Detail::AreHintsValid<float>(Field("Level", &Chord::Level).MaxCount(3).Hints));
+
+	Chord chord;
+	auto const apply = [&chord](Json const& patch)
+	{
+		Result<void> const result = DeserializeFields<StructTraits<Chord>>(patch, chord, DeserializationContext{}, "settings");
+		return result ? std::string() : result.GetError();
+	};
+	CHECK(apply(Json::object({{"Steps", {0, 4, 7}}, {"Names", {"Major"}}})).empty());
+	CHECK(chord.Steps == std::vector<float>{0.0f, 4.0f, 7.0f});
+	CHECK(apply(Json::object({{"Steps", {0, 4, 7, 11}}})) == "Chord.Steps: must hold at most 3 elements");
+	CHECK(apply(Json::object({{"Names", {"Minor", "Seventh"}}})) == "Chord.Names: must hold at most 1 elements");
+	// Ranges are checked as well, and a refused patch changes nothing.
+	CHECK(apply(Json::object({{"Steps", {13}}, {"Names", Json::array()}})) == "Chord.Steps: every element must be between 0 and 12");
+	CHECK(chord.Names == std::vector<std::string>{"Major"});
+
+	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Chord>, Chord>();
+	CHECK(fields[1].Hints.GetVisibleWhenValues().size() == 16);
+	CHECK(fields[1].Hints.GetVisibleWhenValues().back() == "HighDSharp");
+	CHECK(fields[2].Hints.MaxCount == 3);
+	CHECK(fields[0].Hints.MaxCount == 0);
+	Json const schema = DescribeFields<StructTraits<Chord>, Chord>();
+	CHECK(schema["Fields"][2]["MaxCount"] == 3);
+	CHECK(schema["Fields"][3]["MaxCount"] == 1);
+	CHECK_FALSE(schema["Fields"][0].contains("MaxCount"));
+	CHECK(schema["Fields"][1]["VisibleWhen"]["Values"].size() == 16);
+}
