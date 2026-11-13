@@ -78,8 +78,9 @@ namespace Strada
 		// Any thread.
 		[[nodiscard]] static Result<ExampleCatalog> LoadExampleCatalog(EngineLayout const& layout);
 		// Copies an example into a new or empty directory through the project copy filter (ProjectCopy::Copy), for opening the
-		// copy afterwards (OpenProject): examples are only ever opened as copies. Fails for an example that is not available
-		// (the message carries its hint). Any thread: it touches no editor state, so it runs off the main thread
+		// copy afterwards (OpenProject): examples are only ever opened as copies. The example's root .gitignore stays behind
+		// too: it is the engine repository's (it may ignore downloaded files the copy has). Fails for an example that is not
+		// available (the message carries its hint). Any thread: it touches no editor state, so it runs off the main thread
 		// (ExampleCopyTask).
 		[[nodiscard]] static Result<ExampleCopyOutcome> CopyExample(ExampleCatalog const& catalog, ExampleEntry const& example,
 		                                                            std::filesystem::path const& directory,

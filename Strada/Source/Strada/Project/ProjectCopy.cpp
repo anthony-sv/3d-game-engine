@@ -207,7 +207,8 @@ namespace Strada
 		{
 			return MakeError("'{}' is not a directory", FileSystem::PathToUtf8(from));
 		}
-		if (FileSystem::IsInside(to, from) || FileSystem::IsInside(from, to))
+		// Under any spelling the file system takes: one that ignores letter case finds the source under another case too.
+		if (FileSystem::FindInside(to, from).has_value() || FileSystem::FindInside(from, to).has_value())
 		{
 			return MakeError("'{}' cannot be copied into '{}': one lies inside the other", FileSystem::PathToUtf8(from),
 			                 FileSystem::PathToUtf8(to));
@@ -258,13 +259,14 @@ namespace Strada
 			uint64_t written = file.Size;
 			if (IsScriptProject(file.Source))
 			{
-				Result<std::string> text = FileSystem::ReadTextFile(file.Source);
-				if (!text)
+				// Read as bytes: ReadTextFile drops a byte order mark, which the copy keeps.
+				Result<Buffer> bytes = FileSystem::ReadBinaryFile(file.Source);
+				if (!bytes)
 				{
-					return Error{text.GetError()};
+					return Error{bytes.GetError()};
 				}
-				std::string const filtered =
-					RemoveRepositoryOnlyBlocks(text.GetValue(), FileSystem::PathToUtf8(file.Relative), result.Warnings);
+				std::string_view const text(bytes.GetValue().As<char>(), static_cast<size_t>(bytes.GetValue().GetSize()));
+				std::string const filtered = RemoveRepositoryOnlyBlocks(text, FileSystem::PathToUtf8(file.Relative), result.Warnings);
 				if (Result<void> saved = FileSystem::WriteTextFile(destination, filtered); !saved)
 				{
 					return Error{saved.GetError()};

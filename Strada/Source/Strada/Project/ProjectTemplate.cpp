@@ -91,6 +91,16 @@ namespace Strada
 			return true;
 		}
 
+		// A path inside a folder (forward slashes) as the file system stores its names, relative to the folder: what a listing of
+		// the folder gives for it.
+		std::string GetStoredRelativePath(std::filesystem::path const& folder, std::string_view relativePath)
+		{
+			std::filesystem::path const base = folder.has_filename() ? folder : folder.parent_path();
+			std::filesystem::path const stored = FileSystem::GetStoredSpelling(base / FileSystem::PathFromUtf8(relativePath))
+			                                         .lexically_relative(FileSystem::GetStoredSpelling(base));
+			return stored.empty() ? std::string(relativePath) : FileSystem::PathToUtf8(stored);
+		}
+
 		// Members of the "Template" object.
 		Result<std::string> ReadString(Json const& object, char const* member, bool required)
 		{
@@ -239,6 +249,13 @@ namespace Strada
 			{
 				return MakeError("Template.Thumbnail: '{}' is not a PNG image (.png)", result.Thumbnail);
 			}
+			// A copy of the template leaves the thumbnail out: in a folder of the project (its assets) it would leave out a file the
+			// project uses.
+			if (result.Thumbnail.find('/') != std::string::npos)
+			{
+				return MakeError("Template.Thumbnail: '{}' is not a file of the template's own folder (a name without folders)",
+				                 result.Thumbnail);
+			}
 			if (!result.ProjectFile.empty())
 			{
 				std::filesystem::path const file = result.Directory / FileSystem::PathFromUtf8(result.ProjectFile);
@@ -249,6 +266,12 @@ namespace Strada
 				if (!FileSystem::IsRegularFile(file))
 				{
 					return MakeError("Template.ProjectFile: '{}' is not a file of the template", result.ProjectFile);
+				}
+				// The filter compares names as they are stored, which file systems that ignore letter case may spell differently.
+				if (ProjectCopy::IsExcluded(GetStoredRelativePath(result.Directory, result.ProjectFile)))
+				{
+					return MakeError("Template.ProjectFile: '{}' lies where a copy of the template leaves files out (tools, build output)",
+					                 result.ProjectFile);
 				}
 			}
 			return result;
@@ -318,21 +341,29 @@ namespace Strada
 			}
 
 			std::filesystem::path const renamed = copied.parent_path() / FileSystem::PathFromUtf8(fileName);
-			bool const sameFile = renamed == copied;
-			if (!sameFile && FileSystem::Exists(renamed))
+			bool const renaming = renamed != copied;
+			if (renaming && FileSystem::Exists(renamed))
 			{
-				return MakeError("the template has a file '{}' already, which the project file cannot take the place of",
-				                 FileSystem::PathToUtf8(renamed.filename()));
+				// File systems that ignore letter case (Windows, macOS by default) find the project file itself under a name that
+				// differs from it only in case ("template" for Template.sproj): that is a rename, not a clash.
+				std::error_code errorCode;
+				bool const itself = std::filesystem::equivalent(renamed, copied, errorCode);
+				if (errorCode || !itself)
+				{
+					return MakeError("the template has a file '{}' already, which the project file cannot take the place of",
+					                 FileSystem::PathToUtf8(renamed.filename()));
+				}
 			}
-			if (Result<void> saved = FileSystem::WriteTextFile(renamed, DumpJson(document)); !saved)
+			// Written in place, then renamed: a rename is what changes the letter case a file is stored under.
+			if (Result<void> saved = FileSystem::WriteTextFile(copied, DumpJson(document)); !saved)
 			{
 				return Error{saved.GetError()};
 			}
-			if (!sameFile)
+			if (renaming)
 			{
-				if (Result<void> removed = FileSystem::Remove(copied); !removed)
+				if (Result<void> moved = FileSystem::Move(copied, renamed); !moved)
 				{
-					return Error{removed.GetError()};
+					return Error{moved.GetError()};
 				}
 			}
 			return renamed;
@@ -580,10 +611,11 @@ namespace Strada
 		else
 		{
 			ProjectCopyOptions copyOptions;
-			copyOptions.ExcludedFiles.push_back(std::string(FileName));
+			// As the copy lists them: spelled as stored.
+			copyOptions.ExcludedFiles.push_back(GetStoredRelativePath(projectTemplate.Directory, FileName));
 			if (!projectTemplate.Thumbnail.empty())
 			{
-				copyOptions.ExcludedFiles.push_back(projectTemplate.Thumbnail);
+				copyOptions.ExcludedFiles.push_back(GetStoredRelativePath(projectTemplate.Directory, projectTemplate.Thumbnail));
 			}
 			Result<ProjectCopyResult> copied = ProjectCopy::Copy(projectTemplate.Directory, root, copyOptions);
 			if (!copied)

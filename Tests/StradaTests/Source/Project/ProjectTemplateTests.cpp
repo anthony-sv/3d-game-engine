@@ -11,6 +11,7 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -63,6 +64,19 @@ namespace
 		std::filesystem::path const copy = root / FileSystem::PathFromUtf8(id);
 		REQUIRE(FileSystem::CopyDirectory(GetFixtureTemplates() / "tiny-project", copy).IsOk());
 		return copy;
+	}
+
+	// Whether the file system finds the file under its name in upper case (Windows, macOS by default).
+	bool IgnoresLetterCase(std::filesystem::path const& file)
+	{
+		std::string const name = FileSystem::PathToUtf8(file.filename());
+		std::string upper = name;
+		std::ranges::transform(upper, upper.begin(),
+		                       [](unsigned char character)
+		                       {
+								   return static_cast<char>(std::toupper(character));
+							   });
+		return upper != name && FileSystem::Exists(file.parent_path() / FileSystem::PathFromUtf8(upper));
 	}
 
 	// The fixture's template.json with a change made to its "Template" object.
@@ -251,6 +265,43 @@ TEST_CASE("ProjectTemplate: damaged, foreign and newer template files are refuse
 		WriteTemplate(folder, damages[index]);
 		CHECK(ProjectTemplate::Load(folder).IsError());
 	}
+
+	// A thumbnail in a folder of the project, which a copy would leave out of it, even a real PNG the project uses.
+	REQUIRE(FileSystem::Copy(folder / "thumbnail.png", folder / "Assets" / "Textures" / "Grid.png", false).IsOk());
+	for (char const* const thumbnail : {"Assets/Textures/Grid.png", "Media/thumbnail.png"})
+	{
+		CAPTURE(thumbnail);
+		WriteTemplate(folder,
+		              [thumbnail](Json& value)
+		              {
+						  value["Thumbnail"] = thumbnail;
+					  });
+		Result<ProjectTemplate> refused = ProjectTemplate::Load(folder);
+		REQUIRE(refused.IsError());
+		CHECK(refused.GetError().find("Template.Thumbnail") != std::string::npos);
+	}
+	// A project file where the copy filter leaves files out, which no copy would bring along (in any letter case the file
+	// system takes).
+	for (char const* const projectFile :
+	     {"Tools/Template.sproj", "Build/Template.sproj", "Scripts/bin/Template.sproj", ".strada/Template.sproj"})
+	{
+		CAPTURE(projectFile);
+		REQUIRE(FileSystem::Copy(folder / "Template.sproj", folder / FileSystem::PathFromUtf8(projectFile), false).IsOk());
+		WriteTemplate(folder,
+		              [projectFile](Json& value)
+		              {
+						  value["ProjectFile"] = projectFile;
+					  });
+		Result<ProjectTemplate> refused = ProjectTemplate::Load(folder);
+		REQUIRE(refused.IsError());
+		CHECK(refused.GetError().find("leaves files out") != std::string::npos);
+	}
+	WriteTemplate(folder,
+	              [](Json& value)
+	              {
+					  value["ProjectFile"] = "tools/Template.sproj";
+				  });
+	CHECK(ProjectTemplate::Load(folder).IsError());
 
 	WriteTemplate(folder,
 	              [](Json& value)
@@ -487,4 +538,56 @@ TEST_CASE("ProjectTemplate: instantiating refuses targets that are not new or em
 	REQUIRE(clashing.IsOk());
 	CHECK(ProjectTemplate::Instantiate(clashing.GetValue(), directory.GetPath() / "ClashGame", "Game", TemplateOptions{}).IsError());
 	CHECK_FALSE(FileSystem::Exists(directory.GetPath() / "ClashGame"));
+}
+
+TEST_CASE("ProjectTemplate: a name that differs from the template's project file only in letter case renames it")
+{
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory directory;
+	Result<ProjectTemplate> loaded = ProjectTemplate::Load(GetFixtureTemplates() / "tiny-project");
+	REQUIRE(loaded.IsOk());
+	// Where the file system ignores letter case, these name Template.sproj itself.
+	int index = 0;
+	for (std::string const name : {"template", "TEMPLATE", "tEmPlAtE", "Template"})
+	{
+		CAPTURE(name);
+		std::filesystem::path const target = directory.GetPath() / ("Game" + std::to_string(index++));
+		Result<std::filesystem::path> created = ProjectTemplate::Instantiate(loaded.GetValue(), target, name, TemplateOptions{});
+		REQUIRE_MESSAGE(created.IsOk(), (created ? std::string() : created.GetError()));
+		std::string const fileName = name + ".sproj";
+		CHECK(created.GetValue() == (target / FileSystem::PathFromUtf8(fileName)).lexically_normal());
+		// Stored under the new spelling, once.
+		std::vector<std::string> const files = ListFiles(target);
+		CHECK(std::ranges::count_if(files,
+		                            [](std::string const& file)
+		                            {
+										return file.ends_with(".sproj");
+									}) == 1);
+		CHECK(std::ranges::find(files, fileName) != files.end());
+		CHECK(ReadJson(created.GetValue())["Project"]["Name"] == name);
+		Result<Ref<Project>> opened = Project::Open(created.GetValue());
+		REQUIRE_MESSAGE(opened.IsOk(), (opened ? std::string() : opened.GetError()));
+		CHECK(opened.GetValue()->GetSettings().Name == name);
+		AssetManager::CloseAssetDirectory();
+	}
+
+	// The files a copy leaves out are found under the spelling template.json gives, too.
+	std::filesystem::path const folder = CopyFixtureTemplate(directory.GetPath() / "Templates");
+	if (IgnoresLetterCase(folder / "thumbnail.png"))
+	{
+		WriteTemplate(folder,
+		              [](Json& value)
+		              {
+						  value["Thumbnail"] = "THUMBNAIL.png";
+					  });
+		Result<ProjectTemplate> spelled = ProjectTemplate::Load(folder);
+		REQUIRE(spelled.IsOk());
+		CHECK_FALSE(spelled.GetValue().GetThumbnailPath().empty());
+		Result<std::filesystem::path> created =
+			ProjectTemplate::Instantiate(spelled.GetValue(), directory.GetPath() / "Spelled", "Spelled", TemplateOptions{});
+		REQUIRE(created.IsOk());
+		std::vector<std::string> const files = ListFiles(directory.GetPath() / "Spelled");
+		CHECK(std::ranges::find(files, "thumbnail.png") == files.end());
+		CHECK(std::ranges::find(files, "template.json") == files.end());
+	}
 }

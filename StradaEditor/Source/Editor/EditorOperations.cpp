@@ -149,7 +149,11 @@ namespace Strada
 			return example.NeedsHint.empty() ? MakeError("the example '{}' is not available: its files are missing", example.Id)
 			                                 : MakeError("the example '{}' is not available: {}", example.Id, example.NeedsHint);
 		}
-		Result<ProjectCopyResult> copied = ProjectCopy::Copy(catalog.GetDirectory(example), directory, options);
+		// An example's root .gitignore is the engine repository's (the Showcase's ignores the assets its fetch script downloads,
+		// which the copy has and cannot download again): a copy put under version control keeps everything it has.
+		ProjectCopyOptions copyOptions = options;
+		copyOptions.ExcludedFiles.push_back(".gitignore");
+		Result<ProjectCopyResult> copied = ProjectCopy::Copy(catalog.GetDirectory(example), directory, copyOptions);
 		if (!copied)
 		{
 			return Error{copied.GetError()};

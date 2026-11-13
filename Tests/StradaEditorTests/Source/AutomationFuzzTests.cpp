@@ -1043,11 +1043,13 @@ namespace
 			{
 				return {{"tiny", "fetched"}, {"", "nope", "Tiny", "../tiny", "showcase"}};
 			}
-			// Its directories as drawn (AdjustProjectParameters replaces most): ones taken, climbing out, and the project's.
+			// Its directories as drawn (AdjustProjectParameters replaces most): ones taken, climbing out, the project's, and its
+			// asset directory in another letter case (refused where the file system ignores case, a new folder elsewhere).
 			if (property == "directory")
 			{
-				return {{"Copies/Drawn", FileSystem::PathToUtf8(m_Outside / "Drawn")},
-				        {"", ".", "..", "../..", "Assets", "Assets/Copy", FileSystem::PathToUtf8(m_Project), "C:Escape", "/"}};
+				return {
+					{"Copies/Drawn", FileSystem::PathToUtf8(m_Outside / "Drawn")},
+					{"", ".", "..", "../..", "Assets", "Assets/Copy", "assets/Copy", FileSystem::PathToUtf8(m_Project), "C:Escape", "/"}};
 			}
 			if (property == "component")
 			{
@@ -1749,6 +1751,8 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	// Closing graph windows writes the per-user views file.
 	std::vector<std::filesystem::path> const writable = {fixture.ProjectDirectory, fixture.Outside, fixture.ViewsDirectory};
 	FileSnapshot const filesBefore = SnapshotFiles(fixture.Directory.GetPath(), writable);
+	// The engine content the commands read (the examples project.copy-example copies) is never written.
+	FileSnapshot const contentBefore = SnapshotFiles(Testing::GetTestContentDirectory(), {});
 
 	std::vector<CommandDefinition const*> commands;
 	for (CommandDefinition const* command : fixture.Registry.GetCommands())
@@ -1799,13 +1803,23 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		std::string const findKind = params.is_object() && params.contains("references") ? "references" : "query";
 		CAPTURE(round);
 		CAPTURE(request);
+		// project.copy-example refuses before it copies (a bad directory, an unknown or unavailable example), and then writes
+		// nothing anywhere, also where copies may go.
+		bool const copiesExample = command.Name == "project.copy-example";
+		std::optional<FileSnapshot> const beforeCopy =
+			copiesExample ? std::optional<FileSnapshot>(SnapshotFiles(fixture.Directory.GetPath(), {})) : std::nullopt;
+		std::optional<int> refusedRound;
 		unanswered.insert(round);
 		fixture.Registry.Execute(command.Name, params,
-		                         [&unanswered, &outcomes, &findSuccesses, &paletteErrors, &debugErrors, &recent, name = command.Name, round,
-		                          request, findKind](CommandResult result)
+		                         [&unanswered, &outcomes, &findSuccesses, &paletteErrors, &debugErrors, &recent, &refusedRound,
+		                          name = command.Name, round, request, findKind](CommandResult result)
 		                         {
 									 CHECK_MESSAGE(unanswered.erase(round) == 1, "answered twice: " << request);
 									 recent.push_back(request + (result.IsOk() ? " -> ok" : " -> " + result.GetError().Message));
+									 if (result.IsError())
+									 {
+										 refusedRound = round;
+									 }
 									 if (result.IsOk())
 									 {
 										 outcomes[name].first++;
@@ -1836,6 +1850,11 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		if (!command.IsAsync())
 		{
 			CHECK_MESSAGE(!unanswered.contains(round), "a synchronous command did not answer");
+		}
+		if (beforeCopy && refusedRound == round)
+		{
+			CHECK_MESSAGE(SnapshotFiles(fixture.Directory.GetPath(), {}) == *beforeCopy, "a refused copy wrote files: " << request);
+			CHECK(SnapshotFiles(Testing::GetTestContentDirectory(), {}) == contentBefore);
 		}
 		fixture.Tick();
 		if (round % 50 == 49)
@@ -1924,6 +1943,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	CHECK(FileSystem::Exists(fixture.ViewsDirectory / "VisualScriptViews.json"));
 	CHECK(views.Load().empty());
 
-	// Nothing outside the project changed, but where absolute scene paths pointed.
+	// Nothing outside the project changed, but where absolute scene paths pointed, and nothing of the engine content.
 	CHECK(SnapshotFiles(fixture.Directory.GetPath(), writable) == filesBefore);
+	CHECK(SnapshotFiles(Testing::GetTestContentDirectory(), {}) == contentBefore);
 }

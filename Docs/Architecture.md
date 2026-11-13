@@ -571,13 +571,14 @@ Project template (`Templates/<id>/template.json`, `ProjectTemplate` in `Strada/P
 "Requires": { "Sdk" }, "Tags", "Thumbnail", "ProjectFile" } }`. `Id` (lowercase letters and digits joined by single
 hyphens, at most 40 bytes) is the folder's name; `Name` (at most 64 bytes), `Description` (400) and the tags (at most 8
 of 24 bytes) are UTF-8 without control characters; `Order` is 0 to 1000; `Thumbnail` and `ProjectFile` are paths inside
-the folder (no `..`, root or drive), the thumbnail a PNG of at most 1 MiB, the project file a `.sproj` (`Template.sproj`).
-A template without `ProjectFile` is the editor's default scene (`empty-3d`). Unknown members are ignored and a newer
-version is refused; a damaged template is left out of the list with a warning. Instantiating copies the folder through
-the project copy filter (below) without `template.json` and the thumbnail, renames the project file to
-`<portable name>.sproj` and sets its `Project.Name` (and `Window.Title` when it was the template's name), rewriting
-nothing else, then writes the root `.gitignore` (build output, `.strada/`, script outputs and `Strada.props`) unless
-asked not to; it opens nothing and leaves nothing behind when it fails.
+the folder (no `..`, root or drive), the thumbnail a PNG of at most 1 MiB named in the folder itself (in a folder of the
+project, leaving it out would leave out a file the project uses), the project file a `.sproj` (`Template.sproj`) outside
+what the copy filter leaves out. A template without `ProjectFile` is the editor's default scene (`empty-3d`). Unknown
+members are ignored and a newer version is refused; a damaged template is left out of the list with a warning.
+Instantiating copies the folder through the project copy filter (below) without `template.json` and the thumbnail,
+renames the project file to `<portable name>.sproj` and sets its `Project.Name` (and `Window.Title` when it was the
+template's name), rewriting nothing else, then writes the root `.gitignore` (build output, `.strada/`, script outputs
+and `Strada.props`) unless asked not to; it opens nothing and leaves nothing behind when it fails.
 
 Example catalog (`Projects/catalog.json` in a source tree, `Examples/catalog.json` otherwise; `ExampleCatalog`):
 `{ "Strada": { "Version": 1, "Type": "ExampleCatalog" }, "Examples": [ { "Id", "Name", "Order", "Description",
@@ -585,14 +586,17 @@ Example catalog (`Projects/catalog.json` in a source tree, `Examples/catalog.jso
 limits; `Directory` and `Thumbnail` lie under the catalog's folder, `ProjectFile` and the needed paths (at most 16, the
 hint at most 400 bytes) under the example's. An example is available when its project file and every needed path exist
 (the Showcase needs the assets `Tools/FetchAssets.py` downloads). A damaged entry, or a repeated id, is left out with a
-warning; a damaged catalog is an error. Examples are only ever opened as copies.
+warning; a damaged catalog is an error. Examples are only ever opened as copies, without the example's root `.gitignore`
+(the engine repository's: the Showcase's ignores the assets its fetch script downloads, which a copy has and cannot
+fetch).
 
 The project copy filter (`ProjectCopy`), which templates and examples share, copies a project into a new or empty
 directory without `Tools/`, `Build/`, `.strada/`, `.git/`, `Scripts/bin/`, `Scripts/obj/`, `Scripts/Binaries/`,
 `Scripts/Strada.props` and any `__pycache__/`, never following symbolic links, and removes what it wrote when it fails or
-is cancelled. A copied `*.csproj` loses its repository-only blocks: the lines from one containing
-`<!-- strada:repository-only -->` to the next containing `<!-- /strada:repository-only -->` (the samples' fallback
-reference to `../../../Strada-ScriptCore`); an unclosed block is copied as it is, with a warning.
+is cancelled; it compares folders under any spelling the file system takes, so a target inside the source is refused in
+any letter case. A copied `*.csproj` loses its repository-only blocks, keeping its line endings and byte order mark: the
+lines from one containing `<!-- strada:repository-only -->` to the next containing `<!-- /strada:repository-only -->`
+(the samples' fallback reference to `../../../Strada-ScriptCore`); an unclosed block is copied as it is, with a warning.
 
 Engine marker (`engine.json` beside a build tree's executables, written by CMake, never shipped in a game):
 `{ "Strada": { "Version": 1, "Type": "EngineManifest" }, "Content": "<the checkout, absolute, forward slashes>" }`.

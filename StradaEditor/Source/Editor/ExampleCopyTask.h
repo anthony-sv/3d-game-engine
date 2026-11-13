@@ -23,7 +23,7 @@ namespace Strada
 		using CompletionCallback = std::function<void(Result<ExampleCopyOutcome> outcome, bool cancelled)>;
 
 		ExampleCopyTask() = default;
-		// Cancels a running copy and waits for it (it removes what it wrote); its callback is dropped.
+		// Cancels a running copy and waits for it (what it wrote is removed); its callback is dropped.
 		~ExampleCopyTask();
 
 		ExampleCopyTask(ExampleCopyTask const&) = delete;
@@ -35,7 +35,8 @@ namespace Strada
 		bool IsRunning() const { return m_Copy.valid(); }
 		// How far the running (or last) copy got; any thread may read it.
 		ProjectCopyProgress const& GetProgress() const { return m_Progress; }
-		// Stops the running copy: it completes as cancelled, leaving nothing behind.
+		// Stops the running copy: it completes as cancelled, leaving nothing behind, also when its thread had already finished
+		// copying (what it wrote is removed when Update completes it).
 		void Cancel();
 
 		// Every frame: completes a finished copy.
@@ -46,5 +47,8 @@ namespace Strada
 		std::atomic<bool> m_Cancel = false;
 		ProjectCopyProgress m_Progress;
 		CompletionCallback m_Callback;
+		// The running copy's target, put back as it was when a copy that succeeded is cancelled before it completes (a failed
+		// copy has removed what it wrote itself).
+		Scope<NewDirectoryCleanup> m_Cleanup;
 	};
 }

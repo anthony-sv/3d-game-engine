@@ -101,13 +101,14 @@ namespace Strada
 				}
 				std::filesystem::path const& target = directory.GetValue();
 				std::filesystem::path const source = catalog.GetValue().GetDirectory(*example);
-				if (FileSystem::IsInside(target, source) || FileSystem::IsInside(source, target))
+				// Under any spelling the file system takes (letter case, where it ignores it).
+				if (FileSystem::FindInside(target, source).has_value() || FileSystem::FindInside(source, target).has_value())
 				{
 					return MakeDirectoryError(
 						fmt::format("'{}' and the example's folder lie inside one another", FileSystem::PathToUtf8(target)));
 				}
 				if (AssetManager::IsInitialized() && AssetManager::HasAssetDirectory() &&
-				    FileSystem::IsInside(target, AssetManager::GetAssetDirectory()))
+				    FileSystem::FindInside(target, AssetManager::GetAssetDirectory()).has_value())
 				{
 					return MakeDirectoryError(
 						fmt::format("'{}' lies in the open project's asset directory, where a project does not belong",
@@ -289,8 +290,9 @@ namespace Strada
 		CommandDefinition copyExample;
 		copyExample.Name = "project.copy-example";
 		copyExample.Description =
-			"Copies an example game (project.examples lists them) into a new or empty directory, leaving out its tools and build "
-			"output, and opens the copy with its start scene unless open is false: examples are only ever opened as copies. "
+			"Copies an example game (project.examples lists them) into a new or empty directory, leaving out its tools, build "
+			"output and root .gitignore (the engine repository's), and opens the copy with its start scene unless open is false: "
+			"examples are only ever opened as copies. "
 			"Asynchronous: the copy runs in the background. Not an undo step: it writes files. Returns { directory, bytes, files, "
 			"warnings } and, when it opened, project and scene as project.open gives them. InvalidParams for an unknown example "
 			"or a directory that is not new or empty (absolute, or relative to the open project's directory); InvalidOperation "

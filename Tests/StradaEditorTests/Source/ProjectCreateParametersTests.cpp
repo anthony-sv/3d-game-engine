@@ -166,3 +166,37 @@ TEST_CASE("ProjectCreateParameters: names and directories with separators and re
 	CHECK(Snapshot(fixture.Directory.GetPath()) == before);
 	CHECK(Snapshot(Testing::GetTestContentDirectory()) == content);
 }
+
+TEST_CASE("ProjectCreateParameters: names that are the template's project file name in another letter case create the project")
+{
+	CreateFixture fixture;
+	int index = 0;
+	// Where the file system ignores letter case, these name the template's Template.sproj itself.
+	for (std::string const name : {"template", "TEMPLATE", "tEmPlAtE", "Template"})
+	{
+		for (char const* const templateId : {"empty-3d", "tiny-project"})
+		{
+			CAPTURE(name);
+			CAPTURE(templateId);
+			std::filesystem::path const target = fixture.Directory.GetPath() / ("Cased" + std::to_string(index++));
+			CommandResult result = fixture.Run(Json::object(
+				{{"directory", FileSystem::PathToUtf8(target)}, {"name", name}, {"template", templateId}, {"discardChanges", true}}));
+			REQUIRE_MESSAGE(result.IsOk(), (result.IsError() ? result.GetError().Message : std::string()));
+			std::string const fileName = name + ".sproj";
+			CHECK(result.GetValue()["project"]["file"] == FileSystem::PathToUtf8(target / FileSystem::PathFromUtf8(fileName)));
+			CHECK(result.GetValue()["project"]["name"] == name);
+			// The one project file is stored under the name asked for.
+			std::vector<std::string> projectFiles;
+			std::error_code error;
+			for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(target, error))
+			{
+				if (entry.path().extension() == ".sproj")
+				{
+					projectFiles.push_back(FileSystem::PathToUtf8(entry.path().filename()));
+				}
+			}
+			REQUIRE_FALSE(error);
+			CHECK(projectFiles == std::vector<std::string>{fileName});
+		}
+	}
+}

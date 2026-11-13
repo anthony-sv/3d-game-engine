@@ -10,9 +10,12 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/ProjectTemplate.h"
+#include "Strada/Scene/Scene.h"
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <optional>
@@ -59,14 +62,23 @@ namespace
 		}
 
 		// Runs a command, updating the copies as the editor does every frame until it answers.
-		CommandResult Run(std::string_view name, Json params = Json::object())
+		CommandResult Run(std::string_view name, Json params = Json::object()) { return Run(Registry, name, std::move(params)); }
+
+		CommandResult Run(CommandRegistry& registry, std::string_view name, Json params)
 		{
 			std::optional<CommandResult> result;
-			Registry.Execute(name, params,
+			registry.Execute(name, params,
 			                 [&result](CommandResult value)
 			                 {
 								 result.emplace(std::move(value));
 							 });
+			Await(result);
+			return std::move(*result);
+		}
+
+		// Updates the copies as the editor does every frame until the command answered.
+		void Await(std::optional<CommandResult> const& result)
+		{
 			auto const deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
 			while (!result && std::chrono::steady_clock::now() < deadline)
 			{
@@ -77,7 +89,20 @@ namespace
 				}
 			}
 			REQUIRE(result.has_value());
-			return std::move(*result);
+		}
+
+		// The test content's examples, copied into the temporary directory where a test may change them, as the engine content
+		// of another registry of the project content commands. Returns the copied examples' folder.
+		std::filesystem::path RegisterCopiedContent(CommandRegistry& registry)
+		{
+			std::filesystem::path const content = Directory.GetPath() / "Content";
+			REQUIRE(FileSystem::CopyDirectory(Testing::GetTestContentDirectory() / "Examples", content / "Examples").IsOk());
+			Result<EngineLayout> layout = EngineLayout::Resolve(content / "StradaEditor");
+			REQUIRE(layout.IsOk());
+			EditorLocations locations;
+			locations.Layout = layout.TakeValue();
+			REQUIRE(RegisterProjectContentCommands(registry, Operations, *Copies, locations, {}).IsOk());
+			return content / "Examples";
 		}
 
 		Json Ok(std::string_view name, Json params = Json::object())
@@ -107,6 +132,19 @@ namespace
 		Result<std::string> text = FileSystem::ReadTextFile(file);
 		REQUIRE_MESSAGE(text.IsOk(), FileSystem::PathToUtf8(file));
 		return text.TakeValue();
+	}
+
+	// Whether the file system finds the file or folder under its name in upper case (Windows, macOS by default).
+	bool IgnoresLetterCase(std::filesystem::path const& file)
+	{
+		std::string const name = FileSystem::PathToUtf8(file.filename());
+		std::string upper = name;
+		std::ranges::transform(upper, upper.begin(),
+		                       [](unsigned char character)
+		                       {
+								   return static_cast<char>(std::toupper(character));
+							   });
+		return upper != name && FileSystem::Exists(file.parent_path() / FileSystem::PathFromUtf8(upper));
 	}
 }
 
@@ -225,6 +263,19 @@ TEST_CASE("ProjectContentCommands: project.copy-example opens the copy, and rela
 		fixture.Fails("project.copy-example", Json::object({{"example", "tiny"}, {"directory", "Assets/Copy"}, {"open", false}}));
 	CHECK(assets.Code == AutomationErrorCode::InvalidParams);
 	CHECK_FALSE(FileSystem::Exists(fixture.Directory.GetPath() / "First" / "Assets" / "Copy"));
+	// Nor into it spelled in another letter case, where the file system takes that spelling for it.
+	if (IgnoresLetterCase(fixture.Directory.GetPath() / "First" / "Assets"))
+	{
+		for (std::string const& spelled : {std::string("assets/Copy"), fixture.Path("FIRST/ASSETS/Copy")})
+		{
+			CAPTURE(spelled);
+			CommandError const refused =
+				fixture.Fails("project.copy-example", Json::object({{"example", "tiny"}, {"directory", spelled}, {"open", false}}));
+			CHECK(refused.Code == AutomationErrorCode::InvalidParams);
+			CHECK(refused.Data["path"] == "directory");
+		}
+		CHECK_FALSE(FileSystem::Exists(fixture.Directory.GetPath() / "First" / "Assets" / "Copy"));
+	}
 	CHECK(fixture.ProjectsOpened == 1);
 }
 
@@ -388,4 +439,167 @@ TEST_CASE("ProjectContentCommands: an editor without engine content still create
 	Json const synthesized = bare.Ok("project.create", Json::object({{"directory", bare.Path("Game")}, {"name", "Game"}}));
 	CHECK(synthesized["template"] == "empty-3d");
 	CHECK(FileSystem::Exists(bare.Directory.GetPath() / "Game" / ".gitignore"));
+}
+
+TEST_CASE("ProjectContentCommands: project.copy-example opens no copy while the editor plays")
+{
+	ContentFixture fixture;
+	fixture.Context.BeginPlay(CreateRef<Scene>("Running"), EditorPlayState::Play);
+	CommandError const playing =
+		fixture.Fails("project.copy-example", Json::object({{"example", "tiny"}, {"directory", fixture.Path("Copy")}}));
+	CHECK(playing.Code == AutomationErrorCode::InvalidOperation);
+	CHECK_FALSE(FileSystem::Exists(fixture.Directory.GetPath() / "Copy"));
+	// A copy that is not opened is made while playing.
+	CHECK(fixture.Ok("project.copy-example",
+	                 Json::object({{"example", "tiny"}, {"directory", fixture.Path("Copy")}, {"open", false}}))["files"] == 5);
+	fixture.Context.EndPlay();
+
+	// Play starts while the example is copied: the copy stays, and the error says where it is.
+	std::optional<CommandResult> result;
+	fixture.Registry.Execute("project.copy-example", Json::object({{"example", "tiny"}, {"directory", fixture.Path("Meanwhile")}}),
+	                         [&result](CommandResult value)
+	                         {
+								 result.emplace(std::move(value));
+							 });
+	fixture.Context.BeginPlay(CreateRef<Scene>("Running"), EditorPlayState::Play);
+	fixture.Await(result);
+	REQUIRE(result->IsError());
+	CHECK(result->GetError().Code == AutomationErrorCode::InvalidOperation);
+	CHECK(result->GetError().Message.find(fixture.Path("Meanwhile/Tiny.sproj")) != std::string::npos);
+	CHECK(FileSystem::IsRegularFile(fixture.Directory.GetPath() / "Meanwhile" / "Tiny.sproj"));
+	CHECK(fixture.Context.GetProject() == nullptr);
+	CHECK(fixture.ProjectsOpened == 0);
+	fixture.Context.EndPlay();
+}
+
+TEST_CASE("ProjectContentCommands: a copy cancelled through its task answers Cancelled and leaves nothing behind")
+{
+	ContentFixture fixture;
+	std::filesystem::path const empty = fixture.Directory.GetPath() / "Empty";
+	REQUIRE(FileSystem::CreateDirectories(empty).IsOk());
+	// Into a new directory and an empty one: cancelled before or after its thread finished copying (Cancel waits for nothing),
+	// the copy goes either way.
+	for (std::filesystem::path const& target : {fixture.Directory.GetPath() / "New" / "Copy", empty})
+	{
+		CAPTURE(FileSystem::PathToUtf8(target));
+		std::optional<CommandResult> result;
+		fixture.Registry.Execute("project.copy-example",
+		                         Json::object({{"example", "tiny"}, {"directory", FileSystem::PathToUtf8(target)}, {"open", false}}),
+		                         [&result](CommandResult value)
+		                         {
+									 result.emplace(std::move(value));
+								 });
+		REQUIRE(fixture.Copies->IsRunning());
+		fixture.Copies->Cancel();
+		fixture.Await(result);
+		REQUIRE(result->IsError());
+		CHECK(result->GetError().Code == AutomationErrorCode::Cancelled);
+		CHECK_FALSE(fixture.Copies->IsRunning());
+	}
+	CHECK_FALSE(FileSystem::Exists(fixture.Directory.GetPath() / "New"));
+	CHECK(FileSystem::IsDirectory(empty));
+	CHECK(std::filesystem::is_empty(empty));
+	CHECK(fixture.ProjectsOpened == 0);
+}
+
+TEST_CASE("ExampleCopyTask: a cancelled copy completes as cancelled, also when its thread had finished copying")
+{
+	Testing::TemporaryDirectory directory;
+	Result<ExampleCatalog> catalog = ExampleCatalog::Load(GetContent() / "Examples" / "catalog.json");
+	REQUIRE(catalog.IsOk());
+	ExampleEntry const* tiny = catalog.GetValue().Find("tiny");
+	REQUIRE(tiny != nullptr);
+	ExampleCopyTask copies;
+	// Once at once, once after every file was copied (its thread may then have finished, or not).
+	for (bool const waitForFiles : {false, true})
+	{
+		CAPTURE(waitForFiles);
+		std::filesystem::path const target = directory.GetPath() / (waitForFiles ? "Late" : "Early") / "Copy";
+		std::optional<std::pair<bool, bool>> completed;
+		REQUIRE(copies
+		            .Start(catalog.GetValue(), *tiny, target,
+		                   [&completed](Result<ExampleCopyOutcome> outcome, bool cancelled)
+		                   {
+							   completed.emplace(outcome.IsOk(), cancelled);
+						   })
+		            .IsOk());
+		auto const deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
+		while (waitForFiles && std::chrono::steady_clock::now() < deadline &&
+		       (copies.GetProgress().TotalFiles.load() == 0 || copies.GetProgress().Files.load() < copies.GetProgress().TotalFiles.load()))
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		copies.Cancel();
+		while (!completed && std::chrono::steady_clock::now() < deadline)
+		{
+			copies.Update();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		REQUIRE(completed.has_value());
+		CHECK_FALSE(completed->first);
+		CHECK(completed->second);
+		CHECK_FALSE(copies.IsRunning());
+		CHECK_FALSE(FileSystem::Exists(target.parent_path()));
+	}
+
+	// Without Cancel, the copy stays.
+	std::optional<bool> copied;
+	REQUIRE(copies
+	            .Start(catalog.GetValue(), *tiny, directory.GetPath() / "Kept",
+	                   [&copied](Result<ExampleCopyOutcome> outcome, bool)
+	                   {
+						   copied.emplace(outcome.IsOk());
+					   })
+	            .IsOk());
+	auto const deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
+	while (!copied && std::chrono::steady_clock::now() < deadline)
+	{
+		copies.Update();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	REQUIRE(copied.has_value());
+	CHECK(*copied);
+	CHECK(FileSystem::IsRegularFile(directory.GetPath() / "Kept" / "Tiny.sproj"));
+}
+
+TEST_CASE("ProjectContentCommands: a copy that fails answers FileError and leaves nothing behind")
+{
+	ContentFixture fixture;
+	// A folder below a file passes the checks of a new directory and cannot be made.
+	REQUIRE(FileSystem::WriteTextFile(fixture.Directory.GetPath() / "File.txt", "file").IsOk());
+	CommandError const failed = fixture.Fails(
+		"project.copy-example", Json::object({{"example", "tiny"}, {"directory", fixture.Path("File.txt/Copy")}, {"open", false}}));
+	CHECK(failed.Code == AutomationErrorCode::FileError);
+	CHECK(Read(fixture.Directory.GetPath() / "File.txt") == "file");
+	CHECK_FALSE(fixture.Copies->IsRunning());
+	CHECK(fixture.ProjectsOpened == 0);
+}
+
+TEST_CASE("ProjectContentCommands: an example's copy leaves its root .gitignore and is refused in its folder under any spelling")
+{
+	ContentFixture fixture;
+	CommandRegistry registry;
+	std::filesystem::path const examples = fixture.RegisterCopiedContent(registry);
+	// The repository's rules for the example: one ignoring files the copy has (as the Showcase's ignores its downloads).
+	REQUIRE(FileSystem::WriteTextFile(examples / "Tiny" / ".gitignore", "/Assets/Scenes/\n").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(examples / "Tiny" / "Scripts" / ".gitignore", "bin/\n").IsOk());
+
+	CommandResult copied = fixture.Run(registry, "project.copy-example",
+	                                   Json::object({{"example", "tiny"}, {"directory", fixture.Path("Copy")}, {"open", false}}));
+	REQUIRE_MESSAGE(copied.IsOk(), (copied.IsError() ? copied.GetError().Message : std::string()));
+	CHECK(copied.GetValue()["files"] == 6);
+	std::filesystem::path const copy = fixture.Directory.GetPath() / "Copy";
+	CHECK_FALSE(FileSystem::Exists(copy / ".gitignore"));
+	CHECK(Read(copy / "Scripts" / ".gitignore") == "bin/\n");
+	CHECK(FileSystem::IsRegularFile(copy / "Assets" / "Scenes" / "Main.sscene"));
+
+	if (IgnoresLetterCase(examples / "Tiny"))
+	{
+		CommandResult const inside = fixture.Run(
+			registry, "project.copy-example",
+			Json::object({{"example", "tiny"}, {"directory", FileSystem::PathToUtf8(examples / "TINY" / "Inside")}, {"open", false}}));
+		REQUIRE(inside.IsError());
+		CHECK(inside.GetError().Code == AutomationErrorCode::InvalidParams);
+		CHECK_FALSE(FileSystem::Exists(examples / "Tiny" / "Inside"));
+	}
 }

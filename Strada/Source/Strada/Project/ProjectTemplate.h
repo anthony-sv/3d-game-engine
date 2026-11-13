@@ -80,7 +80,8 @@ namespace Strada
 		std::vector<std::string> Tags;
 		// The .NET 10 SDK is needed before the project plays (it has C# scripts).
 		bool RequiresSdk = false;
-		// Relative to Directory; empty when there is none.
+		// A file name in Directory itself (not in a folder of the project, which a copy must keep whole); empty when there is
+		// none.
 		std::string Thumbnail;
 		// Relative to Directory; empty for a template of the editor's default scene.
 		std::string ProjectFile;
@@ -95,7 +96,8 @@ namespace Strada
 		// folder).
 		static ProjectTemplate MakeDefault();
 		// Reads <directory>/template.json. Fails for a damaged, foreign or newer file, an Id that is not the folder's name, a
-		// member out of its limits, and a ProjectFile that is not a .sproj file of the folder.
+		// member out of its limits, a Thumbnail that is not a .png name in the folder itself, and a ProjectFile that is not a
+		// .sproj file of the folder or lies where the copy filter leaves files out (ProjectCopy::IsExcluded).
 		[[nodiscard]] static Result<ProjectTemplate> Load(std::filesystem::path const& directory);
 		// The templates in the folders of root (folders without template.json are not templates), sorted by Order, then Id.
 		// A damaged template is left out with a warning naming it; a missing root gives an empty list.
@@ -106,7 +108,8 @@ namespace Strada
 		// - another copies the template's folder through the project copy filter (ProjectCopy) without template.json and the
 		//   thumbnail, then renames the project file to <MakePortableFileName(name)>.sproj ("Project.sproj" when nothing
 		//   portable remains), sets its Project.Name to name and its Window.Title to name when the title was the template's
-		//   own Project.Name. Nothing else of any file is rewritten.
+		//   own Project.Name (a name that differs from the template's file name only in letter case renames it too, also where
+		//   the file system ignores case). Nothing else of any file is rewritten.
 		// Then, with options.GitIgnore, it writes the root .gitignore when the project has none. Opens nothing (the
 		// AssetManager is not touched); on failure nothing is left behind. Warnings of the copy are logged. Any thread (with
 		// startScene, one that may read the scene).

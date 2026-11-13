@@ -344,7 +344,7 @@ def main():
     shutil.move(TOOLS, os.path.join(aside, "Tools"))
     try:
         shutil.rmtree(PROJECT)
-        client.call("project_create", {"directory": PROJECT, "name": "Blocks"})
+        client.call("project_create", {"directory": PROJECT, "name": "Blocks", "gitIgnore": False})
     except BaseException:
         # The sources come back when the project could not be made (on success the scripts are created from them).
         if not os.path.isdir(os.path.join(PROJECT, "Scripts", "Source")):

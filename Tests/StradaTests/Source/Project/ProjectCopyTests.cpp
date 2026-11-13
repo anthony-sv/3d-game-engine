@@ -292,3 +292,57 @@ TEST_CASE("ProjectCopy: symbolic links are left out, so nothing outside the sour
 	CHECK(copied.GetValue().Warnings.size() == static_cast<size_t>((folderError ? 0 : 1) + (fileError ? 0 : 1)));
 	CHECK(ListFiles(outside) == std::vector<std::string>{"Secret.txt"});
 }
+
+TEST_CASE("ProjectCopy: copied script projects keep their byte order mark, with or without a repository-only block")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const source = directory.GetPath() / "Source";
+	std::string const bom = "\xEF\xBB\xBF";
+	std::string const unclosed = "<Project>\r\n<!-- strada:repository-only -->\r\n</Project>\r\n";
+	Write(source / "Game.sproj", "{}");
+	Write(source / "Scripts" / "Marked.csproj", bom + std::string(MarkedProject));
+	Write(source / "Scripts" / "Plain.csproj", bom + std::string(UnmarkedProject));
+	Write(source / "Scripts" / "Unclosed.csproj", bom + unclosed);
+
+	std::filesystem::path const target = directory.GetPath() / "Copy";
+	Result<ProjectCopyResult> copied = ProjectCopy::Copy(source, target);
+	REQUIRE_MESSAGE(copied.IsOk(), (copied ? std::string() : copied.GetError()));
+	CHECK(copied.GetValue().Warnings.size() == 1);
+	// Compared as bytes: reading text drops the mark.
+	auto const readBytes = [](std::filesystem::path const& file)
+	{
+		Result<Buffer> bytes = FileSystem::ReadBinaryFile(file);
+		REQUIRE_MESSAGE(bytes.IsOk(), FileSystem::PathToUtf8(file));
+		return std::string(bytes.GetValue().As<char>(), static_cast<size_t>(bytes.GetValue().GetSize()));
+	};
+	CHECK(readBytes(target / "Scripts" / "Marked.csproj") == bom + std::string(UnmarkedProject));
+	CHECK(readBytes(target / "Scripts" / "Plain.csproj") == bom + std::string(UnmarkedProject));
+	CHECK(readBytes(target / "Scripts" / "Unclosed.csproj") == bom + unclosed);
+	uint64_t written = 0;
+	for (std::string const& file : ListFiles(target))
+	{
+		written += *FileSystem::GetFileSize(target / FileSystem::PathFromUtf8(file));
+	}
+	CHECK(copied.GetValue().Bytes == written);
+}
+
+TEST_CASE("ProjectCopy: a target inside the source is refused under any spelling the file system takes")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const source = MakeSource(directory.GetPath());
+	// Where the file system ignores letter case (Windows, macOS by default), SOURCE is the source.
+	if (!FileSystem::Exists(directory.GetPath() / "SOURCE"))
+	{
+		MESSAGE("the file system here tells letter case apart");
+		return;
+	}
+	Result<ProjectCopyResult> inside = ProjectCopy::Copy(source, directory.GetPath() / "SOURCE" / "Inside");
+	REQUIRE(inside.IsError());
+	CHECK(inside.GetError().find("inside") != std::string::npos);
+	CHECK_FALSE(FileSystem::Exists(source / "Inside"));
+	// Spelled otherwise further up, and only in part.
+	std::filesystem::path const nested = directory.GetPath() / "Around" / "Project";
+	REQUIRE(FileSystem::CopyDirectory(source, nested).IsOk());
+	CHECK(ProjectCopy::Copy(nested, directory.GetPath() / "AROUND" / "project" / "Assets" / "Copy").IsError());
+	CHECK_FALSE(FileSystem::Exists(nested / "Assets" / "Copy"));
+}
