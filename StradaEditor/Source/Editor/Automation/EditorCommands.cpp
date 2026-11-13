@@ -1,5 +1,6 @@
 #include "Editor/Automation/EditorCommands.h"
 
+#include "Editor/Automation/AgentCommands.h"
 #include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/JsonSchema.h"
 #include "Editor/ComponentInspection.h"
@@ -6065,7 +6066,11 @@ namespace Strada
 
 	Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations, EditorCommandEnvironment environment)
 	{
-		return CreateRef<CommandSet>(registry, operations, std::move(environment))->RegisterAll();
+		// The agent kit's commands take the engine content and the tool lookup the environment holds.
+		EngineLayout layout = environment.Locations.Layout;
+		AgentToolLookup findTool = environment.FindToolOnPath;
+		Result<void> registered = CreateRef<CommandSet>(registry, operations, std::move(environment))->RegisterAll();
+		return registered ? RegisterAgentCommands(registry, operations.GetContext(), std::move(layout), std::move(findTool)) : registered;
 	}
 
 	std::string GetVisualScriptProgramRevision(VisualScriptDocument const& document)

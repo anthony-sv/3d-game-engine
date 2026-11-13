@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/Agents/AgentKit.h"
 #include "Editor/Automation/CommandRegistry.h"
 #include "Editor/EditorLocations.h"
 #include "Editor/EditorOperations.h"
@@ -97,11 +98,16 @@ namespace Strada
 		// default location of new projects (the editor's are the process's, EditorLocations::FromProcess). Default-constructed
 		// it names no folder (tests pass folders of their own, Testing::MakeEditorLocations).
 		EditorLocations Locations;
+		// Finds the strada tool on PATH (the editor's: Process::FindExecutable("strada")), which decides whether the .mcp.json
+		// that project.setup-agents writes names strada or its path (AgentKit::ResolveTool). Unset finds nothing, so that
+		// tests never depend on what the machine has.
+		AgentToolLookup FindToolOnPath;
 	};
 
-	// Registers the editor, project, scene, entity, component, asset, material, graph (visual script), prefab, inspector, log and
-	// viewport commands. Entity parameters are UUIDs written as decimal strings. The registry, the operations (and their context) and
-	// the environment callbacks must outlive every registered command. Documented in Docs/Automation.md.
+	// Registers the editor, project (with the agent kit's, RegisterAgentCommands), scene, entity, component, asset, material, graph
+	// (visual script), prefab, inspector, log and viewport commands. Entity parameters are UUIDs written as decimal strings. The registry,
+	// the operations (and their context) and the environment callbacks must outlive every registered command. Documented in
+	// Docs/Automation.md.
 	[[nodiscard]] Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations,
 	                                                  EditorCommandEnvironment environment);
 

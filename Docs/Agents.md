@@ -459,6 +459,7 @@ parameter of a validation error.
 | 1006 | Cancelled | An asynchronous command was abandoned | Run it again |
 | 1007 | UnsavedChanges | The command would discard unsaved changes | `scene_save` first, or pass `"discardChanges": true` when losing them is intended |
 | 1008 | AssetNotFound | An asset parameter names no registered asset | `asset_list`, or `asset_refresh` after files changed on disk |
+| 1010 | ConsentRequired | The command needs an explicit decision of the user (`project_setup_agents` without `confirmed`) | Ask the user; pass `"confirmed": true` only when they agree (`"dryRun": true` shows what would change) |
 
 ### Reading the log
 

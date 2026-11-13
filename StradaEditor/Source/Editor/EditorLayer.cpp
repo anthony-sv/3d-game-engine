@@ -25,6 +25,7 @@
 #include "Strada/Core/Version.h"
 #include "Strada/Core/Window.h"
 #include "Strada/ImGui/ImGuiLayer.h"
+#include "Strada/Platform/Process.h"
 #include "Strada/Scene/Entity.h"
 
 #include <imgui.h>
@@ -181,6 +182,11 @@ namespace Strada
 		environment.ProjectOpened = [this]
 		{
 			RememberProject();
+		};
+		// The .mcp.json of projects set up for agents names strada when the one on PATH is the one beside the editor.
+		environment.FindToolOnPath = []
+		{
+			return Process::FindExecutable("strada");
 		};
 		Result<void> registered = RegisterEditorCommands(m_Commands, m_Operations, std::move(environment));
 		registered = registered ? RegisterScriptCommands(m_Commands, m_Scripts, m_Context) : registered;

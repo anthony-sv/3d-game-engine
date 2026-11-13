@@ -26,7 +26,7 @@ In `EditorCommands.cpp` (or a new `<Domain>Commands.cpp` registered from `Regist
 - `ReadOnly = true` when nothing changes.
 - Entity parameters are decimal UUID strings: use `ParseExistingEntity` / `ParseExistingEntities`.
 - Errors: `EntityNotFound`, `ComponentNotFound`, `InvalidParams` (bad values), `InvalidOperation` (state), `FileError`,
-  `Unavailable`, `UnsavedChanges` (offer `discardChanges`). Never add new numeric codes without updating
+  `Unavailable`, `UnsavedChanges` (offer `discardChanges`), `ConsentRequired` (the user must decide: offer `confirmed`). Never add new numeric codes without updating
   `AutomationErrorCode`, `AllAutomationErrorCodes` and the docs table.
 - Long operations use `AsyncHandler` + `CommandCompletion` and complete on the main thread; an abandoned completion
   reports `Cancelled` automatically. A command that must see the result of a UI draw (`graph.palette`) completes after

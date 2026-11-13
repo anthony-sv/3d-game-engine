@@ -1851,6 +1851,10 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 			CHECK(debugRefusals.contains(code));
 		}
 	}
+	// The agent kit's commands set the project up when confirmed, refuse without the user's consent and answer dry runs.
+	CHECK(outcomes["project.agents"].first > 0);
+	CHECK(outcomes["project.setup-agents"].first > 0);
+	CHECK(debugErrors["project.setup-agents"].contains(AutomationErrorCode::ConsentRequired));
 	// The palette needs the runtime, so it opens nowhere: its parameters are still checked before that.
 	CHECK(paletteErrors[AutomationErrorCode::InvalidParams] > 0);
 	CHECK(paletteErrors[AutomationErrorCode::Unavailable] > 0);
