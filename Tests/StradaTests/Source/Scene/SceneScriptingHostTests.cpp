@@ -19,6 +19,7 @@
 #include "Strada/Script/ScriptBindings.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/ScriptEngineInternal.h"
+#include "Strada/Script/VisualScriptDebugger.h"
 
 #include <doctest/doctest.h>
 
@@ -410,6 +411,15 @@ TEST_CASE("Scene: scripts evaluate curve assets as the engine does and see their
 	uint64_t const cubeID = GetBuiltInHandle(BuiltInAsset::CubeMesh).GetUUID().GetValue();
 	CHECK(read(cubeID, 0, &header, keys.data(), static_cast<int32_t>(keys.size())) == CurveReadFailed);
 	CHECK(Testing::WasLogged(logStart, "Curve.Evaluate: asset 1 is a Mesh, not a Curve"));
+
+	// A request of the visual-script debugger may resume a graph within the call: the runtime is told before it too.
+	REQUIRE(asset->SetData(MakeProbeCurve()).IsOk());
+	REQUIRE(VisualScriptDebugger::Attach().IsOk());
+	CHECK(InvalidationCounter::GetCount() == invalidated + 3);
+	VisualScriptDebugger::Detach();
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(InvalidationCounter::GetCount() == invalidated + 3);
+	CHECK_MESSAGE(EvaluatesAsTheEngine(ReadCurveProbeValues(probe.GetName()), asset->GetData()), probe.GetName());
 
 	// Data asset types are found by name; one without a class in the scripting API does not load.
 	auto const findType = FindBinding<FindTypeFunction>("Assets_FindType");
