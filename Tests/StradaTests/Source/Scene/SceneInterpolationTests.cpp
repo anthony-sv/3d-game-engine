@@ -415,6 +415,50 @@ TEST_CASE("ScenePhysics: physics changes made after a frame's steps leave every 
 	CHECK(lateCharacter == plainCharacter);
 }
 
+TEST_CASE("ScenePhysics: physics changes applied inside the fixed steps leave the simulation as it is, drawn or not")
+{
+	Testing::PhysicsSystemScope physics;
+	Testing::ScriptEngineScope scripting;
+	// In some fixed updates a script gives its entity a collider (a change waiting to be applied), and a later script's
+	// call on its kinematic body applies it at once: inside the steps nothing is drawn again, so a moving body beside them
+	// simulates alike whether it is drawn between its steps or not.
+	auto const play = [](RigidBodyInterpolation interpolation)
+	{
+		Scene played("Fixed change");
+		for (int32_t const step : {9, 23, 40, 61})
+		{
+			Entity probe = played.CreateEntityWithUUID(UUID(static_cast<uint64_t>(100 + step)), "Probe");
+			probe.GetComponent<TransformComponent>().Translation = {static_cast<float>(step), 1.0f, -10.0f};
+			probe.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Kinematic;
+			ScriptComponent& script = probe.AddComponent<ScriptComponent>();
+			script.ClassName = "Strada.Tests.StepProbe";
+			script.Fields =
+				ScriptFieldMap{{"Steps", ScriptFieldValue::FromInt32(1000000)}, {"ColliderStep", ScriptFieldValue::FromInt32(step)}};
+		}
+		Entity lift = played.CreateEntityWithUUID(UUID(200), "Lift");
+		lift.GetComponent<TransformComponent>().Translation = {0.0f, 1.0f, 10.0f};
+		lift.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Kinematic;
+		lift.AddComponent<BoxColliderComponent>().HalfExtents = {1.0f, 0.1f, 1.0f};
+		ScriptComponent& mover = lift.AddComponent<ScriptComponent>();
+		mover.ClassName = "Strada.Tests.FixedStepMover";
+		mover.Fields = ScriptFieldMap{{"Velocity", ScriptFieldValue::FromVector3({0.0f, 1.0f, 0.0f})}};
+		AddFloatingBody(played, "Moving", {0.0f, 1.0f, 0.0f}, {3.0f, 0.0f, 0.0f}, {0.0f, 2.0f, 0.0f}, interpolation, UUID(300));
+		played.OnRuntimeStart();
+		REQUIRE(played.GetPhysicsScene() != nullptr);
+		std::vector<uint64_t> hashes;
+		for (int frame = 0; frame < 216; frame++)
+		{
+			played.OnUpdateRuntime(Timestep(Frame144));
+			hashes.push_back(played.ComputePhysicsStateHash());
+		}
+		// Every probe got its body's collider.
+		CHECK(played.GetPhysicsScene()->GetBodyCount() == 6);
+		played.OnRuntimeStop();
+		return hashes;
+	};
+	CHECK(play(RigidBodyInterpolation::Interpolate) == play(RigidBodyInterpolation::None));
+}
+
 TEST_CASE("ScenePhysics: a kinematic body moved every frame is shown exactly where it was put, never behind")
 {
 	Testing::PhysicsSystemScope physics;
