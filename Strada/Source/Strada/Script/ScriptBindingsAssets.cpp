@@ -2,10 +2,13 @@
 #include "Strada/Script/ScriptGlue.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/CurveAsset.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 
 #include <array>
 #include <cstddef>
+#include <limits>
 #include <string>
 
 namespace Strada::ScriptGlue
@@ -37,6 +40,46 @@ namespace Strada::ScriptGlue
 
 		static_assert(sizeof(MaterialValues) == 120 && offsetof(MaterialValues, BaseColorTexture) == 64 &&
 		              offsetof(MaterialValues, AlphaMode) == 104);
+
+		// Strada.Interop.NativeCurveHeader: what Curve_Read tells of a curve asset besides its keys.
+		struct CurveHeader
+		{
+			// The asset's version (DataAsset::GetVersion), never 0.
+			uint64_t Version;
+			int32_t KeyCount;
+			// CurveExtrapolation values.
+			int32_t PreExtrapolation;
+			int32_t PostExtrapolation;
+			int32_t Reserved;
+		};
+
+		static_assert(sizeof(CurveHeader) == 24 && offsetof(CurveHeader, KeyCount) == 8 && offsetof(CurveHeader, PostExtrapolation) == 16);
+
+		// Strada.Interop.NativeCurveKey: a CurveKey with its unset slopes as NaN (automatic).
+		struct CurveKeyValues
+		{
+			float Time;
+			float Value;
+			float In;
+			float Out;
+			// A CurveInterpolation value.
+			int32_t Interpolation;
+		};
+
+		static_assert(sizeof(CurveKeyValues) == 20 && offsetof(CurveKeyValues, In) == 8 && offsetof(CurveKeyValues, Interpolation) == 16);
+
+		// Curve_Read's answers (Strada.Interop.CurveReadStatus).
+		enum class CurveReadStatus : int32_t
+		{
+			// Logged; the header and the keys are left as they were.
+			Failed = 0,
+			// The asset's version is the one held: only the header's Version is written.
+			Unchanged = 1,
+			// The header and every key are written.
+			Read = 2,
+			// The header is written, but the keys do not fit in the capacity given: call again with KeyCount at least.
+			TooSmall = 3
+		};
 
 		uint64_t ToScript(AssetHandle handle)
 		{
@@ -117,9 +160,19 @@ namespace Strada::ScriptGlue
 			return true;
 		}
 
-		// Asset types with a C# class (scenes are loaded through SceneManager).
+		// Asset types with a C# class (scenes are loaded through SceneManager): the built-in types, and the data asset types
+		// whose classes the scripting API has (Docs/Architecture.md section 6.4, "Scripts: the managed pattern"). A data asset
+		// type without a class (the tests' types) is not loadable.
 		bool IsLoadableType(int32_t type)
 		{
+			if (type < 0 || type > std::numeric_limits<uint8_t>::max())
+			{
+				return false;
+			}
+			if (DataAssetRegistry::IsDataAssetValue(static_cast<AssetType>(type)))
+			{
+				return static_cast<AssetType>(type) == TypedDataAsset<Curve>::GetStaticType();
+			}
 			switch (static_cast<AssetType>(type))
 			{
 				case AssetType::Prefab:
@@ -157,6 +210,60 @@ namespace Strada::ScriptGlue
 				return 0;
 			}
 			return ToScript(handle);
+		}
+
+		// The AssetType value of the type the engine names so (the built-in types' names and the registered data asset types'),
+		// for the asset classes of data asset types, whose values are assigned at run time; 0 (logged) for no type.
+		int32_t Assets_FindType(char const* name, int32_t length)
+		{
+			std::string_view const typeName = ToStringView(name, length);
+			std::optional<AssetType> const type = AssetTypeFromString(typeName);
+			if (!type)
+			{
+				Log::GetScriptLogger().error("Assets: the engine has no asset type named '{}'", typeName);
+				return 0;
+			}
+			return static_cast<int32_t>(*type);
+		}
+
+		// Copies a curve asset's data in bulk for the scripting runtime's copy of it (Strada.Curve), loading the asset on first
+		// use; nothing but the version when the runtime holds the asset's current version already (heldVersion; 0 for none).
+		int32_t Curve_Read(uint64_t curve, uint64_t heldVersion, CurveHeader* header, CurveKeyValues* keys, int32_t capacity)
+		{
+			if (!AssetManager::IsInitialized())
+			{
+				Log::GetScriptLogger().error("Curve.Evaluate: assets are unavailable");
+				return static_cast<int32_t>(CurveReadStatus::Failed);
+			}
+			Result<Ref<TypedDataAsset<Curve>>> asset = AssetManager::TryGetAsset<TypedDataAsset<Curve>>(ToHandle(curve));
+			if (!asset)
+			{
+				Log::GetScriptLogger().error("Curve.Evaluate: {}", asset.GetError());
+				return static_cast<int32_t>(CurveReadStatus::Failed);
+			}
+			TypedDataAsset<Curve> const& curveAsset = *asset.GetValue();
+			header->Version = curveAsset.GetVersion();
+			if (header->Version == heldVersion)
+			{
+				return static_cast<int32_t>(CurveReadStatus::Unchanged);
+			}
+			Curve const& data = curveAsset.GetData();
+			header->KeyCount = static_cast<int32_t>(data.Keys.size());
+			header->PreExtrapolation = static_cast<int32_t>(data.PreExtrapolation);
+			header->PostExtrapolation = static_cast<int32_t>(data.PostExtrapolation);
+			header->Reserved = 0;
+			if (capacity < header->KeyCount)
+			{
+				return static_cast<int32_t>(CurveReadStatus::TooSmall);
+			}
+			constexpr float Automatic = std::numeric_limits<float>::quiet_NaN();
+			for (size_t index = 0; index < data.Keys.size(); index++)
+			{
+				CurveKey const& key = data.Keys[index];
+				keys[index] = {key.Time, key.Value, key.HasIn ? key.In : Automatic, key.HasOut ? key.Out : Automatic,
+				               static_cast<int32_t>(key.Interpolation)};
+			}
+			return static_cast<int32_t>(CurveReadStatus::Read);
 		}
 
 		Ref<MaterialAsset> FindMaterial(uint64_t material, std::string_view function)
@@ -285,7 +392,9 @@ namespace Strada::ScriptGlue
 
 	void RegisterAssetBindings(BindingTable& table)
 	{
+		table.Add("Assets_FindType", &Assets_FindType);
 		table.Add("Assets_Load", &Assets_Load);
+		table.Add("Curve_Read", &Curve_Read);
 		table.Add("Material_Create", &Material_Create);
 		table.Add("Material_Clone", &Material_Clone);
 		table.Add("Material_GetValues", &Material_GetValues);

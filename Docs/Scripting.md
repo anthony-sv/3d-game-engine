@@ -66,7 +66,7 @@ Public fields, and private ones marked `[SerializeField]`, are saved with the sc
 shows them by name. Their values are set before `OnCreate`. Supported types: `bool`, `int`, `uint`, `long`, `ulong`,
 `float`, `double`, `string`, `Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Color`, enums, `Entity` (an entity of the
 scene; drag one from the hierarchy), and assets: `Prefab`, `Material`, `Mesh`, `Texture`, `AudioClip`, `Font`,
-`EnvironmentMap` (pick one, or drag it from the content browser).
+`EnvironmentMap`, `Curve` (pick one, or drag it from the content browser).
 
 ```csharp
 public class Turret : Script
@@ -407,6 +407,34 @@ public class Scoreboard : Script
 		score += points;
 		Label!.GetComponent<TextComponent>()!.Text = $"Score: {score}";
 		GetComponent<AudioSourceComponent>()?.Play();
+	}
+}
+```
+
+## Curves
+
+A curve asset (`.scurve`, made and edited in the editor: [Curves](Editor.md#curves)) maps a number to another.
+`Curve.Evaluate(time)` reads it anywhere along its input: between its keys their interpolation, before and after them
+what its extrapolations say, and 0 for a curve without keys. A `Curve` field picks one in the inspector, or
+`Assets.Load<Curve>("Curves/Pitch.scurve")` loads it by path. Evaluating allocates nothing and does not call into the
+engine (the scripting runtime keeps a copy of the keys), so a script can sample curves every frame; an edit of the curve
+while the game plays in the editor reaches the script on its next frame.
+
+```csharp
+public class EngineSound : Script
+{
+	[Tooltip("The engine's pitch by the body's speed in meters per second")]
+	public Curve? PitchBySpeed;
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		RigidBodyComponent? body = GetComponent<RigidBodyComponent>();
+		AudioSourceComponent? sound = GetComponent<AudioSourceComponent>();
+		if (PitchBySpeed is null || body is null || sound is null)
+		{
+			return;
+		}
+		sound.Pitch = PitchBySpeed.Evaluate(body.LinearVelocity.Length);
 	}
 }
 ```

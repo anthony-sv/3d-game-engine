@@ -339,6 +339,10 @@ A curve, from the keys up:
 { "jsonrpc": "2.0", "id": 8, "method": "curve.create", "params": { "path": "Curves/Throttle.scurve", "fields": { "PostExtrapolation": "Hold", "Keys": [{ "Time": 0, "Value": 0 }, { "Time": 0.5, "Value": 0.2, "Interpolation": "Linear" }, { "Time": 1, "Value": 1 }] } } }
 ```
 
+Scripts and graphs read a curve with `Curve.Evaluate` (the pure node `Call:Strada.Curve.Evaluate(float)`, whose `Target`
+is a `Strada.Curve`: a Literal or variable holding the curve's handle, or `Assets.Load<T>` with the type argument
+`Strada.Curve`). A `curve.set` made while the editor plays reaches them on the game's next frame.
+
 ### graph
 
 Visual scripts are graph assets (`.sgraph` files) that a `VisualScript` component runs on its entity: its `Graph` is the

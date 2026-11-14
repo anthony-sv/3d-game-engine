@@ -61,7 +61,7 @@ internal static class LiteralCodec
 		{
 			return true;
 		}
-		return AssetTypes.GetNativeType(type) != NativeAssetType.None;
+		return AssetTypes.GetTypeName(type) != null;
 	}
 
 	internal static DecodedLiteral Decode(VisualType type, JsonElement json)
@@ -133,7 +133,7 @@ internal static class LiteralCodec
 		{
 			return DecodeEntity(json);
 		}
-		if (clrType == typeof(AssetHandle) || AssetTypes.GetNativeType(clrType) != NativeAssetType.None)
+		if (clrType == typeof(AssetHandle) || AssetTypes.GetTypeName(clrType) != null)
 		{
 			return DecodeAsset(clrType, json);
 		}
@@ -381,7 +381,7 @@ internal static class LiteralCodec
 		{
 			return DecodedLiteral.Of(handle);
 		}
-		return DecodedLiteral.Of(handle.IsValid ? AssetTypes.Create(AssetTypes.GetNativeType(clrType), handle) : null);
+		return DecodedLiteral.Of(handle.IsValid ? AssetTypes.Create(AssetTypes.GetTypeName(clrType)!, handle) : null);
 	}
 
 	// The math structs: arrays of their floats.

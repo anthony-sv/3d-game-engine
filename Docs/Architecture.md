@@ -780,12 +780,15 @@ does. So ScriptCoreTests build, write and check the node library, and run graphs
 classes included. A native number is fetched only where a call crosses into native code (`Assets.Load<T>`, the
 loadable-type check, the type's bulk read): the class's number comes from its name (`Assets_FindType`), cached per class
 after the first call, and a value of 128 or more coming from native code is named by `Assets_GetTypeName` before
-`AssetTypes.Create` makes the reference. The script bindings' loadable-type check accepts a data asset type when its
-class arrives. The data stays native; a class that reads it in managed code (a curve evaluated per sample by graphs,
+`AssetTypes.Create` makes the reference (no binding hands managed code a type value yet, so `Assets_GetTypeName`
+arrives with the first that does). The script bindings' loadable-type check (`IsLoadableType`) accepts a data asset type
+when its class arrives, and so does the visual script editor's list of exposable types
+(`FindVisualScriptExposableType`, which the node library's types are checked against), so that public variables and
+literals of the class work in the editor. The data stays native; a class that reads it in managed code (a curve evaluated per sample by graphs,
 which must allocate nothing and cross no boundary per call) keeps a managed copy with the version it read. Before
 running scripts (the update, fixed update and event entries of C# scripts and graphs), the Script module compares
 `DataAssetRegistry::GetEpoch()` with the epoch it last gave the managed side and, when it moved, tells the managed side
-once (`DataAssets.Invalidate`, a managed entry point the type's track adds with the first user); a class then asks again
+once (`InvalidateDataAssets`, an entry point of `Strada.Interop.Host` that moves `DataAssets.Epoch`); a class then asks again
 on its next use, through one binding of its own that takes the version it holds and copies the data in bulk only when
 the asset's version differs. The epoch moves on every load of any data asset, and that keeps such a load from costing
 each cached curve a copy and an allocation. So a script sees an edit made in the inspector while playing on its next
@@ -973,6 +976,16 @@ timeline's (spec-slice3 §3.8.3), promoted to the engine: `Strada/Math/Curve.h`.
   undo, `curve.set`) ends without an edit. While its view has the keyboard it claims Delete, Ctrl+Backspace, Ctrl+A,
   the arrows, F and, during a gesture, Esc as focused routes, so they never reach the editor's editing keys. Its time
   and value fields keep the digits their format does not show.
+- **Scripts** read a curve asset through the managed class `Strada.Curve` (§10.4), on §6.4's managed pattern:
+  `Evaluate(time)` is a pure node and evaluates the runtime's copy of the keys with `CurveDefinition`, so it allocates
+  nothing and crosses no boundary per sample. The copy (`CurveCache`, one per asset handle, shared by every reference to
+  the asset) is read in bulk by `Curve_Read(handle, heldVersion, header, keys, capacity)`, which writes only the version
+  when the runtime holds the asset's current one, and asks for room when the keys do not fit; unset slopes cross as NaN,
+  which `CurveDefinition` resolves as automatic, as the differential test's reader does. A copy asks again only after
+  the engine said data assets may have changed (`InvalidateDataAssets`, before C# scripts and graphs run, and before a
+  debugger request that may resume a graph, when the registry's epoch moved), so an edit in the inspector while playing shows on the next frame. A curve that cannot be read
+  evaluates to 0, logged once until data assets change again. StradaTests' curve probe compares a script's values with
+  `Curve::Evaluate` within the differential test's tolerance.
 
 ## 7. Scene and ECS
 
@@ -1525,8 +1538,9 @@ SDK's static nethost library links against the static C runtime, which the engin
 SDK's hosting headers are used. It initializes the runtime from `Strada.ScriptCore.runtimeconfig.json` (CoreCLR starts
 once per process and is never unloaded: `ScriptEngine::Shutdown` unloads the game and later `Init`s reuse the
 runtime), loads `Strada.ScriptCore.dll` into the default load context and resolves the `[UnmanagedCallersOnly]`
-entry points of `Strada.Interop.Host` by name: 11 for the runtime, the game assembly and C# script instances, and 10
-for visual scripts (`VisualScript*`, §10.6); a missing one fails `ScriptEngine::Init`. Game assemblies load into a
+entry points of `Strada.Interop.Host` by name: 12 for the runtime, the game assembly, C# script instances and data
+assets (`InvalidateDataAssets`, §6.4), and 15 for visual scripts (`VisualScript*`, §10.6); a missing one fails
+`ScriptEngine::Init`. Game assemblies load into a
 collectible `AssemblyLoadContext` from bytes (with their symbols, for line numbers), so the files are never locked (hot
 reload); `Strada.ScriptCore` and the framework resolve to the default context's assemblies, other dependencies from the
 game assembly's directory. Managed exceptions never cross into native code: every entry point catches, logs (with
@@ -1624,7 +1638,8 @@ editor's Simulate mode runs neither kind.
 - `Log`: `Trace/Info/Warn/Error`. `Debug`: `DrawLine(from, to, color, duration)`.
 - `SceneManager`: `LoadScene(path)`, `CurrentSceneName`. `Application`: `Quit()`, `WindowWidth/Height`, `IsEditor`.
 - `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`, `Font`, `EnvironmentMap`,
-  `VisualScript`.
+  `VisualScript`, `Curve`.
+- `Curve` (a `.scurve` asset, §6.5): `Evaluate(time)`, a pure node, evaluated by the runtime's copy of the keys.
 - Math: `Vector2/3/4`, `Quaternion`, `Matrix4`, `Color`, `Mathf`, `Random`.
 - Attributes: `[SerializeField]`, `[HideInInspector]`, `[Range(min, max)]`, `[Tooltip(text)]`.
 - `Strada.Testing`: `Assert` (throws `AssertionException`), `TestReporter` (`Pass`, `Fail`, `Run`, `Finish`; used by

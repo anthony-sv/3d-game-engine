@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/Script/ScriptEngine.h"
 
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Script/DotNetHost.h"
 #include "Strada/Script/ScriptBindings.h"
@@ -55,6 +56,7 @@ namespace Strada
 				Resolve(functions.DestroyInstance, "DestroyInstance"),
 				Resolve(functions.DestroyAllInstances, "DestroyAllInstances"),
 				Resolve(functions.Invoke, "Invoke"),
+				Resolve(functions.InvalidateDataAssets, "InvalidateDataAssets"),
 				Resolve(functions.VisualScriptDescribeLibrary, "VisualScriptDescribeLibrary"),
 				Resolve(functions.VisualScriptAnalyze, "VisualScriptAnalyze"),
 				Resolve(functions.VisualScriptLoad, "VisualScriptLoad"),
@@ -218,6 +220,7 @@ namespace Strada
 			{
 				return;
 			}
+			ScriptEngineInternal::SyncDataAssets(*s_Data);
 			// Script exceptions were logged by the runtime; the application learns of them (test runs fail on them).
 			auto const status = static_cast<ScriptStatus>(
 				s_Data->Host.Invoke(entity.GetValue(), static_cast<int32_t>(scriptEvent), timeStep, other.GetValue()));
@@ -274,6 +277,18 @@ namespace Strada
 			{
 				s_Data->Application->OnScriptException();
 			}
+		}
+
+		void SyncDataAssets(ScriptEngineData& data)
+		{
+			uint64_t const epoch = DataAssetRegistry::GetEpoch();
+			if (epoch == data.DataAssetEpoch)
+			{
+				return;
+			}
+			// The runtime cannot fail to count; a failure would have been reported and logged by it.
+			static_cast<void>(data.Host.InvalidateDataAssets());
+			data.DataAssetEpoch = epoch;
 		}
 
 		ScriptEvent ToScriptEvent(ContactEventType type)
@@ -337,6 +352,8 @@ namespace Strada
 
 		s_Data = CreateScope<ScriptEngineData>();
 		s_Data->Host = functions.GetValue();
+		// Initialize dropped the runtime's copies of data assets: none is older than the current epoch.
+		s_Data->DataAssetEpoch = DataAssetRegistry::GetEpoch();
 		ST_CORE_INFO("Scripting initialized ({}, {} bindings)", FileSystem::PathToUtf8(scriptCore), bindings.size());
 		return {};
 	}

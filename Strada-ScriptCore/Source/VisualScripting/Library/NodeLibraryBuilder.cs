@@ -305,7 +305,7 @@ internal static class NodeLibraryBuilder
 			return;
 		}
 		type.FieldType = type.IsScriptClass ? ScriptFieldType.None : ScriptFieldCodec.GetFieldType(clrType);
-		type.AssetType = type.Kind == TypeKind.Asset && !clrType.IsAbstract ? AssetTypes.GetNativeType(clrType) : NativeAssetType.None;
+		type.AssetType = type.Kind == TypeKind.Asset && !clrType.IsAbstract ? AssetTypes.GetTypeName(clrType) : null;
 		type.HasLiteral = LiteralCodec.HasLiteralForm(clrType);
 		if (clrType.IsEnum)
 		{

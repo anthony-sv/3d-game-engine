@@ -9,7 +9,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 [visual scripting guide](VisualScripting.md) how graphs call it: every member listed here is a node.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-84 types in 2 namespaces, with 737 members and enum values in all.
+85 types in 2 namespaces, with 738 members and enum values in all.
 
 ## Strada
 
@@ -29,6 +29,7 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [Color](#color) | struct | A linear RGBA color with single-precision components (1 is full intensity; lights may exceed it). |
 | [Component](#component) | abstract class | Base class of the engine components scripts can access through `Entity.GetComponent`. Component objects are views: they read and write the entity's data directly. |
 | [CursorMode](#cursormode) | enum | How the mouse cursor behaves. |
+| [Curve](#curve) | class | A curve asset (`.scurve`): keys with values, how each segment interpolates (smooth, linear or a step) and their slopes, and what the curve does before its first key and after its last (hold, loop, ping-pong or go on along a line). Use one to map a number to another, such as a speed to an engine's pitch or a time to a light's intensity. Edit it in the editor's curve editor; scripts read it. |
 | [Debug](#debug) | static class | Drawing for debugging, in the editor and development builds (shipped Dist games draw nothing). |
 | [DirectionalLightComponent](#directionallightcomponent) | class | Light from infinitely far away, shining along the entity's -Z axis. |
 | [Entity](#entity) | class | An object of the running scene, identified by its ID. Entities compare equal when their IDs do. |
@@ -332,6 +333,18 @@ public enum CursorMode
 How the mouse cursor behaves.
 
 Values: `Normal`, `Hidden`, `Locked`.
+
+### Curve
+
+```csharp
+public sealed class Curve : Asset
+```
+
+A curve asset (`.scurve`): keys with values, how each segment interpolates (smooth, linear or a step) and their slopes, and what the curve does before its first key and after its last (hold, loop, ping-pong or go on along a line). Use one to map a number to another, such as a speed to an engine's pitch or a time to a light's intensity. Edit it in the editor's curve editor; scripts read it.
+
+| Member | Summary |
+|---|---|
+| `float Evaluate(float time)` | The curve's value at `time` (the curve's input: a time, a speed or a distance). A curve without keys is 0 everywhere; a curve that cannot be loaded is 0 too (logged). An edit of the asset while the game plays shows on the next frame. |
 
 ### Debug
 
