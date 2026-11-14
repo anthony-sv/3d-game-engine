@@ -1444,7 +1444,7 @@ namespace Strada
 		explainAdding("Adds an element after the last.");
 		if (m_ElementFolds.Scope == scope)
 		{
-			// Set this frame, or left by an edit that did not happen as it was made.
+			// Applied to the rows above, or left by an edit that did not happen as it was made: either way used up.
 			m_ElementFolds = {};
 		}
 
