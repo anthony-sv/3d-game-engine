@@ -4140,6 +4140,50 @@ TEST_CASE("Panels: the asset inspector edits a data asset's fields, one undo ste
 	CHECK(open);
 }
 
+TEST_CASE("Panels: the asset inspector draws a curve asset from its field table, keys with set slopes included, changing nothing")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	DataAssetType const* const curveType = DataAssetRegistry::FindByName("Curve");
+	REQUIRE(curveType != nullptr);
+	Json const fields = Json::parse(R"({ "PostExtrapolation": "Loop", "Keys": [
+		{ "Time": 0, "Value": 0, "HasOut": true, "Out": 2 },
+		{ "Time": 1, "Value": 1, "Interpolation": "Linear", "HasIn": true, "In": -1 },
+		{ "Time": 2, "Value": 0 } ] })");
+	Result<AssetHandle> const created = operations.CreateDataAsset(curveType->GetAssetType(), "Curves/Ramp.scurve", fields);
+	REQUIRE(created.IsOk());
+	std::filesystem::path const file = context.GetProject()->GetAssetDirectory() / "Curves" / "Ramp.scurve";
+	Result<std::string> const bytes = FileSystem::ReadTextFile(file);
+	REQUIRE(bytes.IsOk());
+	size_t const steps = context.GetHistory().GetUndoCount();
+
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 800.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	context.SelectAsset(created.GetValue());
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	// The default body (the curve editor widget is a drawer of a later step): its extrapolations and its keys.
+	std::string const text = CaptureText(imgui, draw);
+	CAPTURE(text);
+	CHECK(text.find("Extrapolation") != std::string::npos);
+	CHECK(text.find("Keys") != std::string::npos);
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	CHECK(FileSystem::ReadTextFile(file).GetValue() == bytes.GetValue());
+	CHECK(open);
+}
+
 TEST_CASE("Panels: a data asset type's drawer replaces the inspector's body, and its own merge key and description span frames")
 {
 	Testing::TestDataTypeScope const type;
