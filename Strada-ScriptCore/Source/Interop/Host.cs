@@ -44,6 +44,7 @@ internal static unsafe class Host
 			}
 			ResetVisualScripts();
 			ScriptRegistry.UnloadGameAssembly();
+			DataAssets.Reset();
 			return Success;
 		}
 		catch (Exception exception)
@@ -59,6 +60,7 @@ internal static unsafe class Host
 		{
 			ResetVisualScripts();
 			ScriptRegistry.UnloadGameAssembly();
+			DataAssets.Reset();
 			return Success;
 		}
 		catch (Exception exception)
@@ -200,6 +202,22 @@ internal static unsafe class Host
 		try
 		{
 			return ScriptRegistry.Invoke(entity, (ScriptEvent)scriptEvent, timeStep, other);
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
+	// The engine's data assets may have changed (its epoch moved since it last said so): the copies of their data that scripts
+	// read (a curve's keys) ask the engine again on their next use. The engine calls it before scripts run.
+	[UnmanagedCallersOnly]
+	internal static int InvalidateDataAssets()
+	{
+		try
+		{
+			DataAssets.Invalidate();
+			return Success;
 		}
 		catch (Exception exception)
 		{

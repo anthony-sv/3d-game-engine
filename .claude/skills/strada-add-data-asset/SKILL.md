@@ -96,13 +96,16 @@ inline DataAssetTypeSpecification<Curve> const CurveAssetSpecification = {
   per interaction (`SetDataAssetCommand`), disabled for data assets in memory and read-only files.
 - A type whose field table is not the editor it needs (a curve's keys) gets a drawer: one line in the
   `DataAssetEditor` constructor (`StradaEditor/Source/Editor/UI/DataAssetEditor.cpp`), sorted by name,
-  `SetDrawer("<Name>", &Draw<Name>)`. The drawer gets a `DataAssetDrawContext` (the asset, its type, its fields as JSON,
+  `SetDrawer("<Name>", <drawer>)` (a drawer with state of its own wraps an object the lambda shares, as
+  `CurveAssetEditor::MakeDrawer` does for the curve editor). The drawer gets a `DataAssetDrawContext` (the asset, its type, its fields as JSON,
   whether it is editable, the field editor) and returns a `DataAssetEdit` when the user changed something: a partial
   patch of whole field values, the step's name (empty: `Edit <Name>`) and a merge key (0: the inspector's interaction,
   which merges while one ImGui item stays active; a key of its own for edits that span frames without an active item,
   such as arrow-key nudges merged by time). It never writes files or assets itself, shows nothing editable when
   `Editable` is false, and may draw the fields it leaves alone with `DataAssetEditor::DrawFields(context)`, marking the
-  ones it draws `.HiddenInEditors()`.
+  ones it draws `.HiddenInEditors()`. A type with curves (keys over an input) draws them with the shared curve editor
+  (`Editor/UI/CurveEditor.h` over a `CurveDocumentTraits` specialization, Docs/Architecture.md §6.5), as `Curve`'s drawer
+  does above its whole field table.
 - Arrays of structs (`std::vector<Entry>` with `.MaxCount(n)`) need no drawer: the field editor shows a row per element
   that unfolds into the element's fields, with a menu to move, duplicate, insert above and remove it, and Add Element;
   each is one undo step patching by index (Docs/Architecture.md §11).
@@ -144,24 +147,36 @@ A type that scripts use gets a sealed class of the same name in `Strada-ScriptCo
 internal constructor, as `Material` does. No public member lands without a use in the FeatureTest scripts
 (`ScriptCoreTests` refuses an unused one), so the class arrives with its first user.
 
-- **Names, not numbers.** Managed code identifies asset classes by type name: `AssetTypes` maps the class to `"<Name>"`
-  without calling native code, and the visual script library, the script field codec and the literal codec carry the
-  name. A native `AssetType` value is fetched only where a call crosses into native code (`Assets.Load<T>`, the
-  loadable-type check, the type's bulk read): `Assets_FindType(name)`, cached per class after its first call; a value of
-  128 or more coming from native code is named by `Assets_GetTypeName` before `AssetTypes.Create` makes the reference.
-  The script bindings' loadable-type check (`IsLoadableType`, `ScriptBindingsAssets.cpp`) accepts the type when its
-  class arrives. The first type (`Curve`) brings these two internal calls and this table; later types add a row.
+- **Names, not numbers.** Managed code identifies asset classes by type name: `AssetTypes.GetTypeName` maps the class
+  to `"<Name>"` and `AssetTypes.Create(name, handle)` makes a reference, without calling native code, and the visual
+  script library (`VisualType.AssetType`), the script field codec and the literal codec carry the name. A native
+  `AssetType` value is fetched only where a call crosses into native code (`Assets.Load<T>`): `AssetTypes.GetNativeType`
+  asks `Assets_FindType(name)` once per type and keeps the value. Add the class's row to both switches of `AssetTypes`.
+  A binding that hands managed code a type value passes it through `AssetTypes.GetTypeName(int)`, which names values
+  of 128 or more once through `Assets_GetTypeName`, before `AssetTypes.Create`.
+- **The engine's lists of classes.** `IsLoadableType` (`ScriptBindingsAssets.cpp`) accepts the type by its
+  `TypedDataAsset<T>::GetStaticType()`, and `FindVisualScriptExposableType` (`VisualScriptLiterals.cpp`) gives
+  `Strada.<Name>` its field type and accepted asset type, so that the editor edits public variables and literals of the
+  class; StradaTests checks the node library's types against that list.
 - **The data stays native.** A class that reads data per call in managed code (a curve evaluated per sample, which must
-  allocate nothing and cross no boundary) keeps a managed copy with the version it read, refreshed through one binding
-  of its own that takes the held version and copies the data in bulk only when the asset's version differs.
-- **Invalidation.** Before running scripts (the update, fixed update and event entries of C# scripts and graphs), the
-  Script module compares `DataAssetRegistry::GetEpoch()` with the epoch it last gave the managed side and, when it moved,
-  calls the managed entry point `DataAssets.Invalidate` once (added with the first user); a class then asks again on its
-  next use. An access otherwise costs a comparison of two managed numbers, and a script sees an inspector edit made
-  while playing on its next frame.
-- Follow the strada-add-script-api skill for every member: XML docs, `[PureNode]` for reads (a curve's `Evaluate`), the
-  member-type recipe in `VisualScriptNodeCoverageTests.cpp`, the FeatureTest script and graph that use it,
-  `AuthorGraphs.py` run again, `FeaturesChecks`, and `Docs/ScriptingAPI.md` regenerated (`STRADA_UPDATE_DOCS=1`).
+  allocate nothing and cross no boundary) keeps a managed copy with the version it read, one per asset handle shared by
+  every reference, refreshed through one binding of its own that takes the held version and copies the data in bulk only
+  when the asset's version differs (`Curve_Read` and `CurveCache` in `Interop/DataAssets.cs` are the model; the layouts
+  get a `static_assert` and a row in `InteropTests.NativeStructuresMatchTheEngineLayouts`).
+- **Invalidation.** Before running scripts (the invokes of C# scripts and of graphs, and the visual-script debugger's
+  requests), the Script module compares
+  `DataAssetRegistry::GetEpoch()` with the epoch it last gave the managed side (`ScriptEngineInternal::SyncDataAssets`)
+  and, when it moved, calls `Host.InvalidateDataAssets` once, which moves `DataAssets.Epoch`; a copy whose epoch differs
+  asks again on its next use. An access otherwise costs a comparison of two managed numbers, and a script sees an
+  inspector edit made while playing on its next frame. `DataAssets.Reset` (the host's `Initialize` and `Shutdown`)
+  forgets the copies; a new class clears its cache there.
+- Follow the strada-add-script-api skill for every member: XML docs, `[PureNode]` for reads (a curve's `Evaluate`, and
+  the list of `NodeLibraryTests.ExactlyTheListedQueriesAreMarkedPure`), the class in the asset domain list of
+  `NodeLibraryTests.GenericMethodsTakeTypeArgumentsFromTheirDomain`, a recipe in `VisualScriptNodeCoverageTests.cpp` only
+  when a member does not run on its defaults (an instance member's `Target` gets the first asset of the class the
+  FeatureTest project has, so its seed covers it), the FeatureTest script and graph that use it, `AuthorGraphs.py` run
+  again, `FeaturesChecks`, and `Docs/ScriptingAPI.md` regenerated (`STRADA_UPDATE_DOCS=1`). A typed field of the class in
+  a FeatureTest script is set in its scene through the editor (`component.set` on the `Script` component's `Fields`).
 
 ## 9. Docs
 

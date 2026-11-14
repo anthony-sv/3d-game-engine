@@ -34,6 +34,8 @@ public sealed class HostProtocolTests
 		("VisualScriptTakeLiveEvents", ["ulong", "void*", "receive"]),
 		("VisualScriptClearLiveEvents", []),
 		("VisualScriptReadSteps", ["ulong*"]),
+		// The data assets' entry point, which the engine calls before C# scripts and graphs run.
+		("InvalidateDataAssets", []),
 	];
 
 	public static TheoryData<string> EntryPoints => [.. s_EntryPoints.Select(static entryPoint => entryPoint.Name)];
@@ -79,7 +81,8 @@ public sealed class HostProtocolTests
 	public void TheHostHasNoOtherVisualScriptEntryPoints()
 	{
 		string[] declared = [.. typeof(Host).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
-			.Where(static method => method.Name.StartsWith("VisualScript", StringComparison.Ordinal) && method.IsDefined(typeof(UnmanagedCallersOnlyAttribute)))
+			.Where(static method => (method.Name.StartsWith("VisualScript", StringComparison.Ordinal) || method.Name == "InvalidateDataAssets") &&
+				method.IsDefined(typeof(UnmanagedCallersOnlyAttribute)))
 			.Select(static method => method.Name).Order(StringComparer.Ordinal)];
 		Assert.Equal(s_EntryPoints.Select(static entryPoint => entryPoint.Name).Order(StringComparer.Ordinal), declared);
 	}

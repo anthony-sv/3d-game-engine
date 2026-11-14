@@ -112,7 +112,7 @@ header functions, as every Strada file is read.
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
 | Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4) | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler` |
-| Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum` |
+| Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums, curves (§6.5) | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum`, `Curve`, `EvaluateCurveKeys` |
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; versioned documents of one struct, with migrations; profiler captures (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `StructDocumentFormat`, `ProfilerCaptureSerializer` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
@@ -730,7 +730,8 @@ scripts reach data assets through the Script module's bindings.
   (`Editor/Commands/SetDataAssetCommand.h`), with the inspector's `EditSession`, whose key the asset editor asks for only
   when an edit brings none: a drawer's own keys keep merging while the session's interaction has ended.
 - *A drawer of a type's own.* `DataAssetEditor::SetDrawer(name, drawer)` replaces the default body of one type (the
-  engine's drawers are one list in `DataAssetEditor.cpp`, where a type's track adds its line). A drawer gets a
+  engine's drawers are one list in `DataAssetEditor.cpp`, where a type's track adds its line; `Curve`'s is the curve
+  editor, §6.5). A drawer gets a
   `DataAssetDrawContext` (the asset, its type, its fields as JSON, whether it is editable, the field editor) and returns
   a `DataAssetEdit` when the user changed something: a partial patch, the step's name in the undo history (empty for
   `Edit <type name>`) and a merge key (0 for the inspector's interaction). A widget that commits at its own cadence, such
@@ -781,13 +782,16 @@ types, the script field codec, the library writer and the literal codec carry th
 does. So ScriptCoreTests build, write and check the node library, and run graphs, without a native engine, data asset
 classes included. A native number is fetched only where a call crosses into native code (`Assets.Load<T>`, the
 loadable-type check, the type's bulk read): the class's number comes from its name (`Assets_FindType`), cached per class
-after the first call, and a value of 128 or more coming from native code is named by `Assets_GetTypeName` before
-`AssetTypes.Create` makes the reference. The script bindings' loadable-type check accepts a data asset type when its
-class arrives. The data stays native; a class that reads it in managed code (a curve evaluated per sample by graphs,
+after the first call, and a value of 128 or more coming from native code is named by `Assets_GetTypeName`
+(`AssetTypes.GetTypeName(int)`, cached per value with the class's number) before `AssetTypes.Create` makes the
+reference. The script bindings' loadable-type check (`IsLoadableType`) accepts a data asset type
+when its class arrives, and so does the visual script editor's list of exposable types
+(`FindVisualScriptExposableType`, which the node library's types are checked against), so that public variables and
+literals of the class work in the editor. The data stays native; a class that reads it in managed code (a curve evaluated per sample by graphs,
 which must allocate nothing and cross no boundary per call) keeps a managed copy with the version it read. Before
 running scripts (the update, fixed update and event entries of C# scripts and graphs), the Script module compares
 `DataAssetRegistry::GetEpoch()` with the epoch it last gave the managed side and, when it moved, tells the managed side
-once (`DataAssets.Invalidate`, a managed entry point the type's track adds with the first user); a class then asks again
+once (`InvalidateDataAssets`, an entry point of `Strada.Interop.Host` that moves `DataAssets.Epoch`); a class then asks again
 on its next use, through one binding of its own that takes the version it holds and copies the data in bulk only when
 the asset's version differs. The epoch moves on every load of any data asset, and that keeps such a load from costing
 each cached curve a copy and an allocation. So a script sees an edit made in the inspector while playing on its next
@@ -911,6 +915,87 @@ a version-1 document that goes through the migration; a damaged document is refu
 version and loads again strictly to the same fields. `AutomationFuzzTests` registers `TestData` before the editor's
 commands, so the generated commands are fuzzed from their first day; since the engine's types are known everywhere, the
 command reference test sees each engine type's commands without a fixture of its own.
+
+### 6.5 Curves
+
+A curve maps a number (a time, a speed, an input's deflection) to a value through keys: torque over revolutions per
+minute, a response curve of an input action, a fade, a camera's move. There is **one curve semantics**, the visual script
+timeline's (spec-slice3 §3.8.3), promoted to the engine: `Strada/Math/Curve.h`.
+
+- **Keys.** A key has a `Time` (any finite number), a `Value`, the `Interpolation` of the segment to the next key and two
+  optional slopes (value units per input unit), `In` and `Out`. Keys are in time order; several at one time make a jump
+  (the segment before them ends at the first, the one after starts at the last). `Constant` holds the key's value to the
+  next key, `Linear` interpolates, and `Cubic` is the Hermite segment through both keys with the first key's `Out` slope
+  and the second key's `In` slope. An automatic slope is 0 at the first and the last key, and at an interior key the
+  slope from the key before to the key after (Catmull-Rom on uneven times), 0 when those two lie at one time. Before the
+  first key the curve has its value, from the last key on the last's. Everything is computed in double from the keys'
+  floats and rounded to float once.
+- **The scalar `Curve`** (the data of a `.scurve` asset and of curves embedded in other data) adds what it does outside
+  its keys, `PreExtrapolation` and `PostExtrapolation`: `Hold` (the end key's value, the timeline's behaviour), `Loop`
+  and `PingPong` (the keys repeat with the period from the first key's time to the last's, mapped with an exact `fmod`;
+  `Hold` when every key lies at one time), and `Linear` (on from the end key's value along the curve's slope at that end:
+  a `Linear` segment's slope, a `Cubic` segment's end slope, 0 after a `Constant` segment). A curve without keys is 0. A
+  NaN input gives NaN; an infinite one lies beyond every key, where `Loop` and `PingPong`, which have no phase there, give
+  NaN. At most `MaxCurveKeys` (1024) keys, `ValidateCurve` checks the order.
+- **Two evaluators, one semantics.** The engine's (`Curve::Evaluate`, and `EvaluateCurveKeys` over any key type that
+  specializes `CurveKeyTraits`) serves C++ users and the editor: the visual script editor's timeline evaluates its tracks
+  of up to four components through it, per component. The scripting runtime keeps a managed one (`CurveMath` and
+  `CurveDefinition` in `Strada-ScriptCore`), through which timeline tracks and curve assets evaluate, so that graphs
+  sample curves without allocating or crossing into native code. `Tests/Data/Curves/Differential.json` holds the two
+  together: its cases (curves as `.scurve` content, with every interpolation, extrapolation, jump, set and automatic
+  slope, uneven and negative times, non-finite inputs) are evaluated by StradaTests and by ScriptCoreTests to the same
+  values, within 1e-6 of the larger of 1 and the value. The tolerance, not bit equality, is the contract: compilers may
+  fuse a multiply and an add on some platforms (Clang on arm64), which .NET never does. The values come from a third
+  evaluator, apart from both under test: `Tests/Data/Curves/MakeDifferential.py` (standard library only) writes the file
+  and stops where its values disagree with the ones derived by hand that most cases carry. A change to the semantics
+  changes both evaluators, that tool's evaluator and the file's values (written by running it) together.
+- **The timeline keeps its own format.** The `Timeline` setting inside `.sgraph` documents (§10.6) is read, written and
+  checked by the timeline's code exactly as before; its keys keep vector values and optional slopes, and its
+  interpolation is the engine's `CurveInterpolation` under its old name. Only the evaluation moved.
+- **`.scurve`** is a data asset type (§6.4) registered as `Curve` (`Strada/Asset/CurveAsset.h`, with the field table and
+  the specification): its file (§7.3), the content browser's New Curve, the inspector and the commands `curve.create`,
+  `curve.get` and `curve.set` come from that registration, and the FeatureTest project's `Curves/Response.scurve` is its
+  fuzz seed.
+- **The curve editor** is one widget with two hosts, the visual script editor's Timeline drawer (§11.1) and the
+  inspector's editor of `.scurve` assets. Its model, `CurveView<TDocument>` (`Editor/UI/CurveView.h`, pure, tested
+  without ImGui), holds the view transform (ranges kept in double, zoom about a point, pan, frame), hit testing (keys,
+  tangent handles, event lanes, curves, empty space) and the gestures turned into intents: documents to commit, made
+  from the document at the start of the interaction and the total change so far. Its widget, `CurveEditor<TDocument>`
+  (`Editor/UI/CurveEditor.h`), draws the header row (the selected key's time and value, interpolation, tangents,
+  Frame), the ruler, the value lines, event lanes, curves, keys, tangent handles, the marquee, a playhead and the key
+  menu, and reports `CurveEditorChange`s (a drag's frames, its end or its cancel, a header field's change, a discrete
+  commit with an optional merge key) that the host commits as undo steps; it never edits a document itself. A host's
+  document reaches both through `CurveDocumentTraits<TDocument>`, which the host specializes with its own reads and
+  edits and its domain: the timeline's (`VisualScriptCurveView.h`) forwards to `VisualScriptTimeline.h`'s functions
+  over the bounded domain `[0, Length]` with a step of 0.01 s, so the drawer edits as it did; the curve's
+  (`Editor/UI/CurveEditing.h`) edits a `Curve` over an unbounded domain (any finite time, framed from its keys, its
+  curve drawn across the whole view through `Curve::Evaluate`, extrapolations included), snapping to and nudging by a
+  hundredth of the visible span rounded to 1, 2 or 5 times a power of ten; a key's unset slope keeps the number it
+  holds, so an edit rewrites only what it changes. Member definitions live in `CurveViewImpl.h` and
+  `CurveEditorImpl.h`, included only where a document type is instantiated, once (`template class
+  CurveView<VisualScriptTimeline>;` in `VisualScriptCurveView.cpp`, `CurveView<Curve>` in `CurveEditing.cpp`, the
+  widgets in `VisualScriptCurveEditor.cpp` and `CurveAssetEditor.cpp`). The `.scurve` host, `CurveAssetEditor`, is the
+  `Curve` type's drawer (§6.4): the widget above the type's field table, each drag one step under a key of its own
+  (Escape commits the start under it, so the step disappears), a run of arrow-key nudges one step, a header field one
+  step while it stays active, every other edit a step of its own; a drag, or a header field's drag, whose curve changes
+  elsewhere meanwhile (an undo, `curve.set`) ends without an edit (`CurveEditor::EndHeaderInteraction` lets the field go).
+  While its view has the keyboard it takes Delete, Ctrl+Backspace, Ctrl+A, the arrows, F and, during a gesture, Esc as
+  focused routes, so they never reach the editor's editing keys; it claims the editing chords among them
+  (`CurveAssetEditor::FocusedChords`) on the inspector's root window (`UI::UpdateEditingChordClaim`,
+  `Editor/UI/EditingChordClaims.h`), which `FindClaimedEditingChords` reads (§11.1), so that they never reach the
+  scene while its key menu is open (no focused route takes a key then, so they do nothing) and the Edit menu shows none
+  of them. Its time and value fields keep the digits their format does
+  not show.
+- **Scripts** read a curve asset through the managed class `Strada.Curve` (§10.4), on §6.4's managed pattern:
+  `Evaluate(time)` is a pure node and evaluates the runtime's copy of the keys with `CurveDefinition`, so it allocates
+  nothing and crosses no boundary per sample. The copy (`CurveCache`, one per asset handle, shared by every reference to
+  the asset) is read in bulk by `Curve_Read(handle, heldVersion, header, keys, capacity)`, which writes only the version
+  when the runtime holds the asset's current one, and asks for room when the keys do not fit; unset slopes cross as NaN,
+  which `CurveDefinition` resolves as automatic, as the differential test's reader does. A copy asks again only after
+  the engine said data assets may have changed (`InvalidateDataAssets`, before C# scripts and graphs run, and before a
+  debugger request that may resume a graph, when the registry's epoch moved), so an edit in the inspector while playing shows on the next frame. A curve that cannot be read
+  evaluates to 0, logged once until data assets change again. StradaTests' curve probe compares a script's values with
+  `Curve::Evaluate` within the differential test's tolerance.
 
 ## 7. Scene and ECS
 
@@ -1106,6 +1191,26 @@ fails, throws or leaves no object, a value of the wrong kind or outside its rang
 `Validate` refuses; missing fields keep their defaults, and unknown fields are warnings in files (errors in automation
 input). Older versions are migrated on reading, and saving writes the current one. Each type's fields are documented by
 its field table (the descriptions the inspector and the commands' schemas show) and its section of the guides.
+
+Curve (`.scurve`, the data asset type `Curve`, version 1, §6.5): `"Curve": { "PreExtrapolation", "PostExtrapolation",
+"Keys": [ { "Time", "Value", "Interpolation", "HasIn", "In", "HasOut", "Out" } ] }`. The extrapolations are `Hold`,
+`Loop`, `PingPong` or `Linear`; `Interpolation` is `Cubic`, `Linear` or `Constant`; `In` and `Out` apply only where
+`HasIn` and `HasOut` are true (the slope is automatic otherwise). At most 1024 keys, in time order (refused otherwise),
+every number finite.
+
+```json
+{
+	"Strada": { "Version": 1, "Type": "Curve" },
+	"Curve": {
+		"PreExtrapolation": "Hold",
+		"PostExtrapolation": "Linear",
+		"Keys": [
+			{ "Time": 0.0, "Value": 0.0, "Interpolation": "Cubic", "HasIn": false, "In": 0.0, "HasOut": true, "Out": 0.5 },
+			{ "Time": 1.0, "Value": 1.0, "Interpolation": "Linear", "HasIn": false, "In": 0.0, "HasOut": false, "Out": 0.0 }
+		]
+	}
+}
+```
 
 Project template (`Templates/<id>/template.json`, `ProjectTemplate` in `Strada/Project/ProjectTemplate.h`):
 `{ "Strada": { "Version": 1, "Type": "ProjectTemplate" }, "Template": { "Id", "Name", "Order", "Description",
@@ -1443,8 +1548,9 @@ SDK's static nethost library links against the static C runtime, which the engin
 SDK's hosting headers are used. It initializes the runtime from `Strada.ScriptCore.runtimeconfig.json` (CoreCLR starts
 once per process and is never unloaded: `ScriptEngine::Shutdown` unloads the game and later `Init`s reuse the
 runtime), loads `Strada.ScriptCore.dll` into the default load context and resolves the `[UnmanagedCallersOnly]`
-entry points of `Strada.Interop.Host` by name: 11 for the runtime, the game assembly and C# script instances, and 10
-for visual scripts (`VisualScript*`, §10.6); a missing one fails `ScriptEngine::Init`. Game assemblies load into a
+entry points of `Strada.Interop.Host` by name: 12 for the runtime, the game assembly, C# script instances and data
+assets (`InvalidateDataAssets`, §6.4), and 15 for visual scripts (`VisualScript*`, §10.6); a missing one fails
+`ScriptEngine::Init`. Game assemblies load into a
 collectible `AssemblyLoadContext` from bytes (with their symbols, for line numbers), so the files are never locked (hot
 reload); `Strada.ScriptCore` and the framework resolve to the default context's assemblies, other dependencies from the
 game assembly's directory. Managed exceptions never cross into native code: every entry point catches, logs (with
@@ -1482,7 +1588,7 @@ Scripts derive from `Strada.Script` (which derives from `Entity`) and override a
 Public fields (and private fields marked `[SerializeField]`) of supported types are editable in the inspector and
 serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `string`, `Vector2`, `Vector3`,
 `Vector4`, `Quaternion`, `Color`, `Entity`, `Prefab`, `AssetHandle`, typed asset references (`Mesh`, `Material`,
-`Texture`, `AudioClip`, `Font`, `EnvironmentMap`), and enums. Enums are stored as integers of their size (the class
+`Texture`, `AudioClip`, `Font`, `EnvironmentMap`, `VisualScript`, `Curve`), and enums. Enums are stored as integers of their size (the class
 metadata lists the enumerators in declaration order and marks `[Flags]` enums; stored values out of the enum's range
 are ignored) and typed references as asset handles (the metadata names the accepted asset type).
 
@@ -1542,7 +1648,8 @@ editor's Simulate mode runs neither kind.
 - `Log`: `Trace/Info/Warn/Error`. `Debug`: `DrawLine(from, to, color, duration)`.
 - `SceneManager`: `LoadScene(path)`, `CurrentSceneName`. `Application`: `Quit()`, `WindowWidth/Height`, `IsEditor`.
 - `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`, `Font`, `EnvironmentMap`,
-  `VisualScript`.
+  `VisualScript`, `Curve`.
+- `Curve` (a `.scurve` asset, §6.5): `Evaluate(time)`, a pure node, evaluated by the runtime's copy of the keys.
 - Math: `Vector2/3/4`, `Quaternion`, `Matrix4`, `Color`, `Mathf`, `Random`.
 - Attributes: `[SerializeField]`, `[HideInInspector]`, `[Range(min, max)]`, `[Tooltip(text)]`.
 - `Strada.Testing`: `Assert` (throws `AssertionException`), `TestReporter` (`Pass`, `Fail`, `Run`, `Finish`; used by
@@ -1560,7 +1667,7 @@ without a simulated character the reads are a character at rest and `Move` and s
 lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
 entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
 `Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
-`Prefab`, `VisualScript`). Calls without a running scene
+`Prefab`, `VisualScript`, `Curve`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the
@@ -1712,7 +1819,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   under a guard, so an unreadable one never fails the library.
 - **Timelines** (`Flow.Timeline`, latent, the event graph only): `TimelineReader` checks the `Timeline` setting with
   paths, keeping the pins of every track whose name and type are valid; `TimelineTrack` evaluates curves in double
-  (Constant, Linear and cubic Hermite with Catmull-Rom auto tangents; keys at one time make a jump). A run is a fiber
+  through the runtime's curve evaluator, `CurveMath` (§6.5: Constant, Linear and cubic Hermite with Catmull-Rom auto
+  tangents; keys at one time make a jump). A run is a fiber
   that is never resumed: each advance writes the outputs, fires the event keys it crossed in the direction of play (at
   most 1000, with one Warning), then `Update`, and at the end of a timeline that does not loop ends the run and fires
   `Finished`. Inputs are evaluated one at a time, so `NewTime` is read only by SetTime and `Rate` only by the playing
@@ -2502,18 +2610,19 @@ inspector's primary entity as the context entity; without an asset directory the
   | Layer | What |
   |-------|------|
   | L1 Engine | The document, format version 3, the layout of unplaced nodes, the literal codec (array literals included), `HaveSameVisualScriptProgram`, `VisualScriptReferences` (the `Graph` setting, local references, the resolver type, the interface form), the text writer and `Validate` |
-  | L2a Document editing | `VisualScriptEditing` (every edit as an operation on a copy of the document, `SetSetting`'s table of settings other operations own), `VisualScriptLanguageEditing` (arrays, formulas, timelines), `VisualScriptTimeline` (the curve model), `VisualScriptCrossGraph` (retargeting, kinds, the declared pins of cross-graph nodes, broken referrers), Arrange, the clipboard, the palette's index and ranking, quick fixes, find |
+  | L2a Document editing | `VisualScriptEditing` (every edit as an operation on a copy of the document, `SetSetting`'s table of settings other operations own), `VisualScriptLanguageEditing` (arrays, formulas, timelines), `VisualScriptTimeline` (the curve model, evaluated through the engine's curve, §6.5), `VisualScriptCrossGraph` (retargeting, kinds, the declared pins of cross-graph nodes, broken referrers), Arrange, the clipboard, the palette's index and ranking, quick fixes, find |
   | L2b Commit | `VisualScriptNormalization` (graph.set's transforms), `PrepareVisualScriptCommit` with its timings, `SetVisualScriptCommand`, `SetVisualScriptAndComponentsCommand`, the history changes, layout-only commits |
-  | L3 Canvas model | The semantics seam (`EngineVisualScriptSemantics`, or the fixture semantics of tests), the view, metrics and text ladder, theme tables, the visual model, geometry, the spatial index, hit testing, the editor model (gestures in, intents out), the per-user view settings, `VisualScriptTextEstimate` (text widths without a font), `VisualScriptProjectIndex`, `VisualScriptCurveView` (the curve editor's view, hit testing and gestures) |
+  | L3 Canvas model | The semantics seam (`EngineVisualScriptSemantics`, or the fixture semantics of tests), the view, metrics and text ladder, theme tables, the visual model, geometry, the spatial index, hit testing, the editor model (gestures in, intents out), the per-user view settings, `VisualScriptTextEstimate` (text widths without a font), `VisualScriptProjectIndex`, `VisualScriptCurveView` (the shared curve view of `Editor/UI` over the timeline, §6.5: its view, hit testing and gestures) |
   | L3b Batch | `VisualScriptBatch` (`graph.edit`'s executor), `VisualScriptHeadlessCanvas` (node sizes, pin rows and anchors without a window), `VisualScriptCanvasPins` (pin rows from a canvas, shared with the panes) |
-  | L4 Panes | The palette popup, My Script, Details (the formula field, the array literal editor, the Timeline section, the Graph pickers), the drawer (with `VisualScriptCurveEditor`, its Timeline mode), the find bar, the literal editor (built on `FieldEditor`) |
+  | L4 Panes | The palette popup, My Script, Details (the formula field, the array literal editor, the Timeline section, the Graph pickers), the drawer (with `VisualScriptCurveEditor`, its Timeline mode, on the shared curve editor widget of §6.5), the find bar, the literal editor (built on `FieldEditor`) |
   | L5 Canvas UI | The controller (an intent becomes at most one commit request), the renderer (comment labels among its layers), brushes, the panel, the in-place formula editor, the key and gesture tables |
   | L6 Shell | `VisualScriptEditors` (the window manager, the project index's owner, opening and Back and Forward across windows), `EditorEditingKeys`, `EditorLayer`'s wiring, the entry points, the `graph.*` UI commands |
 
   The editor model and the document editing are independent of each other: the model emits intents, which are data,
   and only the controller turns them into edits. L2a and L3 include nothing of each other, with one exception: the curve
   model (`VisualScriptTimeline.h`, pure, without state) is shared by both, so the curve view clamps and evaluates with
-  the document editing's own functions; the types both layers read (`VisualScriptProjectGraph` among them) are in
+  the document editing's own functions (the view itself is `Editor/UI`'s `CurveView`, which includes nothing of the
+  visual script editor; `VisualScriptCurveView.h` gives it the timeline); the types both layers read (`VisualScriptProjectGraph` among them) are in
   `VisualScriptEditorTypes.h`. L3b is the only non-UI code that includes both. Operations take pin names as the document stores them
   (`VisualScriptEditing::ToStoredVisualScriptPin` maps the canvas's names of renamed pins and their fields back).
   Without the scripting runtime a window runs degraded: it shows, arranges, comments, copies and deletes nodes from the
@@ -2561,7 +2670,10 @@ inspector's primary entity as the context entity; without an asset directory the
   browser, and never on the entities (`VisualScriptEditors::HandleGlobalEditingKey`); with the scene as the target,
   Duplicate, Delete and Select All act on the entities. A window keeps the keys it claims while it has the keyboard: the
   content browser's Delete, Ctrl+Backspace and F2 (`ContentBrowserPanel::FocusedChords`, which
-  `FindClaimedEditingChords` returns) act on the selected file there. An Edit item shows its shortcut exactly when
+  `FindClaimedEditingChords` returns) act on the selected file there. A widget inside a window claims chords the same way
+  while its own child window, or a popup it opened, has the keyboard: it updates a claim on its root window each frame it
+  is drawn (`UI::UpdateEditingChordClaim`), kept while a menu, a side bar or another window has the keyboard, which
+  `FindClaimedEditingChords` returns for that root (the inspector's curve editor: Delete, Ctrl+Backspace, Ctrl+A). An Edit item shows its shortcut exactly when
   pressing it would run the item (`GetEditShortcutText`), so Delete shows none while the content browser has the
   keyboard. The window that had the keyboard before a menu, a popup, the menu bar or the toolbar took it is the one that
   counts, while it is still open (`FindKeyboardWindow`); a claimed key runs nothing while a menu, a popup or the
@@ -2687,8 +2799,8 @@ inspector's primary entity as the context entity; without an asset directory the
   canvas lists problems (errors first, then by sub-graph, then by position; a click goes to the element) with their
   quick fixes, or the results of a find in this script or every script ("could not be read: <error>" for scripts that do
   not load), or, in its Timeline mode (its own height, 16 font sizes), a `Flow.Timeline`'s tracks beside its curves
-  (`VisualScriptCurveEditor` over the pure `VisualScriptCurveView`, whose view, hit testing and gestures are tested
-  without ImGui). It opens from a double-click on a Timeline's header, the node menu's Edit Timeline, Details' Edit and
+  (`VisualScriptCurveEditor` on the shared curve editor widget over the pure `VisualScriptCurveView`, §6.5, whose
+  view, hit testing and gestures are tested without ImGui). It opens from a double-click on a Timeline's header, the node menu's Edit Timeline, Details' Edit and
   `graph.open`'s `timeline`, and closes when its node is gone. Every edit is one `SetTimeline` step; drags are computed
   from the timeline as the interaction found it and merge into one step at the widget cadence; Escape cancels a drag
   (the setting goes back within the drag's own step, which then disappears) or a marquee (the selection comes back);

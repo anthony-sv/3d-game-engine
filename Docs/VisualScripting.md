@@ -265,6 +265,23 @@ form); the editor's Timeline drawer edits it (below).
 **Try it:** add a Timeline with a float track that rises from 0 to 2 and back over a second, play it from `Event.Create`
 with Loop on, and set the entity's height from it in `Update`.
 
+### Curves
+
+A timeline's curves belong to its node and play over time. A curve asset (`.scurve`, edited in the editor's curve
+editor: [Curves](Editor.md#curves)) is a curve of its own that any graph or C# script reads with any input: an engine's
+pitch from its speed, a light's intensity from the time of day. Its keys have the same interpolations and slopes as a
+timeline's float track, and its extrapolations say what it gives before its first key and after its last (Hold, Loop,
+PingPong or Linear).
+
+- **Evaluate** (`Call:Strada.Curve.Evaluate(float)`, a pure node) gives the curve's value at `Time`; a curve without keys
+  gives 0. Its `Target` is the curve: a variable of type Curve (public, so that each entity picks its own in the
+  inspector), a Literal of type Curve, or **Load** (`Assets.Load<T>` with the type argument Curve) by path.
+- It allocates nothing and does not call into the engine, so a graph may evaluate curves on every update. An edit of the
+  curve while the game plays reaches the graph on its next frame.
+
+**Try it:** make a curve that rises from 0 at 0 to 1 at 10 and holds after it, give a graph a public Curve variable set
+to it, and set a light's intensity to Evaluate of the time since the scene started in `Update`.
+
 ## Graphs that talk to graphs
 
 A VisualScript component runs one graph. To give an entity several behaviors, put each on a child entity with a

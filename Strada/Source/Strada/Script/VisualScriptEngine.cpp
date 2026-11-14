@@ -630,6 +630,7 @@ namespace Strada
 			{
 				return;
 			}
+			ScriptEngineInternal::SyncDataAssets(*data);
 			ST_PROFILE_ZONE_DYNAMIC(zone, GetGraphProfileName(*data, instance->second));
 #ifdef ST_ENABLE_PROFILING
 			// While recording, the zone carries the steps the VM ran: those of the executions the invoke started, and of the

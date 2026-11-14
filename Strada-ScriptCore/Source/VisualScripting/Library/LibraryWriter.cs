@@ -58,9 +58,9 @@ internal static class LibraryWriter
 		{
 			writer.WriteString("FieldType", type.FieldType.ToString());
 		}
-		if (type.AssetType != NativeAssetType.None)
+		if (type.AssetType != null)
 		{
-			writer.WriteString("AssetType", type.AssetType.ToString());
+			writer.WriteString("AssetType", type.AssetType);
 		}
 		if (type.HasLiteral)
 		{

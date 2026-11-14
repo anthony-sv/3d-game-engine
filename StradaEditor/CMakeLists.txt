@@ -156,8 +156,20 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/StartScreen/StartScreenPanel.h
     Source/Editor/StartScreen/StartScreenThumbnails.cpp
     Source/Editor/StartScreen/StartScreenThumbnails.h
+    Source/Editor/UI/CurveAssetEditor.cpp
+    Source/Editor/UI/CurveAssetEditor.h
+    Source/Editor/UI/CurveEditing.cpp
+    Source/Editor/UI/CurveEditing.h
+    Source/Editor/UI/CurveEditor.cpp
+    Source/Editor/UI/CurveEditor.h
+    Source/Editor/UI/CurveEditorImpl.h
+    Source/Editor/UI/CurveView.cpp
+    Source/Editor/UI/CurveView.h
+    Source/Editor/UI/CurveViewImpl.h
     Source/Editor/UI/DataAssetEditor.cpp
     Source/Editor/UI/DataAssetEditor.h
+    Source/Editor/UI/EditingChordClaims.cpp
+    Source/Editor/UI/EditingChordClaims.h
     Source/Editor/UI/EditorUI.cpp
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp

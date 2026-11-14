@@ -527,6 +527,7 @@ Copy ID), says when it is built into the engine or was imported with a model, an
 | Font | Its file size |
 | Scene | A hint to double-click it in the Content Browser to open it |
 | Visual script | An Open button, its description, numbers of nodes and links, the events it uses, which scripts use it, its variables and its functions |
+| Curve | The curve editor, then its fields: the extrapolations and the keys ([Curves](#curves)) |
 
 An asset whose file is missing says so. Inspecting an asset never writes its file.
 
@@ -591,10 +592,11 @@ The "+" button and the context menus create, in the displayed folder:
 | Material | `New Material.smat` with default parameters |
 | Visual Script | `New Visual Script.sgraph` with an `Event.Create` and an `Event.Update` node |
 | Visual Script Library | `New Visual Script Library.sgraph`: functions other visual scripts call; it runs on no entity |
+| Curve | `New Curve.scurve`, a curve without keys ([Curves](#curves)) |
 | C# Script... | The New Script dialog ([Creating C# scripts](#creating-c-scripts)) |
 
-A taken name gets a number (`New Material 1.smat`). The new item is selected with its name ready to edit. Materials and
-visual scripts can only be created under Assets; folders under both roots. A C# script created while the Assets root
+A taken name gets a number (`New Material 1.smat`). The new item is selected with its name ready to edit. Materials,
+curves and visual scripts can only be created under Assets; folders under both roots. A C# script created while the Assets root
 is shown goes to `Scripts/Source`. Scenes are made by saving them inside `Assets/` (File > Save Scene As), and prefabs
 from entities ([Prefabs](#prefabs)).
 
@@ -660,6 +662,7 @@ The asset directory registers these file types:
 | Audio clip | `.wav`, `.mp3`, `.flac`, `.ogg` | Importing |
 | Font | `.ttf`, `.otf` | Importing |
 | Visual script | `.sgraph` | "+" > Visual Script, Create Visual Script |
+| Curve | `.scurve` | "+" > Curve |
 
 Built-in assets need no files: the meshes Cube, Sphere, Plane, Cylinder, Capsule, Cone and Quad, the DefaultMaterial,
 the textures White, Black, FlatNormal and Particle, the DefaultFont and the procedural DefaultSky. Pickers list them as
@@ -745,6 +748,41 @@ asset directory are registered as assets, so the project can name its start scen
 
 Visual scripts (`.sgraph`) are graphs of nodes that VisualScript components run. They have no previews.
 [Visual scripts](#visual-scripts) summarizes the editor's graph windows.
+
+### Curves
+
+A curve (`.scurve`) maps a number to another: an engine's pitch from its speed, a light's intensity from the time of
+day. Its keys lie in order along its input (any number: seconds, a speed, a distance), each with a value and the
+interpolation of the segment to the next key: Cubic (smooth, through the keys' slopes, automatic unless set), Linear or
+Constant (a step). `PreExtrapolation` and `PostExtrapolation` say what it does before its first key and after its last:
+Hold the end key's value, Loop or PingPong the keys, or go on Linear along the curve's slope there. A curve without keys
+is 0 everywhere. C# scripts and visual scripts read a curve with `Curve.Evaluate`
+([Scripting](Scripting.md#curves), [Visual scripting](VisualScripting.md#curves)), which the curve editor's own
+drawing matches.
+
+Select a curve in the Content Browser to edit it in the Inspector. The curve editor comes first; it is the editor of the
+Timeline drawer's curves in visual scripts, here on an input without ends, so the curve is drawn across the whole view,
+its extrapolations included.
+
+- The header row edits the selected keys: their Time and Value (a field's drag is one undo step while it lasts), the
+  interpolation of their segments (Cubic, Linear, Constant), Auto (automatic slopes) and Flat (slopes of 0), and Frame.
+- Click a key to select it (Shift adds, Ctrl toggles), or drag on empty space for a rectangle. Drag keys to move them as
+  a block: times snap to a step of about a hundredth of the visible span (1, 2 or 5 times a power of ten; Alt: free),
+  and Shift keeps one axis. Drag a selected cubic key's handle to set both its slopes, or with Alt only that one.
+  Double-click the curve to add a key on it. Right-click a key for Interpolation, Tangents (Auto, Flat) and Delete.
+- The wheel zooms the input, Ctrl+wheel the values, a right or middle drag pans, and F frames the selected keys (every
+  key without any).
+- While the view has the keyboard, Delete removes the selected keys, Ctrl+A selects every key, and the arrows move the
+  selected keys by a step (Shift: ten); a run of presses is one undo step. While its key menu is open, Delete and
+  Ctrl+A do nothing (they never reach the scene's entities), and the Edit menu shows no shortcut for Delete and Select
+  All while the view has the keyboard. Esc while dragging cancels the
+  drag: the keys go back and no undo step is left. A drag, and a header field's drag, whose curve is changed elsewhere
+  meanwhile (an undo, an agent's `curve.set`) stops, and that change stays.
+
+Each drag is one undo step, written to the file as it goes. Below the curve editor, the fields show the extrapolations
+and the keys as a list (each key's `HasIn` and `HasOut` switch its set slopes on); agents edit the same fields with
+`curve.set` ([Automation](Automation.md)). While the game plays, an edit reaches the scripts that read the curve on the
+next frame.
 
 ## Scene Settings
 
@@ -1105,6 +1143,8 @@ These work while the mouse is over the view.
 | Scene Hierarchy | F2 | Rename the primary selected entity |
 | Content Browser | F2 | Rename the selected item |
 | Content Browser | Delete, Ctrl+Backspace | Delete the selected item (after confirmation) |
+| Inspector, curve editor | Delete, Ctrl+Backspace | Delete the selected keys |
+| Inspector, curve editor | Ctrl+A | Select every key |
 | Game View | Shift+Esc | Give the input back to the editor |
 | Dialogs | Escape | Cancel |
 

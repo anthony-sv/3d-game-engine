@@ -322,6 +322,8 @@ namespace Strada
 			// Texts users wrote (conditions, formulas) may hold invalid UTF-8: it is replaced, never thrown.
 			std::string const text = request.dump(-1, ' ', false, Json::error_handler_t::replace);
 			std::string reply;
+			// A request may run graph code (a resume, a step, a watch): it reads data assets as of now.
+			ScriptEngineInternal::SyncDataAssets(*data);
 			auto const status =
 				static_cast<ScriptStatus>(data->Host.VisualScriptDebug(text.data(), ToLength(text.size()), &reply, &ReceiveText));
 			if (status != ScriptStatus::Success)

@@ -4,8 +4,9 @@ using Strada.Testing;
 
 namespace FeatureTest;
 
-/// <summary>Loading assets, typed asset fields, asset handles and runtime materials. The scene sets the fields: the Cube
-/// mesh, Materials/Painted.smat, the White texture, Audio/Beep.wav, the default font and sky, and Prefabs/Crate.sprefab.</summary>
+/// <summary>Loading assets, typed asset fields, asset handles, runtime materials and curve assets. The scene sets the
+/// fields: the Cube mesh, Materials/Painted.smat, the White texture, Audio/Beep.wav, the default font and sky,
+/// Prefabs/Crate.sprefab and Curves/Response.scurve.</summary>
 public sealed class AssetTests : FeatureTestScript
 {
 	public Mesh? Mesh;
@@ -15,6 +16,7 @@ public sealed class AssetTests : FeatureTestScript
 	public Font? Font;
 	public EnvironmentMap? Environment;
 	public Prefab? Prefab;
+	public Curve? Response;
 
 	protected override void Start()
 	{
@@ -55,8 +57,25 @@ public sealed class AssetTests : FeatureTestScript
 			Assert.IsFalse(AssetHandle.Invalid.IsValid);
 			Assert.AreEqual(0ul, AssetHandle.Invalid.ID);
 		});
+		Check("curve assets evaluate their keys and extrapolations", CurveChecks);
 		Check("project materials are shared and read-only", ProjectMaterialChecks);
 		Check("runtime materials are created and edited", RuntimeMaterialChecks);
+	}
+
+	// Curves/Response.scurve: a Cubic key at 0 leaving with slope 0.5, a Linear one at 0.25 (0.125), a Cubic one at 0.5 (0.5)
+	// and a Constant one at 1 (1); before the keys Linear, after them PingPong.
+	private void CurveChecks()
+	{
+		Curve response = Response!;
+		Assert.AreEqual(response, Assets.Load<Curve>("Curves/Response.scurve"));
+		Assert.IsNull(Assets.Load<Curve>("Materials/Painted.smat"));
+		Assert.AreEqual(0.0f, response.Evaluate(0.0f));
+		Assert.AreEqual(0.3125f, response.Evaluate(0.375f));
+		Assert.AreEqual(1.0f, response.Evaluate(1.0f));
+		// Linear before the first key, along its slope; PingPong after the last.
+		Assert.AreEqual(-0.5f, response.Evaluate(-1.0f));
+		Assert.AreEqual(0.5f, response.Evaluate(1.5f));
+		Assert.AreEqual(0.125f, response.Evaluate(2.25f));
 	}
 
 	private void ProjectMaterialChecks()

@@ -7,6 +7,8 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
+#include "Strada/Asset/CurveAsset.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptReferences.h"
@@ -22,6 +24,7 @@
 #include "Strada/Script/ScriptEngineInternal.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLiterals.h"
 
 #include <doctest/doctest.h>
 
@@ -1759,6 +1762,29 @@ TEST_CASE("VisualScriptEngine: the node library describes the scripting API, and
 		VisualScriptTypeInfo const* environment = library->FindType("Strada.EnvironmentMap");
 		REQUIRE(environment != nullptr);
 		CHECK(environment->AcceptedAssetType == AssetType::Environment);
+		// The class of a data asset type, named by its type: the value the engine registered it with.
+		VisualScriptTypeInfo const* curve = library->FindType("Strada.Curve");
+		REQUIRE(curve != nullptr);
+		CHECK(curve->Kind == VisualScriptTypeKind::Asset);
+		CHECK(curve->AcceptedAssetType == TypedDataAsset<Curve>::GetStaticType());
+		CHECK(curve->HasLiteral);
+		// Every type the runtime keeps in script fields, but enums (which only it knows), is exposable here as it describes
+		// it: public variables and literals of a new asset class work in the editor.
+		for (VisualScriptTypeInfo const& type : library->GetTypes())
+		{
+			if (type.FieldType == ScriptFieldType::None || type.Kind == VisualScriptTypeKind::Enum)
+			{
+				continue;
+			}
+			CAPTURE(type.ID);
+			std::optional<VisualScriptExposableType> const exposable = FindVisualScriptExposableType(type.ID);
+			REQUIRE(exposable.has_value());
+			CHECK(exposable->FieldType == type.FieldType);
+			if (type.FieldType == ScriptFieldType::Asset)
+			{
+				CHECK(exposable->AcceptedAssetType == type.AcceptedAssetType);
+			}
+		}
 		CHECK(std::is_sorted(library->GetTypes().begin(), library->GetTypes().end(),
 		                     [](VisualScriptTypeInfo const& a, VisualScriptTypeInfo const& b)
 		                     {

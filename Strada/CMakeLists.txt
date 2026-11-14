@@ -66,6 +66,7 @@ set(STRADA_ASSET_SOURCES
     Source/Strada/Asset/AudioClipAsset.h
     Source/Strada/Asset/BuiltInAssets.cpp
     Source/Strada/Asset/BuiltInAssets.h
+    Source/Strada/Asset/CurveAsset.h
     Source/Strada/Asset/DataAsset.cpp
     Source/Strada/Asset/DataAsset.h
     Source/Strada/Asset/EnvironmentAsset.cpp
@@ -101,6 +102,8 @@ set(STRADA_ASSET_SOURCES
 set(STRADA_MATH_SOURCES
     Source/Strada/Math/AABB.cpp
     Source/Strada/Math/AABB.h
+    Source/Strada/Math/Curve.cpp
+    Source/Strada/Math/Curve.h
     Source/Strada/Math/Frustum.cpp
     Source/Strada/Math/Frustum.h
     Source/Strada/Math/Math.cpp

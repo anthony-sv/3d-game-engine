@@ -212,9 +212,9 @@ internal static class ScriptRegistry
 						writer.WriteNumber("Min", range.Min);
 						writer.WriteNumber("Max", range.Max);
 					}
-					if (ScriptFieldCodec.GetAssetType(field.Field.FieldType) is var assetType && assetType != NativeAssetType.None)
+					if (ScriptFieldCodec.GetAssetType(field.Field.FieldType) is { } assetType)
 					{
-						writer.WriteString("AssetType", assetType.ToString());
+						writer.WriteString("AssetType", assetType);
 					}
 					if (field.Field.FieldType.IsEnum)
 					{

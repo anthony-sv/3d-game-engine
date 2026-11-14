@@ -15,16 +15,18 @@ public static unsafe class Assets
 	public static T? Load<T>(string path)
 		where T : Asset
 	{
-		NativeAssetType type = AssetTypes.GetNativeType(typeof(T));
-		if (type == NativeAssetType.None)
+		string typeName = AssetTypes.GetTypeName(typeof(T))
+			?? throw new ArgumentException($"{typeof(T).Name} is not an asset type: load a Mesh, Material, Texture, ...");
+		int type = AssetTypes.GetNativeType(typeof(T));
+		if (type == (int)NativeAssetType.None)
 		{
-			throw new ArgumentException($"{typeof(T).Name} is not an asset type: load a Mesh, Material, Texture, ...");
+			return null;
 		}
 		byte[] text = NativeString.ToUtf8(path);
 		fixed (byte* bytes = text)
 		{
-			ulong handle = InternalCalls.Assets_Load(bytes, text.Length, (int)type);
-			return handle != 0 ? (T)AssetTypes.Create(type, new AssetHandle(handle)) : null;
+			ulong handle = InternalCalls.Assets_Load(bytes, text.Length, type);
+			return handle != 0 ? (T)AssetTypes.Create(typeName, new AssetHandle(handle)) : null;
 		}
 	}
 }

@@ -1814,6 +1814,10 @@
 							"Type": "Prefab",
 							"Value": "17000004240335447843"
 						},
+						"Response": {
+							"Type": "Asset",
+							"Value": "15883878375939594718"
+						},
 						"Texture": {
 							"Type": "Asset",
 							"Value": "200"
