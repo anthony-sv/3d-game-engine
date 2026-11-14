@@ -1085,8 +1085,8 @@ Project (`<Name>.sproj`, `ProjectSettings` with field tables, validated on every
 (relative, inside the project), `ScriptModule` (the game assembly, relative), `StartScene` (scene asset reference),
 `Window` (`Title`, `Width`, `Height`, `Fullscreen`, `VSync`, `Resizable`, `Icon` texture; for exported games, whose
 player sets the icon on its window) and `Physics`
-(`FixedTimestep`, `Layers`: 1 to 16 unique names indexed by `RigidBody.Layer`, `IgnoredCollisions`: layer index pairs
-that do not collide). Opening a project opens its asset directory first so asset references resolve; settings from
+(`FixedTimestep`, `MaxStepsPerFrame`, `CollisionSteps` (§8), `Layers`: 1 to 16 unique names indexed by
+`RigidBody.Layer`, `IgnoredCollisions`: layer index pairs that do not collide). Opening a project opens its asset directory first so asset references resolve; settings from
 newer versions are skipped with warnings. New projects (`Project::Create`) get the project file, `Assets/` and the
 start scene `Assets/Scenes/Main.sscene` in an empty or new directory.
 
@@ -1316,12 +1316,71 @@ routed to the engine log, in Debug builds only.
 The scene drives it while running. `OnRuntimeStart(SceneRuntimeSettings)` (from `MakeSceneRuntimeSettings(project
 settings)`) creates bodies for entities with colliders (static without a `RigidBody`; a `RigidBody` without colliders
 is not simulated). EnTT signals rebuild a body when its physics components, or the mesh of its mesh collider, change;
-the rebuilt body keeps its velocities. Physics runs in fixed steps (`Physics.FixedTimestep` of the project, at most 8
-per frame): before each step kinematic bodies move towards their transforms (`MoveKinematic`) and static or dynamic
-bodies whose transforms changed (scripts, the editor, a moving parent) are teleported; after it, awake dynamic bodies
-write their world transforms back (parents first, converted to parent-local space, keeping their scale). Events
-delivered to scripts: `OnCollisionEnter/Exit(Entity other)`, `OnTriggerEnter/Exit(Entity other)`. Queries: raycast
-(closest solid hit; triggers and colliders containing the origin are ignored), with a layer mask.
+the rebuilt body keeps its velocities. Physics runs in fixed steps: before each step kinematic bodies move towards their
+transforms (`MoveKinematic`) and static or dynamic bodies whose transforms changed (scripts, the editor, a moving
+parent) are teleported; after it, awake dynamic bodies write their world transforms back (parents first, converted to
+parent-local space, keeping their scale). Events delivered to scripts: `OnCollisionEnter/Exit(Entity other)`,
+`OnTriggerEnter/Exit(Entity other)`. Queries: raycast (closest solid hit; triggers and colliders containing the origin
+are ignored), with a layer mask.
+
+**Step control.** A step lasts the project's `Physics.FixedTimestep` (0.0005 to 0.1 s, default 1/60); a frame runs at
+most `Physics.MaxStepsPerFrame` of them (1 to 64, default 8; a slower frame drops the backlog beyond one step, so the
+game slows down instead of falling further behind), and Jolt simulates each in `Physics.CollisionSteps` collision steps
+(1 to 4, default 1: sub-steps for fast or stiff bodies, at their cost). All three are compatible fields of the project
+file (`SceneRuntimeSettings` carries them to the scene). The scene counts the fixed steps it has run since it started,
+with or without physics (`Scene::GetFixedStepCount`). Physics components changed in `OnFixedUpdate` reach the world
+before the step that follows, as those changed between frames reach it before the frame's first step.
+
+**What scripts read between steps.** `OnFixedUpdate` runs before each step and reads every simulated entity where the
+last step left it. `OnUpdate` and the renderer read what the frame shows: a character is drawn between its last two
+steps (a step behind, so it moves smoothly at any frame rate, see below); a dynamic body is not interpolated yet, so its
+transform is where its last step left it at any frame rate. An entity a script or the editor moves between steps stays
+where it was put, and the next step takes its body or character there.
+
+**Determinism per platform.** The same binary on the same machine gives the same simulation for the same inputs,
+whatever the frame rate: the state after step n depends on the scene, on what scripts do in their fixed steps and on n,
+not on how the steps were spread over frames. Jolt is deterministic when it is called in the same order (Jolt's
+`Docs/Architecture.md`, "Deterministic Simulation"), and the scene calls it in an order that depends neither on the
+frame rate nor on the order entities were made in: bodies, characters and joints are made, rebuilt and removed in the
+order of their entities' UUIDs, the syncs before each step (kinematic targets, teleports, characters moved by edits)
+run in that order, and the world's own tables are ordered by entity; contact events are sorted per step and awake
+bodies are read back sorted. Entities made while a scene runs (by scripts, prefab instances, duplicates) take their
+UUIDs from a sequence the scene seeds from its entities' UUIDs as it starts, so every run makes the same IDs and their
+bodies take the same places in that order. Scripts run in their components' order (§10), so their calls reach Jolt in
+the same order on every run. Before the steps of a frame, characters go back exactly where their last step left them
+and after each step their entities are placed exactly where it left them, so what is drawn between frames never
+reaches the simulation.
+
+It does not promise equality across platforms, compilers or configurations: Jolt is built without its
+`CROSS_PLATFORM_DETERMINISTIC` option (with MSVC's `/fp:fast`), engine code is compiled with each compiler's default
+floating-point contraction (arm64 fuses multiply-adds), and Debug and Release differ. Nor does it cover what happens per
+frame rather than per step: `OnUpdate`, input read in it, contact events (they reach scripts once per frame, after the
+frame's steps), destruction (deferred to the end of the frame), changes of the time scale, editor edits and scene loads.
+A game whose physics must not depend on the frame rate acts on the simulation from `OnFixedUpdate` only.
+
+**The state hash.** `Scene::ComputePhysicsStateHash` is a 64-bit FNV-1a hash (`HashBuilder`, over the bit patterns of
+the values, little-endian) of the fixed step count, then of every body in UUID order (its UUID, motion type, position,
+rotation, linear and angular velocity and whether it is awake, as Jolt holds them) and every character in UUID order
+(position, velocity, its own and walking velocity, ground state, ground entity and displacement, and the step positions
+it is drawn between). Equal hashes at one step count mean equal simulations. The accumulator is left out: at one step
+count it holds a different remainder at each frame rate, which is what the hash must not see; snapshots carry it. With
+`SceneRuntimeSettings::PhysicsHashStep` set to n, the scene records its hash right after step n, inside the frame that
+runs it (`Scene::GetRecordedPhysicsHash`); the player's test summary prints it (`--hash-step`), or the hash after the
+run's last step.
+
+**Snapshots.** `Scene::SavePhysicsState` keeps a running scene's simulation in memory: everything Jolt's state recorder
+saves (`PhysicsSystem::SaveState` in full: the last step's length and gravity, the bodies' positions, rotations,
+velocities, forces and sleep state, the contacts and the joints' warm starts), each character's state
+(`CharacterVirtual::SaveState`, which the system does not save, with the engine's own velocities and ground
+displacement), the contacts the world has reported and the events not yet taken, and the scene's step state: the step
+count, the accumulator, the poses last exchanged with the bodies and the characters' step positions.
+`Scene::RestorePhysicsState` puts it all back and places the entities of bodies and characters where they were then, so
+the steps that follow run as they did from there (given the same fixed-step inputs). Its limit: a snapshot belongs to
+the world it was saved from and to the bodies, joints and characters that world had. Once one was added, removed or
+rebuilt (a physics component changed), restoring is refused and changes nothing, because Jolt's state recorder neither
+adds nor removes bodies. Nor does a snapshot hold what the simulation does not change: settings scripts or components set
+since (gravity factors, damping, layers, what characters ignore), the scripts' own state, entities without bodies, sounds
+and particles.
 
 Joints (`JointDesc`, `PhysicsScene::AddJoint`) are Jolt constraints made in world space from where the bodies are:
 fixed, hinge (with limits within ±180° and a velocity motor with a torque limit), point (`Ball`), distance (a range;
@@ -3092,7 +3151,10 @@ asset directory and the script assembly relative to the game's directory (`Proje
 - `--test` runs headless with a fixed time step (`--timestep`, default 1/60 s) until the scripts call
   `TestReporter.Finish`, quit, or `--timeout` game seconds (default 60) pass. It logs a summary and exits with the
   number of failures: failed checks plus script exceptions, plus one when the scripts did not finish testing, at most
-  100. A game that cannot start exits with 1, a wrong command line with 2.
+  100. A game that cannot start exits with 1, a wrong command line with 2. The summary ends with the running scene's
+  physics state hash (§8) and the fixed step it was taken at: after the run's last step, or after step n with
+  `--hash-step n` (taken inside the frame that runs it, so runs at different `--timestep`s compare; a run that ends
+  before step n says so), which makes two test runs of one game comparable step for step.
 
 `GameExporter` (Project module) exports a project for the host platform; the editor's File > Build Game and
 `project.export` run it on a worker thread:

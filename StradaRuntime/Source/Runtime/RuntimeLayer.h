@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
 
 namespace Strada
 {
@@ -17,6 +18,9 @@ namespace Strada
 		// number of failures (at most MaxTestExitCode; a run that did not finish counts as one more).
 		bool Test = false;
 		uint64_t TestFrameLimit = 3600;
+		// The fixed step whose physics state hash the test summary prints (SceneRuntimeSettings::PhysicsHashStep); 0 prints
+		// the hash after the run's last step.
+		uint64_t HashStep = 0;
 		// Seconds each frame advances the game; 0 advances it by the real frame time.
 		float FixedTimestep = 0.0f;
 		// Saves the window's contents to this file when the given frame is presented (empty: no screenshot).
@@ -52,6 +56,8 @@ namespace Strada
 		void Render();
 		// Reports the test run, sets the exit code and closes the player.
 		void FinishTestRun();
+		// The end of the test summary: the running scene's physics state hash and the fixed step it was taken after.
+		std::string DescribePhysicsState() const;
 
 		RuntimeLayerSpecification m_Specification;
 		Ref<Project> m_Game;

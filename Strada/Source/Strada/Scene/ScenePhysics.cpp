@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Core/Hash.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
@@ -296,6 +297,60 @@ namespace Strada
 			}
 			return depth;
 		}
+
+		// The handles in the order of their entities' UUIDs: a live entity's own, a destroyed one's as its physics state
+		// remembers it (states maps handles to records with an Entity UUID). Physics is called in this order, which neither
+		// the frame rate nor the order the entities were made in changes.
+		template<typename TStates>
+		std::vector<entt::entity> SortByUUID(entt::registry const& registry, std::unordered_set<entt::entity> const& handles,
+		                                     TStates const& states)
+		{
+			std::vector<std::pair<uint64_t, entt::entity>> keyed;
+			keyed.reserve(handles.size());
+			for (entt::entity const handle : handles)
+			{
+				UUID id = UUID::Invalid();
+				if (registry.valid(handle) && registry.all_of<IDComponent>(handle))
+				{
+					id = registry.get<IDComponent>(handle).ID;
+				}
+				else if (auto const state = states.find(handle); state != states.end())
+				{
+					id = state->second.Entity;
+				}
+				keyed.emplace_back(id.GetValue(), handle);
+			}
+			// Handles that are neither (destroyed before they had a body) touch no physics; their handles keep the order total.
+			std::sort(keyed.begin(), keyed.end(),
+			          [](auto const& a, auto const& b)
+			          {
+						  return std::tuple(a.first, entt::to_integral(a.second)) < std::tuple(b.first, entt::to_integral(b.second));
+					  });
+			std::vector<entt::entity> sorted;
+			sorted.reserve(keyed.size());
+			for (auto const& [id, handle] : keyed)
+			{
+				sorted.push_back(handle);
+			}
+			return sorted;
+		}
+
+		// The keys of states (handles mapped to records with an Entity UUID) in the order of those UUIDs.
+		template<typename TStates>
+		void SortKeysByUUID(TStates const& states, std::vector<entt::entity>& order)
+		{
+			order.clear();
+			order.reserve(states.size());
+			for (auto const& [handle, state] : states)
+			{
+				order.push_back(handle);
+			}
+			std::sort(order.begin(), order.end(),
+			          [&states](entt::entity a, entt::entity b)
+			          {
+						  return states.at(a).Entity.GetValue() < states.at(b).Entity.GetValue();
+					  });
+		}
 	}
 
 	void Scene::StartPhysics()
@@ -304,6 +359,7 @@ namespace Strada
 		world.Gravity = m_Settings.Physics.Gravity;
 		world.LayerCount = m_RuntimeSettings.PhysicsLayerCount;
 		world.IgnoredCollisions = m_RuntimeSettings.IgnoredCollisions;
+		world.CollisionSteps = m_RuntimeSettings.CollisionSteps;
 		Result<Scope<PhysicsScene>> physics = PhysicsScene::Create(world);
 		if (!physics)
 		{
@@ -343,8 +399,12 @@ namespace Strada
 		ConnectPhysicsSignals(false);
 		m_Physics.reset();
 		m_Bodies.clear();
+		m_BodyOrder.clear();
+		m_BodyOrderChanged = false;
 		m_ChangedBodies.clear();
 		m_Characters.clear();
+		m_CharacterOrder.clear();
+		m_CharacterOrderChanged = false;
 		m_ChangedCharacters.clear();
 		m_JointsChanged = false;
 		m_ContactEvents.clear();
@@ -464,9 +524,10 @@ namespace Strada
 
 	void Scene::RebuildChangedBodies()
 	{
+		// In UUID order: Jolt numbers bodies in the order they are made and simulates them in that order.
 		if (!m_ChangedBodies.empty())
 		{
-			std::unordered_set<entt::entity> const changed = std::exchange(m_ChangedBodies, {});
+			std::vector<entt::entity> const changed = SortByUUID(m_Registry, std::exchange(m_ChangedBodies, {}), m_Bodies);
 			for (entt::entity const handle : changed)
 			{
 				// Made, rebuilt or removed bodies lose their joints.
@@ -478,7 +539,7 @@ namespace Strada
 		}
 		if (!m_ChangedCharacters.empty())
 		{
-			std::unordered_set<entt::entity> const changed = std::exchange(m_ChangedCharacters, {});
+			std::vector<entt::entity> const changed = SortByUUID(m_Registry, std::exchange(m_ChangedCharacters, {}), m_Characters);
 			for (entt::entity const handle : changed)
 			{
 				UpdateCharacter(handle);
@@ -490,13 +551,38 @@ namespace Strada
 		}
 	}
 
+	std::vector<entt::entity> const& Scene::GetBodyOrder()
+	{
+		if (std::exchange(m_BodyOrderChanged, false))
+		{
+			SortKeysByUUID(m_Bodies, m_BodyOrder);
+		}
+		return m_BodyOrder;
+	}
+
+	std::vector<entt::entity> const& Scene::GetCharacterOrder()
+	{
+		if (std::exchange(m_CharacterOrderChanged, false))
+		{
+			SortKeysByUUID(m_Characters, m_CharacterOrder);
+		}
+		return m_CharacterOrder;
+	}
+
 	void Scene::RebuildJoints()
 	{
-		for (auto const& [handle, state] : m_Bodies)
+		// Jolt solves joints in the order they were added: they go and come in the order of their entities' UUIDs.
+		for (entt::entity const handle : GetBodyOrder())
 		{
-			m_Physics->RemoveJoint(state.Entity);
+			m_Physics->RemoveJoint(m_Bodies.at(handle).Entity);
 		}
+		std::vector<std::pair<uint64_t, entt::entity>> joints;
 		for (entt::entity const handle : m_Registry.view<JointComponent>())
+		{
+			joints.emplace_back(m_Registry.get<IDComponent>(handle).ID.GetValue(), handle);
+		}
+		std::sort(joints.begin(), joints.end());
+		for (auto const& [id, handle] : joints)
 		{
 			Entity const entity(handle, this);
 			JointComponent const& component = entity.GetComponent<JointComponent>();
@@ -546,6 +632,7 @@ namespace Strada
 			}
 			m_Physics->RemoveBody(existing->second.Entity);
 			m_Bodies.erase(existing);
+			m_BodyOrderChanged = true;
 			return true;
 		}
 
@@ -559,6 +646,7 @@ namespace Strada
 			if (existing != m_Bodies.end())
 			{
 				m_Bodies.erase(existing);
+				m_BodyOrderChanged = true;
 			}
 			return hadBody;
 		}
@@ -574,8 +662,13 @@ namespace Strada
 			if (existing != m_Bodies.end())
 			{
 				m_Bodies.erase(existing);
+				m_BodyOrderChanged = true;
 			}
 			return hadBody;
+		}
+		if (existing == m_Bodies.end())
+		{
+			m_BodyOrderChanged = true;
 		}
 		m_Bodies[handle] = BodyState{id, desc->Position, desc->Rotation};
 		return true;
@@ -592,6 +685,7 @@ namespace Strada
 			{
 				m_Physics->RemoveCharacter(existing->second.Entity);
 				m_Characters.erase(existing);
+				m_CharacterOrderChanged = true;
 			}
 		};
 		if (component == nullptr)
@@ -623,6 +717,7 @@ namespace Strada
 			if (existing != m_Characters.end())
 			{
 				m_Characters.erase(existing);
+				m_CharacterOrderChanged = true;
 			}
 			return;
 		}
@@ -630,6 +725,10 @@ namespace Strada
 		if (created && HasBodyComponents(m_Registry, handle))
 		{
 			ST_CORE_WARN("Physics: the CharacterController of '{}' replaces its RigidBody and colliders", entity.GetName());
+		}
+		if (existing == m_Characters.end())
+		{
+			m_CharacterOrderChanged = true;
 		}
 		CharacterSyncState& state = m_Characters[handle];
 		if (created)
@@ -673,8 +772,9 @@ namespace Strada
 	void Scene::SyncCharactersFromTransforms()
 	{
 		std::vector<entt::entity> rescaled;
-		for (auto& [handle, state] : m_Characters)
+		for (entt::entity const handle : GetCharacterOrder())
 		{
+			CharacterSyncState& state = m_Characters.at(handle);
 			CharacterControllerComponent const* component =
 				m_Registry.valid(handle) ? m_Registry.try_get<CharacterControllerComponent>(handle) : nullptr;
 			glm::vec3 position;
@@ -722,8 +822,9 @@ namespace Strada
 			state.PreviousStepPosition = state.StepPosition;
 			state.StepPosition = position;
 			state.Carried = GetCarriedPart(position - state.PreviousStepPosition, character->GroundDisplacement);
-			// A character standing still leaves its transform alone.
-			if (HasMoved(position, state.Position))
+			// Exactly where the step left it, so that what the entity's children are synced from depends on the steps alone
+			// (a character standing still leaves its transform alone).
+			if (position != state.Position)
 			{
 				placements.push_back({handle, state.Entity, position, GetDepth(*this, Entity(handle, this))});
 			}
@@ -740,7 +841,8 @@ namespace Strada
 		std::vector<CharacterPlacement> placements;
 		for (auto const& [handle, state] : m_Characters)
 		{
-			if (!HasMoved(state.StepPosition, state.Position) || !m_Registry.valid(handle))
+			// Exactly: the steps must not see where the frame drew it, however close that was.
+			if (state.StepPosition == state.Position || !m_Registry.valid(handle))
 			{
 				continue;
 			}
@@ -803,25 +905,7 @@ namespace Strada
 		// The tolerance keeps frames of exactly one step from alternating between zero and two steps.
 		while (m_PhysicsAccumulator >= step * (1.0f - 1e-4f) && steps < maxSteps)
 		{
-			// Scripts act before each step (forces, kinematic targets, teleports, character moves).
-			{
-				ST_PROFILE_SCOPE("Scene.FixedUpdateScripts");
-				FixedUpdateScripts(step);
-			}
-			if (m_Physics)
-			{
-				{
-					ST_PROFILE_SCOPE("Scene.SyncToPhysics");
-					SyncBodiesFromTransforms(step);
-					SyncCharactersFromTransforms();
-				}
-				m_Physics->Step(step);
-				{
-					ST_PROFILE_SCOPE("Scene.SyncFromPhysics");
-					WriteBodyTransforms();
-					WriteCharacterTransforms();
-				}
-			}
+			RunFixedStep(step);
 			m_PhysicsAccumulator = std::max(m_PhysicsAccumulator - step, 0.0f);
 			steps++;
 		}
@@ -838,10 +922,41 @@ namespace Strada
 		}
 	}
 
+	void Scene::RunFixedStep(float step)
+	{
+		// Scripts act before each step (forces, kinematic targets, teleports, character moves).
+		{
+			ST_PROFILE_SCOPE("Scene.FixedUpdateScripts");
+			FixedUpdateScripts(step);
+		}
+		if (m_Physics)
+		{
+			// The bodies and characters scripts changed reach the world before this step, whatever the frame rate.
+			RebuildChangedBodies();
+			{
+				ST_PROFILE_SCOPE("Scene.SyncToPhysics");
+				SyncBodiesFromTransforms(step);
+				SyncCharactersFromTransforms();
+			}
+			m_Physics->Step(step);
+			{
+				ST_PROFILE_SCOPE("Scene.SyncFromPhysics");
+				WriteBodyTransforms();
+				WriteCharacterTransforms();
+			}
+		}
+		m_FixedStepCount++;
+		if (m_FixedStepCount == m_RuntimeSettings.PhysicsHashStep)
+		{
+			m_RecordedPhysicsHash = ComputePhysicsStateHash();
+		}
+	}
+
 	void Scene::SyncBodiesFromTransforms(float stepDelta)
 	{
-		for (auto& [handle, state] : m_Bodies)
+		for (entt::entity const handle : GetBodyOrder())
 		{
+			BodyState& state = m_Bodies.at(handle);
 			if (!m_Registry.valid(handle))
 			{
 				continue;
@@ -900,5 +1015,135 @@ namespace Strada
 				state->second.Rotation = update.Transform.Rotation;
 			}
 		}
+	}
+
+	uint64_t Scene::ComputePhysicsStateHash() const
+	{
+		HashBuilder hash;
+		hash.AddUInt64(m_FixedStepCount);
+		if (!m_Physics)
+		{
+			return hash.GetHash();
+		}
+		hash.AddUInt64(m_Physics->ComputeStateHash());
+		// The positions characters are drawn between: in UUID order (a const function cannot make the cached order).
+		std::vector<CharacterSyncState const*> characters;
+		characters.reserve(m_Characters.size());
+		for (auto const& [handle, state] : m_Characters)
+		{
+			characters.push_back(&state);
+		}
+		std::sort(characters.begin(), characters.end(),
+		          [](CharacterSyncState const* a, CharacterSyncState const* b)
+		          {
+					  return a->Entity.GetValue() < b->Entity.GetValue();
+				  });
+		auto const addVector = [&hash](glm::vec3 const& value)
+		{
+			hash.AddFloat(value.x);
+			hash.AddFloat(value.y);
+			hash.AddFloat(value.z);
+		};
+		for (CharacterSyncState const* character : characters)
+		{
+			hash.AddUInt64(character->Entity.GetValue());
+			addVector(character->PreviousStepPosition);
+			addVector(character->StepPosition);
+			addVector(character->Carried);
+		}
+		return hash.GetHash();
+	}
+
+	Result<ScenePhysicsSnapshot> Scene::SavePhysicsState()
+	{
+		if (!m_IsRunning || !m_Physics)
+		{
+			return Error{"the scene does not run physics"};
+		}
+		ApplyPhysicsChanges();
+		ScenePhysicsSnapshot snapshot;
+		snapshot.m_Physics = m_Physics->SaveState();
+		snapshot.m_Step = m_FixedStepCount;
+		snapshot.m_Accumulator = m_PhysicsAccumulator;
+		std::vector<entt::entity> const& bodies = GetBodyOrder();
+		snapshot.m_Bodies.reserve(bodies.size());
+		for (entt::entity const handle : bodies)
+		{
+			BodyState const& state = m_Bodies.at(handle);
+			TransformComponent const* transform = m_Registry.try_get<TransformComponent>(handle);
+			snapshot.m_Bodies.push_back(
+				{state.Entity, transform != nullptr ? *transform : TransformComponent(), state.Position, state.Rotation});
+		}
+		std::vector<entt::entity> const& characters = GetCharacterOrder();
+		snapshot.m_Characters.reserve(characters.size());
+		for (entt::entity const handle : characters)
+		{
+			CharacterSyncState const& state = m_Characters.at(handle);
+			TransformComponent const* transform = m_Registry.try_get<TransformComponent>(handle);
+			snapshot.m_Characters.push_back({state.Entity, transform != nullptr ? *transform : TransformComponent(), state.Position,
+			                                 state.PreviousStepPosition, state.StepPosition, state.Carried});
+		}
+		return snapshot;
+	}
+
+	Result<void> Scene::RestorePhysicsState(ScenePhysicsSnapshot const& snapshot)
+	{
+		if (!m_IsRunning || !m_Physics)
+		{
+			return Error{"the scene does not run physics"};
+		}
+		ApplyPhysicsChanges();
+		// The scene's side must hold the same bodies and characters before anything changes.
+		std::vector<entt::entity> const& bodies = GetBodyOrder();
+		std::vector<entt::entity> const& characters = GetCharacterOrder();
+		bool const sameBodies = std::equal(bodies.begin(), bodies.end(), snapshot.m_Bodies.begin(), snapshot.m_Bodies.end(),
+		                                   [this](entt::entity handle, ScenePhysicsSnapshot::Body const& saved)
+		                                   {
+											   return m_Bodies.at(handle).Entity == saved.Entity && m_Registry.valid(handle);
+										   });
+		bool const sameCharacters =
+			std::equal(characters.begin(), characters.end(), snapshot.m_Characters.begin(), snapshot.m_Characters.end(),
+		               [this](entt::entity handle, ScenePhysicsSnapshot::Character const& saved)
+		               {
+						   return m_Characters.at(handle).Entity == saved.Entity && m_Registry.valid(handle);
+					   });
+		if (!sameBodies || !sameCharacters)
+		{
+			return Error{"bodies or characters were added or removed since the snapshot"};
+		}
+		if (Result<void> restored = m_Physics->RestoreState(snapshot.m_Physics); !restored)
+		{
+			return restored;
+		}
+		m_FixedStepCount = snapshot.m_Step;
+		m_PhysicsAccumulator = snapshot.m_Accumulator;
+		// The entities exactly as they were, so the next syncs see neither edits nor moves.
+		for (size_t i = 0; i < bodies.size(); i++)
+		{
+			ScenePhysicsSnapshot::Body const& saved = snapshot.m_Bodies[i];
+			BodyState& state = m_Bodies.at(bodies[i]);
+			state.Position = saved.Position;
+			state.Rotation = saved.Rotation;
+			if (TransformComponent* transform = m_Registry.try_get<TransformComponent>(bodies[i]))
+			{
+				*transform = saved.Transform;
+			}
+		}
+		for (size_t i = 0; i < characters.size(); i++)
+		{
+			ScenePhysicsSnapshot::Character const& saved = snapshot.m_Characters[i];
+			CharacterSyncState& state = m_Characters.at(characters[i]);
+			state.Position = saved.Position;
+			state.PreviousStepPosition = saved.PreviousStepPosition;
+			state.StepPosition = saved.StepPosition;
+			state.Carried = saved.Carried;
+			if (TransformComponent* transform = m_Registry.try_get<TransformComponent>(characters[i]))
+			{
+				*transform = saved.Transform;
+			}
+		}
+		// The events of the steps that are undone were taken already; the next frame's are those of the steps it runs.
+		m_ContactEvents.clear();
+		return {};
 	}
 }

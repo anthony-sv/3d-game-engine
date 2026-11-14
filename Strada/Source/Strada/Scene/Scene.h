@@ -5,6 +5,7 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Core/UUID.h"
+#include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Renderer/SceneRendererSettings.h"
 #include "Strada/Scene/Components.h"
@@ -28,7 +29,6 @@ namespace Strada
 {
 	class AudioScene;
 	class Entity;
-	class PhysicsScene;
 
 	struct ScenePhysicsSettings
 	{
@@ -72,6 +72,11 @@ namespace Strada
 		std::vector<glm::uvec2> IgnoredCollisions;
 		// Physics steps per frame at most: slower frames slow the simulation down instead of falling further behind.
 		uint32_t MaxStepsPerFrame = 8;
+		// Collision steps each physics step is divided into (PhysicsWorldSettings::CollisionSteps).
+		uint32_t CollisionSteps = 1;
+		// The fixed step after which the scene records its physics state hash (Scene::GetRecordedPhysicsHash); 0 records
+		// none.
+		uint64_t PhysicsHashStep = 0;
 		// The scene's scripts and sounds run with it; the editor's Simulate mode runs physics only.
 		bool RunScripts = true;
 		bool PlayAudio = true;
@@ -86,6 +91,47 @@ namespace Strada
 		glm::vec4 Color = glm::vec4(1.0f);
 		// Seconds of runtime left to draw it.
 		float RemainingTime = 0.0f;
+	};
+
+	// A running scene's simulation between two fixed steps (Scene::SavePhysicsState), to go back to in the same run.
+	// Opaque; held in memory only.
+	class ScenePhysicsSnapshot
+	{
+	public:
+		// The fixed steps the scene had run when it was saved (Scene::GetFixedStepCount).
+		uint64_t GetStep() const { return m_Step; }
+		// Bytes of physics state it holds.
+		size_t GetPhysicsSize() const { return m_Physics.GetSize(); }
+
+	private:
+		friend class Scene;
+
+		// An entity's transform and the pose last exchanged with its body.
+		struct Body
+		{
+			UUID Entity = UUID::Invalid();
+			TransformComponent Transform;
+			glm::vec3 Position = glm::vec3(0.0f);
+			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+		};
+		// An entity's transform, where its character was drawn, where its last two steps left it and how far its ground
+		// carried it.
+		struct Character
+		{
+			UUID Entity = UUID::Invalid();
+			TransformComponent Transform;
+			glm::vec3 Position = glm::vec3(0.0f);
+			glm::vec3 PreviousStepPosition = glm::vec3(0.0f);
+			glm::vec3 StepPosition = glm::vec3(0.0f);
+			glm::vec3 Carried = glm::vec3(0.0f);
+		};
+
+		PhysicsSnapshot m_Physics;
+		uint64_t m_Step = 0;
+		float m_Accumulator = 0.0f;
+		// In UUID order.
+		std::vector<Body> m_Bodies;
+		std::vector<Character> m_Characters;
 	};
 
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.
@@ -129,8 +175,10 @@ namespace Strada
 		                                               Entity parent);
 
 		bool HasEntity(UUID id) const { return m_EntityMap.contains(id); }
-		// A random UUID not used by any entity of this scene.
-		UUID GenerateUniqueID() const;
+		// A UUID not used by any entity of this scene: a random one, or while the scene runs the next of a sequence seeded
+		// from its entities' UUIDs as it started, so that every run makes the same entities (and calls physics in the same
+		// order).
+		UUID GenerateUniqueID();
 		// Invalid Entity when not found.
 		Entity GetEntityByUUID(UUID id);
 		// First match in hierarchy order; invalid Entity when not found.
@@ -198,6 +246,26 @@ namespace Strada
 		double GetRuntimeTime() const { return m_RuntimeTime; }
 		// Seconds per physics step (and OnFixedUpdate) of the running scene: the runtime settings' step.
 		float GetFixedTimestep() const { return std::max(m_RuntimeSettings.FixedTimestep, 1e-4f); }
+		// The fixed steps (OnFixedUpdate, then physics) the running scene has run since it started, with or without physics.
+		uint64_t GetFixedStepCount() const { return m_FixedStepCount; }
+		// A 64-bit hash of the running scene's simulation (Architecture.md section 8): the fixed step count, PhysicsScene's
+		// hash of its bodies and characters, then each character's step positions in UUID order. The step accumulator is
+		// left out, so a scene run at different frame rates hashes alike at one step count. Without physics, the step count
+		// alone.
+		uint64_t ComputePhysicsStateHash() const;
+		// The hash taken right after the fixed step SceneRuntimeSettings::PhysicsHashStep (the latest time that step ran, when
+		// a snapshot went back before it); empty before that step and when none was asked for.
+		std::optional<uint64_t> GetRecordedPhysicsHash() const { return m_RecordedPhysicsHash; }
+		// Saves the running scene's simulation between frames (ScenePhysicsSnapshot): the physics world's state
+		// (PhysicsScene::SaveState), the fixed step count, the accumulator, and what the scene exchanged with each body and
+		// character. Physics component changes not applied yet are applied first. Fails when the scene runs no physics.
+		[[nodiscard]] Result<ScenePhysicsSnapshot> SavePhysicsState();
+		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, and the
+		// entities of bodies and characters where they were then, so the steps that follow run as they did. Fails, changing
+		// nothing, when the scene runs no physics, the snapshot is of another run, or a body, joint or character was added,
+		// removed or rebuilt since. What the simulation does not change (scripts' state, entities without bodies, settings)
+		// stays as it is.
+		[[nodiscard]] Result<void> RestorePhysicsState(ScenePhysicsSnapshot const& snapshot);
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }
 		// The sounds while running; null otherwise or when audio is unavailable.
@@ -325,7 +393,13 @@ namespace Strada
 		void StartPhysics();
 		void StopPhysics();
 		void UpdatePhysics(float deltaTime);
+		// One fixed step: OnFixedUpdate, the physics changes it made, the syncs to physics, the physics step and the syncs back;
+		// then it is counted (and the hash recorded after SceneRuntimeSettings::PhysicsHashStep).
+		void RunFixedStep(float step);
 		void RebuildChangedBodies();
+		// The entities with a body (or a character), in the order of their UUIDs: physics is called in this order.
+		std::vector<entt::entity> const& GetBodyOrder();
+		std::vector<entt::entity> const& GetCharacterOrder();
 		// Creates, rebuilds or removes the body of an entity after its components changed; true when its body changed.
 		bool UpdateBody(entt::entity handle);
 		void SyncBodiesFromTransforms(float stepDelta);
@@ -443,7 +517,16 @@ namespace Strada
 		SceneRuntimeSettings m_RuntimeSettings;
 		Scope<PhysicsScene> m_Physics;
 		float m_PhysicsAccumulator = 0.0f;
+		uint64_t m_FixedStepCount = 0;
+		std::optional<uint64_t> m_RecordedPhysicsHash;
+		// While running: the state of the sequence GenerateUniqueID takes UUIDs from.
+		uint64_t m_RuntimeIDSequence = 0;
 		std::unordered_map<entt::entity, BodyState> m_Bodies;
+		// The keys of m_Bodies and m_Characters in the order of their UUIDs, made again after an entry was added or removed.
+		std::vector<entt::entity> m_BodyOrder;
+		std::vector<entt::entity> m_CharacterOrder;
+		bool m_BodyOrderChanged = false;
+		bool m_CharacterOrderChanged = false;
 		// Entities whose physics components changed while running; their bodies are rebuilt before the next step.
 		std::unordered_set<entt::entity> m_ChangedBodies;
 		// A joint or a body changed: the joints are made again before the next step.

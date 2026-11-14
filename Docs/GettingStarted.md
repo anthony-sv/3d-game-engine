@@ -230,6 +230,7 @@ them. Prism Break has no C# scripts and runs at once.
 | `--test` | Run headless with a fixed time step until the scripts finish testing, quit or time out |
 | `--timeout <seconds>` | Game time a test run may take (default 60; only with `--test`) |
 | `--timestep <seconds>` | Advance the game by this time each frame (default: the frame's real time; 1/60 in tests) |
+| `--hash-step <count>` | End the test summary with the physics state hash after this fixed step instead of the last one, so runs at different time steps compare (only with `--test`) |
 | `--headless` | Run without a window, rendering or sound |
 | `--frames <count>` | Exit after this many frames |
 | `--screenshot <path>` | Save a PNG of the window (on the last frame with `--frames`, otherwise frame 60) |
@@ -527,7 +528,8 @@ describes it; graphs report checks with `TestReporter` nodes, as Prism Break's t
 
    A test run uses a fixed time step (1/60 s, `--timestep` changes it) and ends when the scripts call
    `TestReporter.Finish()`, quit, or reach the time limit (60 s of game time, `--timeout` changes it). It prints
-   "Tests passed: 1 check in <n> frames", or "Tests failed: ..." with what failed.
+   "Tests passed: 1 check in <n> frames; physics state <hash> at step <n>", or "Tests failed: ..." with what failed.
+   The hash sums up the simulation after that fixed step: two runs of the same game give the same one.
 6. Read the exit code: the number of failures (failed checks and script exceptions, plus one when the run did not
    finish), at most 100. 0 means every check passed, which suits continuous integration. A game that cannot start
    exits with 1.

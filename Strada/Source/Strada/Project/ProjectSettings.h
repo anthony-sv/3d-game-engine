@@ -68,6 +68,10 @@ namespace Strada
 	{
 		// Seconds per physics step.
 		float FixedTimestep = 1.0f / 60.0f;
+		// Physics steps a frame runs at most: slower frames slow the game down instead of falling further behind.
+		uint32_t MaxStepsPerFrame = 8;
+		// Collision steps each physics step is divided into (1 to MaxPhysicsCollisionSteps).
+		uint32_t CollisionSteps = 1;
 		// Physics layer names; RigidBodyComponent::Layer indexes them. At most MaxPhysicsLayers.
 		std::vector<std::string> Layers = {"Default"};
 		// Layer pairs whose bodies do not collide (every other pair collides).
@@ -82,8 +86,14 @@ namespace Strada
 		static constexpr std::string_view Name = "Physics";
 		static constexpr auto Fields = std::make_tuple(
 			Field("FixedTimestep", &ProjectPhysicsSettings::FixedTimestep)
-				.Range(0.001, 0.1)
+				.Range(0.0005, 0.1)
 				.Doc("Seconds per physics step; scripts' OnFixedUpdate runs once per step."),
+			Field("MaxStepsPerFrame", &ProjectPhysicsSettings::MaxStepsPerFrame)
+				.Range(1.0, 64.0)
+				.Doc("Physics steps a frame runs at most; slower frames slow the game down instead of falling further behind."),
+			Field("CollisionSteps", &ProjectPhysicsSettings::CollisionSteps)
+				.Range(1.0, 4.0)
+				.Doc("Collision steps each physics step is divided into; more resolve fast or stiff bodies better, at their cost."),
 			Field("Layers", &ProjectPhysicsSettings::Layers).Doc("Names of the physics layers (at most 16); RigidBody.Layer indexes them."),
 			Field("IgnoredCollisions", &ProjectPhysicsSettings::IgnoredCollisions)
 				.Doc("Pairs of layer indices whose bodies do not collide; every other pair collides."));
@@ -121,6 +131,7 @@ namespace Strada
 	// non-empty layer names and ignored pairs naming existing layers.
 	[[nodiscard]] Result<void> ValidateProjectSettings(ProjectSettings const& settings);
 
-	// What a scene's runtime takes from the project: the physics step rate, layers and ignored layer pairs.
+	// What a scene's runtime takes from the project: the physics step, steps per frame and collision steps, layers and
+	// ignored layer pairs.
 	SceneRuntimeSettings MakeSceneRuntimeSettings(ProjectSettings const& settings);
 }

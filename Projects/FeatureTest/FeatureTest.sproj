@@ -18,6 +18,8 @@
 		},
 		"Physics": {
 			"FixedTimestep": 0.01666666753590107,
+			"MaxStepsPerFrame": 8,
+			"CollisionSteps": 1,
 			"Layers": [
 				"Default",
 				"Movers",

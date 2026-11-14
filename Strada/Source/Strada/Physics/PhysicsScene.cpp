@@ -32,6 +32,7 @@
 #include <Jolt/Physics/Constraints/PointConstraint.h>
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/StateRecorderImpl.h>
 
 #include <glm/gtc/constants.hpp>
 
@@ -70,6 +71,28 @@ namespace Strada
 		bool IsFinite(glm::quat const& value)
 		{
 			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z) && std::isfinite(value.w);
+		}
+
+		void AddToHash(HashBuilder& hash, JPH::Vec3Arg value)
+		{
+			hash.AddFloat(value.GetX());
+			hash.AddFloat(value.GetY());
+			hash.AddFloat(value.GetZ());
+		}
+
+		void AddToHash(HashBuilder& hash, JPH::QuatArg value)
+		{
+			hash.AddFloat(value.GetX());
+			hash.AddFloat(value.GetY());
+			hash.AddFloat(value.GetZ());
+			hash.AddFloat(value.GetW());
+		}
+
+		void AddToHash(HashBuilder& hash, glm::vec3 const& value)
+		{
+			hash.AddFloat(value.x);
+			hash.AddFloat(value.y);
+			hash.AddFloat(value.z);
 		}
 
 		// Whether every component's magnitude is within MaxPhysicsExtent (false for NaN).
@@ -424,6 +447,91 @@ namespace Strada
 				return std::exchange(m_Events, {});
 			}
 
+			// The contacts it reported, those of sleeping bodies, and the events not taken yet. Between steps.
+			void SaveState(JPH::StateRecorderImpl& stream) const
+			{
+				std::scoped_lock const lock(m_Mutex);
+				auto const writePairs = [&stream](auto const& pairs)
+				{
+					stream.Write(static_cast<uint64_t>(pairs.size()));
+					for (auto const& [pair, trigger] : pairs)
+					{
+						stream.Write(pair);
+						stream.Write(trigger);
+					}
+				};
+				writePairs(m_ActivePairs);
+				writePairs(m_DormantPairs);
+				stream.Write(static_cast<uint64_t>(m_PairStates.size()));
+				for (auto const& [key, state] : m_PairStates)
+				{
+					stream.Write(key);
+					stream.Write(state);
+				}
+				stream.Write(static_cast<uint64_t>(m_Events.size()));
+				for (ContactEvent const& event : m_Events)
+				{
+					stream.Write(event);
+				}
+				stream.Write(static_cast<uint64_t>(m_StepEventsBegin));
+			}
+
+			// What SaveState wrote; false (changing nothing) when the stream does not hold it.
+			bool RestoreState(JPH::StateRecorderImpl& stream)
+			{
+				std::unordered_map<JPH::SubShapeIDPair, bool, SubShapePairHash> active;
+				std::unordered_map<JPH::SubShapeIDPair, bool, SubShapePairHash> dormant;
+				std::unordered_map<BodyPairKey, PairState, BodyPairKeyHash> states;
+				std::vector<ContactEvent> events;
+				uint64_t eventsBegin = 0;
+				auto const readCount = [&stream]
+				{
+					uint64_t count = 0;
+					stream.Read(count);
+					return stream.IsFailed() ? 0 : count;
+				};
+				auto const readPairs = [&stream, &readCount](auto& pairs)
+				{
+					for (uint64_t i = 0, count = readCount(); i < count && !stream.IsFailed(); i++)
+					{
+						JPH::SubShapeIDPair pair;
+						bool trigger = false;
+						stream.Read(pair);
+						stream.Read(trigger);
+						pairs.emplace(pair, trigger);
+					}
+				};
+				readPairs(active);
+				readPairs(dormant);
+				for (uint64_t i = 0, count = readCount(); i < count && !stream.IsFailed(); i++)
+				{
+					BodyPairKey key(JPH::BodyID(), JPH::BodyID(), false);
+					PairState state;
+					stream.Read(key);
+					stream.Read(state);
+					states.emplace(key, state);
+				}
+				for (uint64_t i = 0, count = readCount(); i < count && !stream.IsFailed(); i++)
+				{
+					ContactEvent event;
+					stream.Read(event);
+					events.push_back(event);
+				}
+				stream.Read(eventsBegin);
+				if (stream.IsFailed() || eventsBegin > events.size())
+				{
+					return false;
+				}
+				std::scoped_lock const lock(m_Mutex);
+				m_ActivePairs = std::move(active);
+				m_DormantPairs = std::move(dormant);
+				m_RemovedPairs.clear();
+				m_PairStates = std::move(states);
+				m_Events = std::move(events);
+				m_StepEventsBegin = static_cast<size_t>(eventsBegin);
+				return true;
+			}
+
 		private:
 			struct PairState
 			{
@@ -485,7 +593,7 @@ namespace Strada
 			// Read during steps (no changes while Jolt runs).
 			std::vector<ColliderMaterial> const& m_Materials;
 			CharacterExclusions const& m_Exclusions;
-			std::mutex m_Mutex;
+			mutable std::mutex m_Mutex;
 			// Sub-shape pairs in contact, and whether the contact is a trigger contact.
 			std::unordered_map<JPH::SubShapeIDPair, bool, SubShapePairHash> m_ActivePairs;
 			// Contacts of sleeping bodies, which Jolt no longer reports.
@@ -771,12 +879,17 @@ namespace Strada
 	{
 		explicit Data(PhysicsWorldSettings const& settings)
 			: LayerCount(std::clamp<uint32_t>(settings.LayerCount, 1, static_cast<uint32_t>(MaxPhysicsLayers))),
+			  CollisionSteps(std::clamp<uint32_t>(settings.CollisionSteps, 1, MaxPhysicsCollisionSteps)),
 			  LayerPairs(settings),
 			  Contacts(Materials, Exclusions)
 		{
 		}
 
 		uint32_t LayerCount;
+		uint32_t CollisionSteps;
+		// Which world a snapshot is of, and how far its structure has changed since one was saved.
+		UUID World;
+		uint64_t Structure = 0;
 		BroadPhaseLayers BroadPhase;
 		ObjectVsBroadPhaseFilter ObjectVsBroadPhase;
 		LayerPairFilter LayerPairs;
@@ -787,13 +900,14 @@ namespace Strada
 		JPH::TempAllocatorImpl TempAllocator{TempAllocatorSize};
 		// After the listeners and filters it references.
 		JPH::PhysicsSystem System;
-		std::unordered_map<UUID, BodyRecord> Bodies;
+		// Ordered by entity, like the characters: what goes through them reaches Jolt in the same order on every run.
+		std::map<UUID, BodyRecord> Bodies;
 		struct JointRecord
 		{
 			JPH::Ref<JPH::TwoBodyConstraint> Constraint;
 			UUID ConnectedEntity = UUID::Invalid();
 		};
-		std::unordered_map<UUID, JointRecord> Joints;
+		std::map<UUID, JointRecord> Joints;
 		// Ordered by entity: characters move one after the other, in the same order on every run. After the system, whose
 		// bodies their destructors remove.
 		std::map<UUID, CharacterRecord> Characters;
@@ -809,6 +923,17 @@ namespace Strada
 		{
 			auto const it = Characters.find(entity);
 			return it != Characters.end() ? &it->second : nullptr;
+		}
+
+		// The entity whose body it is (bodies' user data); invalid for no body.
+		UUID GetBodyEntity(JPH::BodyID body) const
+		{
+			if (body.IsInvalid())
+			{
+				return UUID::Invalid();
+			}
+			JPH::BodyLockRead const lock(System.GetBodyLockInterface(), body);
+			return lock.Succeeded() ? UUID(lock.GetBody().GetUserData()) : UUID::Invalid();
 		}
 
 		// Finds what the character touches where it is, and what it stands on.
@@ -992,6 +1117,7 @@ namespace Strada
 			return MakeError("entity {} has no colliders", desc.Entity);
 		}
 		Data& data = *m_Data;
+		data.Structure++;
 		// Characters standing on the body it replaces stand on the new one.
 		BodyRecord const* const replaced = data.Find(desc.Entity);
 		std::vector<UUID> const standing = replaced != nullptr ? data.FindCharactersStandingOn(replaced->Id) : std::vector<UUID>();
@@ -1135,6 +1261,7 @@ namespace Strada
 		{
 			return;
 		}
+		data.Structure++;
 		// The body's joints go first, whichever side of them it is on.
 		for (auto joint = data.Joints.begin(); joint != data.Joints.end();)
 		{
@@ -1173,6 +1300,7 @@ namespace Strada
 	{
 		RemoveJoint(desc.Entity);
 		Data& data = *m_Data;
+		data.Structure++;
 		BodyRecord const* const body = data.Find(desc.Entity);
 		if (body == nullptr)
 		{
@@ -1328,6 +1456,7 @@ namespace Strada
 		{
 			return;
 		}
+		data.Structure++;
 		data.System.RemoveConstraint(it->second.Constraint);
 		// The bodies it held may now fall.
 		JPH::BodyID const ids[] = {it->second.Constraint->GetBody1()->GetID(), it->second.Constraint->GetBody2()->GetID()};
@@ -1354,6 +1483,7 @@ namespace Strada
 	Result<void> PhysicsScene::AddCharacter(CharacterDesc const& desc)
 	{
 		Data& data = *m_Data;
+		data.Structure++;
 		// An entity has a body or a character.
 		RemoveBody(desc.Entity);
 		float const values[] = {desc.Radius, desc.Height,    desc.StepHeight,   desc.MaxSlopeAngle,
@@ -1478,6 +1608,7 @@ namespace Strada
 		{
 			return;
 		}
+		data.Structure++;
 		JPH::BodyID const innerBody = it->second.Character->GetInnerBodyID();
 		// The character removes its inner body, whose contacts end; characters standing on it fall.
 		data.Characters.erase(it);
@@ -1554,7 +1685,8 @@ namespace Strada
 		state.Velocity = it->second.Velocity;
 		state.IsGrounded = character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
 		state.GroundNormal = supported ? Jolt::ToGlm(character.GetGroundNormal()) : glm::vec3(0.0f);
-		state.GroundEntity = supported ? UUID(character.GetGroundUserData()) : UUID::Invalid();
+		// From the body, which a restored state holds (the ground's user data is not saved).
+		state.GroundEntity = supported ? m_Data->GetBodyEntity(character.GetGroundBodyID()) : UUID::Invalid();
 		state.GroundDisplacement = it->second.GroundDisplacement;
 		return state;
 	}
@@ -1577,7 +1709,8 @@ namespace Strada
 		{
 			data.StepCharacter(entity, record, deltaTime);
 		}
-		JPH::EPhysicsUpdateError const error = data.System.Update(deltaTime, 1, &data.TempAllocator, &Jolt::GetJobSystem());
+		JPH::EPhysicsUpdateError const error =
+			data.System.Update(deltaTime, static_cast<int>(data.CollisionSteps), &data.TempAllocator, &Jolt::GetJobSystem());
 		if (error != JPH::EPhysicsUpdateError::None)
 		{
 			ST_CORE_WARN("The physics step ran out of space (error flags {:#x}); some contacts were dropped", static_cast<uint32_t>(error));
@@ -1618,6 +1751,114 @@ namespace Strada
 	std::vector<ContactEvent> PhysicsScene::TakeContactEvents()
 	{
 		return m_Data->Contacts.TakeEvents();
+	}
+
+	uint32_t PhysicsScene::GetCollisionSteps() const
+	{
+		return m_Data->CollisionSteps;
+	}
+
+	PhysicsSnapshot PhysicsScene::SaveState() const
+	{
+		Data const& data = *m_Data;
+		JPH::StateRecorderImpl recorder;
+		data.System.SaveState(recorder, JPH::EStateRecorderState::All);
+		// The system does not save characters; they go in the order of their entities.
+		for (auto const& [entity, record] : data.Characters)
+		{
+			recorder.Write(record.Velocity);
+			recorder.Write(record.Walk);
+			recorder.Write(record.GroundDisplacement);
+			record.Character->SaveState(recorder);
+		}
+		data.Contacts.SaveState(recorder);
+		PhysicsSnapshot snapshot;
+		snapshot.m_World = data.World;
+		snapshot.m_Structure = data.Structure;
+		snapshot.m_State = recorder.GetData();
+		return snapshot;
+	}
+
+	Result<void> PhysicsScene::RestoreState(PhysicsSnapshot const& snapshot)
+	{
+		Data& data = *m_Data;
+		if (snapshot.m_World != data.World)
+		{
+			return Error{"the snapshot is of another physics world"};
+		}
+		if (snapshot.m_Structure != data.Structure)
+		{
+			return Error{"bodies, joints or characters were added, removed or replaced since the snapshot"};
+		}
+		JPH::StateRecorderImpl recorder;
+		recorder.WriteBytes(snapshot.m_State.data(), snapshot.m_State.size());
+		recorder.Rewind();
+		// The structure is the one saved, so Jolt finds every body, contact and constraint it saved, and the characters are
+		// the ones saved, in the same order.
+		bool restored = data.System.RestoreState(recorder);
+		for (auto& [entity, record] : data.Characters)
+		{
+			if (!restored)
+			{
+				break;
+			}
+			recorder.Read(record.Velocity);
+			recorder.Read(record.Walk);
+			recorder.Read(record.GroundDisplacement);
+			record.Character->RestoreState(recorder);
+			restored = !recorder.IsFailed();
+		}
+		restored = restored && data.Contacts.RestoreState(recorder) && !recorder.IsFailed();
+		ST_CORE_ASSERT(restored, "A physics snapshot of the same structure could not be restored");
+		if (!restored)
+		{
+			return Error{"the physics snapshot could not be restored"};
+		}
+		return {};
+	}
+
+	uint64_t PhysicsScene::GetStructureVersion() const
+	{
+		return m_Data->Structure;
+	}
+
+	uint64_t PhysicsScene::ComputeStateHash() const
+	{
+		Data const& data = *m_Data;
+		HashBuilder hash;
+		JPH::BodyLockInterfaceLocking const& locks = data.System.GetBodyLockInterface();
+		hash.AddUInt64(data.Bodies.size());
+		for (auto const& [entity, record] : data.Bodies)
+		{
+			hash.AddUInt64(entity.GetValue());
+			hash.AddUInt32(static_cast<uint32_t>(record.Type));
+			JPH::BodyLockRead const lock(locks, record.Id);
+			hash.AddBool(lock.Succeeded());
+			if (!lock.Succeeded())
+			{
+				continue;
+			}
+			JPH::Body const& body = lock.GetBody();
+			AddToHash(hash, body.GetPosition());
+			AddToHash(hash, body.GetRotation());
+			AddToHash(hash, body.GetLinearVelocity());
+			AddToHash(hash, body.GetAngularVelocity());
+			hash.AddBool(body.IsActive());
+		}
+		hash.AddUInt64(data.Characters.size());
+		for (auto const& [entity, record] : data.Characters)
+		{
+			JPH::CharacterVirtual const& character = *record.Character;
+			hash.AddUInt64(entity.GetValue());
+			AddToHash(hash, character.GetPosition());
+			AddToHash(hash, character.GetLinearVelocity());
+			AddToHash(hash, record.Velocity);
+			AddToHash(hash, record.Walk);
+			AddToHash(hash, record.GroundDisplacement);
+			hash.AddUInt32(static_cast<uint32_t>(character.GetGroundState()));
+			hash.AddUInt64(data.GetBodyEntity(character.GetGroundBodyID()).GetValue());
+		}
+		return hash.GetHash();
 	}
 
 	glm::vec3 PhysicsScene::GetGravity() const

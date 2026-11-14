@@ -15,6 +15,7 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Project/ProjectSettings.h"
 #include "Strada/Scene/Scene.h"
 
 #include <doctest/doctest.h>
@@ -870,6 +871,49 @@ TEST_CASE("ProjectSettingsPanel: edits through the panel write the project file 
 	expectedFile.replace(scene, ownScene.size(), fixture.Context.GetProject()->GetSettings().StartScene.ToString());
 	CHECK(written == expectedFile);
 	CHECK(fixture.Open);
+}
+
+TEST_CASE("ProjectSettingsPanel: the physics step settings are fields of the panel, written within their ranges")
+{
+	ProjectSettingsFixture fixture;
+	FieldTableDriver const& driver = fixture.Driver;
+	fixture.CreateProject(Json::object());
+	ImGuiID const physics = driver.GetFieldId("Physics");
+	// A number field takes typing after a double click.
+	auto const typeNumber = [&fixture, &driver, physics](char const* name, char const* text)
+	{
+		std::optional<ImVec2> const point = driver.Find(ImHashStr("##value", 0, driver.GetFieldId(name, physics)), driver.GetValueX());
+		REQUIRE(point);
+		fixture.Gui.Click(*point, fixture.Draw, 2);
+		fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Draw);
+		fixture.Gui.Type(text);
+		fixture.Gui.Frame(fixture.Draw);
+		fixture.Gui.Press(ImGuiKey_Enter, fixture.Draw);
+		fixture.Gui.Frame(fixture.Draw);
+	};
+	typeNumber("MaxStepsPerFrame", "16");
+	typeNumber("CollisionSteps", "3");
+	typeNumber("FixedTimestep", "0.0005");
+	fixture.Gui.Frame(fixture.Draw);
+	fixture.Panel.Flush(fixture.Operations);
+	ProjectPhysicsSettings const& written = fixture.Context.GetProject()->GetSettings().Physics;
+	CHECK(written.MaxStepsPerFrame == 16u);
+	CHECK(written.CollisionSteps == 3u);
+	CHECK(written.FixedTimestep == doctest::Approx(0.0005f));
+	Json const file = Json::parse(fixture.ReadProjectFile());
+	CHECK(file["Project"]["Physics"]["MaxStepsPerFrame"] == 16);
+	CHECK(file["Project"]["Physics"]["CollisionSteps"] == 3);
+
+	// Past their ends the values stay within what a project takes.
+	typeNumber("MaxStepsPerFrame", "500");
+	typeNumber("CollisionSteps", "0");
+	fixture.Gui.Frame(fixture.Draw);
+	fixture.Panel.Flush(fixture.Operations);
+	CHECK(written.MaxStepsPerFrame >= 1u);
+	CHECK(written.MaxStepsPerFrame <= 64u);
+	CHECK(written.CollisionSteps >= 1u);
+	CHECK(written.CollisionSteps <= 4u);
+	CHECK(ValidateProjectSettings(fixture.Context.GetProject()->GetSettings()).IsOk());
 }
 
 TEST_CASE("ProjectSettingsPanel: removing a layer keeps the ignored pairs on their indices, and a layer added is named and stops at 16")

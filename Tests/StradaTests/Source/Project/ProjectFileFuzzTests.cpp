@@ -55,6 +55,11 @@ TEST_CASE("Project: damaged project files are refused, or load, save again and r
 		{
 			scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
 		}
+		// A long frame runs as many steps as the settings allow, each in their collision steps.
+		uint64_t const steps = scene.GetFixedStepCount();
+		scene.OnUpdateRuntime(Timestep(0.25f));
+		CHECK(scene.GetFixedStepCount() - steps <= settings.GetValue().Physics.MaxStepsPerFrame);
+		CHECK(scene.GetFixedStepCount() > steps);
 		scene.OnRuntimeStop();
 	}
 	CHECK(loaded > 0);
