@@ -2,6 +2,7 @@
 
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/Result.h"
+#include "Strada/Math/Curve.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <glm/glm.hpp>
@@ -17,17 +18,15 @@
 #include <vector>
 
 // The curve model of a Flow.Timeline's Timeline setting (spec-slice3 §3.8.2, §6.3): reading it with the scripting runtime's
-// rules and words, writing its canonical form, evaluating a track for drawing (§3.8.3; the runtime is the semantics), and the
-// edits Details and the drawer's curve view make. Pure functions of values: no ImGui, no state; any thread.
+// rules and words, writing its canonical form, evaluating a track for drawing through the engine's curve semantics
+// (Strada/Math/Curve.h, Docs/Architecture.md §6.5), and the edits Details and the drawer's curve view make. The setting's
+// format inside .sgraph documents is the timeline's own and stays as it is. Pure functions of values: no ImGui, no state; any
+// thread.
 namespace Strada
 {
-	// How the segment from a curve key to the next one interpolates.
-	enum class VisualScriptKeyInterpolation : uint8_t
-	{
-		Cubic = 0,
-		Linear,
-		Constant
-	};
+	// How the segment from a curve key to the next one interpolates: the engine's curve interpolation, whose names the
+	// setting writes.
+	using VisualScriptKeyInterpolation = CurveInterpolation;
 
 	struct VisualScriptTimelineKey
 	{
@@ -41,6 +40,26 @@ namespace Strada
 		std::optional<glm::vec4> Out;
 
 		bool operator==(VisualScriptTimelineKey const& other) const = default;
+	};
+
+	// A timeline track's keys as the engine's curve algorithms read them: per component of Value, In and Out.
+	template<>
+	struct CurveKeyTraits<VisualScriptTimelineKey>
+	{
+		static float GetTime(VisualScriptTimelineKey const& key) { return key.Time; }
+		static float GetValue(VisualScriptTimelineKey const& key, uint32_t component)
+		{
+			return key.Value[static_cast<glm::length_t>(component)];
+		}
+		static CurveInterpolation GetInterpolation(VisualScriptTimelineKey const& key) { return key.Interpolation; }
+		static std::optional<float> GetIn(VisualScriptTimelineKey const& key, uint32_t component)
+		{
+			return key.In ? std::optional<float>((*key.In)[static_cast<glm::length_t>(component)]) : std::nullopt;
+		}
+		static std::optional<float> GetOut(VisualScriptTimelineKey const& key, uint32_t component)
+		{
+			return key.Out ? std::optional<float>((*key.Out)[static_cast<glm::length_t>(component)]) : std::nullopt;
+		}
 	};
 
 	struct VisualScriptTimelineTrack
@@ -129,10 +148,11 @@ namespace Strada
 	// A name no track has: base, else base followed by 2, 3, ...
 	[[nodiscard]] std::string MakeVisualScriptTimelineTrackName(VisualScriptTimeline const& timeline, std::string_view base);
 
-	// §3.8.3's evaluation, for drawing: the track's value at a time (in double, as floats). No key: the type's default (0,
-	// zero vectors, white); the components a track does not have are 0. An event track evaluates to 0.
+	// §3.8.3's evaluation, for drawing: the track's value at a time, from the engine's curve semantics per component
+	// (EvaluateCurveKeys, in double, as floats). No key: the type's default (0, zero vectors, white); the components a track
+	// does not have are 0. An event track evaluates to 0.
 	[[nodiscard]] glm::vec4 EvaluateVisualScriptTimelineTrack(VisualScriptTimelineTrack const& track, double time);
-	// A curve key's slopes with auto tangents resolved as the runtime resolves them: (In, Out).
+	// A curve key's slopes with auto tangents resolved as the runtime resolves them (GetCurveKeySlopes, as floats): (In, Out).
 	[[nodiscard]] std::pair<glm::vec4, glm::vec4> GetVisualScriptTimelineKeyTangents(VisualScriptTimelineTrack const& track, uint32_t key);
 
 	// A value of a curve track as its type's canonical literal (a number, or an array of Components numbers), and back;

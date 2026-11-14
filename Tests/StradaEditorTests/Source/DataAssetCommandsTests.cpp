@@ -6,6 +6,7 @@
 #include "Editor/EditorOperations.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Core/FileSystem.h"
 
@@ -347,4 +348,58 @@ TEST_CASE("DataAssetCommands: a type whose commands would repeat a built-in doma
 	REQUIRE(DataAssetRegistry::Unregister(graph.GetValue()).IsOk());
 	REQUIRE(registered.IsError());
 	CHECK(registered.GetError() == "command 'graph.create' is already registered");
+}
+
+TEST_CASE("DataAssetCommands: the engine's Curve has curve.create, get and set, documented, and a set of keys out of order is refused")
+{
+	DataAssetCommandFixture fixture;
+	CommandDefinition const* create = fixture.Registry.Find("curve.create");
+	REQUIRE(create != nullptr);
+	CHECK(create->Description.find(".scurve") != std::string::npos);
+	REQUIRE(fixture.Registry.Find("curve.set") != nullptr);
+	CHECK(fixture.Registry.Find("curve.get")->Parameters["required"] == Json::array({"curve"}));
+	CHECK(create->Parameters["properties"]["fields"]["properties"]["Keys"]["description"].get<std::string>().find(
+			  "at most 1024 elements") != std::string::npos);
+	Json const& types = fixture.Registry.Find("asset.list")->Parameters["properties"]["type"]["enum"];
+	CHECK(std::find(types.begin(), types.end(), Json("Curve")) != types.end());
+	Result<std::string> const reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
+	REQUIRE(reference.IsOk());
+	for (char const* name : {"curve.create", "curve.get", "curve.set"})
+	{
+		CAPTURE(name);
+		CHECK(reference.GetValue().find(std::string("`") + name + "`") != std::string::npos);
+	}
+
+	Json const keys = Json::parse(R"([{ "Time": 0, "Value": 0, "Interpolation": "Linear" }, { "Time": 2, "Value": 4 }])");
+	Json const created = fixture.Ok("curve.create", Json::object({{"path", "Curves/Ramp.scurve"}, {"fields", {{"Keys", keys}}}}));
+	CHECK(created["curve"]["type"] == "Curve");
+	CHECK(created["fields"]["PostExtrapolation"] == "Hold");
+	CHECK(
+		created["fields"]["Keys"][1] ==
+		Json::parse(R"({ "Time": 2.0, "Value": 4.0, "Interpolation": "Cubic", "HasIn": false, "In": 0.0, "HasOut": false, "Out": 0.0 })"));
+	std::string const id = created["curve"]["id"].get<std::string>();
+	AssetHandle const handle = AssetManager::FindByPath("Curves/Ramp.scurve");
+	Ref<TypedDataAsset<Curve>> const curve = AssetManager::GetAsset<TypedDataAsset<Curve>>(handle);
+	REQUIRE(curve != nullptr);
+	CHECK(curve->GetData().Evaluate(1.0) == 2.0f);
+
+	// One step, undone and redone, which the next lookup's evaluation follows.
+	std::string const before = fixture.ReadFile("Curves/Ramp.scurve");
+	fixture.Ok("curve.set", Json::object({{"curve", id}, {"fields", {{"PostExtrapolation", "Linear"}}}}));
+	CHECK(fixture.Ok("editor.status")["undo"] == "Edit Curve");
+	CHECK(curve->GetData().Evaluate(3.0) == 6.0f);
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Curve");
+	CHECK(fixture.ReadFile("Curves/Ramp.scurve") == before);
+	CHECK(curve->GetData().Evaluate(3.0) == 4.0f);
+	CHECK(fixture.Ok("editor.redo")["redone"] == "Edit Curve");
+	CHECK(curve->GetData().Evaluate(3.0) == 6.0f);
+
+	// Keys out of order are the curve's own rule (Validate), refused with InvalidParams; nothing is written.
+	std::string const edited = fixture.ReadFile("Curves/Ramp.scurve");
+	CommandError const unordered = fixture.Fails(
+		"curve.set",
+		Json::object({{"curve", id}, {"fields", {{"Keys", Json::parse(R"([{ "Time": 1, "Value": 0 }, { "Time": 0, "Value": 1 }])")}}}}));
+	CHECK(unordered.Code == AutomationErrorCode::InvalidParams);
+	CHECK(unordered.Message.find("Keys[1].Time: keys are in time order: 0 comes after 1") != std::string::npos);
+	CHECK(fixture.ReadFile("Curves/Ramp.scurve") == edited);
 }

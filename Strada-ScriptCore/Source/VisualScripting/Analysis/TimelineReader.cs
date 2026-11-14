@@ -197,7 +197,7 @@ internal sealed class TimelineReader
 		List<double> values = [];
 		List<double> inTangents = [];
 		List<double> outTangents = [];
-		List<TimelineInterpolation> interpolations = [];
+		List<CurveInterpolation> interpolations = [];
 		bool valid = true;
 		if (keys is { } list)
 		{
@@ -225,7 +225,7 @@ internal sealed class TimelineReader
 	}
 
 	private bool ReadKey(JsonElement key, string path, double length, VisualType? type, int components, List<double> times, List<double> values,
-		List<double> inTangents, List<double> outTangents, List<TimelineInterpolation> interpolations)
+		List<double> inTangents, List<double> outTangents, List<CurveInterpolation> interpolations)
 	{
 		if (key.ValueKind != JsonValueKind.Object)
 		{
@@ -235,7 +235,7 @@ internal sealed class TimelineReader
 		bool valid = true;
 		double? time = null;
 		JsonElement? value = null;
-		TimelineInterpolation interpolation = TimelineInterpolation.Cubic;
+		CurveInterpolation interpolation = CurveInterpolation.Cubic;
 		JsonElement? inTangent = null;
 		JsonElement? outTangent = null;
 		foreach (JsonProperty member in key.EnumerateObject())
@@ -264,10 +264,10 @@ internal sealed class TimelineReader
 					value = member.Value;
 					break;
 				case "Interpolation":
-					int choice = JsonText.TryGetString(member.Value, out string? text) ? Array.IndexOf(Enum.GetNames<TimelineInterpolation>(), text) : -1;
+					int choice = JsonText.TryGetString(member.Value, out string? text) ? Array.IndexOf(Enum.GetNames<CurveInterpolation>(), text) : -1;
 					if (choice >= 0)
 					{
-						interpolation = (TimelineInterpolation)choice;
+						interpolation = (CurveInterpolation)choice;
 					}
 					else
 					{

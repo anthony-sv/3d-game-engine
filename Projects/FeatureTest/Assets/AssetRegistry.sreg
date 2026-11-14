@@ -10,6 +10,11 @@
 			"Path": "Audio/Beep.wav"
 		},
 		{
+			"Handle": "15883878375939594718",
+			"Type": "Curve",
+			"Path": "Curves/Response.scurve"
+		},
+		{
 			"Handle": "8637659314558365517",
 			"Type": "Material",
 			"Path": "Materials/Painted.smat"

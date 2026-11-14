@@ -2,6 +2,7 @@
 #include "Strada/Asset/DataAsset.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/CurveAsset.h"
 #include "Strada/Core/FileSystem.h"
 
 #include <algorithm>
@@ -244,8 +245,8 @@ namespace Strada
 
 	bool DataAssetRegistry::AddEngineTypes()
 	{
-		// The engine's data asset types, one line each, sorted by name (it merges as a union), for example:
-		//   AddEngineType<Curve>(CurveAssetSpecification);
+		// The engine's data asset types, one line each, sorted by name (it merges as a union).
+		AddEngineType<Curve>(CurveAssetSpecification);
 		return true;
 	}
 

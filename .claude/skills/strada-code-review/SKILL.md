@@ -74,7 +74,9 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
 - A changed library entry, or a changed type `Tests/Data/VisualScripting/Editor/Library.json` holds, regenerates that
   fixture from the parity test's expected file in the same change.
 - The visual script editor's L2a and L3 include nothing of each other; the one exception is L3's
-  `VisualScriptCurveView` including L2a's `VisualScriptTimeline.h`.
+  `VisualScriptCurveView` including L2a's `VisualScriptTimeline.h` (to give the shared `Editor/UI` curve view the
+  timeline). The shared curve editor in `Editor/UI` (`CurveView`, `CurveEditor`, `CurveEditing`) includes nothing of the
+  visual script editor.
 - Portability no Windows build shows: elements are removed with `std::erase_if` or `std::remove_if`, never a
   hand-written move loop, and nothing is move-assigned to itself (libstdc++ and libc++ empty a self-moved string, MSVC
   does not); a nested struct with default member initializers held in a `std::optional` member and created with

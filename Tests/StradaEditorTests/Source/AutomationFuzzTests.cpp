@@ -528,8 +528,8 @@ namespace
 
 		// Parameters of the graph commands that combine as the commands expect most of the time, so their work is reached in a
 		// run's few rounds of each command: half of them name the state's script, graph.find gets one of query and references
-		// (each half the time when it had neither), graph.open selects elements of the sub-graph it shows (and a third of the
-		// time opens the state's script with no other parameter, which its many independent ones would refuse), graph.arrange and
+		// (each half the time when it had neither), graph.open selects elements of the sub-graph it shows (and half the time
+		// opens the state's script with no other parameter, which its many independent ones would refuse), graph.arrange and
 		// graph.copy name nodes and elements of one sub-graph and mostly no revision, graph.set mostly no revision,
 		// graph.close mostly closes one window, and graph.debug-panel is often called without a stop or a frame.
 		void AdjustGraphParameters(Json& params)
@@ -567,7 +567,9 @@ namespace
 					{{"references",
 				      Json::object({{"kind", "Variable"}, {"graph", m_State.Graph}, {"id", PickFrom(m_State.GraphVariables)}})}});
 			}
-			if (m_Command == "graph.open" && !m_State.Graph.empty() && m_Random.Pick(3) == 0)
+			// graph.open: half the time the state's script alone, since a run draws it only about a dozen times and its many
+			// independent members refuse most other draws.
+			if (m_Command == "graph.open" && !m_State.Graph.empty() && m_Random.Pick(2) == 0)
 			{
 				params = Json::object({{"graph", m_State.Graph}});
 			}

@@ -69,6 +69,9 @@ namespace Strada::ScriptEngineInternal
 		int32_t (*DestroyInstance)(uint64_t entity) = nullptr;
 		int32_t (*DestroyAllInstances)() = nullptr;
 		int32_t (*Invoke)(uint64_t entity, int32_t scriptEvent, float timeStep, uint64_t other) = nullptr;
+		// The data assets may have changed (DataAssetRegistry::GetEpoch moved): managed copies of their data (a curve's keys)
+		// read again on their next use (Docs/Architecture.md section 6.4, "Scripts: the managed pattern").
+		int32_t (*InvalidateDataAssets)() = nullptr;
 
 		// Visual scripts: documents are the content form of .sgraph files, variables the stored script field JSON. references
 		// is the bundle of the other graphs a document's nodes refer to; a length of 0 means none.
@@ -176,6 +179,9 @@ namespace Strada::ScriptEngineInternal
 	struct ScriptEngineData
 	{
 		HostFunctions Host;
+		// The data asset epoch (DataAssetRegistry::GetEpoch) the runtime's managed copies were last told of
+		// (SyncDataAssets).
+		uint64_t DataAssetEpoch = 0;
 		std::filesystem::path GameAssemblyPath;
 		std::vector<ScriptClassInfo> Classes;
 		Scene* SceneContext = nullptr;
@@ -224,6 +230,11 @@ namespace Strada::ScriptEngineInternal
 	// Tells the application that a script's code failed (the runtime logged why): ScriptHost::OnScriptException.
 	void ReportScriptException();
 	ScriptEvent ToScriptEvent(ContactEventType type);
+	// Before scripts run (the invokes of C# scripts and of graphs, and the debugger's requests, which may resume a graph):
+	// tells the runtime once that data assets may have changed
+	// when the registry's epoch moved since it was last told, so that a script sees an edit of a data asset on its next frame.
+	// Costs a comparison otherwise.
+	void SyncDataAssets(ScriptEngineData& data);
 
 	// Called whenever the runtime was asked to load or unload a game assembly: it then destroyed every graph instance and
 	// made every program stale (programs compile again from their documents when next used). Drops the node library,

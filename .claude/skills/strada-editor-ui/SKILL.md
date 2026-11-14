@@ -87,7 +87,12 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   panel with its own meaning for a key registers `ImGuiInputFlags_RouteFocused` every frame while it is drawn, even with
   nothing to act on, from a `static constexpr` chord list (`ContentBrowserPanel::FocusedChords`) that
   `FindClaimedEditingChords` also returns: the editing keys never run a claimed chord, and the Edit menu drops that
-  item's shortcut text (`GetEditShortcutText`) while the panel has the keyboard (`FindKeyboardWindow`). While a modal
+  item's shortcut text (`GetEditShortcutText`) while the panel has the keyboard (`FindKeyboardWindow`). A widget in a
+  child window of a panel (the `.scurve` curve editor in the inspector) claims its chords with
+  `UI::UpdateEditingChordClaim(chords)` (`Editor/UI/EditingChordClaims.h`) inside that child every frame it is drawn;
+  `FindClaimedEditingChords` returns them for the panel's root window, also while the widget's own popup is open (no
+  focused route takes a key then). Test it through the real `FindKeyboardWindow`, `HandleEditorEditingKeys` and
+  `DrawEditorEditingMenuItems` (CurveAssetEditorTests.cpp does). While a modal
   popup is open (`ImGui::GetTopMostPopupModal() != nullptr`) no editing key runs, Undo and Redo included, so nothing
   changes what the dialog acts on.
 - While the game has the input (`GameInputRouter`, the ImGui layer's input filter), ImGui receives no key presses but
@@ -140,6 +145,13 @@ for windows that exist once per open asset (Docs/Architecture.md §11.1):
   owner of its own, and gives the keyboard back to the canvas with Escape when no drag is in progress (a drag's Escape
   cancels it). Its pure model (`VisualScriptCurveView`: the view, hit testing and the gestures as intents) is tested
   without ImGui beside its L4 editor (`VisualScriptCurveEditor`).
+- Curves (keys over an input, with interpolation and slopes) are edited with the one curve editor
+  (Docs/Architecture.md §6.5): the pure `CurveView<TDocument>` and the widget `CurveEditor<TDocument>` in `Editor/UI`,
+  over a `CurveDocumentTraits<TDocument>` the host specializes with its document's reads, edits and domain, instantiated
+  once in the host's `.cpp` (which alone includes `CurveViewImpl.h` and `CurveEditorImpl.h`). The widget reports
+  `CurveEditorChange`s and the host commits them: the Timeline drawer through its widget commits, the `.scurve` drawer
+  (`CurveAssetEditor`) as data asset edits with a merge key per drag and per nudge run. A host in a panel claims the
+  widget's keys as focused routes of the widget's child window while it is drawn, as `CurveAssetEditor` does.
 - Match raw keys as exact chords with `ImGui::IsKeyChordPressed(chord, flags, ownerId)` (a plain `IsKeyPressed(C)`
   also fires on Ctrl+C). Claim editing keys that share a global chord (Delete, Ctrl+D, Ctrl+A) with
   `ImGui::Shortcut(chord, ImGuiInputFlags_RouteFocused)` every frame the window is drawn. Keep the keys and gestures in

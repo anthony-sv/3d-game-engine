@@ -53,6 +53,35 @@ public sealed class AssetProbe : Script
 	}
 }
 
+// Evaluates the curve asset Curves/Probe.scurve at Times every update, loaded by path and through its field Response (which
+// the engine tests set to it); the name gets the values' float bits ("Loaded=True;Same=True;Values=<bits>,..."), so that the
+// engine tests compare them with the engine's evaluator exactly as they were computed.
+public sealed class CurveProbe : Script
+{
+	internal static readonly float[] Times = [-1.5f, -0.25f, 0.0f, 0.1f, 0.25f, 0.375f, 0.5f, 0.7f, 0.9f, 1.0f, 1.3f, 2.6f];
+
+	public Curve? Response;
+
+	private Curve? m_Loaded;
+
+	protected override void OnCreate()
+	{
+		m_Loaded = Assets.Load<Curve>("Curves/Probe.scurve");
+	}
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		string[] values = new string[Times.Length];
+		for (int index = 0; index < Times.Length; index++)
+		{
+			float value = Response?.Evaluate(Times[index]) ?? float.NaN;
+			values[index] = BitConverter.SingleToUInt32Bits(value).ToString(CultureInfo.InvariantCulture);
+		}
+		Name = string.Create(CultureInfo.InvariantCulture,
+			$"Loaded={m_Loaded != null};Same={m_Loaded == Response};Values={string.Join(',', values)}");
+	}
+}
+
 // A script of the prefab the engine tests instantiate.
 public sealed class PrefabMember : Script
 {

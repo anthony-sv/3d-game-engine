@@ -88,8 +88,8 @@ internal sealed class VisualType
 	// The script field type of exposable types (spec section 3.3); None otherwise.
 	internal ScriptFieldType FieldType { get; set; }
 
-	// The engine asset type of concrete asset classes; None otherwise.
-	internal NativeAssetType AssetType { get; set; }
+	// The engine's name of the asset type of concrete asset classes (AssetTypes.GetTypeName); null otherwise.
+	internal string? AssetType { get; set; }
 
 	// Whether documents can hold values of the type (spec section 2.1).
 	internal bool HasLiteral { get; set; }

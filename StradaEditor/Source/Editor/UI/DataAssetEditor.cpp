@@ -2,6 +2,7 @@
 
 #include "Editor/Commands/SetDataAssetCommand.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/UI/CurveAssetEditor.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 
@@ -29,7 +30,8 @@ namespace Strada
 	DataAssetEditor::DataAssetEditor()
 	{
 		// The drawers of the engine's types that have one, one line per type, sorted by name:
-		//   SetDrawer("<Name>", &Draw<Name>);
+		//   SetDrawer("<Name>", <drawer>);
+		SetDrawer("Curve", CurveAssetEditor::MakeDrawer(CreateRef<CurveAssetEditor>()));
 	}
 
 	void DataAssetEditor::SetDrawer(std::string typeName, DataAssetDrawer drawer)

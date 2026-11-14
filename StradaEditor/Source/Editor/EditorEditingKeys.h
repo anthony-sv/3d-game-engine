@@ -12,7 +12,8 @@ struct ImGuiWindow;
 // which the editor and its tests both run. Keys and items act on the Edit menu's target: the graph window VisualScriptEditors
 // keeps as its edit target, else the selected entities. Windows that do not change the target (the console, the content
 // browser, the settings panels) leave the keys acting on it, as the menu does; the only keys they keep are the ones the
-// window that has the keyboard claims for itself (the content browser's Delete and F2), whose texts the menu leaves out.
+// window that has the keyboard claims for itself (the content browser's Delete and F2, the inspector's curve editor's Delete
+// and Ctrl+A while it has the keyboard), whose texts the menu leaves out.
 // While a modal popup is open (ImGui::GetTopMostPopupModal), no key runs anything, Undo and Redo included: the dialog acts on
 // what they would change. Main thread only.
 namespace Strada
@@ -48,8 +49,10 @@ namespace Strada
 	// ImGui::NewFrame. Pure.
 	[[nodiscard]] ImGuiWindow const* FindKeyboardWindow(ImGuiWindow const* navWindow, ImGuiWindow const* previous);
 	// The editing chords the window that has the keyboard (FindKeyboardWindow) claims for itself while it has it: the content
-	// browser's (ContentBrowserPanel::FocusedChords); none for the other windows, whose editing keys reach the Edit menu's
-	// target (a graph window that has the keyboard is that target). Pure.
+	// browser's (ContentBrowserPanel::FocusedChords), or those a widget of the window claims while its child window, or a
+	// popup it opened, has the keyboard (UI::UpdateEditingChordClaim, Editor/UI/EditingChordClaims.h: the inspector's curve
+	// editor, CurveAssetEditor::FocusedChords); none for the other windows, whose editing keys reach the Edit menu's target (a
+	// graph window that has the keyboard is that target). Reads the window's storage; inside an ImGui frame for a window.
 	[[nodiscard]] std::span<ImGuiKeyChord const> FindClaimedEditingChords(ImGuiWindow const* keyboardWindow);
 	// The shortcut text an Edit item shows for its chord ("Ctrl+X", "Delete"): an item shows its shortcut exactly when
 	// pressing it would run the item, so the text is empty while the window that has the keyboard claims the chord. Pure.

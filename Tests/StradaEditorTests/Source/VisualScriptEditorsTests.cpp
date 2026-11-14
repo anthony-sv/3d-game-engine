@@ -1409,7 +1409,8 @@ TEST_CASE("VisualScriptEditor: an Edit item's shortcut text is its key's unless 
 	// A claimed key with other modifiers is another chord.
 	CHECK(GetEditShortcutText(ImGuiMod_Shift | ImGuiKey_Delete, browser) == "Shift+Delete");
 
-	// Only the content browser claims editing chords; without a keyboard window, none are.
+	// Without a keyboard window no chord is claimed (the content browser's claims are checked above, the curve editor's in
+	// CurveAssetEditorTests.cpp).
 	CHECK(FindClaimedEditingChords(nullptr).empty());
 }
 

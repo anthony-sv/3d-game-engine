@@ -196,6 +196,9 @@ class Graph:
 
 # --- Features.sgraph: every built-in node kind but the contact and click events --------------------------------------------
 
+# The handle of Assets/Curves/Response.scurve (AssetRegistry.sreg).
+RESPONSE_CURVE = "15883878375939594718"
+
 FEATURES_DESCRIPTION = (
     "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click "
     "events (Contacts.sgraph and Clicks.sgraph have those), each reported through TestReporter by the function Check: "
@@ -205,7 +208,7 @@ FEATURES_DESCRIPTION = (
     "RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library "
     "MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes "
     "its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it "
-    "before Done.")
+    "before Done, and a curve asset, as a literal and loaded by path, after it.")
 
 
 def build_features(references):
@@ -788,6 +791,19 @@ def build_features(references):
     # The timeline started above has finished before the last checks (no check of its own).
     waits = [g.node("Flow.WaitUntil", Condition=g.get(timeline_done))]
     groups.append(waits[0])
+
+    # A curve asset, as a literal and loaded by path: its keys (0.3125 halfway along its Linear segment from 0.25 to 0.5),
+    # Linear before them along the first key's slope of 0.5, PingPong after them.
+    held = g.literal("Strada.Curve", RESPONSE_CURVE)
+    loaded = (g.node("Call:Strada.Assets.Load<T>(string)", {"TypeArguments": ["Strada.Curve"]}, {"Path": "Curves/Response.scurve"}),
+              "Result")
+    results = {"Inside": (g.node("Call:Strada.Curve.Evaluate(float)", None, {"Time": 0.375}, Target=held), "Result"),
+               "Before": (g.node("Call:Strada.Curve.Evaluate(float)", None, {"Time": -1.0}, Target=held), "Result"),
+               "After": (g.node("Call:Strada.Curve.Evaluate(float)", None, {"Time": 2.25}, Target=loaded), "Result")}
+    expected = {"Inside": 0.3125, "Before": -0.5, "After": 0.125}
+    passed = g.all_of(g.op("Equal", held, loaded), *[g.equal(results[key], expected[key]) for key in results])
+    groups.append(call_check("a curve asset evaluates its keys and what it does before and after them", passed,
+                             g.format("{Inside} inside, {Before} before, {After} after", **results)))
 
     # By now the scene has updated and stepped physics.
     frames_now = g.get(frames)

@@ -11,6 +11,8 @@ add_executable(StradaEditorTests
     Source/AutomationServerTests.cpp
     Source/CommandRegistryTests.cpp
     Source/ContentBrowsingTests.cpp
+    Source/CurveAssetEditorTests.cpp
+    Source/CurveEditorTests.cpp
     Source/DataAssetCommandsTests.cpp
     Source/DataAssetEditingTests.cpp
     Source/EditorCameraTests.cpp

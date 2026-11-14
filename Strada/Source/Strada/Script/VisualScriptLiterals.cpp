@@ -1,6 +1,8 @@
 #include "stpch.h"
 #include "Strada/Script/VisualScriptLiterals.h"
 
+#include "Strada/Asset/CurveAsset.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 
 #include <algorithm>
@@ -416,6 +418,13 @@ namespace Strada
 			{
 				return entry.Type;
 			}
+		}
+		// The scripting API's classes of data asset types (Docs/Architecture.md section 6.4), whose AssetType values the
+		// engine assigns when it registers its types, for the whole process.
+		if (typeId == "Strada.Curve")
+		{
+			static AssetType const s_CurveType = TypedDataAsset<Curve>::GetStaticType();
+			return VisualScriptExposableType{ScriptFieldType::Asset, s_CurveType};
 		}
 		return std::nullopt;
 	}

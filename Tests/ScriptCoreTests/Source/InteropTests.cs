@@ -133,22 +133,38 @@ public sealed class InteropTests
 		Assert.Equal(64, (int)Marshal.OffsetOf<NativeMaterialValues>(nameof(NativeMaterialValues.BaseColorTexture)));
 		Assert.Equal(104, (int)Marshal.OffsetOf<NativeMaterialValues>(nameof(NativeMaterialValues.AlphaMode)));
 		Assert.Equal(40, Unsafe.SizeOf<NativeRaycastHit>());
+		Assert.Equal(24, Unsafe.SizeOf<NativeCurveHeader>());
+		Assert.Equal(8, (int)Marshal.OffsetOf<NativeCurveHeader>(nameof(NativeCurveHeader.KeyCount)));
+		Assert.Equal(16, (int)Marshal.OffsetOf<NativeCurveHeader>(nameof(NativeCurveHeader.PostExtrapolation)));
+		Assert.Equal(20, Unsafe.SizeOf<NativeCurveKey>());
+		Assert.Equal(8, (int)Marshal.OffsetOf<NativeCurveKey>(nameof(NativeCurveKey.In)));
+		Assert.Equal(16, (int)Marshal.OffsetOf<NativeCurveKey>(nameof(NativeCurveKey.Interpolation)));
 	}
 
 	[Fact]
 	public void AssetClassesMapToTheEngineTypes()
 	{
-		System.Type[] classes = [typeof(Prefab), typeof(Mesh), typeof(Material), typeof(Texture), typeof(EnvironmentMap),
-			typeof(AudioClip), typeof(Font), typeof(VisualScript)];
-		foreach (System.Type assetClass in classes)
+		// By the engine's names of their types (AssetTypeToString); the built-in types also by their fixed values, which
+		// need no engine (data asset types' values are the engine's to give).
+		(System.Type Class, string Name, NativeAssetType BuiltIn)[] classes = [(typeof(Prefab), "Prefab", NativeAssetType.Prefab),
+			(typeof(Mesh), "Mesh", NativeAssetType.Mesh), (typeof(Material), "Material", NativeAssetType.Material),
+			(typeof(Texture), "Texture", NativeAssetType.Texture), (typeof(EnvironmentMap), "Environment", NativeAssetType.Environment),
+			(typeof(AudioClip), "AudioClip", NativeAssetType.AudioClip), (typeof(Font), "Font", NativeAssetType.Font),
+			(typeof(VisualScript), "VisualScript", NativeAssetType.VisualScript), (typeof(Curve), "Curve", NativeAssetType.None)];
+		foreach ((System.Type assetClass, string name, NativeAssetType builtIn) in classes)
 		{
-			NativeAssetType type = AssetTypes.GetNativeType(assetClass);
-			Assert.NotEqual(NativeAssetType.None, type);
-			Asset asset = AssetTypes.Create(type, new AssetHandle(3));
+			Assert.Equal(name, AssetTypes.GetTypeName(assetClass));
+			if (builtIn != NativeAssetType.None)
+			{
+				Assert.Equal((int)builtIn, AssetTypes.GetNativeType(assetClass));
+			}
+			Asset asset = AssetTypes.Create(name, new AssetHandle(3));
 			Assert.IsType(assetClass, asset);
 			Assert.Equal(new AssetHandle(3), asset.Handle);
 		}
-		Assert.Equal(NativeAssetType.None, AssetTypes.GetNativeType(typeof(Asset)));
+		Assert.Null(AssetTypes.GetTypeName(typeof(Asset)));
+		Assert.Equal((int)NativeAssetType.None, AssetTypes.GetNativeType(typeof(Asset)));
+		Assert.Throws<System.ArgumentOutOfRangeException>(() => AssetTypes.Create("Scene", new AssetHandle(3)));
 		Assert.Equal(new Mesh(new AssetHandle(3)), new Mesh(new AssetHandle(3)));
 		Assert.False(new Mesh(new AssetHandle(3)).Equals(new Material(new AssetHandle(3))));
 	}
@@ -204,9 +220,11 @@ public sealed class InteropTests
 		Assert.Null(error);
 		Assert.Null(ScriptFieldCodec.FromStored(AssetHandle.Invalid, typeof(Material), out error));
 		Assert.Equal(new AssetHandle(5), ScriptFieldCodec.FromStored(new AssetHandle(5), typeof(AssetHandle), out error));
-		Assert.Equal(NativeAssetType.Mesh, ScriptFieldCodec.GetAssetType(typeof(Mesh)));
-		Assert.Equal(NativeAssetType.None, ScriptFieldCodec.GetAssetType(typeof(Prefab)));
-		Assert.Equal(NativeAssetType.None, ScriptFieldCodec.GetAssetType(typeof(AssetHandle)));
+		Assert.Equal("Mesh", ScriptFieldCodec.GetAssetType(typeof(Mesh)));
+		Assert.Equal("Curve", ScriptFieldCodec.GetAssetType(typeof(Curve)));
+		Assert.Equal(new Curve(new AssetHandle(6)), ScriptFieldCodec.FromStored(new AssetHandle(6), typeof(Curve), out error));
+		Assert.Null(ScriptFieldCodec.GetAssetType(typeof(Prefab)));
+		Assert.Null(ScriptFieldCodec.GetAssetType(typeof(AssetHandle)));
 	}
 
 	[Fact]

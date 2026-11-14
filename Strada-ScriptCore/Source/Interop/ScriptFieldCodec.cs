@@ -45,7 +45,7 @@ internal static class ScriptFieldCodec
 				_ => ScriptFieldType.None,
 			};
 		}
-		if (GetAssetType(type) != NativeAssetType.None)
+		if (GetAssetType(type) != null)
 		{
 			return ScriptFieldType.Asset;
 		}
@@ -71,11 +71,12 @@ internal static class ScriptFieldCodec
 		};
 	}
 
-	// The asset type of typed asset reference fields (Prefab fields have their own field type); None otherwise.
-	internal static NativeAssetType GetAssetType(Type type)
+	// The engine's name of the asset type of typed asset reference fields (Prefab fields have their own field type); null
+	// otherwise.
+	internal static string? GetAssetType(Type type)
 	{
-		NativeAssetType assetType = AssetTypes.GetNativeType(type);
-		return assetType == NativeAssetType.Prefab ? NativeAssetType.None : assetType;
+		string? assetType = AssetTypes.GetTypeName(type);
+		return assetType == "Prefab" ? null : assetType;
 	}
 
 	// The stored form of a field's value: enums as integers of the field type, typed asset references as handles.
@@ -111,8 +112,8 @@ internal static class ScriptFieldCodec
 			}
 			return Enum.ToObject(fieldType, stored!);
 		}
-		NativeAssetType assetType = GetAssetType(fieldType);
-		if (assetType != NativeAssetType.None && stored is AssetHandle handle)
+		string? assetType = GetAssetType(fieldType);
+		if (assetType != null && stored is AssetHandle handle)
 		{
 			return handle.IsValid ? AssetTypes.Create(assetType, handle) : null;
 		}
