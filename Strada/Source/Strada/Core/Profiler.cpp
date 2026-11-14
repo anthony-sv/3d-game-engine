@@ -8,7 +8,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -111,20 +110,11 @@ namespace Strada
 
 		// What a thread remembers between its zones: trivially destructible and constant-initialized, so that reaching it
 		// never registers a destructor or runs an initializer (see the class comment of Profiler on Apple platforms).
-		struct ThreadState
-		{
-			uint32_t Slot = NoSlot;
-			uint32_t SlotRecording = 0;
-			// Zones of DepthRecording open on the thread.
-			uint32_t Depth = 0;
-			uint32_t DepthRecording = 0;
-			// The Init that made this thread the main thread (compared with s_InitNumber).
-			uint32_t MainInit = 0;
-			uint32_t NameLength = 0;
-			std::array<char, Profiler::MaxThreadNameBytes + 1> Name{};
-		};
+		// MainInit is compared with s_InitNumber.
+		using ThreadState = ProfilerThreadState;
 
-		static_assert(std::is_trivially_destructible_v<ThreadState>, "registering a thread-local destructor may allocate");
+		static_assert(ThreadState{}.Slot == NoSlot);
+		static_assert(std::tuple_size_v<decltype(ThreadState::Name)> == Profiler::MaxThreadNameBytes + 1);
 
 		alignas(CacheLineBytes) constinit ProfilerSlot s_Slots[Profiler::MaxThreads];
 		// The recording in progress, or a number no recording has while none is: Start and Stop each advance it.
@@ -207,10 +197,16 @@ namespace Strada
 
 			// Scratch storage of the collection, kept to avoid allocating every frame.
 			std::vector<ZoneRecord> Drained;
-			std::vector<ZoneRecord> Ordered;
+			// Per drained record: its name's and its value label's indices. The name is ProfilerNoName when the name or the
+			// label could not be stored, and the record is then dropped.
+			std::vector<uint32_t> DrainedNames;
+			std::vector<uint32_t> DrainedLabels;
+			// The drained records in pre-order (indices into Drained).
+			std::vector<uint32_t> Order;
 			std::vector<uint32_t> SubtreeSizes;
 			std::vector<uint32_t> Parents;
 			std::vector<uint32_t> Ancestors;
+			std::vector<uint32_t> TreeDepths;
 			std::vector<uint32_t> Stack;
 			std::vector<ProfilerZone> Collected;
 			std::vector<ZoneGroup> Groups;
@@ -392,9 +388,13 @@ namespace Strada
 		}
 
 		// Reorders one thread's records from the order they ended in (each zone after the zones nested in it) to
-		// pre-order (each zone before them, siblings in the order they began), from their depths alone: a zone adopts the
-		// zones deeper than it that ended just before it and are not adopted yet. A zone's pre-order position is the first
-		// position of its subtree in end order plus its count of ancestors.
+		// pre-order (each zone before them, siblings in the order they began), from their recorded depths alone: a zone
+		// adopts the zones deeper than it that ended just before it and are not adopted yet. A zone's pre-order position
+		// is the first position of its subtree in end order plus its count of ancestors (Order maps positions to records).
+		// Its depth in the frame's tree (TreeDepths) counts only the ancestors the frame keeps: none for a zone whose parent
+		// is not among the records (dropped when the buffer was full, or still open), and not one whose name could not be
+		// stored (DrainedNames holds ProfilerNoName). A buffer drops zones only once it is full, so the dropped zones are
+		// the last to end, and no zone can adopt one that is not its descendant.
 		void OrderZonesForFrame(ProfilerData& data)
 		{
 			std::vector<ZoneRecord> const& records = data.Drained;
@@ -402,6 +402,7 @@ namespace Strada
 			data.SubtreeSizes.assign(count, 1);
 			data.Parents.assign(count, NoSlot);
 			data.Ancestors.assign(count, 0);
+			data.TreeDepths.assign(count, 0);
 			data.Stack.clear();
 			for (size_t index = 0; index < count; ++index)
 			{
@@ -417,16 +418,18 @@ namespace Strada
 			// Parents end after their children, so walking backwards meets every parent first.
 			for (size_t index = count; index-- > 0;)
 			{
-				if (data.Parents[index] != NoSlot)
+				uint32_t const parent = data.Parents[index];
+				if (parent != NoSlot)
 				{
-					data.Ancestors[index] = data.Ancestors[data.Parents[index]] + 1;
+					data.Ancestors[index] = data.Ancestors[parent] + 1;
+					data.TreeDepths[index] = data.TreeDepths[parent] + (data.DrainedNames[parent] != ProfilerNoName ? 1 : 0);
 				}
 			}
-			data.Ordered.resize(count);
+			data.Order.resize(count);
 			for (size_t index = 0; index < count; ++index)
 			{
 				size_t const position = index + 1 - data.SubtreeSizes[index] + data.Ancestors[index];
-				data.Ordered[position] = records[index];
+				data.Order[position] = static_cast<uint32_t>(index);
 			}
 		}
 
@@ -462,27 +465,38 @@ namespace Strada
 					else
 					{
 						data.Drained.clear();
+						data.DrainedNames.clear();
+						data.DrainedLabels.clear();
 						for (uint32_t position = tail; position != head; ++position)
 						{
-							data.Drained.push_back(slot.Records[position & slot.Mask]);
+							ZoneRecord const& record = slot.Records[position & slot.Mask];
+							uint32_t name = GetNameIndex(data, record.Name);
+							uint32_t const valueLabel =
+								record.ValueLabel != nullptr ? GetNameIndex(data, record.ValueLabel) : ProfilerNoName;
+							if (record.ValueLabel != nullptr && valueLabel == ProfilerNoName)
+							{
+								name = ProfilerNoName;
+							}
+							data.Drained.push_back(record);
+							data.DrainedNames.push_back(name);
+							data.DrainedLabels.push_back(valueLabel);
 						}
 						OrderZonesForFrame(data);
 						ZoneGroup group{entry, data.Collected.size(), 0};
-						for (ZoneRecord const& record : data.Ordered)
+						for (uint32_t const index : data.Order)
 						{
-							uint32_t const name = GetNameIndex(data, record.Name);
-							uint32_t const valueLabel =
-								record.ValueLabel != nullptr ? GetNameIndex(data, record.ValueLabel) : ProfilerNoName;
-							if (name == ProfilerNoName || (record.ValueLabel != nullptr && valueLabel == ProfilerNoName))
+							uint32_t const name = data.DrainedNames[index];
+							if (name == ProfilerNoName)
 							{
 								++dropped;
 								continue;
 							}
+							ZoneRecord const& record = data.Drained[index];
 							ProfilerZone zone;
 							zone.Name = name;
 							zone.Thread = entry;
-							zone.Depth = record.Depth;
-							zone.ValueLabel = valueLabel;
+							zone.Depth = data.TreeDepths[index];
+							zone.ValueLabel = data.DrainedLabels[index];
 							zone.Value = record.Value;
 							zone.StartNanoseconds = std::max<int64_t>(record.StartNanoseconds - data.Origin, 0);
 							zone.DurationNanoseconds = std::max<int64_t>(record.EndNanoseconds - record.StartNanoseconds, 0);
@@ -833,7 +847,12 @@ namespace Strada
 
 	ProfilerZoneToken Profiler::BeginRecordedZone(char const* name)
 	{
-		return BeginZoneOfRecording(name, s_RecordingNumber.load(std::memory_order_acquire));
+		return BeginZoneOfRecording(s_ThreadState, name, s_RecordingNumber.load(std::memory_order_acquire));
+	}
+
+	ProfilerZoneToken Profiler::BeginRecordedZone(ProfilerThreadState& thread, char const* name)
+	{
+		return BeginZoneOfRecording(thread, name, s_RecordingNumber.load(std::memory_order_acquire));
 	}
 
 	ProfilerZoneToken Profiler::BeginDynamicZone(std::string_view name)
@@ -845,16 +864,15 @@ namespace Strada
 		// Taken before the name is stored: a Shutdown that frees the name ends this recording first, so the zone is then
 		// dropped at its end and its name never read.
 		uint32_t const recording = s_RecordingNumber.load(std::memory_order_acquire);
-		return BeginZoneOfRecording(InternName(name), recording);
+		return BeginZoneOfRecording(s_ThreadState, InternName(name), recording);
 	}
 
-	ProfilerZoneToken Profiler::BeginZoneOfRecording(char const* name, uint32_t recording)
+	ProfilerZoneToken Profiler::BeginZoneOfRecording(ProfilerThreadState& thread, char const* name, uint32_t recording)
 	{
 		if (name == nullptr)
 		{
 			return {};
 		}
-		ThreadState& thread = s_ThreadState;
 		if (thread.DepthRecording != recording)
 		{
 			thread.DepthRecording = recording;
@@ -870,8 +888,12 @@ namespace Strada
 
 	void Profiler::EndRecordedZone(ProfilerZoneToken const& token)
 	{
+		EndRecordedZone(s_ThreadState, token);
+	}
+
+	void Profiler::EndRecordedZone(ProfilerThreadState& thread, ProfilerZoneToken const& token)
+	{
 		int64_t const end = Now();
-		ThreadState& thread = s_ThreadState;
 		if (thread.DepthRecording == token.Recording && thread.Depth > 0)
 		{
 			--thread.Depth;
@@ -933,8 +955,12 @@ namespace Strada
 
 	void Profiler::SetThreadName(std::string_view name)
 	{
+		SetThreadName(s_ThreadState, name);
+	}
+
+	void Profiler::SetThreadName(ProfilerThreadState& thread, std::string_view name)
+	{
 		std::string_view const text = CutAtCharacter(name, MaxThreadNameBytes);
-		ThreadState& thread = s_ThreadState;
 		std::memcpy(thread.Name.data(), text.data(), text.size());
 		thread.Name[text.size()] = '\0';
 		thread.NameLength = static_cast<uint32_t>(text.size());
@@ -942,7 +968,11 @@ namespace Strada
 
 	void Profiler::EndThread()
 	{
-		ThreadState& thread = s_ThreadState;
+		EndThread(s_ThreadState);
+	}
+
+	void Profiler::EndThread(ProfilerThreadState& thread)
+	{
 		if (thread.Slot != NoSlot)
 		{
 			// Fails harmlessly when the recording that gave the slot has ended.
@@ -962,28 +992,54 @@ namespace Strada
 	{
 		// The subsystem of zones that neither name one nor lie in a zone that does.
 		constexpr std::string_view OtherSubsystem = "Other";
+		constexpr uint32_t NoIndex = std::numeric_limits<uint32_t>::max();
 
 		double ToMilliseconds(int64_t nanoseconds)
 		{
 			return static_cast<double>(nanoseconds) / 1.0e6;
 		}
 
-		// The median of the values (the mean of the two middle ones for an even count); 0 for none. Reorders them.
-		double TakeMedian(std::vector<double>& values)
+		// The value of the given rank (0 for the smallest) among the values and zeros more zeros. The values are partitioned
+		// with their negatives first (negatives of them: a capture built by hand may hold some). Reorders each part.
+		double SelectWithZeros(std::vector<double>& values, size_t negatives, size_t zeros, size_t rank)
 		{
-			if (values.empty())
+			if (rank < negatives)
+			{
+				auto const nth = values.begin() + static_cast<std::ptrdiff_t>(rank);
+				std::nth_element(values.begin(), nth, values.begin() + static_cast<std::ptrdiff_t>(negatives));
+				return *nth;
+			}
+			if (rank < negatives + zeros)
 			{
 				return 0.0;
 			}
-			size_t const middle = values.size() / 2;
-			std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(middle), values.end());
-			double const upper = values[middle];
-			if (values.size() % 2 != 0)
+			auto const nth = values.begin() + static_cast<std::ptrdiff_t>(rank - zeros);
+			std::nth_element(values.begin() + static_cast<std::ptrdiff_t>(negatives), nth, values.end());
+			return *nth;
+		}
+
+		// The median of count values: the values given, and a zero for each one more (a frame without the series' zones).
+		// The mean of the two middle ones for an even count; 0 for none. Reorders the values.
+		double TakeMedian(std::vector<double>& values, size_t count)
+		{
+			if (count == 0)
+			{
+				return 0.0;
+			}
+			size_t const zeros = count - std::min(values.size(), count);
+			auto const negativeEnd = std::partition(values.begin(), values.end(),
+			                                        [](double value)
+			                                        {
+														return value < 0.0;
+													});
+			size_t const negatives = static_cast<size_t>(negativeEnd - values.begin());
+			size_t const middle = count / 2;
+			double const upper = SelectWithZeros(values, negatives, zeros, middle);
+			if (count % 2 != 0)
 			{
 				return upper;
 			}
-			double const lower = *std::max_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(middle));
-			return (lower + upper) / 2.0;
+			return (SelectWithZeros(values, negatives, zeros, middle - 1) + upper) / 2.0;
 		}
 
 		// The nearest-rank percentile (0 to 100) of the values; 0 for none. Reorders them.
@@ -999,43 +1055,81 @@ namespace Strada
 			return values[index];
 		}
 
-		// A zone open on its thread while the zones after it are read: the nearest earlier zone of a smaller depth is the
-		// parent (Docs/Architecture.md §4.4).
-		struct OpenZone
+		// Per-frame sums of one series (a subsystem, a thread name, a zone name, a GPU pass), kept only for the frames that
+		// add to it, in frame order: memory grows with what the frames hold, never with frames times series.
+		struct FrameSums
 		{
-			uint32_t Depth = 0;
-			std::string_view Name;
-			std::string_view Subsystem;
+			std::vector<double> Values;
+			size_t LastFrame = std::numeric_limits<size_t>::max();
+
+			void Add(size_t frame, double value)
+			{
+				if (frame == LastFrame)
+				{
+					Values.back() += value;
+					return;
+				}
+				Values.push_back(value);
+				LastFrame = frame;
+			}
 		};
 
 		struct ZoneSeries
 		{
-			std::vector<double> PerFrame;
+			FrameSums PerFrame;
 			std::vector<double> PerCall;
 			uint64_t Calls = 0;
 		};
 
-		std::vector<ProfilerMedian> TakeMedians(std::map<std::string, std::vector<double>, std::less<>>& series)
+		// Distinct texts numbered in the order they are met; equal texts share a number.
+		class TextIndex
+		{
+		public:
+			uint32_t Add(std::string_view text)
+			{
+				auto const [found, added] = m_Indices.try_emplace(text, static_cast<uint32_t>(m_Texts.size()));
+				if (added)
+				{
+					m_Texts.push_back(text);
+				}
+				return found->second;
+			}
+
+			size_t GetCount() const { return m_Texts.size(); }
+			std::string_view GetText(uint32_t index) const { return m_Texts[index]; }
+
+		private:
+			std::unordered_map<std::string_view, uint32_t> m_Indices;
+			std::vector<std::string_view> m_Texts;
+		};
+
+		// A zone open on its thread while the zones after it are read: the nearest earlier zone of a smaller depth is the
+		// parent (ProfilerZone::Depth).
+		struct OpenZone
+		{
+			uint32_t Depth = 0;
+			uint32_t Series = 0;
+			uint32_t Subsystem = 0;
+		};
+
+		// The medians of series of per-frame sums over count frames (frames without a value count 0), named by the index's
+		// texts and sorted by name. Series nothing added to are left out.
+		std::vector<ProfilerMedian> TakeMedians(std::vector<FrameSums>& series, TextIndex const& names, size_t count)
 		{
 			std::vector<ProfilerMedian> medians;
-			medians.reserve(series.size());
-			for (auto& [name, values] : series)
+			for (uint32_t index = 0; index < series.size(); index++)
 			{
-				medians.push_back({name, TakeMedian(values)});
+				if (!series[index].Values.empty())
+				{
+					medians.push_back({std::string(names.GetText(index)), TakeMedian(series[index].Values, count)});
+				}
 			}
+			std::sort(medians.begin(), medians.end(),
+			          [](ProfilerMedian const& left, ProfilerMedian const& right)
+			          {
+						  return left.Name < right.Name;
+					  });
 			return medians;
-		}
-
-		// The per-frame series of a name, made with a value per frame when first met.
-		std::vector<double>& GetSeries(std::map<std::string, std::vector<double>, std::less<>>& series, std::string_view name,
-		                               size_t frameCount)
-		{
-			auto found = series.find(name);
-			if (found == series.end())
-			{
-				found = series.emplace(std::string(name), std::vector<double>(frameCount, 0.0)).first;
-			}
-			return found->second;
 		}
 	}
 
@@ -1054,107 +1148,150 @@ namespace Strada
 			return medians;
 		}
 
+		// Every name's series (equal names share one) and own subsystem, worked out once.
+		TextIndex seriesNames;
+		TextIndex subsystemNames;
+		uint32_t const other = subsystemNames.Add(OtherSubsystem);
+		std::vector<uint32_t> nameSeries(capture.Names.size());
+		std::vector<uint32_t> nameSubsystems(capture.Names.size());
+		for (size_t name = 0; name < capture.Names.size(); name++)
+		{
+			nameSeries[name] = seriesNames.Add(capture.Names[name]);
+			std::string_view const own = GetProfilerSubsystem(capture.Names[name]);
+			nameSubsystems[name] = own.empty() ? NoIndex : subsystemNames.Add(own);
+		}
+		TextIndex threadNames;
+		std::vector<uint32_t> threadSeries(capture.Threads.size());
+		for (size_t thread = 0; thread < capture.Threads.size(); thread++)
+		{
+			threadSeries[thread] = threadNames.Add(capture.Threads[thread].Name);
+		}
+
 		std::vector<double> frameTimes;
 		frameTimes.reserve(frameCount);
-		std::map<std::string, std::vector<double>, std::less<>> subsystems;
-		std::map<std::string, std::vector<double>, std::less<>> threads;
-		std::map<std::string, ZoneSeries, std::less<>> zones;
-		std::map<std::string, std::vector<double>, std::less<>> gpuPasses;
-		std::map<std::string, double, std::less<>> framePasses;
-		std::vector<std::vector<OpenZone>> stacks(capture.Threads.size());
-		std::string passName;
+		std::vector<ZoneSeries> zones(seriesNames.GetCount());
+		std::vector<FrameSums> subsystems(subsystemNames.GetCount());
+		std::vector<FrameSums> threads(threadNames.GetCount());
+		// The zones open on the thread being read, and how many of them have each name and each subsystem, so that a zone
+		// nested in one of its own name (or subsystem) is told in constant time.
+		std::vector<OpenZone> stack;
+		std::vector<uint32_t> openNames(seriesNames.GetCount(), 0);
+		std::vector<uint32_t> openSubsystems(subsystemNames.GetCount(), 0);
+		auto const popOpenZone = [&stack, &openNames, &openSubsystems]()
+		{
+			OpenZone const closed = stack.back();
+			stack.pop_back();
+			openNames[closed.Series]--;
+			openSubsystems[closed.Subsystem]--;
+		};
+		// GPU passes per (view, pass) series: their medians cover the frames that measured them.
+		std::unordered_map<uint64_t, uint32_t> passIndices;
+		std::vector<std::string> passNames;
+		std::vector<FrameSums> passes;
 
 		for (size_t frameIndex = 0; frameIndex < frameCount; frameIndex++)
 		{
 			ProfilerFrame const& frame = capture.Frames[frameIndex];
 			frameTimes.push_back(ToMilliseconds(frame.EndNanoseconds - frame.StartNanoseconds));
-			for (std::vector<OpenZone>& stack : stacks)
-			{
-				stack.clear();
-			}
-
+			uint32_t stackThread = NoIndex;
 			for (ProfilerZone const& zone : frame.Zones)
 			{
-				if (zone.Thread >= stacks.size() || zone.Name >= capture.Names.size())
+				if (zone.Thread >= capture.Threads.size() || zone.Name >= capture.Names.size())
 				{
 					continue;
 				}
-				std::vector<OpenZone>& stack = stacks[zone.Thread];
+				// A frame's zones are grouped by thread: another thread's zones begin a tree of their own.
+				if (zone.Thread != stackThread)
+				{
+					while (!stack.empty())
+					{
+						popOpenZone();
+					}
+					stackThread = zone.Thread;
+				}
 				while (!stack.empty() && stack.back().Depth >= zone.Depth)
 				{
-					stack.pop_back();
+					popOpenZone();
 				}
-				std::string_view const name = capture.Names[zone.Name];
-				std::string_view const own = GetProfilerSubsystem(name);
-				std::string_view const subsystem = !own.empty() ? own : !stack.empty() ? stack.back().Subsystem : OtherSubsystem;
+				uint32_t const series = nameSeries[zone.Name];
+				uint32_t const own = nameSubsystems[zone.Name];
+				uint32_t const subsystem = own != NoIndex ? own : !stack.empty() ? stack.back().Subsystem : other;
 				double const milliseconds = ToMilliseconds(zone.DurationNanoseconds);
 
-				bool const nestedInSameName = std::any_of(stack.begin(), stack.end(),
-				                                          [name](OpenZone const& open)
-				                                          {
-															  return open.Name == name;
-														  });
-				if (!nestedInSameName)
+				if (openNames[series] == 0)
 				{
-					auto found = zones.find(name);
-					if (found == zones.end())
-					{
-						found = zones.emplace(std::string(name), ZoneSeries{std::vector<double>(frameCount, 0.0), {}, 0}).first;
-					}
-					found->second.PerFrame[frameIndex] += milliseconds;
-					found->second.PerCall.push_back(milliseconds);
-					found->second.Calls++;
+					ZoneSeries& figures = zones[series];
+					figures.PerFrame.Add(frameIndex, milliseconds);
+					figures.PerCall.push_back(milliseconds);
+					figures.Calls++;
 				}
-
 				if (zone.Thread == 0)
 				{
-					bool const nestedInSubsystem = std::any_of(stack.begin(), stack.end(),
-					                                           [subsystem](OpenZone const& open)
-					                                           {
-																   return open.Subsystem == subsystem;
-															   });
-					if (!nestedInSubsystem)
+					if (openSubsystems[subsystem] == 0)
 					{
-						GetSeries(subsystems, subsystem, frameCount)[frameIndex] += milliseconds;
+						subsystems[subsystem].Add(frameIndex, milliseconds);
 					}
 				}
 				else if (stack.empty())
 				{
-					GetSeries(threads, capture.Threads[zone.Thread].Name, frameCount)[frameIndex] += milliseconds;
+					threads[threadSeries[zone.Thread]].Add(frameIndex, milliseconds);
 				}
-				stack.push_back({zone.Depth, name, subsystem});
+				stack.push_back({zone.Depth, series, subsystem});
+				openNames[series]++;
+				openSubsystems[subsystem]++;
+			}
+			while (!stack.empty())
+			{
+				popOpenZone();
 			}
 
-			framePasses.clear();
 			for (ProfilerGpuPass const& pass : frame.GpuPasses)
 			{
 				if (pass.View >= capture.Names.size() || pass.Name >= capture.Names.size())
 				{
 					continue;
 				}
-				passName.assign(capture.Names[pass.View]);
-				passName += '/';
-				passName += capture.Names[pass.Name];
-				framePasses[passName] += ToMilliseconds(pass.DurationNanoseconds);
-			}
-			for (auto const& [name, milliseconds] : framePasses)
-			{
-				gpuPasses[name].push_back(milliseconds);
+				uint64_t const key = (static_cast<uint64_t>(nameSeries[pass.View]) << 32) | nameSeries[pass.Name];
+				auto const [found, added] = passIndices.try_emplace(key, static_cast<uint32_t>(passes.size()));
+				if (added)
+				{
+					passNames.push_back(capture.Names[pass.View] + "/" + capture.Names[pass.Name]);
+					passes.emplace_back();
+				}
+				passes[found->second].Add(frameIndex, ToMilliseconds(pass.DurationNanoseconds));
 			}
 		}
 
 		std::vector<double> percentileTimes = frameTimes;
-		medians.FrameMilliseconds = TakeMedian(frameTimes);
+		medians.FrameMilliseconds = TakeMedian(frameTimes, frameCount);
 		medians.FramePercentile99Milliseconds = TakePercentile(percentileTimes, 99.0);
-		medians.Subsystems = TakeMedians(subsystems);
-		medians.Threads = TakeMedians(threads);
-		medians.GpuPasses = TakeMedians(gpuPasses);
-		medians.Zones.reserve(zones.size());
-		for (auto& [name, series] : zones)
+		medians.Subsystems = TakeMedians(subsystems, subsystemNames, frameCount);
+		medians.Threads = TakeMedians(threads, threadNames, frameCount);
+		for (uint32_t series = 0; series < zones.size(); series++)
 		{
-			double const calls = static_cast<double>(series.Calls) / static_cast<double>(frameCount);
-			medians.Zones.push_back({name, TakeMedian(series.PerFrame), TakeMedian(series.PerCall), calls});
+			ZoneSeries& figures = zones[series];
+			if (figures.Calls == 0)
+			{
+				continue;
+			}
+			double const calls = static_cast<double>(figures.Calls) / static_cast<double>(frameCount);
+			medians.Zones.push_back({std::string(seriesNames.GetText(series)), TakeMedian(figures.PerFrame.Values, frameCount),
+			                         TakeMedian(figures.PerCall, figures.PerCall.size()), calls});
 		}
+		std::sort(medians.Zones.begin(), medians.Zones.end(),
+		          [](ProfilerZoneMedian const& left, ProfilerZoneMedian const& right)
+		          {
+					  return left.Name < right.Name;
+				  });
+		for (uint32_t pass = 0; pass < passes.size(); pass++)
+		{
+			medians.GpuPasses.push_back({std::move(passNames[pass]), TakeMedian(passes[pass].Values, passes[pass].Values.size())});
+		}
+		std::sort(medians.GpuPasses.begin(), medians.GpuPasses.end(),
+		          [](ProfilerMedian const& left, ProfilerMedian const& right)
+		          {
+					  return left.Name < right.Name;
+				  });
 		return medians;
 	}
 }

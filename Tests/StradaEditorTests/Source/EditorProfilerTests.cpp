@@ -18,18 +18,21 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 using namespace Strada;
 
 namespace
 {
-	// A frame of two threads: on the main thread an orphan (its parent was collected by the frame before), a zone holding
-	// two (the first holding one), and a zone with a count; on a worker one zone.
+	// A frame of two threads: on the main thread a zone deeper than nothing before it allows (built by hand: the recorder
+	// writes such a zone at depth 0), a zone holding two (the first holding one), and a zone with a count; on a worker one
+	// zone.
 	Testing::CaptureBuilder MakeTreeCapture()
 	{
 		Testing::CaptureBuilder builder;
@@ -186,6 +189,94 @@ TEST_CASE("EditorProfiler: a frame's zones form a tree per thread by the depth r
 	skewed.Zones[2].DurationNanoseconds = 9000000;
 	CHECK(BuildProfilerFrameTree(skewed)[0].Rows[1].SelfNanoseconds == 0);
 	CHECK(BuildProfilerFrameTree(ProfilerFrame()).empty());
+}
+
+TEST_CASE("EditorProfiler: a recorded frame whose parents were dropped or end later has those zones at its threads' roots")
+{
+	Testing::ProfilerScope scope;
+	if (!Profiler::GetStatus().Available)
+	{
+		return;
+	}
+	ProfilerSettings settings;
+	settings.ZonesPerThread = Profiler::MinZonesPerThread;
+	REQUIRE(Profiler::Start(settings).IsOk());
+	// A zone ends; then a zone holding a leaf and more children than the buffer holds, which drops the rest and both
+	// parents. The leaf and the children must not land inside the zone that ended before them.
+	Profiler::BeginFrame();
+	{
+		ST_PROFILE_SCOPE("Early.Work");
+	}
+	{
+		ST_PROFILE_SCOPE("Scene.Update");
+		{
+			ST_PROFILE_SCOPE("Scene.UpdateUI");
+		}
+		ST_PROFILE_SCOPE("Scene.UpdateScripts");
+		for (int index = 0; index < 300; index++)
+		{
+			ST_PROFILE_SCOPE("Script.Child");
+		}
+	}
+	Profiler::EndFrame();
+	// A worker's zone ends, then one whose holder ends in the next frame.
+	std::atomic<int> stage = 0;
+	std::thread worker(
+		[&stage]
+		{
+			ST_PROFILE_THREAD("Worker");
+			{
+				ST_PROFILE_SCOPE("Work.Before");
+			}
+			ST_PROFILE_SCOPE("Work.Outer");
+			{
+				ST_PROFILE_SCOPE("Work.Inner");
+			}
+			stage = 1;
+			while (stage.load() != 2)
+			{
+				std::this_thread::yield();
+			}
+		});
+	Profiler::BeginFrame();
+	while (stage.load() != 1)
+	{
+		std::this_thread::yield();
+	}
+	Profiler::EndFrame();
+	stage = 2;
+	worker.join();
+	Profiler::Stop();
+
+	ProfilerCapture const& capture = Profiler::GetRecording();
+	REQUIRE(capture.Frames.size() == 2);
+	auto const checkRoots = [&capture](ProfilerFrame const& frame, std::string_view threadName, size_t zoneCount)
+	{
+		std::vector<ProfilerThreadTree> const trees = BuildProfilerFrameTree(frame);
+		auto const found = std::find_if(trees.begin(), trees.end(),
+		                                [&capture, threadName](ProfilerThreadTree const& tree)
+		                                {
+											return capture.Threads[tree.Thread].Name == threadName;
+										});
+		REQUIRE(found != trees.end());
+		REQUIRE(found->Rows.size() == zoneCount);
+		int64_t busy = 0;
+		for (uint32_t rowIndex = 0; rowIndex < found->Rows.size(); rowIndex++)
+		{
+			ProfilerTreeRow const& row = found->Rows[rowIndex];
+			ProfilerZone const& zone = frame.Zones[row.Zone];
+			// Each at the root, a leaf, its self time its whole duration.
+			CHECK(row.Depth == 0);
+			CHECK(row.SubtreeEnd == rowIndex + 1);
+			CHECK(row.SelfNanoseconds == zone.DurationNanoseconds);
+			busy += zone.DurationNanoseconds;
+		}
+		CHECK(found->BusyNanoseconds == busy);
+	};
+	// Early.Work, Scene.UpdateUI and the 254 children the buffer held.
+	checkRoots(capture.Frames[0], "Main", Profiler::MinZonesPerThread);
+	// Work.Before and Work.Inner, whose holder the second frame did not collect.
+	checkRoots(capture.Frames[1], "Worker", 2);
 }
 
 TEST_CASE("EditorProfiler: frames are found by their index, names by theirs")
@@ -490,6 +581,19 @@ TEST_CASE("ProfilerPanel: a capture's frames, the shown frame's zones by thread 
 	CHECK(rows[6].Thread);
 	CHECK(rows[7].TotalMilliseconds == doctest::Approx(0.25));
 
+	// Clicking a closed node opens it, and its subtree shows from then on; clicking it again closes it.
+	std::array<float, 2> const scripts = rows[3].Center;
+	fixture.Click(ImVec2(scripts[0], scripts[1]));
+	fixture.Draw();
+	CHECK(fixture.ZoneNames() == std::vector<std::string>{"Main", " Orphan", " Scene.Update", "  Scene.UpdateScripts", "   Script.Player",
+	                                                      "  Scene.UpdatePhysics", " Graph.Scripts/Player.sgraph", "Worker", " Audio.Mix"});
+	fixture.Draw();
+	CHECK(fixture.Panel.GetLastDraw().ZoneRows.size() == 9);
+	CHECK_FALSE(fixture.Panel.GetLastDraw().TreesBuilt);
+	fixture.Click(ImVec2(scripts[0], scripts[1]));
+	fixture.Draw();
+	CHECK(fixture.Panel.GetLastDraw().ZoneRows.size() == 8);
+
 	fixture.Panel.ShowTab(ProfilerPanelTab::GpuPasses);
 	fixture.Draw();
 	fixture.Draw();
@@ -514,6 +618,39 @@ TEST_CASE("ProfilerPanel: a capture's frames, the shown frame's zones by thread 
 	fixture.Draw();
 	CHECK(fixture.Panel.GetLastDraw().Live);
 	CHECK_FALSE(fixture.Panel.GetSelectedFrame().has_value());
+}
+
+TEST_CASE("ProfilerPanel: a frame of many zones draws the rows in view, and keeps its trees from draw to draw")
+{
+	PanelFixture fixture;
+	constexpr int64_t Zones = 100000;
+	ProfilerCapture capture;
+	capture.Threads.push_back({"Main"});
+	capture.Names.push_back("Scene.Update");
+	ProfilerFrame& frame = capture.Frames.emplace_back();
+	frame.Index = 1;
+	frame.EndNanoseconds = Zones * 10;
+	for (int64_t zone = 0; zone < Zones; zone++)
+	{
+		frame.Zones.push_back({0, 0, 0, ProfilerNoName, 0, zone * 10, 10});
+	}
+	fixture.Profiler.SetCapture(std::move(capture), "Many.json");
+	fixture.Draw();
+	CHECK(fixture.Panel.GetLastDraw().TreesBuilt);
+	fixture.Draw();
+	ProfilerPanel::DrawRecord const& record = fixture.Panel.GetLastDraw();
+	CHECK_FALSE(record.TreesBuilt);
+	// The thread's row and the first zones, as many as the window shows: never all of them.
+	REQUIRE_FALSE(record.ZoneRows.empty());
+	CHECK(record.ZoneRows.size() < 100);
+	CHECK(record.ZoneRows[0].Thread);
+	CHECK(record.ZoneRows[0].TotalMilliseconds == doctest::Approx(1.0));
+	CHECK(record.ZoneRows[1].Name == "Scene.Update");
+	// Another capture builds its trees again.
+	fixture.Profiler.SetCapture(MakeTreeCapture().Get(), "Run.json");
+	fixture.Draw();
+	CHECK(fixture.Panel.GetLastDraw().TreesBuilt);
+	CHECK(fixture.Panel.GetLastDraw().ZoneRows.size() == 8);
 }
 
 TEST_CASE("ProfilerPanel: the frame strip follows the newest frame until it is scrolled back, and stays there")

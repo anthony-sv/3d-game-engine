@@ -25,20 +25,18 @@ namespace Strada
 
 		Scope<AudioEngineData> s_Data;
 
+		// The profiler's state of the device's audio thread, kept here rather than in thread-local storage: on Apple
+		// platforms a thread's first access to thread-local storage allocates, and the callback must not. Named by Init
+		// before the device starts and ended by Shutdown once it has stopped; only the device's callback uses it between.
+		constinit ProfilerThreadState s_MixerThread;
+
 		// The device's data callback, on miniaudio's audio thread: what ma_engine's own callback does (the engine is the
-		// device's user data), inside the profiler's zone of the mix. Neither allocates nor locks.
+		// device's user data), inside the profiler's zone of the mix. Neither allocates nor locks, and reaches no
+		// thread-local storage: no zone inside the engine's mix uses the thread's own profiler state.
 		void MixIntoDevice(ma_device* device, void* output, void const* input, ma_uint32 frameCount)
 		{
 			static_cast<void>(input);
-#ifdef ST_ENABLE_PROFILING
-			// miniaudio has no reliable hook at the thread's start, so it names itself while a recording runs (a copy into
-			// thread-local storage); it keeps its buffer until the recording stops.
-			if (Profiler::IsRecording())
-			{
-				Profiler::SetThreadName("Audio Mixer");
-			}
-#endif
-			ST_PROFILE_SCOPE("Audio.Mix");
+			ST_PROFILE_SCOPE_ON(s_MixerThread, "Audio.Mix");
 			ma_engine_read_pcm_frames(static_cast<ma_engine*>(device->pUserData), output, frameCount, nullptr);
 		}
 
@@ -64,6 +62,8 @@ namespace Strada
 		// miniaudio keeps pointers into the engine and the context: they must not move once initialized.
 		Scope<AudioEngineData> data = CreateScope<AudioEngineData>();
 		data->Output = settings.Output;
+		// Before ma_engine_init starts the device, whose thread then reads it.
+		Profiler::SetThreadName(s_MixerThread, "Audio Mixer");
 		ma_engine_config config = ma_engine_config_init();
 		switch (settings.Output)
 		{
@@ -143,6 +143,8 @@ namespace Strada
 		// The streams are gone with the AudioScenes; the thread ends before the engine it streams for.
 		s_Data->Streamer.reset();
 		ma_engine_uninit(&s_Data->Engine);
+		// The device has stopped: its thread's buffer is free again at the profiler's next collection.
+		Profiler::EndThread(s_MixerThread);
 		if (s_Data->HasContext)
 		{
 			ma_context_uninit(&s_Data->Context);

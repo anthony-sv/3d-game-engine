@@ -223,7 +223,7 @@ set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
 set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)
 set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
 set(ENABLE_OBJECT_STREAM OFF CACHE BOOL "" FORCE)
-# Jolt's own profile zones reach the engine's profiler (JPH_EXTERNAL_PROFILE: Physics/JoltProfiler.cpp defines Jolt's
+# Jolt's own profile zones reach the engine's profiler (JPH_EXTERNAL_PROFILE: Physics/PhysicsSystem.cpp defines Jolt's
 # ExternalProfileMeasurement) in Debug builds only; Release and Dist builds compile them out of every physics step. Jolt
 # makes the define public, so the engine sees the same one.
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")

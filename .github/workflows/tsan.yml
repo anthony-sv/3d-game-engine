@@ -128,8 +128,11 @@ jobs:
         shell: bash
         run: |
           source "${RUNNER_TEMP}/run-cases.sh"
-          run_cases StradaTests "-tc=Profiler:*,ProfilerCaptureSerializer: a recorded capture*" "-tce=Profiler: a running scene*"
-          run_cases StradaEditorTests "-tc=EditorProfiler:*,ProfilerCommands:*,ProfilerPanel:*"
+          # The editor's cases run even when the engine's fail: the step's shell would stop at the first failing command.
+          status=0
+          run_cases StradaTests "-tc=Profiler:*,ProfilerCaptureSerializer: a recorded capture*" "-tce=Profiler: a running scene*" || status=1
+          run_cases StradaEditorTests "-tc=EditorProfiler:*,ProfilerCommands:*,ProfilerPanel:*" || status=1
+          exit "${status}"
 
       # Application::SubmitToMainThread from other threads and the main loop that drains it, and identifiers generated on
       # several threads at once.

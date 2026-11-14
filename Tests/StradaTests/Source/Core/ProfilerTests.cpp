@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <future>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -120,6 +121,7 @@ namespace
 		bool framesOrdered = true;
 		bool zonesWithinTables = true;
 		bool zonesGroupedByThread = true;
+		bool depthsInTree = true;
 		bool timesValid = true;
 		bool passesWithinTables = true;
 		uint64_t previousIndex = 0;
@@ -129,11 +131,16 @@ namespace
 			previousIndex = frame.Index;
 			timesValid = timesValid && frame.StartNanoseconds >= 0 && frame.EndNanoseconds >= frame.StartNanoseconds;
 			uint32_t previousThread = 0;
-			for (ProfilerZone const& zone : frame.Zones)
+			for (size_t index = 0; index < frame.Zones.size(); ++index)
 			{
+				ProfilerZone const& zone = frame.Zones[index];
 				zonesWithinTables = zonesWithinTables && zone.Name < capture.Names.size() && zone.Thread < capture.Threads.size() &&
 				                    (zone.ValueLabel == ProfilerNoName || zone.ValueLabel < capture.Names.size());
 				zonesGroupedByThread = zonesGroupedByThread && zone.Thread >= previousThread;
+				// Depths are tree depths: a thread's first zone of the frame is at its root, and each zone is at most one
+				// deeper than the zone before it.
+				bool const firstOfThread = index == 0 || frame.Zones[index - 1].Thread != zone.Thread;
+				depthsInTree = depthsInTree && (firstOfThread ? zone.Depth == 0 : zone.Depth <= frame.Zones[index - 1].Depth + 1);
 				previousThread = zone.Thread;
 				timesValid = timesValid && zone.StartNanoseconds >= 0 && zone.DurationNanoseconds >= 0;
 			}
@@ -146,6 +153,7 @@ namespace
 		CHECK(framesOrdered);
 		CHECK(zonesWithinTables);
 		CHECK(zonesGroupedByThread);
+		CHECK(depthsInTree);
 		CHECK(timesValid);
 		CHECK(passesWithinTables);
 	}
@@ -529,14 +537,191 @@ TEST_CASE("Profiler: a full buffer drops and counts zones, and their children st
 	ProfilerFrame const& full = capture.Frames[0];
 	CHECK(full.DroppedZones == 45);
 	REQUIRE(full.Zones.size() == 256);
+	// Their parent is not in the frame: they are at the thread's root.
 	CHECK(std::all_of(full.Zones.begin(), full.Zones.end(),
 	                  [&capture](ProfilerZone const& zone)
 	                  {
-						  return zone.Depth == 1 && GetName(capture, zone.Name) == "Child";
+						  return zone.Depth == 0 && GetName(capture, zone.Name) == "Child";
 					  }));
 	CHECK(capture.Frames[1].DroppedZones == 0);
 	CHECK(GetZoneNames(capture, capture.Frames[1]) == std::vector<std::string>{"Next"});
 	CHECK(Profiler::GetStatus().DroppedZones == 45);
+}
+
+TEST_CASE("Profiler: a zone whose parent the frame does not hold is at its thread's root, after a finished sibling too")
+{
+	ProfilerScope const profiler;
+	REQUIRE(Profiler::Start(MakeSettings(DefaultSettings.HistoryFrames, DefaultSettings.HistoryZones, 256)).IsOk());
+
+	// The main thread: a zone ends, then a zone holding a leaf and a zone holding more children than the buffer holds.
+	// The buffer fills with the first zone, the leaf and 254 children; the other children and both parents are dropped.
+	Profiler::BeginFrame();
+	{
+		ST_PROFILE_SCOPE("Early.Work");
+	}
+	{
+		ST_PROFILE_SCOPE("Scene.Update");
+		{
+			ST_PROFILE_SCOPE("Scene.UpdateUI");
+		}
+		ST_PROFILE_SCOPE("Scene.UpdateScripts");
+		for (int index = 0; index < 300; ++index)
+		{
+			ST_PROFILE_SCOPE("Script.Child");
+		}
+	}
+	Profiler::EndFrame();
+
+	// A worker: a zone ends, then a zone holding one that ends before the frame does, while the holder ends in the next.
+	std::atomic<int> stage = 0;
+	std::thread worker(
+		[&stage]()
+		{
+			ST_PROFILE_THREAD("Worker");
+			{
+				ST_PROFILE_SCOPE("Work.Before");
+			}
+			{
+				ST_PROFILE_SCOPE("Work.Outer");
+				{
+					ST_PROFILE_SCOPE("Work.Inner");
+				}
+				stage = 1;
+				while (stage.load() != 2)
+				{
+					std::this_thread::yield();
+				}
+			}
+			stage = 3;
+		});
+	Profiler::BeginFrame();
+	while (stage.load() != 1)
+	{
+		std::this_thread::yield();
+	}
+	Profiler::EndFrame();
+	Profiler::BeginFrame();
+	stage = 2;
+	while (stage.load() != 3)
+	{
+		std::this_thread::yield();
+	}
+	Profiler::EndFrame();
+	worker.join();
+
+	ProfilerCapture const& capture = Profiler::GetRecording();
+	CheckWellFormed(capture);
+	REQUIRE(capture.Frames.size() == 3);
+	ProfilerFrame const& full = capture.Frames[0];
+	CHECK(full.DroppedZones == 48);
+	REQUIRE(full.Zones.size() == 256);
+	CHECK(GetName(capture, full.Zones[0].Name) == "Early.Work");
+	CHECK(GetName(capture, full.Zones[1].Name) == "Scene.UpdateUI");
+	CHECK(GetName(capture, full.Zones[2].Name) == "Script.Child");
+	// Not inside Early.Work, which ended before they began, nor inside each other: every zone is at the root.
+	CHECK(std::all_of(full.Zones.begin(), full.Zones.end(),
+	                  [](ProfilerZone const& zone)
+	                  {
+						  return zone.Depth == 0;
+					  }));
+
+	auto const findThread = [&capture](std::string_view threadName)
+	{
+		for (uint32_t thread = 0; thread < capture.Threads.size(); ++thread)
+		{
+			if (capture.Threads[thread].Name == threadName)
+			{
+				return thread;
+			}
+		}
+		FAIL("no thread named " << threadName);
+		return uint32_t{0};
+	};
+	uint32_t const workerThread = findThread("Worker");
+	std::vector<ProfilerZone> spanning;
+	std::vector<ProfilerZone> held;
+	for (ProfilerZone const& zone : capture.Frames[1].Zones)
+	{
+		if (zone.Thread == workerThread)
+		{
+			spanning.push_back(zone);
+		}
+	}
+	for (ProfilerZone const& zone : capture.Frames[2].Zones)
+	{
+		if (zone.Thread == workerThread)
+		{
+			held.push_back(zone);
+		}
+	}
+	// Work.Inner's parent ends in the next frame: Work.Inner is at the root, beside Work.Before rather than inside it.
+	REQUIRE(spanning.size() == 2);
+	CHECK(GetName(capture, spanning[0].Name) == "Work.Before");
+	CHECK(GetName(capture, spanning[1].Name) == "Work.Inner");
+	CHECK(spanning[1].Depth == 0);
+	REQUIRE(held.size() == 1);
+	CHECK(GetName(capture, held[0].Name) == "Work.Outer");
+	CHECK(held[0].Depth == 0);
+
+	// The worker's busy time counts both zones at the root of its frame, and the holder in its own.
+	ProfilerMedians const medians = ComputeProfilerMedians(capture);
+	double const firstBusy = static_cast<double>(spanning[0].DurationNanoseconds + spanning[1].DurationNanoseconds) / 1.0e6;
+	double const secondBusy = static_cast<double>(held[0].DurationNanoseconds) / 1.0e6;
+	auto const busy = std::find_if(medians.Threads.begin(), medians.Threads.end(),
+	                               [](ProfilerMedian const& median)
+	                               {
+									   return median.Name == "Worker";
+								   });
+	REQUIRE(busy != medians.Threads.end());
+	// Three frames, the first without the worker's zones: the median is the smaller of its two busy frames.
+	CHECK(busy->Milliseconds == doctest::Approx(std::min(firstBusy, secondBusy)));
+}
+
+TEST_CASE("Profiler: a thread state of the caller's records under its own name, used by one thread after another")
+{
+	ProfilerScope const profiler;
+	REQUIRE(Profiler::Start().IsOk());
+	ProfilerThreadState state;
+	Profiler::SetThreadName(state, "Mixer");
+	Profiler::BeginFrame();
+	for (int round = 0; round < 2; ++round)
+	{
+		std::thread user(
+			[&state]()
+			{
+				// The thread's own name and state are its own: its zones with the caller's state go under the state's name.
+				ST_PROFILE_THREAD("Own");
+				ST_PROFILE_SCOPE_ON(state, "Audio.Mix");
+				{
+					ST_PROFILE_SCOPE_ON(state, "Audio.Node");
+				}
+				ST_PROFILE_SCOPE("Own.Zone");
+			});
+		user.join();
+	}
+	Profiler::EndFrame();
+	Profiler::EndThread(state);
+	CHECK(state.NameLength == 0);
+	CHECK(state.Slot == std::numeric_limits<uint32_t>::max());
+
+	ProfilerCapture const& capture = Profiler::GetRecording();
+	CheckWellFormed(capture);
+	REQUIRE(capture.Frames.size() == 1);
+	std::vector<std::string> lines;
+	for (ProfilerZone const& zone : capture.Frames[0].Zones)
+	{
+		lines.push_back(capture.Threads[zone.Thread].Name + " " + std::string(GetName(capture, zone.Name)) + " " +
+		                std::to_string(zone.Depth));
+	}
+	std::sort(lines.begin(), lines.end());
+	// One entry for the state over both threads; the threads' own zones each under their own name.
+	CHECK(lines == std::vector<std::string>{"Mixer Audio.Mix 0", "Mixer Audio.Mix 0", "Mixer Audio.Node 1", "Mixer Audio.Node 1",
+	                                        "Own Own.Zone 0", "Own Own.Zone 0"});
+	CHECK(std::count_if(capture.Threads.begin(), capture.Threads.end(),
+	                    [](ProfilerThread const& thread)
+	                    {
+							return thread.Name == "Mixer";
+						}) == 1);
 }
 
 TEST_CASE("Profiler: zones of several threads arrive once each, under their threads, and buffers return")
@@ -597,12 +782,22 @@ TEST_CASE("Profiler: zones of several threads arrive once each, under their thre
 			if (GetName(capture, zone.Name) == "Inner")
 			{
 				// Pre-order: a child follows its parent, unless its parent ended after the collection that took the child,
-				// which leaves the child last of its thread in the frame.
-				CHECK(zone.Depth == 1);
+				// which leaves the child last of its thread in the frame, at the thread's root.
 				bool const lastOfThread = index + 1 == frame.Zones.size() || frame.Zones[index + 1].Thread != zone.Thread;
 				bool const afterParent = index > 0 && frame.Zones[index - 1].Thread == zone.Thread &&
 				                         GetName(capture, frame.Zones[index - 1].Name) == "Work.Outer";
-				CHECK((afterParent || lastOfThread));
+				if (zone.Depth == 1)
+				{
+					REQUIRE(afterParent);
+					ProfilerZone const& parent = frame.Zones[index - 1];
+					CHECK(parent.StartNanoseconds <= zone.StartNanoseconds);
+					CHECK(zone.StartNanoseconds + zone.DurationNanoseconds <= parent.StartNanoseconds + parent.DurationNanoseconds);
+				}
+				else
+				{
+					CHECK(zone.Depth == 0);
+					CHECK(lastOfThread);
+				}
 			}
 		}
 	}

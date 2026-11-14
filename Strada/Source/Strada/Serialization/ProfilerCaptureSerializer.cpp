@@ -109,6 +109,17 @@ namespace Strada
 				{
 					return timeError;
 				}
+				// A frame's zones are grouped by thread in the order of the capture's threads (ProfilerFrame::Zones), which the
+				// renumbering keeps and the reader requires.
+				uint32_t previousThread = 0;
+				for (ProfilerZone const& zone : frame.Zones)
+				{
+					if (zone.Thread < previousThread)
+					{
+						return Error{"a frame's zones are not grouped by thread in the order of the capture's threads"};
+					}
+					previousThread = zone.Thread;
+				}
 				std::unordered_map<uint32_t, int64_t> trackEnds;
 				for (ProfilerGpuPass const& pass : frame.GpuPasses)
 				{
@@ -543,6 +554,13 @@ namespace Strada
 				if (m_Zones >= Profiler::MaxHistoryZones)
 				{
 					return MakeError("the capture holds more than {} zones", Profiler::MaxHistoryZones);
+				}
+				// Tree builders read each thread's zones of a frame as one run.
+				if (!frame->Zones.empty() && thread.GetValue() - 1 < frame->Zones.back().Thread)
+				{
+					return MakeError("its thread {} comes after thread {} in frame {} (a frame's zones are grouped by thread, in the "
+					                 "order of their tids)",
+					                 thread.GetValue(), frame->Zones.back().Thread + 1, frame->Index);
 				}
 				ProfilerZone zone;
 				zone.Name = nameIndex.GetValue();

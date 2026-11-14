@@ -3,6 +3,7 @@
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <deque>
@@ -68,6 +69,29 @@ namespace Strada
 	static_assert(sizeof(ProfilerZoneToken) <= 64, "Jolt's external profile measurement keeps the token in 64 bytes");
 	static_assert(std::is_trivially_copyable_v<ProfilerZoneToken>, "callers keep the token in raw storage");
 
+	// What a thread remembers between its zones: its buffer, its depth and its name. Every thread has one in thread-local
+	// storage, which the zone functions reach by themselves. Code that must never reach thread-local storage keeps one of
+	// its own and passes it to the functions that take a ProfilerThreadState (ST_PROFILE_SCOPE_ON). The audio device's
+	// callback does this, because on Apple platforms a thread's first access to thread-local storage allocates. One thread
+	// uses a state at a time; a later thread may take a state over once it is ordered after the earlier one (the
+	// callbacks of one device are). Only the profiler reads and writes the fields; constant-initialized, so a state may
+	// have static storage.
+	struct ProfilerThreadState
+	{
+		uint32_t Slot = std::numeric_limits<uint32_t>::max();
+		uint32_t SlotRecording = 0;
+		// Zones of DepthRecording open on the thread.
+		uint32_t Depth = 0;
+		uint32_t DepthRecording = 0;
+		// The Init that made this thread the main thread.
+		uint32_t MainInit = 0;
+		uint32_t NameLength = 0;
+		// Profiler::MaxThreadNameBytes, and a terminating null.
+		std::array<char, 64> Name{};
+	};
+
+	static_assert(std::is_trivially_destructible_v<ProfilerThreadState>, "registering a thread-local destructor may allocate");
+
 	// --- Recorded data: what the history holds and what a capture file stores. Plain data, read on the main thread. ---
 
 	// Names (zones, value labels, views, GPU passes) are indices into ProfilerCapture::Names; this one means none.
@@ -81,9 +105,11 @@ namespace Strada
 		uint32_t Name = ProfilerNoName;
 		// Index into ProfilerCapture::Threads.
 		uint32_t Thread = 0;
-		// Zones that were open on the thread when this one began. A zone whose parent was dropped (a full buffer) or
-		// collected by an earlier frame has no zone of a smaller depth before it in its frame: consumers that build trees
-		// place each zone under the nearest zone before it on its thread with a smaller depth, or at the thread's root.
+		// The zone's depth in its thread's tree in this frame: the zones of the frame it is nested in. That is the zones
+		// that were open on the thread when it began, less those the frame does not hold: one that was dropped, or one
+		// that ends after this frame collected the zone (a zone of a thread whose work runs independently of frames, which
+		// a later frame collects). A thread's zones in a frame therefore form a tree by one rule: each zone's parent is the
+		// nearest zone before it on its thread with a smaller depth, and a zone with none is at the thread's root.
 		uint32_t Depth = 0;
 		uint32_t ValueLabel = ProfilerNoName;
 		uint64_t Value = 0;
@@ -107,9 +133,10 @@ namespace Strada
 		int64_t StartNanoseconds = 0;
 		int64_t EndNanoseconds = 0;
 		// The zones collected at this frame's end: every zone that ended since the previous collection, whichever thread
-		// recorded it. Grouped by thread in the order of ProfilerCapture::Threads; each thread's zones are in pre-order
-		// (a zone before the zones nested in it, siblings in the order they began), rebuilt from the order in which they
-		// ended and their depths, never from their times, which can be equal.
+		// recorded it. Grouped by thread in the order of ProfilerCapture::Threads (a capture's reader refuses a frame
+		// whose zones are not); each thread's zones are in pre-order (a zone before the zones nested in it, siblings in
+		// the order they began), rebuilt from the order in which they ended and their depths, never from their times,
+		// which can be equal.
 		std::vector<ProfilerZone> Zones;
 		// In the order the renderers reported them; a view that rendered twice in the frame reports its passes twice. A
 		// frame's passes arrive frames later; frames whose GPU work was not measured have none.
@@ -183,7 +210,13 @@ namespace Strada
 	};
 
 	// Every per-frame sum counts a zone whole in the frame that collected it, never clipped to the frame's interval: a
-	// capture's frames partition its zones, so the sums over all frames are the recording's totals.
+	// capture's frames partition its zones, so the sums over all frames are the recording's totals. The one exception is
+	// a zone collected by a later frame than the zones nested in it (on a thread whose work runs independently of
+	// frames): those nested zones are at their thread's root in their own frame (ProfilerZone::Depth), so their time
+	// counts there as well as in their parent's frame. A frame without a name's zones counts 0 for it. Thread trees are read per frame
+	// in the frame's order: zones of a thread that come again after another thread's (a capture built by hand; the
+	// recorder and a capture's reader never give one) begin at its root again. The work is linear in the zones, frames
+	// and names.
 	struct ProfilerMedians
 	{
 		// Frame durations (EndNanoseconds - StartNanoseconds): the median and the 99th percentile.
@@ -218,10 +251,12 @@ namespace Strada
 	// it down after them. Every function is safe to call before Init and after Shutdown: zones then record nothing,
 	// Start refuses and the main-thread functions do nothing.
 	//
-	// Threads keep a little thread-local state (their buffer, their depth and their name): trivially destructible and
-	// constant-initialized, so on Windows and Linux reaching it never allocates. On Apple platforms the first access of a
-	// thread to thread-local storage allocates its block once (dyld's thread-local variables), so the first zone or
-	// SetThreadName of a thread there allocates once; every later one does not.
+	// Threads keep a little thread-local state (a ProfilerThreadState): trivially destructible and constant-initialized,
+	// so on Windows and Linux reaching it never allocates. On Apple platforms the first access of a thread to
+	// thread-local storage allocates its block once (dyld's thread-local variables), so the first zone or SetThreadName
+	// of a thread there allocates once; every later one does not. Code that must never allocate, even there (the audio
+	// device's callback), passes a ProfilerThreadState of its own to the overloads that take one and reaches no
+	// thread-local storage.
 	class Profiler
 	{
 	public:
@@ -311,6 +346,16 @@ namespace Strada
 			}
 			return BeginRecordedZone(name);
 		}
+		// BeginZone with the caller's thread state in place of the thread's own (ProfilerThreadState): reaches no
+		// thread-local storage, so it never allocates, on Apple platforms either.
+		static ProfilerZoneToken BeginZone(ProfilerThreadState& thread, char const* name)
+		{
+			if (!IsRecording()) [[likely]]
+			{
+				return {};
+			}
+			return BeginRecordedZone(thread, name);
+		}
 		// Ends a zone begun by BeginZone on the same thread; zones of a thread end in the reverse order they began. An
 		// empty token costs one branch. Otherwise the zone is written into the thread's buffer, taking a free buffer on the
 		// thread's first zone of a recording. Neither allocates, locks nor logs: safe on the audio callback.
@@ -321,6 +366,15 @@ namespace Strada
 				return;
 			}
 			EndRecordedZone(token);
+		}
+		// Ends a zone begun by BeginZone with the same thread state. Neither allocates, locks nor logs, on any platform.
+		static void EndZone(ProfilerThreadState& thread, ProfilerZoneToken const& token)
+		{
+			if (token.Name == nullptr) [[likely]]
+			{
+				return;
+			}
+			EndRecordedZone(thread, token);
 		}
 
 		// Begins a zone whose name is known only at run time: stores the name (InternName) and begins the zone. The token
@@ -339,17 +393,25 @@ namespace Strada
 		// recording, or its first after EndThread), so threads name themselves before their first zone. Copies into
 		// storage of the thread's own; neither allocates (but see the class comment on Apple platforms) nor locks.
 		static void SetThreadName(std::string_view name);
+		// Names the zones recorded with a thread state of the caller's. Called before the state's first zone, by the thread
+		// that uses it or by one ordered before it; neither allocates nor locks.
+		static void SetThreadName(ProfilerThreadState& thread, std::string_view name);
 		// Ends the calling thread in the profiler: it forgets its name and its buffer, and the buffer is free again once the
 		// main thread has collected it. Called by a thread about to end, and at the end of every task a pooled or
 		// std::async thread runs (ST_PROFILE_THREAD), so that the thread's next task takes a buffer of its own under its own
-		// name. A thread that ends without calling it (one the engine does not own, such as miniaudio's device thread)
-		// keeps its buffer until the recording stops. Neither allocates nor locks.
+		// name. A thread that ends without calling it (one the engine does not own) keeps its buffer until the recording
+		// stops. Neither allocates nor locks.
 		static void EndThread();
+		// EndThread for a thread state of the caller's, once no thread uses it any more (the audio device stopped): its
+		// buffer is free again once the main thread has collected it, and its name is forgotten.
+		static void EndThread(ProfilerThreadState& thread);
 
 	private:
 		static ProfilerZoneToken BeginRecordedZone(char const* name);
-		static ProfilerZoneToken BeginZoneOfRecording(char const* name, uint32_t recording);
+		static ProfilerZoneToken BeginRecordedZone(ProfilerThreadState& thread, char const* name);
+		static ProfilerZoneToken BeginZoneOfRecording(ProfilerThreadState& thread, char const* name, uint32_t recording);
 		static void EndRecordedZone(ProfilerZoneToken const& token);
+		static void EndRecordedZone(ProfilerThreadState& thread, ProfilerZoneToken const& token);
 
 		// Read by IsRecording and the zone functions on every thread; constant-initialized and never destroyed, so threads
 		// that outlive Shutdown read it safely.
@@ -392,6 +454,28 @@ namespace Strada
 		ProfilerZoneToken m_Token;
 	};
 
+	// Records the zone of its own scope with a thread state of the caller's (ProfilerThreadState) in place of the thread's
+	// own: Profiler::BeginZone and EndZone with that state. Reaches no thread-local storage.
+	class ProfileThreadStateZone
+	{
+	public:
+		// name: as for Profiler::BeginZone. thread outlives the zone.
+		ProfileThreadStateZone(ProfilerThreadState& thread, char const* name)
+			: m_Thread(thread),
+			  m_Token(Profiler::BeginZone(thread, name))
+		{
+		}
+
+		~ProfileThreadStateZone() { Profiler::EndZone(m_Thread, m_Token); }
+
+		ProfileThreadStateZone(ProfileThreadStateZone const&) = delete;
+		ProfileThreadStateZone& operator=(ProfileThreadStateZone const&) = delete;
+
+	private:
+		ProfilerThreadState& m_Thread;
+		ProfilerZoneToken m_Token;
+	};
+
 	// Names the calling thread for its whole body, or for one task of a pooled thread, and ends it in the profiler when
 	// the scope ends (Profiler::SetThreadName, Profiler::EndThread). Declared first in a thread's function or a task's
 	// body; every std::async or pooled task body that can reach a zone opens one.
@@ -416,6 +500,9 @@ namespace Strada
 #define ST_PROFILE_SCOPE(name) ::Strada::ProfileZone const ST_PROFILE_CONCAT(stProfileZone, __LINE__)(name)
 // A zone named after the enclosing function (__func__, unqualified).
 #define ST_PROFILE_FUNCTION() ST_PROFILE_SCOPE(__func__)
+// ST_PROFILE_SCOPE recorded with a ProfilerThreadState of the caller's (state, an lvalue) in place of the thread's own,
+// for code that must reach no thread-local storage (the audio device's callback).
+#define ST_PROFILE_SCOPE_ON(state, name) ::Strada::ProfileThreadStateZone const ST_PROFILE_CONCAT(stProfileZone, __LINE__)(state, name)
 // A zone whose name is known only at run time (anything convertible to std::string_view). The name is evaluated and
 // stored only while recording.
 #define ST_PROFILE_SCOPE_DYNAMIC(name)                                      \
@@ -443,6 +530,13 @@ namespace Strada
 		})
 #define ST_PROFILE_SCOPE(name) ST_PROFILE_DISCARD_DETAIL(name)
 #define ST_PROFILE_FUNCTION() static_cast<void>(0)
+#define ST_PROFILE_SCOPE_ON(state, name) \
+	static_cast<void>(                   \
+		[&]()                            \
+		{                                \
+			static_cast<void>(state);    \
+			static_cast<void>(name);     \
+		})
 #define ST_PROFILE_SCOPE_DYNAMIC(name) ST_PROFILE_DISCARD_DETAIL(name)
 #define ST_PROFILE_ZONE(variable, name) ST_PROFILE_DISCARD_DETAIL(name)
 #define ST_PROFILE_ZONE_DYNAMIC(variable, name) ST_PROFILE_DISCARD_DETAIL(name)

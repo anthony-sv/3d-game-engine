@@ -260,6 +260,17 @@ TEST_CASE("ProfilerCaptureSerializer: the writer refuses what a reader would ref
 
 	ProfilerCapture threadless;
 	CHECK(ProfilerCaptureSerializer::Write(threadless).IsError());
+
+	// A frame's zones come thread by thread: a thread's zones after a later thread's are refused.
+	Testing::CaptureBuilder ungrouped;
+	uint32_t const worker = ungrouped.AddThread("Worker");
+	ungrouped.AddFrame(0, 10);
+	ungrouped.AddZone(0, "Scene.Update", 0, 0, 1);
+	ungrouped.AddZone(worker, "Job", 0, 0, 1);
+	ungrouped.AddZone(0, "Scene.Update", 0, 2, 1);
+	Result<std::string> const refused = ProfilerCaptureSerializer::Write(ungrouped.Get());
+	REQUIRE(refused.IsError());
+	CHECK(refused.GetError().find("grouped by thread") != std::string::npos);
 }
 
 TEST_CASE("ProfilerCaptureSerializer: damaged captures are refused")
@@ -361,6 +372,13 @@ TEST_CASE("ProfilerCaptureSerializer: damaged captures are refused")
 							FindEvent(document, "M", "thread_name")["tid"] = 2;
 						}),
 	        "out of order");
+	// The first frame's last zone, on the second thread, moved to the main thread after that thread's zones.
+	refused(EditCapture(valid,
+	                    [](Json& document)
+	                    {
+							FindEvent(document, "X", std::string(Profiler::MaxNameBytes, 'x'))["tid"] = 1;
+						}),
+	        "grouped by thread");
 }
 
 TEST_CASE("ProfilerCaptureSerializer: damaged captures are refused or read, and what is read writes and reads again")

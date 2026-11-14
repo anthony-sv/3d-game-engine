@@ -221,9 +221,12 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   workers. A zone is written once, when it ends, as one complete record: name, start, end, the thread's depth when it
   began, and an optional count. The record goes into the calling thread's buffer, a single-producer, single-consumer
   ring that the thread fills and the main thread empties. Recording a zone takes atomic operations only: it never
-  allocates, never locks and never logs, so the audio callback can record. Apple platforms are the one exception:
-  there, a thread's first access to thread-local storage makes dyld allocate its block, so a thread's first zone or name
-  allocates once. Windows and Linux executables use static thread-local storage and never allocate.
+  allocates, never locks and never logs. On Apple platforms a thread's first access to thread-local storage makes dyld
+  allocate its block, so a thread's first zone or name there allocates once; Windows and Linux executables use static
+  thread-local storage and never allocate. The audio device's callback must never allocate, so it reaches no
+  thread-local storage: it records with a `ProfilerThreadState` of the audio engine's (static storage, named
+  `Audio Mixer` before the device starts and ended once it stops) through `ST_PROFILE_SCOPE_ON`, and no zone inside the
+  engine's mix uses the thread's own state.
 - **What an idle zone costs.** `BeginZone` does a relaxed load of the recording flag and branches. When nothing records,
   it returns an empty token without reading the clock, and the zone's end branches on that token. Both are defined
   inline in the header, so an idle zone is one predictable branch at each end. The run-time forms evaluate and store
@@ -243,14 +246,15 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   calls, marks the slot ending and makes the thread forget its slot and its name. The thread's next zone takes a new
   slot. The old slot returns to the free ones once the main thread has emptied it at the next collection. So at most
   64 threads can record between two collections, each task of a pooled thread counting again; the zones of any others
-  are dropped and counted. A thread that ends without calling `EndThread`, such as miniaudio's device thread, keeps its
-  slot until the recording stops. miniaudio has no reliable hook at that thread's start: its "started" notification
-  comes from the device thread for synchronous backends but from the caller of `ma_device_start` for asynchronous ones
-  (`miniaudio.h:42827`, `:44312`).
+  are dropped and counted. A thread that ends without calling `EndThread` keeps its slot until the recording stops.
+  miniaudio has no reliable hook at its device thread's start (its "started" notification comes from the device thread
+  for synchronous backends but from the caller of `ma_device_start` for asynchronous ones, `miniaudio.h:42827`,
+  `:44312`), which is why the audio engine names the device's `ProfilerThreadState` itself and ends it after
+  `ma_engine_uninit`.
 - **A full buffer.** A zone that finds its thread's ring full is dropped and counted, and so is a zone whose thread
   finds no free slot or whose run-time name cannot be stored. Its frame reports `DroppedZones`. Records are written when
-  zones end, so a dropped zone can leave its children without a parent. A consumer that builds trees places each zone
-  under the nearest zone before it on its thread with a smaller depth, or at the thread's root when there is none.
+  zones end, so a dropped zone can leave its children without a parent, and so can a parent that ends after the
+  frame that collected them (a thread whose work runs independently of frames).
 - **Frames and collection.** A frame is one iteration of the main loop, from `Profiler::BeginFrame` at its top to
   `Profiler::EndFrame` after the frame limiter. Tests and tools without an `Application` call both themselves. On the
   main thread, `EndFrame` empties every ring into the frame, grouped by thread.
@@ -258,7 +262,13 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     turns that into pre-order: each zone before the zones nested in it, and siblings in the order they began.
   - It does this from the depths alone, because a zone adopts the deeper zones that ended just before it. It never
     sorts by time, because zones that begin on the same tick of the clock (100 ns on Windows) would then come out in the
-    wrong order.
+    wrong order. A ring drops zones only once it is full, so the dropped ones are the last to end, and no zone adopts
+    one that is not nested in it.
+  - Each zone's `Depth` in the frame is its depth in the frame's tree: the zones open when it began that the frame
+    holds. A zone whose parent was dropped, or ends in a later frame, is at its thread's root, and one whose name could
+    not be stored is left out with its children raised to its place. Every consumer (the panel's trees, the medians,
+    the capture writer's categories) then reads one exact rule: a zone's parent is the nearest zone before it on its
+    thread with a smaller depth, and a zone with none is at the thread's root.
   - The frame then joins the history. The history holds `HistoryFrames` frames (600 by default, at most 36,000) and
     `HistoryZones` zones (2,000,000 by default, at most 3,000,000), and drops the oldest frames first.
   - A frame that alone collects more zones than that keeps the first ones and counts the rest as dropped.
@@ -336,7 +346,9 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   shows. The panel (`ProfilerPanel`) draws the history or the capture with ImGui alone: a strip of frame bars, the shown
   frame's zones as a tree per thread built by the depth rule above (`BuildProfilerFrameTree`: total and self time per
   zone, busy time per thread), its GPU passes, and `ComputeProfilerMedians` over the frames, worked out at most once a
-  second. Frames are found by index, never by position, since the history drops its oldest. The commands
+  second (linear in the zones, frames and names). The shown frame's trees are built once while it shows and drawn as
+  flat lines through a list clipper, so a frame of millions of zones costs the rows in view. Frames are found by index,
+  never by position, since the history drops its oldest. The commands
   (`Editor/Automation/ProfilerCommands.cpp`) are no undo steps; `profiler.capture` writes only a `.json` path inside the
   project or an absolute one the caller names, and replaces an existing file only when asked and only when it is a
   capture. A profiler frame is an editor frame, so `play.advance`'s frames are one.
@@ -819,7 +831,8 @@ no viewer was run against it yet):
   `"args": { "Frame": <index>, "DroppedZones": <n> }`. A frame's events follow it;
 - one complete event per zone on process 1, its `"cat"` its subsystem (`Other` when it has none), with
   `"args": { "Frame": <index>, "Depth": <depth> }`, plus `"Value": { "<label>": <count> }` when the zone carries a
-  count. A complete event of process 1 whose arguments have `Depth` is a zone, one without is a frame;
+  count. `Depth` is the zone's depth in its frame's tree (§4.4: a zone whose parent the frame does not hold is at
+  depth 0). A complete event of process 1 whose arguments have `Depth` is a zone, one without is a frame;
 - one complete event per GPU pass on process 2, on its view's thread, with `"cat": "GPU"` and
   `"args": { "Frame": <index> }`. Only durations are measured, so a frame's passes of one view are laid end to end
   from the frame's start.
@@ -836,7 +849,8 @@ a time: each frame's zones and passes come back in the order the file holds them
 The writer writes only the threads, names and views the frames use (the main thread always), renumbered in their
 tables' order, with names made valid UTF-8 (`Utf8::Sanitize`) and cut at a character boundary to `MaxNameBytes` (thread
 names `MaxThreadNameBytes`). It refuses a capture whose text would exceed `Profiler::MaxCaptureBytes` (checked after each
-frame, so it never builds more than one frame past the bound), or holding more than the reader accepts.
+frame, so it never builds more than one frame past the bound), holding more than the reader accepts, or with a frame
+whose zones are not grouped by thread in the thread table's order.
 
 The reader refuses:
 
@@ -850,6 +864,8 @@ The reader refuses:
 - a frame whose index does not follow the previous frame's (a capture's frames are consecutive), or not on thread 1;
 - a `Frame` argument that no `Frame` event before it declares, or a `tid` that no `thread_name` before it names, a
   thread or view named out of order, and a capture that names no main thread;
+- a zone whose thread comes before the thread of the zone before it in its frame (a frame's zones are grouped by
+  thread in `tid` order, so that a tree builder reads each thread's as one run);
 - a `Value` that is not an object of one unsigned count;
 - more frames, zones, GPU passes, names, threads or views than a recording holds (`Profiler::MaxHistoryFrames`,
   `MaxHistoryZones`, `ProfilerCaptureSerializer::MaxGpuPasses`, `MaxCaptureNames`, `MaxRecordedThreads`,

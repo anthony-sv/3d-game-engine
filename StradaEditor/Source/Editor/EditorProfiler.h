@@ -88,8 +88,8 @@ namespace Strada
 	{
 		// Index into ProfilerFrame::Zones.
 		uint32_t Zone = 0;
-		// Depth in the tree (0 for a zone at its thread's root), which is the recorded depth unless the zone's parent was
-		// dropped or collected by an earlier frame.
+		// Depth in the tree (0 for a zone at its thread's root): the zone's ProfilerZone::Depth for every frame the recorder
+		// or a capture's reader gives, less where a capture built by hand has a zone deeper than the zones before it allow.
 		uint32_t Depth = 0;
 		// One past the last row of its subtree: the row of its next sibling, or of the next one up.
 		uint32_t SubtreeEnd = 0;
@@ -108,8 +108,10 @@ namespace Strada
 	};
 
 	// The frame's zones as one tree per thread that recorded in it, in the order of the capture's threads. Each zone is
-	// placed under the nearest zone before it on its thread with a smaller recorded depth, or at the thread's root (the rule
-	// ProfilerZone states). Pure; any thread.
+	// placed under the nearest zone before it on its thread with a smaller depth, or at the thread's root (the rule
+	// ProfilerZone::Depth states). A thread's zones are one run of the frame's (ProfilerFrame::Zones); in a capture built by
+	// hand whose zones come back to a thread after another's, the thread's later run is a tree of its own. Pure; any
+	// thread.
 	[[nodiscard]] std::vector<ProfilerThreadTree> BuildProfilerFrameTree(ProfilerFrame const& frame);
 
 	// The frame of a capture with the given index (frames have consecutive indices), or null when the capture does not hold

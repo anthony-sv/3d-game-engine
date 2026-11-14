@@ -11,8 +11,8 @@
 namespace Strada
 {
 	// Profiler captures (Docs/Architecture.md §7.3): a ProfilerCapture as one JSON document in the Chrome trace event format,
-	// with the Strada file header, which chrome://tracing and Perfetto display and the editor opens again. Pure functions
-	// of their arguments; any thread.
+	// with the Strada file header, which the editor opens again. The format is meant for chrome://tracing and Perfetto to
+	// open as it is; no trace viewer has been run against a capture yet. Pure functions of their arguments; any thread.
 	//
 	// What the reader accepts the writer writes back unchanged: reading the text a writer wrote gives the capture it was
 	// given, compacted (only the threads, names and views its frames use, renumbered in their order) and with its names made
@@ -29,7 +29,8 @@ namespace Strada
 		// that wants a smaller bound.
 
 		// The capture's text. Refuses a capture holding more than a reader accepts (frames, zones, GPU passes, names,
-		// threads, views; see Profiler's bounds) or whose text would exceed maxBytes (checked after each frame, so it never
+		// threads, views; see Profiler's bounds), a frame whose zones are not grouped by thread in the order of the
+		// capture's threads (ProfilerFrame::Zones), or whose text would exceed maxBytes (checked after each frame, so it never
 		// grows far past it), which the error names with what makes a capture smaller (fewer frames or zones:
 		// ProfilerSettings::HistoryFrames, HistoryZones).
 		[[nodiscard]] static Result<std::string> Write(ProfilerCapture const& capture, uint64_t maxBytes = Profiler::MaxCaptureBytes);

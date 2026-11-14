@@ -17,6 +17,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -79,6 +80,15 @@ namespace Strada
 		{
 			ImGui::TableNextColumn();
 			ImGui::Text("%.3f", milliseconds);
+		}
+
+		// The path of a tree node's child: its parent's path mixed with a value of the child's (SplitMix64's finalizer).
+		uint64_t CombinePath(uint64_t parent, uint64_t value)
+		{
+			uint64_t mixed = parent ^ (value + 0x9E3779B97F4A7C15ull + (parent << 6) + (parent >> 2));
+			mixed = (mixed ^ (mixed >> 30)) * 0xBF58476D1CE4E5B9ull;
+			mixed = (mixed ^ (mixed >> 27)) * 0x94D049BB133111EBull;
+			return mixed ^ (mixed >> 31);
 		}
 	}
 
@@ -152,7 +162,9 @@ namespace Strada
 			};
 			if (tab("Zones", ProfilerPanelTab::Zones))
 			{
-				DrawZones(capture, *frame);
+				ShownTrees const shown{live, live ? 0 : profiler.GetCaptureRevision(), frame->Index, frame->StartNanoseconds,
+				                       frame->Zones.size()};
+				DrawZones(capture, *frame, shown);
 				ImGui::EndTabItem();
 			}
 			if (tab("GPU Passes", ProfilerPanelTab::GpuPasses))
@@ -366,14 +378,143 @@ namespace Strada
 		ImGui::EndChild();
 	}
 
-	void ProfilerPanel::DrawZones(ProfilerCapture const& capture, ProfilerFrame const& frame)
+	void ProfilerPanel::UpdateTrees(ProfilerFrame const& frame, ShownTrees const& shown)
 	{
-		std::vector<ProfilerThreadTree> const trees = BuildProfilerFrameTree(frame);
-		if (trees.empty())
+		if (m_ShownTrees == shown)
+		{
+			return;
+		}
+		m_ShownTrees = shown;
+		m_Record.TreesBuilt = true;
+		m_Trees = BuildProfilerFrameTree(frame);
+		m_Lines.clear();
+		m_VisibleLinesDirty = true;
+		// How many siblings of each name came before, by the path of the name's place.
+		std::unordered_map<uint64_t, uint32_t> occurrences;
+		std::vector<uint64_t> parentPaths;
+		for (uint32_t treeIndex = 0; treeIndex < m_Trees.size(); treeIndex++)
+		{
+			ProfilerThreadTree const& tree = m_Trees[treeIndex];
+			uint64_t const threadPath = CombinePath(0, tree.Thread);
+			uint32_t const first = static_cast<uint32_t>(m_Lines.size()) + 1;
+			m_Lines.push_back({treeIndex, 0, 0, first + static_cast<uint32_t>(tree.Rows.size()), threadPath});
+			parentPaths.clear();
+			for (uint32_t row = 0; row < tree.Rows.size(); row++)
+			{
+				ProfilerTreeRow const& treeRow = tree.Rows[row];
+				parentPaths.resize(treeRow.Depth);
+				uint64_t const named = CombinePath(treeRow.Depth == 0 ? threadPath : parentPaths.back(), frame.Zones[treeRow.Zone].Name);
+				uint64_t const path = CombinePath(named, occurrences[named]++);
+				parentPaths.push_back(path);
+				m_Lines.push_back({treeIndex, row, treeRow.Depth + 1, first + treeRow.SubtreeEnd, path});
+			}
+		}
+	}
+
+	bool ProfilerPanel::IsLineOpen(ZoneLine const& line) const
+	{
+		bool const openByDefault = line.Depth <= 1;
+		return openByDefault != m_ToggledPaths.contains(line.Path);
+	}
+
+	void ProfilerPanel::UpdateVisibleLines()
+	{
+		if (!m_VisibleLinesDirty)
+		{
+			return;
+		}
+		m_VisibleLinesDirty = false;
+		m_VisibleLines.clear();
+		for (uint32_t index = 0; index < m_Lines.size();)
+		{
+			m_VisibleLines.push_back(index);
+			ZoneLine const& line = m_Lines[index];
+			index = line.End > index + 1 && !IsLineOpen(line) ? line.End : index + 1;
+		}
+	}
+
+	void ProfilerPanel::DrawZoneLine(ProfilerCapture const& capture, ProfilerFrame const& frame, uint32_t visible)
+	{
+		ZoneLine const& line = m_Lines[m_VisibleLines[visible]];
+		ProfilerThreadTree const& tree = m_Trees[line.Tree];
+		bool const thread = line.Depth == 0;
+		ProfilerZone const* const zone = thread ? nullptr : &frame.Zones[tree.Rows[line.Row].Zone];
+		std::string_view const name =
+			thread ? (tree.Thread < capture.Threads.size() ? std::string_view(capture.Threads[tree.Thread].Name) : std::string_view("?"))
+				   : GetProfilerName(capture, zone->Name);
+		bool const leaf = line.End == m_VisibleLines[visible] + 1;
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn();
+		ImGui::PushID(static_cast<int>(visible));
+		// Lines are drawn flat, so that only those in view are: the indent stands for the tree's nesting.
+		float const indent = static_cast<float>(line.Depth) * ImGui::GetStyle().IndentSpacing;
+		if (indent > 0.0f)
+		{
+			ImGui::Indent(indent);
+		}
+		ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+		if (leaf)
+		{
+			flags |= ImGuiTreeNodeFlags_Leaf;
+		}
+		else
+		{
+			ImGui::SetNextItemOpen(IsLineOpen(line), ImGuiCond_Always);
+		}
+		ImGui::TreeNodeEx("##Line", flags, "%.*s", static_cast<int>(name.size()), name.data());
+		if (ImGui::IsItemToggledOpen())
+		{
+			// The node's subtree shows or hides from the next draw.
+			if (!m_ToggledPaths.erase(line.Path))
+			{
+				m_ToggledPaths.insert(line.Path);
+			}
+			m_VisibleLinesDirty = true;
+		}
+		std::array<float, 2> const center = {(ImGui::GetItemRectMin().x + ImGui::GetItemRectMax().x) * 0.5f,
+		                                     (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f};
+		if (indent > 0.0f)
+		{
+			ImGui::Unindent(indent);
+		}
+
+		if (thread)
+		{
+			double const busy = ToMilliseconds(tree.BusyNanoseconds);
+			TimeCell(busy);
+			// A thread has no time of its own outside its zones: its row shows its busy time once.
+			ImGui::TableNextColumn();
+			ImGui::TableNextColumn();
+			m_Record.ZoneRows.push_back({std::string(name), 0, true, busy, busy, {}, center});
+		}
+		else
+		{
+			double const total = ToMilliseconds(zone->DurationNanoseconds);
+			double const selfTime = ToMilliseconds(tree.Rows[line.Row].SelfNanoseconds);
+			TimeCell(total);
+			TimeCell(selfTime);
+			ImGui::TableNextColumn();
+			std::string value;
+			if (zone->ValueLabel != ProfilerNoName)
+			{
+				value = std::string(GetProfilerName(capture, zone->ValueLabel)) + " " + std::to_string(zone->Value);
+				ImGui::TextUnformatted(value.c_str());
+			}
+			m_Record.ZoneRows.push_back({std::string(name), line.Depth, false, total, selfTime, std::move(value), center});
+		}
+		ImGui::PopID();
+	}
+
+	void ProfilerPanel::DrawZones(ProfilerCapture const& capture, ProfilerFrame const& frame, ShownTrees const& shown)
+	{
+		UpdateTrees(frame, shown);
+		if (m_Trees.empty())
 		{
 			ImGui::TextDisabled("The frame recorded no zone.");
 			return;
 		}
+		UpdateVisibleLines();
 		if (!BeginTable("##Zones", 4, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
 		{
 			return;
@@ -385,67 +526,15 @@ namespace Strada
 		ImGui::TableSetupScrollFreeze(0, 1);
 		ImGui::TableHeadersRow();
 
-		for (ProfilerThreadTree const& tree : trees)
+		// A frame can hold millions of zones: only the lines in view are drawn.
+		ImGuiListClipper clipper;
+		clipper.Begin(static_cast<int>(m_VisibleLines.size()));
+		while (clipper.Step())
 		{
-			std::string_view const threadName =
-				tree.Thread < capture.Threads.size() ? std::string_view(capture.Threads[tree.Thread].Name) : std::string_view("?");
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			ImGui::PushID(static_cast<int>(tree.Thread));
-			bool const threadOpen = ImGui::TreeNodeEx("##Thread", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAllColumns,
-			                                          "%.*s", static_cast<int>(threadName.size()), threadName.data());
-			double const busy = ToMilliseconds(tree.BusyNanoseconds);
-			TimeCell(busy);
-			// A thread has no time of its own outside its zones: its row shows its busy time once.
-			ImGui::TableNextColumn();
-			ImGui::TableNextColumn();
-			m_Record.ZoneRows.push_back({std::string(threadName), 0, true, busy, busy, {}});
-			if (threadOpen)
+			for (int visible = clipper.DisplayStart; visible < clipper.DisplayEnd; visible++)
 			{
-				// Draws the rows of one subtree level: siblings from begin to end, each with its own subtree when open. IDs are
-				// the name and its count among the siblings, so open nodes stay open from frame to frame.
-				auto const drawLevel = [&](auto const& self, uint32_t begin, uint32_t end) -> void
-				{
-					std::unordered_map<uint32_t, int> occurrences;
-					for (uint32_t row = begin; row < end; row = tree.Rows[row].SubtreeEnd)
-					{
-						ProfilerTreeRow const& treeRow = tree.Rows[row];
-						ProfilerZone const& zone = frame.Zones[treeRow.Zone];
-						std::string_view const name = GetProfilerName(capture, zone.Name);
-						bool const leaf = treeRow.SubtreeEnd == row + 1;
-						ImGui::TableNextRow();
-						ImGui::TableNextColumn();
-						ImGui::PushID(static_cast<int>(zone.Name));
-						ImGui::PushID(occurrences[zone.Name]++);
-						ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanAllColumns;
-						flags |= leaf ? (ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen)
-						              : (treeRow.Depth < 1 ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None);
-						bool const nodeOpen = ImGui::TreeNodeEx("##Zone", flags, "%.*s", static_cast<int>(name.size()), name.data());
-						double const total = ToMilliseconds(zone.DurationNanoseconds);
-						double const selfTime = ToMilliseconds(treeRow.SelfNanoseconds);
-						TimeCell(total);
-						TimeCell(selfTime);
-						ImGui::TableNextColumn();
-						std::string value;
-						if (zone.ValueLabel != ProfilerNoName)
-						{
-							value = std::string(GetProfilerName(capture, zone.ValueLabel)) + " " + std::to_string(zone.Value);
-							ImGui::TextUnformatted(value.c_str());
-						}
-						m_Record.ZoneRows.push_back({std::string(name), treeRow.Depth + 1, false, total, selfTime, std::move(value)});
-						if (!leaf && nodeOpen)
-						{
-							self(self, row + 1, treeRow.SubtreeEnd);
-							ImGui::TreePop();
-						}
-						ImGui::PopID();
-						ImGui::PopID();
-					}
-				};
-				drawLevel(drawLevel, 0, static_cast<uint32_t>(tree.Rows.size()));
-				ImGui::TreePop();
+				DrawZoneLine(capture, frame, static_cast<uint32_t>(visible));
 			}
-			ImGui::PopID();
 		}
 		ImGui::EndTable();
 	}

@@ -39,6 +39,9 @@ namespace
 		ST_PROFILE_ZONE_VALUE(zone, "Steps", steps);
 		ST_PROFILE_ZONE_DYNAMIC(dynamicZone, EvaluateName());
 		ST_PROFILE_ZONE_VALUE(dynamicZone, "Steps", steps + 1);
+		ProfilerThreadState state;
+		char const* const stateName = "Dist.State";
+		ST_PROFILE_SCOPE_ON(state, stateName);
 	}
 }
 
