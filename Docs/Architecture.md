@@ -209,10 +209,11 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     holds `Renderer.Cull`, `Renderer.Sort`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings) and
     `Renderer.Record` (recording and submitting the frame); `Renderer.UploadTexture`, `Renderer.UploadMesh` and
     `Renderer.ProcessEnvironment` on a cache miss only, and `Asset.Load` when an asset is loaded;
-  - the editor's graph phases: `GraphEditor.Window` around a graph window's frame, `GraphEditor.Sync` with
-    `GraphEditor.Adopt`, `GraphEditor.Analysis`, `GraphEditor.Canvas` and `GraphEditor.Index`, `GraphEditor.DrawCanvas`,
-    and `GraphEditor.PrepareCommit`; the debugger's `GraphDebug.EndFrame` (the session's end of a frame, which takes the
-    runtime's trace), `GraphDebug.TakeFlow` (a window's flow) and `GraphDebug.ReadValues` (the live wire values);
+  - the editor's play mode, `Play.Update` around the frame it runs, and its graph phases: `GraphEditor.Window` around a
+    graph window's frame, `GraphEditor.Sync` with `GraphEditor.Adopt`, `GraphEditor.Analysis`, `GraphEditor.Canvas`
+    and `GraphEditor.Index`, `GraphEditor.DrawCanvas`, and `GraphEditor.PrepareCommit`; the debugger's `GraphDebug.Frame` (its part of a game frame, which takes the
+    runtime's trace), `GraphDebug.EndFrame` (the session's end of an editor frame), `GraphDebug.TakeFlow` (a window's
+    flow) and `GraphDebug.ReadValues` (the live wire values);
   - zones are placed per phase, never per item, except per script instance and graph invoke: a recorded zone costs
     about 70 ns, and a thread's buffer holds `ZonesPerThread` (4,096) zones a frame.
 - **Who writes.** Any thread may record: the main thread, Jolt's workers (named by the job system's thread init

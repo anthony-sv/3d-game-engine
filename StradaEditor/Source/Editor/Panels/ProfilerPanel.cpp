@@ -386,7 +386,8 @@ namespace Strada
 			                                          "%.*s", static_cast<int>(threadName.size()), threadName.data());
 			double const busy = ToMilliseconds(tree.BusyNanoseconds);
 			TimeCell(busy);
-			TimeCell(busy);
+			// A thread has no time of its own outside its zones: its row shows its busy time once.
+			ImGui::TableNextColumn();
 			ImGui::TableNextColumn();
 			m_Record.ZoneRows.push_back({std::string(threadName), 0, true, busy, busy, {}});
 			if (threadOpen)

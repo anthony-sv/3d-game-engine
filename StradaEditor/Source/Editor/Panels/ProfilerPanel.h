@@ -44,7 +44,7 @@ namespace Strada
 				uint32_t Depth = 0;
 				bool Thread = false;
 				double TotalMilliseconds = 0.0;
-				// The time not spent in nested zones (a thread's row: its busy time).
+				// The time not spent in nested zones (a thread's row, which draws no self time: its busy time).
 				double SelfMilliseconds = 0.0;
 				// "<label> <value>" for a zone with a count, else empty.
 				std::string Value;

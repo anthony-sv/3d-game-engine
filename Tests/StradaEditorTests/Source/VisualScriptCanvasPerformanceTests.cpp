@@ -1089,7 +1089,7 @@ TEST_CASE("VisualScriptEditor: a watched 2,000-node graph's flow frame")
 		MESSAGE("a watched 2,000-node graph's flow frame: ", Median(watched),
 		        " ms watched (the take, its read, the flow model and the overlays), ", Median(unwatched), " ms unwatched (", flowCost,
 		        " ms for watching)");
-		std::initializer_list<std::string_view> const reported = {"GraphEditor.", "GraphDebug.", "Graph.", "Scene.Update"};
+		std::initializer_list<std::string_view> const reported = {"Play.", "GraphEditor.", "GraphDebug.", "Graph.", "Scene.Update"};
 		MESSAGE("the profiler's watched frames: ", profile.Describe("watched", reported));
 		MESSAGE("the profiler's unwatched frames: ", profile.Describe("unwatched", reported));
 		CHECK(flowCost <= 3.0 * WatchedFlowMilliseconds);

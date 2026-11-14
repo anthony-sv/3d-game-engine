@@ -713,6 +713,7 @@ namespace Strada
 
 	bool VisualScriptDebugSession::OnPlayFrame(Timestep timestep)
 	{
+		ST_PROFILE_SCOPE("GraphDebug.Frame");
 		if (!m_Attached)
 		{
 			return false;
