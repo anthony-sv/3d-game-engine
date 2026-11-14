@@ -305,6 +305,10 @@ namespace
 			{
 				AdjustRecentParameters(params);
 			}
+			if (params.is_object())
+			{
+				AdjustDataAssetParameters(params);
+			}
 			return params;
 		}
 
@@ -496,6 +500,25 @@ namespace
 			{
 				params["remove"] = FileSystem::PathToUtf8(m_Outside / "Missing" / "Missing.sproj");
 			}
+		}
+
+		// A data asset type's set: a third of the time an asset of the type with the fields the state read, undamaged and alone,
+		// which succeeds; the independent parameters and the damaged patches otherwise leave too few that do in a run's few
+		// rounds of the command.
+		void AdjustDataAssetParameters(Json& params)
+		{
+			DataAssetType const* const type = FindDataAssetCommandType(m_Command);
+			if (type == nullptr || !m_Command.ends_with(".set") || m_Random.Pick(3) != 0)
+			{
+				return;
+			}
+			auto const assets = m_State.AssetsByType.find(type->GetName());
+			auto const fields = m_State.DataAssetFields.find(type->GetName());
+			if (assets == m_State.AssetsByType.end() || assets->second.empty() || fields == m_State.DataAssetFields.end())
+			{
+				return;
+			}
+			params = Json::object({{type->GetCommandParameter(), PickFrom(assets->second)}, {"fields", fields->second}});
 		}
 
 		// Parameters of the graph commands that combine as the commands expect most of the time, so their work is reached in a
