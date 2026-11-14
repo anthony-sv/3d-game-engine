@@ -446,6 +446,8 @@ open. Without an argument it runs strada from the repository (`dotnet run`); pas
 | `python Projects/PrismBreak/Tools/Author.py` | Prism Break, a brick breaker of 13 visual scripts and no C#: the project and its settings, the sounds, mesh and textures that `Tools/GenerateAssets.py` makes, the materials, then the graphs (the Arcade and Checks function libraries first), the prefabs, the main and test scenes, checks of every graph, the test run, the title's attract mode played for 600 frames, and an exported game's smoke test |
 | `python Projects/Showcase/Tools/Author.py` | The Showcase: Poly Haven assets (sky, ground, texture sets, props), the generated sounds, meshes and textures, the C# scripts, materials, prefabs, the main scene with its exhibits and the test scene; then the tests |
 | `python Projects/Showcase/Tools/Author.py --exhibit GraphGarden` | The Showcase's Graph Garden alone, in place: its entities in the main and test scenes, its graphs and materials (keeping their asset handles), then the tests |
+| `python Projects/Moto/Tools/Author.py` | Moto, a motorcycle time trial made of graphs alone: the project and its settings, the circuit's meshes, textures and sky that `Tools/GenerateAssets.py` makes from the layout in `Tools/Circuit.py`, the materials, the circuit's entities, the sun and the sky, the main camera and its tour (a graph whose timeline `Tools/Tour.py` keys), then the test scene and its graphs; then the checks: spheres dropped on every kind of surface, every graph, the test run, the tour in play mode and a clean log |
+| `python Projects/Moto/Tools/Author.py --part <name>` | One part of Moto (`circuit`, `lighting`, `camera` or `tests`) in place, then the `tests` part: its root entities in the main scene and its files (materials and graphs keep their asset handles), then the checks |
 | `python Projects/Blocks/Tools/Author.py` | Blocks: the project and its settings, the C# scripts, the generated sounds, block mesh, grid and screen images, a dusk sky from Poly Haven, materials, the debris and particle burst prefabs, the game scene with its screen (a UI canvas) and the test scene; then the tests |
 
 What they show:
@@ -466,9 +468,10 @@ The full scripts rebuild their project from scratch: everything but the `Tools` 
 Showcase, the scripts' sources in `Scripts/Source`; for the Showcase also its `.gitignore`) is replaced. A full
 Showcase rebuild imports the Poly Haven assets again with new handles and rewrites the materials made from them, so
 rebuild the Graph Garden with `--exhibit GraphGarden` instead. That run compares every file under `Assets` before and
-after, and fails, naming the files, when anything outside the exhibit's own files changed. After a change to arranging,
-`SampleGraphsTests` names the command to run again: `Projects/PrismBreak/Tools/Author.py`, or the Showcase's
-`--exhibit GraphGarden`.
+after, and fails, naming the files, when anything outside the exhibit's own files changed. Moto's `--part` runs
+compare every file of the project outside `Tools` the same way. After a change to arranging, `SampleGraphsTests` names
+the command to run again: `Projects/PrismBreak/Tools/Author.py`, the Showcase's `--exhibit GraphGarden`, or Moto's
+`--part camera` (which writes every graph of Moto again).
 
 ## Troubleshooting
 

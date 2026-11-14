@@ -262,6 +262,11 @@ form); the editor's Timeline drawer edits it (below).
   disabled timeline passes its data inputs through by type, as every disabled node does: `Time` takes `NewTime`, the
   first float curve `Rate`, the other outputs their defaults.
 
+A timeline can fly a camera: the Moto sample's tour (`Projects/Moto`, `Scripts/Tour.sgraph` on its main camera) is a
+Timeline of two Vector3 curves, `Eye` and `LookAt`, about 51 seconds long. Every `Update` sets the camera's translation
+to `Eye` and its Euler angles to a formula that points it at `LookAt` (pitch, then yaw), so no angle is keyed and none
+wraps round; `Finished` counts the tour and plays it again.
+
 **Try it:** add a Timeline with a float track that rises from 0 to 2 and back over a second, play it from `Event.Create`
 with Loop on, and set the entity's height from it in `Update`.
 
@@ -808,7 +813,8 @@ verbs, and a formula's inputs come after the values they read. Every graph has a
 tooltip. Prism Break's graphs are tested to read well: SampleGraphsTests checks that every node sits in exactly one
 titled comment box, at least 16 units from any other node; that no link crosses between boxes; and that arranging a box
 changes nothing. After a change to arranging, re-run `Projects/PrismBreak/Tools/Author.py` (for the Graph Garden,
-`Projects/Showcase/Tools/Author.py --exhibit GraphGarden`, never the Showcase's full rebuild).
+`Projects/Showcase/Tools/Author.py --exhibit GraphGarden`, never the Showcase's full rebuild; for Moto's graphs,
+`Projects/Moto/Tools/Author.py --part camera`).
 
 **How it was made.** `Projects/PrismBreak/Tools/Author.py` built the whole project through `strada mcp`, as an agent
 does: the project and its settings, the sounds, meshes and textures `Tools/GenerateAssets.py` makes, the materials, then

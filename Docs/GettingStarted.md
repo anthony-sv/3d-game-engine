@@ -158,6 +158,7 @@ output.
   The script uses the repository's `strada` tool (`dotnet run --project StradaTool`, or a `strada` executable given as
   its argument), downloads only what is missing and checks every file against the size and MD5 that Poly Haven lists.
 - **Prism Break** (`Projects/PrismBreak/PrismBreak.sproj`).
+- **Moto** (`Projects/Moto/Moto.sproj`), which is not an example of the start screen yet.
 - **Blocks** (`Projects/Blocks/Blocks.sproj`).
 - **FeatureTest** (`Projects/FeatureTest/FeatureTest.sproj`), which uses every component, the entire scripting API and
   every built-in node kind.
@@ -204,6 +205,7 @@ Down or S drops it faster and Space at once, C or Shift holds it, Escape or P pa
 |---------|---------------|
 | `Projects/Showcase` | Every engine feature in exhibits around a fountain in a forest clearing: physically based materials, glass and cutouts, colored lights and shadows in a post-process evening zone, rigid bodies and joints (a wrecking ball, dominoes placed as prefabs), triggers, particles and 3D sound, a yard to walk and climb in with a character controller, day and night, a camera tour, a HUD with buttons, and a garden of chimes played by six visual scripts. Its test scene has 68 checks |
 | `Projects/PrismBreak` | A neon brick breaker made of 13 visual scripts and no C#: function libraries, typed events between graphs, remote variables, timelines and formulas. Its test scene's 29 checks are graphs too. Open `Scripts/Game.sgraph` while it plays to watch it run |
+| `Projects/Moto` | A motorcycle time trial in the making, made of graphs alone: so far a generated 2.6 km circuit with kerbs, gravel traps, walls, a start gantry, sector gates and a footbridge, and a camera tour, a graph whose Timeline flies the camera once round the lap and home. Its test scene's 13 checks are graphs too |
 | `Projects/Blocks` | A falling-blocks game in C#: game rules in plain classes, an AI that plays the title screen's demo, hold and preview queues, debris and sparks from prefabs, sounds, and a HUD and menus on a UI canvas. Its test scene has 57 checks |
 | `Projects/FeatureTest` | Scenes and scripts that use every component and the entire scripting API, and graphs that use every built-in node kind; CI plays it and fails on any failed check |
 

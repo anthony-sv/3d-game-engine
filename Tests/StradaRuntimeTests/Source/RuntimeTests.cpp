@@ -1196,6 +1196,45 @@ TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays 
 	CHECK(Contains(exportedTests.Output, "Tests passed: 29 checks"));
 }
 
+TEST_CASE("Runtime: the Moto sample, made of graphs alone, flies its camera tour and passes its tests")
+{
+	// Three graphs and no C#: the main camera's tour is a timeline (Scripts/Tour.sgraph), and the test scene's 13 checks of
+	// the circuit and of the tour are graphs too.
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
+	std::vector<std::string> const testRun = {"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timeout", "90"};
+
+	ProcessResult const tests = RunPlayer(testRun);
+	CAPTURE(tests.Output);
+	CHECK(tests.ExitCode == 0);
+	CHECK(Contains(tests.Output, "Tests passed: 13 checks"));
+	CHECK_FALSE(Contains(tests.Output, "The game has no scripts"));
+
+	// Nothing in the scene is random, so every run plays the same frames.
+	ProcessResult const again = RunPlayer(testRun);
+	CAPTURE(again.Output);
+	CHECK(again.ExitCode == 0);
+	CHECK_FALSE(TestSummary(tests.Output).empty());
+	CHECK(TestSummary(again.Output) == TestSummary(tests.Output));
+
+	// The checks wait in seconds of the game, so they pass at another frame rate too.
+	std::vector<std::string> slower = testRun;
+	slower.insert(slower.end(), {"--timestep", "0.0333333"});
+	ProcessResult const slow = RunPlayer(slower);
+	CAPTURE(slow.Output);
+	CHECK(slow.ExitCode == 0);
+	CHECK(Contains(slow.Output, "Tests passed: 13 checks"));
+
+	// The game's own scene, whose tour takes off at once, runs five seconds without a window and without a word from its
+	// graphs.
+	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "300"});
+	CAPTURE(game.Output);
+	CHECK(game.ExitCode == 0);
+	CHECK_FALSE(Contains(game.Output, "Visual script"));
+	CHECK_FALSE(Contains(game.Output, " runs no visual script"));
+	CHECK_FALSE(Contains(game.Output, ".sgraph:"));
+}
+
 TEST_CASE("Runtime: a project made from the empty-3d template loads and runs")
 {
 	Testing::TemporaryDirectory directory;

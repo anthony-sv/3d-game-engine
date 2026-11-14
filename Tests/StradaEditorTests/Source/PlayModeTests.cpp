@@ -1525,6 +1525,59 @@ TEST_CASE("PlayCommands: input.set starts a Prism Break game while its title pla
 	sample.Stop();
 }
 
+TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph's timeline, from the home view and stopping brings "
+          "the camera back; with PlayOnStart off the camera stays home")
+{
+	Testing::AssetManagerScope assets;
+	Testing::PhysicsSystemScope physics;
+	Testing::ScriptRuntimeScope scripting;
+	InputScope input;
+	Testing::TemporaryDirectory directory;
+	PlayFixture fixture;
+	std::filesystem::path const sample = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto";
+	REQUIRE(FileSystem::CopyDirectory(sample / "Assets", directory.GetPath() / "Assets").IsOk());
+	REQUIRE(FileSystem::Copy(sample / "Moto.sproj", directory.GetPath() / "Moto.sproj", false).IsOk());
+	REQUIRE(fixture.Operations.OpenProject(directory.GetPath() / "Moto.sproj").IsOk());
+
+	auto const findCamera = [&fixture]
+	{
+		Entity const found = fixture.Context.GetScene().FindEntityByName("Main Camera");
+		REQUIRE(found);
+		return found;
+	};
+	auto const readTours = [&findCamera]
+	{
+		Result<ScriptFieldMap> const variables = VisualScriptEngine::GetInstanceVariables(findCamera().GetUUID());
+		REQUIRE_MESSAGE(variables.IsOk(), (variables ? std::string() : variables.GetError()));
+		auto const tours = variables.GetValue().find("Tours");
+		REQUIRE(tours != variables.GetValue().end());
+		return tours->second.GetInt32();
+	};
+	glm::vec3 const home = findCamera().GetComponent<TransformComponent>().Translation;
+
+	// Ten seconds in, the tour has flown the camera hundreds of meters down the circuit (Tools/Tour.py puts it 473 m from
+	// the home view), and no tour has come home yet.
+	CHECK(fixture.Ok("play.start")["state"] == "play");
+	fixture.Ok("play.pause");
+	fixture.Ok("play.advance", Json::object({{"frames", 600}}));
+	CHECK(glm::distance(findCamera().GetComponent<TransformComponent>().Translation, home) > 100.0f);
+	CHECK(readTours() == 0);
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+	CHECK(findCamera().GetComponent<TransformComponent>().Translation == home);
+
+	// The camera's PlayOnStart off, as a graph that starts the tour itself would set it: the camera waits at the home view.
+	Entity const camera = findCamera();
+	VisualScriptComponent tour = camera.GetComponent<VisualScriptComponent>();
+	tour.Variables["PlayOnStart"] = ScriptFieldValue::FromBool(false);
+	REQUIRE(fixture.Operations.SetComponent(camera.GetUUID(), tour).IsOk());
+	CHECK(fixture.Ok("play.start")["state"] == "play");
+	fixture.Ok("play.pause");
+	fixture.Ok("play.advance", Json::object({{"frames", 120}}));
+	CHECK(findCamera().GetComponent<TransformComponent>().Translation == home);
+	CHECK(readTours() == 0);
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+}
+
 TEST_CASE("PlayMode: the observer is told of the start, of each frame that ran with its time step and of the stop, and may pause "
           "after a frame")
 {

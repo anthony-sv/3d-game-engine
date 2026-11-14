@@ -1,0 +1,203 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "AssetRegistry"
+	},
+	"Assets": [
+		{
+			"Handle": "2831819387962288542",
+			"Type": "Environment",
+			"Path": "Environments/Sky.hdr"
+		},
+		{
+			"Handle": "7220449069599944592",
+			"Type": "Material",
+			"Path": "Materials/Asphalt.smat"
+		},
+		{
+			"Handle": "11059763544319701252",
+			"Type": "Material",
+			"Path": "Materials/BridgePanel.smat"
+		},
+		{
+			"Handle": "17678251460209051611",
+			"Type": "Material",
+			"Path": "Materials/Checker.smat"
+		},
+		{
+			"Handle": "10050210890784848329",
+			"Type": "Material",
+			"Path": "Materials/Concrete.smat"
+		},
+		{
+			"Handle": "4944508948686901293",
+			"Type": "Material",
+			"Path": "Materials/Forest.smat"
+		},
+		{
+			"Handle": "17195172948634622443",
+			"Type": "Material",
+			"Path": "Materials/GantryAccent.smat"
+		},
+		{
+			"Handle": "9392845649904324628",
+			"Type": "Material",
+			"Path": "Materials/GantryPanel.smat"
+		},
+		{
+			"Handle": "4851566155931948837",
+			"Type": "Material",
+			"Path": "Materials/GantrySteel.smat"
+		},
+		{
+			"Handle": "5579249464452497274",
+			"Type": "Material",
+			"Path": "Materials/GateSteel.smat"
+		},
+		{
+			"Handle": "3118176467674485412",
+			"Type": "Material",
+			"Path": "Materials/Grass.smat"
+		},
+		{
+			"Handle": "470712795584087812",
+			"Type": "Material",
+			"Path": "Materials/Gravel.smat"
+		},
+		{
+			"Handle": "8127015975830188493",
+			"Type": "Material",
+			"Path": "Materials/Kerb.smat"
+		},
+		{
+			"Handle": "15745637732639020673",
+			"Type": "Material",
+			"Path": "Materials/LineWhite.smat"
+		},
+		{
+			"Handle": "17182585141271066399",
+			"Type": "Material",
+			"Path": "Materials/SectorBoard1.smat"
+		},
+		{
+			"Handle": "13939128130301913734",
+			"Type": "Material",
+			"Path": "Materials/SectorBoard2.smat"
+		},
+		{
+			"Handle": "16924574414837725192",
+			"Type": "Material",
+			"Path": "Materials/StartLamp.smat"
+		},
+		{
+			"Handle": "5171630588505078153",
+			"Type": "Mesh",
+			"Path": "Meshes/BarrierCollision.gltf"
+		},
+		{
+			"Handle": "18075086976973300326",
+			"Type": "Mesh",
+			"Path": "Meshes/Barriers.gltf"
+		},
+		{
+			"Handle": "10643124185050336685",
+			"Type": "Mesh",
+			"Path": "Meshes/Footbridge.gltf"
+		},
+		{
+			"Handle": "1089562706709561380",
+			"Type": "Mesh",
+			"Path": "Meshes/Gantry.gltf"
+		},
+		{
+			"Handle": "587882088663921001",
+			"Type": "Mesh",
+			"Path": "Meshes/Gate.gltf"
+		},
+		{
+			"Handle": "16144419852617799839",
+			"Type": "Mesh",
+			"Path": "Meshes/Ground.gltf"
+		},
+		{
+			"Handle": "10224707081030729703",
+			"Type": "Mesh",
+			"Path": "Meshes/Hills.gltf"
+		},
+		{
+			"Handle": "17648517083905525447",
+			"Type": "Mesh",
+			"Path": "Meshes/Track.gltf"
+		},
+		{
+			"Handle": "17230076990940009830",
+			"Type": "Mesh",
+			"Path": "Meshes/TrackCollision.gltf"
+		},
+		{
+			"Handle": "1594086459268679014",
+			"Type": "Scene",
+			"Path": "Scenes/Main.sscene"
+		},
+		{
+			"Handle": "758468017170119869",
+			"Type": "Scene",
+			"Path": "Scenes/Tests.sscene"
+		},
+		{
+			"Handle": "11160837631458717455",
+			"Type": "VisualScript",
+			"Path": "Scripts/Checks.sgraph"
+		},
+		{
+			"Handle": "7930426497277894226",
+			"Type": "VisualScript",
+			"Path": "Scripts/Tests.sgraph"
+		},
+		{
+			"Handle": "3374653363641307568",
+			"Type": "VisualScript",
+			"Path": "Scripts/Tour.sgraph"
+		},
+		{
+			"Handle": "1120607662871141938",
+			"Type": "Texture",
+			"Path": "Textures/Asphalt.png"
+		},
+		{
+			"Handle": "9392488307944790590",
+			"Type": "Texture",
+			"Path": "Textures/Checker.png"
+		},
+		{
+			"Handle": "4745811410313937805",
+			"Type": "Texture",
+			"Path": "Textures/Concrete.png"
+		},
+		{
+			"Handle": "11826255399481206101",
+			"Type": "Texture",
+			"Path": "Textures/Forest.png"
+		},
+		{
+			"Handle": "16255408191353351332",
+			"Type": "Texture",
+			"Path": "Textures/Grass.png"
+		},
+		{
+			"Handle": "1011663255898567750",
+			"Type": "Texture",
+			"Path": "Textures/Gravel.png"
+		},
+		{
+			"Handle": "7036308293259310363",
+			"Type": "Texture",
+			"Path": "Textures/Kerb.png"
+		},
+		{
+			"Handle": "3479788475672880843",
+			"Type": "Texture",
+			"Path": "Textures/SectorBoards.png"
+		}
+	]
+}

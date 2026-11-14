@@ -33,6 +33,7 @@ before changing anything structural; it is the architectural contract.
 | `Projects/FeatureTest/` | Project exercising every component and the entire scripting API, with graphs of every built-in node kind and every `[VisualNode]` member of its scripts |
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
 | `Projects/PrismBreak/` | A game made of visual scripts alone (a neon brick breaker), built by `Tools/Author.py` through the agent tools; its test scene's checks are graphs too |
+| `Projects/Moto/` | A motorcycle time trial in the making, of visual scripts alone: a 2.6 km circuit that `Tools/GenerateAssets.py` generates from the layout in `Tools/Circuit.py`, its scene and a camera tour made of a graph (a Timeline on the path `Tools/Tour.py` makes), built by `Tools/Author.py` through the agent tools (`--part <name>` rebuilds one part in place behind a hash guard); its test scene's checks are graphs too |
 | `Projects/Showcase/` | Every engine feature in exhibit areas of a forest clearing (materials, glass, lights, post-processing, physics, triggers, a yard to walk in, particles, sound, a garden of chimes played by visual scripts (`Tools/GraphGarden.py`; `Tools/Author.py --exhibit GraphGarden` rebuilds it in place)) with an opening camera tour, a HUD and day and night, built by `Tools/Author.py` through the agent tools; `Tools/FetchAssets.py` downloads its Poly Haven assets |
 | `Projects/Thumbnails/` | The examples' thumbnails (640x360, taken with the player's `--screenshot`), which `Projects/catalog.json`, the catalog of the examples the editor copies (PrismBreak, Blocks, Showcase), names |
 | `Templates/` | Project templates (`<id>/template.json`, `thumbnail.png` and, but for `empty-3d`, a project whose file is `Template.sproj`) that `project.create` and the editor start new projects from; `Tools/AuthorTemplates.py` builds `graph-starter` (Orb Run, made of visual scripts) and `csharp-starter` (Orb Run in C#, whose sources in `Scripts/Source` are written by hand) through the agent tools |
@@ -233,8 +234,9 @@ Rules for the other suites:
   change to a sample or a template updates its pinned check count. Their graphs must read well:
   `Tests/StradaEditorTests/Source/SampleGraphsTests.cpp` requires every node placed in a titled comment box, none
   overlapping, each box arranged. After a change to arranging, re-run the authoring command its failure names:
-  `python Projects/PrismBreak/Tools/Author.py` for Prism Break, `python Projects/Showcase/Tools/Author.py --exhibit
-  GraphGarden` for the Showcase's garden, and `python Templates/Tools/AuthorTemplates.py --template graph-starter` (or
+  `python Projects/PrismBreak/Tools/Author.py` for Prism Break, `python Projects/Moto/Tools/Author.py --part camera` for
+  Moto (it writes every graph again in place), `python Projects/Showcase/Tools/Author.py --exhibit GraphGarden` for the
+  Showcase's garden, and `python Templates/Tools/AuthorTemplates.py --template graph-starter` (or
   `--template csharp-starter`) for a template (two runs write the same files; it keeps the thumbnail and the C# sources
   unless given `--thumbnail`). Never rebuild the whole Showcase for it: a full rebuild deletes the project,
   imports its downloaded assets again and rewrites the materials made from them.
