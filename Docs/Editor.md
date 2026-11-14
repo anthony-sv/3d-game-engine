@@ -451,6 +451,7 @@ the border between the columns to give the names more room.
 | Flags | A drop-down list of check boxes |
 | Text | A text field; some fields have several lines |
 | List | One row per element with "-" to remove it, "+" (or Add Element while empty) to add one |
+| List of groups | A row per element (titled by its name when it has one) that unfolds into the element's fields; its "..." menu (or a right click) moves the element up or down, duplicates it, inserts a new one above it or removes it, and Add Element adds one at the end. A list with a size limit stops adding there |
 | Group | A tree node with the group's fields under it |
 | Asset | A box with the asset, "..." and "x" ([below](#asset-fields)) |
 | Entity | A button with the entity's name ([below](#entity-fields)) |
@@ -797,7 +798,11 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | `Physics.Layers` | Names of the physics layers (1 to 16); a RigidBody's `Layer` indexes them |
 
 Under Layer Collisions, a matrix of check boxes says which layers collide: clear the box of two layers so that their
-bodies pass through each other. Removing a layer also removes the pairs that named it.
+bodies pass through each other. Layers are numbers: a RigidBody's `Layer` and the matrix's pairs hold the layer's index,
+not its name. Removing a layer therefore keeps every body and pair on its index and only drops the pairs of the last
+index, which no longer exists; removing a layer before the last moves the names after it down onto the lower indices,
+so remove the last layer, or rename the layers, unless that is what you want. "+" adds a layer named `Layer <n>`
+(rename it in its field), up to 16 layers.
 
 ## Play mode
 

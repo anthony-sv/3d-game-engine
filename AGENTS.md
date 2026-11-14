@@ -318,6 +318,7 @@ workflows change.
 | `strada-code-review` | The mandatory pre-commit review and the commit/push procedure |
 | `strada-add-component` | Adding or changing an ECS component end to end |
 | `strada-add-script-api` | Adding or changing C# scripting API (bindings, managed API, tests) |
+| `strada-add-data-asset` | Adding or changing a data asset type (one registration: file, migrations, editor drawer, commands, fuzz seeds, managed class) |
 | `strada-automation-command` | Adding or changing an editor automation command |
 | `strada-render-pass` | Adding a shader or render pass, golden-image tests |
 | `strada-editor-ui` | Editor panels, the generated inspector, undo merge keys, shortcuts, headless UI tests |

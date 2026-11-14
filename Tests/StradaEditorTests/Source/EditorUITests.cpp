@@ -530,7 +530,7 @@ TEST_CASE("EditSession: one interaction is one undo step")
 TEST_CASE("FieldChange: patches apply the changed component to each object's own value")
 {
 	FieldChange change;
-	change.Path = {"Translation"};
+	change.Path = {{"Translation"}};
 	change.Value = Json::array({5.0, 6.0, 7.0});
 	change.Component = 1;
 	Json const values = Json::object({{"Translation", {1.0, 2.0, 3.0}}, {"Scale", {1, 1, 1}}});
@@ -542,7 +542,7 @@ TEST_CASE("FieldChange: patches apply the changed component to each object's own
 
 	// Euler edits keep each object's other angles.
 	FieldChange euler;
-	euler.Path = {"Rotation"};
+	euler.Path = {{"Rotation"}};
 	euler.Component = 0;
 	euler.EulerDegrees = glm::vec3(30.0f, 0.0f, 0.0f);
 	glm::quat const yawed = Math::EulerDegreesToQuaternion({0.0f, 45.0f, 0.0f});
@@ -557,7 +557,7 @@ TEST_CASE("FieldChange: patches apply the changed component to each object's own
 
 	// Fields of nested structs patch only the nested field.
 	FieldChange nested;
-	nested.Path = {"Renderer", "Bloom"};
+	nested.Path = {{"Renderer"}, {"Bloom"}};
 	nested.Value = false;
 	Json const settings = Json::object({{"Renderer", {{"Bloom", true}, {"EV100", 1.0}}}});
 	CHECK(nested.MakePatch(settings) == Json::object({{"Renderer", {{"Bloom", false}, {"EV100", 1.0}}}}));

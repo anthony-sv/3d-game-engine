@@ -204,8 +204,8 @@ already waiting for a draw answers Cancelled). `editor.entity-menu` and `editor.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `scene.new` | `name`, `discardChanges` | `scene`; the history keeps its steps of asset files (`graph.set`, `material.set`) |
-| `scene.open` | `path`* (absolute, or relative to Assets), `discardChanges` | `scene`, `warnings` (skipped unknown components/fields); the history keeps its steps of asset files (`graph.set`, `material.set`) |
+| `scene.new` | `name`, `discardChanges` | `scene`; the history keeps its steps of asset files (`graph.set`, `material.set`, a data asset type's `set`) |
+| `scene.open` | `path`* (absolute, or relative to Assets), `discardChanges` | `scene`, `warnings` (skipped unknown components/fields); the history keeps its steps of asset files (`graph.set`, `material.set`, a data asset type's `set`) |
 | `scene.save` | `path` (absolute, or relative to Assets; required for never-saved scenes) | `scene` |
 | `scene.hierarchy` | — | `scene`, `entities`: tree of `{ id, name, components, children }` |
 | `scene.dump` | — | the scene in the `.sscene` format |
@@ -232,7 +232,7 @@ already waiting for a draw answers Cancelled). `editor.entity-menu` and `editor.
 | `component.add` | `entity`*, `component`*, `fields` | `component`, `fields` |
 | `component.remove` | `entity`*, `component`* (core components cannot be removed) | `removed` |
 | `component.get` | `entity`*, `component`* | `component`, `fields` |
-| `component.set` | `entity`*, `component`*, `fields`* (partial patch; invalid values change nothing) | `component`, `fields` |
+| `component.set` | `entity`*, `component`*, `fields`* (partial patch: the fields given replace theirs whole, an array with all its elements; invalid values change nothing) | `component`, `fields` |
 
 While playing, a `Script` component's `Fields` are the values its running script holds (`entity.get` and
 `component.get` read them from the script), and `component.set` sets the given ones in the script at once, also while
@@ -275,7 +275,7 @@ scene keeps its scene part. `project.create`, `project.open` and `project.close`
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `asset.list` | `folder`, `type` (`Scene`/`Prefab`/`Mesh`/`Material`/`Texture`/`Environment`/`AudioClip`/`Font`/`VisualScript`), `recursive` (default true), `builtIn` | `assets`: `[{ id, name, type, path, reference, missing }]`, `folders` |
+| `asset.list` | `folder`, `type` (`Scene`/`Prefab`/`Mesh`/`Material`/`Texture`/`Environment`/`AudioClip`/`Font`/`VisualScript`, or the name of a data asset type, below), `recursive` (default true), `builtIn` | `assets`: `[{ id, name, type, path, reference, missing }]`, `folders` |
 | `asset.get` | `asset`* | `{ id, name, type, path, reference, missing }` |
 | `asset.select` | `asset`* | the selection: the inspector shows the asset instead of entities (not undoable) |
 | `asset.import` | `files`* (absolute paths), `folder` | `assets` (all or nothing; taken names get a number) |
@@ -298,6 +298,32 @@ Material fields are those of `.smat` files (`BaseColor`, `Metallic`, `Roughness`
 | `material.create` | `path`* (`.smat`, relative to Assets), `fields` | `material` (asset), `fields` |
 | `material.get` | `material`* | `material`, `fields` |
 | `material.set` | `material`*, `fields`* (partial patch; undoable without marking the scene modified; built-in and mesh-embedded materials are read-only) | `material`, `fields` |
+
+### data assets
+
+A data asset type is a file of one reflected struct (Docs/Architecture.md section 6.4): each type the engine registers
+gets three commands from its registration, in a domain named after the type in kebab case, whose asset parameter is the
+type's name in lower camel case (`PhysicsMaterial`: `physics-material.get { "physicsMaterial": ... }`). The `fields`
+parameter's schema (`editor.commands`) lists the type's fields, each with its type, range and description. `asset.list`
+takes the type's name as its `type`. `fields` is read strictly: a field the type does not have, a value outside its range, more
+elements than an array holds and a value the type refuses (two entries of one name) fail with InvalidParams, and the
+message names the field (`TestData.Size: must be at least 0`); nothing is written then. Asset references in `fields`
+take a handle, `"asset://<path>"` or `"builtin://<name>"`, and are answered as handles. The commands work while the
+editor plays: an edit of a data asset is an edit of its file, which the game sees at once and which stays, with its
+step, after `play.stop`.
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `<domain>.create` | `path`* (relative to Assets, ending in the type's extension), `fields` (given ones; the others take their defaults) | `<parameter>` (the asset as `asset.get` describes it), `fields` (every field). Writes the file and registers it; not an undo step. InvalidParams for refused fields, another extension, a path outside Assets or a file that exists; InvalidOperation without a project |
+| `<domain>.get` | `<parameter>`* | `<parameter>`, `fields`; read-only. AssetNotFound for an asset that is not registered; InvalidParams for an asset of another type; FileError for a file that does not load |
+| `<domain>.set` | `<parameter>`*, `fields`* (partial patch: the fields given replace theirs whole, an array with all its elements) | `<parameter>`, `fields`. Writes the file; an undo step (`editor.undo`) that does not mark the scene modified, named `Edit <type name>`; a patch that changes nothing is no step. Undo writes back every field as it was, not the file's bytes: undoing the first edit of a file of an older format version leaves it in the current version with the same values. InvalidParams for refused fields or an asset of another type; InvalidOperation for a data asset without a file of its own (made in memory), a missing file or a read-only one; FileError for a file that does not load |
+
+The engine registers no type of its own yet. The tests register `TestData` (extension `.stestdata`), whose commands
+show the pattern: `test-data.create`, `test-data.get` and `test-data.set`, with the parameter `testData`:
+
+```json
+{ "jsonrpc": "2.0", "id": 7, "method": "test-data.set", "params": { "testData": "asset://Data/Crate.stestdata", "fields": { "Shape": "Sphere", "Entries": [{ "Name": "First", "Weight": 2.0 }] } } }
+```
 
 ### graph
 
@@ -673,7 +699,7 @@ commits do:
   left to right in columns 320 apart, the nodes of a column 160 apart.
 
 While playing, the step of `graph.set` or `graph.edit` goes into the play history; `play.stop` moves the steps that edited asset files
-(`graph.set`, `graph.edit`, `graph.arrange`, `material.set`) into the edited scene's history as its newest steps, so they stay undoable and the scene
+(`graph.set`, `graph.edit`, `graph.arrange`, `material.set`, a data asset type's `set`) into the edited scene's history as its newest steps, so they stay undoable and the scene
 keeps the unsaved state it had (steps undone while playing are not kept). The file keeps the change either way. Running
 instances of the graph take the edit in the edit's own call, before the command answers, also while the game is paused
 and into an execution stopped at a breakpoint: variables keep their values (matched by ID, then by name and type; others

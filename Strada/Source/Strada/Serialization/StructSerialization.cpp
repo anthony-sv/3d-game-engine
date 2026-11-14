@@ -74,6 +74,10 @@ namespace Strada
 			{
 				description["HiddenInEditors"] = true;
 			}
+			if (field.Hints.MaxCount != 0)
+			{
+				description["MaxCount"] = field.Hints.MaxCount;
+			}
 			if (!field.Fields.empty())
 			{
 				Json nested = Json::array();

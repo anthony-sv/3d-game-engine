@@ -113,10 +113,10 @@ header functions, as every Strada file is read.
 |--------|----------------|-----------|
 | Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4) | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler` |
 | Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum` |
-| Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; profiler captures (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `ProfilerCaptureSerializer` |
+| Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; versioned documents of one struct, with migrations; profiler captures (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `StructDocumentFormat`, `ProfilerCaptureSerializer` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
-| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, model importers, built-in primitives, the visual script format and its layout | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter` |
+| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer` |
 | Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
@@ -587,6 +587,327 @@ Asset types:
   compiled into the engine with `strada_embed_resources` from `cmake/StradaResources.cmake` and found with
   `EmbeddedResources::Get`), and the procedural `DefaultSky` environment (zenith/horizon/ground gradient). Later
   subsystems may register more with reserved handles.
+- Data assets (§6.4): every other asset type made of one struct of data, each from one registration.
+
+### 6.4 Data assets
+
+A data asset type is a file of one reflected struct: curves, physics materials, input action maps, mixers, vehicle
+definitions. Each comes from **one registration** (`Strada/Asset/DataAsset.h`), and everything a type needs comes from
+it, so a new type costs its struct, its field table and one line, never a change to the asset manager, the content
+browser, the inspector, the automation commands or the fuzz tests. Materials keep their own code (`MaterialAsset`,
+`material.*`), which this generalizes and leaves unchanged.
+
+**The registration.** `DataAssetRegistry::Register<TData>(DataAssetTypeSpecification<TData>)` names:
+
+| Member | Rule | What uses it |
+|---|---|---|
+| `Name` | PascalCase ASCII letters and digits, 1 to 64 bytes; no built-in `AssetType` name or registered type's | `AssetTypeToString`, asset registries, the `References` hint of asset fields, the file header's `Type` and content key, the managed class, the commands' domain in kebab case and their asset parameter in lower camel case (`PhysicsMaterial`: `physics-material.get { "physicsMaterial": ... }`) |
+| `Extension` | A dot and 2 to 16 lowercase ASCII letters or digits; no built-in or registered type's. Strada's formats start with `.s` | `GetAssetTypeForExtension`, scans and imports, `<domain>.create`'s path, the content browser |
+| `FormatVersion` | At least 1 | The version every save writes |
+| `Description` | One sentence | The content browser's New menu, the commands' descriptions, schemas |
+| `Migrations` | `FormatVersion - 1` functions (`DocumentMigration`); `Migrations[i]` upgrades version `i + 1` to `i + 2` | Reading older files |
+| `Validate` | Optional, pure | Every value an asset is about to take: loaded, patched or set |
+
+The struct's field table (`StructTraits<TData>`, §7.2's field hints: ranges, `Doc`, `References`, `VisibleWhen`,
+`EnabledBy`, `HiddenInEditors`, nested structs, arrays of structs and their `MaxCount`) is the rest: the format, the
+validation of every number, the editor and the automation schema. Registration fails, registering nothing, when a rule
+above is broken, when the name or the extension repeats a built-in or registered type's (names compared in any letter
+case), when the command domain or the command parameter repeats a registered type's, when the command parameter is a
+member of the generated commands (`fields`, `path`), when a value-initialized `TData` does not read back from its
+fields or fails `Validate`, when `TData` or `DataAssetRegistry::MaxTypes` (128) types are registered already, or while
+the asset manager has an asset directory open.
+
+Every value of a data asset has a generated editor and schema: the field table holds no field of a type with a JSON
+format of its own (`FieldKind::Custom`, which generic editors show as "Edited elsewhere" and schemas cannot describe),
+in nested structs and array elements too, and no array of arrays; `TypedDataAssetType` checks it at compile time
+(`Detail::IsDescribedFieldType`). Data that does not fit the table plainly takes these forms: an optional value is a
+bool switch and the value (`EnabledBy`, which elements keep); a variant is a `Kind` enum and the fields of each kind
+(`VisibleWhen`, up to 16 values); a map or a graph is an array of named structs with a `MaxCount`, whose `Validate`
+checks unique names and acyclic parents. Anything else first extends the field table (a kind, its editor and its
+schema) rather than adding a custom field.
+
+**Who registers, and when.** The engine's types are one list in `DataAsset.cpp` (one line per type, sorted by name,
+which merges as a union). The registry registers them when it is first used, by any of its functions or any `Asset.h`
+lookup, on whatever host and whether or not the asset manager is initialized, and keeps them for the whole process: their
+`AssetType` values are fixed by the list's order from `DataAssetRegistry::FirstAssetTypeValue`, and their names and
+`DataAssetType` objects stay valid until the process ends. So every host and tool knows the same types by name: the
+editor, the player, the headless tools, and tests that parse the visual script library or script metadata without an
+asset manager. That matters: an asset registry keeps no entry of a type it does not know (`AssetRegistry::Deserialize`
+skips it with a warning), a scan registers no file of an unknown extension, and the native parsers of the visual script
+library and of script field metadata refuse an asset type name they do not know, so a host that missed a type would
+drop the handles of its files the next time it saves the registry, and every reference to them would break. Hence the
+placement rule: a data asset's struct lives in the Asset module or below it (Core, Math), and the subsystems that use it
+include it from there, as the renderer uses `MaterialData` (§4). Its field table needs Serialization, so it lives in the Asset module
+beside the registration: a struct of the Asset module carries it in its own header, as `MaterialData` does, and a
+struct of Core or Math (a curve in `Math/`) gets it in its type's header `Asset/<Name>Asset.h`, which every user of the
+asset includes. An enum the struct shares with a higher module moves down with it, as `MaterialAlphaMode` lives beside
+`MaterialData`; data that is a higher module's own settings (the renderer's quality settings live in
+`Renderer/SceneRendererSettings.h`) is a project setting or a struct of its own that the module maps, not a data asset
+of that module's struct. Tests register types of their own with `DataAssetRegistry::Register` (with or without an asset
+manager, but not while it has an asset directory open, since the directory's files were scanned with the types it
+knew), from the next free value, and unregister them (`Unregister`, refused for the engine's types, while a directory
+is open and while the asset manager holds an asset of the type, a memory asset included) when they end;
+`Testing::TestDataTypeScope` does both for the worked example's type. A `DataAssetType` is shared by the registry and
+the assets of its type, so an asset that outlives its type's registration keeps a valid type, whose value becomes
+`AssetType::None`: a type registered later may take the value, and no asset of the old type passes as one of its. The
+`Asset.h` lookups stop finding an unregistered type at once.
+
+**What comes from the registration.**
+
+- *The asset type.* The registry gives each type an `AssetType` value from `DataAssetRegistry::FirstAssetTypeValue`
+  (128) up: the engine's types in their list's order, then the lowest value free; the built-in enumerators stay below. `AssetTypeToString`, `AssetTypeFromString`,
+  `GetAssetTypeForExtension` and `GetSupportedAssetExtensions` consult the registry after the built-in types, so asset
+  registries, pickers, drops, script fields and the visual script library's asset types work by name. The values are
+  never written anywhere (files and the script boundary carry names), so the order may change between builds. A switch
+  over `AssetType` handles data asset types first (`DataAssetRegistry::Find(type) != nullptr`) and the built-in
+  enumerators after: the asset manager's loader, the content browser's tile style and glyph, the inspector, thumbnails
+  (none: `AssetThumbnails::Supports` stays false), and the script bindings' loadable types (a data asset type becomes
+  loadable by scripts with its managed class, below).
+- *The file, its loader and its saver* (`DataAssetSerializer`, §7.3): a versioned struct document
+  (`Serialization/StructDocument.h`), the header with the type's name and version, then the content object named after
+  the type. The asset manager loads a file of a data asset type with it (fields this
+  engine does not know warn, logged with the file) into a `TypedDataAsset<TData>`, whose base `DataAsset` gives generic
+  code the fields as JSON (`SerializeFields`) and takes partial patches (`ApplyFields`: all or nothing, ranges and
+  `Validate` checked). C++ users read `AssetManager::GetAsset<TypedDataAsset<TData>>(handle)->GetData()`.
+- *A version for hot reload* (below), *the asset editor and the commands* (below), and *membership in the registry-wide
+  fuzz test* (below).
+
+**Format versions and migrations.** Saving writes the type's `FormatVersion`. Reading checks the header (a newer
+version is refused), takes the content object, runs the migrations from the file's version up (each on the content
+object in place), then reads the fields and validates. A field added with a default is a compatible change and needs
+no new version: older files read it as its default, and an engine without it warns about the unknown key and drops it
+the next time it writes the file. Renaming, removing or changing the meaning of a field takes a new version and a
+migration, with a fixture file of the old version under `Tests/Data/DataAssets/<Name>/` that a test loads. A migration
+checks what it reads and refuses what it cannot convert; the loader also refuses a file whose migration throws
+(nlohmann throws on a value of the wrong kind) or leaves no object, so a missed check refuses the file instead of
+crashing. A reflected struct that other types embed (a curve inside a vehicle definition) changes only compatibly;
+otherwise its header exports a migration of one object of it (`MigrateCurveFrom1(Json&)`), and every type that embeds
+it takes a new version whose migration calls that function on each embedded object, with a fixture file of its own.
+
+**Documents that are not assets.** A save slot, the player's settings and a binding profile are files of one struct
+too, but they are no data assets: they live in the game data folder, not in `Assets/`, have no handle, and are written
+by the game while it runs, so they have no New item, inspector or commands. They reuse what data assets are built on,
+free of the registry: `ReadStructDocument<T>(document, format, validate, context)` and `WriteStructDocument<T>(data,
+format)` (`Serialization/StructDocument.h`, with `StructDocumentFormat { Type, Version, Migrations }`) read and write
+the same header, run the same migrations and the same `Validate`, and their fuzz tests use the same `DocumentMutator`.
+How they are written (atomically, per game) is their own track's choice.
+
+**References to other assets.** A field of type `AssetHandle` (or an array of them, in the struct or in nested structs
+and array elements) with the hint `References("<type name>")` refers to an asset of a built-in type (`"Texture"`,
+`"AudioClip"`) or of a data asset type (`"Curve"`). It is stored as a handle string, so moving the referenced file
+breaks nothing; input (files, automation) may also give `"asset://<path>"` or `"builtin://<Name>"`, resolved on reading.
+Loading an asset never loads what it references: users resolve a reference when they use it, so cycles are harmless,
+and a reference to a deleted asset is a handle that resolves to nothing, which users treat as none. The editor's
+picker and drops offer only assets of the hinted type; exported games carry every file of `Assets/`.
+
+**Hot reload.** Users of a data asset keep its handle, look the asset up when they use it, and compare
+`DataAsset::GetVersion()` with the version of what they derived from it (GPU resources, compiled tables, cached
+values). A version is a number no other data asset object had or will have within the process: drawn when the object is
+created and again by every change of its data. An edit in the editor (the inspector, `<domain>.set`, undo and redo)
+writes the file, gives the loaded object the new data and records the write (`AssetManager::RecordFileWrite`), so the
+object stays and its version moves; a change of the file made outside the editor is found by the next refresh, which
+unloads the asset, and the next lookup loads another object with another version. Comparing the version alone is
+therefore enough (the renderer's material cache has to compare the object as well, since a material's version restarts
+with each object). `DataAssetRegistry::GetEpoch()` moves whenever any data asset object is created, changes or is
+unloaded: managed caches use it (below).
+
+**Layering.** The registry, the asset classes and the serializer are in the Asset module, on top of Serialization's
+field tables; the asset manager calls the registry, never the reverse, apart from the registry refusing registrations
+while a directory is open. The structs live in the Asset module or below. The editor's parts are in `StradaEditorCore`;
+scripts reach data assets through the Script module's bindings.
+
+**The editor.**
+
+- *The asset editor.* Selecting a data asset shows, below its name and reference, the body `DataAssetEditor` draws
+  (`Editor/UI/DataAssetEditor.h`): by default the type's field table through the `FieldEditor`, with asset fields,
+  nested structs and arrays of structs (§11), editable when the asset has a file of its own that is present and not
+  read-only (`SetDataAssetCommand::CheckEditable`) and shown disabled otherwise, with the reason above it (data assets
+  made in memory, read-only files). One widget interaction is one undo step, through
+  `EditorOperations::SetDataAssetFields(asset, patch, description, mergeKey)` and `SetDataAssetCommand`
+  (`Editor/Commands/SetDataAssetCommand.h`), with the inspector's `EditSession`, whose key the asset editor asks for only
+  when an edit brings none: a drawer's own keys keep merging while the session's interaction has ended.
+- *A drawer of a type's own.* `DataAssetEditor::SetDrawer(name, drawer)` replaces the default body of one type (the
+  engine's drawers are one list in `DataAssetEditor.cpp`, where a type's track adds its line). A drawer gets a
+  `DataAssetDrawContext` (the asset, its type, its fields as JSON, whether it is editable, the field editor) and returns
+  a `DataAssetEdit` when the user changed something: a partial patch, the step's name in the undo history (empty for
+  `Edit <type name>`) and a merge key (0 for the inspector's interaction). A widget that commits at its own cadence, such
+  as a curve editor whose arrow-key nudges merge by time while no ImGui item is active and whose every edit names
+  itself (`Set Length on Timeline (moves 2 keys)`), gives its own key and description, which the step keeps. The asset
+  editor applies the edit as the step `<domain>.set` makes, so a drawer never writes files or assets itself. It may draw
+  the default body for the fields it does not draw itself (`DataAssetEditor::DrawFields`), the others being
+  `HiddenInEditors` in the field table. A struct type that appears inside other data (a curve inside a vehicle
+  definition) gets a struct drawer of the field editor instead, from one editor-wide list, used wherever that struct
+  appears (§11).
+- *The content browser.* Its New menu has an item per registered type, named by the type's display name (`New Test
+  Data`, the description as its tooltip), which writes a file of the default fields named `New <display name>` (made
+  unique) into the displayed folder, selects it and starts renaming it, as New Material does
+  (`EditorOperations::CreateDataAsset`). Tiles of data assets show a table glyph with the type's display name as their
+  label.
+- *The commands.* Every type registered when the editor's commands are registered gets three, documented in
+  Automation.md with each shipped type's rows:
+  - `<domain>.create { path, fields? }` writes a file (path relative to `Assets/`, ending in the type's extension) with
+    the default fields plus the given ones and registers it; not an undo step, as `material.create` and `graph.create`
+    are not. It answers like `get`.
+  - `<domain>.get { <parameter> }` answers `{ "<parameter>": <the asset as asset.get describes it>, "fields": { ... } }`;
+    read-only.
+  - `<domain>.set { <parameter>, fields }` applies a partial patch and writes the file: an undo step that does not mark
+    the scene modified, refused for data assets without a file of their own and for read-only files.
+
+  `fields` is read strictly: an unknown field or a value outside its range fails with InvalidParams naming it (the field
+  table's message: `TestData.Size: must be at least 0`), and so does a value `Validate` refuses; nothing is written
+  then. An asset of another type is InvalidParams too; `set` of a data asset without a file of its own, a missing file
+  or a read-only one is InvalidOperation, and a file that does not load is FileError. The handlers find their type again
+  by name at each call, so a type unregistered since answers Unavailable. `asset.list` takes the registered types' names
+  as its `type`. The three work while the editor plays, as `material.*` do: an edit of a data asset is an edit of its
+  file, which play mode neither snapshots nor restores, so the playing game sees it at once (through the version) and it
+  stays, with its undo step, after the editor stops. The `fields` parameter's schema lists the type's fields with their
+  types, ranges and descriptions, and leaves the values (and other names) to the field table, so that its messages reach
+  the caller. Undo writes back every field as it was, not the file's bytes: undoing the first edit of a file of an older
+  format version, or of one holding fields this engine does not know, leaves it in the current version with the same
+  values, as materials do. The engine does not know the editor's command domains: a type whose commands would repeat a
+  built-in command's name (a type named `Graph` gives `graph.create`) makes the editor's command registration fail,
+  which the editor tests catch, and a type named after a built-in domain without a `create`, `get` or `set` (`Viewport`)
+  would add its commands beside the built-in ones, so no type is named after a built-in domain.
+
+**Scripts: the managed pattern.** A data asset type that scripts use gets a sealed managed class of the same name in
+`Strada-ScriptCore`, deriving from `Asset` with an internal constructor, as `Material` does; no public member lands
+without a use in the FeatureTest scripts (ScriptCoreTests' coverage), so each type's track adds its class with its first
+user (CV's `Curve` is the first). Managed code identifies asset classes by name, never by a native number: `AssetTypes`
+maps each class to its type name (`"Material"`, `"Curve"`) without calling native code, and the visual script library's
+types, the script field codec, the library writer and the literal codec carry that name, as the JSON they write already
+does. So ScriptCoreTests build, write and check the node library, and run graphs, without a native engine, data asset
+classes included. A native number is fetched only where a call crosses into native code (`Assets.Load<T>`, the
+loadable-type check, the type's bulk read): the class's number comes from its name (`Assets_FindType`), cached per class
+after the first call, and a value of 128 or more coming from native code is named by `Assets_GetTypeName` before
+`AssetTypes.Create` makes the reference. The script bindings' loadable-type check accepts a data asset type when its
+class arrives. The data stays native; a class that reads it in managed code (a curve evaluated per sample by graphs,
+which must allocate nothing and cross no boundary per call) keeps a managed copy with the version it read. Before
+running scripts (the update, fixed update and event entries of C# scripts and graphs), the Script module compares
+`DataAssetRegistry::GetEpoch()` with the epoch it last gave the managed side and, when it moved, tells the managed side
+once (`DataAssets.Invalidate`, a managed entry point the type's track adds with the first user); a class then asks again
+on its next use, through one binding of its own that takes the version it holds and copies the data in bulk only when
+the asset's version differs. The epoch moves on every load of any data asset, and that keeps such a load from costing
+each cached curve a copy and an allocation. So a script sees an edit made in the inspector while playing on its next
+frame, and an access costs a comparison of two managed numbers.
+
+The `strada-add-data-asset` skill is the checklist of a new type: the struct and its field table, the line in the
+engine's list, a drawer when the field table is not the editor the type needs, the FeatureTest seed file, migrations
+with their fixtures, the command rows, the MCP tool list, and the managed class with its first user.
+
+**The worked example**, the type the tests register (`Tests/StradaTests/Source/Asset/TestDataAsset.h`, shared with
+StradaEditorTests): an enum, a number with a range, references to a texture and to another asset of its own type, and
+an array of structs with a bound, in its second format version.
+
+```cpp
+enum class TestDataShape : uint8_t { Box = 0, Sphere };
+template<> struct EnumTraits<TestDataShape>
+{
+	static constexpr std::array<std::pair<TestDataShape, std::string_view>, 2> Values = {{
+		{TestDataShape::Box, "Box"}, {TestDataShape::Sphere, "Sphere"} }};
+};
+
+struct TestDataEntry
+{
+	std::string Name;
+	float Weight = 1.0f;
+	bool operator==(TestDataEntry const& other) const = default;
+};
+template<> struct StructTraits<TestDataEntry>
+{
+	static constexpr std::string_view Name = "TestDataEntry";
+	static constexpr auto Fields = std::make_tuple(
+		Field("Name", &TestDataEntry::Name).Doc("Unique within the asset."),
+		Field("Weight", &TestDataEntry::Weight).Range(0.0, 10.0).Doc("How much the entry counts."));
+};
+
+struct TestData
+{
+	TestDataShape Shape = TestDataShape::Box;
+	float Size = 1.0f;
+	AssetHandle Texture;
+	AssetHandle Next;
+	std::vector<TestDataEntry> Entries;
+	bool operator==(TestData const& other) const = default;
+};
+template<> struct StructTraits<TestData>
+{
+	static constexpr std::string_view Name = "TestData";
+	static constexpr auto Fields = std::make_tuple(
+		Field("Shape", &TestData::Shape).Doc("The shape the size measures."),
+		Field("Size", &TestData::Size).AtLeast(0.0).Doc("Edge length of a box, diameter of a sphere."),
+		Field("Texture", &TestData::Texture).References("Texture").Doc("A texture the asset refers to."),
+		Field("Next", &TestData::Next).References("TestData").Doc("Another asset of the type."),
+		Field("Entries", &TestData::Entries).MaxCount(16).Doc("Weighted entries, in order."));
+};
+
+// Version 1 called Size "Radius".
+inline Result<void> MigrateTestDataFrom1(Json& content)
+{
+	if (auto const radius = content.find("Radius"); radius != content.end())
+	{
+		if (content.contains("Size"))
+		{
+			return Error{"version 1 has \"Radius\", not \"Size\""};
+		}
+		Json size = *radius;
+		content.erase(radius);
+		content["Size"] = std::move(size);
+	}
+	return {};
+}
+inline constexpr std::array<DocumentMigration, 1> TestDataMigrations = {&MigrateTestDataFrom1};
+
+inline Result<void> ValidateTestData(TestData const& data);   // entry names are unique
+
+Result<AssetType> const type = DataAssetRegistry::Register<TestData>({
+	.Name = "TestData",
+	.Extension = ".stestdata",
+	.FormatVersion = 2,
+	.Description = "A shape with a size, references and weighted entries (a type of the tests).",
+	.Migrations = TestDataMigrations,
+	.Validate = &ValidateTestData,
+});
+```
+
+That registration gives the extension `.stestdata`, the asset type `TestData` (the value after the engine's types), the
+commands `test-data.create`, `test-data.get` and `test-data.set` with the parameter `testData`, a New Test Data item,
+the inspector's field table (the entries as an array of structs, at most 16), and a place in the fuzz test. A file:
+
+```json
+{
+	"Strada": {
+		"Version": 2,
+		"Type": "TestData"
+	},
+	"TestData": {
+		"Shape": "Sphere",
+		"Size": 2.5,
+		"Texture": "8406934185603345521",
+		"Next": "0",
+		"Entries": [
+			{
+				"Name": "First",
+				"Weight": 1.0
+			}
+		]
+	}
+}
+```
+
+A version-1 file with `"Radius": 2.5` loads as the same data, and saves as the file above.
+
+**Tests.** The test type goes through every generated surface: the registration's refusals, the asset type and
+extension mapping, the native parsers that read type names (the visual script library, asset registries), file round
+trips, the migration (a version-1 fixture), hot reload (an editor write keeps the object and moves the version; a
+refresh after an outside write loads another object), the asset editor and a drawer headless (a drawer's own merge key
+and description across frames without an active item), the commands with their undo, also while the editor plays, and
+the fuzz tests. StradaTests' registry-wide fuzz test (`DataAssetFuzzTests.cpp`) damages seed documents of every
+registered type: the files of each engine type's extension in the FeatureTest project (it requires at least one per
+engine type, as StradaTests requires every component in its scenes) and, for `TestData`, a document of every field and
+a version-1 document that goes through the migration; a damaged document is refused, or it loads, saves in the current
+version and loads again strictly to the same fields. `AutomationFuzzTests` registers `TestData` before the editor's
+commands, so the generated commands are fuzzed from their first day; since the engine's types are known everywhere, the
+command reference test sees each engine type's commands without a fixture of its own.
 
 ## 7. Scene and ECS
 
@@ -617,10 +938,13 @@ transactional partial updates with readable errors), schemas, copies, the inspec
 from that table. Fields carry optional hints: an inclusive range (enforced whenever JSON is read, so files, automation
 and the editor all reject out-of-range values), a presentation (color, angle, multi-line text), the referenced asset
 type, a one-sentence description, a visibility condition (the field only matters while an enum or bool field of the
-same struct has one of some values, like a camera's orthographic size) and a switch (`EnabledBy`: another bool field of
-the table, not switched itself, that turns the field on; drawn by the inspector as a check box in front of the field);
-both are checked at compile time. Values that skip the JSON checks (scripts) can be brought into range with
-`ClampToFieldRanges`. Field tables of other structs (renderer settings, materials) use the same hints. Each component
+same struct has one of at most 16 values, like a camera's orthographic size), a switch (`EnabledBy`: another bool field
+of the table, not switched itself, that turns the field on; drawn by the inspector as a check box in front of the field)
+and, for arrays, the most elements they hold (`MaxCount`, enforced whenever JSON is read, like ranges; the inspector's
+add buttons stop there); the conditions and switches are checked at compile time. Values that skip the JSON checks
+(scripts, values made in C++) can be brought into range, and their arrays down to their `MaxCount`, with
+`ClampToFieldRanges` (`FitToFieldRanges` for imported data, which also replaces NaN and says what it changed). Field tables of other structs (renderer settings,
+materials, data assets) use the same hints. Each component
 also names its category (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`). The registry provides
 type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for
 scene serialization, scene copy, automation (`component.*` commands), the inspector "Add Component" menu (grouped by
@@ -733,7 +1057,8 @@ of the entities below a character are its own parts, which neither block it nor 
 
 ### 7.3 Serialization formats (JSON, written with tabs, keys in stable order)
 
-Every file starts with a header: `"Strada": { "Version": <int>, "Type": "Scene" | "Prefab" | "Material" | "Project" | "AssetRegistry" | "VisualScript" }`.
+Every file starts with a header: `"Strada": { "Version": <int>, "Type": "Scene" | "Prefab" | "Material" | "Project" | "AssetRegistry" | "VisualScript" }`,
+or the name of a data asset type (§6.4).
 
 Scene (`.sscene`):
 
@@ -770,6 +1095,14 @@ of the project and its exported games). Invalid entries are skipped with warning
 would break references).
 
 Material (`.smat`): `"Material": { <MaterialAsset fields> }`; missing fields keep their defaults.
+
+Data asset (`<extension>` of its type, `DataAssetSerializer`, §6.4): `"Strada": { "Version", "Type": "<Name>" }`, then
+`"<Name>": { <the fields of the type's struct> }`, every field written, in field table order. Reading refuses a header of
+another type, a version below 1 or above the type's `FormatVersion`, a missing or non-object content, a migration that
+fails, throws or leaves no object, a value of the wrong kind or outside its range, an array longer than its `MaxCount`, and a value the type's
+`Validate` refuses; missing fields keep their defaults, and unknown fields are warnings in files (errors in automation
+input). Older versions are migrated on reading, and saving writes the current one. Each type's fields are documented by
+its field table (the descriptions the inspector and the commands' schemas show) and its section of the guides.
 
 Project template (`Templates/<id>/template.json`, `ProjectTemplate` in `Strada/Project/ProjectTemplate.h`):
 `{ "Strada": { "Version": 1, "Type": "ProjectTemplate" }, "Template": { "Id", "Name", "Order", "Description",
@@ -1846,7 +2179,55 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   of UI elements, which their `UIRect` places, starts folded and is shown read-only, with a note. Every field table's
   name column starts as wide as its names need, switches and indentation included (30% to 60% of the panel, at most 50%
   beside asset paths; users can resize it); names that still do not fit end in an ellipsis and show in full in their
-  tooltips. The default layout gives the inspector about a quarter of the window.
+  tooltips. The default layout gives the inspector about a quarter of the window. Data assets show the body of the data
+  asset editor (§6.4): their type's field table, or the drawer of their type.
+- Arrays in field tables (`FieldEditor`, in the inspector, the data asset editor and the settings panels): an array of
+  plain values (numbers, strings, assets, ...) is a row of widgets per element with `-`, then `+`. An array of reflected
+  structs is a header row that folds away (its count, `2 of at most 16 elements`), then a folding row per element,
+  `<index>: <title>` (the title is the element's first string field, such as its name, when it is not empty;
+  `Element <index>` otherwise), starting folded, with a menu button (Move Up, Move Down, Duplicate, Insert Above, Remove;
+  also on a right click of the row) and, unfolded, the element's fields as nested rows, where visibility conditions and
+  switches are those of the element's own struct; Add Element after the last appends a default element (each field's
+  default). A list edit carries each element row's fold state to where it moves the element (ImGui keeps the states by
+  index, which would leave them behind), and an element it puts in place (added, inserted, duplicated) opens; rows
+  inside an element (a nested struct, an array of the element) keep their states by index. At the field's `MaxCount`
+  the buttons that add are disabled and say why. Every change is one undo step (a drag inside an element, one
+  interaction, merges as everywhere) that patches by index, so editing several selected objects (entities whose
+  components hold arrays, splines among them) keeps each object's own elements: `FieldChange::Path` is a list of
+  `FieldPathStep { Field, Element }` (the field names from the edited object down to the changed value, each with the
+  index of the element the path goes into when the field is an array; an element of an array of plain values is changed
+  by a path whose last step names it), and `FieldChange::ArrayEdit` (`FieldArrayEdit { Kind, Index, Target }`) changes
+  the array the path ends at as a list: `Insert` puts `Value` at `Index` (`FieldArrayEdit::End`, or any index at or past
+  the array's size, appends), `Remove` removes `Index`, `Move` takes the element at `Index` out and puts it back at
+  `Target`, `Duplicate` puts a copy of that object's own element at `Index` after it. `MakePatch(values)` applies the
+  change to the object whose fields `values` holds and gives the whole new value of the top-level field: an element
+  edit, a removal, a move or a duplication at an index that object's array does not have leaves its array as it is, and
+  an insertion past its end appends. With several objects selected, the rows show the first object's elements, and when
+  the objects' arrays differ the whole array is flagged as differing, as a nested struct is (the selection's differing
+  fields are named at the top level); an insertion into an object already at the field's `MaxCount` is refused with the
+  field table's message and changes nothing. Values drawn without a table row (`DrawInlineValue`, `DrawValuePopup`)
+  report an array's whole new value. Automation sets an array field whole (`component.set`, `<domain>.set`): what the
+  editor's index edits produce, given as the array they leave. The Project Settings panel's layer list is such an array
+  (it adds no layer past 16, the most a project takes): a layer it adds is named `Layer <n>` (layer names are unique and
+  not empty), and removing a layer drops the ignored collision pairs that name an index the shorter list lacks. Layers
+  are indices, which rigid bodies and character controllers in every scene hold as the pairs do, so nothing is
+  renumbered: removing a layer before the last moves the names after it down onto the bodies and pairs of the lower
+  indices. The collision matrix stays as it is.
+- Struct drawers: a reflected struct type (`StructTraits<T>::Name`) may have a drawer of its own, used wherever the
+  struct appears (a field, a nested struct, an array element) in every `FieldEditor` (the inspector, Project Settings,
+  Scene Settings, the Build Game dialog, the visual script literal editor), in the value column of the struct's row (an
+  open element's drawer gets a row of its own below the element's). The editor's struct drawers are one list in
+  `Editor/UI/FieldStructDrawers.cpp` (`GetFieldStructDrawers`), where a type's track adds its line, which every
+  `FieldEditor` installs when it is constructed; `FieldEditor::SetStructDrawer(structName, drawer)` adds or replaces one
+  for that field editor only (tests, a panel's own), and an empty drawer removes it. A drawer gets a
+  `FieldStructDrawContext` (the field's descriptor, its value, whether the selection's values differ, whether it is
+  editable (false inside `ImGui::BeginDisabled`), and the field editor, for nested asset pickers) and returns, when the
+  user changed something, a `FieldStructEdit`: the struct's whole new value, the step's name in the undo history and a
+  merge key, empty and 0 meaning the caller's own, as a data asset drawer's are (§6.4). The field editor reports it as a
+  change at the struct's path (`FieldChange` carries the description and key; the inspector, the material and scene
+  settings panels and the data asset editor use a non-zero key in place of their interaction's, and the data asset
+  editor the description, as its step's name), so a curve embedded in other data is edited with the curve editor and
+  undone like any field.
 - Content Browser: a folder tree with two roots, the open project's asset directory and its C# scripts
   (`Scripts/Source`, `ScriptBrowsing`), beside the displayed folder as tiles (folders, then assets or scripts, then
   files that are not assets, such as a glTF scene's buffers) labeled with their file names on two lines (a long name
@@ -2654,7 +3035,9 @@ inspector's primary entity as the context entity; without an asset directory the
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
   `asset.*` (list, get, select, import, refresh, browse and drop in the content browser, move, delete, create-folder,
   move-folder, delete-folder),
-  `material.*` (create, get, set; edits are undoable without marking the scene modified), `graph.*` (visual scripts:
+  `material.*` (create, get, set; edits are undoable without marking the scene modified), one domain per data asset
+  type (`<domain>.create`, `get` and `set`, from the type's registration; `set` is undoable without marking the scene
+  modified, §6.4), `graph.*` (visual scripts:
   create, get, set and check documents, checked strictly, with the scripting runtime's analysis; edit applies a batch of
   the graph window's own edits as one step, with labels, quick fixes as ready operations, hints and the nodes of other
   scripts an edit breaks; arrange lays a graph out as the window's Arrange does, copy copies elements for edit's Paste,

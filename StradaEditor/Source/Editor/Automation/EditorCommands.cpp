@@ -3,6 +3,7 @@
 #include "Editor/Automation/AgentCommands.h"
 #include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/JsonSchema.h"
+#include "Editor/Commands/SetDataAssetCommand.h"
 #include "Editor/ComponentInspection.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EntityBounds.h"
@@ -33,6 +34,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptReferences.h"
@@ -1698,7 +1700,8 @@ namespace Strada
 				for (auto const registerDomain :
 				     {&CommandSet::RegisterEditor, &CommandSet::RegisterProject, &CommandSet::RegisterScene, &CommandSet::RegisterEntities,
 				      &CommandSet::RegisterComponents, &CommandSet::RegisterAssets, &CommandSet::RegisterMaterials,
-				      &CommandSet::RegisterGraphs, &CommandSet::RegisterPrefabs, &CommandSet::RegisterLogAndViewport})
+				      &CommandSet::RegisterDataAssets, &CommandSet::RegisterGraphs, &CommandSet::RegisterPrefabs,
+				      &CommandSet::RegisterLogAndViewport})
 				{
 					if (Result<void> result = (this->*registerDomain)(); !result)
 					{
@@ -2092,6 +2095,11 @@ namespace Strada
 
 			Result<void> RegisterAssets()
 			{
+				// The built-in types, then the data asset types registered now (whose commands RegisterDataAssets adds).
+				std::vector<std::string> const dataAssetTypeNames = GetDataAssetTypeNames();
+				std::vector<std::string_view> assetTypeNames = {"Scene",       "Prefab",    "Mesh", "Material",    "Texture",
+				                                                "Environment", "AudioClip", "Font", "VisualScript"};
+				assetTypeNames.insert(assetTypeNames.end(), dataAssetTypeNames.begin(), dataAssetTypeNames.end());
 				SchemaBuilder const assetParameter =
 					SchemaBuilder::String("Asset: a handle (decimal string), \"asset://<path in Assets>\" or \"builtin://<name>\"")
 						.MinLength(1);
@@ -2103,9 +2111,7 @@ namespace Strada
 					"recursive is false). Built-in assets are included with builtIn.",
 					SchemaBuilder::Object()
 						.Property("folder", SchemaBuilder::String("Folder relative to Assets (empty for all)").Default(""))
-						.Property("type", SchemaBuilder::String("Only assets of this type")
-				                              .Enum({"Scene", "Prefab", "Mesh", "Material", "Texture", "Environment", "AudioClip", "Font",
-				                                     "VisualScript"}))
+						.Property("type", SchemaBuilder::String("Only assets of this type").Enum(assetTypeNames))
 						.Property("recursive", SchemaBuilder::Boolean("Include subfolders").Default(true))
 						.Property("builtIn", SchemaBuilder::Boolean("Include built-in assets").Default(false))
 						.Build(),
@@ -2463,6 +2469,233 @@ namespace Strada
 									  return Failure(AutomationErrorCode::InvalidParams, changed);
 								  }
 								  return describeMaterial(material.GetValue());
+							  })
+						: result;
+				return result;
+			}
+
+			// Three commands per data asset type registered now (DataAsset.h), from its registration: <domain>.create, get and
+			// set. Each handler finds the type again by its name, since a type may be unregistered meanwhile (tests register types
+			// of their own).
+			Result<void> RegisterDataAssets()
+			{
+				for (DataAssetType const* type : DataAssetRegistry::GetTypes())
+				{
+					if (Result<void> result = RegisterDataAssetType(*type); !result)
+					{
+						return result;
+					}
+				}
+				return {};
+			}
+
+			static std::vector<std::string> GetDataAssetTypeNames()
+			{
+				std::vector<std::string> names;
+				for (DataAssetType const* type : DataAssetRegistry::GetTypes())
+				{
+					names.push_back(type->GetName());
+				}
+				return names;
+			}
+
+			// The type of that name while it is registered.
+			static CommandValue<DataAssetType const*> FindDataAssetType(std::string const& name)
+			{
+				DataAssetType const* const type = DataAssetRegistry::FindByName(name);
+				if (type == nullptr)
+				{
+					return MakeCommandError(AutomationErrorCode::Unavailable, "the data asset type '{}' is no longer registered", name);
+				}
+				return type;
+			}
+
+			// The asset parameter of a type's commands: a registered asset of that type.
+			static CommandValue<AssetHandle> ParseDataAsset(Json const& params, DataAssetType const& type)
+			{
+				std::string const& parameter = type.GetCommandParameter();
+				Json const& value = params[parameter];
+				CommandValue<AssetHandle> asset = ParseAsset(value, parameter);
+				if (!asset)
+				{
+					return asset;
+				}
+				AssetType const actual = AssetManager::GetAssetType(asset.GetValue());
+				if (actual != type.GetAssetType())
+				{
+					CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset '{}' is a {}, not a {}", parameter,
+					                                      value.get_ref<std::string const&>(), AssetTypeToString(actual), type.GetName());
+					error.Data = Json::object({{"path", parameter}});
+					return error;
+				}
+				return asset;
+			}
+
+			// { "<parameter>": the asset as asset.get describes it, "fields": every field }.
+			static CommandResult DescribeDataAsset(AssetHandle handle, DataAssetType const& type)
+			{
+				Result<Ref<Asset>> loaded = AssetManager::LoadAsset(handle);
+				if (!loaded)
+				{
+					return CommandError{AutomationErrorCode::FileError, loaded.GetError(), Json()};
+				}
+				Ref<DataAsset> const asset = std::dynamic_pointer_cast<DataAsset>(loaded.GetValue());
+				if (asset == nullptr || asset->GetAssetType() != type.GetAssetType())
+				{
+					return MakeCommandError(AutomationErrorCode::FileError, "asset {} did not load as a {}", handle, type.GetName());
+				}
+				return Json::object({{type.GetCommandParameter(), DescribeAsset(handle)}, {"fields", asset->SerializeFields()}});
+			}
+
+			// The schema of a type's fields: every field named with its type, range and description. Values are not constrained
+			// here and other names are allowed, so that the field table reads them and its messages (which name the field, or
+			// list the fields for a name it does not know) reach the caller.
+			static SchemaBuilder MakeDataAssetFieldsSchema(DataAssetType const& type, std::string_view description)
+			{
+				SchemaBuilder schema = SchemaBuilder::Object(description);
+				schema.AllowAdditionalProperties();
+				for (FieldDescriptor const& field : type.GetFields())
+				{
+					std::string text = field.TypeName;
+					if (field.Hints.HasMin() && field.Hints.HasMax())
+					{
+						text += fmt::format(", from {} to {}", field.Hints.Min, field.Hints.Max);
+					}
+					else if (field.Hints.HasMin())
+					{
+						text += fmt::format(", at least {}", field.Hints.Min);
+					}
+					else if (field.Hints.HasMax())
+					{
+						text += fmt::format(", at most {}", field.Hints.Max);
+					}
+					if (field.Hints.MaxCount != 0)
+					{
+						text += fmt::format(", at most {} elements", field.Hints.MaxCount);
+					}
+					if (!field.Hints.AssetTypeName.empty())
+					{
+						text += fmt::format(", a reference to a {} asset", field.Hints.AssetTypeName);
+					}
+					if (!field.Hints.Description.empty())
+					{
+						text += fmt::format(": {}", field.Hints.Description);
+					}
+					schema.Property(field.Name, SchemaBuilder::Any(text));
+				}
+				return schema;
+			}
+
+			Result<void> RegisterDataAssetType(DataAssetType const& type)
+			{
+				std::string const name = type.GetName();
+				std::string const& domain = type.GetCommandDomain();
+				std::string const& parameter = type.GetCommandParameter();
+				std::string const& extension = type.GetExtension();
+				SchemaBuilder const assetParameter =
+					SchemaBuilder::String(fmt::format("{} asset: a handle (decimal string) or \"asset://<path>{}\"", name, extension))
+						.MinLength(1);
+
+				Result<void> result = Add(
+					domain + ".create",
+					fmt::format(
+						"Creates a {0} file ({1}, path relative to Assets) with the default fields plus the given ones and registers "
+						"it; returns {{ {2}, fields }} as {3}.get does. Not undoable (file creation). {4}",
+						name, extension, parameter, domain, type.GetDescription()),
+					SchemaBuilder::Object()
+						.Property("path",
+				                  SchemaBuilder::String(fmt::format("File path relative to Assets, ending in {}", extension)).MinLength(1),
+				                  true)
+						.Property("fields", MakeDataAssetFieldsSchema(type, fmt::format("Initial {} fields", name)))
+						.Build(),
+					false,
+					[this, name](Json const& params) -> CommandResult
+					{
+						if (std::optional<CommandError> error = CheckAssets(true))
+						{
+							return *error;
+						}
+						CommandValue<DataAssetType const*> found = FindDataAssetType(name);
+						if (!found)
+						{
+							return found.TakeError();
+						}
+						DataAssetType const& dataType = *found.GetValue();
+						Result<AssetHandle> created =
+							m_Operations.CreateDataAsset(dataType.GetAssetType(), GetString(params, "path"),
+					                                     params.contains("fields") ? params["fields"] : Json::object());
+						if (!created)
+						{
+							return CommandError{AutomationErrorCode::InvalidParams, created.GetError(), Json()};
+						}
+						return DescribeDataAsset(created.GetValue(), dataType);
+					});
+				result = result ? Add(domain + ".get",
+				                      fmt::format("A {} asset's fields (every field; references to assets as handles). {}", name,
+				                                  type.GetDescription()),
+				                      SchemaBuilder::Object().Property(parameter, assetParameter, true).Build(), true,
+				                      [this, name](Json const& params) -> CommandResult
+				                      {
+										  if (std::optional<CommandError> error = CheckAssets(false))
+										  {
+											  return *error;
+										  }
+										  CommandValue<DataAssetType const*> found = FindDataAssetType(name);
+										  if (!found)
+										  {
+											  return found.TakeError();
+										  }
+										  CommandValue<AssetHandle> asset = ParseDataAsset(params, *found.GetValue());
+										  if (!asset)
+										  {
+											  return asset.TakeError();
+										  }
+										  return DescribeDataAsset(asset.GetValue(), *found.GetValue());
+									  })
+				                : result;
+				result =
+					result
+						? Add(domain + ".set",
+				              fmt::format(
+								  "Applies a partial patch to a {} file's fields and saves it; an unknown field, a value outside its "
+								  "range or one the type refuses changes nothing. Undoable (editor.undo), but the scene does not "
+								  "count as modified. Data assets without a file of their own and read-only files cannot be edited.",
+								  name),
+				              SchemaBuilder::Object()
+				                  .Property(parameter, assetParameter, true)
+				                  .Property("fields", MakeDataAssetFieldsSchema(type, fmt::format("Partial {} patch", name)), true)
+				                  .Build(),
+				              false,
+				              [this, name](Json const& params) -> CommandResult
+				              {
+								  if (std::optional<CommandError> error = CheckAssets(true))
+								  {
+									  return *error;
+								  }
+								  CommandValue<DataAssetType const*> found = FindDataAssetType(name);
+								  if (!found)
+								  {
+									  return found.TakeError();
+								  }
+								  DataAssetType const& dataType = *found.GetValue();
+								  CommandValue<AssetHandle> asset = ParseDataAsset(params, dataType);
+								  if (!asset)
+								  {
+									  return asset.TakeError();
+								  }
+								  if (Result<void> editable = SetDataAssetCommand::CheckEditable(asset.GetValue()); !editable)
+								  {
+									  return Failure(AutomationErrorCode::InvalidOperation, editable);
+								  }
+								  if (Result<Ref<Asset>> loaded = AssetManager::LoadAsset(asset.GetValue()); !loaded)
+								  {
+									  return CommandError{AutomationErrorCode::FileError, loaded.GetError(), Json()};
+								  }
+								  if (Result<void> changed = m_Operations.SetDataAssetFields(asset.GetValue(), params["fields"]); !changed)
+								  {
+									  return Failure(AutomationErrorCode::InvalidParams, changed);
+								  }
+								  return DescribeDataAsset(asset.GetValue(), dataType);
 							  })
 						: result;
 				return result;

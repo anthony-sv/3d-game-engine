@@ -22,6 +22,18 @@ directly: every modification goes through `EditorOperations` (undoable commands,
 - Reflected data (components, settings, materials) is edited with `FieldEditor::Draw(descriptors, valuesJson,
   mixedFields)`, which returns a `FieldChange`; turn it into a patch per object with `FieldChange::MakePatch(values)`.
   Never write per-component inspector code: improve the field hints (`strada-add-component`) or the FieldEditor.
+- Arrays in field tables report index edits, never the whole array: `FieldChange::Path` is a list of
+  `FieldPathStep { Field, Element }` and `FieldChange::ArrayEdit` an insert, remove, move or duplicate by index, which
+  `MakePatch(values)` applies to each object's own array (an index it lacks leaves it as it is). Arrays of structs fold
+  into a row per element with a menu (Move Up, Move Down, Duplicate, Insert Above, Remove) over the element's own rows,
+  and buttons that add stop at the field's `MaxCount`. A panel that fixes up other data after a list edit never
+  renumbers what other files also hold by index: the Project Settings layers are indices that rigid bodies in every
+  scene keep, so removing one only drops the ignored pairs naming an index the shorter list lacks. Values drawn without
+  a row (`DrawInlineValue`) still report whole arrays.
+- A struct that needs a widget of its own gets a struct drawer (`GetFieldStructDrawers` in
+  `Editor/UI/FieldStructDrawers.cpp`, or `FieldEditor::SetStructDrawer` for one editor), drawn wherever the struct
+  appears; its `FieldStructEdit` brings a description and merge key, which panels that make undo steps of field changes
+  use when they are set (`change->MergeKey != 0 ? change->MergeKey : m_EditSession.GetMergeKey()`).
 - Field tables size their name column for their names (`FieldEditor::GetNameColumnShare`, 30% to 60%, at most 50%
   beside asset fields). A table of
   your own rows that lines up with a field table (the script class picker above the script's fields) sets up its two

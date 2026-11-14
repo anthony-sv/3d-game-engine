@@ -1,3 +1,4 @@
+#include "Asset/TestDataAsset.h"
 #include "Audio/AudioTestUtilities.h"
 #include "Core/ProfilerTestUtilities.h"
 #include "EditorLocationsTestUtilities.h"
@@ -27,6 +28,7 @@
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
@@ -72,6 +74,33 @@ namespace
 	// The function library the seed script calls (Tests/Data/VisualScripting/Library.sgraph), so graph.interface and the
 	// referrers of graph.set and graph.edit have graphs that refer to one another.
 	constexpr char const* SeedLibraryPath = "Scripts/FuzzLibrary.sgraph";
+
+	// The data asset type whose commands the command names (<domain>.create, get or set), else null.
+	DataAssetType const* FindDataAssetCommandType(std::string_view command)
+	{
+		std::string_view const domain = command.substr(0, command.find('.'));
+		for (DataAssetType const* type : DataAssetRegistry::GetTypes())
+		{
+			if (type->GetCommandDomain() == domain)
+			{
+				return type;
+			}
+		}
+		return nullptr;
+	}
+
+	// The data asset type whose commands take the parameter (its asset parameter), else null.
+	DataAssetType const* FindDataAssetParameterType(std::string_view parameter)
+	{
+		for (DataAssetType const* type : DataAssetRegistry::GetTypes())
+		{
+			if (type->GetCommandParameter() == parameter)
+			{
+				return type;
+			}
+		}
+		return nullptr;
+	}
 
 	// Library.sgraph's document (its content form).
 	Json LoadLibraryContent()
@@ -201,6 +230,8 @@ namespace
 		std::vector<std::string> ScenePaths;
 		std::vector<std::string> Folders;
 		Json MaterialFields = Json::object();
+		// Data asset type name -> the fields of one asset of the type (<domain>.get), for <domain>.create and set.
+		std::map<std::string, Json> DataAssetFields;
 		// The document of the seed script while it is there, else of the first visual script that loads (graph.get), for
 		// graph.set and graph.check, and that script's handle.
 		Json GraphDocument = Json::object();
@@ -278,6 +309,10 @@ namespace
 			if (params.is_object() && m_Command == "editor.recent")
 			{
 				AdjustRecentParameters(params);
+			}
+			if (params.is_object())
+			{
+				AdjustDataAssetParameters(params);
 			}
 			return params;
 		}
@@ -472,6 +507,25 @@ namespace
 			}
 		}
 
+		// A data asset type's set: a third of the time an asset of the type with the fields the state read, undamaged and alone,
+		// which succeeds; the independent parameters and the damaged patches otherwise leave too few that do in a run's few
+		// rounds of the command.
+		void AdjustDataAssetParameters(Json& params)
+		{
+			DataAssetType const* const type = FindDataAssetCommandType(m_Command);
+			if (type == nullptr || !m_Command.ends_with(".set") || m_Random.Pick(3) != 0)
+			{
+				return;
+			}
+			auto const assets = m_State.AssetsByType.find(type->GetName());
+			auto const fields = m_State.DataAssetFields.find(type->GetName());
+			if (assets == m_State.AssetsByType.end() || assets->second.empty() || fields == m_State.DataAssetFields.end())
+			{
+				return;
+			}
+			params = Json::object({{type->GetCommandParameter(), PickFrom(assets->second)}, {"fields", fields->second}});
+		}
+
 		// Parameters of the graph commands that combine as the commands expect most of the time, so their work is reached in a
 		// run's few rounds of each command: half of them name the state's script, graph.find gets one of query and references
 		// (each half the time when it had neither), graph.open selects elements of the sub-graph it shows (and a third of the
@@ -504,6 +558,14 @@ namespace
 						params["query"] = PickFrom(texts);
 					}
 				}
+			}
+			// A third of the time the references of a variable of the state's script alone, which graph.find finds: the other
+			// draws (the schema's independent members, damaged references) leave too few that succeed in a run's few rounds.
+			if (m_Command == "graph.find" && !m_State.Graph.empty() && !m_State.GraphVariables.empty() && m_Random.Pick(3) == 0)
+			{
+				params = Json::object(
+					{{"references",
+				      Json::object({{"kind", "Variable"}, {"graph", m_State.Graph}, {"id", PickFrom(m_State.GraphVariables)}})}});
 			}
 			if (m_Command == "graph.open" && !m_State.Graph.empty() && m_Random.Pick(3) == 0)
 			{
@@ -595,6 +657,14 @@ namespace
 				if (params.contains("graph") && params["graph"] == m_State.Graph && !m_State.GraphRevision.empty() && m_Random.Pick(4) == 0)
 				{
 					params["revision"] = m_State.GraphRevision;
+				}
+				// A third of the time the state's script with its own document, described anew, alone: a replacing that succeeds,
+				// which the independent parameters and the damaged documents otherwise leave too rare in a run's few rounds.
+				if (!m_State.Graph.empty() && !m_State.GraphDocument.empty() && m_Random.Pick(3) == 0)
+				{
+					Json document = m_State.GraphDocument;
+					document["Description"] = "Set by the fuzz";
+					params = Json::object({{"graph", m_State.Graph}, {"document", std::move(document)}});
 				}
 			}
 			// graph.edit: mostly the state's script, whose sub-graph the batch (Patch("operations")) drew its elements from; mostly
@@ -721,6 +791,11 @@ namespace
 				if (m_Command.starts_with("material."))
 				{
 					return Damage(m_State.MaterialFields);
+				}
+				if (DataAssetType const* type = FindDataAssetCommandType(m_Command))
+				{
+					auto const fields = m_State.DataAssetFields.find(type->GetName());
+					return Damage(fields != m_State.DataAssetFields.end() ? fields->second : type->GetDefaultFields());
 				}
 				auto const component = siblings.find("component");
 				std::string const name =
@@ -1106,6 +1181,18 @@ namespace
 			{
 				return {m_State.Assets, invalidAssets};
 			}
+			// A data asset type's commands: mostly its assets, now and then one of another type.
+			if (DataAssetType const* type = FindDataAssetParameterType(property))
+			{
+				auto const typed = m_State.AssetsByType.find(type->GetName());
+				std::vector<std::string> others = invalidAssets;
+				auto const materials = m_State.AssetsByType.find("Material");
+				if (materials != m_State.AssetsByType.end())
+				{
+					others.insert(others.end(), materials->second.begin(), materials->second.end());
+				}
+				return {typed != m_State.AssetsByType.end() ? typed->second : std::vector<std::string>(), others};
+			}
 			if (property == "material" || property == "prefab")
 			{
 				auto const typed = m_State.AssetsByType.find(property == "material" ? "Material" : "Prefab");
@@ -1236,6 +1323,10 @@ namespace
 				refusedOpens.push_back("Fuzz.sproj");
 				return {{"Captures/Seed.json", "Captures/Fuzz.json", outsideCapture}, std::move(refusedOpens)};
 			}
+			if (DataAssetType const* type = FindDataAssetCommandType(m_Command); type != nullptr && m_Command.ends_with(".create"))
+			{
+				return {{"Data/Fuzz" + type->GetExtension(), "Fuzz" + type->GetExtension()}, refused};
+			}
 			// asset.move: a new place for the asset, under the same name.
 			auto const asset = siblings.find("asset");
 			if (asset != siblings.end() && asset->is_string())
@@ -1282,6 +1373,9 @@ namespace
 	{
 		// The recorder, as the editor's application has it: Tick runs its frames.
 		Testing::ProfilerScope Recorder;
+		// The tests' data asset type, so its generated commands are fuzzed: registered before the commands, and unregistered
+		// after the asset directory closed.
+		Testing::TestDataTypeScope DataType;
 		Testing::PhysicsSystemScope Physics;
 		Testing::AudioEngineScope Audio;
 		Testing::AssetManagerScope Assets;
@@ -1411,6 +1505,7 @@ namespace
 				}
 			}
 			Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}, {"fields", {{"Roughness", 0.25}}}}));
+			ReseedDataAssets(EditorState());
 			// The VisualScript component was created without a graph: it gets one.
 			REQUIRE_FALSE(visualScript.empty());
 			std::string const graph = Ok("graph.create", Json::object({{"path", SeedGraphPath}}))["asset"].get<std::string>();
@@ -1520,6 +1615,20 @@ namespace
 			                          ? MakeSeedDocument(sample["VisualScript"], seed.ToString(), library.ToString())
 			                          : sample["VisualScript"];
 			static_cast<void>(Run("graph.set", Json::object({{"graph", reference}, {"document", document}})));
+		}
+
+		// Writes an asset of every data asset type the state has none of (as Replenish puts entities back), so that each type's
+		// get and set have one to work on.
+		void ReseedDataAssets(EditorState const& state)
+		{
+			for (DataAssetType const* type : DataAssetRegistry::GetTypes())
+			{
+				if (!state.AssetsByType.contains(type->GetName()))
+				{
+					static_cast<void>(Run(type->GetCommandDomain() + ".create", Json::object({{"path", "Data/Seed" + type->GetExtension()},
+					                                                                          {"fields", type->GetDefaultFields()}})));
+				}
+			}
 		}
 
 		// Opens a visual script's window again when none is open (as Replenish puts entities back), so the palette has a window
@@ -1779,6 +1888,16 @@ namespace
 						state.MaterialFields = material.GetValue()["fields"];
 					}
 				}
+				if (DataAssetType const* dataType = DataAssetRegistry::FindByName(type);
+				    dataType != nullptr && !state.DataAssetFields.contains(type))
+				{
+					CommandResult fields =
+						Run(dataType->GetCommandDomain() + ".get", Json::object({{dataType->GetCommandParameter(), names.front()}}));
+					if (fields.IsOk())
+					{
+						state.DataAssetFields[type] = fields.GetValue()["fields"];
+					}
+				}
 				// The seed script while it is there (the scripts the commands create hold little), else the first that loads.
 				if (type == "VisualScript" && (state.GraphDocument.empty() || (path == SeedGraphPath && !seedRead)))
 				{
@@ -1883,6 +2002,15 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 			if (state.OpenGraphs.empty())
 			{
 				fixture.ReopenGraphWindow(state);
+				state = fixture.ReadState();
+			}
+			if (std::ranges::any_of(DataAssetRegistry::GetTypes(),
+			                        [&state](DataAssetType const* dataType)
+			                        {
+										return !state.AssetsByType.contains(dataType->GetName());
+									}))
+			{
+				fixture.ReseedDataAssets(state);
 				state = fixture.ReadState();
 			}
 		}
@@ -1991,6 +2119,17 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	{
 		CAPTURE(graphCommand);
 		CHECK(outcomes[graphCommand].first > 0);
+	}
+	// Every data asset type's generated commands reach their work.
+	REQUIRE_FALSE(DataAssetRegistry::GetTypes().empty());
+	for (DataAssetType const* type : DataAssetRegistry::GetTypes())
+	{
+		for (char const* const action : {".create", ".get", ".set"})
+		{
+			std::string const dataCommand = type->GetCommandDomain() + action;
+			CAPTURE(dataCommand);
+			CHECK(outcomes[dataCommand].first > 0);
+		}
 	}
 	// The project content commands reach their work: an example is copied.
 	for (std::string const contentCommand : {"project.templates", "project.examples", "project.copy-example"})

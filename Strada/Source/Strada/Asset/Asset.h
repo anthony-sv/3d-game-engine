@@ -25,12 +25,20 @@ namespace Strada
 		VisualScript
 	};
 
+	// The name of a built-in or registered data asset type (DataAssetRegistry, §6.4 of Docs/Architecture.md); "None" for
+	// values no type has. A data asset type's name stays valid as long as its type (the engine's: the whole process).
 	char const* AssetTypeToString(AssetType type);
+	// Built-in types and registered data asset types, by their exact names.
 	std::optional<AssetType> AssetTypeFromString(std::string_view name);
-	// Maps a file extension (".glb", ".PNG", ...) to the asset type it imports as; None for unsupported files.
+	// Maps a file extension (".glb", ".PNG", ...) to the asset type it imports as, built-in or a registered data asset type;
+	// None for unsupported files.
 	AssetType GetAssetTypeForExtension(std::string_view extension);
-	// Every extension that imports as an asset (lowercase, with the dot), in a stable order.
+	// Every extension that imports as an asset (lowercase, with the dot), in a stable order: the built-in types', then the
+	// registered data asset types' in registration order.
 	std::vector<std::string_view> GetSupportedAssetExtensions();
+	// The lookups above for the built-in types only, which the data asset registry checks registrations against.
+	std::optional<AssetType> BuiltInAssetTypeFromString(std::string_view name);
+	AssetType GetBuiltInAssetTypeForExtension(std::string_view extension);
 
 	// Base class of every loaded asset. Assets are CPU-side data; GPU resources are created from them by the renderer.
 	class Asset

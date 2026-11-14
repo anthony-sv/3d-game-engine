@@ -381,7 +381,7 @@ namespace Strada::ScriptFieldInspection
 		{
 			return Error{"the edit does not match the selection"};
 		}
-		std::string const fieldName(change.Path.front());
+		std::string const fieldName(change.Path.front().Field);
 		std::string const key(fieldsKey);
 		std::vector<ComponentEdit> edits;
 		edits.reserve(entities.size());

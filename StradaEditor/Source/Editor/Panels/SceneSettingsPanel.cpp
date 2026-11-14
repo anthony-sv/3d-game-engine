@@ -49,7 +49,8 @@ namespace Strada
 		Json const values = SceneSerializer::SerializeSettings(scene.GetSettings());
 		if (std::optional<FieldChange> const change = m_FieldEditor.Draw(m_Fields, values))
 		{
-			UI::ReportFailure(operations.SetSceneProperties(std::nullopt, change->MakePatch(values), m_EditSession.GetMergeKey()),
+			uint64_t const mergeKey = change->MergeKey != 0 ? change->MergeKey : m_EditSession.GetMergeKey();
+			UI::ReportFailure(operations.SetSceneProperties(std::nullopt, change->MakePatch(values), mergeKey),
 			                  "Changing the scene settings");
 		}
 

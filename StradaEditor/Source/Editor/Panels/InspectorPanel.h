@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/EditorOperations.h"
+#include "Editor/UI/DataAssetEditor.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 
@@ -29,8 +30,9 @@ namespace Strada
 	// values differ are flagged, and an edit changes only the edited value (or vector component) on every selected entity.
 	// C# scripts and visual scripts dropped onto the panel run on the selected entities. Without selected entities it shows
 	// the asset selected in the content browser: its details, the parameters of material files (editable, one undo step per
-	// interaction; built-in and imported materials are read-only and can be copied to a material file), a texture preview,
-	// mesh statistics and what a visual script holds (read-only). Images of assets (in asset fields, the asset picker's rows
+	// interaction; built-in and imported materials are read-only and can be copied to a material file), the fields of data
+	// assets (DataAssetEditor: editable in files of their own, one undo step per interaction), a texture preview, mesh
+	// statistics and what a visual script holds (read-only). Images of assets (in asset fields, the asset picker's rows
 	// and the material headers and previews) come from SetThumbnails. Visual scripts open in their graph windows from the
 	// asset's Open and the component's Open Visual Script; entities whose VisualScript components run no graph get a Create
 	// Visual Script button that writes one for them (SetOpenVisualScriptCallback). Main thread only.
@@ -53,6 +55,9 @@ namespace Strada
 		// The project's visual scripts (the graph windows' index), which the asset inspector's "Used by" of a visual script
 		// reads, refreshing it first. Not owned; without it no "Used by" is shown.
 		void SetVisualScriptIndex(VisualScriptProjectIndex* index) { m_VisualScriptIndex = index; }
+		// The editor of data assets the asset inspector draws, whose drawers (DataAssetEditor::SetDrawer) replace a type's
+		// default body.
+		DataAssetEditor& GetDataAssetEditor() { return m_DataAssetEditor; }
 
 		void OnImGuiRender(EditorOperations& operations, bool& open);
 		// In the next frame, brings the inspector to the front with its Add Component menu open and the search text typed in
@@ -119,6 +124,7 @@ namespace Strada
 
 		FieldEditor m_FieldEditor;
 		std::vector<FieldDescriptor> m_MaterialFields;
+		DataAssetEditor m_DataAssetEditor;
 		AssetThumbnails* m_Thumbnails = nullptr;
 		VisualScriptEnumLookup m_VisualScriptEnumLookup;
 		OpenVisualScriptCallback m_OpenVisualScript;

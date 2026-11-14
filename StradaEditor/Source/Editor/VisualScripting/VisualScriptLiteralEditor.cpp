@@ -132,7 +132,7 @@ namespace Strada
 	                                                    VisualScriptLibrary const* library)
 	{
 		FieldChange edit = change;
-		edit.Path = {field.Descriptor.Name};
+		edit.Path = {FieldPathStep{field.Descriptor.Name, std::nullopt}};
 		Json const values = Json::object({{FieldName, field.Value}});
 		Json const patch = edit.MakePatch(values);
 		Result<Json> stored = ScriptFieldInspection::SetEditorValue(field.Class, Json::object(), FieldName, patch[FieldName]);

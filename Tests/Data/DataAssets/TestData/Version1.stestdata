@@ -1,0 +1,18 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "TestData"
+	},
+	"TestData": {
+		"Shape": "Sphere",
+		"Radius": 2.5,
+		"Texture": "8406934185603345521",
+		"Next": "0",
+		"Entries": [
+			{
+				"Name": "First",
+				"Weight": 1.0
+			}
+		]
+	}
+}
