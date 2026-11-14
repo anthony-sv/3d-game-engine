@@ -18,8 +18,8 @@
 #if defined(ST_PLATFORM_WINDOWS)
 #include <Windows.h>
 #else
-// The process's environment; not every platform's headers declare it.
-extern char** environ;
+// The process's environment, a C variable; not every platform's headers declare it.
+extern "C" char** environ;
 #endif
 
 namespace Strada
