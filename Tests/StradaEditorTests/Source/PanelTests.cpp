@@ -1990,17 +1990,18 @@ TEST_CASE("FieldEditor: fields with a visibility condition show while their sibl
 	checkSwitch(ComponentRegistry::Get<PostProcessComponent>(),
 	            SerializeFields<ComponentTraits<PostProcessComponent>>(PostProcessComponent()), "Global", false, 1);
 
-	// Static bodies never move: they show their type and layer. Kinematic ones move as scripts say, so they also sleep and
-	// start with velocities; only dynamic ones have mass, damping, gravity, locks and continuous collision.
+	// Static bodies never move: they show their type and layer. Kinematic ones move as scripts say, so they also sleep, are
+	// drawn between steps and start with velocities; only dynamic ones have mass, damping, gravity, locks and continuous
+	// collision.
 	ComponentInfo const& rigidBody = ComponentRegistry::Get<RigidBodyComponent>();
 	Json body = SerializeFields<ComponentTraits<RigidBodyComponent>>(RigidBodyComponent());
-	for (auto const& [type, rows] : std::vector<std::pair<char const*, int>>{{"Dynamic", 12}, {"Kinematic", 5}, {"Static", 2}})
+	for (auto const& [type, rows] : std::vector<std::pair<char const*, int>>{{"Dynamic", 13}, {"Kinematic", 6}, {"Static", 2}})
 	{
 		CAPTURE(type);
 		body["Type"] = type;
 		CHECK(countRows(rigidBody.Fields, body, {}) == rows);
 	}
-	CHECK(countRows(rigidBody.Fields, body, {"Type"}) == 12);
+	CHECK(countRows(rigidBody.Fields, body, {"Type"}) == 13);
 }
 
 TEST_CASE("Panels: the Add Component menu shows categories, finds components as the user types and adds the chosen one")

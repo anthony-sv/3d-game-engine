@@ -192,6 +192,7 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     figure is work;
   - `Scene.Update` around `Scene::OnUpdateRuntime`'s phases, in their order: `Scene.UpdateUI`, `Scene.UpdateScripts`,
     `Scene.UpdatePhysics`, `Scene.ContactEvents`, `Scene.UpdateAudio`, `Scene.UpdateParticles`, `Scene.Destroy`; in
+    `Scene.UpdatePhysics`, `Scene.ReturnToSteps` before the frame's steps and `Scene.Interpolate` after them (§8); in
     each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`;
   - each C# script's update and fixed update under `Script.<class>`, and each graph invoke (every event) under
     `Graph.<asset path>` with the count `Steps`: the steps of the VM's outermost executions the invoke ran, the graphs
@@ -965,7 +966,7 @@ category), and script interop component lookups.
 | `PointLight` | `PointLightComponent` | `Color`, `Intensity`, `Range`, `CastShadows` |
 | `SpotLight` | `SpotLightComponent` | `Color`, `Intensity`, `Range`, `InnerConeAngle`, `OuterConeAngle` (half-angles, deg), `CastShadows` |
 | `SkyLight` | `SkyLightComponent` | `Environment` asset (HDRI), `Intensity`, `Rotation` (deg around Y), `SkyboxBlur` (0..1), `DrawSkybox`, `AmbientColor` (used when no environment) |
-| `RigidBody` | `RigidBodyComponent` | `Type` (Static/Dynamic/Kinematic), `Mass`, `LinearDamping`, `AngularDamping`, `GravityFactor`, `Layer`, `LockTranslation` bvec3, `LockRotation` bvec3, `ContinuousCollision`, `AllowSleep`, `InitialLinearVelocity`, `InitialAngularVelocity` |
+| `RigidBody` | `RigidBodyComponent` | `Type` (Static/Dynamic/Kinematic), `Mass`, `LinearDamping`, `AngularDamping`, `GravityFactor`, `Layer`, `LockTranslation` bvec3, `LockRotation` bvec3, `ContinuousCollision`, `AllowSleep`, `Interpolation` (None/Interpolate), `InitialLinearVelocity`, `InitialAngularVelocity` |
 | `BoxCollider` | `BoxColliderComponent` | `HalfExtents`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
 | `SphereCollider` | `SphereColliderComponent` | `Radius`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
 | `CapsuleCollider` | `CapsuleColliderComponent` | `Radius`, `HalfHeight`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
@@ -1332,10 +1333,35 @@ with or without physics (`Scene::GetFixedStepCount`). Physics components changed
 before the step that follows, as those changed between frames reach it before the frame's first step.
 
 **What scripts read between steps.** `OnFixedUpdate` runs before each step and reads every simulated entity where the
-last step left it. `OnUpdate` and the renderer read what the frame shows: a character is drawn between its last two
-steps (a step behind, so it moves smoothly at any frame rate, see below); a dynamic body is not interpolated yet, so its
-transform is where its last step left it at any frame rate. An entity a script or the editor moves between steps stays
-where it was put, and the next step takes its body or character there.
+last step left it. `OnUpdate` and the renderer read what the frame shows: characters, and dynamic and kinematic bodies
+whose `RigidBody.Interpolation` is `Interpolate` (the default, so scenes that do not store the field are drawn so), are
+drawn between their last two steps, the part of the way from the one before to the last one that the time left over
+(the accumulator, as a fraction of a step) makes up. They move smoothly at any frame rate, a step behind the
+simulation: at a frame rate equal to the step rate the time left over is about zero, so a frame shows the step before
+the last one. `None` draws a body where its last step left it, so it moves in steps when frames come faster than
+steps. An entity a script or the editor moves between steps stays where it was put, and the next step takes its body
+or character there; a body so moved is drawn on its way from there, never from where it was before (a teleport does not
+smear).
+
+Bodies are drawn in their entities' local space: after each step the scene records each moving body's local
+translation and rotation, and draws between the last two (positions along the line, rotations by the shorter slerp), so
+what is below a body follows it and a body below another is drawn as it is at the steps. A kinematic body is drawn
+moving only when the fixed steps move it (`OnFixedUpdate` setting its transform or calling `MoveKinematic`, as a lift
+does); one moved by `OnUpdate` or the editor is shown exactly where it was put, and its next step takes it there over the
+step, as `MoveKinematic` does. A kinematic body has no teleport: `Teleport` moves it there over the next step, and it is
+drawn so. A body that does not move (asleep, or awake and still) is drawn exactly where it is, bit for bit, whatever the
+frame. A character standing on a body drawn between its steps is drawn the whole way between its own steps, so it stays
+on it; on ground drawn where its steps leave it, only the way it went by itself is drawn.
+
+Before the physics changes and steps of each frame, every entity drawn between steps and not moved since goes back to
+exactly the local translation and rotation its last step left (and characters to their step positions), so the steps
+see exactly what they would have seen without drawing: the simulation, and its state hash, are the same with
+`Interpolate` and with `None`. A script's call that applies physics changes during `OnUpdate` (a body made or rebuilt,
+whose joints are made again) does the same first, so bodies and joints are made from where the simulation has them;
+for the rest of that `OnUpdate` scripts read those entities at their steps. Part of a pose changed between frames
+keeps the rest of the pose the frame shows: setting a body's translation keeps its drawn rotation, which its teleport
+takes along. `RigidBodyComponent.Interpolation` changes how a body is drawn without rebuilding it when a script sets it;
+the editor's edits of a running scene rebuild the body, as for every RigidBody field.
 
 **Determinism per platform.** The same binary on the same machine gives the same simulation for the same inputs,
 whatever the frame rate: the state after step n depends on the scene, on what scripts do in their fixed steps and on n,
@@ -1373,7 +1399,8 @@ saves (`PhysicsSystem::SaveState` in full: the last step's length and gravity, t
 velocities, forces and sleep state, the contacts and the joints' warm starts), each character's state
 (`CharacterVirtual::SaveState`, which the system does not save, with the engine's own velocities and ground
 displacement), the contacts the world has reported and the events not yet taken, and the scene's step state: the step
-count, the accumulator, the poses last exchanged with the bodies and the characters' step positions.
+count, the accumulator, the poses last exchanged with the bodies, the local poses moving bodies are drawn between
+(and whether each is drawn or was moved since its step), and the characters' step positions and ground.
 `Scene::RestorePhysicsState` puts it all back and places the entities of bodies and characters where they were then, so
 the steps that follow run as they did from there (given the same fixed-step inputs). Its limit: a snapshot belongs to
 the world it was saved from and to the bodies, joints and characters that world had. Once one was added, removed or
@@ -1578,8 +1605,8 @@ editor's Simulate mode runs neither kind.
   `MeshComponent` (`Mesh`, `GetMaterial(i)`, `SetMaterial(i, Material)`, `CastShadows`, `Visible`),
   `DirectionalLightComponent`, `PointLightComponent`, `SpotLightComponent`, `SkyLightComponent`,
   `RigidBodyComponent` (`Type`, `Mass`, `LinearVelocity`, `AngularVelocity`, `GravityFactor`,
-  `LinearDamping`, `AngularDamping`, `AddForce(Vector3, ForceMode)`, `AddTorque(Vector3, ForceMode)`,
-  `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
+  `LinearDamping`, `AngularDamping`, `Interpolation` (`RigidBodyInterpolation`), `AddForce(Vector3, ForceMode)`,
+  `AddTorque(Vector3, ForceMode)`, `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
   `GroundNormal`, `Teleport(Vector3)`),

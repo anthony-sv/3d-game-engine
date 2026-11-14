@@ -7,6 +7,8 @@
 
 #include <doctest/doctest.h>
 
+#include <glm/gtc/quaternion.hpp>
+
 #include <algorithm>
 #include <cstdint>
 #include <optional>
@@ -395,6 +397,70 @@ TEST_CASE("ScenePhysics: one scene gives the same state hashes at 30, 60 and 144
 	}
 	// The hash tells steps apart, and the simulation moves.
 	CHECK(HashAtStep(Step, 150) != HashAtStep(Step, 151));
+}
+
+TEST_CASE("ScenePhysics: drawing bodies between steps leaves the simulation as it is, at 30, 60 and 144 frames per second")
+{
+	Testing::PhysicsSystemScope physics;
+	// The test scene with every body drawn one way, through a teleport, a body rebuilt between frames (its joints with it), a
+	// snapshot and its restore: the hash after every frame.
+	auto const play = [](RigidBodyInterpolation interpolation, float frameTime)
+	{
+		Scene played("Interpolation");
+		BuildScene(played, false);
+		for (auto const handle : played.GetRegistry().view<RigidBodyComponent>())
+		{
+			played.GetRegistry().get<RigidBodyComponent>(handle).Interpolation = interpolation;
+		}
+		played.OnRuntimeStart(PhysicsOnly());
+		REQUIRE(played.GetPhysicsScene() != nullptr);
+		std::optional<ScenePhysicsSnapshot> snapshot;
+		std::vector<uint64_t> frameHashes;
+		int const frames = static_cast<int>(6.0f / frameTime);
+		for (int frame = 0; frame < frames; frame++)
+		{
+			if (frame == static_cast<int>(1.0f / frameTime))
+			{
+				// Teleported between frames to a whole pose (as RigidBodyComponent.Teleport places it): an edit of part of a pose
+				// keeps the rest of the pose the frame shows.
+				TransformComponent& teleported = played.GetEntityByUUID(UUID(204)).GetComponent<TransformComponent>();
+				teleported.Translation = {2.0f, 4.0f, 1.0f};
+				teleported.Rotation = glm::angleAxis(0.5f, glm::vec3(0.0f, 0.0f, 1.0f));
+			}
+			if (frame == static_cast<int>(1.5f / frameTime))
+			{
+				played.GetRegistry().patch<RigidBodyComponent>(played.GetEntityByUUID(UUID(500)).GetHandle(),
+				                                               [](RigidBodyComponent& body)
+				                                               {
+																   body.Mass = 2.0f;
+															   });
+				played.ApplyPhysicsChanges();
+			}
+			if (frame == static_cast<int>(2.0f / frameTime))
+			{
+				Result<ScenePhysicsSnapshot> saved = played.SavePhysicsState();
+				REQUIRE(saved.IsOk());
+				snapshot = saved.TakeValue();
+			}
+			played.OnUpdateRuntime(Timestep(frameTime));
+			frameHashes.push_back(played.ComputePhysicsStateHash());
+			if (frame == static_cast<int>(4.0f / frameTime))
+			{
+				REQUIRE(snapshot.has_value());
+				REQUIRE(played.RestorePhysicsState(*snapshot).IsOk());
+			}
+		}
+		played.OnRuntimeStop();
+		return frameHashes;
+	};
+	for (float const rate : {1.0f / 30.0f, 1.0f / 60.0f, 1.0f / 144.0f})
+	{
+		CAPTURE(rate);
+		std::vector<uint64_t> const drawnAtSteps = play(RigidBodyInterpolation::None, rate);
+		std::vector<uint64_t> const drawnBetween = play(RigidBodyInterpolation::Interpolate, rate);
+		CHECK(drawnAtSteps.size() > 150);
+		CHECK(drawnBetween == drawnAtSteps);
+	}
 }
 
 TEST_CASE("ScenePhysics: a snapshot restores the simulation, which then runs as it did")

@@ -7,7 +7,7 @@ Every component you can add to an entity, with every field: its type, its defaul
 it does. The inspector, scene files, the automation command `component.types` and the scripting API all read the same
 registry, so this page matches the engine: the engine's tests fail when it does not.
 
-28 components in 6 categories, with 201 fields in all. Vectors are written `(x, y, z)`, colors are
+28 components in 6 categories, with 202 fields in all. Vectors are written `(x, y, z)`, colors are
 linear RGB or RGBA from 0 to 1, distances are in meters and angles in degrees. Fields that only matter for some
 settings say when the inspector shows them. Scripts reach the same fields through the component classes of
 [ScriptingAPI.md](ScriptingAPI.md), and agents through `component.get` and `component.set`
@@ -244,6 +244,7 @@ Simulates the entity with physics; the entity's colliders give it its shape.
 | `LockRotation` | bool per axis | `(false, false, false)` |  | Prevents rotation around the X, Y and Z axes. Shown when `Type` is `Dynamic`. |
 | `ContinuousCollision` | bool | `false` |  | Keeps fast bodies from passing through thin geometry, at a performance cost. Shown when `Type` is `Dynamic`. |
 | `AllowSleep` | bool | `true` |  | Lets the body stop simulating while it is at rest. Shown when `Type` is `Dynamic` or `Kinematic`. |
+| `Interpolation` | enum | `Interpolate` |  | Interpolate draws the body between its last two physics steps, so it moves smoothly when frames come faster than steps (a step behind); None draws it where its last step left it. One of `None`, `Interpolate`. Shown when `Type` is `Dynamic` or `Kinematic`. |
 | `InitialLinearVelocity` | vec3 | `(0, 0, 0)` |  | Velocity in meters per second when play starts (the simulation allows up to 500). Shown when `Type` is `Dynamic` or `Kinematic`. |
 | `InitialAngularVelocity` | vec3 | `(0, 0, 0)` |  | Angular velocity in radians per second when play starts (the simulation allows up to about 47). Shown when `Type` is `Dynamic` or `Kinematic`. |
 

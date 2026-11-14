@@ -106,16 +106,46 @@ namespace Strada
 	private:
 		friend class Scene;
 
-		// An entity's transform and the pose last exchanged with its body.
+		// An entity's local translation and rotation, compared and put back bit for bit.
+		struct LocalPose
+		{
+			glm::vec3 Translation = glm::vec3(0.0f);
+			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+
+			bool operator==(LocalPose const& other) const = default;
+		};
+		// How the scene draws a moving body's entity between steps (Scene::InterpolateBodyTransforms): its local pose after
+		// each of the last two steps and as it was last drawn, and whether something other than the steps moved it since.
+		struct BodyDrawing
+		{
+			LocalPose PreviousStep;
+			LocalPose Step;
+			LocalPose Drawn;
+			// The entity shows Drawn, which goes back to Step before the next physics changes and steps.
+			bool IsDrawn = false;
+			// Moved since its last step by a script's OnUpdate, the editor or another frame-time change: it is shown where it
+			// was put, and its next step starts from there.
+			bool Moved = false;
+
+			// Placed somewhere (made, teleported, moved between frames): it is drawn there until it moves.
+			void Place(LocalPose const& pose)
+			{
+				PreviousStep = pose;
+				Step = pose;
+				Moved = false;
+			}
+		};
+		// An entity's transform, the pose last exchanged with its body and how it is drawn between steps.
 		struct Body
 		{
 			UUID Entity = UUID::Invalid();
 			TransformComponent Transform;
 			glm::vec3 Position = glm::vec3(0.0f);
 			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+			BodyDrawing Drawing;
 		};
-		// An entity's transform, where its character was drawn, where its last two steps left it and how far its ground
-		// carried it.
+		// An entity's transform, where its character was drawn, where its last two steps left it, how far its ground carried
+		// it and what that ground was.
 		struct Character
 		{
 			UUID Entity = UUID::Invalid();
@@ -124,6 +154,7 @@ namespace Strada
 			glm::vec3 PreviousStepPosition = glm::vec3(0.0f);
 			glm::vec3 StepPosition = glm::vec3(0.0f);
 			glm::vec3 Carried = glm::vec3(0.0f);
+			UUID Ground = UUID::Invalid();
 		};
 
 		PhysicsSnapshot m_Physics;
@@ -226,11 +257,13 @@ namespace Strada
 		void OnRuntimeStop();
 		// Advances the runtime: the UI (the mouse over buttons, clicks and OnClick), scripts' OnUpdate, fixed steps (scripts'
 		// OnFixedUpdate, then physics: kinematic bodies follow their transforms, moved static and dynamic bodies and
-		// characters teleport, characters move, dynamic bodies and characters write their positions back), characters drawn
-		// between their last two steps (so they move smoothly at any frame rate, a step behind; OnFixedUpdate sees them where
-		// the last step left them), contact events to scripts, audio (sources and the listener follow their entities),
-		// particles, then deferred entity destruction (destroyed scripts get OnDestroy). Every update and fixed update reaches
-		// the C# scripts, then the visual scripts; an event of an entity reaches its C# script, then its visual script.
+		// characters teleport, characters move, dynamic bodies and characters write their positions back), dynamic and
+		// kinematic bodies (unless their RigidBody's Interpolation is None) and characters drawn between their last two steps
+		// (so they move smoothly at any frame rate, a step behind; OnFixedUpdate sees them where the last step left them, and
+		// an entity moved since its last step by anything but the steps is shown where it was put), contact events to
+		// scripts, audio (sources and the listener follow their entities), particles, then deferred entity destruction
+		// (destroyed scripts get OnDestroy). Every update and fixed update reaches the C# scripts, then the visual scripts; an
+		// event of an entity reaches its C# script, then its visual script.
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -279,7 +312,8 @@ namespace Strada
 		void SetTimeScale(float scale);
 		// Creates and rebuilds the bodies and characters of physics components changed since the last step. The runtime does
 		// it before each update; script calls on bodies and characters do it first, so a body added this frame takes forces
-		// at once.
+		// at once. When there are changes, the entities drawn between steps first go back to where their last steps left them
+		// (as before every frame's steps), so that bodies and joints are made from where the simulation has them.
 		void ApplyPhysicsChanges();
 		// Places an entity with a CharacterController at a world position at once, keeping its rotation and scale, and stops
 		// its character, which finds what it stands on there.
@@ -400,10 +434,25 @@ namespace Strada
 		// The entities with a body (or a character), in the order of their UUIDs: physics is called in this order.
 		std::vector<entt::entity> const& GetBodyOrder();
 		std::vector<entt::entity> const& GetCharacterOrder();
+		// The entities with a dynamic or kinematic body, in the order of their UUIDs: those drawn between steps.
+		std::vector<entt::entity> const& GetMovingBodies();
 		// Creates, rebuilds or removes the body of an entity after its components changed; true when its body changed.
 		bool UpdateBody(entt::entity handle);
 		void SyncBodiesFromTransforms(float stepDelta);
 		void WriteBodyTransforms();
+		// Between frames, moving bodies are drawn between their last two steps, in local space (a body's children and a body
+		// below another follow as they do at the steps). After each step their entities' local poses are recorded. Before the
+		// physics changes and steps of a frame, those drawn and not moved since go back exactly to their last step's pose, and
+		// those moved since their last step by anything but the steps (OnUpdate, the editor) are noted: they are shown where
+		// they were put, and their next step starts there. After the steps, the others are drawn the part of the way from the
+		// step before (alpha 0) to the last one (alpha 1) that the time left over makes up, when their RigidBody interpolates.
+		void RecordBodySteps();
+		void ReturnBodiesToSteps();
+		void NoteBodiesMovedSinceSteps();
+		void InterpolateBodyTransforms(float alpha);
+		bool IsBodyDrawn(UUID entity) const;
+		// Physics component changes are waiting for RebuildChangedBodies.
+		bool HasPendingPhysicsChanges() const;
 		void OnPhysicsComponentChanged(entt::registry& registry, entt::entity handle);
 		void OnMeshComponentChanged(entt::registry& registry, entt::entity handle);
 		void OnJointComponentChanged(entt::registry& registry, entt::entity handle);
@@ -415,8 +464,9 @@ namespace Strada
 		void SyncCharactersFromTransforms();
 		void WriteCharacterTransforms();
 		// Between frames, characters are drawn between their last two steps. Before the physics changes and steps of a frame,
-		// those not moved since go back to where the last step left them; after the steps, they are drawn the part of the way
-		// from the step before (alpha 0) to the last one (alpha 1) that the time left over makes up.
+		// those not moved since go back to where the last step left them; after the steps (and after the bodies), they are
+		// drawn the part of the way from the step before (alpha 0) to the last one (alpha 1) that the time left over makes up:
+		// the whole way when what they stand on is drawn so too, else the way they went by themselves.
 		void ReturnCharactersToSteps();
 		void InterpolateCharacterTransforms(float alpha);
 		void OnCharacterComponentChanged(entt::registry& registry, entt::entity handle);
@@ -506,12 +556,15 @@ namespace Strada
 		uint64_t m_RuntimeFrame = 0;
 		double m_RuntimeTime = 0.0;
 
-		// The world pose last exchanged with an entity's body (to tell transform edits from simulation).
+		// The world pose last exchanged with an entity's body (to tell transform edits from simulation), whether the body
+		// moves (dynamic or kinematic) and how its entity is drawn between steps.
 		struct BodyState
 		{
 			UUID Entity = UUID::Invalid();
 			glm::vec3 Position = glm::vec3(0.0f);
 			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+			bool Moves = false;
+			ScenePhysicsSnapshot::BodyDrawing Drawing;
 		};
 
 		SceneRuntimeSettings m_RuntimeSettings;
@@ -527,14 +580,19 @@ namespace Strada
 		std::vector<entt::entity> m_CharacterOrder;
 		bool m_BodyOrderChanged = false;
 		bool m_CharacterOrderChanged = false;
+		// The keys of m_Bodies whose bodies move, made again after a body was added, removed or rebuilt; and the entities
+		// drawn between steps since the last return to the steps.
+		std::vector<entt::entity> m_MovingBodies;
+		bool m_MovingBodiesChanged = false;
+		std::vector<entt::entity> m_DrawnBodies;
 		// Entities whose physics components changed while running; their bodies are rebuilt before the next step.
 		std::unordered_set<entt::entity> m_ChangedBodies;
 		// A joint or a body changed: the joints are made again before the next step.
 		bool m_JointsChanged = false;
 		// What the scene exchanged with an entity's character: the world position last written to or read from the entity's
-		// transform (to tell edits from movement), where the entity's origin was after the last two steps and how far the
-		// ground carried it in the last one (to draw it between steps), its scale, and the entities below it, whose bodies it
-		// ignores.
+		// transform (to tell edits from movement), where the entity's origin was after the last two steps, how far the ground
+		// carried it in the last one and the entity of that ground (to draw it between steps), its scale, and the entities
+		// below it, whose bodies it ignores.
 		struct CharacterSyncState
 		{
 			UUID Entity = UUID::Invalid();
@@ -542,6 +600,7 @@ namespace Strada
 			glm::vec3 PreviousStepPosition = glm::vec3(0.0f);
 			glm::vec3 StepPosition = glm::vec3(0.0f);
 			glm::vec3 Carried = glm::vec3(0.0f);
+			UUID Ground = UUID::Invalid();
 			glm::vec3 Scale = glm::vec3(1.0f);
 			std::vector<UUID> Parts;
 
@@ -552,6 +611,7 @@ namespace Strada
 				PreviousStepPosition = position;
 				StepPosition = position;
 				Carried = glm::vec3(0.0f);
+				Ground = UUID::Invalid();
 			}
 		};
 		std::unordered_map<entt::entity, CharacterSyncState> m_Characters;

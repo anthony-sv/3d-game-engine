@@ -353,6 +353,20 @@ namespace Strada::ScriptGlue
 			}
 		}
 
+		// How the body is drawn between steps: no rebuild either (the scene reads it as it draws).
+		void RigidBodyComponent_SetInterpolation(uint64_t id, int32_t const* value)
+		{
+			if (!FieldValue<RigidBodyInterpolation>::IsValid(*value))
+			{
+				Log::GetScriptLogger().error("RigidBodyComponent.Interpolation: {} is not a RigidBodyInterpolation", *value);
+				return;
+			}
+			if (RigidBodyComponent* body = FindComponent<RigidBodyComponent>(id))
+			{
+				body->Interpolation = FieldValue<RigidBodyInterpolation>::FromScript(*value);
+			}
+		}
+
 		void SetDamping(uint64_t id, float RigidBodyComponent::* member, float value, char const* function)
 		{
 			if (!CheckFinite(function, value))
@@ -693,6 +707,8 @@ namespace Strada::ScriptGlue
 		table.Add("RigidBodyComponent_SetLinearDamping", &RigidBodyComponent_SetLinearDamping);
 		table.Add("RigidBodyComponent_GetAngularDamping", &GetField<&RigidBodyComponent::AngularDamping>);
 		table.Add("RigidBodyComponent_SetAngularDamping", &RigidBodyComponent_SetAngularDamping);
+		table.Add("RigidBodyComponent_GetInterpolation", &GetField<&RigidBodyComponent::Interpolation>);
+		table.Add("RigidBodyComponent_SetInterpolation", &RigidBodyComponent_SetInterpolation);
 		table.Add("RigidBodyComponent_GetLinearVelocity", &RigidBodyComponent_GetLinearVelocity);
 		table.Add("RigidBodyComponent_SetLinearVelocity", &RigidBodyComponent_SetLinearVelocity);
 		table.Add("RigidBodyComponent_GetAngularVelocity", &RigidBodyComponent_GetAngularVelocity);

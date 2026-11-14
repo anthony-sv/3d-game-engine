@@ -9,7 +9,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 [visual scripting guide](VisualScripting.md) how graphs call it: every member listed here is a node.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-84 types in 2 namespaces, with 737 members and enum values in all.
+85 types in 2 namespaces, with 740 members and enum values in all.
 
 ## Strada
 
@@ -65,6 +65,7 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [Ray](#ray) | struct | A half-line from an origin along a direction. |
 | [RaycastHit](#raycasthit) | struct | What a raycast hit. |
 | [RigidBodyComponent](#rigidbodycomponent) | class | Makes the entity a physics body; its colliders give it shape. While the scene runs, velocities, forces and sleep act on the simulated body. |
+| [RigidBodyInterpolation](#rigidbodyinterpolation) | enum | How `RigidBodyComponent.Interpolation` draws a moving body between physics steps. |
 | [RigidBodyType](#rigidbodytype) | enum | How a rigid body moves. |
 | [SceneManager](#scenemanager) | static class | The scenes of the game. |
 | [Script](#script) | abstract class | Base class of entity behaviours. A Script component names a class deriving from Script; when the scene runs, the engine creates one instance per such entity, sets its serialized fields (public fields and fields marked `SerializeFieldAttribute`) and calls the overridden methods. Exceptions thrown by them are logged and do not stop the scene. |
@@ -964,6 +965,7 @@ Makes the entity a physics body; its colliders give it shape. While the scene ru
 | `float GravityFactor { get; set; }` | Multiplier of the scene's gravity for this body. |
 | `float LinearDamping { get; set; }` | Fraction of linear velocity lost per second. |
 | `float AngularDamping { get; set; }` | Fraction of angular velocity lost per second. |
+| `RigidBodyInterpolation Interpolation { get; set; }` | How a dynamic or kinematic body is drawn between physics steps: between its last two steps (smooth when frames come faster than steps, a step behind) or where its last step left it. Changing it does not rebuild the body. |
 | `Vector3 LinearVelocity { get; set; }` | Velocity in meters per second (the initial velocity while the scene is not simulated); the simulation allows up to 500. |
 | `Vector3 AngularVelocity { get; set; }` | Angular velocity in radians per second (the initial one while the scene is not simulated); the simulation allows up to about 47 (7.5 turns per second). |
 | `bool IsSleeping { get; }` | Whether the simulated body is asleep (at rest and not simulated until something wakes it). |
@@ -972,6 +974,16 @@ Makes the entity a physics body; its colliders give it shape. While the scene ru
 | `void MoveKinematic(Vector3 position, Quaternion rotation)` | Moves a kinematic body to a world position and rotation over the next physics step, pushing dynamic bodies on the way. |
 | `void Teleport(Vector3 position, Quaternion rotation)` | Places the body at a world position and rotation at once, keeping its velocity. |
 | `void WakeUp()` | Wakes the simulated body up. |
+
+### RigidBodyInterpolation
+
+```csharp
+public enum RigidBodyInterpolation
+```
+
+How `RigidBodyComponent.Interpolation` draws a moving body between physics steps.
+
+Values: `None`, `Interpolate`.
 
 ### RigidBodyType
 

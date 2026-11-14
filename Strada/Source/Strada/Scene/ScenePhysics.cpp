@@ -401,6 +401,9 @@ namespace Strada
 		m_Bodies.clear();
 		m_BodyOrder.clear();
 		m_BodyOrderChanged = false;
+		m_MovingBodies.clear();
+		m_MovingBodiesChanged = false;
+		m_DrawnBodies.clear();
 		m_ChangedBodies.clear();
 		m_Characters.clear();
 		m_CharacterOrder.clear();
@@ -516,10 +519,18 @@ namespace Strada
 
 	void Scene::ApplyPhysicsChanges()
 	{
-		if (m_Physics)
+		if (m_Physics && HasPendingPhysicsChanges())
 		{
+			// Between frames entities may be drawn between steps: bodies and joints are made from where the steps left them.
+			ReturnBodiesToSteps();
+			ReturnCharactersToSteps();
 			RebuildChangedBodies();
 		}
+	}
+
+	bool Scene::HasPendingPhysicsChanges() const
+	{
+		return !m_ChangedBodies.empty() || !m_ChangedCharacters.empty() || m_JointsChanged;
 	}
 
 	void Scene::RebuildChangedBodies()
@@ -558,6 +569,22 @@ namespace Strada
 			SortKeysByUUID(m_Bodies, m_BodyOrder);
 		}
 		return m_BodyOrder;
+	}
+
+	std::vector<entt::entity> const& Scene::GetMovingBodies()
+	{
+		if (std::exchange(m_MovingBodiesChanged, false))
+		{
+			m_MovingBodies.clear();
+			for (entt::entity const handle : GetBodyOrder())
+			{
+				if (m_Bodies.at(handle).Moves)
+				{
+					m_MovingBodies.push_back(handle);
+				}
+			}
+		}
+		return m_MovingBodies;
 	}
 
 	std::vector<entt::entity> const& Scene::GetCharacterOrder()
@@ -633,6 +660,7 @@ namespace Strada
 			m_Physics->RemoveBody(existing->second.Entity);
 			m_Bodies.erase(existing);
 			m_BodyOrderChanged = true;
+			m_MovingBodiesChanged = true;
 			return true;
 		}
 
@@ -647,6 +675,7 @@ namespace Strada
 			{
 				m_Bodies.erase(existing);
 				m_BodyOrderChanged = true;
+				m_MovingBodiesChanged = true;
 			}
 			return hadBody;
 		}
@@ -663,14 +692,30 @@ namespace Strada
 			{
 				m_Bodies.erase(existing);
 				m_BodyOrderChanged = true;
+				m_MovingBodiesChanged = true;
 			}
 			return hadBody;
 		}
-		if (existing == m_Bodies.end())
+		bool const created = existing == m_Bodies.end();
+		if (created)
 		{
 			m_BodyOrderChanged = true;
 		}
-		m_Bodies[handle] = BodyState{id, desc->Position, desc->Rotation};
+		m_MovingBodiesChanged = true;
+		bool const moves = desc->Type != RigidBodyType::Static;
+		BodyState& state = m_Bodies[handle];
+		// A rebuilt body that moved before keeps being drawn on its way; a new one (or one that starts moving) is drawn where
+		// it is.
+		if (created || !state.Moves || !moves)
+		{
+			TransformComponent const& transform = entity.GetComponent<TransformComponent>();
+			state.Drawing = {};
+			state.Drawing.Place({transform.Translation, transform.Rotation});
+		}
+		state.Entity = id;
+		state.Position = desc->Position;
+		state.Rotation = desc->Rotation;
+		state.Moves = moves;
 		return true;
 	}
 
@@ -822,6 +867,7 @@ namespace Strada
 			state.PreviousStepPosition = state.StepPosition;
 			state.StepPosition = position;
 			state.Carried = GetCarriedPart(position - state.PreviousStepPosition, character->GroundDisplacement);
+			state.Ground = character->GroundEntity;
 			// Exactly where the step left it, so that what the entity's children are synced from depends on the steps alone
 			// (a character standing still leaves its transform alone).
 			if (position != state.Position)
@@ -865,10 +911,12 @@ namespace Strada
 		std::vector<CharacterPlacement> placements;
 		for (auto const& [handle, state] : m_Characters)
 		{
-			// The way it went by itself in the last step is drawn as far as the time left over makes up. The way what it stands
-			// on carried it is not: the ground is drawn where the last step left it, and the character stays on it.
-			glm::vec3 const ownWay = state.StepPosition - state.PreviousStepPosition - state.Carried;
-			glm::vec3 const drawn = state.StepPosition - (1.0f - alpha) * ownWay;
+			// The way it went by itself in the last step is drawn as far as the time left over makes up. So is the way what it
+			// stands on carried it when that ground is drawn between its steps too; a ground drawn where its last step left it
+			// keeps the character drawn on it, carried the whole way.
+			glm::vec3 const way = state.StepPosition - state.PreviousStepPosition;
+			glm::vec3 const drawnWay = IsBodyDrawn(state.Ground) ? way : way - state.Carried;
+			glm::vec3 const drawn = state.StepPosition - (1.0f - alpha) * drawnWay;
 			if (!HasMoved(drawn, state.Position) || !m_Registry.valid(handle))
 			{
 				continue;
@@ -892,8 +940,14 @@ namespace Strada
 		m_ContactEvents.clear();
 		if (m_Physics)
 		{
-			// Changes and steps start from where the last step left the characters, and scripts' OnFixedUpdate finds them there.
-			ReturnCharactersToSteps();
+			// Changes and steps start from where the last step left the bodies and characters, and scripts' OnFixedUpdate finds
+			// them there.
+			{
+				ST_PROFILE_SCOPE("Scene.ReturnToSteps");
+				ReturnBodiesToSteps();
+				NoteBodiesMovedSinceSteps();
+				ReturnCharactersToSteps();
+			}
 			RebuildChangedBodies();
 		}
 
@@ -916,8 +970,14 @@ namespace Strada
 		}
 		if (m_Physics)
 		{
-			// The time left over, part of the next step, is how far into their last step characters are drawn.
-			InterpolateCharacterTransforms(std::clamp(m_PhysicsAccumulator / step, 0.0f, 1.0f));
+			// The time left over, part of the next step, is how far into their last step bodies and characters are drawn: the
+			// bodies first, so a character knows whether its ground is drawn so.
+			{
+				ST_PROFILE_SCOPE("Scene.Interpolate");
+				float const alpha = std::clamp(m_PhysicsAccumulator / step, 0.0f, 1.0f);
+				InterpolateBodyTransforms(alpha);
+				InterpolateCharacterTransforms(alpha);
+			}
 			m_ContactEvents = m_Physics->TakeContactEvents();
 		}
 	}
@@ -943,6 +1003,7 @@ namespace Strada
 				ST_PROFILE_SCOPE("Scene.SyncFromPhysics");
 				WriteBodyTransforms();
 				WriteCharacterTransforms();
+				RecordBodySteps();
 			}
 		}
 		m_FixedStepCount++;
@@ -969,18 +1030,123 @@ namespace Strada
 				continue;
 			}
 			RigidBodyComponent const* body = m_Registry.try_get<RigidBodyComponent>(handle);
+			TransformComponent const& transform = m_Registry.get<TransformComponent>(handle);
+			ScenePhysicsSnapshot::LocalPose const local{transform.Translation, transform.Rotation};
 			if (body != nullptr && body->Type == RigidBodyType::Kinematic)
 			{
 				m_Physics->MoveKinematic(state.Entity, position, rotation, stepDelta);
+				// A kinematic body moved between frames goes there in this step; it is drawn moving only when the fixed steps
+				// move it.
+				if (state.Drawing.Moved)
+				{
+					state.Drawing.Place(local);
+				}
 			}
 			else if (HasMoved(position, rotation, state.Position, state.Rotation))
 			{
-				// Moved by a script, the editor or its parent.
+				// Moved by a script, the editor or its parent: it is drawn on its way from there, never from where it was.
 				m_Physics->SetBodyTransform(state.Entity, position, rotation);
+				state.Drawing.Place(local);
 			}
+			state.Drawing.Moved = false;
 			state.Position = position;
 			state.Rotation = rotation;
 		}
+	}
+
+	void Scene::RecordBodySteps()
+	{
+		for (entt::entity const handle : GetMovingBodies())
+		{
+			if (TransformComponent const* transform = m_Registry.try_get<TransformComponent>(handle))
+			{
+				ScenePhysicsSnapshot::BodyDrawing& drawing = m_Bodies.at(handle).Drawing;
+				drawing.PreviousStep = drawing.Step;
+				drawing.Step = {transform->Translation, transform->Rotation};
+			}
+		}
+	}
+
+	void Scene::ReturnBodiesToSteps()
+	{
+		for (entt::entity const handle : m_DrawnBodies)
+		{
+			auto const state = m_Bodies.find(handle);
+			TransformComponent* transform = m_Registry.valid(handle) ? m_Registry.try_get<TransformComponent>(handle) : nullptr;
+			if (state == m_Bodies.end() || transform == nullptr || !state->second.Drawing.IsDrawn)
+			{
+				continue;
+			}
+			ScenePhysicsSnapshot::BodyDrawing& drawing = state->second.Drawing;
+			drawing.IsDrawn = false;
+			// Exactly the bits the step left, so the steps see what they would have seen had it not been drawn. An entity moved
+			// since it was drawn stays where it was put, and the next step takes its body there.
+			if (ScenePhysicsSnapshot::LocalPose{transform->Translation, transform->Rotation} == drawing.Drawn)
+			{
+				transform->Translation = drawing.Step.Translation;
+				transform->Rotation = drawing.Step.Rotation;
+			}
+			else
+			{
+				drawing.Moved = true;
+			}
+		}
+		m_DrawnBodies.clear();
+	}
+
+	void Scene::NoteBodiesMovedSinceSteps()
+	{
+		for (entt::entity const handle : GetMovingBodies())
+		{
+			ScenePhysicsSnapshot::BodyDrawing& drawing = m_Bodies.at(handle).Drawing;
+			TransformComponent const* transform = m_Registry.valid(handle) ? m_Registry.try_get<TransformComponent>(handle) : nullptr;
+			if (transform != nullptr && ScenePhysicsSnapshot::LocalPose{transform->Translation, transform->Rotation} != drawing.Step)
+			{
+				drawing.Moved = true;
+			}
+		}
+	}
+
+	void Scene::InterpolateBodyTransforms(float alpha)
+	{
+		for (entt::entity const handle : GetMovingBodies())
+		{
+			ScenePhysicsSnapshot::BodyDrawing& drawing = m_Bodies.at(handle).Drawing;
+			if (drawing.Moved || drawing.IsDrawn || drawing.PreviousStep == drawing.Step || !m_Registry.valid(handle))
+			{
+				continue;
+			}
+			RigidBodyComponent const* body = m_Registry.try_get<RigidBodyComponent>(handle);
+			TransformComponent* transform = m_Registry.try_get<TransformComponent>(handle);
+			// Moved since its last step (between frames that ran no step) or drawn where its last step left it.
+			if (body == nullptr || body->Interpolation != RigidBodyInterpolation::Interpolate || transform == nullptr ||
+			    ScenePhysicsSnapshot::LocalPose{transform->Translation, transform->Rotation} != drawing.Step)
+			{
+				continue;
+			}
+			// In local space: what is below the body, and a body below another, are drawn as they are at the steps.
+			ScenePhysicsSnapshot::LocalPose const& from = drawing.PreviousStep;
+			ScenePhysicsSnapshot::LocalPose const& to = drawing.Step;
+			// From the last step back, so that the whole step (alpha 1) is drawn exactly there; slerp takes the shorter way.
+			transform->Translation = to.Translation - (1.0f - alpha) * (to.Translation - from.Translation);
+			if (from.Rotation != to.Rotation)
+			{
+				transform->Rotation = Math::NormalizeRotation(glm::slerp(from.Rotation, to.Rotation, alpha));
+			}
+			drawing.Drawn = {transform->Translation, transform->Rotation};
+			drawing.IsDrawn = true;
+			m_DrawnBodies.push_back(handle);
+		}
+	}
+
+	bool Scene::IsBodyDrawn(UUID entity) const
+	{
+		if (!entity.IsValid())
+		{
+			return false;
+		}
+		auto const state = m_Bodies.find(FindHandle(entity));
+		return state != m_Bodies.end() && state->second.Drawing.IsDrawn;
 	}
 
 	void Scene::WriteBodyTransforms()
@@ -1072,7 +1238,7 @@ namespace Strada
 			BodyState const& state = m_Bodies.at(handle);
 			TransformComponent const* transform = m_Registry.try_get<TransformComponent>(handle);
 			snapshot.m_Bodies.push_back(
-				{state.Entity, transform != nullptr ? *transform : TransformComponent(), state.Position, state.Rotation});
+				{state.Entity, transform != nullptr ? *transform : TransformComponent(), state.Position, state.Rotation, state.Drawing});
 		}
 		std::vector<entt::entity> const& characters = GetCharacterOrder();
 		snapshot.m_Characters.reserve(characters.size());
@@ -1081,7 +1247,7 @@ namespace Strada
 			CharacterSyncState const& state = m_Characters.at(handle);
 			TransformComponent const* transform = m_Registry.try_get<TransformComponent>(handle);
 			snapshot.m_Characters.push_back({state.Entity, transform != nullptr ? *transform : TransformComponent(), state.Position,
-			                                 state.PreviousStepPosition, state.StepPosition, state.Carried});
+			                                 state.PreviousStepPosition, state.StepPosition, state.Carried, state.Ground});
 		}
 		return snapshot;
 	}
@@ -1117,13 +1283,19 @@ namespace Strada
 		}
 		m_FixedStepCount = snapshot.m_Step;
 		m_PhysicsAccumulator = snapshot.m_Accumulator;
-		// The entities exactly as they were, so the next syncs see neither edits nor moves.
+		// The entities exactly as they were, drawn as they were, so the next syncs see neither edits nor moves.
+		m_DrawnBodies.clear();
 		for (size_t i = 0; i < bodies.size(); i++)
 		{
 			ScenePhysicsSnapshot::Body const& saved = snapshot.m_Bodies[i];
 			BodyState& state = m_Bodies.at(bodies[i]);
 			state.Position = saved.Position;
 			state.Rotation = saved.Rotation;
+			state.Drawing = saved.Drawing;
+			if (state.Drawing.IsDrawn)
+			{
+				m_DrawnBodies.push_back(bodies[i]);
+			}
 			if (TransformComponent* transform = m_Registry.try_get<TransformComponent>(bodies[i]))
 			{
 				*transform = saved.Transform;
@@ -1137,6 +1309,7 @@ namespace Strada
 			state.PreviousStepPosition = saved.PreviousStepPosition;
 			state.StepPosition = saved.StepPosition;
 			state.Carried = saved.Carried;
+			state.Ground = saved.Ground;
 			if (TransformComponent* transform = m_Registry.try_get<TransformComponent>(characters[i]))
 			{
 				*transform = saved.Transform;
