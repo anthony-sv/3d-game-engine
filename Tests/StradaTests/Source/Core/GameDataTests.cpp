@@ -129,9 +129,9 @@ TEST_CASE("GameData: hostile names make portable folders below the root, kept ap
 	for (UserDataPlatform const platform : {OnWindows, OnMacOS, OnLinux})
 	{
 		CAPTURE(static_cast<int>(platform));
-		for (std::string_view const company : {"", " ", "..", "Strada", "strada ", "a/b", "\\\\server\\share", "C:", "CON"})
+		for (char const* company : {"", " ", "..", "Strada", "strada ", "a/b", "\\\\server\\share", "C:", "CON"})
 		{
-			for (std::string_view const product : {"", "  ", ".", "..", "Strada", "~", "*?<>|", "LPT9", "game\x01\x7f"})
+			for (char const* product : {"", "  ", ".", "..", "Strada", "~", "*?<>|", "LPT9", "game\x01\x7f"})
 			{
 				CheckBelowRoot(platform, company, product);
 			}

@@ -7,6 +7,7 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/EngineLayout.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Platform/Process.h"
@@ -554,7 +555,8 @@ TEST_CASE("Runtime: projects run with their last script build, and games without
 	CHECK_FALSE(Contains(headless.Output, ".NET runtime started"));
 }
 
-TEST_CASE("Runtime: a project runs with its play data as the game's data folder, and a test run with a temporary one it removes")
+TEST_CASE(
+	"Runtime: an exported game runs with its own data folder, a project with its play data, a test run with a temporary one it removes")
 {
 	// The folder the player logs that it gave the game; empty when it logged none.
 	auto const dataFolder = [](std::string_view output) -> std::string
@@ -593,6 +595,16 @@ TEST_CASE("Runtime: a project runs with its play data as the game's data folder,
 	CHECK(Contains(temporary, "StradaGameData-"));
 	CHECK_FALSE(FileSystem::Exists(FileSystem::PathFromUtf8(temporary)));
 	CHECK_FALSE(FileSystem::Exists(project.GetDirectory() / ".strada"));
+
+	// An exported game: its own folder below this user's per-user root, named by its identity (none here, so its name),
+	// which the run names and does not create.
+	TestGame game(ProjectFileKind::Game);
+	game.AddScene("Main", MakeScene("Main", std::nullopt));
+	ProcessResult const exported = RunPlayer({"--game", Native(game.Write("Scenes/Main.sscene")), "--headless", "--frames", "3"});
+	CAPTURE(exported.Output);
+	CHECK(exported.ExitCode == 0);
+	CHECK(dataFolder(exported.Output) == FileSystem::PathToUtf8(GameData::GetUserDirectory(GameIdentity{"", "Runtime Test"})));
+	CHECK_FALSE(FileSystem::Exists(game.GetDirectory() / ".strada"));
 }
 
 TEST_CASE("Runtime: games in directories with non-ASCII names start from the command line")
