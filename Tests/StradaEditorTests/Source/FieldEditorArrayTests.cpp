@@ -7,6 +7,8 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
+#include "Editor/UI/DataAssetEditor.h"
+#include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -858,4 +860,90 @@ TEST_CASE("ProjectSettingsPanel: removing a layer renumbers the ignored pairs, a
 	CHECK(layerNames().size() == MaxPhysicsLayers);
 	fixture.Panel.Flush(fixture.Operations);
 	CHECK(fixture.Open);
+}
+
+TEST_CASE("DataAssetEditor: a struct drawer's edit of an element is one undo step under its own name and merge key")
+{
+	Testing::TestDataTypeScope const type;
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	imgui.UseEditorStyle();
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	Result<AssetHandle> const created = operations.CreateDataAsset(
+		type.GetType(), "Data/Crate.stestdata", Json::object({{"Entries", Json::array({{{"Name", "A"}, {"Weight", 1.0}}})}}));
+	REQUIRE(created.IsOk());
+	AssetHandle const crate = created.GetValue();
+	Ref<TypedDataAsset<Testing::TestData>> const asset = AssetManager::GetAsset<TypedDataAsset<Testing::TestData>>(crate);
+	REQUIRE(asset != nullptr);
+
+	// A drawer of the entries as a widget committing at its own cadence: with no ImGui item active, under a key of its own
+	// or (key 0) as the editor's interaction.
+	constexpr uint64_t DrawerKey = 0x454E545259000001ull;
+	DataAssetEditor editor;
+	FieldEditor fields;
+	EditSession session(0x5445535400000000ull);
+	std::optional<FieldStructEdit> next;
+	int calls = 0;
+	fields.SetStructDrawer("TestDataEntry",
+	                       [&](FieldStructDrawContext const& drawContext) -> std::optional<FieldStructEdit>
+	                       {
+							   CHECK(drawContext.Editable);
+							   calls++;
+							   return std::exchange(next, std::nullopt);
+						   });
+	auto const draw = [&]
+	{
+		session.Update(ImGui::IsAnyItemActive(), context.GetHistory());
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 800.0f));
+		ImGui::Begin("Data", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		editor.Draw(operations, fields, crate, session);
+		ImGui::End();
+	};
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	FieldTableDriver const driver{imgui, draw,
+	                              []
+	                              {
+									  return ImGui::FindWindowByName("Data");
+								  },
+	                              []
+	                              {
+									  return ImHashStr("##fields", 0, ImGui::FindWindowByName("Data")->ID);
+								  }};
+	driver.OpenElement(driver.GetFieldId("Entries"), 0);
+	imgui.Frame(draw);
+	REQUIRE(calls > 0);
+	CommandHistory const& history = context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+
+	// Three edits in three frames: one step, named as the drawer names it, with the last value.
+	for (double const weight : {2.0, 3.0, 4.0})
+	{
+		next = FieldStructEdit{Json::object({{"Name", "A"}, {"Weight", weight}}), "Weigh Entry", DrawerKey};
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+	}
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(history.GetUndoDescription() == "Weigh Entry");
+	CHECK(asset->GetData().Entries.at(0).Weight == 4.0f);
+
+	// Key 0 takes the interaction's: each frame's edit without an active item is a step of its own, named after the type.
+	for (double const weight : {5.0, 6.0})
+	{
+		next = FieldStructEdit{Json::object({{"Name", "A"}, {"Weight", weight}}), {}, 0};
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+	}
+	CHECK(history.GetUndoCount() == steps + 3);
+	CHECK(history.GetUndoDescription() == "Edit TestData");
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(asset->GetData().Entries.at(0).Weight == 1.0f);
 }

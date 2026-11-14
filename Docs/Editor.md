@@ -795,7 +795,8 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | `Physics.Layers` | Names of the physics layers (1 to 16); a RigidBody's `Layer` indexes them |
 
 Under Layer Collisions, a matrix of check boxes says which layers collide: clear the box of two layers so that their
-bodies pass through each other. Removing a layer also removes the pairs that named it.
+bodies pass through each other. Removing a layer also removes the pairs that named it, and the pairs of the layers
+after it follow them as they move up. "+" adds a layer named `Layer <n>` (rename it in its field), up to 16 layers.
 
 ## Play mode
 
