@@ -307,8 +307,11 @@ endif()
 
 set(CMAKE_SKIP_INSTALL_RULES OFF)
 
-foreach(dependencyTarget glfw spdlog nvrhi nvrhi_vk)
+# The compiled dependencies with CMake projects of their own; the others go through
+# strada_configure_third_party_target.
+foreach(dependencyTarget glfw spdlog nvrhi nvrhi_vk Jolt)
     if(TARGET ${dependencyTarget})
         set_target_properties(${dependencyTarget} PROPERTIES FOLDER "ThirdParty")
+        strada_add_thread_sanitizer(${dependencyTarget})
     endif()
 endforeach()

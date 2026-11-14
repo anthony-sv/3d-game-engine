@@ -3,11 +3,23 @@
 option(STRADA_BUILD_TESTS "Build the Strada test suites" ON)
 option(STRADA_WARNINGS_AS_ERRORS "Treat compiler warnings in Strada targets as errors" ON)
 option(STRADA_ENABLE_SANITIZERS "Build Strada targets with AddressSanitizer (and UndefinedBehaviorSanitizer where supported)" OFF)
+option(STRADA_ENABLE_THREAD_SANITIZER
+    "Build Strada targets and the third-party code they compile with ThreadSanitizer (GCC and Clang)" OFF)
 set(STRADA_DEPENDENCY_CACHE_DIR "" CACHE PATH
     "Optional directory where dependency archives are cached between build trees (speeds up fresh configures)")
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "In-source builds are not supported. Use a preset, e.g. 'cmake --preset windows-debug'.")
+endif()
+
+if(STRADA_ENABLE_THREAD_SANITIZER)
+    if(MSVC)
+        message(FATAL_ERROR "STRADA_ENABLE_THREAD_SANITIZER needs GCC or Clang: MSVC and clang-cl have no ThreadSanitizer")
+    endif()
+    if(STRADA_ENABLE_SANITIZERS)
+        message(FATAL_ERROR "STRADA_ENABLE_THREAD_SANITIZER and STRADA_ENABLE_SANITIZERS exclude each other: "
+            "ThreadSanitizer cannot run in a process built with AddressSanitizer")
+    endif()
 endif()
 
 # Build configurations: Debug (no optimization, asserts), Release (optimized, debug info, asserts) and

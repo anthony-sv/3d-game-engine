@@ -56,7 +56,7 @@ cmake --preset windows-debug && cmake --build --preset windows-debug   # plain C
 ```
 
 `Tools/build.py` locates the Visual Studio environment on Windows automatically. Presets: `windows-{debug,release,dist}`,
-`linux-gcc-{debug,release,dist}`, `linux-clang-{debug,release}`, `macos-{debug,release,dist}`. Output goes to
+`linux-gcc-{debug,release,dist}`, `linux-clang-{debug,release,tsan}`, `macos-{debug,release,dist}`. Output goes to
 `build/<preset>/bin/`. Limit parallelism with `--jobs N` when several builds run at once.
 
 ## C++ style guide

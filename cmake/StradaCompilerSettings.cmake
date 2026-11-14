@@ -72,6 +72,25 @@ function(strada_configure_target target)
             target_link_options(${target} PRIVATE -fsanitize=address,undefined)
         endif()
     endif()
+    strada_add_thread_sanitizer(${target})
+endfunction()
+
+# strada_add_thread_sanitizer(<target>)
+# With STRADA_ENABLE_THREAD_SANITIZER, compiles the target with ThreadSanitizer, and links an executable or shared
+# library with its runtime. It is applied to Strada's targets and to every third-party target the build compiles:
+# synchronization done by code that is not instrumented (a job system's atomics, a ring buffer's) is invisible to the
+# sanitizer, which then reports races that are none. Jolt also compiles different inline code when it sees the sanitizer
+# (JPH_TSAN_ENABLED in Jolt/Core/Core.h), so Jolt and the engine sources that include it must agree.
+function(strada_add_thread_sanitizer target)
+    if(NOT STRADA_ENABLE_THREAD_SANITIZER)
+        return()
+    endif()
+    get_target_property(type ${target} TYPE)
+    if(type STREQUAL "INTERFACE_LIBRARY")
+        return()
+    endif()
+    target_compile_options(${target} PRIVATE -fsanitize=thread -fno-omit-frame-pointer)
+    target_link_options(${target} PRIVATE -fsanitize=thread)
 endfunction()
 
 # strada_configure_third_party_target(<target>)
@@ -94,6 +113,7 @@ function(strada_configure_third_party_target target)
     endif()
 
     set_target_properties(${target} PROPERTIES FOLDER "ThirdParty")
+    strada_add_thread_sanitizer(${target})
 endfunction()
 
 # Build-configuration macros (ST_DEBUG / ST_RELEASE / ST_DIST) for a target and its consumers.

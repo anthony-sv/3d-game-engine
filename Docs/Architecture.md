@@ -340,9 +340,15 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   (`Editor/Automation/ProfilerCommands.cpp`) are no undo steps; `profiler.capture` writes only a `.json` path inside the
   project or an absolute one the caller names, and replaces an existing file only when asked and only when it is a
   capture. A profiler frame is an editor frame, so `play.advance`'s frames are one.
-- **ThreadSanitizer.** `.github/workflows/tsan.yml` runs nightly and on manual dispatch, on Linux with Clang. It runs
-  the suites' threading cases: the profiler, the main-thread queue, audio with manual output and the asset loads. It
-  never gates a merge.
+- **ThreadSanitizer.** `.github/workflows/tsan.yml` runs nightly, on manual dispatch and on a push to a `tsan/**`
+  branch, on Linux with Clang in Debug (the `linux-clang-tsan` preset, which sets `STRADA_ENABLE_THREAD_SANITIZER`). It
+  runs the suites' threading cases, one step per area: the profiler, the main-thread queue, audio with manual output,
+  the editor's worker-thread loads (thumbnails, the example copy; the engine's own asset loads run on the main thread),
+  Jolt's workers, the automation server's network thread, and, in a step of its own, a profiled scene that hosts the
+  .NET runtime. Every target the build compiles is instrumented, third-party ones included: synchronization in code
+  the sanitizer cannot see makes it report races that are none, and Jolt compiles other inline code under it
+  (`JPH_TSAN_ENABLED`). Only prebuilt libraries are suppressed (`.github/tsan-suppressions.txt`), never Strada's code.
+  It never gates a merge.
 
 ## 5. Core conventions
 
