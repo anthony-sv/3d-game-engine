@@ -4174,9 +4174,10 @@ TEST_CASE("Panels: the asset inspector draws a curve asset from its field table,
 	{
 		imgui.Frame(draw);
 	}
-	// The default body (the curve editor widget is a drawer of a later step): its extrapolations and its keys.
+	// The type's drawer: the curve editor's header row above the default body, its extrapolations and its keys.
 	std::string const text = CaptureText(imgui, draw);
 	CAPTURE(text);
+	CHECK(text.find("Frame") != std::string::npos);
 	CHECK(text.find("Extrapolation") != std::string::npos);
 	CHECK(text.find("Keys") != std::string::npos);
 	CHECK(context.GetHistory().GetUndoCount() == steps);

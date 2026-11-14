@@ -727,7 +727,8 @@ scripts reach data assets through the Script module's bindings.
   (`Editor/Commands/SetDataAssetCommand.h`), with the inspector's `EditSession`, whose key the asset editor asks for only
   when an edit brings none: a drawer's own keys keep merging while the session's interaction has ended.
 - *A drawer of a type's own.* `DataAssetEditor::SetDrawer(name, drawer)` replaces the default body of one type (the
-  engine's drawers are one list in `DataAssetEditor.cpp`, where a type's track adds its line). A drawer gets a
+  engine's drawers are one list in `DataAssetEditor.cpp`, where a type's track adds its line; `Curve`'s is the curve
+  editor, §6.5). A drawer gets a
   `DataAssetDrawContext` (the asset, its type, its fields as JSON, whether it is editable, the field editor) and returns
   a `DataAssetEdit` when the user changed something: a partial patch, the step's name in the undo history (empty for
   `Edit <type name>`) and a merge key (0 for the inspector's interaction). A widget that commits at its own cadence, such
@@ -947,6 +948,30 @@ timeline's (spec-slice3 §3.8.3), promoted to the engine: `Strada/Math/Curve.h`.
   the specification): its file (§7.3), the content browser's New Curve, the inspector and the commands `curve.create`,
   `curve.get` and `curve.set` come from that registration, and the FeatureTest project's `Curves/Response.scurve` is its
   fuzz seed.
+- **The curve editor** is one widget with two hosts, the visual script editor's Timeline drawer (§11.1) and the
+  inspector's editor of `.scurve` assets. Its model, `CurveView<TDocument>` (`Editor/UI/CurveView.h`, pure, tested
+  without ImGui), holds the view transform (ranges kept in double, zoom about a point, pan, frame), hit testing (keys,
+  tangent handles, event lanes, curves, empty space) and the gestures turned into intents: documents to commit, made
+  from the document at the start of the interaction and the total change so far. Its widget, `CurveEditor<TDocument>`
+  (`Editor/UI/CurveEditor.h`), draws the header row (the selected key's time and value, interpolation, tangents,
+  Frame), the ruler, the value lines, event lanes, curves, keys, tangent handles, the marquee, a playhead and the key
+  menu, and reports `CurveEditorChange`s (a drag's frames, its end or its cancel, a header field's change, a discrete
+  commit with an optional merge key) that the host commits as undo steps; it never edits a document itself. A host's
+  document reaches both through `CurveDocumentTraits<TDocument>`, which the host specializes with its own reads and
+  edits and its domain: the timeline's (`VisualScriptCurveView.h`) forwards to `VisualScriptTimeline.h`'s functions
+  over the bounded domain `[0, Length]` with a step of 0.01 s, so the drawer edits as it did; the curve's
+  (`Editor/UI/CurveEditing.h`) edits a `Curve` over an unbounded domain (any finite time, framed from its keys, its
+  curve drawn across the whole view through `Curve::Evaluate`, extrapolations included), snapping to and nudging by a
+  hundredth of the visible span rounded to 1, 2 or 5 times a power of ten; a key's unset slope keeps the number it
+  holds, so an edit rewrites only what it changes. Member definitions live in `CurveViewImpl.h` and
+  `CurveEditorImpl.h`, included only where a document type is instantiated, once (`template class
+  CurveView<VisualScriptTimeline>;` in `VisualScriptCurveView.cpp`, `CurveView<Curve>` in `CurveEditing.cpp`, the
+  widgets in `VisualScriptCurveEditor.cpp` and `CurveAssetEditor.cpp`). The `.scurve` host, `CurveAssetEditor`, is the
+  `Curve` type's drawer (§6.4): the widget above the type's field table, each drag one step under a key of its own
+  (Escape commits the start under it, so the step disappears), a run of arrow-key nudges one step, a header field one
+  step while it stays active, every other edit a step of its own; a drag whose curve changes elsewhere meanwhile (an
+  undo, `curve.set`) ends without an edit. While its view has the keyboard it claims Delete, Ctrl+Backspace, Ctrl+A,
+  the arrows, F and, during a drag, Esc as focused routes, so they never reach the editor's editing keys.
 
 ## 7. Scene and ECS
 
@@ -2561,16 +2586,17 @@ inspector's primary entity as the context entity; without an asset directory the
   | L1 Engine | The document, format version 3, the layout of unplaced nodes, the literal codec (array literals included), `HaveSameVisualScriptProgram`, `VisualScriptReferences` (the `Graph` setting, local references, the resolver type, the interface form), the text writer and `Validate` |
   | L2a Document editing | `VisualScriptEditing` (every edit as an operation on a copy of the document, `SetSetting`'s table of settings other operations own), `VisualScriptLanguageEditing` (arrays, formulas, timelines), `VisualScriptTimeline` (the curve model, evaluated through the engine's curve, §6.5), `VisualScriptCrossGraph` (retargeting, kinds, the declared pins of cross-graph nodes, broken referrers), Arrange, the clipboard, the palette's index and ranking, quick fixes, find |
   | L2b Commit | `VisualScriptNormalization` (graph.set's transforms), `PrepareVisualScriptCommit` with its timings, `SetVisualScriptCommand`, `SetVisualScriptAndComponentsCommand`, the history changes, layout-only commits |
-  | L3 Canvas model | The semantics seam (`EngineVisualScriptSemantics`, or the fixture semantics of tests), the view, metrics and text ladder, theme tables, the visual model, geometry, the spatial index, hit testing, the editor model (gestures in, intents out), the per-user view settings, `VisualScriptTextEstimate` (text widths without a font), `VisualScriptProjectIndex`, `VisualScriptCurveView` (the curve editor's view, hit testing and gestures) |
+  | L3 Canvas model | The semantics seam (`EngineVisualScriptSemantics`, or the fixture semantics of tests), the view, metrics and text ladder, theme tables, the visual model, geometry, the spatial index, hit testing, the editor model (gestures in, intents out), the per-user view settings, `VisualScriptTextEstimate` (text widths without a font), `VisualScriptProjectIndex`, `VisualScriptCurveView` (the shared curve view of `Editor/UI` over the timeline, §6.5: its view, hit testing and gestures) |
   | L3b Batch | `VisualScriptBatch` (`graph.edit`'s executor), `VisualScriptHeadlessCanvas` (node sizes, pin rows and anchors without a window), `VisualScriptCanvasPins` (pin rows from a canvas, shared with the panes) |
-  | L4 Panes | The palette popup, My Script, Details (the formula field, the array literal editor, the Timeline section, the Graph pickers), the drawer (with `VisualScriptCurveEditor`, its Timeline mode), the find bar, the literal editor (built on `FieldEditor`) |
+  | L4 Panes | The palette popup, My Script, Details (the formula field, the array literal editor, the Timeline section, the Graph pickers), the drawer (with `VisualScriptCurveEditor`, its Timeline mode, on the shared curve editor widget of §6.5), the find bar, the literal editor (built on `FieldEditor`) |
   | L5 Canvas UI | The controller (an intent becomes at most one commit request), the renderer (comment labels among its layers), brushes, the panel, the in-place formula editor, the key and gesture tables |
   | L6 Shell | `VisualScriptEditors` (the window manager, the project index's owner, opening and Back and Forward across windows), `EditorEditingKeys`, `EditorLayer`'s wiring, the entry points, the `graph.*` UI commands |
 
   The editor model and the document editing are independent of each other: the model emits intents, which are data,
   and only the controller turns them into edits. L2a and L3 include nothing of each other, with one exception: the curve
   model (`VisualScriptTimeline.h`, pure, without state) is shared by both, so the curve view clamps and evaluates with
-  the document editing's own functions; the types both layers read (`VisualScriptProjectGraph` among them) are in
+  the document editing's own functions (the view itself is `Editor/UI`'s `CurveView`, which includes nothing of the
+  visual script editor; `VisualScriptCurveView.h` gives it the timeline); the types both layers read (`VisualScriptProjectGraph` among them) are in
   `VisualScriptEditorTypes.h`. L3b is the only non-UI code that includes both. Operations take pin names as the document stores them
   (`VisualScriptEditing::ToStoredVisualScriptPin` maps the canvas's names of renamed pins and their fields back).
   Without the scripting runtime a window runs degraded: it shows, arranges, comments, copies and deletes nodes from the
@@ -2744,8 +2770,8 @@ inspector's primary entity as the context entity; without an asset directory the
   canvas lists problems (errors first, then by sub-graph, then by position; a click goes to the element) with their
   quick fixes, or the results of a find in this script or every script ("could not be read: <error>" for scripts that do
   not load), or, in its Timeline mode (its own height, 16 font sizes), a `Flow.Timeline`'s tracks beside its curves
-  (`VisualScriptCurveEditor` over the pure `VisualScriptCurveView`, whose view, hit testing and gestures are tested
-  without ImGui). It opens from a double-click on a Timeline's header, the node menu's Edit Timeline, Details' Edit and
+  (`VisualScriptCurveEditor` on the shared curve editor widget over the pure `VisualScriptCurveView`, §6.5, whose
+  view, hit testing and gestures are tested without ImGui). It opens from a double-click on a Timeline's header, the node menu's Edit Timeline, Details' Edit and
   `graph.open`'s `timeline`, and closes when its node is gone. Every edit is one `SetTimeline` step; drags are computed
   from the timeline as the interaction found it and merge into one step at the widget cadence; Escape cancels a drag
   (the setting goes back within the drag's own step, which then disappears) or a marquee (the selection comes back);

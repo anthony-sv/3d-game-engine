@@ -140,6 +140,13 @@ for windows that exist once per open asset (Docs/Architecture.md §11.1):
   owner of its own, and gives the keyboard back to the canvas with Escape when no drag is in progress (a drag's Escape
   cancels it). Its pure model (`VisualScriptCurveView`: the view, hit testing and the gestures as intents) is tested
   without ImGui beside its L4 editor (`VisualScriptCurveEditor`).
+- Curves (keys over an input, with interpolation and slopes) are edited with the one curve editor
+  (Docs/Architecture.md §6.5): the pure `CurveView<TDocument>` and the widget `CurveEditor<TDocument>` in `Editor/UI`,
+  over a `CurveDocumentTraits<TDocument>` the host specializes with its document's reads, edits and domain, instantiated
+  once in the host's `.cpp` (which alone includes `CurveViewImpl.h` and `CurveEditorImpl.h`). The widget reports
+  `CurveEditorChange`s and the host commits them: the Timeline drawer through its widget commits, the `.scurve` drawer
+  (`CurveAssetEditor`) as data asset edits with a merge key per drag and per nudge run. A host in a panel claims the
+  widget's keys as focused routes of the widget's child window while it is drawn, as `CurveAssetEditor` does.
 - Match raw keys as exact chords with `ImGui::IsKeyChordPressed(chord, flags, ownerId)` (a plain `IsKeyPressed(C)`
   also fires on Ctrl+C). Claim editing keys that share a global chord (Delete, Ctrl+D, Ctrl+A) with
   `ImGui::Shortcut(chord, ImGuiInputFlags_RouteFocused)` every frame the window is drawn. Keep the keys and gestures in

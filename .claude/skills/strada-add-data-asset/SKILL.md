@@ -96,13 +96,16 @@ inline DataAssetTypeSpecification<Curve> const CurveAssetSpecification = {
   per interaction (`SetDataAssetCommand`), disabled for data assets in memory and read-only files.
 - A type whose field table is not the editor it needs (a curve's keys) gets a drawer: one line in the
   `DataAssetEditor` constructor (`StradaEditor/Source/Editor/UI/DataAssetEditor.cpp`), sorted by name,
-  `SetDrawer("<Name>", &Draw<Name>)`. The drawer gets a `DataAssetDrawContext` (the asset, its type, its fields as JSON,
+  `SetDrawer("<Name>", <drawer>)` (a drawer with state of its own wraps an object the lambda shares, as
+  `CurveAssetEditor::MakeDrawer` does for the curve editor). The drawer gets a `DataAssetDrawContext` (the asset, its type, its fields as JSON,
   whether it is editable, the field editor) and returns a `DataAssetEdit` when the user changed something: a partial
   patch of whole field values, the step's name (empty: `Edit <Name>`) and a merge key (0: the inspector's interaction,
   which merges while one ImGui item stays active; a key of its own for edits that span frames without an active item,
   such as arrow-key nudges merged by time). It never writes files or assets itself, shows nothing editable when
   `Editable` is false, and may draw the fields it leaves alone with `DataAssetEditor::DrawFields(context)`, marking the
-  ones it draws `.HiddenInEditors()`.
+  ones it draws `.HiddenInEditors()`. A type with curves (keys over an input) draws them with the shared curve editor
+  (`Editor/UI/CurveEditor.h` over a `CurveDocumentTraits` specialization, Docs/Architecture.md §6.5), as `Curve`'s drawer
+  does above its whole field table.
 - Arrays of structs (`std::vector<Entry>` with `.MaxCount(n)`) need no drawer: the field editor shows a row per element
   that unfolds into the element's fields, with a menu to move, duplicate, insert above and remove it, and Add Element;
   each is one undo step patching by index (Docs/Architecture.md §11).
