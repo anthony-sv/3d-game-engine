@@ -297,11 +297,12 @@ def check_tour_repeats(b, name):
 
 
 def check_tour_waits(b, name):
-    # The entity stands away from the home view, where a tour starts: had it taken off with the scene, the tour's first
-    # update would have put it there.
+    # The entity stands 20 m from the home view, where a tour starts: had it taken off with the scene, half a second of its
+    # tour would have put it within a meter of the home view. (In the first frames a tour sent at the start has not run
+    # its first update yet.)
     done = b.both(near(b, waiting_at(b), rounded(WAITING_SPOT), 0.01), b.expr("tours == 0", tours=tours(b, "WaitingTour")))
-    send = b.send("PlayTour", b.var("WaitingTour"), graph=Tour.TOUR, comment="Its tour takes off now, beside the camera's")
-    run(b, check(b, name, done, 0, waiting_detail(b)), send)
+    send = b.send("PlayTour", b.var("WaitingTour"), graph=Tour.TOUR, comment="Its tour takes off now, half a second after the camera's")
+    run(b, wait_until(b, None, 0.5), check(b, name, done, 0, waiting_detail(b)), send)
 
 
 def check_sent_tour_flies(b, name):
@@ -313,8 +314,8 @@ def check_sent_tour_flies(b, name):
 
 
 def check_sent_tour_stops(b, name):
-    # It was sent PlayTour a frame or two after the camera took off, so its tour ended as the camera's did, at least 3 s
-    # ago (CheckTourRepeats waited that long): one that took off again would be tens of meters away by now.
+    # It was sent PlayTour half a second after the camera took off, so its tour ended about 2.5 s ago (CheckTourRepeats
+    # waited 3 s after the camera's): one that took off again would be about 20 m from the home view by now.
     ended = b.expr("tours >= 1", tours=tours(b, "WaitingTour"))
     done = b.both(b.expr("tours == 1", tours=tours(b, "WaitingTour")), near(b, waiting_at(b), rounded(Tour.HOME_EYE), 0.1))
     run(b, check(b, name, ended, 5, waiting_detail(b), done))
