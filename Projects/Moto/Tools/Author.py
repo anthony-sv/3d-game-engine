@@ -1,0 +1,429 @@
+"""Builds the Moto project through `strada mcp`, the way an agent does: the circuit of a motorcycle time trial made of
+visual scripts alone (no C#). In order:
+
+1. the project and its settings;
+2. the circuit part: the meshes, textures and sky GenerateAssets.py makes from the layout in Circuit.py, the materials,
+   and the circuit's entities (the track, the barriers, the ground and the hills, the start gantry, the three sector
+   gates and the footbridge), each surface a static body with a triangle-mesh collider;
+3. the lighting part: the sun, the sky and the scene's renderer settings (shadows over 220 m in four cascades);
+4. the camera part: the main camera over the start, its far plane past the hills;
+5. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+   rest on their surfaces, and nothing logs a warning.
+
+    python Projects/Moto/Tools/Author.py [strada executable]
+    python Projects/Moto/Tools/Author.py --part circuit [strada executable]
+
+The project is rebuilt from scratch: everything but this Tools folder is replaced. Without an executable, strada runs
+from the repository (dotnet run).
+
+With --part, one part is built in place instead: the project is opened as it is, the part's root entities are made anew
+in the main scene, and its files are written (materials keep their asset handles). The run compares every file of the
+project outside Tools before and after: when a file the part does not own changed, it names the files and fails, also
+when the authoring itself failed.
+"""
+import argparse
+import hashlib
+import json
+import math
+import os
+import posixpath
+import shutil
+import subprocess
+import sys
+import tempfile
+
+TOOLS = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, TOOLS)
+import Circuit  # noqa: E402  (the layout)
+import GenerateAssets  # noqa: E402  (the circuit's meshes, textures and sky)
+
+PROJECT = os.path.dirname(TOOLS)
+ROOT = os.path.dirname(os.path.dirname(PROJECT))
+NAME = "Strada Moto"
+
+
+class McpClient:
+    """A minimal MCP client over stdio."""
+
+    def __init__(self, command):
+        self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=ROOT)
+        self.counter = 0
+        self.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "author", "version": "1"}})
+        self.process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+        self.process.stdin.flush()
+
+    def request(self, method, params=None):
+        self.counter += 1
+        message = {"jsonrpc": "2.0", "id": self.counter, "method": method}
+        if params is not None:
+            message["params"] = params
+        self.process.stdin.write((json.dumps(message) + "\n").encode())
+        self.process.stdin.flush()
+        line = self.process.stdout.readline()
+        if not line:
+            raise SystemExit(f"strada mcp ended during {method}: {self.process.stderr.read().decode()}")
+        response = json.loads(line)
+        if "error" in response:
+            raise SystemExit(f"{method} failed: {response['error']}")
+        return response["result"]
+
+    def call(self, tool, arguments=None):
+        result = self.request("tools/call", {"name": tool, "arguments": arguments or {}})
+        text = result["content"][-1]["text"]
+        if result["isError"]:
+            raise SystemExit(f"{tool} {json.dumps(arguments)[:2000]} failed: {text}")
+        return json.loads(text)
+
+    def close(self):
+        self.process.stdin.close()
+        return self.process.wait(timeout=120)
+
+
+# --- Parts ---------------------------------------------------------------------------------------------------------------
+
+# Each part: the root entities of the main scene it makes, and the files of the project it may write (paths relative to
+# the project folder, forward slashes; "<folder>/*<extension>" takes the folder's own files of that extension).
+PARTS = {
+    "circuit": (("Circuit",), ("Assets/Meshes/*.gltf", "Assets/Textures/*.png", "Assets/Environments/*.hdr",
+                               "Assets/Materials/*.smat", "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
+    "lighting": (("Sun", "Sky"), ("Assets/Scenes/Main.sscene",)),
+    "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene",)),
+}
+ORDER = ("circuit", "lighting", "camera")
+
+
+def hash_project():
+    """The SHA-256 of every file of the project outside Tools, by its path relative to the project (forward slashes)."""
+    hashes = {}
+    for folder, folders, files in os.walk(PROJECT):
+        if folder == PROJECT:
+            # Tools holds this script and Python's caches; .strada is the editor's local state, which git ignores.
+            folders[:] = [name for name in folders if name not in ("Tools", ".strada")]
+        for name in files:
+            path = os.path.join(folder, name)
+            with open(path, "rb") as file:
+                hashes[os.path.relpath(path, PROJECT).replace(os.sep, "/")] = hashlib.sha256(file.read()).hexdigest()
+    return hashes
+
+
+def owns(owned, path):
+    """Whether a path of the project is one of a part's own files (PARTS)."""
+    folder, name = posixpath.split(path)
+    for own in owned:
+        own_folder, own_name = posixpath.split(own)
+        if own_name.startswith("*"):
+            if folder == own_folder and name.endswith(own_name[1:]):
+                return True
+        elif path == own:
+            return True
+    return False
+
+
+def foreign_changes(before, part):
+    """Lists what changed in the project since the hashes were taken, and returns the changed files the part does not own."""
+    after = hash_project()
+    changed = sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
+    print("changed:", ", ".join(changed) if changed else "nothing")
+    return [path for path in changed if not owns(PARTS[part][1], path)]
+
+
+# --- Transforms ----------------------------------------------------------------------------------------------------------
+
+def place(s, lateral=0.0, height=0.0):
+    """A transform on the circuit: at a lap distance and a lateral offset (right of travel), its forward along the travel."""
+    return {"Translation": list(Circuit.offset_point(s, lateral, height)), "RotationEuler": [0.0, Circuit.yaw(s), 0.0],
+            "Scale": [1.0, 1.0, 1.0]}
+
+
+def look(eye, target):
+    """A camera transform at the eye looking at the target (world points): pitch and yaw, no roll."""
+    dx, dy, dz = (target[k] - eye[k] for k in range(3))
+    pitch = math.degrees(math.atan2(dy, math.hypot(dx, dz)))
+    yaw = math.degrees(math.atan2(-dx, -dz))
+    return {"Translation": list(eye), "RotationEuler": [pitch, yaw, 0.0], "Scale": [1.0, 1.0, 1.0]}
+
+
+def sun_euler():
+    """The directional light's Euler angles: its forward (-Z) points away from the sun (GenerateAssets.sun_direction), whose
+    glow the sky shows."""
+    x, _, z = GenerateAssets.sun_direction()
+    return [-GenerateAssets.SUN_ELEVATION, math.degrees(math.atan2(x, z)), 0.0]
+
+
+# --- The authoring session -------------------------------------------------------------------------------------------------
+
+def mesh(name):
+    return f"asset://Meshes/{name}.gltf"
+
+
+def material_reference(name):
+    return f"asset://Materials/{name}.smat"
+
+
+class Moto:
+    def __init__(self, client):
+        self.client = client
+
+    def call(self, tool, arguments=None):
+        return self.client.call(tool, arguments)
+
+    def entity(self, name, components, parent=None):
+        arguments = {"name": name, "components": components}
+        if parent is not None:
+            arguments["parent"] = parent
+        return self.call("entity_create", arguments)["id"]
+
+    def material(self, name, fields):
+        """The material at Materials/<name>.smat with the fields: created, or set when it exists (its handle stays). Set
+        replaces only the fields given, so every material gives all the fields it changes from the defaults."""
+        if os.path.exists(os.path.join(PROJECT, "Assets", "Materials", f"{name}.smat")):
+            self.call("material_set", {"material": material_reference(name), "fields": fields})
+        else:
+            self.call("material_create", {"path": f"Materials/{name}.smat", "fields": fields})
+        return material_reference(name)
+
+    def remove_roots(self, names):
+        """Deletes the main scene's root entities of these names (with their children)."""
+        roots = [entity["id"] for entity in self.call("scene_hierarchy")["entities"] if entity["name"] in names]
+        if roots:
+            self.call("entity_delete", {"entities": roots})
+
+    # --- The parts -------------------------------------------------------------------------------------------------------
+
+    def build_part(self, part):
+        self.remove_roots(PARTS[part][0])
+        {"circuit": self.make_circuit, "lighting": self.make_lighting, "camera": self.make_camera}[part]()
+
+    def make_circuit(self):
+        GenerateAssets.generate(os.path.join(PROJECT, "Assets"), GenerateAssets.SEED)
+        refreshed = self.call("asset_refresh")
+        if refreshed.get("warnings"):
+            raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
+        self.make_materials()
+        static = {"Type": "Static"}
+        root = self.entity("Circuit", {"Transform": {"Translation": [0.0, 0.0, 0.0]}})
+        track_materials = [material_reference(name) for name in GenerateAssets.TRACK_MATERIALS]
+        self.entity("Track", {
+            "Mesh": {"Mesh": mesh("Track"), "Materials": track_materials},
+            "RigidBody": static,
+            "MeshCollider": {"Mesh": mesh("TrackCollision"), "Convex": False, "Friction": 1.0}}, root)
+        self.entity("Barriers", {
+            "Mesh": {"Mesh": mesh("Barriers"), "Materials": [material_reference("Concrete")]},
+            "RigidBody": static,
+            "MeshCollider": {"Mesh": mesh("BarrierCollision"), "Convex": False, "Friction": 0.4}}, root)
+        # The ground and the hills lie beyond the shadows' reach and under everything: they cast none.
+        self.entity("Ground", {
+            "Mesh": {"Mesh": mesh("Ground"), "Materials": [material_reference("Grass")], "CastShadows": False},
+            "RigidBody": static,
+            "MeshCollider": {"Convex": False, "Friction": 0.8}}, root)
+        self.entity("Hills", {"Mesh": {"Mesh": mesh("Hills"), "Materials": [material_reference("Forest")], "CastShadows": False}}, root)
+        gantry = [material_reference(name) for name in ("GantrySteel", "GantryPanel", "StartLamp", "GantryAccent")]
+        self.entity("Start Gantry", {"Transform": place(0.0), "Mesh": {"Mesh": mesh("Gantry"), "Materials": gantry},
+                                     "RigidBody": static, "MeshCollider": {"Convex": False}}, root)
+        # The timing lines: each gate's forward (-Z) points along the travel, its origin on the center line. The third is
+        # the start and finish line, under the gantry.
+        for number, s in enumerate(Circuit.SECTOR_GATES, start=1):
+            components = {"Transform": place(s)}
+            if s != 0.0:
+                components.update({"Mesh": {"Mesh": mesh("Gate"), "Materials": [material_reference("GateSteel"),
+                                                                                 material_reference(f"SectorBoard{number}")]},
+                                   "RigidBody": static, "MeshCollider": {"Convex": False}})
+            self.entity(f"Sector Gate {number}", components, root)
+        self.entity("Footbridge", {"Transform": place(Circuit.FOOTBRIDGE),
+                                   "Mesh": {"Mesh": mesh("Footbridge"), "Materials": [material_reference("Concrete"),
+                                                                                      material_reference("BridgePanel")]},
+                                   "RigidBody": static, "MeshCollider": {"Convex": False}}, root)
+
+    def make_materials(self):
+        material = self.material
+
+        def textured(texture, tile, roughness, color=(1.0, 1.0, 1.0, 1.0)):
+            """A material whose texture repeats every tile meters (the meshes' texture coordinates are in meters)."""
+            size = tile if isinstance(tile, tuple) else (tile, tile)
+            return {"BaseColor": list(color), "BaseColorTexture": f"asset://Textures/{texture}.png", "Roughness": roughness,
+                    "UVTiling": [1.0 / size[0], 1.0 / size[1]]}
+
+        material("Asphalt", textured("Asphalt", 12.0, 0.82))
+        material("Kerb", textured("Kerb", (Circuit.KERB_WIDTH, 2.0), 0.55))
+        material("Grass", textured("Grass", 8.0, 0.95))
+        material("Gravel", textured("Gravel", 3.0, 1.0))
+        material("LineWhite", {"BaseColor": [0.86, 0.86, 0.84, 1.0], "Roughness": 0.6})
+        material("Checker", textured("Checker", 1.0, 0.6))
+        material("Concrete", textured("Concrete", 4.0, 0.9))
+        # The hills are kilometers away: the air between lightens and blues them (there is no fog), as the light the
+        # material emits in the horizon's color.
+        forest = textured("Forest", 60.0, 1.0)
+        forest.update({"EmissiveColor": [0.62, 0.72, 0.86], "EmissiveIntensity": 0.22})
+        material("Forest", forest)
+        material("GantrySteel", {"BaseColor": [0.09, 0.1, 0.12, 1.0], "Roughness": 0.45})
+        material("GantryPanel", {"BaseColor": [0.02, 0.02, 0.025, 1.0], "Roughness": 0.35})
+        material("GantryAccent", {"BaseColor": [0.72, 0.06, 0.04, 1.0], "Roughness": 0.5})
+        # The start lights, unlit: dark red glass.
+        material("StartLamp", {"BaseColor": [0.18, 0.01, 0.01, 1.0], "Roughness": 0.15, "EmissiveColor": [1.0, 0.06, 0.02],
+                               "EmissiveIntensity": 0.0})
+        material("GateSteel", {"BaseColor": [0.62, 0.63, 0.66, 1.0], "Roughness": 0.45})
+        # Each sector board shows its cell of the texture ("S1", "S2"), lit from inside a little.
+        for number in (1, 2):
+            material(f"SectorBoard{number}", {
+                "BaseColor": [1.0, 1.0, 1.0, 1.0], "BaseColorTexture": "asset://Textures/SectorBoards.png", "Roughness": 0.4,
+                "EmissiveColor": [1.0, 1.0, 1.0], "EmissiveIntensity": 0.6, "EmissiveTexture": "asset://Textures/SectorBoards.png",
+                "UVTiling": [1.0 / 3.0, 1.0], "UVOffset": [(number - 1) / 3.0, 0.0]})
+        material("BridgePanel", {"BaseColor": [0.05, 0.2, 0.55, 1.0], "Roughness": 0.5})
+
+    def make_lighting(self):
+        self.call("scene_settings", {"name": "Main", "settings": {"Renderer": {
+            "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 220.0, "CascadeCount": 4,
+            "CascadeSplitLambda": 0.85, "ShadowMapSize": 4096, "AmbientOcclusion": True, "AmbientOcclusionRadius": 1.0,
+            "AmbientOcclusionIntensity": 1.2, "Bloom": True, "BloomIntensity": 0.03, "FXAA": True}}})
+        self.entity("Sun", {"Transform": {"Translation": [0.0, 50.0, 0.0], "RotationEuler": sun_euler()},
+                            "DirectionalLight": {"Color": [1.0, 0.95, 0.88], "Intensity": 6.0, "CastShadows": True, "LightSize": 0.53}})
+        self.entity("Sky", {"SkyLight": {"Environment": "asset://Environments/Sky.hdr", "Intensity": 1.2, "DrawSkybox": True}})
+
+    def make_camera(self):
+        """The main camera, over the inside of the main straight before the line, looking past the gantry down the
+        straight. Its near plane suits a rider's view, its far plane takes in the hills (the projection itself has none)."""
+        eye = Circuit.offset_point(Circuit.LENGTH - 48.0, -24.0, 7.5)
+        target = Circuit.offset_point(25.0, 3.0, 3.0)
+        self.entity("Main Camera", {"Transform": look(eye, target),
+                                    "Camera": {"PerspectiveFOV": 50.0, "PerspectiveNear": 0.1, "PerspectiveFar": 5000.0},
+                                    "AudioListener": {}})
+
+    # --- Checks ----------------------------------------------------------------------------------------------------------
+
+    def check_surfaces(self):
+        """Drops a sphere above each kind of surface while playing and checks that it comes to rest on it: the colliders are
+        there, face up and match the drawn surfaces. The spheres live in play mode's copy of the scene only."""
+        radius = 0.3
+        apex = next(start + 0.5 * (end - start) for corner, start, end, side in Circuit.corner_ranges() if corner.name == "Turn 6")
+        inside = 1 if Circuit.curvature(apex) < 0.0 else -1
+        kerb = (Circuit.HALF_WIDTH + Circuit.KERB_WIDTH - 0.3) * inside
+        trap = Circuit.HALF_WIDTH + Circuit.KERB_WIDTH + Circuit.VERGE_WIDTH + 0.5 * Circuit.gravel(apex, "left" if inside > 0 else "right")
+        verge = Circuit.HALF_WIDTH + Circuit.KERB_WIDTH + 1.5
+        face = Circuit.barrier_offset(Circuit.FOOTBRIDGE + 30.0, "right")
+        bridge = Circuit.offset_point(Circuit.FOOTBRIDGE, 0.0)
+        probes = [
+            ("road on the main straight", Circuit.offset_point(300.0, 2.0), Circuit.road_height(2.0)),
+            ("road at Turn 1", Circuit.offset_point(600.0, -1.0), Circuit.road_height(-1.0)),
+            ("kerb at Turn 6", Circuit.offset_point(apex, kerb), Circuit.ROAD_HEIGHT + Circuit.KERB_HEIGHT),
+            ("gravel at Turn 6", Circuit.offset_point(apex, -trap * inside), Circuit.GRAVEL_HEIGHT),
+            ("verge on the back straight", Circuit.offset_point(Circuit.FOOTBRIDGE - 40.0, -verge), None),
+            ("ground beyond the barrier", Circuit.offset_point(Circuit.FOOTBRIDGE + 30.0, face + 6.0), 0.0),
+            ("barrier top", Circuit.offset_point(Circuit.FOOTBRIDGE + 30.0, face + 0.3), Circuit.BARRIER_HEIGHT),
+            ("footbridge deck", (bridge[0], 0.0, bridge[2]), Circuit.BRIDGE_CLEARANCE + 0.5),
+        ]
+        self.call("play_start", {"paused": True})
+        try:
+            ids = []
+            for name, point, surface in probes:
+                drop = (surface if surface is not None else Circuit.VERGE_HEIGHT) + 1.5
+                ids.append(self.entity(f"Probe: {name}", {
+                    "Transform": {"Translation": [point[0], drop, point[2]]},
+                    "RigidBody": {"Type": "Dynamic", "Mass": 5.0, "LinearDamping": 4.0, "AngularDamping": 4.0},
+                    "SphereCollider": {"Radius": radius, "Friction": 1.0}}))
+            self.call("play_advance", {"frames": 150})
+            failures = []
+            for (name, point, surface), entity in zip(probes, ids):
+                rest = self.call("component_get", {"entity": entity, "component": "Transform"})["fields"]["Translation"]
+                expected = (surface if surface is not None else Circuit.VERGE_HEIGHT) + radius
+                drift = math.hypot(rest[0] - point[0], rest[2] - point[2])
+                tolerance = 0.06 if surface is not None else 0.12
+                print(f"  {name}: rests at {rest[1]:.3f} m (expected {expected:.3f} m), {drift:.2f} m from where it fell")
+                if abs(rest[1] - expected) > tolerance or drift > 1.0:
+                    failures.append(name)
+        finally:
+            self.call("play_stop")
+        if failures:
+            raise SystemExit("spheres did not rest on their surfaces: " + ", ".join(failures))
+
+    def check_log(self, since):
+        """Nothing the build did logged a warning or an error."""
+        entries = []
+        while True:
+            read = self.call("log_read", {"since": since, "minLevel": "warn", "maxCount": 1000})
+            if not read["entries"]:
+                break
+            entries += read["entries"]
+            since = read["next"]
+        if entries:
+            raise SystemExit("the build logged problems:\n  " + "\n  ".join(entry["message"] for entry in entries))
+
+    def log_position(self):
+        return self.call("log_read", {"since": 0, "minLevel": "critical", "maxCount": 1})["next"]
+
+    # --- The project -----------------------------------------------------------------------------------------------------
+
+    def build(self):
+        since = self.log_position()
+        self.call("project_settings", {"settings": {"Name": NAME, "Window": {"Title": NAME, "Width": 1600, "Height": 900}}})
+        found = [entity["id"] for entity in self.call("scene_hierarchy")["entities"]]
+        self.call("entity_delete", {"entities": found})
+        self.call("scene_settings", {"name": "Main"})
+        for part in ORDER:
+            self.build_part(part)
+        self.call("scene_save")
+        self.check_surfaces()
+        self.check_log(since)
+
+    def build_in_place(self, part):
+        self.call("project_open", {"path": os.path.join(PROJECT, "Moto.sproj")})
+        since = self.log_position()
+        self.call("scene_open", {"path": "Scenes/Main.sscene"})
+        self.build_part(part)
+        self.call("scene_save")
+        self.check_surfaces()
+        self.check_log(since)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Builds the Moto project through strada mcp, or one of its parts in place.")
+    parser.add_argument("strada", nargs="?", help="the strada executable (default: dotnet run of the repository's StradaTool)")
+    parser.add_argument("--part", choices=ORDER, help="build this part in place, leaving every file it does not own as it is")
+    arguments = parser.parse_args()
+    command = [os.path.abspath(arguments.strada)] if arguments.strada else \
+        ["dotnet", "run", "--project", os.path.join(ROOT, "StradaTool"), "-c", "Release", "--no-launch-profile", "--"]
+    if arguments.part:
+        build_part_in_place(command, arguments.part)
+    else:
+        rebuild(command)
+
+
+def build_part_in_place(command, part):
+    before = hash_project()
+    try:
+        client = McpClient(command + ["mcp", "--headless", "--new"])
+        try:
+            Moto(client).build_in_place(part)
+        finally:
+            client.close()
+    except BaseException:
+        # The failure goes on as it is, after the files it changed that the part does not own are named.
+        foreign = foreign_changes(before, part)
+        if foreign:
+            print("building the part changed files it does not own: " + ", ".join(foreign), file=sys.stderr)
+        raise
+    foreign = foreign_changes(before, part)
+    if foreign:
+        raise SystemExit("building the part changed files it does not own: " + ", ".join(foreign))
+
+
+def rebuild(command):
+    # The editor starts before anything is touched: a tool that cannot run leaves the project as it is.
+    client = McpClient(command + ["mcp", "--headless", "--new"])
+    # The editor creates projects in empty directories only: this folder waits outside meanwhile.
+    aside = tempfile.mkdtemp(prefix="moto-author-")
+    shutil.move(TOOLS, os.path.join(aside, "Tools"))
+    try:
+        if os.path.isdir(PROJECT):
+            shutil.rmtree(PROJECT)
+        client.call("project_create", {"directory": PROJECT, "name": "Moto", "gitIgnore": False, "agents": False})
+    finally:
+        shutil.move(os.path.join(aside, "Tools"), TOOLS)
+        os.rmdir(aside)
+    try:
+        Moto(client).build()
+    finally:
+        client.close()
+
+
+if __name__ == "__main__":
+    main()

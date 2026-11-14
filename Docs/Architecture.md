@@ -3404,6 +3404,34 @@ data directory, and compile out asserts and script debug lines.
   order from a Sequence, reporting through the `Checks` library); `StradaRuntimeTests` runs them through the player
   ("Tests passed: 29 checks"), plays the title and runs the exported game, refusing any line from a visual script;
   `PlayModeTests` plays it through `input.set`, and the fuzz test of damaged graphs includes its `Game.sgraph`.
+- `Projects/Moto`: the circuit of a motorcycle time trial that is to be made of visual scripts alone (no C#, no
+  `Scripts` folder). `Tools/Circuit.py` is the layout and its one source: a closed polygon of ten corners, each rounded
+  by an arc of its radius, raced clockwise from the start and finish line (lap distance 0) for 2,638.6 m; the lap
+  distance gives every point of the center line, its heading and the frame along it, and the cross-section across it
+  (a crowned 12 m road, kerbs along the corners, verges, gravel traps on the corners' outsides that widen and narrow
+  along the lap, grass skirts down to the ground, then a concrete wall). Its `check()` asserts the length, the ten
+  corners, the closed and smooth seam, corners wide enough for the wall on their inside and no two parts of the
+  circuit closer than 8 m. `Tools/GenerateAssets.py` (standard library only) makes from it the meshes (glTF with
+  positions, normals and texture coordinates in meters; the track and the walls in world space, one primitive per
+  material and 200 m of the lap, so that each is culled on its own), the textures, and the sky (a Radiance file with
+  run-length encoded scanlines). The track's and the walls' colliders are meshes of their own, welded into one
+  primitive whose vertices all point up and have no texture coordinates, so that the importer keeps them welded: Jolt
+  finds the edges between a mesh's triangles by their shared vertex indices, and a seam of duplicated vertices (a
+  material's or a chunk's border) would be an edge a wheel bumps on. The same seed gives the same bytes (values are
+  rounded before they are packed, against maths libraries that differ in their last digit); `GenerateAssets.py
+  --check` generates twice and compares the runs with each other and with `Assets` (a PNG of equal pixels but other
+  compression passes, naming the zlib). There is no fog: the ring of hills that makes the skyline beyond the grass
+  emits a little of the horizon's color, which stands for the air between. `Tools/Author.py` builds the project
+  through `strada mcp --headless` in parts, each of which owns root entities of the main scene and the files it may
+  write (`circuit`: the generated assets, the materials and the `Circuit` entity with the track, the walls, the ground,
+  the hills, the start gantry, the sector gates and the footbridge, every surface a static body with a triangle-mesh
+  `MeshCollider`; `lighting`: the sun, the sky and the renderer settings, shadows over 220 m in four cascades;
+  `camera`: the main camera, near plane 0.1 m and far plane 5 km); `--part <name>` rebuilds one part in place and fails,
+  naming them, when files the part does not own changed. The sector gates are timing lines whose entities stand on the
+  center line with their forward along the travel: gates 1 and 2 carry an arch, gate 3 is the start and finish line
+  under the gantry. Every build ends by dropping spheres, in play mode's copy of the scene, on the road, a kerb, a
+  gravel trap, a verge, the ground, a wall and the footbridge, which must come to rest on those surfaces, and by
+  refusing any warning in the log.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.
