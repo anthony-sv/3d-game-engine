@@ -62,6 +62,7 @@ add_executable(StradaTests
     Source/Physics/PhysicsCharacterTests.cpp
     Source/Physics/PhysicsJointTests.cpp
     Source/Physics/PhysicsSceneTests.cpp
+    Source/Physics/PhysicsStateTests.cpp
     Source/Physics/PhysicsTestUtilities.h
     Source/Platform/ProcessTests.cpp
     Source/Project/ExampleCatalogFuzzTests.cpp
@@ -98,6 +99,8 @@ add_executable(StradaTests
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFuzzTests.cpp
+    Source/Scene/SceneInterpolationTests.cpp
+    Source/Scene/ScenePhysicsStateTests.cpp
     Source/Scene/SceneProfilingTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneScriptingApiTests.cpp

@@ -439,6 +439,92 @@ TEST_CASE("Runtime: test runs go on in the scenes the scripts load, and fail whe
 	CHECK(Contains(cut.Output, "the scripts did not finish testing in 2 frames"));
 }
 
+TEST_CASE("Runtime: a test summary ends with the physics state hash, the same at a step at 30, 60 and 144 frames per second")
+{
+	// A stack the ball knocks over, a character landing on it with a collider of its own below it, and a script that makes
+	// a body between two steps and finishes the run after 200 fixed steps, whatever the frame rate.
+	TestGame game(ProjectFileKind::Game);
+	Ref<Scene> const scene = MakeScene("Physics", std::nullopt);
+	Entity ground = scene->CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {20.0f, 0.5f, 20.0f};
+	for (int level = 0; level < 4; level++)
+	{
+		Entity crate = scene->CreateEntity("Crate");
+		crate.GetComponent<TransformComponent>().Translation = {0.03f * static_cast<float>(level % 2), 0.5f + static_cast<float>(level),
+		                                                        0.0f};
+		crate.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
+		crate.AddComponent<BoxColliderComponent>();
+	}
+	Entity ball = scene->CreateEntity("Ball");
+	ball.GetComponent<TransformComponent>().Translation = {-5.0f, 0.5f, 0.1f};
+	RigidBodyComponent& ballBody = ball.AddComponent<RigidBodyComponent>();
+	ballBody.Type = RigidBodyType::Dynamic;
+	ballBody.Mass = 5.0f;
+	ballBody.InitialLinearVelocity = {8.0f, 0.0f, 0.0f};
+	ball.AddComponent<SphereColliderComponent>();
+	Entity hero = scene->CreateEntity("Hero");
+	hero.GetComponent<TransformComponent>().Translation = {0.2f, 6.0f, 0.0f};
+	hero.AddComponent<CharacterControllerComponent>().Offset = {0.0f, 1.0f, 0.0f};
+	Entity held = scene->CreateEntity("Held", hero);
+	held.GetComponent<TransformComponent>().Translation = {0.0f, 1.0f, 0.7f};
+	held.AddComponent<SphereColliderComponent>().Radius = 0.2f;
+	// The script's entity becomes a body in its 41st fixed update, which at 30 frames per second is the first of a frame's
+	// two: the body takes part in the very next step at every frame rate.
+	Entity probe = scene->CreateEntity("Probe");
+	probe.GetComponent<TransformComponent>().Translation = {1.5f, 3.0f, 0.0f};
+	probe.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
+	ScriptComponent& script = probe.AddComponent<ScriptComponent>();
+	script.ClassName = "Strada.Tests.StepProbe";
+	script.Fields = ScriptFieldMap{{"Steps", ScriptFieldValue::FromInt32(200)}, {"ColliderStep", ScriptFieldValue::FromInt32(41)}};
+	game.AddScene("Physics", scene);
+	game.AddScripts();
+	std::string const file = Native(game.Write("Scenes/Physics.sscene"));
+
+	// The hash after step 180 is the same whichever way the frames divide the steps.
+	std::string expected;
+	for (char const* timestep : {"0.0166666667", "0.0333333333", "0.0069444444"})
+	{
+		CAPTURE(timestep);
+		ProcessResult const run = RunPlayer({"--game", file, "--test", "--timestep", timestep, "--hash-step", "180"});
+		CAPTURE(run.Output);
+		CHECK(run.ExitCode == 0);
+		std::string_view const summary = TestSummary(run.Output);
+		size_t const physics = summary.find("; physics state ");
+		REQUIRE(physics != std::string_view::npos);
+		std::string const state(summary.substr(physics));
+		CHECK(state.ends_with(" at step 180"));
+		if (expected.empty())
+		{
+			expected = state;
+		}
+		CHECK(state == expected);
+	}
+
+	// Without --hash-step it is the hash after the run's last step, which a second run repeats.
+	ProcessResult const last = RunPlayer({"--game", file, "--test"});
+	CAPTURE(last.Output);
+	CHECK(last.ExitCode == 0);
+	CHECK(TestSummary(last.Output).ends_with(" at step 201"));
+	ProcessResult const again = RunPlayer({"--game", file, "--test"});
+	CHECK(TestSummary(again.Output) == TestSummary(last.Output));
+	CHECK(TestSummary(last.Output) != TestSummary(RunPlayer({"--game", file, "--test", "--hash-step", "200"}).Output));
+
+	// A step the run never reaches is said, and a failed run's summary ends the same way.
+	ProcessResult const unreached = RunPlayer({"--game", file, "--test", "--hash-step", "5000"});
+	CHECK(unreached.ExitCode == 0);
+	CHECK(Contains(unreached.Output, "; no physics state at step 5000: the run ended at step 201"));
+	ProcessResult const timedOut = RunPlayer({"--game", file, "--test", "--timeout", "1", "--hash-step", "30"});
+	CAPTURE(timedOut.Output);
+	CHECK(timedOut.ExitCode == 1);
+	CHECK(Contains(timedOut.Output, " frames; physics state "));
+	CHECK(Contains(timedOut.Output, " at step 30"));
+
+	// The option belongs to test runs, and takes a step.
+	CHECK(RunPlayer({"--game", file, "--headless", "--frames", "1", "--hash-step", "10"}).ExitCode == 2);
+	CHECK(RunPlayer({"--game", file, "--test", "--hash-step", "0"}).ExitCode == 2);
+}
+
 TEST_CASE("Runtime: projects run with their last script build, and games without scripts need no .NET")
 {
 	TestGame project(ProjectFileKind::Project);

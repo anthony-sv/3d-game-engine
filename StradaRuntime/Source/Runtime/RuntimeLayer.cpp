@@ -11,6 +11,7 @@
 #include "Strada/Scene/SceneRendering.h"
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -18,10 +19,11 @@ namespace Strada
 {
 	namespace
 	{
-		SceneRunnerSettings MakeRunnerSettings(Project const& game)
+		SceneRunnerSettings MakeRunnerSettings(Project const& game, RuntimeLayerSpecification const& specification)
 		{
 			SceneRunnerSettings settings;
 			settings.Runtime = MakeSceneRuntimeSettings(game.GetSettings());
+			settings.Runtime.PhysicsHashStep = specification.Test ? specification.HashStep : 0;
 			settings.IsEditor = false;
 			return settings;
 		}
@@ -38,7 +40,7 @@ namespace Strada
 		  m_Specification(std::move(specification)),
 		  m_Game(std::move(game)),
 		  m_StartScene(std::move(startScene)),
-		  m_Runner(MakeRunnerSettings(*m_Game)),
+		  m_Runner(MakeRunnerSettings(*m_Game, m_Specification)),
 		  m_ViewportWidth(m_Specification.ViewportWidth),
 		  m_ViewportHeight(m_Specification.ViewportHeight)
 	{
@@ -202,23 +204,39 @@ namespace Strada
 	void RuntimeLayer::FinishTestRun()
 	{
 		bool const quit = m_Runner.IsQuitRequested();
+		// Taken before the scene stops, whose OnDestroy scripts run no steps.
+		std::string const physics = DescribePhysicsState();
 		// Checks and exceptions of the scripts' OnDestroy count too.
 		m_Runner.Stop();
 		TestRunReport const& report = m_Runner.GetTestReport();
 		uint32_t const failures = report.GetFailureCount() + (report.Finished ? 0 : 1);
 		if (failures == 0)
 		{
-			ST_INFO("Tests passed: {} in {}", CountOf(report.Results.size(), "check"), CountOf(m_Frames, "frame"));
+			ST_INFO("Tests passed: {} in {}; {}", CountOf(report.Results.size(), "check"), CountOf(m_Frames, "frame"), physics);
 		}
 		else
 		{
 			std::string const unfinished = report.Finished ? std::string()
 			                               : quit ? std::string("; the scripts quit before they finished testing")
 			                                      : fmt::format("; the scripts did not finish testing in {}", CountOf(m_Frames, "frame"));
-			ST_ERROR("Tests failed: {} of {} failed, {}{}", report.GetFailedCount(), CountOf(report.Results.size(), "check"),
-			         CountOf(report.ScriptExceptions, "script exception"), unfinished);
+			ST_ERROR("Tests failed: {} of {} failed, {}{}; {}", report.GetFailedCount(), CountOf(report.Results.size(), "check"),
+			         CountOf(report.ScriptExceptions, "script exception"), unfinished, physics);
 		}
 		Application::Get().SetExitCode(static_cast<int>(std::min<uint32_t>(failures, MaxTestExitCode)));
 		Application::Get().Close();
+	}
+
+	std::string RuntimeLayer::DescribePhysicsState() const
+	{
+		Scene const& scene = *m_Runner.GetScene();
+		if (m_Specification.HashStep == 0)
+		{
+			return fmt::format("physics state {:016x} at step {}", scene.ComputePhysicsStateHash(), scene.GetFixedStepCount());
+		}
+		if (std::optional<uint64_t> const hash = scene.GetRecordedPhysicsHash())
+		{
+			return fmt::format("physics state {:016x} at step {}", *hash, m_Specification.HashStep);
+		}
+		return fmt::format("no physics state at step {}: the run ended at step {}", m_Specification.HashStep, scene.GetFixedStepCount());
 	}
 }

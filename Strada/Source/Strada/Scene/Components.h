@@ -128,6 +128,15 @@ namespace Strada
 		glm::vec3 AmbientColor = {0.03f, 0.03f, 0.03f};
 	};
 
+	// How a moving body is drawn between physics steps (Docs/Architecture.md section 8).
+	enum class RigidBodyInterpolation : uint8_t
+	{
+		// Where its last step left it: it moves in steps when frames come faster than steps.
+		None = 0,
+		// Between its last two steps, as far as the time left over makes up: smooth at any frame rate, a step behind.
+		Interpolate
+	};
+
 	struct RigidBodyComponent
 	{
 		RigidBodyType Type = RigidBodyType::Static;
@@ -141,6 +150,8 @@ namespace Strada
 		glm::bvec3 LockRotation = {false, false, false};
 		bool ContinuousCollision = false;
 		bool AllowSleep = true;
+		// Dynamic and kinematic bodies only: existing scenes, which do not store it, are drawn smoothly.
+		RigidBodyInterpolation Interpolation = RigidBodyInterpolation::Interpolate;
 		// When play starts, in meters and radians per second.
 		glm::vec3 InitialLinearVelocity = {0.0f, 0.0f, 0.0f};
 		glm::vec3 InitialAngularVelocity = {0.0f, 0.0f, 0.0f};

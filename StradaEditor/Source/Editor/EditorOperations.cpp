@@ -376,7 +376,7 @@ namespace Strada
 
 	Result<std::vector<UUID>> EditorOperations::CreateEntityWithChildren(EntityCreateInfo root, std::vector<EntityCreateInfo> children)
 	{
-		Scene const& scene = m_Context.GetScene();
+		Scene& scene = m_Context.GetScene();
 		std::vector<UUID> ids;
 		ids.reserve(children.size() + 1);
 		while (ids.size() < children.size() + 1)

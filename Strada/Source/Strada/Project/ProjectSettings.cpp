@@ -81,6 +81,8 @@ namespace Strada
 	{
 		SceneRuntimeSettings runtime;
 		runtime.FixedTimestep = settings.Physics.FixedTimestep;
+		runtime.MaxStepsPerFrame = settings.Physics.MaxStepsPerFrame;
+		runtime.CollisionSteps = settings.Physics.CollisionSteps;
 		runtime.PhysicsLayerCount = static_cast<uint32_t>(std::clamp<size_t>(settings.Physics.Layers.size(), 1, MaxPhysicsLayers));
 		for (PhysicsLayerPair const& pair : settings.Physics.IgnoredCollisions)
 		{

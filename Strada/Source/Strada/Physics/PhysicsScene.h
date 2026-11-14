@@ -7,11 +7,31 @@
 
 #include <glm/glm.hpp>
 
+#include <cstddef>
+#include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace Strada
 {
+	// What a physics world's simulation changes, at one moment (PhysicsScene::SaveState), to go back to in the same world.
+	// Opaque; held in memory only, never written to a file.
+	class PhysicsSnapshot
+	{
+	public:
+		// Bytes of state it holds.
+		size_t GetSize() const { return m_State.size(); }
+
+	private:
+		friend class PhysicsScene;
+
+		// The world it was saved from, and that world's structure version then.
+		UUID m_World = UUID::Invalid();
+		uint64_t m_Structure = 0;
+		std::string m_State;
+	};
+
 	// A physics world: one rigid body per entity (its colliders form a compound shape), simulated in fixed steps on
 	// PhysicsSystem's worker threads, and characters that games move. Object layers are the project's physics layers;
 	// broad-phase layers separate static from moving bodies. Collision and trigger events are collected during steps and
@@ -79,6 +99,27 @@ namespace Strada
 		std::vector<BodyTransform> GetActiveBodyTransforms() const;
 		// Events since the last call, in the order they happened.
 		std::vector<ContactEvent> TakeContactEvents();
+		// Collision steps each Step is divided into (1 to MaxPhysicsCollisionSteps; PhysicsWorldSettings::CollisionSteps).
+		uint32_t GetCollisionSteps() const;
+
+		// --- State ---
+
+		// Saves what the simulation changes: everything Jolt's state recorder saves (the last step's length and gravity, the
+		// bodies' positions, rotations, velocities, forces and sleep state, the contacts and the joints' warm starts), each
+		// character's state with its own and walking velocity and ground displacement, and the contacts reported so far with
+		// the events not taken yet.
+		[[nodiscard]] PhysicsSnapshot SaveState() const;
+		// Goes back to a snapshot of this world, so that the steps that follow run as they did from there. Fails, changing
+		// nothing, for a snapshot of another world or once a body, joint or character was added, removed or replaced since
+		// (Jolt restores state, not structure). Settings the simulation does not change stay as they are now (gravity
+		// factors, damping, layers, what characters ignore).
+		[[nodiscard]] Result<void> RestoreState(PhysicsSnapshot const& snapshot);
+		// Changes whenever a body, joint or character is added, removed or replaced: snapshots of other versions are refused.
+		uint64_t GetStructureVersion() const;
+		// A 64-bit hash (HashBuilder) of the simulation's state: every body in entity order (entity, motion type, position,
+		// rotation, linear and angular velocity, awake), then every character in entity order (position, velocity, its own
+		// and walking velocity, ground state, ground entity and displacement). Equal worlds stepped alike hash alike.
+		uint64_t ComputeStateHash() const;
 
 		glm::vec3 GetGravity() const;
 		void SetGravity(glm::vec3 const& gravity);

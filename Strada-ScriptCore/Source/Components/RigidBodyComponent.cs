@@ -52,6 +52,14 @@ public sealed unsafe class RigidBodyComponent : Component
 		set => NativeField.Set<float>(InternalCalls.RigidBodyComponent_SetAngularDamping, Entity.ID, value);
 	}
 
+	/// <summary>How a dynamic or kinematic body is drawn between physics steps: between its last two steps (smooth when frames
+	/// come faster than steps, a step behind) or where its last step left it. Changing it does not rebuild the body.</summary>
+	public RigidBodyInterpolation Interpolation
+	{
+		get => (RigidBodyInterpolation)NativeField.Get<int>(InternalCalls.RigidBodyComponent_GetInterpolation, Entity.ID);
+		set => NativeField.Set<int>(InternalCalls.RigidBodyComponent_SetInterpolation, Entity.ID, (int)value);
+	}
+
 	/// <summary>Velocity in meters per second (the initial velocity while the scene is not simulated); the simulation allows
 	/// up to 500.</summary>
 	public Vector3 LinearVelocity

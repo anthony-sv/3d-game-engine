@@ -4,6 +4,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Core/Hash.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
@@ -13,11 +14,22 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace Strada
 {
 	namespace
 	{
+		// The next value of a SplitMix64 sequence: well mixed, the same on every platform.
+		uint64_t NextSequenceValue(uint64_t& state)
+		{
+			state += 0x9e3779b97f4a7c15ull;
+			uint64_t value = state;
+			value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ull;
+			value = (value ^ (value >> 27)) * 0x94d049bb133111ebull;
+			return value ^ (value >> 31);
+		}
+
 		// Entity-typed values that refer to remapped entities refer to their copies; the others are kept.
 		void RemapEntityValues(ScriptFieldMap& values, std::unordered_map<UUID, UUID> const& remap)
 		{
@@ -80,13 +92,19 @@ namespace Strada
 		return handle;
 	}
 
-	UUID Scene::GenerateUniqueID() const
+	UUID Scene::GenerateUniqueID()
 	{
-		// Collisions of random 64-bit IDs are astronomically unlikely, but a duplicate would corrupt the entity map.
-		UUID id;
-		while (m_EntityMap.contains(id))
+		// Physics is called in the order of the entities' UUIDs: entities made while running take them from the run's own
+		// sequence, so every run of the scene makes the same ones.
+		auto const next = [this]
 		{
-			id = UUID();
+			return m_IsRunning ? UUID(NextSequenceValue(m_RuntimeIDSequence)) : UUID();
+		};
+		// Collisions of 64-bit IDs are astronomically unlikely, but a duplicate would corrupt the entity map.
+		UUID id = next();
+		while (!id.IsValid() || m_EntityMap.contains(id))
+		{
+			id = next();
 		}
 		return id;
 	}
@@ -595,7 +613,24 @@ namespace Strada
 		m_StepFrames = 0;
 		m_RuntimeFrame = 0;
 		m_RuntimeTime = 0.0;
+		m_FixedStepCount = 0;
+		m_RecordedPhysicsHash.reset();
 		m_RuntimeSettings = settings;
+		// The sequence of the UUIDs of entities made while running starts from the scene's own entities, so that two scenes
+		// make different ones and every run of a scene the same.
+		std::vector<uint64_t> ids;
+		ids.reserve(m_EntityMap.size());
+		for (auto const& [id, handle] : m_EntityMap)
+		{
+			ids.push_back(id.GetValue());
+		}
+		std::sort(ids.begin(), ids.end());
+		HashBuilder seed;
+		for (uint64_t const id : ids)
+		{
+			seed.AddUInt64(id);
+		}
+		m_RuntimeIDSequence = seed.GetHash();
 		// Systems start over with the run (their bursts come with its first update).
 		ResetParticles();
 		ResetUI();

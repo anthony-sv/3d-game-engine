@@ -48,7 +48,7 @@
 	},
 	"Entities": [
 		{
-			"ID": "11688672521576242208",
+			"ID": "5792686383491973006",
 			"Components": {
 				"Tag": {
 					"Tag": "Circuit"
@@ -74,21 +74,21 @@
 				"Relationship": {
 					"Parent": "0",
 					"Children": [
-						"13316594225815956703",
-						"14720163415237508803",
-						"3838461070708969831",
-						"8789761697375726341",
-						"17331779336540707766",
-						"3328638953072553722",
-						"11560230817849259322",
-						"8456702473008937953",
-						"15921842302165504171"
+						"15097122172137162208",
+						"12923157835273252348",
+						"15607451646070710673",
+						"7743004269635918399",
+						"16150391986784302571",
+						"11961470903582076316",
+						"1331265507958088226",
+						"6761267625476584915",
+						"144626559652851171"
 					]
 				}
 			}
 		},
 		{
-			"ID": "13316594225815956703",
+			"ID": "15097122172137162208",
 			"Components": {
 				"Tag": {
 					"Tag": "Track"
@@ -112,7 +112,7 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "11688672521576242208",
+					"Parent": "5792686383491973006",
 					"Children": []
 				},
 				"Mesh": {
@@ -147,6 +147,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -168,7 +169,7 @@
 			}
 		},
 		{
-			"ID": "14720163415237508803",
+			"ID": "12923157835273252348",
 			"Components": {
 				"Tag": {
 					"Tag": "Barriers"
@@ -192,7 +193,7 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "11688672521576242208",
+					"Parent": "5792686383491973006",
 					"Children": []
 				},
 				"Mesh": {
@@ -222,6 +223,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -243,7 +245,7 @@
 			}
 		},
 		{
-			"ID": "3838461070708969831",
+			"ID": "15607451646070710673",
 			"Components": {
 				"Tag": {
 					"Tag": "Ground"
@@ -267,7 +269,7 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "11688672521576242208",
+					"Parent": "5792686383491973006",
 					"Children": []
 				},
 				"Mesh": {
@@ -297,6 +299,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -318,7 +321,7 @@
 			}
 		},
 		{
-			"ID": "8789761697375726341",
+			"ID": "7743004269635918399",
 			"Components": {
 				"Tag": {
 					"Tag": "Hills"
@@ -342,7 +345,7 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "11688672521576242208",
+					"Parent": "5792686383491973006",
 					"Children": []
 				},
 				"Mesh": {
@@ -356,7 +359,7 @@
 			}
 		},
 		{
-			"ID": "17331779336540707766",
+			"ID": "16150391986784302571",
 			"Components": {
 				"Tag": {
 					"Tag": "Start Gantry"
@@ -380,7 +383,7 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "11688672521576242208",
+					"Parent": "5792686383491973006",
 					"Children": []
 				},
 				"Mesh": {
@@ -413,6 +416,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -434,7 +438,7 @@
 			}
 		},
 		{
-			"ID": "3328638953072553722",
+			"ID": "11961470903582076316",
 			"Components": {
 				"Tag": {
 					"Tag": "Sector Gate 1"
@@ -458,7 +462,7 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "11688672521576242208",
+					"Parent": "5792686383491973006",
 					"Children": []
 				},
 				"Mesh": {
@@ -489,6 +493,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -510,7 +515,7 @@
 			}
 		},
 		{
-			"ID": "11560230817849259322",
+			"ID": "1331265507958088226",
 			"Components": {
 				"Tag": {
 					"Tag": "Sector Gate 2"
@@ -534,7 +539,7 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "11688672521576242208",
+					"Parent": "5792686383491973006",
 					"Children": []
 				},
 				"Mesh": {
@@ -565,6 +570,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -586,7 +592,7 @@
 			}
 		},
 		{
-			"ID": "8456702473008937953",
+			"ID": "6761267625476584915",
 			"Components": {
 				"Tag": {
 					"Tag": "Sector Gate 3"
@@ -610,13 +616,13 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "11688672521576242208",
+					"Parent": "5792686383491973006",
 					"Children": []
 				}
 			}
 		},
 		{
-			"ID": "15921842302165504171",
+			"ID": "144626559652851171",
 			"Components": {
 				"Tag": {
 					"Tag": "Footbridge"
@@ -640,7 +646,7 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "11688672521576242208",
+					"Parent": "5792686383491973006",
 					"Children": []
 				},
 				"Mesh": {
@@ -671,6 +677,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -692,7 +699,7 @@
 			}
 		},
 		{
-			"ID": "18248315302164385575",
+			"ID": "18336832480939201190",
 			"Components": {
 				"Tag": {
 					"Tag": "Sun"
@@ -732,7 +739,7 @@
 			}
 		},
 		{
-			"ID": "6341434799170785242",
+			"ID": "10718327986627411405",
 			"Components": {
 				"Tag": {
 					"Tag": "Sky"
@@ -774,7 +781,7 @@
 			}
 		},
 		{
-			"ID": "15187625286053510755",
+			"ID": "11181261724000190569",
 			"Components": {
 				"Tag": {
 					"Tag": "Main Camera"
