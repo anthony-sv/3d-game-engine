@@ -560,8 +560,10 @@ scripts reach data assets through the Script module's bindings.
   types, ranges and descriptions, and leaves the values (and other names) to the field table, so that its messages reach
   the caller. Undo writes back every field as it was, not the file's bytes: undoing the first edit of a file of an older
   format version, or of one holding fields this engine does not know, leaves it in the current version with the same
-  values, as materials do. A type whose domain would repeat a built-in domain's command names (a type named `Graph`)
-  makes the editor's command registration fail, which the editor tests catch.
+  values, as materials do. The engine does not know the editor's command domains: a type whose commands would repeat a
+  built-in command's name (a type named `Graph` gives `graph.create`) makes the editor's command registration fail,
+  which the editor tests catch, and a type named after a built-in domain without a `create`, `get` or `set` (`Viewport`)
+  would add its commands beside the built-in ones, so no type is named after a built-in domain.
 
 **Scripts: the managed pattern.** A data asset type that scripts use gets a sealed managed class of the same name in
 `Strada-ScriptCore`, deriving from `Asset` with an internal constructor, as `Material` does; no public member lands

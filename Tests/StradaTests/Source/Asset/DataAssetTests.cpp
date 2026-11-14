@@ -328,6 +328,9 @@ TEST_CASE("DataAsset: a type is not unregistered while the asset manager holds a
 	AssetHandle const again = AssetManager::AddMemoryAsset(kept, "Again");
 	CHECK(AssetManager::GetAsset<TypedDataAsset<TestData>>(again) == nullptr);
 	CHECK(AssetManager::TryGetAsset<TypedDataAsset<TestData>>(again).IsError());
+	// Nor as an asset of a class whose type is not registered, whose static type is None as well.
+	CHECK(TypedDataAsset<Testing::OutOfRangeData>::GetStaticType() == AssetType::None);
+	CHECK(AssetManager::GetAsset<TypedDataAsset<Testing::OutOfRangeData>>(again) == nullptr);
 	AssetManager::RemoveMemoryAsset(again);
 }
 

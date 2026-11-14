@@ -121,10 +121,13 @@ namespace Strada
 			{
 				return Error{asset.GetError()};
 			}
-			if (asset.GetValue()->GetAssetType() != T::GetStaticType())
+			// None is no type: the static type of a data asset class whose type is not registered, and the type of an asset
+			// whose data asset type was unregistered since, which must not pass as one another.
+			AssetType const type = T::GetStaticType();
+			if (type == AssetType::None || asset.GetValue()->GetAssetType() != type)
 			{
 				return MakeError("asset {} is a {}, not a {}", handle, AssetTypeToString(asset.GetValue()->GetAssetType()),
-				                 AssetTypeToString(T::GetStaticType()));
+				                 AssetTypeToString(type));
 			}
 			return std::static_pointer_cast<T>(asset.GetValue());
 		}
