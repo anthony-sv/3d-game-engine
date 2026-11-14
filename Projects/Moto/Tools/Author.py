@@ -335,20 +335,25 @@ class Moto:
         if failures:
             raise SystemExit("spheres did not rest on their surfaces: " + ", ".join(failures))
 
-    def check_log(self, since):
-        """Nothing the build did logged a warning or an error."""
+    def read_log(self, since, level):
+        """The log's entries at or above a level from an index on, all of them; returns (entries, the index after the last)."""
         entries = []
         while True:
-            read = self.call("log_read", {"since": since, "minLevel": "warn", "maxCount": 1000})
-            if not read["entries"]:
-                break
-            entries += read["entries"]
+            read = self.call("log_read", {"since": since, "minLevel": level, "maxCount": 1000})
             since = read["next"]
+            if not read["entries"]:
+                return entries, since
+            entries += read["entries"]
+
+    def check_log(self, since):
+        """Nothing the build did logged a warning or an error."""
+        entries, _ = self.read_log(since, "warn")
         if entries:
             raise SystemExit("the build logged problems:\n  " + "\n  ".join(entry["message"] for entry in entries))
 
     def log_position(self):
-        return self.call("log_read", {"since": 0, "minLevel": "critical", "maxCount": 1})["next"]
+        """The index after the log's last entry: what is logged from now on comes after it."""
+        return self.read_log(0, "critical")[1]
 
     # --- The project -----------------------------------------------------------------------------------------------------
 
