@@ -3442,14 +3442,17 @@ data directory, and compile out asserts and script debug lines.
   gantry, low down the straights and under the footbridge, beside the sector gates' boards, higher over the corners).
   Its `check()` evaluates the curves as the engine does (Catmull-Rom on the keys' times, flat at the ends) and asserts
   that the camera keeps 2 m from every surface of the layout the whole way, which is a property of the data, not of
-  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene with a crate over the road and the `Tests`
-  entity) holds 10 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
+  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene with a crate over the road, the `Waiting Tour`
+  and the `Tests` entity) holds 13 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
   reporting through the `Checks` library): rays down at points of the layout hit the road, a kerb, a wall's top, the
   ground and the footbridge's deck at their heights, facing up; the crate comes to rest on the road; and the camera is
   at the home view when the scene starts, where the path puts it under the footbridge, home again when the tour ends,
-  and off on the next one after it. They wait in seconds of the game, with tolerances for a frame of the slowest test
+  and off on the next one after it; the `Waiting Tour`, a second entity running `Tour.sgraph` with `PlayOnStart` and
+  `Repeat` off, stays where the scene put it until the `Tests` graph sends it `PlayTour`, then flies, and stays at the
+  home view after its one tour. They wait in seconds of the game, with tolerances for a frame of the slowest test
   run, so they pass at 1/60 and 1/30 s a frame; `StradaRuntimeTests` runs them twice at 1/60 s (the same summary each
-  time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script. Every build ends by dropping spheres, in
+  time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script; `PlayModeTests` (StradaEditorTests) plays the
+  main scene in the editor's play mode, where the camera leaves the home view and stopping brings it back. Every build ends by dropping spheres, in
   play mode's copy of the scene, on the road, a kerb, a gravel trap, a verge, the ground, a wall and the footbridge,
   which must come to rest on those surfaces, by checking every graph (no diagnostic, every node in one box, every box
   arranged), by a test run that must pass every check, by playing the main scene for 10 s in play mode, where the

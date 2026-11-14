@@ -71,7 +71,9 @@ AHEAD_PER_METER = 1.3
 # The glide between the home view and the chase at each end (seconds), and the keys' spacing.
 BLEND = 4.5
 KEY_STEP = 0.5
-# Every point of the path keeps this distance from the circuit's surfaces (meters): the test scene's rays reach 1.5 m.
+# Every point of the path keeps this distance from the circuit's surfaces (meters), a margin so that no wall, kerb or
+# beam passes closer to the lens than about a frame's flight at the tour's top speed (105 m/s is 1.75 m a frame at
+# 1/60 s). The camera has no collider: nothing else keeps it off them.
 CLEARANCE = 2.0
 
 

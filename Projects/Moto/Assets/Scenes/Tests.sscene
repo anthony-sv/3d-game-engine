@@ -823,7 +823,7 @@
 			}
 		},
 		{
-			"ID": "5524642453480121382",
+			"ID": "99410233601373363",
 			"Components": {
 				"Tag": {
 					"Tag": "Probe Crate"
@@ -831,7 +831,7 @@
 				"Transform": {
 					"Translation": [
 						352.5662841796875,
-						1.5366666316986084,
+						1.6366666555404663,
 						-108.17281341552734
 					],
 					"Rotation": [
@@ -888,9 +888,9 @@
 				},
 				"BoxCollider": {
 					"HalfExtents": [
-						0.4000000059604645,
-						0.4000000059604645,
-						0.4000000059604645
+						0.5,
+						0.5,
+						0.5
 					],
 					"Offset": [
 						0.0,
@@ -904,7 +904,50 @@
 			}
 		},
 		{
-			"ID": "10300722890587390863",
+			"ID": "5716301651420963945",
+			"Components": {
+				"Tag": {
+					"Tag": "Waiting Tour"
+				},
+				"Transform": {
+					"Translation": [
+						36.954654693603516,
+						27.5,
+						-257.4286193847656
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"VisualScript": {
+					"Graph": "3374653363641307568",
+					"Variables": {
+						"PlayOnStart": {
+							"Type": "Bool",
+							"Value": false
+						},
+						"Repeat": {
+							"Type": "Bool",
+							"Value": false
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "14933395100688004714",
 			"Components": {
 				"Tag": {
 					"Tag": "Tests"
@@ -944,7 +987,7 @@
 						},
 						"Crate": {
 							"Type": "Entity",
-							"Value": "5524642453480121382"
+							"Value": "99410233601373363"
 						},
 						"Footbridge": {
 							"Type": "Entity",
@@ -957,6 +1000,10 @@
 						"Track": {
 							"Type": "Entity",
 							"Value": "13316594225815956703"
+						},
+						"WaitingTour": {
+							"Type": "Entity",
+							"Value": "5716301651420963945"
 						}
 					}
 				}

@@ -393,7 +393,9 @@ class Moto:
                 rest = self.call("component_get", {"entity": entity, "component": "Transform"})["fields"]["Translation"]
                 expected = (surface if surface is not None else Circuit.VERGE_HEIGHT) + radius
                 drift = math.hypot(rest[0] - point[0], rest[2] - point[2])
-                tolerance = 0.06 if surface is not None else 0.12
+                # A resting body sinks up to Jolt's penetration slop (0.02 m) into what it rests on; a verge's height
+                # changes across it.
+                tolerance = 0.03 if surface is not None else 0.12
                 print(f"  {name}: rests at {rest[1]:.3f} m (expected {expected:.3f} m), {drift:.2f} m from where it fell")
                 if abs(rest[1] - expected) > tolerance or drift > 1.0:
                     failures.append(name)

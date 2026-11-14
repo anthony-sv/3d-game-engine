@@ -1,6 +1,6 @@
 """Moto's test scene (Scenes/Tests.sscene) and its checks, all of them graphs: the main scene as it is, with a crate to
-drop on the road and the Tests entity, whose graph checks the circuit's surfaces and the camera tour one after another,
-then reports to the test run.
+drop on the road, a second entity running the tour that waits to be sent it (the Waiting Tour) and the Tests entity,
+whose graph checks the circuit's surfaces and the camera tour one after another, then reports to the test run.
 
 - Checks.sgraph, a function library: reporting a check, and comparing points and directions.
 - Tests.sgraph (the Tests entity): each check a latent function that acts or waits for its moment, then reports through
@@ -9,7 +9,9 @@ then reports to the test run.
 The circuit's checks cast rays down at points the layout (Circuit.py) gives and require the surface hit, its height and
 that it faces up; a crate dropped on the road must come to rest on it. The tour's checks compare the camera with the path
 Tour.py made: at the home view when the scene starts, under the footbridge when the path passes it, home again when the
-tour ends, and off on the next tour after it.
+tour ends, and off on the next tour after it. The Waiting Tour checks the tour's interface for other graphs: with
+PlayOnStart off it stays where the scene put it until the Tests graph sends it PlayTour, then it flies, and with Repeat
+off it stays at the home view after its one tour.
 """
 import math
 import os
@@ -28,26 +30,21 @@ LIBRARIES = (CHECKS,)
 VECTOR = "Strada.Vector3"
 RAYCAST = "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)"
 
-# The crate dropped on the road (half its size, meters) and where it falls from: over the main straight, right of the
-# camera's path.
-CRATE_HALF = 0.4
+# The crate dropped on the road (half its size, meters: builtin://Cube is a 1 m cube, and its collider is as large) and
+# where it falls from: over the main straight, right of the camera's path.
+CRATE_HALF = 0.5
 CRATE_AT = 300.0
 CRATE_LATERAL = 4.0
 CRATE_DROP = 1.0
 # How close a surface hit must come to its expected height (meters).
 SURFACE_TOLERANCE = 0.03
-
-
-def mesh_road_height(lateral):
-    """The road's height at a lateral offset as the track's meshes have it: GenerateAssets.cross_section takes the crown's
-    height at the center line and the edges only, so the road is straight between them (up to 0.0125 m under the layout's
-    curve, Circuit.road_height)."""
-    return Circuit.ROAD_HEIGHT + Circuit.CROWN * (1.0 - abs(lateral) / Circuit.HALF_WIDTH)
+# Where the Waiting Tour stands until it is sent PlayTour: 20 m over the home view, where its tour starts.
+WAITING_SPOT = (Tour.HOME_EYE[0], Tour.HOME_EYE[1] + 20.0, Tour.HOME_EYE[2])
 
 
 def crate_start():
     """Where the crate's center starts: CRATE_DROP over the road."""
-    return Circuit.offset_point(CRATE_AT, CRATE_LATERAL, mesh_road_height(CRATE_LATERAL) + CRATE_HALF + CRATE_DROP)
+    return Circuit.offset_point(CRATE_AT, CRATE_LATERAL, Circuit.road_height(CRATE_LATERAL) + CRATE_HALF + CRATE_DROP)
 
 
 def probes():
@@ -61,7 +58,7 @@ def probes():
     deck = Circuit.BRIDGE_CLEARANCE + 0.5
     rows = (
         ("CheckRoad", "Road: the main straight's crown, 2 m right of the line", "the road on the main straight is the track's surface",
-         "Track", Circuit.offset_point(300.0, 2.0), mesh_road_height(2.0)),
+         "Track", Circuit.offset_point(300.0, 2.0), Circuit.road_height(2.0)),
         ("CheckKerb", "Kerb: raised on the inside of Turn 6", "a kerb stands on the inside of Turn 6", "Track",
          Circuit.offset_point(apex, kerb), Circuit.ROAD_HEIGHT + Circuit.KERB_HEIGHT),
         ("CheckBarrier", "Barrier: its top, beside the back straight", "the barrier stands 0.85 m high beside the back straight",
@@ -79,14 +76,19 @@ def probes():
 # from probes(); the others' bodies are written by their writers in WRITERS.
 def checks():
     tour_start = (("CheckTourStartsHome", "Tour start: the camera at the home view, looking down the straight",
-                   "the tour starts at the home view"),)
+                   "the tour starts at the home view"),
+                  ("CheckTourWaits", "Waiting tour: with PlayOnStart off it stays put, then is sent PlayTour",
+                   "a tour with PlayOnStart off waits until it is sent PlayTour"))
     surfaces = tuple((function, title, name) for function, title, name, _, _, _ in probes())
     later = (
         ("CheckCrateRests", "Crate: dropped on the road, it comes to rest on it", "a crate dropped on the road comes to rest on it"),
         ("CheckUnderFootbridge", "Footbridge pass: the camera where the tour puts it, under the deck",
          "the tour flies the camera under the footbridge"),
+        ("CheckSentTourFlies", "Sent tour: PlayTour from another graph flies it", "a tour sent PlayTour by another graph flies"),
         ("CheckTourEndsHome", "Tour end: the camera back at the home view", "the tour ends at the home view"),
         ("CheckTourRepeats", "Repeat: the next tour takes off", "the tour takes off again"),
+        ("CheckSentTourStops", "Repeat off: the sent tour stays at the home view after one tour",
+         "a tour with Repeat off stays at the home view after one tour"),
     )
     return tour_start + surfaces + later
 
@@ -99,6 +101,7 @@ TEST_ENTITIES = (
     ("Ground", "Ground", "The grass the circuit lies on"),
     ("Footbridge", "Footbridge", "The footbridge over the back straight"),
     ("Crate", "Probe Crate", "The crate dropped on the road"),
+    ("WaitingTour", "Waiting Tour", "Runs the tour with PlayOnStart and Repeat off; the checks send it PlayTour"),
 )
 
 
@@ -182,9 +185,18 @@ def camera_forward(b):
     return b.once("camera forward", lambda: b.pure("Get:Strada.TransformComponent.Forward", "Value", Target=b.var("Camera")))
 
 
-def tours(b):
-    """The tour's read-out of the tours that came home (a remote Get of the camera's graph)."""
-    return b.once("tours", lambda: b.get("Tours", Tour.TOUR, b.var("Camera")))
+def tours(b, entity="Camera"):
+    """The tour's read-out of the tours that came home on an entity (a remote Get of its graph): the camera's, or another
+    of TEST_ENTITIES that runs the tour."""
+    return b.once(("tours", entity), lambda: b.get("Tours", Tour.TOUR, b.var(entity)))
+
+
+def waiting_at(b):
+    return b.once("waiting at", lambda: b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=b.var("WaitingTour")))
+
+
+def waiting_detail(b):
+    return b.fmt("the Waiting Tour at {At} after {Tours} tours", At=waiting_at(b), Tours=tours(b, "WaitingTour"))
 
 
 def near(b, a, expected, tolerance):
@@ -255,7 +267,7 @@ def check_crate_rests(b, name):
     start = crate_start()
     # Jolt lets resting bodies sink up to its penetration slop (0.02 m, PhysicsSettings::mPenetrationSlop) into what they
     # rest on, and where in it they settle depends on the drop: 0.05 m leaves room for that and a little sliding.
-    resting = [start[0], mesh_road_height(CRATE_LATERAL) + CRATE_HALF, start[2]]
+    resting = [start[0], Circuit.road_height(CRATE_LATERAL) + CRATE_HALF, start[2]]
     settled = b.expr("now > 1 && speed < 0.02", now=now(b), speed=speed)
     passed = b.both(settled, near(b, at, rounded(resting), 0.05))
     run(b, check(b, name, settled, 6, b.fmt("the crate at {At}, moving at {Speed} m/s", At=at, Speed=speed), passed))
@@ -284,8 +296,35 @@ def check_tour_repeats(b, name):
     run(b, wait_until(b, None, 3), check(b, name, done, 0, b.fmt("{Tours} tours; {View}", Tours=tours(b), View=view_detail(b))))
 
 
+def check_tour_waits(b, name):
+    # The entity stands away from the home view, where a tour starts: had it taken off with the scene, the tour's first
+    # update would have put it there.
+    done = b.both(near(b, waiting_at(b), rounded(WAITING_SPOT), 0.01), b.expr("tours == 0", tours=tours(b, "WaitingTour")))
+    send = b.send("PlayTour", b.var("WaitingTour"), graph=Tour.TOUR, comment="Its tour takes off now, beside the camera's")
+    run(b, check(b, name, done, 0, waiting_detail(b)), send)
+
+
+def check_sent_tour_flies(b, name):
+    # Halfway round, a tour is hundreds of meters from the home view and from the Waiting Tour's spot.
+    away = b.expr("distance(at, home) > 100 && distance(at, spot) > 100", at=waiting_at(b), home=b.lit(VECTOR, rounded(Tour.HOME_EYE)),
+                  spot=b.lit(VECTOR, rounded(WAITING_SPOT)))
+    done = b.both(away, b.expr("tours == 0", tours=tours(b, "WaitingTour")))
+    run(b, check(b, name, done, 0, waiting_detail(b)))
+
+
+def check_sent_tour_stops(b, name):
+    # It was sent PlayTour a frame or two after the camera took off, so its tour ended as the camera's did, at least 3 s
+    # ago (CheckTourRepeats waited that long): one that took off again would be tens of meters away by now.
+    ended = b.expr("tours >= 1", tours=tours(b, "WaitingTour"))
+    done = b.both(b.expr("tours == 1", tours=tours(b, "WaitingTour")), near(b, waiting_at(b), rounded(Tour.HOME_EYE), 0.1))
+    run(b, check(b, name, ended, 5, waiting_detail(b), done))
+
+
 WRITERS = {
     "CheckTourStartsHome": check_tour_starts_home,
+    "CheckTourWaits": check_tour_waits,
+    "CheckSentTourFlies": check_sent_tour_flies,
+    "CheckSentTourStops": check_sent_tour_stops,
     "CheckCrateRests": check_crate_rests,
     "CheckUnderFootbridge": check_under_footbridge,
     "CheckTourEndsHome": check_tour_ends_home,
@@ -307,8 +346,8 @@ def entity_value(entity):
 
 
 def build_scene(session, handles):
-    """The test scene: the main scene saved as Tests (its entities keep their IDs), the crate over the road and the entity
-    whose graph runs the checks. Leaves the main scene open."""
+    """The test scene: the main scene saved as Tests (its entities keep their IDs), the crate over the road, the Waiting
+    Tour and the entity whose graph runs the checks. Leaves the main scene open."""
     session.call("scene_open", {"path": "Scenes/Main.sscene"})
     session.call("scene_save", {"path": "Scenes/Tests.sscene"})
     session.call("scene_settings", {"name": "Tests"})
@@ -317,6 +356,10 @@ def build_scene(session, handles):
         "Mesh": {"Mesh": "builtin://Cube"},
         "RigidBody": {"Type": "Dynamic", "Mass": 20.0, "LinearDamping": 0.5, "AngularDamping": 0.5},
         "BoxCollider": {"HalfExtents": [CRATE_HALF] * 3, "Friction": 0.8}}})
+    session.call("entity_create", {"name": "Waiting Tour", "components": {
+        "Transform": {"Translation": list(WAITING_SPOT)},
+        "VisualScript": {"Graph": handles[Tour.TOUR], "Variables": {
+            "PlayOnStart": {"Type": "Bool", "Value": False}, "Repeat": {"Type": "Bool", "Value": False}}}}})
     found = {}
 
     def walk(entities):

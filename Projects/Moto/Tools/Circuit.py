@@ -6,7 +6,8 @@ runs from 0 at the start and finish line (Sector Gate 3, under the start gantry)
 -Z north; meters.
 
 Across the path, from the center line outwards on each side (GenerateAssets.cross_section builds it):
-- the road (asphalt, HALF_WIDTH each side), crowned for drainage;
+- the road (asphalt, HALF_WIDTH each side), crowned for drainage: it falls CROWN in a straight line from the center line
+  to each edge (road_height());
 - the kerb strip (KERB_WIDTH): a raised red and white kerb along the corners (kerb()), grass elsewhere;
 - the verge (VERGE_WIDTH of grass), then the gravel trap where one lies on the outside of a corner (its width ramps up
   and down along the lap), then the skirt, grass sloping down to the ground, and the barrier, a concrete wall.
@@ -51,8 +52,10 @@ CLEARANCE = 8.0
 
 
 def road_height(lateral):
-    """The road's surface height at a lateral offset from the center line (|lateral| <= HALF_WIDTH)."""
-    return ROAD_HEIGHT + CROWN * (1.0 - (lateral / HALF_WIDTH) ** 2)
+    """The road's surface height at a lateral offset from the center line (|lateral| <= HALF_WIDTH): the crown falls in a
+    straight line from the center line to each edge, as the track's meshes and its collider have it
+    (GenerateAssets.cross_section puts the road's points at the edges and the center line only)."""
+    return ROAD_HEIGHT + CROWN * (1.0 - abs(lateral) / HALF_WIDTH)
 
 
 # --- The layout ----------------------------------------------------------------------------------------------------------
