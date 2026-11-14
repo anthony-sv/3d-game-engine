@@ -1,8 +1,10 @@
 #include "Editor/PlayMode.h"
 
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Project/Project.h"
 #include "Strada/Project/ProjectSettings.h"
 #include "Strada/Script/VisualScriptEngine.h"
 
@@ -36,6 +38,16 @@ namespace Strada
 		if (Project const* const project = m_Context.GetProject())
 		{
 			settings.Runtime = MakeSceneRuntimeSettings(project->GetSettings());
+			// The game keeps its data apart from the shipped game's real folder: in the project's play data, or for a test
+			// run in a folder of its own that starts empty and is removed when the run stops. Without a project there is none.
+			if (options.TestRun)
+			{
+				m_GameData.emplace(GameData::MakeTemporaryDirectory(), GameDataLifetime::Temporary);
+			}
+			else
+			{
+				m_GameData.emplace(project->GetPlayDataDirectory(), GameDataLifetime::Kept);
+			}
 		}
 		if (state == EditorPlayState::Simulate)
 		{
@@ -125,6 +137,8 @@ namespace Strada
 		m_Runner->Stop();
 		m_LastTestReport = m_Runner->GetTestReport();
 		m_Runner.reset();
+		// After the scripts' OnDestroy, their last chance to write.
+		m_GameData.reset();
 		m_Context.EndPlay();
 		// Keys held and a cursor the game locked must not carry over into editing, whose input frame is the application's again
 		// and begins clean.

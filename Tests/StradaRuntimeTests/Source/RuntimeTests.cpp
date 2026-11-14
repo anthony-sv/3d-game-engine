@@ -554,6 +554,47 @@ TEST_CASE("Runtime: projects run with their last script build, and games without
 	CHECK_FALSE(Contains(headless.Output, ".NET runtime started"));
 }
 
+TEST_CASE("Runtime: a project runs with its play data as the game's data folder, and a test run with a temporary one it removes")
+{
+	// The folder the player logs that it gave the game; empty when it logged none.
+	auto const dataFolder = [](std::string_view output) -> std::string
+	{
+		std::string_view const prefix = "The game keeps its data in '";
+		size_t const start = output.find(prefix);
+		if (start == std::string_view::npos)
+		{
+			return {};
+		}
+		size_t const end = output.find('\'', start + prefix.size());
+		return end == std::string_view::npos ? std::string()
+		                                     : std::string(output.substr(start + prefix.size(), end - start - prefix.size()));
+	};
+
+	TestGame project(ProjectFileKind::Project);
+	project.AddScene("Pass", MakeScene("Pass", ScriptFieldMap{}));
+	project.AddScripts();
+	std::string const file = Native(project.Write("Scenes/Pass.sscene"));
+
+	// A development run: the project's play data, which nothing creates until the game writes there.
+	ProcessResult const development = RunPlayer({"--project", file, "--headless", "--frames", "3"});
+	CAPTURE(development.Output);
+	CHECK(development.ExitCode == 0);
+	std::filesystem::path const playData = (project.GetDirectory() / ".strada" / "PlayData").lexically_normal();
+	CHECK(dataFolder(development.Output) == FileSystem::PathToUtf8(playData));
+	CHECK_FALSE(FileSystem::Exists(project.GetDirectory() / ".strada"));
+
+	// A test run: a folder of its own, gone when the run ends.
+	ProcessResult const test = RunPlayer({"--project", file, "--test"});
+	CAPTURE(test.Output);
+	CHECK(test.ExitCode == 0);
+	std::string const temporary = dataFolder(test.Output);
+	REQUIRE_FALSE(temporary.empty());
+	CHECK(temporary != FileSystem::PathToUtf8(playData));
+	CHECK(Contains(temporary, "StradaGameData-"));
+	CHECK_FALSE(FileSystem::Exists(FileSystem::PathFromUtf8(temporary)));
+	CHECK_FALSE(FileSystem::Exists(project.GetDirectory() / ".strada"));
+}
+
 TEST_CASE("Runtime: games in directories with non-ASCII names start from the command line")
 {
 	// Characters outside every ANSI code page: Windows passes them to main as '?', so the player reads the wide command line.

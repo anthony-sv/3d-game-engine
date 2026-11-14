@@ -913,6 +913,19 @@ TEST_CASE("EditorCommands: projects are created, configured, closed and opened")
 	Result<std::string> const written = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(projectFile));
 	REQUIRE(written.IsOk());
 	CHECK(ParseJson(written.GetValue()).GetValue()["Project"]["Window"]["Width"] == 1600);
+	// The identity: empty until set, then set field by field, and written to the project file.
+	CHECK(settings["settings"]["Identity"] == Json::object({{"Company", ""}, {"Product", ""}}));
+	CHECK(fixture.Ok("project.settings", Json::object({{"settings", {{"Identity", {{"Company", "Acme"}}}}}}))["settings"]["Identity"] ==
+	      Json::object({{"Company", "Acme"}, {"Product", ""}}));
+	Json const identity = fixture.Ok("project.settings", Json::object({{"settings", {{"Identity", {{"Product", "Moto Racer"}}}}}}));
+	CHECK(identity["settings"]["Identity"] == Json::object({{"Company", "Acme"}, {"Product", "Moto Racer"}}));
+	CHECK(fixture.Fails("project.settings", Json::object({{"settings", {{"Identity", {{"Company", 3}}}}}})) ==
+	      AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Ok("project.info")["settings"]["Identity"]["Company"] == "Acme");
+	Result<std::string> const identified = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(projectFile));
+	REQUIRE(identified.IsOk());
+	CHECK(ParseJson(identified.GetValue()).GetValue()["Project"]["Identity"] ==
+	      Json::object({{"Company", "Acme"}, {"Product", "Moto Racer"}}));
 
 	fixture.Create("Unsaved");
 	CHECK(fixture.Fails("project.close") == AutomationErrorCode::UnsavedChanges);

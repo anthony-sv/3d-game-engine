@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/Core/FileSystem.h"
 
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Core/Utf8.h"
@@ -523,32 +524,11 @@ namespace Strada
 
 	std::filesystem::path FileSystem::GetUserDataDirectory()
 	{
-#if defined(ST_PLATFORM_WINDOWS)
-		if (std::optional<std::string> const appData = Platform::ReadEnvironmentVariable("APPDATA"))
+		constexpr UserDataPlatform platform = UserDataLocations::GetHostPlatform();
+		if (std::optional<std::filesystem::path> const root = UserDataLocations::FindRoot(platform, &Platform::ReadEnvironmentVariable))
 		{
-			return PathFromUtf8(*appData) / "Strada";
-		}
-		if (std::optional<std::string> const userProfile = Platform::ReadEnvironmentVariable("USERPROFILE"))
-		{
-			return PathFromUtf8(*userProfile) / "AppData" / "Roaming" / "Strada";
+			return UserDataLocations::MakeEngineDirectory(*root, platform);
 		}
 		return GetExecutableDirectory() / "UserData";
-#elif defined(ST_PLATFORM_MACOS)
-		if (std::optional<std::string> const home = Platform::ReadEnvironmentVariable("HOME"))
-		{
-			return PathFromUtf8(*home) / "Library" / "Application Support" / "Strada";
-		}
-		return GetExecutableDirectory() / "UserData";
-#elif defined(ST_PLATFORM_LINUX)
-		if (std::optional<std::string> const dataHome = Platform::ReadEnvironmentVariable("XDG_DATA_HOME"); dataHome && !dataHome->empty())
-		{
-			return PathFromUtf8(*dataHome) / "strada";
-		}
-		if (std::optional<std::string> const home = Platform::ReadEnvironmentVariable("HOME"))
-		{
-			return PathFromUtf8(*home) / ".local" / "share" / "strada";
-		}
-		return GetExecutableDirectory() / "UserData";
-#endif
 	}
 }

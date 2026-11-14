@@ -204,6 +204,36 @@ TEST_CASE("GameExporter: macOS games are app bundles with the Vulkan loader and 
 	CHECK(plist.find("<string>APPL</string>") != std::string::npos);
 }
 
+TEST_CASE("GameExporter: the macOS bundle identifier comes from the identity, and stays org.strada.<name> without one")
+{
+	ExportFixture fixture;
+	auto const identifierOf = [&fixture](std::string_view company, std::string_view product, std::string_view name)
+	{
+		GameExportSettings settings = fixture.MakeSettings(ExportPlatform::MacOS);
+		settings.Project.Identity = ProjectIdentity{std::string(company), std::string(product)};
+		if (!name.empty())
+		{
+			settings.Project.Name = std::string(name);
+		}
+		GameExportResult const exported = fixture.Export(settings);
+		std::string const text = Read(exported.Executable / "Contents" / "Info.plist");
+		std::string_view const key = "<key>CFBundleIdentifier</key>\n\t<string>";
+		size_t const start = text.find(key);
+		REQUIRE(start != std::string::npos);
+		size_t const end = text.find("</string>", start + key.size());
+		REQUIRE(end != std::string::npos);
+		return text.substr(start + key.size(), end - start - key.size());
+	};
+	CHECK(identifierOf("", "", "") == "org.strada.Space---Time");
+	CHECK(identifierOf("", "Moto Racer", "") == "org.strada.Moto-Racer");
+	CHECK(identifierOf("Acme & Sons", "", "") == "org.strada.Acme---Sons.Space---Time");
+	CHECK(identifierOf("Acme", "Moto", "") == "org.strada.Acme.Moto");
+	// A company with nothing usable is left out; a product with nothing usable keeps today's form.
+	CHECK(identifierOf("  ..  ", "Moto", "") == "org.strada.Moto");
+	CHECK(identifierOf("Acme", "..", "") == "org.strada.Acme.--game");
+	CHECK(identifierOf("", "", "\xc3\xa9") == "org.strada.--game");
+}
+
 TEST_CASE("GameExporter: games without scripts ship none")
 {
 	ExportFixture fixture;

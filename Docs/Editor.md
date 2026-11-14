@@ -824,6 +824,8 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | Setting | What it does |
 |---------|--------------|
 | `Name` | The game's name |
+| `Identity.Company` | Who makes the game: the folder above the game's data folder on players' machines (`<Company>/<Product>`, `<company>-<product>` on Linux). Empty for none |
+| `Identity.Product` | The game's name in its data folder and in the macOS bundle identifier (`org.strada.<company>.<product>`); empty uses `Name` |
 | `ScriptModule` | The compiled C# game assembly, relative to the project folder (default `Scripts/Binaries/Game.dll`) |
 | `StartScene` | The scene exported games start with, and the one the editor opens with the project |
 | `Window.Title` | The exported game's window title; empty uses the project name |

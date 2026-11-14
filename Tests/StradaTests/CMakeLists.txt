@@ -35,6 +35,7 @@ add_executable(StradaTests
     Source/Core/EngineManifestFuzzTests.cpp
     Source/Core/EventTests.cpp
     Source/Core/FileSystemTests.cpp
+    Source/Core/GameDataTests.cpp
     Source/Core/HashTests.cpp
     Source/Core/ImageTests.cpp
     Source/Core/InputTests.cpp

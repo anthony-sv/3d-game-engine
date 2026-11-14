@@ -111,7 +111,7 @@ header functions, as every Strada file is read.
 
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
-| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4) | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler` |
+| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4), the per-user folders and the game data service (§13.1) | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler`, `UserDataLocations`, `GameData` |
 | Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums, curves (§6.5) | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum`, `Curve`, `EvaluateCurveKeys` |
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; versioned documents of one struct, with migrations; profiler captures (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `StructDocumentFormat`, `ProfilerCaptureSerializer` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
@@ -147,6 +147,7 @@ can init/shutdown repeatedly.
   marshalled with `Application::SubmitToMainThread(std::function<void()>)`. The editor notices edited scripts by
   checking their modification times on the main thread once a second, and rescans the assets on the main thread when
   it gets the focus back.
+- The game data service (§13.1) is filled and emptied on the main thread and read from any.
 - The profiler (§4.4) is the one engine service every thread writes to: any thread records zones into a buffer of its
   own without allocating or locking, and only the main thread collects them.
 
@@ -1167,7 +1168,8 @@ Asset references are handle strings. When reading (files, automation), an asset 
 Prefab (`.sprefab`): same entity array as a scene (root first). Instantiation assigns fresh UUIDs and remaps all
 intra-prefab references (hierarchy, entity-typed script fields and visual script variables).
 
-Project (`<Name>.sproj`, `ProjectSettings` with field tables, validated on every read): `Name`, `AssetDirectory`
+Project (`<Name>.sproj`, `ProjectSettings` with field tables, validated on every read): `Name`, `Identity` (`Company`,
+`Product`, both optional: the game's data folder and bundle identifier, §13.1), `AssetDirectory`
 (relative, inside the project), `ScriptModule` (the game assembly, relative), `StartScene` (scene asset reference),
 `Window` (`Title`, `Width`, `Height`, `Fullscreen`, `VSync`, `Resizable`, `Icon` texture; for exported games, whose
 player sets the icon on its window) and `Physics`
@@ -3338,6 +3340,76 @@ the project would build.
 
 Dist builds of the runtime have no console window on Windows, log only warnings and errors, to a file in the user
 data directory, and compile out asserts and script debug lines.
+
+### 13.1 Identity and the game data folder
+
+Every Strada program shares one per-user folder, the engine's (`FileSystem::GetUserDataDirectory`: the editor's state,
+its automation instances, the logs and crash reports). A game made with Strada has a folder of its own beside it, one per
+game and per user, named by the game's identity: input bindings, saves and the player's settings go there.
+
+**The identity.** `ProjectSettings::Identity` holds `Company` and `Product`, both optional strings, compatible fields of
+project format 1: an engine from before them warns about the unknown key and drops it on its next save. `Game.sgame`
+carries them as it carries every setting. `GetGameIdentity` resolves them into a `GameIdentity` (Core): an empty
+`Product` is the project's `Name`, an empty `Company` means no company level, so a project that sets neither is named by
+its name alone. They are edited in the Project Settings panel and through `project.settings`. The macOS bundle
+identifier is `org.strada.<company>.<product>`, each part with every character other than an ASCII letter or digit
+made `-`; a company with no letter or digit is left out, and a project that sets neither keeps `org.strada.<name>`
+(with `game` after the dashes of a name that has no letter or digit), as before the identity existed.
+
+**The folders**, pure functions of their inputs in `UserDataLocations` (Core), which take the platform as a parameter so
+that each platform's names are tested on every platform:
+
+| Platform | Per-user root (`FindRoot`) | The engine's folder | A game's folder (`MakeGameDirectory`) |
+|---|---|---|---|
+| Windows | `%APPDATA%`, else `%USERPROFILE%\AppData\Roaming` | `<root>\Strada` | `<root>\<Company>\<Product>` |
+| macOS | `$HOME/Library/Application Support` | `<root>/Strada` | `<root>/<Company>/<Product>` |
+| Linux | `$XDG_DATA_HOME`, else `$HOME/.local/share` | `<root>/strada` | `<root>/<company>-<product>`, lower-cased |
+
+- A variable that is unset, empty or not an absolute path (by the platform's rules) counts as unset, so no folder is ever
+  relative to the working directory. When none names a root, the engine's folder is `<executable directory>/UserData`
+  and a game's folder is below it.
+- Each name is made portable (`FileSystem::MakePortableFileName`: ASCII letters, digits, spaces, `-` and `_`; device
+  names Windows reserves get a trailing `_`) and cut to `MaxFolderNameLength` (64) bytes. A company with nothing portable
+  is none; a product with nothing portable is `Game`. Without a company there is no company level (`<root>/<Product>`,
+  `<root>/<product>` on Linux).
+- No game's folder is the engine's or inside it: a first name below the root that is `Strada` in any letter case (a
+  company named so, or a game without a company) gets a trailing `_`.
+- Two identities can name one folder (on Linux `a-b` and `c` as `a` and `b-c`; any two that differ only in what is not
+  portable): the identity is the developer's to keep unique.
+- There is no split into settings, data, state and cache folders, and no variable that moves the root: a test isolates
+  a child process by its environment (`APPDATA` and `LOCALAPPDATA`, `HOME`, `XDG_DATA_HOME`), as StradaToolTests do.
+
+**The service.** `GameData` (Core) tells the engine where the running game keeps its data; the host fills it with a
+`GameDataScope`, which it holds for as long as the game runs and which gives back what the service held before:
+
+| Host and run | The folder | When the run ends |
+|---|---|---|
+| `StradaRuntime` running an exported game | `GameData::GetUserDirectory(identity)`: the game's folder below this user's root | kept |
+| `StradaRuntime --project` (a development run) | `<project>/.strada/PlayData` (`Project::GetPlayDataDirectory`) | kept |
+| `StradaRuntime --test`, of a game or a project | a new folder below the system's temporary folder (`GameData::MakeTemporaryDirectory`) | removed with everything in it |
+| The editor's play mode (Play, Simulate) with a project | `<project>/.strada/PlayData` | kept |
+| The editor's test runs (`test.run`) | a new temporary folder | removed when the run stops |
+| The editor while editing, play mode without a project, tools | none | |
+
+- The player fills it after opening the game and before its scripts start, and empties it when the application is
+  destroyed, after the layers detached and the scripts' `OnDestroy` ran; play mode fills it before the scene starts
+  and empties it after the scene stopped (`PlayMode::Stop`, also when the scripts quit or play mode is destroyed).
+- Playing in the editor or running a project therefore never writes into the shipped game's real folder. `.strada/` is
+  left out of version control by the `.gitignore` new projects get and out of project copies (`ProjectCopy`), and test
+  runs start from no data and leave none.
+- The service names the folder and creates nothing: whoever writes into it first creates what it writes. Empty means no
+  game runs, and callers then persist nothing rather than guess a folder. `GameData::GetDirectory` is thread-safe; scopes
+  are made and destroyed on the main thread.
+- A development run keeps the shared folder for what is not game data: the editor's and `StradaRuntime --project`'s logs
+  and crash reports stay in `<user data>/Logs` and `<user data>/Crashes`.
+- An exported game logs and crashes below its own folder (`<game data>/Logs/<executable>.log`, `<game data>/Crashes`).
+  The entry point decides this before logging starts, from the `Game.sgame` beside the executable (in
+  `Contents/Resources` of a macOS bundle): it reads the file header and the strings `Name`, `Identity.Company` and
+  `Identity.Product` through Serialization (`EntryPoint.cpp` reaches to the right as `Application.cpp` does, never its
+  header), resolves them with `GameIdentity::Resolve` and takes `GameData::GetUserDirectory`, the same computation the
+  player fills the service with, so the two cannot disagree. A missing or damaged file, or one that is not a game,
+  keeps the shared folder, and nothing is logged about it before the log exists.
+- Scripts have no API for the folder yet: input bindings (`<game data>/Input/`) and saves bring theirs with their nodes.
 
 ## 14. Build configurations
 

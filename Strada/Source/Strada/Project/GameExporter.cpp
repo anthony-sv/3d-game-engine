@@ -294,22 +294,33 @@ namespace Strada
 			return escaped;
 		}
 
-		// Reverse-DNS bundle identifiers allow ASCII letters, digits, '-' and '.'.
-		std::string MakeBundleIdentifier(std::string_view name)
+		// One part of a reverse-DNS bundle identifier, which allows ASCII letters, digits and '-' between its dots: other
+		// characters become '-'. Nothing when the text has no letter or digit.
+		std::optional<std::string> MakeBundleIdentifierPart(std::string_view text)
 		{
-			std::string identifier = "org.strada.";
+			std::string part;
 			bool any = false;
-			for (char const character : name)
+			for (char const character : text)
 			{
 				bool const usable = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
 				                    (character >= '0' && character <= '9');
-				identifier += usable ? character : '-';
+				part += usable ? character : '-';
 				any = any || usable;
 			}
-			return any ? identifier : identifier + "game";
+			return any ? std::optional<std::string>(std::move(part)) : std::nullopt;
 		}
 
-		std::string MakeInfoPlist(std::string_view name, std::string_view executableName)
+		// org.strada.<company>.<product>, without the company part when there is none (or none of it is usable). A project
+		// that sets no identity keeps org.strada.<name>, with "game" after the dashes of a name that has nothing usable.
+		std::string MakeBundleIdentifier(GameIdentity const& identity)
+		{
+			std::optional<std::string> const company = MakeBundleIdentifierPart(identity.Company);
+			std::optional<std::string> const product = MakeBundleIdentifierPart(identity.Product);
+			std::string const productPart = product ? *product : std::string(identity.Product.size(), '-') + "game";
+			return company ? fmt::format("org.strada.{}.{}", *company, productPart) : fmt::format("org.strada.{}", productPart);
+		}
+
+		std::string MakeInfoPlist(std::string_view name, GameIdentity const& identity, std::string_view executableName)
 		{
 			return fmt::format(R"plist(<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -340,7 +351,7 @@ namespace Strada
 </dict>
 </plist>
 )plist",
-			                   EscapeXml(name), EscapeXml(executableName), EscapeXml(MakeBundleIdentifier(name)));
+			                   EscapeXml(name), EscapeXml(executableName), EscapeXml(MakeBundleIdentifier(identity)));
 		}
 
 		// The Vulkan loader looks for drivers in the bundle's Contents/Resources/vulkan/icd.d; the manifest's library path is
@@ -428,8 +439,9 @@ namespace Strada
 					{
 						return written;
 					}
-					return FileSystem::WriteTextFile(layout.Bundle / "Contents" / "Info.plist",
-					                                 MakeInfoPlist(settings.Project.Name, executableName));
+					return FileSystem::WriteTextFile(
+						layout.Bundle / "Contents" / "Info.plist",
+						MakeInfoPlist(settings.Project.Name, GetGameIdentity(settings.Project), executableName));
 				}
 			}
 			return {};

@@ -35,6 +35,10 @@ namespace Strada
 		static constexpr std::string_view FileExtension = ".sproj";
 		// The configuration of an exported game, next to the player executable (in Contents/Resources of a macOS app bundle).
 		static constexpr std::string_view GameFileName = "Game.sgame";
+		// The game data folder of development runs (the editor's play mode, the player's --project), relative to the
+		// project directory: .strada/ is left out of version control and of project copies, and playing never writes into
+		// the shipped game's real folder.
+		static constexpr std::string_view PlayDataDirectory = ".strada/PlayData";
 
 		// Writes a new project into an empty or missing directory: the project file, the asset directory and the start scene
 		// (Assets/Scenes/Main.sscene), then opens it like Open. On failure nothing is left behind.
@@ -66,6 +70,8 @@ namespace Strada
 		bool IsGame() const { return m_FileKind == ProjectFileKind::Game; }
 		std::filesystem::path GetDirectory() const { return m_FilePath.parent_path(); }
 		std::filesystem::path GetAssetDirectory() const;
+		// <project directory>/.strada/PlayData (PlayDataDirectory); not created.
+		std::filesystem::path GetPlayDataDirectory() const;
 		// Whether the project's asset directory, open in the AssetManager (Open, OpenGame), registers visual scripts: running
 		// the game then needs the scripting runtime, with or without C# scripts.
 		bool UsesVisualScripts() const;

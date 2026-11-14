@@ -5,6 +5,10 @@
 	},
 	"Project": {
 		"Name": "FeatureTest",
+		"Identity": {
+			"Company": "Strada Tests",
+			"Product": "Feature Test"
+		},
 		"AssetDirectory": "Assets",
 		"ScriptModule": "Scripts/Binaries/FeatureTest.dll",
 		"StartScene": "12523826035290920312",

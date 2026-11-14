@@ -279,6 +279,11 @@ namespace Strada
 		return (GetDirectory() / FileSystem::PathFromUtf8(m_Settings.AssetDirectory)).lexically_normal();
 	}
 
+	std::filesystem::path Project::GetPlayDataDirectory() const
+	{
+		return (GetDirectory() / FileSystem::PathFromUtf8(PlayDataDirectory)).lexically_normal();
+	}
+
 	bool Project::UsesVisualScripts() const
 	{
 		if (!AssetManager::IsInitialized() || !AssetManager::HasAssetDirectory() ||

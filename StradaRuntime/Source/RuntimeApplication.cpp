@@ -4,6 +4,7 @@
 #include "Strada/Core/CommandLine.h"
 #include "Strada/Core/EntryPoint.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Project/ScriptProject.h"
@@ -105,6 +106,7 @@ namespace Strada
 				ST_WARN("{}", warning);
 			}
 			Ref<Project> game = opened.TakeValue();
+			FillGameData(*game);
 			if (Result<void> scripts = StartScripts(*game); !scripts)
 			{
 				return scripts;
@@ -154,6 +156,30 @@ namespace Strada
 		}
 
 	private:
+		// Before the game starts: a test run gets a folder of its own that starts empty and is removed at exit, a project
+		// (a development run) the project's play data, and an exported game its own folder on the player's machine.
+		void FillGameData(Project const& game)
+		{
+			if (m_RuntimeSpecification.Layer.Test)
+			{
+				m_GameData.emplace(GameData::MakeTemporaryDirectory(), GameDataLifetime::Temporary);
+			}
+			else if (game.IsGame())
+			{
+				m_GameData.emplace(GameData::GetUserDirectory(GetGameIdentity(game.GetSettings())), GameDataLifetime::Kept);
+			}
+			else
+			{
+				m_GameData.emplace(game.GetPlayDataDirectory(), GameDataLifetime::Kept);
+			}
+			if (m_GameData->GetDirectory().empty())
+			{
+				ST_WARN("The game has no data folder: the system names no temporary folder");
+				return;
+			}
+			ST_INFO("The game keeps its data in '{}'", FileSystem::PathToUtf8(m_GameData->GetDirectory()));
+		}
+
 		// Games without C# scripts or visual scripts run without .NET; visual scripts need no game assembly.
 		static Result<void> StartScripts(Project const& game)
 		{
@@ -217,6 +243,8 @@ namespace Strada
 		}
 
 		RuntimeSpecification m_RuntimeSpecification;
+		// Held until the application is destroyed, after its layers detached and the scripts stopped.
+		std::optional<GameDataScope> m_GameData;
 	};
 
 	Scope<Application> CreateApplication(ApplicationCommandLineArgs args, int& exitCode)
