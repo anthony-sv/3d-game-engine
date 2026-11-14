@@ -22,9 +22,8 @@ namespace
 {
 	// Whatever identity a damaged file gives names a game data folder strictly below the per-user root on every platform,
 	// in one or two portable names, never the engine's own folder.
-	void CheckGameDataFolder(ProjectSettings const& settings)
+	void CheckGameDataFolder(GameIdentity const& identity)
 	{
-		GameIdentity const identity = GetGameIdentity(settings);
 		std::filesystem::path const root = FileSystem::PathFromUtf8("/root");
 		for (UserDataPlatform const platform : {UserDataPlatform::Windows, UserDataPlatform::MacOS, UserDataPlatform::Linux})
 		{
@@ -41,6 +40,11 @@ namespace
 			CHECK(FileSystem::PathToUtf8(relative) != "Strada");
 			CHECK(FileSystem::PathToUtf8(relative) != "strada");
 		}
+	}
+
+	void CheckGameDataFolder(ProjectSettings const& settings)
+	{
+		CheckGameDataFolder(GetGameIdentity(settings));
 	}
 }
 
@@ -97,7 +101,8 @@ TEST_CASE("Project: damaged project files are refused, or load, save again and r
 	CHECK(refused > 0);
 }
 
-TEST_CASE("Project: damaged game files are refused or open, and their window settings are always usable")
+TEST_CASE("Project: damaged game files are refused or open, their window settings are always usable, and the identity the entry "
+          "point reads is the one the game opens with")
 {
 	std::vector<std::string> warnings;
 	DeserializationContext const context = Testing::MakeTolerantContext(warnings);
@@ -124,6 +129,12 @@ TEST_CASE("Project: damaged game files are refused or open, and their window set
 			CHECK(window.GetValue().Height >= 64);
 			CHECK(window.GetValue().Height <= 16384);
 		}
+		// The entry point reads the identity before logging starts: whatever it reads names a folder below the root.
+		Result<GameIdentity> const identity = Project::ReadGameIdentity(file, ProjectFileKind::Game);
+		if (identity)
+		{
+			CheckGameDataFolder(identity.GetValue());
+		}
 
 		Testing::AssetManagerScope assets;
 		Result<Ref<Project>> game = Project::OpenGame(file);
@@ -131,6 +142,9 @@ TEST_CASE("Project: damaged game files are refused or open, and their window set
 		if (game)
 		{
 			CheckGameDataFolder(game.GetValue()->GetSettings());
+			// The log goes where the game's data does: a game that opens gives the entry point its identity.
+			REQUIRE_MESSAGE(identity.IsOk(), (identity ? std::string() : identity.GetError()));
+			CHECK(identity.GetValue() == GetGameIdentity(game.GetValue()->GetSettings()));
 		}
 	}
 	CHECK(opened > 0);

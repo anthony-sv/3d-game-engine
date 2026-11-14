@@ -49,6 +49,7 @@ add_executable(StradaTests
     Source/Core/ProfilerTests.cpp
     Source/Core/ResultTests.cpp
     Source/Core/UUIDTests.cpp
+    Source/Core/UserDataTestUtilities.h
     Source/Core/Utf8Tests.cpp
     Source/Core/WindowTests.cpp
     Source/Fuzzing.h

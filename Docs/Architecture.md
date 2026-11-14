@@ -105,9 +105,10 @@ Core ← Math ← Serialization ← Platform ← RHI ← Asset ← Renderer ← 
 
 `Scene` sits on top: it owns the ECS and drives the physics/audio/script runtimes and submits to the renderer.
 Physics, Audio and Script read component data through `Scene`/`Entity` forward declarations, never the reverse
-through includes of `Scene.h` in headers. Two Core translation units reach to the right, never their headers:
-`Application.cpp` starts the subsystems above Core, and `EngineLayout.cpp` reads its marker with Serialization's file
-header functions, as every Strada file is read.
+through includes of `Scene.h` in headers. Three Core translation units reach to the right, never their headers:
+`Application.cpp` starts the subsystems above Core, `EngineLayout.cpp` reads its marker with Serialization's file
+header functions, as every Strada file is read, and `EntryPoint.cpp` reads the identity of an exported game beside the
+executable with Project's reader before logging starts (§13.1).
 
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
@@ -158,7 +159,8 @@ can init/shutdown repeatedly.
 - `ST_CORE_ASSERT`/`ST_ASSERT` are for programmer errors only. User data (scene files, assets, scripts, automation
   requests) must never crash the engine: validate, log, and report the error.
 - Crashes leave a report: the entry point installs `CrashHandler`, which writes
-  `<user data>/Crashes/<executable>-<process ID>.txt` on a fatal exception or signal, `abort()` (failed asserts) or an
+  `<user data>/Crashes/<executable>-<process ID>.txt` (`<game data>/Crashes` for an exported game, §13.1) on a fatal
+  exception or signal, `abort()` (failed asserts) or an
   uncaught C++ exception: the cause, the stack on Linux and macOS, and on Windows a minidump next to it. It writes
   without allocating or logging (the crash may be inside either); uncaught exceptions are logged with their message
   first. .NET's own handlers come first for managed code and pass native crashes on.
@@ -3338,14 +3340,15 @@ the project would build.
 - Games with C# scripts or visual scripts need the .NET 10 runtime: installed, or shipped by the developer in
   `dotnet/` next to the executable, where the player looks first.
 
-Dist builds of the runtime have no console window on Windows, log only warnings and errors, to a file in the user
-data directory, and compile out asserts and script debug lines.
+Dist builds of the runtime have no console window on Windows, log only warnings and errors, to a file in an exported
+game's data folder (§13.1), and compile out asserts and script debug lines.
 
 ### 13.1 Identity and the game data folder
 
 Every Strada program shares one per-user folder, the engine's (`FileSystem::GetUserDataDirectory`: the editor's state,
-its automation instances, the logs and crash reports). A game made with Strada has a folder of its own beside it, one per
-game and per user, named by the game's identity: input bindings, saves and the player's settings go there.
+its automation instances, the logs and crash reports), except an exported game. A game made with Strada has a folder of
+its own beside it, one per game and per user, named by the game's identity: its log, its crash reports, and the input
+bindings, saves and player's settings to come go there.
 
 **The identity.** `ProjectSettings::Identity` holds `Company` and `Product`, both optional strings, compatible fields of
 project format 1: an engine from before them warns about the unknown key and drops it on its next save. `Game.sgame`
@@ -3377,7 +3380,12 @@ that each platform's names are tested on every platform:
 - Two identities can name one folder (on Linux `a-b` and `c` as `a` and `b-c`; any two that differ only in what is not
   portable): the identity is the developer's to keep unique.
 - There is no split into settings, data, state and cache folders, and no variable that moves the root: a test isolates
-  a child process by its environment (`APPDATA` and `LOCALAPPDATA`, `HOME`, `XDG_DATA_HOME`), as StradaToolTests do.
+  a child process by the variable that names its root (`APPDATA`, `HOME`, `XDG_DATA_HOME`), as StradaToolTests do.
+  StradaRuntimeTests start every player with a root of its own below a temporary directory
+  (`Testing::IsolatedUserRoot`), and so do the games StradaEditorTests' exports start
+  (`EditorExport::SetGameEnvironment`), so neither suite writes into the user's folders.
+  `ProcessSpecification::Environment` replaces the inherited variable of each name it sets (in any letter case on
+  Windows): reproc only appends to the inherited environment, and lookups find the first entry of a name.
 
 **The service.** `GameData` (Core) tells the engine where the running game keeps its data; the host fills it with a
 `GameDataScope`, which it holds for as long as the game runs and which gives back what the service held before:
@@ -3403,12 +3411,19 @@ that each platform's names are tested on every platform:
 - A development run keeps the shared folder for what is not game data: the editor's and `StradaRuntime --project`'s logs
   and crash reports stay in `<user data>/Logs` and `<user data>/Crashes`.
 - An exported game logs and crashes below its own folder (`<game data>/Logs/<executable>.log`, `<game data>/Crashes`).
-  The entry point decides this before logging starts, from the `Game.sgame` beside the executable (in
-  `Contents/Resources` of a macOS bundle): it reads the file header and the strings `Name`, `Identity.Company` and
-  `Identity.Product` through Serialization (`EntryPoint.cpp` reaches to the right as `Application.cpp` does, never its
-  header), resolves them with `GameIdentity::Resolve` and takes `GameData::GetUserDirectory`, the same computation the
-  player fills the service with, so the two cannot disagree. A missing or damaged file, or one that is not a game,
-  keeps the shared folder, and nothing is logged about it before the log exists.
+  The entry point decides this before logging starts, from the game file beside the executable
+  (`Project::FindExportedGameFile`: `Game.sgame` there, else in `Contents/Resources` of a macOS bundle, the file the
+  player runs by default): `Project::ReadGameIdentity` reads its header, `Name` and `Identity` with the field traits
+  `OpenGame` uses, without opening it and without logging, and resolves them with `GetGameIdentity`; the folder is
+  `GameData::GetUserDirectory` of that identity, the computation the player fills the service with. A game that opens
+  therefore logs where its data goes (the game file fuzz case checks that every file `OpenGame` opens gives the entry
+  point the identity of the opened settings). A missing or damaged file, one that is not a game, or one whose name is
+  empty keeps the shared folder, where the player then logs why the game cannot run.
+- The log follows the program, the data the run: an exported game's executable logs below its folder whatever it is
+  asked to run (`--test`, whose data is temporary; `--game` or `--project` naming another), and the player of a build,
+  which has no game file beside it, logs in the shared folder whatever it runs, also an exported game given by `--game`.
+- `Log::Init` and `CrashHandler::Install` create `Logs` and `Crashes` as the program starts, so an exported game's
+  folder exists from its first run: the service still creates nothing, the entry point is that folder's first writer.
 - Scripts have no API for the folder yet: input bindings (`<game data>/Input/`) and saves bring theirs with their nodes.
 
 ## 14. Build configurations

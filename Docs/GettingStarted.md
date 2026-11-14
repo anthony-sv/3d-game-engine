@@ -240,7 +240,10 @@ them. Prism Break has no C# scripts and runs at once.
 | `--no-vsync` | Present without waiting for vertical sync |
 
 The player exits with 0 after a normal run, 1 when the game cannot start and 2 for wrong usage. Test runs exit with the
-number of failures (see [Test the game](#test-the-game)).
+number of failures (see [Test the game](#test-the-game)). It logs to `Logs/StradaRuntime.log` in the engine's user data
+folder (`%APPDATA%\Strada` on Windows, `~/Library/Application Support/Strada` on macOS, `~/.local/share/strada` on
+Linux). A project it runs keeps its game data in the project's `.strada/PlayData` folder, and a test run in a temporary
+folder it removes at exit.
 
 ## Your first game
 
@@ -576,6 +579,13 @@ loader and MoltenVK inside the bundle. Players need no Vulkan SDK. Games with C#
 Run the game by starting its executable. It is the player renamed, so it takes the player's options:
 `<Name> --scene Scenes/Tests.sscene --test` runs the exported test scene. Visual-script nodes marked Development Only
 are disabled in exported games.
+
+On each player's machine the game has a data folder of its own, named by the **Identity** in Project Settings
+(**Company** and **Product**; an empty product uses the game's name): `%APPDATA%\<Company>\<Product>` on Windows,
+`~/Library/Application Support/<Company>/<Product>` on macOS and `~/.local/share/<company>-<product>` on Linux. The game
+logs to `Logs/<Name>.log` there and leaves crash reports in `Crashes/`. Playing the game in the editor never touches
+that folder: play mode uses the project's `.strada/PlayData` folder instead
+([Editor.md](Editor.md#where-an-exported-game-keeps-its-data) has the details).
 
 ## Work with an AI agent
 

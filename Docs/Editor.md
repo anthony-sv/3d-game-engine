@@ -227,10 +227,12 @@ The editor keeps your own settings outside the project, in the user data folder:
 | `Editor/RecentProjects.json` | The Recent Projects list |
 | `Editor/VisualScriptViews.json` | Your views of graph windows and your breakpoints, per project |
 | `Editor/Instances/` | One file per running editor for automation clients (see [Automation.md](Automation.md)) |
-| `Logs/StradaEditor.log` | The editor's log |
-| `Crashes/` | Crash reports |
+| `Logs/StradaEditor.log` | The editor's log; `Logs/StradaRuntime.log` is the log of the build's player (`StradaRuntime`), whatever it runs |
+| `Crashes/` | Crash reports of the editor and the build's player |
 
-Delete `Editor/imgui.ini` while the editor is closed to start over with the default layout.
+Delete `Editor/imgui.ini` while the editor is closed to start over with the default layout. An exported game keeps its
+log and crash reports in its own data folder instead
+([Where an exported game keeps its data](#where-an-exported-game-keeps-its-data)).
 
 ## Scene View
 
@@ -824,7 +826,7 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | Setting | What it does |
 |---------|--------------|
 | `Name` | The game's name |
-| `Identity.Company` | Who makes the game: the folder above the game's data folder on players' machines (`<Company>/<Product>`, `<company>-<product>` on Linux). Empty for none |
+| `Identity.Company` | Who makes the game: the folder above the game's data folder on players' machines (`<Company>/<Product>`, `<company>-<product>` on Linux; see [Where an exported game keeps its data](#where-an-exported-game-keeps-its-data)). Empty for none |
 | `Identity.Product` | The game's name in its data folder and in the macOS bundle identifier (`org.strada.<company>.<product>`); empty uses `Name` |
 | `ScriptModule` | The compiled C# game assembly, relative to the project folder (default `Scripts/Binaries/Game.dll`) |
 | `StartScene` | The scene exported games start with, and the one the editor opens with the project |
@@ -1019,6 +1021,8 @@ guide, from a first graph to breakpoints and stepping.
 File > Build Game... (with a project open) exports the game for the platform the editor runs on. The dialog has:
 
 - Game: the project's Name, StartScene and Window settings, edited as in Project Settings (and saved to the project).
+  The Identity that names the game's data folder is set in Project Settings
+  ([Where an exported game keeps its data](#where-an-exported-game-keeps-its-data)).
 - Output: the folder to export to (the project's `Build` folder at first; relative paths are relative to the project
   folder) with Browse.... It must be new, empty, or an earlier export, which the new one replaces.
 - Run a smoke test (on by default): runs the exported game headless for a few frames and checks that it exits cleanly.
@@ -1043,6 +1047,27 @@ lists up to eight script errors (the console has them all). Close or Escape clos
 | `ThirdPartyNotices.md` | The licenses of the engine's third-party code |
 
 Before exporting, the editor refreshes the asset directory, so the game's registry lists every asset.
+
+### Where an exported game keeps its data
+
+On each player's machine an exported game has a data folder of its own, named by the project's `Identity` (Project
+Settings; without a company there is no company level, and without a product the game's `Name` names it):
+
+| Platform | The game's data folder |
+|----------|------------------------|
+| Windows | `%APPDATA%\<Company>\<Product>` |
+| macOS | `~/Library/Application Support/<Company>/<Product>` |
+| Linux | `$XDG_DATA_HOME/<company>-<product>` (or `~/.local/share/...`), lower-cased |
+
+Each name keeps only letters, digits, spaces, `-` and `_`. The game logs to `Logs/<Name>.log` there (named after its
+executable) and leaves crash reports in `Crashes/`. A game whose `Game.sgame` is missing or damaged logs in the engine's
+user data folder instead, where it says why it cannot start.
+
+While you work on the game it never touches that folder: playing in the editor and `StradaRuntime --project` give the
+game the project's `.strada/PlayData` folder (left out of version control and of project copies), and test runs
+([`test.run`](#test-runs), the player's `--test`) a temporary folder that is removed when the run ends. The editor and
+the player of a build keep logging in the engine's user data folder. The smoke test runs the exported game itself, so
+it logs in the game's folder.
 
 ### Platform notes
 

@@ -65,20 +65,6 @@ namespace Strada
 				        zone.MillisecondsPerFrame, zone.MillisecondsPerCall, zone.CallsPerFrame);
 			}
 		}
-
-		// The exported game next to the executable, or in the app bundle's Resources directory on macOS.
-		std::filesystem::path FindExportedGame()
-		{
-			std::filesystem::path const directory = FileSystem::GetExecutableDirectory();
-			std::filesystem::path const besideExecutable = directory / FileSystem::PathFromUtf8(Project::GameFileName);
-#if defined(ST_PLATFORM_MACOS)
-			if (!FileSystem::IsRegularFile(besideExecutable))
-			{
-				return directory.parent_path() / "Resources" / FileSystem::PathFromUtf8(Project::GameFileName);
-			}
-#endif
-			return besideExecutable;
-		}
 	}
 
 	class RuntimeApplication final : public Application
@@ -349,7 +335,7 @@ namespace Strada
 		runtime.GameKind = project ? ProjectFileKind::Project : ProjectFileKind::Game;
 		runtime.GameFile = project    ? FileSystem::PathFromUtf8(*project)
 		                   : gameFile ? FileSystem::PathFromUtf8(*gameFile)
-		                              : FindExportedGame();
+		                              : Project::FindExportedGameFile();
 		if (runtime.GameKind == ProjectFileKind::Game && FileSystem::IsDirectory(runtime.GameFile))
 		{
 			runtime.GameFile /= FileSystem::PathFromUtf8(Project::GameFileName);

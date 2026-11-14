@@ -1,3 +1,4 @@
+#include "Core/UserDataTestUtilities.h"
 #include "TestUtilities.h"
 
 #include "Editor/Automation/ExportCommands.h"
@@ -27,6 +28,8 @@ namespace
 	{
 		Testing::AssetManagerScope Assets;
 		Testing::TemporaryDirectory Directory;
+		// Where the games the export starts write their logs (outliving the export): not into this user's folders.
+		Testing::IsolatedUserRoot UserRoot;
 		EditorContext Context;
 		EditorOperations Operations{Context};
 		EditorScripts Scripts{Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
@@ -36,6 +39,7 @@ namespace
 
 		ExportFixture()
 		{
+			Export.SetGameEnvironment(UserRoot.GetEnvironment());
 			REQUIRE(RegisterExportCommands(Registry, Export, Context).IsOk());
 			REQUIRE(RegisterScriptCommands(Registry, Scripts, Context).IsOk());
 		}
@@ -149,6 +153,9 @@ TEST_CASE("ExportCommands: projects export as games with their scripts built in 
 	Json const again = fixture.Ok("project.export", Json::object({{"directory", "Out/Game"}, {"smokeTest", true}}));
 	CAPTURE(again.dump());
 	CHECK(again["smokeTest"]["passed"] == true);
+	// The exported game logged below its own data folder, named by its name (the project sets no identity).
+	CHECK(FileSystem::IsRegularFile(fixture.UserRoot.GetGameDirectory(GameIdentity{"", "Exported Game"}) / "Logs" / "Exported Game.log"));
+	CHECK_FALSE(FileSystem::Exists(fixture.UserRoot.GetEngineDirectory()));
 	CHECK(again["unsavedChanges"] == true);
 	CHECK(again["directory"] == FileSystem::PathToUtf8(fixture.Directory.GetPath() / "Game" / "Out" / "Game"));
 

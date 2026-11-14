@@ -52,6 +52,14 @@ namespace Strada
 		// The window settings of a project or game file, with the title resolved (the project's name when empty), read without
 		// opening it: the player creates its window before the engine starts. Open and OpenGame check the whole file.
 		[[nodiscard]] static Result<ProjectWindowSettings> ReadWindowSettings(std::filesystem::path const& file, ProjectFileKind kind);
+		// The identity of a project or game file (GetGameIdentity of its settings), read without opening it and without
+		// logging: the entry point reads an exported game's before logging starts, to log below the game's data folder. Fails
+		// for a file that is missing, damaged or of the other kind, or whose name or identity Open and OpenGame would refuse;
+		// a file they open gives the identity of the settings they read.
+		[[nodiscard]] static Result<GameIdentity> ReadGameIdentity(std::filesystem::path const& file, ProjectFileKind kind);
+		// Where the configuration of the exported game a player runs by default is: GameFileName beside the executable, or
+		// in Contents/Resources of a macOS app bundle when there is none beside it. The file may not exist.
+		static std::filesystem::path FindExportedGameFile();
 
 		// A project in memory; Create, Open and OpenGame also prepare its files and asset directory.
 		Project(std::filesystem::path filePath, ProjectSettings settings, ProjectFileKind fileKind = ProjectFileKind::Project);

@@ -14,6 +14,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Strada
@@ -87,6 +88,14 @@ namespace Strada
 		bool IsGameRunning() const;
 		void StopGame();
 
+		// Variables set in the environment of the games the editor starts (the smoke test, Run Game), which otherwise
+		// inherit the editor's (Process::Run): tests give them a per-user root of their own, so an exported game they run
+		// logs below a temporary directory. Taken by the exports and games started after the call.
+		void SetGameEnvironment(std::vector<std::pair<std::string, std::string>> environment)
+		{
+			m_GameEnvironment = std::move(environment);
+		}
+
 		// The program inside an export's executable: the app bundle's binary on macOS, else the executable itself.
 		static std::filesystem::path GetPlayerBinary(std::filesystem::path const& executable);
 
@@ -114,5 +123,6 @@ namespace Strada
 		// Of the exported project: diagnostics name its files relative to it.
 		std::filesystem::path m_ProjectDirectory;
 		std::chrono::steady_clock::time_point m_Start;
+		std::vector<std::pair<std::string, std::string>> m_GameEnvironment;
 	};
 }

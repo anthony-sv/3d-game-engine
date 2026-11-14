@@ -49,6 +49,42 @@ namespace Strada
 			return document;
 		}
 
+		// The settings object of a project or game file, after its header was checked: what the readers that run before the
+		// engine starts (ReadWindowSettings, ReadGameIdentity) read their fields from.
+		Result<Json> ReadSettingsObject(std::filesystem::path const& file, ProjectFileKind kind)
+		{
+			Result<Json> document = ReadDocument(file);
+			if (!document)
+			{
+				return Error{document.GetError()};
+			}
+			std::string const type = GetFileType(kind);
+			if (Result<int> header = ReadFileHeader(document.GetValue(), type, Project::FormatVersion); !header)
+			{
+				return MakeError("'{}': {}", FileSystem::PathToUtf8(file), header.GetError());
+			}
+			Json json = document.TakeValue();
+			if (!json.contains(type) || !json[type].is_object())
+			{
+				return MakeError("'{}': missing \"{}\" settings", FileSystem::PathToUtf8(file), type);
+			}
+			return Json(std::move(json[type]));
+		}
+
+		// The project's name, when the settings object has one, as Open reads it.
+		Result<void> ReadName(Json const& json, ProjectSettings& settings, DeserializationContext const& context)
+		{
+			if (!json.contains("Name"))
+			{
+				return {};
+			}
+			if (Result<void> read = JsonTraits<std::string>::FromJson(json["Name"], settings.Name, context); !read)
+			{
+				return MakeError("Name: {}", read.GetError());
+			}
+			return {};
+		}
+
 		Result<Ref<Project>> OpenFile(std::filesystem::path const& file, ProjectFileKind kind, std::vector<std::string>* warnings)
 		{
 			std::filesystem::path const absolute = MakeAbsolute(file);
@@ -207,32 +243,21 @@ namespace Strada
 
 	Result<ProjectWindowSettings> Project::ReadWindowSettings(std::filesystem::path const& file, ProjectFileKind kind)
 	{
-		Result<Json> document = ReadDocument(file);
-		if (!document)
+		Result<Json> settingsObject = ReadSettingsObject(file, kind);
+		if (!settingsObject)
 		{
-			return Error{document.GetError()};
+			return Error{settingsObject.GetError()};
 		}
+		Json const& json = settingsObject.GetValue();
 		std::string const type = GetFileType(kind);
-		if (Result<int> header = ReadFileHeader(document.GetValue(), type, FormatVersion); !header)
-		{
-			return MakeError("'{}': {}", FileSystem::PathToUtf8(file), header.GetError());
-		}
-		Json const& json = document.GetValue().contains(type) ? document.GetValue()[type] : Json();
-		if (!json.is_object())
-		{
-			return MakeError("'{}': missing \"{}\" settings", FileSystem::PathToUtf8(file), type);
-		}
 
 		// Settings from newer versions are reported when the file is opened.
 		DeserializationContext context;
 		context.UnknownFields = UnknownFieldPolicy::Ignore;
 		ProjectSettings settings;
-		if (json.contains("Name"))
+		if (Result<void> name = ReadName(json, settings, context); !name)
 		{
-			if (Result<void> read = JsonTraits<std::string>::FromJson(json["Name"], settings.Name, context); !read)
-			{
-				return MakeError("'{}': {}.Name: {}", FileSystem::PathToUtf8(file), type, read.GetError());
-			}
+			return MakeError("'{}': {}.{}", FileSystem::PathToUtf8(file), type, name.GetError());
 		}
 		if (json.contains("Window"))
 		{
@@ -246,6 +271,52 @@ namespace Strada
 			settings.Window.Title = settings.Name;
 		}
 		return settings.Window;
+	}
+
+	Result<GameIdentity> Project::ReadGameIdentity(std::filesystem::path const& file, ProjectFileKind kind)
+	{
+		Result<Json> settingsObject = ReadSettingsObject(file, kind);
+		if (!settingsObject)
+		{
+			return Error{settingsObject.GetError()};
+		}
+		Json const& json = settingsObject.GetValue();
+		std::string const type = GetFileType(kind);
+
+		// The fields Open reads, with the traits it reads them with; what else the file holds is Open's to check.
+		DeserializationContext context;
+		context.UnknownFields = UnknownFieldPolicy::Ignore;
+		ProjectSettings settings;
+		if (Result<void> name = ReadName(json, settings, context); !name)
+		{
+			return MakeError("'{}': {}.{}", FileSystem::PathToUtf8(file), type, name.GetError());
+		}
+		if (settings.Name.empty())
+		{
+			// Open refuses it (ValidateProjectSettings).
+			return MakeError("'{}': {}.Name: must not be empty", FileSystem::PathToUtf8(file), type);
+		}
+		if (json.contains("Identity"))
+		{
+			if (Result<void> identity = JsonTraits<ProjectIdentity>::FromJson(json["Identity"], settings.Identity, context); !identity)
+			{
+				return MakeError("'{}': {}.Identity: {}", FileSystem::PathToUtf8(file), type, identity.GetError());
+			}
+		}
+		return GetGameIdentity(settings);
+	}
+
+	std::filesystem::path Project::FindExportedGameFile()
+	{
+		std::filesystem::path const directory = FileSystem::GetExecutableDirectory();
+		std::filesystem::path const besideExecutable = directory / FileSystem::PathFromUtf8(GameFileName);
+#if defined(ST_PLATFORM_MACOS)
+		if (!FileSystem::IsRegularFile(besideExecutable))
+		{
+			return directory.parent_path() / "Resources" / FileSystem::PathFromUtf8(GameFileName);
+		}
+#endif
+		return besideExecutable;
 	}
 
 	Result<void> Project::Save() const

@@ -1,6 +1,7 @@
 #include "TestUtilities.h"
 
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Platform.h"
 #include "Strada/Platform/Process.h"
 
 #include <doctest/doctest.h>
@@ -106,6 +107,37 @@ TEST_CASE("Process: programs run in the given directory with the given environme
 	CHECK(result.GetValue().Output.find("visible") != std::string::npos);
 	// The temporary directory may be reached through a link (macOS), so only its unique name is compared.
 	CHECK(result.GetValue().Output.find(FileSystem::PathToUtf8(directory.GetPath().filename())) != std::string::npos);
+}
+
+TEST_CASE("Process: the given environment replaces the variables a program would inherit")
+{
+	// A variable every test process has, given in another letter case on Windows, where names ignore it.
+#if defined(ST_PLATFORM_WINDOWS)
+	std::string const inherited = "USERPROFILE";
+	ProcessSpecification specification = Shell("echo [%USERPROFILE%]& set userprofile");
+	specification.Environment = {{"userprofile", "replaced"}};
+#else
+	std::string const inherited = "HOME";
+	ProcessSpecification specification = Shell("echo \"[$HOME]\"; env | grep -c '^HOME='");
+	specification.Environment = {{"HOME", "replaced"}};
+#endif
+	REQUIRE(Platform::ReadEnvironmentVariable(inherited).has_value());
+	REQUIRE(*Platform::ReadEnvironmentVariable(inherited) != "replaced");
+	Result<ProcessResult> const result = Process::Run(specification);
+	REQUIRE(result.IsOk());
+	std::string const& output = result.GetValue().Output;
+	CAPTURE(output);
+	CHECK(output.find("[replaced]") != std::string::npos);
+#if defined(ST_PLATFORM_WINDOWS)
+	// "set" lists every variable whose name starts so: only the replaced one.
+	CHECK(CountOccurrences(output, "=") == 1);
+	CHECK(output.find("=replaced") != std::string::npos);
+#else
+	// The program's environment holds the variable once.
+	CHECK(output.find("]\n1") != std::string::npos);
+#endif
+	// What the program inherits otherwise is untouched.
+	CHECK(*Platform::ReadEnvironmentVariable(inherited) != "replaced");
 }
 
 TEST_CASE("Process: programs are killed when they run out of time or are cancelled")

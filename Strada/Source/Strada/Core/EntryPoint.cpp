@@ -4,7 +4,9 @@
 #include "Strada/Core/CrashHandler.h"
 #include "Strada/Core/EngineLayout.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Platform.h"
+#include "Strada/Project/Project.h"
 
 #include <string>
 #include <vector>
@@ -17,6 +19,23 @@
 
 namespace Strada
 {
+	namespace
+	{
+		// The folder that holds this program's log and crash reports: an exported game's own data folder when a game file
+		// beside the executable names its identity, so that they sit with the game's data on its players' machines;
+		// otherwise (the editor, the player of a build, tools, an exported game whose file is missing or damaged) the
+		// engine's shared folder. Read before logging starts, so nothing is logged about it: a damaged file is the
+		// player's to report.
+		std::filesystem::path FindProgramDataDirectory()
+		{
+			if (Result<GameIdentity> const identity = Project::ReadGameIdentity(Project::FindExportedGameFile(), ProjectFileKind::Game))
+			{
+				return GameData::GetUserDirectory(identity.GetValue());
+			}
+			return FileSystem::GetUserDataDirectory();
+		}
+	}
+
 	int ApplicationMain(int argc, char** argv)
 	{
 		Platform::MainThreadApartment const apartment;
@@ -27,13 +46,14 @@ namespace Strada
 		LogSpecification logSpecification;
 		std::filesystem::path const executablePath = FileSystem::GetExecutablePath();
 		std::string const logName = executablePath.empty() ? std::string("Strada") : FileSystem::PathToUtf8(executablePath.stem());
-		logSpecification.FilePath = FileSystem::GetUserDataDirectory() / "Logs" / (logName + ".log");
+		std::filesystem::path const dataDirectory = FindProgramDataDirectory();
+		logSpecification.FilePath = dataDirectory / "Logs" / (logName + ".log");
 #if defined(ST_DIST)
 		logSpecification.ConsoleOutput = false;
 		logSpecification.FileLevel = LogLevel::Warn;
 #endif
 		Log::Init(logSpecification);
-		CrashHandler::Install(FileSystem::GetUserDataDirectory() / "Crashes", logName);
+		CrashHandler::Install(dataDirectory / "Crashes", logName);
 		// The layout is resolved here, before any thread may read it, and what was wrong with it is told once.
 		for (std::string const& warning : EngineLayout::Get().GetWarnings())
 		{
