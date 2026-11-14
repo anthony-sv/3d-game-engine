@@ -111,7 +111,17 @@ TEST_CASE("AudioEngine: the device's mix is recorded on the Audio Mixer thread, 
 		Profiler::EndFrame();
 	}
 	CHECK(countMixes() > 0);
-	uint32_t const threads = Profiler::GetStatus().Threads;
+	// The streaming thread records on a schedule of its own, so only the mixer's entries are counted.
+	auto const countMixerEntries = []
+	{
+		ProfilerCapture const& capture = Profiler::GetRecording();
+		return std::count_if(capture.Threads.begin(), capture.Threads.end(),
+		                     [](ProfilerThread const& thread)
+		                     {
+								 return thread.Name == "Audio Mixer";
+							 });
+	};
+	CHECK(countMixerEntries() == 1);
 	AudioEngine::Shutdown();
 	// The stopped device's buffer is free again after the next collection; a device started again records under the same
 	// thread entry.
@@ -128,6 +138,6 @@ TEST_CASE("AudioEngine: the device's mix is recorded on the Audio Mixer thread, 
 		Profiler::EndFrame();
 	}
 	CHECK(countMixes() > before);
-	CHECK(Profiler::GetStatus().Threads == threads);
+	CHECK(countMixerEntries() == 1);
 	AudioEngine::Shutdown();
 }
