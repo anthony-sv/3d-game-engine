@@ -1999,11 +1999,12 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		CHECK(outcomes[contentCommand].first > 0);
 	}
 	CHECK(outcomes["project.copy-example"].second > 0);
-	// The profiler commands record, write captures, open them and stop.
+	// The profiler commands record, write captures, open them and stop (Dist builds record nothing).
 	for (std::string const profilerCommand : {"profiler.start", "profiler.stop", "profiler.status", "profiler.capture", "profiler.open"})
 	{
 		CAPTURE(profilerCommand);
-		CHECK(outcomes[profilerCommand].first > 0);
+		bool const records = profilerCommand == "profiler.start" || profilerCommand == "profiler.capture";
+		CHECK((outcomes[profilerCommand].first > 0 || (records && !Profiler::GetStatus().Available)));
 	}
 	CHECK(findSuccesses["query"] > 0);
 	CHECK(findSuccesses["references"] > 0);

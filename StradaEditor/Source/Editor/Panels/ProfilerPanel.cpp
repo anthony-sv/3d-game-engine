@@ -349,10 +349,20 @@ namespace Strada
 		float const viewLeft = origin.x + scroll;
 		drawList->AddLine(ImVec2(viewLeft, budget), ImVec2(viewLeft + available.x, budget), GetColor(ImGuiCol_TextDisabled, 0.6f));
 		drawList->AddText(ImVec2(viewLeft + 4.0f, budget - ImGui::GetTextLineHeight()), GetColor(ImGuiCol_TextDisabled), "16.7 ms");
-		if (m_ScrollToLatest)
+		// The strip follows the newest frame while it shows the end and no frame is clicked; scrolled back, it stays where the
+		// user put it.
+		float const scrollMax = ImGui::GetScrollMaxX();
+		bool const atEnd = scroll >= m_StripScrollMax - 1.0f;
+		if (m_ScrollToLatest || (atEnd && !m_SelectedFrame))
 		{
-			ImGui::SetScrollX(ImGui::GetScrollMaxX());
+			ImGui::SetScrollX(scrollMax);
 		}
+		// A request holds until the strip got there: the bars' width is known, and scrolling applied, a frame later.
+		if (scrollMax > 0.0f && scroll >= scrollMax - 1.0f)
+		{
+			m_ScrollToLatest = false;
+		}
+		m_StripScrollMax = scrollMax;
 		ImGui::EndChild();
 	}
 

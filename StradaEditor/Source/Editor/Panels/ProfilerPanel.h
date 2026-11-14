@@ -125,7 +125,9 @@ namespace Strada
 		// The medians of the shown frames, worked out at most once a second for the live history and once for a capture.
 		std::optional<ProfilerMedians> m_Medians;
 		double m_MediansTime = 0.0;
-		// The bars follow the latest frame until one is clicked.
+		// The strip is asked to scroll to the newest frame (another source, the Latest button); it follows it by itself while it
+		// shows the end, its scroll at the end of the last draw (m_StripScrollMax).
 		bool m_ScrollToLatest = true;
+		float m_StripScrollMax = 0.0f;
 	};
 }

@@ -888,11 +888,12 @@ until `profiler.stop`); a closed panel costs nothing.
 
 - **The toolbar.** Pause stops the recording and keeps the frames recorded; Record starts a new one. Open Capture...
   opens a capture file (one that Save Capture..., the `profiler.capture` command or `StradaRuntime --profile` wrote) in
-  place of the live frames, and Close Capture goes back to them. Save Capture... writes the frames held to a file that
-  Chrome's trace viewer and Perfetto can also open. Latest goes back to following the newest frame.
+  place of the live frames, and Close Capture goes back to them. Save Capture... writes the frames held to a file in the
+  Chrome trace event format, which trace viewers such as Perfetto are meant to open too (none has been tried yet). Latest goes back to following the newest frame.
 - **The frame strip.** One bar per frame held (the last 600), as tall as the frame took; the line marks 16.7 ms, a
   frame at 60 frames per second, and frames over twice that are drawn in the warning color. Click a bar to show that
-  frame below; scroll the strip sideways for older frames. Until you click, the newest frame shows.
+  frame below; scroll the strip sideways for older frames. Until you click, the newest frame shows, and the strip
+  follows it while it shows its end.
 - **Zones.** The shown frame's zones as a tree per thread: each zone's total time, its self time (what it spent outside
   the zones nested in it) and its count when it has one (the steps a graph's VM ran). A thread's row shows its busy
   time.

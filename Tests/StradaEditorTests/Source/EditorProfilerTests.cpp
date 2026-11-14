@@ -516,6 +516,44 @@ TEST_CASE("ProfilerPanel: a capture's frames, the shown frame's zones by thread 
 	CHECK_FALSE(fixture.Panel.GetSelectedFrame().has_value());
 }
 
+TEST_CASE("ProfilerPanel: the frame strip follows the newest frame until it is scrolled back, and stays there")
+{
+	PanelFixture fixture;
+	Testing::CaptureBuilder builder;
+	for (int64_t frame = 0; frame < 600; frame++)
+	{
+		builder.AddFrame(frame * 16000000, frame * 16000000 + 8000000 + (frame % 7) * 1000000);
+	}
+	fixture.Profiler.SetCapture(builder.Get(), "Long.json");
+	// The strip learns its width in its first draw and scrolls in the next.
+	for (int frame = 0; frame < 4; frame++)
+	{
+		fixture.Draw();
+	}
+	ProfilerPanel::DrawRecord const& record = fixture.Panel.GetLastDraw();
+	REQUIRE(record.Frames == 600);
+	// More bars than fit: the strip shows the end, the newest frame's bar ending at the strip's right edge.
+	float const following = record.BarsLeft;
+	float const end = record.BarsLeft + record.BarWidth * 600.0f;
+	CHECK(following < 10.0f);
+	CHECK(end <= 910.0f);
+	CHECK(end > 800.0f);
+	// Scrolled back with the wheel, it stays there over later draws.
+	fixture.ImGuiContext.Wheel(ImVec2(record.BarsLeft + record.BarWidth * 590.0f, (record.BarsTop + record.BarsBottom) * 0.5f),
+	                           ImVec2(5.0f, 0.0f),
+	                           [&fixture]
+	                           {
+								   ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f));
+								   ImGui::SetNextWindowSize(ImVec2(900.0f, 700.0f));
+								   fixture.Panel.OnImGuiRender(fixture.Profiler, fixture.Open, {});
+							   });
+	float const scrolled = fixture.Panel.GetLastDraw().BarsLeft;
+	CHECK(scrolled > following);
+	fixture.Draw();
+	fixture.Draw();
+	CHECK(fixture.Panel.GetLastDraw().BarsLeft == doctest::Approx(scrolled));
+}
+
 TEST_CASE("ProfilerPanel: the live history shows the recording the open panel makes, paused by Stop")
 {
 	PanelFixture fixture;

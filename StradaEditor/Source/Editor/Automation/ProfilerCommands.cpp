@@ -267,7 +267,7 @@ namespace Strada
 			capture.Name = "profiler.capture";
 			capture.Description = fmt::format(
 				"Writes the frames the profiler holds (the recording in progress or the last one) to a capture file: a Chrome "
-				"trace event document with Strada's header, which profiler.open, StradaRuntime and trace viewers read. path ends "
+				"trace event document with Strada's header, which profiler.open reads (trace viewers are meant to as well). path ends "
 				"in .json and is absolute, or relative to the project directory and inside it (.strada/Captures/ is ignored by "
 				"git and left out of project copies); missing folders are created. An existing file is replaced only with "
 				"overwrite true and only when it is a profiler capture. A recording in progress goes on. Returns {{ path, bytes, "
