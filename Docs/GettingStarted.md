@@ -529,7 +529,9 @@ describes it; graphs report checks with `TestReporter` nodes, as Prism Break's t
    A test run uses a fixed time step (1/60 s, `--timestep` changes it) and ends when the scripts call
    `TestReporter.Finish()`, quit, or reach the time limit (60 s of game time, `--timeout` changes it). It prints
    "Tests passed: 1 check in <n> frames; physics state <hash> at step <n>", or "Tests failed: ..." with what failed.
-   The hash sums up the simulation after that fixed step: two runs of the same game give the same one.
+   The hash sums up the simulation after that fixed step: two runs of the same game on one machine give the same one
+   when its scripts act on physics in `OnFixedUpdate`, count time there from its `fixedDeltaTime` and seed their random
+   numbers (`Random.Seed`).
 6. Read the exit code: the number of failures (failed checks and script exceptions, plus one when the run did not
    finish), at most 100. 0 means every check passed, which suits continuous integration. A game that cannot start
    exits with 1.

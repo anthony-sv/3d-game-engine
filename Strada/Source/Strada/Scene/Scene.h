@@ -115,17 +115,22 @@ namespace Strada
 			bool operator==(LocalPose const& other) const = default;
 		};
 		// How the scene draws a moving body's entity between steps (Scene::InterpolateBodyTransforms): its local pose after
-		// each of the last two steps and as it was last drawn, and whether something other than the steps moved it since.
+		// each of the last two steps and as it was last drawn, which parts of that pose were drawn, and whether something
+		// other than the steps moved it since.
 		struct BodyDrawing
 		{
 			LocalPose PreviousStep;
 			LocalPose Step;
 			LocalPose Drawn;
-			// The entity shows Drawn, which goes back to Step before the next physics changes and steps.
-			bool IsDrawn = false;
-			// Moved since its last step by a script's OnUpdate, the editor or another frame-time change: it is shown where it
-			// was put, and its next step starts from there.
+			// The entity shows Drawn's translation, rotation or both, which go back to Step's before the next physics changes
+			// and steps. A part something else had moved since the step is shown where it was put and is not drawn.
+			bool TranslationDrawn = false;
+			bool RotationDrawn = false;
+			// Moved since its last step by a script's OnUpdate, the editor or another frame-time change: what was moved is
+			// shown where it was put, and its next step starts from there.
 			bool Moved = false;
+
+			bool IsDrawn() const { return TranslationDrawn || RotationDrawn; }
 
 			// Placed somewhere (made, teleported, moved between frames): it is drawn there until it moves.
 			void Place(LocalPose const& pose)
@@ -160,6 +165,10 @@ namespace Strada
 		PhysicsSnapshot m_Physics;
 		uint64_t m_Step = 0;
 		float m_Accumulator = 0.0f;
+		// Whether the entities were drawn between steps when it was saved (after a frame's steps), and the state of the
+		// sequence entities made while running take their UUIDs from.
+		bool m_IsDrawnBetweenSteps = false;
+		uint64_t m_IDSequence = 0;
 		// In UUID order.
 		std::vector<Body> m_Bodies;
 		std::vector<Character> m_Characters;
@@ -260,10 +269,10 @@ namespace Strada
 		// characters teleport, characters move, dynamic bodies and characters write their positions back), dynamic and
 		// kinematic bodies (unless their RigidBody's Interpolation is None) and characters drawn between their last two steps
 		// (so they move smoothly at any frame rate, a step behind; OnFixedUpdate sees them where the last step left them, and
-		// an entity moved since its last step by anything but the steps is shown where it was put), contact events to
-		// scripts, audio (sources and the listener follow their entities), particles, then deferred entity destruction
-		// (destroyed scripts get OnDestroy). Every update and fixed update reaches the C# scripts, then the visual scripts; an
-		// event of an entity reaches its C# script, then its visual script.
+		// the translation or rotation of an entity moved since its last step by anything but the steps is shown where it was
+		// put), contact events to scripts, audio (sources and the listener follow their entities), particles, then deferred
+		// entity destruction (destroyed scripts get OnDestroy). Every update and fixed update reaches the C# scripts, then the
+		// visual scripts; an event of an entity reaches its C# script, then its visual script.
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -290,14 +299,16 @@ namespace Strada
 		// a snapshot went back before it); empty before that step and when none was asked for.
 		std::optional<uint64_t> GetRecordedPhysicsHash() const { return m_RecordedPhysicsHash; }
 		// Saves the running scene's simulation between frames (ScenePhysicsSnapshot): the physics world's state
-		// (PhysicsScene::SaveState), the fixed step count, the accumulator, and what the scene exchanged with each body and
-		// character. Physics component changes not applied yet are applied first. Fails when the scene runs no physics.
+		// (PhysicsScene::SaveState), the fixed step count, the accumulator, the sequence of the UUIDs entities made while
+		// running take, and what the scene exchanged with each body and character. Physics component changes not applied yet
+		// are applied first. Fails when the scene runs no physics.
 		[[nodiscard]] Result<ScenePhysicsSnapshot> SavePhysicsState();
-		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, and the
-		// entities of bodies and characters where they were then, so the steps that follow run as they did. Physics component
-		// changes not applied yet are applied first, as the next frame would. Then it fails, changing nothing more, when the
-		// scene runs no physics, the snapshot is of another run, or a body, joint or character was added, removed or rebuilt
-		// since. What the simulation does not change (scripts' state, entities without bodies, settings) stays as it is.
+		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, the UUID
+		// sequence (an ID still held by an entity made since is skipped), and the entities of bodies and characters where they
+		// were then, so the steps that follow run as they did. Physics component changes not applied yet are applied first, as
+		// the next frame would. Then it fails, changing nothing more, when the scene runs no physics, the snapshot is of
+		// another run, or a body, joint or character was added, removed or rebuilt since. What the simulation does not change
+		// (scripts' state, entities without bodies, settings) stays as it is.
 		[[nodiscard]] Result<void> RestorePhysicsState(ScenePhysicsSnapshot const& snapshot);
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }
@@ -313,7 +324,9 @@ namespace Strada
 		// Creates and rebuilds the bodies and characters of physics components changed since the last step. The runtime does
 		// it before each update; script calls on bodies and characters do it first, so a body added this frame takes forces
 		// at once. When there are changes, the entities drawn between steps first go back to where their last steps left them
-		// (as before every frame's steps), so that bodies and joints are made from where the simulation has them.
+		// (as before every frame's steps), so that bodies and joints are made from where the simulation has them; between
+		// frames (after a frame's steps: contact events, OnDestroy, the next OnUpdate, the editor) they are then drawn again as
+		// the frame drew them, so the frame shows them where it did.
 		void ApplyPhysicsChanges();
 		// Places an entity with a CharacterController at a world position at once, keeping its rotation and scale, and stops
 		// its character, which finds what it stands on there.
@@ -442,14 +455,18 @@ namespace Strada
 		void WriteBodyTransforms();
 		// Between frames, moving bodies are drawn between their last two steps, in local space (a body's children and a body
 		// below another follow as they do at the steps). After each step their entities' local poses are recorded. Before the
-		// physics changes and steps of a frame, those drawn and not moved since go back exactly to their last step's pose, and
-		// those moved since their last step by anything but the steps (OnUpdate, the editor) are noted: they are shown where
-		// they were put, and their next step starts there. After the steps, the others are drawn the part of the way from the
-		// step before (alpha 0) to the last one (alpha 1) that the time left over makes up, when their RigidBody interpolates.
+		// physics changes and steps of a frame, the translation and the rotation of each drawn entity go back, each on its
+		// own, exactly to their last step's when nothing changed them since they were drawn, and entities moved since their
+		// last step by anything but the steps (OnUpdate, the editor) are noted: what was moved is shown where it was put, and
+		// their next step starts there. After the steps, each part still where the last step left it is drawn the part of the
+		// way from the step before (alpha 0) to the last one (alpha 1) that the time left over makes up, when the RigidBody
+		// interpolates.
 		void RecordBodySteps();
 		void ReturnBodiesToSteps();
 		void NoteBodiesMovedSinceSteps();
 		void InterpolateBodyTransforms(float alpha);
+		// How far into their last step the frame draws bodies and characters: the time left over, as a part of a step.
+		float GetDrawingAlpha() const;
 		bool IsBodyDrawn(UUID entity) const;
 		// Physics component changes are waiting for RebuildChangedBodies.
 		bool HasPendingPhysicsChanges() const;
@@ -570,6 +587,9 @@ namespace Strada
 		SceneRuntimeSettings m_RuntimeSettings;
 		Scope<PhysicsScene> m_Physics;
 		float m_PhysicsAccumulator = 0.0f;
+		// From the end of a frame's steps to the start of the next frame's: the entities show the frame's drawing between
+		// steps, which ApplyPhysicsChanges draws again after it returned them to their steps.
+		bool m_IsDrawnBetweenSteps = false;
 		uint64_t m_FixedStepCount = 0;
 		std::optional<uint64_t> m_RecordedPhysicsHash;
 		// While running: the state of the sequence GenerateUniqueID takes UUIDs from.

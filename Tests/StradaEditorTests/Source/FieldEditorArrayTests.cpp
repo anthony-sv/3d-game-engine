@@ -873,7 +873,7 @@ TEST_CASE("ProjectSettingsPanel: edits through the panel write the project file 
 	CHECK(fixture.Open);
 }
 
-TEST_CASE("ProjectSettingsPanel: the physics step settings are fields of the panel, written within their ranges")
+TEST_CASE("ProjectSettingsPanel: the physics step settings are fields of the panel, and typed past their ranges are written at their ends")
 {
 	ProjectSettingsFixture fixture;
 	FieldTableDriver const& driver = fixture.Driver;
@@ -904,15 +904,16 @@ TEST_CASE("ProjectSettingsPanel: the physics step settings are fields of the pan
 	CHECK(file["Project"]["Physics"]["MaxStepsPerFrame"] == 16);
 	CHECK(file["Project"]["Physics"]["CollisionSteps"] == 3);
 
-	// Past their ends the values stay within what a project takes.
+	// Typed past their ends, the values are written at those ends.
 	typeNumber("MaxStepsPerFrame", "500");
 	typeNumber("CollisionSteps", "0");
 	fixture.Gui.Frame(fixture.Draw);
 	fixture.Panel.Flush(fixture.Operations);
-	CHECK(written.MaxStepsPerFrame >= 1u);
-	CHECK(written.MaxStepsPerFrame <= 64u);
-	CHECK(written.CollisionSteps >= 1u);
-	CHECK(written.CollisionSteps <= 4u);
+	CHECK(written.MaxStepsPerFrame == 64u);
+	CHECK(written.CollisionSteps == 1u);
+	Json const clamped = Json::parse(fixture.ReadProjectFile());
+	CHECK(clamped["Project"]["Physics"]["MaxStepsPerFrame"] == 64);
+	CHECK(clamped["Project"]["Physics"]["CollisionSteps"] == 1);
 	CHECK(ValidateProjectSettings(fixture.Context.GetProject()->GetSettings()).IsOk());
 }
 

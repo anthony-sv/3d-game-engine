@@ -237,7 +237,9 @@ moves kinematic bodies smoothly and `Teleport` places any body.
 Apply continuous forces in `OnFixedUpdate`, which runs before each physics step. Between steps a dynamic body, and a
 kinematic body your fixed updates move, is drawn on its way between its last two steps (a step behind, smooth at any
 frame rate), as characters are; set `Interpolation` to `RigidBodyInterpolation.None` to draw it where its last step left
-it. `OnFixedUpdate` reads a body where the last step left it, `OnUpdate` where it is drawn. `Physics.Raycast` finds the closest
+it. `OnFixedUpdate` reads a body where the last step left it, `OnUpdate` where it is drawn. For physics that is the same
+at any frame rate, act on it in `OnFixedUpdate`, count time there from `fixedDeltaTime` (`Time.Elapsed` is the frames'
+time) and call `Random.Seed` before drawing numbers it uses. `Physics.Raycast` finds the closest
 solid collider along a ray (`Physics.Gravity` is the scene's gravity):
 
 ```csharp

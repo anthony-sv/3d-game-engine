@@ -399,6 +399,60 @@ TEST_CASE("ScenePhysics: one scene gives the same state hashes at 30, 60 and 144
 	CHECK(HashAtStep(Step, 150) != HashAtStep(Step, 151));
 }
 
+TEST_CASE("ScenePhysics: a character drifting under a tenth of a millimeter a step moves its kinematic part alike at any frame rate")
+{
+	Testing::PhysicsSystemScope physics;
+	// A floating character drifting 0.05 mm per 60 Hz step, far less than transform edits are told from noise, with a
+	// kinematic body below it that the steps move to wherever the character's entity is.
+	auto const play = [](float frameTime, uint64_t hashStep, bool checkSteps)
+	{
+		constexpr glm::vec3 Offset = {0.0f, 0.8f, 0.0f};
+		Scene drifting("Drift");
+		Entity character = drifting.CreateEntityWithUUID(UUID(900), "Character");
+		character.GetComponent<TransformComponent>().Translation = {0.0f, 5.0f, 0.0f};
+		CharacterControllerComponent& controller = character.AddComponent<CharacterControllerComponent>();
+		controller.Height = 1.6f;
+		controller.Radius = 0.3f;
+		controller.Offset = Offset;
+		controller.GravityFactor = 0.0f;
+		Entity part = drifting.CreateEntityWithUUID(UUID(901), "Part");
+		part.GetComponent<TransformComponent>().Translation = {0.0f, 0.8f, 0.6f};
+		part.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Kinematic;
+		part.AddComponent<SphereColliderComponent>().Radius = 0.2f;
+		REQUIRE(drifting.SetParent(part, character, false).IsOk());
+		drifting.OnRuntimeStart(PhysicsOnly(hashStep));
+		REQUIRE(drifting.GetPhysicsScene() != nullptr);
+		drifting.GetPhysicsScene()->SetCharacterVelocity(UUID(900), {0.003f, 0.0f, 0.0f});
+		bool exact = true;
+		for (int frame = 0; !drifting.GetRecordedPhysicsHash() && frame < 100000; frame++)
+		{
+			drifting.OnUpdateRuntime(Timestep(frameTime));
+			if (checkSteps)
+			{
+				// After each step (one a frame, drawn within noise of it), the entity is exactly where its character is.
+				glm::vec3 const simulated = drifting.GetPhysicsScene()->GetCharacterState(UUID(900))->Position - Offset;
+				exact = exact && glm::vec3(drifting.GetWorldTransform(character)[3]) == simulated;
+			}
+		}
+		REQUIRE(drifting.GetRecordedPhysicsHash().has_value());
+		CHECK(exact);
+		// It drifted (0.003 m/s), and its part went with it.
+		glm::vec3 const moved = drifting.GetPhysicsScene()->GetCharacterState(UUID(900))->Position;
+		CHECK(moved.x > 0.0f);
+		CHECK(drifting.GetPhysicsScene()->GetBodyTransform(UUID(901))->Position.x > 0.0f);
+		uint64_t const hash = *drifting.GetRecordedPhysicsHash();
+		drifting.OnRuntimeStop();
+		return hash;
+	};
+	for (uint64_t const step : {60u, 150u, 300u})
+	{
+		CAPTURE(step);
+		uint64_t const at60 = play(1.0f / 60.0f, step, true);
+		CHECK(play(1.0f / 30.0f, step, false) == at60);
+		CHECK(play(1.0f / 144.0f, step, false) == at60);
+	}
+}
+
 TEST_CASE("ScenePhysics: drawing bodies between steps leaves the simulation as it is, at 30, 60 and 144 frames per second")
 {
 	Testing::PhysicsSystemScope physics;
@@ -421,11 +475,21 @@ TEST_CASE("ScenePhysics: drawing bodies between steps leaves the simulation as i
 		{
 			if (frame == static_cast<int>(1.0f / frameTime))
 			{
-				// Teleported between frames to a whole pose (as RigidBodyComponent.Teleport places it): an edit of part of a pose
-				// keeps the rest of the pose the frame shows.
-				TransformComponent& teleported = played.GetEntityByUUID(UUID(204)).GetComponent<TransformComponent>();
+				// Teleported between frames to a whole pose (as RigidBodyComponent.Teleport places it).
+				Entity teleportedEntity = played.GetEntityByUUID(UUID(204));
+				TransformComponent& teleported = teleportedEntity.GetComponent<TransformComponent>();
 				teleported.Translation = {2.0f, 4.0f, 1.0f};
 				teleported.Rotation = glm::angleAxis(0.5f, glm::vec3(0.0f, 0.0f, 1.0f));
+			}
+			if (frame > static_cast<int>(2.5f / frameTime) && frame < static_cast<int>(3.0f / frameTime))
+			{
+				// Part of a pose set between frames, every frame: the rotation of a falling crate, the translation of the turning
+				// paddle (the rest of each pose is the simulation's).
+				float const turn = 0.01f * static_cast<float>(frame);
+				Entity crate = played.GetEntityByUUID(UUID(202));
+				crate.GetComponent<TransformComponent>().Rotation = glm::angleAxis(turn, glm::vec3(0.0f, 1.0f, 0.0f));
+				Entity paddle = played.GetEntityByUUID(UUID(400));
+				paddle.GetComponent<TransformComponent>().Translation = {4.0f, 1.0f + turn * 0.1f, 4.0f};
 			}
 			if (frame == static_cast<int>(1.5f / frameTime))
 			{
@@ -495,6 +559,19 @@ TEST_CASE("ScenePhysics: a snapshot restores the simulation, which then runs as 
 	CHECK(second.Ball == first.Ball);
 	CHECK(second.Character == first.Character);
 	CHECK(second.Part == first.Part);
+
+	// Entities made after a restore take the UUIDs entities made after the save took, so their bodies take the same places
+	// in the order Jolt is called in; one an entity made since still holds is skipped.
+	Entity made = scene.CreateEntity("Made after the save");
+	UUID const madeID = made.GetUUID();
+	scene.DestroyEntity(made);
+	scene.FlushPendingDestruction();
+	Entity const kept = scene.CreateEntity("Kept");
+	REQUIRE(scene.RestorePhysicsState(snapshot).IsOk());
+	CHECK(scene.CreateEntity("Made after the restore").GetUUID() == madeID);
+	UUID const next = scene.CreateEntity("Made next").GetUUID();
+	CHECK(next != kept.GetUUID());
+	CHECK(next.IsValid());
 
 	// A snapshot can be gone back to again.
 	REQUIRE(scene.RestorePhysicsState(snapshot).IsOk());

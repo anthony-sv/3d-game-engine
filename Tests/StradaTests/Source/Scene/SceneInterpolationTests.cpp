@@ -2,7 +2,6 @@
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
-#include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -15,6 +14,7 @@
 #include <array>
 #include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -39,11 +39,12 @@ namespace
 		ground.AddComponent<BoxColliderComponent>().HalfExtents = {20.0f, 0.5f, 20.0f};
 	}
 
-	// A box that nothing slows down or pulls: it keeps the velocities it starts with.
+	// A box that nothing slows down or pulls: it keeps the velocities it starts with. With a UUID, so that two scenes hash
+	// alike.
 	Entity AddFloatingBody(Scene& scene, std::string const& name, glm::vec3 const& position, glm::vec3 const& velocity,
-	                       glm::vec3 const& angularVelocity, RigidBodyInterpolation interpolation)
+	                       glm::vec3 const& angularVelocity, RigidBodyInterpolation interpolation, UUID id = UUID::Invalid())
 	{
-		Entity entity = scene.CreateEntity(name);
+		Entity entity = id.IsValid() ? scene.CreateEntityWithUUID(id, name) : scene.CreateEntity(name);
 		entity.GetComponent<TransformComponent>().Translation = position;
 		RigidBodyComponent& body = entity.AddComponent<RigidBodyComponent>();
 		body.Type = RigidBodyType::Dynamic;
@@ -266,14 +267,17 @@ TEST_CASE("ScenePhysics: a body moved in OnUpdate is shown where it was put, and
 		scene.OnUpdateRuntime(Timestep(Frame144));
 	}
 	// Drawn between two steps now; a change of a physics component (applied at once by a script's call, as by the next frame)
-	// first takes it back to exactly where the last step left it, which is where its body is.
+	// takes it back to exactly where the last step left it while bodies and joints are made, then draws it again where the
+	// frame showed it: what the next steps start from is where its body is.
 	BodyTransform const simulated = GetSimulated(scene, body);
-	CHECK(GetTransform(body).Translation != simulated.Position);
+	TransformComponent const drawn = GetTransform(body);
+	CHECK(drawn.Translation != simulated.Position);
 	other.GetComponent<RigidBodyComponent>().Mass = 2.0f;
 	scene.GetRegistry().patch<RigidBodyComponent>(other.GetHandle());
 	scene.ApplyPhysicsChanges();
-	CHECK(GetTransform(body).Translation == simulated.Position);
-	CHECK(GetTransform(body).Rotation == Math::NormalizeRotation(simulated.Rotation));
+	CHECK(GetTransform(body).Translation == drawn.Translation);
+	CHECK(GetTransform(body).Rotation == drawn.Rotation);
+	CHECK(GetSimulated(scene, body).Position == simulated.Position);
 
 	// Put somewhere by a frame's script: frames without a step leave it there, and the next step takes its body there.
 	scene.OnUpdateRuntime(Timestep(Frame144));
@@ -287,6 +291,128 @@ TEST_CASE("ScenePhysics: a body moved in OnUpdate is shown where it was put, and
 	}
 	CHECK(GetSimulated(scene, body).Position.x == doctest::Approx(put.x + 2.0f * Step));
 	scene.OnRuntimeStop();
+}
+
+TEST_CASE("ScenePhysics: a body whose rotation or translation alone is set every frame moves as it does drawn at its steps")
+{
+	Testing::PhysicsSystemScope physics;
+	// Before every frame (as a script's OnUpdate or the editor sets them), the rotation alone of a falling body and of a
+	// floating one, and the translation alone of a turning one, to values that depend on the frame only.
+	struct Run
+	{
+		std::vector<uint64_t> Hashes;
+		glm::vec3 Fallen = glm::vec3(0.0f);
+		glm::quat Turned = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+		std::vector<float> FloatingX;
+	};
+	auto const play = [](RigidBodyInterpolation interpolation, float frameTime)
+	{
+		Scene played("Part of a pose");
+		Entity falling = played.CreateEntityWithUUID(UUID(1), "Falling");
+		falling.GetComponent<TransformComponent>().Translation = {0.0f, 20.0f, 0.0f};
+		RigidBodyComponent& fallingBody = falling.AddComponent<RigidBodyComponent>();
+		fallingBody.Type = RigidBodyType::Dynamic;
+		fallingBody.Interpolation = interpolation;
+		falling.AddComponent<BoxColliderComponent>().HalfExtents = {0.5f, 0.5f, 0.5f};
+		Entity turning =
+			AddFloatingBody(played, "Turning", {5.0f, 1.0f, 0.0f}, glm::vec3(0.0f), {0.0f, 3.0f, 0.0f}, interpolation, UUID(2));
+		Entity floating =
+			AddFloatingBody(played, "Floating", {-5.0f, 1.0f, 0.0f}, {3.0f, 0.0f, 0.0f}, glm::vec3(0.0f), interpolation, UUID(3));
+		played.OnRuntimeStart(PhysicsOnly());
+		REQUIRE(played.GetPhysicsScene() != nullptr);
+		Run run;
+		int const frames = static_cast<int>(std::lround(1.0f / frameTime));
+		for (int frame = 0; frame < frames; frame++)
+		{
+			glm::quat const rotation = glm::angleAxis(0.02f * static_cast<float>(frame), glm::vec3(0.0f, 1.0f, 0.0f));
+			falling.GetComponent<TransformComponent>().Rotation = rotation;
+			floating.GetComponent<TransformComponent>().Rotation = rotation;
+			turning.GetComponent<TransformComponent>().Translation = {5.0f, 1.0f + 0.001f * static_cast<float>(frame), 0.0f};
+			played.OnUpdateRuntime(Timestep(frameTime));
+			run.Hashes.push_back(played.ComputePhysicsStateHash());
+			run.FloatingX.push_back(GetTransform(floating).Translation.x);
+		}
+		run.Fallen = GetSimulated(played, falling).Position;
+		run.Turned = GetSimulated(played, turning).Rotation;
+		played.OnRuntimeStop();
+		return run;
+	};
+	for (float const rate : {Step, Frame144})
+	{
+		CAPTURE(rate);
+		Run const stepped = play(RigidBodyInterpolation::None, rate);
+		Run const drawn = play(RigidBodyInterpolation::Interpolate, rate);
+		CHECK(drawn.Hashes == stepped.Hashes);
+		CHECK(drawn.Fallen == stepped.Fallen);
+		CHECK(drawn.Turned == stepped.Turned);
+		// In a second it fell about 4.9 m, and the other turned about 3 radians.
+		CHECK(stepped.Fallen.y < 16.0f);
+		CHECK(GetAngle(stepped.Turned, glm::quat(1.0f, 0.0f, 0.0f, 0.0f)) > 2.0f);
+		if (rate == Frame144)
+		{
+			// The part nothing set is still drawn between the steps: the floating body moves as far in every frame as the
+			// frame's time makes up, in frames without a step too.
+			bool even = true;
+			for (size_t index = 4; index < drawn.FloatingX.size(); index++)
+			{
+				even = even && std::abs(drawn.FloatingX[index] - drawn.FloatingX[index - 1] - 3.0f * Frame144) < 1e-4f;
+			}
+			CHECK(even);
+		}
+	}
+}
+
+TEST_CASE("ScenePhysics: physics changes made after a frame's steps leave every body and character where the frame drew them")
+{
+	Testing::PhysicsSystemScope physics;
+	// A body and a character drawn between their steps, and far from them a body made after the steps (as a contact handler,
+	// OnDestroy or the editor makes one) with a call that applies the change at once (a velocity read).
+	auto const play = [](bool late)
+	{
+		Scene played("Late change");
+		Entity const moving = AddFloatingBody(played, "Moving", {0.0f, 1.0f, 0.0f}, {3.0f, 0.0f, 0.0f}, {0.0f, 2.0f, 0.0f},
+		                                      RigidBodyInterpolation::Interpolate);
+		Entity falling = played.CreateEntity("Falling character");
+		falling.GetComponent<TransformComponent>().Translation = {0.0f, 30.0f, 10.0f};
+		CharacterControllerComponent& character = falling.AddComponent<CharacterControllerComponent>();
+		character.Height = 1.6f;
+		character.Radius = 0.3f;
+		played.OnRuntimeStart(PhysicsOnly());
+		REQUIRE(played.GetPhysicsScene() != nullptr);
+		bool unchanged = true;
+		int changes = 0;
+		for (int frame = 0; frame < 144; frame++)
+		{
+			played.OnUpdateRuntime(Timestep(Frame144));
+			if (late && frame % 10 == 5)
+			{
+				TransformComponent const body = GetTransform(moving);
+				TransformComponent const rider = GetTransform(falling);
+				// Drawn between its steps, not where the simulation has it.
+				CHECK(body.Translation != GetSimulated(played, moving).Position);
+				Entity made = played.CreateEntity("Made");
+				made.GetComponent<TransformComponent>().Translation = {-30.0f, 1.0f + static_cast<float>(frame), -30.0f};
+				made.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
+				made.AddComponent<SphereColliderComponent>().Radius = 0.5f;
+				played.ApplyPhysicsChanges();
+				changes++;
+				unchanged = unchanged && GetTransform(moving).Translation == body.Translation &&
+				            GetTransform(moving).Rotation == body.Rotation && GetTransform(falling).Translation == rider.Translation;
+			}
+		}
+		CHECK(unchanged);
+		CHECK(played.GetPhysicsScene()->GetBodyCount() == static_cast<size_t>(1 + changes));
+		std::pair<BodyTransform, glm::vec3> const result = {GetSimulated(played, moving),
+		                                                    played.GetPhysicsScene()->GetCharacterState(falling.GetUUID())->Position};
+		played.OnRuntimeStop();
+		return result;
+	};
+	auto const [plainBody, plainCharacter] = play(false);
+	auto const [lateBody, lateCharacter] = play(true);
+	// And the simulation of the others is that of a run without the late bodies.
+	CHECK(lateBody.Position == plainBody.Position);
+	CHECK(lateBody.Rotation == plainBody.Rotation);
+	CHECK(lateCharacter == plainCharacter);
 }
 
 TEST_CASE("ScenePhysics: a kinematic body moved every frame is shown exactly where it was put, never behind")

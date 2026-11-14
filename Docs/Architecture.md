@@ -1353,14 +1353,18 @@ drawn so. A body that does not move (asleep, or awake and still) is drawn exactl
 frame. A character standing on a body drawn between its steps is drawn the whole way between its own steps, so it stays
 on it; on ground drawn where its steps leave it, only the way it went by itself is drawn.
 
-Before the physics changes and steps of each frame, every entity drawn between steps and not moved since goes back to
-exactly the local translation and rotation its last step left (and characters to their step positions), so the steps
-see exactly what they would have seen without drawing: the simulation, and its state hash, are the same with
-`Interpolate` and with `None`. A script's call that applies physics changes during `OnUpdate` (a body made or rebuilt,
-whose joints are made again) does the same first, so bodies and joints are made from where the simulation has them;
-for the rest of that `OnUpdate` scripts read those entities at their steps. Part of a pose changed between frames
-keeps the rest of the pose the frame shows: setting a body's translation keeps its drawn rotation, which its teleport
-takes along. `RigidBodyComponent.Interpolation` changes how a body is drawn without rebuilding it when a script sets it;
+Before the physics changes and steps of each frame, the translation and the rotation of every entity drawn between
+steps go back, each on its own, to exactly the local value its last step left when nothing changed them since the
+frame drew them (and characters go back to their step positions), so the steps see exactly what they would have seen
+without drawing: the simulation, and its state hash, are the same with `Interpolate` and with `None`. A part of a pose
+set between frames is kept and the other part goes back: a script that sets only a falling body's rotation every frame
+(keeping it upright, facing a target) leaves its fall to the steps, and the steps take the body to its step translation
+with the new rotation, as they do with `None`; in frames without a step the part nothing set is still drawn between
+the steps. A script's call that applies physics changes (a body made or rebuilt, whose joints are made again) does the
+same first, so bodies and joints are made from where the simulation has them. Between frames (in `OnUpdate`, in contact
+events and `OnDestroy`, which come after the frame's steps, and in the editor) the entities are then drawn again as far
+as the frame drew them, so the frame shows them where it did and scripts read them there; inside the steps they stay at
+the steps. `RigidBodyComponent.Interpolation` changes how a body is drawn without rebuilding it when a script sets it;
 the editor's edits of a running scene rebuild the body, as for every RigidBody field.
 
 **Determinism per platform.** The same binary on the same machine gives the same simulation for the same inputs,
@@ -1382,7 +1386,10 @@ It does not promise equality across platforms, compilers or configurations: Jolt
 floating-point contraction (arm64 fuses multiply-adds), and Debug and Release differ. Nor does it cover what happens per
 frame rather than per step: `OnUpdate`, input read in it, contact events (they reach scripts once per frame, after the
 frame's steps), destruction (deferred to the end of the frame), changes of the time scale, editor edits and scene loads.
-A game whose physics must not depend on the frame rate acts on the simulation from `OnFixedUpdate` only.
+Two things read in `OnFixedUpdate` itself depend on the frame or the run: `Time.Elapsed` and `Time.FrameCount` count
+the frames' time and frames, not the steps', and `Strada.Random` starts from a different seed on every run. A game whose
+physics must not depend on the frame rate acts on the simulation from `OnFixedUpdate` only, counts its time there from
+the `fixedDeltaTime` each call receives, and calls `Random.Seed` before it draws numbers that reach the simulation.
 
 **The state hash.** `Scene::ComputePhysicsStateHash` is a 64-bit FNV-1a hash (`HashBuilder`, over the bit patterns of
 the values, little-endian) of the fixed step count, then of every body in UUID order (its UUID, motion type, position,
@@ -1399,8 +1406,11 @@ saves (`PhysicsSystem::SaveState` in full: the last step's length and gravity, t
 velocities, forces and sleep state, the contacts and the joints' warm starts), each character's state
 (`CharacterVirtual::SaveState`, which the system does not save, with the engine's own velocities and ground
 displacement), the contacts the world has reported and the events not yet taken, and the scene's step state: the step
-count, the accumulator, the poses last exchanged with the bodies, the local poses moving bodies are drawn between
-(and whether each is drawn or was moved since its step), and the characters' step positions and ground.
+count, the accumulator, the state of the sequence entities made while running take their UUIDs from, the poses last
+exchanged with the bodies, the local poses moving bodies are drawn between (and which parts of each are drawn, or
+whether it was moved since its step), and the characters' step positions and ground. Entities made after a restore so
+take the UUIDs entities made after the save took, except one an entity made since (and not destroyed) still holds,
+which is skipped.
 `Scene::RestorePhysicsState` puts it all back and places the entities of bodies and characters where they were then, so
 the steps that follow run as they did from there (given the same fixed-step inputs). Its limit: a snapshot belongs to
 the world it was saved from and to the bodies, joints and characters that world had. Once one was added, removed or
