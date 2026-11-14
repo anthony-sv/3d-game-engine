@@ -570,7 +570,9 @@ namespace Strada
 				{
 					edits.push_back({entities[i], std::string(component.Name), change->MakePatch(values[i])});
 				}
-				UI::ReportFailure(operations.SetComponentFields(std::move(edits), m_EditSession.GetMergeKey()), "Editing the component");
+				// A struct drawer's own key, else the interaction's.
+				uint64_t const mergeKey = change->MergeKey != 0 ? change->MergeKey : m_EditSession.GetMergeKey();
+				UI::ReportFailure(operations.SetComponentFields(std::move(edits), mergeKey), "Editing the component");
 			}
 			// The materials the mesh renders with, right below the mesh.
 			if (component.Name == ComponentTraits<MeshComponent>::Name)
@@ -1225,8 +1227,8 @@ namespace Strada
 		ImGui::EndDisabled();
 		if (change && editable)
 		{
-			UI::ReportFailure(operations.SetMaterialFields(material, change->MakePatch(values), m_EditSession.GetMergeKey()),
-			                  "Editing the material");
+			uint64_t const mergeKey = change->MergeKey != 0 ? change->MergeKey : m_EditSession.GetMergeKey();
+			UI::ReportFailure(operations.SetMaterialFields(material, change->MakePatch(values), mergeKey), "Editing the material");
 		}
 	}
 

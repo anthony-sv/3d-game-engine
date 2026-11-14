@@ -156,6 +156,7 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp
     Source/Editor/UI/FieldEditor.h
+    Source/Editor/UI/FieldStructDrawers.cpp
     Source/Editor/UI/WindowCapture.cpp
     Source/Editor/UI/WindowCapture.h
     Source/Editor/Viewport/CanvasOverlay.cpp

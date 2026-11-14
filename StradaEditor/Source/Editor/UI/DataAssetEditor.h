@@ -73,7 +73,8 @@ namespace Strada
 		void Draw(EditorOperations& operations, FieldEditor& editor, AssetHandle asset, EditSession& session);
 
 		// The default body: the type's field table (fields hidden in editors left out), disabled unless context.Editable.
-		// Returns the user's change with the default description and merge key 0 (the inspector's interaction).
+		// Returns the user's change with the description and merge key of the struct drawer that made it (FieldChange), else
+		// the default description and merge key 0 (the inspector's interaction).
 		static std::optional<DataAssetEdit> DrawFields(DataAssetDrawContext const& context);
 		// Whether edits of the asset can be kept: a data asset of a registered type with a file of its own, present and not
 		// read-only. Main thread only (reads the asset manager).

@@ -16,6 +16,12 @@ from one field table. Follow every step — the tests enforce several of them.
   `glm::vec2/3/4`, `glm::quat`, `glm::bvec3`, `std::vector<T>`, registered enums, `ScriptFieldMap`. Add a
   `JsonTraits` specialization (with tests) for anything new.
 - Asset references are `AssetHandle` (default = no asset), entity references are `UUID`.
+- A list of structs is a `std::vector<Point>` of a reflected struct (`StructTraits<Point>` in `ComponentTraits.h`) with
+  `.MaxCount(n)` on its field: the inspector shows it as a row per element that unfolds into the element's fields, with
+  a menu to move, duplicate, insert above and remove it, and Add Element (disabled at `MaxCount`), each one undo step
+  that patches every selected entity's own list by index; `component.set` takes the field whole, with all its elements.
+  No inspector code: a struct that needs a widget of its own (a curve) gets a struct drawer
+  (`Editor/UI/FieldStructDrawers.cpp`, Docs/Architecture.md §11).
 - New enums: `enum class X : uint8_t` plus an `EnumTraits<X>` name table in `ComponentTraits.h`.
 
 ## 2. Register it — `Strada/Source/Strada/Scene/ComponentTraits.h`

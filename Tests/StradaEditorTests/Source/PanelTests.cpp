@@ -208,7 +208,7 @@ TEST_CASE("FieldEditor: typed values are reported with their path and clamped to
 
 	std::optional<FieldChange> const gain = TypeIntoField(imgui, 0, "2.5");
 	REQUIRE(gain);
-	CHECK(gain->Path == std::vector<std::string_view>{"Gain"});
+	CHECK(gain->Path == std::vector<FieldPathStep>{{"Gain"}});
 	CHECK(gain->Value.get<float>() == doctest::Approx(2.5f));
 
 	std::optional<FieldChange> const clamped = TypeIntoField(imgui, 0, "42");
@@ -222,7 +222,7 @@ TEST_CASE("FieldEditor: typed values are reported with their path and clamped to
 
 	std::optional<FieldChange> const label = TypeIntoField(imgui, 1, "Lamp");
 	REQUIRE(label);
-	CHECK(label->Path == std::vector<std::string_view>{"Label"});
+	CHECK(label->Path == std::vector<FieldPathStep>{{"Label"}});
 	CHECK(label->Value.get<std::string>().ends_with("Lamp"));
 }
 
@@ -319,7 +319,7 @@ TEST_CASE("FieldEditor: a switch is a check box in front of the field it switche
 	// The check box at the start of Gain's row is the switch.
 	imgui.Click(switchCenter, draw);
 	REQUIRE(last);
-	CHECK(last->Path == std::vector<std::string_view>{"UseGain"});
+	CHECK(last->Path == std::vector<FieldPathStep>{{"UseGain"}});
 	CHECK(last->Value == true);
 
 	// While the switch is off Gain is disabled: typing changes nothing.
@@ -331,7 +331,7 @@ TEST_CASE("FieldEditor: a switch is a check box in front of the field it switche
 	values["UseGain"] = true;
 	typeIntoGain("5");
 	REQUIRE(last);
-	CHECK(last->Path == std::vector<std::string_view>{"Gain"});
+	CHECK(last->Path == std::vector<FieldPathStep>{{"Gain"}});
 	CHECK(last->Value.get<float>() == doctest::Approx(5.0f));
 }
 
@@ -1511,7 +1511,7 @@ TEST_CASE("FieldEditor: asset fields show the asset's path, pick from a searchab
 	// "x" clears the reference.
 	imgui.Click(clear, draw);
 	REQUIRE(last);
-	CHECK(last->Path == std::vector<std::string_view>{"Texture"});
+	CHECK(last->Path == std::vector<FieldPathStep>{{"Texture"}});
 	CHECK(last->Value == UUID::Invalid().ToString());
 
 	// Clicking the box opens the picker; typing searches the paths (the list shrinks to the matches) and Enter takes the first

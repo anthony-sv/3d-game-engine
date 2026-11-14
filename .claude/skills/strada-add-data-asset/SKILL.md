@@ -96,6 +96,16 @@ inline DataAssetTypeSpecification<Curve> const CurveAssetSpecification = {
   such as arrow-key nudges merged by time). It never writes files or assets itself, shows nothing editable when
   `Editable` is false, and may draw the fields it leaves alone with `DataAssetEditor::DrawFields(context)`, marking the
   ones it draws `.HiddenInEditors()`.
+- Arrays of structs (`std::vector<Entry>` with `.MaxCount(n)`) need no drawer: the field editor shows a row per element
+  that unfolds into the element's fields, with a menu to move, duplicate, insert above and remove it, and Add Element;
+  each is one undo step patching by index (Docs/Architecture.md §11).
+- A struct that appears inside other data (a curve inside a vehicle definition) gets a struct drawer instead of, or as
+  well as, a type drawer: one line in `GetFieldStructDrawers()` (`StradaEditor/Source/Editor/UI/FieldStructDrawers.cpp`),
+  sorted by name, `drawers.emplace_back("<StructName>", &Draw<StructName>)`. It is drawn wherever the struct appears (a
+  field, a nested struct, an array element) in every field table, gets a `FieldStructDrawContext` (the field, the
+  struct's value, `Mixed`, `Editable`, the field editor) and returns a `FieldStructEdit` (the struct's whole value, the
+  step's name, a merge key; empty and 0 take the caller's), which reaches the data asset editor's step as a
+  `DataAssetEdit` would. `FieldEditor::SetStructDrawer` sets one for a single field editor (tests).
 - Test the drawer headless (`HeadlessImGui`, the inspector panel): one step per interaction, its own key merging across
   frames, its description in the history.
 

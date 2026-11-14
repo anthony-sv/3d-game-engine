@@ -243,6 +243,115 @@ namespace Strada
 																});
 		}
 
+		// Arrays whose elements are reflected structs: rows of their own per element instead of a widget per element.
+		bool IsStructArray(FieldDescriptor const& field)
+		{
+			return field.Kind == FieldKind::Array && field.ElementKind == FieldKind::Struct;
+		}
+
+		// The name of the reflected struct a struct field holds (its schema type name, StructTraits<T>::Name); empty for
+		// other fields.
+		std::string_view GetStructName(FieldDescriptor const& field)
+		{
+			return field.Kind == FieldKind::Struct ? std::string_view(field.TypeName) : std::string_view();
+		}
+
+		// The value of a default-constructed struct of these fields.
+		Json MakeStructDefault(std::span<FieldDescriptor const> fields)
+		{
+			Json value = Json::object();
+			for (FieldDescriptor const& field : fields)
+			{
+				value[std::string(field.Name)] = field.Default;
+			}
+			return value;
+		}
+
+		// An element's row title: "<index>: <the element's first string field>" when that is not empty ("2: Gravel"), else
+		// "Element <index>".
+		std::string DescribeElement(FieldDescriptor const& array, Json const& element, size_t index)
+		{
+			auto const title = std::find_if(array.Fields.begin(), array.Fields.end(),
+			                                [](FieldDescriptor const& field)
+			                                {
+												return field.Kind == FieldKind::String;
+											});
+			if (title != array.Fields.end() && element.is_object())
+			{
+				std::string const key(title->Name);
+				if (element.contains(key) && element[key].is_string() && !element[key].get_ref<std::string const&>().empty())
+				{
+					return fmt::format("{}: {}", index, element[key].get_ref<std::string const&>());
+				}
+			}
+			return fmt::format("Element {}", index);
+		}
+
+		// The tooltip of the buttons that add elements to an array at its MaxCount.
+		std::string DescribeFullArray(FieldDescriptor const& array)
+		{
+			return fmt::format("{} holds at most {} elements.", UI::FormatDisplayName(array.Name), array.Hints.MaxCount);
+		}
+
+		bool IsFull(FieldDescriptor const& array, size_t count)
+		{
+			return array.Hints.MaxCount != 0 && count >= array.Hints.MaxCount;
+		}
+
+		// Applies a list edit to an array (a missing array is an empty one for an insertion); returns false and leaves it as
+		// it is when the edit names an element the array does not have.
+		bool ApplyArrayEdit(Json& array, FieldArrayEdit const& edit, Json const& inserted)
+		{
+			if (!array.is_array())
+			{
+				if (edit.Kind != FieldArrayEditKind::Insert)
+				{
+					return false;
+				}
+				array = Json::array();
+			}
+			size_t const size = array.size();
+			auto const at = [&array](size_t index)
+			{
+				return array.begin() + static_cast<std::ptrdiff_t>(index);
+			};
+			switch (edit.Kind)
+			{
+				case FieldArrayEditKind::Insert:
+					array.insert(at(std::min<size_t>(edit.Index, size)), inserted);
+					return true;
+				case FieldArrayEditKind::Remove:
+					if (edit.Index >= size)
+					{
+						return false;
+					}
+					array.erase(static_cast<size_t>(edit.Index));
+					return true;
+				case FieldArrayEditKind::Move:
+				{
+					if (edit.Index >= size || edit.Target >= size)
+					{
+						return false;
+					}
+					Json moved = std::move(array[edit.Index]);
+					array.erase(static_cast<size_t>(edit.Index));
+					array.insert(at(edit.Target), std::move(moved));
+					return true;
+				}
+				case FieldArrayEditKind::Duplicate:
+				{
+					if (edit.Index >= size)
+					{
+						return false;
+					}
+					Json const copy = array[edit.Index];
+					array.insert(at(static_cast<size_t>(edit.Index) + 1), copy);
+					return true;
+				}
+			}
+			return false;
+		}
+
 		// The widest name cell of the rows of these fields (and of the nested structs' rows, open or not), laid out like
 		// DrawRows lays them out: the indentation, a switch's check box, the tree node's arrow and the name.
 		float MeasureNames(std::span<FieldDescriptor const> fields, int depth)
@@ -262,7 +371,15 @@ namespace Strada
 					width += ImGui::GetTreeNodeToLabelSpacing();
 					widest = std::max(widest, MeasureNames(field.Fields, depth + 1));
 				}
-				else if (!field.Hints.EnabledBy.empty() && FindField(fields, field.Hints.EnabledBy) != nullptr)
+				else if (IsStructArray(field))
+				{
+					// The header folds open, and the fields of its elements are one level below the elements' own rows (whose
+					// titles are left out: they are values, of any length).
+					width += ImGui::GetTreeNodeToLabelSpacing();
+					widest = std::max(widest, MeasureNames(field.Fields, depth + 2));
+				}
+				if (!field.Hints.EnabledBy.empty() && field.Kind != FieldKind::Struct &&
+				    FindField(fields, field.Hints.EnabledBy) != nullptr)
 				{
 					width += ImGui::GetFrameHeight() + style.ItemInnerSpacing.x;
 				}
@@ -874,6 +991,12 @@ namespace Strada
 				case FieldKind::Enum:
 					element.Default = element.EnumValues.empty() ? Json("") : Json(std::string(element.EnumValues.front()));
 					break;
+				case FieldKind::Struct:
+					// The array's type name is the struct's with "[]" after it.
+					element.TypeName =
+						array.TypeName.ends_with("[]") ? array.TypeName.substr(0, array.TypeName.size() - 2) : array.TypeName;
+					element.Default = MakeStructDefault(array.Fields);
+					break;
 				default:
 				{
 					int const size = GetVectorSize(element.Kind);
@@ -893,19 +1016,45 @@ namespace Strada
 			return Json::object();
 		}
 
-		std::string const root(Path.front());
-		Json field = values.is_object() && values.contains(root) ? values[root] : Json();
-		Json* node = &field;
-		for (size_t i = 1; i < Path.size(); i++)
+		std::string const root(Path.front().Field);
+		bool const present = values.is_object() && values.contains(root);
+		Json field = present ? values[root] : Json();
+		// What the object keeps when the path goes into an element its arrays do not have.
+		auto const unchanged = [&values, &root, present]
 		{
-			if (!node->is_object())
+			return present ? Json::object({{root, values[root]}}) : Json::object();
+		};
+		Json* node = &field;
+		for (size_t i = 0; i < Path.size(); i++)
+		{
+			FieldPathStep const& step = Path[i];
+			if (i > 0)
 			{
-				*node = Json::object();
+				if (!node->is_object())
+				{
+					*node = Json::object();
+				}
+				node = &(*node)[std::string(step.Field)];
 			}
-			node = &(*node)[std::string(Path[i])];
+			if (step.Element)
+			{
+				// Checked first: a non-const operator[] past the end would grow the array with nulls.
+				if (!node->is_array() || *step.Element >= node->size())
+				{
+					return unchanged();
+				}
+				node = &(*node)[*step.Element];
+			}
 		}
 
-		if (EulerDegrees && Component && *Component < 3 && node->is_array() && node->size() == 4)
+		if (ArrayEdit)
+		{
+			if (!ApplyArrayEdit(*node, *ArrayEdit, Value))
+			{
+				return unchanged();
+			}
+		}
+		else if (EulerDegrees && Component && *Component < 3 && node->is_array() && node->size() == 4)
 		{
 			// Other objects keep their own angles around the axes the user did not touch.
 			std::array<float, 4> const current = ReadFloats(*node);
@@ -930,6 +1079,42 @@ namespace Strada
 		return patch;
 	}
 
+	FieldEditor::FieldEditor()
+	{
+		std::vector<std::pair<std::string_view, FieldStructDrawer>> drawers = GetFieldStructDrawers();
+		for (auto& [name, drawer] : drawers)
+		{
+			m_StructDrawers[std::string(name)] = std::move(drawer);
+		}
+	}
+
+	void FieldEditor::SetStructDrawer(std::string structName, FieldStructDrawer drawer)
+	{
+		if (drawer)
+		{
+			m_StructDrawers[std::move(structName)] = std::move(drawer);
+		}
+		else
+		{
+			m_StructDrawers.erase(structName);
+		}
+	}
+
+	bool FieldEditor::HasStructDrawer(std::string_view structName) const
+	{
+		return m_StructDrawers.contains(std::string(structName));
+	}
+
+	FieldStructDrawer const* FieldEditor::FindStructDrawer(std::string_view structName) const
+	{
+		if (structName.empty())
+		{
+			return nullptr;
+		}
+		auto const found = m_StructDrawers.find(std::string(structName));
+		return found != m_StructDrawers.end() ? &found->second : nullptr;
+	}
+
 	float FieldEditor::GetNameColumnShare(std::span<FieldDescriptor const> fields, float tableWidth)
 	{
 		// The contents of the two columns are separated by the one-pixel border of a resizable table and the cell padding on
@@ -947,29 +1132,33 @@ namespace Strada
 	                                             std::span<std::string const> mixedFields, Scene* scene)
 	{
 		PruneEulerStates();
+		// A struct drawer may draw a table of its own with this editor: the outer table's scene stays.
+		Scene* const outerScene = m_Scene;
 		m_Scene = scene;
 		std::optional<FieldChange> change;
 		float const nameShare = GetNameColumnShare(fields, ImGui::GetContentRegionAvail().x);
 		if (!ImGui::BeginTable("##fields", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings))
 		{
+			m_Scene = outerScene;
 			return change;
 		}
 		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, nameShare);
 		ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f - nameShare);
-		std::vector<std::string_view> path;
-		DrawRows(fields, values, mixedFields, false, path, change);
+		std::vector<FieldPathStep> path;
+		DrawRows(fields, values, mixedFields, false, 0, path, change);
 		ImGui::EndTable();
-		m_Scene = nullptr;
+		m_Scene = outerScene;
 		return change;
 	}
 
 	void FieldEditor::DrawRows(std::span<FieldDescriptor const> fields, Json const& values, std::span<std::string const> mixedFields,
-	                           bool parentMixed, std::vector<std::string_view>& path, std::optional<FieldChange>& change)
+	                           bool parentMixed, int depth, std::vector<FieldPathStep>& path, std::optional<FieldChange>& change)
 	{
-		int const depth = static_cast<int>(path.size());
+		// mixedFields names fields of the edited objects themselves, not of their nested structs or elements.
+		bool const topLevel = path.empty();
 		auto const isMixed = [&](std::string const& key)
 		{
-			return parentMixed || (depth == 0 && std::find(mixedFields.begin(), mixedFields.end(), key) != mixedFields.end());
+			return parentMixed || (topLevel && std::find(mixedFields.begin(), mixedFields.end(), key) != mixedFields.end());
 		};
 		auto const getValue = [&values](FieldDescriptor const& field, std::string const& key) -> Json const&
 		{
@@ -980,7 +1169,7 @@ namespace Strada
 			// Switches are drawn in front of the fields they switch; fields that do not matter for their siblings' values are
 			// hidden, as are those edited by UI of their own.
 			if (IsSwitch(fields, field) || field.Hints.HiddenInEditors ||
-			    (!parentMixed && !IsVisible(field, fields, values, depth == 0 ? mixedFields : std::span<std::string const>())))
+			    (!parentMixed && !IsVisible(field, fields, values, topLevel ? mixedFields : std::span<std::string const>())))
 			{
 				continue;
 			}
@@ -992,17 +1181,15 @@ namespace Strada
 			ImGui::TableNextRow();
 			ImGui::TableSetColumnIndex(0);
 			std::string const label = UI::FormatDisplayName(field.Name);
-			path.push_back(field.Name);
-			if (field.Kind == FieldKind::Struct)
+			path.push_back({field.Name, std::nullopt});
+			FieldStructDrawer const* const structDrawer = FindStructDrawer(GetStructName(field));
+			if (field.Kind == FieldKind::Struct && structDrawer == nullptr)
 			{
-				if (depth > 0)
-				{
-					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + static_cast<float>(depth) * ImGui::GetStyle().IndentSpacing);
-				}
+				Indent(depth);
 				bool const open = ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen);
 				if (open)
 				{
-					DrawRows(field.Fields, value, {}, mixed, path, change);
+					DrawRows(field.Fields, value, {}, mixed, depth + 1, path, change);
 				}
 			}
 			else
@@ -1033,32 +1220,241 @@ namespace Strada
 					{
 						FieldChange switchChange;
 						switchChange.Path = path;
-						switchChange.Path.back() = switchField->Name;
+						switchChange.Path.back() = {switchField->Name, std::nullopt};
 						switchChange.Value = checked;
 						change = std::move(switchChange);
 					}
 					ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-					DrawLabel(label, MakeTooltip(field, mixed), mixed, 0, enabled);
+				}
+
+				if (IsStructArray(field))
+				{
+					// A header that folds the elements' rows away, with their count in the value column.
+					if (switchField == nullptr)
+					{
+						Indent(depth);
+					}
+					bool const colored = !enabled || mixed;
+					if (colored)
+					{
+						ImGui::PushStyleColor(ImGuiCol_Text, mixed ? MixedLabelColor : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+					}
+					bool const open =
+						ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen);
+					if (colored)
+					{
+						ImGui::PopStyleColor();
+					}
+					if (std::string const tooltip = MakeTooltip(field, mixed);
+					    !tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+					{
+						ImGui::SetTooltip("%s", tooltip.c_str());
+					}
+					ImGui::TableSetColumnIndex(1);
+					size_t const count = value.is_array() ? value.size() : 0;
+					ImGui::AlignTextToFramePadding();
+					if (field.Hints.MaxCount != 0)
+					{
+						ImGui::TextDisabled("%zu of at most %zu elements", count, field.Hints.MaxCount);
+					}
+					else
+					{
+						ImGui::TextDisabled(count == 1 ? "%zu element" : "%zu elements", count);
+					}
+					if (open)
+					{
+						ImGui::BeginDisabled(!enabled);
+						DrawStructArrayElements(field, value, mixed, depth + 1, path, change);
+						ImGui::EndDisabled();
+					}
 				}
 				else
 				{
-					DrawLabel(label, MakeTooltip(field, mixed), mixed, depth);
+					DrawLabel(label, MakeTooltip(field, mixed), mixed, switchField != nullptr ? 0 : depth, enabled);
+					ImGui::TableSetColumnIndex(1);
+					ImGui::PushItemWidth(-FLT_MIN);
+					ImGui::BeginDisabled(!enabled);
+					FieldChange fieldChange;
+					std::optional<uint32_t> element;
+					bool changed = false;
+					if (structDrawer != nullptr)
+					{
+						changed = DrawWithStructDrawer(*structDrawer, field, value, mixed, fieldChange);
+					}
+					else if (field.Kind == FieldKind::Array)
+					{
+						changed = DrawArrayElements(field, value, fieldChange, element);
+					}
+					else
+					{
+						changed = DrawValue(field, value, mixed, fieldChange);
+					}
+					if (changed && !change)
+					{
+						fieldChange.Path = path;
+						fieldChange.Path.back().Element = element;
+						change = std::move(fieldChange);
+					}
+					ImGui::EndDisabled();
+					ImGui::PopItemWidth();
 				}
-				ImGui::TableSetColumnIndex(1);
-				ImGui::PushItemWidth(-FLT_MIN);
-				ImGui::BeginDisabled(!enabled);
-				FieldChange fieldChange;
-				if (DrawValue(field, value, mixed, fieldChange) && !change)
-				{
-					fieldChange.Path = path;
-					change = std::move(fieldChange);
-				}
-				ImGui::EndDisabled();
-				ImGui::PopItemWidth();
 			}
 			path.pop_back();
 			ImGui::PopID();
 		}
+	}
+
+	void FieldEditor::DrawStructArrayElements(FieldDescriptor const& field, Json const& value, bool mixed, int depth,
+	                                          std::vector<FieldPathStep>& path, std::optional<FieldChange>& change)
+	{
+		size_t const count = value.is_array() ? value.size() : 0;
+		bool const full = IsFull(field, count);
+		FieldDescriptor const element = MakeElementDescriptor(field);
+		FieldStructDrawer const* const structDrawer = FindStructDrawer(GetStructName(element));
+		std::optional<FieldArrayEdit> edit;
+		// The element rows of this array, in this table: an element an edit put in place opens when it shows.
+		ImGuiID const scope = ImGui::GetID("##elements");
+		std::optional<uint32_t> opened;
+		// The tooltip of an item that adds elements, enabled or not.
+		auto const explainAdding = [&field, full](char const* action)
+		{
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+			{
+				ImGui::SetTooltip("%s", full ? DescribeFullArray(field).c_str() : action);
+			}
+		};
+		for (size_t i = 0; i < count; i++)
+		{
+			uint32_t const index = static_cast<uint32_t>(i);
+			Json const& elementValue = value[i];
+			ImGui::PushID(static_cast<int>(i));
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			Indent(depth);
+			std::string const title = DescribeElement(field, elementValue, i);
+			if (m_OpenElementScope == scope && m_OpenElement == index)
+			{
+				ImGui::SetNextItemOpen(true);
+				m_OpenElementScope = 0;
+			}
+			bool const open = ImGui::TreeNodeEx("##element", ImGuiTreeNodeFlags_NoTreePushOnOpen, "%s", title.c_str());
+			ImGui::OpenPopupOnItemClick("##elementMenu", ImGuiPopupFlags_MouseButtonRight);
+			ImGui::TableSetColumnIndex(1);
+			float const buttonWidth = ImGui::GetFrameHeight() * 1.5f;
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - buttonWidth));
+			if (ImGui::Button("...", ImVec2(buttonWidth, 0.0f)))
+			{
+				ImGui::OpenPopup("##elementMenu");
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+			{
+				ImGui::SetTooltip("Move, duplicate, insert or remove %s", title.c_str());
+			}
+			if (ImGui::BeginPopup("##elementMenu"))
+			{
+				// An open element stays open where it moves.
+				if (ImGui::MenuItem("Move Up", nullptr, false, i > 0))
+				{
+					edit = FieldArrayEdit{FieldArrayEditKind::Move, index, index - 1};
+					opened = open ? std::optional<uint32_t>(index - 1) : std::nullopt;
+				}
+				if (ImGui::MenuItem("Move Down", nullptr, false, i + 1 < count))
+				{
+					edit = FieldArrayEdit{FieldArrayEditKind::Move, index, index + 1};
+					opened = open ? std::optional<uint32_t>(index + 1) : std::nullopt;
+				}
+				if (ImGui::MenuItem("Duplicate", nullptr, false, !full))
+				{
+					edit = FieldArrayEdit{FieldArrayEditKind::Duplicate, index, 0};
+					opened = index + 1;
+				}
+				explainAdding("Puts a copy of the element after it.");
+				if (ImGui::MenuItem("Insert Above", nullptr, false, !full))
+				{
+					edit = FieldArrayEdit{FieldArrayEditKind::Insert, index, 0};
+					opened = index;
+				}
+				explainAdding("Puts a new element in its place, moving it and those after it down.");
+				ImGui::Separator();
+				if (ImGui::MenuItem("Remove"))
+				{
+					edit = FieldArrayEdit{FieldArrayEditKind::Remove, index, 0};
+				}
+				ImGui::EndPopup();
+			}
+			if (open)
+			{
+				path.back().Element = index;
+				if (structDrawer != nullptr)
+				{
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(1);
+					ImGui::PushItemWidth(-FLT_MIN);
+					FieldChange elementChange;
+					if (DrawWithStructDrawer(*structDrawer, element, elementValue, mixed, elementChange) && !change)
+					{
+						elementChange.Path = path;
+						change = std::move(elementChange);
+					}
+					ImGui::PopItemWidth();
+				}
+				else
+				{
+					DrawRows(field.Fields, elementValue, {}, mixed, depth + 1, path, change);
+				}
+				path.back().Element.reset();
+			}
+			ImGui::PopID();
+		}
+
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(1);
+		ImGui::BeginDisabled(full);
+		if (ImGui::Button("Add Element", ImVec2(-FLT_MIN, 0.0f)))
+		{
+			edit = FieldArrayEdit{FieldArrayEditKind::Insert, FieldArrayEdit::End, 0};
+			opened = static_cast<uint32_t>(count);
+		}
+		ImGui::EndDisabled();
+		explainAdding("Adds an element after the last.");
+		if (m_OpenElementScope == scope)
+		{
+			// The element to open is not there (the edit was refused, or another changed the array first).
+			m_OpenElementScope = 0;
+		}
+
+		if (edit && !change)
+		{
+			if (opened)
+			{
+				m_OpenElementScope = scope;
+				m_OpenElement = *opened;
+			}
+			FieldChange arrayChange;
+			arrayChange.Path = path;
+			arrayChange.ArrayEdit = edit;
+			if (edit->Kind == FieldArrayEditKind::Insert)
+			{
+				arrayChange.Value = element.Default;
+			}
+			change = std::move(arrayChange);
+		}
+	}
+
+	bool FieldEditor::DrawWithStructDrawer(FieldStructDrawer const& drawer, FieldDescriptor const& field, Json const& value, bool mixed,
+	                                       FieldChange& change)
+	{
+		// Rows drawn inside ImGui::BeginDisabled (a switched-off field, a read-only inspector) report no change.
+		bool const editable = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) == 0;
+		std::optional<FieldStructEdit> edit = drawer(FieldStructDrawContext{field, value, mixed, editable, *this});
+		if (!edit || !editable)
+		{
+			return false;
+		}
+		change.Value = std::move(edit->Value);
+		change.Description = std::move(edit->Description);
+		change.MergeKey = edit->MergeKey;
+		return true;
 	}
 
 	bool FieldEditor::DrawValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change)
@@ -1291,21 +1687,23 @@ namespace Strada
 		return true;
 	}
 
-	bool FieldEditor::DrawArray(FieldDescriptor const& field, Json const& value, FieldChange& change)
+	bool FieldEditor::DrawArrayElements(FieldDescriptor const& field, Json const& value, FieldChange& change,
+	                                    std::optional<uint32_t>& element)
 	{
-		Json elements = value.is_array() ? value : Json::array();
-		FieldDescriptor const element = MakeElementDescriptor(field);
+		size_t const count = value.is_array() ? value.size() : 0;
+		FieldDescriptor const descriptor = MakeElementDescriptor(field);
 		bool changed = false;
 		float const buttonWidth = ImGui::GetFrameHeight();
 		float const spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-		for (size_t i = 0; i < elements.size(); i++)
+		for (size_t i = 0; i < count; i++)
 		{
 			ImGui::PushID(static_cast<int>(i));
 			ImGui::PushItemWidth(-(buttonWidth + spacing));
 			FieldChange elementChange;
-			if (DrawValue(element, elements[i], false, elementChange))
+			if (DrawValue(descriptor, value[i], false, elementChange) && !changed)
 			{
-				elements[i] = std::move(elementChange.Value);
+				change = std::move(elementChange);
+				element = static_cast<uint32_t>(i);
 				changed = true;
 			}
 			ImGui::PopItemWidth();
@@ -1316,23 +1714,48 @@ namespace Strada
 				ImGui::SetTooltip("Remove element %zu", i);
 			}
 			ImGui::PopID();
-			if (removed)
+			if (removed && !changed)
 			{
-				elements.erase(i);
+				change = FieldChange();
+				change.ArrayEdit = FieldArrayEdit{FieldArrayEditKind::Remove, static_cast<uint32_t>(i), 0};
 				changed = true;
-				break;
 			}
 		}
-		if (ImGui::Button(elements.empty() ? "Add Element" : "+", ImVec2(elements.empty() ? ImGui::CalcItemWidth() : buttonWidth, 0.0f)))
+		bool const full = IsFull(field, count);
+		ImGui::BeginDisabled(full);
+		if (ImGui::Button(count == 0 ? "Add Element" : "+", ImVec2(count == 0 ? ImGui::CalcItemWidth() : buttonWidth, 0.0f)) && !changed)
 		{
-			elements.push_back(element.Default);
+			change = FieldChange();
+			change.ArrayEdit = FieldArrayEdit{FieldArrayEditKind::Insert, FieldArrayEdit::End, 0};
+			change.Value = descriptor.Default;
 			changed = true;
 		}
-		if (changed)
+		ImGui::EndDisabled();
+		if (full && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
 		{
-			change.Value = std::move(elements);
+			ImGui::SetTooltip("%s", DescribeFullArray(field).c_str());
 		}
 		return changed;
+	}
+
+	bool FieldEditor::DrawArray(FieldDescriptor const& field, Json const& value, FieldChange& change)
+	{
+		FieldChange edit;
+		std::optional<uint32_t> element;
+		if (!DrawArrayElements(field, value, edit, element))
+		{
+			return false;
+		}
+		// The change applied to this one array: its whole new value.
+		std::string const key = "Array";
+		edit.Path = {FieldPathStep{key, element}};
+		Json patch = edit.MakePatch(Json::object({{key, value.is_array() ? value : Json::array()}}));
+		if (!patch.contains(key))
+		{
+			return false;
+		}
+		change.Value = std::move(patch[key]);
+		return true;
 	}
 
 	bool FieldEditor::DrawAsset(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change)

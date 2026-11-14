@@ -174,7 +174,7 @@ TEST_CASE("ScriptFieldInspection: an edit reaches every selected entity's own va
 
 	// X of Offset changed on the first entity: each keeps its own Y and Z.
 	FieldChange change;
-	change.Path = {"Offset"};
+	change.Path = {{"Offset"}};
 	change.Value = Json::array({9.0, 2.0, 3.0});
 	change.Component = 0;
 	Result<std::vector<ComponentEdit>> edits = ScriptFieldInspection::MakeEdits(info, entities, components, editorValues, change);
@@ -185,7 +185,7 @@ TEST_CASE("ScriptFieldInspection: an edit reaches every selected entity's own va
 	CHECK(edits.GetValue()[0].Patch["Fields"]["Offset"] == Stored("Vector3", Json::array({9.0, 2.0, 3.0})));
 	CHECK(edits.GetValue()[1].Patch["Fields"]["Offset"] == Stored("Vector3", Json::array({9.0, 5.0, 6.0})));
 
-	change.Path = {"Speed"};
+	change.Path = {{"Speed"}};
 	change.Value = "fast";
 	change.Component.reset();
 	CHECK(ScriptFieldInspection::MakeEdits(info, entities, components, editorValues, change).IsError());
@@ -203,7 +203,7 @@ TEST_CASE("ScriptFieldInspection: edits of another component's map of script fie
 	                                          ScriptFieldInspection::ToEditorValues(info, Json::object())};
 
 	FieldChange change;
-	change.Path = {"Speed"};
+	change.Path = {{"Speed"}};
 	change.Value = 6.0;
 	Result<std::vector<ComponentEdit>> edits =
 		ScriptFieldInspection::MakeEdits(info, entities, components, editorValues, change, "VisualScript", "Variables");

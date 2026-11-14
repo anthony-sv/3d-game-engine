@@ -3,6 +3,7 @@
 #include "Editor/UI/EditorUI.h"
 
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Physics/PhysicsTypes.h"
 
 #include <imgui.h>
 
@@ -27,6 +28,74 @@ namespace Strada
 		{
 			return JsonTraits<std::vector<PhysicsLayerPair>>::ToJson(pairs);
 		}
+
+		// Whether the change edits the list of physics layers as a list (adds or removes a layer).
+		bool IsLayerListEdit(FieldChange const& change)
+		{
+			return change.ArrayEdit && change.Path.size() == 2 && change.Path[0] == FieldPathStep{"Physics", std::nullopt} &&
+			       change.Path[1] == FieldPathStep{"Layers", std::nullopt};
+		}
+
+		// A name for a layer added to the list: layer names are unique and not empty.
+		std::string MakeLayerName(std::vector<std::string> const& layers)
+		{
+			for (size_t number = layers.size();; number++)
+			{
+				std::string name = fmt::format("Layer {}", number);
+				if (std::find(layers.begin(), layers.end(), name) == layers.end())
+				{
+					return name;
+				}
+			}
+		}
+
+		// The ignored pairs after a list edit of the layers: pairs naming a removed layer are dropped, and the others name
+		// their layers where the edit put them.
+		std::vector<PhysicsLayerPair> RenumberPairs(std::vector<PhysicsLayerPair> pairs, FieldArrayEdit const& edit, size_t layerCount)
+		{
+			if (edit.Kind == FieldArrayEditKind::Remove)
+			{
+				std::erase_if(pairs,
+				              [&edit](PhysicsLayerPair const& pair)
+				              {
+								  return pair.First == edit.Index || pair.Second == edit.Index;
+							  });
+			}
+			auto const renumber = [&edit, layerCount](uint32_t layer) -> uint32_t
+			{
+				switch (edit.Kind)
+				{
+					case FieldArrayEditKind::Insert:
+						// An insertion past the end appends, after every layer.
+						return edit.Index < layerCount && layer >= edit.Index ? layer + 1 : layer;
+					case FieldArrayEditKind::Duplicate:
+						return layer > edit.Index ? layer + 1 : layer;
+					case FieldArrayEditKind::Remove:
+						return layer > edit.Index ? layer - 1 : layer;
+					case FieldArrayEditKind::Move:
+						if (layer == edit.Index)
+						{
+							return edit.Target;
+						}
+						if (edit.Index < edit.Target && layer > edit.Index && layer <= edit.Target)
+						{
+							return layer - 1;
+						}
+						if (edit.Target < edit.Index && layer >= edit.Target && layer < edit.Index)
+						{
+							return layer + 1;
+						}
+						return layer;
+				}
+				return layer;
+			};
+			for (PhysicsLayerPair& pair : pairs)
+			{
+				pair.First = renumber(pair.First);
+				pair.Second = renumber(pair.Second);
+			}
+			return pairs;
+		}
 	}
 
 	ProjectSettingsPanel::ProjectSettingsPanel()
@@ -44,6 +113,14 @@ namespace Strada
 				              {
 								  return nested.Name == "IgnoredCollisions";
 							  });
+				// The panel adds no layer past the most a project takes (ValidateProjectSettings refuses more).
+				for (FieldDescriptor& nested : field.Fields)
+				{
+					if (nested.Name == "Layers")
+					{
+						nested.Hints.MaxCount = MaxPhysicsLayers;
+					}
+				}
 			}
 			m_Fields.push_back(std::move(field));
 		}
@@ -77,18 +154,19 @@ namespace Strada
 		Json const values = SerializeFields<StructTraits<ProjectSettings>>(project->GetSettings());
 		if (std::optional<FieldChange> const change = m_FieldEditor.Draw(m_Fields, values))
 		{
-			Json patch = change->MakePatch(values);
-			// Removing layers drops the ignored collisions that named them.
-			if (patch.contains("Physics") && patch["Physics"].contains("Layers"))
+			ProjectPhysicsSettings const& physics = project->GetSettings().Physics;
+			FieldChange edit = *change;
+			bool const layerListEdit = IsLayerListEdit(edit);
+			if (layerListEdit && edit.ArrayEdit->Kind == FieldArrayEditKind::Insert && edit.Value == "")
 			{
-				size_t const layerCount = patch["Physics"]["Layers"].size();
-				std::vector<PhysicsLayerPair> pairs = project->GetSettings().Physics.IgnoredCollisions;
-				std::erase_if(pairs,
-				              [layerCount](PhysicsLayerPair const& pair)
-				              {
-								  return pair.First >= layerCount || pair.Second >= layerCount;
-							  });
-				patch["Physics"]["IgnoredCollisions"] = SerializePairs(pairs);
+				edit.Value = MakeLayerName(physics.Layers);
+			}
+			Json patch = edit.MakePatch(values);
+			// The ignored collisions name layers by index: they follow the layers a list edit moves, and go with a removed one.
+			if (layerListEdit && patch.contains("Physics"))
+			{
+				patch["Physics"]["IgnoredCollisions"] =
+					SerializePairs(RenumberPairs(physics.IgnoredCollisions, *edit.ArrayEdit, physics.Layers.size()));
 			}
 			Apply(operations, std::move(patch));
 		}

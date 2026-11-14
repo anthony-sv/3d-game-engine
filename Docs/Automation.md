@@ -232,7 +232,7 @@ already waiting for a draw answers Cancelled). `editor.entity-menu` and `editor.
 | `component.add` | `entity`*, `component`*, `fields` | `component`, `fields` |
 | `component.remove` | `entity`*, `component`* (core components cannot be removed) | `removed` |
 | `component.get` | `entity`*, `component`* | `component`, `fields` |
-| `component.set` | `entity`*, `component`*, `fields`* (partial patch; invalid values change nothing) | `component`, `fields` |
+| `component.set` | `entity`*, `component`*, `fields`* (partial patch: the fields given replace theirs whole, an array with all its elements; invalid values change nothing) | `component`, `fields` |
 
 While playing, a `Script` component's `Fields` are the values its running script holds (`entity.get` and
 `component.get` read them from the script), and `component.set` sets the given ones in the script at once, also while

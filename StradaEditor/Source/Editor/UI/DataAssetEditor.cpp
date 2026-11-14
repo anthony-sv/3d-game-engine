@@ -89,7 +89,8 @@ namespace Strada
 		{
 			return std::nullopt;
 		}
-		return DataAssetEdit{change->MakePatch(context.Fields), {}, 0};
+		// A struct drawer's description and key come along; empty and 0 are the type's step and the inspector's interaction.
+		return DataAssetEdit{change->MakePatch(context.Fields), change->Description, change->MergeKey};
 	}
 
 	bool DataAssetEditor::IsEditable(AssetHandle asset)

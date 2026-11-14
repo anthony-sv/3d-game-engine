@@ -21,6 +21,7 @@ add_executable(StradaEditorTests
     Source/EditorUITests.cpp
     Source/EditorWindowOptionsTests.cpp
     Source/ExportCommandsTests.cpp
+    Source/FieldEditorArrayTests.cpp
     Source/GameInputTests.cpp
     Source/GraphCommandsTests.cpp
     Source/GraphDebugCommandsTests.cpp

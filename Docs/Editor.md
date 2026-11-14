@@ -448,6 +448,7 @@ the border between the columns to give the names more room.
 | Flags | A drop-down list of check boxes |
 | Text | A text field; some fields have several lines |
 | List | One row per element with "-" to remove it, "+" (or Add Element while empty) to add one |
+| List of groups | A row per element (titled by its name when it has one) that unfolds into the element's fields; its "..." menu (or a right click) moves the element up or down, duplicates it, inserts a new one above it or removes it, and Add Element adds one at the end. A list with a size limit stops adding there |
 | Group | A tree node with the group's fields under it |
 | Asset | A box with the asset, "..." and "x" ([below](#asset-fields)) |
 | Entity | A button with the entity's name ([below](#entity-fields)) |

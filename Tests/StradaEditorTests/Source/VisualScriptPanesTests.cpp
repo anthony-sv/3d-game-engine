@@ -1282,7 +1282,7 @@ TEST_CASE(
 		headless.Press(ImGuiKey_Enter, draw);
 		REQUIRE(change);
 		CHECK(change->Value == "W");
-		CHECK(change->Path == std::vector<std::string_view>{"Key"});
+		CHECK(change->Path == std::vector<FieldPathStep>{{"Key"}});
 		CHECK(GImGui->OpenPopupStack.Size == 0);
 	}
 }

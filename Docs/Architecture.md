@@ -1911,35 +1911,47 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   asset editor (§6.4): their type's field table, or the drawer of their type.
 - Arrays in field tables (`FieldEditor`, in the inspector, the data asset editor and the settings panels): an array of
   plain values (numbers, strings, assets, ...) is a row of widgets per element with `-`, then `+`. An array of reflected
-  structs shows each element as a folding row, `<index>: <title>` (the title is the element's first string field, such
-  as its name, when it has one), with a menu button (Move Up, Move Down, Duplicate, Insert Above, Remove) and, unfolded,
-  the element's fields as nested rows, where visibility conditions and switches are those of the element's own struct;
-  Add Element after the last appends a default element. At the field's `MaxCount` the buttons that add are disabled
-  and say why. Every change is one undo step (a drag inside an element, one interaction, merges as everywhere) that
-  patches by index, so editing several selected objects (entities whose components hold arrays, splines among them)
-  keeps each object's own elements: `FieldChange::Path` is a list of `FieldPathStep { Field, Element }` (the field
-  names from the edited object down to the changed value, each with the index of the element the path goes into when
-  the field is an array), and `FieldChange::ArrayEdit` (`FieldArrayEdit { Kind, Index, Target }`) changes the array the
-  path ends at as a list: `Insert` puts `Value` at `Index` (the array's size appends), `Remove` removes `Index`, `Move`
-  takes the element at `Index` out and puts it back at `Target`. `MakePatch(values)` applies the change to the object
-  whose fields `values` holds and gives the whole new value of the top-level field: an element edit, a removal or a move
-  at an index that object's array does not have leaves its array as it is, and an insertion past its end appends. With
-  several objects selected, the rows show the first object's elements, and when the objects' arrays differ the whole
-  array is flagged as differing, as a nested struct is (the selection's differing fields are named at the top level).
-  The Project Settings panel's layer list is such an array: removing a layer renumbers the ignored collision pairs
-  (pairs naming it are dropped, those above move down), and the collision matrix stays as it is.
+  structs is a header row that folds away (its count, `2 of at most 16 elements`), then a folding row per element,
+  `<index>: <title>` (the title is the element's first string field, such as its name, when it is not empty;
+  `Element <index>` otherwise), starting folded, with a menu button (Move Up, Move Down, Duplicate, Insert Above, Remove;
+  also on a right click of the row) and, unfolded, the element's fields as nested rows, where visibility conditions and
+  switches are those of the element's own struct; Add Element after the last appends a default element (each field's
+  default). An element an edit puts in place (added, inserted, duplicated, or moved while open) opens. At the field's
+  `MaxCount` the buttons that add are disabled and say why. Every change is one undo step (a drag inside an element, one
+  interaction, merges as everywhere) that patches by index, so editing several selected objects (entities whose
+  components hold arrays, splines among them) keeps each object's own elements: `FieldChange::Path` is a list of
+  `FieldPathStep { Field, Element }` (the field names from the edited object down to the changed value, each with the
+  index of the element the path goes into when the field is an array; an element of an array of plain values is changed
+  by a path whose last step names it), and `FieldChange::ArrayEdit` (`FieldArrayEdit { Kind, Index, Target }`) changes
+  the array the path ends at as a list: `Insert` puts `Value` at `Index` (`FieldArrayEdit::End`, or any index at or past
+  the array's size, appends), `Remove` removes `Index`, `Move` takes the element at `Index` out and puts it back at
+  `Target`, `Duplicate` puts a copy of that object's own element at `Index` after it. `MakePatch(values)` applies the
+  change to the object whose fields `values` holds and gives the whole new value of the top-level field: an element
+  edit, a removal, a move or a duplication at an index that object's array does not have leaves its array as it is, and
+  an insertion past its end appends. With several objects selected, the rows show the first object's elements, and when
+  the objects' arrays differ the whole array is flagged as differing, as a nested struct is (the selection's differing
+  fields are named at the top level); an insertion into an object already at the field's `MaxCount` is refused with the
+  field table's message and changes nothing. Values drawn without a table row (`DrawInlineValue`, `DrawValuePopup`)
+  report an array's whole new value. Automation sets an array field whole (`component.set`, `<domain>.set`): what the
+  editor's index edits produce, given as the array they leave. The Project Settings panel's layer list is such an array
+  (it adds no layer past 16, the most a project takes): a layer it adds is named `Layer <n>` (layer names are unique and
+  not empty), removing a layer renumbers the ignored collision pairs (pairs naming it are dropped, those above move
+  down), and the collision matrix stays as it is.
 - Struct drawers: a reflected struct type (`StructTraits<T>::Name`) may have a drawer of its own, used wherever the
   struct appears (a field, a nested struct, an array element) in every `FieldEditor` (the inspector, Project Settings,
-  Scene Settings, the Build Game dialog, the visual script literal editor). The editor's struct drawers are one list in
-  `Editor/UI/FieldStructDrawers.cpp`, where a type's track adds its line, which every `FieldEditor` installs when it is
-  constructed; `FieldEditor::SetStructDrawer(structName, drawer)` adds or replaces one for that field editor only (tests,
-  a panel's own). A drawer gets a `FieldStructDrawContext` (the field's descriptor, its value, whether the selection's
-  values differ, whether it is editable, and the field editor, for nested asset pickers) and returns, when the user
-  changed something, a `FieldStructEdit`: the struct's whole new value, the step's name in the undo history and a merge
-  key, empty and 0 meaning the caller's own, as a data asset drawer's are (§6.4). The field editor reports it as a
-  change at the struct's path (`FieldChange` carries the description and key, which the panels that make undo steps of
-  changes use when they are set), so a curve embedded in other data is edited with the curve editor and undone like any
-  field.
+  Scene Settings, the Build Game dialog, the visual script literal editor), in the value column of the struct's row (an
+  open element's drawer gets a row of its own below the element's). The editor's struct drawers are one list in
+  `Editor/UI/FieldStructDrawers.cpp` (`GetFieldStructDrawers`), where a type's track adds its line, which every
+  `FieldEditor` installs when it is constructed; `FieldEditor::SetStructDrawer(structName, drawer)` adds or replaces one
+  for that field editor only (tests, a panel's own), and an empty drawer removes it. A drawer gets a
+  `FieldStructDrawContext` (the field's descriptor, its value, whether the selection's values differ, whether it is
+  editable (false inside `ImGui::BeginDisabled`), and the field editor, for nested asset pickers) and returns, when the
+  user changed something, a `FieldStructEdit`: the struct's whole new value, the step's name in the undo history and a
+  merge key, empty and 0 meaning the caller's own, as a data asset drawer's are (§6.4). The field editor reports it as a
+  change at the struct's path (`FieldChange` carries the description and key; the inspector, the material and scene
+  settings panels and the data asset editor use a non-zero key in place of their interaction's, and the data asset
+  editor the description, as its step's name), so a curve embedded in other data is edited with the curve editor and
+  undone like any field.
 - Content Browser: a folder tree with two roots, the open project's asset directory and its C# scripts
   (`Scripts/Source`, `ScriptBrowsing`), beside the displayed folder as tiles (folders, then assets or scripts, then
   files that are not assets, such as a glTF scene's buffers) labeled with their file names on two lines (a long name

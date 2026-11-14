@@ -7,6 +7,8 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
+#include <functional>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -20,23 +22,104 @@ struct ImGuiInputTextCallbackData;
 namespace Strada
 {
 	class AssetThumbnails;
+	class FieldEditor;
 	class Scene;
+
+	// One step of the path from an edited object down to a changed value: a field name, and the index of the element the path
+	// goes into when the field is an array.
+	struct FieldPathStep
+	{
+		std::string_view Field;
+		std::optional<uint32_t> Element = std::nullopt;
+
+		bool operator==(FieldPathStep const& other) const = default;
+	};
+
+	// How FieldArrayEdit changes an array.
+	enum class FieldArrayEditKind : uint8_t
+	{
+		// Puts FieldChange::Value at Index (FieldArrayEdit::End, or any index at or past the array's size, appends).
+		Insert = 0,
+		// Removes the element at Index.
+		Remove,
+		// Takes the element at Index out and puts it back at Target.
+		Move,
+		// Puts a copy of the element at Index right after it.
+		Duplicate
+	};
+
+	// A change of an array as a list, by index, so that each edited object keeps its own elements.
+	struct FieldArrayEdit
+	{
+		// An Insert's Index that appends to every array, whatever its size.
+		static constexpr uint32_t End = std::numeric_limits<uint32_t>::max();
+
+		FieldArrayEditKind Kind = FieldArrayEditKind::Insert;
+		uint32_t Index = 0;
+		uint32_t Target = 0;
+
+		bool operator==(FieldArrayEdit const& other) const = default;
+	};
+
+	// What a struct drawer (FieldEditor::SetStructDrawer) draws from.
+	struct FieldStructDrawContext
+	{
+		FieldDescriptor const& Field;
+		// The struct's value (an object of its fields).
+		Json const& Value;
+		// The edited objects' values differ: the drawer shows the first's, and an edit sets every object's.
+		bool Mixed = false;
+		// Disabled fields report no change: drawers draw their widgets disabled otherwise.
+		bool Editable = true;
+		// The field editor drawing the struct, for the asset references and values the drawer draws with it.
+		FieldEditor& Editor;
+	};
+
+	// A struct drawer's change: the struct's whole new value, the undo step's name (empty for the caller's own) and a merge
+	// key (0 for the caller's, its interaction): a widget that commits at its own cadence (a curve editor's nudges) gives its
+	// own key.
+	struct FieldStructEdit
+	{
+		Json Value;
+		std::string Description;
+		uint64_t MergeKey = 0;
+	};
+
+	// Draws a reflected struct of one type wherever it appears in a field table (a field, a nested struct, an array element)
+	// instead of its fields' rows, and returns the user's change of this frame. Main thread only, inside an ImGui frame, in
+	// the value column of the struct's row.
+	using FieldStructDrawer = std::function<std::optional<FieldStructEdit>(FieldStructDrawContext const& context)>;
+
+	// The editor-wide struct drawers every FieldEditor starts with, by the struct's name (StructTraits<T>::Name): one list in
+	// FieldStructDrawers.cpp, where a type's track adds its line.
+	std::vector<std::pair<std::string_view, FieldStructDrawer>> GetFieldStructDrawers();
 
 	// A value the user changed through a FieldEditor in the current frame.
 	struct FieldChange
 	{
-		// Field names from the edited object down to the changed field (more than one for fields of nested structs).
-		std::vector<std::string_view> Path;
-		// The new value of that field in the scene-file JSON format.
+		// From the edited object down to the changed value: field names (more than one for fields of nested structs and of
+		// array elements), each with the index of the element the path goes into when the field is an array. An element of
+		// an array of plain values is changed by a path whose last step names its index.
+		std::vector<FieldPathStep> Path;
+		// The new value in the scene-file JSON format (an inserted element for ArrayEdit's Insert).
 		Json Value;
 		// Vectors, bool vectors and quaternions edited as Euler angles: the single component the user changed, so applying
 		// the change to several objects keeps their other components. Empty when the whole value changed.
 		std::optional<uint32_t> Component;
 		// Quaternions: the edited Euler angles in degrees.
 		std::optional<glm::vec3> EulerDegrees;
+		// The array the path ends at changed as a list (an element added, removed, moved or duplicated) instead of taking
+		// Value.
+		std::optional<FieldArrayEdit> ArrayEdit;
+		// A struct drawer's name for the undo step and its merge key; empty and 0 take the caller's own.
+		std::string Description;
+		uint64_t MergeKey = 0;
 
 		// A partial patch applying this change to an object whose current fields are `values` (its whole JSON object):
-		// { "<Path[0]>": <that field's value with the change applied> }.
+		// { "<Path[0].Field>": <that field's value with the change applied> }. Elements are changed by index in the object's
+		// own arrays: an element edit, a removal, a move or a duplication at an index the object's array does not have leaves
+		// the array as it is, and an insertion past its end appends. Empty without a path, and when the path goes into an
+		// element of a field `values` does not have.
 		Json MakePatch(Json const& values) const;
 	};
 
@@ -70,15 +153,28 @@ namespace Strada
 
 	// Draws editing widgets for reflected fields as the rows of a two-column property table (labels with descriptions as
 	// tooltips, widgets chosen by the field kind and hints) and reports the user's change; callers turn it into an
-	// undoable operation. Values are the scene-file JSON of the edited object. Colors are shown and picked in sRGB while
-	// the data stays linear; quaternions are shown as Euler angles in degrees. A field's switch (FieldHints::EnabledBy) is
-	// a check box in front of its name instead of a row of its own, and the field's value is disabled while the switch is
-	// off; fields hidden in editors (FieldHints::HiddenInEditors) get no row. The name column starts as wide as the names
-	// need (GetNameColumnShare) and users can resize it; names that do not fit are shortened with an ellipsis and shown in
-	// full in their tooltips. Main thread only, inside an ImGui frame.
+	// undoable operation (Docs/Architecture.md §11). Arrays of plain values are a row of widgets per element with "-",
+	// then "+"; arrays of reflected structs fold open into a row per element ("<index>: <title>", with a menu to move,
+	// duplicate, insert above and remove it) over the element's own field rows, then Add Element; buttons that add are
+	// disabled at the field's MaxCount. Every array change reports the element's index or the list edit
+	// (FieldChange::ArrayEdit), never the whole array, so each edited object keeps its own elements. A reflected struct
+	// with a struct drawer is drawn by it instead of its rows. Values are the scene-file JSON of the edited object. Colors are shown and
+	// picked in sRGB while the data stays linear; quaternions are shown as Euler angles in degrees. A field's switch
+	// (FieldHints::EnabledBy) is a check box in front of its name instead of a row of its own, and the field's value is disabled while the
+	// switch is off; fields hidden in editors (FieldHints::HiddenInEditors) get no row. The name column starts as wide as the names need
+	// (GetNameColumnShare) and users can resize it; names that do not fit are shortened with an ellipsis and shown in full in their
+	// tooltips. Main thread only, inside an ImGui frame.
 	class FieldEditor
 	{
 	public:
+		// With the editor-wide struct drawers (GetFieldStructDrawers).
+		FieldEditor();
+
+		// Draws every struct named structName (StructTraits<T>::Name) with the drawer in this editor's tables, replacing the
+		// editor-wide drawer of that struct; an empty drawer removes it.
+		void SetStructDrawer(std::string structName, FieldStructDrawer drawer);
+		bool HasStructDrawer(std::string_view structName) const;
+
 		// Draws one row per field into a new table. `mixedFields` names fields whose values differ between the edited
 		// objects (several selected entities): they are flagged, and editing them sets the same value everywhere. `scene`
 		// resolves entity references to names (may be null).
@@ -104,7 +200,8 @@ namespace Strada
 		std::optional<AssetHandle> DrawAssetReference(AssetHandle current, AssetReferenceOptions const& options);
 
 		// Draws the widget of one value without a table row, as wide as the next item (ImGui::SetNextItemWidth or the item
-		// width pushed), in the current ID scope; returns true and fills change (except Path) when the user changed it. mixed
+		// width pushed), in the current ID scope; returns true and fills change (except Path) when the user changed it (an
+		// array's whole new value, as no path names its elements here). mixed
 		// shows the value as differing between edited objects. In Compact mode a click on the frame of a colour, an enum, a
 		// [Flags] enum or an asset sets *popupRequested and opens nothing: the caller opens a popup of its own at the window's
 		// normal size and draws its body with DrawValuePopup. popupRequested must not be null in Compact mode (a click is then
@@ -139,7 +236,17 @@ namespace Strada
 		};
 
 		void DrawRows(std::span<FieldDescriptor const> fields, Json const& values, std::span<std::string const> mixedFields,
-		              bool parentMixed, std::vector<std::string_view>& path, std::optional<FieldChange>& change);
+		              bool parentMixed, int depth, std::vector<FieldPathStep>& path, std::optional<FieldChange>& change);
+		// The rows of the elements of an array of reflected structs, below its header row (the path's last step names the
+		// array): a folding row per element with its menu, over the element's field rows at depth + 1 (or its struct drawer),
+		// then Add Element.
+		void DrawStructArrayElements(FieldDescriptor const& field, Json const& value, bool mixed, int depth,
+		                             std::vector<FieldPathStep>& path, std::optional<FieldChange>& change);
+		// The value column of a struct drawn by its drawer; returns true and fills change (except Path) when it changed.
+		bool DrawWithStructDrawer(FieldStructDrawer const& drawer, FieldDescriptor const& field, Json const& value, bool mixed,
+		                          FieldChange& change);
+		// The drawer of the struct type of that name, or null.
+		FieldStructDrawer const* FindStructDrawer(std::string_view structName) const;
 		// Draws the widget of one value; returns true and fills `change` (except Path) when the user changed it.
 		bool DrawValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change);
 		bool DrawCompactValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change, bool& popupRequested);
@@ -151,6 +258,11 @@ namespace Strada
 		bool DrawEnumList(FieldDescriptor const& field, std::string const& current, float width, FieldChange& change);
 		static int OnEnumFilterKey(ImGuiInputTextCallbackData* data);
 		bool DrawQuaternion(Json const& value, FieldChange& change, FieldInlineMode mode);
+		// An array of plain values: a row of widgets per element with "-", then "+" (disabled at the field's MaxCount). Returns
+		// true and fills change when the user changed it: an element's value with its index in *element, or the list edit in
+		// change.ArrayEdit.
+		bool DrawArrayElements(FieldDescriptor const& field, Json const& value, FieldChange& change, std::optional<uint32_t>& element);
+		// DrawArrayElements for widgets drawn without a path (DrawInlineValue, DrawValuePopup): the whole new array.
 		bool DrawArray(FieldDescriptor const& field, Json const& value, FieldChange& change);
 		// An asset field: DrawAssetReference, "x" clearing the reference.
 		bool DrawAsset(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change);
@@ -198,6 +310,11 @@ namespace Strada
 		// the text.
 		bool m_PlaceFilterCursor = false;
 		std::unordered_map<uint32_t, EulerState> m_EulerStates;
+		std::unordered_map<std::string, FieldStructDrawer> m_StructDrawers;
+		// The element an array edit put in place (DrawStructArrayElements' scope and the element's index): it opens when it
+		// shows, as an open element stays open where it moves. 0 for none.
+		uint32_t m_OpenElementScope = 0;
+		uint32_t m_OpenElement = 0;
 		int m_LastPruneFrame = -1;
 	};
 }
