@@ -16,6 +16,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Platform.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
@@ -1152,6 +1153,7 @@ namespace Strada
 
 	void VisualScriptEditorPanel::OnImGuiRender(bool& open, std::optional<ImGuiID> dockTarget)
 	{
+		ST_PROFILE_SCOPE("GraphEditor.Window");
 		std::string const title = GetTitle();
 		m_ScriptName = title;
 		std::string const name = GetWindowName(m_Graph, title);
@@ -5071,6 +5073,7 @@ namespace Strada
 
 	void VisualScriptEditorPanel::DrawCanvas(ImVec2 size)
 	{
+		ST_PROFILE_SCOPE("GraphEditor.DrawCanvas");
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		ImVec2 const childSize(std::max(size.x, 1.0f), std::max(size.y, 1.0f));
 		ImGui::BeginChild("##canvas", childSize, ImGuiChildFlags_None, CanvasFlags);

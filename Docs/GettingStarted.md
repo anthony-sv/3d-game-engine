@@ -110,7 +110,8 @@ sample scene made of built-in assets; **Continue without a project** at its bott
 you with that scene. The default layout puts the Scene
 View, the Game View and Renderer Info in the middle, the Scene Hierarchy on the left, the Inspector (with Scene
 Settings and Project Settings) on the right, and the Content Browser, the Console and the Visual Script Debugger at the
-bottom. The View menu shows and hides each of them, and View > Reset Layout brings the default back. The toolbar above
+bottom. The View menu shows and hides each of them, and View > Reset Layout brings the default back. View > Profiler
+opens the Profiler, which shows where each frame's time goes ([Editor.md](Editor.md#profiler)). The toolbar above
 them holds Play, Pause, Step and Simulate. The right end of the menu bar shows the automation server's address
 (`Automation: 127.0.0.1:<port> (<n> connected)`), a script build in progress or failed, and an export in progress.
 

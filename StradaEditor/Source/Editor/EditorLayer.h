@@ -11,6 +11,7 @@
 #include "Editor/EditorExport.h"
 #include "Editor/EditorLocations.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/EditorProfiler.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/EditorShortcuts.h"
 #include "Editor/ExampleCopyTask.h"
@@ -21,6 +22,7 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/GameViewPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
+#include "Editor/Panels/ProfilerPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/RendererInfoPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
@@ -248,6 +250,10 @@ namespace Strada
 		VisualScriptEnumLookupSource m_VisualScriptEnumLookups;
 		ConsolePanel m_ConsolePanel;
 		RendererInfoPanel m_RendererInfoPanel;
+		// Who records (the Profiler panel while it is open, profiler.start until profiler.stop) and the capture the panel
+		// shows; the profiler commands reach it headless too.
+		EditorProfiler m_Profiler;
+		ProfilerPanel m_ProfilerPanel;
 		SceneHierarchyPanel m_HierarchyPanel;
 		InspectorPanel m_InspectorPanel;
 		SceneSettingsPanel m_SceneSettingsPanel;
@@ -274,6 +280,8 @@ namespace Strada
 		bool m_ShowContentBrowser = true;
 		bool m_ShowConsole = true;
 		bool m_ShowRendererInfo = true;
+		// Closed until asked for: the profiler records while the panel is open.
+		bool m_ShowProfiler = false;
 		bool m_ShowImGuiDemo = false;
 		bool m_ResetLayout = false;
 		// Frames until the tabs of m_TabsToFocus come to the front, focused in order (0: nothing to do): the default layout's
@@ -285,6 +293,8 @@ namespace Strada
 		bool m_StartScreenCovered = false;
 		// Bring the console to the front after the panels are drawn.
 		bool m_FocusConsole = false;
+		// Bring the Profiler panel to the front after the panels are drawn (profiler.open).
+		bool m_FocusProfiler = false;
 		// The window that has the keyboard, kept while a menu, a popup or a side bar has it instead (FindKeyboardWindow): the
 		// Edit menu leaves out the texts of the chords it claims. Updated at the start of each frame; ImGui frees no window
 		// before its context is destroyed, so the pointer stays valid across frames.

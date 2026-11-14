@@ -24,6 +24,7 @@
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Script/VisualScriptDebugger.h"
 #include "Strada/Script/VisualScriptEngine.h"
 
@@ -37,6 +38,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
@@ -567,6 +570,99 @@ namespace
 		        " ms; ", stats.VisibleNodes, " nodes, ", stats.VisibleWires, " wires, ", stats.Vertices, " vertices");
 		return median;
 	}
+
+	// The profiler's account of a test's frames while the performance tests run (it records nothing otherwise): each part
+	// of the test runs as a profiler frame of its own, so that the zones of a kind of frame (the timed ones, the ones that
+	// set the next up) are reported apart, as zone medians per frame.
+	class FrameProfile
+	{
+	public:
+		explicit FrameProfile(bool enabled)
+		{
+			if (!enabled)
+			{
+				return;
+			}
+			if (!Profiler::IsInitialized())
+			{
+				Profiler::Init();
+				m_Initialized = true;
+			}
+			m_Recording = Profiler::Start().IsOk();
+		}
+
+		~FrameProfile()
+		{
+			if (m_Recording)
+			{
+				Profiler::Stop();
+			}
+			if (m_Initialized)
+			{
+				Profiler::Shutdown();
+			}
+		}
+
+		FrameProfile(FrameProfile const&) = delete;
+		FrameProfile& operator=(FrameProfile const&) = delete;
+
+		// Runs the body as one profiler frame of the kind.
+		template<typename TBody>
+		void Frame(std::string const& kind, TBody const& body)
+		{
+			if (!m_Recording)
+			{
+				body();
+				return;
+			}
+			Profiler::BeginFrame();
+			m_Frames[kind].push_back(Profiler::GetFrameIndex());
+			body();
+			Profiler::EndFrame();
+		}
+
+		// The median per frame of every zone whose name starts with one of the prefixes, over the frames of the kind.
+		std::string Describe(std::string const& kind, std::initializer_list<std::string_view> prefixes) const
+		{
+			if (!m_Recording)
+			{
+				return {};
+			}
+			ProfilerCapture const& recording = Profiler::GetRecording();
+			ProfilerCapture frames;
+			frames.Names = recording.Names;
+			frames.Threads = recording.Threads;
+			auto const found = m_Frames.find(kind);
+			for (ProfilerFrame const& frame : recording.Frames)
+			{
+				if (found != m_Frames.end() && std::ranges::find(found->second, frame.Index) != found->second.end())
+				{
+					frames.Frames.push_back(frame);
+				}
+			}
+			ProfilerMedians const medians = ComputeProfilerMedians(frames);
+			std::string text =
+				std::to_string(frames.Frames.size()) + " frames, median " + std::to_string(medians.FrameMilliseconds) + " ms";
+			for (ProfilerZoneMedian const& zone : medians.Zones)
+			{
+				bool const reported = std::ranges::any_of(prefixes,
+				                                          [&zone](std::string_view prefix)
+				                                          {
+															  return zone.Name.starts_with(prefix);
+														  });
+				if (reported)
+				{
+					text += "; " + zone.Name + " " + std::to_string(zone.MillisecondsPerFrame) + " ms";
+				}
+			}
+			return text;
+		}
+
+	private:
+		bool m_Initialized = false;
+		bool m_Recording = false;
+		std::map<std::string, std::vector<uint64_t>> m_Frames;
+	};
 }
 
 TEST_CASE("VisualScriptEditor: the canvas's frames T1 to T4 stay within their counters and vertex budgets")
@@ -774,19 +870,29 @@ TEST_CASE("VisualScriptEditor: the frame that commits a new link in a graph of 2
 		REQUIRE_FALSE(fixture.HasLink(link));
 		std::vector<CommitFrame> frames;
 		std::vector<VisualScriptAnalysisTimings> readTimings;
+		FrameProfile profile(performance);
 		for (int commit = 0, commits = performance ? 7 : 1; commit < commits; commit++)
 		{
 			size_t const undo = fixture.GetUndoCount();
 			uint64_t const analyses = fixture.Model().GetAnalysisCount();
 			glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), link.From.Node, link.From.Pin, VisualScriptPinDirection::Out);
 			glm::vec2 const to = Testing::CanvasPoint(fixture.Model(), link.To.Node, link.To.Pin);
-			fixture.MoveMouse(from);
-			fixture.SetButton(ImGuiMouseButton_Left, true);
-			fixture.MoveMouse((from + to) * 0.5f);
-			fixture.MoveMouse(to);
-			auto const start = std::chrono::steady_clock::now();
-			fixture.SetButton(ImGuiMouseButton_Left, false);
-			double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+			profile.Frame("setup",
+			              [&]
+			              {
+							  fixture.MoveMouse(from);
+							  fixture.SetButton(ImGuiMouseButton_Left, true);
+							  fixture.MoveMouse((from + to) * 0.5f);
+							  fixture.MoveMouse(to);
+						  });
+			double milliseconds = 0.0;
+			profile.Frame("commit",
+			              [&]
+			              {
+							  auto const start = std::chrono::steady_clock::now();
+							  fixture.SetButton(ImGuiMouseButton_Left, false);
+							  milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+						  });
 			REQUIRE(fixture.GetUndoCount() == undo + 1);
 			REQUIRE(fixture.HasLink(link));
 			// The frame that commits analyzes the new program.
@@ -811,13 +917,18 @@ TEST_CASE("VisualScriptEditor: the frame that commits a new link in a graph of 2
 
 			// Undone, which the window analyzes in its next frame, for the next commit.
 			REQUIRE(fixture.Operations.Undo().IsOk());
-			fixture.Frames(2);
+			profile.Frame("setup",
+			              [&]
+			              {
+							  fixture.Frames(2);
+						  });
 			REQUIRE_FALSE(fixture.HasLink(link));
 		}
 		if (performance)
 		{
 			MESSAGE("commit frame of a new link, ", nodes, " nodes and ", nodes * 2, " links: ", DescribeCommitFrames(frames));
 			MESSAGE("its analysis, ", nodes, " nodes: ", DescribeAnalysisTimings(readTimings));
+			MESSAGE("the profiler's commit frames, ", nodes, " nodes: ", profile.Describe("commit", {"GraphEditor.", "GraphDebug."}));
 			if (nodes == 2000)
 			{
 				std::vector<double> milliseconds;
@@ -931,16 +1042,21 @@ TEST_CASE("VisualScriptEditor: a watched 2,000-node graph's flow frame")
 		return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 	};
 	std::vector<double> watched;
+	FrameProfile profile(performance);
 	for (int frame = 0; frame < frames; frame++)
 	{
 		auto const start = std::chrono::steady_clock::now();
-		chain.Play.Update(Timestep(1.0f / 60.0f));
-		chain.Session.EndFrame();
-		input.Flow = chain.Session.TakeFlow(chain.Window.Graph, 0);
-		input.FlowTime = chain.Session.GetFlowTime();
-		panel.SetDebugInput(&input);
-		record.Clear();
-		chain.Window.Frames(1);
+		profile.Frame("watched",
+		              [&]
+		              {
+						  chain.Play.Update(Timestep(1.0f / 60.0f));
+						  chain.Session.EndFrame();
+						  input.Flow = chain.Session.TakeFlow(chain.Window.Graph, 0);
+						  input.FlowTime = chain.Session.GetFlowTime();
+						  panel.SetDebugInput(&input);
+						  record.Clear();
+						  chain.Window.Frames(1);
+					  });
 		watched.push_back(elapsed(start));
 		// Every one of the 666 increments ran, and the overlays keep to their caps.
 		CHECK(record.Count(VisualScriptDrawItemKind::FlowWire) <= 512);
@@ -955,10 +1071,14 @@ TEST_CASE("VisualScriptEditor: a watched 2,000-node graph's flow frame")
 	for (int frame = 0; frame < frames; frame++)
 	{
 		auto const start = std::chrono::steady_clock::now();
-		chain.Play.Update(Timestep(1.0f / 60.0f));
-		chain.Session.EndFrame();
-		record.Clear();
-		chain.Window.Frames(1);
+		profile.Frame("unwatched",
+		              [&]
+		              {
+						  chain.Play.Update(Timestep(1.0f / 60.0f));
+						  chain.Session.EndFrame();
+						  record.Clear();
+						  chain.Window.Frames(1);
+					  });
 		unwatched.push_back(elapsed(start));
 		CHECK(record.Count(VisualScriptDrawItemKind::FlowWire) == 0);
 	}
@@ -969,6 +1089,9 @@ TEST_CASE("VisualScriptEditor: a watched 2,000-node graph's flow frame")
 		MESSAGE("a watched 2,000-node graph's flow frame: ", Median(watched),
 		        " ms watched (the take, its read, the flow model and the overlays), ", Median(unwatched), " ms unwatched (", flowCost,
 		        " ms for watching)");
+		std::initializer_list<std::string_view> const reported = {"GraphEditor.", "GraphDebug.", "Graph.", "Scene.Update"};
+		MESSAGE("the profiler's watched frames: ", profile.Describe("watched", reported));
+		MESSAGE("the profiler's unwatched frames: ", profile.Describe("unwatched", reported));
 		CHECK(flowCost <= 3.0 * WatchedFlowMilliseconds);
 	}
 }
@@ -997,21 +1120,30 @@ TEST_CASE("VisualScriptEditor: 200 value pills with their request")
 	bool const performance = Testing::ArePerformanceTestsEnabled();
 	std::vector<double> withValues;
 	std::vector<double> without;
+	FrameProfile profile(performance);
 	for (int frame = 0, frames = performance ? 60 : 3; frame < frames; frame++)
 	{
 		// The window manager's read of the wires in view (VisualScriptEditors::ReadLiveWireValues), and the frame that draws them.
 		auto const start = std::chrono::steady_clock::now();
-		input.Values = VisualScriptEditors::ReadLiveWireValues(chain.Window.Model(), chain.Runner, chain.Engine.GetLibrary().get(),
-		                                                       chain.Window.Context.GetScene());
-		panel.SetDebugInput(&input);
-		chain.Window.Frames(1);
+		profile.Frame("values",
+		              [&]
+		              {
+						  input.Values = VisualScriptEditors::ReadLiveWireValues(
+							  chain.Window.Model(), chain.Runner, chain.Engine.GetLibrary().get(), chain.Window.Context.GetScene());
+						  panel.SetDebugInput(&input);
+						  chain.Window.Frames(1);
+					  });
 		withValues.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
 		CHECK(record.Count(VisualScriptDrawItemKind::ValuePill) <= 200);
 		CHECK(record.Count(VisualScriptDrawItemKind::ValuePill) >= 100);
 		CHECK(input.Values.size() <= 200);
 		panel.SetDebugInput(nullptr);
 		auto const plainStart = std::chrono::steady_clock::now();
-		chain.Window.Frames(1);
+		profile.Frame("plain",
+		              [&]
+		              {
+						  chain.Window.Frames(1);
+					  });
 		without.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - plainStart).count());
 	}
 	panel.SetDrawRecord(nullptr);
@@ -1020,6 +1152,8 @@ TEST_CASE("VisualScriptEditor: 200 value pills with their request")
 		double const pillCost = Median(withValues) - Median(without);
 		MESSAGE("200 value pills with their request: ", Median(withValues), " ms with them, ", Median(without), " ms without (", pillCost,
 		        " ms for the pills)");
+		MESSAGE("the profiler's frames with pills: ", profile.Describe("values", {"GraphEditor.", "GraphDebug."}));
+		MESSAGE("the profiler's frames without: ", profile.Describe("plain", {"GraphEditor.", "GraphDebug."}));
 		CHECK(pillCost <= 3.0 * ValuePillsMilliseconds);
 	}
 }

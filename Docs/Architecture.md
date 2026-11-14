@@ -209,8 +209,10 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     holds `Renderer.Cull`, `Renderer.Sort`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings) and
     `Renderer.Record` (recording and submitting the frame); `Renderer.UploadTexture`, `Renderer.UploadMesh` and
     `Renderer.ProcessEnvironment` on a cache miss only, and `Asset.Load` when an asset is loaded;
-  - the editor's graph phases: `GraphEditor.Sync` with `GraphEditor.Adopt`, `GraphEditor.Analysis`,
-    `GraphEditor.Canvas` and `GraphEditor.Index`, and `GraphEditor.PrepareCommit`;
+  - the editor's graph phases: `GraphEditor.Window` around a graph window's frame, `GraphEditor.Sync` with
+    `GraphEditor.Adopt`, `GraphEditor.Analysis`, `GraphEditor.Canvas` and `GraphEditor.Index`, `GraphEditor.DrawCanvas`,
+    and `GraphEditor.PrepareCommit`; the debugger's `GraphDebug.EndFrame` (the session's end of a frame, which takes the
+    runtime's trace), `GraphDebug.TakeFlow` (a window's flow) and `GraphDebug.ReadValues` (the live wire values);
   - zones are placed per phase, never per item, except per script instance and graph invoke: a recorded zone costs
     about 70 ns, and a thread's buffer holds `ZonesPerThread` (4,096) zones a frame.
 - **Who writes.** Any thread may record: the main thread, Jolt's workers (named by the job system's thread init
@@ -323,6 +325,20 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   `ST_DISABLE_PROFILING` before its first include gets the Dist form in any configuration; StradaTests compiles one.
 - **Captures.** A capture is written from the history with `JsonTextWriter`, one element at a time, and read back with
   `ScanJsonTopLevel` and `ParseJson` per event. Neither side builds the whole document (§7.3).
+- **The editor.** `EditorProfiler` (`StradaEditor/Source/Editor/EditorProfiler.h`, no ImGui) is the only place the
+  editor starts and stops the recorder. The profiler records while the Profiler panel is open (the layer tells it once
+  per frame, before the panels draw; the start screen counts as closed) or while a recording `profiler.start` began
+  runs, which outlives the panel until `profiler.stop`; a closed panel with no such recording leaves the idle cost
+  alone. `profiler.start` restarts a recording in progress with its settings; `profiler.stop` (and the panel's Pause)
+  stops whichever runs and holds the open panel until its Record button or until it is closed and opened again. It also
+  holds a capture opened in place of the live history (`profiler.open`, the panel's Open Capture), which the panel
+  shows. The panel (`ProfilerPanel`) draws the history or the capture with ImGui alone: a strip of frame bars, the shown
+  frame's zones as a tree per thread built by the depth rule above (`BuildProfilerFrameTree`: total and self time per
+  zone, busy time per thread), its GPU passes, and `ComputeProfilerMedians` over the frames, worked out at most once a
+  second. Frames are found by index, never by position, since the history drops its oldest. The commands
+  (`Editor/Automation/ProfilerCommands.cpp`) are no undo steps; `profiler.capture` writes only a `.json` path inside the
+  project or an absolute one the caller names, and replaces an existing file only when asked and only when it is a
+  capture. A profiler frame is an editor frame, so `play.advance`'s frames are one.
 - **ThreadSanitizer.** `.github/workflows/tsan.yml` runs nightly and on manual dispatch, on Linux with Clang. It runs
   the suites' threading cases: the profiler, the main-thread queue, audio with manual output and the asset loads. It
   never gates a merge.

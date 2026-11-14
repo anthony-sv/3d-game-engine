@@ -35,6 +35,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Automation/JsonSchema.h
     Source/Editor/Automation/PlayCommands.cpp
     Source/Editor/Automation/PlayCommands.h
+    Source/Editor/Automation/ProfilerCommands.cpp
+    Source/Editor/Automation/ProfilerCommands.h
     Source/Editor/Automation/ProjectContentCommands.cpp
     Source/Editor/Automation/ProjectContentCommands.h
     Source/Editor/Automation/ScriptCommands.cpp
@@ -76,6 +78,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EditorLocations.h
     Source/Editor/EditorOperations.cpp
     Source/Editor/EditorOperations.h
+    Source/Editor/EditorProfiler.cpp
+    Source/Editor/EditorProfiler.h
     Source/Editor/EditorScripts.cpp
     Source/Editor/EditorScripts.h
     Source/Editor/EditorShortcuts.cpp
@@ -112,6 +116,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/GameViewPanel.h
     Source/Editor/Panels/InspectorPanel.cpp
     Source/Editor/Panels/InspectorPanel.h
+    Source/Editor/Panels/ProfilerPanel.cpp
+    Source/Editor/Panels/ProfilerPanel.h
     Source/Editor/Panels/ProjectSettingsPanel.cpp
     Source/Editor/Panels/ProjectSettingsPanel.h
     Source/Editor/Panels/RendererInfoPanel.cpp

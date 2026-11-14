@@ -40,6 +40,11 @@ public sealed class McpServerTests
 		{
 			Assert.Matches($@"\b{word}\b", instructions);
 		}
+		// Measuring: the profiler's tools.
+		foreach (string tool in new[] { "profiler_start", "profiler_stop", "profiler_status", "profiler_capture", "profiler_open" })
+		{
+			Assert.Contains(tool, instructions);
+		}
 		// Visual scripts are written through the graph tools, which the instructions name.
 		Assert.Contains("visual scripts", instructions);
 		Assert.Contains("graph_library", instructions);

@@ -49,6 +49,7 @@ The editor has 105 commands, each with a JSON schema of its parameters (`editor.
 | `script` | 4 | The C# scripts' status and classes, creating and building scripts |
 | `play`, `input`, `ui`, `test` | 10 | Play mode with exact frame steps, keys and mouse buttons, where the UI is on screen, and test runs |
 | `log`, `viewport` | 6 | The log, screenshots of the editor or one of its windows, the scene view's camera, overlays and statistics |
+| `profiler` | 5 | Recording where each frame's time goes (CPU zones of every thread, GPU passes), medians, and captures written and opened |
 
 `strada mcp` serves each command as a tool named after it, with `.` and `-` replaced by `_` (`entity.create` is
 `entity_create`, `asset.create-folder` is `asset_create_folder`); read-only commands carry `readOnlyHint`. strada adds
@@ -276,15 +277,24 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
 8. **Look at the result.** In a windowed editor, `viewport_frame` points the scene view's camera at entities,
    `viewport_camera` sets the view, `viewport_overlays` chooses what the scene view draws over the scene (`colliders`
    `all` shows every physics shape), and `viewport_screenshot` returns an image of the editor or of one window
-   (`window`: `SceneView`, `GameView`, `Hierarchy`, `Inspector`, `ContentBrowser`, `Console`, `Debugger` or `Graph`
-   with `graph`). MCP clients receive the screenshot as image content. To show the user the start screen or the File
+   (`window`: `SceneView`, `GameView`, `Hierarchy`, `Inspector`, `ContentBrowser`, `Console`, `Debugger`, `Profiler`
+   or `Graph` with `graph`). MCP clients receive the screenshot as image content. To show the user the start screen or the File
    menu's dialogs, `start_show` and `editor_dialog` (`new-project` or `agent-setup`) open them and change nothing
    else; while the start screen shows, only `window` `Editor` can be captured.
 9. **Play and test.** `play_start`, then `play_pause` and `play_advance` with `frames` for exact steps; `input_set`
    presses keys and mouse buttons in the game; `play_stop` discards what the run changed. To click a UI button, read its
    `center` from `ui_layout`, set the `mousePosition` there with `input_set`, press and release `Left` a frame apart.
    `test_run` runs a test scene (`scene`, `timeout`) and returns every check's result.
-10. **Ship.** Save everything (`scene_save`), then `project_export` with a `directory` (and `smokeTest: true` to run the
+10. **Measure.** `profiler_start` records from the next editor frame; let frames run (a playing game, or editor frames
+    between calls: `play_advance` runs all its game frames inside one editor frame, so it gives one profiler frame), then
+    `profiler_status` with `medians: true` tells where the time goes: the frame's median and 99th percentile, each
+    subsystem on the main thread (`Scene`, `Script`, `Graph`, `Physics`, `Renderer`, ...), other threads' busy time,
+    each GPU pass, and the costliest zones per frame and per call (`Graph.<asset path>` per graph, `Script.<class>` per
+    C# script). `profiler_capture` writes a capture (`path` ending in `.json`, for example `.strada/Captures/run.json`)
+    and `profiler_open` shows one in the Profiler panel; `profiler_stop` ends the recording. An editor frame holds the
+    editor's own work too: `StradaRuntime --profile <file>` measures the game alone
+    ([GettingStarted.md](GettingStarted.md)), and `profiler_open` reads its capture.
+11. **Ship.** Save everything (`scene_save`), then `project_export` with a `directory` (and `smokeTest: true` to run the
     exported game headless for a few frames). It builds the scripts in Release and names the executable.
 
 Read every result: errors say what to fix, and `InvalidParams` errors name the offending field in `data.path`. Use the
