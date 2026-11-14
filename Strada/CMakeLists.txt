@@ -40,6 +40,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Platform.cpp
     Source/Strada/Core/Platform.h
     Source/Strada/Core/PlatformDetection.h
+    Source/Strada/Core/Profiler.cpp
+    Source/Strada/Core/Profiler.h
     Source/Strada/Core/Result.h
     Source/Strada/Core/Timer.h
     Source/Strada/Core/Timestep.h
@@ -248,6 +250,8 @@ set(STRADA_SERIALIZATION_SOURCES
     Source/Strada/Serialization/JsonSerialization.h
     Source/Strada/Serialization/JsonTextWriter.cpp
     Source/Strada/Serialization/JsonTextWriter.h
+    Source/Strada/Serialization/ProfilerCaptureSerializer.cpp
+    Source/Strada/Serialization/ProfilerCaptureSerializer.h
     Source/Strada/Serialization/StructSerialization.cpp
     Source/Strada/Serialization/StructSerialization.h
 )

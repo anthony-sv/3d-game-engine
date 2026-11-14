@@ -13,6 +13,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Platform.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/ImGui/ImGuiLayer.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/ShaderLibrary.h"
@@ -108,6 +109,8 @@ namespace Strada
 	{
 		Platform::IgnoreBrokenPipeSignal();
 		ST_CORE_INFO("Initializing {}", m_Specification.Name);
+		// First, so that every other subsystem can record from its start.
+		Profiler::Init();
 
 		if (!m_Specification.WorkingDirectory.empty())
 		{
@@ -275,6 +278,11 @@ namespace Strada
 		Input::SetCursorModeHandler(nullptr);
 		Input::Reset();
 		m_Window.reset();
+		// Last: the other subsystems' threads (Jolt's workers, the audio threads) have ended.
+		if (Profiler::IsInitialized())
+		{
+			Profiler::Shutdown();
+		}
 		ST_CORE_INFO("Shut down {}", m_Specification.Name);
 	}
 
@@ -288,6 +296,8 @@ namespace Strada
 		// Close() may already have been requested from OnInit; the loop then exits without running a frame.
 		while (!m_CloseRequested)
 		{
+			// The profiler's frame is the whole iteration, the frame limiter's sleep included.
+			Profiler::BeginFrame();
 			double const frameStartTime = Platform::GetTime();
 			m_FrameTime = Timestep(static_cast<float>(std::min(frameStartTime - lastFrameTime, MaxFrameTime)));
 			lastFrameTime = frameStartTime;
@@ -302,6 +312,7 @@ namespace Strada
 
 			if (m_Window)
 			{
+				ST_PROFILE_SCOPE("Application.Events");
 				if (m_Minimized)
 				{
 					// Sleep while minimized, but wake regularly so queued main-thread work keeps flowing.
@@ -313,24 +324,34 @@ namespace Strada
 				}
 			}
 
-			ExecuteMainThreadQueue();
+			{
+				ST_PROFILE_SCOPE("Application.MainThreadQueue");
+				ExecuteMainThreadQueue();
+			}
 
 			if (!m_Minimized)
 			{
-				m_BackBufferAvailable = m_Swapchain && m_Swapchain->BeginFrame();
-				if (m_BackBufferAvailable)
 				{
-					ClearBackBuffer();
+					ST_PROFILE_SCOPE("Application.BeginFrame");
+					m_BackBufferAvailable = m_Swapchain && m_Swapchain->BeginFrame();
+					if (m_BackBufferAvailable)
+					{
+						ClearBackBuffer();
+					}
 				}
 
 				m_LayerIterationDepth++;
-				for (Scope<Layer>& layer : m_LayerStack)
 				{
-					layer->OnUpdate(m_FrameTime);
+					ST_PROFILE_SCOPE("Application.Update");
+					for (Scope<Layer>& layer : m_LayerStack)
+					{
+						layer->OnUpdate(m_FrameTime);
+					}
 				}
 
 				if (m_ImGuiLayer != nullptr)
 				{
+					ST_PROFILE_SCOPE("Application.ImGui");
 					m_ImGuiLayer->Begin();
 					for (Scope<Layer>& layer : m_LayerStack)
 					{
@@ -342,6 +363,7 @@ namespace Strada
 
 				if (m_BackBufferAvailable)
 				{
+					ST_PROFILE_SCOPE("Application.Present");
 					if (!m_PendingScreenshots.empty())
 					{
 						CaptureScreenshot();
@@ -353,6 +375,8 @@ namespace Strada
 
 			if (GraphicsDevice::IsInitialized())
 			{
+				// Waiting is a subsystem of its own, so that the application's figure is the work it does.
+				ST_PROFILE_SCOPE("Wait.Gpu");
 				GraphicsDevice::EndFrame();
 			}
 
@@ -365,7 +389,11 @@ namespace Strada
 				m_CloseRequested = true;
 			}
 
-			LimitFrameRate(frameStartTime);
+			{
+				ST_PROFILE_SCOPE("Wait.FrameLimit");
+				LimitFrameRate(frameStartTime);
+			}
+			Profiler::EndFrame();
 		}
 		m_Running = false;
 	}

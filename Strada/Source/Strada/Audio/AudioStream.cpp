@@ -4,6 +4,7 @@
 #include "Strada/Asset/AudioClipAsset.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Profiler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -526,6 +527,7 @@ namespace Strada
 
 	void AudioStreamer::Run()
 	{
+		ST_PROFILE_THREAD("Audio Streaming");
 		std::vector<Ref<AudioStream>> streams;
 		std::unique_lock lock(m_Mutex);
 		while (m_Running)
@@ -536,12 +538,16 @@ namespace Strada
 			lock.unlock();
 
 			bool worked = false;
-			for (Ref<AudioStream> const& stream : streams)
 			{
-				worked |= stream->Service();
+				// The pass alone: the waits below are idle time.
+				ST_PROFILE_SCOPE("Audio.Stream");
+				for (Ref<AudioStream> const& stream : streams)
+				{
+					worked |= stream->Service();
+				}
+				// Streams removed meanwhile are destroyed here, outside the lock.
+				streams.clear();
 			}
-			// Streams removed meanwhile are destroyed here, outside the lock.
-			streams.clear();
 
 			lock.lock();
 			if (!worked)

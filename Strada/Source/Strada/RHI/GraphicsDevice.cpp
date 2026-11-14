@@ -725,6 +725,10 @@ namespace Strada
 		deviceDesc.deviceExtensions = data->DeviceExtensionPointers.data();
 		deviceDesc.numDeviceExtensions = data->DeviceExtensionPointers.size();
 		deviceDesc.bufferDeviceAddressSupported = bufferDeviceAddress;
+		// Each SceneRenderer keeps a timer per frame in flight and, once the profiler has recorded while it rendered, one per
+		// pass of each of those frames (SceneRenderer::MaxTimedPasses): 260 timers. NVRHI's default of 256 would run out at
+		// the first renderer that times its passes; 8192 holds 31 renderers.
+		deviceDesc.maxTimerQueries = 8192;
 
 		data->VulkanDevice = nvrhi::vulkan::createDevice(deviceDesc);
 		if (!data->VulkanDevice)

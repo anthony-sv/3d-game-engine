@@ -54,6 +54,9 @@ internal sealed partial class VisualScriptRuntime
 	private int m_Depth;
 	// Steps left to the outermost active execution, which its nested executions share.
 	private int m_StepsRemaining;
+	// The steps every outermost execution ran (its nested ones included), from the runtime's start: the engine's profiler
+	// reads it around an invoke (VisualScriptReadSteps).
+	private ulong m_StepsRun;
 	// The last execution serial.
 	private ulong m_LastSerial;
 	// The last instance serial.
@@ -75,6 +78,10 @@ internal sealed partial class VisualScriptRuntime
 
 	// Whether an execution of this runtime is running (on the host stack, not suspended).
 	internal bool IsExecuting => m_Depth > 0;
+
+	// The steps outermost executions ran since the runtime started, theirs and their nested executions' (an execution that
+	// ran out of steps counts the step it failed at).
+	internal ulong StepsRun => m_StepsRun;
 
 	// The invokers of members this runtime built (one per member and kind, generic methods per closed method).
 	internal int InvokerCount => m_Invokers.Count;

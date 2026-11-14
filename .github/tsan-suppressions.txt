@@ -1,0 +1,14 @@
+# ThreadSanitizer suppressions of .github/workflows/tsan.yml (TSAN_OPTIONS suppressions=...).
+#
+# Only prebuilt libraries the build cannot instrument are listed: never Strada's own code, and never a dependency the
+# build compiles (CMake instruments every one of those, see strada_add_thread_sanitizer). A race reported in Strada's
+# code is fixed, not suppressed.
+#
+# called_from_lib makes the sanitizer ignore the interceptors (memcpy, malloc, pthread calls) a library calls. Its
+# own memory accesses are never checked, since it is not instrumented, but the interceptors it calls are, and they would
+# report races between its internal threads that the sanitizer cannot see synchronized.
+
+# The Vulkan loader and the validation layer, from the Vulkan SDK. The GPU cases load them (ST_REQUIRE_GPU creates an
+# instance even on a runner without a device, where those cases then skip).
+called_from_lib:libvulkan.so.1
+called_from_lib:libVkLayer_khronos_validation.so

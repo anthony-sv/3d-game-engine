@@ -1,0 +1,187 @@
+name: ThreadSanitizer
+
+# The test cases where several threads meet, built with ThreadSanitizer (Linux, Clang, Debug). It runs every night, on
+# manual dispatch and on a push to a tsan/** branch, which tries the job on a branch before it reaches main. It never
+# gates a merge: ci.yml does.
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+  push:
+    branches: ["tsan/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tsan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STRADA_DEPENDENCY_CACHE_DIR: ${{ github.workspace }}/.dependency-cache
+  VULKAN_SDK_VERSION: 1.4.363.0
+  # Hosted runners may have no display; windowed tests skip there instead of failing.
+  STRADA_TESTS_ALLOW_NO_DISPLAY: "1"
+  # No software Vulkan device is installed: lavapipe is prebuilt, so the sanitizer could not see its threads, and it
+  # would only add noise. The GPU cases among the ones below skip.
+  STRADA_TESTS_ALLOW_NO_GPU: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  threading:
+    name: Linux Clang Debug with ThreadSanitizer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # ci.yml's packages, and llvm for llvm-symbolizer, which names the functions of a report.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 update
+          sudo apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y --no-install-recommends \
+            ninja-build pkg-config libwayland-dev libxkbcommon-dev xorg-dev libgtk-3-dev llvm
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1.6.0
+        with:
+          vulkan_version: ${{ env.VULKAN_SDK_VERSION }}
+          cache: true
+          install_runtime: false
+          install_lavapipe: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache dependency archives
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.STRADA_DEPENDENCY_CACHE_DIR }}
+          key: dependencies-${{ hashFiles('cmake/StradaDependencies.cmake') }}
+
+      - name: Toolchain versions
+        run: |
+          cmake --version
+          ninja --version
+          echo "VULKAN_SDK=${VULKAN_SDK}"
+          clang++ --version
+          llvm-symbolizer --version
+          dotnet --version
+
+      # The sanitizer's runtime maps its shadow memory at fixed addresses. A kernel that randomizes mmap addresses with
+      # more than 28 bits can place a mapping there, and runtimes that do not handle it stop with "unexpected memory
+      # mapping".
+      - name: Limit address space randomization
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      # Only the two test executables whose cases run below, with every Strada and third-party target they link
+      # instrumented (the linux-clang-tsan preset sets STRADA_ENABLE_THREAD_SANITIZER).
+      - name: Build
+        id: build
+        shell: bash
+        run: |
+          for target in StradaTests StradaEditorTests; do
+            python Tools/build.py --preset linux-clang-tsan --target "${target}" \
+              "--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=${STRADA_DEPENDENCY_CACHE_DIR}"
+          done
+
+      # A report fails the run that made it (exit code 66) without stopping it, so every report of a run is printed.
+      - name: Prepare the test runs
+        id: prepare
+        if: ${{ steps.build.outcome == 'success' }}
+        shell: bash
+        run: |
+          echo "TSAN_OPTIONS=halt_on_error=0 second_deadlock_stack=1 history_size=4 suppressions=${GITHUB_WORKSPACE}/.github/tsan-suppressions.txt external_symbolizer_path=$(command -v llvm-symbolizer)" >> "${GITHUB_ENV}"
+          cat > "${RUNNER_TEMP}/run-cases.sh" <<'SCRIPT'
+          # run_cases <executable> <doctest filters...>: runs the test cases the filters select. A filter that selects
+          # nothing (a test case renamed or removed) fails, so that the job never passes by running nothing.
+          run_cases()
+          {
+            local executable="build/linux-clang-tsan/bin/$1"
+            shift
+            local selected
+            selected="$("${executable}" --count "$@" | sed -n 's/.*unskipped test cases passing the current filters: \([0-9][0-9]*\).*/\1/p')"
+            if [ -z "${selected}" ] || [ "${selected}" -eq 0 ]; then
+              echo "::error::$(basename "${executable}") $*: the filters select no test case"
+              return 1
+            fi
+            echo "$(basename "${executable}"): ${selected} test cases"
+            "${executable}" "$@"
+          }
+          SCRIPT
+
+      # Every area runs in a step of its own, also when an earlier one failed, so that one failure hides no other.
+      # Test case names contain commas, which doctest reads as filter separators: the filters match by prefix.
+
+      # The recorder: zones of many threads, std::async tasks, threads beyond the buffers, Start, Stop, Init and Shutdown
+      # racing threads that record, and a capture recorded from three threads.
+      - name: Profiler
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: |
+          source "${RUNNER_TEMP}/run-cases.sh"
+          # The editor's cases run even when the engine's fail: the step's shell would stop at the first failing command.
+          status=0
+          run_cases StradaTests "-tc=Profiler:*,ProfilerCaptureSerializer: a recorded capture*" "-tce=Profiler: a running scene*" || status=1
+          run_cases StradaEditorTests "-tc=EditorProfiler:*,ProfilerCommands:*,ProfilerPanel:*" || status=1
+          exit "${status}"
+
+      # Application::SubmitToMainThread from other threads and the main loop that drains it, and identifiers generated on
+      # several threads at once.
+      - name: Main-thread queue
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: |
+          source "${RUNNER_TEMP}/run-cases.sh"
+          run_cases StradaTests "-tc=Application:*,UUID: generation is thread-safe*"
+
+      # The mix with manual output, beside the streaming thread that reads ahead for streamed sources.
+      - name: Audio with manual output
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: |
+          source "${RUNNER_TEMP}/run-cases.sh"
+          run_cases StradaTests "-tc=AudioEngine:*,AudioScene:*"
+
+      # The work that loads and writes files on worker threads: the editor's texture and waveform thumbnails, and the copy
+      # of an example project. The engine's own asset loads all run on the main thread.
+      - name: Asset loads
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: |
+          source "${RUNNER_TEMP}/run-cases.sh"
+          run_cases StradaEditorTests "-tc=AssetThumbnails:*,ExampleCopyTask:*"
+
+      # Jolt's job system, whose workers call the engine's contact and trigger listeners.
+      - name: Physics
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: |
+          source "${RUNNER_TEMP}/run-cases.sh"
+          run_cases StradaTests "-tc=PhysicsScene:*"
+
+      # The automation server's network thread. The authentication timeout case is left out: it allows 200 ms, which
+      # the sanitizer's slowdown can exceed for reasons that are not races.
+      - name: Automation server
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: |
+          source "${RUNNER_TEMP}/run-cases.sh"
+          run_cases StradaEditorTests "-tc=AutomationServer:*" "-tce=AutomationServer: connections that do not authenticate in time*"
+
+      # A running scene with C# scripts, graphs, Jolt's workers and audio, recorded by the profiler. It hosts the .NET
+      # runtime, which is prebuilt and suspends threads with signals the sanitizer defers, so it runs apart from the rest.
+      - name: Profiled scene with the .NET runtime
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        shell: bash
+        run: |
+          source "${RUNNER_TEMP}/run-cases.sh"
+          run_cases StradaTests "-tc=Profiler: a running scene*"

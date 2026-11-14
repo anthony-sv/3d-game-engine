@@ -13,6 +13,7 @@
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -1510,6 +1511,7 @@ namespace Strada
 	std::vector<VisualScriptDebugPinValue> VisualScriptEditors::ReadLiveWireValues(VisualScriptEditorModel const& model, UUID entity,
 	                                                                               VisualScriptLibrary const* library, Scene& scene)
 	{
+		ST_PROFILE_SCOPE("GraphDebug.ReadValues");
 		std::vector<VisualScriptDebugPinValue> values;
 		if (!entity.IsValid() || !ScriptEngine::IsInitialized())
 		{

@@ -170,7 +170,7 @@ namespace Strada
 	{
 		if (Renderer::IsInitialized())
 		{
-			m_Renderer = CreateScope<SceneRenderer>();
+			m_Renderer = CreateScope<SceneRenderer>("Viewport");
 			m_Renderer->SetEntityIdsEnabled(true);
 		}
 		m_Camera.SetView(DefaultFocalPoint, DefaultDistance, DefaultYaw, DefaultPitch);

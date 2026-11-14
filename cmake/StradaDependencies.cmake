@@ -222,8 +222,17 @@ set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
 set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)
 set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
-set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
 set(ENABLE_OBJECT_STREAM OFF CACHE BOOL "" FORCE)
+# Jolt's own profile zones reach the engine's profiler (JPH_EXTERNAL_PROFILE: Physics/PhysicsSystem.cpp defines Jolt's
+# ExternalProfileMeasurement) in Debug builds only; Release and Dist builds compile them out of every physics step. Jolt
+# makes the define public, so the engine sees the same one.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(PROFILER_IN_DEBUG_AND_RELEASE ON CACHE BOOL "" FORCE)
+    set(JPH_USE_EXTERNAL_PROFILE ON CACHE BOOL "" FORCE)
+else()
+    set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+    set(JPH_USE_EXTERNAL_PROFILE OFF CACHE BOOL "" FORCE)
+endif()
 # Jolt passes its instruction-set flags to the engine sources that include it: stay at the SSE4.2 baseline so the
 # engine runs on every x86-64 CPU of the last 15 years and floating-point results do not change through FMA
 # contraction.
@@ -298,8 +307,11 @@ endif()
 
 set(CMAKE_SKIP_INSTALL_RULES OFF)
 
-foreach(dependencyTarget glfw spdlog nvrhi nvrhi_vk)
+# The compiled dependencies with CMake projects of their own; the others go through
+# strada_configure_third_party_target.
+foreach(dependencyTarget glfw spdlog nvrhi nvrhi_vk Jolt)
     if(TARGET ${dependencyTarget})
         set_target_properties(${dependencyTarget} PROPERTIES FOLDER "ThirdParty")
+        strada_add_thread_sanitizer(${dependencyTarget})
     endif()
 endforeach()

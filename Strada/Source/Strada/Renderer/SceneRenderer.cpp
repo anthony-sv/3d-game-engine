@@ -6,6 +6,7 @@
 #include "Strada/Asset/EnvironmentAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Math/Frustum.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/ShaderLibrary.h"
@@ -141,7 +142,8 @@ namespace Strada
 		}
 	}
 
-	SceneRenderer::SceneRenderer()
+	SceneRenderer::SceneRenderer(std::string_view view)
+		: m_ViewName(view)
 	{
 		ST_CORE_ASSERT(Renderer::IsInitialized(), "SceneRenderer requires Renderer::Init");
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
@@ -1529,10 +1531,11 @@ namespace Strada
 					  });
 	}
 
-	nvrhi::ITimerQuery* SceneRenderer::AcquireFrameTimer()
+	SceneRenderer::FrameTimer* SceneRenderer::AcquireFrameTimer()
 	{
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
-		// Oldest first, so the newest finished frame's time is the one kept.
+		// Oldest first, so the newest finished frame's time is the one kept. Finished frames are read whether or not the
+		// profiler still records, so that their pass timers are free again.
 		for (size_t i = 0; i < FrameTimerCount; i++)
 		{
 			FrameTimer& timer = m_FrameTimers[(m_NextFrameTimer + i) % FrameTimerCount];
@@ -1541,6 +1544,7 @@ namespace Strada
 				m_GpuMilliseconds = device->getTimerQueryTime(timer.Query) * 1000.0f;
 				device->resetTimerQuery(timer.Query);
 				timer.Pending = false;
+				ReportPassTimes(timer);
 			}
 		}
 		FrameTimer& timer = m_FrameTimers[m_NextFrameTimer];
@@ -1550,7 +1554,83 @@ namespace Strada
 		}
 		m_NextFrameTimer = (m_NextFrameTimer + 1) % FrameTimerCount;
 		timer.Pending = true;
-		return timer.Query;
+		timer.PassCount = 0;
+		if (Profiler::IsRecording() && !m_PassTimersUnavailable)
+		{
+			if (timer.Passes.empty())
+			{
+				// All or none: a frame's passes are timed only when every pass has a timer.
+				std::vector<PassTimer> passes(MaxTimedPasses);
+				bool created = true;
+				for (PassTimer& pass : passes)
+				{
+					pass.Query = device->createTimerQuery();
+					created = created && pass.Query != nullptr;
+				}
+				if (created)
+				{
+					timer.Passes = std::move(passes);
+				}
+				else
+				{
+					m_PassTimersUnavailable = true;
+				}
+			}
+			if (!timer.Passes.empty())
+			{
+				timer.ProfilerFrame = Profiler::GetFrameIndex();
+				m_PassTimers = &timer;
+			}
+		}
+		return &timer;
+	}
+
+	void SceneRenderer::ReportPassTimes(FrameTimer& timer)
+	{
+		if (timer.PassCount == 0)
+		{
+			return;
+		}
+		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
+		std::array<ProfilerGpuPassTiming, MaxTimedPasses> timings{};
+		uint32_t count = 0;
+		for (uint32_t index = 0; index < timer.PassCount; index++)
+		{
+			PassTimer const& pass = timer.Passes[index];
+			// The frame's timer ended after its passes' timers, so theirs are ready; one that is not is left out.
+			if (device->pollTimerQuery(pass.Query))
+			{
+				double const seconds = std::max(static_cast<double>(device->getTimerQueryTime(pass.Query)), 0.0);
+				timings[count++] = {pass.Name, static_cast<uint64_t>(std::llround(seconds * 1.0e9))};
+			}
+			device->resetTimerQuery(pass.Query);
+		}
+		timer.PassCount = 0;
+		// The profiler drops passes of a frame it does not hold (the recording stopped, or the frame left its history).
+		Profiler::RecordGpuPasses(timer.ProfilerFrame, m_ViewName, std::span<ProfilerGpuPassTiming const>(timings.data(), count));
+	}
+
+	SceneRenderer::PassScope::PassScope(SceneRenderer& renderer, nvrhi::ICommandList* commandList, char const* name)
+		: m_CommandList(commandList)
+	{
+		m_CommandList->beginMarker(name);
+		FrameTimer* const timers = renderer.m_PassTimers;
+		if (timers != nullptr && timers->PassCount < timers->Passes.size())
+		{
+			PassTimer& pass = timers->Passes[timers->PassCount++];
+			pass.Name = name;
+			m_Timer = pass.Query;
+			m_CommandList->beginTimerQuery(m_Timer);
+		}
+	}
+
+	SceneRenderer::PassScope::~PassScope()
+	{
+		if (m_Timer != nullptr)
+		{
+			m_CommandList->endTimerQuery(m_Timer);
+		}
+		m_CommandList->endMarker();
 	}
 
 	void SceneRenderer::DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items, nvrhi::IFramebuffer* framebuffer)
@@ -1591,51 +1671,62 @@ namespace Strada
 	void SceneRenderer::EndScene()
 	{
 		ST_CORE_ASSERT(m_InScene, "EndScene without BeginScene");
+		ST_PROFILE_SCOPE("Renderer.EndScene");
 		m_InScene = false;
 		if (m_TargetsDirty)
 		{
 			CreateTargets();
 		}
 		m_Statistics.Lights = static_cast<uint32_t>(m_Lights.size());
-		CullToView();
-
-		// Front to back for opaque geometry (early depth rejection), back to front for blending.
-		std::sort(m_OpaqueItems.begin(), m_OpaqueItems.end(),
-		          [](DrawItem const& a, DrawItem const& b)
-		          {
-					  return a.ViewDepth < b.ViewDepth;
-				  });
-		std::stable_sort(m_BlendItems.begin(), m_BlendItems.end(),
-		                 [](DrawItem const& a, DrawItem const& b)
-		                 {
-							 return a.ViewDepth > b.ViewDepth;
-						 });
-
-		// Uploads of meshes, textures, materials and font atlases submit their own command lists, so they happen before
-		// recording.
-		PrepareItems(m_OpaqueItems, false);
-		PrepareItems(m_BlendItems, true);
-		m_Quads->Prepare(m_Camera.Position, glm::uvec2(m_Width, m_Height));
-		m_Statistics.Quads = m_Quads->GetQuadCount();
-		m_Statistics.DrawCalls += m_Quads->GetBatchCount();
-		m_Statistics.Triangles += 2 * m_Quads->GetQuadCount();
-
-		ShaderInterop::ShadowConstants shadows{};
-		PrepareShadows(shadows);
-		if (!m_Lines.empty())
 		{
-			CreateLineLayer();
+			ST_PROFILE_SCOPE("Renderer.Cull");
+			CullToView();
 		}
 
-		GpuEnvironment const* environment = m_Environment.Environment ? Renderer::GetEnvironment(m_Environment.Environment) : nullptr;
-		FrameTextures textures;
-		nvrhi::ITexture* fallbackCube = Renderer::GetFallbackCube();
-		textures.Irradiance = environment != nullptr ? environment->Irradiance.Get() : fallbackCube;
-		textures.Prefiltered = environment != nullptr ? environment->Prefiltered.Get() : fallbackCube;
-		textures.Radiance = environment != nullptr ? environment->Radiance.Get() : fallbackCube;
-		textures.CascadeShadowMap = m_CascadeShadowMap ? m_CascadeShadowMap.Get() : m_FallbackShadowMap.Get();
-		textures.LocalShadowMap = m_LocalShadowMap ? m_LocalShadowMap.Get() : m_FallbackShadowMap.Get();
-		UpdateFrameBindings(textures);
+		{
+			ST_PROFILE_SCOPE("Renderer.Sort");
+			// Front to back for opaque geometry (early depth rejection), back to front for blending.
+			std::sort(m_OpaqueItems.begin(), m_OpaqueItems.end(),
+			          [](DrawItem const& a, DrawItem const& b)
+			          {
+						  return a.ViewDepth < b.ViewDepth;
+					  });
+			std::stable_sort(m_BlendItems.begin(), m_BlendItems.end(),
+			                 [](DrawItem const& a, DrawItem const& b)
+			                 {
+								 return a.ViewDepth > b.ViewDepth;
+							 });
+		}
+
+		ShaderInterop::ShadowConstants shadows{};
+		GpuEnvironment const* environment = nullptr;
+		{
+			ST_PROFILE_SCOPE("Renderer.Prepare");
+			// Uploads of meshes, textures, materials and font atlases submit their own command lists, so they happen before
+			// recording.
+			PrepareItems(m_OpaqueItems, false);
+			PrepareItems(m_BlendItems, true);
+			m_Quads->Prepare(m_Camera.Position, glm::uvec2(m_Width, m_Height));
+			m_Statistics.Quads = m_Quads->GetQuadCount();
+			m_Statistics.DrawCalls += m_Quads->GetBatchCount();
+			m_Statistics.Triangles += 2 * m_Quads->GetQuadCount();
+
+			PrepareShadows(shadows);
+			if (!m_Lines.empty())
+			{
+				CreateLineLayer();
+			}
+
+			environment = m_Environment.Environment ? Renderer::GetEnvironment(m_Environment.Environment) : nullptr;
+			FrameTextures textures;
+			nvrhi::ITexture* fallbackCube = Renderer::GetFallbackCube();
+			textures.Irradiance = environment != nullptr ? environment->Irradiance.Get() : fallbackCube;
+			textures.Prefiltered = environment != nullptr ? environment->Prefiltered.Get() : fallbackCube;
+			textures.Radiance = environment != nullptr ? environment->Radiance.Get() : fallbackCube;
+			textures.CascadeShadowMap = m_CascadeShadowMap ? m_CascadeShadowMap.Get() : m_FallbackShadowMap.Get();
+			textures.LocalShadowMap = m_LocalShadowMap ? m_LocalShadowMap.Get() : m_FallbackShadowMap.Get();
+			UpdateFrameBindings(textures);
+		}
 
 		float const exposure = m_Settings.GetExposure();
 		ShaderInterop::FrameConstants frame{};
@@ -1663,40 +1754,55 @@ namespace Strada
 		overlay.CameraPosition = m_Camera.Position;
 		overlay.ViewportSize = frame.ViewportSize;
 
-		nvrhi::ITimerQuery* frameTimer = AcquireFrameTimer();
+		// Recording, submitting and the end of the frame.
+		ST_PROFILE_SCOPE("Renderer.Record");
+		m_PassTimers = nullptr;
+		FrameTimer* const frameTimer = AcquireFrameTimer();
 		m_Statistics.GpuMilliseconds = m_GpuMilliseconds;
 
 		nvrhi::ICommandList* commandList = m_CommandList;
 		commandList->open();
 		if (frameTimer != nullptr)
 		{
-			commandList->beginTimerQuery(frameTimer);
+			commandList->beginTimerQuery(frameTimer->Query);
 		}
-		commandList->writeBuffer(m_FrameConstants, &frame, sizeof(frame));
-		commandList->writeBuffer(m_OverlayConstants, &overlay, sizeof(overlay));
-		commandList->writeBuffer(m_ShadowConstants, &shadows, sizeof(shadows));
-		if (!m_Lights.empty())
 		{
-			commandList->writeBuffer(m_LightBuffer, m_Lights.data(), m_Lights.size() * sizeof(ShaderInterop::LightData));
+			PassScope const pass(*this, commandList, "Upload");
+			commandList->writeBuffer(m_FrameConstants, &frame, sizeof(frame));
+			commandList->writeBuffer(m_OverlayConstants, &overlay, sizeof(overlay));
+			commandList->writeBuffer(m_ShadowConstants, &shadows, sizeof(shadows));
+			if (!m_Lights.empty())
+			{
+				commandList->writeBuffer(m_LightBuffer, m_Lights.data(), m_Lights.size() * sizeof(ShaderInterop::LightData));
+			}
+			m_Quads->Upload(commandList);
 		}
-		m_Quads->Upload(commandList);
 
-		RenderShadows(commandList);
+		if (!m_ShadowViews.empty())
+		{
+			PassScope const pass(*this, commandList, "Shadows");
+			RenderShadows(commandList);
+		}
 
-		// Without a sky, the background is the ambient light.
-		glm::vec3 const background = m_AmbientRadiance * exposure;
-		commandList->clearTextureFloat(m_ColorTarget, nvrhi::AllSubresources, nvrhi::Color(background.r, background.g, background.b, 1.0f));
-		commandList->clearDepthStencilTexture(m_DepthTarget, nvrhi::AllSubresources, true, 0.0f, false, 0);
-		commandList->clearTextureFloat(m_NormalTarget, nvrhi::AllSubresources, nvrhi::Color(0.0f));
-		commandList->clearTextureFloat(m_IndirectTarget, nvrhi::AllSubresources, nvrhi::Color(0.0f));
-
-		DrawItems(commandList, m_OpaqueItems, m_OpaqueFramebuffer);
+		{
+			PassScope const pass(*this, commandList, "Opaque");
+			// Without a sky, the background is the ambient light.
+			glm::vec3 const background = m_AmbientRadiance * exposure;
+			commandList->clearTextureFloat(m_ColorTarget, nvrhi::AllSubresources,
+			                               nvrhi::Color(background.r, background.g, background.b, 1.0f));
+			commandList->clearDepthStencilTexture(m_DepthTarget, nvrhi::AllSubresources, true, 0.0f, false, 0);
+			commandList->clearTextureFloat(m_NormalTarget, nvrhi::AllSubresources, nvrhi::Color(0.0f));
+			commandList->clearTextureFloat(m_IndirectTarget, nvrhi::AllSubresources, nvrhi::Color(0.0f));
+			DrawItems(commandList, m_OpaqueItems, m_OpaqueFramebuffer);
+		}
 		if (m_Settings.AmbientOcclusion)
 		{
+			PassScope const pass(*this, commandList, "AmbientOcclusion");
 			RenderAmbientOcclusion(commandList);
 		}
 		if (environment != nullptr && m_Environment.DrawSkybox)
 		{
+			PassScope const pass(*this, commandList, "Sky");
 			nvrhi::GraphicsState skyState;
 			skyState.pipeline = m_SkyPipeline;
 			skyState.framebuffer = m_SceneFramebuffer;
@@ -1708,11 +1814,15 @@ namespace Strada
 			commandList->setPushConstants(&unused, sizeof(unused));
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 		}
-		DrawItems(commandList, m_BlendItems, m_SceneFramebuffer);
-		m_Quads->RenderWorld(commandList, m_SceneFramebuffer, frame.ViewProjection);
+		{
+			PassScope const pass(*this, commandList, "Transparent");
+			DrawItems(commandList, m_BlendItems, m_SceneFramebuffer);
+			m_Quads->RenderWorld(commandList, m_SceneFramebuffer, frame.ViewProjection);
+		}
 		bool pickCopied = false;
 		if (m_EntityIdsEnabled)
 		{
+			PassScope const pass(*this, commandList, "EntityIds");
 			RenderEntityIds(commandList);
 			if (m_PickRequest && !m_PickInFlight)
 			{
@@ -1739,37 +1849,45 @@ namespace Strada
 		float const bloomIntensity = m_Settings.Bloom ? std::clamp(m_Settings.BloomIntensity, 0.0f, 1.0f) : 0.0f;
 		if (bloomIntensity > 0.0f)
 		{
+			PassScope const pass(*this, commandList, "Bloom");
 			RenderBloom(commandList);
 		}
 
-		nvrhi::GraphicsState tonemapState;
-		tonemapState.pipeline = m_TonemapPipeline;
-		tonemapState.framebuffer = m_Settings.FXAA ? m_LdrFramebuffer : m_FinalFramebuffer;
-		tonemapState.viewport.addViewportAndScissorRect(nvrhi::Viewport(static_cast<float>(m_Width), static_cast<float>(m_Height)));
-		tonemapState.bindings = {m_TonemapBindings};
-		commandList->setGraphicsState(tonemapState);
-		ShaderInterop::TonemapConstants tonemap{};
-		tonemap.Operator = static_cast<uint32_t>(m_Settings.Tonemapper);
-		tonemap.Dither = m_Settings.Dithering ? 1u : 0u;
-		tonemap.BloomIntensity = bloomIntensity;
-		tonemap.BloomNormalization = 1.0f / static_cast<float>(std::max(m_BloomMipCount, 1u));
-		tonemap.Contrast = std::clamp(m_Settings.Contrast, 0.0f, 2.0f);
-		tonemap.Saturation = std::clamp(m_Settings.Saturation, 0.0f, 2.0f);
-		tonemap.Temperature = std::clamp(m_Settings.Temperature, -1.0f, 1.0f);
-		tonemap.Tint = std::clamp(m_Settings.Tint, -1.0f, 1.0f);
-		tonemap.ColorFilter = glm::clamp(m_Settings.ColorFilter, glm::vec3(0.0f), glm::vec3(2.0f));
-		tonemap.Vignette = std::clamp(m_Settings.Vignette, 0.0f, 1.0f);
-		tonemap.VignetteSmoothness = std::clamp(m_Settings.VignetteSmoothness, 0.01f, 1.0f);
-		tonemap.ChromaticAberration = std::clamp(m_Settings.ChromaticAberration, 0.0f, 1.0f);
-		tonemap.FilmGrain = std::clamp(m_Settings.FilmGrain, 0.0f, 1.0f);
-		tonemap.Frame = m_PostFrame++;
-		commandList->setPushConstants(&tonemap, sizeof(tonemap));
-		commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+		{
+			PassScope const pass(*this, commandList, "Tonemap");
+			nvrhi::GraphicsState tonemapState;
+			tonemapState.pipeline = m_TonemapPipeline;
+			tonemapState.framebuffer = m_Settings.FXAA ? m_LdrFramebuffer : m_FinalFramebuffer;
+			tonemapState.viewport.addViewportAndScissorRect(nvrhi::Viewport(static_cast<float>(m_Width), static_cast<float>(m_Height)));
+			tonemapState.bindings = {m_TonemapBindings};
+			commandList->setGraphicsState(tonemapState);
+			ShaderInterop::TonemapConstants tonemap{};
+			tonemap.Operator = static_cast<uint32_t>(m_Settings.Tonemapper);
+			tonemap.Dither = m_Settings.Dithering ? 1u : 0u;
+			tonemap.BloomIntensity = bloomIntensity;
+			tonemap.BloomNormalization = 1.0f / static_cast<float>(std::max(m_BloomMipCount, 1u));
+			tonemap.Contrast = std::clamp(m_Settings.Contrast, 0.0f, 2.0f);
+			tonemap.Saturation = std::clamp(m_Settings.Saturation, 0.0f, 2.0f);
+			tonemap.Temperature = std::clamp(m_Settings.Temperature, -1.0f, 1.0f);
+			tonemap.Tint = std::clamp(m_Settings.Tint, -1.0f, 1.0f);
+			tonemap.ColorFilter = glm::clamp(m_Settings.ColorFilter, glm::vec3(0.0f), glm::vec3(2.0f));
+			tonemap.Vignette = std::clamp(m_Settings.Vignette, 0.0f, 1.0f);
+			tonemap.VignetteSmoothness = std::clamp(m_Settings.VignetteSmoothness, 0.01f, 1.0f);
+			tonemap.ChromaticAberration = std::clamp(m_Settings.ChromaticAberration, 0.0f, 1.0f);
+			tonemap.FilmGrain = std::clamp(m_Settings.FilmGrain, 0.0f, 1.0f);
+			tonemap.Frame = m_PostFrame++;
+			commandList->setPushConstants(&tonemap, sizeof(tonemap));
+			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+		}
 
-		RenderOverlays(commandList, m_Settings.FXAA);
+		{
+			PassScope const pass(*this, commandList, "Overlays");
+			RenderOverlays(commandList, m_Settings.FXAA);
+		}
 
 		if (m_Settings.FXAA)
 		{
+			PassScope const pass(*this, commandList, "FXAA");
 			nvrhi::GraphicsState fxaaState;
 			fxaaState.pipeline = m_FxaaPipeline;
 			fxaaState.framebuffer = m_FinalFramebuffer;
@@ -1783,15 +1901,20 @@ namespace Strada
 		}
 		if (m_EntityIdsEnabled && m_HasSelection)
 		{
+			PassScope const pass(*this, commandList, "SelectionOutline");
 			RenderSelectionOutline(commandList);
 		}
-		// Screen-space sprites and text cover everything else.
-		m_Quads->RenderScreen(commandList, m_FinalFramebuffer);
+		{
+			// Screen-space sprites and text cover everything else.
+			PassScope const pass(*this, commandList, "ScreenSpace");
+			m_Quads->RenderScreen(commandList, m_FinalFramebuffer);
+		}
 
 		if (frameTimer != nullptr)
 		{
-			commandList->endTimerQuery(frameTimer);
+			commandList->endTimerQuery(frameTimer->Query);
 		}
+		m_PassTimers = nullptr;
 		commandList->close();
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
 		device->executeCommandList(commandList);

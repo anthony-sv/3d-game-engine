@@ -4,6 +4,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/ComponentRegistry.h"
@@ -643,19 +644,41 @@ namespace Strada
 			m_StepFrames--;
 		}
 
+		ST_PROFILE_SCOPE("Scene.Update");
 		float const deltaTime = timestep.GetSeconds() * m_TimeScale;
 		m_RuntimeFrame++;
 		m_RuntimeTime += deltaTime;
 		// Lines drawn last frame were rendered; this frame's scripts draw new ones.
 		AgeDebugLines(deltaTime);
 		// Clicks reach the scripts before their update, which sees WasClicked.
-		UpdateUI();
-		UpdateScripts(deltaTime);
-		UpdatePhysics(deltaTime);
-		DispatchContactEventsToScripts();
-		UpdateAudio();
-		UpdateParticles(deltaTime);
-		FlushPendingDestruction();
+		{
+			ST_PROFILE_SCOPE("Scene.UpdateUI");
+			UpdateUI();
+		}
+		{
+			ST_PROFILE_SCOPE("Scene.UpdateScripts");
+			UpdateScripts(deltaTime);
+		}
+		{
+			ST_PROFILE_SCOPE("Scene.UpdatePhysics");
+			UpdatePhysics(deltaTime);
+		}
+		{
+			ST_PROFILE_SCOPE("Scene.ContactEvents");
+			DispatchContactEventsToScripts();
+		}
+		{
+			ST_PROFILE_SCOPE("Scene.UpdateAudio");
+			UpdateAudio();
+		}
+		{
+			ST_PROFILE_SCOPE("Scene.UpdateParticles");
+			UpdateParticles(deltaTime);
+		}
+		{
+			ST_PROFILE_SCOPE("Scene.Destroy");
+			FlushPendingDestruction();
+		}
 	}
 
 	void Scene::SetTimeScale(float scale)

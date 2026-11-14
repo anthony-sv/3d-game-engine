@@ -2,6 +2,7 @@
 
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Platform/Process.h"
 
 #include <algorithm>
@@ -100,6 +101,7 @@ namespace Strada
 			m_Export = std::async(std::launch::async,
 			                      [this, settings = prepared.TakeValue(), options]()
 			                      {
+									  ST_PROFILE_THREAD("Export");
 									  auto const progress = [this](std::string_view step)
 									  {
 										  std::lock_guard<std::mutex> const lock(m_ProgressMutex);
@@ -166,6 +168,7 @@ namespace Strada
 			m_Game = std::async(std::launch::async,
 			                    [this, binary]
 			                    {
+									ST_PROFILE_THREAD("Exported Game");
 									ProcessSpecification run;
 									run.Executable = binary;
 									run.WorkingDirectory = binary.parent_path();

@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/Components.h"
@@ -803,14 +804,23 @@ namespace Strada
 		while (m_PhysicsAccumulator >= step * (1.0f - 1e-4f) && steps < maxSteps)
 		{
 			// Scripts act before each step (forces, kinematic targets, teleports, character moves).
-			FixedUpdateScripts(step);
+			{
+				ST_PROFILE_SCOPE("Scene.FixedUpdateScripts");
+				FixedUpdateScripts(step);
+			}
 			if (m_Physics)
 			{
-				SyncBodiesFromTransforms(step);
-				SyncCharactersFromTransforms();
+				{
+					ST_PROFILE_SCOPE("Scene.SyncToPhysics");
+					SyncBodiesFromTransforms(step);
+					SyncCharactersFromTransforms();
+				}
 				m_Physics->Step(step);
-				WriteBodyTransforms();
-				WriteCharacterTransforms();
+				{
+					ST_PROFILE_SCOPE("Scene.SyncFromPhysics");
+					WriteBodyTransforms();
+					WriteCharacterTransforms();
+				}
 			}
 			m_PhysicsAccumulator = std::max(m_PhysicsAccumulator - step, 0.0f);
 			steps++;

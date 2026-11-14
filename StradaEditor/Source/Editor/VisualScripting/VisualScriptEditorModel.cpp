@@ -4,6 +4,7 @@
 #include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Core/Timer.h"
 
 #include <spdlog/fmt/fmt.h>
@@ -547,6 +548,7 @@ namespace Strada
 	VisualScriptSyncResult VisualScriptEditorModel::Sync(VisualScriptSemantics& semantics, VisualScriptTextMeasurer const& measure,
 	                                                     VisualScriptThemeAnchors const& theme, bool widgetActive, double time)
 	{
+		ST_PROFILE_SCOPE("GraphEditor.Sync");
 		VisualScriptSyncResult result;
 		m_Semantics = &semantics;
 		// The caller's measurer of this frame is the one used until the next Sync (its captures may not outlive the frame); only
@@ -849,6 +851,7 @@ namespace Strada
 	void VisualScriptEditorModel::AdoptDocument(Ref<VisualScriptDocument const> document, VisualScriptSyncResult& result)
 	{
 		PhaseTimer const timer(m_SyncTimings.Adopt);
+		ST_PROFILE_SCOPE("GraphEditor.Adopt");
 		if (document == m_Document)
 		{
 			return;
@@ -1207,6 +1210,7 @@ namespace Strada
 	                                              VisualScriptSyncResult& result)
 	{
 		PhaseTimer const timer(m_SyncTimings.Analysis);
+		ST_PROFILE_SCOPE("GraphEditor.Analysis");
 		Ref<VisualScriptLibrary const> library = semantics.GetLibrary();
 		bool const libraryChanged = library != m_Library;
 		if (libraryChanged)
@@ -1335,6 +1339,7 @@ namespace Strada
 		std::optional<bool> synced;
 		{
 			PhaseTimer const timer(m_SyncTimings.Canvas);
+			ST_PROFILE_SCOPE("GraphEditor.Canvas");
 			// An own layout-only commit of the document the canvas shows, when nothing else needs laying out: only what moved
 			// moves. SyncPositions checks what it relies on and declines anything else.
 			if (m_LayoutOnlyFrom != nullptr && m_CanvasDocument == m_LayoutOnlyFrom && m_Preview == nullptr && !m_CanvasStale &&
@@ -1354,6 +1359,7 @@ namespace Strada
 		if (*synced)
 		{
 			PhaseTimer const timer(m_SyncTimings.Index);
+			ST_PROFILE_SCOPE("GraphEditor.Index");
 			m_Index.Build(m_Canvas);
 			result.GeometryChanged = true;
 		}

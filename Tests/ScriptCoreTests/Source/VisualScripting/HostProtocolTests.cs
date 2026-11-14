@@ -33,6 +33,7 @@ public sealed class HostProtocolTests
 		("VisualScriptTakeTrace", ["void*", "receive"]),
 		("VisualScriptTakeLiveEvents", ["ulong", "void*", "receive"]),
 		("VisualScriptClearLiveEvents", []),
+		("VisualScriptReadSteps", ["ulong*"]),
 	];
 
 	public static TheoryData<string> EntryPoints => [.. s_EntryPoints.Select(static entryPoint => entryPoint.Name)];
@@ -43,6 +44,7 @@ public sealed class HostProtocolTests
 		"byte*" => typeof(byte).MakePointerType(),
 		"int" => typeof(int),
 		"ulong" => typeof(ulong),
+		"ulong*" => typeof(ulong).MakePointerType(),
 		"float" => typeof(float),
 		_ => throw new ArgumentException($"unknown parameter type {parameter}", nameof(parameter)),
 	};

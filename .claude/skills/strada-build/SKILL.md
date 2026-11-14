@@ -19,7 +19,7 @@ python Tools/build.py --clean                  # wipe build/<preset> first
 ```
 
 - Presets: `windows-{debug,release,dist}`, `windows-vs` (Visual Studio solution), `linux-gcc-{debug,release,dist}`,
-  `linux-clang-{debug,release}`, `macos-{debug,release,dist}`. Build trees live in `build/<preset>/`, binaries in
+  `linux-clang-{debug,release}`, `linux-clang-tsan` (ThreadSanitizer, below), `macos-{debug,release,dist}`. Build trees live in `build/<preset>/`, binaries in
   `build/<preset>/bin/`.
 - On Windows the script finds Visual Studio with `vswhere` and runs everything inside the `vcvars64` environment, so it
   works from PowerShell, cmd or Git Bash. Plain `cmake --preset ...` needs a VS developer shell.
@@ -109,3 +109,12 @@ module's list in `Strada/CMakeLists.txt` (or the test/editor/runtime target), ke
 - **Name clashes on Windows** (e.g. a method silently becoming `FormatMessageW`): a Win32 macro collided with an
   identifier; see the Platform notes in `AGENTS.md` and rename the identifier.
 - **Sanitizers**: `--cmake-arg=-DSTRADA_ENABLE_SANITIZERS=ON` (ASan + UBSan on GCC/Clang, ASan on MSVC).
+- **ThreadSanitizer** (GCC or Clang, never MSVC; it excludes `STRADA_ENABLE_SANITIZERS`): `python Tools/build.py
+  --preset linux-clang-tsan --target StradaTests` builds Debug with `STRADA_ENABLE_THREAD_SANITIZER`, which
+  `strada_add_thread_sanitizer` applies to every Strada target and every third-party target the build compiles (a new
+  compiled dependency is added to the list at the end of `cmake/StradaDependencies.cmake` unless it goes through
+  `strada_configure_third_party_target`). The preset has no test preset: the whole suites host the .NET runtime and
+  time-bound cases, so run the threading cases by filter, as `.github/workflows/tsan.yml` does, with
+  `TSAN_OPTIONS=suppressions=$PWD/.github/tsan-suppressions.txt`. A race in Strada's code is fixed, never suppressed;
+  the file lists only prebuilt libraries. The workflow runs nightly and on a push to a `tsan/**` branch, which is how to
+  try a change to it, and it never gates a merge. A threading case added to a suite gets a filter in its step.

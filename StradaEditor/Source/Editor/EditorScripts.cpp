@@ -6,6 +6,7 @@
 
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Script/ScriptEngine.h"
 
@@ -222,6 +223,7 @@ namespace Strada
 			m_Build = std::async(std::launch::async,
 			                     [settings, &cancel = m_CancelBuild]()
 			                     {
+									 ST_PROFILE_THREAD("Script Build");
 									 return ScriptProject::Build(settings, &cancel);
 								 });
 		}

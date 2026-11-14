@@ -16,6 +16,8 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace Strada
@@ -150,10 +152,19 @@ namespace Strada
 	// Renders one view of a submitted frame into its own HDR target and tonemaps it into an 8-bit, sRGB-encoded image
 	// (GetFinalImage) that the editor viewport displays and the runtime presents. Independent of the ECS: scenes gather
 	// their data and submit it between BeginScene and EndScene. Requires Renderer::Init. Main thread only.
+	//
+	// Every GPU pass is wrapped in an NVRHI marker named after it, so a RenderDoc capture reads by pass. While the profiler
+	// records (Docs/Architecture.md §4.4) and the GPU can measure time, each pass is also timed, and the durations reach
+	// Profiler::RecordGpuPasses under the renderer's view name once the GPU has finished the frame.
 	class SceneRenderer
 	{
 	public:
-		SceneRenderer();
+		// The most passes of one frame the profiler times; later passes keep their markers only.
+		static constexpr uint32_t MaxTimedPasses = 64;
+
+		// view: the name the profiler reports this renderer's GPU passes under ("Viewport", "Game"), at most
+		// Profiler::MaxNameBytes long; copied.
+		explicit SceneRenderer(std::string_view view = "Scene");
 		~SceneRenderer();
 
 		SceneRenderer(SceneRenderer const&) = delete;
@@ -161,6 +172,7 @@ namespace Strada
 
 		// Zero sizes are clamped to 1.
 		void SetViewportSize(uint32_t width, uint32_t height);
+		std::string const& GetViewName() const { return m_ViewName; }
 		uint32_t GetViewportWidth() const { return m_Width; }
 		uint32_t GetViewportHeight() const { return m_Height; }
 
@@ -277,12 +289,51 @@ namespace Strada
 			bool operator==(FrameTextures const& other) const = default;
 		};
 
+		struct PassTimer
+		{
+			nvrhi::TimerQueryHandle Query;
+			// The pass's name (a string literal).
+			char const* Name = nullptr;
+		};
+
+		struct FrameTimer
+		{
+			nvrhi::TimerQueryHandle Query;
+			// Recorded in a frame whose time has not been read yet.
+			bool Pending = false;
+			// Timers of the frame's passes (MaxTimedPasses), made the first time the renderer records a frame while the
+			// profiler records, and the passes the pending frame timed with them (none when it was not recorded then).
+			std::vector<PassTimer> Passes;
+			uint32_t PassCount = 0;
+			// Profiler::GetFrameIndex() when the frame was recorded.
+			uint64_t ProfilerFrame = 0;
+		};
+
+		// One GPU pass of a frame: an NVRHI marker, and the pass's timer when the frame's passes are timed. Ends both when it
+		// goes out of scope, so they always pair.
+		class PassScope
+		{
+		public:
+			PassScope(SceneRenderer& renderer, nvrhi::ICommandList* commandList, char const* name);
+			~PassScope();
+
+			PassScope(PassScope const&) = delete;
+			PassScope& operator=(PassScope const&) = delete;
+
+		private:
+			nvrhi::ICommandList* m_CommandList;
+			nvrhi::ITimerQuery* m_Timer = nullptr;
+		};
+
 		void CreateTargets();
 		// Marks the items inside the camera's view and drops the others, except shadow casters while shadows are drawn.
 		void CullToView();
-		// Reads the GPU times of finished frames and returns the timer for this frame: null when the GPU cannot measure
-		// time, or when every timer still waits for its frame (that frame goes unmeasured rather than waiting).
-		nvrhi::ITimerQuery* AcquireFrameTimer();
+		// Reads the GPU times of finished frames (handing the times of their passes to the profiler) and returns the timer
+		// for this frame: null when the GPU cannot measure time, or when every timer still waits for its frame (that frame
+		// goes unmeasured rather than waiting). While the profiler records, the frame's passes are timed with it.
+		FrameTimer* AcquireFrameTimer();
+		// Hands the times of a finished frame's passes to the profiler and makes their timers reusable.
+		void ReportPassTimes(FrameTimer& timer);
 		void UpdateFrameBindings(FrameTextures const& textures);
 		nvrhi::IGraphicsPipeline* GetMeshPipeline(bool blend, bool doubleSided);
 		nvrhi::IGraphicsPipeline* GetShadowPipeline(bool masked, bool doubleSided);
@@ -326,18 +377,17 @@ namespace Strada
 		std::vector<ShadowView> m_ShadowViews;
 		SceneRendererStatistics m_Statistics;
 
-		struct FrameTimer
-		{
-			nvrhi::TimerQueryHandle Query;
-			// Recorded in a frame whose time has not been read yet.
-			bool Pending = false;
-		};
 		// More than the frames the CPU may run ahead of the GPU, so measuring never waits.
 		static constexpr size_t FrameTimerCount = 4;
 		std::array<FrameTimer, FrameTimerCount> m_FrameTimers;
 		// The oldest timer, reused next.
 		size_t m_NextFrameTimer = 0;
 		std::optional<float> m_GpuMilliseconds;
+		// The timer of the frame being recorded when its passes are timed (PassScope), otherwise null.
+		FrameTimer* m_PassTimers = nullptr;
+		// The GPU had no timers left for the passes: they are not timed again (the device reported it once).
+		bool m_PassTimersUnavailable = false;
+		std::string m_ViewName;
 
 		nvrhi::CommandListHandle m_CommandList;
 		nvrhi::TextureHandle m_ColorTarget;

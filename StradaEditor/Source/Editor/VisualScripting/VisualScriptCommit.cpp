@@ -4,6 +4,7 @@
 
 #include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Core/Timer.h"
 
 #include <iterator>
@@ -36,6 +37,7 @@ namespace Strada
 	Result<VisualScriptCommit> PrepareVisualScriptCommit(VisualScriptDocument const& stored, VisualScriptDocument edited,
 	                                                     VisualScriptAnalysis const* analysis)
 	{
+		ST_PROFILE_SCOPE("GraphEditor.PrepareCommit");
 		Timer const normalize;
 		VisualScriptCommit commit;
 		commit.Warnings = RecordFormerNames(edited, stored);

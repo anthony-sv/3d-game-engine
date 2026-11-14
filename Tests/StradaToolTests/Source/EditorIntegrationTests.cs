@@ -57,6 +57,11 @@ public sealed class EditorIntegrationTests
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "editor_recent");
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "start_info");
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "start_show");
+			// The profiler's tools: recording, its status and medians, captures written and opened.
+			foreach (string profilerTool in new[] { "profiler_start", "profiler_stop", "profiler_status", "profiler_capture", "profiler_open" })
+			{
+				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == profilerTool);
+			}
 			// The session keeps the headless editor it started for the list.
 			EditorInstance instance = Assert.Single(EditorInstance.FindRunning(instances));
 			processId = instance.ProcessId;
@@ -74,6 +79,10 @@ public sealed class EditorIntegrationTests
 			JsonObject screenshot = await client.CallToolAsync("viewport_screenshot");
 			Assert.True(screenshot["isError"]!.GetValue<bool>());
 			Assert.StartsWith("Unavailable (1005)", McpTestClient.Text(screenshot));
+			// The headless editor's application has the profiler, which records only when asked: nothing records at first.
+			JsonNode profiler = McpTestClient.ParseText(await client.CallToolAsync("profiler_status"));
+			Assert.True(profiler["initialized"]!.GetValue<bool>());
+			Assert.False(profiler["recording"]!.GetValue<bool>());
 
 			// The instance file names the project the editor has open, so that strada finds editors by project.
 			string projectDirectory = Path.Combine(directory.Path, "Game");

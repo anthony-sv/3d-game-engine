@@ -51,6 +51,7 @@ public sealed class PerformanceTests
 		// the Update that allocated least counts (a step that allocated would show in every one).
 		long fewest = long.MaxValue;
 		TimeSpan elapsed = TimeSpan.Zero;
+		ulong stepsBefore = runtime.Runtime.StepsRun;
 		for (int update = 0; update < updates; update++)
 		{
 			long allocated = GC.GetAllocatedBytesForCurrentThread();
@@ -66,6 +67,8 @@ public sealed class PerformanceTests
 		long sum = (long)Iterations * (Iterations + 1) / 2 * 3;
 		Assert.Equal((warmUps + updates) * sum, runtime.Variable("Total"));
 		double steps = (double)updates * (2 + ((long)StepsPerIteration * Iterations));
+		// The count the engine's profiler reads (VisualScriptReadSteps) is the steps the Updates ran.
+		Assert.Equal((ulong)steps, runtime.Runtime.StepsRun - stepsBefore);
 		TestContext.Current.TestOutputHelper?.WriteLine(FormattableString.Invariant(
 			$"{steps / elapsed.TotalSeconds / 1.0e6:F1} million steps per second ({elapsed.TotalMilliseconds / updates:F1} ms per Update of {steps / updates:F0} steps{(optimized ? string.Empty : ", unoptimized")})"));
 	}

@@ -1,4 +1,5 @@
 #include "Audio/AudioTestUtilities.h"
+#include "Core/ProfilerTestUtilities.h"
 #include "EditorLocationsTestUtilities.h"
 #include "Fuzzing.h"
 #include "Physics/PhysicsTestUtilities.h"
@@ -7,11 +8,13 @@
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/PlayCommands.h"
+#include "Editor/Automation/ProfilerCommands.h"
 #include "Editor/Automation/ProjectContentCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/Automation/StartCommands.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/EditorProfiler.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/ExampleCopyTask.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
@@ -28,8 +31,10 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Serialization/ProfilerCaptureSerializer.h"
 
 #include <doctest/doctest.h>
 
@@ -1216,6 +1221,21 @@ namespace
 			{
 				return {{"Scripts/Fuzz.sgraph", "Fuzz.sgraph"}, refused};
 			}
+			// Captures go into the project (relative paths) or where an absolute path names; the fixture seeds one to open.
+			std::vector<std::string> const refusedCaptures = {"../Escape.json", "../../Escape.json", "Captures/../../Escape.json",
+			                                                  "Fuzz.txt",       "Captures",          ""};
+			std::string const outsideCapture = FileSystem::PathToUtf8(m_Outside / "Fuzz.json");
+			if (m_Command == "profiler.capture")
+			{
+				return {{"Captures/Fuzz.json", "Fuzz.json", "Captures/Seed.json", outsideCapture}, refusedCaptures};
+			}
+			if (m_Command == "profiler.open")
+			{
+				std::vector<std::string> refusedOpens = refusedCaptures;
+				refusedOpens.push_back("Missing.json");
+				refusedOpens.push_back("Fuzz.sproj");
+				return {{"Captures/Seed.json", "Captures/Fuzz.json", outsideCapture}, std::move(refusedOpens)};
+			}
 			// asset.move: a new place for the asset, under the same name.
 			auto const asset = siblings.find("asset");
 			if (asset != siblings.end() && asset->is_string())
@@ -1260,6 +1280,8 @@ namespace
 	// A project with something of everything, open in an editor model with the commands the editor layer registers.
 	struct FuzzFixture
 	{
+		// The recorder, as the editor's application has it: Tick runs its frames.
+		Testing::ProfilerScope Recorder;
 		Testing::PhysicsSystemScope Physics;
 		Testing::AudioEngineScope Audio;
 		Testing::AssetManagerScope Assets;
@@ -1295,6 +1317,8 @@ namespace
 		// The start screen's state behind start.info, start.show and editor.recent: the recent projects file lies in the
 		// commands' user data, which the fuzz may write. Headless: start.show and editor.dialog are Unavailable.
 		StartScreenModel StartScreen{Locations};
+		// Who records, for the profiler commands; there is no panel to show captures in.
+		EditorProfiler ProfilerSession;
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 
@@ -1347,6 +1371,7 @@ namespace
 			REQUIRE(RegisterGraphDebugCommands(Registry, DebugSession, Play, Context).IsOk());
 			REQUIRE(RegisterProjectContentCommands(Registry, Operations, Copies, Locations, {}).IsOk());
 			REQUIRE(RegisterStartCommands(Registry, StartScreen, {}).IsOk());
+			REQUIRE(RegisterProfilerCommands(Registry, ProfilerSession, Context, {}).IsOk());
 			DebugSession.SetViewSettings(&ViewSettings);
 			Play.SetObserver(&DebugSession);
 
@@ -1402,6 +1427,12 @@ namespace
 			Ok("asset.create-folder", Json::object({{"folder", "Empty"}}));
 			Ok("asset.import", Json::object({{"files", Json::array({ImportFiles()[0], ImportFiles()[1]})}, {"folder", "Imported"}}));
 			Ok("scene.save");
+			// A capture for profiler.open, and the first frame for the recordings profiler.start begins.
+			Testing::CaptureBuilder capture;
+			capture.AddFrame(0, 16000000);
+			capture.AddZone(0, "Fuzz.Seed", 0, 0, 1000000);
+			REQUIRE(ProfilerCaptureSerializer::Save(capture.Get(), ProjectDirectory / "Captures" / "Seed.json").IsOk());
+			Profiler::BeginFrame();
 		}
 
 		~FuzzFixture()
@@ -1519,6 +1550,12 @@ namespace
 			Play.Update(Timestep(1.0f / 60.0f));
 			DebugSession.EndFrame();
 			DebugSession.BeginFrame();
+			// The frame ends and the next begins, as the editor's main loop has them: a recording collects the frame.
+			{
+				ST_PROFILE_SCOPE("Fuzz.Tick");
+			}
+			Profiler::EndFrame();
+			Profiler::BeginFrame();
 		}
 
 		// The edited scene (or the running copy) saves and loads again.
@@ -1962,6 +1999,13 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		CHECK(outcomes[contentCommand].first > 0);
 	}
 	CHECK(outcomes["project.copy-example"].second > 0);
+	// The profiler commands record, write captures, open them and stop (Dist builds record nothing).
+	for (std::string const profilerCommand : {"profiler.start", "profiler.stop", "profiler.status", "profiler.capture", "profiler.open"})
+	{
+		CAPTURE(profilerCommand);
+		bool const records = profilerCommand == "profiler.start" || profilerCommand == "profiler.capture";
+		CHECK((outcomes[profilerCommand].first > 0 || (records && !Profiler::GetStatus().Available)));
+	}
 	CHECK(findSuccesses["query"] > 0);
 	CHECK(findSuccesses["references"] > 0);
 	// The debug commands that need no game work; the others are refused, for their parameters or for the state.

@@ -2,6 +2,7 @@
 
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Project/ProjectSettings.h"
 #include "Strada/Script/VisualScriptEngine.h"
 
@@ -225,6 +226,7 @@ namespace Strada
 
 	void PlayMode::Update(Timestep timestep)
 	{
+		ST_PROFILE_SCOPE("Play.Update");
 		if (m_Runner == nullptr || GetFrameStepRefusal())
 		{
 			return;

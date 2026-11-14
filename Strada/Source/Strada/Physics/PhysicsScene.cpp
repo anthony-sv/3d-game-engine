@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Core/Hash.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/JoltContext.h"
 #include "Strada/Physics/PhysicsSystem.h"
@@ -1565,6 +1566,7 @@ namespace Strada
 		{
 			return;
 		}
+		ST_PROFILE_SCOPE("Physics.Step");
 		if (data.OptimizeBroadPhase)
 		{
 			data.System.OptimizeBroadPhase();

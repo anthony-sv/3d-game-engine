@@ -7,6 +7,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptEngine.h"
 
@@ -647,6 +648,7 @@ namespace Strada
 
 	VisualScriptFlowTake VisualScriptDebugSession::TakeFlow(AssetHandle document, uint32_t function)
 	{
+		ST_PROFILE_SCOPE("GraphDebug.TakeFlow");
 		VisualScriptFlowTake take;
 		take.Time = m_FlowTime;
 		auto const found = std::find_if(m_Flows.begin(), m_Flows.end(),
@@ -711,6 +713,7 @@ namespace Strada
 
 	bool VisualScriptDebugSession::OnPlayFrame(Timestep timestep)
 	{
+		ST_PROFILE_SCOPE("GraphDebug.Frame");
 		if (!m_Attached)
 		{
 			return false;
@@ -872,6 +875,7 @@ namespace Strada
 
 	void VisualScriptDebugSession::EndFrame()
 	{
+		ST_PROFILE_SCOPE("GraphDebug.EndFrame");
 		Follow();
 		FollowGraphs();
 		if (m_Attached)

@@ -446,6 +446,15 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
   `TestReporter.Finish`. Physical checks place what they test (teleport the ball in front of the target) rather than
   depend on a path.
 
+- Measure before you optimize. `profiler_start`, run frames (play with editor frames between calls; `play_advance`
+  runs all its frames inside one editor frame, which is one profiler frame), then `profiler_status {medians: true}`:
+  the frame's median and 99th percentile, subsystems on the main thread (`Scene`, `Script`, `Graph`, `Physics`,
+  `Renderer`, `Application`, `Wait`), other threads' busy time, GPU passes, and the costliest zones per frame and per
+  call: `Graph.<asset path>` per graph (with the VM's steps in a capture) and `Script.<class>` per C# script.
+  `profiler_capture {path: ".strada/Captures/<name>.json"}` keeps a capture, `profiler_open` shows one in the Profiler
+  panel (`viewport_screenshot {window: "Profiler"}` shows it to the user), and `profiler_stop` ends the recording. The
+  editor's own work is in its frames; `StradaRuntime --profile <file>` measures the game alone.
+
 ## 9. Ship
 
 - Ask the user before exporting. Save everything (`scene_save`), then `project_export` with `directory`: it builds the

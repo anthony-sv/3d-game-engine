@@ -45,6 +45,9 @@ namespace Strada
 		// A whole value at the current depth, as nlohmann writes it there.
 		void Value(Json const& value);
 
+		// The bytes written so far, so that writers of bounded documents can stop at their bound.
+		size_t GetSize() const { return m_Text.size(); }
+
 		// The text written; the writer is empty afterwards.
 		[[nodiscard]] std::string TakeText();
 

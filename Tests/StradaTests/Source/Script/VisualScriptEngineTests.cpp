@@ -2073,8 +2073,14 @@ TEST_CASE("VisualScriptEngine: the runtime's entry points answer through receive
 	Received variables;
 	CHECK(status(host.VisualScriptDescribeInstanceVariables(Stranger, &variables, &Receive)) == ScriptStatus::NotFound);
 	CHECK(variables.Calls == 0);
+	// The steps the VM ran grow with what an invoke runs (the profiler reads them around each invoke).
+	uint64_t stepsBefore = 0;
+	CHECK(status(host.VisualScriptReadSteps(&stepsBefore)) == ScriptStatus::Success);
 	CHECK(status(host.VisualScriptInvoke(Instance, static_cast<int32_t>(ScriptEngineInternal::ScriptEvent::Create), 0.0f, 0)) ==
 	      ScriptStatus::Success);
+	uint64_t stepsAfter = 0;
+	CHECK(status(host.VisualScriptReadSteps(&stepsAfter)) == ScriptStatus::Success);
+	CHECK(stepsAfter > stepsBefore);
 	CHECK(status(host.VisualScriptDescribeInstanceVariables(Instance, &variables, &Receive)) == ScriptStatus::Success);
 	CHECK(variables.Calls == 1);
 	Result<Json> values = ParseJson(variables.Text);

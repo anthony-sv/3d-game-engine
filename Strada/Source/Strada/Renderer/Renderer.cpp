@@ -8,6 +8,7 @@
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/TextureAsset.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/Renderer/EnvironmentMap.h"
 #include "Strada/Renderer/TextureMips.h"
@@ -101,6 +102,7 @@ namespace Strada
 
 		nvrhi::TextureHandle UploadTexture(Ref<TextureAsset> const& textureAsset, bool srgb)
 		{
+			ST_PROFILE_SCOPE("Renderer.UploadTexture");
 			TextureAsset const& asset = *textureAsset;
 			Result<Image> image = asset.Decode();
 			if (!image)
@@ -254,6 +256,7 @@ namespace Strada
 			return nullptr;
 		}
 
+		ST_PROFILE_SCOPE("Renderer.UploadMesh");
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
 		nvrhi::BufferDesc vertexDesc;
 		vertexDesc.byteSize = mesh->GetVertices().size() * sizeof(Vertex);
@@ -410,6 +413,7 @@ namespace Strada
 			return nullptr;
 		}
 
+		ST_PROFILE_SCOPE("Renderer.ProcessEnvironment");
 		Result<HdrImage> image = environment->Decode();
 		if (!image)
 		{
