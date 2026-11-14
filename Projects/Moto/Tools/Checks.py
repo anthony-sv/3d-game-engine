@@ -34,14 +34,20 @@ CRATE_HALF = 0.4
 CRATE_AT = 300.0
 CRATE_LATERAL = 4.0
 CRATE_DROP = 1.0
-# How close a surface hit must come to its expected height (meters): the crown is straight between the cross-section's
-# vertices, within 0.015 m of the layout's curve.
+# How close a surface hit must come to its expected height (meters).
 SURFACE_TOLERANCE = 0.03
+
+
+def mesh_road_height(lateral):
+    """The road's height at a lateral offset as the track's meshes have it: GenerateAssets.cross_section takes the crown's
+    height at the center line and the edges only, so the road is straight between them (up to 0.0125 m under the layout's
+    curve, Circuit.road_height)."""
+    return Circuit.ROAD_HEIGHT + Circuit.CROWN * (1.0 - abs(lateral) / Circuit.HALF_WIDTH)
 
 
 def crate_start():
     """Where the crate's center starts: CRATE_DROP over the road."""
-    return Circuit.offset_point(CRATE_AT, CRATE_LATERAL, Circuit.road_height(CRATE_LATERAL) + CRATE_HALF + CRATE_DROP)
+    return Circuit.offset_point(CRATE_AT, CRATE_LATERAL, mesh_road_height(CRATE_LATERAL) + CRATE_HALF + CRATE_DROP)
 
 
 def probes():
@@ -55,7 +61,7 @@ def probes():
     deck = Circuit.BRIDGE_CLEARANCE + 0.5
     rows = (
         ("CheckRoad", "Road: the main straight's crown, 2 m right of the line", "the road on the main straight is the track's surface",
-         "Track", Circuit.offset_point(300.0, 2.0), Circuit.road_height(2.0)),
+         "Track", Circuit.offset_point(300.0, 2.0), mesh_road_height(2.0)),
         ("CheckKerb", "Kerb: raised on the inside of Turn 6", "a kerb stands on the inside of Turn 6", "Track",
          Circuit.offset_point(apex, kerb), Circuit.ROAD_HEIGHT + Circuit.KERB_HEIGHT),
         ("CheckBarrier", "Barrier: its top, beside the back straight", "the barrier stands 0.85 m high beside the back straight",
@@ -247,7 +253,9 @@ def check_crate_rests(b, name):
     at = b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=crate)
     speed = b.expr("length(v)", v=b.pure("Get:Strada.RigidBodyComponent.LinearVelocity", "Value", Target=crate))
     start = crate_start()
-    resting = [start[0], Circuit.road_height(CRATE_LATERAL) + CRATE_HALF, start[2]]
+    # Jolt lets resting bodies sink up to its penetration slop (0.02 m, PhysicsSettings::mPenetrationSlop) into what they
+    # rest on, and where in it they settle depends on the drop: 0.05 m leaves room for that and a little sliding.
+    resting = [start[0], mesh_road_height(CRATE_LATERAL) + CRATE_HALF, start[2]]
     settled = b.expr("now > 1 && speed < 0.02", now=now(b), speed=speed)
     passed = b.both(settled, near(b, at, rounded(resting), 0.05))
     run(b, check(b, name, settled, 6, b.fmt("the crate at {At}, moving at {Speed} m/s", At=at, Speed=speed), passed))
