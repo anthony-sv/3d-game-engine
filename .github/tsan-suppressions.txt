@@ -12,3 +12,10 @@
 # instance even on a runner without a device, where those cases then skip).
 called_from_lib:libvulkan.so.1
 called_from_lib:libVkLayer_khronos_validation.so
+
+# The .NET runtime, which the script engine hosts (ScriptEngine::Init loads it from the installed SDK), so every case
+# that runs the application or a script loads it. Its locks follow an order of its own, and it frees on one of its
+# threads what it allocated on another under those locks: without this entry one run reports thousands of lock order
+# inversions and allocation races, each one with libcoreclr.so as the caller and none in Strada's code. What Strada's
+# own code does when managed code calls it is still checked.
+called_from_lib:libcoreclr.so
