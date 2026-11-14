@@ -786,106 +786,41 @@ namespace Strada
 	glm::vec4 EvaluateVisualScriptTimelineTrack(VisualScriptTimelineTrack const& track, double time)
 	{
 		glm::vec4 result(0.0f);
-		auto const components = static_cast<glm::length_t>(std::min<uint32_t>(track.Components, 4));
-		std::vector<VisualScriptTimelineKey> const& keys = track.Keys;
+		uint32_t const components = std::min<uint32_t>(track.Components, 4);
 		if (components == 0)
 		{
 			return result;
 		}
-		if (keys.empty())
+		if (track.Keys.empty())
 		{
 			glm::vec4 const fallback = GetDefaultValue(track.Type);
-			for (glm::length_t component = 0; component < components; component++)
+			for (glm::length_t component = 0; component < static_cast<glm::length_t>(components); component++)
 			{
 				result[component] = fallback[component];
 			}
 			return result;
 		}
-		auto const copy = [&result, components](glm::vec4 value)
+		std::array<double, 4> values{};
+		EvaluateCurveKeys(std::span<VisualScriptTimelineKey const>(track.Keys), time, std::span<double>(values.data(), components));
+		for (glm::length_t component = 0; component < static_cast<glm::length_t>(components); component++)
 		{
-			for (glm::length_t component = 0; component < components; component++)
-			{
-				result[component] = value[component];
-			}
-		};
-		if (keys.size() == 1 || time < static_cast<double>(keys.front().Time))
-		{
-			copy(keys.front().Value);
-			return result;
-		}
-		// The last key at or before the time.
-		auto const after = std::upper_bound(keys.begin(), keys.end(), time,
-		                                    [](double value, VisualScriptTimelineKey const& key)
-		                                    {
-												return value < static_cast<double>(key.Time);
-											});
-		auto const index = static_cast<uint32_t>(std::distance(keys.begin(), after) - 1);
-		if (index + 1 >= keys.size())
-		{
-			copy(keys.back().Value);
-			return result;
-		}
-		VisualScriptTimelineKey const& from = keys[index];
-		VisualScriptTimelineKey const& to = keys[index + 1];
-		double const span = static_cast<double>(to.Time) - static_cast<double>(from.Time);
-		double const s = (time - static_cast<double>(from.Time)) / span;
-		switch (from.Interpolation)
-		{
-			case VisualScriptKeyInterpolation::Constant:
-				copy(from.Value);
-				break;
-			case VisualScriptKeyInterpolation::Linear:
-				for (glm::length_t component = 0; component < components; component++)
-				{
-					double const start = from.Value[component];
-					result[component] = static_cast<float>(start + (static_cast<double>(to.Value[component]) - start) * s);
-				}
-				break;
-			case VisualScriptKeyInterpolation::Cubic:
-			{
-				glm::vec4 const outgoing = GetVisualScriptTimelineKeyTangents(track, index).second;
-				glm::vec4 const incoming = GetVisualScriptTimelineKeyTangents(track, index + 1).first;
-				double const s2 = s * s;
-				double const s3 = s2 * s;
-				double const h00 = 2.0 * s3 - 3.0 * s2 + 1.0;
-				double const h10 = s3 - 2.0 * s2 + s;
-				double const h01 = -2.0 * s3 + 3.0 * s2;
-				double const h11 = s3 - s2;
-				for (glm::length_t component = 0; component < components; component++)
-				{
-					result[component] = static_cast<float>(h00 * from.Value[component] + h10 * span * outgoing[component] +
-					                                       h01 * to.Value[component] + h11 * span * incoming[component]);
-				}
-				break;
-			}
+			result[component] = static_cast<float>(values[static_cast<size_t>(component)]);
 		}
 		return result;
 	}
 
 	std::pair<glm::vec4, glm::vec4> GetVisualScriptTimelineKeyTangents(VisualScriptTimelineTrack const& track, uint32_t key)
 	{
-		std::vector<VisualScriptTimelineKey> const& keys = track.Keys;
-		if (key >= keys.size())
+		std::pair<glm::vec4, glm::vec4> tangents(glm::vec4(0.0f), glm::vec4(0.0f));
+		std::span<VisualScriptTimelineKey const> const keys(track.Keys);
+		// Every component of the stored vectors, as the tangents are kept (the components a track does not have read as stored).
+		for (uint32_t component = 0; component < 4; component++)
 		{
-			return {glm::vec4(0.0f), glm::vec4(0.0f)};
+			std::pair<double, double> const slopes = GetCurveKeySlopes(keys, key, component);
+			tangents.first[static_cast<glm::length_t>(component)] = static_cast<float>(slopes.first);
+			tangents.second[static_cast<glm::length_t>(component)] = static_cast<float>(slopes.second);
 		}
-		// Auto: 0 at the first and last keys; at an interior key the slope from the key before to the key after (Catmull-Rom
-		// on uneven times), or 0 when they are at one time. Computed in double, as the runtime does.
-		glm::vec4 automatic(0.0f);
-		if (key > 0 && key + 1 < keys.size())
-		{
-			double const span = static_cast<double>(keys[key + 1].Time) - static_cast<double>(keys[key - 1].Time);
-			if (span > 0.0)
-			{
-				for (glm::length_t component = 0; component < 4; component++)
-				{
-					automatic[component] = static_cast<float>(
-						(static_cast<double>(keys[key + 1].Value[component]) - static_cast<double>(keys[key - 1].Value[component])) / span);
-				}
-			}
-		}
-		VisualScriptTimelineKey const& stored = keys[key];
-		return {stored.In.value_or(automatic), stored.Out.value_or(automatic)};
+		return tangents;
 	}
 
 	Json MakeVisualScriptTimelineValueLiteral(VisualScriptTimelineTrack const& track, glm::vec4 value)

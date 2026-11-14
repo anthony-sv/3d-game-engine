@@ -6,6 +6,7 @@ add_executable(StradaTests
     Source/Asset/AssetManagerTests.cpp
     Source/Asset/AssetRegistryTests.cpp
     Source/Asset/AssetTypeTests.cpp
+    Source/Asset/CurveAssetTests.cpp
     Source/Asset/DataAssetFuzzTests.cpp
     Source/Asset/DataAssetTests.cpp
     Source/Asset/GltfTestBuilder.h
@@ -54,6 +55,7 @@ add_executable(StradaTests
     Source/ImGui/ImGuiFileDropTests.cpp
     Source/ImGui/ImGuiLayerTests.cpp
     Source/Math/AABBTests.cpp
+    Source/Math/CurveTests.cpp
     Source/Math/FrustumTests.cpp
     Source/Math/MathTests.cpp
     Source/Physics/MeshColliderOutlineTests.cpp

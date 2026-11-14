@@ -318,11 +318,25 @@ step, after `play.stop`.
 | `<domain>.get` | `<parameter>`* | `<parameter>`, `fields`; read-only. AssetNotFound for an asset that is not registered; InvalidParams for an asset of another type; FileError for a file that does not load |
 | `<domain>.set` | `<parameter>`*, `fields`* (partial patch: the fields given replace theirs whole, an array with all its elements) | `<parameter>`, `fields`. Writes the file; an undo step (`editor.undo`) that does not mark the scene modified, named `Edit <type name>`; a patch that changes nothing is no step. Undo writes back every field as it was, not the file's bytes: undoing the first edit of a file of an older format version leaves it in the current version with the same values. InvalidParams for refused fields or an asset of another type; InvalidOperation for a data asset without a file of its own (made in memory), a missing file or a read-only one; FileError for a file that does not load |
 
-The engine registers no type of its own yet. The tests register `TestData` (extension `.stestdata`), whose commands
-show the pattern: `test-data.create`, `test-data.get` and `test-data.set`, with the parameter `testData`:
+The engine's types and their commands:
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `curve.create` | `path`* (`.scurve`, relative to Assets), `fields` | `curve`, `fields`. A curve (Docs/Architecture.md section 6.5): `PreExtrapolation` and `PostExtrapolation` (`Hold`, `Loop`, `PingPong` or `Linear`: what it does before its first key and after its last), `Keys` (at most 1024, in time order: `Time`, `Value`, `Interpolation` `Cubic`/`Linear`/`Constant` of the segment to the next key, and the slopes `In` and `Out` where `HasIn` and `HasOut` are true, automatic otherwise). A new curve has no key and is 0 everywhere |
+| `curve.get` | `curve`* | `curve`, `fields` |
+| `curve.set` | `curve`*, `fields`* (`Keys` replaces every key) | `curve`, `fields`; an undo step named `Edit Curve`. Keys out of order are InvalidParams (`Curve: Keys[1].Time: keys are in time order: 0 comes after 1`) |
+
+The tests register `TestData` (extension `.stestdata`) besides, whose commands show the pattern with every kind of
+field: `test-data.create`, `test-data.get` and `test-data.set`, with the parameter `testData`:
 
 ```json
 { "jsonrpc": "2.0", "id": 7, "method": "test-data.set", "params": { "testData": "asset://Data/Crate.stestdata", "fields": { "Shape": "Sphere", "Entries": [{ "Name": "First", "Weight": 2.0 }] } } }
+```
+
+A curve, from the keys up:
+
+```json
+{ "jsonrpc": "2.0", "id": 8, "method": "curve.create", "params": { "path": "Curves/Throttle.scurve", "fields": { "PostExtrapolation": "Hold", "Keys": [{ "Time": 0, "Value": 0 }, { "Time": 0.5, "Value": 0.2, "Interpolation": "Linear" }, { "Time": 1, "Value": 1 }] } } }
 ```
 
 ### graph

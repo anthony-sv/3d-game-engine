@@ -62,6 +62,11 @@ public sealed class EditorIntegrationTests
 			{
 				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == profilerTool);
 			}
+			// The engine's data asset types' tools, generated from their registrations: curves.
+			foreach (string curveTool in new[] { "curve_create", "curve_get", "curve_set" })
+			{
+				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == curveTool);
+			}
 			// The session keeps the headless editor it started for the list.
 			EditorInstance instance = Assert.Single(EditorInstance.FindRunning(instances));
 			processId = instance.ProcessId;

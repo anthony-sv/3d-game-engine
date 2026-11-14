@@ -1,0 +1,462 @@
+{
+	"About": "Curve cases that the engine's evaluator (StradaTests, Math/CurveTests.cpp) and the scripting runtime's (ScriptCoreTests, CurveMathTests.cs) evaluate to the same values: each Curve is the content of a .scurve file, each sample's Value is the curve at its Time, within Tolerance times the larger of 1 and the value's magnitude. Non-finite numbers are the strings NaN, Infinity and -Infinity.",
+	"Tolerance": 1e-06,
+	"Cases": [
+		{
+			"Name": "Automatic slopes between two keys",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Hold",
+				"Keys": [
+					{ "Time": 0, "Value": 0 },
+					{ "Time": 1, "Value": 1 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.25, "Value": 0.15625 },
+				{ "Time": 0.5, "Value": 0.5 },
+				{ "Time": 0.75, "Value": 0.84375 },
+				{ "Time": 1.0, "Value": 1.0 }
+			]
+		},
+		{
+			"Name": "Linear",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Hold",
+				"Keys": [
+					{ "Time": 0, "Value": 0, "Interpolation": "Linear" },
+					{ "Time": 1, "Value": 1 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.25, "Value": 0.25 },
+				{ "Time": 0.5, "Value": 0.5 },
+				{ "Time": 0.75, "Value": 0.75 },
+				{ "Time": 1.0, "Value": 1.0 }
+			]
+		},
+		{
+			"Name": "Constant",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Hold",
+				"Keys": [
+					{ "Time": 0, "Value": 0, "Interpolation": "Constant" },
+					{ "Time": 1, "Value": 1 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.25, "Value": 0.0 },
+				{ "Time": 0.5, "Value": 0.0 },
+				{ "Time": 0.75, "Value": 0.0 },
+				{ "Time": 1.0, "Value": 1.0 }
+			]
+		},
+		{
+			"Name": "Set slopes",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Hold",
+				"Keys": [
+					{ "Time": 0, "Value": 0, "HasOut": true, "Out": 2 },
+					{ "Time": 1, "Value": 1, "HasIn": true, "In": 0 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.5, "Value": 0.75 }
+			]
+		},
+		{
+			"Name": "Catmull-Rom on uneven values",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Hold",
+				"Keys": [
+					{ "Time": 0, "Value": 0 },
+					{ "Time": 1, "Value": 1 },
+					{ "Time": 2, "Value": 4 }
+				]
+			},
+			"Samples": [
+				{ "Time": -1.0, "Value": 0.0 },
+				{ "Time": 0.5, "Value": 0.25 },
+				{ "Time": 1.5, "Value": 2.75 },
+				{ "Time": 3.0, "Value": 4.0 }
+			]
+		},
+		{
+			"Name": "A jump between linear segments",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Hold",
+				"Keys": [
+					{ "Time": 0, "Value": 0, "Interpolation": "Linear" },
+					{ "Time": 1, "Value": 1 },
+					{ "Time": 1, "Value": 5, "Interpolation": "Linear" },
+					{ "Time": 2, "Value": 7 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.5, "Value": 0.5 },
+				{ "Time": 0.999, "Value": 0.999 },
+				{ "Time": 1.0, "Value": 5.0 },
+				{ "Time": 1.5, "Value": 6.0 },
+				{ "Time": 2.0, "Value": 7.0 }
+			]
+		},
+		{
+			"Name": "No key",
+			"Curve": {
+				"PreExtrapolation": "Loop",
+				"PostExtrapolation": "Linear",
+				"Keys": []
+			},
+			"Samples": [
+				{ "Time": -1.0, "Value": 0.0 },
+				{ "Time": 0.0, "Value": 0.0 },
+				{ "Time": 5.0, "Value": 0.0 },
+				{ "Time": "NaN", "Value": 0.0 },
+				{ "Time": "Infinity", "Value": 0.0 }
+			]
+		},
+		{
+			"Name": "One key holds",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Hold",
+				"Keys": [
+					{ "Time": 2, "Value": 3 }
+				]
+			},
+			"Samples": [
+				{ "Time": -10.0, "Value": 3.0 },
+				{ "Time": 2.0, "Value": 3.0 },
+				{ "Time": 10.0, "Value": 3.0 },
+				{ "Time": "NaN", "Value": "NaN" },
+				{ "Time": "-Infinity", "Value": 3.0 }
+			]
+		},
+		{
+			"Name": "One key under Linear and Loop",
+			"Curve": {
+				"PreExtrapolation": "Linear",
+				"PostExtrapolation": "Loop",
+				"Keys": [
+					{ "Time": 2, "Value": 3, "HasOut": true, "Out": 5 }
+				]
+			},
+			"Samples": [
+				{ "Time": -10.0, "Value": 3.0 },
+				{ "Time": 10.0, "Value": 3.0 },
+				{ "Time": "Infinity", "Value": 3.0 }
+			]
+		},
+		{
+			"Name": "Keys at one time loop as they hold",
+			"Curve": {
+				"PreExtrapolation": "Loop",
+				"PostExtrapolation": "PingPong",
+				"Keys": [
+					{ "Time": 1, "Value": 2, "Interpolation": "Linear" },
+					{ "Time": 1, "Value": 6 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.0, "Value": 2.0 },
+				{ "Time": 1.0, "Value": 6.0 },
+				{ "Time": 4.0, "Value": 6.0 }
+			]
+		},
+		{
+			"Name": "Hold at infinite times",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Hold",
+				"Keys": [
+					{ "Time": 0, "Value": 1, "Interpolation": "Linear" },
+					{ "Time": 1, "Value": 3 }
+				]
+			},
+			"Samples": [
+				{ "Time": "-Infinity", "Value": 1.0 },
+				{ "Time": "Infinity", "Value": 3.0 },
+				{ "Time": "NaN", "Value": "NaN" }
+			]
+		},
+		{
+			"Name": "Loop a triangle",
+			"Curve": {
+				"PreExtrapolation": "Loop",
+				"PostExtrapolation": "Loop",
+				"Keys": [
+					{ "Time": 0, "Value": 0, "Interpolation": "Linear" },
+					{ "Time": 1, "Value": 1, "Interpolation": "Linear" },
+					{ "Time": 2, "Value": 0 }
+				]
+			},
+			"Samples": [
+				{ "Time": 2.5, "Value": 0.5 },
+				{ "Time": 3.0, "Value": 1.0 },
+				{ "Time": 4.0, "Value": 0.0 },
+				{ "Time": 10.25, "Value": 0.25 },
+				{ "Time": -0.5, "Value": 0.5 },
+				{ "Time": -2.0, "Value": 0.0 },
+				{ "Time": -3.75, "Value": 0.25 },
+				{ "Time": 1000000.5, "Value": 0.5 },
+				{ "Time": "Infinity", "Value": "NaN" },
+				{ "Time": "-Infinity", "Value": "NaN" }
+			]
+		},
+		{
+			"Name": "PingPong",
+			"Curve": {
+				"PreExtrapolation": "PingPong",
+				"PostExtrapolation": "PingPong",
+				"Keys": [
+					{ "Time": 1, "Value": 10, "Interpolation": "Linear" },
+					{ "Time": 3, "Value": 20 }
+				]
+			},
+			"Samples": [
+				{ "Time": 3.5, "Value": 17.5 },
+				{ "Time": 4.0, "Value": 15.0 },
+				{ "Time": 5.0, "Value": 10.0 },
+				{ "Time": 7.5, "Value": 17.5 },
+				{ "Time": 0.0, "Value": 15.0 },
+				{ "Time": -1.0, "Value": 20.0 },
+				{ "Time": -2.5, "Value": 12.5 },
+				{ "Time": "Infinity", "Value": "NaN" }
+			]
+		},
+		{
+			"Name": "Linear along linear segments",
+			"Curve": {
+				"PreExtrapolation": "Linear",
+				"PostExtrapolation": "Linear",
+				"Keys": [
+					{ "Time": 0, "Value": 1, "Interpolation": "Linear" },
+					{ "Time": 2, "Value": 5 }
+				]
+			},
+			"Samples": [
+				{ "Time": -1.0, "Value": -1.0 },
+				{ "Time": 3.0, "Value": 7.0 },
+				{ "Time": 102.0, "Value": 205.0 },
+				{ "Time": "Infinity", "Value": "Infinity" },
+				{ "Time": "-Infinity", "Value": "-Infinity" }
+			]
+		},
+		{
+			"Name": "Linear along set cubic slopes",
+			"Curve": {
+				"PreExtrapolation": "Linear",
+				"PostExtrapolation": "Linear",
+				"Keys": [
+					{ "Time": 0, "Value": 0, "HasOut": true, "Out": 3 },
+					{ "Time": 1, "Value": 1, "HasIn": true, "In": -1 }
+				]
+			},
+			"Samples": [
+				{ "Time": -2.0, "Value": -6.0 },
+				{ "Time": 0.5, "Value": 1.0 },
+				{ "Time": 3.0, "Value": -1.0 }
+			]
+		},
+		{
+			"Name": "Linear along automatic slopes is flat",
+			"Curve": {
+				"PreExtrapolation": "Linear",
+				"PostExtrapolation": "Linear",
+				"Keys": [
+					{ "Time": 0, "Value": 0 },
+					{ "Time": 1, "Value": 1 }
+				]
+			},
+			"Samples": [
+				{ "Time": -1.0, "Value": 0.0 },
+				{ "Time": 5.0, "Value": 1.0 },
+				{ "Time": "Infinity", "Value": 1.0 }
+			]
+		},
+		{
+			"Name": "Linear after a constant segment is flat",
+			"Curve": {
+				"PreExtrapolation": "Linear",
+				"PostExtrapolation": "Linear",
+				"Keys": [
+					{ "Time": 0, "Value": 0, "Interpolation": "Constant" },
+					{ "Time": 1, "Value": 4 }
+				]
+			},
+			"Samples": [
+				{ "Time": -1.0, "Value": 0.0 },
+				{ "Time": 2.0, "Value": 4.0 }
+			]
+		},
+		{
+			"Name": "Linear from jumps at both ends",
+			"Curve": {
+				"PreExtrapolation": "Linear",
+				"PostExtrapolation": "Linear",
+				"Keys": [
+					{ "Time": 0, "Value": 0 },
+					{ "Time": 0, "Value": 2, "Interpolation": "Linear" },
+					{ "Time": 1, "Value": 3, "Interpolation": "Linear" },
+					{ "Time": 1, "Value": 9 }
+				]
+			},
+			"Samples": [
+				{ "Time": -1.0, "Value": -1.0 },
+				{ "Time": 0.0, "Value": 2.0 },
+				{ "Time": 0.5, "Value": 2.5 },
+				{ "Time": 1.0, "Value": 9.0 },
+				{ "Time": 2.0, "Value": 10.0 }
+			]
+		},
+		{
+			"Name": "Hold before, Loop after",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Loop",
+				"Keys": [
+					{ "Time": 0.25, "Value": 1 },
+					{ "Time": 0.75, "Value": -1, "Interpolation": "Linear" },
+					{ "Time": 1.5, "Value": 2 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.0, "Value": 1.0 },
+				{ "Time": 1.75, "Value": -0.05 },
+				{ "Time": 2.0, "Value": -1.0 },
+				{ "Time": 2.4, "Value": 0.6 }
+			]
+		},
+		{
+			"Name": "Loop before, Linear after",
+			"Curve": {
+				"PreExtrapolation": "Loop",
+				"PostExtrapolation": "Linear",
+				"Keys": [
+					{ "Time": -2, "Value": 1, "Interpolation": "Linear" },
+					{ "Time": 3, "Value": 6 }
+				]
+			},
+			"Samples": [
+				{ "Time": -8.0, "Value": 5.0 },
+				{ "Time": -7.5, "Value": 5.5 },
+				{ "Time": 4.0, "Value": 7.0 }
+			]
+		},
+		{
+			"Name": "Catmull-Rom on uneven times",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Hold",
+				"Keys": [
+					{ "Time": 0, "Value": 0 },
+					{ "Time": 0.5, "Value": 2 },
+					{ "Time": 2, "Value": 1 },
+					{ "Time": 3, "Value": 3 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.1, "Value": 0.2 },
+				{ "Time": 0.25, "Value": 0.96875 },
+				{ "Time": 0.7, "Value": 2.0172741 },
+				{ "Time": 1.3, "Value": 1.4575408 },
+				{ "Time": 2.2, "Value": 1.2592 },
+				{ "Time": 2.9, "Value": 2.9476 }
+			]
+		},
+		{
+			"Name": "A torque curve over revolutions per minute",
+			"Curve": {
+				"PreExtrapolation": "Hold",
+				"PostExtrapolation": "Linear",
+				"Keys": [
+					{ "Time": 1000, "Value": 50 },
+					{ "Time": 3500, "Value": 110, "HasOut": true, "Out": 0.01 },
+					{ "Time": 6000, "Value": 140 },
+					{ "Time": 8000, "Value": 120, "Interpolation": "Linear", "HasIn": true, "In": -0.02 },
+					{ "Time": 9000, "Value": 0 }
+				]
+			},
+			"Samples": [
+				{ "Time": 1200.0, "Value": 50.8256 },
+				{ "Time": 2750.0, "Value": 90.425 },
+				{ "Time": 4999.9, "Value": 131.03862 },
+				{ "Time": 7600.0, "Value": 127.342224 },
+				{ "Time": 8800.0, "Value": 24.0 },
+				{ "Time": 9500.0, "Value": -60.0 }
+			]
+		},
+		{
+			"Name": "A response curve on negative inputs",
+			"Curve": {
+				"PreExtrapolation": "Linear",
+				"PostExtrapolation": "Linear",
+				"Keys": [
+					{ "Time": -1, "Value": -1, "HasIn": true, "In": 3, "HasOut": true, "Out": 3 },
+					{ "Time": -0.1, "Value": 0, "Interpolation": "Linear" },
+					{ "Time": 0.1, "Value": 0 },
+					{ "Time": 1, "Value": 1, "HasIn": true, "In": 3, "HasOut": true, "Out": 3 }
+				]
+			},
+			"Samples": [
+				{ "Time": -1.5, "Value": -2.5 },
+				{ "Time": -0.7, "Value": -0.4013468 },
+				{ "Time": -0.05, "Value": 0.0 },
+				{ "Time": 0.0, "Value": 0.0 },
+				{ "Time": 0.33, "Value": 0.14715324 },
+				{ "Time": 0.9, "Value": 0.73764807 },
+				{ "Time": 1.25, "Value": 1.75 }
+			]
+		},
+		{
+			"Name": "Decimal times and values",
+			"Curve": {
+				"PreExtrapolation": "PingPong",
+				"PostExtrapolation": "Loop",
+				"Keys": [
+					{ "Time": 0.1, "Value": 0.3 },
+					{ "Time": 0.2, "Value": 0.7, "Interpolation": "Constant" },
+					{ "Time": 0.35, "Value": 0.15 },
+					{ "Time": 0.7, "Value": 0.9 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.15, "Value": 0.5075 },
+				{ "Time": 0.2, "Value": 0.7 },
+				{ "Time": 0.3, "Value": 0.7 },
+				{ "Time": 0.5, "Value": 0.46478137 },
+				{ "Time": 1.9, "Value": 0.3 },
+				{ "Time": -3.3, "Value": 0.7 }
+			]
+		},
+		{
+			"Name": "Mixed interpolations with set slopes",
+			"Curve": {
+				"PreExtrapolation": "PingPong",
+				"PostExtrapolation": "PingPong",
+				"Keys": [
+					{ "Time": 0, "Value": 0, "HasOut": true, "Out": -2 },
+					{ "Time": 1, "Value": 3, "Interpolation": "Linear", "HasIn": true, "In": 4 },
+					{ "Time": 2, "Value": -1, "Interpolation": "Constant" },
+					{ "Time": 3, "Value": 2, "HasOut": true, "Out": 1 },
+					{ "Time": 5, "Value": 2.5, "HasIn": true, "In": -1 }
+				]
+			},
+			"Samples": [
+				{ "Time": 0.1, "Value": -0.114 },
+				{ "Time": 0.9, "Value": 2.574 },
+				{ "Time": 1.5, "Value": 1.0 },
+				{ "Time": 2.0, "Value": -1.0 },
+				{ "Time": 2.99, "Value": -1.0 },
+				{ "Time": 3.0, "Value": 2.0 },
+				{ "Time": 3.5, "Value": 2.453125 },
+				{ "Time": 4.6, "Value": 2.768 }
+			]
+		}
+	]
+}

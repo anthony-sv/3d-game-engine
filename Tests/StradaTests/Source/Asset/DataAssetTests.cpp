@@ -515,7 +515,7 @@ TEST_CASE("DataAsset: commands' domains are kebab case and their parameters lowe
 		{"InputActions", "input-actions", "inputActions"},
 		{"UIStyle", "ui-style", "uiStyle"},
 		{"Curve2D", "curve2d", "curve2D"},
-		{"Curve", "curve", "curve"},
+		{"Gadget", "gadget", "gadget"},
 		{"UI", "ui", "ui"},
 	}};
 	for (Case const& expected : cases)

@@ -112,7 +112,7 @@ header functions, as every Strada file is read.
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
 | Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4) | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler` |
-| Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum` |
+| Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums, curves (§6.5) | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum`, `Curve`, `EvaluateCurveKeys` |
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; versioned documents of one struct, with migrations; profiler captures (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `StructDocumentFormat`, `ProfilerCaptureSerializer` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
@@ -909,6 +909,45 @@ version and loads again strictly to the same fields. `AutomationFuzzTests` regis
 commands, so the generated commands are fuzzed from their first day; since the engine's types are known everywhere, the
 command reference test sees each engine type's commands without a fixture of its own.
 
+### 6.5 Curves
+
+A curve maps a number (a time, a speed, an input's deflection) to a value through keys: torque over revolutions per
+minute, a response curve of an input action, a fade, a camera's move. There is **one curve semantics**, the visual script
+timeline's (spec-slice3 §3.8.3), promoted to the engine: `Strada/Math/Curve.h`.
+
+- **Keys.** A key has a `Time` (any finite number), a `Value`, the `Interpolation` of the segment to the next key and two
+  optional slopes (value units per input unit), `In` and `Out`. Keys are in time order; several at one time make a jump
+  (the segment before them ends at the first, the one after starts at the last). `Constant` holds the key's value to the
+  next key, `Linear` interpolates, and `Cubic` is the Hermite segment through both keys with the first key's `Out` slope
+  and the second key's `In` slope. An automatic slope is 0 at the first and the last key, and at an interior key the
+  slope from the key before to the key after (Catmull-Rom on uneven times), 0 when those two lie at one time. Before the
+  first key the curve has its value, from the last key on the last's. Everything is computed in double from the keys'
+  floats and rounded to float once.
+- **The scalar `Curve`** (the data of a `.scurve` asset and of curves embedded in other data) adds what it does outside
+  its keys, `PreExtrapolation` and `PostExtrapolation`: `Hold` (the end key's value, the timeline's behaviour), `Loop`
+  and `PingPong` (the keys repeat with the period from the first key's time to the last's, mapped with an exact `fmod`;
+  `Hold` when every key lies at one time), and `Linear` (on from the end key's value along the curve's slope at that end:
+  a `Linear` segment's slope, a `Cubic` segment's end slope, 0 after a `Constant` segment). A curve without keys is 0. A
+  NaN input gives NaN; an infinite one lies beyond every key, where `Loop` and `PingPong`, which have no phase there, give
+  NaN. At most `MaxCurveKeys` (1024) keys, `ValidateCurve` checks the order.
+- **Two evaluators, one semantics.** The engine's (`Curve::Evaluate`, and `EvaluateCurveKeys` over any key type that
+  specializes `CurveKeyTraits`) serves C++ users and the editor: the visual script editor's timeline evaluates its tracks
+  of up to four components through it, per component. The scripting runtime keeps a managed one (`CurveMath` and
+  `CurveDefinition` in `Strada-ScriptCore`), through which timeline tracks and curve assets evaluate, so that graphs
+  sample curves without allocating or crossing into native code. `Tests/Data/Curves/Differential.json` holds the two
+  together: its cases (curves as `.scurve` content, with every interpolation, extrapolation, jump, set and automatic
+  slope, uneven and negative times, non-finite inputs) are evaluated by StradaTests and by ScriptCoreTests to the same
+  values, within 1e-6 of the larger of 1 and the value. The tolerance, not bit equality, is the contract: compilers may
+  fuse a multiply and an add on some platforms (Clang on arm64), which .NET never does. A change to the semantics changes
+  both evaluators and the file's values together.
+- **The timeline keeps its own format.** The `Timeline` setting inside `.sgraph` documents (§10.6) is read, written and
+  checked by the timeline's code exactly as before; its keys keep vector values and optional slopes, and its
+  interpolation is the engine's `CurveInterpolation` under its old name. Only the evaluation moved.
+- **`.scurve`** is a data asset type (§6.4) registered as `Curve` (`Strada/Asset/CurveAsset.h`, with the field table and
+  the specification): its file (§7.3), the content browser's New Curve, the inspector and the commands `curve.create`,
+  `curve.get` and `curve.set` come from that registration, and the FeatureTest project's `Curves/Response.scurve` is its
+  fuzz seed.
+
 ## 7. Scene and ECS
 
 ### 7.1 Scene
@@ -1103,6 +1142,26 @@ fails, throws or leaves no object, a value of the wrong kind or outside its rang
 `Validate` refuses; missing fields keep their defaults, and unknown fields are warnings in files (errors in automation
 input). Older versions are migrated on reading, and saving writes the current one. Each type's fields are documented by
 its field table (the descriptions the inspector and the commands' schemas show) and its section of the guides.
+
+Curve (`.scurve`, the data asset type `Curve`, version 1, §6.5): `"Curve": { "PreExtrapolation", "PostExtrapolation",
+"Keys": [ { "Time", "Value", "Interpolation", "HasIn", "In", "HasOut", "Out" } ] }`. The extrapolations are `Hold`,
+`Loop`, `PingPong` or `Linear`; `Interpolation` is `Cubic`, `Linear` or `Constant`; `In` and `Out` apply only where
+`HasIn` and `HasOut` are true (the slope is automatic otherwise). At most 1024 keys, in time order (refused otherwise),
+every number finite.
+
+```json
+{
+	"Strada": { "Version": 1, "Type": "Curve" },
+	"Curve": {
+		"PreExtrapolation": "Hold",
+		"PostExtrapolation": "Linear",
+		"Keys": [
+			{ "Time": 0.0, "Value": 0.0, "Interpolation": "Cubic", "HasIn": false, "In": 0.0, "HasOut": true, "Out": 0.5 },
+			{ "Time": 1.0, "Value": 1.0, "Interpolation": "Linear", "HasIn": false, "In": 0.0, "HasOut": false, "Out": 0.0 }
+		]
+	}
+}
+```
 
 Project template (`Templates/<id>/template.json`, `ProjectTemplate` in `Strada/Project/ProjectTemplate.h`):
 `{ "Strada": { "Version": 1, "Type": "ProjectTemplate" }, "Template": { "Id", "Name", "Order", "Description",
@@ -1709,7 +1768,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   under a guard, so an unreadable one never fails the library.
 - **Timelines** (`Flow.Timeline`, latent, the event graph only): `TimelineReader` checks the `Timeline` setting with
   paths, keeping the pins of every track whose name and type are valid; `TimelineTrack` evaluates curves in double
-  (Constant, Linear and cubic Hermite with Catmull-Rom auto tangents; keys at one time make a jump). A run is a fiber
+  through the runtime's curve evaluator, `CurveMath` (§6.5: Constant, Linear and cubic Hermite with Catmull-Rom auto
+  tangents; keys at one time make a jump). A run is a fiber
   that is never resumed: each advance writes the outputs, fires the event keys it crossed in the direction of play (at
   most 1000, with one Warning), then `Update`, and at the end of a timeline that does not loop ends the run and fires
   `Finished`. Inputs are evaluated one at a time, so `NewTime` is read only by SetTime and `Rate` only by the playing
@@ -2499,7 +2559,7 @@ inspector's primary entity as the context entity; without an asset directory the
   | Layer | What |
   |-------|------|
   | L1 Engine | The document, format version 3, the layout of unplaced nodes, the literal codec (array literals included), `HaveSameVisualScriptProgram`, `VisualScriptReferences` (the `Graph` setting, local references, the resolver type, the interface form), the text writer and `Validate` |
-  | L2a Document editing | `VisualScriptEditing` (every edit as an operation on a copy of the document, `SetSetting`'s table of settings other operations own), `VisualScriptLanguageEditing` (arrays, formulas, timelines), `VisualScriptTimeline` (the curve model), `VisualScriptCrossGraph` (retargeting, kinds, the declared pins of cross-graph nodes, broken referrers), Arrange, the clipboard, the palette's index and ranking, quick fixes, find |
+  | L2a Document editing | `VisualScriptEditing` (every edit as an operation on a copy of the document, `SetSetting`'s table of settings other operations own), `VisualScriptLanguageEditing` (arrays, formulas, timelines), `VisualScriptTimeline` (the curve model, evaluated through the engine's curve, §6.5), `VisualScriptCrossGraph` (retargeting, kinds, the declared pins of cross-graph nodes, broken referrers), Arrange, the clipboard, the palette's index and ranking, quick fixes, find |
   | L2b Commit | `VisualScriptNormalization` (graph.set's transforms), `PrepareVisualScriptCommit` with its timings, `SetVisualScriptCommand`, `SetVisualScriptAndComponentsCommand`, the history changes, layout-only commits |
   | L3 Canvas model | The semantics seam (`EngineVisualScriptSemantics`, or the fixture semantics of tests), the view, metrics and text ladder, theme tables, the visual model, geometry, the spatial index, hit testing, the editor model (gestures in, intents out), the per-user view settings, `VisualScriptTextEstimate` (text widths without a font), `VisualScriptProjectIndex`, `VisualScriptCurveView` (the curve editor's view, hit testing and gestures) |
   | L3b Batch | `VisualScriptBatch` (`graph.edit`'s executor), `VisualScriptHeadlessCanvas` (node sizes, pin rows and anchors without a window), `VisualScriptCanvasPins` (pin rows from a canvas, shared with the panes) |
