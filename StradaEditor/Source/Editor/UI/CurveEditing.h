@@ -59,7 +59,7 @@ namespace Strada
 		static constexpr double MinTimeSpan = 1e-4;
 		static constexpr double MaxTimeSpan = 1.0e39;
 		static constexpr double MaxTimeMagnitude = 1.0e39;
-		static constexpr char const* TimeFormat = "%.4g";
+		static constexpr char const* TimeFormat = "%g";
 
 		static Curve& GetDocument(Intent& intent) { return intent.Document; }
 

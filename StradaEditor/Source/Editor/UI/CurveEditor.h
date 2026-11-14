@@ -155,7 +155,7 @@ namespace Strada
 		// none. Kept until set again.
 		void SetPlayhead(std::optional<double> time) { m_Playhead = time; }
 		std::optional<double> GetPlayhead() const { return m_Playhead; }
-		// Whether a gesture of the curve view that edits (a key or tangent drag) is in progress.
+		// Whether a gesture of the curve view is in progress: a press, a drag of keys or of a tangent, a marquee or a pan.
 		bool IsGestureActive() const { return m_View.GetGesture() != CurveGesture::Idle; }
 		// Whether the user is in the middle of an interaction this frame: a header field active, or a key or tangent drag.
 		bool IsInteractionActive() const { return m_InteractionActive; }

@@ -971,7 +971,8 @@ timeline's (spec-slice3 §3.8.3), promoted to the engine: `Strada/Math/Curve.h`.
   (Escape commits the start under it, so the step disappears), a run of arrow-key nudges one step, a header field one
   step while it stays active, every other edit a step of its own; a drag whose curve changes elsewhere meanwhile (an
   undo, `curve.set`) ends without an edit. While its view has the keyboard it claims Delete, Ctrl+Backspace, Ctrl+A,
-  the arrows, F and, during a drag, Esc as focused routes, so they never reach the editor's editing keys.
+  the arrows, F and, during a gesture, Esc as focused routes, so they never reach the editor's editing keys. Its time
+  and value fields keep the digits their format does not show.
 
 ## 7. Scene and ECS
 

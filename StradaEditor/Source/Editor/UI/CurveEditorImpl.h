@@ -151,11 +151,12 @@ namespace Strada
 		CurveKeyRef const first = any ? selection.front() : CurveKeyRef(0, 0);
 		float time = any ? Traits::GetKeyTime(document, first.first, first.second) : 0.0f;
 		ImGui::SetNextItemWidth(6.0f * fontSize);
-		// A bounded domain clamps the field to itself; an unbounded one has no bounds (ImGui: equal bounds).
+		// A bounded domain clamps the field to itself. An unbounded one has no bounds (ImGui: equal bounds), and keeps the
+		// digits its format does not show: a drag rounds to the format otherwise (imgui_widgets.cpp, DragBehaviorT).
 		float const low = domain.Bounded ? static_cast<float>(domain.Start) : 0.0f;
 		float const high = domain.Bounded ? static_cast<float>(domain.End) : 0.0f;
 		bool const timeChanged = ImGui::DragFloat("##time", &time, static_cast<float>(m_View.GetTimeStep()), low, high, Traits::TimeFormat,
-		                                          domain.Bounded ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
+		                                          domain.Bounded ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_NoRoundToFormat);
 		AddRect("Time");
 		if (ImGui::IsItemActivated())
 		{

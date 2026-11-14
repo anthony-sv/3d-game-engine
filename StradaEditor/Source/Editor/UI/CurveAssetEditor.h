@@ -23,8 +23,8 @@
 // - every other edit (a key added or deleted, interpolation, tangents) is a step of its own.
 // A drag whose curve changes elsewhere meanwhile (an undo, curve.set) ends without an edit: the other change stays. While the
 // widget's view has the keyboard it takes Delete and Ctrl+Backspace (delete the selected keys), Ctrl+A, the arrows (Shift: 10
-// steps), F (frame) and, during a drag, Escape, so they never reach the editor's editing keys. A curve whose asset is not
-// editable is drawn and changes nothing. Main thread only, inside an ImGui frame (but the getters).
+// steps), F (frame) and, during a gesture of the view, Escape, so they never reach the editor's editing keys. A curve whose
+// asset is not editable is drawn and changes nothing. Main thread only, inside an ImGui frame (but the getters).
 namespace Strada
 {
 	// Instantiated once, in CurveAssetEditor.cpp.

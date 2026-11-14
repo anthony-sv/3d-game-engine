@@ -15,6 +15,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -193,8 +194,7 @@ TEST_CASE("CurveAssetEditor: a key dragged in the curve editor is one step, undo
 	CHECK(fixture.ReadCurve().Keys[1].Time == 1.0f);
 }
 
-TEST_CASE(
-	"CurveAssetEditor: a drag whose curve changes elsewhere ends and keeps that change, and a selected key removed elsewhere leaves the selection")
+TEST_CASE("CurveAssetEditor: a drag whose curve changes elsewhere ends and keeps that change, and removed keys leave the selection")
 {
 	CurveInspectorFixture fixture;
 	size_t const undo = fixture.GetUndoCount();
@@ -241,6 +241,11 @@ TEST_CASE("CurveAssetEditor: while the curve editor has the keyboard, the arrows
 {
 	CurveInspectorFixture fixture;
 	CommandHistory const& history = fixture.Context.GetHistory();
+	// Before the curve view has the keyboard, Delete is the editor's and removes no key.
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GlobalDelete);
+	CHECK(fixture.ReadCurve().Keys.size() == 3);
 	// A click on a key selects it and gives the curve view the keyboard.
 	fixture.Gui.Click(ToImVec2(fixture.Key(1)), fixture.Drawer());
 	REQUIRE(fixture.Curves->GetEditor().GetView().IsSelected(0, 1));
@@ -288,6 +293,49 @@ TEST_CASE("CurveAssetEditor: while the curve editor has the keyboard, the arrows
 	fixture.Frames(1);
 	CHECK(history.GetUndoDescription() == "Add Key to Curve on Ramp");
 	CHECK(fixture.ReadCurve().Keys.size() == 4);
+	CHECK(ValidateCurve(fixture.ReadCurve()).IsOk());
+}
+
+TEST_CASE("CurveAssetEditor: the header's time and value fields are one step each and keep the digits they do not show")
+{
+	CurveInspectorFixture fixture;
+	CommandHistory const& history = fixture.Context.GetHistory();
+	Json const keys =
+		Json::parse(R"({ "Keys": [ { "Time": 0, "Value": 0 }, { "Time": 1.000123, "Value": 1.234567 }, { "Time": 2, "Value": 0 } ] })");
+	REQUIRE(fixture.Operations.SetDataAssetFields(fixture.Asset, keys, "Set Keys").IsOk());
+	fixture.Frames(1);
+	fixture.Gui.Click(ToImVec2(fixture.Key(1)), fixture.Drawer());
+	REQUIRE(fixture.Curves->GetEditor().GetView().IsSelected(0, 1));
+	size_t const undo = fixture.GetUndoCount();
+
+	// The time field dragged a little later: the key moves, one step; its digits past the field's format are kept (a drag
+	// rounded to the format would leave 1.3, not 1.300123).
+	std::optional<std::pair<glm::vec2, glm::vec2>> const timeField = fixture.Curves->GetEditor().FindRect("Time");
+	REQUIRE(timeField.has_value());
+	glm::vec2 const timeAt = (timeField->first + timeField->second) * 0.5f;
+	fixture.Frames(1, 1.0f);
+	fixture.Gui.DragPath(ToImVec2(timeAt), ToImVec2(timeAt + glm::vec2(8.0f, 0.0f)), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(history.GetUndoDescription() == "Move Key of Curve on Ramp");
+	float const time = fixture.ReadCurve().Keys[1].Time;
+	CHECK(time > 1.000123f);
+	CHECK(time < 2.0f);
+	CHECK(std::abs(time * 1.0e4f - std::round(time * 1.0e4f)) > 0.05f);
+
+	// The value field dragged up: one step more, the digits kept as well.
+	std::optional<std::pair<glm::vec2, glm::vec2>> const valueField = fixture.Curves->GetEditor().FindRect("Value");
+	REQUIRE(valueField.has_value());
+	glm::vec2 const valueAt((valueField->first.x + valueField->second.x) * 0.5f, (valueField->first.y + valueField->second.y) * 0.5f);
+	fixture.Frames(1, 1.0f);
+	fixture.Gui.DragPath(ToImVec2(valueAt), ToImVec2(valueAt + glm::vec2(40.0f, 0.0f)), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(history.GetUndoDescription() == "Set Value of Key of Curve on Ramp");
+	float const value = fixture.ReadCurve().Keys[1].Value;
+	CHECK(value > 1.234567f);
+	CHECK(std::abs(value * 1.0e3f - std::round(value * 1.0e3f)) > 0.05f);
+	CHECK(fixture.ReadCurve().Keys[1].Time == time);
 	CHECK(ValidateCurve(fixture.ReadCurve()).IsOk());
 }
 

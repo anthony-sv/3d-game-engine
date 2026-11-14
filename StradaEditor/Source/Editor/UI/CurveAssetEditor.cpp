@@ -68,7 +68,8 @@ namespace Strada
 		bool const coarseLeft = pressed(ImGuiMod_Shift | ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat);
 		bool const coarseRight = pressed(ImGuiMod_Shift | ImGuiKey_RightArrow, ImGuiInputFlags_Repeat);
 		bool const frame = pressed(ImGuiKey_F, ImGuiInputFlags_None);
-		// Escape is the view's only during a drag, which it cancels; otherwise it stays the window's.
+		// Escape is the view's only during a gesture, which it cancels (a drag back to its start, a marquee back to the
+		// selection before it); otherwise it stays the window's.
 		bool const escape = m_Editor.IsGestureActive() && pressed(ImGuiKey_Escape, ImGuiInputFlags_None);
 		if (deleteKey || deleteBackspace)
 		{
@@ -149,7 +150,8 @@ namespace Strada
 			.ValueField = [&curve, valueSpeed](uint32_t, uint32_t key) -> std::optional<glm::vec4>
 			{
 				float value = curve.Keys[key].Value;
-				if (ImGui::DragFloat("##value", &value, valueSpeed, 0.0f, 0.0f, "%.4g"))
+				// Unbounded, and keeping the digits the field does not show (a drag rounds to the format otherwise).
+				if (ImGui::DragFloat("##value", &value, valueSpeed, 0.0f, 0.0f, "%g", ImGuiSliderFlags_NoRoundToFormat))
 				{
 					return glm::vec4(value, 0.0f, 0.0f, 0.0f);
 				}
