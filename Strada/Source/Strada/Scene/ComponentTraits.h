@@ -32,6 +32,15 @@ namespace Strada
 	};
 
 	template<>
+	struct EnumTraits<RigidBodyInterpolation>
+	{
+		static constexpr std::array<std::pair<RigidBodyInterpolation, std::string_view>, 2> Values = {{
+			{RigidBodyInterpolation::None, "None"},
+			{RigidBodyInterpolation::Interpolate, "Interpolate"},
+		}};
+	};
+
+	template<>
 	struct EnumTraits<TextAlignment>
 	{
 		static constexpr std::array<std::pair<TextAlignment, std::string_view>, 3> Values = {{
@@ -376,6 +385,10 @@ namespace Strada
 			Field("AllowSleep", &RigidBodyComponent::AllowSleep)
 				.VisibleWhen("Type", "Dynamic", "Kinematic")
 				.Doc("Lets the body stop simulating while it is at rest."),
+			Field("Interpolation", &RigidBodyComponent::Interpolation)
+				.VisibleWhen("Type", "Dynamic", "Kinematic")
+				.Doc("Interpolate draws the body between its last two physics steps, so it moves smoothly when frames come faster "
+		             "than steps (a step behind); None draws it where its last step left it."),
 			Field("InitialLinearVelocity", &RigidBodyComponent::InitialLinearVelocity)
 				.VisibleWhen("Type", "Dynamic", "Kinematic")
 				.Doc("Velocity in meters per second when play starts (the simulation allows up to 500)."),

@@ -5,6 +5,7 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Core/UUID.h"
+#include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Renderer/SceneRendererSettings.h"
 #include "Strada/Scene/Components.h"
@@ -28,7 +29,6 @@ namespace Strada
 {
 	class AudioScene;
 	class Entity;
-	class PhysicsScene;
 
 	struct ScenePhysicsSettings
 	{
@@ -72,6 +72,11 @@ namespace Strada
 		std::vector<glm::uvec2> IgnoredCollisions;
 		// Physics steps per frame at most: slower frames slow the simulation down instead of falling further behind.
 		uint32_t MaxStepsPerFrame = 8;
+		// Collision steps each physics step is divided into (PhysicsWorldSettings::CollisionSteps).
+		uint32_t CollisionSteps = 1;
+		// The fixed step after which the scene records its physics state hash (Scene::GetRecordedPhysicsHash); 0 records
+		// none.
+		uint64_t PhysicsHashStep = 0;
 		// The scene's scripts and sounds run with it; the editor's Simulate mode runs physics only.
 		bool RunScripts = true;
 		bool PlayAudio = true;
@@ -86,6 +91,87 @@ namespace Strada
 		glm::vec4 Color = glm::vec4(1.0f);
 		// Seconds of runtime left to draw it.
 		float RemainingTime = 0.0f;
+	};
+
+	// A running scene's simulation between two fixed steps (Scene::SavePhysicsState), to go back to in the same run.
+	// Opaque; held in memory only.
+	class ScenePhysicsSnapshot
+	{
+	public:
+		// The fixed steps the scene had run when it was saved (Scene::GetFixedStepCount).
+		uint64_t GetStep() const { return m_Step; }
+		// Bytes of physics state it holds.
+		size_t GetPhysicsSize() const { return m_Physics.GetSize(); }
+
+	private:
+		friend class Scene;
+
+		// An entity's local translation and rotation, compared and put back bit for bit.
+		struct LocalPose
+		{
+			glm::vec3 Translation = glm::vec3(0.0f);
+			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+
+			bool operator==(LocalPose const& other) const = default;
+		};
+		// How the scene draws a moving body's entity between steps (Scene::InterpolateBodyTransforms): its local pose after
+		// each of the last two steps and as it was last drawn, which parts of that pose were drawn, and whether something
+		// other than the steps moved it since.
+		struct BodyDrawing
+		{
+			LocalPose PreviousStep;
+			LocalPose Step;
+			LocalPose Drawn;
+			// The entity shows Drawn's translation, rotation or both, which go back to Step's before the next physics changes
+			// and steps. A part something else had moved since the step is shown where it was put and is not drawn.
+			bool TranslationDrawn = false;
+			bool RotationDrawn = false;
+			// Moved since its last step by a script's OnUpdate, the editor or another frame-time change: what was moved is
+			// shown where it was put, and its next step starts from there.
+			bool Moved = false;
+
+			bool IsDrawn() const { return TranslationDrawn || RotationDrawn; }
+
+			// Placed somewhere (made, teleported, moved between frames): it is drawn there until it moves.
+			void Place(LocalPose const& pose)
+			{
+				PreviousStep = pose;
+				Step = pose;
+				Moved = false;
+			}
+		};
+		// An entity's transform, the pose last exchanged with its body and how it is drawn between steps.
+		struct Body
+		{
+			UUID Entity = UUID::Invalid();
+			TransformComponent Transform;
+			glm::vec3 Position = glm::vec3(0.0f);
+			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+			BodyDrawing Drawing;
+		};
+		// An entity's transform, where its character was drawn, where its last two steps left it, how far its ground carried
+		// it and what that ground was.
+		struct Character
+		{
+			UUID Entity = UUID::Invalid();
+			TransformComponent Transform;
+			glm::vec3 Position = glm::vec3(0.0f);
+			glm::vec3 PreviousStepPosition = glm::vec3(0.0f);
+			glm::vec3 StepPosition = glm::vec3(0.0f);
+			glm::vec3 Carried = glm::vec3(0.0f);
+			UUID Ground = UUID::Invalid();
+		};
+
+		PhysicsSnapshot m_Physics;
+		uint64_t m_Step = 0;
+		float m_Accumulator = 0.0f;
+		// Whether the entities were drawn between steps when it was saved (after a frame's steps), and the state of the
+		// sequence entities made while running take their UUIDs from.
+		bool m_IsDrawnBetweenSteps = false;
+		uint64_t m_IDSequence = 0;
+		// In UUID order.
+		std::vector<Body> m_Bodies;
+		std::vector<Character> m_Characters;
 	};
 
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.
@@ -129,8 +215,10 @@ namespace Strada
 		                                               Entity parent);
 
 		bool HasEntity(UUID id) const { return m_EntityMap.contains(id); }
-		// A random UUID not used by any entity of this scene.
-		UUID GenerateUniqueID() const;
+		// A UUID not used by any entity of this scene: a random one, or while the scene runs the next of a sequence seeded
+		// from its entities' UUIDs as it started, so that every run makes the same entities (and calls physics in the same
+		// order).
+		UUID GenerateUniqueID();
 		// Invalid Entity when not found.
 		Entity GetEntityByUUID(UUID id);
 		// First match in hierarchy order; invalid Entity when not found.
@@ -178,11 +266,13 @@ namespace Strada
 		void OnRuntimeStop();
 		// Advances the runtime: the UI (the mouse over buttons, clicks and OnClick), scripts' OnUpdate, fixed steps (scripts'
 		// OnFixedUpdate, then physics: kinematic bodies follow their transforms, moved static and dynamic bodies and
-		// characters teleport, characters move, dynamic bodies and characters write their positions back), characters drawn
-		// between their last two steps (so they move smoothly at any frame rate, a step behind; OnFixedUpdate sees them where
-		// the last step left them), contact events to scripts, audio (sources and the listener follow their entities),
-		// particles, then deferred entity destruction (destroyed scripts get OnDestroy). Every update and fixed update reaches
-		// the C# scripts, then the visual scripts; an event of an entity reaches its C# script, then its visual script.
+		// characters teleport, characters move, dynamic bodies and characters write their positions back), dynamic and
+		// kinematic bodies (unless their RigidBody's Interpolation is None) and characters drawn between their last two steps
+		// (so they move smoothly at any frame rate, a step behind; OnFixedUpdate sees them where the last step left them, and
+		// the translation or rotation of an entity moved since its last step by anything but the steps is shown where it was
+		// put), contact events to scripts, audio (sources and the listener follow their entities), particles, then deferred
+		// entity destruction (destroyed scripts get OnDestroy). Every update and fixed update reaches the C# scripts, then the
+		// visual scripts; an event of an entity reaches its C# script, then its visual script.
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -198,6 +288,28 @@ namespace Strada
 		double GetRuntimeTime() const { return m_RuntimeTime; }
 		// Seconds per physics step (and OnFixedUpdate) of the running scene: the runtime settings' step.
 		float GetFixedTimestep() const { return std::max(m_RuntimeSettings.FixedTimestep, 1e-4f); }
+		// The fixed steps (OnFixedUpdate, then physics) the running scene has run since it started, with or without physics.
+		uint64_t GetFixedStepCount() const { return m_FixedStepCount; }
+		// A 64-bit hash of the running scene's simulation (Architecture.md section 8): the fixed step count, PhysicsScene's
+		// hash of its bodies and characters, then each character's step positions in UUID order. The step accumulator is
+		// left out, so a scene run at different frame rates hashes alike at one step count. Without physics, the step count
+		// alone.
+		uint64_t ComputePhysicsStateHash() const;
+		// The hash taken right after the fixed step SceneRuntimeSettings::PhysicsHashStep (the latest time that step ran, when
+		// a snapshot went back before it); empty before that step and when none was asked for.
+		std::optional<uint64_t> GetRecordedPhysicsHash() const { return m_RecordedPhysicsHash; }
+		// Saves the running scene's simulation between frames (ScenePhysicsSnapshot): the physics world's state
+		// (PhysicsScene::SaveState), the fixed step count, the accumulator, the sequence of the UUIDs entities made while
+		// running take, and what the scene exchanged with each body and character. Physics component changes not applied yet
+		// are applied first. Fails when the scene runs no physics.
+		[[nodiscard]] Result<ScenePhysicsSnapshot> SavePhysicsState();
+		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, the UUID
+		// sequence (an ID still held by an entity made since is skipped), and the entities of bodies and characters where they
+		// were then, so the steps that follow run as they did. Physics component changes not applied yet are applied first, as
+		// the next frame would. Then it fails, changing nothing more, when the scene runs no physics, the snapshot is of
+		// another run, or a body, joint or character was added, removed or rebuilt since. What the simulation does not change
+		// (scripts' state, entities without bodies, settings) stays as it is.
+		[[nodiscard]] Result<void> RestorePhysicsState(ScenePhysicsSnapshot const& snapshot);
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }
 		// The sounds while running; null otherwise or when audio is unavailable.
@@ -211,7 +323,10 @@ namespace Strada
 		void SetTimeScale(float scale);
 		// Creates and rebuilds the bodies and characters of physics components changed since the last step. The runtime does
 		// it before each update; script calls on bodies and characters do it first, so a body added this frame takes forces
-		// at once.
+		// at once. When there are changes, the entities drawn between steps first go back to where their last steps left them
+		// (as before every frame's steps), so that bodies and joints are made from where the simulation has them; between
+		// frames (after a frame's steps: contact events, OnDestroy, the next OnUpdate, the editor) they are then drawn again as
+		// the frame drew them, so the frame shows them where it did.
 		void ApplyPhysicsChanges();
 		// Places an entity with a CharacterController at a world position at once, keeping its rotation and scale, and stops
 		// its character, which finds what it stands on there.
@@ -325,11 +440,36 @@ namespace Strada
 		void StartPhysics();
 		void StopPhysics();
 		void UpdatePhysics(float deltaTime);
+		// One fixed step: OnFixedUpdate, the physics changes it made, the syncs to physics, the physics step and the syncs back;
+		// then it is counted (and the hash recorded after SceneRuntimeSettings::PhysicsHashStep).
+		void RunFixedStep(float step);
 		void RebuildChangedBodies();
+		// The entities with a body (or a character), in the order of their UUIDs: physics is called in this order.
+		std::vector<entt::entity> const& GetBodyOrder();
+		std::vector<entt::entity> const& GetCharacterOrder();
+		// The entities with a dynamic or kinematic body, in the order of their UUIDs: those drawn between steps.
+		std::vector<entt::entity> const& GetMovingBodies();
 		// Creates, rebuilds or removes the body of an entity after its components changed; true when its body changed.
 		bool UpdateBody(entt::entity handle);
 		void SyncBodiesFromTransforms(float stepDelta);
 		void WriteBodyTransforms();
+		// Between frames, moving bodies are drawn between their last two steps, in local space (a body's children and a body
+		// below another follow as they do at the steps). After each step their entities' local poses are recorded. Before the
+		// physics changes and steps of a frame, the translation and the rotation of each drawn entity go back, each on its
+		// own, exactly to their last step's when nothing changed them since they were drawn, and entities moved since their
+		// last step by anything but the steps (OnUpdate, the editor) are noted: what was moved is shown where it was put, and
+		// their next step starts there. After the steps, each part still where the last step left it is drawn the part of the
+		// way from the step before (alpha 0) to the last one (alpha 1) that the time left over makes up, when the RigidBody
+		// interpolates.
+		void RecordBodySteps();
+		void ReturnBodiesToSteps();
+		void NoteBodiesMovedSinceSteps();
+		void InterpolateBodyTransforms(float alpha);
+		// How far into their last step the frame draws bodies and characters: the time left over, as a part of a step.
+		float GetDrawingAlpha() const;
+		bool IsBodyDrawn(UUID entity) const;
+		// Physics component changes are waiting for RebuildChangedBodies.
+		bool HasPendingPhysicsChanges() const;
 		void OnPhysicsComponentChanged(entt::registry& registry, entt::entity handle);
 		void OnMeshComponentChanged(entt::registry& registry, entt::entity handle);
 		void OnJointComponentChanged(entt::registry& registry, entt::entity handle);
@@ -341,8 +481,9 @@ namespace Strada
 		void SyncCharactersFromTransforms();
 		void WriteCharacterTransforms();
 		// Between frames, characters are drawn between their last two steps. Before the physics changes and steps of a frame,
-		// those not moved since go back to where the last step left them; after the steps, they are drawn the part of the way
-		// from the step before (alpha 0) to the last one (alpha 1) that the time left over makes up.
+		// those not moved since go back to where the last step left them; after the steps (and after the bodies), they are
+		// drawn the part of the way from the step before (alpha 0) to the last one (alpha 1) that the time left over makes up:
+		// the whole way when what they stand on is drawn so too, else the way they went by themselves.
 		void ReturnCharactersToSteps();
 		void InterpolateCharacterTransforms(float alpha);
 		void OnCharacterComponentChanged(entt::registry& registry, entt::entity handle);
@@ -432,26 +573,46 @@ namespace Strada
 		uint64_t m_RuntimeFrame = 0;
 		double m_RuntimeTime = 0.0;
 
-		// The world pose last exchanged with an entity's body (to tell transform edits from simulation).
+		// The world pose last exchanged with an entity's body (to tell transform edits from simulation), whether the body
+		// moves (dynamic or kinematic) and how its entity is drawn between steps.
 		struct BodyState
 		{
 			UUID Entity = UUID::Invalid();
 			glm::vec3 Position = glm::vec3(0.0f);
 			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+			bool Moves = false;
+			ScenePhysicsSnapshot::BodyDrawing Drawing;
 		};
 
 		SceneRuntimeSettings m_RuntimeSettings;
 		Scope<PhysicsScene> m_Physics;
 		float m_PhysicsAccumulator = 0.0f;
+		// From the end of a frame's steps to the start of the next frame's: the entities show the frame's drawing between
+		// steps, which ApplyPhysicsChanges draws again after it returned them to their steps.
+		bool m_IsDrawnBetweenSteps = false;
+		uint64_t m_FixedStepCount = 0;
+		std::optional<uint64_t> m_RecordedPhysicsHash;
+		// While running: the state of the sequence GenerateUniqueID takes UUIDs from.
+		uint64_t m_RuntimeIDSequence = 0;
 		std::unordered_map<entt::entity, BodyState> m_Bodies;
+		// The keys of m_Bodies and m_Characters in the order of their UUIDs, made again after an entry was added or removed.
+		std::vector<entt::entity> m_BodyOrder;
+		std::vector<entt::entity> m_CharacterOrder;
+		bool m_BodyOrderChanged = false;
+		bool m_CharacterOrderChanged = false;
+		// The keys of m_Bodies whose bodies move, made again after a body was added, removed or rebuilt; and the entities
+		// drawn between steps since the last return to the steps.
+		std::vector<entt::entity> m_MovingBodies;
+		bool m_MovingBodiesChanged = false;
+		std::vector<entt::entity> m_DrawnBodies;
 		// Entities whose physics components changed while running; their bodies are rebuilt before the next step.
 		std::unordered_set<entt::entity> m_ChangedBodies;
 		// A joint or a body changed: the joints are made again before the next step.
 		bool m_JointsChanged = false;
 		// What the scene exchanged with an entity's character: the world position last written to or read from the entity's
-		// transform (to tell edits from movement), where the entity's origin was after the last two steps and how far the
-		// ground carried it in the last one (to draw it between steps), its scale, and the entities below it, whose bodies it
-		// ignores.
+		// transform (to tell edits from movement), where the entity's origin was after the last two steps, how far the ground
+		// carried it in the last one and the entity of that ground (to draw it between steps), its scale, and the entities
+		// below it, whose bodies it ignores.
 		struct CharacterSyncState
 		{
 			UUID Entity = UUID::Invalid();
@@ -459,6 +620,7 @@ namespace Strada
 			glm::vec3 PreviousStepPosition = glm::vec3(0.0f);
 			glm::vec3 StepPosition = glm::vec3(0.0f);
 			glm::vec3 Carried = glm::vec3(0.0f);
+			UUID Ground = UUID::Invalid();
 			glm::vec3 Scale = glm::vec3(1.0f);
 			std::vector<UUID> Parts;
 
@@ -469,6 +631,7 @@ namespace Strada
 				PreviousStepPosition = position;
 				StepPosition = position;
 				Carried = glm::vec3(0.0f);
+				Ground = UUID::Invalid();
 			}
 		};
 		std::unordered_map<entt::entity, CharacterSyncState> m_Characters;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bit>
 #include <cstdint>
 #include <string_view>
 
@@ -14,8 +15,7 @@ namespace Strada
 			uint64_t hash = OffsetBasis;
 			for (char const character : text)
 			{
-				hash ^= static_cast<uint64_t>(static_cast<uint8_t>(character));
-				hash *= Prime;
+				hash = FoldByte(hash, static_cast<uint8_t>(character));
 			}
 			return hash;
 		}
@@ -27,7 +27,42 @@ namespace Strada
 		}
 
 	private:
+		friend class HashBuilder;
+
 		static constexpr uint64_t OffsetBasis = 14695981039346656037ull;
 		static constexpr uint64_t Prime = 1099511628211ull;
+
+		static constexpr uint64_t FoldByte(uint64_t hash, uint8_t byte) { return (hash ^ static_cast<uint64_t>(byte)) * Prime; }
+	};
+
+	// Builds a 64-bit FNV-1a hash of a sequence of values, each folded in byte by byte in little-endian order (floats by
+	// their bit patterns), so equal sequences give equal hashes on every platform and run. Used for state hashes that
+	// tell whether two simulations are the same.
+	class HashBuilder
+	{
+	public:
+		constexpr void AddUInt64(uint64_t value)
+		{
+			for (int shift = 0; shift < 64; shift += 8)
+			{
+				m_Hash = Hash::FoldByte(m_Hash, static_cast<uint8_t>(value >> shift));
+			}
+		}
+
+		constexpr void AddUInt32(uint32_t value)
+		{
+			for (int shift = 0; shift < 32; shift += 8)
+			{
+				m_Hash = Hash::FoldByte(m_Hash, static_cast<uint8_t>(value >> shift));
+			}
+		}
+
+		constexpr void AddFloat(float value) { AddUInt32(std::bit_cast<uint32_t>(value)); }
+		constexpr void AddBool(bool value) { m_Hash = Hash::FoldByte(m_Hash, value ? 1 : 0); }
+
+		constexpr uint64_t GetHash() const { return m_Hash; }
+
+	private:
+		uint64_t m_Hash = Hash::OffsetBasis;
 	};
 }

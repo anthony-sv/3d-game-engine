@@ -171,6 +171,13 @@ public sealed class PhysicsTests : FeatureTestScript
 		Assert.AreEqual(0.1f, pill.LinearDamping);
 		pill.AngularDamping = 0.2f;
 		Assert.AreEqual(0.2f, pill.AngularDamping);
+		// Drawn between steps by default; the platform is drawn where its steps leave it, as the scene says.
+		Assert.AreEqual(RigidBodyInterpolation.Interpolate, pill.Interpolation);
+		pill.Interpolation = RigidBodyInterpolation.None;
+		Assert.AreEqual(RigidBodyInterpolation.None, pill.Interpolation);
+		pill.Interpolation = RigidBodyInterpolation.Interpolate;
+		Assert.AreEqual(RigidBodyInterpolation.Interpolate, pill.Interpolation);
+		Assert.AreEqual(RigidBodyInterpolation.None, Platform!.GetComponent<RigidBodyComponent>()!.Interpolation);
 		Assert.AreEqual(RigidBodyType.Kinematic, Platform!.GetComponent<RigidBodyComponent>()!.Type);
 		Assert.AreEqual(RigidBodyType.Static, Ground!.GetComponent<RigidBodyComponent>()!.Type);
 	}

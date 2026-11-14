@@ -337,7 +337,12 @@ TEST_CASE("Scene: scripts drive physics bodies, raycasts and gravity")
 	REQUIRE(scene.GetPhysicsScene() != nullptr);
 	CHECK(scene.GetPhysicsScene()->GetGravity() == glm::vec3(0.0f, -20.0f, 0.0f));
 	CHECK(probe.GetComponent<TransformComponent>().Translation == glm::vec3(3.0f, 4.0f, 5.0f));
-	// The teleport reaches the body before the next step; the upward velocity survives it.
+	// The teleport reaches the body before the next step; the upward velocity survives it. The entity is drawn on its way
+	// from there, a step behind the body, never from where it was before.
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(scene.GetPhysicsScene()->GetBodyTransform(probe.GetUUID())->Position.y > 4.0f);
+	CHECK(probe.GetComponent<TransformComponent>().Translation.x == doctest::Approx(3.0f));
+	CHECK(probe.GetComponent<TransformComponent>().Translation.y == doctest::Approx(4.0f));
 	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
 	CHECK(probe.GetComponent<TransformComponent>().Translation.y > 4.0f);
 	scene.OnRuntimeStop();

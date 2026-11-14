@@ -15,6 +15,8 @@ namespace Strada
 
 	// Physics layers a project can define (RigidBodyComponent::Layer indexes them).
 	inline constexpr size_t MaxPhysicsLayers = 16;
+	// Collision steps a physics step may be divided into (PhysicsWorldSettings::CollisionSteps).
+	inline constexpr uint32_t MaxPhysicsCollisionSteps = 4;
 
 	// Jolt computes in single precision, and its math would overflow long before larger worlds became usable, so the
 	// physics world keeps within these limits: positions within MaxPhysicsCoordinate meters of the origin on every axis
@@ -63,6 +65,9 @@ namespace Strada
 		uint32_t LayerCount = 1;
 		// Pairs of layer indices whose bodies do not collide.
 		std::vector<glm::uvec2> IgnoredCollisions;
+		// Collision steps per physics step (1 to MaxPhysicsCollisionSteps; Jolt's sub-steps: more resolve fast or stiff
+		// bodies better, at their cost).
+		uint32_t CollisionSteps = 1;
 	};
 
 	enum class ColliderShape : uint8_t

@@ -20,6 +20,16 @@ public enum RigidBodyType
 	Kinematic = 2,
 }
 
+/// <summary>How <see cref="RigidBodyComponent.Interpolation"/> draws a moving body between physics steps.</summary>
+public enum RigidBodyInterpolation
+{
+	/// <summary>Where its last step left it: it moves in steps when frames come faster than steps.</summary>
+	None = 0,
+	/// <summary>Between its last two steps, as far as the time since the last step makes up: smooth at any frame rate, a step
+	/// behind.</summary>
+	Interpolate = 1,
+}
+
 /// <summary>How <see cref="RigidBodyComponent.AddForce"/> and <see cref="RigidBodyComponent.AddTorque"/> interpret
 /// their value.</summary>
 public enum ForceMode

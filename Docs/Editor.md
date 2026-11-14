@@ -832,7 +832,9 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | `Window.VSync` | Waits for vertical sync when presenting |
 | `Window.Resizable` | Lets players resize the window |
 | `Window.Icon` | The game window's icon (a square texture such as 256 x 256); none keeps the Strada icon |
-| `Physics.FixedTimestep` | Seconds per physics step (0.001 to 0.1, default 1/60); scripts' `OnFixedUpdate` runs once per step |
+| `Physics.FixedTimestep` | Seconds per physics step (0.0005 to 0.1, default 1/60); scripts' `OnFixedUpdate` runs once per step |
+| `Physics.MaxStepsPerFrame` | Physics steps a frame runs at most (1 to 64, default 8); slower frames slow the game down instead of falling further behind |
+| `Physics.CollisionSteps` | Collision steps each physics step is divided into (1 to 4, default 1); more resolve fast or stiff bodies better, at their cost |
 | `Physics.Layers` | Names of the physics layers (1 to 16); a RigidBody's `Layer` indexes them |
 
 Under Layer Collisions, a matrix of check boxes says which layers collide: clear the box of two layers so that their

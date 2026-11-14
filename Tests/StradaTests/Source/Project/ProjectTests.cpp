@@ -119,11 +119,13 @@ TEST_CASE("Project: settings round trip through the project file")
 
 	Json const patch = Json::parse(R"({
 		"Window": { "Title": "My Game", "Width": 1920, "Fullscreen": true },
-		"Physics": { "FixedTimestep": 0.02, "Layers": ["Default", "Player", "Enemy"],
-		             "IgnoredCollisions": [{ "First": 1, "Second": 2 }] }
+		"Physics": { "FixedTimestep": 0.0005, "MaxStepsPerFrame": 64, "CollisionSteps": 4,
+		             "Layers": ["Default", "Player", "Enemy"], "IgnoredCollisions": [{ "First": 1, "Second": 2 }] }
 	})");
 	REQUIRE(project->ApplySettings(patch).IsOk());
 	CHECK(project->GetSettings().Window.Height == 720u);
+	CHECK(project->GetSettings().Physics.MaxStepsPerFrame == 64u);
+	CHECK(project->GetSettings().Physics.CollisionSteps == 4u);
 	REQUIRE(project->Save().IsOk());
 	ProjectSettings const expected = project->GetSettings();
 
@@ -158,7 +160,20 @@ TEST_CASE("Project: invalid settings are rejected and change nothing")
 	CHECK(ReadError(Json::object({{"Physics", {{"IgnoredCollisions", {{{"First", 0}, {"Second", 1}}}}}}}))
 	          .starts_with("Project.Physics.IgnoredCollisions: layers 0 and 1 do not both exist"));
 	CHECK(ReadError(Json::object({{"Physics", {{"FixedTimestep", 0.0}}}})) ==
-	      "Project.Physics: Physics.FixedTimestep: must be between 0.001 and 0.1");
+	      "Project.Physics: Physics.FixedTimestep: must be between 0.0005 and 0.1");
+	CHECK(ReadError(Json::object({{"Physics", {{"FixedTimestep", 0.0004}}}})).starts_with("Project.Physics: Physics.FixedTimestep:"));
+	CHECK(Read(Json::object({{"Physics", {{"FixedTimestep", 0.0005}}}})).IsOk());
+	CHECK(ReadError(Json::object({{"Physics", {{"MaxStepsPerFrame", 0}}}})) ==
+	      "Project.Physics: Physics.MaxStepsPerFrame: must be between 1 and 64");
+	CHECK(ReadError(Json::object({{"Physics", {{"MaxStepsPerFrame", 65}}}})).starts_with("Project.Physics: Physics.MaxStepsPerFrame:"));
+	CHECK(ReadError(Json::object({{"Physics", {{"CollisionSteps", 0}}}})) ==
+	      "Project.Physics: Physics.CollisionSteps: must be between 1 and 4");
+	CHECK(ReadError(Json::object({{"Physics", {{"CollisionSteps", 5}}}})).starts_with("Project.Physics: Physics.CollisionSteps:"));
+	// Project files from before the step settings keep the defaults.
+	Result<ProjectSettings> const older = Read(Json::object({{"Physics", {{"FixedTimestep", 0.02}}}}));
+	REQUIRE(older.IsOk());
+	CHECK(older.GetValue().Physics.MaxStepsPerFrame == 8u);
+	CHECK(older.GetValue().Physics.CollisionSteps == 1u);
 	CHECK(Read(Json::object({{"Unknown", 1}})).IsError());
 
 	Json wrongType = Json::object();

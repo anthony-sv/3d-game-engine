@@ -129,6 +129,8 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, float*, void> RigidBodyComponent_SetLinearDamping;
 	internal static delegate* unmanaged<ulong, float*, void> RigidBodyComponent_GetAngularDamping;
 	internal static delegate* unmanaged<ulong, float*, void> RigidBodyComponent_SetAngularDamping;
+	internal static delegate* unmanaged<ulong, int*, void> RigidBodyComponent_GetInterpolation;
+	internal static delegate* unmanaged<ulong, int*, void> RigidBodyComponent_SetInterpolation;
 	internal static delegate* unmanaged<ulong, Vector3*, void> RigidBodyComponent_GetLinearVelocity;
 	internal static delegate* unmanaged<ulong, Vector3*, void> RigidBodyComponent_SetLinearVelocity;
 	internal static delegate* unmanaged<ulong, Vector3*, void> RigidBodyComponent_GetAngularVelocity;

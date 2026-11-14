@@ -234,7 +234,12 @@ public class Jumper : Script
 Forces and torques take a `ForceMode` (`Force`, `Impulse`, `Acceleration`, `VelocityChange`). `LinearVelocity` (meters
 per second, up to 500) and `AngularVelocity` (radians per second, up to about 47) can be read and set, `MoveKinematic`
 moves kinematic bodies smoothly and `Teleport` places any body.
-Apply continuous forces in `OnFixedUpdate`, which runs before each physics step. `Physics.Raycast` finds the closest
+Apply continuous forces in `OnFixedUpdate`, which runs before each physics step. Between steps a dynamic body, and a
+kinematic body your fixed updates move, is drawn on its way between its last two steps (a step behind, smooth at any
+frame rate), as characters are; set `Interpolation` to `RigidBodyInterpolation.None` to draw it where its last step left
+it. `OnFixedUpdate` reads a body where the last step left it, `OnUpdate` where it is drawn. For physics that is the same
+at any frame rate, act on it in `OnFixedUpdate`, count time there from `fixedDeltaTime` (`Time.Elapsed` is the frames'
+time) and call `Random.Seed` before drawing numbers it uses. `Physics.Raycast` finds the closest
 solid collider along a ray (`Physics.Gravity` is the scene's gravity):
 
 ```csharp
@@ -352,7 +357,8 @@ public class FirstPersonController : Script
 Characters move in physics steps (60 a second unless the project says otherwise), and the screen shows as many frames as
 the display does. Between steps, a character's entity is drawn on its way from where the step before the last left it to
 where the last one did: a step behind, so it and a camera on it move smoothly at any frame rate. Only the way it walked,
-fell or jumped is drawn like that; on a moving platform it stays where it stands on the platform as drawn.
+fell or jumped is drawn like that, unless what it stands on is drawn between its steps too (a body that interpolates):
+either way, on a moving platform it stays where it stands on the platform as drawn.
 `OnFixedUpdate` finds the entity where the last step left it, `OnUpdate` where it is drawn.
 
 ## Spawning and destroying

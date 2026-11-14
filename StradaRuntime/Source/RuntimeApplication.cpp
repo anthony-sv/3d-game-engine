@@ -231,6 +231,8 @@ namespace Strada
 			.AddFlag("test", "Run headless with a fixed time step until the scripts finish testing, quit or time out")
 			.AddOption("timeout", "seconds", "Game time a test run may take (default 60)")
 			.AddOption("timestep", "seconds", "Advance the game by this time each frame (default: the frame's real time; 1/60 in tests)")
+			.AddOption("hash-step", "count",
+		               "End the test summary with the physics state hash after this fixed step (default: after the last one)")
 			.AddFlag("headless", "Run without a window, rendering or sound")
 			.AddOption("frames", "count", "Exit after the given number of frames")
 			.AddOption("screenshot", "path", "Save a PNG of the window (on the last frame with --frames, otherwise frame 60)")
@@ -272,6 +274,15 @@ namespace Strada
 		if (timestep && !(*timestep >= 0.001 && *timestep <= 1.0))
 		{
 			return fail("--timestep must be between 0.001 and 1 seconds");
+		}
+		std::optional<int64_t> const hashStep = arguments.GetInt("hash-step");
+		if (hashStep && !(*hashStep >= 1 && *hashStep <= 100000000))
+		{
+			return fail("--hash-step must be a fixed step between 1 and 100000000");
+		}
+		if (hashStep && !test)
+		{
+			return fail("--hash-step applies to test runs (--test)");
 		}
 		std::optional<double> const timeout = arguments.GetDouble("timeout");
 		if (timeout && !(*timeout > 0.0 && *timeout <= 86400.0))
@@ -358,6 +369,7 @@ namespace Strada
 			runtime.Layer.Test = true;
 			runtime.Layer.FixedTimestep = static_cast<float>(seconds);
 			runtime.Layer.TestFrameLimit = static_cast<uint64_t>(std::ceil(timeout.value_or(DefaultTestTimeout) / seconds));
+			runtime.Layer.HashStep = static_cast<uint64_t>(hashStep.value_or(0));
 		}
 		else
 		{

@@ -216,14 +216,17 @@ TEST_CASE("Scene: project physics settings shape the runtime")
 	// Its layer ignores the ground's.
 	CHECK(WorldPosition(scene, ghost).y < -1.0f);
 
-	// One frame of a 30 Hz step runs one step: frames shorter than a step accumulate.
+	// One frame of a 30 Hz step runs one step: frames shorter than a step accumulate. (The entity is drawn a step behind
+	// its body, so the body tells.)
 	scene.OnRuntimeStop();
 	scene.OnRuntimeStart(runtime);
 	glm::vec3 const before = WorldPosition(scene, ghost);
 	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
-	CHECK(WorldPosition(scene, ghost) == before);
+	CHECK(scene.GetFixedStepCount() == 0);
+	CHECK(scene.GetPhysicsScene()->GetBodyTransform(ghost.GetUUID())->Position == before);
 	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
-	CHECK(WorldPosition(scene, ghost).y < before.y);
+	CHECK(scene.GetFixedStepCount() == 1);
+	CHECK(scene.GetPhysicsScene()->GetBodyTransform(ghost.GetUUID())->Position.y < before.y);
 }
 
 TEST_CASE("Scene: without the physics system the runtime runs without physics")

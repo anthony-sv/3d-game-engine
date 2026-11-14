@@ -293,6 +293,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -374,6 +375,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -463,6 +465,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -542,6 +545,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -623,6 +627,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -701,6 +706,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "None",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -782,6 +788,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -1126,6 +1133,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -1230,6 +1238,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,

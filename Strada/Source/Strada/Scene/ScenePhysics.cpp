@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Core/Hash.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
@@ -296,6 +297,60 @@ namespace Strada
 			}
 			return depth;
 		}
+
+		// The handles in the order of their entities' UUIDs: a live entity's own, a destroyed one's as its physics state
+		// remembers it (states maps handles to records with an Entity UUID). Physics is called in this order, which neither
+		// the frame rate nor the order the entities were made in changes.
+		template<typename TStates>
+		std::vector<entt::entity> SortByUUID(entt::registry const& registry, std::unordered_set<entt::entity> const& handles,
+		                                     TStates const& states)
+		{
+			std::vector<std::pair<uint64_t, entt::entity>> keyed;
+			keyed.reserve(handles.size());
+			for (entt::entity const handle : handles)
+			{
+				UUID id = UUID::Invalid();
+				if (registry.valid(handle) && registry.all_of<IDComponent>(handle))
+				{
+					id = registry.get<IDComponent>(handle).ID;
+				}
+				else if (auto const state = states.find(handle); state != states.end())
+				{
+					id = state->second.Entity;
+				}
+				keyed.emplace_back(id.GetValue(), handle);
+			}
+			// Handles that are neither (destroyed before they had a body) touch no physics; their handles keep the order total.
+			std::sort(keyed.begin(), keyed.end(),
+			          [](auto const& a, auto const& b)
+			          {
+						  return std::tuple(a.first, entt::to_integral(a.second)) < std::tuple(b.first, entt::to_integral(b.second));
+					  });
+			std::vector<entt::entity> sorted;
+			sorted.reserve(keyed.size());
+			for (auto const& [id, handle] : keyed)
+			{
+				sorted.push_back(handle);
+			}
+			return sorted;
+		}
+
+		// The keys of states (handles mapped to records with an Entity UUID) in the order of those UUIDs.
+		template<typename TStates>
+		void SortKeysByUUID(TStates const& states, std::vector<entt::entity>& order)
+		{
+			order.clear();
+			order.reserve(states.size());
+			for (auto const& [handle, state] : states)
+			{
+				order.push_back(handle);
+			}
+			std::sort(order.begin(), order.end(),
+			          [&states](entt::entity a, entt::entity b)
+			          {
+						  return states.at(a).Entity.GetValue() < states.at(b).Entity.GetValue();
+					  });
+		}
 	}
 
 	void Scene::StartPhysics()
@@ -304,6 +359,7 @@ namespace Strada
 		world.Gravity = m_Settings.Physics.Gravity;
 		world.LayerCount = m_RuntimeSettings.PhysicsLayerCount;
 		world.IgnoredCollisions = m_RuntimeSettings.IgnoredCollisions;
+		world.CollisionSteps = m_RuntimeSettings.CollisionSteps;
 		Result<Scope<PhysicsScene>> physics = PhysicsScene::Create(world);
 		if (!physics)
 		{
@@ -312,6 +368,7 @@ namespace Strada
 		}
 		m_Physics = physics.TakeValue();
 		m_PhysicsAccumulator = 0.0f;
+		m_IsDrawnBetweenSteps = false;
 
 		auto const addBodies = [this](auto view)
 		{
@@ -343,12 +400,20 @@ namespace Strada
 		ConnectPhysicsSignals(false);
 		m_Physics.reset();
 		m_Bodies.clear();
+		m_BodyOrder.clear();
+		m_BodyOrderChanged = false;
+		m_MovingBodies.clear();
+		m_MovingBodiesChanged = false;
+		m_DrawnBodies.clear();
 		m_ChangedBodies.clear();
 		m_Characters.clear();
+		m_CharacterOrder.clear();
+		m_CharacterOrderChanged = false;
 		m_ChangedCharacters.clear();
 		m_JointsChanged = false;
 		m_ContactEvents.clear();
 		m_PhysicsAccumulator = 0.0f;
+		m_IsDrawnBetweenSteps = false;
 	}
 
 	void Scene::ConnectPhysicsSignals(bool connect)
@@ -456,17 +521,40 @@ namespace Strada
 
 	void Scene::ApplyPhysicsChanges()
 	{
-		if (m_Physics)
+		if (m_Physics && HasPendingPhysicsChanges())
 		{
+			// Between frames entities may be drawn between steps: bodies and joints are made from where the steps left them.
+			ReturnBodiesToSteps();
+			ReturnCharactersToSteps();
 			RebuildChangedBodies();
+			// After a frame's steps (its contact events, OnDestroy, the next OnUpdate or an edit), the frame still shows them
+			// between their steps, as far as it did: the same alpha gives the same poses. Never inside the steps, which must
+			// see the steps' poses alone.
+			if (m_IsDrawnBetweenSteps)
+			{
+				float const alpha = GetDrawingAlpha();
+				InterpolateBodyTransforms(alpha);
+				InterpolateCharacterTransforms(alpha);
+			}
 		}
+	}
+
+	float Scene::GetDrawingAlpha() const
+	{
+		return std::clamp(m_PhysicsAccumulator / GetFixedTimestep(), 0.0f, 1.0f);
+	}
+
+	bool Scene::HasPendingPhysicsChanges() const
+	{
+		return !m_ChangedBodies.empty() || !m_ChangedCharacters.empty() || m_JointsChanged;
 	}
 
 	void Scene::RebuildChangedBodies()
 	{
+		// In UUID order: Jolt numbers bodies in the order they are made and simulates them in that order.
 		if (!m_ChangedBodies.empty())
 		{
-			std::unordered_set<entt::entity> const changed = std::exchange(m_ChangedBodies, {});
+			std::vector<entt::entity> const changed = SortByUUID(m_Registry, std::exchange(m_ChangedBodies, {}), m_Bodies);
 			for (entt::entity const handle : changed)
 			{
 				// Made, rebuilt or removed bodies lose their joints.
@@ -478,7 +566,7 @@ namespace Strada
 		}
 		if (!m_ChangedCharacters.empty())
 		{
-			std::unordered_set<entt::entity> const changed = std::exchange(m_ChangedCharacters, {});
+			std::vector<entt::entity> const changed = SortByUUID(m_Registry, std::exchange(m_ChangedCharacters, {}), m_Characters);
 			for (entt::entity const handle : changed)
 			{
 				UpdateCharacter(handle);
@@ -490,13 +578,54 @@ namespace Strada
 		}
 	}
 
+	std::vector<entt::entity> const& Scene::GetBodyOrder()
+	{
+		if (std::exchange(m_BodyOrderChanged, false))
+		{
+			SortKeysByUUID(m_Bodies, m_BodyOrder);
+		}
+		return m_BodyOrder;
+	}
+
+	std::vector<entt::entity> const& Scene::GetMovingBodies()
+	{
+		if (std::exchange(m_MovingBodiesChanged, false))
+		{
+			m_MovingBodies.clear();
+			for (entt::entity const handle : GetBodyOrder())
+			{
+				if (m_Bodies.at(handle).Moves)
+				{
+					m_MovingBodies.push_back(handle);
+				}
+			}
+		}
+		return m_MovingBodies;
+	}
+
+	std::vector<entt::entity> const& Scene::GetCharacterOrder()
+	{
+		if (std::exchange(m_CharacterOrderChanged, false))
+		{
+			SortKeysByUUID(m_Characters, m_CharacterOrder);
+		}
+		return m_CharacterOrder;
+	}
+
 	void Scene::RebuildJoints()
 	{
-		for (auto const& [handle, state] : m_Bodies)
+		// Jolt solves joints in the order they were added: they go and come in the order of their entities' UUIDs.
+		for (entt::entity const handle : GetBodyOrder())
 		{
-			m_Physics->RemoveJoint(state.Entity);
+			m_Physics->RemoveJoint(m_Bodies.at(handle).Entity);
 		}
+		std::vector<std::pair<uint64_t, entt::entity>> joints;
 		for (entt::entity const handle : m_Registry.view<JointComponent>())
+		{
+			joints.emplace_back(m_Registry.get<IDComponent>(handle).ID.GetValue(), handle);
+		}
+		std::sort(joints.begin(), joints.end());
+		for (auto const& [id, handle] : joints)
 		{
 			Entity const entity(handle, this);
 			JointComponent const& component = entity.GetComponent<JointComponent>();
@@ -546,6 +675,8 @@ namespace Strada
 			}
 			m_Physics->RemoveBody(existing->second.Entity);
 			m_Bodies.erase(existing);
+			m_BodyOrderChanged = true;
+			m_MovingBodiesChanged = true;
 			return true;
 		}
 
@@ -559,6 +690,8 @@ namespace Strada
 			if (existing != m_Bodies.end())
 			{
 				m_Bodies.erase(existing);
+				m_BodyOrderChanged = true;
+				m_MovingBodiesChanged = true;
 			}
 			return hadBody;
 		}
@@ -574,10 +707,31 @@ namespace Strada
 			if (existing != m_Bodies.end())
 			{
 				m_Bodies.erase(existing);
+				m_BodyOrderChanged = true;
+				m_MovingBodiesChanged = true;
 			}
 			return hadBody;
 		}
-		m_Bodies[handle] = BodyState{id, desc->Position, desc->Rotation};
+		bool const created = existing == m_Bodies.end();
+		if (created)
+		{
+			m_BodyOrderChanged = true;
+		}
+		m_MovingBodiesChanged = true;
+		bool const moves = desc->Type != RigidBodyType::Static;
+		BodyState& state = m_Bodies[handle];
+		// A rebuilt body that moved before keeps being drawn on its way; a new one (or one that starts moving) is drawn where
+		// it is.
+		if (created || !state.Moves || !moves)
+		{
+			TransformComponent const& transform = entity.GetComponent<TransformComponent>();
+			state.Drawing = {};
+			state.Drawing.Place({transform.Translation, transform.Rotation});
+		}
+		state.Entity = id;
+		state.Position = desc->Position;
+		state.Rotation = desc->Rotation;
+		state.Moves = moves;
 		return true;
 	}
 
@@ -592,6 +746,7 @@ namespace Strada
 			{
 				m_Physics->RemoveCharacter(existing->second.Entity);
 				m_Characters.erase(existing);
+				m_CharacterOrderChanged = true;
 			}
 		};
 		if (component == nullptr)
@@ -623,6 +778,7 @@ namespace Strada
 			if (existing != m_Characters.end())
 			{
 				m_Characters.erase(existing);
+				m_CharacterOrderChanged = true;
 			}
 			return;
 		}
@@ -630,6 +786,10 @@ namespace Strada
 		if (created && HasBodyComponents(m_Registry, handle))
 		{
 			ST_CORE_WARN("Physics: the CharacterController of '{}' replaces its RigidBody and colliders", entity.GetName());
+		}
+		if (existing == m_Characters.end())
+		{
+			m_CharacterOrderChanged = true;
 		}
 		CharacterSyncState& state = m_Characters[handle];
 		if (created)
@@ -673,8 +833,9 @@ namespace Strada
 	void Scene::SyncCharactersFromTransforms()
 	{
 		std::vector<entt::entity> rescaled;
-		for (auto& [handle, state] : m_Characters)
+		for (entt::entity const handle : GetCharacterOrder())
 		{
+			CharacterSyncState& state = m_Characters.at(handle);
 			CharacterControllerComponent const* component =
 				m_Registry.valid(handle) ? m_Registry.try_get<CharacterControllerComponent>(handle) : nullptr;
 			glm::vec3 position;
@@ -722,8 +883,10 @@ namespace Strada
 			state.PreviousStepPosition = state.StepPosition;
 			state.StepPosition = position;
 			state.Carried = GetCarriedPart(position - state.PreviousStepPosition, character->GroundDisplacement);
-			// A character standing still leaves its transform alone.
-			if (HasMoved(position, state.Position))
+			state.Ground = character->GroundEntity;
+			// Exactly where the step left it, so that what the entity's children are synced from depends on the steps alone
+			// (a character standing still leaves its transform alone).
+			if (position != state.Position)
 			{
 				placements.push_back({handle, state.Entity, position, GetDepth(*this, Entity(handle, this))});
 			}
@@ -740,7 +903,8 @@ namespace Strada
 		std::vector<CharacterPlacement> placements;
 		for (auto const& [handle, state] : m_Characters)
 		{
-			if (!HasMoved(state.StepPosition, state.Position) || !m_Registry.valid(handle))
+			// Exactly: the steps must not see where the frame drew it, however close that was.
+			if (state.StepPosition == state.Position || !m_Registry.valid(handle))
 			{
 				continue;
 			}
@@ -763,10 +927,12 @@ namespace Strada
 		std::vector<CharacterPlacement> placements;
 		for (auto const& [handle, state] : m_Characters)
 		{
-			// The way it went by itself in the last step is drawn as far as the time left over makes up. The way what it stands
-			// on carried it is not: the ground is drawn where the last step left it, and the character stays on it.
-			glm::vec3 const ownWay = state.StepPosition - state.PreviousStepPosition - state.Carried;
-			glm::vec3 const drawn = state.StepPosition - (1.0f - alpha) * ownWay;
+			// The way it went by itself in the last step is drawn as far as the time left over makes up. So is the way what it
+			// stands on carried it when that ground is drawn between its steps too; a ground drawn where its last step left it
+			// keeps the character drawn on it, carried the whole way.
+			glm::vec3 const way = state.StepPosition - state.PreviousStepPosition;
+			glm::vec3 const drawnWay = IsBodyDrawn(state.Ground) ? way : way - state.Carried;
+			glm::vec3 const drawn = state.StepPosition - (1.0f - alpha) * drawnWay;
 			if (!HasMoved(drawn, state.Position) || !m_Registry.valid(handle))
 			{
 				continue;
@@ -790,8 +956,15 @@ namespace Strada
 		m_ContactEvents.clear();
 		if (m_Physics)
 		{
-			// Changes and steps start from where the last step left the characters, and scripts' OnFixedUpdate finds them there.
-			ReturnCharactersToSteps();
+			// Changes and steps start from where the last step left the bodies and characters, and scripts' OnFixedUpdate finds
+			// them there.
+			{
+				ST_PROFILE_SCOPE("Scene.ReturnToSteps");
+				m_IsDrawnBetweenSteps = false;
+				ReturnBodiesToSteps();
+				NoteBodiesMovedSinceSteps();
+				ReturnCharactersToSteps();
+			}
 			RebuildChangedBodies();
 		}
 
@@ -803,25 +976,7 @@ namespace Strada
 		// The tolerance keeps frames of exactly one step from alternating between zero and two steps.
 		while (m_PhysicsAccumulator >= step * (1.0f - 1e-4f) && steps < maxSteps)
 		{
-			// Scripts act before each step (forces, kinematic targets, teleports, character moves).
-			{
-				ST_PROFILE_SCOPE("Scene.FixedUpdateScripts");
-				FixedUpdateScripts(step);
-			}
-			if (m_Physics)
-			{
-				{
-					ST_PROFILE_SCOPE("Scene.SyncToPhysics");
-					SyncBodiesFromTransforms(step);
-					SyncCharactersFromTransforms();
-				}
-				m_Physics->Step(step);
-				{
-					ST_PROFILE_SCOPE("Scene.SyncFromPhysics");
-					WriteBodyTransforms();
-					WriteCharacterTransforms();
-				}
-			}
+			RunFixedStep(step);
 			m_PhysicsAccumulator = std::max(m_PhysicsAccumulator - step, 0.0f);
 			steps++;
 		}
@@ -832,16 +987,55 @@ namespace Strada
 		}
 		if (m_Physics)
 		{
-			// The time left over, part of the next step, is how far into their last step characters are drawn.
-			InterpolateCharacterTransforms(std::clamp(m_PhysicsAccumulator / step, 0.0f, 1.0f));
+			// The time left over, part of the next step, is how far into their last step bodies and characters are drawn: the
+			// bodies first, so a character knows whether its ground is drawn so.
+			{
+				ST_PROFILE_SCOPE("Scene.Interpolate");
+				float const alpha = GetDrawingAlpha();
+				InterpolateBodyTransforms(alpha);
+				InterpolateCharacterTransforms(alpha);
+				m_IsDrawnBetweenSteps = true;
+			}
 			m_ContactEvents = m_Physics->TakeContactEvents();
+		}
+	}
+
+	void Scene::RunFixedStep(float step)
+	{
+		// Scripts act before each step (forces, kinematic targets, teleports, character moves).
+		{
+			ST_PROFILE_SCOPE("Scene.FixedUpdateScripts");
+			FixedUpdateScripts(step);
+		}
+		if (m_Physics)
+		{
+			// The bodies and characters scripts changed reach the world before this step, whatever the frame rate.
+			RebuildChangedBodies();
+			{
+				ST_PROFILE_SCOPE("Scene.SyncToPhysics");
+				SyncBodiesFromTransforms(step);
+				SyncCharactersFromTransforms();
+			}
+			m_Physics->Step(step);
+			{
+				ST_PROFILE_SCOPE("Scene.SyncFromPhysics");
+				WriteBodyTransforms();
+				WriteCharacterTransforms();
+				RecordBodySteps();
+			}
+		}
+		m_FixedStepCount++;
+		if (m_FixedStepCount == m_RuntimeSettings.PhysicsHashStep)
+		{
+			m_RecordedPhysicsHash = ComputePhysicsStateHash();
 		}
 	}
 
 	void Scene::SyncBodiesFromTransforms(float stepDelta)
 	{
-		for (auto& [handle, state] : m_Bodies)
+		for (entt::entity const handle : GetBodyOrder())
 		{
+			BodyState& state = m_Bodies.at(handle);
 			if (!m_Registry.valid(handle))
 			{
 				continue;
@@ -854,18 +1048,149 @@ namespace Strada
 				continue;
 			}
 			RigidBodyComponent const* body = m_Registry.try_get<RigidBodyComponent>(handle);
+			TransformComponent const& transform = m_Registry.get<TransformComponent>(handle);
+			ScenePhysicsSnapshot::LocalPose const local{transform.Translation, transform.Rotation};
 			if (body != nullptr && body->Type == RigidBodyType::Kinematic)
 			{
 				m_Physics->MoveKinematic(state.Entity, position, rotation, stepDelta);
+				// A kinematic body moved between frames goes there in this step; it is drawn moving only when the fixed steps
+				// move it.
+				if (state.Drawing.Moved)
+				{
+					state.Drawing.Place(local);
+				}
 			}
 			else if (HasMoved(position, rotation, state.Position, state.Rotation))
 			{
-				// Moved by a script, the editor or its parent.
+				// Moved by a script, the editor or its parent: it is drawn on its way from there, never from where it was.
 				m_Physics->SetBodyTransform(state.Entity, position, rotation);
+				state.Drawing.Place(local);
 			}
+			state.Drawing.Moved = false;
 			state.Position = position;
 			state.Rotation = rotation;
 		}
+	}
+
+	void Scene::RecordBodySteps()
+	{
+		for (entt::entity const handle : GetMovingBodies())
+		{
+			TransformComponent const* transform = m_Registry.valid(handle) ? m_Registry.try_get<TransformComponent>(handle) : nullptr;
+			if (transform != nullptr)
+			{
+				ScenePhysicsSnapshot::BodyDrawing& drawing = m_Bodies.at(handle).Drawing;
+				drawing.PreviousStep = drawing.Step;
+				drawing.Step = {transform->Translation, transform->Rotation};
+			}
+		}
+	}
+
+	void Scene::ReturnBodiesToSteps()
+	{
+		for (entt::entity const handle : m_DrawnBodies)
+		{
+			auto const state = m_Bodies.find(handle);
+			TransformComponent* transform = m_Registry.valid(handle) ? m_Registry.try_get<TransformComponent>(handle) : nullptr;
+			if (state == m_Bodies.end() || transform == nullptr || !state->second.Drawing.IsDrawn())
+			{
+				continue;
+			}
+			ScenePhysicsSnapshot::BodyDrawing& drawing = state->second.Drawing;
+			// Exactly the bits the step left, so the steps see what they would have seen had it not been drawn. Translation and
+			// rotation each on their own: a part moved since it was drawn (a script setting only the rotation) stays where it
+			// was put, the other goes back, and the next step takes the body to that pose.
+			if (drawing.TranslationDrawn)
+			{
+				if (transform->Translation == drawing.Drawn.Translation)
+				{
+					transform->Translation = drawing.Step.Translation;
+				}
+				else
+				{
+					drawing.Moved = true;
+				}
+			}
+			if (drawing.RotationDrawn)
+			{
+				if (transform->Rotation == drawing.Drawn.Rotation)
+				{
+					transform->Rotation = drawing.Step.Rotation;
+				}
+				else
+				{
+					drawing.Moved = true;
+				}
+			}
+			drawing.TranslationDrawn = false;
+			drawing.RotationDrawn = false;
+		}
+		m_DrawnBodies.clear();
+	}
+
+	void Scene::NoteBodiesMovedSinceSteps()
+	{
+		for (entt::entity const handle : GetMovingBodies())
+		{
+			ScenePhysicsSnapshot::BodyDrawing& drawing = m_Bodies.at(handle).Drawing;
+			TransformComponent const* transform = m_Registry.valid(handle) ? m_Registry.try_get<TransformComponent>(handle) : nullptr;
+			if (transform != nullptr && ScenePhysicsSnapshot::LocalPose{transform->Translation, transform->Rotation} != drawing.Step)
+			{
+				drawing.Moved = true;
+			}
+		}
+	}
+
+	void Scene::InterpolateBodyTransforms(float alpha)
+	{
+		for (entt::entity const handle : GetMovingBodies())
+		{
+			ScenePhysicsSnapshot::BodyDrawing& drawing = m_Bodies.at(handle).Drawing;
+			if (drawing.IsDrawn() || drawing.PreviousStep == drawing.Step || !m_Registry.valid(handle))
+			{
+				continue;
+			}
+			RigidBodyComponent const* body = m_Registry.try_get<RigidBodyComponent>(handle);
+			TransformComponent* transform = m_Registry.try_get<TransformComponent>(handle);
+			if (body == nullptr || body->Interpolation != RigidBodyInterpolation::Interpolate || transform == nullptr)
+			{
+				continue;
+			}
+			// In local space: what is below the body, and a body below another, are drawn as they are at the steps.
+			ScenePhysicsSnapshot::LocalPose const& from = drawing.PreviousStep;
+			ScenePhysicsSnapshot::LocalPose const& to = drawing.Step;
+			// Each part still where the last step left it; a part moved since (by OnUpdate or the editor, in a frame that ran
+			// no step) is shown where it was put.
+			bool const drawTranslation = transform->Translation == to.Translation && from.Translation != to.Translation;
+			bool const drawRotation = transform->Rotation == to.Rotation && from.Rotation != to.Rotation;
+			if (!drawTranslation && !drawRotation)
+			{
+				continue;
+			}
+			// From the last step back, so that the whole step (alpha 1) is drawn exactly there; slerp takes the shorter way.
+			if (drawTranslation)
+			{
+				transform->Translation = to.Translation - (1.0f - alpha) * (to.Translation - from.Translation);
+			}
+			if (drawRotation)
+			{
+				transform->Rotation = Math::NormalizeRotation(glm::slerp(from.Rotation, to.Rotation, alpha));
+			}
+			drawing.Drawn = {transform->Translation, transform->Rotation};
+			drawing.TranslationDrawn = drawTranslation;
+			drawing.RotationDrawn = drawRotation;
+			m_DrawnBodies.push_back(handle);
+		}
+	}
+
+	bool Scene::IsBodyDrawn(UUID entity) const
+	{
+		if (!entity.IsValid())
+		{
+			return false;
+		}
+		auto const state = m_Bodies.find(FindHandle(entity));
+		return state != m_Bodies.end() && state->second.Drawing.IsDrawn();
 	}
 
 	void Scene::WriteBodyTransforms()
@@ -900,5 +1225,147 @@ namespace Strada
 				state->second.Rotation = update.Transform.Rotation;
 			}
 		}
+	}
+
+	uint64_t Scene::ComputePhysicsStateHash() const
+	{
+		HashBuilder hash;
+		hash.AddUInt64(m_FixedStepCount);
+		if (!m_Physics)
+		{
+			return hash.GetHash();
+		}
+		hash.AddUInt64(m_Physics->ComputeStateHash());
+		// The positions characters are drawn between: in UUID order (a const function cannot make the cached order).
+		std::vector<CharacterSyncState const*> characters;
+		characters.reserve(m_Characters.size());
+		for (auto const& [handle, state] : m_Characters)
+		{
+			characters.push_back(&state);
+		}
+		std::sort(characters.begin(), characters.end(),
+		          [](CharacterSyncState const* a, CharacterSyncState const* b)
+		          {
+					  return a->Entity.GetValue() < b->Entity.GetValue();
+				  });
+		auto const addVector = [&hash](glm::vec3 const& value)
+		{
+			hash.AddFloat(value.x);
+			hash.AddFloat(value.y);
+			hash.AddFloat(value.z);
+		};
+		for (CharacterSyncState const* character : characters)
+		{
+			hash.AddUInt64(character->Entity.GetValue());
+			addVector(character->PreviousStepPosition);
+			addVector(character->StepPosition);
+			addVector(character->Carried);
+		}
+		return hash.GetHash();
+	}
+
+	Result<ScenePhysicsSnapshot> Scene::SavePhysicsState()
+	{
+		if (!m_IsRunning || !m_Physics)
+		{
+			return Error{"the scene does not run physics"};
+		}
+		ApplyPhysicsChanges();
+		ScenePhysicsSnapshot snapshot;
+		snapshot.m_Physics = m_Physics->SaveState();
+		snapshot.m_Step = m_FixedStepCount;
+		snapshot.m_Accumulator = m_PhysicsAccumulator;
+		snapshot.m_IsDrawnBetweenSteps = m_IsDrawnBetweenSteps;
+		snapshot.m_IDSequence = m_RuntimeIDSequence;
+		std::vector<entt::entity> const& bodies = GetBodyOrder();
+		snapshot.m_Bodies.reserve(bodies.size());
+		for (entt::entity const handle : bodies)
+		{
+			BodyState const& state = m_Bodies.at(handle);
+			TransformComponent const* transform = m_Registry.try_get<TransformComponent>(handle);
+			snapshot.m_Bodies.push_back(
+				{state.Entity, transform != nullptr ? *transform : TransformComponent(), state.Position, state.Rotation, state.Drawing});
+		}
+		std::vector<entt::entity> const& characters = GetCharacterOrder();
+		snapshot.m_Characters.reserve(characters.size());
+		for (entt::entity const handle : characters)
+		{
+			CharacterSyncState const& state = m_Characters.at(handle);
+			TransformComponent const* transform = m_Registry.try_get<TransformComponent>(handle);
+			snapshot.m_Characters.push_back({state.Entity, transform != nullptr ? *transform : TransformComponent(), state.Position,
+			                                 state.PreviousStepPosition, state.StepPosition, state.Carried, state.Ground});
+		}
+		return snapshot;
+	}
+
+	Result<void> Scene::RestorePhysicsState(ScenePhysicsSnapshot const& snapshot)
+	{
+		if (!m_IsRunning || !m_Physics)
+		{
+			return Error{"the scene does not run physics"};
+		}
+		ApplyPhysicsChanges();
+		// The scene's side must hold the same bodies and characters before anything changes.
+		std::vector<entt::entity> const& bodies = GetBodyOrder();
+		std::vector<entt::entity> const& characters = GetCharacterOrder();
+		bool const sameBodies = std::equal(bodies.begin(), bodies.end(), snapshot.m_Bodies.begin(), snapshot.m_Bodies.end(),
+		                                   [this](entt::entity handle, ScenePhysicsSnapshot::Body const& saved)
+		                                   {
+											   return m_Bodies.at(handle).Entity == saved.Entity && m_Registry.valid(handle);
+										   });
+		bool const sameCharacters =
+			std::equal(characters.begin(), characters.end(), snapshot.m_Characters.begin(), snapshot.m_Characters.end(),
+		               [this](entt::entity handle, ScenePhysicsSnapshot::Character const& saved)
+		               {
+						   return m_Characters.at(handle).Entity == saved.Entity && m_Registry.valid(handle);
+					   });
+		if (!sameBodies || !sameCharacters)
+		{
+			return Error{"bodies or characters were added or removed since the snapshot"};
+		}
+		if (Result<void> restored = m_Physics->RestoreState(snapshot.m_Physics); !restored)
+		{
+			return restored;
+		}
+		m_FixedStepCount = snapshot.m_Step;
+		m_PhysicsAccumulator = snapshot.m_Accumulator;
+		m_IsDrawnBetweenSteps = snapshot.m_IsDrawnBetweenSteps;
+		// Entities made from here on take the IDs they took then (GenerateUniqueID skips one an entity made since still holds).
+		m_RuntimeIDSequence = snapshot.m_IDSequence;
+		// The entities exactly as they were, drawn as they were, so the next syncs see neither edits nor moves.
+		m_DrawnBodies.clear();
+		for (size_t i = 0; i < bodies.size(); i++)
+		{
+			ScenePhysicsSnapshot::Body const& saved = snapshot.m_Bodies[i];
+			BodyState& state = m_Bodies.at(bodies[i]);
+			state.Position = saved.Position;
+			state.Rotation = saved.Rotation;
+			state.Drawing = saved.Drawing;
+			if (state.Drawing.IsDrawn())
+			{
+				m_DrawnBodies.push_back(bodies[i]);
+			}
+			if (TransformComponent* transform = m_Registry.try_get<TransformComponent>(bodies[i]))
+			{
+				*transform = saved.Transform;
+			}
+		}
+		for (size_t i = 0; i < characters.size(); i++)
+		{
+			ScenePhysicsSnapshot::Character const& saved = snapshot.m_Characters[i];
+			CharacterSyncState& state = m_Characters.at(characters[i]);
+			state.Position = saved.Position;
+			state.PreviousStepPosition = saved.PreviousStepPosition;
+			state.StepPosition = saved.StepPosition;
+			state.Carried = saved.Carried;
+			state.Ground = saved.Ground;
+			if (TransformComponent* transform = m_Registry.try_get<TransformComponent>(characters[i]))
+			{
+				*transform = saved.Transform;
+			}
+		}
+		// The events of the steps that are undone were taken already; the next frame's are those of the steps it runs.
+		m_ContactEvents.clear();
+		return {};
 	}
 }
