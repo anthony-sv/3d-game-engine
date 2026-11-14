@@ -6,20 +6,25 @@ visual scripts alone (no C#). In order:
    and the circuit's entities (the track, the barriers, the ground and the hills, the start gantry, the three sector
    gates and the footbridge), each surface a static body with a triangle-mesh collider;
 3. the lighting part: the sun, the sky and the scene's renderer settings (shadows over 220 m in four cascades);
-4. the camera part: the main camera over the start, its far plane past the hills;
-5. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
-   rest on their surfaces, and nothing logs a warning.
+4. the camera part: the main camera at the home view over the start, its far plane past the hills, and its tour, a graph
+   (Scripts/Tour.sgraph) whose timeline flies it once round the circuit and home (Tour.py makes the path);
+5. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks) and its graphs (Checks.py);
+6. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+   rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
+   path puts it; and nothing logs a warning.
 
     python Projects/Moto/Tools/Author.py [strada executable]
-    python Projects/Moto/Tools/Author.py --part circuit [strada executable]
+    python Projects/Moto/Tools/Author.py --part camera [strada executable]
 
 The project is rebuilt from scratch: everything but this Tools folder is replaced. Without an executable, strada runs
 from the repository (dotnet run).
 
 With --part, one part is built in place instead: the project is opened as it is, the part's root entities are made anew
-in the main scene, and its files are written (materials keep their asset handles). The run compares every file of the
-project outside Tools before and after: when a file the part does not own changed, it names the files and fails, also
-when the authoring itself failed.
+in the main scene, and its files are written (materials and graphs keep their asset handles). The tests part follows
+every other, since the test scene is the main scene with the checks and they name its entities. The run compares every
+file of the project outside Tools before and after: when a file the part (or the tests part after it) does not own
+changed, it names the files and fails, also when the authoring itself failed. After a change to how graphs are arranged,
+`--part camera` writes every graph again.
 """
 import argparse
 import hashlib
@@ -34,8 +39,11 @@ import tempfile
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS)
+import Checks  # noqa: E402  (the test scene and its graphs)
 import Circuit  # noqa: E402  (the layout)
 import GenerateAssets  # noqa: E402  (the circuit's meshes, textures and sky)
+import Graphs  # noqa: E402  (writing graphs)
+import Tour  # noqa: E402  (the camera tour)
 
 PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
@@ -82,14 +90,21 @@ class McpClient:
 # --- Parts ---------------------------------------------------------------------------------------------------------------
 
 # Each part: the root entities of the main scene it makes, and the files of the project it may write (paths relative to
-# the project folder, forward slashes; "<folder>/*<extension>" takes the folder's own files of that extension).
+# the project folder, forward slashes; "<folder>/*<extension>" takes the folder's own files of that extension). The tests
+# part makes no entity of the main scene: its own scene is made from it.
 PARTS = {
     "circuit": (("Circuit",), ("Assets/Meshes/*.gltf", "Assets/Textures/*.png", "Assets/Environments/*.hdr",
                                "Assets/Materials/*.smat", "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
     "lighting": (("Sun", "Sky"), ("Assets/Scenes/Main.sscene",)),
-    "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene",)),
+    "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Tour.sgraph", "Assets/AssetRegistry.sreg")),
+    "tests": ((), ("Assets/Scenes/Tests.sscene", "Assets/Scripts/Checks.sgraph", "Assets/Scripts/Tests.sgraph",
+                   "Assets/AssetRegistry.sreg")),
 }
-ORDER = ("circuit", "lighting", "camera")
+ORDER = ("circuit", "lighting", "camera", "tests")
+# The parts that make entities of the main scene.
+SCENE_PARTS = ORDER[:-1]
+# Every graph of the project, in the order they are written.
+GRAPHS = (Tour.TOUR,) + Checks.GRAPHS
 
 
 def hash_project():
@@ -120,11 +135,13 @@ def owns(owned, path):
 
 
 def foreign_changes(before, part):
-    """Lists what changed in the project since the hashes were taken, and returns the changed files the part does not own."""
+    """Lists what changed in the project since the hashes were taken, and returns the changed files neither the part nor
+    the tests part after it owns."""
     after = hash_project()
     changed = sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
     print("changed:", ", ".join(changed) if changed else "nothing")
-    return [path for path in changed if not owns(PARTS[part][1], path)]
+    owned = PARTS[part][1] + PARTS["tests"][1]
+    return [path for path in changed if not owns(owned, path)]
 
 
 # --- Transforms ----------------------------------------------------------------------------------------------------------
@@ -163,6 +180,7 @@ def material_reference(name):
 class Moto:
     def __init__(self, client):
         self.client = client
+        self.handles = {}
 
     def call(self, tool, arguments=None):
         return self.client.call(tool, arguments)
@@ -193,6 +211,16 @@ class Moto:
     def build_part(self, part):
         self.remove_roots(PARTS[part][0])
         {"circuit": self.make_circuit, "lighting": self.make_lighting, "camera": self.make_camera}[part]()
+
+    def write_graphs(self, graphs, declare, write):
+        """Writes graphs from scratch, keeping the handles of those that exist: declare(author) adds their interfaces and
+        write(author) their regions."""
+        for graph in graphs:
+            self.handles[graph] = Graphs.prepare(self, PROJECT, graph, graph in Checks.LIBRARIES)
+        author = Graphs.Author(self)
+        declare(author)
+        write(author)
+        print(f"wrote {', '.join(graph[len('asset://'):] for graph in graphs)} in {author.batches} batches")
 
     def make_circuit(self):
         GenerateAssets.generate(os.path.join(PROJECT, "Assets"), GenerateAssets.SEED)
@@ -280,13 +308,52 @@ class Moto:
         self.entity("Sky", {"SkyLight": {"Environment": "asset://Environments/Sky.hdr", "Intensity": 1.2, "DrawSkybox": True}})
 
     def make_camera(self):
-        """The main camera, over the inside of the main straight before the line, looking past the gantry down the
-        straight. Its near plane suits a rider's view, its far plane takes in the hills (the projection itself has none)."""
-        eye = Circuit.offset_point(Circuit.LENGTH - 48.0, -24.0, 7.5)
-        target = Circuit.offset_point(25.0, 3.0, 3.0)
-        self.entity("Main Camera", {"Transform": look(eye, target),
+        """The main camera at the home view, over the inside of the main straight before the line, looking past the gantry
+        down the straight, and its tour. Its near plane suits a rider's view, its far plane takes in the hills (the
+        projection itself has none)."""
+        print("tour:", Tour.check())
+
+        def write(author):
+            Tour.write(author)
+            author.finish(Tour.TOUR)
+
+        self.write_graphs((Tour.TOUR,), Tour.declare, write)
+        self.entity("Main Camera", {"Transform": look(Tour.HOME_EYE, Tour.HOME_TARGET),
                                     "Camera": {"PerspectiveFOV": 50.0, "PerspectiveNear": 0.1, "PerspectiveFar": 5000.0},
-                                    "AudioListener": {}})
+                                    "AudioListener": {}, "VisualScript": {"Graph": self.handles[Tour.TOUR]}})
+
+    def make_tests(self):
+        """The test scene and its graphs, from the main scene as saved; then every graph is checked and the checks run."""
+        if Tour.TOUR not in self.handles:
+            self.handles[Tour.TOUR] = self.call("graph_get", {"graph": Tour.TOUR, "analyze": False})["asset"]
+        self.write_graphs(Checks.GRAPHS, Checks.declare, Checks.write)
+        Graphs.verify(self, GRAPHS)
+        Checks.build_scene(self, self.handles)
+        expected = len(Checks.checks())
+        run = self.call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": math.ceil(Tour.LENGTH) + 30})
+        print("test run:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})
+        if not run["finished"] or run["failed"] or run["exceptions"] or run["passed"] != expected:
+            for result in run["results"]:
+                if not result["passed"]:
+                    print(f"  failed: {result['name']}: {result['message']}")
+            raise SystemExit(f"the test run passed {run['passed']} of {expected} checks")
+
+    def check_tour(self):
+        """Plays the main scene for ten seconds and checks that the tour put the camera where its path is then."""
+        frames = 600
+        self.call("play_start", {"paused": True})
+        try:
+            camera = next(entity["id"] for entity in self.call("scene_hierarchy")["entities"] if entity["name"] == "Main Camera")
+            self.call("play_advance", {"frames": frames})
+            at = self.call("component_get", {"entity": camera, "component": "Transform"})["fields"]["Translation"]
+        finally:
+            self.call("play_stop")
+        # The tour's time after the frames is a frame either side of theirs.
+        seconds = frames / 60.0
+        closest = min(math.dist(at, Tour.camera(seconds + k / 60.0)[0]) for k in (-1, 0, 1))
+        print(f"  the tour's camera after {seconds:.0f} s: {closest:.2f} m from its path")
+        if closest > 0.05:
+            raise SystemExit(f"the tour does not play in play mode: the camera is at {at}, {closest:.2f} m from its path")
 
     # --- Checks ----------------------------------------------------------------------------------------------------------
 
@@ -363,26 +430,32 @@ class Moto:
         found = [entity["id"] for entity in self.call("scene_hierarchy")["entities"]]
         self.call("entity_delete", {"entities": found})
         self.call("scene_settings", {"name": "Main"})
-        for part in ORDER:
+        for part in SCENE_PARTS:
             self.build_part(part)
-        self.call("scene_save")
-        self.check_surfaces()
-        self.check_log(since)
+        self.finish(since)
 
     def build_in_place(self, part):
         self.call("project_open", {"path": os.path.join(PROJECT, "Moto.sproj")})
         since = self.log_position()
         self.call("scene_open", {"path": "Scenes/Main.sscene"})
-        self.build_part(part)
+        if part != "tests":
+            self.build_part(part)
+        self.finish(since)
+
+    def finish(self, since):
+        """Saves the main scene, checks its surfaces, makes the tests part, plays the tour and checks the log."""
         self.call("scene_save")
         self.check_surfaces()
+        self.make_tests()
+        self.check_tour()
         self.check_log(since)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Builds the Moto project through strada mcp, or one of its parts in place.")
     parser.add_argument("strada", nargs="?", help="the strada executable (default: dotnet run of the repository's StradaTool)")
-    parser.add_argument("--part", choices=ORDER, help="build this part in place, leaving every file it does not own as it is")
+    parser.add_argument("--part", choices=ORDER, help="build this part (and the tests part after it) in place, leaving every "
+                        "file they do not own as it is")
     arguments = parser.parse_args()
     command = [os.path.abspath(arguments.strada)] if arguments.strada else \
         ["dotnet", "run", "--project", os.path.join(ROOT, "StradaTool"), "-c", "Release", "--no-launch-profile", "--"]

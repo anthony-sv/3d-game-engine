@@ -774,7 +774,7 @@
 			}
 		},
 		{
-			"ID": "16181551421087873787",
+			"ID": "15187625286053510755",
 			"Components": {
 				"Tag": {
 					"Tag": "Main Camera"
@@ -815,6 +815,10 @@
 				},
 				"AudioListener": {
 					"Active": true
+				},
+				"VisualScript": {
+					"Graph": "3374653363641307568",
+					"Variables": {}
 				}
 			}
 		}

@@ -55,6 +55,7 @@ namespace
 	};
 
 	constexpr SampleGraphSet SampleGraphSets[] = {
+		{STRADA_SAMPLE_PROJECTS_DIR, "Moto", "", "python Projects/Moto/Tools/Author.py --part camera"},
 		{STRADA_SAMPLE_PROJECTS_DIR, "PrismBreak", "", "python Projects/PrismBreak/Tools/Author.py"},
 		{STRADA_SAMPLE_PROJECTS_DIR, "Showcase", "Scripts/GraphGarden", "python Projects/Showcase/Tools/Author.py --exhibit GraphGarden"},
 		{STRADA_TEMPLATES_DIR, "graph-starter", "", "python Templates/Tools/AuthorTemplates.py --template graph-starter"},

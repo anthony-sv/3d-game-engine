@@ -42,7 +42,7 @@ working on the engine itself (building, style, tests, commits).
 | AI agents | 105 automation commands in 18 domains (27 of them for graphs), served as MCP tools by `strada mcp` together with Poly Haven search and import (111 tools); a command-line tool, `strada` | [Agents.md](Agents.md), [Automation.md](Automation.md) |
 | Player and export | `StradaRuntime` plays projects and exported games, windowed or headless, and runs test scenes with a fixed time step; Build Game writes a self-contained game folder | [GettingStarted.md](GettingStarted.md), [Editor.md](Editor.md) |
 | Testing | `Strada.Testing` checks in C# or in graphs, run in the editor, by agents or by the player in CI | [Scripting.md](Scripting.md#testing-a-game) |
-| Samples | `Showcase` (every feature in a forest clearing), `PrismBreak` (a game made of graphs alone), `Blocks` (a falling-blocks game in C#), `FeatureTest` (every component and the whole API, checked) | [GettingStarted.md](GettingStarted.md) |
+| Samples | `Showcase` (every feature in a forest clearing), `PrismBreak` (a game made of graphs alone), `Moto` (a motorcycle time trial in the making: its circuit and a camera tour made of a graph), `Blocks` (a falling-blocks game in C#), `FeatureTest` (every component and the whole API, checked) | [GettingStarted.md](GettingStarted.md) |
 
 ## How these pages stay accurate
 

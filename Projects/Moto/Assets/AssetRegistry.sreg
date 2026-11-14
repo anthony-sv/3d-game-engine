@@ -140,6 +140,26 @@
 			"Path": "Scenes/Main.sscene"
 		},
 		{
+			"Handle": "758468017170119869",
+			"Type": "Scene",
+			"Path": "Scenes/Tests.sscene"
+		},
+		{
+			"Handle": "11160837631458717455",
+			"Type": "VisualScript",
+			"Path": "Scripts/Checks.sgraph"
+		},
+		{
+			"Handle": "7930426497277894226",
+			"Type": "VisualScript",
+			"Path": "Scripts/Tests.sgraph"
+		},
+		{
+			"Handle": "3374653363641307568",
+			"Type": "VisualScript",
+			"Path": "Scripts/Tour.sgraph"
+		},
+		{
 			"Handle": "1120607662871141938",
 			"Type": "Texture",
 			"Path": "Textures/Asphalt.png"

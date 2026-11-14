@@ -3426,17 +3426,39 @@ data directory, and compile out asserts and script debug lines.
   write (`circuit`: the generated assets, the materials and the `Circuit` entity with the track, the walls, the ground,
   the hills, the start gantry, the sector gates and the footbridge, every surface a static body with a triangle-mesh
   `MeshCollider`; `lighting`: the sun, the sky and the renderer settings, shadows over 220 m in four cascades;
-  `camera`: the main camera, near plane 0.1 m and far plane 5 km); `--part <name>` rebuilds one part in place and fails,
-  naming them, when files the part does not own changed. The sector gates are timing lines whose entities stand on the
-  center line with their forward along the travel: gates 1 and 2 carry an arch, gate 3 is the start and finish line
-  under the gantry. Every build ends by dropping spheres, in play mode's copy of the scene, on the road, a kerb, a
-  gravel trap, a verge, the ground, a wall and the footbridge, which must come to rest on those surfaces, and by
-  refusing any warning in the log.
+  `camera`: the main camera, near plane 0.1 m and far plane 5 km, and its tour; `tests`: the test scene and its graphs);
+  `--part <name>` rebuilds one part in place, then the `tests` part (the test scene is the main scene with the checks,
+  which name its entities), and fails, naming them, when files neither owns changed. Graphs keep their asset handles
+  when they are written again (emptied with `graph.set`, then written batch by batch). The sector gates are timing
+  lines whose entities stand on the center line with their forward along the travel: gates 1 and 2 carry an arch, gate
+  3 is the start and finish line under the gantry. **The camera tour** is the first sample tour made of a graph
+  (`Scripts/Tour.sgraph`, on the main camera): a `Flow.Timeline` with two Vector3 curves, `Eye` and `LookAt`, flies the
+  camera from the home view once round the lap and back to it in about 51 s; each update sets the camera's
+  translation and the Euler angles that point it at `LookAt` (a formula: pitch, then yaw, no roll, so no keyed angle
+  wraps), and when the timeline finishes the `Tours` read-out counts the tour and, while `Repeat` holds, it plays
+  again. `PlayOnStart` starts it with the scene; another graph starts it by sending the camera `PlayTour`.
+  `Tools/Tour.py` makes the keys (every 0.5 s) from a lead point that runs the lap at a pace the corners set, faster
+  the higher the camera flies, which the camera chases at a height and a distance that change along the lap (over the
+  gantry, low down the straights and under the footbridge, beside the sector gates' boards, higher over the corners).
+  Its `check()` evaluates the curves as the engine does (Catmull-Rom on the keys' times, flat at the ends) and asserts
+  that the camera keeps 2 m from every surface of the layout the whole way, which is a property of the data, not of
+  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene with a crate over the road and the `Tests`
+  entity) holds 10 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
+  reporting through the `Checks` library): rays down at points of the layout hit the road, a kerb, a wall's top, the
+  ground and the footbridge's deck at their heights, facing up; the crate comes to rest on the road; and the camera is
+  at the home view when the scene starts, where the path puts it under the footbridge, home again when the tour ends,
+  and off on the next one after it. They wait in seconds of the game, with tolerances for a frame of the slowest test
+  run, so they pass at 1/60 and 1/30 s a frame; `StradaRuntimeTests` runs them twice at 1/60 s (the same summary each
+  time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script. Every build ends by dropping spheres, in
+  play mode's copy of the scene, on the road, a kerb, a gravel trap, a verge, the ground, a wall and the footbridge,
+  which must come to rest on those surfaces, by checking every graph (no diagnostic, every node in one box, every box
+  arranged), by a test run that must pass every check, by playing the main scene for 10 s in play mode, where the
+  camera must be on the tour's path, and by refusing any warning in the log.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.
-- **Sample graphs read well**: `SampleGraphsTests` (StradaEditorTests) requires of every graph of Prism Break and the
-  Graph Garden that every node is placed in exactly one titled comment box, none overlapping or closer than 16 units,
+- **Sample graphs read well**: `SampleGraphsTests` (StradaEditorTests) requires of every graph of Prism Break, Moto,
+  the Graph Garden and the two starter templates that every node is placed in exactly one titled comment box, none overlapping or closer than 16 units,
   that no link joins two boxes, that every graph has a description and every public variable a tooltip, and that
   arranging each box's nodes moves none; its message names the authoring tool to run again after a change to arranging.
   `SampleProjectsTests` (StradaTests) checks that AGENTS.md and README.md name every folder of `Projects/` and that the
