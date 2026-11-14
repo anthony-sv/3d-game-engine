@@ -22,6 +22,7 @@
 namespace Strada
 {
 	class AssetThumbnails;
+	class DataAssetType;
 	class EditorScripts;
 	class VisualScriptProjectIndex;
 
@@ -235,6 +236,9 @@ namespace Strada
 		void Delete(EditorOperations& operations, Item const& item);
 		void CreateFolder(EditorOperations& operations);
 		void CreateMaterial(EditorOperations& operations);
+		// A file of the data asset type's default fields, "New <type's display name>", in the displayed folder, selected with
+		// its name ready to be typed.
+		void CreateDataAsset(EditorOperations& operations, DataAssetType const& type);
 		// A visual script from the template (Events: "New Visual Script"; Library: "New Visual Script Library"), in the
 		// displayed folder, selected with its name ready to be typed.
 		void CreateVisualScript(EditorOperations& operations, VisualScriptTemplate kind);

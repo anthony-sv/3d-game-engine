@@ -513,10 +513,12 @@ scripts reach data assets through the Script module's bindings.
 
 - *The asset editor.* Selecting a data asset shows, below its name and reference, the body `DataAssetEditor` draws
   (`Editor/UI/DataAssetEditor.h`): by default the type's field table through the `FieldEditor`, with asset fields,
-  nested structs and arrays of structs (§11), editable when the asset has a file of its own that is not read-only and
-  shown disabled otherwise (data assets made in memory). One widget interaction is one undo step, through
+  nested structs and arrays of structs (§11), editable when the asset has a file of its own that is present and not
+  read-only (`SetDataAssetCommand::CheckEditable`) and shown disabled otherwise, with the reason above it (data assets
+  made in memory, read-only files). One widget interaction is one undo step, through
   `EditorOperations::SetDataAssetFields(asset, patch, description, mergeKey)` and `SetDataAssetCommand`
-  (`Editor/Commands/SetDataAssetCommand.h`), with the inspector's `EditSession`.
+  (`Editor/Commands/SetDataAssetCommand.h`), with the inspector's `EditSession`, whose key the asset editor asks for only
+  when an edit brings none: a drawer's own keys keep merging while the session's interaction has ended.
 - *A drawer of a type's own.* `DataAssetEditor::SetDrawer(name, drawer)` replaces the default body of one type (the
   engine's drawers are one list in `DataAssetEditor.cpp`, where a type's track adds its line). A drawer gets a
   `DataAssetDrawContext` (the asset, its type, its fields as JSON, whether it is editable, the field editor) and returns
@@ -529,9 +531,11 @@ scripts reach data assets through the Script module's bindings.
   `HiddenInEditors` in the field table. A struct type that appears inside other data (a curve inside a vehicle
   definition) gets a struct drawer of the field editor instead, from one editor-wide list, used wherever that struct
   appears (§11).
-- *The content browser.* Its New menu has an item per registered type (`New <Name>`, the description as its tooltip),
-  which writes a file of the default fields named `New <Name>` (made unique) into the displayed folder, selects it and
-  starts renaming it, as New Material does. Tiles of data assets show a data glyph with the type's name as their label.
+- *The content browser.* Its New menu has an item per registered type, named by the type's display name (`New Test
+  Data`, the description as its tooltip), which writes a file of the default fields named `New <display name>` (made
+  unique) into the displayed folder, selects it and starts renaming it, as New Material does
+  (`EditorOperations::CreateDataAsset`). Tiles of data assets show a table glyph with the type's display name as their
+  label.
 - *The commands.* Every type registered when the editor's commands are registered gets three, documented in
   Automation.md with each shipped type's rows:
   - `<domain>.create { path, fields? }` writes a file (path relative to `Assets/`, ending in the type's extension) with
@@ -542,15 +546,19 @@ scripts reach data assets through the Script module's bindings.
   - `<domain>.set { <parameter>, fields }` applies a partial patch and writes the file: an undo step that does not mark
     the scene modified, refused for data assets without a file of their own and for read-only files.
 
-  `fields` is read strictly: an unknown field or a value outside its range fails with InvalidParams naming it (the
-  field table's message: `TestData.Size: must be at least 0`), and so does a value `Validate` refuses; nothing is written
-  then. The three work while the editor plays, as `material.*` do: an edit of a data asset is an edit of its file, which
-  play mode neither snapshots nor restores, so the playing game sees it at once (through the version) and it stays, with
-  its undo step, after the editor stops. The `fields` parameter's schema lists the type's fields with their descriptions. Undo writes back every field as
-  it was, not the file's bytes: undoing the first edit of a file of an older format version, or of one holding fields
-  this engine does not know, leaves it in the current version with the same values, as materials do. A type whose
-  domain would repeat a built-in domain's command names (a type named `Graph`) makes the editor's command registration
-  fail, which the editor tests catch.
+  `fields` is read strictly: an unknown field or a value outside its range fails with InvalidParams naming it (the field
+  table's message: `TestData.Size: must be at least 0`), and so does a value `Validate` refuses; nothing is written
+  then. An asset of another type is InvalidParams too; `set` of a data asset without a file of its own, a missing file
+  or a read-only one is InvalidOperation, and a file that does not load is FileError. The handlers find their type again
+  by name at each call, so a type unregistered since answers Unavailable. `asset.list` takes the registered types' names
+  as its `type`. The three work while the editor plays, as `material.*` do: an edit of a data asset is an edit of its
+  file, which play mode neither snapshots nor restores, so the playing game sees it at once (through the version) and it
+  stays, with its undo step, after the editor stops. The `fields` parameter's schema lists the type's fields with their
+  types, ranges and descriptions, and leaves the values (and other names) to the field table, so that its messages reach
+  the caller. Undo writes back every field as it was, not the file's bytes: undoing the first edit of a file of an older
+  format version, or of one holding fields this engine does not know, leaves it in the current version with the same
+  values, as materials do. A type whose domain would repeat a built-in domain's command names (a type named `Graph`)
+  makes the editor's command registration fail, which the editor tests catch.
 
 **Scripts: the managed pattern.** A data asset type that scripts use gets a sealed managed class of the same name in
 `Strada-ScriptCore`, deriving from `Asset` with an internal constructor, as `Material` does; no public member lands
@@ -572,6 +580,10 @@ on its next use, through one binding of its own that takes the version it holds 
 the asset's version differs. The epoch moves on every load of any data asset, and that keeps such a load from costing
 each cached curve a copy and an allocation. So a script sees an edit made in the inspector while playing on its next
 frame, and an access costs a comparison of two managed numbers.
+
+The `strada-add-data-asset` skill is the checklist of a new type: the struct and its field table, the line in the
+engine's list, a drawer when the field table is not the editor the type needs, the FeatureTest seed file, migrations
+with their fixtures, the command rows, the MCP tool list, and the managed class with its first user.
 
 **The worked example**, the type the tests register (`Tests/StradaTests/Source/Asset/TestDataAsset.h`, shared with
 StradaEditorTests): an enum, a number with a range, references to a texture and to another asset of its own type, and

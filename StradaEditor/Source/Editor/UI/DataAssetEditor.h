@@ -13,6 +13,7 @@
 namespace Strada
 {
 	class DataAssetType;
+	class EditSession;
 	class EditorOperations;
 	class FieldEditor;
 
@@ -66,12 +67,13 @@ namespace Strada
 		bool HasDrawer(std::string_view typeName) const;
 
 		// Draws the body of the data asset's editor and applies the user's change through operations (failures are reported
-		// with UI::ReportFailure). Shows the load error of an asset that does not load. Main thread only, inside an ImGui frame.
-		void Draw(EditorOperations& operations, FieldEditor& editor, AssetHandle asset, uint64_t mergeKey);
+		// with UI::ReportFailure). An edit with merge key 0 takes the session's key, which is asked for only then: a drawer's
+		// own keys merge across frames in which the session's interaction ended. Shows the load error of an asset that does
+		// not load, and why one that loads cannot be edited. Main thread only, inside an ImGui frame.
+		void Draw(EditorOperations& operations, FieldEditor& editor, AssetHandle asset, EditSession& session);
 
 		// The default body: the type's field table (fields hidden in editors left out), disabled unless context.Editable.
-		// Returns the user's change with the default description and the inspector's merge key, or the description and key
-		// of a struct drawer that made it (FieldEditor's struct drawers).
+		// Returns the user's change with the default description and merge key 0 (the inspector's interaction).
 		static std::optional<DataAssetEdit> DrawFields(DataAssetDrawContext const& context);
 		// Whether edits of the asset can be kept: a data asset of a registered type with a file of its own, present and not
 		// read-only. Main thread only (reads the asset manager).

@@ -1,3 +1,4 @@
+#include "Asset/TestDataAsset.h"
 #include "Audio/AudioTestUtilities.h"
 #include "GpuTestUtilities.h"
 #include "HeadlessImGui.h"
@@ -19,6 +20,7 @@
 #include "Editor/Panels/ViewportPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/ScriptFieldInspection.h"
+#include "Editor/UI/DataAssetEditor.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
@@ -28,6 +30,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -4047,4 +4050,230 @@ TEST_CASE("Panels: a function library is no script for entities: drops refuse it
 	CHECK(context.GetHistory().GetUndoCount() == shown);
 	CHECK(SceneSerializer::Serialize(context.GetScene()) == scene);
 	CHECK(open);
+}
+
+namespace
+{
+	// The ImGui ID of a field's widget in the asset inspector's field table.
+	ImGuiID GetAssetFieldId(ImGuiWindow const* inspector, char const* field)
+	{
+		return ImHashStr("##value", 0, ImHashStr(field, 0, ImHashStr("##fields", 0, ImHashStr("##asset", 0, inspector->ID))));
+	}
+}
+
+TEST_CASE("Panels: the asset inspector edits a data asset's fields, one undo step per interaction, and shows one in memory disabled")
+{
+	Testing::TestDataTypeScope const type;
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	Result<AssetHandle> const created = operations.CreateDataAsset(type.GetType(), "Data/Crate.stestdata");
+	REQUIRE(created.IsOk());
+	AssetHandle const crate = created.GetValue();
+	std::filesystem::path const file = context.GetProject()->GetAssetDirectory() / "Data" / "Crate.stestdata";
+	Result<std::string> const bytes = FileSystem::ReadTextFile(file);
+	REQUIRE(bytes.IsOk());
+	size_t const steps = context.GetHistory().GetUndoCount();
+
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 800.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	context.SelectAsset(crate);
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	// Drawing changes nothing.
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	CHECK(FileSystem::ReadTextFile(file).GetValue() == bytes.GetValue());
+
+	// Dragging Size edits the file as one undo step named after the type; the scene does not count as modified.
+	ImGuiWindow const* window = ImGui::FindWindowByName("Inspector");
+	REQUIRE(window != nullptr);
+	float const x = window->Pos.x + window->Size.x * 0.8f;
+	std::optional<ImVec2> const size = FindItem(imgui, GetAssetFieldId(window, "Size"), ImVec2(x, window->Pos.y + 2.0f),
+	                                            ImVec2(x, window->Pos.y + window->Size.y - 2.0f), draw);
+	REQUIRE(size);
+	CHECK_FALSE(GImGui->HoveredIdIsDisabled);
+	imgui.Drag(*size, ImVec2(size->x + 60.0f, size->y), draw);
+	Ref<TypedDataAsset<Testing::TestData>> const asset = AssetManager::GetAsset<TypedDataAsset<Testing::TestData>>(crate);
+	REQUIRE(asset != nullptr);
+	float const dragged = asset->GetData().Size;
+	CHECK(dragged > 1.05f);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(context.GetHistory().GetUndoDescription() == "Edit TestData");
+	CHECK_FALSE(context.IsDirty());
+	Json const saved = Json::parse(FileSystem::ReadTextFile(file).GetValue(), nullptr, false);
+	REQUIRE(saved.is_object());
+	CHECK(saved["TestData"]["Size"].get<float>() == doctest::Approx(dragged));
+	// The next drag is a step of its own (a second later, so that its press is no double-click, which types a value).
+	imgui.Frame(draw, 1.0f);
+	imgui.Drag(*size, ImVec2(size->x + 30.0f, size->y), draw);
+	CHECK(asset->GetData().Size > dragged);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(asset->GetData().Size == 1.0f);
+	CHECK(FileSystem::ReadTextFile(file).GetValue() == bytes.GetValue());
+
+	// A data asset made in memory shows its fields disabled, and why.
+	TypedDataAssetType<Testing::TestData> const* const dataType = DataAssetRegistry::Find<Testing::TestData>();
+	REQUIRE(dataType != nullptr);
+	AssetHandle const memory = AssetManager::AddMemoryAsset(dataType->CreateAsset(), "Scratch");
+	context.SelectAsset(memory);
+	imgui.Frame(draw);
+	CHECK(CaptureText(imgui, draw).find("has no file of its own") != std::string::npos);
+	std::optional<ImVec2> const disabled = FindItem(imgui, GetAssetFieldId(window, "Size"), ImVec2(x, window->Pos.y + 2.0f),
+	                                                ImVec2(x, window->Pos.y + window->Size.y - 2.0f), draw);
+	REQUIRE(disabled);
+	CHECK(GImGui->HoveredIdIsDisabled);
+	imgui.Drag(*disabled, ImVec2(disabled->x + 60.0f, disabled->y), draw);
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	CHECK(open);
+}
+
+TEST_CASE("Panels: a data asset type's drawer replaces the inspector's body, and its own merge key and description span frames")
+{
+	Testing::TestDataTypeScope const type;
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	Result<AssetHandle> const created = operations.CreateDataAsset(type.GetType(), "Data/Crate.stestdata");
+	REQUIRE(created.IsOk());
+	AssetHandle const crate = created.GetValue();
+	Ref<TypedDataAsset<Testing::TestData>> const asset = AssetManager::GetAsset<TypedDataAsset<Testing::TestData>>(crate);
+	REQUIRE(asset != nullptr);
+
+	// A drawer as a curve editor's: it nudges a value at its own cadence, with no ImGui item active, under a key of its own,
+	// or (key 0) as the inspector's interaction; and it draws the default body below.
+	InspectorPanel inspector;
+	DataAssetEditor& editor = inspector.GetDataAssetEditor();
+	CHECK_FALSE(editor.HasDrawer("TestData"));
+	constexpr uint64_t NudgeKey = 0x4E55444745000001ull;
+	std::optional<DataAssetEdit> next;
+	std::vector<bool> editable;
+	std::vector<Json> seen;
+	editor.SetDrawer("TestData",
+	                 [&](DataAssetDrawContext const& drawContext) -> std::optional<DataAssetEdit>
+	                 {
+						 CHECK(drawContext.Asset == crate);
+						 CHECK(drawContext.Type.GetName() == "TestData");
+						 editable.push_back(drawContext.Editable);
+						 seen.push_back(drawContext.Fields);
+						 ImGui::TextUnformatted("Drawn by the drawer of TestData");
+						 std::optional<DataAssetEdit> fields = DataAssetEditor::DrawFields(drawContext);
+						 return fields ? fields : std::exchange(next, std::nullopt);
+					 });
+	CHECK(editor.HasDrawer("TestData"));
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 800.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	context.SelectAsset(crate);
+	imgui.Frame(draw);
+	CHECK(CaptureText(imgui, draw).find("Drawn by the drawer of TestData") != std::string::npos);
+	REQUIRE_FALSE(seen.empty());
+	CHECK(seen.back() == asset->SerializeFields());
+	CHECK(editable.back());
+	CommandHistory const& history = context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+
+	// Three nudges in three frames: one step, named as the drawer names it, with the last value.
+	for (float const value : {2.0f, 3.0f, 4.0f})
+	{
+		next = DataAssetEdit{Json::object({{"Size", value}}), "Nudge Size", NudgeKey};
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+	}
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(history.GetUndoDescription() == "Nudge Size");
+	CHECK(asset->GetData().Size == 4.0f);
+	CHECK(seen.back()["Size"] == 4.0);
+
+	// Edits with key 0 take the inspector's interaction: one frame each, without an active item, so each is a step.
+	for (float const value : {5.0f, 6.0f})
+	{
+		next = DataAssetEdit{Json::object({{"Size", value}}), {}, 0};
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+	}
+	CHECK(history.GetUndoCount() == steps + 3);
+	CHECK(history.GetUndoDescription() == "Edit TestData");
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(asset->GetData().Size == 1.0f);
+
+	// A refused edit is reported and changes nothing.
+	next = DataAssetEdit{Json::object({{"Size", -1.0}}), "Nudge Size", NudgeKey};
+	imgui.Frame(draw);
+	CHECK(history.GetUndoCount() == steps);
+	CHECK(asset->GetData().Size == 1.0f);
+	CHECK(open);
+}
+
+TEST_CASE("Panels: the content browser's + menu makes a file of every data asset type, named uniquely and selected")
+{
+	Testing::TestDataTypeScope const type;
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	REQUIRE(fixture.Operations.CreateAssetFolder("Data").IsOk());
+	std::function<void()> const draw = fixture.GetDraw();
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	// Opens the "+" menu and returns a point on its Test Data item, which is then hovered.
+	auto const findItem = [&]
+	{
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+		std::vector<ImVec2> const toolbar = FindToolbarItems(imgui, draw);
+		imgui.Click(toolbar[2], draw);
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+		ImGuiWindow* menu = GetOpenPopup();
+		std::optional<ImVec2> const item = FindHovered(imgui, draw, GetColumnPoints(menu), menu->GetID("Test Data"));
+		REQUIRE(item.has_value());
+		return *item;
+	};
+
+	fixture.Browser.SetFolder("Data");
+	imgui.Click(findItem(), draw);
+	AssetHandle const first = AssetManager::FindByPath("Data/New Test Data.stestdata");
+	REQUIRE(first.IsValid());
+	CHECK(fixture.Context.GetSelectedAsset() == first);
+	Ref<TypedDataAsset<Testing::TestData>> const asset = AssetManager::GetAsset<TypedDataAsset<Testing::TestData>>(first);
+	REQUIRE(asset != nullptr);
+	CHECK(asset->GetData() == Testing::TestData{});
+	// Its name is ready to be typed; Escape keeps it.
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Frame(draw);
+
+	imgui.Click(findItem(), draw);
+	AssetHandle const second = AssetManager::FindByPath("Data/New Test Data 1.stestdata");
+	REQUIRE(second.IsValid());
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Barrel");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	imgui.Frame(draw);
+	CHECK(AssetManager::GetMetadata(second)->Path == "Data/Barrel.stestdata");
+	// Making files is no step of the scene's history.
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	CHECK(fixture.BrowserOpen);
 }

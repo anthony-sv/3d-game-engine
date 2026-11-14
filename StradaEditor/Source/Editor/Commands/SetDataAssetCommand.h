@@ -33,6 +33,10 @@ namespace Strada
 		// "Edit <type name>".
 		SetDataAssetCommand(AssetHandle asset, Json patch, std::string description = {}, uint64_t mergeKey = 0);
 
+		// Whether edits of the asset can be kept: it is registered, of a registered data asset type, and has a file of its own
+		// that is present and not read-only. The error says why not. Whether the file loads is not checked. Main thread only.
+		[[nodiscard]] static Result<void> CheckEditable(AssetHandle asset);
+
 		[[nodiscard]] Result<void> Execute(EditorContext& context) override;
 		[[nodiscard]] Result<void> Undo(EditorContext& context) override;
 		// The description given, or "Edit <type name>" ("Edit Curve") recorded by the first execution.
@@ -50,6 +54,7 @@ namespace Strada
 		AssetHandle m_Asset;
 		Json m_Patch;
 		uint64_t m_MergeKey = 0;
+		// The description given, else "Edit <type name>" from the first execution.
 		std::string m_Description;
 		// Every field before and after, recorded by the first execution.
 		Json m_Before;

@@ -8,6 +8,7 @@
 #include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Platform/Desktop.h"
@@ -24,8 +25,10 @@
 #include <cfloat>
 #include <cmath>
 #include <numbers>
+#include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -102,6 +105,19 @@ namespace Strada
 		}
 
 		constexpr TypeStyle ScriptStyle = {"C# SCRIPT", "C#", IM_COL32(138, 118, 244, 255)};
+		// Data assets (DataAsset.h): one accent for every type, whose name the band shows.
+		constexpr ImU32 DataAssetAccent = IM_COL32(232, 112, 92, 255);
+		constexpr char const* DataAssetShortLabel = "DATA";
+
+		std::string ToUpper(std::string text)
+		{
+			std::transform(text.begin(), text.end(), text.begin(),
+			               [](unsigned char c)
+			               {
+							   return static_cast<char>(std::toupper(c));
+						   });
+			return text;
+		}
 
 		ImU32 Shade(ImU32 color, float factor, float alpha = 1.0f)
 		{
@@ -455,6 +471,35 @@ namespace Strada
 			for (ImVec2 const& input : inputs)
 			{
 				drawList->AddCircleFilled(input, pin, Shade(accent, 1.6f));
+			}
+		}
+
+		// Data assets: a table of fields, each row a name and a value.
+		void DrawDataGlyph(ImDrawList* drawList, Box const& box, ImU32 accent)
+		{
+			Box const sheet = {box.At(0.08f, 0.1f), box.At(0.92f, 0.9f)};
+			float const rounding = std::max(2.0f, sheet.Width() * 0.06f);
+			drawList->AddRectFilled(sheet.Min, sheet.Max, PaperColor, rounding);
+			constexpr int Rows = 4;
+			float const rowHeight = sheet.Height() / static_cast<float>(Rows);
+			float const barHeight = std::max(1.5f, std::round(rowHeight * 0.32f));
+			std::array<float, Rows> const valueWidths = {0.42f, 0.3f, 0.48f, 0.36f};
+			for (int row = 0; row < Rows; row++)
+			{
+				float const middle = sheet.Min.y + rowHeight * (static_cast<float>(row) + 0.5f);
+				float const left = sheet.Min.x + sheet.Width() * 0.1f;
+				float const split = sheet.Min.x + sheet.Width() * 0.42f;
+				drawList->AddRectFilled(ImVec2(left, middle - barHeight * 0.5f),
+				                        ImVec2(split - sheet.Width() * 0.06f, middle + barHeight * 0.5f), Shade(accent, 1.0f, 0.9f),
+				                        barHeight * 0.5f);
+				drawList->AddRectFilled(ImVec2(split, middle - barHeight * 0.5f),
+				                        ImVec2(split + sheet.Width() * valueWidths[static_cast<size_t>(row)], middle + barHeight * 0.5f),
+				                        MutedInkColor, barHeight * 0.5f);
+				if (row > 0)
+				{
+					float const line = sheet.Min.y + rowHeight * static_cast<float>(row);
+					drawList->AddLine(ImVec2(sheet.Min.x + rounding, line), ImVec2(sheet.Max.x - rounding, line), PaperFoldColor, 1.0f);
+				}
 			}
 		}
 
@@ -965,6 +1010,21 @@ namespace Strada
 			CreateVisualScript(operations, VisualScriptTemplate::Library);
 		}
 		ImGui::SetItemTooltip("Functions other visual scripts call; it runs on no entity");
+		// One item per data asset type, from its registration.
+		std::vector<DataAssetType const*> const dataTypes = DataAssetRegistry::GetTypes();
+		if (!dataTypes.empty())
+		{
+			ImGui::Separator();
+		}
+		for (DataAssetType const* type : dataTypes)
+		{
+			std::string const label = (prefixNew ? "New " : "") + UI::FormatDisplayName(type->GetName());
+			if (ImGui::MenuItem(label.c_str(), nullptr, false, m_Root == ContentRoot::Assets))
+			{
+				CreateDataAsset(operations, *type);
+			}
+			ImGui::SetItemTooltip("%s", type->GetDescription().c_str());
+		}
 		if (m_NewScript && ImGui::MenuItem(prefixNew ? "New C# Script..." : "C# Script..."))
 		{
 			m_NewScript(m_Root == ContentRoot::Scripts ? m_ScriptFolder : std::string());
@@ -1317,20 +1377,25 @@ namespace Strada
 		{
 			// The band names the file's extension: "BIN", "TXT".
 			std::string label = GetExtension(item.Name);
-			label = label.size() > 1 ? label.substr(1) : std::string("FILE");
-			std::transform(label.begin(), label.end(), label.begin(),
-			               [](unsigned char c)
-			               {
-							   return static_cast<char>(std::toupper(c));
-						   });
+			label = ToUpper(label.size() > 1 ? label.substr(1) : std::string("FILE"));
 			TypeStyle const style = {label.c_str(), "FILE", GetTypeStyle(AssetType::None).Accent};
 			Box const area = DrawCard(drawList, card, style, cardColor);
 			DrawUnknownGlyph(drawList, Square(area, 0.14f));
 			return;
 		}
 
-		TypeStyle const style = GetTypeStyle(item.Type);
-		if (item.Type == AssetType::AudioClip)
+		TypeStyle style = GetTypeStyle(item.Type);
+		// The band of a data asset names its type.
+		std::string dataTypeLabel;
+		DataAssetType const* const dataType = DataAssetRegistry::Find(item.Type);
+		if (dataType != nullptr)
+		{
+			dataTypeLabel = ToUpper(UI::FormatDisplayName(dataType->GetName()));
+			style = {dataTypeLabel.c_str(), DataAssetShortLabel, DataAssetAccent};
+			Box const area = DrawCard(drawList, card, style, cardColor);
+			DrawDataGlyph(drawList, Square(area, 0.14f), style.Accent);
+		}
+		else if (item.Type == AssetType::AudioClip)
 		{
 			Box const area = DrawCard(drawList, card, style, cardColor);
 			if (AudioWaveform const* waveform = m_Thumbnails != nullptr ? m_Thumbnails->GetWaveform(item.Asset) : nullptr)
@@ -1981,6 +2046,23 @@ namespace Strada
 		std::string const name = AssetBrowsing::MakeUniqueName(m_Folder, "New Material", ".smat");
 		Result<AssetHandle> const created = operations.CreateMaterial(AssetBrowsing::JoinPath(m_Folder, name));
 		UI::ReportFailure(created, "Creating the material");
+		std::optional<AssetMetadata> const metadata = created ? AssetManager::GetMetadata(created.GetValue()) : std::nullopt;
+		if (!metadata)
+		{
+			return;
+		}
+		SetFilter({});
+		Item const item = MakeAssetItem(*metadata);
+		Select(operations, item);
+		BeginRename(item);
+	}
+
+	void ContentBrowserPanel::CreateDataAsset(EditorOperations& operations, DataAssetType const& type)
+	{
+		std::string const displayName = UI::FormatDisplayName(type.GetName());
+		std::string const name = AssetBrowsing::MakeUniqueName(m_Folder, "New " + displayName, type.GetExtension());
+		Result<AssetHandle> const created = operations.CreateDataAsset(type.GetAssetType(), AssetBrowsing::JoinPath(m_Folder, name));
+		UI::ReportFailure(created, "Creating the " + displayName);
 		std::optional<AssetMetadata> const metadata = created ? AssetManager::GetMetadata(created.GetValue()) : std::nullopt;
 		if (!metadata)
 		{

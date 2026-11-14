@@ -6,11 +6,13 @@
 #include "Editor/Commands/CompositeCommand.h"
 #include "Editor/Commands/PrefabCommands.h"
 #include "Editor/Commands/SceneCommands.h"
+#include "Editor/Commands/SetDataAssetCommand.h"
 #include "Editor/DefaultScene.h"
 #include "Editor/FileCopies.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshImporter.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -663,6 +665,52 @@ namespace Strada
 		return imported;
 	}
 
+	Result<AssetHandle> EditorOperations::CreateDataAsset(AssetType type, std::string_view path, Json const& fields)
+	{
+		DataAssetType const* const dataType = DataAssetRegistry::Find(type);
+		if (dataType == nullptr)
+		{
+			return MakeError("{} is no data asset type", AssetTypeToString(type));
+		}
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return Error{available.GetError()};
+		}
+		Result<std::string> normalized = NormalizeAssetPath(path);
+		if (!normalized)
+		{
+			return Error{normalized.GetError()};
+		}
+		std::filesystem::path const file = AssetManager::GetAssetDirectory() / FileSystem::PathFromUtf8(normalized.GetValue());
+		if (GetAssetTypeForExtension(FileSystem::PathToUtf8(file.extension())) != type)
+		{
+			return MakeError("{} files end with {}, got '{}'", dataType->GetName(), dataType->GetExtension(), normalized.GetValue());
+		}
+		if (FileSystem::Exists(file))
+		{
+			return MakeError("'{}' already exists", normalized.GetValue());
+		}
+		Ref<DataAsset> const asset = dataType->CreateAsset();
+		if (Result<void> applied = asset->ApplyFields(fields, AssetManager::CreateDeserializationContext()); !applied)
+		{
+			return Error{applied.GetError()};
+		}
+		if (Result<void> created = FileSystem::CreateDirectories(file.parent_path()); !created)
+		{
+			return Error{created.GetError()};
+		}
+		if (Result<void> saved = DataAssetSerializer::SaveToFile(*asset, file); !saved)
+		{
+			return Error{saved.GetError()};
+		}
+		Result<AssetHandle> imported = AssetManager::ImportFile(file);
+		if (!imported)
+		{
+			(void)FileSystem::Remove(file);
+		}
+		return imported;
+	}
+
 	Result<AssetHandle> EditorOperations::CreateVisualScript(std::string_view path, VisualScriptTemplate kind)
 	{
 		if (Result<void> available = RequireAssetDirectory(); !available)
@@ -1073,6 +1121,11 @@ namespace Strada
 	Result<void> EditorOperations::SetMaterialFields(AssetHandle material, Json const& patch, uint64_t mergeKey)
 	{
 		return m_Context.ExecuteCommand(CreateScope<SetMaterialCommand>(material, patch, mergeKey));
+	}
+
+	Result<void> EditorOperations::SetDataAssetFields(AssetHandle asset, Json const& patch, std::string description, uint64_t mergeKey)
+	{
+		return m_Context.ExecuteCommand(CreateScope<SetDataAssetCommand>(asset, patch, std::move(description), mergeKey));
 	}
 
 	Result<void> EditorOperations::EditVisualScript(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description,

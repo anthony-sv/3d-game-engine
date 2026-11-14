@@ -12,6 +12,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AudioClipAsset.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/EnvironmentAsset.h"
 #include "Strada/Asset/FontAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
@@ -1113,6 +1114,13 @@ namespace Strada
 		if (AssetManager::IsMissing(asset))
 		{
 			TextError("The file is missing. Restore it and refresh the assets, or delete the asset.");
+			ImGui::PopID();
+			return;
+		}
+		// Data asset types have values past the built-in enumerators: they go first.
+		if (DataAssetRegistry::Find(metadata->Type) != nullptr)
+		{
+			m_DataAssetEditor.Draw(operations, m_FieldEditor, asset, m_EditSession);
 			ImGui::PopID();
 			return;
 		}

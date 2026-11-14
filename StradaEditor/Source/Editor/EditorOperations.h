@@ -168,12 +168,17 @@ namespace Strada
 		}
 
 		// --- Assets (files of the open project's asset directory; paths are relative to it with forward slashes) ---
-		// File operations are not part of the undo history; material edits are (without marking the scene modified).
+		// File operations are not part of the undo history; material and data asset edits are (without marking the scene
+		// modified).
 
 		// Fails when the folder exists.
 		[[nodiscard]] Result<void> CreateAssetFolder(std::string_view folder);
 		// Writes a material file (.smat) with default parameters plus the given fields and registers it.
 		[[nodiscard]] Result<AssetHandle> CreateMaterial(std::string_view path, Json const& fields = Json::object());
+		// Writes a file of a data asset type (DataAsset.h; path ending in the type's extension) with the default fields plus
+		// the given ones and registers it. The fields are read strictly: an unknown field, a value outside its range or one
+		// the type's Validate refuses writes nothing. Fails for types that are not registered data asset types.
+		[[nodiscard]] Result<AssetHandle> CreateDataAsset(AssetType type, std::string_view path, Json const& fields = Json::object());
 		// Writes a visual script file (.sgraph) starting from a template and registers it.
 		[[nodiscard]] Result<AssetHandle> CreateVisualScript(std::string_view path,
 		                                                     VisualScriptTemplate kind = VisualScriptTemplate::Events);
@@ -206,6 +211,12 @@ namespace Strada
 		// Applies a partial patch to a material file's parameters as an undoable step; edits with the same non-zero merge key
 		// (one inspector drag) merge.
 		[[nodiscard]] Result<void> SetMaterialFields(AssetHandle material, Json const& patch, uint64_t mergeKey = 0);
+		// Applies a partial patch to a data asset file's fields as an undoable step that does not mark the scene modified
+		// (SetDataAssetCommand), named in the Edit menu by the description (empty: "Edit <type name>"); edits of the asset with
+		// the same non-zero merge key merge. Fails without changes for other assets, data assets without a file of their own,
+		// missing and read-only files, and patches the type refuses; no step is recorded when the patch changes nothing.
+		[[nodiscard]] Result<void> SetDataAssetFields(AssetHandle asset, Json const& patch, std::string description = {},
+		                                              uint64_t mergeKey = 0);
 		// Replaces the document of a visual script file as an undoable step that does not mark the scene modified
 		// (SetVisualScriptCommand), shown in the Edit menu with the description: the file is written, then the loaded asset
 		// takes the document object itself, so graphs running while playing take the edit. A file that does not load is
