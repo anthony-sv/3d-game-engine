@@ -607,3 +607,27 @@ TEST_CASE("StructSerialization: arrays hold at most their MaxCount elements, and
 	CHECK_FALSE(schema["Fields"][0].contains("MaxCount"));
 	CHECK(schema["Fields"][1]["VisibleWhen"]["Values"].size() == 16);
 }
+
+TEST_CASE("StructSerialization: values made in C++ are fitted to their arrays' MaxCount, so they save into JSON that reads back")
+{
+	Chord made;
+	made.Steps = {0.0f, 4.0f, 7.0f, 11.0f, 14.0f};
+	made.Names = {"Major", "Seventh"};
+	Chord clamped = made;
+	ClampToFieldRanges<StructTraits<Chord>>(clamped);
+	CHECK(clamped.Steps == std::vector<float>{0.0f, 4.0f, 7.0f});
+	CHECK(clamped.Names == std::vector<std::string>{"Major"});
+
+	// Fitting names the field once, though it both dropped elements and moved one into its range.
+	made.Steps = {0.0f, 13.0f, 7.0f, 11.0f};
+	CHECK(FitToFieldRanges<StructTraits<Chord>>(made) == std::vector<std::string_view>{"Steps", "Names"});
+	CHECK(made.Steps == std::vector<float>{0.0f, 12.0f, 7.0f});
+	CHECK(made.Names == std::vector<std::string>{"Major"});
+	Chord reloaded;
+	Result<void> const result =
+		DeserializeFields<StructTraits<Chord>>(SerializeFields<StructTraits<Chord>>(made), reloaded, DeserializationContext{}, "settings");
+	REQUIRE_MESSAGE(result.IsOk(), (result ? std::string() : result.GetError()));
+	CHECK(reloaded.Steps == made.Steps);
+	CHECK(reloaded.Names == made.Names);
+	CHECK(FitToFieldRanges<StructTraits<Chord>>(made).empty());
+}

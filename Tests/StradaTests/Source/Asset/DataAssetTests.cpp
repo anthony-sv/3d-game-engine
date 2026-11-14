@@ -295,6 +295,40 @@ TEST_CASE("DataAsset: assets keep their type after it is unregistered")
 	REQUIRE(asset != nullptr);
 	CHECK(asset->GetDataAssetType().GetName() == "TestData");
 	CHECK(asset->SerializeFields().at("Size") == 1.0);
+	// With no value: the type registered next takes the value, and the object is not one of its.
+	CHECK(asset->GetAssetType() == AssetType::None);
+	TestDataTypeScope const next;
+	CHECK(asset->GetAssetType() != next.GetType());
+}
+
+TEST_CASE("DataAsset: a type is not unregistered while the asset manager holds an asset of it")
+{
+	Testing::AssetManagerScope const assets;
+	Result<AssetType> const registered = DataAssetRegistry::Register(MakeOtherSpecification("Other", ".sother"));
+	REQUIRE(registered.IsOk());
+	AssetType const type = registered.GetValue();
+	Ref<DataAsset> const kept = DataAssetRegistry::Find(type)->CreateAsset();
+	AssetHandle const handle = AssetManager::AddMemoryAsset(kept, "Kept");
+
+	// A memory asset needs no asset directory.
+	REQUIRE_FALSE(AssetManager::HasAssetDirectory());
+	CHECK(DataAssetRegistry::Unregister(type).GetError() ==
+	      "data asset type Other cannot be unregistered while the asset manager holds assets of it");
+	CHECK(DataAssetRegistry::Find(type) != nullptr);
+	CHECK(kept->GetAssetType() == type);
+
+	AssetManager::RemoveMemoryAsset(handle);
+	REQUIRE(DataAssetRegistry::Unregister(type).IsOk());
+	CHECK(kept->GetAssetType() == AssetType::None);
+	CHECK(kept->GetDataAssetType().GetName() == "Other");
+
+	// The next type takes the value; the object kept, added to the asset manager again, does not pass as one of its.
+	TestDataTypeScope const next;
+	CHECK(next.GetType() == type);
+	AssetHandle const again = AssetManager::AddMemoryAsset(kept, "Again");
+	CHECK(AssetManager::GetAsset<TypedDataAsset<TestData>>(again) == nullptr);
+	CHECK(AssetManager::TryGetAsset<TypedDataAsset<TestData>>(again).IsError());
+	AssetManager::RemoveMemoryAsset(again);
 }
 
 TEST_CASE("DataAsset: registrations that break a rule register nothing")
@@ -353,6 +387,14 @@ TEST_CASE("DataAsset: registrations that break a rule register nothing")
 		{"a missing migration", MakeOtherSpecification("Other", ".sother"), "data asset type Other: a migration is missing"},
 		{"a default value Validate refuses", MakeOtherSpecification("Other", ".sother"),
 	     "data asset type Other: the default value cannot be an asset's: Other: never valid"},
+		{"a built-in type's name in capitals", MakeOtherSpecification("MATERIAL", ".sother"),
+	     "'MATERIAL' is the name of a built-in asset type (Material)"},
+		{"a built-in type's name in other letter case", MakeOtherSpecification("Visualscript", ".sother"),
+	     "'Visualscript' is the name of a built-in asset type (VisualScript)"},
+		{"a command parameter that is the generated commands' fields", MakeOtherSpecification("Fields", ".sother"),
+	     "data asset type Fields: its command parameter \"fields\" is a member of the generated commands"},
+		{"a command parameter that is create's path", MakeOtherSpecification("Path", ".sother"),
+	     "data asset type Path: its command parameter \"path\" is a member of the generated commands"},
 	};
 	cases[19].Specification.Description = {};
 	cases[20].Specification.FormatVersion = 0;

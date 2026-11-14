@@ -306,17 +306,20 @@ namespace Strada
 
 		// Registers TData as a data asset type and returns its AssetType, the lowest value no registered type has. Fails,
 		// registering nothing, when the name, the extension, the version or the migrations break DataAssetTypeSpecification's
-		// rules, when the name, the extension, the command domain or the command parameter repeat a built-in or registered
-		// type's, when a value-initialized TData does not read back from its fields or fails Validate, when TData or MaxTypes
-		// types are registered already, or while the asset manager has an asset directory open. The editor's commands of a
-		// type exist only when it was registered before RegisterEditorCommands ran.
+		// rules, when the name (in any letter case) or the extension repeat a built-in or registered type's, when the command
+		// domain or the command parameter repeat a registered type's, when the command parameter is a member of the generated
+		// commands ("fields", "path"), when a value-initialized TData does not read back from its fields or fails Validate,
+		// when TData or MaxTypes types are registered already, or while the asset manager has an asset directory open. The
+		// editor's commands of a type exist only when it was registered before RegisterEditorCommands ran.
 		template<ReflectedStruct TData>
 		[[nodiscard]] static Result<AssetType> Register(DataAssetTypeSpecification<TData> const& specification)
 		{
 			return Add(CreateRef<TypedDataAssetType<TData>>(specification), false);
 		}
-		// Forgets a type registered by Register. Fails for the engine's types, for values no type has, and while the asset
-		// manager has an asset directory open. Assets of the type that are still held keep it alive, but no lookup finds it.
+		// Forgets a type registered by Register; a later registration may take its value. Fails for the engine's types, for
+		// values no type has, while the asset manager has an asset directory open, and while it holds an asset of the type
+		// (a memory asset needs no directory). Assets of the type still held elsewhere keep it alive, but no lookup finds it,
+		// and their type's value becomes AssetType::None, so that none passes as an asset of the type that takes the value.
 		[[nodiscard]] static Result<void> Unregister(AssetType type);
 
 		// Null when the value is no registered data asset type (built-in types included).

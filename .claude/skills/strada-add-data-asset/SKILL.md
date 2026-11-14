@@ -56,8 +56,15 @@ inline DataAssetTypeSpecification<Curve> const CurveAssetSpecification = {
 
 - The name gives the command domain in kebab case and the parameter in lower camel case: `Curve` gives `curve.*` and
   `curve`, `PhysicsMaterial` gives `physics-material.*` and `physicsMaterial`, `UIStyle` gives `ui-style.*` and
-  `uiStyle`. A name whose domain is a built-in domain's (`Graph`, `Asset`) makes `RegisterEditorCommands` fail: the
-  editor tests catch it. Choose the name for good; files, asset registries and scripts carry it.
+  `uiStyle`. The registry refuses a name that is a built-in type's in any letter case (`MATERIAL`) and a parameter that
+  is a member of the generated commands (`fields`, `path`: no type named `Fields` or `Path`). The engine does not know
+  the editor's command domains: a type whose domain is a built-in domain adds its three commands to that domain, and
+  `RegisterEditorCommands` fails only when the domain already has a `create`, `get` or `set` (`Graph` gives
+  `graph.create`, which exists; `Viewport` would quietly add `viewport.create`, `get` and `set` beside the built-in
+  commands). Never name a type after a built-in domain (`Docs/Automation.md`'s Commands sections: `asset`,
+  `component`, `editor`, `entity`, `graph`, `input`, `inspector`, `log`, `material`, `play`, `prefab`, `project`,
+  `scene`, `script`, `start`, `test`, `viewport`). Choose the name for good; files, asset registries and scripts carry
+  it.
 - Registration fails loudly at startup (an assert) for a broken specification; the registry's tests list every rule.
 
 ## 3. Formats and migrations
@@ -114,8 +121,10 @@ inline DataAssetTypeSpecification<Curve> const CurveAssetSpecification = {
 - The commands exist as soon as the type is registered. Add the type's three rows to the data assets section of
   `Docs/Automation.md` (`EditorCommands: every command is documented in Docs/Automation.md` fails otherwise), naming its
   fields' meaning where the schema's descriptions are not enough.
-- Pin the type's MCP tools in `Tests/StradaToolTests/Source/EditorIntegrationTests.cs`: add `<domain>_create`,
-  `<domain>_get` and `<domain>_set` (`curve_create`, ...) to the `Assert.Contains` list of `tools/list`.
+- Pin the type's MCP tools in `Tests/StradaToolTests/Source/EditorIntegrationTests.cs`: add its three tools to the
+  `Assert.Contains` list of `tools/list`. A tool's name is the command's with `.` and `-` replaced by `_`
+  (`StradaTool/Source/Mcp/ToolCatalog.cs`): `curve_create`, `curve_get`, `curve_set`; `physics_material_create`, not
+  `physics-material_create`.
 - `AutomationFuzzTests` fuzzes every registered type's commands with seeds, parameters and checks drawn from the registry:
   nothing to add. A new command shifts the fuzz's random sequence; when a chance-based check of another command then
   fails, steady that command's generator, never the seeds.

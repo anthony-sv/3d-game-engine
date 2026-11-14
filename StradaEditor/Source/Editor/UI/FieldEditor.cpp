@@ -352,6 +352,35 @@ namespace Strada
 			return false;
 		}
 
+		// The fold states of element rows after a list edit that ApplyArrayEdit applied to an array of as many elements: each
+		// state goes where the edit moves its element, and an element the edit puts in place (inserted, or a copy) is open.
+		void ApplyArrayEditToFolds(std::vector<bool>& open, FieldArrayEdit const& edit)
+		{
+			auto const at = [&open](size_t index)
+			{
+				return open.begin() + static_cast<std::ptrdiff_t>(index);
+			};
+			switch (edit.Kind)
+			{
+				case FieldArrayEditKind::Insert:
+					open.insert(at(std::min<size_t>(edit.Index, open.size())), true);
+					return;
+				case FieldArrayEditKind::Remove:
+					open.erase(at(edit.Index));
+					return;
+				case FieldArrayEditKind::Move:
+				{
+					bool const moved = open[edit.Index];
+					open.erase(at(edit.Index));
+					open.insert(at(edit.Target), moved);
+					return;
+				}
+				case FieldArrayEditKind::Duplicate:
+					open.insert(at(static_cast<size_t>(edit.Index) + 1), true);
+					return;
+			}
+		}
+
 		// The widest name cell of the rows of these fields (and of the nested structs' rows, open or not), laid out like
 		// DrawRows lays them out: the indentation, a switch's check box, the tree node's arrow and the name.
 		float MeasureNames(std::span<FieldDescriptor const> fields, int depth)
@@ -1312,9 +1341,11 @@ namespace Strada
 		FieldDescriptor const element = MakeElementDescriptor(field);
 		FieldStructDrawer const* const structDrawer = FindStructDrawer(GetStructName(element));
 		std::optional<FieldArrayEdit> edit;
-		// The element rows of this array, in this table: an element an edit put in place opens when it shows.
+		// The element rows of this array, in this table, take the fold states a list edit of the last frame left when the
+		// array shows as that edit leaves it.
 		ImGuiID const scope = ImGui::GetID("##elements");
-		std::optional<uint32_t> opened;
+		bool const restoreFolds = m_ElementFolds.Scope == scope && m_ElementFolds.Open.size() == count && m_ElementFolds.Array == value;
+		std::vector<bool> rowsOpen(count, false);
 		// The tooltip of an item that adds elements, enabled or not.
 		auto const explainAdding = [&field, full](char const* action)
 		{
@@ -1332,12 +1363,12 @@ namespace Strada
 			ImGui::TableSetColumnIndex(0);
 			Indent(depth);
 			std::string const title = DescribeElement(field, elementValue, i);
-			if (m_OpenElementScope == scope && m_OpenElement == index)
+			if (restoreFolds)
 			{
-				ImGui::SetNextItemOpen(true);
-				m_OpenElementScope = 0;
+				ImGui::SetNextItemOpen(m_ElementFolds.Open[i]);
 			}
 			bool const open = ImGui::TreeNodeEx("##element", ImGuiTreeNodeFlags_NoTreePushOnOpen, "%s", title.c_str());
+			rowsOpen[i] = open;
 			ImGui::OpenPopupOnItemClick("##elementMenu", ImGuiPopupFlags_MouseButtonRight);
 			ImGui::TableSetColumnIndex(1);
 			float const buttonWidth = ImGui::GetFrameHeight() * 1.5f;
@@ -1348,31 +1379,26 @@ namespace Strada
 			}
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
 			{
-				ImGui::SetTooltip("Move, duplicate, insert or remove %s", title.c_str());
+				ImGui::SetTooltip("Move, duplicate, insert above or remove this element");
 			}
 			if (ImGui::BeginPopup("##elementMenu"))
 			{
-				// An open element stays open where it moves.
 				if (ImGui::MenuItem("Move Up", nullptr, false, i > 0))
 				{
 					edit = FieldArrayEdit{FieldArrayEditKind::Move, index, index - 1};
-					opened = open ? std::optional<uint32_t>(index - 1) : std::nullopt;
 				}
 				if (ImGui::MenuItem("Move Down", nullptr, false, i + 1 < count))
 				{
 					edit = FieldArrayEdit{FieldArrayEditKind::Move, index, index + 1};
-					opened = open ? std::optional<uint32_t>(index + 1) : std::nullopt;
 				}
 				if (ImGui::MenuItem("Duplicate", nullptr, false, !full))
 				{
 					edit = FieldArrayEdit{FieldArrayEditKind::Duplicate, index, 0};
-					opened = index + 1;
 				}
 				explainAdding("Puts a copy of the element after it.");
 				if (ImGui::MenuItem("Insert Above", nullptr, false, !full))
 				{
 					edit = FieldArrayEdit{FieldArrayEditKind::Insert, index, 0};
-					opened = index;
 				}
 				explainAdding("Puts a new element in its place, moving it and those after it down.");
 				ImGui::Separator();
@@ -1413,29 +1439,30 @@ namespace Strada
 		if (ImGui::Button("Add Element", ImVec2(-FLT_MIN, 0.0f)))
 		{
 			edit = FieldArrayEdit{FieldArrayEditKind::Insert, FieldArrayEdit::End, 0};
-			opened = static_cast<uint32_t>(count);
 		}
 		ImGui::EndDisabled();
 		explainAdding("Adds an element after the last.");
-		if (m_OpenElementScope == scope)
+		if (m_ElementFolds.Scope == scope)
 		{
-			// The element to open is not there (the edit was refused, or another changed the array first).
-			m_OpenElementScope = 0;
+			// Set this frame, or left by an edit that did not happen as it was made.
+			m_ElementFolds = {};
 		}
 
 		if (edit && !change)
 		{
-			if (opened)
-			{
-				m_OpenElementScope = scope;
-				m_OpenElement = *opened;
-			}
 			FieldChange arrayChange;
 			arrayChange.Path = path;
 			arrayChange.ArrayEdit = edit;
 			if (edit->Kind == FieldArrayEditKind::Insert)
 			{
 				arrayChange.Value = element.Default;
+			}
+			// The rows' fold states follow the elements, for when the array shows as the edit leaves the shown elements.
+			Json edited = value;
+			if (ApplyArrayEdit(edited, *edit, arrayChange.Value))
+			{
+				ApplyArrayEditToFolds(rowsOpen, *edit);
+				m_ElementFolds = ElementFolds{scope, std::move(edited), std::move(rowsOpen)};
 			}
 			change = std::move(arrayChange);
 		}

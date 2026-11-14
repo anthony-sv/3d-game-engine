@@ -548,6 +548,60 @@ TEST_CASE("FieldEditor: the menu of an element moves, duplicates, inserts and re
 	CHECK(names() == std::vector<std::string>{"A", "B", ""});
 }
 
+TEST_CASE("FieldEditor: element rows keep their fold states where list edits move their elements")
+{
+	CircuitFixture fixture;
+	FieldTableDriver const& driver = fixture.Driver;
+	fixture.Values["Tracks"] = Json::array({MakeTrack("A", "Road", 0.5), MakeTrack("B", "Oval", 1.5), MakeTrack("C", "Road", 1.0)});
+	for (int frame = 0; frame < 3; frame++)
+	{
+		fixture.Gui.Frame(fixture.Draw);
+	}
+	ImGuiID const tracks = fixture.GetTracksId();
+	// The rows' fold states as ImGui keeps them (by the row's ID, which is made from the element's index).
+	auto const folds = [&fixture, &driver, tracks]
+	{
+		fixture.Gui.Frame(fixture.Draw);
+		fixture.Changes.clear();
+		ImGuiWindow const* window = ImGui::FindWindowByName("Circuit");
+		REQUIRE(window != nullptr);
+		std::vector<bool> open;
+		for (int index = 0; index < static_cast<int>(fixture.Values["Tracks"].size()); index++)
+		{
+			open.push_back(window->StateStorage.GetInt(ImHashStr("##element", 0, driver.GetElementId(tracks, index)), 0) != 0);
+		}
+		return open;
+	};
+	auto const names = [&fixture]
+	{
+		std::vector<std::string> result;
+		for (Json const& track : fixture.Values["Tracks"])
+		{
+			result.push_back(track["Name"].get<std::string>());
+		}
+		return result;
+	};
+
+	// B open moves up: it stays open, and A, moved down into its index, stays folded.
+	driver.OpenElement(tracks, 1);
+	CHECK(folds() == std::vector<bool>{false, true, false});
+	driver.PickFromMenu(tracks, 1, "Move Up");
+	CHECK(names() == std::vector<std::string>{"B", "A", "C"});
+	CHECK(folds() == std::vector<bool>{true, false, false});
+
+	// Removing the open B: A and C move up folded.
+	driver.PickFromMenu(tracks, 0, "Remove");
+	CHECK(names() == std::vector<std::string>{"A", "C"});
+	CHECK(folds() == std::vector<bool>{false, false});
+
+	// C open, then an element inserted above A: the new element opens, A stays folded and C stays open.
+	driver.OpenElement(tracks, 1);
+	CHECK(folds() == std::vector<bool>{false, true});
+	driver.PickFromMenu(tracks, 0, "Insert Above");
+	CHECK(names() == std::vector<std::string>{"", "A", "C"});
+	CHECK(folds() == std::vector<bool>{true, false, true});
+}
+
 TEST_CASE("FieldEditor: a struct drawer draws its struct wherever it appears, and its edit carries its name and merge key")
 {
 	CircuitFixture fixture;
@@ -818,7 +872,7 @@ TEST_CASE("ProjectSettingsPanel: edits through the panel write the project file 
 	CHECK(fixture.Open);
 }
 
-TEST_CASE("ProjectSettingsPanel: removing a layer renumbers the ignored pairs, and a layer added is named and stops at 16")
+TEST_CASE("ProjectSettingsPanel: removing a layer keeps the ignored pairs on their indices, and a layer added is named and stops at 16")
 {
 	ProjectSettingsFixture fixture;
 	FieldTableDriver const& driver = fixture.Driver;
@@ -836,15 +890,16 @@ TEST_CASE("ProjectSettingsPanel: removing a layer renumbers the ignored pairs, a
 		return fixture.Context.GetProject()->GetSettings().Physics.Layers;
 	};
 
-	// Removing Player (1): its pair goes, and Enemy and Pickup move down to 1 and 2.
+	// Removing Player (1): bodies hold layer indices, so the pairs keep theirs, as a body on index 2 keeps its index; only
+	// the pairs naming index 3, which the shorter list lacks, go. Nothing gains an ignored pair it did not have.
 	driver.Click(ImHashStr("-", 0, GetIntId(1, fixture.GetLayersId())), driver.GetButtonX());
 	CHECK(layerNames() == std::vector<std::string>{"Default", "Enemy", "Pickup"});
-	CHECK(pairs() == std::vector<PhysicsLayerPair>{{0, 2}, {1, 2}});
+	CHECK(pairs() == std::vector<PhysicsLayerPair>{{1, 2}});
 
 	// "+" adds a layer with a name of its own (layer names are unique and not empty); the pairs stay.
 	driver.Click(ImHashStr("+", 0, fixture.GetLayersId()), driver.GetValueStartX());
 	CHECK(layerNames() == std::vector<std::string>{"Default", "Enemy", "Pickup", "Layer 3"});
-	CHECK(pairs() == std::vector<PhysicsLayerPair>{{0, 2}, {1, 2}});
+	CHECK(pairs() == std::vector<PhysicsLayerPair>{{1, 2}});
 
 	// At 16 layers "+" is disabled.
 	Json sixteen = Json::array();

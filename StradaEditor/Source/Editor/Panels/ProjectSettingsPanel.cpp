@@ -48,54 +48,6 @@ namespace Strada
 				}
 			}
 		}
-
-		// The ignored pairs after a list edit of the layers: pairs naming a removed layer are dropped, and the others name
-		// their layers where the edit put them.
-		std::vector<PhysicsLayerPair> RenumberPairs(std::vector<PhysicsLayerPair> pairs, FieldArrayEdit const& edit, size_t layerCount)
-		{
-			if (edit.Kind == FieldArrayEditKind::Remove)
-			{
-				std::erase_if(pairs,
-				              [&edit](PhysicsLayerPair const& pair)
-				              {
-								  return pair.First == edit.Index || pair.Second == edit.Index;
-							  });
-			}
-			auto const renumber = [&edit, layerCount](uint32_t layer) -> uint32_t
-			{
-				switch (edit.Kind)
-				{
-					case FieldArrayEditKind::Insert:
-						// An insertion past the end appends, after every layer.
-						return edit.Index < layerCount && layer >= edit.Index ? layer + 1 : layer;
-					case FieldArrayEditKind::Duplicate:
-						return layer > edit.Index ? layer + 1 : layer;
-					case FieldArrayEditKind::Remove:
-						return layer > edit.Index ? layer - 1 : layer;
-					case FieldArrayEditKind::Move:
-						if (layer == edit.Index)
-						{
-							return edit.Target;
-						}
-						if (edit.Index < edit.Target && layer > edit.Index && layer <= edit.Target)
-						{
-							return layer - 1;
-						}
-						if (edit.Target < edit.Index && layer >= edit.Target && layer < edit.Index)
-						{
-							return layer + 1;
-						}
-						return layer;
-				}
-				return layer;
-			};
-			for (PhysicsLayerPair& pair : pairs)
-			{
-				pair.First = renumber(pair.First);
-				pair.Second = renumber(pair.Second);
-			}
-			return pairs;
-		}
 	}
 
 	ProjectSettingsPanel::ProjectSettingsPanel()
@@ -162,11 +114,18 @@ namespace Strada
 				edit.Value = MakeLayerName(physics.Layers);
 			}
 			Json patch = edit.MakePatch(values);
-			// The ignored collisions name layers by index: they follow the layers a list edit moves, and go with a removed one.
-			if (layerListEdit && patch.contains("Physics"))
+			// Layers are indices, which rigid bodies and character controllers in every scene hold as the ignored pairs do: a
+			// removed layer drops only the pairs naming an index the shorter list no longer has, and nothing is renumbered.
+			if (layerListEdit && patch.contains("Physics") && patch["Physics"].contains("Layers"))
 			{
-				patch["Physics"]["IgnoredCollisions"] =
-					SerializePairs(RenumberPairs(physics.IgnoredCollisions, *edit.ArrayEdit, physics.Layers.size()));
+				size_t const layerCount = patch["Physics"]["Layers"].size();
+				std::vector<PhysicsLayerPair> pairs = physics.IgnoredCollisions;
+				std::erase_if(pairs,
+				              [layerCount](PhysicsLayerPair const& pair)
+				              {
+								  return pair.First >= layerCount || pair.Second >= layerCount;
+							  });
+				patch["Physics"]["IgnoredCollisions"] = SerializePairs(pairs);
 			}
 			Apply(operations, std::move(patch));
 		}

@@ -9,9 +9,10 @@ namespace Strada
 {
 	// Edits the open project's settings (name, start scene, script module, game window, physics timestep and layers),
 	// generated from the settings' field tables, plus the layer collision matrix. A layer added gets a name of its own, at
-	// most MaxPhysicsLayers are added, and the ignored pairs follow the layers when one is removed. Changes apply at once and
-	// are written to the project file when the widget interaction ends. Project settings are not part of the scene's undo
-	// history. Main thread only.
+	// most MaxPhysicsLayers are added, and removing one drops the ignored pairs naming an index the shorter list lacks
+	// (layers are indices, as bodies hold them: nothing is renumbered). Changes apply at once and are written to the
+	// project file when the widget interaction ends. Project settings are not part of the scene's undo history. Main thread
+	// only.
 	class ProjectSettingsPanel
 	{
 	public:

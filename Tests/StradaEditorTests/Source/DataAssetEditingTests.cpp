@@ -100,7 +100,8 @@ TEST_CASE("EditorOperations: data asset files hold the default fields plus the g
 		fixture.Create("Data/Crate.stestdata", Json::object({{"Size", 2.5}, {"Entries", Json::array({{{"Name", "A"}}})}}));
 	CHECK(AssetManager::FindByPath("Data/Crate.stestdata") == crate);
 	CHECK(AssetManager::GetAssetType(crate) == fixture.Type.GetType());
-	TestData const& data = DataAssetFixture::Get(crate)->GetData();
+	Ref<TypedDataAsset<TestData>> const loaded = DataAssetFixture::Get(crate);
+	TestData const& data = loaded->GetData();
 	CHECK(data.Size == doctest::Approx(2.5f));
 	CHECK(data.Shape == TestDataShape::Box);
 	REQUIRE(data.Entries.size() == 1);

@@ -6,8 +6,10 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -21,8 +23,8 @@ namespace
 		Json Document;
 	};
 
-	// The FeatureTest project's files of the type's extension: together they use every field of every type the engine
-	// registers.
+	// The FeatureTest project's files of the type's extension: together they set every field of every type the engine
+	// registers away from its default (FindFieldsLeftAtDefault checks it).
 	std::vector<Seed> FindFeatureTestSeeds(DataAssetType const& type)
 	{
 		std::vector<Seed> seeds;
@@ -63,6 +65,36 @@ namespace
 		older["TestData"]["Radius"] = 2.5;
 		return {{"a TestData document", std::move(current)}, {"a version-1 TestData document", std::move(older)}};
 	}
+
+	// The names of the type's fields, in table order, that no seed sets away from the field's default, as the seeds load
+	// (migrated to the current version): the fuzz test damages only what its seeds use.
+	std::vector<std::string_view> FindFieldsLeftAtDefault(DataAssetType const& type, std::vector<Seed> const& seeds,
+	                                                      DeserializationContext const& context)
+	{
+		std::vector<Json> loaded;
+		for (Seed const& seed : seeds)
+		{
+			Result<Ref<DataAsset>> asset = DataAssetSerializer::Deserialize(type, seed.Document, context);
+			REQUIRE_MESSAGE(asset.IsOk(), (asset ? std::string() : asset.GetError()));
+			loaded.push_back(asset.GetValue()->SerializeFields());
+		}
+		Json const& defaults = type.GetDefaultFields();
+		std::vector<std::string_view> left;
+		for (FieldDescriptor const& field : type.GetFields())
+		{
+			std::string const name(field.Name);
+			bool const set = std::ranges::any_of(loaded,
+			                                     [&defaults, &name](Json const& fields)
+			                                     {
+													 return fields.at(name) != defaults.at(name);
+												 });
+			if (!set)
+			{
+				left.push_back(field.Name);
+			}
+		}
+		return left;
+	}
 }
 
 TEST_CASE("DataAssetSerializer: damaged documents of every registered type are refused, or load and save again")
@@ -87,7 +119,20 @@ TEST_CASE("DataAssetSerializer: damaged documents of every registered type are r
 			{
 				seeds.push_back(std::move(testSeed));
 			}
+			// The check below sees a seed that leaves fields at their defaults.
+			Json empty = MakeTestDataSeeds().front().Document;
+			empty["TestData"] = Json::object();
+			CHECK(FindFieldsLeftAtDefault(*type, {{"an empty TestData document", empty}}, context) ==
+			      std::vector<std::string_view>{"Shape", "Size", "Texture", "Next", "Entries"});
 		}
+		// Together the seeds set every field away from its default, so that every field is damaged.
+		std::vector<std::string_view> const left = FindFieldsLeftAtDefault(*type, seeds, context);
+		std::string leftNames;
+		for (std::string_view const name : left)
+		{
+			leftNames += fmt::format("{}{}", leftNames.empty() ? "" : ", ", name);
+		}
+		CHECK_MESSAGE(left.empty(), fmt::format("no seed of {} sets {} away from its default", type->GetName(), leftNames));
 
 		for (Seed const& original : seeds)
 		{

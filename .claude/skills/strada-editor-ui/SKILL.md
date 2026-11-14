@@ -26,9 +26,10 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   `FieldPathStep { Field, Element }` and `FieldChange::ArrayEdit` an insert, remove, move or duplicate by index, which
   `MakePatch(values)` applies to each object's own array (an index it lacks leaves it as it is). Arrays of structs fold
   into a row per element with a menu (Move Up, Move Down, Duplicate, Insert Above, Remove) over the element's own rows,
-  and buttons that add stop at the field's `MaxCount`. A panel that fixes up other data after a list edit (the Project
-  Settings layers renumber the ignored pairs) reads `ArrayEdit`, never the size of the new array. Values drawn without a
-  row (`DrawInlineValue`) still report whole arrays.
+  and buttons that add stop at the field's `MaxCount`. A panel that fixes up other data after a list edit never
+  renumbers what other files also hold by index: the Project Settings layers are indices that rigid bodies in every
+  scene keep, so removing one only drops the ignored pairs naming an index the shorter list lacks. Values drawn without
+  a row (`DrawInlineValue`) still report whole arrays.
 - A struct that needs a widget of its own gets a struct drawer (`GetFieldStructDrawers` in
   `Editor/UI/FieldStructDrawers.cpp`, or `FieldEditor::SetStructDrawer` for one editor), drawn wherever the struct
   appears; its `FieldStructEdit` brings a description and merge key, which panels that make undo steps of field changes

@@ -311,10 +311,18 @@ namespace Strada
 		bool m_PlaceFilterCursor = false;
 		std::unordered_map<uint32_t, EulerState> m_EulerStates;
 		std::unordered_map<std::string, FieldStructDrawer> m_StructDrawers;
-		// The element an array edit put in place (DrawStructArrayElements' scope and the element's index): it opens when it
-		// shows, as an open element stays open where it moves. 0 for none.
-		uint32_t m_OpenElementScope = 0;
-		uint32_t m_OpenElement = 0;
+		// The fold states of the element rows of one array after a list edit made in its rows (DrawStructArrayElements' scope,
+		// 0 for none): each element's state moved where the edit moved the element, and an element the edit put in place is
+		// open. They are set the next time the array shows exactly as the edit leaves it (Array, the shown elements), then
+		// dropped, as they are when it shows otherwise (the edit was refused, or another change came first): ImGui keeps the
+		// rows' states by index, which would leave a state behind at the index an element left.
+		struct ElementFolds
+		{
+			uint32_t Scope = 0;
+			Json Array;
+			std::vector<bool> Open;
+		};
+		ElementFolds m_ElementFolds;
 		int m_LastPruneFrame = -1;
 	};
 }

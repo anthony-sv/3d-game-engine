@@ -407,8 +407,9 @@ browser, the inspector, the automation commands or the fuzz tests. Materials kee
 The struct's field table (`StructTraits<TData>`, §7.2's field hints: ranges, `Doc`, `References`, `VisibleWhen`,
 `EnabledBy`, `HiddenInEditors`, nested structs, arrays of structs and their `MaxCount`) is the rest: the format, the
 validation of every number, the editor and the automation schema. Registration fails, registering nothing, when a rule
-above is broken, when the name, the extension, the command domain or the command parameter repeats a built-in or
-registered type's (names compared in any letter case), when a value-initialized `TData` does not read back from its
+above is broken, when the name or the extension repeats a built-in or registered type's (names compared in any letter
+case), when the command domain or the command parameter repeats a registered type's, when the command parameter is a
+member of the generated commands (`fields`, `path`), when a value-initialized `TData` does not read back from its
 fields or fails `Validate`, when `TData` or `DataAssetRegistry::MaxTypes` (128) types are registered already, or while
 the asset manager has an asset directory open.
 
@@ -440,9 +441,11 @@ asset includes. An enum the struct shares with a higher module moves down with i
 `Renderer/SceneRendererSettings.h`) is a project setting or a struct of its own that the module maps, not a data asset
 of that module's struct. Tests register types of their own with `DataAssetRegistry::Register` (with or without an asset
 manager, but not while it has an asset directory open, since the directory's files were scanned with the types it
-knew), from the next free value, and unregister them (`Unregister`, refused for the engine's types and while a directory
-is open) when they end; `Testing::TestDataTypeScope` does both for the worked example's type. A `DataAssetType` is shared
-by the registry and the assets of its type, so an asset that outlives its type's registration keeps a valid type; the
+knew), from the next free value, and unregister them (`Unregister`, refused for the engine's types, while a directory
+is open and while the asset manager holds an asset of the type, a memory asset included) when they end;
+`Testing::TestDataTypeScope` does both for the worked example's type. A `DataAssetType` is shared by the registry and
+the assets of its type, so an asset that outlives its type's registration keeps a valid type, whose value becomes
+`AssetType::None`: a type registered later may take the value, and no asset of the old type passes as one of its. The
 `Asset.h` lookups stop finding an unregistered type at once.
 
 **What comes from the registration.**
@@ -661,7 +664,7 @@ Result<AssetType> const type = DataAssetRegistry::Register<TestData>({
 ```
 
 That registration gives the extension `.stestdata`, the asset type `TestData` (the value after the engine's types), the
-commands `test-data.create`, `test-data.get` and `test-data.set` with the parameter `testData`, a New TestData item,
+commands `test-data.create`, `test-data.get` and `test-data.set` with the parameter `testData`, a New Test Data item,
 the inspector's field table (the entries as an array of structs, at most 16), and a place in the fuzz test. A file:
 
 ```json
@@ -733,7 +736,8 @@ same struct has one of at most 16 values, like a camera's orthographic size), a 
 of the table, not switched itself, that turns the field on; drawn by the inspector as a check box in front of the field)
 and, for arrays, the most elements they hold (`MaxCount`, enforced whenever JSON is read, like ranges; the inspector's
 add buttons stop there); the conditions and switches are checked at compile time. Values that skip the JSON checks
-(scripts) can be brought into range with `ClampToFieldRanges`. Field tables of other structs (renderer settings,
+(scripts, values made in C++) can be brought into range, and their arrays down to their `MaxCount`, with
+`ClampToFieldRanges` (`FitToFieldRanges` for imported data, which also replaces NaN and says what it changed). Field tables of other structs (renderer settings,
 materials, data assets) use the same hints. Each component
 also names its category (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`). The registry provides
 type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for
@@ -1916,8 +1920,10 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   `Element <index>` otherwise), starting folded, with a menu button (Move Up, Move Down, Duplicate, Insert Above, Remove;
   also on a right click of the row) and, unfolded, the element's fields as nested rows, where visibility conditions and
   switches are those of the element's own struct; Add Element after the last appends a default element (each field's
-  default). An element an edit puts in place (added, inserted, duplicated, or moved while open) opens. At the field's
-  `MaxCount` the buttons that add are disabled and say why. Every change is one undo step (a drag inside an element, one
+  default). A list edit carries each element row's fold state to where it moves the element (ImGui keeps the states by
+  index, which would leave them behind), and an element it puts in place (added, inserted, duplicated) opens; rows
+  inside an element (a nested struct, an array of the element) keep their states by index. At the field's `MaxCount`
+  the buttons that add are disabled and say why. Every change is one undo step (a drag inside an element, one
   interaction, merges as everywhere) that patches by index, so editing several selected objects (entities whose
   components hold arrays, splines among them) keeps each object's own elements: `FieldChange::Path` is a list of
   `FieldPathStep { Field, Element }` (the field names from the edited object down to the changed value, each with the
@@ -1935,8 +1941,10 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   report an array's whole new value. Automation sets an array field whole (`component.set`, `<domain>.set`): what the
   editor's index edits produce, given as the array they leave. The Project Settings panel's layer list is such an array
   (it adds no layer past 16, the most a project takes): a layer it adds is named `Layer <n>` (layer names are unique and
-  not empty), removing a layer renumbers the ignored collision pairs (pairs naming it are dropped, those above move
-  down), and the collision matrix stays as it is.
+  not empty), and removing a layer drops the ignored collision pairs that name an index the shorter list lacks. Layers
+  are indices, which rigid bodies and character controllers in every scene hold as the pairs do, so nothing is
+  renumbered: removing a layer before the last moves the names after it down onto the bodies and pairs of the lower
+  indices. The collision matrix stays as it is.
 - Struct drawers: a reflected struct type (`StructTraits<T>::Name`) may have a drawer of its own, used wherever the
   struct appears (a field, a nested struct, an array element) in every `FieldEditor` (the inspector, Project Settings,
   Scene Settings, the Build Game dialog, the visual script literal editor), in the value column of the struct's row (an

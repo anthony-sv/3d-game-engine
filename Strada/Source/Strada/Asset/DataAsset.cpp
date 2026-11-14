@@ -5,6 +5,7 @@
 #include "Strada/Core/FileSystem.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <limits>
 
@@ -15,6 +16,9 @@ namespace Strada
 		constexpr size_t MaxNameLength = 64;
 		constexpr size_t MinExtensionLetters = 2;
 		constexpr size_t MaxExtensionLetters = 16;
+		// Members of the generated commands besides the type's parameter: `<domain>.create { path, fields }`, `get` and `set`
+		// with `fields` (EditorCommands.cpp). A type whose parameter were one of them would lose it to that member.
+		constexpr std::array<std::string_view, 2> ReservedCommandParameters = {"fields", "path"};
 
 		struct RegistryState
 		{
@@ -25,8 +29,8 @@ namespace Strada
 		// A function's static, so lookups made while other translation units initialize find it constructed.
 		RegistryState& GetState()
 		{
-			static RegistryState state;
-			return state;
+			static RegistryState s_State;
+			return s_State;
 		}
 
 		// Outside the registry's state: it never repeats within the process.
@@ -115,9 +119,16 @@ namespace Strada
 			{
 				return MakeError("data asset type name '{}' is not PascalCase ASCII letters and digits", name);
 			}
-			if (BuiltInAssetTypeFromString(name))
+			// Built-in names in any letter case, as registered names are compared (CheckUnique): "MATERIAL" would take the
+			// command domain of material.*. AssetTypeToString names every built-in value without consulting the registry.
+			std::string const lowerName = ToLower(name);
+			for (uint32_t value = 0; value < DataAssetRegistry::FirstAssetTypeValue; value++)
 			{
-				return MakeError("'{}' is the name of a built-in asset type", name);
+				std::string_view const builtIn = AssetTypeToString(static_cast<AssetType>(value));
+				if (ToLower(builtIn) == lowerName)
+				{
+					return MakeError("'{}' is the name of a built-in asset type ({})", name, builtIn);
+				}
 			}
 			return {};
 		}
@@ -241,7 +252,7 @@ namespace Strada
 	void DataAssetRegistry::EnsureEngineTypes()
 	{
 		// Thread-safe, and only once: registering looks the registry up through GetState, not through this function.
-		[[maybe_unused]] static bool const registered = AddEngineTypes();
+		[[maybe_unused]] static bool const s_Registered = AddEngineTypes();
 	}
 
 	Result<AssetType> DataAssetRegistry::Add(Ref<DataAssetType> type, bool engineType)
@@ -270,6 +281,11 @@ namespace Strada
 		if (Result<void> result = CheckFormat(*type); !result)
 		{
 			return Error{result.GetError()};
+		}
+		if (std::ranges::find(ReservedCommandParameters, type->GetCommandParameter()) != ReservedCommandParameters.end())
+		{
+			return MakeError("data asset type {}: its command parameter \"{}\" is a member of the generated commands", type->GetName(),
+			                 type->GetCommandParameter());
 		}
 		if (Result<void> result = CheckUnique(*type, state); !result)
 		{
@@ -322,6 +338,13 @@ namespace Strada
 		{
 			return MakeError("data asset type {} cannot be unregistered while an asset directory is open", (*found)->GetName());
 		}
+		// A later type takes the lowest free value: an asset the manager holds would then pass its lookups as that type's.
+		if (AssetManager::IsInitialized() && !AssetManager::GetAssets(type).empty())
+		{
+			return MakeError("data asset type {} cannot be unregistered while the asset manager holds assets of it", (*found)->GetName());
+		}
+		// Objects still held elsewhere keep the type, with no value a later type can take.
+		(*found)->m_AssetType = AssetType::None;
 		state.Types.erase(found);
 		s_Epoch++;
 		return {};
