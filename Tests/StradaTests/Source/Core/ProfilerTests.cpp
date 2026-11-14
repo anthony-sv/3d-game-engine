@@ -728,31 +728,58 @@ TEST_CASE("Profiler: zones of several threads arrive once each, under their thre
 {
 	ProfilerScope const profiler;
 	REQUIRE(Profiler::Start().IsOk());
-	constexpr int ThreadCount = 8;
+	// A thread takes its buffer when its first zone ends. Whatever the machine's hardware threads, the recorder guarantees
+	// free buffers for only four threads that first record between two collections (Start provisions more, and EndFrame
+	// keeps four free); a fifth may find none and drop its zones until a later collection gives it one. So each wave's
+	// threads begin recording in groups of four, with a collection between the groups, before they all record at once.
+	constexpr int ThreadsPerGroup = 4;
+	constexpr int Groups = 2;
+	constexpr int ThreadCount = ThreadsPerGroup * Groups;
 	constexpr int ZonesPerWorker = 1000;
 	constexpr int Waves = 10;
 	for (int wave = 0; wave < Waves; ++wave)
 	{
+		std::atomic<int> claimed = 0;
 		std::atomic<bool> go = false;
 		std::vector<std::thread> workers;
-		for (int worker = 0; worker < ThreadCount; ++worker)
-		{
-			workers.emplace_back(
-				[&go, worker]()
-				{
-					ST_PROFILE_THREAD("Worker " + std::to_string(worker));
-					while (!go.load())
-					{
-						std::this_thread::yield();
-					}
-					for (int zoneIndex = 0; zoneIndex < ZonesPerWorker; ++zoneIndex)
-					{
-						ST_PROFILE_SCOPE("Work.Outer");
-						ST_PROFILE_SCOPE("Inner");
-					}
-				});
-		}
 		Profiler::BeginFrame();
+		for (int group = 0; group < Groups; ++group)
+		{
+			if (group > 0)
+			{
+				Profiler::EndFrame();
+				Profiler::BeginFrame();
+			}
+			for (int member = 0; member < ThreadsPerGroup; ++member)
+			{
+				int const worker = group * ThreadsPerGroup + member;
+				workers.emplace_back(
+					[&claimed, &go, worker]()
+					{
+						ST_PROFILE_THREAD("Worker " + std::to_string(worker));
+						for (int zoneIndex = 0; zoneIndex < ZonesPerWorker; ++zoneIndex)
+						{
+							{
+								ST_PROFILE_SCOPE("Work.Outer");
+								ST_PROFILE_SCOPE("Inner");
+							}
+							if (zoneIndex == 0)
+							{
+								// Its first zones have taken its buffer; the rest wait until every group has one.
+								++claimed;
+								while (!go.load())
+								{
+									std::this_thread::yield();
+								}
+							}
+						}
+					});
+			}
+			while (claimed.load() < (group + 1) * ThreadsPerGroup)
+			{
+				std::this_thread::yield();
+			}
+		}
 		go = true;
 		// Frames end while the workers record: their zones spread over several collections.
 		for (int frame = 0; frame < 3; ++frame)

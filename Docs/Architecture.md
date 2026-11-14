@@ -237,11 +237,14 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   `StradaRuntime --profile`, as plan targets are.
 - **Threads that start and end.** The buffer headers are a fixed table of `Profiler::MaxThreads` (64) slots with
   static storage. `Start` allocates rings for the machine's hardware threads plus four spares. Each `EndFrame` tops the
-  spares up on the main thread, so no thread ever allocates its own ring. A slot's state word holds the recording's
-  number and the slot's state (free, being claimed, owned or ending). On its first zone of a recording, a thread takes a
-  free slot of that recording with a compare-exchange. It remembers the slot in a constant-initialized, trivially
-  destructible `thread_local` holding the slot index, the recording's number, its depth and its name. A `thread_local`
-  with a destructor is avoided because registering its destructor may allocate on the audio thread. Thread names are
+  spares up on the main thread, so no thread ever allocates its own ring. Threads that start recording between two
+  frames' ends therefore find at least four free buffers (more after `Start`); a thread beyond the free ones records
+  nothing until a later `EndFrame` gives it a buffer, and the zones it ends meanwhile are dropped and counted in
+  `DroppedZones`. A slot's state word holds the recording's number and the slot's state (free, being claimed, owned
+  or ending). On its first zone of a recording, a thread takes a free slot of that recording with a compare-exchange.
+  It remembers the slot in a constant-initialized, trivially destructible `thread_local` holding the slot index, the
+  recording's number, its depth and its name. A `thread_local` with a destructor is avoided because registering its
+  destructor may allocate on the audio thread. Thread names are
   copied into a 63-byte `thread_local` array, without allocating, and into the slot when the thread takes one, so
   threads name themselves before their first zone. `Profiler::EndThread`, which the end of `ST_PROFILE_THREAD`'s scope
   calls, marks the slot ending and makes the thread forget its slot and its name. The thread's next zone takes a new
