@@ -15,7 +15,11 @@ called_from_lib:libVkLayer_khronos_validation.so
 
 # The .NET runtime, which the script engine hosts (ScriptEngine::Init loads it from the installed SDK), so every case
 # that runs the application or a script loads it. Its locks follow an order of its own, and it frees on one of its
-# threads what it allocated on another under those locks: without this entry one run reports thousands of lock order
-# inversions and allocation races, each one with libcoreclr.so as the caller and none in Strada's code. What Strada's
-# own code does when managed code calls it is still checked.
-called_from_lib:libcoreclr.so
+# threads what it allocated on another: one run reports thousands of lock order inversions and allocation races, each
+# with libcoreclr.so as the caller and none in Strada's code. These entries leave out the reports that name the runtime
+# or its compiler, and nothing else: the runtime's locks stay visible to the sanitizer. (Ignoring everything the runtime
+# calls, as the Vulkan entries above do, hid those locks, and the compiler's own buffers, which they guard, were then
+# reported as races.) A race on a thread the runtime created is left out too; scripts run on the main thread.
+deadlock:libcoreclr.so
+race:libcoreclr.so
+race:libclrjit.so

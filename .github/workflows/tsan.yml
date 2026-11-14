@@ -179,7 +179,7 @@ jobs:
 
       # A running scene with C# scripts, graphs, Jolt's workers and audio, recorded by the profiler. It hosts the .NET
       # runtime, which is prebuilt and suspends threads with signals the sanitizer defers, so it runs apart from the rest.
-      # The runtime's own locks and allocations are not checked (tsan-suppressions.txt); the Application cases above
+      # Reports that name the runtime are left out (tsan-suppressions.txt); the Application cases above
       # host it too.
       - name: Profiled scene with the .NET runtime
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
