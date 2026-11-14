@@ -261,10 +261,10 @@ namespace Strada
 		// character. Physics component changes not applied yet are applied first. Fails when the scene runs no physics.
 		[[nodiscard]] Result<ScenePhysicsSnapshot> SavePhysicsState();
 		// Goes back to a snapshot of this run between frames: the physics world, the step count and accumulator, and the
-		// entities of bodies and characters where they were then, so the steps that follow run as they did. Fails, changing
-		// nothing, when the scene runs no physics, the snapshot is of another run, or a body, joint or character was added,
-		// removed or rebuilt since. What the simulation does not change (scripts' state, entities without bodies, settings)
-		// stays as it is.
+		// entities of bodies and characters where they were then, so the steps that follow run as they did. Physics component
+		// changes not applied yet are applied first, as the next frame would. Then it fails, changing nothing more, when the
+		// scene runs no physics, the snapshot is of another run, or a body, joint or character was added, removed or rebuilt
+		// since. What the simulation does not change (scripts' state, entities without bodies, settings) stays as it is.
 		[[nodiscard]] Result<void> RestorePhysicsState(ScenePhysicsSnapshot const& snapshot);
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }

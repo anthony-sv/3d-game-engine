@@ -488,7 +488,7 @@ namespace Strada
 				{
 					uint64_t count = 0;
 					stream.Read(count);
-					return stream.IsFailed() ? 0 : count;
+					return stream.IsFailed() ? uint64_t(0) : count;
 				};
 				auto const readPairs = [&stream, &readCount](auto& pairs)
 				{

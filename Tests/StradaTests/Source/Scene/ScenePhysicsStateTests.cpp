@@ -38,8 +38,9 @@ namespace
 		entity.AddComponent<BoxColliderComponent>().HalfExtents = {0.5f, 0.5f, 0.5f};
 	}
 
-	// A stack the ball knocks over, a motorized paddle on a hinge, a pendulum on a distance joint, a character that lands
-	// on a crate with a collider of its own below it, and a trigger the ball rolls through.
+	// A stack the ball knocks over, a motorized paddle on a hinge, a pendulum on a distance joint, characters with colliders
+	// of their own below them landing on a crate and on a platform that turns very slowly, and a trigger the ball rolls
+	// through.
 	std::vector<EntityRecipe> const& GetRecipes()
 	{
 		static std::vector<EntityRecipe> const s_Recipes = {
@@ -112,6 +113,34 @@ namespace
 				 entity.GetComponent<TransformComponent>().Translation = {0.0f, 0.8f, 0.6f};
 				 entity.AddComponent<SphereColliderComponent>().Radius = 0.2f;
 			 }},
+			{410,
+		     [](Entity entity)
+		     {
+				 // A platform turned so slowly that a rider moves less per step than transform edits are told from noise.
+				 entity.GetComponent<TransformComponent>().Translation = {8.0f, 1.0f, 0.0f};
+				 entity.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
+				 entity.AddComponent<BoxColliderComponent>().HalfExtents = {1.5f, 0.1f, 1.5f};
+				 JointComponent& joint = entity.AddComponent<JointComponent>();
+				 joint.Type = JointType::Hinge;
+				 joint.Axis = {0.0f, 1.0f, 0.0f};
+				 joint.MotorEnabled = true;
+				 joint.MotorSpeed = 0.3f;
+			 }},
+			{610,
+		     [](Entity entity)
+		     {
+				 entity.GetComponent<TransformComponent>().Translation = {8.6f, 1.5f, 0.3f};
+				 CharacterControllerComponent& character = entity.AddComponent<CharacterControllerComponent>();
+				 character.Height = 1.6f;
+				 character.Radius = 0.3f;
+				 character.Offset = {0.0f, 0.8f, 0.0f};
+			 }},
+			{611,
+		     [](Entity entity)
+		     {
+				 entity.GetComponent<TransformComponent>().Translation = {0.0f, 0.8f, 0.6f};
+				 entity.AddComponent<SphereColliderComponent>().Radius = 0.2f;
+			 }},
 			{700,
 		     [](Entity entity)
 		     {
@@ -137,6 +166,7 @@ namespace
 			recipe.Make(scene.CreateEntityWithUUID(UUID(recipe.ID), "Part"));
 		}
 		REQUIRE(scene.SetParent(scene.GetEntityByUUID(UUID(601)), scene.GetEntityByUUID(UUID(600)), false).IsOk());
+		REQUIRE(scene.SetParent(scene.GetEntityByUUID(UUID(611)), scene.GetEntityByUUID(UUID(610)), false).IsOk());
 	}
 
 	SceneRuntimeSettings PhysicsOnly(uint64_t hashStep = 0)
@@ -356,7 +386,7 @@ TEST_CASE("ScenePhysics: Jolt is called in the same order whatever order the ent
 TEST_CASE("ScenePhysics: one scene gives the same state hashes at 30, 60 and 144 frames per second")
 {
 	Testing::PhysicsSystemScope physics;
-	for (uint64_t const step : {1u, 45u, 150u, 300u})
+	for (uint64_t const step : {1u, 45u, 150u, 300u, 600u})
 	{
 		CAPTURE(step);
 		uint64_t const at60 = HashAtStep(1.0f / 60.0f, step);

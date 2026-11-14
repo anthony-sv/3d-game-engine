@@ -76,7 +76,7 @@ TEST_CASE("ScriptEngine: loads game scripts and describes their classes")
 	                                        "Strada.Tests.SelfTest",
 	                                        "Strada.Tests.Spawner",
 	                                        "Strada.Tests.Spinner",
-	                                        "Strada.Tests.StepFinisher",
+	                                        "Strada.Tests.StepProbe",
 	                                        "Strada.Tests.Thrower",
 	                                        "Strada.Tests.TransformProbe",
 	                                        "Strada.Tests.UIWriter",

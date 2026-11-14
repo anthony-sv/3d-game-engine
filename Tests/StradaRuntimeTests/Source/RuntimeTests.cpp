@@ -441,8 +441,8 @@ TEST_CASE("Runtime: test runs go on in the scenes the scripts load, and fail whe
 
 TEST_CASE("Runtime: a test summary ends with the physics state hash, the same at a step at 30, 60 and 144 frames per second")
 {
-	// A stack the ball knocks over, a character landing on it with a collider of its own below it, and a script that
-	// finishes the run after 200 fixed steps, whatever the frame rate.
+	// A stack the ball knocks over, a character landing on it with a collider of its own below it, and a script that makes
+	// a body between two steps and finishes the run after 200 fixed steps, whatever the frame rate.
 	TestGame game(ProjectFileKind::Game);
 	Ref<Scene> const scene = MakeScene("Physics", std::nullopt);
 	Entity ground = scene->CreateEntity("Ground");
@@ -469,9 +469,14 @@ TEST_CASE("Runtime: a test summary ends with the physics state hash, the same at
 	Entity held = scene->CreateEntity("Held", hero);
 	held.GetComponent<TransformComponent>().Translation = {0.0f, 1.0f, 0.7f};
 	held.AddComponent<SphereColliderComponent>().Radius = 0.2f;
-	ScriptComponent& finisher = scene->CreateEntity("Finisher").AddComponent<ScriptComponent>();
-	finisher.ClassName = "Strada.Tests.StepFinisher";
-	finisher.Fields = ScriptFieldMap{{"Steps", ScriptFieldValue::FromInt32(200)}};
+	// The script's entity becomes a body in its 41st fixed update, which at 30 frames per second is the first of a frame's
+	// two: the body takes part in the very next step at every frame rate.
+	Entity probe = scene->CreateEntity("Probe");
+	probe.GetComponent<TransformComponent>().Translation = {1.5f, 3.0f, 0.0f};
+	probe.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
+	ScriptComponent& script = probe.AddComponent<ScriptComponent>();
+	script.ClassName = "Strada.Tests.StepProbe";
+	script.Fields = ScriptFieldMap{{"Steps", ScriptFieldValue::FromInt32(200)}, {"ColliderStep", ScriptFieldValue::FromInt32(41)}};
 	game.AddScene("Physics", scene);
 	game.AddScripts();
 	std::string const file = Native(game.Write("Scenes/Physics.sscene"));
