@@ -773,8 +773,9 @@ its extrapolations included.
 - The wheel zooms the input, Ctrl+wheel the values, a right or middle drag pans, and F frames the selected keys (every
   key without any).
 - While the view has the keyboard, Delete removes the selected keys, Ctrl+A selects every key, and the arrows move the
-  selected keys by a step (Shift: ten); a run of presses is one undo step. Delete and Ctrl+A stay the view's while its
-  key menu is open, and the Edit menu then shows no shortcut for Delete and Select All. Esc while dragging cancels the
+  selected keys by a step (Shift: ten); a run of presses is one undo step. While its key menu is open, Delete and
+  Ctrl+A do nothing (they never reach the scene's entities), and the Edit menu shows no shortcut for Delete and Select
+  All while the view has the keyboard. Esc while dragging cancels the
   drag: the keys go back and no undo step is left. A drag, and a header field's drag, whose curve is changed elsewhere
   meanwhile (an undo, an agent's `curve.set`) stops, and that change stays.
 

@@ -979,8 +979,9 @@ timeline's (spec-slice3 §3.8.3), promoted to the engine: `Strada/Math/Curve.h`.
   While its view has the keyboard it takes Delete, Ctrl+Backspace, Ctrl+A, the arrows, F and, during a gesture, Esc as
   focused routes, so they never reach the editor's editing keys; it claims the editing chords among them
   (`CurveAssetEditor::FocusedChords`) on the inspector's root window (`UI::UpdateEditingChordClaim`,
-  `Editor/UI/EditingChordClaims.h`), which `FindClaimedEditingChords` reads (§11.1), so that they stay the view's while
-  its key menu is open and the Edit menu shows none of them. Its time and value fields keep the digits their format does
+  `Editor/UI/EditingChordClaims.h`), which `FindClaimedEditingChords` reads (§11.1), so that they never reach the
+  scene while its key menu is open (no focused route takes a key then, so they do nothing) and the Edit menu shows none
+  of them. Its time and value fields keep the digits their format does
   not show.
 - **Scripts** read a curve asset through the managed class `Strada.Curve` (§10.4), on §6.4's managed pattern:
   `Evaluate(time)` is a pure node and evaluates the runtime's copy of the keys with `CurveDefinition`, so it allocates
