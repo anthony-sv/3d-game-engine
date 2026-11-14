@@ -203,7 +203,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     cost under 1 % of a Release frame is not measured;
   - `Audio.Mix` around `ma_engine_read_pcm_frames`: on miniaudio's device thread through a device data callback of the
     engine's own (`ma_engine_config::dataCallback`, `miniaudio.h:11290`), which does what miniaudio's own callback does
-    and names its thread `Audio Mixer` while a recording runs, and in `AudioEngine::ReadFrames` (manual output);
+    and records on the engine's `ProfilerThreadState` named `Audio Mixer` (see "Who writes" below), and in
+    `AudioEngine::ReadFrames` (manual output, on the calling thread);
     `Audio.Stream` around each pass of the streaming thread (`Audio Streaming`), never its waits;
   - `Renderer.RenderScene`, with `Renderer.Submit` (the scene's draws, lights and UI) and `Renderer.EndScene`, which
     holds `Renderer.Cull`, `Renderer.Sort`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings) and

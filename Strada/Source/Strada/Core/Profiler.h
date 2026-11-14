@@ -336,8 +336,9 @@ namespace Strada
 
 		// Begins a zone: while recording, reads the clock and the thread's depth; otherwise returns an empty token after
 		// one predictable branch. name must have static storage duration (a string literal, __func__, or InternName's
-		// result); a null name records nothing. Neither allocates (but see the class comment on Apple platforms), locks
-		// nor logs: safe on the audio callback.
+		// result); a null name records nothing. Neither locks nor logs, and allocates only on Apple platforms, once per
+		// thread (the class comment): code that must never allocate, such as the audio device's callback, uses the
+		// overload that takes a ProfilerThreadState.
 		static ProfilerZoneToken BeginZone(char const* name)
 		{
 			if (!IsRecording()) [[likely]]
@@ -358,7 +359,7 @@ namespace Strada
 		}
 		// Ends a zone begun by BeginZone on the same thread; zones of a thread end in the reverse order they began. An
 		// empty token costs one branch. Otherwise the zone is written into the thread's buffer, taking a free buffer on the
-		// thread's first zone of a recording. Neither allocates, locks nor logs: safe on the audio callback.
+		// thread's first zone of a recording. Neither locks nor logs, and allocates only as BeginZone does.
 		static void EndZone(ProfilerZoneToken const& token)
 		{
 			if (token.Name == nullptr) [[likely]]
