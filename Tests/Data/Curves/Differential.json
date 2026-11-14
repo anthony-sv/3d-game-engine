@@ -1,5 +1,5 @@
 {
-	"About": "Curve cases that the engine's evaluator (StradaTests, Math/CurveTests.cpp) and the scripting runtime's (ScriptCoreTests, CurveMathTests.cs) evaluate to the same values: each Curve is the content of a .scurve file, each sample's Value is the curve at its Time, within Tolerance times the larger of 1 and the value's magnitude. Non-finite numbers are the strings NaN, Infinity and -Infinity.",
+	"About": "Curve cases that the engine's evaluator (StradaTests, Math/CurveTests.cpp) and the scripting runtime's (ScriptCoreTests, CurveMathTests.cs) evaluate to the same values: each Curve is the content of a .scurve file, each sample's Value is the curve at its Time, within Tolerance times the larger of 1 and the value's magnitude. Non-finite numbers are the strings NaN, Infinity and -Infinity. Written by MakeDifferential.py beside it, whose evaluator is apart from both.",
 	"Tolerance": 1e-06,
 	"Cases": [
 		{

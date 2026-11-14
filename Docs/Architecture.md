@@ -779,9 +779,9 @@ types, the script field codec, the library writer and the literal codec carry th
 does. So ScriptCoreTests build, write and check the node library, and run graphs, without a native engine, data asset
 classes included. A native number is fetched only where a call crosses into native code (`Assets.Load<T>`, the
 loadable-type check, the type's bulk read): the class's number comes from its name (`Assets_FindType`), cached per class
-after the first call, and a value of 128 or more coming from native code is named by `Assets_GetTypeName` before
-`AssetTypes.Create` makes the reference (no binding hands managed code a type value yet, so `Assets_GetTypeName`
-arrives with the first that does). The script bindings' loadable-type check (`IsLoadableType`) accepts a data asset type
+after the first call, and a value of 128 or more coming from native code is named by `Assets_GetTypeName`
+(`AssetTypes.GetTypeName(int)`, cached per value with the class's number) before `AssetTypes.Create` makes the
+reference. The script bindings' loadable-type check (`IsLoadableType`) accepts a data asset type
 when its class arrives, and so does the visual script editor's list of exposable types
 (`FindVisualScriptExposableType`, which the node library's types are checked against), so that public variables and
 literals of the class work in the editor. The data stays native; a class that reads it in managed code (a curve evaluated per sample by graphs,
@@ -942,8 +942,10 @@ timeline's (spec-slice3 §3.8.3), promoted to the engine: `Strada/Math/Curve.h`.
   together: its cases (curves as `.scurve` content, with every interpolation, extrapolation, jump, set and automatic
   slope, uneven and negative times, non-finite inputs) are evaluated by StradaTests and by ScriptCoreTests to the same
   values, within 1e-6 of the larger of 1 and the value. The tolerance, not bit equality, is the contract: compilers may
-  fuse a multiply and an add on some platforms (Clang on arm64), which .NET never does. A change to the semantics changes
-  both evaluators and the file's values together.
+  fuse a multiply and an add on some platforms (Clang on arm64), which .NET never does. The values come from a third
+  evaluator, apart from both under test: `Tests/Data/Curves/MakeDifferential.py` (standard library only) writes the file
+  and stops where its values disagree with the ones derived by hand that most cases carry. A change to the semantics
+  changes both evaluators, that tool's evaluator and the file's values (written by running it) together.
 - **The timeline keeps its own format.** The `Timeline` setting inside `.sgraph` documents (§10.6) is read, written and
   checked by the timeline's code exactly as before; its keys keep vector values and optional slopes, and its
   interpolation is the engine's `CurveInterpolation` under its old name. Only the evaluation moved.
@@ -972,10 +974,14 @@ timeline's (spec-slice3 §3.8.3), promoted to the engine: `Strada/Math/Curve.h`.
   widgets in `VisualScriptCurveEditor.cpp` and `CurveAssetEditor.cpp`). The `.scurve` host, `CurveAssetEditor`, is the
   `Curve` type's drawer (§6.4): the widget above the type's field table, each drag one step under a key of its own
   (Escape commits the start under it, so the step disappears), a run of arrow-key nudges one step, a header field one
-  step while it stays active, every other edit a step of its own; a drag whose curve changes elsewhere meanwhile (an
-  undo, `curve.set`) ends without an edit. While its view has the keyboard it claims Delete, Ctrl+Backspace, Ctrl+A,
-  the arrows, F and, during a gesture, Esc as focused routes, so they never reach the editor's editing keys. Its time
-  and value fields keep the digits their format does not show.
+  step while it stays active, every other edit a step of its own; a drag, or a header field's drag, whose curve changes
+  elsewhere meanwhile (an undo, `curve.set`) ends without an edit (`CurveEditor::EndHeaderInteraction` lets the field go).
+  While its view has the keyboard it takes Delete, Ctrl+Backspace, Ctrl+A, the arrows, F and, during a gesture, Esc as
+  focused routes, so they never reach the editor's editing keys; it claims the editing chords among them
+  (`CurveAssetEditor::FocusedChords`) on the inspector's root window (`UI::UpdateEditingChordClaim`,
+  `Editor/UI/EditingChordClaims.h`), which `FindClaimedEditingChords` reads (§11.1), so that they stay the view's while
+  its key menu is open and the Edit menu shows none of them. Its time and value fields keep the digits their format does
+  not show.
 - **Scripts** read a curve asset through the managed class `Strada.Curve` (§10.4), on §6.4's managed pattern:
   `Evaluate(time)` is a pure node and evaluates the runtime's copy of the keys with `CurveDefinition`, so it allocates
   nothing and crosses no boundary per sample. The copy (`CurveCache`, one per asset handle, shared by every reference to
@@ -2660,7 +2666,10 @@ inspector's primary entity as the context entity; without an asset directory the
   browser, and never on the entities (`VisualScriptEditors::HandleGlobalEditingKey`); with the scene as the target,
   Duplicate, Delete and Select All act on the entities. A window keeps the keys it claims while it has the keyboard: the
   content browser's Delete, Ctrl+Backspace and F2 (`ContentBrowserPanel::FocusedChords`, which
-  `FindClaimedEditingChords` returns) act on the selected file there. An Edit item shows its shortcut exactly when
+  `FindClaimedEditingChords` returns) act on the selected file there. A widget inside a window claims chords the same way
+  while its own child window, or a popup it opened, has the keyboard: it updates a claim on its root window each frame it
+  is drawn (`UI::UpdateEditingChordClaim`), kept while a menu, a side bar or another window has the keyboard, which
+  `FindClaimedEditingChords` returns for that root (the inspector's curve editor: Delete, Ctrl+Backspace, Ctrl+A). An Edit item shows its shortcut exactly when
   pressing it would run the item (`GetEditShortcutText`), so Delete shows none while the content browser has the
   keyboard. The window that had the keyboard before a menu, a popup, the menu bar or the toolbar took it is the one that
   counts, while it is still open (`FindKeyboardWindow`); a claimed key runs nothing while a menu, a popup or the

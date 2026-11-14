@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <limits>
 #include <string>
+#include <string_view>
+#include <type_traits>
 
 namespace Strada::ScriptGlue
 {
@@ -226,6 +228,26 @@ namespace Strada::ScriptGlue
 			return static_cast<int32_t>(*type);
 		}
 
+		// The name of the type an AssetType value stands for (Assets_FindType's inverse), for the scripting runtime to name the
+		// values native code hands it: those of data asset types are assigned at run time. Null (logged) for None and for a
+		// value that is no type; the text lives as long as the engine.
+		char const* Assets_GetTypeName(int32_t type, int32_t* length)
+		{
+			*length = 0;
+			if (type > 0 && type <= std::numeric_limits<std::underlying_type_t<AssetType>>::max())
+			{
+				// "None" names the values no type has.
+				std::string_view const name = AssetTypeToString(static_cast<AssetType>(type));
+				if (name != AssetTypeToString(AssetType::None))
+				{
+					*length = static_cast<int32_t>(name.size());
+					return name.data();
+				}
+			}
+			Log::GetScriptLogger().error("Assets: {} is not an asset type", type);
+			return nullptr;
+		}
+
 		// Copies a curve asset's data in bulk for the scripting runtime's copy of it (Strada.Curve), loading the asset on first
 		// use; nothing but the version when the runtime holds the asset's current version already (heldVersion; 0 for none).
 		int32_t Curve_Read(uint64_t curve, uint64_t heldVersion, CurveHeader* header, CurveKeyValues* keys, int32_t capacity)
@@ -393,6 +415,7 @@ namespace Strada::ScriptGlue
 	void RegisterAssetBindings(BindingTable& table)
 	{
 		table.Add("Assets_FindType", &Assets_FindType);
+		table.Add("Assets_GetTypeName", &Assets_GetTypeName);
 		table.Add("Assets_Load", &Assets_Load);
 		table.Add("Curve_Read", &Curve_Read);
 		table.Add("Material_Create", &Material_Create);

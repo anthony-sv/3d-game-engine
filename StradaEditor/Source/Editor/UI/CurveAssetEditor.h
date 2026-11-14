@@ -8,6 +8,9 @@
 #include "Strada/Core/Base.h"
 #include "Strada/Math/Curve.h"
 
+#include <imgui.h>
+
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -19,12 +22,15 @@
 // - a drag of keys or of a tangent is one step under a merge key of its own; Escape during it commits the curve it started
 //   from under that key, so the step disappears;
 // - a run of arrow-key nudges less than CurveEditor::NudgeRunSeconds apart is one step;
-// - a header field (Time, Value) is one step while it stays active (the inspector's interaction);
+// - a header field (Time, Value) is one step while it stays active (the inspector's interaction), and lets go when its curve
+//   changes elsewhere meanwhile, as a drag does;
 // - every other edit (a key added or deleted, interpolation, tangents) is a step of its own.
 // A drag whose curve changes elsewhere meanwhile (an undo, curve.set) ends without an edit: the other change stays. While the
 // widget's view has the keyboard it takes Delete and Ctrl+Backspace (delete the selected keys), Ctrl+A, the arrows (Shift: 10
-// steps), F (frame) and, during a gesture of the view, Escape, so they never reach the editor's editing keys. A curve whose
-// asset is not editable is drawn and changes nothing. Main thread only, inside an ImGui frame (but the getters).
+// steps), F (frame) and, during a gesture of the view, Escape, so they never reach the editor's editing keys; the editing
+// chords among them it claims (FocusedChords, UI::UpdateEditingChordClaim), also while its key menu is open, so that the Edit
+// menu leaves their texts out and the editor's editing keys run nothing for them. A curve whose asset is not editable is
+// drawn and changes nothing. Main thread only, inside an ImGui frame (but the getters).
 namespace Strada
 {
 	// Instantiated once, in CurveAssetEditor.cpp.
@@ -39,6 +45,13 @@ namespace Strada
 		// nudges, apart from the inspector's own keys.
 		static constexpr uint64_t MergeKeyBase = 0x4352564100000000ull;
 		static constexpr uint64_t NudgeMergeKey = 0x4352564E00000000ull;
+		// The editing chords the view takes while it has the keyboard: Delete and Ctrl+Backspace (Cmd+Backspace on macOS
+		// keyboards) delete the selected keys, Ctrl+A selects every key.
+		static constexpr std::array<ImGuiKeyChord, 3> FocusedChords = {
+			ImGuiKey_Delete,
+			ImGuiMod_Ctrl | ImGuiKey_Backspace,
+			ImGuiMod_Ctrl | ImGuiKey_A,
+		};
 
 		CurveAssetEditor();
 
@@ -64,6 +77,8 @@ namespace Strada
 		uint64_t m_DragKey = 0;
 		std::string m_DragAction;
 		std::optional<Curve> m_Expected;
+		// While a header field is active: the curve its last change set, or the one it started on.
+		std::optional<Curve> m_HeaderExpected;
 		uint64_t m_Steps = 0;
 	};
 }

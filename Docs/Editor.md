@@ -773,8 +773,10 @@ its extrapolations included.
 - The wheel zooms the input, Ctrl+wheel the values, a right or middle drag pans, and F frames the selected keys (every
   key without any).
 - While the view has the keyboard, Delete removes the selected keys, Ctrl+A selects every key, and the arrows move the
-  selected keys by a step (Shift: ten); a run of presses is one undo step. Esc while dragging cancels the drag: the keys
-  go back and no undo step is left.
+  selected keys by a step (Shift: ten); a run of presses is one undo step. Delete and Ctrl+A stay the view's while its
+  key menu is open, and the Edit menu then shows no shortcut for Delete and Select All. Esc while dragging cancels the
+  drag: the keys go back and no undo step is left. A drag, and a header field's drag, whose curve is changed elsewhere
+  meanwhile (an undo, an agent's `curve.set`) stops, and that change stays.
 
 Each drag is one undo step, written to the file as it goes. Below the curve editor, the fields show the extrapolations
 and the keys as a list (each key's `HasIn` and `HasOut` switch its set slopes on); agents edit the same fields with
@@ -1140,6 +1142,8 @@ These work while the mouse is over the view.
 | Scene Hierarchy | F2 | Rename the primary selected entity |
 | Content Browser | F2 | Rename the selected item |
 | Content Browser | Delete, Ctrl+Backspace | Delete the selected item (after confirmation) |
+| Inspector, curve editor | Delete, Ctrl+Backspace | Delete the selected keys |
+| Inspector, curve editor | Ctrl+A | Select every key |
 | Game View | Shift+Esc | Give the input back to the editor |
 | Dialogs | Escape | Cancel |
 

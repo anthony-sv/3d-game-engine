@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -305,4 +306,65 @@ TEST_CASE("CurveView: a double-click adds a key with the curve's value there, De
 	CHECK(removed->Document.Keys.empty());
 	CHECK(fixture.View.GetSelection().empty());
 	CHECK_FALSE(fixture.View.DeleteSelection(fixture.Torque, "Torque").has_value());
+}
+
+TEST_CASE("CurveView: a curve without keys frames finite ranges around its line at 0, which a double-click gives its first key")
+{
+	// What curve.create and the content browser's New Curve make.
+	Curve const empty;
+	CurveView<Curve> view;
+	view.SetRect(glm::vec2(0.0f), glm::vec2(1000.0f, 600.0f), FontSize);
+	view.Sync(empty);
+	// Framed on a span of one from 0 and on the values around 0, padded: finite, and wide enough to work in.
+	glm::dvec2 const times = view.GetTimeRange();
+	glm::dvec2 const values = view.GetValueRange();
+	CHECK(std::isfinite(times.x));
+	CHECK(std::isfinite(times.y));
+	CHECK(times.x < 0.0);
+	CHECK(times.y > 1.0);
+	CHECK(std::isfinite(values.x));
+	CHECK(std::isfinite(values.y));
+	CHECK(values.x <= -1.0);
+	CHECK(values.y >= 1.0);
+	double const step = view.GetTimeStep();
+	CHECK(std::isfinite(step));
+	CHECK(step > 0.0);
+	CHECK(view.GetSelection().empty());
+
+	// The curve is 0 everywhere, and the view hits it along that line.
+	double const time = 0.5 * (times.x + times.y) + 0.37 * step;
+	CHECK(empty.Evaluate(time) == 0.0f);
+	glm::vec2 const onLine(view.ToScreenX(time), view.ToScreenY(0.0));
+	CurveHit const hit = view.HitTest(empty, onLine);
+	CHECK(hit.Kind == CurveHitKind::Curve);
+	CHECK(hit.Track == 0);
+	CHECK(view.HitTest(empty, onLine + glm::vec2(0.0f, 100.0f)).Kind != CurveHitKind::Curve);
+
+	// A double-click there adds the first key, at the snapped time with the value 0, selected.
+	std::vector<CurveIntent> intents;
+	for (bool const down : {true, false})
+	{
+		CurveViewInput input;
+		input.Mouse = onLine;
+		input.Hovered = true;
+		input.Pressed[0] = down;
+		input.Down[0] = down;
+		input.Released[0] = !down;
+		input.DoubleClicked = down;
+		for (CurveIntent& intent : view.Update(input, empty, "Empty"))
+		{
+			intents.push_back(std::move(intent));
+		}
+	}
+	REQUIRE(intents.size() == 1);
+	CHECK(intents[0].Kind == CurveIntentKind::Commit);
+	CHECK(intents[0].Action == "Add Key to Curve on Empty");
+	REQUIRE(intents[0].Document.Keys.size() == 1);
+	CurveKey const& first = intents[0].Document.Keys[0];
+	CHECK(first.Time == static_cast<float>(std::round(view.ToTime(onLine.x) / step) * step));
+	CHECK(first.Value == 0.0f);
+	CHECK_FALSE(first.HasIn);
+	CHECK_FALSE(first.HasOut);
+	CHECK(ValidateCurve(intents[0].Document).IsOk());
+	CHECK(view.IsSelected(0, 0));
 }

@@ -87,7 +87,12 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   panel with its own meaning for a key registers `ImGuiInputFlags_RouteFocused` every frame while it is drawn, even with
   nothing to act on, from a `static constexpr` chord list (`ContentBrowserPanel::FocusedChords`) that
   `FindClaimedEditingChords` also returns: the editing keys never run a claimed chord, and the Edit menu drops that
-  item's shortcut text (`GetEditShortcutText`) while the panel has the keyboard (`FindKeyboardWindow`). While a modal
+  item's shortcut text (`GetEditShortcutText`) while the panel has the keyboard (`FindKeyboardWindow`). A widget in a
+  child window of a panel (the `.scurve` curve editor in the inspector) claims its chords with
+  `UI::UpdateEditingChordClaim(chords)` (`Editor/UI/EditingChordClaims.h`) inside that child every frame it is drawn;
+  `FindClaimedEditingChords` returns them for the panel's root window, also while the widget's own popup is open (no
+  focused route takes a key then). Test it through the real `FindKeyboardWindow`, `HandleEditorEditingKeys` and
+  `DrawEditorEditingMenuItems` (CurveAssetEditorTests.cpp does). While a modal
   popup is open (`ImGui::GetTopMostPopupModal() != nullptr`) no editing key runs, Undo and Redo included, so nothing
   changes what the dialog acts on.
 - While the game has the input (`GameInputRouter`, the ImGui layer's input filter), ImGui receives no key presses but

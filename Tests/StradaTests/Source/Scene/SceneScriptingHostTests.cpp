@@ -8,6 +8,7 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/PrefabAsset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/KeyCodes.h"
@@ -20,6 +21,7 @@
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/ScriptEngineInternal.h"
 #include "Strada/Script/VisualScriptDebugger.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <doctest/doctest.h>
 
@@ -33,6 +35,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <span>
 #include <string>
 #include <string_view>
@@ -146,6 +149,7 @@ namespace
 
 	using CurveReadFunction = int32_t (*)(uint64_t, uint64_t, CurveHeaderValues*, CurveKeyValues*, int32_t);
 	using FindTypeFunction = int32_t (*)(char const*, int32_t);
+	using GetTypeNameFunction = char const* (*)(int32_t, int32_t*);
 	using LoadFunction = uint64_t (*)(char const*, int32_t, int32_t);
 
 	// Curve_Read's answers (Strada.Interop.CurveReadStatus).
@@ -275,6 +279,79 @@ namespace
 		static inline decltype(ScriptEngineInternal::HostFunctions::InvalidateDataAssets) s_Invalidate = nullptr;
 		static inline uint32_t s_Count = 0;
 	};
+
+	// Writes Curves/<name> holding the probe curve for each name, then opens the directory's assets.
+	void OpenProbeCurves(Testing::TemporaryDirectory const& directory, std::initializer_list<std::string_view> names)
+	{
+		TypedDataAssetType<Curve> const* const curveType = DataAssetRegistry::Find<Curve>();
+		REQUIRE(curveType != nullptr);
+		REQUIRE(FileSystem::CreateDirectories(directory.GetPath() / "Curves").IsOk());
+		for (std::string_view const name : names)
+		{
+			Ref<DataAsset> const file = curveType->CreateAsset();
+			REQUIRE(std::static_pointer_cast<TypedDataAsset<Curve>>(file)->SetData(MakeProbeCurve()).IsOk());
+			REQUIRE(DataAssetSerializer::SaveToFile(*file, directory.GetPath() / "Curves" / name).IsOk());
+		}
+		REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	}
+
+	// The time the curve reading graph samples its curve at.
+	constexpr float CurveGraphTime = 0.375f;
+
+	// A graph that sets its public float Value to its public curve Response at CurveGraphTime on every update, through the
+	// curve's pure node (Call:Strada.Curve.Evaluate(float)).
+	VisualScriptDocument MakeCurveReaderDocument()
+	{
+		auto const variable = [](uint32_t id, std::string name, std::string type, Json value)
+		{
+			VisualScriptVariable made;
+			made.ID = id;
+			made.Name = std::move(name);
+			made.Type = std::move(type);
+			made.Value = std::move(value);
+			made.Public = true;
+			return made;
+		};
+		auto const node = [](uint32_t id, std::string type, Json settings, Json inputs)
+		{
+			VisualScriptNode made;
+			made.ID = id;
+			made.Type = std::move(type);
+			made.Settings = std::move(settings);
+			made.Inputs = std::move(inputs);
+			return made;
+		};
+		VisualScriptDocument document;
+		document.Variables.push_back(variable(1, "Response", "Strada.Curve", Json()));
+		document.Variables.push_back(variable(2, "Value", "float", 0.0));
+		std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+		nodes.push_back(node(10, "Event.Update", Json::object(), Json::object()));
+		nodes.push_back(node(11, "Variable.Set", Json::object({{"Variable", 2}}), Json::object()));
+		nodes.push_back(node(12, "Call:Strada.Curve.Evaluate(float)", Json::object(), Json::object({{"Time", CurveGraphTime}})));
+		nodes.push_back(node(13, "Variable.Get", Json::object({{"Variable", 1}}), Json::object()));
+		document.Graph.Links.push_back({{10, "Then"}, {11, "Execute"}});
+		document.Graph.Links.push_back({{13, "Value"}, {12, "Target"}});
+		document.Graph.Links.push_back({{12, "Result"}, {11, "Value"}});
+		return document;
+	}
+
+	// The Value a curve reading graph set last.
+	float ReadCurveReaderValue(Entity reader)
+	{
+		Result<ScriptFieldMap> const variables = VisualScriptEngine::GetInstanceVariables(reader.GetUUID());
+		REQUIRE_MESSAGE(variables.IsOk(), variables.GetError());
+		auto const value = variables.GetValue().find("Value");
+		REQUIRE(value != variables.GetValue().end());
+		REQUIRE(value->second.GetType() == ScriptFieldType::Float);
+		return value->second.GetFloat();
+	}
+
+	// Whether a value the runtime computed is the engine evaluator's within the differential test's tolerance.
+	bool IsEngineValue(float value, Curve const& curve, float time)
+	{
+		double const expected = curve.Evaluate(time);
+		return std::abs(static_cast<double>(value) - expected) <= 1e-6 * std::max(1.0, std::abs(expected));
+	}
 }
 
 TEST_CASE("Scene: scripts load assets and change the materials they make")
@@ -344,16 +421,7 @@ TEST_CASE("Scene: scripts evaluate curve assets as the engine does and see their
 	Testing::TestDataTypeScope testData;
 	Testing::TemporaryDirectory directory;
 	Testing::AssetManagerScope assets;
-	TypedDataAssetType<Curve> const* const curveType = DataAssetRegistry::Find<Curve>();
-	REQUIRE(curveType != nullptr);
-	REQUIRE(FileSystem::CreateDirectories(directory.GetPath() / "Curves").IsOk());
-	for (std::string_view const name : {"Probe.scurve", "Other.scurve"})
-	{
-		Ref<DataAsset> const file = curveType->CreateAsset();
-		REQUIRE(std::static_pointer_cast<TypedDataAsset<Curve>>(file)->SetData(MakeProbeCurve()).IsOk());
-		REQUIRE(DataAssetSerializer::SaveToFile(*file, directory.GetPath() / "Curves" / name).IsOk());
-	}
-	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	OpenProbeCurves(directory, {"Probe.scurve", "Other.scurve"});
 	AssetHandle const handle = AssetManager::FindByPath("Curves/Probe.scurve");
 	AssetHandle const other = AssetManager::FindByPath("Curves/Other.scurve");
 	REQUIRE(handle.IsValid());
@@ -428,12 +496,76 @@ TEST_CASE("Scene: scripts evaluate curve assets as the engine does and see their
 	CHECK(findType("Mesh", 4) == static_cast<int32_t>(AssetType::Mesh));
 	CHECK(findType("Nothing", 7) == 0);
 	CHECK(Testing::WasLogged(logStart, "Assets: the engine has no asset type named 'Nothing'"));
+	// Values are named the other way, data asset types' included; a value that is no type has no name.
+	auto const getTypeName = FindBinding<GetTypeNameFunction>("Assets_GetTypeName");
+	auto const nameOf = [getTypeName](int32_t value)
+	{
+		int32_t length = -1;
+		char const* const text = getTypeName(value, &length);
+		REQUIRE(length >= 0);
+		return text != nullptr ? std::string(text, static_cast<size_t>(length)) : std::string("<null>");
+	};
+	CHECK(nameOf(curveValue) == "Curve");
+	CHECK(nameOf(static_cast<int32_t>(AssetType::Mesh)) == "Mesh");
+	CHECK(nameOf(static_cast<int32_t>(AssetType::VisualScript)) == "VisualScript");
+	CHECK(nameOf(static_cast<int32_t>(testData.GetType())) == Testing::TestDataName);
+	for (int32_t const value : {0, -1, static_cast<int32_t>(DataAssetRegistry::FirstAssetTypeValue) - 1, 255, 256, 100000})
+	{
+		CAPTURE(value);
+		CHECK(nameOf(value) == "<null>");
+		CHECK(Testing::WasLogged(logStart, "Assets: " + std::to_string(value) + " is not an asset type"));
+	}
 	auto const load = FindBinding<LoadFunction>("Assets_Load");
 	std::string_view const path = "Curves/Probe.scurve";
 	CHECK(load(path.data(), static_cast<int32_t>(path.size()), curveValue) == curveID);
 	auto const testDataValue = static_cast<int32_t>(testData.GetType());
 	CHECK(load(path.data(), static_cast<int32_t>(path.size()), testDataValue) == 0);
 	CHECK(Testing::WasLogged(logStart, "Assets.Load: " + std::to_string(testDataValue) + " is not a loadable asset type"));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: graphs evaluate curve assets as the engine does and see their edits on the next frame without a C# script")
+{
+	Testing::TemporaryDirectory directory;
+	Testing::AssetManagerScope assets;
+	OpenProbeCurves(directory, {"Probe.scurve"});
+	AssetHandle const handle = AssetManager::FindByPath("Curves/Probe.scurve");
+	REQUIRE(handle.IsValid());
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeCurveReaderDocument()), "Curve Reader");
+
+	// Only a graph runs, so only the graphs' invoke can tell the runtime of an edit.
+	Testing::ScriptEngineScope scripting;
+	InvalidationCounter invalidations;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Curve Graphs");
+	Entity reader = scene.CreateEntity("Reader");
+	VisualScriptComponent& component = reader.AddComponent<VisualScriptComponent>();
+	component.Graph = graph;
+	component.Variables = {{"Response", ScriptFieldValue::FromAsset(handle)}};
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	REQUIRE(VisualScriptEngine::GetInstanceCount() == 1);
+	// The script engine counts graph instances too: no C# instance runs.
+	REQUIRE(ScriptEngine::GetInstanceCount() == 1);
+	Ref<TypedDataAsset<Curve>> const asset = AssetManager::GetAsset<TypedDataAsset<Curve>>(handle);
+	REQUIRE(asset != nullptr);
+	float const first = ReadCurveReaderValue(reader);
+	CHECK_MESSAGE(IsEngineValue(first, asset->GetData(), CurveGraphTime), first);
+
+	// An edit shows on the next frame: the runtime is told once, before the graph runs.
+	uint32_t const invalidated = InvalidationCounter::GetCount();
+	Curve edited;
+	edited.Keys = {MakeCurveKey(0.0f, 0.0f, CurveInterpolation::Linear), MakeCurveKey(2.0f, 4.0f, CurveInterpolation::Linear)};
+	REQUIRE(edited.Evaluate(CurveGraphTime) != first);
+	REQUIRE(asset->SetData(edited).IsOk());
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(InvalidationCounter::GetCount() == invalidated + 1);
+	float const second = ReadCurveReaderValue(reader);
+	CHECK_MESSAGE(IsEngineValue(second, edited, CurveGraphTime), second);
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(InvalidationCounter::GetCount() == invalidated + 1);
+	CHECK(ReadCurveReaderValue(reader) == second);
+	CHECK_FALSE(Testing::WasLogged(logStart, "Curve.Evaluate"));
 	scene.OnRuntimeStop();
 }
 

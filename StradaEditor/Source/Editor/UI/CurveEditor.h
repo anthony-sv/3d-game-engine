@@ -145,6 +145,10 @@ namespace Strada
 		// Cancels the gesture in progress (Escape) at the next DrawCurves: a drag's keys or tangent go back where they were
 		// (CancelDrag); a marquee gives back the selection it started from.
 		void CancelGesture() { m_CancelGesture = true; }
+		// Ends the interaction of the header field in progress, for a host whose document changed elsewhere meanwhile (an
+		// undo, an agent's edit): the field lets go of the mouse at once and changes nothing more until it is pressed again,
+		// so the other change stays. Nothing while no header field is active.
+		void EndHeaderInteraction();
 		// Forgets the view (ranges, selection, toggles, gesture), the queued actions and the header's interaction: for a host
 		// that starts showing another document.
 		void Reset();
@@ -159,6 +163,8 @@ namespace Strada
 		bool IsGestureActive() const { return m_View.GetGesture() != CurveGesture::Idle; }
 		// Whether the user is in the middle of an interaction this frame: a header field active, or a key or tangent drag.
 		bool IsInteractionActive() const { return m_InteractionActive; }
+		// Whether a header field (Time, the host's Value) was active in the last DrawHeader.
+		bool IsHeaderActive() const { return m_HeaderField != 0; }
 
 		View& GetView() { return m_View; }
 		View const& GetView() const { return m_View; }
@@ -180,6 +186,8 @@ namespace Strada
 		bool m_InteractionActive = false;
 		// The header row's Time drag: the document at the interaction's start.
 		std::optional<TDocument> m_HeaderStart;
+		// The ImGui item ID of the header field active in the last DrawHeader (the Value group's: its active item's); 0 for none.
+		uint32_t m_HeaderField = 0;
 		// The run of arrow-key nudges: its counter, its merge key and when its last press came.
 		uint64_t m_NudgeRuns = 0;
 		uint64_t m_NudgeKey = 0;

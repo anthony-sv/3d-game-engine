@@ -152,8 +152,8 @@ internal constructor, as `Material` does. No public member lands without a use i
   script library (`VisualType.AssetType`), the script field codec and the literal codec carry the name. A native
   `AssetType` value is fetched only where a call crosses into native code (`Assets.Load<T>`): `AssetTypes.GetNativeType`
   asks `Assets_FindType(name)` once per type and keeps the value. Add the class's row to both switches of `AssetTypes`.
-  No binding hands managed code a type value yet; the first that does adds `Assets_GetTypeName` to name values of 128
-  or more before `AssetTypes.Create`.
+  A binding that hands managed code a type value passes it through `AssetTypes.GetTypeName(int)`, which names values
+  of 128 or more once through `Assets_GetTypeName`, before `AssetTypes.Create`.
 - **The engine's lists of classes.** `IsLoadableType` (`ScriptBindingsAssets.cpp`) accepts the type by its
   `TypedDataAsset<T>::GetStaticType()`, and `FindVisualScriptExposableType` (`VisualScriptLiterals.cpp`) gives
   `Strada.<Name>` its field type and accepted asset type, so that the editor edits public variables and literals of the

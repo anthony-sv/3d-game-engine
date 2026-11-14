@@ -11,6 +11,8 @@ namespace Strada.ScriptCore.Tests;
 // The scripting API's curve asset (Strada.Curve) without an engine: Curve_Read is served by a fake of the engine's binding
 // over a table of curves, so that the tests see what the runtime reads, when, and what it evaluates. The engine's side is
 // StradaTests' (Scene/SceneScriptingHostTests.cpp: scripts evaluate a curve asset as the engine does and see its edits).
+// The fake binding and the caches it fills are the process's, so the tests run alone.
+[Collection(ProcessStaticsCollection.Name)]
 public sealed unsafe class CurveTests : IDisposable
 {
 	// What the fake engine holds: per handle, the version and the data of a curve asset.

@@ -3,6 +3,7 @@
 #include "Editor/UI/CurveEditor.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
@@ -58,9 +59,23 @@ namespace Strada
 	{
 		m_View = {};
 		m_HeaderStart.reset();
+		m_HeaderField = 0;
 		m_Actions.clear();
 		m_CancelGesture = false;
 		m_OpenKeyMenu = false;
+	}
+
+	template<typename TDocument>
+	void CurveEditor<TDocument>::EndHeaderInteraction()
+	{
+		// The field lets go as a released mouse button would let it: it is no longer ImGui's active item (imgui.cpp,
+		// ClearActiveID), and reports its deactivation in the next frame.
+		if (m_HeaderField != 0 && ImGui::GetActiveID() == m_HeaderField)
+		{
+			ImGui::ClearActiveID();
+		}
+		m_HeaderField = 0;
+		m_HeaderStart.reset();
 	}
 
 	template<typename TDocument>
@@ -163,6 +178,7 @@ namespace Strada
 			m_HeaderStart = document;
 		}
 		bool const timeActive = ImGui::IsItemActive();
+		m_HeaderField = timeActive ? ImGui::GetItemID() : 0;
 		if (timeChanged && any && m_HeaderStart && first.first < Traits::GetTrackCount(*m_HeaderStart) &&
 		    first.second < Traits::GetKeyCount(*m_HeaderStart, first.first))
 		{
@@ -206,6 +222,11 @@ namespace Strada
 		AddRect("Value");
 		bool const valueActive = ImGui::IsItemActive();
 		bool const valueDeactivated = ImGui::IsItemDeactivated();
+		if (valueActive)
+		{
+			// A group's ID is its active item's (imgui.cpp, EndGroup).
+			m_HeaderField = ImGui::GetItemID();
+		}
 		if (value && valueKey)
 		{
 			TDocument edited = document;

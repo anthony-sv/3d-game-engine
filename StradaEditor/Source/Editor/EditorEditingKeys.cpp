@@ -3,6 +3,7 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/UI/EditingChordClaims.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
@@ -115,12 +116,18 @@ namespace Strada
 
 	std::span<ImGuiKeyChord const> FindClaimedEditingChords(ImGuiWindow const* keyboardWindow)
 	{
+		if (keyboardWindow == nullptr)
+		{
+			return {};
+		}
 		// A top-level window's ID is its name's hash: the content browser's, docked or floating.
-		if (keyboardWindow != nullptr && keyboardWindow->ID == ImHashStr(ContentBrowserPanel::WindowName))
+		if (keyboardWindow->ID == ImHashStr(ContentBrowserPanel::WindowName))
 		{
 			return ContentBrowserPanel::FocusedChords;
 		}
-		return {};
+		// A widget of the window that claims chords while its own child window has the keyboard (the .scurve editor in the
+		// inspector).
+		return UI::GetClaimedEditingChords(*keyboardWindow);
 	}
 
 	std::string GetEditShortcutText(ImGuiKeyChord chord, std::span<ImGuiKeyChord const> claimed)

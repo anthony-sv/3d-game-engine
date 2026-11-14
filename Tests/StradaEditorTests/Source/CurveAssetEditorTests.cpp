@@ -1,6 +1,7 @@
 #include "HeadlessImGui.h"
 #include "TestUtilities.h"
 
+#include "Editor/EditorEditingKeys.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/UI/CurveAssetEditor.h"
@@ -15,12 +16,17 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 using namespace Strada;
 using Strada::Testing::HeadlessImGui;
@@ -48,6 +54,12 @@ namespace
 		bool Open = true;
 		// Whether the editor's global Delete route fired in a frame since the last check (it runs after the panels).
 		bool GlobalDelete = false;
+		// Runs the editor's editing keys around the inspector instead of that route, as EditorLayer does: the keyboard window
+		// first (FindKeyboardWindow, kept here as m_KeyboardWindow is), the editing keys after the panels.
+		bool EditingKeys = false;
+		ImGuiWindow const* KeyboardWindow = nullptr;
+		// Drawn after the inspector every frame.
+		std::function<void()> Probe;
 
 		CurveInspectorFixture()
 		{
@@ -69,10 +81,25 @@ namespace
 		{
 			return [this]
 			{
+				if (EditingKeys)
+				{
+					KeyboardWindow = FindKeyboardWindow(GImGui->NavWindow, KeyboardWindow);
+				}
 				ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
 				ImGui::SetNextWindowSize(ImVec2(600.0f, 900.0f));
 				Inspector.OnImGuiRender(Operations, Open);
-				GlobalDelete = ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteGlobal) || GlobalDelete;
+				if (EditingKeys)
+				{
+					HandleEditorEditingKeys(Operations, nullptr, FindClaimedEditingChords(KeyboardWindow));
+				}
+				else
+				{
+					GlobalDelete = ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteGlobal) || GlobalDelete;
+				}
+				if (Probe)
+				{
+					Probe();
+				}
 			};
 		}
 
@@ -106,7 +133,59 @@ namespace
 		}
 
 		size_t GetUndoCount() const { return Context.GetHistory().GetUndoCount(); }
+
+		// Opens a stand-in of the editor's Edit menu (a popup, as a menu bar's menu is, so that it has ImGui's keyboard) whose
+		// editing items are drawn as EditorLayer draws them, for the chords the keyboard window claims; returns what they drew
+		// and closes the menu again.
+		std::vector<EditorMenuItemRecord> DrawEditMenu()
+		{
+			std::vector<EditorMenuItemRecord> items;
+			bool open = true;
+			bool close = false;
+			Probe = [this, &items, &open, &close]
+			{
+				if (std::exchange(open, false))
+				{
+					ImGui::OpenPopup("Edit");
+				}
+				if (ImGui::BeginPopup("Edit"))
+				{
+					items = DrawEditorEditingMenuItems(Operations, nullptr, FindClaimedEditingChords(KeyboardWindow));
+					if (close)
+					{
+						ImGui::CloseCurrentPopup();
+					}
+					ImGui::EndPopup();
+				}
+			};
+			Frames(2);
+			REQUIRE(GImGui->NavWindow != nullptr);
+			REQUIRE((GImGui->NavWindow->Flags & ImGuiWindowFlags_Popup) != 0);
+			close = true;
+			Frames(1);
+			Probe = {};
+			Frames(1);
+			REQUIRE(GImGui->OpenPopupStack.Size == 0);
+			return items;
+		}
 	};
+
+	// The shortcut text an Edit menu item showed.
+	std::string FindShortcut(std::vector<EditorMenuItemRecord> const& items, std::string_view label)
+	{
+		auto const item = std::find_if(items.begin(), items.end(),
+		                               [label](EditorMenuItemRecord const& candidate)
+		                               {
+										   return candidate.Label == label;
+									   });
+		REQUIRE_MESSAGE(item != items.end(), label);
+		return item->ShortcutText;
+	}
+
+	std::string GetWindowName(ImGuiWindow const* window)
+	{
+		return window != nullptr ? std::string(window->Name) : std::string();
+	}
 }
 
 TEST_CASE("CurveAssetEditor: the inspector draws a curve asset in the curve editor above its fields, changing nothing")
@@ -354,4 +433,118 @@ TEST_CASE("CurveAssetEditor: a curve whose file is read-only is drawn and change
 	CHECK(fixture.GetUndoCount() == undo);
 	CHECK(fixture.ReadFile() == bytes);
 	CHECK(fixture.ReadCurve().Keys.size() == 3);
+}
+
+TEST_CASE("CurveAssetEditor: while the curve editor has the keyboard the Edit menu shows none of its keys, and they never reach the editor")
+{
+	CurveInspectorFixture fixture;
+	fixture.EditingKeys = true;
+	fixture.Frames(2);
+	size_t const undo = fixture.GetUndoCount();
+
+	// Before the curve view has the keyboard, the Edit menu shows the editor's keys.
+	std::vector<EditorMenuItemRecord> const before = fixture.DrawEditMenu();
+	CHECK(FindShortcut(before, "Delete") == "Delete");
+	CHECK(FindShortcut(before, "Select All") == "Ctrl+A");
+
+	// A click on a key gives the view the keyboard: the inspector has it, and claims the view's editing keys for it, also
+	// while the Edit menu has ImGui's keyboard.
+	fixture.Gui.Click(ToImVec2(fixture.Key(1)), fixture.Drawer());
+	REQUIRE(fixture.Curves->GetEditor().GetView().IsSelected(0, 1));
+	CHECK(GetWindowName(fixture.KeyboardWindow) == "Inspector");
+	std::span<ImGuiKeyChord const> const claimed = FindClaimedEditingChords(fixture.KeyboardWindow);
+	CHECK(std::vector<ImGuiKeyChord>(claimed.begin(), claimed.end()) ==
+	      std::vector<ImGuiKeyChord>(CurveAssetEditor::FocusedChords.begin(), CurveAssetEditor::FocusedChords.end()));
+	std::vector<EditorMenuItemRecord> const during = fixture.DrawEditMenu();
+	CHECK(FindShortcut(during, "Delete").empty());
+	CHECK(FindShortcut(during, "Select All").empty());
+	CHECK(FindShortcut(during, "Duplicate") == "Ctrl+D");
+
+	// The menu closed, the view has the keyboard again: Ctrl+A selects its keys, and the asset stays selected.
+	fixture.Frames(1);
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	CHECK(fixture.Curves->GetEditor().GetView().GetSelection().size() == 3);
+	CHECK(fixture.Context.GetSelectedAsset() == fixture.Asset);
+
+	// With the view's key menu open (a right click on a key), its routes take no key: Ctrl+A reaches the editor's editing
+	// keys, which leave it to the view, so the asset stays selected.
+	fixture.Frames(1, 1.0f);
+	fixture.Gui.Click(ToImVec2(fixture.Key(1)), fixture.Drawer());
+	REQUIRE(fixture.Curves->GetEditor().GetView().GetSelection().size() == 1);
+	fixture.Frames(1, 1.0f);
+	fixture.Gui.MouseClick(ToImVec2(fixture.Key(1)), ImGuiMouseButton_Right, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(GImGui->NavWindow != nullptr);
+	REQUIRE((GImGui->NavWindow->Flags & ImGuiWindowFlags_Popup) != 0);
+	CHECK(GetWindowName(fixture.KeyboardWindow) == "Inspector");
+	CHECK(FindClaimedEditingChords(fixture.KeyboardWindow).size() == CurveAssetEditor::FocusedChords.size());
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Context.GetSelectedAsset() == fixture.Asset);
+	CHECK(fixture.Curves->GetEditor().GetView().GetSelection().size() == 1);
+
+	// A click elsewhere in the inspector (below its fields) closes the menu and gives the keys back to the editor: Ctrl+A
+	// selects every entity of the scene (none), so the asset is no longer shown.
+	std::optional<std::pair<glm::vec2, glm::vec2>> const curves = fixture.Curves->GetEditor().FindRect("Curves");
+	REQUIRE(curves.has_value());
+	glm::vec2 const below(300.0f, 880.0f);
+	REQUIRE(below.y > curves->second.y);
+	fixture.Gui.Click(ToImVec2(below), fixture.Drawer());
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 0);
+	REQUIRE(GImGui->NavWindow != nullptr);
+	CHECK(GetWindowName(GImGui->NavWindow->RootWindow) == "Inspector");
+	CHECK(FindClaimedEditingChords(fixture.KeyboardWindow).empty());
+	std::vector<EditorMenuItemRecord> const after = fixture.DrawEditMenu();
+	CHECK(FindShortcut(after, "Select All") == "Ctrl+A");
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	CHECK_FALSE(fixture.Context.GetSelectedAsset().IsValid());
+	CHECK(fixture.GetUndoCount() == undo);
+}
+
+TEST_CASE("CurveAssetEditor: a header field dragged while its curve changes elsewhere lets go, and that change stays")
+{
+	CurveInspectorFixture fixture;
+	fixture.Gui.Click(ToImVec2(fixture.Key(1)), fixture.Drawer());
+	REQUIRE(fixture.Curves->GetEditor().GetView().IsSelected(0, 1));
+	size_t const undo = fixture.GetUndoCount();
+	std::optional<std::pair<glm::vec2, glm::vec2>> const timeField = fixture.Curves->GetEditor().FindRect("Time");
+	REQUIRE(timeField.has_value());
+	glm::vec2 const timeAt = (timeField->first + timeField->second) * 0.5f;
+
+	// The time field held and dragged: the key moves, one step.
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(timeAt.x, timeAt.y);
+	fixture.Frames(1, 1.0f);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	io.AddMousePosEvent(timeAt.x + 6.0f, timeAt.y);
+	fixture.Frames(2);
+	REQUIRE(fixture.Curves->GetEditor().IsHeaderActive());
+	REQUIRE(fixture.ReadCurve().Keys[1].Time > 1.0f);
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+
+	// An agent sets the keys meanwhile (curve.set's step): the field lets go, and dragging on changes nothing.
+	Json const keys = Json::parse(R"({ "Keys": [ { "Time": 0, "Value": 0.25 }, { "Time": 1.5, "Value": 0.75 } ] })");
+	REQUIRE(fixture.Operations.SetDataAssetFields(fixture.Asset, keys, "Set Keys").IsOk());
+	fixture.Frames(1);
+	CHECK_FALSE(fixture.Curves->GetEditor().IsHeaderActive());
+	io.AddMousePosEvent(timeAt.x + 30.0f, timeAt.y);
+	fixture.Frames(2);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	fixture.Frames(2);
+	Curve const kept = fixture.ReadCurve();
+	REQUIRE(kept.Keys.size() == 2);
+	CHECK(kept.Keys[0].Value == 0.25f);
+	CHECK(kept.Keys[1].Time == 1.5f);
+	CHECK(kept.Keys[1].Value == 0.75f);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Keys");
+
+	// Pressed again, the field works as before: one step more.
+	fixture.Frames(1, 1.0f);
+	fixture.Gui.DragPath(ToImVec2(timeAt), ToImVec2(timeAt + glm::vec2(6.0f, 0.0f)), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 3);
+	CHECK(fixture.ReadCurve().Keys[1].Time > 1.5f);
 }

@@ -502,6 +502,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<Vector3*, Vector3*, float, uint, NativeRaycastHit*, byte> Physics_Raycast;
 
 	internal static delegate* unmanaged<byte*, int, int> Assets_FindType;
+	internal static delegate* unmanaged<int, int*, byte*> Assets_GetTypeName;
 	internal static delegate* unmanaged<byte*, int, int, ulong> Assets_Load;
 	internal static delegate* unmanaged<ulong, ulong, NativeCurveHeader*, NativeCurveKey*, int, int> Curve_Read;
 	internal static delegate* unmanaged<ulong> Material_Create;

@@ -27,7 +27,7 @@
 	     curve cases the engine's tests evaluate too (Tests/Data/Curves), as Curves/. -->
 	<ItemGroup>
 		<None Include="../Data/VisualScripting/**" LinkBase="VisualScripting" CopyToOutputDirectory="PreserveNewest" />
-		<None Include="../Data/Curves/**" LinkBase="Curves" CopyToOutputDirectory="PreserveNewest" />
+		<None Include="../Data/Curves/*.json" LinkBase="Curves" CopyToOutputDirectory="PreserveNewest" />
 	</ItemGroup>
 
 	<!-- CMake tests the engine's Strada.ScriptCore.dll, which it builds once: building the project again into this output

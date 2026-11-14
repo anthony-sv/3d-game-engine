@@ -24,9 +24,14 @@ internal enum NativeAssetType
 // engine's numbers (GetNativeType).
 internal static unsafe class AssetTypes
 {
+	// The first value of data asset types (DataAssetRegistry::FirstAssetTypeValue); the built-in values stay below.
+	internal const int FirstDataAssetTypeValue = 128;
+
 	// The values of data asset types the engine gave by name, kept for the process: the engine's own types keep their values
 	// for as long as it runs. Cleared when the bindings are bound again (Reset).
 	private static readonly Dictionary<string, int> s_DataAssetTypes = [];
+	// The names of data asset types' values the engine gave, as s_DataAssetTypes the other way.
+	private static readonly Dictionary<int, string> s_DataAssetNames = [];
 
 	// The engine's name of the asset class's type; null for other types (Asset itself included).
 	internal static string? GetTypeName(Type type) => type switch
@@ -85,14 +90,41 @@ internal static unsafe class AssetTypes
 		if (value != (int)NativeAssetType.None)
 		{
 			s_DataAssetTypes[name] = value;
+			s_DataAssetNames[value] = name;
 		}
 		return value;
+	}
+
+	// The engine's name of the type an AssetType value from native code stands for, before Create makes a reference of its
+	// class: fixed for built-in types, asked of the engine once for a data asset type's value (Assets_GetTypeName, values from
+	// 128 up). Null for None and for a value that is no type (the engine logged why).
+	internal static string? GetTypeName(int nativeType)
+	{
+		if (nativeType < FirstDataAssetTypeValue)
+		{
+			return GetBuiltInName((NativeAssetType)nativeType);
+		}
+		if (s_DataAssetNames.TryGetValue(nativeType, out string? name))
+		{
+			return name;
+		}
+		int length = 0;
+		byte* text = InternalCalls.Assets_GetTypeName(nativeType, &length);
+		if (text == null)
+		{
+			return null;
+		}
+		name = NativeString.FromUtf8(text, length);
+		s_DataAssetNames[nativeType] = name;
+		s_DataAssetTypes[name] = nativeType;
+		return name;
 	}
 
 	// Forgets the data asset types' values: the engine binds the scripting runtime again (Host.Initialize).
 	internal static void Reset()
 	{
 		s_DataAssetTypes.Clear();
+		s_DataAssetNames.Clear();
 	}
 
 	private static NativeAssetType GetBuiltInType(string name) => name switch
@@ -106,5 +138,19 @@ internal static unsafe class AssetTypes
 		"Font" => NativeAssetType.Font,
 		"VisualScript" => NativeAssetType.VisualScript,
 		_ => NativeAssetType.None,
+	};
+
+	private static string? GetBuiltInName(NativeAssetType type) => type switch
+	{
+		NativeAssetType.Scene => "Scene",
+		NativeAssetType.Prefab => "Prefab",
+		NativeAssetType.Mesh => "Mesh",
+		NativeAssetType.Material => "Material",
+		NativeAssetType.Texture => "Texture",
+		NativeAssetType.Environment => "Environment",
+		NativeAssetType.AudioClip => "AudioClip",
+		NativeAssetType.Font => "Font",
+		NativeAssetType.VisualScript => "VisualScript",
+		_ => null,
 	};
 }

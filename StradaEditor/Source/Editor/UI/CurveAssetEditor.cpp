@@ -1,6 +1,7 @@
 #include "Editor/UI/CurveAssetEditor.h"
 
 #include "Editor/UI/CurveEditorImpl.h"
+#include "Editor/UI/EditingChordClaims.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
@@ -54,15 +55,19 @@ namespace Strada
 	void CurveAssetEditor::HandleKeys()
 	{
 		// Registered every frame the widget is drawn, as focused routes of its child window: they win over the editor's
-		// global editing keys while the view has the keyboard, and decide the next frame.
+		// global editing keys while the view has the keyboard, and decide the next frame. The editing chords among them are
+		// claimed for as long as the view has the keyboard, its key menu's time included (a popup is on no focus route, so
+		// the routes below take nothing then, and the editor's editing keys must not either).
+		UI::UpdateEditingChordClaim(FocusedChords);
 		bool const typing = ImGui::GetIO().WantTextInput;
 		auto const pressed = [typing](ImGuiKeyChord chord, ImGuiInputFlags flags)
 		{
 			return ImGui::Shortcut(chord, ImGuiInputFlags_RouteFocused | flags) && !typing;
 		};
-		bool const deleteKey = pressed(ImGuiKey_Delete, ImGuiInputFlags_None);
-		bool const deleteBackspace = pressed(ImGuiMod_Ctrl | ImGuiKey_Backspace, ImGuiInputFlags_None);
-		bool const selectAll = pressed(ImGuiMod_Ctrl | ImGuiKey_A, ImGuiInputFlags_None);
+		static_assert(FocusedChords[0] == ImGuiKey_Delete && FocusedChords[2] == (ImGuiMod_Ctrl | ImGuiKey_A), "the order read here");
+		bool const deleteKey = pressed(FocusedChords[0], ImGuiInputFlags_None);
+		bool const deleteBackspace = pressed(FocusedChords[1], ImGuiInputFlags_None);
+		bool const selectAll = pressed(FocusedChords[2], ImGuiInputFlags_None);
 		bool const left = pressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat);
 		bool const right = pressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat);
 		bool const coarseLeft = pressed(ImGuiMod_Shift | ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat);
@@ -114,6 +119,7 @@ namespace Strada
 			m_DragKey = 0;
 			m_DragAction.clear();
 			m_Expected.reset();
+			m_HeaderExpected.reset();
 		}
 		m_Editor.BeginFrame();
 		Curve curve;
@@ -130,6 +136,12 @@ namespace Strada
 			m_DragKey = 0;
 			m_DragAction.clear();
 			m_Expected.reset();
+		}
+		if (m_HeaderExpected && *m_HeaderExpected != curve)
+		{
+			// Likewise for a header field being dragged (its Time moves the keys from the curve at its start): it lets go.
+			m_Editor.EndHeaderInteraction();
+			m_HeaderExpected.reset();
 		}
 
 		std::string const title = GetCurveTitle(context.Asset);
@@ -205,15 +217,26 @@ namespace Strada
 					break;
 				case CurveEditorChangeKind::Change:
 					// The inspector's interaction: one step while the field stays active.
+					m_HeaderExpected = change.Document;
 					edit = DataAssetEdit{MakeKeysPatch(change.Document), std::move(change.Action), 0};
 					break;
 				case CurveEditorChangeKind::End:
+					m_HeaderExpected.reset();
 					break;
 				case CurveEditorChangeKind::Commit:
 					edit = DataAssetEdit{MakeKeysPatch(change.Document), std::move(change.Action),
 					                     change.MergeKey != 0 ? change.MergeKey : MakeMergeKey()};
 					break;
 			}
+		}
+		// The curve an active header field must find next frame: its last change's, or the one it started on.
+		if (!m_Editor.IsHeaderActive())
+		{
+			m_HeaderExpected.reset();
+		}
+		else if (!m_HeaderExpected)
+		{
+			m_HeaderExpected = curve;
 		}
 		if (!context.Editable)
 		{
