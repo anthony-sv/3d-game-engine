@@ -1058,7 +1058,8 @@ namespace Strada
 	{
 		for (entt::entity const handle : GetMovingBodies())
 		{
-			if (TransformComponent const* transform = m_Registry.try_get<TransformComponent>(handle))
+			TransformComponent const* transform = m_Registry.valid(handle) ? m_Registry.try_get<TransformComponent>(handle) : nullptr;
+			if (transform != nullptr)
 			{
 				ScenePhysicsSnapshot::BodyDrawing& drawing = m_Bodies.at(handle).Drawing;
 				drawing.PreviousStep = drawing.Step;

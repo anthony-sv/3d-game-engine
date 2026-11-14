@@ -289,6 +289,42 @@ TEST_CASE("ScenePhysics: a body moved in OnUpdate is shown where it was put, and
 	scene.OnRuntimeStop();
 }
 
+TEST_CASE("ScenePhysics: a kinematic body moved every frame is shown exactly where it was put, never behind")
+{
+	Testing::PhysicsSystemScope physics;
+	Scene scene("Per frame");
+	Entity platform = scene.CreateEntity("Platform");
+	RigidBodyComponent& body = platform.AddComponent<RigidBodyComponent>();
+	body.Type = RigidBodyType::Kinematic;
+	body.Interpolation = RigidBodyInterpolation::Interpolate;
+	platform.AddComponent<BoxColliderComponent>().HalfExtents = {1.0f, 0.1f, 1.0f};
+	scene.OnRuntimeStart(PhysicsOnly());
+	REQUIRE(scene.GetPhysicsScene() != nullptr);
+
+	// Moved before every frame, as a script's OnUpdate or an animation moves it: each frame shows exactly that pose, in
+	// frames that run a step and in frames that do not, and the steps take its body there.
+	bool exact = true;
+	int framesWithStep = 0;
+	int framesWithoutStep = 0;
+	for (int frame = 1; frame <= 144; frame++)
+	{
+		TransformComponent& transform = platform.GetComponent<TransformComponent>();
+		glm::vec3 const put = {0.02f * static_cast<float>(frame), 1.0f + 0.01f * static_cast<float>(frame), 0.0f};
+		glm::quat const turned = glm::angleAxis(0.01f * static_cast<float>(frame), glm::vec3(0.0f, 1.0f, 0.0f));
+		transform.Translation = put;
+		transform.Rotation = turned;
+		uint64_t const before = scene.GetFixedStepCount();
+		scene.OnUpdateRuntime(Timestep(Frame144));
+		(scene.GetFixedStepCount() == before ? framesWithoutStep : framesWithStep)++;
+		exact = exact && GetTransform(platform).Translation == put && GetTransform(platform).Rotation == turned;
+	}
+	CHECK(exact);
+	CHECK(framesWithStep > 50);
+	CHECK(framesWithoutStep > 50);
+	CHECK(GetSimulated(scene, platform).Position.x > 2.5f);
+	scene.OnRuntimeStop();
+}
+
 TEST_CASE("ScenePhysics: bodies moved by fixed steps are drawn between them with their riders, and OnFixedUpdate reads the steps")
 {
 	Testing::PhysicsSystemScope physics;
