@@ -794,12 +794,14 @@ next frame.
 A physics material (`.sphysmat`) is a surface: how it slides (`Friction`), bounces (`Restitution`) and rolls
 (`RollingResistance`), the name scripts tell it by (`Surface`: Asphalt, Gravel, Ice) and the sound and particles of an
 impact on it (`ImpactSound`, `ImpactParticles`, which scripts and graphs play and spawn; contacts do neither by
-themselves, and rigid bodies roll without the rolling resistance, which is for scripts and vehicles). Pick one in a
+themselves, and rigid bodies roll without the rolling resistance, which is for scripts and graphs, later the vehicle). Pick one in a
 collider's `Material` field: its values then replace the collider's own `Friction` and `Restitution`, and the inspector
 says so, showing "Set by Material" in place of those two fields while `Material` names a physics material of the project.
 A reference to anything else (an asset of another type, a file that is gone) counts as no material: the two fields show
-again and apply. A material file that is there but does not load keeps "Set by Material" (the inspector does not load
-it), while the body uses the collider's own values and the log says why. A triangle-mesh collider (`Convex` off) also has `Materials`, one per submesh of its mesh (at most 31, in
+again and apply. So does a material file that is there but does not load, once loading it has failed (playing the scene
+tries it; the inspector loads nothing): the body uses the collider's own values and the log says why. Fix the file and
+refresh the assets (the content browser's Refresh, or come back to the editor): a scene that plays takes the material
+before its next physics step. A triangle-mesh collider (`Convex` off) also has `Materials`, one per submesh of its mesh (at most 31, in
 submesh order; an empty entry uses `Material`), so one road mesh can be asphalt, kerbs and gravel.
 
 Where two colliders touch, their values are combined: `FrictionCombine` and `RestitutionCombine` say how

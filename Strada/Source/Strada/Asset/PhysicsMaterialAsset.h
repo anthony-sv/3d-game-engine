@@ -48,7 +48,7 @@ namespace Strada
 			Field("RollingResistance", &PhysicsMaterial::RollingResistance)
 				.AtLeast(0.0)
 				.Doc("The force opposing a wheel that rolls on the surface, per newton of load (about 0.01 for a tyre on asphalt). "
-		             "Read by scripts, graphs and vehicles; rigid bodies roll without it."),
+		             "Read by scripts and graphs (later by the vehicle); rigid bodies roll without it."),
 			Field("Surface", &PhysicsMaterial::Surface)
 				.Doc("The surface's name (Asphalt, Gravel, Ice), which scripts and graphs compare to tell surfaces apart; empty for "
 		             "none."),

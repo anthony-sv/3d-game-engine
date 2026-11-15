@@ -35,9 +35,11 @@
 #include <array>
 #include <bit>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <initializer_list>
 #include <span>
 #include <string>
@@ -702,6 +704,35 @@ TEST_CASE("Scene: scripts read physics materials and the materials raycasts hit,
 	auto const load = FindBinding<LoadFunction>("Assets_Load");
 	std::string_view const path = "PhysicsMaterials/Probe.sphysmat";
 	CHECK(load(path.data(), static_cast<int32_t>(path.size()), materialValue) == materialID);
+
+	// Its file broken and the directory refreshed (as the editor does on asset.refresh and on its return to focus): scripts
+	// read a new material's values, and rays meet the ground's own surface. Fixed and refreshed again, the material reads
+	// as its file says, although nothing of it was loaded for the refresh to find changed.
+	std::filesystem::path const file = directory.GetPath() / "PhysicsMaterials" / "Probe.sphysmat";
+	auto const markWritten = [&file]
+	{
+		std::error_code errorCode;
+		std::filesystem::last_write_time(file, std::filesystem::last_write_time(file) + std::chrono::seconds(5), errorCode);
+		REQUIRE_FALSE(errorCode);
+	};
+	REQUIRE(FileSystem::WriteTextFile(file, "{ not a physics material").IsOk());
+	markWritten();
+	REQUIRE(AssetManager::Refresh().IsOk());
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(probe.GetName() == "Same=True;Friction=0.6;Restitution=0;FrictionCombine=GeometricMean;RestitutionCombine=Maximum;"
+	                         "RollingResistance=0;Surface=;Sound=;Particles=;Hit=Ground;HitMaterial=none;Shared=True");
+	TypedDataAssetType<PhysicsMaterial> const* const materialType = DataAssetRegistry::Find<PhysicsMaterial>();
+	REQUIRE(materialType != nullptr);
+	Ref<DataAsset> const fixedFile = materialType->CreateAsset();
+	REQUIRE(std::static_pointer_cast<TypedDataAsset<PhysicsMaterial>>(fixedFile)->SetData(MakeProbePhysicsMaterial()).IsOk());
+	REQUIRE(DataAssetSerializer::SaveToFile(*fixedFile, file).IsOk());
+	markWritten();
+	REQUIRE(AssetManager::Refresh().IsOk());
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(probe.GetName() == "Same=True;Friction=1.25;Restitution=0.5;FrictionCombine=Multiply;RestitutionCombine=Minimum;"
+	                         "RollingResistance=0.02;Surface=Asphalt;Sound=77;Particles=78;Hit=Ground;HitMaterial=Asphalt;Shared=True");
 	scene.OnRuntimeStop();
 }
 

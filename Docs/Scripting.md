@@ -458,7 +458,8 @@ since contacts neither slow rolling bodies by it nor play or spawn anything. A `
 inspector, `Assets.Load<PhysicsMaterial>("Surfaces/Gravel.sphysmat")` loads one by path, and a raycast names the one it
 hit in `RaycastHit.Material`: the collider's `Material`, or for a triangle of a mesh collider its submesh's entry of
 `Materials`; null when the surface has none and the collider's own `Friction` and `Restitution` apply. Reading a member
-allocates nothing and does not call into the engine (the scripting runtime keeps a copy of the values), raycasts that hit
+allocates nothing and costs a comparison (the scripting runtime keeps a copy of the values): only the first read after
+data assets changed asks the engine, which copies the values only when this material changed; raycasts that hit
 one material share one reference to it, and an edit of the material while the game plays in the editor reaches scripts on
 their next frame. Scripts read physics materials; they do not change them.
 

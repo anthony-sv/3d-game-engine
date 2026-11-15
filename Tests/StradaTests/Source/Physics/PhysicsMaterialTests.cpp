@@ -455,3 +455,144 @@ TEST_CASE("PhysicsScene: a material's new values reach the surfaces that name it
 	CHECK(MeasureAcceleration(*world, FirstId, along, 10) == doctest::Approx(-Gravity * std::sqrt(0.8f)).epsilon(Tolerance));
 	CHECK(world->TakeContactEvents().size() == 1);
 }
+
+namespace
+{
+	// Steps until the body sleeps (at most ten seconds).
+	void SimulateUntilAsleep(PhysicsScene& world, UUID entity)
+	{
+		for (int step = 0; step < 600 && !world.IsSleeping(entity); step++)
+		{
+			world.Step(Step);
+		}
+		REQUIRE(world.IsSleeping(entity));
+	}
+
+	// A 25 degree slope (tan 25 = 0.466) with a box resting on it, both gripping at friction 1, the box allowed to sleep; and
+	// a box asleep on ground of its own, away from the slope.
+	Scope<PhysicsScene> MakeRestingWorld(glm::vec3& downhill)
+	{
+		float const angle = glm::radians(25.0f);
+		glm::quat const tilt = glm::angleAxis(angle, glm::vec3(0.0f, 0.0f, 1.0f));
+		glm::vec3 const normal = tilt * glm::vec3(0.0f, 1.0f, 0.0f);
+		downhill = tilt * glm::vec3(-1.0f, 0.0f, 0.0f);
+		glm::quat const upright(1.0f, 0.0f, 0.0f, 0.0f);
+		Scope<PhysicsScene> world = CreateWorld();
+		REQUIRE(world
+		            ->AddBody(MakeStatic(GroundId, glm::vec3(0.0f), tilt,
+		                                 Box({5.0f, 0.5f, 5.0f}, MakeSurface(SlopeMaterial, 1.0f, PhysicsMaterialCombine::GeometricMean))))
+		            .IsOk());
+		REQUIRE(world
+		            ->AddBody(MakeStatic(SecondId, {40.0f, -0.5f, 0.0f}, upright,
+		                                 Box({5.0f, 0.5f, 5.0f}, MakeSurface(AssetHandle(), 1.0f, PhysicsMaterialCombine::GeometricMean))))
+		            .IsOk());
+		BodyDesc resting = MakeSlider(FirstId, normal * 0.75f, tilt,
+		                              {Box(glm::vec3(0.25f), MakeSurface(BoxMaterial, 1.0f, PhysicsMaterialCombine::GeometricMean))});
+		resting.AllowSleep = true;
+		REQUIRE(world->AddBody(resting).IsOk());
+		BodyDesc away = MakeSlider(ThirdId, {40.0f, 0.25f, 0.0f}, upright,
+		                           {Box(glm::vec3(0.25f), MakeSurface(BoxMaterial, 1.0f, PhysicsMaterialCombine::GeometricMean))});
+		away.AllowSleep = true;
+		REQUIRE(world->AddBody(away).IsOk());
+		SimulateUntilAsleep(*world, FirstId);
+		SimulateUntilAsleep(*world, ThirdId);
+		return world;
+	}
+
+	PhysicsMaterial Slippery()
+	{
+		PhysicsMaterial values;
+		values.Friction = 0.0f;
+		return values;
+	}
+}
+
+TEST_CASE("PhysicsScene: a body asleep on a slope wakes and slides when its own material, or the slope's, loses its grip")
+{
+	Testing::PhysicsSystemScope physics;
+	glm::vec3 downhill(0.0f);
+	SUBCASE("its own material")
+	{
+		Scope<PhysicsScene> world = MakeRestingWorld(downhill);
+		glm::vec3 const start = world->GetBodyTransform(FirstId)->Position;
+		// The same values again change nothing, and wake nothing.
+		PhysicsMaterial gripping;
+		gripping.Friction = 1.0f;
+		CHECK(world->SetMaterialValues(BoxMaterial, gripping) == 2);
+		CHECK(world->IsSleeping(FirstId));
+		CHECK(world->IsSleeping(ThirdId));
+		// Without friction it slides at g sin 25 from the next step; the box elsewhere with the same material wakes too (and,
+		// on flat ground, stays where it is).
+		CHECK(world->SetMaterialValues(BoxMaterial, Slippery()) == 2);
+		CHECK_FALSE(world->IsSleeping(FirstId));
+		CHECK_FALSE(world->IsSleeping(ThirdId));
+		Simulate(*world, 2);
+		CHECK(MeasureAcceleration(*world, FirstId, downhill, 30) ==
+		      doctest::Approx(Gravity * std::sin(glm::radians(25.0f))).epsilon(Tolerance));
+		CHECK(glm::dot(world->GetBodyTransform(FirstId)->Position - start, downhill) > 0.5f);
+	}
+	SUBCASE("the slope's material")
+	{
+		Scope<PhysicsScene> world = MakeRestingWorld(downhill);
+		// A static body wakes what rests on it; the box away from it sleeps on.
+		CHECK(world->SetMaterialValues(SlopeMaterial, Slippery()) == 1);
+		CHECK_FALSE(world->IsSleeping(FirstId));
+		CHECK(world->IsSleeping(ThirdId));
+		Simulate(*world, 2);
+		CHECK(MeasureAcceleration(*world, FirstId, downhill, 30) ==
+		      doctest::Approx(Gravity * std::sin(glm::radians(25.0f))).epsilon(Tolerance));
+		CHECK(world->IsSleeping(ThirdId));
+	}
+}
+
+TEST_CASE("PhysicsScene: a character's inner body meets the surface of the collider it touches, not the body's first")
+{
+	Testing::PhysicsSystemScope physics;
+	glm::quat const upright(1.0f, 0.0f, 0.0f, 0.0f);
+	// A ball of two colliders falls without gravity onto a standing character's head: its lower collider touches the
+	// character's inner body, the upper one (first in the list) touches nothing. The inner body brings Jolt's default
+	// restitution (0) at Maximum, so the bounce is the lower collider's.
+	struct Fall
+	{
+		glm::vec3 Position;
+		glm::vec3 Velocity;
+	};
+	auto const fall = [&upright](float firstRestitution, float touchingRestitution)
+	{
+		Scope<PhysicsScene> world = CreateWorld();
+		REQUIRE(
+			world
+				->AddBody(MakeStatic(GroundId, {0.0f, -0.5f, 0.0f}, upright,
+		                             Box({10.0f, 0.5f, 10.0f}, MakeSurface(AssetHandle(), 0.6f, PhysicsMaterialCombine::GeometricMean))))
+				.IsOk());
+		CharacterDesc character;
+		character.Entity = SecondId;
+		character.Position = {0.0f, 1.0f, 0.0f};
+		// It pushes nothing: the ball's bounce is the contact's alone.
+		character.PushForce = 0.0f;
+		REQUIRE(world->AddCharacter(character).IsOk());
+		Simulate(*world, 10);
+		ColliderDesc upper;
+		upper.Shape = ColliderShape::Sphere;
+		upper.Radius = 0.3f;
+		upper.Offset = {0.0f, 2.0f, 0.0f};
+		upper.Surface = MakeSurface(AssetHandle(), 0.6f, PhysicsMaterialCombine::GeometricMean, firstRestitution);
+		ColliderDesc lower = upper;
+		lower.Offset = glm::vec3(0.0f);
+		lower.Surface = MakeSurface(AssetHandle(), 0.6f, PhysicsMaterialCombine::GeometricMean, touchingRestitution);
+		BodyDesc ball = MakeSlider(FirstId, {0.0f, 4.0f, 0.0f}, upright, {upper, lower}, {0.0f, -5.0f, 0.0f});
+		ball.GravityFactor = 0.0f;
+		REQUIRE(world->AddBody(ball).IsOk());
+		Simulate(*world, 60);
+		return Fall{world->GetBodyTransform(FirstId)->Position, world->GetLinearVelocity(FirstId)};
+	};
+	Fall const bouncing = fall(0.0f, 0.8f);
+	// The first collider's surface plays no part, to the bit.
+	Fall const other = fall(1.0f, 0.8f);
+	CHECK(other.Position == bouncing.Position);
+	CHECK(other.Velocity == bouncing.Velocity);
+	CHECK(bouncing.Velocity.y == doctest::Approx(5.0f * 0.8f).epsilon(0.05));
+	// The touching collider's does: without restitution the ball does not bounce back.
+	Fall const dead = fall(1.0f, 0.0f);
+	CHECK(dead.Velocity.y == doctest::Approx(0.0f).epsilon(0.05));
+}

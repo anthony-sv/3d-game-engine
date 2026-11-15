@@ -39,7 +39,7 @@ namespace Strada
 		PhysicsMaterialCombine FrictionCombine = PhysicsMaterialCombine::GeometricMean;
 		PhysicsMaterialCombine RestitutionCombine = PhysicsMaterialCombine::Maximum;
 		// The rolling resistance coefficient: the force that opposes a wheel rolling on the surface, per newton of load
-		// (about 0.01 for a tyre on asphalt). Read by scripts, graphs and the vehicle; rigid-body contacts ignore it.
+		// (about 0.01 for a tyre on asphalt). Read by scripts and graphs (later by the vehicle); rigid-body contacts ignore it.
 		float RollingResistance = 0.0f;
 		// The surface's name ("Asphalt", "Gravel"), which scripts and graphs compare; empty for none.
 		std::string Surface;

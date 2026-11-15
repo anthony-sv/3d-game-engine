@@ -9,10 +9,12 @@
 #include "Strada/Physics/PhysicsSystem.h"
 
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Geometry/AABox.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseQuery.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
@@ -2167,24 +2169,84 @@ namespace Strada
 		surface.FrictionCombine = values.FrictionCombine;
 		surface.RestitutionCombine = values.RestitutionCombine;
 		ColliderSurface const clamped = ClampSurface(surface);
-		size_t changed = 0;
-		auto const update = [&material, &clamped, &changed](ColliderSurface& target)
+		Data& data = *m_Data;
+		size_t named = 0;
+		bool differs = false;
+		auto const update = [&material, &clamped, &named, &differs](ColliderSurface& target)
 		{
 			if (target.Material == material)
 			{
+				differs = differs || target != clamped;
 				target = clamped;
-				changed++;
+				named++;
 			}
 		};
-		for (ColliderMaterial& collider : m_Data->Materials)
+		// Sleeping bodies have no contacts that would take the new values: the bodies whose surfaces changed wake, and so do
+		// those that may rest on a static one (its bounds widened by the distance at which Jolt makes contacts), in entity
+		// order like every call that reaches Jolt.
+		std::vector<std::pair<UUID, JPH::BodyID>> woken;
+		JPH::BroadPhaseQuery const& broadPhase = data.System.GetBroadPhaseQuery();
+		float const margin = data.System.GetPhysicsSettings().mSpeculativeContactDistance;
+		for (auto const& [entity, record] : data.Bodies)
 		{
-			update(collider.Surface);
-			for (ColliderSurface& submesh : collider.Submeshes)
+			differs = false;
+			for (uint32_t const index : record.Materials)
 			{
-				update(submesh);
+				ColliderMaterial& collider = data.Materials[index];
+				update(collider.Surface);
+				for (ColliderSurface& submesh : collider.Submeshes)
+				{
+					update(submesh);
+				}
+			}
+			if (!differs)
+			{
+				continue;
+			}
+			if (record.Type != RigidBodyType::Static)
+			{
+				woken.emplace_back(entity, record.Id);
+				continue;
+			}
+			JPH::AABox bounds;
+			{
+				JPH::BodyLockRead const lock(data.System.GetBodyLockInterface(), record.Id);
+				if (!lock.Succeeded())
+				{
+					continue;
+				}
+				bounds = lock.GetBody().GetWorldSpaceBounds();
+			}
+			bounds.ExpandBy(JPH::Vec3::sReplicate(margin));
+			JPH::AllHitCollisionCollector<JPH::CollideShapeBodyCollector> touching;
+			broadPhase.CollideAABox(bounds, touching);
+			for (JPH::BodyID const id : touching.mHits)
+			{
+				UUID const other = data.GetBodyEntity(id);
+				BodyRecord const* otherRecord = data.Find(other);
+				if (otherRecord != nullptr && otherRecord->Id == id && otherRecord->Type != RigidBodyType::Static)
+				{
+					woken.emplace_back(other, id);
+				}
 			}
 		}
-		return changed;
+		std::sort(woken.begin(), woken.end(),
+		          [](auto const& first, auto const& second)
+		          {
+					  return first.first < second.first;
+				  });
+		woken.erase(std::unique(woken.begin(), woken.end()), woken.end());
+		std::vector<JPH::BodyID> ids;
+		ids.reserve(woken.size());
+		for (std::pair<UUID, JPH::BodyID> const& body : woken)
+		{
+			ids.push_back(body.second);
+		}
+		if (!ids.empty())
+		{
+			data.System.GetBodyInterface().ActivateBodies(ids.data(), static_cast<int>(ids.size()));
+		}
+		return named;
 	}
 
 	bool PhysicsScene::IsSleeping(UUID entity) const

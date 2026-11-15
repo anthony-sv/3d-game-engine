@@ -126,11 +126,23 @@ namespace Strada
 		void SetGravity(glm::vec3 const& gravity);
 
 		// --- Surfaces (ColliderSurface) ---
+		//
+		// Every collider of a body has a surface (ColliderDesc::Surface), and a triangle mesh with submesh surfaces one per
+		// submesh (ColliderDesc::SubmeshSurfaces). What touches or is hit is a sub-shape of a body (a Jolt SubShapeID): its
+		// leaf shape names its collider, and on such a mesh its triangle's material index names its submesh (0 for the
+		// collider's surface, i for SubmeshSurfaces[i - 1]). Contacts combine the two sub-shapes' surfaces, and queries report
+		// the surface's Material (RaycastHit::Material). The lookup from a sub-shape to its surface is internal to
+		// PhysicsScene.cpp (FindSubShapeMaterial, any thread while the surfaces do not change); code of the Physics module
+		// outside that file that needs it (a vehicle's tyre friction) declares it in an internal header first. Only a
+		// character's inner body has no surface: its contacts bring Jolt's default friction (0.2) and restitution (0) with
+		// the default modes.
 
 		// Gives every collider and submesh surface whose ColliderSurface::Material is this material the material's friction,
 		// restitution and modes (an edit of the material while the world runs): their contacts use them from the next step,
-		// contacts that persist included, and the bodies keep everything else. Returns how many surfaces it changed. Between
-		// steps: Jolt's worker threads read the surfaces during a step.
+		// contacts that persist included, and the bodies keep everything else. When the values differ from what a body had,
+		// it wakes (a sleeping body has no contacts to take them), and so does every non-static body whose bounds meet a
+		// static one's; in entity order. Returns how many surfaces name the material. Between steps: Jolt's worker threads
+		// read the surfaces during a step.
 		size_t SetMaterialValues(AssetHandle material, PhysicsMaterial const& values);
 
 		// --- Body state (ignored for entities without a body) ---

@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace Strada
 {
@@ -72,6 +73,13 @@ namespace Strada
 		{
 			ST_CORE_ASSERT(s_Data, "AssetManager is not initialized");
 			return *s_Data;
+		}
+
+		// Whether a registered file asset is a data asset (by the type its registry entry has).
+		bool IsDataAssetFile(AssetManagerData const& data, AssetHandle handle)
+		{
+			AssetMetadata const* metadata = data.Registry.Find(handle);
+			return metadata != nullptr && DataAssetRegistry::IsDataAssetValue(metadata->Type);
 		}
 
 		std::filesystem::path const s_EmptyPath;
@@ -554,6 +562,13 @@ namespace Strada
 		AssetRefreshResult result;
 		std::unordered_set<std::string> found;
 		bool changed = false;
+		// A data asset that could not load (its file failed, or was missing) may load after this refresh, and nothing its
+		// users hold changes when it does: the epoch moves so that they look it up again.
+		bool const dataAssetsMayLoad = std::ranges::any_of(data.FailedLoads,
+		                                                   [&data](auto const& failed)
+		                                                   {
+															   return IsDataAssetFile(data, failed.first);
+														   });
 
 		std::error_code errorCode;
 		std::filesystem::recursive_directory_iterator it(data.AssetDirectory, std::filesystem::directory_options::skip_permission_denied,
@@ -635,7 +650,8 @@ namespace Strada
 			changed = true;
 		}
 
-		data.MissingFiles.clear();
+		std::unordered_set<AssetHandle> const wereMissing = std::exchange(data.MissingFiles, {});
+		bool foundAgain = false;
 		for (AssetMetadata const& metadata : data.Registry.GetAll())
 		{
 			if (!found.contains(metadata.Path))
@@ -645,6 +661,7 @@ namespace Strada
 				UnloadAsset(metadata.Handle);
 				continue;
 			}
+			foundAgain = foundAgain || (wereMissing.contains(metadata.Handle) && DataAssetRegistry::IsDataAssetValue(metadata.Type));
 
 			if (data.ChangedFiles.contains(metadata.Handle))
 			{
@@ -667,6 +684,10 @@ namespace Strada
 
 		// Files may have been fixed: failed loads are retried.
 		data.FailedLoads.clear();
+		if (dataAssetsMayLoad || foundAgain)
+		{
+			DataAssetRegistry::NotifyUnloaded();
+		}
 
 		if (changed)
 		{

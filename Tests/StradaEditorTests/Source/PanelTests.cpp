@@ -434,6 +434,22 @@ TEST_CASE("FieldEditor: a field an asset field replaces is disabled while it nam
 		REQUIRE(frictionChanged());
 		CHECK(last->Value.get<float>() == doctest::Approx(1.0f));
 	}
+
+	// A registered file whose load has failed counts as no material too (the scene ignores it); the inspector reads the
+	// failure and loads nothing itself, so until a load was tried it shows what sets the field.
+	Testing::TemporaryDirectory const directory;
+	REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Broken.sphysmat", "{ not a physics material").IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const broken = AssetManager::FindByPath("Broken.sphysmat");
+	REQUIRE(broken.IsValid());
+	values["Material"] = broken.ToString();
+	typeIntoFriction("0.5");
+	CHECK_FALSE(frictionChanged());
+	CHECK_FALSE(AssetManager::HasLoadFailure(broken));
+	CHECK(AssetManager::LoadAsset(broken).IsError());
+	typeIntoFriction("0.5");
+	REQUIRE(frictionChanged());
+	CHECK(last->Value.get<float>() == doctest::Approx(0.5f));
 }
 
 namespace

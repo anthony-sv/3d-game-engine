@@ -690,9 +690,10 @@ namespace Strada
 		}
 		ST_PROFILE_SCOPE("Scene.SyncPhysicsMaterials");
 		std::vector<AssetHandle> switched;
+		std::vector<std::pair<AssetHandle, Ref<TypedDataAsset<PhysicsMaterial>>>> edited;
 		for (auto& [handle, use] : m_PhysicsMaterials)
 		{
-			Ref<TypedDataAsset<PhysicsMaterial>> const asset = FindPhysicsMaterial(handle);
+			Ref<TypedDataAsset<PhysicsMaterial>> asset = FindPhysicsMaterial(handle);
 			uint64_t const version = asset ? asset->GetVersion() : 0;
 			if (version == use.Version)
 			{
@@ -701,13 +702,23 @@ namespace Strada
 			if (asset && use.Version != 0)
 			{
 				// Edited (the inspector, physics-material.set, undo) or reloaded: the bodies keep moving as they were.
-				m_Physics->SetMaterialValues(handle, asset->GetData());
+				edited.emplace_back(handle, std::move(asset));
 			}
 			else
 			{
 				switched.push_back(handle);
 			}
 			use.Version = version;
+		}
+		// In handle order, whatever the map's: the edits wake bodies, and what reaches Jolt keeps one order on every run.
+		std::sort(edited.begin(), edited.end(),
+		          [](auto const& first, auto const& second)
+		          {
+					  return first.first.GetUUID().GetValue() < second.first.GetUUID().GetValue();
+				  });
+		for (auto const& [handle, asset] : edited)
+		{
+			m_Physics->SetMaterialValues(handle, asset->GetData());
 		}
 		if (switched.empty())
 		{

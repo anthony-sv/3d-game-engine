@@ -518,13 +518,15 @@ namespace Strada
 			return !value.is_string() || accepts(value.get_ref<std::string const&>());
 		}
 
-		// Whether an asset field's value names a registered asset of the type the field references whose file was found: what
-		// a field it replaces (OverriddenBy) needs to stop applying. An unknown handle, a missing file or an asset of another
-		// type count as no asset.
+		// Whether an asset field's value names a registered asset of the type the field references whose file was found and
+		// has not failed to load: what a field it replaces (OverriddenBy) needs to stop applying. An unknown handle, a missing
+		// file, a file whose load failed or an asset of another type count as no asset.
 		bool ReferencesAvailableAsset(FieldDescriptor const& field, Json const& value)
 		{
 			AssetHandle const handle(ReadID(value));
-			if (!handle.IsValid() || !AssetManager::IsInitialized() || !AssetManager::IsValid(handle) || AssetManager::IsMissing(handle))
+			// The load failure is read, never caused: drawing loads nothing.
+			if (!handle.IsValid() || !AssetManager::IsInitialized() || !AssetManager::IsValid(handle) || AssetManager::IsMissing(handle) ||
+			    AssetManager::HasLoadFailure(handle))
 			{
 				return false;
 			}

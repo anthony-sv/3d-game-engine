@@ -8,18 +8,24 @@
 #include "Strada/Asset/PhysicsMaterial.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Log.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 
 #include <doctest/doctest.h>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -158,6 +164,48 @@ namespace
 	{
 		REQUIRE(DataAssetSerializer::SaveToFile(*MakeMaterial(values), path).IsOk());
 	}
+
+	// Moves the file's write time on, so that a refresh finds it changed whatever the file system's clock resolution.
+	void MarkWritten(std::filesystem::path const& path)
+	{
+		std::error_code errorCode;
+		std::filesystem::last_write_time(path, std::filesystem::last_write_time(path) + std::chrono::seconds(5), errorCode);
+		REQUIRE_FALSE(errorCode);
+	}
+
+	// How many log entries since `first` hold every one of the texts.
+	size_t CountLogged(uint64_t first, std::initializer_list<std::string_view> texts)
+	{
+		std::vector<LogEntry> const entries = Log::GetEntries(first);
+		return static_cast<size_t>(std::count_if(entries.begin(), entries.end(),
+		                                         [texts](LogEntry const& entry)
+		                                         {
+													 return std::all_of(texts.begin(), texts.end(),
+			                                                            [&entry](std::string_view text)
+			                                                            {
+																			return entry.Message.find(text) != std::string::npos;
+																		});
+												 }));
+	}
+
+	// A 25 degree slope (tan 25 = 0.466) and a box resting on it that may sleep, each with its material.
+	void BuildRestingBox(Scene& scene, glm::quat const& tilt, AssetHandle slopeMaterial, AssetHandle boxMaterial)
+	{
+		Entity slope = scene.CreateEntityWithUUID(UUID(100), "Slope");
+		slope.GetComponent<TransformComponent>().Rotation = tilt;
+		BoxColliderComponent& slopeCollider = slope.AddComponent<BoxColliderComponent>();
+		slopeCollider.HalfExtents = {5.0f, 0.5f, 5.0f};
+		slopeCollider.Material = slopeMaterial;
+		Entity box = scene.CreateEntityWithUUID(UUID(200), "Box");
+		box.GetComponent<TransformComponent>().Translation = tilt * glm::vec3(0.0f, 0.75f, 0.0f);
+		box.GetComponent<TransformComponent>().Rotation = tilt;
+		RigidBodyComponent& body = box.AddComponent<RigidBodyComponent>();
+		body.Type = RigidBodyType::Dynamic;
+		body.LockRotation = glm::bvec3(true);
+		BoxColliderComponent& boxCollider = box.AddComponent<BoxColliderComponent>();
+		boxCollider.HalfExtents = glm::vec3(0.25f);
+		boxCollider.Material = boxMaterial;
+	}
 }
 
 TEST_CASE("ScenePhysics: colliders slide by their physics materials, and references to no material keep their own values")
@@ -221,6 +269,15 @@ TEST_CASE("ScenePhysics: colliders slide by their physics materials, and referen
 		CHECK((SpeedAlong(scene, 201 + i, along) - before[i]) / seconds ==
 		      doctest::Approx(-Gravity * std::sqrt(0.05f * 0.2f)).epsilon(Tolerance));
 	}
+
+	// The ground's material dropped while the scene runs (a memory asset removed): the ground and the track are made again
+	// with their own values, and rays name no material there.
+	AssetManager::RemoveMemoryAsset(ice);
+	scene.OnUpdateRuntime(Timestep(Step));
+	CHECK_FALSE(MaterialBelow(scene, 10.0f, 20.0f).IsValid());
+	CHECK_FALSE(MaterialBelow(scene, 60.0f, 0.0f).IsValid());
+	CHECK(MaterialBelow(scene, 56.0f, 0.0f) == rubber);
+	CHECK(MeasureAcceleration(scene, 204, along, 5) == doctest::Approx(-Gravity * std::sqrt(1.0f * 0.2f)).epsilon(Tolerance));
 	scene.OnRuntimeStop();
 }
 
@@ -284,6 +341,76 @@ TEST_CASE("ScenePhysics: a physics material edited, reloaded or broken while the
 	REQUIRE(AssetManager::ReloadAsset(material).IsOk());
 	CHECK(MeasureAcceleration(scene, 200, along, 3) == doctest::Approx(-Gravity * std::sqrt(0.6f)).epsilon(Tolerance));
 	CHECK(MaterialBelow(scene, 20.0f, 20.0f) == material);
+
+	// The same through a refresh of the asset directory (the editor's asset.refresh, its content browser, its return to
+	// focus): broken, the ground is made again with its own friction and the log says why, once for the one body made.
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	REQUIRE(FileSystem::WriteTextFile(file, "{ not a physics material").IsOk());
+	MarkWritten(file);
+	Result<AssetRefreshResult> broken = AssetManager::Refresh();
+	REQUIRE(broken.IsOk());
+	CHECK(broken.GetValue().Modified == std::vector<AssetHandle>{material});
+	scene.OnUpdateRuntime(Timestep(Step));
+	CHECK(MeasureAcceleration(scene, 200, along, 5) == doctest::Approx(-Gravity * std::sqrt(0.5f)).epsilon(Tolerance));
+	CHECK_FALSE(MaterialBelow(scene, 20.0f, 20.0f).IsValid());
+	CHECK(CountLogged(logStart, {"Physics: the physics material", "Ground.sphysmat", "'Ground' does not load"}) == 1);
+	// Fixed, the refresh retries the failed load (it finds no change of the file: nothing of it was loaded), and the bodies
+	// take the material again before the next step.
+	WriteMaterialFile(file, Values(0.3f));
+	MarkWritten(file);
+	REQUIRE(AssetManager::Refresh().IsOk());
+	scene.OnUpdateRuntime(Timestep(Step));
+	CHECK(MaterialBelow(scene, 20.0f, 20.0f) == material);
+	CHECK(MeasureAcceleration(scene, 200, along, 5) == doctest::Approx(-Gravity * std::sqrt(0.3f)).epsilon(Tolerance));
+	CHECK(CountLogged(logStart, {"Physics: the physics material"}) == 1);
+
+	// Deleted while the scene runs: the ground is made again with its own friction, and nothing is said (it names no
+	// physics material any more).
+	REQUIRE(AssetManager::DeleteAsset(material).IsOk());
+	scene.OnUpdateRuntime(Timestep(Step));
+	CHECK_FALSE(MaterialBelow(scene, 20.0f, 20.0f).IsValid());
+	CHECK(MeasureAcceleration(scene, 200, along, 5) == doctest::Approx(-Gravity * std::sqrt(0.5f)).epsilon(Tolerance));
+	CHECK(CountLogged(logStart, {"Physics: the physics material"}) == 1);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("ScenePhysics: a body asleep on a slope slides from the next step after its material, or the slope's, loses its grip")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	AssetHandle const slopeMaterial = AddMaterial(Values(1.0f), "Slope");
+	AssetHandle const boxMaterial = AddMaterial(Values(1.0f), "Box");
+	float const angle = glm::radians(25.0f);
+	glm::quat const tilt = glm::angleAxis(angle, glm::vec3(0.0f, 0.0f, 1.0f));
+	glm::vec3 const downhill = tilt * glm::vec3(-1.0f, 0.0f, 0.0f);
+	AssetHandle edited;
+	SUBCASE("the slope's material")
+	{
+		edited = slopeMaterial;
+	}
+	SUBCASE("the box's material")
+	{
+		edited = boxMaterial;
+	}
+	Scene scene("Asleep");
+	BuildRestingBox(scene, tilt, slopeMaterial, boxMaterial);
+	scene.OnRuntimeStart(PhysicsOnly());
+	PhysicsScene& world = *scene.GetPhysicsScene();
+	// Friction 1 holds it, and it falls asleep.
+	for (int frame = 0; frame < 600 && !world.IsSleeping(UUID(200)); frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(Step));
+	}
+	REQUIRE(world.IsSleeping(UUID(200)));
+	uint64_t const structure = world.GetStructureVersion();
+
+	Ref<TypedDataAsset<PhysicsMaterial>> const asset = AssetManager::GetAsset<TypedDataAsset<PhysicsMaterial>>(edited);
+	REQUIRE(asset != nullptr);
+	REQUIRE(asset->SetData(Values(0.0f)).IsOk());
+	scene.OnUpdateRuntime(Timestep(Step));
+	CHECK_FALSE(world.IsSleeping(UUID(200)));
+	CHECK(world.GetStructureVersion() == structure);
+	CHECK(MeasureAcceleration(scene, 200, downhill, 20) == doctest::Approx(Gravity * std::sin(angle)).epsilon(Tolerance));
 	scene.OnRuntimeStop();
 }
 

@@ -100,6 +100,8 @@ namespace Strada
 		float Restitution = 0.0f;
 		PhysicsMaterialCombine FrictionCombine = PhysicsMaterialCombine::GeometricMean;
 		PhysicsMaterialCombine RestitutionCombine = PhysicsMaterialCombine::Maximum;
+
+		bool operator==(ColliderSurface const& other) const = default;
 	};
 
 	// One collider of a body, in the body's local space before the body's scale.

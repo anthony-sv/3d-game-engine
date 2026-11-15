@@ -340,12 +340,13 @@ namespace Strada
 		static constexpr bool IsDataAssetValue(AssetType type) { return static_cast<uint32_t>(type) >= FirstAssetTypeValue; }
 
 		// Changes whenever what a data asset handle resolves to may have changed: a data asset object was created (loaded,
-		// reloaded or made in memory), changed its data, or was dropped by the asset manager, or a type was registered or
+		// reloaded or made in memory), changed its data, or was dropped by the asset manager, a data asset that could not
+		// load may load again (a refresh retried its failed load or found its missing file), or a type was registered or
 		// unregistered. Never repeats within the process. The scripting runtime compares it before running scripts to tell
-		// managed caches of data assets to read again.
+		// managed caches of data assets to read again; the scene compares it before its physics steps (physics materials).
 		static uint64_t GetEpoch();
 		// The asset manager dropped loaded data assets (unloaded one, closed the directory, removed a memory asset, shut
-		// down): moves the epoch.
+		// down), or a refresh let data assets that could not load be tried again: moves the epoch.
 		static void NotifyUnloaded();
 
 	private:

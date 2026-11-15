@@ -808,7 +808,9 @@ running scripts (the update, fixed update and event entries of C# scripts and gr
 once (`InvalidateDataAssets`, an entry point of `Strada.Interop.Host` that moves `DataAssets.Epoch`); a class then asks again
 on its next use, through one binding of its own that takes the version it holds and copies the data in bulk only when
 the asset's version differs. The epoch moves on every load of any data asset, and that keeps such a load from costing
-each cached curve a copy and an allocation. So a script sees an edit made in the inspector while playing on its next
+each cached curve a copy and an allocation. It also moves on a refresh after which a data asset whose load failed, or
+whose file was missing, may load: nothing a user of it holds changes when it does, so the move is what tells the user
+to look again. So a script sees an edit made in the inspector while playing on its next
 frame, and an access costs a comparison of two managed numbers.
 
 The `strada-add-data-asset` skill is the checklist of a new type: the struct and its field table, the line in the
@@ -1471,7 +1473,8 @@ material's values and modes replace them, and the inspector shows the two fields
 sets them (the `OverriddenBy` field hint, §7.2). A reference to no registered physics material (an unknown handle, a
 missing file, an asset of another type, all of which files and `component.set` accept like any asset reference) counts
 as unset, and the inspector then shows the two fields again; so does a registered file that does not load, with a
-warning when the body is made. A `MeshCollider` with triangles
+warning when the body is made (the inspector reads `AssetManager::HasLoadFailure` and loads nothing: it shows the floats
+once a load has failed). A `MeshCollider` with triangles
 (`Convex` off, on a static or kinematic body) also has `Materials`, one per submesh of its mesh in submesh order; an
 empty entry, or a submesh past the list, uses the collider's `Material` (or its floats). Jolt's mesh shape holds at most
 32 materials (`MeshShape::FLAGS_MATERIAL_BITS`, refused beyond at `MeshShape.cpp:161-163` of the pinned Jolt), so the
@@ -1484,7 +1487,9 @@ the order `GeometricMean`, `Average`, `Minimum`, `Multiply`, `Maximum` wins (so 
 restitution bounces off everything, and one that says `GeometricMean` defers to any other). The rule is symmetric in
 the two sides, as Jolt's pairs come in body order. With both modes at their defaults it is exactly `std::sqrt(a * b)`
 and `std::max(a, b)`, the expressions of the listener before materials, so a scene without materials simulates bit for
-bit as it did and its state hashes do not change. A side is one sub-shape: a collider of a compound body, or a
+bit as it did and its state hashes do not change, with one exception: a character's inner body touching a body of
+several colliders through one that is not its first now meets that collider's values, where before it met the first
+collider's (below). A side is one sub-shape: a collider of a compound body, or a
 triangle's submesh. Its surface is found from the sub-shape ID: `Shape::GetLeafShape`, which compound and decorated
 shapes pass on to the leaf (`CompoundShape.cpp:136`, `DecoratedShape.h:52` of the pinned Jolt), gives the leaf shape, whose
 user data names its collider's entry in the table below, as before materials; on a triangle mesh with submesh
@@ -1493,8 +1498,11 @@ collider's own surface and i for the i-th submesh's. Such a mesh's shape carries
 (`MeshShapeSettings::mMaterials`) only so that the indices are valid: its entries are Jolt's default material, and the
 engine's table says what each index means; a mesh without submesh materials has no list and its triangles index 0,
 exactly as before. A side without a collider entry (a character's inner body) brings its body's own friction and
-restitution with the default modes, which is the rule Jolt's own default combination applies to two bodies; the
-rigid bodies' body-level values are no longer taken from their first collider, and nothing reads them. Jolt merges the
+restitution (Jolt's defaults, 0.2 and 0) with the default modes, which is the rule Jolt's own default combination
+applies to two bodies. The other side brings the surface of the sub-shape it touches. Before materials it brought its
+body's body-level values, which were its first collider's, so a character that touched any other collider of a
+compound body met the wrong collider's friction and restitution; that is the one change a scene without materials sees.
+The rigid bodies' body-level values are no longer taken from their first collider, and nothing reads them. Jolt merges the
 contacts of neighbouring sub-shapes with similar normals into one manifold (manifold reduction, on by default), and a
 manifold names one sub-shape of each side: a body that touches two surfaces at once in one such manifold (a box
 straddling the edge between two submeshes, or two coplanar colliders) takes the values of one of them, in practice the
@@ -1513,9 +1521,17 @@ each material and keeps the version (`DataAsset::GetVersion`) of the material wh
 applied none), and when the data asset registry's epoch has moved, before it next rebuilds changed bodies (which it
 does before the frame's steps and before each step), it gives every material whose version changed its new values
 (`PhysicsScene::SetMaterialValues`, zone `Scene.SyncPhysicsMaterials`). No body is rebuilt, so velocities, contacts and
-joints stay; contacts that persist take the new values at the next step (Jolt calls `OnContactPersisted` every step). A
-material that starts or stops applying (its file breaks and is reloaded, or loads again, or the asset is dropped) makes
-the bodies naming it again, which keep their velocities: what is not a loadable physics material counts as unset.
+joints stay; contacts that persist take the new values at the next step (Jolt calls `OnContactPersisted` every step).
+A sleeping body has no contacts to take them (Jolt drops them until it wakes), so when an edit changes a body's surface
+values, `SetMaterialValues` wakes the body and, for a static one, every non-static body whose bounds meet its own
+(widened by Jolt's speculative contact distance), in entity order: a box asleep on a slope slides at the next step after
+its material, or the slope's, loses its grip. An edit that changes no value (a `Surface` text, a rolling resistance, a
+`set` of the same values) wakes nothing. A material that starts or stops applying (its file breaks and is reloaded or
+refreshed, or loads again, or the asset is dropped) makes the bodies naming it again, which keep their velocities: what
+is not a loadable physics material counts as unset. A refresh of the asset directory that retries a failed load or
+finds a missing file again moves the data asset epoch (§6.4), so a material fixed on disk while the scene plays applies
+before the next step, for its bodies and for scripts alike. A static body rebuilt so is added asleep, as every static
+body is, and wakes nothing that sleeps on it.
 Materials are inputs of the simulation, like the project's settings: the state hash and snapshots do not hold them.
 
 `RaycastHit::Material` (and `Strada.RaycastHit.Material`) is the handle of the material of the sub-shape or triangle a
