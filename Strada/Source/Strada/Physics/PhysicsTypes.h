@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -256,12 +257,69 @@ namespace Strada
 		TriggerExit
 	};
 
+	// The contact points an event carries at most (ContactEvent::Points). Jolt reduces a manifold to at most four points
+	// before it reports it (PhysicsSystem.cpp's PruneContactPoints of the pinned Jolt), so one manifold always fits.
+	inline constexpr uint32_t MaxContactPoints = 4;
+
+	// Where and how two bodies touch as their contact begins, seen from one side ("this" body; the other is the other side
+	// of the event). Taken from Jolt's contact manifold when the contact is added, before the step resolves it.
+	struct ContactPoint
+	{
+		// World space: halfway between the two surfaces' points, where Jolt's solver applies its impulse. A contact found
+		// before the bodies touch (Jolt's speculative contacts, closer than 2 cm) has it in the gap, one found inside
+		// (a fast body that went in during its last step) inside both.
+		glm::vec3 Point = glm::vec3(0.0f);
+		// Unit length, from the other body towards this one: the way this one is pushed.
+		glm::vec3 Normal = glm::vec3(0.0f);
+		// The impulse along the normal at this point (newton seconds, kg m/s, at least 0) that stops the bodies' approach,
+		// and with the pair's restitution bounces them apart, estimated by Jolt (EstimateCollisionResponse) from the two
+		// bodies alone: what the collision takes in all, also when Jolt spreads it over two steps. Inaccurate when more
+		// than two bodies collide at once; 0 for a trigger contact and a pair without a dynamic body.
+		float Impulse = 0.0f;
+		// This body's velocity at the point minus the other's (meters per second), as the contact began: the bodies
+		// approach when it points against Normal.
+		glm::vec3 RelativeVelocity = glm::vec3(0.0f);
+		// The physics materials of the surfaces that touch there, this side's and the other's: the ColliderSurface::Material
+		// of the collider, or of a triangle mesh's submesh; none for a collider's own values and a character's inner body.
+		AssetHandle Material;
+		AssetHandle OtherMaterial;
+
+		bool operator==(ContactPoint const& other) const = default;
+	};
+
+	// The same point seen from the other side: the normal and the relative velocity reversed, the materials exchanged.
+	inline ContactPoint ReverseContactPoint(ContactPoint const& point)
+	{
+		ContactPoint reversed;
+		reversed.Point = point.Point;
+		reversed.Normal = -point.Normal;
+		reversed.Impulse = point.Impulse;
+		reversed.RelativeVelocity = -point.RelativeVelocity;
+		reversed.Material = point.OtherMaterial;
+		reversed.OtherMaterial = point.Material;
+		return reversed;
+	}
+
 	// Two entities started or stopped touching (collision) or overlapping (when either collider is a trigger).
 	struct ContactEvent
 	{
 		ContactEventType Type = ContactEventType::CollisionEnter;
+		// The two entities, in the order Jolt reports their bodies (the lower body ID first).
 		UUID First = UUID::Invalid();
 		UUID Second = UUID::Invalid();
+		// The physics world's step it happened in, counting the world's steps from 1 (PhysicsScene::GetStepCount as that
+		// step ends); the exits of a body removed between steps have the number of the step before. A scene's world steps
+		// once in each of its fixed steps from its start, so this is the scene's fixed step count as that step ends.
+		uint64_t Step = 0;
+		// Enter events: the points where the contact began, seen from First (ReverseContactPoint gives Second's view): those
+		// of every manifold (one pair of sub-shapes, one normal) with which the pair's contact began in that step, the
+		// MaxContactPoints strongest, strongest first: by Impulse from the largest, then by Point's x, y and z from the
+		// smallest. Exits carry none (Jolt reports no points when contacts end), and neither does a contact that sleeping
+		// bodies resume on waking, which makes no event.
+		uint32_t PointCount = 0;
+		std::array<ContactPoint, MaxContactPoints> Points{};
+
+		bool operator==(ContactEvent const& other) const = default;
 	};
 
 	struct BodyTransform

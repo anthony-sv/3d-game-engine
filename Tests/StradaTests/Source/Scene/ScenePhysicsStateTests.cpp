@@ -10,6 +10,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -240,13 +241,10 @@ namespace
 		return played;
 	}
 
+	// Equal events in the same order: entities, kinds, steps and every contact point, to the bit.
 	bool SameEvents(std::vector<ContactEvent> const& a, std::vector<ContactEvent> const& b)
 	{
-		return std::equal(a.begin(), a.end(), b.begin(), b.end(),
-		                  [](ContactEvent const& first, ContactEvent const& second)
-		                  {
-							  return first.Type == second.Type && first.First == second.First && first.Second == second.Second;
-						  });
+		return a == b;
 	}
 }
 
@@ -670,4 +668,78 @@ TEST_CASE("ScenePhysics: entities made while a scene runs get the same UUIDs on 
 
 	// While editing, new entities get random IDs.
 	CHECK(scene.CreateEntity("Edited").GetUUID() != copy->CreateEntity("Edited").GetUUID());
+}
+
+TEST_CASE("ScenePhysics: a ball dropped on the ground lands at one step, point, normal and impulse at 30, 60 and 144 frames per "
+          "second, and its event carries that step")
+{
+	Testing::PhysicsSystemScope physics;
+	constexpr float Gravity = 9.81f;
+	// The ball's bottom starts 2 m above the ground; it lands at sqrt(2 g h), within a step of gravity.
+	constexpr float Drop = 2.0f;
+	glm::vec3 const start(1.5f, Drop + 0.5f, -0.75f);
+	UUID const groundId(160);
+	// Bodies are made in UUID order, and Jolt reports the body made first as the event's First.
+	for (UUID const& ballId : {UUID(150), UUID(170)})
+	{
+		CAPTURE(ballId.GetValue());
+		std::vector<ContactEvent> landings;
+		for (float const frameTime : {1.0f / 30.0f, 1.0f / 60.0f, 1.0f / 144.0f})
+		{
+			CAPTURE(frameTime);
+			Scene scene("Drop");
+			Entity ground = scene.CreateEntityWithUUID(groundId, "Ground");
+			ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+			ground.AddComponent<BoxColliderComponent>().HalfExtents = {10.0f, 0.5f, 10.0f};
+			Entity ball = scene.CreateEntityWithUUID(ballId, "Ball");
+			ball.GetComponent<TransformComponent>().Translation = start;
+			RigidBodyComponent& body = ball.AddComponent<RigidBodyComponent>();
+			body.Type = RigidBodyType::Dynamic;
+			body.Mass = 2.0f;
+			body.LinearDamping = 0.0f;
+			body.AngularDamping = 0.0f;
+			ball.AddComponent<SphereColliderComponent>().Radius = 0.5f;
+			scene.OnRuntimeStart(PhysicsOnly());
+			REQUIRE(scene.GetPhysicsScene() != nullptr);
+
+			std::optional<ContactEvent> landing;
+			for (int frame = 0; frame < 1000 && !landing; frame++)
+			{
+				uint64_t const before = scene.GetFixedStepCount();
+				scene.OnUpdateRuntime(Timestep(frameTime));
+				for (ContactEvent const& event : scene.GetContactEvents())
+				{
+					// The event belongs to one of the frame's steps.
+					CHECK(event.Step > before);
+					CHECK(event.Step <= scene.GetFixedStepCount());
+					if (event.Type == ContactEventType::CollisionEnter)
+					{
+						landing = event;
+					}
+				}
+			}
+			REQUIRE(landing);
+			CHECK(landing->First == (ballId.GetValue() < groundId.GetValue() ? ballId : groundId));
+			CHECK(landing->Second == (ballId.GetValue() < groundId.GetValue() ? groundId : ballId));
+			REQUIRE(landing->PointCount == 1);
+			ContactPoint const point = landing->First == ballId ? landing->Points[0] : ReverseContactPoint(landing->Points[0]);
+
+			// From rest, step k comes in at k steps of gravity (each step's gravity acts before Jolt looks for contacts).
+			float const speed = static_cast<float>(landing->Step) * Gravity * Step;
+			CHECK(std::abs(speed - std::sqrt(2.0f * Gravity * Drop)) <= Gravity * Step);
+			CHECK(point.Point.x == doctest::Approx(start.x).epsilon(1e-5));
+			CHECK(point.Point.z == doctest::Approx(start.z).epsilon(1e-5));
+			CHECK(point.Point.y <= 0.01f + 1e-4f);
+			CHECK(point.Point.y >= -0.5f * speed * Step - 1e-4f);
+			CHECK(point.Normal.y == doctest::Approx(1.0f).epsilon(1e-6));
+			CHECK(point.RelativeVelocity.y == doctest::Approx(-speed).epsilon(1e-4));
+			CHECK(point.Impulse == doctest::Approx(2.0f * speed).epsilon(1e-4));
+			landings.push_back(*landing);
+			scene.OnRuntimeStop();
+		}
+		// The same steps at every frame rate: the same event, to the bit.
+		REQUIRE(landings.size() == 3);
+		CHECK(landings[1] == landings[0]);
+		CHECK(landings[2] == landings[0]);
+	}
 }

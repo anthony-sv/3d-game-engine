@@ -1583,6 +1583,64 @@ parent-local space, keeping their scale). Events delivered to scripts: `OnCollis
 `OnTriggerEnter/Exit(Entity other)`. Queries: raycast (closest solid hit, with the physics material hit; triggers and
 colliders containing the origin are ignored), with a layer mask.
 
+**Contact data.** An enter event (`ContactEvent`, `Physics/PhysicsTypes.h`) carries where and how its contact began:
+up to `MaxContactPoints` (four, as many as Jolt keeps in a manifold: `PhysicsSystem.cpp:1238-1239` prunes it to four
+before reporting it) `ContactPoint`s, each with a position, a normal, an impulse, a relative velocity and the physics
+materials of both sides. They are stored as the event's `First` sees them; `ReverseContactPoint` gives
+`Second`'s view (the normal and the relative velocity reversed, the materials exchanged). Exits carry none: Jolt reports
+no points when contacts end.
+
+- *The point* is halfway between the two surfaces' points of Jolt's manifold (`mRelativeContactPointsOn1` and `On2`
+  around `mBaseOffset`), where Jolt's solver applies its impulse. A contact Jolt finds before the bodies touch (its
+  speculative contacts, closer than `mSpeculativeContactDistance`, 2 cm) has it in the gap; one found after a fast body
+  went in during its last step has it inside both.
+- *The normal* has unit length and points from the other body towards this one: the way this one is pushed. Jolt's
+  manifold normal points from its first body to its second (the way to move the second out, `ContactListener.h:30` of
+  the pinned Jolt 5.6.0), so `First`'s points hold it reversed.
+- *The impulse* is estimated, because Jolt 5.6.0 reports none: when it adds a contact its solver has not run
+  (`ContactListener.h:107-109`), the impulses it solves stay in its `ContactConstraintManager`, which `PhysicsSystem`
+  keeps private (`PhysicsSystem.h:373`), and no callback follows the solve. The listener calls
+  `EstimateCollisionResponse` (`Jolt/Physics/Collision/EstimateCollisionResponse.h:30-42`), which Jolt provides for this
+  callback: a sequential-impulse solve of the two bodies alone, from their velocities as the contact begins (the step's
+  gravity applied, which Jolt does before it looks for contacts, nothing solved yet), with the pair's combined friction
+  and restitution, Jolt's restitution threshold (`mMinVelocityForRestitution`, 1 m/s) and the world solver's iterations
+  (`mNumVelocitySteps`, 10). The figure is the impulse along the normal at that point, in newton seconds, that stops the
+  approach and, with restitution, sends the bodies apart again: what the collision takes in all, also when Jolt's solver
+  spreads it over two steps (a speculative contact first lets the bodies close the gap). A 2 kg ball that comes in at
+  6 m/s on static ground reports 12 N s, and 18 N s with a restitution of 0.5. It knows nothing of other bodies in the
+  same collision (a body landing on a stack). A trigger contact, and a pair without a dynamic body (a character's inner
+  body on static ground), report 0: Jolt gives them no response.
+- *The relative velocity* is this body's velocity at the point minus the other's, at the same moment as the impulse's:
+  the bodies approach when it points against the normal.
+- *The materials* are the `ColliderSurface::Material` of the sub-shape on each side (`FindSubShapeMaterial`, above):
+  none for a collider's own values and for a character's inner body. A manifold names one sub-shape per side, so its
+  points name the surfaces its contact started on (manifold reduction, above). A contact that begins on several
+  manifolds in one step (a ball landing in a groove of two faces, a box across two colliders at an angle) gives the
+  event the points of each, each with its own normal and materials, the four strongest kept.
+- *The order* is strongest first: by impulse from the largest, then by position x, y and z from the smallest, a function
+  of the values rather than of Jolt's order of points. The first point is the strongest.
+- *Taking them* happens in `OnContactAdded`, on Jolt's worker threads, under the collector's lock, and only for the
+  manifolds of a contact that begins (each pair's state remembers its enter event while the step runs). The estimate
+  works on the stack and the points go into the event's fixed array, so taking points allocates nothing; the pairs'
+  bookkeeping and the event list allocate as they grow, as they did before points existed, and the list keeps its
+  capacity from step to step (the main thread takes a copy).
+
+Every event carries the world step it happened in (`ContactEvent::Step`, `PhysicsScene::GetStepCount`): the events the
+step's contacts make have its number, and the exits of a body removed between steps the number of the step before. They
+reach the scene in step order: when a step ends its events are sorted by `First`, then `Second`, then type (they are
+simultaneous, and Jolt's threads find them in any order), and a removal's exits are sorted among themselves before the
+next step's events. A scene's world starts with the scene and steps once in each fixed step, so an event's step is the
+scene's fixed step count as that step ends (`Scene::GetFixedStepCount`); snapshots carry the count.
+
+The scene dispatches the events **once per frame, after the frame's steps**, in that order, each to both entities. They
+are not dispatched per step, because handlers run where `OnUpdate` runs: they read and move entities as the frame shows
+them (drawn poses, below), destroy entities (deferred to the frame's end), play sounds and spawn effects. Inside the
+steps they would run user code between Jolt's step and the scene's write-back, and a handler would run zero to
+`MaxStepsPerFrame` times a frame depending on the frame rate. A frame's handlers see what its steps did, and each event
+says which step it came from. Logic that must react inside a step (a vehicle's tyres, a sensor) asks the world from
+`OnFixedUpdate` with queries rather than waiting for events; this is why contact events stay outside the determinism
+promise below, although their content (entities, steps, points) is the same on every run.
+
 **Step control.** A step lasts the project's `Physics.FixedTimestep` (0.0005 to 0.1 s, default 1/60); a frame runs at
 most `Physics.MaxStepsPerFrame` of them (1 to 64, default 8; a slower frame drops the backlog beyond one step, so the
 game slows down instead of falling further behind), and Jolt simulates each in `Physics.CollisionSteps` collision steps

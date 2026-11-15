@@ -86,13 +86,10 @@ namespace
 		return stepped;
 	}
 
+	// Equal events in the same order: entities, kinds, steps and every contact point, to the bit.
 	bool SameEvents(std::vector<ContactEvent> const& a, std::vector<ContactEvent> const& b)
 	{
-		return std::equal(a.begin(), a.end(), b.begin(), b.end(),
-		                  [](ContactEvent const& first, ContactEvent const& second)
-		                  {
-							  return first.Type == second.Type && first.First == second.First && first.Second == second.Second;
-						  });
+		return a == b;
 	}
 }
 
