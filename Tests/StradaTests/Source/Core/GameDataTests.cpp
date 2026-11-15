@@ -143,7 +143,9 @@ TEST_CASE("GameData: hostile names make portable folders below the root, kept ap
 	// Text that is not ASCII, control characters and quotes become '_', surrounding spaces go.
 	CHECK(GameFolder(OnWindows, "  Caf\xc3\xa9  ", "\"Moto\"\t\n") == "/root/Caf__/_Moto___");
 	// Long names are cut to MaxFolderNameLength bytes, and spaces the cut leaves at the end go too.
-	std::string const longName = std::string(63, 'a') + " b" + std::string(500, 'c');
+	// Built by appending: GCC 13 at -O2 falsely reports -Warray-bounds on operator+ with a temporary string of known length.
+	std::string longName(63, 'a');
+	longName.append(" b").append(500, 'c');
 	std::string const cut = std::string(63, 'a');
 	CHECK(GameFolder(OnWindows, longName, longName) == "/root/" + cut + "/" + cut);
 	CHECK(GameFolder(OnLinux, longName, std::string(200, 'Z')) == "/root/" + cut + "-" + std::string(64, 'z'));

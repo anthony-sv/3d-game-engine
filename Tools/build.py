@@ -6,6 +6,7 @@ Examples:
     python Tools/build.py --config release --test
     python Tools/build.py --compiler clang      # Linux only
     python Tools/build.py --target StradaTests --jobs 4
+    python Tools/build.py --keep-going          # report every failed compile, not only the first
 
 On Windows the Visual Studio developer environment (cl.exe, CMake, Ninja) is located automatically with vswhere,
 so the script works from any shell.
@@ -105,6 +106,9 @@ def main() -> None:
     parser.add_argument("--preset", help="explicit configure/build preset (overrides --config/--compiler)")
     parser.add_argument("--target", help="build only this target")
     parser.add_argument("--jobs", type=int, help="parallel build jobs")
+    parser.add_argument("--keep-going", action="store_true",
+                        help="build everything that does not depend on a failed command, and still fail at the end "
+                             "(Ninja's -k 0; every preset this script builds uses Ninja)")
     parser.add_argument("--test", action="store_true", help="run the test suites after building")
     parser.add_argument("--clean", action="store_true", help="delete the build directory first")
     parser.add_argument("--configure-only", action="store_true")
@@ -134,6 +138,8 @@ def main() -> None:
         build_command += ["--target", arguments.target]
     if arguments.jobs:
         build_command += ["--parallel", str(arguments.jobs)]
+    if arguments.keep_going:
+        build_command += ["--", "-k", "0"]
     run(build_command, environment)
 
     if arguments.test:

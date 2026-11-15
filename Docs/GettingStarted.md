@@ -87,6 +87,7 @@ Other options of `Tools/build.py`:
 | `--jobs <n>` | Limit the parallel build jobs |
 | `--test` | Run the test suites after building |
 | `--clean` | Delete the build directory first |
+| `--keep-going` | Build past failed compiles so that one build reports every error; the build still fails |
 
 `python Tools/build.py --test` builds Debug and runs every test suite; `python Tools/build.py --config release --test`
 does the same for Release. GPU tests need a Vulkan device and windowed tests a display: set

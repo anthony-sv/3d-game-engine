@@ -53,6 +53,7 @@ Linux additionally needs the X11/Wayland/GTK development packages listed in `REA
 python Tools/build.py                    # configure + build the default preset for this OS (Debug)
 python Tools/build.py --config release   # Release
 python Tools/build.py --test             # build and run every test suite
+python Tools/build.py --keep-going       # build past failed compiles, report them all, still fail
 cmake --preset windows-debug && cmake --build --preset windows-debug   # plain CMake (needs a VS dev shell on Windows)
 ```
 

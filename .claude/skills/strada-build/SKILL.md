@@ -16,6 +16,7 @@ python Tools/build.py --compiler clang         # Linux: Clang instead of GCC
 python Tools/build.py --target StradaTests     # build one target
 python Tools/build.py --jobs 4                 # limit parallelism (use when other builds run concurrently)
 python Tools/build.py --clean                  # wipe build/<preset> first
+python Tools/build.py --keep-going             # build past failed compiles, report them all, still fail
 ```
 
 - Presets: `windows-{debug,release,dist}`, `windows-vs` (Visual Studio solution), `linux-gcc-{debug,release,dist}`,
@@ -26,6 +27,10 @@ python Tools/build.py --clean                  # wipe build/<preset> first
 - The script fills in `VULKAN_SDK` from the default install location when the variable is missing.
 - Pass extra CMake arguments with `--cmake-arg=-DNAME=VALUE` (note the `=`), e.g.
   `--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=<dir>` to reuse downloaded dependency archives across build trees.
+- A build stops at the first failed command. `--keep-going` (Ninja's `-k 0`) builds everything that does not depend on
+  a failed command, so one build reports every compile error, and still exits with a failure. CI's Build step passes
+  it, so that one run reports every compile error on each platform: most contributors cannot build two of the three
+  platforms locally.
 
 ## Running tests directly
 
