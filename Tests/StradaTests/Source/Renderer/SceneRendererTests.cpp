@@ -182,15 +182,18 @@ TEST_CASE("SceneRenderer: meshes outside the view or beyond its distance are not
 	renderer.SetViewportSize(ImageWidth, ImageHeight);
 	SceneRendererCamera camera = MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f});
 
-	// Without lights, every draw call is a mesh in the main pass.
+	// Without lights, every draw call is a mesh batch of the main pass: the two cubes in view share their mesh and material,
+	// so they are one batch of two instances.
 	(void)Testing::RenderToImage(scene, camera, renderer);
 	CHECK(renderer.GetStatistics().Culled == 3);
-	CHECK(renderer.GetStatistics().DrawCalls == 2);
+	CHECK(renderer.GetStatistics().DrawCalls == 1);
+	CHECK(renderer.GetStatistics().Instances == 2);
 
 	camera.MaxDistance = 20.0f;
 	(void)Testing::RenderToImage(scene, camera, renderer);
 	CHECK(renderer.GetStatistics().Culled == 4);
 	CHECK(renderer.GetStatistics().DrawCalls == 1);
+	CHECK(renderer.GetStatistics().Instances == 1);
 }
 
 TEST_CASE("SceneRenderer: frames report their GPU time when the GPU can measure it")
@@ -257,7 +260,7 @@ TEST_CASE("SceneRenderer: while the profiler records, each pass's GPU time reach
 	REQUIRE(capture.Frames.size() == 12);
 	// Every frame's CPU phases of the renderer.
 	for (std::string_view const phase :
-	     {"Scene.UpdateTransforms", "Renderer.Submit", "Renderer.Cull", "Renderer.Sort", "Renderer.Prepare", "Renderer.Record"})
+	     {"Scene.UpdateTransforms", "Renderer.Submit", "Renderer.Cull", "Renderer.Prepare", "Renderer.Batch", "Renderer.Record"})
 	{
 		CAPTURE(phase);
 		CHECK(Testing::FindZones(capture, phase).size() == 12);
@@ -306,20 +309,24 @@ TEST_CASE("SceneRenderer: the primary camera's far distance culls what lies beyo
 	SceneRenderer renderer;
 	renderer.SetViewportSize(ImageWidth, ImageHeight);
 
+	// The two cubes share their mesh and material: one batch, of two instances while both are in view.
 	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
 	CHECK(renderer.GetStatistics().Culled == 0);
-	CHECK(renderer.GetStatistics().DrawCalls == 2);
+	CHECK(renderer.GetStatistics().DrawCalls == 1);
+	CHECK(renderer.GetStatistics().Instances == 2);
 
 	camera.PerspectiveFar = 20.0f;
 	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
 	CHECK(renderer.GetStatistics().Culled == 1);
 	CHECK(renderer.GetStatistics().DrawCalls == 1);
+	CHECK(renderer.GetStatistics().Instances == 1);
 
 	camera.Projection = ProjectionType::Orthographic;
 	camera.OrthographicFar = 20.0f;
 	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
 	CHECK(renderer.GetStatistics().Culled == 1);
 	CHECK(renderer.GetStatistics().DrawCalls == 1);
+	CHECK(renderer.GetStatistics().Instances == 1);
 }
 
 TEST_CASE("SceneRenderer: lights that cannot reach the view are culled")

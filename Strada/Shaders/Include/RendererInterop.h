@@ -113,12 +113,12 @@ struct MaterialConstants
 	float3 Padding;
 };
 
-// Per draw (push constants).
+// Per mesh draw of the opaque and transparent passes (push constants): the draw's run of the frame's instance index buffer.
+// A draw's instances are g_Instances[g_InstanceIndices[InstanceOffset + SV_InstanceID]].
 struct DrawConstants
 {
-	float4x4 Model;
-	// Inverse transpose of the model matrix (upper 3x3 used).
-	float4x4 NormalMatrix;
+	uint InstanceOffset;
+	float3 Padding;
 };
 
 // Shadow-map rendering (push constants).
@@ -222,11 +222,10 @@ struct OverlayConstants
 	float2 Padding1;
 };
 
-// Entity ID pass (push constants).
+// Per mesh draw of the entity ID pass (push constants): as DrawConstants; each instance carries its entity ID.
 struct EntityIdDrawConstants
 {
-	float4x4 Model;
-	uint EntityId;
+	uint InstanceOffset;
 	float3 Padding;
 };
 

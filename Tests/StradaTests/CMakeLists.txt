@@ -86,6 +86,7 @@ add_executable(StradaTests
     Source/Renderer/EditorOverlayTests.cpp
     Source/Renderer/FontAtlasTests.cpp
     Source/Renderer/FontTestUtilities.h
+    Source/Renderer/InstancingTests.cpp
     Source/Renderer/PostProcessingTests.cpp
     Source/Renderer/SceneRendererTests.cpp
     Source/Renderer/ShadowMathTests.cpp

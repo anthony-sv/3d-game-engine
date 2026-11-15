@@ -1,5 +1,6 @@
 // Forward metallic-roughness PBR (glTF 2.0 material model). Writes linear HDR radiance pre-multiplied by exposure.
-// Set 0: frame constants, lights, environment, shadows, samplers. Set 1: material. Push constants: per-draw transforms.
+// Set 0: frame constants, lights, environment, shadows, samplers, instances. Set 1: material. Push constants: the draw's
+// run of instance indices.
 
 #include "Include/IBL.hlsli"
 #include "Include/RendererInterop.h"
@@ -18,6 +19,9 @@ SamplerState g_ClampSampler : register(s1, space0);
 // (reversed Z), i.e. the occluded fraction.
 SamplerComparisonState g_ShadowCompareSampler : register(s2, space0);
 SamplerState g_ShadowPointSampler : register(s3, space0);
+// The frame's instances, and the runs of their indices that the draws read (Docs/Architecture.md §6.2, "Instancing").
+StructuredBuffer<InstanceData> g_Instances : register(t7, space0);
+StructuredBuffer<uint> g_InstanceIndices : register(t8, space0);
 
 ConstantBuffer<MaterialConstants> g_Material : register(b0, space1);
 Texture2D g_BaseColorTexture : register(t0, space1);
@@ -45,14 +49,17 @@ struct VertexOutput
 	float2 TexCoord : TEXCOORD0;
 };
 
-VertexOutput VSMain(VertexInput input)
+VertexOutput VSMain(VertexInput input, uint instanceId : SV_InstanceID)
 {
+	InstanceData instance = g_Instances[g_InstanceIndices[g_Draw.InstanceOffset + instanceId]];
 	VertexOutput output;
-	float4 worldPosition = mul(g_Draw.Model, float4(input.Position, 1.0));
+	float4 worldPosition = mul(instance.Model, float4(input.Position, 1.0));
 	output.Position = mul(g_Frame.ViewProjection, worldPosition);
 	output.WorldPosition = worldPosition.xyz;
-	output.Normal = mul((float3x3)g_Draw.NormalMatrix, input.Normal);
-	output.Tangent = float4(mul((float3x3)g_Draw.Model, input.Tangent.xyz), input.Tangent.w);
+	// The normal basis is the inverse transpose scaled by |det|: the pixel shader normalizes.
+	output.Normal = instance.NormalBasis[0].xyz * input.Normal.x + instance.NormalBasis[1].xyz * input.Normal.y +
+	                instance.NormalBasis[2].xyz * input.Normal.z;
+	output.Tangent = float4(mul((float3x3)instance.Model, input.Tangent.xyz), input.Tangent.w);
 	output.TexCoord = input.TexCoord * g_Material.UVTiling + g_Material.UVOffset;
 	return output;
 }

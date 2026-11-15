@@ -1,12 +1,15 @@
 // Editor picking: renders the entity ID of the nearest surface per pixel into an R32_UINT target with its own depth
 // buffer. Masked materials apply their alpha test so cut-out pixels are not pickable.
-// Set 0: overlay camera, push constants and the material sampler. Set 1: the material (same layout as the forward pass).
+// Set 0: overlay camera, push constants (the draw's run of instance indices), the material sampler and the frame's
+// instances. Set 1: the material (same layout as the forward pass).
 
 #include "Include/RendererInterop.h"
 
 ConstantBuffer<OverlayConstants> g_Overlay : register(b0, space0);
 [[vk::push_constant]] ConstantBuffer<EntityIdDrawConstants> g_Draw : register(b1, space0);
 SamplerState g_MaterialSampler : register(s0, space0);
+StructuredBuffer<InstanceData> g_Instances : register(t0, space0);
+StructuredBuffer<uint> g_InstanceIndices : register(t1, space0);
 
 ConstantBuffer<MaterialConstants> g_Material : register(b0, space1);
 Texture2D g_BaseColorTexture : register(t0, space1);
@@ -22,13 +25,16 @@ struct VertexOutput
 {
 	float4 Position : SV_Position;
 	float2 TexCoord : TEXCOORD0;
+	nointerpolation uint EntityId : ENTITYID;
 };
 
-VertexOutput VSMain(VertexInput input)
+VertexOutput VSMain(VertexInput input, uint instanceId : SV_InstanceID)
 {
+	InstanceData instance = g_Instances[g_InstanceIndices[g_Draw.InstanceOffset + instanceId]];
 	VertexOutput output;
-	output.Position = mul(g_Overlay.ViewProjection, mul(g_Draw.Model, float4(input.Position, 1.0)));
+	output.Position = mul(g_Overlay.ViewProjection, mul(instance.Model, float4(input.Position, 1.0)));
 	output.TexCoord = input.TexCoord * g_Material.UVTiling + g_Material.UVOffset;
+	output.EntityId = instance.EntityId;
 	return output;
 }
 
@@ -42,5 +48,5 @@ uint PSMain(VertexOutput input) : SV_Target0
 			discard;
 		}
 	}
-	return g_Draw.EntityId;
+	return input.EntityId;
 }

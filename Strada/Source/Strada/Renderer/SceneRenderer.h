@@ -18,6 +18,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace Strada
@@ -277,39 +278,19 @@ namespace Strada
 		bool IsPickPending() const { return m_PickRequest.has_value() || m_PickInFlight; }
 
 	private:
-		struct DrawItem
-		{
-			Ref<MeshSource> Mesh;
-			Ref<MaterialAsset> Material;
-			glm::mat4 Transform;
-			uint32_t SubmeshIndex = 0;
-			float ViewDepth = 0.0f;
-			AABB WorldBounds;
-			bool CastShadows = true;
-			// Inside the camera's view: drawn by its passes (items outside it are kept only as shadow casters).
-			bool InView = true;
-			// Picking ID with ShaderInterop::EntityIdSelectedBit for selected meshes; 0 when not pickable.
-			uint32_t EntityId = 0;
-			// Resolved before recording (resource creation uploads through its own command list).
-			GpuMesh const* GpuData = nullptr;
-			nvrhi::IBindingSet* MaterialBindings = nullptr;
-			nvrhi::IGraphicsPipeline* Pipeline = nullptr;
-			nvrhi::IGraphicsPipeline* ShadowPipeline = nullptr;
-			nvrhi::IGraphicsPipeline* EntityIdPipeline = nullptr;
-		};
-
 		// --- Instancing (Docs/Architecture.md §6.2, "Instancing"): the frame's tables, its slim draw items and its batches ---
 
 		// A mesh of the frame: one reference per distinct MeshSource submitted, which keeps it alive until EndScene returns,
-		// and its GPU buffers (Renderer::GetMesh), resolved once per frame before recording.
+		// and its GPU buffers (Renderer::GetMesh), resolved once per frame before recording for the meshes a pass may draw.
 		struct FrameMesh
 		{
 			Ref<MeshSource> Source;
 			GpuMesh const* Gpu = nullptr;
+			bool Resolved = false;
 		};
 
 		// A material of the frame: one reference per distinct MaterialAsset submitted (the default material for empty slots),
-		// and what the passes need of it, resolved once per frame before recording.
+		// and what the passes need of it, resolved once per frame before recording for the materials a pass may draw.
 		struct FrameMaterial
 		{
 			Ref<MaterialAsset> Source;
@@ -320,6 +301,7 @@ namespace Strada
 			nvrhi::IGraphicsPipeline* ShadowPipeline = nullptr;
 			nvrhi::IGraphicsPipeline* EntityIdPipeline = nullptr;
 			bool Blend = false;
+			bool Resolved = false;
 		};
 
 		// One submitted submesh: what culling, sorting and batching read, and its instance, mesh, submesh and material by
@@ -338,9 +320,37 @@ namespace Strada
 			uint32_t Submesh = 0;
 			// Index into the frame's material table.
 			uint32_t Material = 0;
+			// The frame's dense index of its mesh, submesh and material: items of one group are drawn by one batch per pass.
+			uint32_t Group = 0;
 			bool CastShadows = true;
 			// Inside the camera's view: drawn by its passes (items outside it are kept only as shadow casters).
 			bool InView = true;
+		};
+
+		// The key of a group: the frame's mesh and material indices and the submesh.
+		struct GroupKey
+		{
+			uint32_t Mesh = 0;
+			uint32_t Submesh = 0;
+			uint32_t Material = 0;
+
+			bool operator==(GroupKey const& other) const = default;
+		};
+
+		struct GroupKeyHash
+		{
+			size_t operator()(GroupKey const& key) const;
+		};
+
+		// What batching keeps of a group while it builds one pass's batches.
+		struct GroupBatch
+		{
+			// The pass's items of the group, then the next free place of its run while the run is filled.
+			uint32_t Count = 0;
+			uint32_t Cursor = 0;
+			// The view depth of its nearest item (the first one met, items being met front to back) and its first item.
+			float Nearest = 0.0f;
+			uint32_t FirstItem = 0;
 		};
 
 		// One mesh draw of a pass (a drawIndexed of InstanceCount instances): the items of equal pipeline, GPU mesh, submesh
@@ -388,15 +398,18 @@ namespace Strada
 			float Radius = 0.0f;
 		};
 
-		struct FrameTextures
+		// What the frame binding set names besides the renderer's constant buffers and samplers.
+		struct FrameResources
 		{
 			nvrhi::ITexture* Irradiance = nullptr;
 			nvrhi::ITexture* Prefiltered = nullptr;
 			nvrhi::ITexture* Radiance = nullptr;
 			nvrhi::ITexture* CascadeShadowMap = nullptr;
 			nvrhi::ITexture* LocalShadowMap = nullptr;
+			nvrhi::IBuffer* Instances = nullptr;
+			nvrhi::IBuffer* InstanceIndices = nullptr;
 
-			bool operator==(FrameTextures const& other) const = default;
+			bool operator==(FrameResources const& other) const = default;
 		};
 
 		struct PassTimer
@@ -436,15 +449,36 @@ namespace Strada
 		};
 
 		void CreateTargets();
-		// Marks the items inside the camera's view and drops the others, except shadow casters while shadows are drawn.
+		// Marks the items inside the camera's view (SceneRendererStatistics::Culled counts the others).
 		void CullToView();
+		// The frame's index of a mesh or material, adding it to the frame's table on its first submission.
+		uint32_t GetFrameMesh(Ref<MeshSource> const& mesh);
+		uint32_t GetFrameMaterial(Ref<MaterialAsset> const& material);
+		// Resolves the GPU resources and pipelines of the meshes and materials of the items a pass may draw: those in the
+		// camera's view and, with shadows, the casters.
+		void ResolveFrameResources(bool shadows);
+		// Whether the item's mesh and material were resolved and can be drawn by the camera's passes, and by the shadow pass.
+		bool IsDrawable(SubmeshItem const& item) const;
+		bool IsShadowCaster(SubmeshItem const& item) const;
+		// The batches of the opaque, transparent and entity-ID passes and the instance index buffer's content
+		// (Renderer.Batch).
+		void BuildBatches();
+		MeshBatch MakeBatch(SubmeshItem const& item, nvrhi::IGraphicsPipeline* pipeline, uint32_t firstInstance,
+		                    uint32_t instanceCount) const;
+		// Grows the instance and instance index buffers to hold the frame (and remakes the binding sets that name them);
+		// false when a buffer cannot be made, and the frame then draws no mesh.
+		bool EnsureInstanceBuffers(size_t instanceCount, size_t indexCount);
+		void CreateEntityIdBindings();
+		// Records the batches of one pass, counting them in the statistics; returns the instances they drew.
+		uint32_t DrawBatches(nvrhi::ICommandList* commandList, std::span<MeshBatch const> batches, nvrhi::IFramebuffer* framebuffer,
+		                     nvrhi::IBindingSet* passBindings);
 		// Reads the GPU times of finished frames (handing the times of their passes to the profiler) and returns the timer
 		// for this frame: null when the GPU cannot measure time, or when every timer still waits for its frame (that frame
 		// goes unmeasured rather than waiting). While the profiler records, the frame's passes are timed with it.
 		FrameTimer* AcquireFrameTimer();
 		// Hands the times of a finished frame's passes to the profiler and makes their timers reusable.
 		void ReportPassTimes(FrameTimer& timer);
-		void UpdateFrameBindings(FrameTextures const& textures);
+		void UpdateFrameBindings(FrameResources const& resources);
 		nvrhi::IGraphicsPipeline* GetMeshPipeline(bool blend, bool doubleSided);
 		nvrhi::IGraphicsPipeline* GetShadowPipeline(bool masked, bool doubleSided);
 		void EnsureShadowMap(nvrhi::TextureHandle& texture, std::vector<nvrhi::FramebufferHandle>& framebuffers, uint32_t size,
@@ -455,10 +489,8 @@ namespace Strada
 		void RenderShadows(nvrhi::ICommandList* commandList);
 		void RenderAmbientOcclusion(nvrhi::ICommandList* commandList);
 		void RenderBloom(nvrhi::ICommandList* commandList);
-		void PrepareItems(std::vector<DrawItem>& items, bool blend);
-		void DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items, nvrhi::IFramebuffer* framebuffer);
 		nvrhi::IGraphicsPipeline* GetEntityIdPipeline(bool blend, bool doubleSided);
-		// Entity IDs of the opaque and then the blended items, plus the copy for a pending pick request.
+		// Entity IDs of the opaque and then the blended items, and of the quads.
 		void RenderEntityIds(nvrhi::ICommandList* commandList);
 		// Grid, UI placed in the world and lines onto the tonemapped image (before FXAA when it is enabled).
 		void RenderOverlays(nvrhi::ICommandList* commandList, bool ldrTarget);
@@ -478,8 +510,31 @@ namespace Strada
 		SceneRendererSettings m_Settings;
 		glm::vec3 m_AmbientRadiance = glm::vec3(0.0f);
 		EnvironmentSubmission m_Environment;
-		std::vector<DrawItem> m_OpaqueItems;
-		std::vector<DrawItem> m_BlendItems;
+
+		// The frame's meshes and materials (references dropped at the end of EndScene), its instances (kept until the next
+		// BeginScene, GetFrameInstances) and its submeshes in submission order.
+		std::vector<FrameMesh> m_FrameMeshes;
+		std::vector<FrameMaterial> m_FrameMaterials;
+		std::unordered_map<MeshSource const*, uint32_t> m_FrameMeshIndices;
+		std::unordered_map<MaterialAsset const*, uint32_t> m_FrameMaterialIndices;
+		// The default material's index in the frame's table (for empty slots), once a submission needed it.
+		std::optional<uint32_t> m_DefaultMaterial;
+		std::vector<ShaderInterop::InstanceData> m_Instances;
+		std::vector<SubmeshItem> m_Items;
+		std::unordered_map<GroupKey, uint32_t, GroupKeyHash> m_GroupIndices;
+		// Batching's working state, kept between frames for its memory: per group, and the items of one pass.
+		std::vector<GroupBatch> m_GroupBatches;
+		std::vector<uint32_t> m_PassItems;
+		std::vector<uint32_t> m_PassGroups;
+		// The frame's batches: the opaque pass's (front to back), the entity-ID pass's (the opaque batches by first
+		// submission, then the blended items) and the transparent pass's (one per blended item, back to front); and the runs
+		// of instance indices they draw.
+		std::vector<MeshBatch> m_OpaqueBatches;
+		std::vector<MeshBatch> m_EntityIdBatches;
+		std::vector<MeshBatch> m_BlendBatches;
+		std::vector<uint32_t> m_InstanceIndices;
+		PassInstanceCounts m_PassInstanceCounts;
+
 		std::vector<ShaderInterop::LightData> m_Lights;
 		int32_t m_ShadowedDirectionalLight = -1;
 		float m_DirectionalLightSize = 0.0f;
@@ -523,10 +578,14 @@ namespace Strada
 
 		nvrhi::BufferHandle m_FrameConstants;
 		nvrhi::BufferHandle m_LightBuffer;
+		// The frame's instances and the runs of instance indices its mesh draws read (grown to the next power of two of what a
+		// frame needs, never shrunk).
+		nvrhi::BufferHandle m_InstanceBuffer;
+		nvrhi::BufferHandle m_InstanceIndexBuffer;
 		nvrhi::BindingLayoutHandle m_FrameLayout;
 		nvrhi::BindingSetHandle m_FrameBindings;
-		// Textures the frame binding set was created with.
-		FrameTextures m_BoundTextures;
+		// Resources the frame binding set was created with.
+		FrameResources m_BoundResources;
 		nvrhi::GraphicsPipelineHandle m_SkyPipeline;
 		nvrhi::InputLayoutHandle m_InputLayout;
 		// Positions and texture coordinates only (shadow and entity ID passes).

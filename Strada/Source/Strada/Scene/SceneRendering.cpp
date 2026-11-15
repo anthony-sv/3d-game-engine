@@ -196,10 +196,14 @@ namespace Strada
 					materials[slot] = AssetManager::GetAsset<MaterialAsset>(handleForSlot);
 				}
 				UUID const id = entity.GetUUID();
-				uint32_t const pickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
-				bool const selected = options.IsSelected && options.IsSelected(id);
-				renderer.SubmitMesh(mesh, materials, scene.GetCachedWorldTransform(handle).World, component.CastShadows, pickingId,
-				                    selected);
+				CachedWorldTransform const world = scene.GetCachedWorldTransform(handle);
+				MeshSubmission submission;
+				submission.Transform = world.World;
+				submission.PreviousTransform = world.Previous;
+				submission.CastShadows = component.CastShadows;
+				submission.PickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
+				submission.Selected = options.IsSelected && options.IsSelected(id);
+				renderer.SubmitMesh(mesh, materials, submission);
 			}
 		}
 

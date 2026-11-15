@@ -170,6 +170,8 @@ set(STRADA_RENDERER_SOURCES
     Source/Strada/Renderer/EnvironmentMap.h
     Source/Strada/Renderer/FontAtlas.cpp
     Source/Strada/Renderer/FontAtlas.h
+    Source/Strada/Renderer/InstanceMath.cpp
+    Source/Strada/Renderer/InstanceMath.h
     Source/Strada/Renderer/QuadRenderer.cpp
     Source/Strada/Renderer/QuadRenderer.h
     Source/Strada/Renderer/Renderer.cpp

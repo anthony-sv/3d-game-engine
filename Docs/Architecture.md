@@ -494,8 +494,10 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   buffer with barriers, `nvrhi/src/vulkan/vulkan-buffer.cpp:444-504`). Each grows to the next power of two of what a
   frame needs (at least 1,024 entries), never shrinks, is made again together with the binding sets that name it when
   it grows, and lives as long as its renderer. The frame binding set (set 0) holds them at `t7` and `t8`, the shadow and
-  entity-ID sets at `t0` and `t1`. The index buffer holds, one after another, the runs of every batch of the frame: the
-  opaque pass's, each shadow view's, the entity-ID pass's and the blended items'.
+  entity-ID sets at `t0` and `t1`. The index buffer holds, one after another, the opaque pass's runs, each shadow
+  view's and one entry per blended item. The entity-ID pass writes none of its own: its batches are the opaque pass's
+  in another order and the blended items', so it draws their runs again (the order of a run's instances changes no ID,
+  the depth test keeps the nearest surface).
 - **What a mesh draw carries.** Its vertex shader reads its instance as
   `g_Instances[g_InstanceIndices[InstanceOffset + SV_InstanceID]]`. The push constants hold the batch's run offset
   (`InstanceOffset`; 16 bytes in the opaque, transparent and entity-ID passes) and, in the shadow pass, the shadow
