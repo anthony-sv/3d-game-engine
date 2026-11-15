@@ -202,7 +202,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     subsystem of their own, `Wait.Gpu` (`GraphicsDevice::EndFrame`) and `Wait.FrameLimit`, so that `Application`'s
     figure is work;
   - `Scene.Update` around `Scene::OnUpdateRuntime`'s phases, in their order: `Scene.UpdateUI`, `Scene.UpdateScripts`,
-    `Scene.UpdatePhysics`, `Scene.ContactEvents`, `Scene.UpdateAudio`, `Scene.UpdateParticles`, `Scene.Destroy`; in
+    `Scene.UpdatePhysics`, `Scene.ContactEvents`, `Scene.UpdateTransforms` (the world-transform cache's refresh, §7.1),
+    `Scene.UpdateAudio`, `Scene.UpdateParticles`, `Scene.Destroy`; in
     `Scene.UpdatePhysics`, `Scene.ReturnToSteps` before the frame's steps and `Scene.Interpolate` after them (§8); in
     each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`;
   - each C# script's update and fixed update under `Script.<class>`, and each graph invoke (every event) under
@@ -218,9 +219,11 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     and records on the engine's `ProfilerThreadState` named `Audio Mixer` (see "Who writes" below), and in
     `AudioEngine::ReadFrames` (manual output, on the calling thread);
     `Audio.Stream` around each pass of the streaming thread (`Audio Streaming`), never its waits;
-  - `Renderer.RenderScene`, with `Renderer.Submit` (the scene's draws, lights and UI) and `Renderer.EndScene`, which
-    holds `Renderer.Cull`, `Renderer.Sort`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings) and
-    `Renderer.Record` (recording and submitting the frame); `Renderer.UploadTexture`, `Renderer.UploadMesh` and
+  - `Renderer.RenderScene`, with `Scene.RefreshTransforms` (the cache brought up to date before it is read, §7.1),
+    `Renderer.Submit` (the scene's draws, lights and UI) and `Renderer.EndScene`, which
+    holds `Renderer.Cull`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings, and within it
+    `Renderer.Batch`, the batches of every pass and the instance index buffer's content, §6.2, which replaces slice 1's
+    `Renderer.Sort`) and `Renderer.Record` (recording and submitting the frame); `Renderer.UploadTexture`, `Renderer.UploadMesh` and
     `Renderer.ProcessEnvironment` on a cache miss only, and `Asset.Load` when an asset is loaded;
   - the editor's play mode, `Play.Update` around the frame it runs, and its graph phases: `GraphEditor.Window` around a
     graph window's frame, `GraphEditor.Sync` with `GraphEditor.Adopt`, `GraphEditor.Analysis`, `GraphEditor.Canvas`
@@ -333,6 +336,22 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     the recording still runs, so that they are free again.
   - A view that renders twice in one frame (thumbnails) reports both sets in order. The frame keeps both, and the
     medians add them per pass name.
+- **Counters.** A frame also carries counts that are not times: each `SceneRenderer`'s statistics (§6.2), so that a
+  player run shows its draws, instances and batches. `Profiler::RecordCounters(view, counters)` (main thread) attaches
+  one record, the view's name and up to `Profiler::MaxCounters` (32) named counts (`ProfilerCounter`: a name with static
+  storage duration and an unsigned 64-bit value), to the frame in progress (`GetFrameIndex`). The counts are known
+  when the renderer ends its frame, so unlike GPU passes they never wait for the GPU. A view that renders twice in a
+  frame records twice, in order. A frame keeps at most `Profiler::MaxCounterRecords` (64) records; later ones, records
+  made while no recorded frame is in progress, and records of a view past the `MaxGpuViews` (16) views a recording
+  names (counters and GPU passes share the views) are dropped, so the writer never writes what the reader refuses.
+  While the profiler is idle the renderer builds and hands over nothing: it checks `Profiler::IsRecording()` (one
+  relaxed load and a branch) first. `ComputeProfilerMedians` gives each `<view>/<counter>` its median over the frames
+  that hold a record of the view, a view that rendered twice adding both (`ProfilerMedians::Counters`).
+  `StradaRuntime --profile` logs them as `Profile counter <view>/<counter>: <median> per frame` (the exit's draws are
+  `Profile counter Game/DrawCalls`), and `profiler.status`, `profiler.capture` and `profiler.open` return them as
+  `counters` (`[{ name, median }]`) beside `gpuPasses` in their medians. Each renderer records `DrawCalls`, `Batches`,
+  `Instances`, `Triangles`, `ShadowDrawCalls`, `ShadowMapViews`, `ShadowsDropped`, `Lights`, `CulledLights`, `Culled`
+  and `Quads`. The Profiler panel shows the shown frame's records beside its GPU passes.
 - **Start, Stop and Shutdown while other threads record.** Each recording has a number. A zone token remembers whether
   its zone began and in which recording, and its end writes nothing when the zone did not begin or the recording has
   changed. A depth counts the zones of the thread's current recording only, so a token of an ended recording never
@@ -437,8 +456,76 @@ headless mode reads it back for screenshots. It never depends on the ECS: `Scene
 caches keyed by asset object identity (meshes, textures per color space with CPU-generated linear-space mips, material
 constants + binding sets refreshed by `MaterialAsset::GetVersion`); scene renderers resolve every resource before
 recording because uploads submit their own command lists. Bindings: set 0 = frame constants (volatile CB), light
-structured buffer, material sampler, per-draw push constants (model + normal matrix, 128 bytes); set 1 = material.
-Structures shared with HLSL live in `Strada/Shaders/Include/RendererInterop.h`.
+structured buffer, the frame's instances and instance indices (below), material sampler, per-draw push constants (the
+draw's instance offset); set 1 = material. Structures shared with HLSL live in
+`Strada/Shaders/Include/RendererInterop.h`; structured buffers use the same DirectX layout as constant buffers
+(`-fvk-use-dx-layout`, `cmake/StradaShaders.cmake:17`), so a `float3` may follow a scalar inside a 16-byte row.
+
+**Instancing** (slice 2's track IN). Every mesh a frame draws is an instance whose data lies in one structured buffer,
+and the instances of equal submeshes are drawn together by one `drawIndexed`:
+
+- **`InstanceData`** (`RendererInterop.h`, 192 bytes; its size and offsets are `static_assert`ed in that header for
+  C++): the model matrix (offset 0); the normal basis (64), three `float4` columns of the inverse transpose of the
+  model's upper 3x3 times the absolute value of its determinant (the cofactor matrix times the determinant's sign), so
+  that shaders, which normalize the normals they transform, need no division and a singular scale gives a finite
+  basis; the entity ID with `EntityIdSelectedBit` (112, then three words of padding); the previous model matrix (128),
+  the world matrix the previous frame drew the entity with (`CachedWorldTransform::Previous`, §7.1), for velocities.
+  `SubmitMesh` fills one per call (one per entity's mesh), computing the normal basis once for every pass that draws
+  it; `RenderScene` submits each mesh with its cached world and previous matrices (`MeshSubmission`).
+- **The buffers.** Each `SceneRenderer` owns an instance buffer (`StructuredBuffer<InstanceData>`) and an instance
+  index buffer (`StructuredBuffer<uint>`), both written once per frame by `writeBuffer` in the `Upload` pass (NVRHI
+  copies a write of more than 64 KiB through its upload manager and orders it after the earlier frames that read the
+  buffer with barriers, `nvrhi/src/vulkan/vulkan-buffer.cpp:444-504`). Each grows to the next power of two of what a
+  frame needs (at least 1,024 entries), never shrinks, is made again together with the binding sets that name it when
+  it grows, and lives as long as its renderer. The frame binding set (set 0) holds them at `t7` and `t8`, the shadow and
+  entity-ID sets at `t0` and `t1`. The index buffer holds, one after another, the runs of every batch of the frame: the
+  opaque pass's, each shadow view's, the entity-ID pass's and the blended items'.
+- **What a mesh draw carries.** Its vertex shader reads its instance as
+  `g_Instances[g_InstanceIndices[InstanceOffset + SV_InstanceID]]`. The push constants hold the batch's run offset
+  (`InstanceOffset`; 16 bytes in the opaque, transparent and entity-ID passes) and, in the shadow pass, the shadow
+  view's view-projection before it (80 bytes): what the pass needs per draw, never a matrix per object. Every mesh draw
+  passes `startInstanceLocation = 0`, so `SV_InstanceID` counts from 0 whatever DXC makes of a base instance.
+- **Draw items** (`SubmeshItem`): one per submitted submesh, without `Ref` copies or matrices: its world bounds and
+  view depth (culling and sorting), its instance's index, its mesh and material as indices into the frame's mesh and
+  material tables (`FrameMesh`, `FrameMaterial`), its submesh, whether it casts shadows and whether it is in the
+  camera's view. The tables hold one `Ref` per distinct mesh and material the frame submitted, so a mesh or material
+  its owner drops during the frame lives until `EndScene` returns, and are resolved once per distinct asset in
+  `Renderer.Prepare`: GPU buffers (`Renderer::GetMesh`), material binding set, and the pipelines of each pass (from the
+  alpha mode and double-sidedness; null where the material is not drawn: blended materials cast no shadows).
+- **Culling** stays per item on the CPU: against the camera's frustum, and for the casters against each shadow view's
+  volume (a cascade's projection, a local light's range sphere), as before.
+- **Batching** (`Renderer.Batch`, inside `Renderer.Prepare`, after the pipelines and the shadow views are known). In the
+  opaque (masked materials included), shadow and entity-ID passes, the items a pass draws (in the camera's view; for a
+  shadow view, the casters that pass its test) with equal pipeline, GPU mesh, submesh and material binding set are one
+  batch (`MeshBatch`): one `drawIndexed` of as many instances. Masked and double-sided materials have binding sets or
+  pipelines of their own, so they never join another material's batch. Items are grouped through a per-frame map of
+  their keys, never by sorting every item on pointers. The orders:
+  - opaque: batches front to back by their nearest instance's view depth (ties by the batch's first submission), and
+    each batch's instances front to back (ties by submission), which keeps the early depth rejection that slice 1's
+    front-to-back sort gave;
+  - shadow: for each shadow view, its batches in the order of their first submission, their instances in submission
+    order. A view's instances reach it as runs of indices, never as copies of their data. The order changes no texel:
+    the depth test keeps the nearest surface whatever comes first;
+  - entity IDs: the opaque batches in the order of their first submission, then the blended items;
+  - blended items are never batched: each is a batch of its one instance, back to front by view depth (ties by
+    submission), in the transparent and in the entity-ID pass, as before.
+- **Statistics** (`SceneRendererStatistics`; the fields' comments are the definitions):
+  - `DrawCalls`: every draw command the frame recorded, in every pass that ran: the mesh batches; every quad batch
+    where it is recorded (world sprites and text in `Transparent`, the UI placed in the world in `Overlays`, the
+    screen-space sprites, text and UI in `ScreenSpace`, and the IDs of all of them in `EntityIds`); and one each for
+    the sky, the tonemap, FXAA, the grid, the debug lines' instanced draw and their composite, and the selection
+    outline, when they are drawn. Compute dispatches (ambient occlusion, bloom), copies and clears are not draws. It is
+    the one number "at most 400 draws" reads; slice 1 counted only mesh and quad draws, and quads before recording.
+  - `Batches`: the mesh draws of the shadow, opaque, transparent and entity-ID passes (part of `DrawCalls`);
+    `ShadowDrawCalls` is the shadow pass's part of them.
+  - `Instances`: the instances those batches drew, summed, so an instance counts once in every batch that draws it
+    (once per pass and shadow view): the mesh draws a renderer without instancing would issue. `Instances / Batches` is
+    the mean batch.
+  - `Triangles`: the batches' triangles (a submesh's triangles times its batch's instances, the entity-ID pass
+    included), plus two per quad.
+  - While the profiler records, `EndScene` hands them to `Profiler::RecordCounters` under the renderer's view name
+    (§4.4, "Counters"); `viewport.statistics` returns `instances` and `batches` beside `drawCalls`, and the editor's
+    Renderer panel shows them.
 
 Visibility: `EndScene` tests the world bounds of every submitted submesh against the camera's `Frustum`
 (`Math/Frustum.h`), built from its view-projection and limited to `SceneRendererCamera::MaxDistance` (the camera
@@ -1023,11 +1110,68 @@ Play mode runs on a deep copy (`Scene::Copy`); stopping restores the editor scen
 
 Runtime update order per frame: UI (the mouse over buttons, clicks and `OnClick`) → scripts `OnUpdate` → physics
 fixed steps (accumulator, default 60 Hz; scripts' `OnFixedUpdate` before each step; characters are then drawn between
-their last two steps, §8) → contact/trigger events dispatched to scripts → transform sync → audio update → deferred
-entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the end of
+their last two steps, §8) → contact/trigger events dispatched to scripts → the world-transform cache's refresh
+(`UpdateTransforms`, below) → audio update → particles → deferred entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the end of
 the frame; creation is immediate. Editor edits of the running scene happen between frames, so `EditorContext`
 completes their destruction at once (`Scene::FlushPendingDestruction`): later edits and undo, also while paused, find
 the entities gone.
+
+**The world-transform cache** (slice 2's track IN). An entity's world matrix is its `TransformComponent`'s local matrix
+under its parent's world matrix. The scene keeps every entity's world matrix in a cache, so that engine phases read
+matrices instead of walking parents through the UUID map, and so that each entity's matrix of the previous frame is
+known (velocities, §6.2). `Scene::GetWorldTransform` answers from it and is never stale.
+
+- **Who writes transforms, and how a write is noticed.** Scripts (through their component accessors), the editor
+  (inspector, gizmo, commands, undo), physics (the write-back after each step and the drawing between steps, §8),
+  prefab instantiation, `SetWorldTransform`, `SetParent` and the serializers all write `TransformComponent` and
+  `RelationshipComponent` fields in place, and the fields stay public. Nothing tells the cache: EnTT's update signal
+  fires only through `patch` and `replace` (`entt/entity/mixin.hpp:352-354`), never for a write through a reference.
+  So the cache notices writes by comparison. Each entity's entry keeps the inputs its world matrix was made from: the
+  bits of `Translation`, `Rotation` and `Scale`, the parent's UUID and the handle it resolved to. An entry is current
+  while those inputs are bit for bit what the components hold, the parent's handle is still valid (an entity
+  destroyed and made again with its UUID, as undo does, has a new handle) and the parent's entry is current. An entry
+  is destroyed with its entity; an entity made since the last refresh (created, duplicated, instantiated, made again by
+  undo) has none and is computed.
+- **One order of products.** The refresh and every read compute `W(e) = W(parent) × L(e)`, with `W(root) = L(root)`,
+  top down, so a matrix read through the chain and the same matrix after a refresh have the same bits, in every run
+  and at every frame rate. Slice 1's walk multiplied bottom up (`L(root) × (... × L(e))`). The two orders give the same
+  bits for roots and their children, and may differ in the last bits two or more levels below a root: physics, which
+  reads world transforms when it syncs bodies, may therefore see slightly different values than before for bodies that
+  deep, and a sample's state hash may change once with the cache (the three-rate cases compare runs of one build, so
+  they hold).
+- **A read between refreshes** (`GetWorldTransform`) checks the entity's chain up to its root, a comparison of 40 bytes
+  and a UUID per level and no matrix product, and returns the cached matrix when the chain is current; otherwise it
+  multiplies from the highest entity whose entry is not current down to the entity. It writes nothing: a script that
+  moves a parent and then reads a child in the same frame sees the move, and pays a product per level below the move.
+- **The refresh.** `Scene::UpdateTransforms` begins a frame of the scene (below) and refreshes every entry, parents
+  before children (an explicit stack, as deep hierarchies need): an entry whose inputs or whose parent's matrix changed
+  is computed again, every other entry costs its comparison. `OnUpdateRuntime` calls it once per frame
+  (`Scene.UpdateTransforms` zone), after physics has drawn the bodies between steps and after the contact events, the
+  scripts' last phase before the engine's own; the audio and particle updates that follow read through
+  `GetWorldTransform`, whose chains are then current. `Scene::RefreshTransforms` refreshes without beginning a frame:
+  `RenderScene` calls it before it submits (`Scene.RefreshTransforms` zone), because the editor's inspector, gizmo and
+  commands, a script's `OnDestroy` in the deferred destruction, and tests and thumbnails that draw scenes nobody
+  updates all change transforms between the scene's update and its views. After the first view of a frame nothing has
+  changed, and a refresh recomputes nothing. A frame of the player runs one update and one refresh; the editor playing
+  with its scene view and game view open runs one update and two refreshes. The renderer then reads each entity it draws
+  through `Scene::GetCachedWorldTransform`, which does not check the chain: exact for every entity when nothing wrote a
+  transform since the refresh; an entity made since is computed as `GetWorldTransform` computes it.
+- **The previous matrix.** `CachedWorldTransform::Previous` is the world matrix the cache held for the entity when the
+  scene's current frame began: the one the previous frame drew it with. It equals `World` for an entity in its first
+  frame, and for every entity of a scene that never began a frame. It is kept lazily: an entry remembers the frame its
+  matrix last changed in and keeps the matrix it replaced only then, so beginning a frame costs nothing per entity.
+  Each scene has one owner that begins its frames, once per frame the scene is drawn:
+  - the scene itself in `OnUpdateRuntime` while it runs: the player's `SceneRunner` and the editor's play mode call it
+    every frame, and a paused scene without queued steps begins its frame and returns;
+  - the editor's play mode, for the running scene in a frame the debugger holds (`GetFrameStepRefusal`), in which it
+    does not call `OnUpdateRuntime`;
+  - the editor layer, for the edited scene, once per editor frame while nothing plays.
+  `play.advance` runs several frames of the scene in one editor frame, and each begins its own.
+- **Costs.** An entry is about 200 bytes, kept in a storage of the scene's registry for an internal type that
+  `ComponentRegistry` does not list: it is no component, so it is never serialized, copied (`Scene::Copy`, duplicates
+  and prefab instances start without entries), shown or scripted. The target is a refresh of 12,000 entities in at most
+  0.5 ms in Release on the reference machine, whether none, some or all of them moved; IN's benchmark measures the
+  three. Main thread only, as the scene is.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
 
@@ -1278,12 +1422,14 @@ no viewer was run against it yet):
 (one line). The events are told apart by their structure, never by their names, so a zone may be named `Frame` or
 `GPU.Opaque` and a thread `GPU Viewport`:
 
-- metadata events (`"ph": "M"`): `process_name` of process 1 (`"Strada"`) and, when there are GPU passes, of process 2
-  (`"GPU"`); then a `thread_name` (`"args": { "name": ... }`) for every thread of process 1 (`"tid"`: its index + 1,
-  so the main thread is `"tid": 1`, named in order from 1) and for every GPU view of process 2 (`"tid"`: the view's
-  index + 1, named in order from 1). Other metadata is ignored;
+- metadata events (`"ph": "M"`): `process_name` of process 1 (`"Strada"`) and, when there are GPU passes or counters,
+  of process 2 (`"GPU"`); then a `thread_name` (`"args": { "name": ... }`) for every thread of process 1 (`"tid"`: its
+  index + 1, so the main thread is `"tid": 1`, named in order from 1) and for every view of process 2 that a frame's
+  GPU passes or counters use (`"tid"`: the view's index + 1, named in order from 1). Other metadata is ignored;
 - one complete event (`"ph": "X"`) per frame on process 1, thread 1, named `Frame` with `"cat": "Frame"`, with
-  `"args": { "Frame": <index>, "DroppedZones": <n> }`. A frame's events follow it;
+  `"args": { "Frame": <index>, "DroppedZones": <n> }`, and, when the frame holds counter records (§4.4, "Counters"),
+  `"Counters": [ { "View": <tid of process 2>, "Values": { "<counter>": <count>, ... } }, ... ]` in the order they were
+  recorded. A frame's events follow it;
 - one complete event per zone on process 1, its `"cat"` its subsystem (`Other` when it has none), with
   `"args": { "Frame": <index>, "Depth": <depth> }`, plus `"Value": { "<label>": <count> }` when the zone carries a
   count. `Depth` is the zone's depth in its frame's tree (§4.4: a zone whose parent the frame does not hold is at
@@ -1322,6 +1468,11 @@ The reader refuses:
 - a zone whose thread comes before the thread of the zone before it in its frame (a frame's zones are grouped by
   thread in `tid` order, so that a tree builder reads each thread's as one run);
 - a `Value` that is not an object of one unsigned count;
+- a frame's `Counters` that is not an array of at most `Profiler::MaxCounterRecords` objects, each with a `View` that
+  a `thread_name` of process 2 before it names and `Values` an object of at most `Profiler::MaxCounters` unsigned
+  counts whose names are valid UTF-8 of at most `Profiler::MaxNameBytes`. `Counters` is optional, so captures written
+  before slice 2 read as frames without counters; the version stays 1, because a reader of version 1 ignores the
+  member like any unknown one;
 - more frames, zones, GPU passes, names, threads or views than a recording holds (`Profiler::MaxHistoryFrames`,
   `MaxHistoryZones`, `ProfilerCaptureSerializer::MaxGpuPasses`, `MaxCaptureNames`, `MaxRecordedThreads`,
   `MaxGpuViews`);

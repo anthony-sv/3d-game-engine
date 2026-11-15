@@ -73,6 +73,21 @@ namespace Strada
 		bool CastShadows = false;
 	};
 
+	// One mesh instance (SceneRenderer::SubmitMesh).
+	struct MeshSubmission
+	{
+		// World matrix.
+		glm::mat4 Transform = glm::mat4(1.0f);
+		// The world matrix the previous frame drew the mesh with (Scene's CachedWorldTransform::Previous): equal to
+		// Transform for a mesh that did not move. Velocities read it.
+		glm::mat4 PreviousTransform = glm::mat4(1.0f);
+		bool CastShadows = true;
+		// Non-zero ID reported by picking (below SceneRenderer::MaxPickingId; 0 = not pickable); selected meshes get the
+		// selection outline.
+		uint32_t PickingId = 0;
+		bool Selected = false;
+	};
+
 	struct EnvironmentSubmission
 	{
 		// Equirectangular HDR environment for image-based lighting and the sky.
@@ -125,12 +140,26 @@ namespace Strada
 		static constexpr float MaxLineOutlineWidth = 8.0f;
 	};
 
+	// What one frame of a scene renderer drew (Docs/Architecture.md §6.2, "Instancing", holds the definitions).
 	struct SceneRendererStatistics
 	{
-		// Including shadow-map draws.
+		// Every draw command the frame recorded, in every pass that ran: the mesh batches (Batches); every quad batch where
+		// it is recorded (world sprites and text in the transparent pass, the UI placed in the world among the overlays, the
+		// screen-space sprites, text and UI, and the IDs of all of them in the entity-ID pass); and one each for the sky,
+		// the tonemap, FXAA, the grid, the debug lines' instanced draw and their composite, and the selection outline, when
+		// they are drawn. Compute dispatches (ambient occlusion, bloom), copies and clears are not draws.
 		uint32_t DrawCalls = 0;
+		// Mesh draws of the shadow, opaque, transparent and entity-ID passes: each draws one or more instances of one
+		// submesh with one material and pipeline (blended items are one instance each). Part of DrawCalls.
+		uint32_t Batches = 0;
+		// The mesh instances those batches drew, summed: an instance counts once in every batch that draws it, so once per
+		// pass and shadow view. The mesh draws a renderer without instancing would issue.
+		uint32_t Instances = 0;
+		// Triangles of the batches (a submesh's triangles times its batch's instances, in the four mesh passes), plus two
+		// per quad.
 		uint32_t Triangles = 0;
 		uint32_t Lights = 0;
+		// The shadow pass's batches (part of Batches).
 		uint32_t ShadowDrawCalls = 0;
 		// Cascades plus local light slices rendered this frame.
 		uint32_t ShadowMapViews = 0;
@@ -186,6 +215,10 @@ namespace Strada
 		// reported by picking (below MaxPickingId; 0 = not pickable); selected meshes get the selection outline.
 		void SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, glm::mat4 const& transform,
 		                bool castShadows = true, uint32_t pickingId = 0, bool selected = false);
+		// The same with the mesh's previous world matrix (MeshSubmission); the overload above submits transform as both.
+		// Each call is one instance (ShaderInterop::InstanceData), whose normal basis is computed here, once for every pass.
+		// The mesh and the materials are kept alive until EndScene returns, one reference per distinct asset of the frame.
+		void SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, MeshSubmission const& submission);
 		// Sprites and text, in world space (unlit, alpha blended, sorted back to front) or over the final image (see
 		// SpriteSubmission and TextSubmission). Picking IDs and selection work as for meshes.
 		void SubmitSprite(SpriteSubmission const& sprite);
@@ -247,6 +280,67 @@ namespace Strada
 			nvrhi::IGraphicsPipeline* Pipeline = nullptr;
 			nvrhi::IGraphicsPipeline* ShadowPipeline = nullptr;
 			nvrhi::IGraphicsPipeline* EntityIdPipeline = nullptr;
+		};
+
+		// --- Instancing (Docs/Architecture.md §6.2, "Instancing"): the frame's tables, its slim draw items and its batches ---
+
+		// A mesh of the frame: one reference per distinct MeshSource submitted, which keeps it alive until EndScene returns,
+		// and its GPU buffers (Renderer::GetMesh), resolved once per frame before recording.
+		struct FrameMesh
+		{
+			Ref<MeshSource> Source;
+			GpuMesh const* Gpu = nullptr;
+		};
+
+		// A material of the frame: one reference per distinct MaterialAsset submitted (the default material for empty slots),
+		// and what the passes need of it, resolved once per frame before recording.
+		struct FrameMaterial
+		{
+			Ref<MaterialAsset> Source;
+			nvrhi::IBindingSet* Bindings = nullptr;
+			// Null in a pass that does not draw the material: blended materials cast no shadows, and the entity-ID pipeline
+			// is null while entity IDs are off.
+			nvrhi::IGraphicsPipeline* Pipeline = nullptr;
+			nvrhi::IGraphicsPipeline* ShadowPipeline = nullptr;
+			nvrhi::IGraphicsPipeline* EntityIdPipeline = nullptr;
+			bool Blend = false;
+		};
+
+		// One submitted submesh: what culling, sorting and batching read, and its instance, mesh, submesh and material by
+		// index. It holds no reference and no matrix: its instance's data (ShaderInterop::InstanceData) holds the matrices,
+		// and the frame's tables the assets.
+		struct SubmeshItem
+		{
+			// World bounds of the submesh: culled against the camera's view and each shadow view.
+			AABB WorldBounds;
+			// Distance along the view direction (camera looking down -Z) of the submesh's bounds' center: sorting.
+			float ViewDepth = 0.0f;
+			// Index of its instance among the frame's instances.
+			uint32_t Instance = 0;
+			// Index into the frame's mesh table, and of the submesh in that mesh.
+			uint32_t Mesh = 0;
+			uint32_t Submesh = 0;
+			// Index into the frame's material table.
+			uint32_t Material = 0;
+			bool CastShadows = true;
+			// Inside the camera's view: drawn by its passes (items outside it are kept only as shadow casters).
+			bool InView = true;
+		};
+
+		// One mesh draw of a pass (a drawIndexed of InstanceCount instances): the items of equal pipeline, GPU mesh, submesh
+		// and material binding set, whose instances are a run of the frame's instance index buffer.
+		struct MeshBatch
+		{
+			nvrhi::IGraphicsPipeline* Pipeline = nullptr;
+			GpuMesh const* Mesh = nullptr;
+			nvrhi::IBindingSet* MaterialBindings = nullptr;
+			// The submesh's range of the mesh's buffers.
+			uint32_t BaseIndex = 0;
+			uint32_t IndexCount = 0;
+			uint32_t BaseVertex = 0;
+			// The run of the instance index buffer it draws: the push constants' InstanceOffset, then SV_InstanceID from 0.
+			uint32_t FirstInstance = 0;
+			uint32_t InstanceCount = 0;
 		};
 
 		// One instance of the line quad (OverlayLines.hlsl).

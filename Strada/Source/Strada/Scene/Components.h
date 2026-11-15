@@ -30,7 +30,9 @@ namespace Strada
 		std::string Tag = "Entity";
 	};
 
-	// Transform relative to the parent entity (or the world for root entities).
+	// Transform relative to the parent entity (or the world for root entities). Its fields are written in place (scripts,
+	// the editor, physics): the scene's world-transform cache notices a write by comparing the fields with the ones it
+	// computed from, so no write needs to tell it (Scene::GetWorldTransform).
 	struct TransformComponent
 	{
 		glm::vec3 Translation = {0.0f, 0.0f, 0.0f};

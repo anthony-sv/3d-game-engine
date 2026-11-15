@@ -7,6 +7,7 @@
 #if defined(__cplusplus)
 #include <glm/glm.hpp>
 
+#include <cstddef>
 #include <cstdint>
 
 #define ST_SHADER_NAMESPACE_BEGIN   \

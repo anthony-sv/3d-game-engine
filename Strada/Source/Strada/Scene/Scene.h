@@ -93,6 +93,17 @@ namespace Strada
 		float RemainingTime = 0.0f;
 	};
 
+	// An entity's world matrices as the scene's world-transform cache holds them (Scene::GetCachedWorldTransform;
+	// Docs/Architecture.md §7.1, "The world-transform cache").
+	struct CachedWorldTransform
+	{
+		glm::mat4 World = glm::mat4(1.0f);
+		// The world matrix the cache held for the entity when the scene's current frame began (Scene::UpdateTransforms): the
+		// one the previous frame drew it with. Equal to World in the entity's first frame, and in a scene that never began a
+		// frame.
+		glm::mat4 Previous = glm::mat4(1.0f);
+	};
+
 	// A running scene's simulation between two fixed steps (Scene::SavePhysicsState), to go back to in the same run.
 	// Opaque; held in memory only.
 	class ScenePhysicsSnapshot
@@ -240,9 +251,34 @@ namespace Strada
 		size_t GetSiblingIndex(Entity entity);
 		bool IsDescendantOf(Entity entity, Entity ancestor);
 
+		// --- World transforms (Docs/Architecture.md §7.1, "The world-transform cache") ---
+
+		// The entity's world matrix: its TransformComponent's local matrix under its parent's world matrix, multiplied top
+		// down (W(entity) = W(parent) * L(entity)); identity for an invalid entity or one of another scene. Never stale:
+		// transforms and parents written since the cache's last refresh, by any path (a script, the editor, physics, a direct
+		// write of the components' public fields), are seen. When nothing in the entity's chain of ancestors changed since
+		// the refresh, it compares each level's inputs and returns the cached matrix; otherwise it multiplies down from the
+		// highest entity that changed. It writes nothing, so the matrix it returns and the one the next refresh computes
+		// have the same bits.
 		glm::mat4 GetWorldTransform(Entity entity);
 		// Sets the local transform so the entity ends up with the given world transform.
 		void SetWorldTransform(Entity entity, glm::mat4 const& worldTransform);
+		// Begins a frame of the scene, then refreshes the cache (RefreshTransforms): the matrices the cache holds become each
+		// entity's previous matrix for the frame (CachedWorldTransform::Previous). Called once per frame the scene is drawn,
+		// by that frame's one owner: OnUpdateRuntime while the scene runs (also when it is paused), and the host for a scene
+		// it draws without running it (the editor's edited scene, a running scene the debugger holds). Beginning a frame
+		// costs nothing per entity; the refresh is the cost.
+		void UpdateTransforms();
+		// Brings the cache up to date with every entity's TransformComponent and parent without beginning a frame, parents
+		// before children: an entity whose inputs or whose parent's matrix changed is computed again, every other one costs
+		// a comparison. RenderScene calls it before it reads matrices, since edits and tests change transforms between the
+		// scene's update and its views.
+		void RefreshTransforms();
+		// What the cache holds for an entity of this scene's registry as of the last refresh, without checking its chain:
+		// exact when no transform or parent was written since the refresh. An entity the cache has no entry for (made since
+		// the refresh) is computed as GetWorldTransform would compute it, with Previous equal to World. For phases that
+		// refreshed the cache and then read many entities (the renderer).
+		CachedWorldTransform GetCachedWorldTransform(entt::entity handle);
 
 		// Depth-first, parents before children, siblings in order.
 		void ForEachEntityInHierarchyOrder(std::function<void(Entity)> const& function);
@@ -558,6 +594,37 @@ namespace Strada
 		// Follows the mouse over the UI and its buttons, then clicks the buttons it clicked and the ones scripts clicked, calling
 		// OnClick on the scripts of each button and its ancestors.
 		void UpdateUI();
+
+		// The world-transform cache's entry of an entity, kept in a storage of m_Registry for this type, which
+		// ComponentRegistry does not list: it is never serialized, copied (Scene::Copy, duplicates and prefab instances start
+		// without entries), shown or scripted, and it is destroyed with its entity.
+		struct WorldTransformEntry
+		{
+			glm::mat4 World = glm::mat4(1.0f);
+			// The matrix World replaced in the frame ChangedFrame: the entity's previous matrix during that frame only (in
+			// later frames World is).
+			glm::mat4 Previous = glm::mat4(1.0f);
+			// The inputs World was computed from, compared bit for bit with the entity's TransformComponent and
+			// RelationshipComponent: the entry is current while they are equal, ParentHandle is still valid and the parent's
+			// entry is current.
+			glm::vec3 Translation = glm::vec3(0.0f);
+			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+			glm::vec3 Scale = glm::vec3(1.0f);
+			UUID Parent = UUID::Invalid();
+			// The handle Parent resolved to; null for a root, and for a parent the scene does not hold (the entity is then
+			// a root, as before the cache).
+			entt::entity ParentHandle = entt::null;
+			// The frame of the scene (m_TransformFrame) in which World last changed.
+			uint64_t ChangedFrame = 0;
+			// The refresh (m_TransformRefresh) that last checked the entry, so that a refresh handles each entity once and
+			// after its parent, and the refresh in which World last changed, which makes the children compute theirs again.
+			uint64_t CheckedRefresh = 0;
+			uint64_t ChangedRefresh = 0;
+		};
+		// Frames begun (UpdateTransforms) and refreshes run (UpdateTransforms and RefreshTransforms) since the scene was made;
+		// no frame begun means every Previous reads as World.
+		uint64_t m_TransformFrame = 0;
+		uint64_t m_TransformRefresh = 0;
 
 		std::string m_Name;
 		SceneSettings m_Settings;
