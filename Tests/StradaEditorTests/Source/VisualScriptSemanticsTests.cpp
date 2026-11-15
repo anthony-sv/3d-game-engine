@@ -480,7 +480,7 @@ TEST_CASE("VisualScriptEditor: the fixture analysis shapes nodes from their temp
 	CHECK(GetNode(analysis, 47).Title == "Break Raycast Hit");
 	CHECK(DescribePins(GetNode(analysis, 47)) == std::vector<std::string>{"In Value: Strada.RaycastHit", "Out Entity: Strada.Entity",
 	                                                                      "Out Point: Strada.Vector3", "Out Normal: Strada.Vector3",
-	                                                                      "Out Distance: float"});
+	                                                                      "Out Distance: float", "Out Material: Strada.PhysicsMaterial"});
 
 	// Template pins as the library has them: a reroute's wildcards carry the flow too, a tween ticks.
 	VisualScriptAnalyzedNode const& reroute = GetNode(analysis, 53);
@@ -589,12 +589,13 @@ TEST_CASE(
 	      std::vector<std::string>{"In Execute: exec", "In Origin: Strada.Vector3", "In Direction: Strada.Vector3", "In MaxDistance: float",
 	                               "In LayerMask: uint", "Out Then: exec", "Out Hit.Entity: Strada.Entity", "Out Hit.Point.X: float",
 	                               "Out Hit.Point.Y: float", "Out Hit.Point.Z: float", "Out Hit.Normal: Strada.Vector3",
-	                               "Out Hit.Distance: float", "Out Result: bool"});
+	                               "Out Hit.Distance: float", "Out Hit.Material: Strada.PhysicsMaterial", "Out Result: bool"});
 	// A wildcard does not split until it is resolved, nor does a field of a type that does not split.
 	CHECK(DescribePins(GetNode(analysis, 3)) == std::vector<std::string>{"In A: *", "In B: *", "Out Result: *"});
 	CHECK(DescribePins(GetNode(analysis, 4)) == std::vector<std::string>{"In Value: Strada.RaycastHit", "Out Entity: Strada.Entity",
 	                                                                     "Out Point.X: float", "Out Point.Y: float", "Out Point.Z: float",
-	                                                                     "Out Normal: Strada.Vector3", "Out Distance: float"});
+	                                                                     "Out Normal: Strada.Vector3", "Out Distance: float",
+	                                                                     "Out Material: Strada.PhysicsMaterial"});
 	CHECK(DescribePins(GetNode(analysis, 5)) ==
 	      std::vector<std::string>{"In X: float", "In Y: float", "In Z: float", "Out Value: Strada.Vector3"});
 

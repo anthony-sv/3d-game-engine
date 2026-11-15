@@ -1,5 +1,6 @@
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Script/VisualScriptVariables.h"
@@ -178,6 +179,13 @@ TEST_CASE("VisualScriptVariables: the exposable types map to the script field ty
 	VisualScriptVariableDescription const curve = DescribeOne("Strada.Curve", nullptr);
 	REQUIRE(curve.Editable.Fields.size() == 1);
 	CHECK(curve.Editable.Fields[0].AcceptedAssetType == curveType);
+	AssetType const physicsMaterialType = TypedDataAsset<PhysicsMaterial>::GetStaticType();
+	REQUIRE(DataAssetRegistry::IsDataAssetValue(physicsMaterialType));
+	CHECK(FindVisualScriptExposableType("Strada.PhysicsMaterial") ==
+	      std::optional<VisualScriptExposableType>({ScriptFieldType::Asset, physicsMaterialType}));
+	VisualScriptVariableDescription const physicsMaterial = DescribeOne("Strada.PhysicsMaterial", nullptr);
+	REQUIRE(physicsMaterial.Editable.Fields.size() == 1);
+	CHECK(physicsMaterial.Editable.Fields[0].AcceptedAssetType == physicsMaterialType);
 
 	// Enums are known to the scripting runtime only; script classes, components, other structs and classes, arrays and
 	// System.Object are not exposable; type IDs are case-sensitive.

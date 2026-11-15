@@ -28,12 +28,13 @@ public struct Ray
 /// <summary>What a raycast hit.</summary>
 public readonly struct RaycastHit
 {
-	internal RaycastHit(Entity entity, Vector3 point, Vector3 normal, float distance)
+	internal RaycastHit(Entity entity, Vector3 point, Vector3 normal, float distance, PhysicsMaterial? material)
 	{
 		Entity = entity;
 		Point = point;
 		Normal = normal;
 		Distance = distance;
+		Material = material;
 	}
 
 	/// <summary>The entity of the collider hit (its script instance when it has one).</summary>
@@ -47,6 +48,12 @@ public readonly struct RaycastHit
 
 	/// <summary>Distance from the ray's origin to the point.</summary>
 	public float Distance { get; }
+
+	/// <summary>The physics material of the surface hit: the collider's Material, or for a triangle of a mesh collider its
+	/// submesh's entry in the collider's Materials (the collider's Material when that entry is empty); null when the
+	/// surface has none and its collider's own Friction and Restitution apply. Hits on one material share one
+	/// reference.</summary>
+	public PhysicsMaterial? Material { get; }
 }
 
 /// <summary>Queries and settings of the running scene's physics.</summary>
@@ -77,7 +84,8 @@ public static unsafe class Physics
 			hit = default;
 			return false;
 		}
-		hit = new RaycastHit(ScriptRegistry.GetEntity(result.Entity), result.Point, result.Normal, result.Distance);
+		hit = new RaycastHit(ScriptRegistry.GetEntity(result.Entity), result.Point, result.Normal, result.Distance,
+			PhysicsMaterialCache.GetShared(result.Material));
 		return true;
 	}
 

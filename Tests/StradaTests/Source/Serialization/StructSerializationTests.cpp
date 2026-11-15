@@ -423,6 +423,79 @@ TEST_CASE("StructSerialization: a switch is another bool field of the same table
 	CHECK_FALSE(switched.UseGain);
 }
 
+namespace
+{
+	struct Surfaced
+	{
+		AssetHandle Material;
+		std::vector<AssetHandle> Materials;
+		float Friction = 0.6f;
+		float Restitution = 0.0f;
+	};
+
+	struct MissingReplacer
+	{
+		static constexpr std::string_view Name = "MissingReplacer";
+		static constexpr auto Fields = std::make_tuple(Field("Friction", &Surfaced::Friction).OverriddenBy("Material"));
+	};
+
+	struct NumberReplacer
+	{
+		static constexpr std::string_view Name = "NumberReplacer";
+		static constexpr auto Fields = std::make_tuple(Field("Restitution", &Surfaced::Restitution),
+		                                               Field("Friction", &Surfaced::Friction).OverriddenBy("Restitution"));
+	};
+
+	struct ArrayReplacer
+	{
+		static constexpr std::string_view Name = "ArrayReplacer";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Materials", &Surfaced::Materials), Field("Friction", &Surfaced::Friction).OverriddenBy("Materials"));
+	};
+
+	struct OwnReplacer
+	{
+		static constexpr std::string_view Name = "OwnReplacer";
+		static constexpr auto Fields = std::make_tuple(Field("Material", &Surfaced::Material).OverriddenBy("Material"));
+	};
+}
+
+template<>
+struct Strada::StructTraits<Surfaced>
+{
+	static constexpr std::string_view Name = "Surfaced";
+	static constexpr auto Fields = std::make_tuple(Field("Material", &Surfaced::Material).References("PhysicsMaterial"),
+	                                               Field("Materials", &Surfaced::Materials).References("PhysicsMaterial"),
+	                                               Field("Friction", &Surfaced::Friction).AtLeast(0.0).OverriddenBy("Material"),
+	                                               Field("Restitution", &Surfaced::Restitution).Range(0.0, 1.0).OverriddenBy("Material"));
+};
+
+TEST_CASE("StructSerialization: what replaces a field is another field of the same table that references one asset")
+{
+	static_assert(Detail::IsFieldTableValid<StructTraits<Surfaced>, Surfaced>());
+	static_assert(!Detail::IsFieldTableValid<MissingReplacer, Surfaced>());
+	static_assert(!Detail::IsFieldTableValid<NumberReplacer, Surfaced>());
+	static_assert(!Detail::IsFieldTableValid<ArrayReplacer, Surfaced>());
+	static_assert(!Detail::IsFieldTableValid<OwnReplacer, Surfaced>());
+
+	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Surfaced>, Surfaced>();
+	CHECK(fields[2].Hints.OverriddenBy == "Material");
+	CHECK(fields[0].Hints.OverriddenBy.empty());
+	Json const schema = DescribeFields<StructTraits<Surfaced>, Surfaced>();
+	CHECK(schema["Fields"][2]["OverriddenBy"] == "Material");
+	CHECK(schema["Fields"][3]["OverriddenBy"] == "Material");
+	CHECK_FALSE(schema["Fields"][0].contains("OverriddenBy"));
+
+	// The replaced values are stored and read like any other, with or without the asset: the hint only tells editors.
+	Surfaced surfaced;
+	REQUIRE(DeserializeFields<StructTraits<Surfaced>>(Json::parse(R"({ "Material": "7", "Friction": 0.25 })"), surfaced,
+	                                                  DeserializationContext{}, "Surfaced")
+	            .IsOk());
+	CHECK(surfaced.Material == AssetHandle(UUID(7)));
+	CHECK(surfaced.Friction == 0.25f);
+	CHECK(SerializeFields<StructTraits<Surfaced>>(surfaced)["Friction"] == 0.25f);
+}
+
 TEST_CASE("StructSerialization: values outside their fields' ranges are clamped to the nearest bound")
 {
 	Tuning tuning;

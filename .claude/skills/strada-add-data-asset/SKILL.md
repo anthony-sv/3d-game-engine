@@ -162,8 +162,10 @@ internal constructor, as `Material` does. No public member lands without a use i
 - **The data stays native.** A class that reads data per call in managed code (a curve evaluated per sample, which must
   allocate nothing and cross no boundary) keeps a managed copy with the version it read, one per asset handle shared by
   every reference, refreshed through one binding of its own that takes the held version and copies the data in bulk only
-  when the asset's version differs (`Curve_Read` and `CurveCache` in `Interop/DataAssets.cs` are the model; the layouts
-  get a `static_assert` and a row in `InteropTests.NativeStructuresMatchTheEngineLayouts`).
+  when the asset's version differs (`Curve_Read` and `CurveCache` in `Interop/DataAssets.cs` are the model; for a type of
+  plain values, `PhysicsMaterial_Read` and `PhysicsMaterialCache`, whose one immutable object per version holds a string
+  and asset references, so that reading a member allocates nothing; the layouts get a `static_assert` and a row in
+  `InteropTests.NativeStructuresMatchTheEngineLayouts`).
 - **Invalidation.** Before running scripts (the invokes of C# scripts and of graphs, and the visual-script debugger's
   requests), the Script module compares
   `DataAssetRegistry::GetEpoch()` with the epoch it last gave the managed side (`ScriptEngineInternal::SyncDataAssets`)

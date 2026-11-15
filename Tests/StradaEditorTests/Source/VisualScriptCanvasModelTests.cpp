@@ -407,11 +407,12 @@ TEST_CASE("VisualScriptEditor: a split pin shows a row per field, grouped under 
 	// Nested: the fields of Hit, Point's in its place; one bracket for all of Hit's rows.
 	CHECK(canvas.PinNames(2) == std::vector<std::string>{"In:Execute", "In:Origin", "In:Direction", "In:MaxDistance", "In:LayerMask",
 	                                                     "Out:Then", "Out:Hit.Entity", "Out:Hit.Point.X", "Out:Hit.Point.Y",
-	                                                     "Out:Hit.Point.Z", "Out:Hit.Normal", "Out:Hit.Distance", "Out:Result"});
+	                                                     "Out:Hit.Point.Z", "Out:Hit.Normal", "Out:Hit.Distance", "Out:Hit.Material",
+	                                                     "Out:Result"});
 	VisualScriptPinVisual const& entity = canvas.Pin(2, "Hit.Entity", Direction::Out);
 	CHECK(entity.HasFlag(VisualScriptPinFlags::SplitGroupStart));
 	CHECK(entity.BracketColor == GetVisualScriptTypeColor("Strada.RaycastHit", &library));
-	for (std::string_view const field : {"Hit.Point.X", "Hit.Point.Y", "Hit.Point.Z", "Hit.Normal", "Hit.Distance"})
+	for (std::string_view const field : {"Hit.Point.X", "Hit.Point.Y", "Hit.Point.Z", "Hit.Normal", "Hit.Distance", "Hit.Material"})
 	{
 		VisualScriptPinVisual const& pin = canvas.Pin(2, field, Direction::Out);
 		CHECK(pin.HasFlag(VisualScriptPinFlags::SplitField));

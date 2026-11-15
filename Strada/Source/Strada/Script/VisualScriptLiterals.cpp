@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 
 #include <algorithm>
@@ -425,6 +426,11 @@ namespace Strada
 		{
 			static AssetType const s_CurveType = TypedDataAsset<Curve>::GetStaticType();
 			return VisualScriptExposableType{ScriptFieldType::Asset, s_CurveType};
+		}
+		if (typeId == "Strada.PhysicsMaterial")
+		{
+			static AssetType const s_PhysicsMaterialType = TypedDataAsset<PhysicsMaterial>::GetStaticType();
+			return VisualScriptExposableType{ScriptFieldType::Asset, s_PhysicsMaterialType};
 		}
 		return std::nullopt;
 	}

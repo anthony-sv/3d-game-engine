@@ -198,6 +198,10 @@ class Graph:
 
 # The handle of Assets/Curves/Response.scurve (AssetRegistry.sreg).
 RESPONSE_CURVE = "15883878375939594718"
+# The handles of Assets/PhysicsMaterials/Rubber.sphysmat and of the sound and prefab it names (AssetRegistry.sreg).
+RUBBER_MATERIAL = "11281368738810150711"
+BEEP_SOUND = "9906031496213900225"
+CRATE_PREFAB = "17000004240335447843"
 
 FEATURES_DESCRIPTION = (
     "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click "
@@ -208,7 +212,8 @@ FEATURES_DESCRIPTION = (
     "RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library "
     "MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes "
     "its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it "
-    "before Done, and a curve asset, as a literal and loaded by path, after it.")
+    "before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast onto the "
+    "physics material probe names the material it hits.")
 
 
 def build_features(references):
@@ -804,6 +809,28 @@ def build_features(references):
     passed = g.all_of(g.op("Equal", held, loaded), *[g.equal(results[key], expected[key]) for key in results])
     groups.append(call_check("a curve asset evaluates its keys and what it does before and after them", passed,
                              g.format("{Inside} inside, {Before} before, {After} after", **results)))
+
+    # A physics material, as a literal and loaded by path, with every field away from its default; a raycast from above
+    # onto the static Physics Material Probe at (60, 0.5, 60), whose colliders use it, names it.
+    rubber = g.literal("Strada.PhysicsMaterial", RUBBER_MATERIAL)
+    rubber_loaded = (g.node("Call:Strada.Assets.Load<T>(string)", {"TypeArguments": ["Strada.PhysicsMaterial"]},
+                            {"Path": "PhysicsMaterials/Rubber.sphysmat"}), "Result")
+    fields = {"Friction": 1.1, "Restitution": 0.35, "FrictionCombine": "Maximum", "RestitutionCombine": "Average",
+              "RollingResistance": 0.015, "Surface": "Rubber"}
+    members = {name: (g.node(f"Get:Strada.PhysicsMaterial.{name}", Target=rubber), "Value")
+               for name in [*fields, "ImpactSound", "ImpactParticles"]}
+    ray = g.node("Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)", None,
+                 {"Origin": [60.0, 10.0, 60.0], "Direction": [0.0, -1.0, 0.0], "MaxDistance": 20.0})
+    hit_material = (g.node("Get:Strada.RaycastHit.Material", Target=(ray, "Hit")), "Value")
+    hit_surface = (g.node("Get:Strada.PhysicsMaterial.Surface", Target=hit_material), "Value")
+    passed = g.all_of(g.op("Equal", rubber, rubber_loaded), *[g.equal(members[name], value) for name, value in fields.items()],
+                      g.op("Equal", members["ImpactSound"], g.literal("Strada.AudioClip", BEEP_SOUND)),
+                      g.op("Equal", members["ImpactParticles"], g.literal("Strada.Prefab", CRATE_PREFAB)),
+                      (ray, "Result"), g.op("Equal", hit_material, rubber), g.equal(hit_surface, "Rubber"))
+    g.flow(ray, call_check("a physics material reads its fields, and a raycast names the material it hits", passed,
+                           g.format("{Surface}: friction {Friction} ({Mode}), the ray hit {Hit}", Surface=members["Surface"],
+                                    Friction=members["Friction"], Mode=members["FrictionCombine"], Hit=hit_surface)))
+    groups.append(ray)
 
     # By now the scene has updated and stepped physics.
     frames_now = g.get(frames)

@@ -256,7 +256,9 @@ of every vector component; values outside them are rejected), `Display` (`Color`
 those values, such as a material's `AlphaCutoff` in the `Mask` alpha mode or a joint's `Axis` for the `Hinge` and
 `Slider` types; values are enumerator names, or `true`/`false` for bool fields), `EnabledBy` (the bool field that
 switches the field on: a `PostProcess` volume's `Saturation` applies only while its `OverrideSaturation` is true, so set
-both) and `HiddenInEditors` (`true` for fields the editor edits with UI of its own instead of a row of the generic
+both), `OverriddenBy` (the asset field whose asset replaces the field's value while it is set: a collider's `Friction`
+and `Restitution` do not apply while its `Material` holds a physics material; set them like any other field) and
+`HiddenInEditors` (`true` for fields the editor edits with UI of its own instead of a row of the generic
 inspector, such as `Mesh.Materials`, which the material slot sections edit; set them like any other field).
 
 ### inspector
@@ -325,6 +327,9 @@ The engine's types and their commands:
 | `curve.create` | `path`* (`.scurve`, relative to Assets), `fields` | `curve`, `fields`. A curve (Docs/Architecture.md section 6.5): `PreExtrapolation` and `PostExtrapolation` (`Hold`, `Loop`, `PingPong` or `Linear`: what it does before its first key and after its last), `Keys` (at most 1024, in time order: `Time`, `Value`, `Interpolation` `Cubic`/`Linear`/`Constant` of the segment to the next key, and the slopes `In` and `Out` where `HasIn` and `HasOut` are true, automatic otherwise). A new curve has no key and is 0 everywhere |
 | `curve.get` | `curve`* | `curve`, `fields` |
 | `curve.set` | `curve`*, `fields`* (`Keys` replaces every key) | `curve`, `fields`; an undo step named `Edit Curve`. Keys out of order are InvalidParams (`Curve: Keys[1].Time: keys are in time order: 0 comes after 1`) |
+| `physics-material.create` | `path`* (`.sphysmat`, relative to Assets), `fields` | `physicsMaterial`, `fields`. A physics material (Docs/Architecture.md section 8): `Friction` (at least 0) and `Restitution` (0 to 1) with `FrictionCombine` and `RestitutionCombine` (`GeometricMean`, `Average`, `Minimum`, `Multiply` or `Maximum`: how a contact combines the two sides' values; when they differ, the one later in that list wins), `RollingResistance` (at least 0; for scripts and graphs, later the vehicle), `Surface` (a name scripts compare), `ImpactSound` (an AudioClip) and `ImpactParticles` (a Prefab), which contacts neither play nor spawn by themselves. A new material has a friction of 0.6, no restitution, GeometricMean friction and Maximum restitution: what a collider without a material does |
+| `physics-material.get` | `physicsMaterial`* | `physicsMaterial`, `fields` |
+| `physics-material.set` | `physicsMaterial`*, `fields`* | `physicsMaterial`, `fields`; an undo step named `Edit PhysicsMaterial`. While the editor plays, the bodies whose colliders use the material take the new values before the next physics step |
 
 The tests register `TestData` (extension `.stestdata`) besides, whose commands show the pattern with every kind of
 field: `test-data.create`, `test-data.get` and `test-data.set`, with the parameter `testData`:
@@ -342,6 +347,12 @@ A curve, from the keys up:
 Scripts and graphs read a curve with `Curve.Evaluate` (the pure node `Call:Strada.Curve.Evaluate(float)`, whose `Target`
 is a `Strada.Curve`: a Literal or variable holding the curve's handle, or `Assets.Load<T>` with the type argument
 `Strada.Curve`). A `curve.set` made while the editor plays reaches them on the game's next frame.
+
+Scripts and graphs read a physics material's fields through `Strada.PhysicsMaterial` (the pure nodes
+`Get:Strada.PhysicsMaterial.Friction`, `Restitution`, `FrictionCombine`, `RestitutionCombine`, `RollingResistance`,
+`Surface`, `ImpactSound` and `ImpactParticles`), and a raycast's hit names the material of the surface it hit
+(`Get:Strada.RaycastHit.Material`; none for a collider without a material). A `physics-material.set` made while the
+editor plays reaches the bodies before the next physics step and the scripts and graphs on the game's next frame.
 
 ### graph
 

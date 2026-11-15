@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Strada/Asset/AssetHandle.h"
+#include "Strada/Asset/PhysicsMaterial.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
 
@@ -17,6 +19,11 @@ namespace Strada
 	inline constexpr size_t MaxPhysicsLayers = 16;
 	// Collision steps a physics step may be divided into (PhysicsWorldSettings::CollisionSteps).
 	inline constexpr uint32_t MaxPhysicsCollisionSteps = 4;
+	// Physics materials of a triangle-mesh collider's submeshes (MeshColliderComponent::Materials, ColliderDesc::
+	// SubmeshSurfaces). Jolt's mesh shape holds at most 32 materials (MeshShape::FLAGS_MATERIAL_BITS, refused beyond at
+	// MeshShape.cpp's "Supporting max %d materials per mesh"): one per submesh entry, and the collider's own for the
+	// submeshes without one.
+	inline constexpr uint32_t MaxMeshColliderMaterials = 31;
 
 	// Jolt computes in single precision, and its math would overflow long before larger worlds became usable, so the
 	// physics world keeps within these limits: positions within MaxPhysicsCoordinate meters of the origin on every axis
@@ -81,6 +88,22 @@ namespace Strada
 		TriangleMesh
 	};
 
+	// How the contacts of a collider, or of a triangle mesh's submesh, slide and bounce: a physics material's values, or the
+	// collider's own. Each contact combines both sides' values by their modes (CombinePhysicsMaterialValues).
+	struct ColliderSurface
+	{
+		// The physics material the values are from, which raycasts report (RaycastHit::Material); none for a collider's own
+		// values. The physics world only reports it and finds the surfaces of a material by it (SetMaterialValues).
+		AssetHandle Material;
+		// At least 0, and Restitution at most 1 (clamped when the body is made).
+		float Friction = 0.6f;
+		float Restitution = 0.0f;
+		PhysicsMaterialCombine FrictionCombine = PhysicsMaterialCombine::GeometricMean;
+		PhysicsMaterialCombine RestitutionCombine = PhysicsMaterialCombine::Maximum;
+
+		bool operator==(ColliderSurface const& other) const = default;
+	};
+
 	// One collider of a body, in the body's local space before the body's scale.
 	struct ColliderDesc
 	{
@@ -94,8 +117,11 @@ namespace Strada
 		glm::vec3 Offset = glm::vec3(0.0f);
 		// Detects overlaps (trigger events) without a collision response.
 		bool IsTrigger = false;
-		float Friction = 0.6f;
-		float Restitution = 0.0f;
+		ColliderSurface Surface;
+		// Triangle meshes (ColliderShape::TriangleMesh on a static or kinematic body): the surfaces of the mesh's submeshes in
+		// submesh order, at most MaxMeshColliderMaterials (AddBody refuses more); submeshes past the list use Surface. Empty
+		// for one surface, which every other shape has (the convex hull of a dynamic body's triangle mesh included).
+		std::vector<ColliderSurface> SubmeshSurfaces;
 	};
 
 	enum class JointType : uint8_t
@@ -217,6 +243,9 @@ namespace Strada
 		glm::vec3 Point = glm::vec3(0.0f);
 		glm::vec3 Normal = glm::vec3(0.0f);
 		float Distance = 0.0f;
+		// The physics material of the surface hit (the collider's, or the submesh's of a triangle mesh's triangle): its
+		// ColliderSurface::Material, none when it has its own values.
+		AssetHandle Material;
 	};
 
 	enum class ContactEventType : uint8_t

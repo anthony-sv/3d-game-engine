@@ -66,7 +66,7 @@ Public fields, and private ones marked `[SerializeField]`, are saved with the sc
 shows them by name. Their values are set before `OnCreate`. Supported types: `bool`, `int`, `uint`, `long`, `ulong`,
 `float`, `double`, `string`, `Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Color`, enums, `Entity` (an entity of the
 scene; drag one from the hierarchy), and assets: `Prefab`, `Material`, `Mesh`, `Texture`, `AudioClip`, `Font`,
-`EnvironmentMap`, `Curve` (pick one, or drag it from the content browser).
+`EnvironmentMap`, `Curve`, `PhysicsMaterial` (pick one, or drag it from the content browser).
 
 ```csharp
 public class Turret : Script
@@ -249,8 +249,9 @@ if (Physics.Raycast(Transform.WorldTranslation, Transform.Forward, 100.0f, out R
 }
 ```
 
-A camera turns screen positions into rays: `camera.ScreenToWorldRay(Input.MousePosition)` picks what is under the
-cursor. Collision layers and which layers collide are set in the project settings; raycasts take a layer mask.
+A hit also names the physics material of the surface it hit (`hit.Material`, null for a collider without one:
+[Physics materials](#physics-materials)). A camera turns screen positions into rays:
+`camera.ScreenToWorldRay(Input.MousePosition)` picks what is under the cursor. Collision layers and which layers collide are set in the project settings; raycasts take a layer mask.
 
 A `JointComponent` joins a body to another (`ConnectedEntity`) or to the world (null): `Hinge` for doors, wheels and
 pendulums (with `LimitsEnabled`, `MinLimit`/`MaxLimit` in degrees, and a motor: `MotorEnabled`, `MotorSpeed` in degrees
@@ -441,6 +442,45 @@ public class EngineSound : Script
 			return;
 		}
 		sound.Pitch = PitchBySpeed.Evaluate(body.LinearVelocity.Length);
+	}
+}
+```
+
+## Physics materials
+
+A physics material (`.sphysmat`, made and edited in the editor: [Physics materials](Editor.md#physics-materials)) is a
+surface that colliders name in their `Material`. `PhysicsMaterial` reads its fields: `Friction` and `Restitution` with
+how a contact combines them with the other side's (`FrictionCombine`, `RestitutionCombine`: a `PhysicsMaterialCombine`),
+`RollingResistance`, `Surface` (a name to compare, such as `"Gravel"`; empty for none), `ImpactSound` (an `AudioClip`)
+and `ImpactParticles` (a `Prefab`), the last two null when unset. The engine applies the friction, the restitution and
+their combine modes where colliders touch; the rolling resistance, the sound and the particles are for scripts to use,
+since contacts neither slow rolling bodies by it nor play or spawn anything. A `PhysicsMaterial` field picks one in the
+inspector, `Assets.Load<PhysicsMaterial>("Surfaces/Gravel.sphysmat")` loads one by path, and a raycast names the one it
+hit in `RaycastHit.Material`: the collider's `Material`, or for a triangle of a mesh collider its submesh's entry of
+`Materials`; null when the surface has none and the collider's own `Friction` and `Restitution` apply. Reading a member
+allocates nothing and costs a comparison (the scripting runtime keeps a copy of the values): only the first read after
+data assets changed asks the engine, which copies the values only when this material changed; raycasts that hit
+one material share one reference to it, and an edit of the material while the game plays in the editor reaches scripts on
+their next frame. Scripts read physics materials; they do not change them.
+
+```csharp
+public class RollingResistance : Script
+{
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		RigidBodyComponent? body = GetComponent<RigidBodyComponent>();
+		if (body is null || !Physics.Raycast(Transform.WorldTranslation, Vector3.Down, 1.0f, out RaycastHit hit) ||
+			hit.Material is null)
+		{
+			return;
+		}
+		// The surface under the body resists its rolling by its coefficient times the body's weight.
+		Vector3 velocity = body.LinearVelocity;
+		if (velocity.Length > 0.1f)
+		{
+			float weight = body.Mass * -Physics.Gravity.Y;
+			body.AddForce(velocity.Normalized * (-hit.Material.RollingResistance * weight), ForceMode.Force);
+		}
 	}
 }
 ```

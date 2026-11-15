@@ -518,6 +518,22 @@ namespace Strada
 			return !value.is_string() || accepts(value.get_ref<std::string const&>());
 		}
 
+		// Whether an asset field's value names a registered asset of the type the field references whose file was found and
+		// has not failed to load: what a field it replaces (OverriddenBy) needs to stop applying. An unknown handle, a missing
+		// file, a file whose load failed or an asset of another type count as no asset.
+		bool ReferencesAvailableAsset(FieldDescriptor const& field, Json const& value)
+		{
+			AssetHandle const handle(ReadID(value));
+			// The load failure is read, never caused: drawing loads nothing.
+			if (!handle.IsValid() || !AssetManager::IsInitialized() || !AssetManager::IsValid(handle) || AssetManager::IsMissing(handle) ||
+			    AssetManager::HasLoadFailure(handle))
+			{
+				return false;
+			}
+			std::optional<AssetType> const type = AssetTypeFromString(field.Hints.AssetTypeName);
+			return !type || AssetManager::GetAssetType(handle) == *type;
+		}
+
 		// Text color of an asset reference: dimmed without an asset, the error color when its file is missing or the handle is
 		// unknown.
 		ImU32 GetAssetReferenceColor(AssetHandle handle, bool mixed)
@@ -1298,6 +1314,17 @@ namespace Strada
 					ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
 				}
 
+				// A field an asset field replaces (OverriddenBy) is disabled while that field names an asset of its type, and says so
+				// in place of its value (enabled when the selected objects differ there, so all of them can be edited).
+				FieldDescriptor const* overrider = field.Hints.OverriddenBy.empty() ? nullptr : FindField(fields, field.Hints.OverriddenBy);
+				bool overridden = false;
+				if (overrider != nullptr)
+				{
+					std::string const overriderKey(overrider->Name);
+					overridden = !isMixed(overriderKey) && ReferencesAvailableAsset(*overrider, getValue(*overrider, overriderKey));
+					enabled = enabled && !overridden;
+				}
+
 				if (IsStructArray(field))
 				{
 					// A header that folds the elements' rows away, with their count in the value column.
@@ -1348,7 +1375,12 @@ namespace Strada
 					FieldChange fieldChange;
 					std::optional<uint32_t> element;
 					bool changed = false;
-					if (structDrawer != nullptr)
+					if (overridden)
+					{
+						ImGui::AlignTextToFramePadding();
+						ImGui::TextDisabled("Set by %s", UI::FormatDisplayName(overrider->Name).c_str());
+					}
+					else if (structDrawer != nullptr)
 					{
 						changed = DrawWithStructDrawer(*structDrawer, field, value, mixed, fieldChange);
 					}

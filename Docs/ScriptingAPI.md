@@ -9,7 +9,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 [visual scripting guide](VisualScripting.md) how graphs call it: every member listed here is a node.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-86 types in 2 namespaces, with 741 members and enum values in all.
+88 types in 2 namespaces, with 755 members and enum values in all.
 
 ## Strada
 
@@ -56,6 +56,8 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [ParticleEmitterShape](#particleemittershape) | enum | Where a particle system's particles start. |
 | [ParticleSystemComponent](#particlesystemcomponent) | class | Emits camera-facing particles (fire, sparks, smoke, dust, magic) while the scene runs: each lives between `ParticleSystemComponent.LifetimeMin` and `ParticleSystemComponent.LifetimeMax` seconds, starts from the `ParticleSystemComponent.Shape` with a speed between `ParticleSystemComponent.SpeedMin` and `ParticleSystemComponent.SpeedMax`, falls with the scene's gravity times `ParticleSystemComponent.GravityFactor`, slows down with `ParticleSystemComponent.Drag`, and blends from the start to the end color and size. |
 | [Physics](#physics) | static class | Queries and settings of the running scene's physics. |
+| [PhysicsMaterial](#physicsmaterial) | class | A physics material asset (`.sphysmat`): how a surface slides, bounces and rolls, the name scripts tell it by, and what impacts on it sound and look like. A collider whose Material names one takes its friction, restitution and combine modes in place of its own; a raycast hit names the material of the surface it hit (`RaycastHit.Material`). Edit it in the editor; scripts read it, and an edit made while the game plays shows on the next frame. A material that cannot be loaded reads as a new one's values (logged). |
+| [PhysicsMaterialCombine](#physicsmaterialcombine) | enum | How the two sides of a contact combine a value of their physics materials (friction or restitution). When the two sides name different modes, the one later in this list wins. |
 | [PointLightComponent](#pointlightcomponent) | class | Light shining from the entity's position in every direction. |
 | [PostProcessComponent](#postprocesscomponent) | class | A post-process volume: changes the scene's post-processing (exposure, tonemapper, bloom, ambient occlusion, color grading and lens effects) where the camera is. Each setting applies only while its `Override` property is set. `PostProcessComponent.Global` volumes apply everywhere; local volumes apply inside their box (the unit cube placed, rotated and scaled by the entity, so the entity's scale is the box's size in meters) and fade out over `PostProcessComponent.BlendDistance` around it. Volumes apply in order of `PostProcessComponent.Priority`, each scaled by its `PostProcessComponent.Weight`: numbers move towards the volume's values, `PostProcessComponent.Bloom` fades in or out through the bloom's intensity, and `PostProcessComponent.AmbientOcclusion` and `PostProcessComponent.Tonemapper` take the volume's value once its blend reaches one half. Animate `PostProcessComponent.Weight` for effects such as a damage flash or an underwater tint. |
 | [Prefab](#prefab) | class | A prefab asset: entities saved for instantiation (see `Entity.Instantiate`). |
@@ -217,8 +219,8 @@ A box collision shape of the entity's body.
 | `Vector3 HalfExtents { get; set; }` | Half the box's size along each local axis. |
 | `Vector3 Offset { get; set; }` | Position of the box's center relative to the entity. |
 | `bool IsTrigger { get; set; }` | Whether the collider only reports overlaps instead of colliding. |
-| `float Friction { get; set; }` | Friction coefficient (combined with the other collider's as their geometric mean). |
-| `float Restitution { get; set; }` | Bounciness from 0 to 1 (the larger of the two colliders' applies). |
+| `float Friction { get; set; }` | Friction coefficient, used while the collider's Material (set in the editor) names no physics material: two colliders without materials combine theirs as the square root of the product. |
+| `float Restitution { get; set; }` | Bounciness from 0 to 1, used while the collider's Material (set in the editor) names no physics material: of two colliders without materials, the larger applies. |
 
 ### CameraComponent
 
@@ -257,8 +259,8 @@ A capsule collision shape along the entity's local Y axis.
 | `float HalfHeight { get; set; }` | Half the height of the cylinder between the caps. |
 | `Vector3 Offset { get; set; }` | Position of the capsule's center relative to the entity. |
 | `bool IsTrigger { get; set; }` | Whether the collider only reports overlaps instead of colliding. |
-| `float Friction { get; set; }` | Friction coefficient (combined with the other collider's as their geometric mean). |
-| `float Restitution { get; set; }` | Bounciness from 0 to 1 (the larger of the two colliders' applies). |
+| `float Friction { get; set; }` | Friction coefficient, used while the collider's Material (set in the editor) names no physics material: two colliders without materials combine theirs as the square root of the product. |
+| `float Restitution { get; set; }` | Bounciness from 0 to 1, used while the collider's Material (set in the editor) names no physics material: of two colliders without materials, the larger applies. |
 
 ### CharacterControllerComponent
 
@@ -691,8 +693,8 @@ A collision shape from a mesh: its convex hull, or its triangles (static and kin
 | `Mesh? Mesh { get; set; }` | The collision mesh, or null for the entity's MeshComponent mesh. |
 | `bool Convex { get; set; }` | Whether the shape is the mesh's convex hull (required for dynamic bodies). |
 | `bool IsTrigger { get; set; }` | Whether the collider only reports overlaps instead of colliding. |
-| `float Friction { get; set; }` | Friction coefficient (combined with the other collider's as their geometric mean). |
-| `float Restitution { get; set; }` | Bounciness from 0 to 1 (the larger of the two colliders' applies). |
+| `float Friction { get; set; }` | Friction coefficient, used while the collider's Material (set in the editor) names no physics material: two colliders without materials combine theirs as the square root of the product. |
+| `float Restitution { get; set; }` | Bounciness from 0 to 1, used while the collider's Material (set in the editor) names no physics material: of two colliders without materials, the larger applies. |
 
 ### MeshComponent
 
@@ -792,6 +794,35 @@ Queries and settings of the running scene's physics.
 | `static Vector3 Gravity { get; set; }` | The acceleration of gravity in meters per second squared. |
 | `static bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out RaycastHit hit, uint layerMask = 4294967295)` | The closest solid collider along a ray, on the layers of `layerMask` (bit n is layer n). Triggers and colliders containing the origin are ignored. |
 | `static bool Raycast(Ray ray, float maxDistance, out RaycastHit hit, uint layerMask = 4294967295)` | The closest solid collider along a ray (see `Physics.Raycast`). |
+
+### PhysicsMaterial
+
+```csharp
+public sealed class PhysicsMaterial : Asset
+```
+
+A physics material asset (`.sphysmat`): how a surface slides, bounces and rolls, the name scripts tell it by, and what impacts on it sound and look like. A collider whose Material names one takes its friction, restitution and combine modes in place of its own; a raycast hit names the material of the surface it hit (`RaycastHit.Material`). Edit it in the editor; scripts read it, and an edit made while the game plays shows on the next frame. A material that cannot be loaded reads as a new one's values (logged).
+
+| Member | Summary |
+|---|---|
+| `float Friction { get; }` | The friction coefficient: 0 slides freely, 1 holds about as well as rubber on concrete (a collider's own default is 0.6). A contact combines it with the other side's by the modes of `PhysicsMaterial.FrictionCombine`. |
+| `float Restitution { get; }` | Bounciness from 0 to 1: 0 does not bounce, 1 keeps all of the speed along the contact's normal. A contact combines it with the other side's by the modes of `PhysicsMaterial.RestitutionCombine`. |
+| `PhysicsMaterialCombine FrictionCombine { get; }` | How a contact combines the frictions of its two sides (a collider without a material says `PhysicsMaterialCombine.GeometricMean`); when the sides differ, the mode later in `PhysicsMaterialCombine` wins. |
+| `PhysicsMaterialCombine RestitutionCombine { get; }` | How a contact combines the restitutions of its two sides (a collider without a material says `PhysicsMaterialCombine.Maximum`); when the sides differ, the mode later in `PhysicsMaterialCombine` wins. |
+| `float RollingResistance { get; }` | The force opposing a wheel that rolls on the surface, per newton of load (about 0.01 for a tyre on asphalt), for scripts and graphs to apply; rigid bodies roll without it. |
+| `string Surface { get; }` | The surface's name (such as Asphalt, Gravel or Ice), which scripts and graphs compare to tell surfaces apart; empty for none. |
+| `AudioClip? ImpactSound { get; }` | A sound for impacts on the surface, or null; contacts play nothing by themselves. |
+| `Prefab? ImpactParticles { get; }` | A prefab (usually a particle system) for impacts on the surface, or null; contacts spawn nothing by themselves. |
+
+### PhysicsMaterialCombine
+
+```csharp
+public enum PhysicsMaterialCombine
+```
+
+How the two sides of a contact combine a value of their physics materials (friction or restitution). When the two sides name different modes, the one later in this list wins.
+
+Values: `GeometricMean`, `Average`, `Minimum`, `Multiply`, `Maximum`.
 
 ### PointLightComponent
 
@@ -961,6 +992,7 @@ What a raycast hit.
 | `Vector3 Point { get; }` | The world-space point hit. |
 | `Vector3 Normal { get; }` | The surface normal at the point. |
 | `float Distance { get; }` | Distance from the ray's origin to the point. |
+| `PhysicsMaterial? Material { get; }` | The physics material of the surface hit: the collider's Material, or for a triangle of a mesh collider its submesh's entry in the collider's Materials (the collider's Material when that entry is empty); null when the surface has none and its collider's own Friction and Restitution apply. Hits on one material share one reference. |
 
 ### RigidBodyComponent
 
@@ -1097,8 +1129,8 @@ A sphere collision shape of the entity's body.
 | `float Radius { get; set; }` | The sphere's radius. |
 | `Vector3 Offset { get; set; }` | Position of the sphere's center relative to the entity. |
 | `bool IsTrigger { get; set; }` | Whether the collider only reports overlaps instead of colliding. |
-| `float Friction { get; set; }` | Friction coefficient (combined with the other collider's as their geometric mean). |
-| `float Restitution { get; set; }` | Bounciness from 0 to 1 (the larger of the two colliders' applies). |
+| `float Friction { get; set; }` | Friction coefficient, used while the collider's Material (set in the editor) names no physics material: two colliders without materials combine theirs as the square root of the product. |
+| `float Restitution { get; set; }` | Bounciness from 0 to 1, used while the collider's Material (set in the editor) names no physics material: of two colliders without materials, the larger applies. |
 
 ### SpotLightComponent
 

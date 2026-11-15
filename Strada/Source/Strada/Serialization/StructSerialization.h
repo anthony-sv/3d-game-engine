@@ -66,6 +66,10 @@ namespace Strada
 		// fields that always apply. Editors draw that switch as a check box in front of this field, which they show
 		// disabled while the switch is off, instead of giving the switch a row of its own.
 		std::string_view EnabledBy;
+		// The asset field of the same struct whose asset, when one is set, replaces this field's value (a collider's Material
+		// replaces its Friction and Restitution); empty for fields nothing replaces. Editors show the field disabled, saying
+		// what replaces it, while that asset field is set; files and automation read and write it as usual.
+		std::string_view OverriddenBy;
 		// Editors leave the field to UI of its own (the material slot sections of Mesh components edit its Materials): the
 		// generic field editors draw no row for it. Files and automation read and write it as usual.
 		bool HiddenInEditors = false;
@@ -147,6 +151,16 @@ namespace Strada
 		{
 			StructField field = *this;
 			field.Hints.EnabledBy = switchName;
+			return field;
+		}
+
+		// The asset field of the same struct that replaces this field while it is set (see FieldHints::OverriddenBy). It must
+		// be another field of the same field table that references one asset (an AssetHandle, not an array) and is not
+		// replaced itself (checked at compile time).
+		constexpr StructField OverriddenBy(std::string_view assetFieldName) const
+		{
+			StructField field = *this;
+			field.Hints.OverriddenBy = assetFieldName;
 			return field;
 		}
 
@@ -252,8 +266,8 @@ namespace Strada
 
 	// Schema used by the automation API: { "Name", ["Description"], "Fields": [ { "Name", "Type", "Default", ... }, ... ] }.
 	// Optional keys per field: "Values" (enums), "Min"/"Max", "Display", "AssetType", "Description", "VisibleWhen"
-	// ({ "Field", "Values" }), "EnabledBy" (the switch), "HiddenInEditors" (true), "MaxCount" (arrays) and "Fields" (nested
-	// structs).
+	// ({ "Field", "Values" }), "EnabledBy" (the switch), "OverriddenBy" (the asset field that replaces the value), "HiddenInEditors"
+	// (true), "MaxCount" (arrays) and "Fields" (nested structs).
 	Json DescribeFields(std::string_view name, std::span<FieldDescriptor const> fields, std::string_view description = {});
 
 	namespace Detail
@@ -548,6 +562,31 @@ namespace Strada
 						for (size_t j = 0; j < names.size(); j++)
 						{
 							found = found || (j != i && names[j] == switches[i] && isBool[j] && switches[j].empty());
+						}
+						valid = valid && found;
+					}
+				},
+				TTraits::Fields);
+
+			// What replaces a field (OverriddenBy) is another field of the table that references one asset and is not replaced
+			// itself.
+			std::apply(
+				[&valid](auto const&... fields)
+				{
+					std::array<std::string_view, sizeof...(fields)> const names = {fields.Name...};
+					std::array<std::string_view, sizeof...(fields)> const replacers = {fields.Hints.OverriddenBy...};
+					std::array<bool, sizeof...(fields)> const isAsset = {
+						std::is_same_v<StructFieldType<T, decltype(fields)>, AssetHandle>...};
+					for (size_t i = 0; i < names.size(); i++)
+					{
+						if (replacers[i].empty())
+						{
+							continue;
+						}
+						bool found = false;
+						for (size_t j = 0; j < names.size(); j++)
+						{
+							found = found || (j != i && names[j] == replacers[i] && isAsset[j] && replacers[j].empty());
 						}
 						valid = valid && found;
 					}

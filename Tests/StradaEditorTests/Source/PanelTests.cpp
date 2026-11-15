@@ -112,6 +112,24 @@ struct Strada::StructTraits<SwitchedProbe>
 
 namespace
 {
+	struct SurfacedProbe
+	{
+		AssetHandle Material;
+		float Friction = 0.6f;
+	};
+}
+
+template<>
+struct Strada::StructTraits<SurfacedProbe>
+{
+	static constexpr std::string_view Name = "SurfacedProbe";
+	// Friction first, so that it is the table's first item that takes the keyboard while it can be edited.
+	static constexpr auto Fields = std::make_tuple(Field("Friction", &SurfacedProbe::Friction).AtLeast(0.0).OverriddenBy("Material"),
+	                                               Field("Material", &SurfacedProbe::Material).References("PhysicsMaterial"));
+};
+
+namespace
+{
 	// A long name behind a switch, without a description: its label only has a tooltip when it is shortened.
 	struct LongNameProbe
 	{
@@ -333,6 +351,105 @@ TEST_CASE("FieldEditor: a switch is a check box in front of the field it switche
 	REQUIRE(last);
 	CHECK(last->Path == std::vector<FieldPathStep>{{"Gain"}});
 	CHECK(last->Value.get<float>() == doctest::Approx(5.0f));
+}
+
+TEST_CASE("FieldEditor: a field an asset field replaces is disabled while it names an asset of its type, unless the objects differ")
+{
+	Testing::AssetManagerScope const assets;
+	DataAssetType const* const materialType = DataAssetRegistry::FindByName("PhysicsMaterial");
+	REQUIRE(materialType != nullptr);
+	AssetHandle const material = AssetManager::AddMemoryAsset(materialType->CreateAsset(), "Rubber");
+	AssetHandle const otherType = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(MaterialData()), "Painted");
+	HeadlessImGui imgui;
+	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<SurfacedProbe>, SurfacedProbe>();
+	Json values = SerializeFields<StructTraits<SurfacedProbe>>(SurfacedProbe{});
+	std::vector<std::string> mixed;
+	FieldEditor editor;
+	std::optional<FieldChange> last;
+	bool focusFriction = false;
+	int rows = 0;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 400.0f));
+		ImGui::Begin("Replaced");
+		if (focusFriction)
+		{
+			// The table's first item: Friction's value when it can be edited.
+			ImGui::SetKeyboardFocusHere(0);
+			focusFriction = false;
+		}
+		if (std::optional<FieldChange> change = editor.Draw(fields, values, mixed))
+		{
+			last = std::move(change);
+		}
+		ImGuiTable const* table = ImGui::TableFindByID(ImGui::GetID("##fields"));
+		rows = table != nullptr ? table->CurrentRow + 1 : 0;
+		ImGui::End();
+	};
+	auto const typeIntoFriction = [&](char const* text)
+	{
+		last.reset();
+		focusFriction = true;
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+		imgui.Type(text);
+		imgui.Frame(draw);
+		ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, true);
+		imgui.Frame(draw);
+		ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, false);
+		imgui.Frame(draw);
+	};
+	auto const frictionChanged = [&]
+	{
+		return last && last->Path == std::vector<FieldPathStep>{{"Friction"}};
+	};
+
+	// Without a material, Friction takes typed values.
+	typeIntoFriction("0.25");
+	CHECK(rows == 2);
+	REQUIRE(frictionChanged());
+	CHECK(last->Value.get<float>() == doctest::Approx(0.25f));
+
+	// With one, its row stays (saying what sets it) and typing changes nothing.
+	values["Material"] = material.ToString();
+	typeIntoFriction("0.5");
+	CHECK(rows == 2);
+	CHECK_FALSE(frictionChanged());
+
+	// Objects whose materials differ can all be edited.
+	mixed = {"Material"};
+	typeIntoFriction("0.75");
+	REQUIRE(frictionChanged());
+	CHECK(last->Value.get<float>() == doctest::Approx(0.75f));
+
+	// The material cleared, it applies again; so it does with a handle of no asset, or of an asset of another type, which
+	// count as no material.
+	mixed.clear();
+	for (std::string const& unset : {std::string("0"), std::string("7"), otherType.ToString()})
+	{
+		CAPTURE(unset);
+		values["Material"] = unset;
+		typeIntoFriction("1");
+		REQUIRE(frictionChanged());
+		CHECK(last->Value.get<float>() == doctest::Approx(1.0f));
+	}
+
+	// A registered file whose load has failed counts as no material too (the scene ignores it); the inspector reads the
+	// failure and loads nothing itself, so until a load was tried it shows what sets the field.
+	Testing::TemporaryDirectory const directory;
+	REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Broken.sphysmat", "{ not a physics material").IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const broken = AssetManager::FindByPath("Broken.sphysmat");
+	REQUIRE(broken.IsValid());
+	values["Material"] = broken.ToString();
+	typeIntoFriction("0.5");
+	CHECK_FALSE(frictionChanged());
+	CHECK_FALSE(AssetManager::HasLoadFailure(broken));
+	CHECK(AssetManager::LoadAsset(broken).IsError());
+	typeIntoFriction("0.5");
+	REQUIRE(frictionChanged());
+	CHECK(last->Value.get<float>() == doctest::Approx(0.5f));
 }
 
 namespace

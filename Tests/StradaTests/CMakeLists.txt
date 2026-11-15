@@ -14,6 +14,7 @@ add_executable(StradaTests
     Source/Asset/MeshImporterFuzzTests.cpp
     Source/Asset/MeshImporterTests.cpp
     Source/Asset/MeshSourceTests.cpp
+    Source/Asset/PhysicsMaterialAssetTests.cpp
     Source/Asset/TestDataAsset.h
     Source/Asset/TrueTypeSanitizerTests.cpp
     Source/Asset/VisualScriptFuzzTests.cpp
@@ -64,6 +65,7 @@ add_executable(StradaTests
     Source/Physics/MeshColliderOutlineTests.cpp
     Source/Physics/PhysicsCharacterTests.cpp
     Source/Physics/PhysicsJointTests.cpp
+    Source/Physics/PhysicsMaterialTests.cpp
     Source/Physics/PhysicsSceneTests.cpp
     Source/Physics/PhysicsStateTests.cpp
     Source/Physics/PhysicsTestUtilities.h
@@ -103,6 +105,7 @@ add_executable(StradaTests
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFuzzTests.cpp
     Source/Scene/SceneInterpolationTests.cpp
+    Source/Scene/ScenePhysicsMaterialTests.cpp
     Source/Scene/ScenePhysicsStateTests.cpp
     Source/Scene/SceneProfilingTests.cpp
     Source/Scene/SceneRuntimeTests.cpp

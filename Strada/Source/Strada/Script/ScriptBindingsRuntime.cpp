@@ -5,19 +5,25 @@
 #include "Strada/Physics/PhysicsScene.h"
 
 #include <cmath>
+#include <cstddef>
 
 namespace Strada::ScriptGlue
 {
 	namespace
 	{
-		// The layout of Strada.Interop.NativeRaycastHit.
+		// The layout of Strada.Interop.NativeRaycastHit (no implicit padding).
 		struct RaycastHit
 		{
 			uint64_t Entity;
 			Vector3 Point;
 			Vector3 Normal;
 			float Distance;
+			uint32_t Reserved;
+			// The physics material of the surface hit (RaycastHit::Material); 0 for none.
+			uint64_t Material;
 		};
+
+		static_assert(sizeof(RaycastHit) == 48 && offsetof(RaycastHit, Distance) == 32 && offsetof(RaycastHit, Material) == 40);
 
 		// --- Time ---
 
@@ -212,7 +218,12 @@ namespace Strada::ScriptGlue
 			{
 				return 0;
 			}
-			*hit = {result->Entity.GetValue(), ToScript(result->Point), ToScript(result->Normal), result->Distance};
+			*hit = {result->Entity.GetValue(),
+			        ToScript(result->Point),
+			        ToScript(result->Normal),
+			        result->Distance,
+			        0u,
+			        result->Material.GetUUID().GetValue()};
 			return 1;
 		}
 	}

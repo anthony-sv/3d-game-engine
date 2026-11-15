@@ -1327,7 +1327,7 @@ public static class FuzzStandIns
 	{
 		s_Calls++;
 		// Something 2.5 along the ray, the entity Other.
-		hit = new RaycastHit(new Entity(FuzzLibrary.Other), origin + (direction * 2.5f), Vector3.Up, 2.5f);
+		hit = new RaycastHit(new Entity(FuzzLibrary.Other), origin + (direction * 2.5f), Vector3.Up, 2.5f, null);
 		return maxDistance > 1.0f && layerMask != 0;
 	}
 

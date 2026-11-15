@@ -287,6 +287,20 @@ PingPong or Linear).
 **Try it:** make a curve that rises from 0 at 0 to 1 at 10 and holds after it, give a graph a public Curve variable set
 to it, and set a light's intensity to Evaluate of the time since the scene started in `Update`.
 
+### Physics materials
+
+A physics material (`.sphysmat`: [Physics materials](Editor.md#physics-materials)) is the surface of the colliders that
+name it. Its fields are pure getters (`Get:Strada.PhysicsMaterial.Friction`, `Restitution`, `FrictionCombine`,
+`RestitutionCombine`, `RollingResistance`, `Surface`, `ImpactSound`, `ImpactParticles`) whose `Target` is the material:
+a variable or Literal of type PhysicsMaterial, **Load** (`Assets.Load<T>` with the type argument PhysicsMaterial) by
+path, or the `Material` of a raycast's `Hit` (`Get:Strada.RaycastHit.Material`, or that field of a Break of the hit),
+which names the surface the ray hit and is not valid when that collider has no material. `Surface` is a name to compare
+(an `Operator.Equal` with "Gravel"), so a graph tells the ground under a wheel or a foot apart. Reading them allocates
+nothing and an edit while the game plays reaches the graph on its next frame.
+
+**Try it:** cast a ray down from the player in `FixedUpdate`, and when its `Hit`'s `Material` is valid and its `Surface`
+is "Ice", lower the player's speed.
+
 ## Graphs that talk to graphs
 
 A VisualScript component runs one graph. To give an entity several behaviors, put each on a child entity with a

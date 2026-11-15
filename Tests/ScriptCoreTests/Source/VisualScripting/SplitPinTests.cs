@@ -113,8 +113,8 @@ public sealed class SplitPinTests
 		Assert.Equal(["In Value.Origin.X: float", "In Value.Origin.Y: float", "In Value.Origin.Z: float", "In Value.Direction: Strada.Vector3",
 			"Out Origin: Strada.Vector3", "Out Direction: Strada.Vector3"], ShownPins(analyzed, ray));
 		Assert.Equal(["In Entity: Strada.Entity", "In Distance: float", "Out Result.Entity: Strada.Entity", "Out Result.Point.X: float",
-			"Out Result.Point.Y: float", "Out Result.Point.Z: float", "Out Result.Normal: Strada.Vector3", "Out Result.Distance: float"],
-			ShownPins(analyzed, hit));
+			"Out Result.Point.Y: float", "Out Result.Point.Z: float", "Out Result.Normal: Strada.Vector3", "Out Result.Distance: float",
+			"Out Result.Material: Strada.PhysicsMaterial"], ShownPins(analyzed, hit));
 		TestRuntime runtime = TestRuntime.Start(document);
 		runtime.Invoke(ScriptEvent.Create);
 		Assert.Equal(["(3, 4, 0)", "(0, 0, 1)", "1", "2.5"], runtime.Records);

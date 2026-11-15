@@ -511,7 +511,7 @@ TEST_CASE("DataAsset: commands' domains are kebab case and their parameters lowe
 	};
 	std::array<Case, 7> const cases = {{
 		{"TestData", "test-data", "testData"},
-		{"PhysicsMaterial", "physics-material", "physicsMaterial"},
+		{"TyreCompound", "tyre-compound", "tyreCompound"},
 		{"InputActions", "input-actions", "inputActions"},
 		{"UIStyle", "ui-style", "uiStyle"},
 		{"Curve2D", "curve2d", "curve2D"},
@@ -924,4 +924,48 @@ TEST_CASE("DataAsset: hot reload keeps an object the editor wrote and replaces o
 	before = DataAssetRegistry::GetEpoch();
 	AssetManager::Shutdown();
 	CHECK(DataAssetRegistry::GetEpoch() != before);
+}
+
+TEST_CASE("DataAsset: a refresh after which a data asset that could not load may load moves the epoch")
+{
+	TestDataTypeScope const scope;
+	Testing::TemporaryDirectory directory;
+	Testing::AssetManagerScope const assets;
+	std::filesystem::path const path = directory.GetPath() / "Ball.stestdata";
+	REQUIRE(FileSystem::WriteTextFile(path, "{ not test data").IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const ball = AssetManager::FindByPath("Ball.stestdata");
+	REQUIRE(ball.IsValid());
+
+	// Its file does not load, and is fixed: nothing a user of it holds changes, so the refresh that retries the load moves
+	// the epoch for them to look it up again.
+	CHECK(AssetManager::GetAsset<TypedDataAsset<TestData>>(ball) == nullptr);
+	REQUIRE(AssetManager::HasLoadFailure(ball));
+	REQUIRE(FileSystem::WriteTextFile(path, ReadFixture("Version2.stestdata")).IsOk());
+	uint64_t before = DataAssetRegistry::GetEpoch();
+	REQUIRE(AssetManager::Refresh().IsOk());
+	CHECK(DataAssetRegistry::GetEpoch() != before);
+	CHECK_FALSE(AssetManager::HasLoadFailure(ball));
+	REQUIRE(AssetManager::GetAsset<TypedDataAsset<TestData>>(ball) != nullptr);
+
+	// Nothing failed or went missing: a refresh moves nothing.
+	before = DataAssetRegistry::GetEpoch();
+	REQUIRE(AssetManager::Refresh().IsOk());
+	CHECK(DataAssetRegistry::GetEpoch() == before);
+
+	// Its file goes missing (the refresh drops the loaded object) and comes back: the refresh that finds it moves the epoch.
+	std::filesystem::path const elsewhere = directory.GetPath() / "Ball.moved";
+	REQUIRE(FileSystem::Move(path, elsewhere).IsOk());
+	before = DataAssetRegistry::GetEpoch();
+	REQUIRE(AssetManager::Refresh().IsOk());
+	CHECK(DataAssetRegistry::GetEpoch() != before);
+	REQUIRE(AssetManager::IsMissing(ball));
+	CHECK(AssetManager::GetAsset<TypedDataAsset<TestData>>(ball) == nullptr);
+	CHECK_FALSE(AssetManager::HasLoadFailure(ball));
+	REQUIRE(FileSystem::Move(elsewhere, path).IsOk());
+	before = DataAssetRegistry::GetEpoch();
+	REQUIRE(AssetManager::Refresh().IsOk());
+	CHECK(DataAssetRegistry::GetEpoch() != before);
+	CHECK_FALSE(AssetManager::IsMissing(ball));
+	CHECK(AssetManager::GetAsset<TypedDataAsset<TestData>>(ball) != nullptr);
 }

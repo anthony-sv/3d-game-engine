@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
 
 #include <algorithm>
@@ -247,6 +248,7 @@ namespace Strada
 	{
 		// The engine's data asset types, one line each, sorted by name (it merges as a union).
 		AddEngineType<Curve>(CurveAssetSpecification);
+		AddEngineType<PhysicsMaterial>(PhysicsMaterialAssetSpecification);
 		return true;
 	}
 

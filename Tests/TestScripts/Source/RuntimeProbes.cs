@@ -82,6 +82,34 @@ public sealed class CurveProbe : Script
 	}
 }
 
+// Reads every member of its physics material Material (which the engine tests set; PhysicsMaterials/Probe.sphysmat loaded
+// by path must be the same) and the material a ray straight down from it hits, every update; the name gets what it read
+// ("Same=True;Friction=1.25;...;Hit=Ground;HitMaterial=<surface or none>;Shared=True").
+public sealed class PhysicsMaterialProbe : Script
+{
+	public PhysicsMaterial? Material;
+
+	private PhysicsMaterial? m_Loaded;
+
+	protected override void OnCreate()
+	{
+		m_Loaded = Assets.Load<PhysicsMaterial>("PhysicsMaterials/Probe.sphysmat");
+	}
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		PhysicsMaterial? material = Material;
+		bool hit = Physics.Raycast(Translation, Vector3.Down, 20.0f, out RaycastHit first);
+		Physics.Raycast(Translation, Vector3.Down, 20.0f, out RaycastHit second);
+		Name = string.Create(CultureInfo.InvariantCulture,
+			$"Same={m_Loaded == material};Friction={material?.Friction};Restitution={material?.Restitution};"
+			+ $"FrictionCombine={material?.FrictionCombine};RestitutionCombine={material?.RestitutionCombine};"
+			+ $"RollingResistance={material?.RollingResistance};Surface={material?.Surface};Sound={material?.ImpactSound?.Handle.ID};"
+			+ $"Particles={material?.ImpactParticles?.Handle.ID};Hit={(hit ? first.Entity.Name : "nothing")};"
+			+ $"HitMaterial={first.Material?.Surface ?? "none"};Shared={ReferenceEquals(first.Material, second.Material)}");
+	}
+}
+
 // A script of the prefab the engine tests instantiate.
 public sealed class PrefabMember : Script
 {

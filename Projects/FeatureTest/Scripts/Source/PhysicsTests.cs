@@ -30,9 +30,11 @@ public sealed class CollisionProbe : Script
 	protected override void OnTriggerExit(Entity other) => TriggersExited++;
 }
 
-/// <summary>Rigid bodies, colliders, raycasts and contact callbacks. The scene sets the entities: a static ground whose
-/// top is at y = 0, a box falling onto it, a ball falling through a trigger (Sensor), a capsule resting on the ground
-/// (Pill), a kinematic platform and a static rock with a convex mesh collider.</summary>
+/// <summary>Rigid bodies, colliders, raycasts, physics materials and contact callbacks. The scene sets the entities: a
+/// static ground whose top is at y = 0, a box falling onto it, a ball falling through a trigger (Sensor), a capsule resting
+/// on the ground (Pill), a kinematic platform and a static rock with a convex mesh collider; and the physics material
+/// PhysicsMaterials/Rubber.sphysmat (Rubber), which every collider of the static Physics Material Probe at (60, 0.5, 60)
+/// uses.</summary>
 public sealed class PhysicsTests : FeatureTestScript
 {
 	private const int FrameLimit = 600;
@@ -44,6 +46,7 @@ public sealed class PhysicsTests : FeatureTestScript
 	public Entity? Platform;
 	public Entity? Rock;
 	public Entity? Sensor;
+	public PhysicsMaterial? Rubber;
 
 	private int m_FixedUpdates;
 	private int m_OtherFixedSteps;
@@ -81,6 +84,7 @@ public sealed class PhysicsTests : FeatureTestScript
 		{
 			// Bodies exist once the scene runs.
 			Check("raycasts hit what is in their way", RaycastChecks);
+			Check("physics materials read their fields, and raycasts name the material they hit", PhysicsMaterialChecks);
 			pill.AddForce(new Vector3(0.0f, 0.0f, -5.0f), ForceMode.Impulse);
 			pill.AddTorque(new Vector3(0.0f, 2.0f, 0.0f), ForceMode.VelocityChange);
 			platform.MoveKinematic(new Vector3(0.0f, 0.25f, -5.0f), Quaternion.Identity);
@@ -253,5 +257,34 @@ public sealed class PhysicsTests : FeatureTestScript
 		// Too short, or only looking for bodies on the Movers layer: the ground is on Default.
 		Assert.IsFalse(Physics.Raycast(ray, 5.0f, out _));
 		Assert.IsFalse(Physics.Raycast(ray, 50.0f, out _, 1u << 1));
+	}
+
+	// PhysicsMaterials/Rubber.sphysmat sets every field away from its default.
+	private void PhysicsMaterialChecks()
+	{
+		PhysicsMaterial rubber = Rubber!;
+		Assert.AreEqual(rubber, Assets.Load<PhysicsMaterial>("PhysicsMaterials/Rubber.sphysmat"));
+		Assert.AreEqual(1.1f, rubber.Friction);
+		Assert.AreEqual(0.35f, rubber.Restitution);
+		Assert.AreEqual(PhysicsMaterialCombine.Maximum, rubber.FrictionCombine);
+		Assert.AreEqual(PhysicsMaterialCombine.Average, rubber.RestitutionCombine);
+		Assert.AreEqual(0.015f, rubber.RollingResistance);
+		Assert.AreEqual("Rubber", rubber.Surface);
+		Assert.AreEqual(Assets.Load<AudioClip>("Audio/Beep.wav"), rubber.ImpactSound);
+		Assert.AreEqual(Assets.Load<Prefab>("Prefabs/Crate.sprefab"), rubber.ImpactParticles);
+
+		// The probe's capsule is on top: a ray from above names its material, and a ray onto the ground, which has none, names
+		// none.
+		Assert.IsTrue(Physics.Raycast(new Vector3(60.0f, 10.0f, 60.0f), Vector3.Down, 20.0f, out RaycastHit probe));
+		Assert.AreEqual("Physics Material Probe", probe.Entity.Name);
+		Assert.AreEqual(rubber, probe.Material);
+		Assert.AreEqual("Rubber", probe.Material!.Surface);
+		// From the side, the box and the triangles of the mesh collider name it too.
+		Assert.IsTrue(Physics.Raycast(new Vector3(55.0f, 0.5f, 60.0f), Vector3.Right, 10.0f, out RaycastHit side));
+		Assert.AreApproximatelyEqual(4.5f, side.Distance, 1e-3f);
+		Assert.AreEqual(rubber, side.Material);
+		Assert.IsTrue(Physics.Raycast(new Vector3(5.0f, 10.0f, 5.0f), Vector3.Down, 50.0f, out RaycastHit ground));
+		Assert.IsTrue(ground.Entity == Ground, ground.Entity.Name);
+		Assert.IsNull(ground.Material);
 	}
 }

@@ -1,4 +1,5 @@
 #include "Asset/TestDataAsset.h"
+#include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
@@ -7,6 +8,7 @@
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
@@ -14,6 +16,7 @@
 #include "Strada/Core/KeyCodes.h"
 #include "Strada/Math/Curve.h"
 #include "Strada/Math/Math.h"
+#include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -32,9 +35,11 @@
 #include <array>
 #include <bit>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <initializer_list>
 #include <span>
 #include <string>
@@ -293,6 +298,67 @@ namespace
 			REQUIRE(DataAssetSerializer::SaveToFile(*file, directory.GetPath() / "Curves" / name).IsOk());
 		}
 		REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	}
+
+	// The layout of PhysicsMaterial_Read's values (ScriptBindingsAssets.cpp; Strada.Interop.NativePhysicsMaterial).
+	struct PhysicsMaterialValues
+	{
+		uint64_t Version = 0;
+		uint64_t ImpactSound = 0;
+		uint64_t ImpactParticles = 0;
+		float Friction = 0.0f;
+		float Restitution = 0.0f;
+		float RollingResistance = 0.0f;
+		int32_t FrictionCombine = 0;
+		int32_t RestitutionCombine = 0;
+		int32_t SurfaceLength = 0;
+	};
+
+	static_assert(sizeof(PhysicsMaterialValues) == 48);
+
+	using PhysicsMaterialReadFunction = int32_t (*)(uint64_t, uint64_t, PhysicsMaterialValues*, char const**);
+
+	// PhysicsMaterial_Read's answers (Strada.Interop.PhysicsMaterialReadStatus).
+	constexpr int32_t PhysicsMaterialReadFailed = 0;
+	constexpr int32_t PhysicsMaterialReadUnchanged = 1;
+	constexpr int32_t PhysicsMaterialReadRead = 2;
+
+	// PhysicsMaterials/Probe.sphysmat: every field away from its default.
+	PhysicsMaterial MakeProbePhysicsMaterial()
+	{
+		PhysicsMaterial material;
+		material.Friction = 1.25f;
+		material.Restitution = 0.5f;
+		material.FrictionCombine = PhysicsMaterialCombine::Multiply;
+		material.RestitutionCombine = PhysicsMaterialCombine::Minimum;
+		material.RollingResistance = 0.02f;
+		material.Surface = "Asphalt";
+		material.ImpactSound = AssetHandle(UUID(77));
+		material.ImpactParticles = AssetHandle(UUID(78));
+		return material;
+	}
+
+	// Writes PhysicsMaterials/Probe.sphysmat, then opens the directory's assets.
+	void OpenProbePhysicsMaterial(Testing::TemporaryDirectory const& directory)
+	{
+		TypedDataAssetType<PhysicsMaterial> const* const materialType = DataAssetRegistry::Find<PhysicsMaterial>();
+		REQUIRE(materialType != nullptr);
+		REQUIRE(FileSystem::CreateDirectories(directory.GetPath() / "PhysicsMaterials").IsOk());
+		Ref<DataAsset> const file = materialType->CreateAsset();
+		REQUIRE(std::static_pointer_cast<TypedDataAsset<PhysicsMaterial>>(file)->SetData(MakeProbePhysicsMaterial()).IsOk());
+		REQUIRE(DataAssetSerializer::SaveToFile(*file, directory.GetPath() / "PhysicsMaterials" / "Probe.sphysmat").IsOk());
+		REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	}
+
+	// A static box 10 wide whose top is at y = 0 around x, with the physics material given (none when invalid).
+	Entity AddGround(Scene& scene, std::string const& name, float x, AssetHandle material)
+	{
+		Entity ground = scene.CreateEntity(name);
+		ground.GetComponent<TransformComponent>().Translation = {x, -0.5f, 0.0f};
+		BoxColliderComponent& collider = ground.AddComponent<BoxColliderComponent>();
+		collider.HalfExtents = {5.0f, 0.5f, 5.0f};
+		collider.Material = material;
+		return ground;
 	}
 
 	// The time the curve reading graph samples its curve at.
@@ -566,6 +632,107 @@ TEST_CASE("Scene: graphs evaluate curve assets as the engine does and see their 
 	CHECK(InvalidationCounter::GetCount() == invalidated + 1);
 	CHECK(ReadCurveReaderValue(reader) == second);
 	CHECK_FALSE(Testing::WasLogged(logStart, "Curve.Evaluate"));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: scripts read physics materials and the materials raycasts hit, and see their edits on the next frame")
+{
+	Testing::TemporaryDirectory directory;
+	Testing::AssetManagerScope assets;
+	OpenProbePhysicsMaterial(directory);
+	AssetHandle const handle = AssetManager::FindByPath("PhysicsMaterials/Probe.sphysmat");
+	REQUIRE(handle.IsValid());
+
+	Testing::PhysicsSystemScope physics;
+	Testing::ScriptEngineScope scripting;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Physics Materials");
+	AddGround(scene, "Ground", 0.0f, handle);
+	AddGround(scene, "Plain", 20.0f, AssetHandle());
+	Entity probe = AddScript(scene, "Probe", "Strada.Tests.PhysicsMaterialProbe", {{"Material", ScriptFieldValue::FromAsset(handle)}});
+	probe.GetComponent<TransformComponent>().Translation = {0.0f, 5.0f, 0.0f};
+	Entity plain = AddScript(scene, "Plain Probe", "Strada.Tests.PhysicsMaterialProbe");
+	plain.GetComponent<TransformComponent>().Translation = {20.0f, 5.0f, 0.0f};
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(probe.GetName() == "Same=True;Friction=1.25;Restitution=0.5;FrictionCombine=Multiply;RestitutionCombine=Minimum;"
+	                         "RollingResistance=0.02;Surface=Asphalt;Sound=77;Particles=78;Hit=Ground;HitMaterial=Asphalt;Shared=True");
+	// A collider without a material: the hit names none.
+	CHECK(plain.GetName() == "Same=False;Friction=;Restitution=;FrictionCombine=;RestitutionCombine=;RollingResistance=;Surface=;Sound=;"
+	                         "Particles=;Hit=Plain;HitMaterial=none;Shared=True");
+
+	// An edit shows on the next frame, in the material and in what rays hit.
+	Ref<TypedDataAsset<PhysicsMaterial>> const asset = AssetManager::GetAsset<TypedDataAsset<PhysicsMaterial>>(handle);
+	REQUIRE(asset != nullptr);
+	PhysicsMaterial edited;
+	edited.Friction = 0.3f;
+	edited.Surface = "Gravel";
+	REQUIRE(asset->SetData(edited).IsOk());
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(probe.GetName() == "Same=True;Friction=0.3;Restitution=0;FrictionCombine=GeometricMean;RestitutionCombine=Maximum;"
+	                         "RollingResistance=0;Surface=Gravel;Sound=;Particles=;Hit=Ground;HitMaterial=Gravel;Shared=True");
+	CHECK_FALSE(Testing::WasLogged(logStart, "PhysicsMaterial"));
+
+	// The bulk read copies only what the runtime does not hold, and the surface's text with the values.
+	auto const read = FindBinding<PhysicsMaterialReadFunction>("PhysicsMaterial_Read");
+	uint64_t const materialID = handle.GetUUID().GetValue();
+	PhysicsMaterialValues values;
+	char const* surface = nullptr;
+	CHECK(read(materialID, asset->GetVersion(), &values, &surface) == PhysicsMaterialReadUnchanged);
+	CHECK(values.Version == asset->GetVersion());
+	CHECK(surface == nullptr);
+	REQUIRE(asset->SetData(MakeProbePhysicsMaterial()).IsOk());
+	REQUIRE(read(materialID, 0, &values, &surface) == PhysicsMaterialReadRead);
+	CHECK(values.Version == asset->GetVersion());
+	CHECK(values.Friction == 1.25f);
+	CHECK(values.Restitution == 0.5f);
+	CHECK(values.FrictionCombine == static_cast<int32_t>(PhysicsMaterialCombine::Multiply));
+	CHECK(values.RestitutionCombine == static_cast<int32_t>(PhysicsMaterialCombine::Minimum));
+	CHECK(values.RollingResistance == 0.02f);
+	CHECK(values.ImpactSound == 77);
+	CHECK(values.ImpactParticles == 78);
+	REQUIRE(surface != nullptr);
+	CHECK(std::string_view(surface, static_cast<size_t>(values.SurfaceLength)) == "Asphalt");
+	uint64_t const cubeID = GetBuiltInHandle(BuiltInAsset::CubeMesh).GetUUID().GetValue();
+	CHECK(read(cubeID, 0, &values, &surface) == PhysicsMaterialReadFailed);
+	CHECK(Testing::WasLogged(logStart, "PhysicsMaterial: asset 1 is a Mesh, not a PhysicsMaterial"));
+
+	// The type is found by name and loads through Assets.Load.
+	auto const findType = FindBinding<FindTypeFunction>("Assets_FindType");
+	auto const materialValue = static_cast<int32_t>(TypedDataAsset<PhysicsMaterial>::GetStaticType());
+	CHECK(findType("PhysicsMaterial", 15) == materialValue);
+	auto const load = FindBinding<LoadFunction>("Assets_Load");
+	std::string_view const path = "PhysicsMaterials/Probe.sphysmat";
+	CHECK(load(path.data(), static_cast<int32_t>(path.size()), materialValue) == materialID);
+
+	// Its file broken and the directory refreshed (as the editor does on asset.refresh and on its return to focus): scripts
+	// read a new material's values, and rays meet the ground's own surface. Fixed and refreshed again, the material reads
+	// as its file says, although nothing of it was loaded for the refresh to find changed.
+	std::filesystem::path const file = directory.GetPath() / "PhysicsMaterials" / "Probe.sphysmat";
+	auto const markWritten = [&file]
+	{
+		std::error_code errorCode;
+		std::filesystem::last_write_time(file, std::filesystem::last_write_time(file) + std::chrono::seconds(5), errorCode);
+		REQUIRE_FALSE(errorCode);
+	};
+	REQUIRE(FileSystem::WriteTextFile(file, "{ not a physics material").IsOk());
+	markWritten();
+	REQUIRE(AssetManager::Refresh().IsOk());
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(probe.GetName() == "Same=True;Friction=0.6;Restitution=0;FrictionCombine=GeometricMean;RestitutionCombine=Maximum;"
+	                         "RollingResistance=0;Surface=;Sound=;Particles=;Hit=Ground;HitMaterial=none;Shared=True");
+	TypedDataAssetType<PhysicsMaterial> const* const materialType = DataAssetRegistry::Find<PhysicsMaterial>();
+	REQUIRE(materialType != nullptr);
+	Ref<DataAsset> const fixedFile = materialType->CreateAsset();
+	REQUIRE(std::static_pointer_cast<TypedDataAsset<PhysicsMaterial>>(fixedFile)->SetData(MakeProbePhysicsMaterial()).IsOk());
+	REQUIRE(DataAssetSerializer::SaveToFile(*fixedFile, file).IsOk());
+	markWritten();
+	REQUIRE(AssetManager::Refresh().IsOk());
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(probe.GetName() == "Same=True;Friction=1.25;Restitution=0.5;FrictionCombine=Multiply;RestitutionCombine=Minimum;"
+	                         "RollingResistance=0.02;Surface=Asphalt;Sound=77;Particles=78;Hit=Ground;HitMaterial=Asphalt;Shared=True");
 	scene.OnRuntimeStop();
 }
 

@@ -138,7 +138,7 @@ public static class Probe
 	}
 
 	[PureNode]
-	public static RaycastHit HitOf(Entity entity, float distance) => new(entity, Vector3.Up, Vector3.Forward, distance);
+	public static RaycastHit HitOf(Entity entity, float distance) => new(entity, Vector3.Up, Vector3.Forward, distance, null);
 
 	// The integers 0 to count - 1.
 	[PureNode]

@@ -1,18 +1,27 @@
 #include "Asset/TestDataAsset.h"
 #include "EditorLocationsTestUtilities.h"
+#include "Physics/PhysicsTestUtilities.h"
 #include "TestUtilities.h"
 
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/EditorScripts.h"
+#include "Editor/PlayMode.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Physics/PhysicsScene.h"
+#include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Scene/Scene.h"
 
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -402,4 +411,167 @@ TEST_CASE("DataAssetCommands: the engine's Curve has curve.create, get and set, 
 	CHECK(unordered.Code == AutomationErrorCode::InvalidParams);
 	CHECK(unordered.Message.find("Keys[1].Time: keys are in time order: 0 comes after 1") != std::string::npos);
 	CHECK(fixture.ReadFile("Curves/Ramp.scurve") == edited);
+}
+
+TEST_CASE("DataAssetCommands: the engine's PhysicsMaterial has physics-material.create, get and set, and colliders reference it")
+{
+	DataAssetCommandFixture fixture;
+	CommandDefinition const* create = fixture.Registry.Find("physics-material.create");
+	REQUIRE(create != nullptr);
+	CHECK(create->Description.find(".sphysmat") != std::string::npos);
+	REQUIRE(fixture.Registry.Find("physics-material.set") != nullptr);
+	CHECK(fixture.Registry.Find("physics-material.get")->Parameters["required"] == Json::array({"physicsMaterial"}));
+	// The schema of fields names the combine modes.
+	std::string const fieldsSchema = create->Parameters["properties"]["fields"].dump();
+	for (char const* mode : {"GeometricMean", "Average", "Minimum", "Multiply", "Maximum"})
+	{
+		CAPTURE(mode);
+		CHECK(fieldsSchema.find(mode) != std::string::npos);
+	}
+	Json const& types = fixture.Registry.Find("asset.list")->Parameters["properties"]["type"]["enum"];
+	CHECK(std::find(types.begin(), types.end(), Json("PhysicsMaterial")) != types.end());
+	Result<std::string> const reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
+	REQUIRE(reference.IsOk());
+	for (char const* name : {"physics-material.create", "physics-material.get", "physics-material.set"})
+	{
+		CAPTURE(name);
+		CHECK(reference.GetValue().find(std::string("`") + name + "`") != std::string::npos);
+	}
+
+	Json const created = fixture.Ok("physics-material.create",
+	                                Json::object({{"path", "Surfaces/Gravel.sphysmat"},
+	                                              {"fields", {{"Friction", 0.9}, {"Surface", "Gravel"}, {"FrictionCombine", "Minimum"}}}}));
+	CHECK(created["physicsMaterial"]["type"] == "PhysicsMaterial");
+	CHECK(created["fields"]["RestitutionCombine"] == "Maximum");
+	std::string const id = created["physicsMaterial"]["id"].get<std::string>();
+	AssetHandle const handle = AssetManager::FindByPath("Surfaces/Gravel.sphysmat");
+	Ref<TypedDataAsset<PhysicsMaterial>> const material = AssetManager::GetAsset<TypedDataAsset<PhysicsMaterial>>(handle);
+	REQUIRE(material != nullptr);
+	CHECK(material->GetData().Surface == "Gravel");
+	CHECK(material->GetData().FrictionCombine == PhysicsMaterialCombine::Minimum);
+
+	// One step, undone and redone; the object stays and its version moves.
+	uint64_t const version = material->GetVersion();
+	fixture.Ok("physics-material.set", Json::object({{"physicsMaterial", id}, {"fields", {{"Restitution", 0.5}}}}));
+	CHECK(fixture.Ok("editor.status")["undo"] == "Edit PhysicsMaterial");
+	CHECK(material->GetData().Restitution == 0.5f);
+	CHECK(material->GetVersion() != version);
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit PhysicsMaterial");
+	CHECK(material->GetData().Restitution == 0.0f);
+	CHECK(fixture.Ok("editor.redo")["redone"] == "Edit PhysicsMaterial");
+	CHECK(material->GetData().Restitution == 0.5f);
+
+	// A combine mode the type does not have is refused, naming the field; nothing is written.
+	std::string const edited = fixture.ReadFile("Surfaces/Gravel.sphysmat");
+	CommandError const unknown =
+		fixture.Fails("physics-material.set", Json::object({{"physicsMaterial", id}, {"fields", {{"RestitutionCombine", "Harmonic"}}}}));
+	CHECK(unknown.Code == AutomationErrorCode::InvalidParams);
+	CHECK(unknown.Message.find("RestitutionCombine") != std::string::npos);
+	CHECK(fixture.ReadFile("Surfaces/Gravel.sphysmat") == edited);
+
+	// A collider references it, beside per-submesh materials on a triangle mesh.
+	std::string const entity = fixture.Ok("entity.create", Json::object({{"name", "Road"}}))["id"].get<std::string>();
+	Json const box =
+		fixture.Ok("component.add", Json::object({{"entity", entity}, {"component", "BoxCollider"}, {"fields", {{"Material", id}}}}));
+	CHECK(box["fields"]["Material"] == id);
+	// A reference to an asset of another type is stored like any asset reference; the collider counts it as no material.
+	std::string const painted =
+		fixture.Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}}))["material"]["id"].get<std::string>();
+	CHECK(fixture.Ok("component.set", Json::object({{"entity", entity},
+	                                                {"component", "BoxCollider"},
+	                                                {"fields", {{"Material", painted}}}}))["fields"]["Material"] == painted);
+	Json const mesh = fixture.Ok("component.add", Json::object({{"entity", entity},
+	                                                            {"component", "MeshCollider"},
+	                                                            {"fields", {{"Convex", false}, {"Materials", Json::array({"0", id})}}}}));
+	CHECK(mesh["fields"]["Materials"] == Json::array({"0", id}));
+	Json tooMany = Json::array();
+	for (uint32_t index = 0; index <= MaxMeshColliderMaterials; index++)
+	{
+		tooMany.push_back(id);
+	}
+	CommandError const refused = fixture.Fails(
+		"component.set", Json::object({{"entity", entity}, {"component", "MeshCollider"}, {"fields", {{"Materials", tooMany}}}}));
+	CHECK(refused.Code == AutomationErrorCode::InvalidParams);
+}
+
+TEST_CASE("DataAssetCommands: physics-material.set while a scene plays reaches its bodies at the next frame, and undo gives the old "
+          "values back")
+{
+	Testing::PhysicsSystemScope physics;
+	DataAssetCommandFixture fixture;
+	EditorScripts scripts{fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+	PlayMode play{fixture.Context, scripts};
+	// Ice that says Maximum: a contact with it takes its friction, whatever the other side's.
+	std::string const id = fixture
+	                           .Ok("physics-material.create",
+	                               Json::object({{"path", "Surfaces/Ice.sphysmat"},
+	                                             {"fields", {{"Friction", 0.0}, {"FrictionCombine", "Maximum"}}}}))["physicsMaterial"]["id"]
+	                           .get<std::string>();
+	std::string const before = fixture.ReadFile("Surfaces/Ice.sphysmat");
+	auto const create = [&fixture](std::string name, Json components)
+	{
+		EntityCreateInfo info;
+		info.Name = std::move(name);
+		info.Components = std::move(components);
+		Result<UUID> entity = fixture.Operations.CreateEntity(info);
+		REQUIRE(entity.IsOk());
+		return entity.GetValue();
+	};
+	create("Ground", Json::object({{"Transform", {{"Translation", {0.0, -0.5, 0.0}}}},
+	                               {"BoxCollider", {{"HalfExtents", {40.0, 0.5, 40.0}}, {"Material", id}}}}));
+	// A box that only slides, without friction of its own.
+	UUID const slider = create("Slider", Json::object({{"Transform", {{"Translation", {0.0, 0.25, 0.0}}}},
+	                                                   {"RigidBody",
+	                                                    {{"Type", "Dynamic"},
+	                                                     {"LinearDamping", 0.0},
+	                                                     {"AngularDamping", 0.0},
+	                                                     {"LockRotation", {true, true, true}},
+	                                                     {"AllowSleep", false},
+	                                                     {"InitialLinearVelocity", {8.0, 0.0, 0.0}}}},
+	                                                   {"BoxCollider", {{"HalfExtents", {0.25, 0.25, 0.25}}, {"Friction", 0.0}}}}));
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	// While playing, the history holds the steps of asset files only.
+	REQUIRE(play.Start(EditorPlayState::Simulate, 640, 480).IsOk());
+	size_t const playing = fixture.Context.GetHistory().GetUndoCount();
+	static constexpr float Step = 1.0f / 60.0f;
+	static constexpr uint32_t Frames = 30;
+	auto const speed = [&fixture, slider]
+	{
+		PhysicsScene const* const world = fixture.Context.GetScene().GetPhysicsScene();
+		REQUIRE(world != nullptr);
+		return world->GetLinearVelocity(slider).x;
+	};
+	// The deceleration over the next frames, which run one step each.
+	auto const decelerate = [&play, &speed]
+	{
+		float const start = speed();
+		REQUIRE(play.Advance(Frames, Timestep(Step)) == Frames);
+		return (start - speed()) / (static_cast<float>(Frames) * Step);
+	};
+	REQUIRE(play.Advance(5, Timestep(Step)) == 5);
+	CHECK(std::abs(decelerate()) < 0.05f);
+
+	// Friction 0.5 from the next frame on: the box keeps its speed and slows by 0.5 g, within 2 %.
+	fixture.Ok("physics-material.set", Json::object({{"physicsMaterial", id}, {"fields", {{"Friction", 0.5}}}}));
+	CHECK(fixture.Ok("editor.status")["undo"] == "Edit PhysicsMaterial");
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == playing + 1);
+	float const sliding = decelerate();
+	CHECK_MESSAGE(std::abs(sliding - 0.5f * 9.81f) <= 0.02f * 0.5f * 9.81f, sliding);
+	CHECK(speed() > 1.0f);
+
+	// Undone while playing: the ice is back, at the next frame, in the file and in the world.
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit PhysicsMaterial");
+	CHECK(fixture.ReadFile("Surfaces/Ice.sphysmat") == before);
+	CHECK(std::abs(decelerate()) < 0.05f);
+	CHECK(fixture.Ok("editor.redo")["redone"] == "Edit PhysicsMaterial");
+	float const again = decelerate();
+	CHECK_MESSAGE(std::abs(again - 0.5f * 9.81f) <= 0.02f * 0.5f * 9.81f, again);
+	CHECK(speed() > 1.0f);
+
+	// The step of the file outlives playing, after the scene's own.
+	play.Stop();
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit PhysicsMaterial");
+	CHECK(fixture.ReadFile("Surfaces/Ice.sphysmat") == before);
 }
