@@ -2,6 +2,8 @@
 #include "Physics/PhysicsTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Strada/Core/FileSystem.h"
+#include "Strada/Core/GameData.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/ProjectSettings.h"
 #include "Strada/Scene/Entity.h"
@@ -9,10 +11,42 @@
 
 #include <doctest/doctest.h>
 
+#include <filesystem>
+#include <iterator>
 #include <string>
 #include <vector>
 
 using namespace Strada;
+
+namespace
+{
+	// Whatever identity a damaged file gives names a game data folder strictly below the per-user root on every platform,
+	// in one or two portable names, never the engine's own folder.
+	void CheckGameDataFolder(GameIdentity const& identity)
+	{
+		std::filesystem::path const root = FileSystem::PathFromUtf8("/root");
+		for (UserDataPlatform const platform : {UserDataPlatform::Windows, UserDataPlatform::MacOS, UserDataPlatform::Linux})
+		{
+			std::filesystem::path const relative = UserDataLocations::MakeGameDirectory(root, identity, platform).lexically_relative(root);
+			size_t const names = static_cast<size_t>(std::distance(relative.begin(), relative.end()));
+			CHECK(names >= 1);
+			CHECK(names <= 2);
+			for (std::filesystem::path const& part : relative)
+			{
+				std::string const name = FileSystem::PathToUtf8(part);
+				CHECK_FALSE(name.empty());
+				CHECK(name == FileSystem::MakePortableFileName(name));
+			}
+			CHECK(FileSystem::PathToUtf8(relative) != "Strada");
+			CHECK(FileSystem::PathToUtf8(relative) != "strada");
+		}
+	}
+
+	void CheckGameDataFolder(ProjectSettings const& settings)
+	{
+		CheckGameDataFolder(GetGameIdentity(settings));
+	}
+}
 
 TEST_CASE("Project: damaged project files are refused, or load, save again and run scenes")
 {
@@ -38,6 +72,7 @@ TEST_CASE("Project: damaged project files are refused, or load, save again and r
 		Result<ProjectSettings> reloaded = Project::Deserialize(Project::Serialize(settings.GetValue()), context);
 		REQUIRE_MESSAGE(reloaded.IsOk(), (reloaded ? std::string() : reloaded.GetError()));
 		CHECK(reloaded.GetValue() == settings.GetValue());
+		CheckGameDataFolder(settings.GetValue());
 
 		// Its runtime settings (physics only) simulate a scene: a ball falling onto the ground.
 		Scene scene("Project");
@@ -66,7 +101,8 @@ TEST_CASE("Project: damaged project files are refused, or load, save again and r
 	CHECK(refused > 0);
 }
 
-TEST_CASE("Project: damaged game files are refused or open, and their window settings are always usable")
+TEST_CASE("Project: damaged game files are refused or open, their window settings are always usable, and the identity the entry "
+          "point reads is the one the game opens with")
 {
 	std::vector<std::string> warnings;
 	DeserializationContext const context = Testing::MakeTolerantContext(warnings);
@@ -93,10 +129,23 @@ TEST_CASE("Project: damaged game files are refused or open, and their window set
 			CHECK(window.GetValue().Height >= 64);
 			CHECK(window.GetValue().Height <= 16384);
 		}
+		// The entry point reads the identity before logging starts: whatever it reads names a folder below the root.
+		Result<GameIdentity> const identity = Project::ReadGameIdentity(file, ProjectFileKind::Game);
+		if (identity)
+		{
+			CheckGameDataFolder(identity.GetValue());
+		}
 
 		Testing::AssetManagerScope assets;
 		Result<Ref<Project>> game = Project::OpenGame(file);
 		(game ? opened : refused)++;
+		if (game)
+		{
+			CheckGameDataFolder(game.GetValue()->GetSettings());
+			// The log goes where the game's data does: a game that opens gives the entry point its identity.
+			REQUIRE_MESSAGE(identity.IsOk(), (identity ? std::string() : identity.GetError()));
+			CHECK(identity.GetValue() == GetGameIdentity(game.GetValue()->GetSettings()));
+		}
 	}
 	CHECK(opened > 0);
 	CHECK(refused > 0);

@@ -139,6 +139,57 @@ TEST_CASE("Project: settings round trip through the project file")
 	CHECK(AssetManager::GetAssetType(expected.StartScene) == AssetType::Scene);
 }
 
+TEST_CASE("Project: the identity is optional, round trips through the project file and names the game by the project otherwise")
+{
+	// Project files from before the identity keep it empty, and the game is named after the project.
+	Result<ProjectSettings> const older = Read(Json::object({{"Name", "Moto"}}));
+	REQUIRE(older.IsOk());
+	CHECK(older.GetValue().Identity == ProjectIdentity{});
+	CHECK(GetGameIdentity(older.GetValue()) == GameIdentity{"", "Moto"});
+	Result<ProjectSettings> const named = Read(Json::object({{"Name", "Moto"}, {"Identity", {{"Company", "Acme"}}}}));
+	REQUIRE(named.IsOk());
+	CHECK(GetGameIdentity(named.GetValue()) == GameIdentity{"Acme", "Moto"});
+	CHECK(ReadError(Json::object({{"Identity", {{"Company", 5}}}})).starts_with("Project.Identity:"));
+	CHECK(ReadError(Json::object({{"Identity", "Acme"}})).starts_with("Project.Identity:"));
+	CHECK(Read(Json::object({{"Identity", {{"Studio", "Acme"}}}})).IsError());
+
+	AssetManagerScope assets;
+	Testing::TemporaryDirectory temporary;
+	Result<Ref<Project>> created = Project::Create(temporary.GetPath() / "Game", "Moto", *MakeStartScene());
+	REQUIRE(created.IsOk());
+	Ref<Project> const project = created.GetValue();
+	CHECK(project->GetPlayDataDirectory() == (temporary.GetPath() / "Game" / ".strada" / "PlayData").lexically_normal());
+	// A patch of one field leaves the other as it was.
+	REQUIRE(project->ApplySettings(Json::object({{"Identity", {{"Company", "Acme Games"}, {"Product", "Moto Racer"}}}})).IsOk());
+	REQUIRE(project->ApplySettings(Json::object({{"Identity", {{"Product", ""}}}})).IsOk());
+	CHECK(project->GetSettings().Identity == ProjectIdentity{"Acme Games", ""});
+	CHECK(GetGameIdentity(project->GetSettings()) == GameIdentity{"Acme Games", "Moto"});
+	REQUIRE(project->ApplySettings(Json::object({{"Identity", {{"Product", "Moto Racer"}}}})).IsOk());
+	REQUIRE(project->Save().IsOk());
+
+	Result<std::string> const text = FileSystem::ReadTextFile(project->GetFilePath());
+	REQUIRE(text.IsOk());
+	Json const file = Json::parse(text.GetValue());
+	CHECK(file["Project"]["Identity"] == Json::object({{"Company", "Acme Games"}, {"Product", "Moto Racer"}}));
+	// The format stays version 1: the identity is a compatible field.
+	CHECK(file["Strada"]["Version"] == 1);
+
+	AssetManager::CloseAssetDirectory();
+	std::vector<std::string> warnings;
+	Result<Ref<Project>> opened = Project::Open(project->GetFilePath(), &warnings);
+	REQUIRE(opened.IsOk());
+	CHECK(opened.GetValue()->GetSettings().Identity == ProjectIdentity{"Acme Games", "Moto Racer"});
+	CHECK(warnings.empty());
+	// The player reads the window before anything else, whatever else the file holds.
+	CHECK(Project::ReadWindowSettings(project->GetFilePath(), ProjectFileKind::Project).IsOk());
+	// A game's configuration carries it, as it carries every setting.
+	Json const game = Project::Serialize(opened.GetValue()->GetSettings(), ProjectFileKind::Game);
+	CHECK(game["Game"]["Identity"]["Company"] == "Acme Games");
+	Result<ProjectSettings> const reread = Project::Deserialize(game, DeserializationContext{}, ProjectFileKind::Game);
+	REQUIRE(reread.IsOk());
+	CHECK(reread.GetValue().Identity == ProjectIdentity{"Acme Games", "Moto Racer"});
+}
+
 TEST_CASE("Project: invalid settings are rejected and change nothing")
 {
 	CHECK(Read(Json::object()).IsOk());
@@ -343,4 +394,65 @@ TEST_CASE("Project: the window settings are read without opening the file")
 	CHECK(tooSmall.GetError().find("Game.Window") != std::string::npos);
 	REQUIRE(FileSystem::WriteTextFile(file, R"({ "Strada": { "Version": 1, "Type": "Game" } })").IsOk());
 	CHECK(Project::ReadWindowSettings(file, ProjectFileKind::Game).IsError());
+}
+
+TEST_CASE("Project: the identity is read without opening the file, as opening resolves it, and damaged files give none")
+{
+	Testing::TemporaryDirectory temporary;
+	std::filesystem::path const file = temporary.GetPath() / "Game.sgame";
+	auto const readIdentity = [&file](std::string const& text) -> Result<GameIdentity>
+	{
+		REQUIRE(FileSystem::WriteTextFile(file, text).IsOk());
+		return Project::ReadGameIdentity(file, ProjectFileKind::Game);
+	};
+
+	// Neither asset references, other settings nor fields of newer versions matter here.
+	Result<GameIdentity> identity = readIdentity(R"({
+		"Strada": { "Version": 1, "Type": "Game" },
+		"Game": { "Name": "Named", "StartScene": "asset://Scenes/Main.sscene", "Future": 1, "Window": { "Width": 10 },
+		          "Identity": { "Company": "Acme", "Product": "Moto", "Future": 2 } }
+	})");
+	REQUIRE_MESSAGE(identity.IsOk(), (identity ? std::string() : identity.GetError()));
+	CHECK(identity.GetValue() == GameIdentity{"Acme", "Moto"});
+	// Without an identity the game is named by its name, and the name by its default.
+	identity = readIdentity(R"({ "Strada": { "Version": 1, "Type": "Game" }, "Game": { "Name": "Named" } })");
+	REQUIRE(identity.IsOk());
+	CHECK(identity.GetValue() == GameIdentity{"", "Named"});
+	identity = readIdentity(R"({ "Strada": { "Version": 1, "Type": "Game" }, "Game": { "Identity": { "Company": "Acme" } } })");
+	REQUIRE(identity.IsOk());
+	CHECK(identity.GetValue() == GameIdentity{"Acme", ProjectSettings().Name});
+
+	// The same identity as the opened game's settings give.
+	{
+		Testing::AssetManagerScope assets;
+		REQUIRE(FileSystem::CreateDirectories(temporary.GetPath() / "Assets").IsOk());
+		ProjectSettings settings;
+		settings.Name = "Opened";
+		settings.Identity.Product = "Opened Game";
+		REQUIRE(FileSystem::WriteTextFile(file, DumpJson(Project::Serialize(settings, ProjectFileKind::Game))).IsOk());
+		Result<Ref<Project>> const game = Project::OpenGame(file);
+		REQUIRE(game.IsOk());
+		identity = Project::ReadGameIdentity(file, ProjectFileKind::Game);
+		REQUIRE(identity.IsOk());
+		CHECK(identity.GetValue() == GetGameIdentity(game.GetValue()->GetSettings()));
+		CHECK(identity.GetValue() == GameIdentity{"", "Opened Game"});
+	}
+
+	// What Open refuses, and files that are missing, damaged or of the other kind, give none.
+	CHECK(Project::ReadGameIdentity(temporary.GetPath() / "Missing.sgame", ProjectFileKind::Game).IsError());
+	CHECK(readIdentity("{ \"Strada\": ").IsError());
+	CHECK(readIdentity(R"({ "Strada": { "Version": 1, "Type": "Project" }, "Project": { "Name": "Named" } })").IsError());
+	CHECK(readIdentity(R"({ "Strada": { "Version": 2, "Type": "Game" }, "Game": { "Name": "Named" } })").IsError());
+	CHECK(readIdentity(R"({ "Strada": { "Version": 1, "Type": "Game" } })").IsError());
+	CHECK(readIdentity(R"({ "Strada": { "Version": 1, "Type": "Game" }, "Game": { "Name": "" } })").IsError());
+	CHECK(readIdentity(R"({ "Strada": { "Version": 1, "Type": "Game" }, "Game": { "Name": 3 } })").IsError());
+	Result<GameIdentity> const wrongType =
+		readIdentity(R"({ "Strada": { "Version": 1, "Type": "Game" }, "Game": { "Identity": { "Product": [] } } })");
+	REQUIRE(wrongType.IsError());
+	CHECK(wrongType.GetError().find("Game.Identity") != std::string::npos);
+	// A project file reads as a project.
+	REQUIRE(FileSystem::WriteTextFile(file, R"({ "Strada": { "Version": 1, "Type": "Project" }, "Project": { "Name": "Named" } })").IsOk());
+	identity = Project::ReadGameIdentity(file, ProjectFileKind::Project);
+	REQUIRE(identity.IsOk());
+	CHECK(identity.GetValue() == GameIdentity{"", "Named"});
 }

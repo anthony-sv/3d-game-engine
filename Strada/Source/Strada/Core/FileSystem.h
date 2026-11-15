@@ -74,8 +74,10 @@ namespace Strada
 
 		static std::filesystem::path GetExecutablePath();
 		static std::filesystem::path GetExecutableDirectory();
-		// Per-user writable directory for settings, logs and editor state:
-		// Windows %APPDATA%/Strada, macOS ~/Library/Application Support/Strada, Linux $XDG_DATA_HOME/strada.
+		// Per-user writable directory for settings, logs and editor state, the engine's folder below the per-user root
+		// (UserDataLocations::FindRoot): Windows %APPDATA%/Strada, macOS ~/Library/Application Support/Strada, Linux
+		// $XDG_DATA_HOME/strada; <executable directory>/UserData when the environment names no root. Exported games keep
+		// their data in folders of their own beside it (GameData).
 		static std::filesystem::path GetUserDataDirectory();
 	};
 }

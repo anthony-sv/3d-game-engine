@@ -58,7 +58,8 @@ public sealed class AgentWorkflowTests
 		return McpTestClient.ParseText(result);
 	}
 
-	private static async Task<(int ExitCode, string Output)> RunAsync(string executable, params string[] arguments)
+	// Runs an exported game with the test's user data, where it writes its log: never into the user's own folders.
+	private static async Task<(int ExitCode, string Output)> RunAsync(string executable, string userData, params string[] arguments)
 	{
 		// macOS games are application bundles: the program is inside.
 		if (executable.EndsWith(".app", StringComparison.Ordinal) && Directory.Exists(executable))
@@ -75,6 +76,10 @@ public sealed class AgentWorkflowTests
 		foreach (string argument in arguments)
 		{
 			startInfo.ArgumentList.Add(argument);
+		}
+		foreach ((string name, string value) in IsolatedUserData.Environment(userData))
+		{
+			startInfo.Environment[name] = value;
 		}
 		using Process process = Process.Start(startInfo)!;
 		Task<string> output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
@@ -180,9 +185,12 @@ public sealed class AgentWorkflowTests
 		// The exported game passes them without the editor.
 		JsonNode export = await ToolAsync(client, "project_export", new JsonObject { ["directory"] = Path.Combine(directory.Path, "Build") });
 		Assert.True(export["succeeded"]!.GetValue<bool>(), export.ToJsonString());
-		(int exitCode, string output) = await RunAsync(export["executable"]!.GetValue<string>(), "--test");
+		(int exitCode, string output) = await RunAsync(export["executable"]!.GetValue<string>(), Path.Combine(directory.Path, "UserData"), "--test");
 		Assert.True(exitCode == 0, output);
 		Assert.Contains("Tests passed: 2 checks", output);
+		// It logged below its own data folder, in the test's user data.
+		Assert.Contains(Directory.EnumerateFiles(Path.Combine(directory.Path, "UserData"), "Spinner.log", SearchOption.AllDirectories),
+			log => Path.GetFileName(Path.GetDirectoryName(log)) == "Logs");
 	}
 
 	// The next JSON-RPC response with this ID from a strada mcp process (notifications in between are skipped), within the
@@ -375,7 +383,7 @@ public sealed class AgentWorkflowTests
 		JsonNode? fixedNode = exported["VisualScript"]!["Graph"]!["Nodes"]!.AsArray().SingleOrDefault(node => node!["ID"]!.GetValue<int>() == 7);
 		Assert.NotNull(fixedNode);
 		Assert.Equal("(angle + speed * dt) % 360", fixedNode["Settings"]!["Formula"]!.GetValue<string>());
-		(int exitCode, string output) = await RunAsync(executable, "--headless", "--frames", "120");
+		(int exitCode, string output) = await RunAsync(executable, Path.Combine(directory.Path, "UserData"), "--headless", "--frames", "120");
 		Assert.True(exitCode == 0, output);
 		// The player started the Spinner's scene and ran its graph without a problem: a graph that does not load, an entity
 		// left without its graph and an error while running all name the graph.

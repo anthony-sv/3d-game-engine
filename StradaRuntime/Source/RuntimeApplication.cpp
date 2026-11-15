@@ -4,6 +4,7 @@
 #include "Strada/Core/CommandLine.h"
 #include "Strada/Core/EntryPoint.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Project/ScriptProject.h"
@@ -64,20 +65,6 @@ namespace Strada
 				        zone.MillisecondsPerFrame, zone.MillisecondsPerCall, zone.CallsPerFrame);
 			}
 		}
-
-		// The exported game next to the executable, or in the app bundle's Resources directory on macOS.
-		std::filesystem::path FindExportedGame()
-		{
-			std::filesystem::path const directory = FileSystem::GetExecutableDirectory();
-			std::filesystem::path const besideExecutable = directory / FileSystem::PathFromUtf8(Project::GameFileName);
-#if defined(ST_PLATFORM_MACOS)
-			if (!FileSystem::IsRegularFile(besideExecutable))
-			{
-				return directory.parent_path() / "Resources" / FileSystem::PathFromUtf8(Project::GameFileName);
-			}
-#endif
-			return besideExecutable;
-		}
 	}
 
 	class RuntimeApplication final : public Application
@@ -105,6 +92,7 @@ namespace Strada
 				ST_WARN("{}", warning);
 			}
 			Ref<Project> game = opened.TakeValue();
+			FillGameData(*game);
 			if (Result<void> scripts = StartScripts(*game); !scripts)
 			{
 				return scripts;
@@ -154,6 +142,32 @@ namespace Strada
 		}
 
 	private:
+		// Before the game starts: a test run gets a folder of its own that starts empty and is removed at exit, a project
+		// (a development run) the project's play data, and an exported game its own folder on the player's machine.
+		void FillGameData(Project const& game)
+		{
+			if (m_RuntimeSpecification.Layer.Test)
+			{
+				m_GameData.emplace(GameData::MakeTemporaryDirectory(), GameDataLifetime::Temporary);
+			}
+			else if (game.IsGame())
+			{
+				m_GameData.emplace(GameData::GetUserDirectory(GetGameIdentity(game.GetSettings())), GameDataLifetime::Kept);
+			}
+			else
+			{
+				m_GameData.emplace(game.GetPlayDataDirectory(), GameDataLifetime::Kept);
+			}
+			if (m_GameData->GetDirectory().empty())
+			{
+				ST_WARN("The game has no data folder: the system names no temporary folder");
+				return;
+			}
+			// The lifetime is read back from the service, so the line says what happens at exit.
+			ST_INFO("The game keeps its data in '{}'{}", FileSystem::PathToUtf8(m_GameData->GetDirectory()),
+			        GameData::IsTemporary() ? ", a test run's folder removed at exit" : "");
+		}
+
 		// Games without C# scripts or visual scripts run without .NET; visual scripts need no game assembly.
 		static Result<void> StartScripts(Project const& game)
 		{
@@ -217,6 +231,8 @@ namespace Strada
 		}
 
 		RuntimeSpecification m_RuntimeSpecification;
+		// Held until the application is destroyed, after its layers detached and the scripts stopped.
+		std::optional<GameDataScope> m_GameData;
 	};
 
 	Scope<Application> CreateApplication(ApplicationCommandLineArgs args, int& exitCode)
@@ -321,7 +337,7 @@ namespace Strada
 		runtime.GameKind = project ? ProjectFileKind::Project : ProjectFileKind::Game;
 		runtime.GameFile = project    ? FileSystem::PathFromUtf8(*project)
 		                   : gameFile ? FileSystem::PathFromUtf8(*gameFile)
-		                              : FindExportedGame();
+		                              : Project::FindExportedGameFile();
 		if (runtime.GameKind == ProjectFileKind::Game && FileSystem::IsDirectory(runtime.GameFile))
 		{
 			runtime.GameFile /= FileSystem::PathFromUtf8(Project::GameFileName);

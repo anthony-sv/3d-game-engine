@@ -35,6 +35,10 @@ namespace Strada
 		static constexpr std::string_view FileExtension = ".sproj";
 		// The configuration of an exported game, next to the player executable (in Contents/Resources of a macOS app bundle).
 		static constexpr std::string_view GameFileName = "Game.sgame";
+		// The game data folder of development runs (the editor's play mode, the player's --project), relative to the
+		// project directory: .strada/ is left out of version control and of project copies, and playing never writes into
+		// the shipped game's real folder.
+		static constexpr std::string_view PlayDataDirectory = ".strada/PlayData";
 
 		// Writes a new project into an empty or missing directory: the project file, the asset directory and the start scene
 		// (Assets/Scenes/Main.sscene), then opens it like Open. On failure nothing is left behind.
@@ -48,6 +52,15 @@ namespace Strada
 		// The window settings of a project or game file, with the title resolved (the project's name when empty), read without
 		// opening it: the player creates its window before the engine starts. Open and OpenGame check the whole file.
 		[[nodiscard]] static Result<ProjectWindowSettings> ReadWindowSettings(std::filesystem::path const& file, ProjectFileKind kind);
+		// The identity of a project or game file (GetGameIdentity of its settings), read without opening it and without
+		// logging: the entry point reads an exported game's before logging starts, to log below the game's data folder. Fails
+		// for a file that is missing, not JSON or of the other kind, or whose header, name or identity Open and OpenGame
+		// would refuse. The rest of the file is not read, so a file whose other settings are damaged gives its identity and
+		// still does not open; a file they open gives the identity of the settings they read.
+		[[nodiscard]] static Result<GameIdentity> ReadGameIdentity(std::filesystem::path const& file, ProjectFileKind kind);
+		// Where the configuration of the exported game a player runs by default is: GameFileName beside the executable, or
+		// in Contents/Resources of a macOS app bundle when there is none beside it. The file may not exist.
+		static std::filesystem::path FindExportedGameFile();
 
 		// A project in memory; Create, Open and OpenGame also prepare its files and asset directory.
 		Project(std::filesystem::path filePath, ProjectSettings settings, ProjectFileKind fileKind = ProjectFileKind::Project);
@@ -66,6 +79,8 @@ namespace Strada
 		bool IsGame() const { return m_FileKind == ProjectFileKind::Game; }
 		std::filesystem::path GetDirectory() const { return m_FilePath.parent_path(); }
 		std::filesystem::path GetAssetDirectory() const;
+		// <project directory>/.strada/PlayData (PlayDataDirectory); not created.
+		std::filesystem::path GetPlayDataDirectory() const;
 		// Whether the project's asset directory, open in the AssetManager (Open, OpenGame), registers visual scripts: running
 		// the game then needs the scripting runtime, with or without C# scripts.
 		bool UsesVisualScripts() const;

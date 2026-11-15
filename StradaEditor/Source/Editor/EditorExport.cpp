@@ -99,7 +99,7 @@ namespace Strada
 		{
 			// The worker touches no engine state: it copies files and runs dotnet.
 			m_Export = std::async(std::launch::async,
-			                      [this, settings = prepared.TakeValue(), options]()
+			                      [this, settings = prepared.TakeValue(), options, environment = m_GameEnvironment]()
 			                      {
 									  ST_PROFILE_THREAD("Export");
 									  auto const progress = [this](std::string_view step)
@@ -130,6 +130,7 @@ namespace Strada
 										  run.Executable = GetPlayerBinary(worker.Export.GetValue().Executable);
 										  run.Arguments = {"--headless", "--frames", std::to_string(std::max(options.SmokeTestFrames, 1u))};
 										  run.WorkingDirectory = settings.OutputDirectory;
+										  run.Environment = environment;
 										  run.Timeout = std::chrono::minutes(2);
 										  Result<ProcessResult> const ran = Process::Run(run, &m_Cancel);
 										  worker.SmokeTestPassed = ran && ran.GetValue().Succeeded();
@@ -166,12 +167,13 @@ namespace Strada
 		try
 		{
 			m_Game = std::async(std::launch::async,
-			                    [this, binary]
+			                    [this, binary, environment = m_GameEnvironment]
 			                    {
 									ST_PROFILE_THREAD("Exported Game");
 									ProcessSpecification run;
 									run.Executable = binary;
 									run.WorkingDirectory = binary.parent_path();
+									run.Environment = environment;
 									if (Result<ProcessResult> const ran = Process::Run(run, &m_StopGame); !ran)
 									{
 										ST_ERROR("The game could not run: {}", ran.GetError());

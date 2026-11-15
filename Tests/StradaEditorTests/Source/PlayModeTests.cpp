@@ -13,6 +13,7 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Scene/Components.h"
@@ -457,6 +458,57 @@ TEST_CASE("PlayMode: playing shows and edits a copy that stopping discards")
 	CHECK_FALSE(fixture.Context.GetScene().IsRunning());
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
 	CHECK(fixture.Context.GetSelection().GetEntities() == std::vector<UUID>{crate});
+}
+
+TEST_CASE(
+	"PlayMode: a project plays with its play data as the game's data folder, a test run with a temporary one, and stopping empties it")
+{
+	{
+		// Without a project there is no game data folder.
+		PlayFixture fixture;
+		REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+		CHECK_FALSE(GameData::GetDirectory().has_value());
+		fixture.Play.Stop();
+	}
+
+	ProjectPlayFixture fixture;
+	REQUIRE_FALSE(GameData::GetDirectory().has_value());
+	std::filesystem::path const playData = fixture.Context.GetProject()->GetPlayDataDirectory();
+	CHECK(playData == (fixture.Directory.GetPath() / "Game" / ".strada" / "PlayData").lexically_normal());
+	for (EditorPlayState const state : {EditorPlayState::Play, EditorPlayState::Simulate})
+	{
+		CAPTURE(static_cast<int>(state));
+		REQUIRE(fixture.Play.Start(state, 640, 480).IsOk());
+		CHECK(GameData::GetDirectory() == playData);
+		CHECK_FALSE(GameData::IsTemporary());
+		fixture.Play.Stop();
+		CHECK_FALSE(GameData::GetDirectory().has_value());
+	}
+	// Playing names the folder and creates nothing: the game's first write does.
+	CHECK_FALSE(FileSystem::Exists(fixture.Directory.GetPath() / "Game" / ".strada"));
+
+	// A test run starts from no data and leaves none.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480, nullptr, PlayStartOptions{.TestRun = true}).IsOk());
+	std::optional<std::filesystem::path> const temporary = GameData::GetDirectory();
+	REQUIRE(temporary.has_value());
+	CHECK(GameData::IsTemporary());
+	CHECK(*temporary != playData);
+	CHECK_FALSE(FileSystem::IsInside(*temporary, fixture.Directory.GetPath()));
+	// What the run writes there goes with the folder.
+	REQUIRE(FileSystem::WriteTextFile(*temporary / "Saves" / "Slot1.json", "{}").IsOk());
+	fixture.Play.Stop();
+	CHECK_FALSE(GameData::GetDirectory().has_value());
+	CHECK_FALSE(FileSystem::Exists(*temporary));
+
+	// Stopping by destroying play mode empties it too, and what playing wrote into the play data stays.
+	{
+		PlayMode play(fixture.Context, fixture.Scripts);
+		REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
+		CHECK(GameData::GetDirectory() == playData);
+		REQUIRE(FileSystem::WriteTextFile(playData / "Saves" / "Slot1.json", "{}").IsOk());
+	}
+	CHECK_FALSE(GameData::GetDirectory().has_value());
+	CHECK(FileSystem::IsRegularFile(playData / "Saves" / "Slot1.json"));
 }
 
 TEST_CASE("PlayMode: script fields edited while playing reach the running script at once, and edits start from its values")

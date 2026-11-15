@@ -291,8 +291,9 @@ namespace
 		bool Open = true;
 		std::function<void()> Draw = [this]
 		{
+			// Tall enough for every row with 16 layers and their "+" (the null backend's display is 1080 high).
 			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
-			ImGui::SetNextWindowSize(ImVec2(700.0f, 1000.0f));
+			ImGui::SetNextWindowSize(ImVec2(700.0f, 1080.0f));
 			Panel.OnImGuiRender(Operations, Open);
 		};
 		FieldTableDriver Driver{Gui, Draw,
@@ -915,6 +916,36 @@ TEST_CASE("ProjectSettingsPanel: the physics step settings are fields of the pan
 	CHECK(clamped["Project"]["Physics"]["MaxStepsPerFrame"] == 64);
 	CHECK(clamped["Project"]["Physics"]["CollisionSteps"] == 1);
 	CHECK(ValidateProjectSettings(fixture.Context.GetProject()->GetSettings()).IsOk());
+}
+
+TEST_CASE("ProjectSettingsPanel: the identity's company and product are fields of the panel, written to the project file")
+{
+	ProjectSettingsFixture fixture;
+	FieldTableDriver const& driver = fixture.Driver;
+	fixture.CreateProject(Json::object());
+	CHECK(Json::parse(fixture.ReadProjectFile())["Project"]["Identity"] == Json::object({{"Company", ""}, {"Product", ""}}));
+	ImGuiID const identity = driver.GetFieldId("Identity");
+	driver.TypeInto(ImHashStr("##value", 0, driver.GetFieldId("Company", identity)), "Acme Games");
+	driver.TypeInto(ImHashStr("##value", 0, driver.GetFieldId("Product", identity)), "Moto Racer");
+	fixture.Gui.Frame(fixture.Draw);
+	fixture.Panel.Flush(fixture.Operations);
+	CHECK(fixture.Context.GetProject()->GetSettings().Identity == ProjectIdentity{"Acme Games", "Moto Racer"});
+	CHECK(Json::parse(fixture.ReadProjectFile())["Project"]["Identity"] ==
+	      Json::object({{"Company", "Acme Games"}, {"Product", "Moto Racer"}}));
+	// Settings are not part of the undo history.
+	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
+
+	// Cleared again, the game is named after the project.
+	driver.Click(ImHashStr("##value", 0, driver.GetFieldId("Product", identity)), driver.GetValueX());
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Draw);
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Draw);
+	fixture.Gui.Frame(fixture.Draw);
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Draw);
+	fixture.Gui.Frame(fixture.Draw);
+	fixture.Panel.Flush(fixture.Operations);
+	CHECK(GetGameIdentity(fixture.Context.GetProject()->GetSettings()) == GameIdentity{"Acme Games", "Game"});
+	CHECK(Json::parse(fixture.ReadProjectFile())["Project"]["Identity"]["Product"] == "");
+	CHECK(fixture.Open);
 }
 
 TEST_CASE("ProjectSettingsPanel: removing a layer keeps the ignored pairs on their indices, and a layer added is named and stops at 16")

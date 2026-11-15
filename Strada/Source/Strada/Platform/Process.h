@@ -23,7 +23,8 @@ namespace Strada
 		std::vector<std::string> Arguments;
 		// Empty runs it in the current working directory.
 		std::filesystem::path WorkingDirectory;
-		// Set in its environment, which otherwise is a copy of this process's.
+		// Set in its environment, which otherwise is a copy of this process's: each replaces the variable of its name the
+		// program would inherit (in any letter case on Windows, where names ignore it).
 		std::vector<std::pair<std::string, std::string>> Environment;
 		// It is killed when it runs longer; zero lets it run as long as it takes.
 		std::chrono::milliseconds Timeout{0};

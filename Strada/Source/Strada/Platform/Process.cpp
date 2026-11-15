@@ -8,11 +8,18 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <cwchar>
 #include <optional>
+#include <string_view>
 #include <system_error>
+#include <utility>
 
 #if defined(ST_PLATFORM_WINDOWS)
 #include <Windows.h>
+#else
+// The process's environment, a C variable; not every platform's headers declare it.
+extern "C" char** environ;
 #endif
 
 namespace Strada
@@ -163,6 +170,87 @@ namespace Strada
 			}
 			return parts;
 		}
+
+		using EnvironmentVariables = std::vector<std::pair<std::string, std::string>>;
+
+		// Whether two environment variable names name one variable: Windows ignores the letter case of names.
+		bool IsSameVariable(std::string_view first, std::string_view second)
+		{
+#if defined(ST_PLATFORM_WINDOWS)
+			return std::ranges::equal(first, second,
+			                          [](char a, char b)
+			                          {
+										  return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+									  });
+#else
+			return first == second;
+#endif
+		}
+
+		// This process's environment, as name and value pairs in its own order. A name is what comes before the first '='
+		// after its first character, which keeps the hidden "=C:=C:\..." entries of Windows whole.
+		EnvironmentVariables ReadEnvironment()
+		{
+			EnvironmentVariables variables;
+			auto const add = [&variables](std::string_view text)
+			{
+				size_t const separator = text.find('=', 1);
+				if (separator != std::string_view::npos)
+				{
+					variables.emplace_back(std::string(text.substr(0, separator)), std::string(text.substr(separator + 1)));
+				}
+			};
+#if defined(ST_PLATFORM_WINDOWS)
+			wchar_t* const block = ::GetEnvironmentStringsW();
+			if (block == nullptr)
+			{
+				return variables;
+			}
+			for (wchar_t const* entry = block; *entry != L'\0'; entry += std::wcslen(entry) + 1)
+			{
+				int const wideLength = static_cast<int>(std::wcslen(entry));
+				int const length = ::WideCharToMultiByte(CP_UTF8, 0, entry, wideLength, nullptr, 0, nullptr, nullptr);
+				std::string utf8(static_cast<size_t>(std::max(length, 0)), '\0');
+				if (length > 0)
+				{
+					::WideCharToMultiByte(CP_UTF8, 0, entry, wideLength, utf8.data(), length, nullptr, nullptr);
+				}
+				add(utf8);
+			}
+			::FreeEnvironmentStringsW(block);
+#else
+			for (char** entry = environ; entry != nullptr && *entry != nullptr; ++entry)
+			{
+				add(*entry);
+			}
+#endif
+			return variables;
+		}
+
+		// The environment a program starts with: this process's, with the specification's variables replacing inherited ones
+		// of the same name in place and the others added at the end. reproc only appends to the inherited environment, and
+		// the platforms' lookups find the first of two entries of one name, which would be the inherited one.
+		EnvironmentVariables MakeEnvironment(EnvironmentVariables const& changes)
+		{
+			EnvironmentVariables variables = ReadEnvironment();
+			for (std::pair<std::string, std::string> const& change : changes)
+			{
+				auto const inherited = std::ranges::find_if(variables,
+				                                            [&change](std::pair<std::string, std::string> const& variable)
+				                                            {
+																return IsSameVariable(variable.first, change.first);
+															});
+				if (inherited != variables.end())
+				{
+					inherited->second = change.second;
+				}
+				else
+				{
+					variables.push_back(change);
+				}
+			}
+			return variables;
+		}
 	}
 
 	Result<ProcessResult> Process::Run(ProcessSpecification const& specification, std::atomic<bool> const* cancel)
@@ -178,8 +266,15 @@ namespace Strada
 		options.redirect.out.type = reproc::redirect::pipe;
 		options.redirect.err.type = reproc::redirect::stdout_;
 		options.working_directory = workingDirectory.empty() ? nullptr : workingDirectory.c_str();
-		options.env.behavior = reproc::env::extend;
-		options.env.extra = reproc::env(specification.Environment);
+		if (specification.Environment.empty())
+		{
+			options.env.behavior = reproc::env::extend;
+		}
+		else
+		{
+			options.env.behavior = reproc::env::empty;
+			options.env.extra = reproc::env(MakeEnvironment(specification.Environment));
+		}
 		// Whatever happens below, the program does not outlive this call.
 		options.stop = {{reproc::stop::kill, reproc::infinite},
 		                {reproc::stop::noop, reproc::milliseconds(0)},

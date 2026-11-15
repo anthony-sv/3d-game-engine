@@ -25,6 +25,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Events/MouseEvent.h
     Source/Strada/Core/FileSystem.cpp
     Source/Strada/Core/FileSystem.h
+    Source/Strada/Core/GameData.cpp
+    Source/Strada/Core/GameData.h
     Source/Strada/Core/Hash.h
     Source/Strada/Core/Image.cpp
     Source/Strada/Core/Image.h

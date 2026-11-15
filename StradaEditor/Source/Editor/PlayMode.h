@@ -4,6 +4,7 @@
 #include "Editor/EditorScripts.h"
 
 #include "Strada/Core/Base.h"
+#include "Strada/Core/GameData.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Project/SceneRunner.h"
@@ -178,6 +179,8 @@ namespace Strada
 		Scope<SceneRunner> m_Runner;
 		uint64_t m_RunnerSceneVersion = 0;
 		std::optional<TestRunReport> m_LastTestReport;
+		// The game data service's folder while a project plays (GameData).
+		std::optional<GameDataScope> m_GameData;
 		bool m_UIPointerEnabled = true;
 	};
 }

@@ -90,4 +90,9 @@ namespace Strada
 		}
 		return runtime;
 	}
+
+	GameIdentity GetGameIdentity(ProjectSettings const& settings)
+	{
+		return GameIdentity::Resolve(settings.Identity.Company, settings.Identity.Product, settings.Name);
+	}
 }
