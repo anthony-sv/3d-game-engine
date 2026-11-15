@@ -795,17 +795,22 @@ A physics material (`.sphysmat`) is a surface: how it slides (`Friction`), bounc
 (`RollingResistance`), the name scripts tell it by (`Surface`: Asphalt, Gravel, Ice) and the sound and particles of an
 impact on it (`ImpactSound`, `ImpactParticles`, which scripts and graphs play and spawn; contacts do neither by
 themselves, and rigid bodies roll without the rolling resistance, which is for scripts and vehicles). Pick one in a
-collider's `Material` field: its values then replace the collider's own `Friction` and `Restitution`, which the
-inspector shows disabled ("Set by Material") until the field is cleared. A triangle-mesh collider (`Convex` off) also has
-`Materials`, one per submesh of its mesh (at most 31, in submesh order; an empty entry uses `Material`), so one road mesh
-can be asphalt, kerbs and gravel.
+collider's `Material` field: its values then replace the collider's own `Friction` and `Restitution`, and the inspector
+says so, showing "Set by Material" in place of those two fields while `Material` names a physics material of the project.
+A reference to anything else (an asset of another type, a file that is gone) counts as no material: the two fields show
+again and apply. A material file that is there but does not load keeps "Set by Material" (the inspector does not load
+it), while the body uses the collider's own values and the log says why. A triangle-mesh collider (`Convex` off) also has `Materials`, one per submesh of its mesh (at most 31, in
+submesh order; an empty entry uses `Material`), so one road mesh can be asphalt, kerbs and gravel.
 
 Where two colliders touch, their values are combined: `FrictionCombine` and `RestitutionCombine` say how
 (`GeometricMean`, `Average`, `Minimum`, `Multiply` or `Maximum`), and when the two sides differ the one later in that
 list wins. A collider without a material combines its friction by `GeometricMean` and its restitution by `Maximum`, as
 every collider did before materials, so scenes without them behave exactly as before. Edit a material in the Inspector,
 or agents with `physics-material.set` ([Automation](Automation.md)); while the game plays, the bodies that use it take
-the new values before the next physics step.
+the new values before the next physics step, and scripts and graphs read them on their next frame. Scripts and graphs
+read every field of a material (`Strada.PhysicsMaterial`), and a raycast names the material of the surface it hit, which
+tells a script whether a wheel is on asphalt or gravel ([Scripting](Scripting.md#physics-materials),
+[Visual scripting](VisualScripting.md#physics-materials)).
 
 ## Scene Settings
 

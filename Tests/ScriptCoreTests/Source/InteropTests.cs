@@ -132,7 +132,13 @@ public sealed class InteropTests
 		Assert.Equal(120, Unsafe.SizeOf<NativeMaterialValues>());
 		Assert.Equal(64, (int)Marshal.OffsetOf<NativeMaterialValues>(nameof(NativeMaterialValues.BaseColorTexture)));
 		Assert.Equal(104, (int)Marshal.OffsetOf<NativeMaterialValues>(nameof(NativeMaterialValues.AlphaMode)));
-		Assert.Equal(40, Unsafe.SizeOf<NativeRaycastHit>());
+		Assert.Equal(48, Unsafe.SizeOf<NativeRaycastHit>());
+		Assert.Equal(32, (int)Marshal.OffsetOf<NativeRaycastHit>(nameof(NativeRaycastHit.Distance)));
+		Assert.Equal(40, (int)Marshal.OffsetOf<NativeRaycastHit>(nameof(NativeRaycastHit.Material)));
+		Assert.Equal(48, Unsafe.SizeOf<NativePhysicsMaterial>());
+		Assert.Equal(24, (int)Marshal.OffsetOf<NativePhysicsMaterial>(nameof(NativePhysicsMaterial.Friction)));
+		Assert.Equal(36, (int)Marshal.OffsetOf<NativePhysicsMaterial>(nameof(NativePhysicsMaterial.FrictionCombine)));
+		Assert.Equal(44, (int)Marshal.OffsetOf<NativePhysicsMaterial>(nameof(NativePhysicsMaterial.SurfaceLength)));
 		Assert.Equal(24, Unsafe.SizeOf<NativeCurveHeader>());
 		Assert.Equal(8, (int)Marshal.OffsetOf<NativeCurveHeader>(nameof(NativeCurveHeader.KeyCount)));
 		Assert.Equal(16, (int)Marshal.OffsetOf<NativeCurveHeader>(nameof(NativeCurveHeader.PostExtrapolation)));
@@ -150,7 +156,8 @@ public sealed class InteropTests
 			(typeof(Mesh), "Mesh", NativeAssetType.Mesh), (typeof(Material), "Material", NativeAssetType.Material),
 			(typeof(Texture), "Texture", NativeAssetType.Texture), (typeof(EnvironmentMap), "Environment", NativeAssetType.Environment),
 			(typeof(AudioClip), "AudioClip", NativeAssetType.AudioClip), (typeof(Font), "Font", NativeAssetType.Font),
-			(typeof(VisualScript), "VisualScript", NativeAssetType.VisualScript), (typeof(Curve), "Curve", NativeAssetType.None)];
+			(typeof(VisualScript), "VisualScript", NativeAssetType.VisualScript), (typeof(Curve), "Curve", NativeAssetType.None),
+			(typeof(PhysicsMaterial), "PhysicsMaterial", NativeAssetType.None)];
 		foreach ((System.Type assetClass, string name, NativeAssetType builtIn) in classes)
 		{
 			Assert.Equal(name, AssetTypes.GetTypeName(assetClass));
@@ -223,6 +230,8 @@ public sealed class InteropTests
 		Assert.Equal("Mesh", ScriptFieldCodec.GetAssetType(typeof(Mesh)));
 		Assert.Equal("Curve", ScriptFieldCodec.GetAssetType(typeof(Curve)));
 		Assert.Equal(new Curve(new AssetHandle(6)), ScriptFieldCodec.FromStored(new AssetHandle(6), typeof(Curve), out error));
+		Assert.Equal("PhysicsMaterial", ScriptFieldCodec.GetAssetType(typeof(PhysicsMaterial)));
+		Assert.Equal(new PhysicsMaterial(new AssetHandle(7)), ScriptFieldCodec.FromStored(new AssetHandle(7), typeof(PhysicsMaterial), out error));
 		Assert.Null(ScriptFieldCodec.GetAssetType(typeof(Prefab)));
 		Assert.Null(ScriptFieldCodec.GetAssetType(typeof(AssetHandle)));
 	}

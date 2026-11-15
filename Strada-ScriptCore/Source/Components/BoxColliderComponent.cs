@@ -31,14 +31,16 @@ public sealed unsafe class BoxColliderComponent : Component
 		set => NativeField.SetBool(InternalCalls.BoxColliderComponent_SetIsTrigger, Entity.ID, value);
 	}
 
-	/// <summary>Friction coefficient (combined with the other collider's as their geometric mean).</summary>
+	/// <summary>Friction coefficient, used while the collider's Material (set in the editor) names no physics material:
+	/// two colliders without materials combine theirs as the square root of the product.</summary>
 	public float Friction
 	{
 		get => NativeField.Get<float>(InternalCalls.BoxColliderComponent_GetFriction, Entity.ID);
 		set => NativeField.Set<float>(InternalCalls.BoxColliderComponent_SetFriction, Entity.ID, value);
 	}
 
-	/// <summary>Bounciness from 0 to 1 (the larger of the two colliders' applies).</summary>
+	/// <summary>Bounciness from 0 to 1, used while the collider's Material (set in the editor) names no physics material:
+	/// of two colliders without materials, the larger applies.</summary>
 	public float Restitution
 	{
 		get => NativeField.Get<float>(InternalCalls.BoxColliderComponent_GetRestitution, Entity.ID);

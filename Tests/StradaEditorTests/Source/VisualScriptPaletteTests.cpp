@@ -337,7 +337,8 @@ TEST_CASE("VisualScriptPalette: the index offers every library kind with its typ
 	                                                MakePin("Entity", VisualScriptPinDirection::Out, "Strada.Entity"),
 	                                                MakePin("Point", VisualScriptPinDirection::Out, "Strada.Vector3"),
 	                                                MakePin("Normal", VisualScriptPinDirection::Out, "Strada.Vector3"),
-	                                                MakePin("Distance", VisualScriptPinDirection::Out, "float")}));
+	                                                MakePin("Distance", VisualScriptPinDirection::Out, "float"),
+	                                                MakePin("Material", VisualScriptPinDirection::Out, "Strada.PhysicsMaterial")}));
 	CHECK_FALSE(FindEntry(index, "Make Raycast Hit").has_value());
 	CHECK(FindEntry(index, "Make Matrix4").has_value());
 

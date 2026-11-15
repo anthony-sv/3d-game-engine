@@ -1732,6 +1732,10 @@
 							"Type": "Entity",
 							"Value": "3504304853977643006"
 						},
+						"Rubber": {
+							"Type": "Asset",
+							"Value": "11281368738810150711"
+						},
 						"Sensor": {
 							"Type": "Entity",
 							"Value": "4924493252767513394"

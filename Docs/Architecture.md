@@ -790,7 +790,7 @@ scripts reach data assets through the Script module's bindings.
 **Scripts: the managed pattern.** A data asset type that scripts use gets a sealed managed class of the same name in
 `Strada-ScriptCore`, deriving from `Asset` with an internal constructor, as `Material` does; no public member lands
 without a use in the FeatureTest scripts (ScriptCoreTests' coverage), so each type's track adds its class with its first
-user (CV's `Curve` is the first). Managed code identifies asset classes by name, never by a native number: `AssetTypes`
+user (CV's `Curve` is the first, PM's `PhysicsMaterial` the second). Managed code identifies asset classes by name, never by a native number: `AssetTypes`
 maps each class to its type name (`"Material"`, `"Curve"`) without calling native code, and the visual script library's
 types, the script field codec, the library writer and the literal codec carry that name, as the JSON they write already
 does. So ScriptCoreTests build, write and check the node library, and run graphs, without a native engine, data asset
@@ -1519,8 +1519,22 @@ the bodies naming it again, which keep their velocities: what is not a loadable 
 Materials are inputs of the simulation, like the project's settings: the state hash and snapshots do not hold them.
 
 `RaycastHit::Material` (and `Strada.RaycastHit.Material`) is the handle of the material of the sub-shape or triangle a
-ray hits, found the same way, and none when that collider has no material. Scripts and graphs read a material's fields
-through `Strada.PhysicsMaterial`.
+ray hits, found the same way, and none when that collider has no material.
+
+Scripts and graphs read a material through the managed class `Strada.PhysicsMaterial` (§10.4), on §6.4's managed
+pattern: its members are read-only properties (so pure nodes), answered from the runtime's copy of the values
+(`PhysicsMaterialCache` in `Interop/DataAssets.cs`, one per asset handle and shared by every reference), which
+`PhysicsMaterial_Read(handle, heldVersion, values, surface)` fills in bulk, writing only the version when the runtime
+holds the asset's current one; the `Surface` text crosses as a pointer into the asset's data and a length, copied at
+once. The values are one immutable object per version read (`PhysicsMaterialValues`, holding the `Surface` string and
+the references of `ImpactSound` and `ImpactParticles`), so reading a member allocates nothing. A material that cannot
+be read has a new material's values, logged once until data assets change again. A raycast hit carries the material's
+handle across the boundary (`NativeRaycastHit::Material`, after an explicit `Reserved` word so neither side pads), and
+the managed hit takes the cache's shared reference of that material (`PhysicsMaterialCache.GetShared`), so a hit on a
+material allocates nothing once that material has been met, which the casts of later tracks rely on per step. Scripts
+cannot change a material (the project's materials are files the editor owns; there is no runtime copy as there is for
+render materials). The managed collider components have no `Material` property: a script finds a surface's material
+through a raycast.
 
 The scene drives it while running. `OnRuntimeStart(SceneRuntimeSettings)` (from `MakeSceneRuntimeSettings(project
 settings)`) creates bodies for entities with colliders (static without a `RigidBody`; a `RigidBody` without colliders
@@ -1788,7 +1802,7 @@ Scripts derive from `Strada.Script` (which derives from `Entity`) and override a
 Public fields (and private fields marked `[SerializeField]`) of supported types are editable in the inspector and
 serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `string`, `Vector2`, `Vector3`,
 `Vector4`, `Quaternion`, `Color`, `Entity`, `Prefab`, `AssetHandle`, typed asset references (`Mesh`, `Material`,
-`Texture`, `AudioClip`, `Font`, `EnvironmentMap`, `VisualScript`, `Curve`), and enums. Enums are stored as integers of their size (the class
+`Texture`, `AudioClip`, `Font`, `EnvironmentMap`, `VisualScript`, `Curve`, `PhysicsMaterial`), and enums. Enums are stored as integers of their size (the class
 metadata lists the enumerators in declaration order and marks `[Flags]` enums; stored values out of the enum's range
 are ignored) and typed references as asset handles (the metadata names the accepted asset type).
 
@@ -1844,12 +1858,17 @@ editor's Simulate mode runs neither kind.
   `MousePosition`, `MouseDelta`, `MouseScrollDelta`, `CursorMode`, `IsPointerOverUI`, gamepad (`IsGamepadConnected`,
   `GetGamepadAxis`, `IsGamepadButtonDown/Pressed`).
 - `Time`: `DeltaTime`, `FixedDeltaTime`, `Elapsed`, `FrameCount`, `TimeScale`.
-- `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`.
+- `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`; `RaycastHit` (`Entity`,
+  `Point`, `Normal`, `Distance`, `Material`: the `PhysicsMaterial` of the surface hit, null for none, one shared
+  reference per material).
 - `Log`: `Trace/Info/Warn/Error`. `Debug`: `DrawLine(from, to, color, duration)`.
 - `SceneManager`: `LoadScene(path)`, `CurrentSceneName`. `Application`: `Quit()`, `WindowWidth/Height`, `IsEditor`.
 - `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`, `Font`, `EnvironmentMap`,
-  `VisualScript`, `Curve`.
+  `VisualScript`, `Curve`, `PhysicsMaterial`.
 - `Curve` (a `.scurve` asset, §6.5): `Evaluate(time)`, a pure node, evaluated by the runtime's copy of the keys.
+- `PhysicsMaterial` (a `.sphysmat` asset, §8): `Friction`, `Restitution`, `FrictionCombine`, `RestitutionCombine`
+  (`PhysicsMaterialCombine`), `RollingResistance`, `Surface`, `ImpactSound` (`AudioClip`), `ImpactParticles` (`Prefab`):
+  read-only properties, so pure nodes, read from the runtime's copy of the values.
 - Math: `Vector2/3/4`, `Quaternion`, `Matrix4`, `Color`, `Mathf`, `Random`.
 - Attributes: `[SerializeField]`, `[HideInInspector]`, `[Range(min, max)]`, `[Tooltip(text)]`.
 - `Strada.Testing`: `Assert` (throws `AssertionException`), `TestReporter` (`Pass`, `Fail`, `Run`, `Finish`; used by
@@ -1867,7 +1886,7 @@ without a simulated character the reads are a character at rest and `Move` and s
 lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
 entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
 `Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
-`Prefab`, `VisualScript`, `Curve`). Calls without a running scene
+`Prefab`, `VisualScript`, `Curve`, `PhysicsMaterial`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the

@@ -107,7 +107,7 @@ deviations".
 ## The editor's node library
 
 `Editor/Library.json` holds the runtime's own entries, as `graph.types` and `graph.library` report them, for 48 node
-kinds and 29 types: types in ID order and nodes in library order (by category, then title, then type), each entry
+kinds and 30 types: types in ID order and nodes in library order (by category, then title, then type), each entry
 unchanged. They cover every kind of node a library has (`Unknown` is only the analysis') and every kind of type the
 scripting API has (there is no type of kind `Class` in it): input events with an enum setting; flow with outputs and
 wildcards that depend on settings; latent nodes, one with a tick (`Flow.Tween`); every node whose pins come from its
@@ -136,8 +136,8 @@ settings, fields, elements, bases and implicit conversions) is one of its types.
   `Literal`, `Reroute`, `RunsGraph`, `Select`, `Self`, `Array.Get`, `Array.Make`, `String.Length`, `Variable.Get`,
   `Variable.Set`.
 - Types: `Strada.Asset`, `Strada.AssetHandle`, `Strada.Color`, `Strada.Component`, `Strada.Entity`, `Strada.Entity[]`,
-  `Strada.ForceMode`, `Strada.KeyCode`, `Strada.Matrix4`, `Strada.ParticleSystemComponent`, `Strada.Prefab`,
-  `Strada.Quaternion`, `Strada.Ray`, `Strada.RaycastHit`, `Strada.RigidBodyComponent`, `Strada.TimelineDirection`,
+  `Strada.ForceMode`, `Strada.KeyCode`, `Strada.Matrix4`, `Strada.ParticleSystemComponent`,
+  `Strada.PhysicsMaterial` (the type of `RaycastHit`'s `Material`), `Strada.Prefab`, `Strada.Quaternion`, `Strada.Ray`, `Strada.RaycastHit`, `Strada.RigidBodyComponent`, `Strada.TimelineDirection`,
   `Strada.TransformComponent`, `Strada.Vector3`, `Strada.Vector4`, `System.Object`, `bool`, `double`, `exec`, `float`,
   `int`, `long`, `string`, `uint`, `ulong`.
 

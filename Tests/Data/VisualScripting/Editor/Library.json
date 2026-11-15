@@ -654,6 +654,20 @@
 			]
 		},
 		{
+			"ID": "Strada.PhysicsMaterial",
+			"Title": "Physics Material",
+			"Kind": "Asset",
+			"FieldType": "Asset",
+			"AssetType": "PhysicsMaterial",
+			"Literal": true,
+			"Base": "Strada.Asset",
+			"ImplicitTo": [
+				"Strada.Asset",
+				"Strada.AssetHandle",
+				"System.Object"
+			]
+		},
+		{
 			"ID": "Strada.Prefab",
 			"Title": "Prefab",
 			"Kind": "Asset",
@@ -738,6 +752,10 @@
 				{
 					"Name": "Distance",
 					"Type": "float"
+				},
+				{
+					"Name": "Material",
+					"Type": "Strada.PhysicsMaterial"
 				}
 			],
 			"ImplicitTo": [

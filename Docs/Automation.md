@@ -348,6 +348,12 @@ Scripts and graphs read a curve with `Curve.Evaluate` (the pure node `Call:Strad
 is a `Strada.Curve`: a Literal or variable holding the curve's handle, or `Assets.Load<T>` with the type argument
 `Strada.Curve`). A `curve.set` made while the editor plays reaches them on the game's next frame.
 
+Scripts and graphs read a physics material's fields through `Strada.PhysicsMaterial` (the pure nodes
+`Get:Strada.PhysicsMaterial.Friction`, `Restitution`, `FrictionCombine`, `RestitutionCombine`, `RollingResistance`,
+`Surface`, `ImpactSound` and `ImpactParticles`), and a raycast's hit names the material of the surface it hit
+(`Get:Strada.RaycastHit.Material`; none for a collider without a material). A `physics-material.set` made while the
+editor plays reaches the bodies before the next physics step and the scripts and graphs on the game's next frame.
+
 ### graph
 
 Visual scripts are graph assets (`.sgraph` files) that a `VisualScript` component runs on its entity: its `Graph` is the

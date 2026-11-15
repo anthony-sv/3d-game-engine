@@ -5,6 +5,7 @@
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 
 #include <array>
 #include <cstddef>
@@ -81,6 +82,37 @@ namespace Strada::ScriptGlue
 			Read = 2,
 			// The header is written, but the keys do not fit in the capacity given: call again with KeyCount at least.
 			TooSmall = 3
+		};
+
+		// Strada.Interop.NativePhysicsMaterial: a PhysicsMaterial as PhysicsMaterial_Read copies it, its Surface's text apart.
+		struct PhysicsMaterialValues
+		{
+			// The asset's version (DataAsset::GetVersion), never 0.
+			uint64_t Version;
+			uint64_t ImpactSound;
+			uint64_t ImpactParticles;
+			float Friction;
+			float Restitution;
+			float RollingResistance;
+			// PhysicsMaterialCombine values.
+			int32_t FrictionCombine;
+			int32_t RestitutionCombine;
+			// The length in bytes of the Surface's UTF-8 text.
+			int32_t SurfaceLength;
+		};
+
+		static_assert(sizeof(PhysicsMaterialValues) == 48 && offsetof(PhysicsMaterialValues, Friction) == 24 &&
+		              offsetof(PhysicsMaterialValues, FrictionCombine) == 36 && offsetof(PhysicsMaterialValues, SurfaceLength) == 44);
+
+		// PhysicsMaterial_Read's answers (Strada.Interop.PhysicsMaterialReadStatus).
+		enum class PhysicsMaterialReadStatus : int32_t
+		{
+			// Logged; the values and the surface are left as they were.
+			Failed = 0,
+			// The asset's version is the one held: only the values' Version is written.
+			Unchanged = 1,
+			// The values and the surface are written.
+			Read = 2
 		};
 
 		uint64_t ToScript(AssetHandle handle)
@@ -173,7 +205,8 @@ namespace Strada::ScriptGlue
 			}
 			if (DataAssetRegistry::IsDataAssetValue(static_cast<AssetType>(type)))
 			{
-				return static_cast<AssetType>(type) == TypedDataAsset<Curve>::GetStaticType();
+				return static_cast<AssetType>(type) == TypedDataAsset<Curve>::GetStaticType() ||
+				       static_cast<AssetType>(type) == TypedDataAsset<PhysicsMaterial>::GetStaticType();
 			}
 			switch (static_cast<AssetType>(type))
 			{
@@ -286,6 +319,42 @@ namespace Strada::ScriptGlue
 				               static_cast<int32_t>(key.Interpolation)};
 			}
 			return static_cast<int32_t>(CurveReadStatus::Read);
+		}
+
+		// Copies a physics material asset's values for the scripting runtime's copy of it (Strada.PhysicsMaterial), loading the
+		// asset on first use; nothing but the version when the runtime holds the asset's current version already (heldVersion;
+		// 0 for none). The surface's text points into the asset's data, which the caller copies at once.
+		int32_t PhysicsMaterial_Read(uint64_t material, uint64_t heldVersion, PhysicsMaterialValues* values, char const** surface)
+		{
+			if (!AssetManager::IsInitialized())
+			{
+				Log::GetScriptLogger().error("PhysicsMaterial: assets are unavailable");
+				return static_cast<int32_t>(PhysicsMaterialReadStatus::Failed);
+			}
+			Result<Ref<TypedDataAsset<PhysicsMaterial>>> asset =
+				AssetManager::TryGetAsset<TypedDataAsset<PhysicsMaterial>>(ToHandle(material));
+			if (!asset)
+			{
+				Log::GetScriptLogger().error("PhysicsMaterial: {}", asset.GetError());
+				return static_cast<int32_t>(PhysicsMaterialReadStatus::Failed);
+			}
+			TypedDataAsset<PhysicsMaterial> const& materialAsset = *asset.GetValue();
+			values->Version = materialAsset.GetVersion();
+			if (values->Version == heldVersion)
+			{
+				return static_cast<int32_t>(PhysicsMaterialReadStatus::Unchanged);
+			}
+			PhysicsMaterial const& data = materialAsset.GetData();
+			values->ImpactSound = ToScript(data.ImpactSound);
+			values->ImpactParticles = ToScript(data.ImpactParticles);
+			values->Friction = data.Friction;
+			values->Restitution = data.Restitution;
+			values->RollingResistance = data.RollingResistance;
+			values->FrictionCombine = static_cast<int32_t>(data.FrictionCombine);
+			values->RestitutionCombine = static_cast<int32_t>(data.RestitutionCombine);
+			values->SurfaceLength = static_cast<int32_t>(data.Surface.size());
+			*surface = data.Surface.data();
+			return static_cast<int32_t>(PhysicsMaterialReadStatus::Read);
 		}
 
 		Ref<MaterialAsset> FindMaterial(uint64_t material, std::string_view function)
@@ -423,5 +492,6 @@ namespace Strada::ScriptGlue
 		table.Add("Material_GetValues", &Material_GetValues);
 		table.Add("Material_SetValues", &Material_SetValues);
 		table.Add("Material_IsRuntime", &Material_IsRuntime);
+		table.Add("PhysicsMaterial_Read", &PhysicsMaterial_Read);
 	}
 }

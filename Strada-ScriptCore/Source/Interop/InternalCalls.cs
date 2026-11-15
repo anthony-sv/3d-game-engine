@@ -512,6 +512,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, NativeMaterialValues*, void> Material_GetValues;
 	internal static delegate* unmanaged<ulong, NativeMaterialValues*, byte*, int, void> Material_SetValues;
 	internal static delegate* unmanaged<ulong, byte> Material_IsRuntime;
+	internal static delegate* unmanaged<ulong, ulong, NativePhysicsMaterial*, byte**, int> PhysicsMaterial_Read;
 
 	internal static delegate* unmanaged<byte> Application_IsEditor;
 	internal static delegate* unmanaged<void> Application_Quit;

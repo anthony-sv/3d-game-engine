@@ -25,8 +25,134 @@ internal static class DataAssets
 	{
 		Epoch++;
 		CurveCache.Clear();
+		PhysicsMaterialCache.Clear();
 		AssetTypes.Reset();
 	}
+}
+
+// The runtime's copies of physics material assets, one per asset, shared by every reference (Strada.PhysicsMaterial).
+internal static unsafe class PhysicsMaterialCache
+{
+	private static readonly Dictionary<ulong, Entry> s_Entries = [];
+
+	internal static int EntryCount => s_Entries.Count;
+
+	internal static Entry Find(AssetHandle handle)
+	{
+		if (!s_Entries.TryGetValue(handle.ID, out Entry? entry))
+		{
+			entry = new Entry(handle);
+			s_Entries.Add(handle.ID, entry);
+		}
+		return entry;
+	}
+
+	// The reference of the material with this handle that raycast hits share, so that a hit allocates nothing once its
+	// material has been met; null for 0 (no material).
+	internal static PhysicsMaterial? GetShared(ulong handle)
+	{
+		if (handle == 0)
+		{
+			return null;
+		}
+		Entry entry = Find(new AssetHandle(handle));
+		return entry.Reference ??= new PhysicsMaterial(entry);
+	}
+
+	internal static void Clear()
+	{
+		s_Entries.Clear();
+	}
+
+	// A physics material asset's values as scripts read them, with the version they were read at.
+	internal sealed class Entry
+	{
+		// The data asset epoch at which the engine was last asked; 0: never.
+		private ulong m_Epoch;
+
+		internal Entry(AssetHandle handle)
+		{
+			Handle = handle;
+		}
+
+		internal AssetHandle Handle { get; }
+
+		// The asset's version the values were read at; 0 for none (not read, or the read failed).
+		internal ulong Version { get; private set; }
+
+		// The reference GetShared hands out, made on first use.
+		internal PhysicsMaterial? Reference { get; set; }
+
+		internal PhysicsMaterialValues Values { get; private set; } = PhysicsMaterialValues.Default;
+
+		// The values as of the current epoch: the engine is asked first when data assets may have changed since it last was.
+		internal PhysicsMaterialValues GetValues()
+		{
+			if (m_Epoch != DataAssets.Epoch)
+			{
+				Refresh();
+			}
+			return Values;
+		}
+
+		private void Refresh()
+		{
+			m_Epoch = DataAssets.Epoch;
+			NativePhysicsMaterial values = default;
+			byte* surface = null;
+			switch ((PhysicsMaterialReadStatus)InternalCalls.PhysicsMaterial_Read(Handle.ID, Version, &values, &surface))
+			{
+				case PhysicsMaterialReadStatus.Unchanged:
+					break;
+				case PhysicsMaterialReadStatus.Read:
+					Values = new PhysicsMaterialValues(values, NativeString.FromUtf8(surface, values.SurfaceLength));
+					Version = values.Version;
+					break;
+				default:
+					// The engine logged why; the material reads as a new one's until data assets change again.
+					Values = PhysicsMaterialValues.Default;
+					Version = 0;
+					break;
+			}
+		}
+	}
+}
+
+// One version of a physics material's values, made when the engine copies them, so that reading a member allocates
+// nothing.
+internal sealed class PhysicsMaterialValues
+{
+	// A new material's values (PhysicsMaterial.h's defaults): what a material that cannot be loaded reads as.
+	internal static readonly PhysicsMaterialValues Default = new();
+
+	private PhysicsMaterialValues()
+	{
+		Friction = 0.6f;
+		FrictionCombine = PhysicsMaterialCombine.GeometricMean;
+		RestitutionCombine = PhysicsMaterialCombine.Maximum;
+		Surface = string.Empty;
+	}
+
+	internal PhysicsMaterialValues(NativePhysicsMaterial values, string surface)
+	{
+		Friction = values.Friction;
+		Restitution = values.Restitution;
+		FrictionCombine = (PhysicsMaterialCombine)values.FrictionCombine;
+		RestitutionCombine = (PhysicsMaterialCombine)values.RestitutionCombine;
+		RollingResistance = values.RollingResistance;
+		Surface = surface;
+		ImpactSound = values.ImpactSound != 0 ? new AudioClip(new AssetHandle(values.ImpactSound)) : null;
+		ImpactParticles = values.ImpactParticles != 0 ? new Prefab(new AssetHandle(values.ImpactParticles)) : null;
+	}
+
+	internal float Friction { get; }
+	internal float Restitution { get; }
+	internal PhysicsMaterialCombine FrictionCombine { get; }
+	internal PhysicsMaterialCombine RestitutionCombine { get; }
+	internal float RollingResistance { get; }
+	internal string Surface { get; }
+	internal AudioClip? ImpactSound { get; }
+	internal Prefab? ImpactParticles { get; }
 }
 
 // The runtime's copies of curve assets, one per asset, shared by every reference (Strada.Curve).

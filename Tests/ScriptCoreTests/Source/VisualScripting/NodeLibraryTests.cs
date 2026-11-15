@@ -260,9 +260,9 @@ public sealed class NodeLibraryTests
 		Assert.Equal(["X", "Y", "Z"], Library.FindType("Strada.Vector3")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["R", "G", "B", "A"], Library.FindType("Strada.Color")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["Column0", "Column1", "Column2", "Column3"], Library.FindType("Strada.Matrix4")!.Fields.Select(static field => field.Name));
-		Assert.Equal(["Entity", "Point", "Normal", "Distance"], Library.FindType("Strada.RaycastHit")!.Fields.Select(static field => field.Name));
+		Assert.Equal(["Entity", "Point", "Normal", "Distance", "Material"], Library.FindType("Strada.RaycastHit")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["ID", "IsValid"], Library.FindType("Strada.AssetHandle")!.Fields.Select(static field => field.Name));
-		Assert.Equal(["Strada.Entity", "Strada.Vector3", "Strada.Vector3", "float"],
+		Assert.Equal(["Strada.Entity", "Strada.Vector3", "Strada.Vector3", "float", "Strada.PhysicsMaterial"],
 			Library.FindType("Strada.RaycastHit")!.Fields.Select(static field => field.Type.Id));
 	}
 
@@ -383,8 +383,8 @@ public sealed class NodeLibraryTests
 		Assert.Contains(Library.Domains.Components, static type => type.Id == "Strada.RigidBodyComponent");
 		Assert.Contains(Library.Domains.Components, static type => type.Id == "Strada.TransformComponent");
 		Assert.DoesNotContain(Library.Domains.Components, static type => type.Id == "Strada.Component");
-		Assert.Equal(["Strada.AudioClip", "Strada.Curve", "Strada.EnvironmentMap", "Strada.Font", "Strada.Material", "Strada.Mesh", "Strada.Prefab",
-				"Strada.Texture", "Strada.VisualScript"],
+		Assert.Equal(["Strada.AudioClip", "Strada.Curve", "Strada.EnvironmentMap", "Strada.Font", "Strada.Material", "Strada.Mesh",
+				"Strada.PhysicsMaterial", "Strada.Prefab", "Strada.Texture", "Strada.VisualScript"],
 			Library.Domains.Assets.Select(static type => type.Id));
 		Assert.Empty(Library.Domains.Scripts);
 		Assert.Equal(["Strada.ScriptCore.Tests.ProbeBoss", "Strada.ScriptCore.Tests.ProbeEnemy", "Strada.ScriptCore.Tests.ProbePlayer"],
