@@ -443,7 +443,15 @@ namespace Strada
 		// One fixed step: OnFixedUpdate, the physics changes it made, the syncs to physics, the physics step and the syncs back;
 		// then it is counted (and the hash recorded after SceneRuntimeSettings::PhysicsHashStep).
 		void RunFixedStep(float step);
+		// Syncs the physics materials (SyncPhysicsMaterials), then rebuilds the bodies, characters and joints that changed.
 		void RebuildChangedBodies();
+		// When the data asset registry's epoch moved: gives the bodies the values of every physics material their colliders
+		// use whose version changed (PhysicsScene::SetMaterialValues, no body rebuilt), and marks for rebuilding the bodies
+		// naming a material that started or stopped applying (its file loads again, or no longer does).
+		void SyncPhysicsMaterials();
+		// The body's colliders named these materials (sorted, without repeats): counts them in m_PhysicsMaterials, and stops
+		// counting those of its previous body.
+		void TrackPhysicsMaterials(std::vector<AssetHandle> const& previous, std::vector<AssetHandle> const& current);
 		// The entities with a body (or a character), in the order of their UUIDs: physics is called in this order.
 		std::vector<entt::entity> const& GetBodyOrder();
 		std::vector<entt::entity> const& GetCharacterOrder();
@@ -574,7 +582,8 @@ namespace Strada
 		double m_RuntimeTime = 0.0;
 
 		// The world pose last exchanged with an entity's body (to tell transform edits from simulation), whether the body
-		// moves (dynamic or kinematic) and how its entity is drawn between steps.
+		// moves (dynamic or kinematic), how its entity is drawn between steps, and the physics materials its colliders named
+		// (sorted, without repeats; applied or not).
 		struct BodyState
 		{
 			UUID Entity = UUID::Invalid();
@@ -582,6 +591,15 @@ namespace Strada
 			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 			bool Moves = false;
 			ScenePhysicsSnapshot::BodyDrawing Drawing;
+			std::vector<AssetHandle> Materials;
+		};
+		// A physics material the scene's bodies name: the version (DataAsset::GetVersion, never 0) of the material whose values
+		// they took, or 0 when it applied none (an unregistered or unloadable material, which counts as unset), and how many
+		// bodies name it.
+		struct PhysicsMaterialUse
+		{
+			uint64_t Version = 0;
+			uint32_t Bodies = 0;
 		};
 
 		SceneRuntimeSettings m_RuntimeSettings;
@@ -609,6 +627,9 @@ namespace Strada
 		std::unordered_set<entt::entity> m_ChangedBodies;
 		// A joint or a body changed: the joints are made again before the next step.
 		bool m_JointsChanged = false;
+		// The physics materials the bodies name, and the data asset registry's epoch when they were last synced.
+		std::unordered_map<AssetHandle, PhysicsMaterialUse> m_PhysicsMaterials;
+		uint64_t m_PhysicsMaterialEpoch = 0;
 		// What the scene exchanged with an entity's character: the world position last written to or read from the entity's
 		// transform (to tell edits from movement), where the entity's origin was after the last two steps, how far the ground
 		// carried it in the last one and the entity of that ground (to draw it between steps), its scale, and the entities

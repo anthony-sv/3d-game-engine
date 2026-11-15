@@ -205,6 +205,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     `Scene.UpdatePhysics`, `Scene.ContactEvents`, `Scene.UpdateAudio`, `Scene.UpdateParticles`, `Scene.Destroy`; in
     `Scene.UpdatePhysics`, `Scene.ReturnToSteps` before the frame's steps and `Scene.Interpolate` after them (§8); in
     each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`;
+    `Scene.SyncPhysicsMaterials` only in the frames after a data asset changed, where the bodies take the new values of
+    their physics materials (§8);
   - each C# script's update and fixed update under `Script.<class>`, and each graph invoke (every event) under
     `Graph.<asset path>` with the count `Steps`: the steps of the VM's outermost executions the invoke ran, the graphs
     they ran in turn included. The engine reads the VM's step counter (`VisualScriptReadSteps`) before and after the
@@ -1483,24 +1485,38 @@ restitution bounces off everything, and one that says `GeometricMean` defers to 
 the two sides, as Jolt's pairs come in body order. With both modes at their defaults it is exactly `std::sqrt(a * b)`
 and `std::max(a, b)`, the expressions of the listener before materials, so a scene without materials simulates bit for
 bit as it did and its state hashes do not change. A side is one sub-shape: a collider of a compound body, or a
-triangle's submesh. Its material is found from the sub-shape ID: a triangle mesh's shape carries a material list
-(Jolt's `MeshShapeSettings::mMaterials`, entries derived from `JPH::PhysicsMaterial` that name the engine's material
-table entry; each triangle's `mMaterialIndex` is its submesh's entry) read through `Shape::GetMaterial`, which compound
-and decorated shapes pass on to the leaf (`CompoundShape.cpp:126-134`, `DecoratedShape.cpp:47-50`); every other shape
-names its collider's entry through its user data, as before. Jolt's body-level friction and restitution are the first
-collider's values (its material's when it has one); they matter only where a shape carries no collider entry.
+triangle's submesh. Its surface is found from the sub-shape ID: `Shape::GetLeafShape`, which compound and decorated
+shapes pass on to the leaf (`CompoundShape.cpp`, `DecoratedShape.h:52` of the pinned Jolt), gives the leaf shape, whose
+user data names its collider's entry in the table below, as before materials; on a triangle mesh with submesh
+materials the rest of the ID is the triangle, whose Jolt material index (`MeshShape::GetMaterialIndex`) is 0 for the
+collider's own surface and i for the i-th submesh's. Such a mesh's shape carries a material list
+(`MeshShapeSettings::mMaterials`) only so that the indices are valid: its entries are Jolt's default material, and the
+engine's table says what each index means; a mesh without submesh materials has no list and its triangles index 0,
+exactly as before. A side without a collider entry (a character's inner body) brings its body's own friction and
+restitution with the default modes, which is the rule Jolt's own default combination applies to two bodies; the
+rigid bodies' body-level values are no longer taken from their first collider, and nothing reads them. Jolt merges the
+contacts of neighbouring sub-shapes with similar normals into one manifold (manifold reduction, on by default), and a
+manifold names one sub-shape of each side: a body that touches two surfaces at once in one such manifold (a box
+straddling the edge between two submeshes, or two coplanar colliders) takes the values of one of them, in practice the
+one its contact started on, until it touches only the other.
 
 The listener runs on Jolt's worker threads. The values it reads live in the world's table of collider materials
-(`PhysicsScene`: per collider, its trigger flag, friction, restitution, both modes and the material's handle, and per
-triangle-mesh submesh an entry of its own), which only the main thread writes, between steps (bodies made, rebuilt and
-removed, and material edits), and which no step resizes: inside `PhysicsSystem::Update` it is immutable, so the
-workers read it without a lock and see one value per step. A material edited while a scene plays (the inspector,
-`physics-material.set`, undo, a reload of its file) reaches the bodies that use it before the frame's next step: the
-scene keeps the version (`DataAsset::GetVersion`) of each material its bodies use, and before the frame's steps, when
-the data asset registry's epoch moved, it writes the values of every material whose version changed into the entries
-that name it. No body is rebuilt, so velocities, contacts and joints stay; contacts that persist take the new values at
-the next step (Jolt calls `OnContactPersisted` every step). Materials are inputs of the simulation, like the project's
-settings: the state hash and snapshots do not hold them.
+(`PhysicsScene`: per collider, its trigger flag and its surface, `ColliderSurface` in `PhysicsTypes.h` with friction,
+restitution, both modes and the material's handle, and for a triangle mesh the surfaces of its submeshes), which only
+the main thread writes, between steps (bodies made, rebuilt and removed, and material edits), and which no step
+resizes: inside `PhysicsSystem::Update` it is immutable, so the workers read it without a lock and see one value per
+step. The scene resolves a collider's surface when it makes the body (`ColliderDesc::Surface` and `SubmeshSurfaces`;
+trailing submesh entries that do not apply are left out, and `AddBody` refuses more than `MaxMeshColliderMaterials`
+with an error of its own). A material edited while a scene plays (the inspector, `physics-material.set`, undo, a
+reload of its file) reaches the bodies that use it before the frame's next step: the scene counts the bodies naming
+each material and keeps the version (`DataAsset::GetVersion`) of the material whose values they took (0 when it
+applied none), and when the data asset registry's epoch has moved, before it next rebuilds changed bodies (which it
+does before the frame's steps and before each step), it gives every material whose version changed its new values
+(`PhysicsScene::SetMaterialValues`, zone `Scene.SyncPhysicsMaterials`). No body is rebuilt, so velocities, contacts and
+joints stay; contacts that persist take the new values at the next step (Jolt calls `OnContactPersisted` every step). A
+material that starts or stops applying (its file breaks and is reloaded, or loads again, or the asset is dropped) makes
+the bodies naming it again, which keep their velocities: what is not a loadable physics material counts as unset.
+Materials are inputs of the simulation, like the project's settings: the state hash and snapshots do not hold them.
 
 `RaycastHit::Material` (and `Strada.RaycastHit.Material`) is the handle of the material of the sub-shape or triangle a
 ray hits, found the same way, and none when that collider has no material. Scripts and graphs read a material's fields

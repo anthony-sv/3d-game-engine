@@ -48,8 +48,9 @@ namespace Strada
 
 		// --- Bodies ---
 
-		// Creates the body of an entity, replacing an existing one (or its character). Fails without colliders or when a
-		// shape is invalid. Characters standing on a replaced or removed body find what they stand on at once.
+		// Creates the body of an entity, replacing an existing one (or its character). Fails without colliders, when a shape
+		// is invalid or when a triangle mesh has more than MaxMeshColliderMaterials submesh surfaces. Characters standing on a
+		// replaced or removed body find what they stand on at once.
 		[[nodiscard]] Result<void> AddBody(BodyDesc const& desc);
 		void RemoveBody(UUID entity);
 		bool HasBody(UUID entity) const;
@@ -124,6 +125,14 @@ namespace Strada
 		glm::vec3 GetGravity() const;
 		void SetGravity(glm::vec3 const& gravity);
 
+		// --- Surfaces (ColliderSurface) ---
+
+		// Gives every collider and submesh surface whose ColliderSurface::Material is this material the material's friction,
+		// restitution and modes (an edit of the material while the world runs): their contacts use them from the next step,
+		// contacts that persist included, and the bodies keep everything else. Returns how many surfaces it changed. Between
+		// steps: Jolt's worker threads read the surfaces during a step.
+		size_t SetMaterialValues(AssetHandle material, PhysicsMaterial const& values);
+
 		// --- Body state (ignored for entities without a body) ---
 
 		std::optional<BodyTransform> GetBodyTransform(UUID entity) const;
@@ -147,7 +156,7 @@ namespace Strada
 		// --- Queries ---
 
 		// The closest solid collider along a ray (trigger colliders are ignored) on the layers of the mask (bit i =
-		// layer i). The direction need not be normalized.
+		// layer i), with the physics material of the surface hit. The direction need not be normalized.
 		std::optional<RaycastHit> Raycast(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance,
 		                                  uint32_t layerMask = 0xFFFFFFFFu) const;
 

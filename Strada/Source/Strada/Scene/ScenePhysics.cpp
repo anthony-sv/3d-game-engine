@@ -2,7 +2,10 @@
 #include "Strada/Scene/Scene.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Asset/PhysicsMaterial.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/Hash.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
@@ -182,13 +185,87 @@ namespace Strada
 			return desc;
 		}
 
-		void AddCollider(BodyDesc& desc, ColliderDesc collider, glm::vec3 const& offset, bool trigger, float friction, float restitution)
+		// The physics material a collider names, when it is a registered physics material that loads; null otherwise (a
+		// reference to anything else counts as unset: no handle, an unknown one, an asset of another type, a file that does
+		// not load).
+		Ref<TypedDataAsset<PhysicsMaterial>> FindPhysicsMaterial(AssetHandle handle)
+		{
+			AssetType const type = TypedDataAsset<PhysicsMaterial>::GetStaticType();
+			if (!handle.IsValid() || !AssetManager::IsInitialized() || type == AssetType::None ||
+			    AssetManager::GetAssetType(handle) != type)
+			{
+				return nullptr;
+			}
+			return AssetManager::GetAsset<TypedDataAsset<PhysicsMaterial>>(handle);
+		}
+
+		// A collider's surface: its material's values and modes when it names one that applies, else its own Friction and
+		// Restitution with the default modes (the rule colliders had before materials). Adds a named material to `named`; a
+		// registered physics material whose file does not load is said.
+		ColliderSurface MakeColliderSurface(Entity entity, AssetHandle material, float friction, float restitution,
+		                                    std::vector<AssetHandle>& named)
+		{
+			ColliderSurface surface;
+			surface.Friction = friction;
+			surface.Restitution = restitution;
+			if (!material.IsValid())
+			{
+				return surface;
+			}
+			named.push_back(material);
+			if (Ref<TypedDataAsset<PhysicsMaterial>> const asset = FindPhysicsMaterial(material))
+			{
+				PhysicsMaterial const& values = asset->GetData();
+				surface.Material = material;
+				surface.Friction = values.Friction;
+				surface.Restitution = values.Restitution;
+				surface.FrictionCombine = values.FrictionCombine;
+				surface.RestitutionCombine = values.RestitutionCombine;
+			}
+			else if (AssetManager::IsInitialized() &&
+			         AssetManager::GetAssetType(material) == TypedDataAsset<PhysicsMaterial>::GetStaticType())
+			{
+				ST_CORE_WARN("Physics: the physics material {} of '{}' does not load; its collider's own Friction and Restitution "
+				             "apply",
+				             AssetManager::GetReference(material), entity.GetName());
+			}
+			return surface;
+		}
+
+		void AddCollider(BodyDesc& desc, ColliderDesc collider, glm::vec3 const& offset, bool trigger, ColliderSurface const& surface)
 		{
 			collider.Offset = offset;
 			collider.IsTrigger = trigger;
-			collider.Friction = friction;
-			collider.Restitution = restitution;
+			collider.Surface = surface;
 			desc.Colliders.push_back(std::move(collider));
+		}
+
+		// The surfaces of a triangle mesh's submeshes from MeshColliderComponent::Materials: a material that applies gives its
+		// submesh its values, any other entry the collider's surface; none at all when no entry applies (one surface).
+		// Entries past the mesh's submeshes or past MaxMeshColliderMaterials are left out.
+		std::vector<ColliderSurface> MakeSubmeshSurfaces(Entity entity, MeshColliderComponent const& component, MeshSource const& mesh,
+		                                                 ColliderSurface const& colliderSurface, std::vector<AssetHandle>& named)
+		{
+			size_t const count = std::min({component.Materials.size(), mesh.GetSubmeshes().size(), size_t(MaxMeshColliderMaterials)});
+			std::vector<ColliderSurface> surfaces;
+			size_t applied = 0;
+			for (size_t i = 0; i < count; i++)
+			{
+				ColliderSurface surface =
+					MakeColliderSurface(entity, component.Materials[i], component.Friction, component.Restitution, named);
+				if (surface.Material.IsValid())
+				{
+					applied = i + 1;
+				}
+				else
+				{
+					surface = colliderSurface;
+				}
+				surfaces.push_back(surface);
+			}
+			// Trailing entries that do not apply are the collider's surface anyway.
+			surfaces.resize(applied);
+			return surfaces;
 		}
 
 		// Whether the entity has components that make a body (a CharacterController replaces them).
@@ -200,9 +277,11 @@ namespace Strada
 		}
 
 		// The body of an entity from its components; empty without colliders, and for characters (which replace their
-		// bodies; UpdateCharacter says so).
-		std::optional<BodyDesc> BuildBodyDesc(Scene& scene, Entity entity)
+		// bodies; UpdateCharacter says so). `materials` receives the physics materials its colliders name, sorted and without
+		// repeats, whether they apply or not.
+		std::optional<BodyDesc> BuildBodyDesc(Scene& scene, Entity entity, std::vector<AssetHandle>& materials)
 		{
+			materials.clear();
 			if (entity.HasComponent<CharacterControllerComponent>())
 			{
 				return std::nullopt;
@@ -214,14 +293,16 @@ namespace Strada
 				ColliderDesc collider;
 				collider.Shape = ColliderShape::Box;
 				collider.HalfExtents = box->HalfExtents;
-				AddCollider(desc, std::move(collider), box->Offset, box->IsTrigger, box->Friction, box->Restitution);
+				AddCollider(desc, std::move(collider), box->Offset, box->IsTrigger,
+				            MakeColliderSurface(entity, box->Material, box->Friction, box->Restitution, materials));
 			}
 			if (SphereColliderComponent const* sphere = entity.TryGetComponent<SphereColliderComponent>())
 			{
 				ColliderDesc collider;
 				collider.Shape = ColliderShape::Sphere;
 				collider.Radius = sphere->Radius;
-				AddCollider(desc, std::move(collider), sphere->Offset, sphere->IsTrigger, sphere->Friction, sphere->Restitution);
+				AddCollider(desc, std::move(collider), sphere->Offset, sphere->IsTrigger,
+				            MakeColliderSurface(entity, sphere->Material, sphere->Friction, sphere->Restitution, materials));
 			}
 			if (CapsuleColliderComponent const* capsule = entity.TryGetComponent<CapsuleColliderComponent>())
 			{
@@ -229,7 +310,8 @@ namespace Strada
 				collider.Shape = ColliderShape::Capsule;
 				collider.Radius = capsule->Radius;
 				collider.HalfHeight = capsule->HalfHeight;
-				AddCollider(desc, std::move(collider), capsule->Offset, capsule->IsTrigger, capsule->Friction, capsule->Restitution);
+				AddCollider(desc, std::move(collider), capsule->Offset, capsule->IsTrigger,
+				            MakeColliderSurface(entity, capsule->Material, capsule->Friction, capsule->Restitution, materials));
 			}
 			if (MeshColliderComponent const* meshCollider = entity.TryGetComponent<MeshColliderComponent>())
 			{
@@ -247,20 +329,32 @@ namespace Strada
 					ColliderDesc collider;
 					collider.Shape = meshCollider->Convex ? ColliderShape::ConvexMesh : ColliderShape::TriangleMesh;
 					collider.Mesh = mesh;
-					AddCollider(desc, std::move(collider), glm::vec3(0.0f), meshCollider->IsTrigger, meshCollider->Friction,
-					            meshCollider->Restitution);
+					ColliderSurface const surface =
+						MakeColliderSurface(entity, meshCollider->Material, meshCollider->Friction, meshCollider->Restitution, materials);
+					if (!meshCollider->Convex)
+					{
+						collider.SubmeshSurfaces = MakeSubmeshSurfaces(entity, *meshCollider, *mesh, surface, materials);
+					}
+					AddCollider(desc, std::move(collider), glm::vec3(0.0f), meshCollider->IsTrigger, surface);
 				}
 				else
 				{
 					ST_CORE_WARN("Physics: the mesh collider of '{}' has no mesh", entity.GetName());
 				}
 			}
+			std::sort(materials.begin(), materials.end(),
+			          [](AssetHandle a, AssetHandle b)
+			          {
+						  return a.GetUUID().GetValue() < b.GetUUID().GetValue();
+					  });
+			materials.erase(std::unique(materials.begin(), materials.end()), materials.end());
 			if (desc.Colliders.empty())
 			{
 				if (entity.HasComponent<RigidBodyComponent>())
 				{
 					ST_CORE_WARN("Physics: '{}' has a RigidBody but no colliders, so it is not simulated", entity.GetName());
 				}
+				materials.clear();
 				return std::nullopt;
 			}
 
@@ -406,6 +500,8 @@ namespace Strada
 		m_MovingBodiesChanged = false;
 		m_DrawnBodies.clear();
 		m_ChangedBodies.clear();
+		m_PhysicsMaterials.clear();
+		m_PhysicsMaterialEpoch = 0;
 		m_Characters.clear();
 		m_CharacterOrder.clear();
 		m_CharacterOrderChanged = false;
@@ -551,6 +647,8 @@ namespace Strada
 
 	void Scene::RebuildChangedBodies()
 	{
+		// First, so that the bodies rebuilt below and those kept have the same values of every material.
+		SyncPhysicsMaterials();
 		// In UUID order: Jolt numbers bodies in the order they are made and simulates them in that order.
 		if (!m_ChangedBodies.empty())
 		{
@@ -575,6 +673,81 @@ namespace Strada
 		if (std::exchange(m_JointsChanged, false))
 		{
 			RebuildJoints();
+		}
+	}
+
+	void Scene::SyncPhysicsMaterials()
+	{
+		uint64_t const epoch = DataAssetRegistry::GetEpoch();
+		if (!m_Physics || epoch == m_PhysicsMaterialEpoch)
+		{
+			return;
+		}
+		m_PhysicsMaterialEpoch = epoch;
+		if (m_PhysicsMaterials.empty())
+		{
+			return;
+		}
+		ST_PROFILE_SCOPE("Scene.SyncPhysicsMaterials");
+		std::vector<AssetHandle> switched;
+		for (auto& [handle, use] : m_PhysicsMaterials)
+		{
+			Ref<TypedDataAsset<PhysicsMaterial>> const asset = FindPhysicsMaterial(handle);
+			uint64_t const version = asset ? asset->GetVersion() : 0;
+			if (version == use.Version)
+			{
+				continue;
+			}
+			if (asset && use.Version != 0)
+			{
+				// Edited (the inspector, physics-material.set, undo) or reloaded: the bodies keep moving as they were.
+				m_Physics->SetMaterialValues(handle, asset->GetData());
+			}
+			else
+			{
+				switched.push_back(handle);
+			}
+			use.Version = version;
+		}
+		if (switched.empty())
+		{
+			return;
+		}
+		// A material that starts or stops applying changes which values the collider has: its bodies are made again.
+		for (auto const& [handle, state] : m_Bodies)
+		{
+			bool const names = std::any_of(state.Materials.begin(), state.Materials.end(),
+			                               [&switched](AssetHandle material)
+			                               {
+											   return std::find(switched.begin(), switched.end(), material) != switched.end();
+										   });
+			if (names)
+			{
+				m_ChangedBodies.insert(handle);
+			}
+		}
+	}
+
+	void Scene::TrackPhysicsMaterials(std::vector<AssetHandle> const& previous, std::vector<AssetHandle> const& current)
+	{
+		// The new ones first, so that a rebuilt body naming a material again keeps its entry and version.
+		for (AssetHandle const material : current)
+		{
+			auto const [use, inserted] = m_PhysicsMaterials.try_emplace(material);
+			if (inserted)
+			{
+				Ref<TypedDataAsset<PhysicsMaterial>> const asset = FindPhysicsMaterial(material);
+				use->second.Version = asset ? asset->GetVersion() : 0;
+			}
+			use->second.Bodies++;
+		}
+		for (AssetHandle const material : previous)
+		{
+			auto const use = m_PhysicsMaterials.find(material);
+			if (use != m_PhysicsMaterials.end() && --use->second.Bodies == 0)
+			{
+				m_PhysicsMaterials.erase(use);
+			}
 		}
 	}
 
@@ -674,6 +847,7 @@ namespace Strada
 				return false;
 			}
 			m_Physics->RemoveBody(existing->second.Entity);
+			TrackPhysicsMaterials(existing->second.Materials, {});
 			m_Bodies.erase(existing);
 			m_BodyOrderChanged = true;
 			m_MovingBodiesChanged = true;
@@ -683,12 +857,14 @@ namespace Strada
 		Entity const entity(handle, this);
 		UUID const id = entity.GetUUID();
 		bool const hadBody = m_Physics->HasBody(id);
-		std::optional<BodyDesc> desc = BuildBodyDesc(*this, entity);
+		std::vector<AssetHandle> materials;
+		std::optional<BodyDesc> desc = BuildBodyDesc(*this, entity, materials);
 		if (!desc)
 		{
 			m_Physics->RemoveBody(id);
 			if (existing != m_Bodies.end())
 			{
+				TrackPhysicsMaterials(existing->second.Materials, {});
 				m_Bodies.erase(existing);
 				m_BodyOrderChanged = true;
 				m_MovingBodiesChanged = true;
@@ -706,6 +882,7 @@ namespace Strada
 			ST_CORE_WARN("Physics: {}", added.GetError());
 			if (existing != m_Bodies.end())
 			{
+				TrackPhysicsMaterials(existing->second.Materials, {});
 				m_Bodies.erase(existing);
 				m_BodyOrderChanged = true;
 				m_MovingBodiesChanged = true;
@@ -732,6 +909,8 @@ namespace Strada
 		state.Position = desc->Position;
 		state.Rotation = desc->Rotation;
 		state.Moves = moves;
+		TrackPhysicsMaterials(state.Materials, materials);
+		state.Materials = std::move(materials);
 		return true;
 	}
 

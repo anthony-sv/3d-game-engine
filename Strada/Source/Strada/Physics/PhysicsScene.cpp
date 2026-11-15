@@ -17,6 +17,7 @@
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
+#include <Jolt/Physics/Collision/PhysicsMaterial.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -217,13 +218,59 @@ namespace Strada
 			uint32_t m_Mask;
 		};
 
-		// Collider properties referenced by the user data of their shapes (index + 1; 0 = none).
+		// Collider properties referenced by the user data of their shapes (index + 1; 0 = none): whether the collider is a
+		// trigger, its surface and, for a triangle mesh with submesh surfaces, those. Such a mesh's triangles carry Jolt
+		// material indices: 0 for the collider's surface, i > 0 for Submeshes[i - 1] (its material list holds placeholders,
+		// so that the indices are valid). The main thread writes the table between steps only; Jolt's worker threads read it
+		// during steps.
 		struct ColliderMaterial
 		{
 			bool IsTrigger = false;
-			float Friction = 0.6f;
-			float Restitution = 0.0f;
+			ColliderSurface Surface;
+			std::vector<ColliderSurface> Submeshes;
 		};
+
+		// The values a contact may use: friction at least 0, restitution within [0, 1].
+		ColliderSurface ClampSurface(ColliderSurface surface)
+		{
+			surface.Friction = std::max(surface.Friction, 0.0f);
+			surface.Restitution = std::clamp(surface.Restitution, 0.0f, 1.0f);
+			return surface;
+		}
+
+		// What a sub-shape of a body is: its collider's entry and its surface (the submesh's on a triangle mesh with submesh
+		// surfaces). Both null for a shape without an entry (a character's inner body).
+		struct SubShapeMaterial
+		{
+			ColliderMaterial const* Collider = nullptr;
+			ColliderSurface const* Surface = nullptr;
+		};
+
+		// Any thread, while the table does not change. Compound and decorated shapes pass the ID on to their leaf
+		// (CompoundShape::GetLeafShape, DecoratedShape::GetLeafShape); a leaf's user data names its collider, and a mesh
+		// shape's remaining ID its triangle.
+		SubShapeMaterial FindSubShapeMaterial(std::vector<ColliderMaterial> const& materials, JPH::Shape const& shape,
+		                                      JPH::SubShapeID const& subShape)
+		{
+			JPH::SubShapeID triangle;
+			JPH::Shape const* leaf = shape.GetLeafShape(subShape, triangle);
+			uint64_t const index = leaf != nullptr ? leaf->GetUserData() : 0;
+			if (index == 0 || index > materials.size())
+			{
+				return {};
+			}
+			ColliderMaterial const& collider = materials[index - 1];
+			ColliderSurface const* surface = &collider.Surface;
+			if (!collider.Submeshes.empty() && leaf->GetSubType() == JPH::EShapeSubType::Mesh)
+			{
+				JPH::uint const material = static_cast<JPH::MeshShape const*>(leaf)->GetMaterialIndex(triangle);
+				if (material > 0 && material <= collider.Submeshes.size())
+				{
+					surface = &collider.Submeshes[material - 1];
+				}
+			}
+			return {&collider, surface};
+		}
 
 		// Two bodies (Jolt reports them with the lower ID first) and whether they touch through a trigger collider.
 		struct BodyPairKey
@@ -298,9 +345,9 @@ namespace Strada
 			std::unordered_map<UUID, std::vector<UUID>> m_Entries;
 		};
 
-		// Turns Jolt's per sub-shape contacts into enter/exit events per entity pair, applies per-collider friction and
-		// restitution, makes contacts with trigger colliders sensor contacts and keeps characters from touching their own
-		// parts. Jolt calls it from its worker threads.
+		// Turns Jolt's per sub-shape contacts into enter/exit events per entity pair, combines the friction and restitution
+		// of the two sub-shapes' surfaces, makes contacts with trigger colliders sensor contacts and keeps characters from
+		// touching their own parts. Jolt calls it from its worker threads.
 		//
 		// Jolt removes the contacts of bodies that fall asleep (and finds them again when they wake up). Those contacts
 		// persist here: a removed contact whose bodies are all inactive after the step goes dormant instead of ending,
@@ -571,23 +618,35 @@ namespace Strada
 				}
 			}
 
-			ColliderMaterial const* FindMaterial(JPH::Body const& body, JPH::SubShapeID const& subShape) const
-			{
-				uint64_t const index = body.GetShape()->GetSubShapeUserData(subShape);
-				return index > 0 && index <= m_Materials.size() ? &m_Materials[index - 1] : nullptr;
-			}
-
+			// Combines the two sub-shapes' surfaces by their modes (CombinePhysicsMaterialValues), the first body's first as Jolt
+			// orders the pair. A side without a collider entry (a character's inner body) brings its body's own values with the
+			// default modes, so a pair of those combines as Jolt's own default would. Jolt merges contacts of neighbouring
+			// sub-shapes with similar normals into one manifold (manifold reduction, Body::SetUseManifoldReduction), which
+			// carries one sub-shape of each side: a body touching two surfaces at once in such a manifold takes the values of one.
 			void ApplyMaterials(JPH::Body const& first, JPH::Body const& second, JPH::ContactManifold const& manifold,
 			                    JPH::ContactSettings& settings) const
 			{
-				ColliderMaterial const* a = FindMaterial(first, manifold.mSubShapeID1);
-				ColliderMaterial const* b = FindMaterial(second, manifold.mSubShapeID2);
-				settings.mIsSensor = (a != nullptr && a->IsTrigger) || (b != nullptr && b->IsTrigger);
-				if (a != nullptr && b != nullptr)
+				SubShapeMaterial const a = FindSubShapeMaterial(m_Materials, *first.GetShape(), manifold.mSubShapeID1);
+				SubShapeMaterial const b = FindSubShapeMaterial(m_Materials, *second.GetShape(), manifold.mSubShapeID2);
+				settings.mIsSensor = (a.Collider != nullptr && a.Collider->IsTrigger) || (b.Collider != nullptr && b.Collider->IsTrigger);
+				ColliderSurface firstBody;
+				ColliderSurface secondBody;
+				if (a.Surface == nullptr)
 				{
-					settings.mCombinedFriction = std::sqrt(a->Friction * b->Friction);
-					settings.mCombinedRestitution = std::max(a->Restitution, b->Restitution);
+					firstBody.Friction = first.GetFriction();
+					firstBody.Restitution = first.GetRestitution();
 				}
+				if (b.Surface == nullptr)
+				{
+					secondBody.Friction = second.GetFriction();
+					secondBody.Restitution = second.GetRestitution();
+				}
+				ColliderSurface const& firstSurface = a.Surface != nullptr ? *a.Surface : firstBody;
+				ColliderSurface const& secondSurface = b.Surface != nullptr ? *b.Surface : secondBody;
+				settings.mCombinedFriction = CombinePhysicsMaterialValues(firstSurface.FrictionCombine, firstSurface.Friction,
+				                                                          secondSurface.FrictionCombine, secondSurface.Friction);
+				settings.mCombinedRestitution = CombinePhysicsMaterialValues(firstSurface.RestitutionCombine, firstSurface.Restitution,
+				                                                             secondSurface.RestitutionCombine, secondSurface.Restitution);
 			}
 
 			// Read during steps (no changes while Jolt runs).
@@ -634,6 +693,8 @@ namespace Strada
 			return dofs;
 		}
 
+		// Triangle meshes with submesh surfaces give each triangle the Jolt material index of its submesh's surface (0 for the
+		// collider's: submeshes past the list).
 		Result<JPH::RefConst<JPH::Shape>> CreateMeshShape(ColliderDesc const& collider, glm::vec3 const& scale, bool convex,
 		                                                  uint64_t userData)
 		{
@@ -676,18 +737,29 @@ namespace Strada
 			}
 			// Submesh indices are relative to the submesh's first vertex (MeshSource validated the ranges).
 			std::vector<uint32_t> const& indices = collider.Mesh->GetIndices();
+			std::vector<Submesh> const& submeshes = collider.Mesh->GetSubmeshes();
+			size_t const surfaces = std::min(collider.SubmeshSurfaces.size(), submeshes.size());
 			JPH::IndexedTriangleList triangles;
 			triangles.reserve(indices.size() / 3);
-			for (Submesh const& submesh : collider.Mesh->GetSubmeshes())
+			for (size_t submeshIndex = 0; submeshIndex < submeshes.size(); submeshIndex++)
 			{
+				Submesh const& submesh = submeshes[submeshIndex];
+				JPH::uint32 const material = submeshIndex < surfaces ? static_cast<JPH::uint32>(submeshIndex + 1) : 0u;
 				for (uint32_t i = 0; i + 2 < submesh.IndexCount; i += 3)
 				{
 					uint32_t const* triangle = indices.data() + submesh.BaseIndex + i;
 					triangles.push_back(JPH::IndexedTriangle(submesh.BaseVertex + triangle[0], submesh.BaseVertex + triangle[1],
-					                                         submesh.BaseVertex + triangle[2]));
+					                                         submesh.BaseVertex + triangle[2], material));
 				}
 			}
-			JPH::MeshShapeSettings settings(std::move(points), std::move(triangles));
+			// Placeholders: the collider's table entry holds what each index means (ColliderMaterial). Without submesh surfaces
+			// the shape has no material list, as before surfaces existed.
+			JPH::PhysicsMaterialList materials;
+			if (surfaces > 0)
+			{
+				materials.resize(surfaces + 1, JPH::PhysicsMaterial::sDefault);
+			}
+			JPH::MeshShapeSettings settings(std::move(points), std::move(triangles), std::move(materials));
 			settings.mUserData = userData;
 			JPH::ShapeSettings::ShapeResult result = settings.Create();
 			if (result.HasError())
@@ -1057,19 +1129,39 @@ namespace Strada
 			                       filters.BodyFilter, filters.ShapeFilter, TempAllocator);
 		}
 
-		uint32_t AllocateMaterial(ColliderDesc const& collider)
+		// The collider's entry; with its submesh surfaces when its shape keeps the mesh's triangles.
+		uint32_t AllocateMaterial(ColliderDesc const& collider, bool triangles)
 		{
-			ColliderMaterial const material{collider.IsTrigger, std::max(collider.Friction, 0.0f),
-			                                std::clamp(collider.Restitution, 0.0f, 1.0f)};
+			ColliderMaterial material{collider.IsTrigger, ClampSurface(collider.Surface), {}};
+			if (triangles && collider.Mesh)
+			{
+				size_t const surfaces = std::min(collider.SubmeshSurfaces.size(), collider.Mesh->GetSubmeshes().size());
+				material.Submeshes.reserve(surfaces);
+				for (size_t i = 0; i < surfaces; i++)
+				{
+					material.Submeshes.push_back(ClampSurface(collider.SubmeshSurfaces[i]));
+				}
+			}
 			if (!FreeMaterials.empty())
 			{
 				uint32_t const index = FreeMaterials.back();
 				FreeMaterials.pop_back();
-				Materials[index] = material;
+				Materials[index] = std::move(material);
 				return index;
 			}
-			Materials.push_back(material);
+			Materials.push_back(std::move(material));
 			return static_cast<uint32_t>(Materials.size() - 1);
+		}
+
+		// Entries of removed bodies (or of a body that could not be made) are cleared, so that no material edit counts them,
+		// and taken again by later colliders.
+		void ReleaseMaterials(std::vector<uint32_t> const& indices)
+		{
+			for (uint32_t const index : indices)
+			{
+				Materials[index] = {};
+			}
+			FreeMaterials.insert(FreeMaterials.end(), indices.begin(), indices.end());
 		}
 	};
 
@@ -1144,7 +1236,7 @@ namespace Strada
 		std::vector<std::pair<JPH::RefConst<JPH::Shape>, glm::vec3>> shapes;
 		auto const releaseMaterials = [&data, &materials]
 		{
-			data.FreeMaterials.insert(data.FreeMaterials.end(), materials.begin(), materials.end());
+			data.ReleaseMaterials(materials);
 		};
 		for (ColliderDesc const& collider : desc.Colliders)
 		{
@@ -1155,7 +1247,14 @@ namespace Strada
 				return MakeError("entity {}: a collider's offset is larger than the physics world allows ({} m)", desc.Entity,
 				                 MaxPhysicsExtent);
 			}
-			materials.push_back(data.AllocateMaterial(collider));
+			if (collider.SubmeshSurfaces.size() > MaxMeshColliderMaterials)
+			{
+				releaseMaterials();
+				return MakeError("entity {}: a collider has {} submesh surfaces, more than a triangle mesh holds ({})", desc.Entity,
+				                 collider.SubmeshSurfaces.size(), MaxMeshColliderMaterials);
+			}
+			// Jolt cannot simulate dynamic triangle meshes: their convex hulls have the collider's surface alone.
+			materials.push_back(data.AllocateMaterial(collider, collider.Shape == ColliderShape::TriangleMesh && !dynamic));
 			Result<JPH::RefConst<JPH::Shape>> shape = CreateColliderShape(collider, desc.Scale, dynamic, materials.back() + 1);
 			if (!shape)
 			{
@@ -1211,8 +1310,8 @@ namespace Strada
 		JPH::BodyCreationSettings settings(shape, Jolt::ToJolt(position), Jolt::ToJolt(Math::NormalizeRotation(desc.Rotation)), motionType,
 		                                   Layers::Make(layer, type != RigidBodyType::Static));
 		settings.mUserData = desc.Entity.GetValue();
-		settings.mFriction = std::max(desc.Colliders.front().Friction, 0.0f);
-		settings.mRestitution = std::clamp(desc.Colliders.front().Restitution, 0.0f, 1.0f);
+		// The body's own friction and restitution (Jolt's defaults) are never used: every sub-shape has its collider's
+		// surface, which the contact listener combines.
 		settings.mAllowSleeping = desc.AllowSleep;
 		// Kinematic bodies report touching static and kinematic ones, so they can enter static triggers.
 		settings.mCollideKinematicVsNonDynamic = type == RigidBodyType::Kinematic;
@@ -1281,7 +1380,7 @@ namespace Strada
 		bodies.RemoveBody(id);
 		bodies.DestroyBody(id);
 		data.Contacts.ForgetBody(id);
-		data.FreeMaterials.insert(data.FreeMaterials.end(), it->second.Materials.begin(), it->second.Materials.end());
+		data.ReleaseMaterials(it->second.Materials);
 		data.Bodies.erase(it);
 		data.RefreshCharacters(standing);
 	}
@@ -2055,6 +2154,39 @@ namespace Strada
 		}
 	}
 
+	size_t PhysicsScene::SetMaterialValues(AssetHandle material, PhysicsMaterial const& values)
+	{
+		if (!material.IsValid())
+		{
+			return 0;
+		}
+		ColliderSurface surface;
+		surface.Material = material;
+		surface.Friction = values.Friction;
+		surface.Restitution = values.Restitution;
+		surface.FrictionCombine = values.FrictionCombine;
+		surface.RestitutionCombine = values.RestitutionCombine;
+		ColliderSurface const clamped = ClampSurface(surface);
+		size_t changed = 0;
+		auto const update = [&material, &clamped, &changed](ColliderSurface& target)
+		{
+			if (target.Material == material)
+			{
+				target = clamped;
+				changed++;
+			}
+		};
+		for (ColliderMaterial& collider : m_Data->Materials)
+		{
+			update(collider.Surface);
+			for (ColliderSurface& submesh : collider.Submeshes)
+			{
+				update(submesh);
+			}
+		}
+		return changed;
+	}
+
 	bool PhysicsScene::IsSleeping(UUID entity) const
 	{
 		BodyRecord const* record = m_Data->Find(entity);
@@ -2096,8 +2228,8 @@ namespace Strada
 				continue;
 			}
 			JPH::Body const& body = lock.GetBody();
-			uint64_t const material = body.GetShape()->GetSubShapeUserData(hit.mSubShapeID2);
-			if (material > 0 && material <= m_Data->Materials.size() && m_Data->Materials[material - 1].IsTrigger)
+			SubShapeMaterial const material = FindSubShapeMaterial(m_Data->Materials, *body.GetShape(), hit.mSubShapeID2);
+			if (material.Collider != nullptr && material.Collider->IsTrigger)
 			{
 				continue;
 			}
@@ -2107,6 +2239,7 @@ namespace Strada
 			result.Point = Jolt::ToGlm(point);
 			result.Normal = Jolt::ToGlm(body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, point));
 			result.Distance = hit.mFraction * maxDistance;
+			result.Material = material.Surface != nullptr ? material.Surface->Material : AssetHandle();
 			return result;
 		}
 		return std::nullopt;
