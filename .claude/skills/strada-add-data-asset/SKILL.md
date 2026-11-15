@@ -107,7 +107,8 @@ inline DataAssetTypeSpecification<Curve> const CurveAssetSpecification = {
   (`Editor/UI/CurveEditor.h` over a `CurveDocumentTraits` specialization, Docs/Architecture.md §6.5), as `Curve`'s drawer
   does above its whole field table.
 - Arrays of structs (`std::vector<Entry>` with `.MaxCount(n)`) need no drawer: the field editor shows a row per element
-  that unfolds into the element's fields, with a menu to move, duplicate, insert above and remove it, and Add Element;
+  (titled by the struct's first string field, or without one by its first two numbers: put the fields that tell
+  elements apart first) that unfolds into the element's fields, with a menu to move, duplicate, insert above and remove it, and Add Element;
   each is one undo step patching by index (Docs/Architecture.md §11).
 - A struct that appears inside other data (a curve inside a vehicle definition) gets a struct drawer instead of, or as
   well as, a type drawer: one line in `GetFieldStructDrawers()` (`StradaEditor/Source/Editor/UI/FieldStructDrawers.cpp`),

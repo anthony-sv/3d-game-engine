@@ -29,7 +29,7 @@ before changing anything structural; it is the architectural contract.
 | `Tests/TestScripts/` | C# game scripts the scripting tests run |
 | `Tests/ScriptCoreTests/` | C# unit tests of the scripting API (xUnit v3) |
 | `Tests/StradaToolTests/` | Tests of `strada`: command line, MCP server, sessions with the headless editor (xUnit v3) |
-| `Tests/Data/` | Test data (renderer golden images) |
+| `Tests/Data/` | Test data: renderer golden images (`Golden/`), the curve evaluators' differential cases (`Curves/`), data asset documents (`DataAssets/`), visual-script documents and fixtures (`VisualScripting/`), a fake engine content tree (`FrontDoor/`) |
 | `Projects/FeatureTest/` | Project exercising every component and the entire scripting API, with graphs of every built-in node kind and every `[VisualNode]` member of its scripts |
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
 | `Projects/PrismBreak/` | A game made of visual scripts alone (a neon brick breaker), built by `Tools/Author.py` through the agent tools; its test scene's checks are graphs too |
@@ -202,6 +202,14 @@ namespace Strada
 - Script bindings are bound by name (`ScriptBindings.cpp` ↔ `InternalCalls.cs`); both sides change together.
 - Every editor modification goes through the command history (undo/redo), including automation commands.
 - File formats are versioned JSON; bump the version and add a migration when changing a format.
+- An asset type that is a file of one reflected struct is a data asset: one registration gives its file, editor,
+  commands and fuzz test (the `strada-add-data-asset` skill).
+- Code that does measurable work every frame opens a profiler zone (`ST_PROFILE_SCOPE("<Subsystem>.<What>")`,
+  `Strada/Core/Profiler.h`; Docs/Architecture.md §4.4 lists the zones), a render pass a `SceneRenderer::PassScope`, and
+  a thread that can reach a zone names itself with `ST_PROFILE_THREAD`.
+- What a running game writes for its player (its bindings, saves and settings to come) goes below the folder the
+  `GameData` service names (`Strada/Core/GameData.h`, Docs/Architecture.md §13.1), never into the engine's shared
+  per-user folder; an empty service means no game runs, and nothing is written.
 
 ## Testing
 
@@ -237,6 +245,9 @@ Rules for the other suites:
 - Editor automation tests live in `Tests/StradaEditorTests` and run the editor headless against a temporary project.
 - Game player tests live in `Tests/StradaRuntimeTests`: they write games to temporary directories and run the
   `StradaRuntime` executable on them, checking exit codes and output (windowed runs skip like windowed tests).
+- A test that starts a player or an exported game gives it an isolated per-user root (`RunPlayer` and `RunProgram` in
+  StradaRuntimeTests, `Testing::IsolatedUserRoot`, `EditorExport::SetGameEnvironment` in editor tests, the session's
+  user data in StradaToolTests); without one the game writes a folder named after itself into the real profile.
 - Sample projects and the templates are played by `StradaRuntimeTests` (a template through a project made from it); a
   change to a sample or a template updates its pinned check count. Their graphs must read well:
   `Tests/StradaEditorTests/Source/SampleGraphsTests.cpp` requires every node placed in a titled comment box, none

@@ -45,6 +45,11 @@ public sealed class McpServerTests
 		{
 			Assert.Contains(tool, instructions);
 		}
+		// Curves: the data asset type the engine registers, with the three tools its registration gives it.
+		foreach (string tool in new[] { "curve_create", "curve_get", "curve_set" })
+		{
+			Assert.Matches($@"\b{tool}\b", instructions);
+		}
 		// Visual scripts are written through the graph tools, which the instructions name.
 		Assert.Contains("visual scripts", instructions);
 		Assert.Contains("graph_library", instructions);

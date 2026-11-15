@@ -267,26 +267,6 @@ namespace Strada
 			return value;
 		}
 
-		// An element's row title: "<index>: <the element's first string field>" when that is not empty ("2: Gravel"), else
-		// "Element <index>".
-		std::string DescribeElement(FieldDescriptor const& array, Json const& element, size_t index)
-		{
-			auto const title = std::find_if(array.Fields.begin(), array.Fields.end(),
-			                                [](FieldDescriptor const& field)
-			                                {
-												return field.Kind == FieldKind::String;
-											});
-			if (title != array.Fields.end() && element.is_object())
-			{
-				std::string const key(title->Name);
-				if (element.contains(key) && element[key].is_string() && !element[key].get_ref<std::string const&>().empty())
-				{
-					return fmt::format("{}: {}", index, element[key].get_ref<std::string const&>());
-				}
-			}
-			return fmt::format("Element {}", index);
-		}
-
 		// The tooltip of the buttons that add elements to an array at its MaxCount.
 		std::string DescribeFullArray(FieldDescriptor const& array)
 		{
@@ -1142,6 +1122,68 @@ namespace Strada
 		}
 		auto const found = m_StructDrawers.find(std::string(structName));
 		return found != m_StructDrawers.end() ? &found->second : nullptr;
+	}
+
+	std::string FieldEditor::DescribeElement(FieldDescriptor const& array, Json const& element, size_t index)
+	{
+		if (!element.is_object())
+		{
+			return fmt::format("Element {}", index);
+		}
+		auto const title = std::find_if(array.Fields.begin(), array.Fields.end(),
+		                                [](FieldDescriptor const& field)
+		                                {
+											return field.Kind == FieldKind::String;
+										});
+		if (title != array.Fields.end())
+		{
+			std::string const key(title->Name);
+			if (element.contains(key) && element[key].is_string() && !element[key].get_ref<std::string const&>().empty())
+			{
+				return fmt::format("{}: {}", index, element[key].get_ref<std::string const&>());
+			}
+			return fmt::format("Element {}", index);
+		}
+		// Without a name to show, the first two numbers tell elements apart (a curve's keys by their time and value).
+		std::string numbers;
+		size_t described = 0;
+		for (FieldDescriptor const& field : array.Fields)
+		{
+			if (described == 2)
+			{
+				break;
+			}
+			std::string const key(field.Name);
+			if (field.Hints.HiddenInEditors || !element.contains(key))
+			{
+				continue;
+			}
+			Json const& value = element[key];
+			std::string text;
+			if (field.Kind == FieldKind::Float && value.is_number())
+			{
+				text = fmt::format("{}", static_cast<float>(value.get<double>()));
+			}
+			else if (field.Kind == FieldKind::Double && value.is_number())
+			{
+				text = fmt::format("{}", value.get<double>());
+			}
+			else if (field.Kind == FieldKind::Int && value.is_number_integer())
+			{
+				text = fmt::format("{}", value.get<int64_t>());
+			}
+			else if (field.Kind == FieldKind::UInt && value.is_number_unsigned())
+			{
+				text = fmt::format("{}", value.get<uint64_t>());
+			}
+			else
+			{
+				continue;
+			}
+			numbers += fmt::format("{}{} {}", described == 0 ? "" : ", ", UI::FormatDisplayName(field.Name), text);
+			described++;
+		}
+		return numbers.empty() ? fmt::format("Element {}", index) : fmt::format("{}: {}", index, numbers);
 	}
 
 	float FieldEditor::GetNameColumnShare(std::span<FieldDescriptor const> fields, float tableWidth)

@@ -175,6 +175,14 @@ strada_configure_target(StradaCrashTester)
 set_target_properties(StradaCrashTester PROPERTIES FOLDER "Tests")
 add_dependencies(StradaTests StradaCrashTester)
 target_compile_definitions(StradaTests PRIVATE STRADA_CRASH_TESTER_PATH="$<TARGET_FILE:StradaCrashTester>")
+# Aborts on the engine's entry point, which chose its log and crash folders from the game file beside it, as an exported
+# game's: the tests copy it beside a game file of their own.
+add_executable(StradaGameCrashTester CrashTester/GameCrashTester.cpp)
+target_link_libraries(StradaGameCrashTester PRIVATE Strada)
+strada_configure_target(StradaGameCrashTester)
+set_target_properties(StradaGameCrashTester PROPERTIES FOLDER "Tests")
+add_dependencies(StradaTests StradaGameCrashTester)
+target_compile_definitions(StradaTests PRIVATE STRADA_GAME_CRASH_TESTER_PATH="$<TARGET_FILE:StradaGameCrashTester>")
 
 # Game scripts the scripting tests run, built against the engine's Strada.ScriptCore.dll like a game's.
 strada_add_dotnet_project(StradaTestScripts

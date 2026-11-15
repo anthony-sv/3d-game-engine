@@ -17,7 +17,8 @@ from one field table. Follow every step — the tests enforce several of them.
   `JsonTraits` specialization (with tests) for anything new.
 - Asset references are `AssetHandle` (default = no asset), entity references are `UUID`.
 - A list of structs is a `std::vector<Point>` of a reflected struct (`StructTraits<Point>` in `ComponentTraits.h`) with
-  `.MaxCount(n)` on its field: the inspector shows it as a row per element that unfolds into the element's fields, with
+  `.MaxCount(n)` on its field: the inspector shows it as a row per element (titled by the struct's first string field,
+  or without one by its first two numbers) that unfolds into the element's fields, with
   a menu to move, duplicate, insert above and remove it, and Add Element (disabled at `MaxCount`), each one undo step
   that patches every selected entity's own list by index; `component.set` takes the field whole, with all its elements.
   No inspector code: a struct that needs a widget of its own (a curve) gets a struct drawer
@@ -44,7 +45,7 @@ struct ComponentTraits<FooComponent>
 Hints: `Range(min, max)` / `AtLeast(min)` (inclusive, enforced when JSON is read, so files and automation reject
 out-of-range values; the inspector clamps to them), `AsColor()` (vec3/vec4), `AsAngle()` (degrees), `AsMultilineText()`,
 `References("<AssetType>")` for asset fields, `VisibleWhen("<Field>", "<Value>", ...)` for fields that only matter while
-an enum or bool field of the same struct has one of up to four values (editors hide them otherwise: a camera's
+an enum or bool field of the same struct has one of up to 16 values (editors hide them otherwise: a camera's
 orthographic size, a joint's limits), `EnabledBy("<bool field>")` for a field another bool field of the table switches
 on (the inspector draws the switch as a check box in front of the field, like a post-process volume's overrides),
 `HiddenInEditors()` for a field the editor edits with UI of its own (a Mesh's material overrides, which the material

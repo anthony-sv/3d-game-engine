@@ -47,7 +47,9 @@ component and the whole scripting API.
   menu's `new-project` or `agent-setup` dialog. While the start screen shows, `viewport_screenshot` captures only the
   `Editor` window.
 - New projects start in `Assets/Scenes/Main.sscene`, their start scene. `project_settings` changes the window, the
-  physics layers and ignored layer pairs, and the start scene.
+  physics layers and ignored layer pairs, the physics step (`FixedTimestep`, `MaxStepsPerFrame`, `CollisionSteps`), the
+  start scene, and the game's `Identity` (`Company` and `Product`), which names the folder an exported game keeps its
+  log and crash reports in on a player's machine: set it before exporting.
 
 ## 3. Scenes
 
@@ -104,6 +106,11 @@ component and the whole scripting API.
   entity's position (`viewport_frame` on an element frames it); `ui_layout` returns where every element is in the
   game view.
 - `prefab_create` writes an entity with its children to a `.sprefab`; `prefab_instantiate` places copies.
+- Curves (`.scurve`) map a number to another (an engine's pitch from its speed, a light's brightness from the time of
+  day): `curve_create` with `path` (`Curves/Name.scurve`) and `fields` (`Keys` of `Time`, `Value` and an
+  `Interpolation`, and the `PreExtrapolation` and `PostExtrapolation` outside them), `curve_get` and `curve_set` (an
+  undo step). A C# script reads one with `Curve.Evaluate(time)` on a `Curve` field (or `Assets.Load<Curve>`); a graph
+  with the pure node `Call:Strada.Curve.Evaluate(float)` on a public variable of type Curve.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
   view, and `viewport_screenshot` returns an image of the editor. `viewport_overlays` sets what the scene view draws
   over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), and `grid`,

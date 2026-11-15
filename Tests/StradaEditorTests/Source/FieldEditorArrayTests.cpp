@@ -12,6 +12,7 @@
 #include "Editor/UI/FieldEditor.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Physics/PhysicsTypes.h"
@@ -22,6 +23,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -443,6 +445,19 @@ TEST_CASE("FieldEditor: arrays of structs show a row per element over the elemen
 	CHECK(open.find("0: Alpha") != std::string::npos);
 	CHECK(open.find("Element 1") != std::string::npos);
 	CAPTURE(open);
+	// A struct without a string field is titled by its first two numbers: a curve's keys by their time and value.
+	std::vector<FieldDescriptor> const curveFields = GetFieldDescriptors<StructTraits<Curve>, Curve>();
+	auto const keys = std::find_if(curveFields.begin(), curveFields.end(),
+	                               [](FieldDescriptor const& field)
+	                               {
+									   return field.Name == "Keys";
+								   });
+	REQUIRE(keys != curveFields.end());
+	CHECK(FieldEditor::DescribeElement(*keys, Json::object({{"Time", 0.4f}, {"Value", 1.1f}, {"Interpolation", "Cubic"}}), 2) ==
+	      "2: Time 0.4, Value 1.1");
+	CHECK(FieldEditor::DescribeElement(*keys, Json::object({{"Value", -3.0}}), 0) == "0: Value -3");
+	CHECK(FieldEditor::DescribeElement(*keys, Json::object({{"Time", "late"}}), 1) == "Element 1");
+	CHECK(FieldEditor::DescribeElement(*keys, Json::array(), 4) == "Element 4");
 	size_t const banking = open.find("Banking");
 	CHECK(banking != std::string::npos);
 	CHECK(open.find("Banking", banking + 1) == std::string::npos);

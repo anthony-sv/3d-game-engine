@@ -233,7 +233,7 @@ them. Prism Break has no C# scripts and runs at once.
 | `--test` | Run headless with a fixed time step until the scripts finish testing, quit or time out |
 | `--timeout <seconds>` | Game time a test run may take (default 60; only with `--test`) |
 | `--timestep <seconds>` | Advance the game by this time each frame (default: the frame's real time; 1/60 in tests) |
-| `--hash-step <count>` | End the test summary with the physics state hash after this fixed step instead of the last one, so runs at different time steps compare (only with `--test`) |
+| `--hash-step <count>` | End the test summary with the physics state hash after this fixed step instead of the last one, so runs at different time steps compare (only with `--test`). Steps are counted in the scene the run ends in: loading another scene starts the count again |
 | `--headless` | Run without a window, rendering or sound |
 | `--frames <count>` | Exit after this many frames |
 | `--screenshot <path>` | Save a PNG of the window (on the last frame with `--frames`, otherwise frame 60) |
