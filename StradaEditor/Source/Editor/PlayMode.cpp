@@ -241,8 +241,16 @@ namespace Strada
 	void PlayMode::Update(Timestep timestep)
 	{
 		ST_PROFILE_SCOPE("Play.Update");
-		if (m_Runner == nullptr || GetFrameStepRefusal())
+		// A scene the views draw while no game frame runs gets its frame from here, once per editor frame (the running scene
+		// begins its own in each update, paused or not): the edited scene, and a running scene the debugger holds.
+		if (m_Runner == nullptr)
 		{
+			m_Context.GetScene().BeginTransformFrame();
+			return;
+		}
+		if (GetFrameStepRefusal())
+		{
+			m_Runner->GetScene()->BeginTransformFrame();
 			return;
 		}
 		// The scene that runs the frame (a scene load replaces it after the frame) says whether one ran: a paused scene

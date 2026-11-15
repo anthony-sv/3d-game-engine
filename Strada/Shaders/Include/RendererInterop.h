@@ -141,8 +141,10 @@ struct InstanceData
 	// Picking ID with EntityIdSelectedBit for selected meshes; 0 when not pickable.
 	uint EntityId;
 	float3 Padding;
-	// The world matrix the previous frame drew the entity with (Scene's CachedWorldTransform::Previous); equal to Model
-	// for an instance that did not move. Read for velocities.
+	// The entity's world matrix when the scene's current frame began, which is the previous frame's when that frame was
+	// drawn (Scene's CachedWorldTransform::Previous); equal to Model for an instance that did not move. Read for
+	// velocities, which a renderer reads as zero in a draw that does not follow its last one (Docs/Architecture.md §6.2,
+	// "Velocities and cuts").
 	float4x4 PreviousModel;
 };
 

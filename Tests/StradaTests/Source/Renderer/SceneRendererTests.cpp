@@ -256,7 +256,8 @@ TEST_CASE("SceneRenderer: while the profiler records, each pass's GPU time reach
 	ProfilerCapture const& capture = Profiler::GetRecording();
 	REQUIRE(capture.Frames.size() == 12);
 	// Every frame's CPU phases of the renderer.
-	for (std::string_view const phase : {"Renderer.Submit", "Renderer.Cull", "Renderer.Sort", "Renderer.Prepare", "Renderer.Record"})
+	for (std::string_view const phase :
+	     {"Scene.UpdateTransforms", "Renderer.Submit", "Renderer.Cull", "Renderer.Sort", "Renderer.Prepare", "Renderer.Record"})
 	{
 		CAPTURE(phase);
 		CHECK(Testing::FindZones(capture, phase).size() == 12);

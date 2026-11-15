@@ -46,7 +46,7 @@ namespace Strada
 					continue;
 				}
 				ParticleSystemComponent const& component = entity.GetComponent<ParticleSystemComponent>();
-				glm::mat4 const frame = component.WorldSpace ? glm::mat4(1.0f) : scene.GetWorldTransform(entity);
+				glm::mat4 const frame = component.WorldSpace ? glm::mat4(1.0f) : scene.GetCachedWorldTransform(handle).World;
 				SpriteSubmission submission;
 				submission.Texture = component.Texture.IsValid() ? component.Texture : GetBuiltInHandle(BuiltInAsset::ParticleTexture);
 				submission.Additive = component.BlendMode == ParticleBlendMode::Additive;
@@ -198,7 +198,8 @@ namespace Strada
 				UUID const id = entity.GetUUID();
 				uint32_t const pickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
 				bool const selected = options.IsSelected && options.IsSelected(id);
-				renderer.SubmitMesh(mesh, materials, scene.GetWorldTransform(entity), component.CastShadows, pickingId, selected);
+				renderer.SubmitMesh(mesh, materials, scene.GetCachedWorldTransform(handle).World, component.CastShadows, pickingId,
+				                    selected);
 			}
 		}
 
@@ -215,7 +216,7 @@ namespace Strada
 				}
 				UUID const id = entity.GetUUID();
 				SpriteSubmission submission;
-				submission.Transform = scene.GetWorldTransform(entity);
+				submission.Transform = scene.GetCachedWorldTransform(handle).World;
 				submission.Color = component.Color;
 				submission.Texture = component.Texture;
 				submission.Tiling = component.Tiling;
@@ -242,7 +243,7 @@ namespace Strada
 				submission.Text = component.Text;
 				// Fonts that cannot be loaded fall back to the default font.
 				submission.Font = component.Font.IsValid() ? AssetManager::GetAsset<FontAsset>(component.Font) : nullptr;
-				submission.Transform = scene.GetWorldTransform(entity);
+				submission.Transform = scene.GetCachedWorldTransform(handle).World;
 				submission.Color = component.Color;
 				submission.FontSize = component.FontSize;
 				submission.Layout.Alignment = component.Alignment;
@@ -261,7 +262,7 @@ namespace Strada
 				Entity const entity(handle, &scene);
 				DirectionalLightComponent const& light = entity.GetComponent<DirectionalLightComponent>();
 				DirectionalLightSubmission submission;
-				submission.Direction = GetForward(scene.GetWorldTransform(entity));
+				submission.Direction = GetForward(scene.GetCachedWorldTransform(handle).World);
 				submission.Color = light.Color;
 				submission.Intensity = light.Intensity;
 				submission.CastShadows = light.CastShadows;
@@ -274,7 +275,7 @@ namespace Strada
 				Entity const entity(handle, &scene);
 				PointLightComponent const& light = entity.GetComponent<PointLightComponent>();
 				PointLightSubmission submission;
-				submission.Position = glm::vec3(scene.GetWorldTransform(entity)[3]);
+				submission.Position = glm::vec3(scene.GetCachedWorldTransform(handle).World[3]);
 				submission.Color = light.Color;
 				submission.Intensity = light.Intensity;
 				submission.Range = light.Range;
@@ -286,7 +287,7 @@ namespace Strada
 			{
 				Entity const entity(handle, &scene);
 				SpotLightComponent const& light = entity.GetComponent<SpotLightComponent>();
-				glm::mat4 const world = scene.GetWorldTransform(entity);
+				glm::mat4 const world = scene.GetCachedWorldTransform(handle).World;
 				SpotLightSubmission submission;
 				submission.Position = glm::vec3(world[3]);
 				submission.Direction = GetForward(world);
@@ -339,6 +340,9 @@ namespace Strada
 	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options)
 	{
 		ST_PROFILE_SCOPE("Renderer.RenderScene");
+		// The frame's matrices, with what was written after the scene's update (edits, deferred destruction's OnDestroy, scenes
+		// nobody updates): every submission below then reads the cache without checking chains.
+		scene.UpdateTransforms();
 		{
 			ST_PROFILE_SCOPE("Renderer.Submit");
 			// The scene's post-process volumes change its settings around the camera.

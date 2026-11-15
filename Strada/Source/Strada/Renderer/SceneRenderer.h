@@ -78,8 +78,9 @@ namespace Strada
 	{
 		// World matrix.
 		glm::mat4 Transform = glm::mat4(1.0f);
-		// The world matrix the previous frame drew the mesh with (Scene's CachedWorldTransform::Previous): equal to
-		// Transform for a mesh that did not move. Velocities read it.
+		// The mesh's world matrix when the scene's current frame began, which is the previous frame's when that frame was
+		// drawn (Scene's CachedWorldTransform::Previous): equal to Transform for a mesh that did not move. Velocities read
+		// it.
 		glm::mat4 PreviousTransform = glm::mat4(1.0f);
 		bool CastShadows = true;
 		// Non-zero ID reported by picking (below SceneRenderer::MaxPickingId; 0 = not pickable); selected meshes get the
@@ -147,7 +148,8 @@ namespace Strada
 		// it is recorded (world sprites and text in the transparent pass, the UI placed in the world among the overlays, the
 		// screen-space sprites, text and UI, and the IDs of all of them in the entity-ID pass); and one each for the sky,
 		// the tonemap, FXAA, the grid, the debug lines' instanced draw and their composite, and the selection outline, when
-		// they are drawn. Compute dispatches (ambient occlusion, bloom), copies and clears are not draws.
+		// they are drawn. Compute dispatches (ambient occlusion, bloom), copies and clears are not draws, and neither are the
+		// draws its host records outside every scene renderer (the player's blit to its window, the editor's ImGui).
 		uint32_t DrawCalls = 0;
 		// Mesh draws of the shadow, opaque, transparent and entity-ID passes: each draws one or more instances of one
 		// submesh with one material and pipeline (blended items are one instance each). Part of DrawCalls.
@@ -247,6 +249,20 @@ namespace Strada
 		// RGBA8_UNORM, sRGB-encoded, in the ShaderResource state between frames. Valid after the first EndScene.
 		nvrhi::ITexture* GetFinalImage() const { return m_FinalImage; }
 		SceneRendererStatistics const& GetStatistics() const { return m_Statistics; }
+
+		// The instances each mesh pass drew in the last frame, and those each shadow view drew, in the order of the views:
+		// the parts of SceneRendererStatistics::Instances.
+		struct PassInstanceCounts
+		{
+			uint32_t Opaque = 0;
+			uint32_t Transparent = 0;
+			uint32_t EntityIds = 0;
+			std::vector<uint32_t> ShadowViews;
+		};
+		// For tests, valid until the next BeginScene: the last frame's instances as EndScene uploaded them (one per mesh
+		// submission, in submission order), and the instances of each pass.
+		std::span<ShaderInterop::InstanceData const> GetFrameInstances() const;
+		PassInstanceCounts const& GetPassInstanceCounts() const;
 
 		// --- Picking ---
 

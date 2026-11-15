@@ -202,8 +202,7 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     subsystem of their own, `Wait.Gpu` (`GraphicsDevice::EndFrame`) and `Wait.FrameLimit`, so that `Application`'s
     figure is work;
   - `Scene.Update` around `Scene::OnUpdateRuntime`'s phases, in their order: `Scene.UpdateUI`, `Scene.UpdateScripts`,
-    `Scene.UpdatePhysics`, `Scene.ContactEvents`, `Scene.UpdateTransforms` (the world-transform cache's refresh, §7.1),
-    `Scene.UpdateAudio`, `Scene.UpdateParticles`, `Scene.Destroy`; in
+    `Scene.UpdatePhysics`, `Scene.ContactEvents`, `Scene.UpdateAudio`, `Scene.UpdateParticles`, `Scene.Destroy`; in
     `Scene.UpdatePhysics`, `Scene.ReturnToSteps` before the frame's steps and `Scene.Interpolate` after them (§8); in
     each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`;
   - each C# script's update and fixed update under `Script.<class>`, and each graph invoke (every event) under
@@ -219,11 +218,14 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     and records on the engine's `ProfilerThreadState` named `Audio Mixer` (see "Who writes" below), and in
     `AudioEngine::ReadFrames` (manual output, on the calling thread);
     `Audio.Stream` around each pass of the streaming thread (`Audio Streaming`), never its waits;
-  - `Renderer.RenderScene`, with `Scene.RefreshTransforms` (the cache brought up to date before it is read, §7.1),
-    `Renderer.Submit` (the scene's draws, lights and UI) and `Renderer.EndScene`, which
-    holds `Renderer.Cull`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings, and within it
+  - `Renderer.RenderScene`, with `Scene.UpdateTransforms` (the world-transform cache's refresh before anything is
+    submitted, once per view, §7.1), `Renderer.Submit` (the scene's draws, lights and UI) and `Renderer.EndScene`,
+    which holds `Renderer.Cull`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings, and within it
     `Renderer.Batch`, the batches of every pass and the instance index buffer's content, §6.2, which replaces slice 1's
-    `Renderer.Sort`) and `Renderer.Record` (recording and submitting the frame); `Renderer.UploadTexture`, `Renderer.UploadMesh` and
+    `Renderer.Sort`) and `Renderer.Record` (recording and submitting the frame). Work moves between these zones with
+    instancing (the shadow views' culling and the batching join `Renderer.Prepare`, recording loses them), so slice 1's
+    figures and IN's are compared by `Renderer.Prepare` and `Renderer.Record` together, and the benchmark prints
+    `Renderer.Cull` and `Renderer.Batch` on their own; `Renderer.UploadTexture`, `Renderer.UploadMesh` and
     `Renderer.ProcessEnvironment` on a cache miss only, and `Asset.Load` when an asset is loaded;
   - the editor's play mode, `Play.Update` around the frame it runs, and its graph phases: `GraphEditor.Window` around a
     graph window's frame, `GraphEditor.Sync` with `GraphEditor.Adopt`, `GraphEditor.Analysis`, `GraphEditor.Canvas`
@@ -473,9 +475,19 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   model's upper 3x3 times the absolute value of its determinant (the cofactor matrix times the determinant's sign), so
   that shaders, which normalize the normals they transform, need no division and a singular scale gives a finite
   basis; the entity ID with `EntityIdSelectedBit` (112, then three words of padding); the previous model matrix (128),
-  the world matrix the previous frame drew the entity with (`CachedWorldTransform::Previous`, §7.1), for velocities.
-  `SubmitMesh` fills one per call (one per entity's mesh), computing the normal basis once for every pass that draws
-  it; `RenderScene` submits each mesh with its cached world and previous matrices (`MeshSubmission`).
+  the entity's world matrix when the scene's current frame began, which is the previous frame's when that frame was
+  drawn (`CachedWorldTransform::Previous`, §7.1), for velocities. `SubmitMesh` fills one per call (one per entity's
+  mesh), computing the normal basis once for every pass that draws it; `RenderScene` submits each mesh with its cached
+  world and previous matrices (`MeshSubmission`).
+- **Velocities and cuts.** A previous matrix is the frame before's only when the renderer drew the frame before: frames
+  no view drew refresh nothing (§7.1), a scene can be replaced by another (a scene load, play mode's copy), and one
+  renderer may draw several scenes (thumbnails). So a renderer that keeps history (TA1) compares, at each
+  `BeginScene`, the scene's `Scene::GetSerial` and `Scene::GetTransformFrame` with those of its last draw:
+  `SceneRendererCamera` gains `SceneSerial` and `SceneFrame` (0 for unknown, as a camera made without a scene
+  has), which `RenderScene` fills. A draw that is not of the same serial at the frame after the last draw is a cut:
+  its velocities read `PreviousModel` as `Model` and its history starts again. Two renderers that draw one frame of
+  a scene read the same previous matrices. TA1 adds the two fields, their filling and the rule with the history that
+  reads them; IN gives the scene's side.
 - **The buffers.** Each `SceneRenderer` owns an instance buffer (`StructuredBuffer<InstanceData>`) and an instance
   index buffer (`StructuredBuffer<uint>`), both written once per frame by `writeBuffer` in the `Upload` pass (NVRHI
   copies a write of more than 64 KiB through its upload manager and orders it after the earlier frames that read the
@@ -497,13 +509,18 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   `Renderer.Prepare`: GPU buffers (`Renderer::GetMesh`), material binding set, and the pipelines of each pass (from the
   alpha mode and double-sidedness; null where the material is not drawn: blended materials cast no shadows).
 - **Culling** stays per item on the CPU: against the camera's frustum, and for the casters against each shadow view's
-  volume (a cascade's projection, a local light's range sphere), as before.
+  volume (a cascade's projection, a local light's range sphere). A cascade's test takes the box's center and extents
+  into the cascade's clip space once, in the form `AABB::Transform` uses (`Math/AABB.cpp`), instead of transforming
+  its eight corners as slice 1 did: with 10,000 casters and 4 cascades that test runs 40,000 times a frame inside
+  `Renderer.Prepare`, whose budget it shares with submission.
 - **Batching** (`Renderer.Batch`, inside `Renderer.Prepare`, after the pipelines and the shadow views are known). In the
   opaque (masked materials included), shadow and entity-ID passes, the items a pass draws (in the camera's view; for a
   shadow view, the casters that pass its test) with equal pipeline, GPU mesh, submesh and material binding set are one
   batch (`MeshBatch`): one `drawIndexed` of as many instances. Masked and double-sided materials have binding sets or
-  pipelines of their own, so they never join another material's batch. Items are grouped through a per-frame map of
-  their keys, never by sorting every item on pointers. The orders:
+  pipelines of their own, so they never join another material's batch. Each item gets one dense group index when it
+  is submitted, keyed on its mesh, submesh and material through the frame tables' indices (one lookup per submitted
+  submesh); each pass then buckets the items it draws by that index (a count, then a placement), so no pass hashes and
+  none sorts every item on pointers. The orders:
   - opaque: batches front to back by their nearest instance's view depth (ties by the batch's first submission), and
     each batch's instances front to back (ties by submission), which keeps the early depth rejection that slice 1's
     front-to-back sort gave;
@@ -518,8 +535,10 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
     where it is recorded (world sprites and text in `Transparent`, the UI placed in the world in `Overlays`, the
     screen-space sprites, text and UI in `ScreenSpace`, and the IDs of all of them in `EntityIds`); and one each for
     the sky, the tonemap, FXAA, the grid, the debug lines' instanced draw and their composite, and the selection
-    outline, when they are drawn. Compute dispatches (ambient occlusion, bloom), copies and clears are not draws. It is
-    the one number "at most 400 draws" reads; slice 1 counted only mesh and quad draws, and quads before recording.
+    outline, when they are drawn. Compute dispatches (ambient occlusion, bloom), copies and clears are not draws, and
+    neither are the draws a host records outside every scene renderer (the player's blit of the frame to its window,
+    the editor's ImGui): the exit's "at most 400 draws" reads the renderer's `Profile counter Game/DrawCalls`. Slice
+    1 counted only mesh and quad draws, and quads before recording.
   - `Batches`: the mesh draws of the shadow, opaque, transparent and entity-ID passes (part of `DrawCalls`);
     `ShadowDrawCalls` is the shadow pass's part of them.
   - `Instances`: the instances those batches drew, summed, so an instance counts once in every batch that draws it
@@ -530,6 +549,9 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   - While the profiler records, `EndScene` hands them to `Profiler::RecordCounters` under the renderer's view name
     (§4.4, "Counters"); `viewport.statistics` returns `instances` and `batches` beside `drawCalls`, and the editor's
     Renderer panel shows them.
+  - For tests, `SceneRenderer::GetFrameInstances` returns the frame's `InstanceData` as it was uploaded and
+    `GetPassInstanceCounts` the instances each mesh pass and each shadow view drew, both valid until the next
+    `BeginScene`: what a test reads to check the matrices a frame drew with and what reached each shadow view.
 
 Visibility: `EndScene` tests the world bounds of every submitted submesh against the camera's `Frustum`
 (`Math/Frustum.h`), built from its view-projection and limited to `SceneRendererCamera::MaxDistance` (the camera
@@ -1112,18 +1134,20 @@ Lifecycle: `OnRuntimeStart/Stop` (physics + scripts + audio), `OnSimulationStart
 `OnUpdateRuntime(ts)`, `OnUpdateSimulation(ts, camera)`, `OnUpdateEditor(ts, camera)`, `OnViewportResize(w, h)`.
 Play mode runs on a deep copy (`Scene::Copy`); stopping restores the editor scene untouched.
 
-Runtime update order per frame: UI (the mouse over buttons, clicks and `OnClick`) → scripts `OnUpdate` → physics
-fixed steps (accumulator, default 60 Hz; scripts' `OnFixedUpdate` before each step; characters are then drawn between
-their last two steps, §8) → contact/trigger events dispatched to scripts → the world-transform cache's refresh
-(`UpdateTransforms`, below) → audio update → particles → deferred entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the end of
+Runtime update order per frame: the world-transform cache's frame begins (`BeginTransformFrame`, below) → UI (the mouse
+over buttons, clicks and `OnClick`) → scripts `OnUpdate` → physics fixed steps (accumulator, default 60 Hz; scripts'
+`OnFixedUpdate` before each step; characters are then drawn between their last two steps, §8) → contact/trigger events
+dispatched to scripts → audio update → particles → deferred entity destruction → render submission, which refreshes
+the cache first (`UpdateTransforms`). Entity destruction requested during iteration is **deferred** to the end of
 the frame; creation is immediate. Editor edits of the running scene happen between frames, so `EditorContext`
 completes their destruction at once (`Scene::FlushPendingDestruction`): later edits and undo, also while paused, find
 the entities gone.
 
-**The world-transform cache** (slice 2's track IN). An entity's world matrix is its `TransformComponent`'s local matrix
-under its parent's world matrix. The scene keeps every entity's world matrix in a cache, so that engine phases read
-matrices instead of walking parents through the UUID map, and so that each entity's matrix of the previous frame is
-known (velocities, §6.2). `Scene::GetWorldTransform` answers from it and is never stale.
+**The world-transform cache** (slice 2's track IN; `Scene/SceneTransforms.cpp`). An entity's world matrix is its
+`TransformComponent`'s local matrix under its parent's world matrix. The scene keeps every entity's world matrix in a
+cache, so that the renderer reads matrices instead of walking parents through the UUID map, and so that each entity's
+matrix of the previous frame is known (velocities, §6.2). `Scene::GetWorldTransform` answers from it and is never
+stale.
 
 - **Who writes transforms, and how a write is noticed.** Scripts (through their component accessors), the editor
   (inspector, gizmo, commands, undo), physics (the write-back after each step and the drawing between steps, §8),
@@ -1131,51 +1155,77 @@ known (velocities, §6.2). `Scene::GetWorldTransform` answers from it and is nev
   `RelationshipComponent` fields in place, and the fields stay public. Nothing tells the cache: EnTT's update signal
   fires only through `patch` and `replace` (`entt/entity/mixin.hpp:352-354`), never for a write through a reference.
   So the cache notices writes by comparison. Each entity's entry keeps the inputs its world matrix was made from: the
-  bits of `Translation`, `Rotation` and `Scale`, the parent's UUID and the handle it resolved to. An entry is current
-  while those inputs are bit for bit what the components hold, the parent's handle is still valid (an entity
-  destroyed and made again with its UUID, as undo does, has a new handle) and the parent's entry is current. An entry
-  is destroyed with its entity; an entity made since the last refresh (created, duplicated, instantiated, made again by
-  undo) has none and is computed.
-- **One order of products.** The refresh and every read compute `W(e) = W(parent) × L(e)`, with `W(root) = L(root)`,
-  top down, so a matrix read through the chain and the same matrix after a refresh have the same bits, in every run
-  and at every frame rate. Slice 1's walk multiplied bottom up (`L(root) × (... × L(e))`). The two orders give the same
-  bits for roots and their children, and may differ in the last bits two or more levels below a root: physics, which
-  reads world transforms when it syncs bodies, may therefore see slightly different values than before for bodies that
-  deep, and a sample's state hash may change once with the cache (the three-rate cases compare runs of one build, so
-  they hold).
-- **A read between refreshes** (`GetWorldTransform`) checks the entity's chain up to its root, a comparison of 40 bytes
-  and a UUID per level and no matrix product, and returns the cached matrix when the chain is current; otherwise it
-  multiplies from the highest entity whose entry is not current down to the entity. It writes nothing: a script that
-  moves a parent and then reads a child in the same frame sees the move, and pays a product per level below the move.
-- **The refresh.** `Scene::UpdateTransforms` begins a frame of the scene (below) and refreshes every entry, parents
-  before children (an explicit stack, as deep hierarchies need): an entry whose inputs or whose parent's matrix changed
-  is computed again, every other entry costs its comparison. `OnUpdateRuntime` calls it once per frame
-  (`Scene.UpdateTransforms` zone), after physics has drawn the bodies between steps and after the contact events, the
-  scripts' last phase before the engine's own; the audio and particle updates that follow read through
-  `GetWorldTransform`, whose chains are then current. `Scene::RefreshTransforms` refreshes without beginning a frame:
-  `RenderScene` calls it before it submits (`Scene.RefreshTransforms` zone), because the editor's inspector, gizmo and
-  commands, a script's `OnDestroy` in the deferred destruction, and tests and thumbnails that draw scenes nobody
-  updates all change transforms between the scene's update and its views. After the first view of a frame nothing has
-  changed, and a refresh recomputes nothing. A frame of the player runs one update and one refresh; the editor playing
-  with its scene view and game view open runs one update and two refreshes. The renderer then reads each entity it draws
-  through `Scene::GetCachedWorldTransform`, which does not check the chain: exact for every entity when nothing wrote a
-  transform since the refresh; an entity made since is computed as `GetWorldTransform` computes it.
+  bits of `Translation`, `Rotation` and `Scale` (compared with `memcmp`, so `-0` and `+0` differ and a NaN equals
+  itself), the parent's UUID, the handle it resolved to, the entity it was computed under and that entity's `Version`
+  (a number every computed matrix gets anew). An entry is current while its inputs are bit for bit what the
+  components hold and the parent's entry is current with the same `Version`. Entries are destroyed with their
+  entities; an entity made since the last refresh (created, duplicated, instantiated, made again by undo) has none
+  and is computed.
+- **Which parent counts.** The `Parent` UUID of `RelationshipComponent` decides, whatever the children lists say. A
+  resolved handle is reused while an entry of that UUID lives there (a handle's version has 12 bits,
+  `entt/entity/entity.hpp`, so a valid handle alone would not prove it after 4,096 reuses of its slot); otherwise the
+  UUID is looked up again, so a parent the scene does not hold makes the entity a root until an entity of that UUID is
+  made. A cycle of parents, which `SetParent` refuses but a file or a direct write may hold, makes every entity on it
+  a root, whichever entity a walk starts from; what hangs below the cycle is computed under it. Walks find cycles with
+  Brent's method, so every walk ends.
+- **One product.** The refresh and every read compute `W(e) = Math::ComposeWorldTransform(W(parent), L(e))`, with
+  `W(root) = L(root)`, top down, so a matrix read through the chain and the same matrix after a refresh have the same
+  bits, in every run and at every frame rate. `ComposeWorldTransform` is the product of affine matrices: glm's sums in
+  glm's order (`glm/detail/type_mat4x4.inl`, `mul4x4`) without the terms that the bottom rows make zero, and a bottom
+  row of exactly (0, 0, 0, 1). It is the one function every world matrix goes through, kept out of line, so that no
+  call site is contracted into fused multiply-adds differently from another. Measured in Release on the reference
+  machine over 12,000 products: 0.086 ms against 0.114 ms for glm's full product. Slice 1's walk multiplied bottom up
+  (`L(root) × (... × L(e))`) with the full product. The two give the same bits for roots, and for their children
+  except where a sum of zeros keeps another sign of zero; two or more levels below a root they may differ in the last
+  bits. Physics, which reads world transforms when it syncs bodies, may therefore see slightly different values than
+  before for bodies below other entities, and a sample's state hash may change once, with this track (the three-rate
+  cases compare runs of one build, so they hold).
+- **A read between refreshes** (`GetWorldTransform`) walks the entity's chain up to its root and compares each level's
+  inputs, then returns the cached matrix when the whole chain is current; otherwise it multiplies from the highest
+  entity whose entry is not current down to the entity. A script that moves a parent and then reads a child in the same
+  frame sees the move, and pays a product per level below the move. A read changes no cached matrix: a write reaches the
+  cache through the refresh that follows it, in the frame that refresh belongs to, which is what keeps the previous
+  matrix (below) the frame before's whatever reads came between. Main thread only, as the scene is.
+- **The refresh.** `Scene::UpdateTransforms` (zone `Scene.UpdateTransforms`) visits every entity that has a
+  `TransformComponent` once, in the order the transforms were added, which puts most parents before their children:
+  an entity whose entry was computed under the parent link it has now, and whose parent this refresh has checked, is
+  compared and, when its inputs or its parent's `Version` changed, computed again from its parent's entry; any other
+  entity walks up to the first ancestor this refresh has checked (or a root, or a cycle) and brings the walk's entries
+  up to date top down. `RenderScene` calls it before it submits anything, inside `Renderer.RenderScene`: after the
+  scripts, physics' drawing between steps and deferred destruction's `OnDestroy`, and after what the editor's
+  inspector, gizmo and commands, tests and thumbnails write between a scene's update and its views. The renderer then
+  reads each entity it draws through `Scene::GetCachedWorldTransform`, which does not check the chain: exact for every
+  entity when nothing wrote a transform since the refresh; an entity made since is computed as `GetWorldTransform`
+  computes it. Engine phases that run before the views (physics' syncs, audio, particles, the scripts' bindings) read
+  through `GetWorldTransform`. A frame of the player refreshes once; the editor playing with its scene view and game
+  view open refreshes twice, and the second refresh only compares. A run that draws nothing (a headless test run)
+  refreshes nothing.
 - **The previous matrix.** `CachedWorldTransform::Previous` is the world matrix the cache held for the entity when the
-  scene's current frame began: the one the previous frame drew it with. It equals `World` for an entity in its first
-  frame, and for every entity of a scene that never began a frame. It is kept lazily: an entry remembers the frame its
-  matrix last changed in and keeps the matrix it replaced only then, so beginning a frame costs nothing per entity.
-  Each scene has one owner that begins its frames, once per frame the scene is drawn:
-  - the scene itself in `OnUpdateRuntime` while it runs: the player's `SceneRunner` and the editor's play mode call it
-    every frame, and a paused scene without queued steps begins its frame and returns;
-  - the editor's play mode, for the running scene in a frame the debugger holds (`GetFrameStepRefusal`), in which it
-    does not call `OnUpdateRuntime`;
-  - the editor layer, for the edited scene, once per editor frame while nothing plays.
-  `play.advance` runs several frames of the scene in one editor frame, and each begins its own.
-- **Costs.** An entry is about 200 bytes, kept in a storage of the scene's registry for an internal type that
+  scene's current frame began (`Scene::BeginTransformFrame`): what the last refresh before that computed, which is the
+  previous frame's when that frame was drawn. It equals `World` for an entity in its first frame, and for every entity
+  of a scene that never began a frame. It is kept lazily: an entry remembers the frame its matrix last changed in and
+  keeps the matrix it replaced only then, so beginning a frame costs nothing per entity, and every view of a frame
+  reads the same previous matrices. Each scene has one owner that begins its frames, once per frame of the scene and
+  before anything of the frame writes:
+  - the scene itself, first thing in `OnUpdateRuntime` while it runs: the player's `SceneRunner` and the editor's play
+    mode call it every frame, a paused scene without queued steps begins its frame and returns, and every frame
+    `play.advance` runs begins its own;
+  - the editor's play mode (`PlayMode::Update`, once per editor frame), for the scene the views show while no game
+    frame runs: the edited scene while nothing plays, and the running scene in a frame the debugger holds
+    (`GetFrameStepRefusal`).
+
+  Frames that no view drew refresh nothing, so after them `Previous` is older than the frame before. A renderer that
+  keeps history tells the frame after the one it drew by `Scene::GetTransformFrame` (the frames begun) and
+  `Scene::GetSerial` (unique among the scenes this process made, a copy included): see "Velocities and cuts" in §6.2.
+- **Costs.** An entry is 224 bytes, kept in a storage of the scene's registry for an internal type that
   `ComponentRegistry` does not list: it is no component, so it is never serialized, copied (`Scene::Copy`, duplicates
-  and prefab instances start without entries), shown or scripted. The target is a refresh of 12,000 entities in at most
-  0.5 ms in Release on the reference machine, whether none, some or all of them moved; IN's benchmark measures the
-  three. Main thread only, as the scene is.
+  and prefab instances start without entries), shown or scripted. EnTT's storage keeps elements in pages that never
+  move (`entt/entity/storage.hpp`, `assure_at_least`), so the refresh adds entries while it holds references to others.
+  The target is a refresh of 12,000 entities in at most 0.5 ms in Release on the reference machine, whether none, some
+  or all of them moved; the benchmark case of `WorldTransformCacheTests.cpp` (`STRADA_TRANSFORM_BENCHMARK=1`) measures
+  the three. Measured at IN-2 (100 roots of 119 children, one refresh per frame, 300 frames, the zone's median):
+  0.12 ms with nothing moved, 0.15 ms with 1,000 children moved, 0.47 ms with every root moved, every matrix computed
+  again. A read through a current chain costs about 0.05 µs per entity, half of slice 1's walk.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
 

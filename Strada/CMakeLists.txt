@@ -210,6 +210,7 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/SceneScripting.cpp
     Source/Strada/Scene/SceneSerializer.cpp
     Source/Strada/Scene/SceneSerializer.h
+    Source/Strada/Scene/SceneTransforms.cpp
     Source/Strada/Scene/SceneUI.cpp
     Source/Strada/Scene/SceneVisualScripting.cpp
     Source/Strada/Scene/UILayout.cpp
