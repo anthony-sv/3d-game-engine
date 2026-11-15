@@ -1,8 +1,9 @@
 # ThreadSanitizer suppressions of .github/workflows/tsan.yml (TSAN_OPTIONS suppressions=...).
 #
-# Only prebuilt libraries the build cannot instrument are listed: never Strada's own code, and never a dependency the
-# build compiles (CMake instruments every one of those, see strada_add_thread_sanitizer). A race reported in Strada's
-# code is fixed, not suppressed.
+# Prebuilt libraries the build cannot instrument are listed, and one piece of a dependency the build compiles: the owner
+# Jolt's mutexes remember for an assert (the last entries). Never Strada's own code: a race reported in Strada's code is
+# fixed, not suppressed. CMake instruments every dependency it compiles (strada_add_thread_sanitizer), so a race in one
+# of them is reported; it is listed here only when it is that dependency's own Debug bookkeeping, and then by function.
 #
 # called_from_lib makes the sanitizer ignore the interceptors (memcpy, malloc, pthread calls) a library calls. Its
 # own memory accesses are never checked, since it is not instrumented, but the interceptors it calls are, and they would
@@ -23,3 +24,13 @@ called_from_lib:libVkLayer_khronos_validation.so
 deadlock:libcoreclr.so
 race:libcoreclr.so
 race:libclrjit.so
+
+# Jolt's mutexes remember the thread that holds them, for an assert (mLockedThreadID in Jolt/Core/Mutex.h, which exists
+# only with JPH_ENABLE_ASSERTS; Jolt's headers define that in every build without NDEBUG, whatever USE_ASSERTS says).
+# try_lock reads the owner before it has the lock, to assert that this thread does not hold it already, while the thread
+# that holds the lock writes it. The sanitizer reports that read as soon as two threads take one mutex in one step, as
+# when two of them put bodies to sleep (BodyManager::DeactivateBodies). It is bookkeeping about the lock, not data the
+# lock guards. These entries leave out the races reported inside the two try_lock functions and nothing else of Jolt,
+# which stays instrumented. Jolt's own sanitizer configuration (ReleaseTSAN) has no asserts and never runs that read.
+race:JPH::Mutex::try_lock
+race:JPH::SharedMutex::try_lock

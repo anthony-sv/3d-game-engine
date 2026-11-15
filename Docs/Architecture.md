@@ -377,8 +377,9 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   engine's own asset loads run on the main thread), Jolt's workers, the automation server's network thread, and, in a
   step of its own, a profiled scene that hosts the .NET runtime. Every target the build compiles is instrumented,
   third-party ones included: synchronization in code the sanitizer cannot see makes it report races that are none, and
-  Jolt compiles other inline code under it (`JPH_TSAN_ENABLED`). Only prebuilt libraries are suppressed
-  (`.github/tsan-suppressions.txt`), never Strada's code. It never gates a merge.
+  Jolt compiles other inline code under it (`JPH_TSAN_ENABLED`). Prebuilt libraries are suppressed
+  (`.github/tsan-suppressions.txt`), and one piece of Jolt's Debug bookkeeping (the owner its mutexes remember for an
+  assert, which `try_lock` reads before it has the lock), never Strada's code. It never gates a merge.
 
 ## 5. Core conventions
 

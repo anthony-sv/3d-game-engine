@@ -167,6 +167,7 @@ source of StradaTests or StradaEditorTests must also land in exactly one shard o
   `strada_configure_third_party_target`). The preset has no test preset: the whole suites host the .NET runtime and
   time-bound cases, so run the threading cases by filter, as `.github/workflows/tsan.yml` does, with
   `TSAN_OPTIONS=suppressions=$PWD/.github/tsan-suppressions.txt`. A race in Strada's code is fixed, never suppressed;
-  the file lists only prebuilt libraries. The workflow runs on a schedule, by hand and on a push to a `tsan/**` branch,
+  the file lists prebuilt libraries and one piece of Jolt's Debug bookkeeping (the owner its mutexes remember for an
+  assert). The workflow runs on a schedule, by hand and on a push to a `tsan/**` branch,
   which is how to try a change to it, and it never gates a merge. A threading case added to a suite gets a filter in its
   step.
