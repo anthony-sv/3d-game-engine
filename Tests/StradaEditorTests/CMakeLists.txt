@@ -21,6 +21,7 @@ add_executable(StradaEditorTests
     Source/EditorLocationsTestUtilities.h
     Source/EditorOperationsTests.cpp
     Source/EditorProfilerTests.cpp
+    Source/EditorTitleBarTests.cpp
     Source/EditorUITests.cpp
     Source/EditorWindowOptionsTests.cpp
     Source/ExportCommandsTests.cpp

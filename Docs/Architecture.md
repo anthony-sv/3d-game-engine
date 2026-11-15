@@ -423,6 +423,26 @@ in the main window only, and not in the frame after cursor changes were off (`Im
 The platform windows of panels forward the files dropped onto them to the application's window
 (`Window::ForwardFileDrops`), which sends them as `WindowFileDropEvent`s like the files dropped onto it.
 
+A window may leave its title bar to the application (`WindowSpecification::CustomTitleBar`; the editor's does). On
+Windows such a window keeps the style of a window with a title bar, so the system still gives it resize borders, a
+shadow, snapping, the window menu and the animations of minimizing and maximizing; `WindowFrame` (internal to `Window`)
+replaces the window procedure GLFW installed and answers the messages that say where the title bar is. The client area
+covers the title bar (`WM_NCCALCSIZE`: the frame's borders stay at the sides and the bottom; a maximized window's client
+area stays on its monitor, and leaves an edge free for a taskbar that hides itself). Positions are answered
+(`WM_NCHITTEST`) with the frame's own borders, the top border, which lies in the client area, and then what the
+application's hit test (`Window::SetTitleBarHitTest`, a `TitleBarArea` for a position of the client area) says: the
+caption, which the system drags the window by, or one of the three buttons. The buttons are the system's areas (the
+maximize button's is the one Windows 11 shows its snap layouts at), so the window gets no client input over them: it
+tracks the one under the cursor and the one held down (`Window::GetHoveredTitleBarButton`,
+`GetPressedTitleBarButton`) for the application to draw, and a press released on its button posts the window menu's
+command for it (a close request reaches the application as `WindowCloseEvent`). The hit test is called while events are
+processed, between frames and during the system's move and resize loops, so the application answers from what its last
+frame drew, in client coordinates. GLFW sizes and places windows by a frame with a title bar: `Window::SetSize` and
+leaving fullscreen place such a window through `WindowFrame`. The frame leaves every message alone while the window has
+no title bar style (borderless fullscreen). macOS and Linux have no such frame yet: there the window keeps the system's
+title bar (`Window::HasCustomTitleBar` is false). `WindowSpecification::DarkFrame` asks Windows for the dark colors of
+the frame it draws.
+
 Shaders (`Strada/Shaders/*.hlsl`) are compiled by DXC to SPIR-V at build time with flags matching NVRHI's default
 Vulkan binding offsets, embedded into the library, and fetched by name through `ShaderLibrary`.
 
@@ -2330,7 +2350,12 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 
 - ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Scene View, Game View,
   Renderer Info, Console, Scene Settings, Project Settings; a menu bar and a toolbar with the play controls (Play/Stop,
-  Pause, Step and Simulate buttons with drawn icons). View > Reset Layout restores the default docking layout. The look
+  Pause, Step and Simulate buttons with drawn icons). The menu bar is `EditorTitleBar`: ImGui's main menu bar, and on
+  Windows, where the editor's window leaves its title bar to the application (§6.1), also that title bar: higher, with the
+  window's title, the status and drawn minimize, maximize or restore and close buttons after the menus. The bar draws
+  the buttons from the window's state and tells the window which of its parts is what (`EditorTitleBar::FindArea`): the
+  menus are the editor's, another ImGui window over the bar has what it covers, an open popup takes the click that
+  closes it, and the rest is the caption. View > Reset Layout restores the default docking layout. The look
   comes from the engine's `ImGuiLayer`: the embedded Roboto as the UI font, Cousine (fixed-width) for the console, and
   a dark slate theme with a blue accent. Windows get the Strada icon (`Strada/Resources/Icons`, drawn by
   `Tools/GenerateIcon.py`): embedded as the window icon by the engine and, on Windows, as the executables' icon.

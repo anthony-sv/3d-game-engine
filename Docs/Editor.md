@@ -160,6 +160,23 @@ same scene as `Assets/Scenes/Main.sscene`.
 
 ## The editor window
 
+### Title bar
+
+On Windows the editor draws its own title bar, and the menus are in it: after them come the window's title (the scene,
+with `*` while it has unsaved changes, the project and "Strada Editor"), the status texts, and the buttons that
+minimize, maximize or restore, and close the window. The window is still a window of the system's:
+
+- Dragging an empty part of the bar moves the window, and snaps it at the screen's edges; a double click there
+  maximizes or restores it, and a right click opens the system's window menu.
+- Pointing at the maximize button shows Windows 11's snap layouts; Win+Arrow keys, Win+Z and Alt+F4 work as in any
+  window.
+- The window resizes at all four edges and corners; the top edge's border lies over the upper pixels of the bar.
+- Close asks about unsaved changes like File > Exit.
+
+While a menu or another popup is open, a click on the bar closes it and moves nothing. A panel floating over the bar
+keeps the clicks on it. On macOS and Linux the editor's window has the system's title bar, and the menu bar is the
+strip under it.
+
 ### Menu bar and toolbar
 
 | Menu | Items |
@@ -171,8 +188,9 @@ same scene as `Assets/Scenes/Main.sscene`.
 | View | One item per panel (check to show, uncheck to close), Visual Script Debugger, Visual Scripts (the open graph windows), Game View Beside, Reset Layout, ImGui Demo |
 | Play | Play or Stop (Ctrl+P), Simulate, Pause (Ctrl+Shift+P), Step (Ctrl+Alt+P) |
 
-The right end of the menu bar shows the [automation status](#automation-status-and-agents), and before it the state of
-a script build or a game export when there is one.
+The right end of the menu bar (before the window's buttons, where the bar is the [title bar](#title-bar)) shows the
+[automation status](#automation-status-and-agents), and before it the state of a script build or a game export when
+there is one. In a window too narrow for them, a title bar shortens the title, then leaves it out, and then the status.
 
 Below the menu bar, the toolbar holds the play controls in its middle: Play/Stop, Pause and Step buttons, the
 visual-script debugging buttons while the game plays, and Simulate. [Play mode](#play-mode) describes them.

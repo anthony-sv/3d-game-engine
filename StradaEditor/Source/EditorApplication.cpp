@@ -81,6 +81,9 @@ namespace Strada
 		specification.Window.Width = 1600;
 		specification.Window.Height = 900;
 		specification.Window.VSync = !arguments.HasFlag("no-vsync");
+		// The editor draws its title bar itself where the platform lets it (EditorTitleBar): the menus are in it.
+		specification.Window.CustomTitleBar = true;
+		specification.Window.DarkFrame = true;
 		// For reproducible captures: the window's size, or maximized (on the screen it opens on).
 		specification.Window.Maximized = arguments.HasFlag("maximized");
 		if (std::optional<std::string> const windowSize = arguments.GetValue("window-size"))

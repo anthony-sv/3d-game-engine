@@ -107,6 +107,12 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   to open a menu over a dialog (`EditorCommandEnvironment::IsDialogOpen`), whose modal popup it would close.
 - Native dialogs: `FileDialogs::OpenFile/OpenFiles/SaveFile/PickFolder` (editor only; add the extension when it is
   missing).
+- The menu bar is `EditorTitleBar` (`Editor/UI`): ImGui's main menu bar, and on Windows also the window's title bar
+  (`Window::HasCustomTitleBar`), which the window drags itself by. Top-level menus are plain `ImGui::BeginMenu` calls
+  between its `Begin` and `End` in `EditorLayer::DrawMenuBar`. The window asks `EditorTitleBar::FindArea` what is at a
+  position between frames: only the menus are the editor's there, so anything else in the bar that takes clicks needs
+  its rectangle in the bar's `Layout` and a `Client` answer in `FindArea`, with a headless test in
+  `EditorTitleBarTests.cpp`. The window's buttons get no ImGui input: they are drawn from the window's state.
 - Actions that discard the scene go through `EditorLayer::RequestSceneAction` (unsaved-changes prompt).
 
 ## Windows that exist once per asset

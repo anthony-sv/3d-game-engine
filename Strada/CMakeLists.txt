@@ -54,6 +54,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Version.h
     Source/Strada/Core/Window.cpp
     Source/Strada/Core/Window.h
+    Source/Strada/Core/WindowFrame.cpp
+    Source/Strada/Core/WindowFrame.h
 )
 
 set(STRADA_ASSET_SOURCES
@@ -420,8 +422,8 @@ target_link_libraries(Strada
 )
 if(WIN32)
     # Crash minidumps (CrashHandler); DbgHelp ships with Windows. Shell32: CommandLineToArgvW (Platform). Ole32: the
-    # main thread's COM apartment (Platform).
-    target_link_libraries(Strada PRIVATE Dbghelp Shell32 Ole32)
+    # main thread's COM apartment (Platform), the taskbar's state (WindowFrame). Dwmapi: dark window frames (WindowFrame).
+    target_link_libraries(Strada PRIVATE Dbghelp Shell32 Ole32 Dwmapi)
 endif()
 
 target_compile_definitions(Strada PUBLIC

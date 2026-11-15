@@ -14,6 +14,22 @@ struct GLFWwindow;
 namespace Strada
 {
 	class Event;
+	class WindowFrame;
+
+	// The parts of a title bar an application draws itself (WindowSpecification::CustomTitleBar), as it names them to the
+	// window.
+	enum class TitleBarArea : uint8_t
+	{
+		// Not the title bar, or a part of it the application handles itself (menus, fields).
+		Client,
+		// Empty title bar: dragging it moves the window, a double click maximizes or restores it, a right click opens the
+		// system's window menu.
+		Caption,
+		// The buttons. The window presses them itself: the application draws them (Window::GetHoveredTitleBarButton).
+		Minimize,
+		Maximize,
+		Close
+	};
 
 	struct WindowSpecification
 	{
@@ -24,6 +40,14 @@ namespace Strada
 		bool Fullscreen = false;
 		bool Resizable = true;
 		bool Decorated = true;
+		// The application draws the title bar: the client area covers the whole window, and the application tells the window
+		// which part of it is what (Window::SetTitleBarHitTest). The window keeps the system's frame, with its resize borders,
+		// shadow, snapping and animations. Windows only: elsewhere, and for a window that is not decorated, the window keeps
+		// the system's title bar (Window::HasCustomTitleBar tells).
+		bool CustomTitleBar = false;
+		// The frame the system draws (the border, and the title bar where the window has the system's) in the system's dark
+		// colors. Windows only.
+		bool DarkFrame = false;
 		bool Maximized = false;
 		bool Visible = true;
 		// Read by the swapchain; the window itself has no client API.
@@ -35,6 +59,8 @@ namespace Strada
 	{
 	public:
 		using EventCallbackFn = std::function<void(Event&)>;
+		// What is at a position of the client area (pixels from its top-left corner).
+		using TitleBarHitTestFn = std::function<TitleBarArea(glm::ivec2 position)>;
 
 		[[nodiscard]] static Result<Scope<Window>> Create(WindowSpecification const& specification);
 		~Window();
@@ -62,7 +88,20 @@ namespace Strada
 		glm::vec2 GetContentScale() const;
 
 		bool IsMinimized() const { return m_Data.Minimized; }
+		bool IsMaximized() const;
 		bool IsFocused() const;
+
+		// Whether the application draws the title bar (WindowSpecification::CustomTitleBar, where the platform has it).
+		bool HasCustomTitleBar() const { return m_Frame != nullptr; }
+		// Where the title bar the application draws is. The window asks while events are processed, also between frames and
+		// while the user moves or resizes it, so the answer comes from what the last frame drew. Without a hit test the
+		// window has no title bar at all. Ignored without a custom title bar.
+		void SetTitleBarHitTest(TitleBarHitTestFn hitTest);
+		// The title bar button under the cursor, and the one held down with the left mouse button (released over it, the
+		// window minimizes, maximizes, restores or asks to close): Minimize, Maximize or Close, else Client. The window
+		// receives no other input over the buttons, so the application draws them from these.
+		TitleBarArea GetHoveredTitleBarButton() const;
+		TitleBarArea GetPressedTitleBarButton() const;
 
 		std::string const& GetTitle() const { return m_Data.Title; }
 		void SetTitle(std::string const& title);
@@ -112,6 +151,8 @@ namespace Strada
 		WindowSpecification m_Specification;
 		WindowData m_Data;
 		GLFWwindow* m_Window = nullptr;
+		// The frame of a window with a custom title bar; null for every other window.
+		Scope<WindowFrame> m_Frame;
 		// Windowed placement restored when leaving fullscreen.
 		glm::ivec2 m_WindowedPosition = {0, 0};
 		glm::ivec2 m_WindowedSize = {0, 0};

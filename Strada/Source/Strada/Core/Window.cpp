@@ -8,6 +8,7 @@
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Platform.h"
+#include "Strada/Core/WindowFrame.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -138,7 +139,9 @@ namespace Strada
 		glfwWindowHint(GLFW_RESIZABLE, m_Specification.Resizable ? GLFW_TRUE : GLFW_FALSE);
 		glfwWindowHint(GLFW_DECORATED, m_Specification.Decorated ? GLFW_TRUE : GLFW_FALSE);
 		glfwWindowHint(GLFW_MAXIMIZED, m_Specification.Maximized ? GLFW_TRUE : GLFW_FALSE);
-		glfwWindowHint(GLFW_VISIBLE, m_Specification.Visible ? GLFW_TRUE : GLFW_FALSE);
+		// A window with a custom title bar is shown once it has its frame, never with the system's title bar first.
+		bool const customTitleBar = m_Specification.CustomTitleBar && m_Specification.Decorated && WindowFrame::IsSupported();
+		glfwWindowHint(GLFW_VISIBLE, m_Specification.Visible && !customTitleBar ? GLFW_TRUE : GLFW_FALSE);
 		glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
 		int const width = static_cast<int>(std::max(1u, m_Specification.Width));
@@ -153,6 +156,19 @@ namespace Strada
 			return MakeError("Failed to create a {}x{} window", width, height);
 		}
 		s_WindowCount++;
+
+		if (m_Specification.DarkFrame)
+		{
+			WindowFrame::SetDarkColors(m_Window, true);
+		}
+		if (customTitleBar)
+		{
+			m_Frame = WindowFrame::Install(m_Window);
+			if (m_Frame == nullptr)
+			{
+				ST_CORE_WARN("The window '{}' keeps the system's title bar: its frame cannot be replaced", m_Data.Title);
+			}
+		}
 
 		if (Result<Image> const icon = Image::LoadFromMemory(EmbeddedResources::Get(EmbeddedResources::DefaultIcon)))
 		{
@@ -289,6 +305,10 @@ namespace Strada
 		{
 			SetFullscreen(true);
 		}
+		if (customTitleBar && m_Specification.Visible)
+		{
+			glfwShowWindow(m_Window);
+		}
 
 		ST_CORE_INFO("Created window '{}' ({}x{} framebuffer)", m_Data.Title, m_Data.FramebufferWidth, m_Data.FramebufferHeight);
 		return {};
@@ -301,6 +321,8 @@ namespace Strada
 			return;
 		}
 
+		// The frame leaves the window before the window goes.
+		m_Frame.reset();
 		glfwDestroyWindow(m_Window);
 		m_Window = nullptr;
 		s_WindowCount--;
@@ -363,9 +385,32 @@ namespace Strada
 		return {x, y};
 	}
 
+	bool Window::IsMaximized() const
+	{
+		return glfwGetWindowAttrib(m_Window, GLFW_MAXIMIZED) == GLFW_TRUE;
+	}
+
 	bool Window::IsFocused() const
 	{
 		return glfwGetWindowAttrib(m_Window, GLFW_FOCUSED) == GLFW_TRUE;
+	}
+
+	void Window::SetTitleBarHitTest(TitleBarHitTestFn hitTest)
+	{
+		if (m_Frame)
+		{
+			m_Frame->SetHitTest(std::move(hitTest));
+		}
+	}
+
+	TitleBarArea Window::GetHoveredTitleBarButton() const
+	{
+		return m_Frame ? m_Frame->GetHoveredButton() : TitleBarArea::Client;
+	}
+
+	TitleBarArea Window::GetPressedTitleBarButton() const
+	{
+		return m_Frame ? m_Frame->GetPressedButton() : TitleBarArea::Client;
 	}
 
 	void Window::SetTitle(std::string const& title)
@@ -427,15 +472,28 @@ namespace Strada
 		}
 		else
 		{
-			glfwSetWindowMonitor(m_Window, nullptr, m_WindowedPosition.x, m_WindowedPosition.y, std::max(1, m_WindowedSize.x),
-			                     std::max(1, m_WindowedSize.y), GLFW_DONT_CARE);
+			glm::ivec2 const size = glm::max(m_WindowedSize, glm::ivec2(1));
+			glfwSetWindowMonitor(m_Window, nullptr, m_WindowedPosition.x, m_WindowedPosition.y, size.x, size.y, GLFW_DONT_CARE);
+			if (m_Frame)
+			{
+				// GLFW placed the window as one with the system's title bar.
+				m_Frame->SetClientArea(m_WindowedPosition, size);
+			}
 		}
 		m_Data.Fullscreen = fullscreen;
 	}
 
 	void Window::SetSize(uint32_t width, uint32_t height)
 	{
-		glfwSetWindowSize(m_Window, static_cast<int>(std::max(1u, width)), static_cast<int>(std::max(1u, height)));
+		glm::ivec2 const size(static_cast<int>(std::max(1u, width)), static_cast<int>(std::max(1u, height)));
+		if (m_Frame && !m_Data.Fullscreen)
+		{
+			m_Frame->SetClientSize(size);
+		}
+		else
+		{
+			glfwSetWindowSize(m_Window, size.x, size.y);
+		}
 	}
 
 	void Window::Maximize()

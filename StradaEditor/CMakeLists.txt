@@ -170,6 +170,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/UI/DataAssetEditor.h
     Source/Editor/UI/EditingChordClaims.cpp
     Source/Editor/UI/EditingChordClaims.h
+    Source/Editor/UI/EditorTitleBar.cpp
+    Source/Editor/UI/EditorTitleBar.h
     Source/Editor/UI/EditorUI.cpp
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp

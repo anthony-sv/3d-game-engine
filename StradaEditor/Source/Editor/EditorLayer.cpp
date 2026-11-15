@@ -189,6 +189,15 @@ namespace Strada
 		}
 
 		Application& application = Application::Get();
+		if (Window* const window = application.GetWindow(); window != nullptr && window->HasCustomTitleBar())
+		{
+			// The window asks while it processes events, between frames.
+			window->SetTitleBarHitTest(
+				[this](glm::ivec2 position)
+				{
+					return m_TitleBar.FindArea(position);
+				});
+		}
 		StartCommandsHost startHost;
 		EditorCommandEnvironment environment;
 		environment.Locations = m_Locations;
@@ -535,6 +544,10 @@ namespace Strada
 		m_PlayMode.SetObserver(nullptr);
 		// A window of the ImGui context, which goes with the ImGui layer.
 		m_KeyboardWindow = nullptr;
+		if (Window* const window = Application::Get().GetWindow())
+		{
+			window->SetTitleBarHitTest({});
+		}
 		if (m_GameViewPanel != nullptr)
 		{
 			// The ImGui layer detached first (overlays go first); cursor modes go back to the main window directly, as the
@@ -1087,7 +1100,18 @@ namespace Strada
 
 	void EditorLayer::DrawMenuBar()
 	{
-		if (!ImGui::BeginMainMenuBar())
+		// The title bar of a window that leaves its title bar to the application, else the plain menu bar. Borderless
+		// fullscreen has no title bar.
+		Window const* const window = Application::Get().GetWindow();
+		std::optional<EditorTitleBarWindow> titleBarWindow;
+		if (window != nullptr && window->HasCustomTitleBar() && !window->IsFullscreen())
+		{
+			titleBarWindow = EditorTitleBarWindow{.Maximized = window->IsMaximized(),
+			                                      .Focused = window->IsFocused(),
+			                                      .HoveredButton = window->GetHoveredTitleBarButton(),
+			                                      .PressedButton = window->GetPressedTitleBarButton()};
+		}
+		if (!m_TitleBar.Begin(titleBarWindow))
 		{
 			return;
 		}
@@ -1261,9 +1285,7 @@ namespace Strada
 		{
 			status = part.empty() ? status : part + "    " + status;
 		}
-		ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(status.c_str()).x - ImGui::GetStyle().ItemSpacing.x * 2.0f);
-		ImGui::TextDisabled("%s", status.c_str());
-		ImGui::EndMainMenuBar();
+		m_TitleBar.End(m_WindowTitle, status);
 	}
 
 	void EditorLayer::DrawPlayMenu()
