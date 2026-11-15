@@ -1,24 +1,25 @@
-# StradaEditorTests.Partition: fails unless the shards of Shards.cmake are a partition of StradaEditorTests, that is
-# unless every test case is in exactly one shard and no shard is empty.
+# <suite>.Partition: fails unless the shards a Shards.cmake defines are a partition of a doctest suite, that is unless
+# every test case is in exactly one shard and no shard is empty (strada_add_test_shards in StradaTestShards.cmake
+# registers it).
 #
-#   cmake -DTEST_EXECUTABLE=<StradaEditorTests> [-DSHARDS_FILE=<Shards.cmake>] -P CheckShardPartition.cmake
+#   cmake -DTEST_EXECUTABLE=<suite executable> -DSHARDS_FILE=<its Shards.cmake> -P cmake/CheckShardPartition.cmake
 #
-# SHARDS_FILE defaults to the Shards.cmake beside this script; naming another file checks a changed definition before
-# it replaces the real one.
+# Naming a changed copy as SHARDS_FILE checks a changed definition before it replaces the real one.
 
 cmake_minimum_required(VERSION 3.28)
 
 if(NOT DEFINED TEST_EXECUTABLE)
-    message(FATAL_ERROR "Pass -DTEST_EXECUTABLE=<path of StradaEditorTests>.")
+    message(FATAL_ERROR "Pass -DTEST_EXECUTABLE=<path of the test executable>.")
 endif()
 if(NOT DEFINED SHARDS_FILE)
-    set(SHARDS_FILE "${CMAKE_CURRENT_LIST_DIR}/Shards.cmake")
+    message(FATAL_ERROR "Pass -DSHARDS_FILE=<path of the suite's Shards.cmake>.")
 endif()
 include("${SHARDS_FILE}")
 
 # Lists the test cases the doctest arguments select, one XML element per test case: its name, file and line identify it.
+# --no-skip lists the test cases decorated with doctest::skip too: a shard runs them as skipped, so they need a shard.
 function(strada_list_test_cases result)
-    execute_process(COMMAND "${TEST_EXECUTABLE}" --list-test-cases --reporters=xml ${ARGN}
+    execute_process(COMMAND "${TEST_EXECUTABLE}" --list-test-cases --no-skip --reporters=xml ${ARGN}
         OUTPUT_VARIABLE output ERROR_VARIABLE errors RESULT_VARIABLE exitCode)
     if(NOT exitCode EQUAL 0)
         message(FATAL_ERROR "Listing the test cases of ${TEST_EXECUTABLE} ${ARGN} failed (${exitCode}):\n${errors}")
@@ -48,16 +49,16 @@ endif()
 
 set(problems "")
 set(shardCounts "")
-foreach(shard IN LISTS STRADA_EDITOR_TEST_SHARDS)
-    if(NOT DEFINED STRADA_EDITOR_TEST_SHARD_${shard})
-        list(APPEND problems "Shard ${shard} has no filter (STRADA_EDITOR_TEST_SHARD_${shard}).")
+foreach(shard IN LISTS STRADA_TEST_SHARDS)
+    if(NOT DEFINED STRADA_TEST_SHARD_${shard})
+        list(APPEND problems "Shard ${shard} has no filter (STRADA_TEST_SHARD_${shard}).")
         continue()
     endif()
-    strada_list_test_cases(shardTestCases ${STRADA_EDITOR_TEST_SHARD_${shard}})
+    strada_list_test_cases(shardTestCases ${STRADA_TEST_SHARD_${shard}})
     list(LENGTH shardTestCases shardCount)
     list(APPEND shardCounts "${shard} ${shardCount}")
     if(shardCount EQUAL 0)
-        string(REPLACE ";" " " filters "${STRADA_EDITOR_TEST_SHARD_${shard}}")
+        string(REPLACE ";" " " filters "${STRADA_TEST_SHARD_${shard}}")
         list(APPEND problems "Shard ${shard} selects no test case (${filters}).")
     endif()
     foreach(testCase IN LISTS shardTestCases)

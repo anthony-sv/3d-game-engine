@@ -3468,7 +3468,12 @@ that each platform's names are tested on every platform:
   them in simulated scenes with physics, manual audio and restored input; a node that does not run on its defaults has a
   recipe (inputs, settings, components, a child target, held keys or buttons), a recipe for every member of its type, or
   a checked exclusion naming a graph FeatureTest's scenes run that holds it. The fuzz test of damaged graphs runs, every
-  third round, the shared language document (expressions, arrays, strings, generics, a timeline).
+  third round, the shared language document (expressions, arrays, strings, generics, a timeline). ctest runs it as
+  shards by module folder of `Source/`, one entry each, defined once in `Tests/StradaTests/Shards.cmake`:
+  `StradaTests.Asset`, `.Scripting` (`Script/` and `Scene/`), `.Rendering` (`RHI/`, `Renderer/` and `ImGui/`, the GPU
+  tests) and `.Core` (every other folder). `StradaTests.Partition` checks them as the editor's partition entry checks
+  its own (`strada_add_test_shards` in `cmake/StradaTestShards.cmake` registers both suites' entries). Every test
+  source passes alone in its own process, so no test depends on what another file's tests left behind.
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project. ctest runs it as shards, one
   entry each, defined once in `Tests/StradaEditorTests/Shards.cmake` as doctest source-file filters:
   `StradaEditorTests.AutomationFuzz`, `.Graph` (the graph and debug command tests and `GraphEditFuzzTests`),

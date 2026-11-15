@@ -186,5 +186,6 @@ add_dependencies(StradaTests StradaTestScripts)
 add_dependencies(StradaTests StradaFeatureTestScripts StradaBlocksScripts StradaShowcaseScripts)
 set_target_properties(StradaTests PROPERTIES FOLDER "Tests")
 
-add_test(NAME StradaTests COMMAND StradaTests --reporters=console --no-intro=true)
-set_tests_properties(StradaTests PROPERTIES TIMEOUT 600)
+# One ctest entry per shard (StradaTests.<shard>) and StradaTests.Partition, which checks that the shards hold every
+# test case exactly once.
+strada_add_test_shards(StradaTests "${CMAKE_CURRENT_SOURCE_DIR}/Shards.cmake")

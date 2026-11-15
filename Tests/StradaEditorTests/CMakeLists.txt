@@ -138,5 +138,4 @@ set_target_properties(StradaEditorTests PROPERTIES FOLDER "Tests")
 
 # One ctest entry per shard (StradaEditorTests.<shard>) and StradaEditorTests.Partition, which checks that the shards
 # hold every test case exactly once.
-include("${CMAKE_CURRENT_SOURCE_DIR}/Shards.cmake")
-strada_add_editor_test_shards(StradaEditorTests)
+strada_add_test_shards(StradaEditorTests "${CMAKE_CURRENT_SOURCE_DIR}/Shards.cmake")

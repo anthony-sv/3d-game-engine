@@ -27,6 +27,8 @@ add_subdirectory(StradaTool)
 
 if(STRADA_BUILD_TESTS)
     enable_testing()
+    # strada_add_test_shards: the suites that run as shards, one ctest entry each, with a partition check.
+    include(StradaTestShards)
     # The scripts of Projects/FeatureTest, built like a game's against this build's scripting API: ScriptCoreTests checks
     # that they use all of it and StradaRuntimeTests runs the project with them.
     strada_add_dotnet_project(StradaFeatureTestScripts

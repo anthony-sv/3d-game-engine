@@ -206,9 +206,11 @@ namespace Strada
   `Testing::TemporaryDirectory`.
 - Run everything with `python Tools/build.py --test`; CI runs the same command on Windows, Linux and macOS.
 - No ctest entry may outgrow its timeout: an entry that passes 450 s on CI's Windows MSVC Debug job is split by
-  source-file patterns. StradaEditorTests runs as the shards of `Tests/StradaEditorTests/Shards.cmake`
-  (`StradaEditorTests.<shard>`, `ctest -R StradaEditorTests` runs them all), and `StradaEditorTests.Partition` keeps
-  them a partition: it fails when a test case is in no shard or in two, or when a shard selects nothing.
+  source-file patterns. StradaTests and StradaEditorTests run as the shards of their `Shards.cmake`
+  (`Tests/StradaTests/Shards.cmake`, `Tests/StradaEditorTests/Shards.cmake`): `StradaTests.<shard>` and
+  `StradaEditorTests.<shard>`, which `ctest -R StradaTests` and `ctest -R StradaEditorTests` run all of. Each suite's
+  `.Partition` entry keeps its shards a partition: it fails when a test case is in no shard or in two, or when a shard
+  selects nothing.
 - Every file format users write gets a fuzz test (`Testing::DocumentMutator` in `Tests/StradaTests/Source/Fuzzing.h`):
   damaged documents must be refused or repaired, what loads must save and load again, and what runs must run. Set
   `STRADA_FUZZ_SCALE=<n>` for n times more rounds after changing a loader (Debug builds keep Jolt's asserts).
@@ -226,7 +228,8 @@ Rules for the other suites:
 - The references `Docs/Components.md` and `Docs/ScriptingAPI.md` are generated from the engine and checked by tests
   (`ComponentReferenceTests.cpp` in StradaTests, `ApiReferenceTests.cs` in ScriptCoreTests): a change to a component's
   fields or descriptions, or to the scripting API or its XML documentation, regenerates them by running that suite with
-  `STRADA_UPDATE_DOCS=1`, in the same change.
+  `STRADA_UPDATE_DOCS=1` (the `StradaTests` executable, or its shards through `ctest -R StradaTests`), in the same
+  change.
 - Editor automation tests live in `Tests/StradaEditorTests` and run the editor headless against a temporary project.
 - Game player tests live in `Tests/StradaRuntimeTests`: they write games to temporary directories and run the
   `StradaRuntime` executable on them, checking exit codes and output (windowed runs skip like windowed tests).
