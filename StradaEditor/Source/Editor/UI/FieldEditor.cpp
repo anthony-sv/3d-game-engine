@@ -518,6 +518,20 @@ namespace Strada
 			return !value.is_string() || accepts(value.get_ref<std::string const&>());
 		}
 
+		// Whether an asset field's value names a registered asset of the type the field references whose file was found: what
+		// a field it replaces (OverriddenBy) needs to stop applying. An unknown handle, a missing file or an asset of another
+		// type count as no asset.
+		bool ReferencesAvailableAsset(FieldDescriptor const& field, Json const& value)
+		{
+			AssetHandle const handle(ReadID(value));
+			if (!handle.IsValid() || !AssetManager::IsInitialized() || !AssetManager::IsValid(handle) || AssetManager::IsMissing(handle))
+			{
+				return false;
+			}
+			std::optional<AssetType> const type = AssetTypeFromString(field.Hints.AssetTypeName);
+			return !type || AssetManager::GetAssetType(handle) == *type;
+		}
+
 		// Text color of an asset reference: dimmed without an asset, the error color when its file is missing or the handle is
 		// unknown.
 		ImU32 GetAssetReferenceColor(AssetHandle handle, bool mixed)
@@ -1298,14 +1312,14 @@ namespace Strada
 					ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
 				}
 
-				// A field an asset field replaces (OverriddenBy) is disabled while that field holds an asset, and says so in place of
-				// its value (enabled when the selected objects differ there, so all of them can be edited).
+				// A field an asset field replaces (OverriddenBy) is disabled while that field names an asset of its type, and says so
+				// in place of its value (enabled when the selected objects differ there, so all of them can be edited).
 				FieldDescriptor const* overrider = field.Hints.OverriddenBy.empty() ? nullptr : FindField(fields, field.Hints.OverriddenBy);
 				bool overridden = false;
 				if (overrider != nullptr)
 				{
 					std::string const overriderKey(overrider->Name);
-					overridden = !isMixed(overriderKey) && AssetHandle(ReadID(getValue(*overrider, overriderKey))).IsValid();
+					overridden = !isMixed(overriderKey) && ReferencesAvailableAsset(*overrider, getValue(*overrider, overriderKey));
 					enabled = enabled && !overridden;
 				}
 

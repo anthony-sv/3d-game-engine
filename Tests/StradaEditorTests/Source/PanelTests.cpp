@@ -353,8 +353,13 @@ TEST_CASE("FieldEditor: a switch is a check box in front of the field it switche
 	CHECK(last->Value.get<float>() == doctest::Approx(5.0f));
 }
 
-TEST_CASE("FieldEditor: a field an asset field replaces is disabled while that asset is set, unless the objects differ there")
+TEST_CASE("FieldEditor: a field an asset field replaces is disabled while it names an asset of its type, unless the objects differ")
 {
+	Testing::AssetManagerScope const assets;
+	DataAssetType const* const materialType = DataAssetRegistry::FindByName("PhysicsMaterial");
+	REQUIRE(materialType != nullptr);
+	AssetHandle const material = AssetManager::AddMemoryAsset(materialType->CreateAsset(), "Rubber");
+	AssetHandle const otherType = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(MaterialData()), "Painted");
 	HeadlessImGui imgui;
 	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<SurfacedProbe>, SurfacedProbe>();
 	Json values = SerializeFields<StructTraits<SurfacedProbe>>(SurfacedProbe{});
@@ -407,7 +412,7 @@ TEST_CASE("FieldEditor: a field an asset field replaces is disabled while that a
 	CHECK(last->Value.get<float>() == doctest::Approx(0.25f));
 
 	// With one, its row stays (saying what sets it) and typing changes nothing.
-	values["Material"] = "7";
+	values["Material"] = material.ToString();
 	typeIntoFriction("0.5");
 	CHECK(rows == 2);
 	CHECK_FALSE(frictionChanged());
@@ -418,12 +423,17 @@ TEST_CASE("FieldEditor: a field an asset field replaces is disabled while that a
 	REQUIRE(frictionChanged());
 	CHECK(last->Value.get<float>() == doctest::Approx(0.75f));
 
-	// The material cleared, it applies again.
+	// The material cleared, it applies again; so it does with a handle of no asset, or of an asset of another type, which
+	// count as no material.
 	mixed.clear();
-	values["Material"] = "0";
-	typeIntoFriction("1");
-	REQUIRE(frictionChanged());
-	CHECK(last->Value.get<float>() == doctest::Approx(1.0f));
+	for (std::string const& unset : {std::string("0"), std::string("7"), otherType.ToString()})
+	{
+		CAPTURE(unset);
+		values["Material"] = unset;
+		typeIntoFriction("1");
+		REQUIRE(frictionChanged());
+		CHECK(last->Value.get<float>() == doctest::Approx(1.0f));
+	}
 }
 
 namespace

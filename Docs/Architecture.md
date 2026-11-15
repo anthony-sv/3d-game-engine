@@ -1466,8 +1466,10 @@ surface slides, bounces and rolls and what it is called. In this slice its field
 Every collider component has a `Material` reference. Unset, the collider's own `Friction` and `Restitution` apply with
 the modes `GeometricMean` and `Maximum`, which is how every collider combined before materials existed; set, the
 material's values and modes replace them, and the inspector shows the two fields disabled, saying that `Material`
-sets them (the `OverriddenBy` field hint, §7.2). A reference that names no loaded asset of the type (missing, unloadable
-or of another type) counts as unset, with a warning when the body is made. A `MeshCollider` with triangles
+sets them (the `OverriddenBy` field hint, §7.2). A reference to no registered physics material (an unknown handle, a
+missing file, an asset of another type, all of which files and `component.set` accept like any asset reference) counts
+as unset, and the inspector then shows the two fields again; so does a registered file that does not load, with a
+warning when the body is made. A `MeshCollider` with triangles
 (`Convex` off, on a static or kinematic body) also has `Materials`, one per submesh of its mesh in submesh order; an
 empty entry, or a submesh past the list, uses the collider's `Material` (or its floats). Jolt's mesh shape holds at most
 32 materials (`MeshShape::FLAGS_MATERIAL_BITS`, refused beyond at `MeshShape.cpp:161-163` of the pinned Jolt), so the

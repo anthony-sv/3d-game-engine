@@ -14,9 +14,12 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Project/ProjectSettings.h"
+#include "Strada/Scene/Components.h"
+#include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 
 #include <doctest/doctest.h>
@@ -840,6 +843,124 @@ TEST_CASE("Panels: the inspector edits a data asset's array of structs, one undo
 	driver.Click(ImHashStr("Add Element", 0, entries), driver.GetValueX());
 	CHECK(history.GetUndoCount() == fullSteps);
 	CHECK(asset->GetData().Entries.size() == 16);
+	CHECK(open);
+}
+
+TEST_CASE("Panels: the inspector edits a triangle mesh collider's materials, one step each, and shows what its material replaces")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	imgui.UseEditorStyle();
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	DataAssetType const* const type = DataAssetRegistry::FindByName("PhysicsMaterial");
+	REQUIRE(type != nullptr);
+	// A render material whose path sorts first: the picker of physics materials must not offer it.
+	Result<AssetHandle> const painted = operations.CreateMaterial("Aaa/Painted.smat");
+	REQUIRE(painted.IsOk());
+	Result<AssetHandle> const created = operations.CreateDataAsset(type->GetAssetType(), "Surfaces/Gravel.sphysmat");
+	REQUIRE(created.IsOk());
+	AssetHandle const gravel = created.GetValue();
+
+	Scene& scene = context.GetScene();
+	Entity road = scene.CreateEntity("Road");
+	road.AddComponent<MeshColliderComponent>().Convex = false;
+	UUID const id = road.GetUUID();
+	std::array<UUID, 1> const selected = {id};
+	context.Select(selected);
+	auto const collider = [&scene, id]() -> MeshColliderComponent&
+	{
+		return scene.GetEntityByUUID(id).GetComponent<MeshColliderComponent>();
+	};
+	CommandHistory const& history = context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 1000.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	FieldTableDriver const driver{imgui, draw,
+	                              []
+	                              {
+									  return ImGui::FindWindowByName("Inspector");
+								  },
+	                              []
+	                              {
+									  return ImHashStr("##fields", 0,
+		                                               ImHashStr("MeshCollider", 0, ImGui::FindWindowByName("Inspector")->ID));
+								  }};
+	ImGuiID const list = driver.GetFieldId("Materials");
+	// An element's asset reference: [path][...][x], then the element's "-".
+	float const pickerX = driver.GetButtonX() - 2.0f * (ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x);
+
+	// Add Element: one step, an empty entry (the collider's Material for the first submesh).
+	driver.Click(ImHashStr("Add Element", 0, list), driver.GetValueX());
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(collider().Materials == std::vector<AssetHandle>{AssetHandle()});
+
+	// Its picker offers physics materials only: the first asset it lists is the gravel, not the render material.
+	driver.Click(ImHashStr("...", 0, driver.GetElementId(list, 0)), pickerX);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	imgui.Press(ImGuiKey_DownArrow, draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	CHECK(history.GetUndoCount() == steps + 2);
+	CHECK(collider().Materials == std::vector<AssetHandle>{gravel});
+
+	// Removing the element is a step too.
+	imgui.Frame(draw, 1.0f);
+	driver.Click(ImHashStr("-", 0, driver.GetElementId(list, 0)), driver.GetButtonX());
+	CHECK(history.GetUndoCount() == steps + 3);
+	CHECK(collider().Materials.empty());
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(collider().Materials == std::vector<AssetHandle>{gravel});
+
+	// A convex hull has one surface: the list is not shown.
+	ImGuiID const removeFirst = ImHashStr("-", 0, driver.GetElementId(list, 0));
+	CHECK(driver.Find(removeFirst, driver.GetButtonX()));
+	collider().Convex = true;
+	CHECK_FALSE(driver.Find(removeFirst, driver.GetButtonX()));
+
+	// The collider's own Material replaces Friction: its value is shown only while no material is set.
+	ImGuiID const friction = ImHashStr("##value", 0, driver.GetFieldId("Friction"));
+	CHECK(driver.Find(friction, driver.GetValueX()));
+	collider().Material = gravel;
+	CHECK_FALSE(driver.Find(friction, driver.GetValueX()));
+	collider().Material = AssetHandle();
+	CHECK(driver.Find(friction, driver.GetValueX()));
+
+	// The material itself, selected, is edited by its field table: a step named after its type.
+	context.SelectAsset(gravel);
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	FieldTableDriver const assetDriver{imgui, draw,
+	                                   []
+	                                   {
+										   return ImGui::FindWindowByName("Inspector");
+									   },
+	                                   []
+	                                   {
+										   return ImHashStr("##fields", 0,
+		                                                    ImHashStr("##asset", 0, ImGui::FindWindowByName("Inspector")->ID));
+									   }};
+	size_t const assetSteps = history.GetUndoCount();
+	assetDriver.TypeInto(ImHashStr("##value", 0, assetDriver.GetFieldId("Surface")), "Gravel");
+	CHECK(history.GetUndoCount() == assetSteps + 1);
+	CHECK(history.GetUndoDescription() == "Edit PhysicsMaterial");
+	Ref<TypedDataAsset<PhysicsMaterial>> const asset = AssetManager::GetAsset<TypedDataAsset<PhysicsMaterial>>(gravel);
+	REQUIRE(asset != nullptr);
+	CHECK(asset->GetData().Surface == "Gravel");
 	CHECK(open);
 }
 

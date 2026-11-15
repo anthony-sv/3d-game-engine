@@ -468,6 +468,12 @@ TEST_CASE("DataAssetCommands: the engine's PhysicsMaterial has physics-material.
 	Json const box =
 		fixture.Ok("component.add", Json::object({{"entity", entity}, {"component", "BoxCollider"}, {"fields", {{"Material", id}}}}));
 	CHECK(box["fields"]["Material"] == id);
+	// A reference to an asset of another type is stored like any asset reference; the collider counts it as no material.
+	std::string const painted =
+		fixture.Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}}))["material"]["id"].get<std::string>();
+	CHECK(fixture.Ok("component.set", Json::object({{"entity", entity},
+	                                                {"component", "BoxCollider"},
+	                                                {"fields", {{"Material", painted}}}}))["fields"]["Material"] == painted);
 	Json const mesh = fixture.Ok("component.add", Json::object({{"entity", entity},
 	                                                            {"component", "MeshCollider"},
 	                                                            {"fields", {{"Convex", false}, {"Materials", Json::array({"0", id})}}}}));
