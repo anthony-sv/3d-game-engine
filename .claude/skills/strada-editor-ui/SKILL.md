@@ -112,7 +112,9 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   between its `Begin` and `End` in `EditorLayer::DrawMenuBar`. The window asks `EditorTitleBar::FindArea` what is at a
   position between frames: only the menus are the editor's there, so anything else in the bar that takes clicks needs
   its rectangle in the bar's `Layout` and a `Client` answer in `FindArea`, with a headless test in
-  `EditorTitleBarTests.cpp`. The window's buttons get no ImGui input: they are drawn from the window's state.
+  `EditorTitleBarTests.cpp`. The window's buttons get no ImGui input: they are drawn from the window's state. The
+  bar's icon is an `EditorWindowIcon` image the layer hands it: an image drawn much smaller than its pixels is made at
+  the drawn size on the CPU (`EditorWindowIcon::Scale`), because ImGui's images have no smaller levels to sample.
 - Actions that discard the scene go through `EditorLayer::RequestSceneAction` (unsaved-changes prompt).
 
 ## Windows that exist once per asset

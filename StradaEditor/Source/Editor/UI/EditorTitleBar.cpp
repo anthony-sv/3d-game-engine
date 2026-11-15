@@ -17,6 +17,8 @@ namespace Strada
 		constexpr float HeightInFrames = 1.4f;
 		constexpr float ButtonAspect = 46.0f / 32.0f;
 		constexpr float GlyphShare = 10.0f / 32.0f;
+		// The window's icon has the size of Windows' small icons in such a bar: 16 in 32.
+		constexpr float IconShare = 16.0f / 32.0f;
 		// The title gives way below this many font sizes of room.
 		constexpr float MinTitleWidthInFonts = 4.0f;
 		// The red of a close button under the cursor, as Windows draws it, and held down.
@@ -85,6 +87,11 @@ namespace Strada
 		return font + std::max(padding, ImGui::GetStyle().FramePadding.y) * 2.0f;
 	}
 
+	float EditorTitleBar::GetIconSize()
+	{
+		return std::max(std::round(GetHeight() * IconShare), 1.0f);
+	}
+
 	bool EditorTitleBar::Begin(std::optional<EditorTitleBarWindow> const& window)
 	{
 		m_Window = window;
@@ -112,6 +119,23 @@ namespace Strada
 		}
 		m_BarID = ImGui::GetCurrentWindow()->ID;
 		m_Origin = ImGui::GetMainViewport()->Pos;
+		if (window && window->Icon != ImTextureID_Invalid)
+		{
+			// The icon in the middle of a square at the bar's left end, on whole pixels as its image is made for; the menus
+			// start where the square ends.
+			ImRect const bar = ImGui::GetCurrentWindow()->Rect();
+			float const side = GetIconSize();
+			float const margin = std::floor((bar.GetHeight() - side) * 0.5f);
+			ImVec2 const min(bar.Min.x + margin, bar.Min.y + margin);
+			ImVec2 const max(min.x + side, min.y + side);
+			ImDrawList& drawList = *ImGui::GetWindowDrawList();
+			// The menu bar's clip rectangle starts after the window's border.
+			drawList.PushClipRect(bar.Min, bar.Max, false);
+			drawList.AddImage(ImTextureRef(window->Icon), min, max);
+			drawList.PopClipRect();
+			m_Layout.Icon = ToRect(ImRect(min, max), m_Origin);
+			ImGui::SetCursorScreenPos(ImVec2(bar.Min.x + bar.GetHeight(), ImGui::GetCursorScreenPos().y));
+		}
 		m_MenusStart = ImGui::GetCursorScreenPos().x;
 		return true;
 	}

@@ -29,6 +29,7 @@
 #include "Strada/Core/Version.h"
 #include "Strada/Core/Window.h"
 #include "Strada/ImGui/ImGuiLayer.h"
+#include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Platform/Desktop.h"
 #include "Strada/Platform/Process.h"
 #include "Strada/Project/ScriptProject.h"
@@ -568,8 +569,9 @@ namespace Strada
 		}
 		m_ProjectSettingsPanel.Flush(m_Operations);
 		m_BuildGameDialog.Flush(m_Operations);
-		// The cards' images go before the graphics device does.
+		// The cards' images and the title bar's icon go before the graphics device does.
 		m_StartScreenThumbnails.Release();
+		m_WindowIcon.Release();
 		if (m_VisualScripts)
 		{
 			m_VisualScripts->Flush();
@@ -1106,10 +1108,12 @@ namespace Strada
 		std::optional<EditorTitleBarWindow> titleBarWindow;
 		if (window != nullptr && window->HasCustomTitleBar() && !window->IsFullscreen())
 		{
+			nvrhi::ITexture* const icon = m_WindowIcon.Get(static_cast<uint32_t>(EditorTitleBar::GetIconSize()));
 			titleBarWindow = EditorTitleBarWindow{.Maximized = window->IsMaximized(),
 			                                      .Focused = window->IsFocused(),
 			                                      .HoveredButton = window->GetHoveredTitleBarButton(),
-			                                      .PressedButton = window->GetPressedTitleBarButton()};
+			                                      .PressedButton = window->GetPressedTitleBarButton(),
+			                                      .Icon = icon != nullptr ? ImGuiRenderer::GetTextureID(icon) : ImTextureID_Invalid};
 		}
 		if (!m_TitleBar.Begin(titleBarWindow))
 		{

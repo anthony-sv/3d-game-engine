@@ -35,6 +35,7 @@
 #include "Editor/StartScreen/StartScreenPanel.h"
 #include "Editor/StartScreen/StartScreenThumbnails.h"
 #include "Editor/UI/EditorTitleBar.h"
+#include "Editor/UI/EditorWindowIcon.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
 #include "Editor/VisualScripting/VisualScriptDebugControls.h"
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
@@ -329,6 +330,8 @@ namespace Strada
 		std::string m_WindowTitle;
 		// The menu bar, which is the window's title bar where the application draws that (DrawMenuBar).
 		EditorTitleBar m_TitleBar;
+		// The icon the title bar shows.
+		EditorWindowIcon m_WindowIcon;
 
 		std::filesystem::path m_ScreenshotPath;
 		uint64_t m_ScreenshotFrame = 0;

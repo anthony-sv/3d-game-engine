@@ -174,6 +174,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/UI/EditorTitleBar.h
     Source/Editor/UI/EditorUI.cpp
     Source/Editor/UI/EditorUI.h
+    Source/Editor/UI/EditorWindowIcon.cpp
+    Source/Editor/UI/EditorWindowIcon.h
     Source/Editor/UI/FieldEditor.cpp
     Source/Editor/UI/FieldEditor.h
     Source/Editor/UI/FieldStructDrawers.cpp

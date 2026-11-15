@@ -162,12 +162,13 @@ same scene as `Assets/Scenes/Main.sscene`.
 
 ### Title bar
 
-On Windows the editor draws its own title bar, and the menus are in it: after them come the window's title (the scene,
-with `*` while it has unsaved changes, the project and "Strada Editor"), the status texts, and the buttons that
-minimize, maximize or restore, and close the window. The window is still a window of the system's:
+On Windows the editor draws its own title bar, and the menus are in it: the Strada icon comes before them, and after
+them the window's title (the scene, with `*` while it has unsaved changes, the project and "Strada Editor"), the status
+texts, and the buttons that minimize, maximize or restore, and close the window. The window is still a window of the
+system's:
 
-- Dragging an empty part of the bar moves the window, and snaps it at the screen's edges; a double click there
-  maximizes or restores it, and a right click opens the system's window menu.
+- Dragging an empty part of the bar, or the icon, moves the window, and snaps it at the screen's edges; a double click
+  there maximizes or restores it, and a right click opens the system's window menu.
 - Pointing at the maximize button shows Windows 11's snap layouts; Win+Arrow keys, Win+Z and Alt+F4 work as in any
   window.
 - The window resizes at all four edges and corners; the top edge's border lies over the upper pixels of the bar.

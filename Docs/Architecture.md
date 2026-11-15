@@ -2352,7 +2352,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   Renderer Info, Console, Scene Settings, Project Settings; a menu bar and a toolbar with the play controls (Play/Stop,
   Pause, Step and Simulate buttons with drawn icons). The menu bar is `EditorTitleBar`: ImGui's main menu bar, and on
   Windows, where the editor's window leaves its title bar to the application (§6.1), also that title bar: higher, with the
-  window's title, the status and drawn minimize, maximize or restore and close buttons after the menus. The bar draws
+  Strada icon before the menus and the window's title, the status and drawn minimize, maximize or restore and close
+  buttons after them. The icon is an image made at the very size it is drawn at (`EditorWindowIcon`, which averages
+  the embedded icon down: ImGui's images have no smaller levels to sample). The bar draws
   the buttons from the window's state and tells the window which of its parts is what (`EditorTitleBar::FindArea`): the
   menus are the editor's, another ImGui window over the bar has what it covers, an open popup takes the click that
   closes it, and the rest is the caption. View > Reset Layout restores the default docking layout. The look

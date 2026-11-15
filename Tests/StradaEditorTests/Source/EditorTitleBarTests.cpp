@@ -23,6 +23,7 @@ namespace
 		{
 			FrameHeight = ImGui::GetFrameHeight();
 			TitleBarHeight = EditorTitleBar::GetHeight();
+			IconSize = EditorTitleBar::GetIconSize();
 			if (!Bar.Begin(BarWindow))
 			{
 				return;
@@ -89,6 +90,7 @@ namespace
 		// What the last frame saw.
 		float FrameHeight = 0.0f;
 		float TitleBarHeight = 0.0f;
+		float IconSize = 0.0f;
 		bool FileMenuOpen = false;
 		float MenuFrameHeight = 0.0f;
 		float MenuTop = 0.0f;
@@ -118,6 +120,7 @@ TEST_CASE("EditorTitleBar: without a window to be the title bar of, it is the pl
 	CHECK(layout.Status.Max.x <= display.x);
 	CHECK(layout.Status.Max.x > display.x - ImGui::GetStyle().ItemSpacing.x * 4.0f);
 	CHECK(layout.Title.IsEmpty());
+	CHECK(layout.Icon.IsEmpty());
 	CHECK(layout.Minimize.IsEmpty());
 	CHECK(layout.Maximize.IsEmpty());
 	CHECK(layout.Close.IsEmpty());
@@ -228,6 +231,65 @@ TEST_CASE("EditorTitleBar: as a title bar it is higher, with the title in its mi
 		CHECK(narrow.Close.Max.x == menus + buttons + 20.0f);
 		// What is left between the menus and the buttons still drags the window.
 		CHECK(fixture.FindArea(narrow.Menus.Max.x + 10.0f, fixture.TitleBarHeight * 0.5f) == TitleBarArea::Caption);
+	}
+}
+
+TEST_CASE("EditorTitleBar: given an image of the window's icon it starts with the icon, and the menus follow it")
+{
+	// Where the menus start without one.
+	float menusWithout = 0.0f;
+	{
+		TitleBarFixture without;
+		without.Frames();
+		CHECK(without.Bar.GetLayout().Icon.IsEmpty());
+		menusWithout = without.Bar.GetLayout().Menus.Min.x;
+	}
+
+	TitleBarFixture fixture;
+	// Any image: the headless renderer draws none.
+	fixture.BarWindow->Icon = ImTextureID{1};
+	fixture.Frames();
+	EditorTitleBar::Layout const& layout = fixture.Bar.GetLayout();
+	float const height = fixture.TitleBarHeight;
+	float const middle = height * 0.5f;
+
+	// A square of whole pixels, half the bar high, in the middle of a square at the bar's left end.
+	float const side = fixture.IconSize;
+	CHECK(side == std::round(height * 0.5f));
+	CHECK(layout.Icon.Max.x - layout.Icon.Min.x == side);
+	CHECK(layout.Icon.Max.y - layout.Icon.Min.y == side);
+	CHECK(layout.Icon.Min.x == std::floor((height - side) * 0.5f));
+	CHECK(layout.Icon.Min.y == layout.Icon.Min.x);
+	// The menus start where that square ends, further right than without the icon, and the rest is where it was.
+	CHECK(layout.Menus.Min.x == height);
+	CHECK(layout.Menus.Min.x > menusWithout);
+	CHECK(layout.Menus.Max.x < layout.Title.Min.x);
+	CHECK(layout.Bar.Max.y == height);
+	CHECK(layout.Close.Max.x == ImGui::GetIO().DisplaySize.x);
+
+	// The icon drags the window, as the bar around it does.
+	CHECK(fixture.FindArea(TitleBarFixture::Center(layout.Icon).x, middle) == TitleBarArea::Caption);
+	CHECK(fixture.FindArea(1.0f, 1.0f) == TitleBarArea::Caption);
+	CHECK(fixture.FindArea(TitleBarFixture::Center(layout.Menus).x, middle) == TitleBarArea::Client);
+
+	SUBCASE("the menus open where they are")
+	{
+		fixture.Gui.Click(ImVec2(layout.Menus.Min.x + 12.0f, middle),
+		                  [&fixture]
+		                  {
+							  fixture.Draw();
+						  });
+		fixture.Frames();
+		CHECK(fixture.FileMenuOpen);
+		CHECK(fixture.MenuTop == height);
+	}
+
+	SUBCASE("the plain menu bar shows no icon")
+	{
+		fixture.BarWindow.reset();
+		fixture.Frames();
+		CHECK(fixture.Bar.GetLayout().Icon.IsEmpty());
+		CHECK(fixture.Bar.GetLayout().Menus.Min.x < height);
 	}
 }
 
