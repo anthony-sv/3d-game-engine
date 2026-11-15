@@ -67,6 +67,8 @@ internal sealed class McpServer
 		"profiler_status with medians true reports the frame's median and 99th percentile, subsystems, threads, GPU passes " +
 		"and the costliest zones (Graph.<asset path> per graph, Script.<class> per C# script), profiler_capture writes a " +
 		"capture into the project, profiler_open shows one in the Profiler panel, and profiler_stop ends the recording. " +
+		"Curves (.scurve data assets: keys that map a number to another, which C# scripts and graphs evaluate with " +
+		"Curve.Evaluate): curve_create makes one, curve_get reads it and curve_set changes it as one undo step. " +
 		"polyhaven_search_hdris and polyhaven_import_hdri bring CC0 skies from Poly Haven into the project for a SkyLight.";
 
 	private readonly EditorSession m_Session;

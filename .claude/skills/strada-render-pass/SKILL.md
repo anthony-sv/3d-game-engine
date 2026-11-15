@@ -27,6 +27,11 @@ Read `Docs/Architecture.md` §5–6 and `Strada/Source/Strada/Renderer/SceneRend
   whose `InView` is false; passes that render from somewhere else (shadow views) cull against their own volume.
 - Per-frame data goes in volatile constant buffers or buffers written at the start of the frame's command list.
 - Keep render targets as members so clears (which NVRHI does not track) never release a texture in use.
+- Record each pass inside a `SceneRenderer::PassScope pass(*this, commandList, "<Pass>")`: it opens an NVRHI marker
+  (RenderDoc captures read by pass name, in every build) and, when the frame's passes are timed, the pass's GPU timer;
+  both end with the scope. The pass's time then appears in the Profiler panel, `profiler.status` and
+  `StradaRuntime --profile` as `<view>/<Pass>` (at most `MaxTimedPasses` passes a frame). CPU work of the renderer that
+  runs every frame gets a `Renderer.<What>` zone (`ST_PROFILE_SCOPE`, Docs/Architecture.md §4.4).
 
 ## Tests
 

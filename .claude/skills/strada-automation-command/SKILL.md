@@ -66,7 +66,14 @@ in `OnAttach` inside its ImGui block:
 Add a row to the command tables in `Docs/Automation.md`. `EditorCommands: every command is documented` fails otherwise
 (`GraphCommands: every graph command is registered, documented and read-only when it changes nothing` for `graph.*`).
 Name the command in the MCP server's `Instructions` (`StradaTool/Source/Mcp/McpServer.cs`) and the `strada-make-game`
-skill when agents should know it exists.
+skill when agents should know it exists, and add its tool to the tool list StradaToolTests pins
+(`Tests/StradaToolTests/Source/EditorIntegrationTests.cs`). Say in its row whether it is an undo step: a command that
+edits a file of the project (a scene, a material, a data asset, a graph) is one; `project.settings`, file operations
+and the view and profiler commands are not.
+
+A data asset type's `<domain>.create`, `.get` and `.set` are generated from its registration
+(`DataAssetRegistry`, the `strada-add-data-asset` skill); they need no handler of their own, only their rows in
+Automation.md's data assets section and their tools in the pinned list.
 
 ## Commands and operations of the visual script editor
 

@@ -368,15 +368,15 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
   (`Editor/Automation/ProfilerCommands.cpp`) are no undo steps; `profiler.capture` writes only a `.json` path inside the
   project or an absolute one the caller names, and replaces an existing file only when asked and only when it is a
   capture. A profiler frame is an editor frame, so `play.advance`'s frames are one.
-- **ThreadSanitizer.** `.github/workflows/tsan.yml` runs nightly, on manual dispatch and on a push to a `tsan/**`
-  branch, on Linux with Clang in Debug (the `linux-clang-tsan` preset, which sets `STRADA_ENABLE_THREAD_SANITIZER`). It
-  runs the suites' threading cases, one step per area: the profiler, the main-thread queue, audio with manual output,
-  the editor's worker-thread loads (thumbnails, the example copy; the engine's own asset loads run on the main thread),
-  Jolt's workers, the automation server's network thread, and, in a step of its own, a profiled scene that hosts the
-  .NET runtime. Every target the build compiles is instrumented, third-party ones included: synchronization in code
-  the sanitizer cannot see makes it report races that are none, and Jolt compiles other inline code under it
-  (`JPH_TSAN_ENABLED`). Only prebuilt libraries are suppressed (`.github/tsan-suppressions.txt`), never Strada's code.
-  It never gates a merge.
+- **ThreadSanitizer.** `.github/workflows/tsan.yml` runs on a schedule (which GitHub fires only on the default branch),
+  on manual dispatch and on a push to a `tsan/**` branch, on Linux with Clang in Debug (the `linux-clang-tsan` preset,
+  which sets `STRADA_ENABLE_THREAD_SANITIZER`). It runs the suites' threading cases, one step per area: the profiler,
+  the main-thread queue, audio with manual output, the editor's worker-thread loads (thumbnails, the example copy; the
+  engine's own asset loads run on the main thread), Jolt's workers, the automation server's network thread, and, in a
+  step of its own, a profiled scene that hosts the .NET runtime. Every target the build compiles is instrumented,
+  third-party ones included: synchronization in code the sanitizer cannot see makes it report races that are none, and
+  Jolt compiles other inline code under it (`JPH_TSAN_ENABLED`). Only prebuilt libraries are suppressed
+  (`.github/tsan-suppressions.txt`), never Strada's code. It never gates a merge.
 
 ## 5. Core conventions
 
@@ -3687,6 +3687,10 @@ that each platform's names are tested on every platform:
   watched 2,000-node graph's whole flow frame takes 1.75 ms, against a target of 1 ms: the window's own part (the flow
   model and the overlays) is 0.35 to 0.38 ms, the rest the runtime's traced runs and the trace's take and read. 200 value
   pills with their request take 1.02 to 1.12 ms against 0.4 ms, mostly the managed `Values` JSON round trip; the editor
-  reads values 10 times a second, about 0.15 ms per frame. The remainders are runtime work (a cheaper Record mode, a
+  reads values 10 times a second, about 0.15 ms per frame. Measured again with the profiler's zones at First Ride's
+  first slice gate (three runs, the machine otherwise idle): the new-link frame 72.4 to 73.5 ms, of which
+  `GraphEditor.Analysis` 59.2 to 59.6 ms (the managed runtime 51.6 to 52.4 ms); watching a 2,000-node graph adds 2.0 to
+  2.3 ms to its frame, of which `GraphDebug.Frame` 1.44 to 1.53 ms; 200 value pills add 1.2 to 1.4 ms, of which
+  `GraphDebug.ReadValues` 0.82 to 0.98 ms. The remainders are runtime work (a cheaper Record mode, a
   binary value block, reading only the sources that changed, a document reader without a JSON document per member).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.

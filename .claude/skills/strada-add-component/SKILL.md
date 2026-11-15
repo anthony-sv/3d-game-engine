@@ -44,7 +44,7 @@ struct ComponentTraits<FooComponent>
 Hints: `Range(min, max)` / `AtLeast(min)` (inclusive, enforced when JSON is read, so files and automation reject
 out-of-range values; the inspector clamps to them), `AsColor()` (vec3/vec4), `AsAngle()` (degrees), `AsMultilineText()`,
 `References("<AssetType>")` for asset fields, `VisibleWhen("<Field>", "<Value>", ...)` for fields that only matter while
-an enum or bool field of the same struct has one of up to four values (editors hide them otherwise: a camera's
+an enum or bool field of the same struct has one of up to 16 values (editors hide them otherwise: a camera's
 orthographic size, a joint's limits), `EnabledBy("<bool field>")` for a field another bool field of the table switches
 on (the inspector draws the switch as a check box in front of the field, like a post-process volume's overrides),
 `HiddenInEditors()` for a field the editor edits with UI of its own (a Mesh's material overrides, which the material

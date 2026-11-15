@@ -13,7 +13,7 @@ with a Vulkan renderer and an editor that AI agents can drive from start to fini
 ![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
 ![Vulkan](https://img.shields.io/badge/Vulkan-NVRHI-AC162C?logo=vulkan&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-2f81f7)
-![MCP](https://img.shields.io/badge/MCP-111%20tools-8957e5)
+![MCP](https://img.shields.io/badge/MCP-119%20tools-8957e5)
 
 [Showcase](#the-showcase) · [Editor](#the-editor) · [Start screen](#the-start-screen) · [Visual scripting](#visual-scripting) ·
 [AI agents](#built-for-ai-agents) · [Samples](#sample-projects) · [Features](#features) ·
@@ -31,7 +31,7 @@ took of itself, with its own screenshot commands.</sub>
 Strada is a cross-platform engine for 3D games, built to a production bar: every change ships with tests, every file
 format users write is versioned and fuzzed, and CI builds and tests it on Windows, macOS and Linux.
 
-- **An editor that agents can drive.** Every editor operation is one of 105 documented automation commands, served to AI
+- **An editor that agents can drive.** Every editor operation is one of 113 documented automation commands, served to AI
   agents as MCP tools. Agents build scenes, materials, prefabs and scripts, then play, test, debug and export the game,
   through the same undo history as a person at the keyboard, and every new project is set up for coding agents.
 - **A first run that works.** A start screen with your recent projects, three templates to start from (two of them
@@ -41,8 +41,10 @@ format users write is versioned and fuzzed, and CI builds and tests it on Window
   runs.
 - **A modern renderer.** Vulkan through NVRHI (MoltenVK on macOS): physically based materials, image-based lighting,
   PCSS soft shadows, GTAO, bloom, post-process volumes, particles, signed-distance text and a screen-space UI.
-- **Everything else a game needs.** Jolt physics with joints and character controllers, miniaudio 3D sound, prefabs,
-  glTF/FBX/OBJ import, a game player, and a one-command exporter for distributable games.
+- **Everything else a game needs.** Jolt physics with joints and character controllers, drawn smoothly between its
+  fixed steps at any frame rate, miniaudio 3D sound, prefabs, glTF/FBX/OBJ import, curve assets, a profiler of every
+  subsystem and GPU pass, a game player, and a one-command exporter for distributable games that keep their data in a
+  folder of their own.
 
 > [!NOTE]
 > Strada is in active development and has no release yet. Build it from source: see [Quick start](#quick-start).
@@ -152,8 +154,8 @@ graph), values sit on the wires, and the inspector shows the graph's variables.<
 
 ## Built for AI agents
 
-The editor runs an automation server, and `strada mcp` serves its 105 commands as Model Context Protocol tools (plus
-Poly Haven search and import, 111 tools in all). Claude Code and any other MCP client can then drive the editor you are
+The editor runs an automation server, and `strada mcp` serves its 113 commands as Model Context Protocol tools (plus
+Poly Haven search and import, 119 tools in all). Claude Code and any other MCP client can then drive the editor you are
 looking at, or a headless one. Every command has a JSON schema and an entry in [Docs/Automation.md](Docs/Automation.md);
 the edits they make to scenes and graphs are undo steps like any other; and the editor's tests fuzz every command except
 five that replace the open project or need a .NET build, which have tests of their own. [Docs/Agents.md](Docs/Agents.md)
@@ -183,8 +185,8 @@ same: the editor sets every new project up for coding agents (an `AGENTS.md` blo
 for `strada mcp`, the skill and the guides), and an agent can start one itself from a template or an example
 (`project_templates`, `project_create`, `project_examples`, `project_copy_example`); setting up an existing project
 waits for the user's consent. The sample games were
-made this way: Prism Break's thirteen graphs, Blocks and the Showcase were all authored by scripts that drive the
-editor through the same tools.
+made this way: Prism Break's thirteen graphs, Blocks, the Showcase and Moto's circuit were all authored by scripts that
+drive the editor through the same tools.
 
 ## Sample projects
 
@@ -210,18 +212,21 @@ image-based lighting from HDR environments (<code>strada hdri &lt;id&gt;</code> 
 <a href="https://polyhaven.com/hdris">Poly Haven</a>), cascaded PCSS soft shadows for the sun and shadow maps for spot
 and point lights, GTAO, an HDR pipeline with bloom and ACES, AgX, PBR Neutral or Reinhard tonemapping, FXAA.
 Post-process volumes (exposure, color grading, vignette, chromatic aberration, film grain) blend where the camera is.
-Particles, signed-distance text and sprites, frustum and light culling, GPU timing. Shaders are HLSL, compiled at build
-time.
+Particles, signed-distance text and sprites, frustum and light culling, GPU time per pass. Shaders are HLSL, compiled
+at build time.
 </td></tr>
 <tr><td><b>Scene and assets</b></td><td>
 EnTT entities with 28 components (the <a href="Docs/Components.md">component reference</a> lists every field),
 hierarchies, prefabs, JSON scenes. glTF/GLB, FBX and OBJ import with materials and
-textures; HDR environments; WAV, FLAC, Ogg and MP3; TrueType fonts; built-in primitives.
+textures; HDR environments; WAV, FLAC, Ogg and MP3; TrueType fonts; built-in primitives. Data assets of one registration
+each, the first of them curves (<code>.scurve</code>) that scripts and graphs evaluate.
 </td></tr>
 <tr><td><b>Physics</b></td><td>
 Jolt Physics, authored through components and controlled from scripts: rigid bodies, box, sphere, capsule and mesh
 colliders, triggers, layers, raycasts, hinge, ball, distance, slider and fixed joints, and character controllers that
-walk, climb steps and slopes, jump and push things.
+walk, climb steps and slopes, jump and push things. Fixed steps down to 0.5 ms with up to 64 a frame and collision
+sub-steps, bodies drawn between steps, and a state hash that test runs print: on one platform it is the same at any
+frame rate when scripts act on physics in their fixed steps.
 </td></tr>
 <tr><td><b>Audio</b></td><td>
 miniaudio with 3D spatialization and listeners; music and long ambience stream from their files.
@@ -239,8 +244,9 @@ two mix freely: graphs call C#, and C# sends events to graphs.
 <tr><td><b>Editor</b></td><td>
 Docking and multi-viewport ImGui; a start screen with recent projects, templates, examples and the guides; scene and
 game views with gizmos, overlays and picking; hierarchy with create menus of
-ready-made entities; generated inspector; content browser with previews; project and scene settings; undo and redo;
-play, pause, step and simulate; a node editor for visual scripts with a debugger.
+ready-made entities; generated inspector, lists of structs included; content browser with previews; project and scene
+settings; undo and redo; play, pause, step and simulate; a node editor for visual scripts with a debugger; a curve
+editor; a Profiler of every thread and GPU pass, with captures.
 </td></tr>
 <tr><td><b>Projects</b></td><td>
 Three templates new projects start from: Empty 3D, and Orb Run, a small game, made of visual scripts (Graph Starter, no
@@ -251,13 +257,15 @@ guides; File &gt; Set Up for Coding Agents... does the same for an existing proj
 (<a href="Docs/Agents.md#projects-set-up-for-coding-agents">agent setup</a>).
 </td></tr>
 <tr><td><b>Automation</b></td><td>
-An automation server with 105 commands, the <code>strada</code> command-line tool and its MCP server
+An automation server with 113 commands, the <code>strada</code> command-line tool and its MCP server
 (<a href="Docs/Automation.md">automation reference</a>); Poly Haven HDRIs, models and texture sets searched and imported
 by name.
 </td></tr>
 <tr><td><b>Player and export</b></td><td>
 <code>StradaRuntime</code> plays projects and exported games, windowed, headless, or as test runs with a fixed time
-step that exit with the number of failed checks. One command exports a self-contained game folder.
+step that exit with the number of failed checks and end with the physics state hash; <code>--profile</code> records a
+capture and logs each subsystem's median. One command exports a self-contained game folder; the game keeps its log and
+crash reports in a data folder of its own, named by the project's identity.
 </td></tr>
 </table>
 
@@ -309,8 +317,8 @@ workflow.
 
 ## Quality
 
-- **More than 2,700 tests** in five suites: 2,005 C++ test cases (doctest) for the engine, the editor and the player,
-  and 714 C# test methods (xUnit) for the scripting API and the `strada` tool.
+- **Nearly 2,900 tests** in five suites: 2,164 C++ test cases (doctest) for the engine, the editor and the player,
+  and 731 C# test methods (xUnit) for the scripting API and the `strada` tool.
 - **Fuzzing.** Every file format users write is fuzzed (damaged documents are refused or repaired; what loads saves and
   loads again), and so are the automation commands, with parameters built from their schemas: each must answer once,
   never with an internal error, and undoing everything must restore the scene.
@@ -318,7 +326,8 @@ workflow.
   visual regressions. CI runs them on Mesa lavapipe.
 - **The samples are tests.** CI plays FeatureTest, Showcase, Blocks, Prism Break and Moto through the player and
   requires every check to pass, and Prism Break's exported game too.
-- **CI on three platforms:** MSVC, GCC and Clang with warnings as errors, Debug and Release, plus a format check.
+- **CI on three platforms:** MSVC, GCC and Clang with warnings as errors, Debug and Release, plus a format check, and a
+  ThreadSanitizer run of the threading cases on Linux.
 
 ## Repository layout
 
