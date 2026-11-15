@@ -515,3 +515,53 @@ TEST_CASE("Instancing: instances carry the scene's world and previous matrices, 
 	CHECK(HasSameBits(instance(first).Model, settled));
 	CHECK(HasSameBits(instance(first).PreviousModel, settled));
 }
+
+TEST_CASE("Instancing: the instance buffers grow past their first capacity and every pass reads the instances beyond it")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageSize, ImageSize);
+	renderer.SetEntityIdsEnabled(true);
+	SceneRendererCamera const camera = MakeCamera({0.0f, 0.0f, 10.0f}, {0.0f, 0.0f, 0.0f});
+	Ref<MeshSource> const cube = GetMesh(BuiltInAsset::CubeMesh);
+	Ref<MaterialAsset> const material = MakeMaterial({0.9f, 0.5f, 0.1f, 1.0f});
+	auto const makeFrame = [&cube, &material](uint32_t count)
+	{
+		// Small cubes (wider than a pixel) in a grid on the left; the one at index 1200, when there is one, large on the right.
+		std::vector<TestInstance> frame;
+		for (uint32_t i = 0; i < count; i++)
+		{
+			glm::vec3 const position(-4.4f + static_cast<float>(i % 30) * 0.13f, -3.2f + static_cast<float>(i / 30) * 0.13f, 0.0f);
+			frame.push_back({cube, material, Place(position, 0.0f, glm::vec3(0.12f)), i + 1});
+		}
+		if (count > 1200)
+		{
+			frame[1200].Transform = Place({2.0f, 0.0f, 0.0f}, 0.0f, glm::vec3(1.5f));
+		}
+		return frame;
+	};
+	glm::uvec2 const right = ProjectToPixel(camera, {2.0f, 0.0f, 0.75f});
+
+	// A small frame first: the buffers and the binding sets that name them at their first size.
+	std::vector<TestInstance> const small = makeFrame(4);
+	Image const before = Draw(renderer, camera, small);
+	CHECK(PixelAt(before, right) == glm::ivec3(0));
+
+	// 1,500 instances: more than the buffers first held, and an upload of more than 64 KiB.
+	std::vector<TestInstance> const large = makeFrame(1500);
+	Image const grown = Draw(renderer, camera, large);
+	CHECK(renderer.GetStatistics().Batches == 2);
+	CHECK(renderer.GetStatistics().Instances == 3000);
+	REQUIRE(renderer.GetFrameInstances().size() == 1500);
+	// The instance beyond the first capacity is drawn where its own matrix puts it, and picked by its own ID.
+	glm::ivec3 const color = PixelAt(grown, right);
+	CHECK(color.r > 100);
+	CHECK(color.r > color.b);
+	CHECK(Pick(renderer, camera, large, right) == std::optional<uint32_t>(1201u));
+	CHECK(Pick(renderer, camera, large, ProjectToPixel(camera, {-4.4f, -3.2f, 0.06f})) == std::optional<uint32_t>(1u));
+
+	// Small frames draw and pick from the grown buffers.
+	CHECK(Testing::CompareImages(Draw(renderer, camera, small), before, 0).MaxDifference == 0);
+	CHECK(Pick(renderer, camera, small, ProjectToPixel(camera, {-4.4f + 0.13f, -3.2f, 0.06f})) == std::optional<uint32_t>(2u));
+}
