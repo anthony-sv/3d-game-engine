@@ -339,11 +339,15 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
 - **Counters.** A frame also carries counts that are not times: each `SceneRenderer`'s statistics (§6.2), so that a
   player run shows its draws, instances and batches. `Profiler::RecordCounters(view, counters)` (main thread) attaches
   one record, the view's name and up to `Profiler::MaxCounters` (32) named counts (`ProfilerCounter`: a name with static
-  storage duration and an unsigned 64-bit value), to the frame in progress (`GetFrameIndex`). The counts are known
-  when the renderer ends its frame, so unlike GPU passes they never wait for the GPU. A view that renders twice in a
-  frame records twice, in order. A frame keeps at most `Profiler::MaxCounterRecords` (64) records; later ones, records
-  made while no recorded frame is in progress, and records of a view past the `MaxGpuViews` (16) views a recording
-  names (counters and GPU passes share the views) are dropped, so the writer never writes what the reader refuses.
+  storage duration of at most `MaxCounterNameBytes` (32) ASCII letters, digits, `_` and `.`, and an unsigned 64-bit
+  value), to the frame in progress (`GetFrameIndex`). The counts are known when the renderer ends its frame, so unlike
+  GPU passes they never wait for the GPU. A view that renders twice in a frame records twice, in order. A frame keeps
+  at most `Profiler::MaxCounterRecords` (16) records; later ones, records made while no recorded frame is in progress,
+  records of a view past the `MaxGpuViews` (16) views a recording names (counters and GPU passes share the views), and
+  counts whose name breaks the rule are dropped. The bounds exist for the capture: a frame's counters travel in its
+  frame event (§7.3), which the reader refuses past 64 KiB, and at the bounds they take at most about 30 KiB (16
+  records of 32 counts of at most 56 bytes each: a quoted name, a colon, 20 digits and a comma), so the writer never
+  writes what the reader refuses.
   While the profiler is idle the renderer builds and hands over nothing: it checks `Profiler::IsRecording()` (one
   relaxed load and a branch) first. `ComputeProfilerMedians` gives each `<view>/<counter>` its median over the frames
   that hold a record of the view, a view that rendered twice adding both (`ProfilerMedians::Counters`).
@@ -1470,7 +1474,7 @@ The reader refuses:
 - a `Value` that is not an object of one unsigned count;
 - a frame's `Counters` that is not an array of at most `Profiler::MaxCounterRecords` objects, each with a `View` that
   a `thread_name` of process 2 before it names and `Values` an object of at most `Profiler::MaxCounters` unsigned
-  counts whose names are valid UTF-8 of at most `Profiler::MaxNameBytes`. `Counters` is optional, so captures written
+  counts whose names are at most `Profiler::MaxCounterNameBytes` ASCII letters, digits, `_` and `.`. `Counters` is optional, so captures written
   before slice 2 read as frames without counters; the version stays 1, because a reader of version 1 ignores the
   member like any unknown one;
 - more frames, zones, GPU passes, names, threads or views than a recording holds (`Profiler::MaxHistoryFrames`,

@@ -53,7 +53,8 @@ namespace Strada
 	// A count a renderer hands the profiler for a frame (Profiler::RecordCounters): a draw count, an instance count.
 	struct ProfilerCounter
 	{
-		// A name with static storage duration (a string literal).
+		// A name with static storage duration (a string literal) of at most Profiler::MaxCounterNameBytes ASCII letters,
+		// digits, '_' and '.'.
 		char const* Name = nullptr;
 		uint64_t Value = 0;
 	};
@@ -317,10 +318,13 @@ namespace Strada
 		static constexpr uint32_t MaxRecordedThreads = 1024;
 		// Renderers whose GPU passes one recording keeps at most (RecordGpuPasses); passes of further views are dropped.
 		static constexpr uint32_t MaxGpuViews = 16;
-		// Counts one RecordCounters call keeps at most (later ones are dropped), and the calls one frame keeps at most (later
-		// calls are dropped); a capture's reader refuses more.
+		// Counts one RecordCounters call keeps at most (later ones are dropped), the calls one frame keeps at most (later
+		// calls are dropped), and the longest counter name in bytes, of ASCII letters, digits, '_' and '.' only (other names
+		// are dropped). A capture's reader refuses more. Together they keep a frame's counters below about 30 KiB of capture
+		// text, inside the 64 KiB the reader accepts for one event (the frame event that carries them).
 		static constexpr uint32_t MaxCounters = 32;
-		static constexpr uint32_t MaxCounterRecords = 64;
+		static constexpr uint32_t MaxCounterRecords = 16;
+		static constexpr uint32_t MaxCounterNameBytes = 32;
 		// Longest name in bytes (a run-time name, a view, any name a recording stores); longer names are cut at a UTF-8
 		// character boundary.
 		static constexpr uint32_t MaxNameBytes = 256;
@@ -364,8 +368,9 @@ namespace Strada
 		static void RecordGpuPasses(uint64_t frameIndex, std::string_view view, std::span<ProfilerGpuPassTiming const> passes);
 		// Attaches a view's counts (a renderer's statistics) to the frame in progress, as one record (ProfilerFrame::Counters):
 		// they are known when the renderer ends its frame, so they never wait. view names the renderer (copied; it shares
-		// the GPU passes' views). Does nothing when no recorded frame is in progress; drops counts past MaxCounters, records
-		// past MaxCounterRecords in the frame, and records of a view beyond MaxGpuViews. Callers check IsRecording() before
+		// the GPU passes' views). Does nothing when no recorded frame is in progress; drops counts past MaxCounters and those
+		// whose name is not MaxCounterNameBytes of the allowed characters, records past MaxCounterRecords in the frame, and
+		// records of a view beyond MaxGpuViews. Callers check IsRecording() before
 		// they build the counts, so an idle profiler costs them one relaxed load.
 		static void RecordCounters(std::string_view view, std::span<ProfilerCounter const> counters);
 
