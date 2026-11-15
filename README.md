@@ -198,7 +198,8 @@ Open one as a copy from the start screen's examples, or its `.sproj` in the edit
 player:
 `StradaRuntime --project Projects/PrismBreak/PrismBreak.sproj`. A fourth project,
 [FeatureTest](Projects/FeatureTest), uses every component, the entire scripting API and every built-in node kind; CI
-plays it and fails on any failed check.
+plays it and fails on any failed check. [Moto](Projects/Moto), a motorcycle time trial in the making, is so far its
+circuit and a camera tour made of a graph, with 13 test checks that are graphs too.
 
 ## Features
 
@@ -315,8 +316,8 @@ workflow.
   never with an internal error, and undoing everything must restore the scene.
 - **The GPU under test.** Renderer tests run with Vulkan validation enabled and fail on any message; golden images catch
   visual regressions. CI runs them on Mesa lavapipe.
-- **The samples are tests.** CI plays FeatureTest, Showcase, Blocks and Prism Break through the player and requires
-  every check to pass, and Prism Break's exported game too.
+- **The samples are tests.** CI plays FeatureTest, Showcase, Blocks, Prism Break and Moto through the player and
+  requires every check to pass, and Prism Break's exported game too.
 - **CI on three platforms:** MSVC, GCC and Clang with warnings as errors, Debug and Release, plus a format check.
 
 ## Repository layout
@@ -328,7 +329,7 @@ workflow.
 | `StradaRuntime/` | Game player (`StradaRuntime --help` lists its options) |
 | `Strada-ScriptCore/` | C# scripting API |
 | `StradaTool/` | `strada`: command-line tool and MCP server for the editor (`strada --help`) |
-| `Projects/` | `Showcase`, every feature in a forest clearing; `PrismBreak`, a game made of visual scripts alone; `Blocks`, a falling-blocks game in C#; and `FeatureTest`, which tests every feature; `catalog.json` lists the examples the editor copies, with their pictures in `Thumbnails` |
+| `Projects/` | `Showcase`, every feature in a forest clearing; `PrismBreak`, a game made of visual scripts alone; `Moto`, the circuit of a motorcycle time trial in the making, with a camera tour made of a graph; `Blocks`, a falling-blocks game in C#; and `FeatureTest`, which tests every feature; `catalog.json` lists the examples the editor copies, with their pictures in `Thumbnails` |
 | `Templates/` | The templates new projects start from |
 | `Agents/` | The agent kit: the `AGENTS.md` block projects set up for coding agents get |
 | `Tests/` | Test suites |

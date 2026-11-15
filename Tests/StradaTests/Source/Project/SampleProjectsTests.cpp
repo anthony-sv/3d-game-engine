@@ -1,8 +1,10 @@
+#include "Strada/Asset/MeshImporter.h"
 #include "Strada/Core/FileSystem.h"
 
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <set>
 #include <string>
@@ -13,7 +15,8 @@
 using namespace Strada;
 
 // The documents that name the sample projects (AGENTS.md's repository map, README.md's layout and the visual scripting
-// guide's table of Prism Break's graphs) name exactly what the repository holds.
+// guide's table of Prism Break's graphs) name exactly what the repository holds, and Moto's collision meshes import as
+// the physics needs them.
 namespace
 {
 	std::string ReadDocument(char const* path)
@@ -126,4 +129,28 @@ TEST_CASE("Project: the visual scripting guide's table of Prism Break's graphs n
 	std::set<std::string> const listed(named.begin(), named.end());
 	CHECK_MESSAGE(listed.size() == named.size(), "the table names a graph twice");
 	CHECK(listed == graphs);
+}
+
+TEST_CASE("Project: Moto's collision meshes import welded, one vertex wherever triangles meet")
+{
+	// Jolt finds the edges between a mesh's triangles by their shared vertex indices: two vertices at one place would make
+	// the edge between their triangles a bump a wheel hits. The generator writes the collision meshes welded (normals all
+	// up, no texture coordinates); the importer must keep them so.
+	std::filesystem::path const meshes = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto" / "Assets" / "Meshes";
+	for (char const* const name : {"TrackCollision.gltf", "BarrierCollision.gltf"})
+	{
+		CAPTURE(name);
+		Result<ImportedModel> imported = MeshImporter::Import(meshes / name);
+		REQUIRE_MESSAGE(imported.IsOk(), (imported ? std::string() : imported.GetError()));
+		ImportedModel const& model = imported.GetValue();
+		CHECK(model.Warnings.empty());
+		CHECK(model.Submeshes.size() == 1);
+		REQUIRE(model.Vertices.size() > 1000);
+		std::set<std::array<float, 3>> positions;
+		for (Vertex const& vertex : model.Vertices)
+		{
+			positions.insert({vertex.Position.x, vertex.Position.y, vertex.Position.z});
+		}
+		CHECK(positions.size() == model.Vertices.size());
+	}
 }

@@ -1,0 +1,1021 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Scene"
+	},
+	"Scene": {
+		"Name": "Tests",
+		"Settings": {
+			"Physics": {
+				"Gravity": [
+					0.0,
+					-9.8100004196167,
+					0.0
+				]
+			},
+			"Renderer": {
+				"EV100": 0.0,
+				"Tonemapper": "ACES",
+				"Dithering": true,
+				"Shadows": true,
+				"SoftShadows": true,
+				"ShadowDistance": 220.0,
+				"CascadeCount": 4,
+				"CascadeSplitLambda": 0.8500000238418579,
+				"ShadowMapSize": 4096,
+				"LocalShadowMapSize": 1024,
+				"AmbientOcclusion": true,
+				"AmbientOcclusionRadius": 1.0,
+				"AmbientOcclusionIntensity": 1.2000000476837158,
+				"Bloom": true,
+				"BloomIntensity": 0.029999999329447746,
+				"FXAA": true,
+				"Contrast": 1.0,
+				"Saturation": 1.0,
+				"Temperature": 0.0,
+				"Tint": 0.0,
+				"ColorFilter": [
+					1.0,
+					1.0,
+					1.0
+				],
+				"ChromaticAberration": 0.0,
+				"Vignette": 0.0,
+				"VignetteSmoothness": 0.44999998807907104,
+				"FilmGrain": 0.0
+			}
+		}
+	},
+	"Entities": [
+		{
+			"ID": "5792686383491973006",
+			"Components": {
+				"Tag": {
+					"Tag": "Circuit"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"15097122172137162208",
+						"12923157835273252348",
+						"15607451646070710673",
+						"7743004269635918399",
+						"16150391986784302571",
+						"11961470903582076316",
+						"1331265507958088226",
+						"6761267625476584915",
+						"144626559652851171"
+					]
+				}
+			}
+		},
+		{
+			"ID": "15097122172137162208",
+			"Components": {
+				"Tag": {
+					"Tag": "Track"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "5792686383491973006",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "17648517083905525447",
+					"Materials": [
+						"7220449069599944592",
+						"8127015975830188493",
+						"3118176467674485412",
+						"470712795584087812",
+						"15745637732639020673",
+						"17678251460209051611"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"MeshCollider": {
+					"Mesh": "17230076990940009830",
+					"Convex": false,
+					"IsTrigger": false,
+					"Friction": 1.0,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "12923157835273252348",
+			"Components": {
+				"Tag": {
+					"Tag": "Barriers"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "5792686383491973006",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "18075086976973300326",
+					"Materials": [
+						"10050210890784848329"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"MeshCollider": {
+					"Mesh": "5171630588505078153",
+					"Convex": false,
+					"IsTrigger": false,
+					"Friction": 0.4000000059604645,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "15607451646070710673",
+			"Components": {
+				"Tag": {
+					"Tag": "Ground"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "5792686383491973006",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "16144419852617799839",
+					"Materials": [
+						"3118176467674485412"
+					],
+					"CastShadows": false,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"MeshCollider": {
+					"Mesh": "0",
+					"Convex": false,
+					"IsTrigger": false,
+					"Friction": 0.800000011920929,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "7743004269635918399",
+			"Components": {
+				"Tag": {
+					"Tag": "Hills"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "5792686383491973006",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "10224707081030729703",
+					"Materials": [
+						"4944508948686901293"
+					],
+					"CastShadows": false,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "16150391986784302571",
+			"Components": {
+				"Tag": {
+					"Tag": "Start Gantry"
+				},
+				"Transform": {
+					"Translation": [
+						73.36580657958984,
+						0.0,
+						-218.0049285888672
+					],
+					"Rotation": [
+						0.0,
+						-0.8226892948150635,
+						0.0,
+						0.5684912800788879
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "5792686383491973006",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1089562706709561380",
+					"Materials": [
+						"4851566155931948837",
+						"9392845649904324628",
+						"16924574414837725192",
+						"17195172948634622443"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"MeshCollider": {
+					"Mesh": "0",
+					"Convex": false,
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "11961470903582076316",
+			"Components": {
+				"Tag": {
+					"Tag": "Sector Gate 1"
+				},
+				"Transform": {
+					"Translation": [
+						507.1414489746094,
+						0.0,
+						247.95513916015625
+					],
+					"Rotation": [
+						0.0,
+						-0.9971160292625427,
+						0.0,
+						0.07589208334684372
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "5792686383491973006",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "587882088663921001",
+					"Materials": [
+						"5579249464452497274",
+						"17182585141271066399"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"MeshCollider": {
+					"Mesh": "0",
+					"Convex": false,
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "1331265507958088226",
+			"Components": {
+				"Tag": {
+					"Tag": "Sector Gate 2"
+				},
+				"Transform": {
+					"Translation": [
+						-189.09884643554688,
+						0.0,
+						198.8330078125
+					],
+					"Rotation": [
+						0.0,
+						-0.20710860192775726,
+						0.0,
+						-0.9783179759979248
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "5792686383491973006",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "587882088663921001",
+					"Materials": [
+						"5579249464452497274",
+						"13939128130301913734"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"MeshCollider": {
+					"Mesh": "0",
+					"Convex": false,
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "6761267625476584915",
+			"Components": {
+				"Tag": {
+					"Tag": "Sector Gate 3"
+				},
+				"Transform": {
+					"Translation": [
+						73.36580657958984,
+						0.0,
+						-218.0049285888672
+					],
+					"Rotation": [
+						0.0,
+						-0.8226892948150635,
+						0.0,
+						0.5684912800788879
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "5792686383491973006",
+					"Children": []
+				}
+			}
+		},
+		{
+			"ID": "144626559652851171",
+			"Components": {
+				"Tag": {
+					"Tag": "Footbridge"
+				},
+				"Transform": {
+					"Translation": [
+						336.10888671875,
+						0.0,
+						375.7845153808594
+					],
+					"Rotation": [
+						0.0,
+						-0.7626860737800598,
+						0.0,
+						-0.6467688083648682
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "5792686383491973006",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "10643124185050336685",
+					"Materials": [
+						"10050210890784848329",
+						"11059763544319701252"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"MeshCollider": {
+					"Mesh": "0",
+					"Convex": false,
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "18336832480939201190",
+			"Components": {
+				"Tag": {
+					"Tag": "Sun"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						50.0,
+						0.0
+					],
+					"Rotation": [
+						-0.3104998767375946,
+						-0.28432294726371765,
+						-0.09790024161338806,
+						0.9017571806907654
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"DirectionalLight": {
+					"Color": [
+						1.0,
+						0.949999988079071,
+						0.8799999952316284
+					],
+					"Intensity": 6.0,
+					"CastShadows": true,
+					"LightSize": 0.5299999713897705
+				}
+			}
+		},
+		{
+			"ID": "10718327986627411405",
+			"Components": {
+				"Tag": {
+					"Tag": "Sky"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"SkyLight": {
+					"Environment": "2831819387962288542",
+					"Intensity": 1.2000000476837158,
+					"Rotation": 0.0,
+					"SkyboxBlur": 0.0,
+					"DrawSkybox": true,
+					"AmbientColor": [
+						0.029999999329447746,
+						0.029999999329447746,
+						0.029999999329447746
+					]
+				}
+			}
+		},
+		{
+			"ID": "11181261724000190569",
+			"Components": {
+				"Tag": {
+					"Tag": "Main Camera"
+				},
+				"Transform": {
+					"Translation": [
+						36.954654693603516,
+						7.5,
+						-257.4286193847656
+					],
+					"Rotation": [
+						-0.011971257627010345,
+						-0.9096087217330933,
+						-0.02627302147448063,
+						0.4144616425037384
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Camera": {
+					"Projection": "Perspective",
+					"PerspectiveFOV": 50.0,
+					"PerspectiveNear": 0.10000000149011612,
+					"PerspectiveFar": 5000.0,
+					"OrthographicSize": 10.0,
+					"OrthographicNear": -100.0,
+					"OrthographicFar": 100.0,
+					"Primary": true,
+					"FixedAspectRatio": false,
+					"AspectRatio": 1.7777777910232544
+				},
+				"AudioListener": {
+					"Active": true
+				},
+				"VisualScript": {
+					"Graph": "3374653363641307568",
+					"Variables": {}
+				}
+			}
+		},
+		{
+			"ID": "6319871157374525983",
+			"Components": {
+				"Tag": {
+					"Tag": "Probe Crate"
+				},
+				"Transform": {
+					"Translation": [
+						352.5662841796875,
+						1.6366666555404663,
+						-108.17281341552734
+					],
+					"Rotation": [
+						0.0,
+						-0.8226892948150635,
+						0.0,
+						0.5684912800788879
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 20.0,
+					"LinearDamping": 0.5,
+					"AngularDamping": 0.5,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.800000011920929,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "16423539699560937802",
+			"Components": {
+				"Tag": {
+					"Tag": "Waiting Tour"
+				},
+				"Transform": {
+					"Translation": [
+						36.954654693603516,
+						27.5,
+						-257.4286193847656
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"VisualScript": {
+					"Graph": "3374653363641307568",
+					"Variables": {
+						"PlayOnStart": {
+							"Type": "Bool",
+							"Value": false
+						},
+						"Repeat": {
+							"Type": "Bool",
+							"Value": false
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "1175774217160232604",
+			"Components": {
+				"Tag": {
+					"Tag": "Tests"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"VisualScript": {
+					"Graph": "7930426497277894226",
+					"Variables": {
+						"Barriers": {
+							"Type": "Entity",
+							"Value": "12923157835273252348"
+						},
+						"Camera": {
+							"Type": "Entity",
+							"Value": "11181261724000190569"
+						},
+						"Crate": {
+							"Type": "Entity",
+							"Value": "6319871157374525983"
+						},
+						"Footbridge": {
+							"Type": "Entity",
+							"Value": "144626559652851171"
+						},
+						"Ground": {
+							"Type": "Entity",
+							"Value": "15607451646070710673"
+						},
+						"Track": {
+							"Type": "Entity",
+							"Value": "15097122172137162208"
+						},
+						"WaitingTour": {
+							"Type": "Entity",
+							"Value": "16423539699560937802"
+						}
+					}
+				}
+			}
+		}
+	]
+}

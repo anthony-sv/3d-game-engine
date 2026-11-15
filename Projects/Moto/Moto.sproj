@@ -1,0 +1,28 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Project"
+	},
+	"Project": {
+		"Name": "Strada Moto",
+		"AssetDirectory": "Assets",
+		"ScriptModule": "Scripts/Binaries/Game.dll",
+		"StartScene": "1594086459268679014",
+		"Window": {
+			"Title": "Strada Moto",
+			"Width": 1600,
+			"Height": 900,
+			"Fullscreen": false,
+			"VSync": true,
+			"Resizable": true,
+			"Icon": "0"
+		},
+		"Physics": {
+			"FixedTimestep": 0.01666666753590107,
+			"Layers": [
+				"Default"
+			],
+			"IgnoredCollisions": []
+		}
+	}
+}
