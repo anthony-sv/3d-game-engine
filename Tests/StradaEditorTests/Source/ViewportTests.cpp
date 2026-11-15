@@ -629,8 +629,9 @@ TEST_CASE("GameViewPanel: scenes without a camera show their screen-space UI")
 		button.AddComponent<UIButtonComponent>();
 		frame();
 		CHECK(statistics->Quads == 2);
-		// The two rectangles alone, in one batch: no world passes.
-		CHECK(statistics->DrawCalls == 1);
+		// The two rectangles alone, in one batch, and the tonemap: no world passes, no FXAA in a frame of the UI alone.
+		CHECK(statistics->DrawCalls == 2);
+		CHECK(statistics->Batches == 0);
 		CHECK(statistics->Triangles == 4);
 		CHECK(statistics->Lights == 0);
 		GraphicsDevice::WaitForIdle();

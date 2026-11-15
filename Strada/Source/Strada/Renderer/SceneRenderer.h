@@ -284,9 +284,24 @@ namespace Strada
 		// and its GPU buffers (Renderer::GetMesh), resolved once per frame before recording for the meshes a pass may draw.
 		struct FrameMesh
 		{
+			// A group the mesh's items fell into this frame: its submesh with the material it was submitted with (null for
+			// the default material), the material's index in the frame's table and the group's index.
+			struct SubmeshGroup
+			{
+				uint32_t Submesh = 0;
+				MaterialAsset const* Material = nullptr;
+				uint32_t FrameMaterial = 0;
+				uint32_t Group = 0;
+			};
+
+			// At most MaxSubmeshGroups recent groups of the mesh, searched before the frame's material and group maps: most
+			// submissions of a mesh repeat a submesh and material pair seen before, and a short list spares both lookups.
+			static constexpr size_t MaxSubmeshGroups = 16;
+
 			Ref<MeshSource> Source;
 			GpuMesh const* Gpu = nullptr;
 			bool Resolved = false;
+			std::vector<SubmeshGroup> Groups;
 		};
 
 		// A material of the frame: one reference per distinct MaterialAsset submitted (the default material for empty slots),
@@ -396,6 +411,9 @@ namespace Strada
 			bool Directional = false;
 			glm::vec3 Center = glm::vec3(0.0f);
 			float Radius = 0.0f;
+			// The view's batches: a range of the frame's shadow batches (BuildBatches).
+			uint32_t FirstBatch = 0;
+			uint32_t BatchCount = 0;
 		};
 
 		// What the frame binding set names besides the renderer's constant buffers and samplers.
@@ -460,15 +478,23 @@ namespace Strada
 		// Whether the item's mesh and material were resolved and can be drawn by the camera's passes, and by the shadow pass.
 		bool IsDrawable(SubmeshItem const& item) const;
 		bool IsShadowCaster(SubmeshItem const& item) const;
-		// The batches of the opaque, transparent and entity-ID passes and the instance index buffer's content
-		// (Renderer.Batch).
+		// The batches of the opaque, shadow, transparent and entity-ID passes and the instance index buffer's content
+		// (Renderer.Batch), once the shadow views are known.
 		void BuildBatches();
+		// Each shadow view's batches: the casters that pass its test, batched by group in the order of their first
+		// submission, their instances in submission order (part of BuildBatches).
+		void BuildShadowBatches();
 		MeshBatch MakeBatch(SubmeshItem const& item, nvrhi::IGraphicsPipeline* pipeline, uint32_t firstInstance,
 		                    uint32_t instanceCount) const;
 		// Grows the instance and instance index buffers to hold the frame (and remakes the binding sets that name them);
 		// false when a buffer cannot be made, and the frame then draws no mesh.
 		bool EnsureInstanceBuffers(size_t instanceCount, size_t indexCount);
 		void CreateEntityIdBindings();
+		void CreateShadowBindings();
+		// Counts one recorded mesh batch in the statistics.
+		void CountBatch(MeshBatch const& batch);
+		// Hands the frame's statistics to the profiler while it records (Profiler::RecordCounters).
+		void RecordProfilerCounters() const;
 		// Records the batches of one pass, counting them in the statistics; returns the instances they drew.
 		uint32_t DrawBatches(nvrhi::ICommandList* commandList, std::span<MeshBatch const> batches, nvrhi::IFramebuffer* framebuffer,
 		                     nvrhi::IBindingSet* passBindings);
@@ -524,6 +550,8 @@ namespace Strada
 		std::unordered_map<GroupKey, uint32_t, GroupKeyHash> m_GroupIndices;
 		// Batching's working state, kept between frames for its memory: per group, and the items of one pass.
 		std::vector<GroupBatch> m_GroupBatches;
+		// A pass's items as (depth, item) keys while they are sorted.
+		std::vector<uint64_t> m_SortKeys;
 		std::vector<uint32_t> m_PassItems;
 		std::vector<uint32_t> m_PassGroups;
 		// The frame's batches: the opaque pass's (front to back), the entity-ID pass's (the opaque batches by first
@@ -532,6 +560,10 @@ namespace Strada
 		std::vector<MeshBatch> m_OpaqueBatches;
 		std::vector<MeshBatch> m_EntityIdBatches;
 		std::vector<MeshBatch> m_BlendBatches;
+		// Every shadow view's batches, one view after another (ShadowView::FirstBatch), and the frame's shadow casters in
+		// submission order (indices into m_Items, listed by PrepareShadows), which each view tests.
+		std::vector<MeshBatch> m_ShadowBatches;
+		std::vector<uint32_t> m_ShadowCasters;
 		std::vector<uint32_t> m_InstanceIndices;
 		PassInstanceCounts m_PassInstanceCounts;
 

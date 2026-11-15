@@ -19,6 +19,7 @@
 #include <cmath>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 namespace Strada
@@ -169,8 +170,31 @@ namespace Strada
 			}
 		}
 
+		// The asset of each handle met while submitting a frame, looked up once (scenes draw many instances of few meshes and
+		// materials). Lives for one submission only, so an asset replaced or unloaded between frames is looked up again.
+		template<typename TAsset>
+		class FrameAssets
+		{
+		public:
+			Ref<TAsset> const& Get(AssetHandle handle)
+			{
+				auto const [entry, added] = m_Assets.try_emplace(handle);
+				if (added)
+				{
+					entry->second = AssetManager::GetAsset<TAsset>(handle);
+				}
+				return entry->second;
+			}
+
+		private:
+			std::unordered_map<AssetHandle, Ref<TAsset>> m_Assets;
+		};
+
 		void SubmitMeshes(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options)
 		{
+			FrameAssets<MeshSource> meshes;
+			FrameAssets<MaterialAsset> frameMaterials;
+			bool const identifies = options.GetPickingId || options.IsSelected;
 			std::vector<Ref<MaterialAsset>> materials;
 			for (entt::entity const handle : scene.GetAllEntitiesWith<MeshComponent>())
 			{
@@ -180,29 +204,32 @@ namespace Strada
 				{
 					continue;
 				}
-				Ref<MeshSource> const mesh = AssetManager::GetAsset<MeshSource>(component.Mesh);
+				Ref<MeshSource> const& mesh = meshes.Get(component.Mesh);
 				if (!mesh)
 				{
 					continue;
 				}
 
 				std::vector<AssetHandle> const& defaults = mesh->GetMaterials();
-				materials.assign(defaults.size(), nullptr);
+				materials.resize(defaults.size());
 				for (size_t slot = 0; slot < defaults.size(); slot++)
 				{
 					AssetHandle const handleForSlot = slot < component.Materials.size() && component.Materials[slot].IsValid()
 					                                      ? component.Materials[slot]
 					                                      : defaults[slot];
-					materials[slot] = AssetManager::GetAsset<MaterialAsset>(handleForSlot);
+					materials[slot] = frameMaterials.Get(handleForSlot);
 				}
-				UUID const id = entity.GetUUID();
 				CachedWorldTransform const world = scene.GetCachedWorldTransform(handle);
 				MeshSubmission submission;
 				submission.Transform = world.World;
 				submission.PreviousTransform = world.Previous;
 				submission.CastShadows = component.CastShadows;
-				submission.PickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
-				submission.Selected = options.IsSelected && options.IsSelected(id);
+				if (identifies)
+				{
+					UUID const id = entity.GetUUID();
+					submission.PickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
+					submission.Selected = options.IsSelected && options.IsSelected(id);
+				}
 				renderer.SubmitMesh(mesh, materials, submission);
 			}
 		}

@@ -93,12 +93,18 @@ namespace
 	};
 
 	// Runs a frame of the recorder with a zone holding another, as the main loop would around the editor's frame.
-	void RunRecordedFrame()
+	// drawCalls: when not 0, the frame also holds a renderer's record of that many draws, as a view named Viewport.
+	void RunRecordedFrame(uint64_t drawCalls = 0)
 	{
 		Profiler::BeginFrame();
 		{
 			ST_PROFILE_SCOPE("Test.Outer");
 			ST_PROFILE_SCOPE("Test.Inner");
+		}
+		if (drawCalls != 0)
+		{
+			std::array<ProfilerCounter, 2> const counters{{{"DrawCalls", drawCalls}, {"Instances", 2 * drawCalls}}};
+			Profiler::RecordCounters("Viewport", counters);
 		}
 		Profiler::EndFrame();
 	}
@@ -457,9 +463,12 @@ TEST_CASE("ProfilerCommands: a recording is started, measured, written to a capt
 	CHECK(fixture.Fails("profiler.capture", Json::object({{"path", "Captures/Run.json"}})) == AutomationErrorCode::InvalidOperation);
 	for (int frame = 0; frame < 6; frame++)
 	{
-		RunRecordedFrame();
+		RunRecordedFrame(static_cast<uint64_t>(frame) + 1);
 	}
 	Json const status = fixture.Ok("profiler.status", Json::object({{"medians", true}}));
+	// The renderer's counts per frame by view, over the four frames held (3 to 6 draws).
+	CHECK(status["medians"]["counters"] == Json::parse(R"([{ "name": "Viewport/DrawCalls", "median": 4.5 },
+	                                                        { "name": "Viewport/Instances", "median": 9.0 }])"));
 	CHECK(status["framesHeld"] == 4);
 	CHECK(status["zonesHeld"] == 8);
 	REQUIRE(status["medians"]["subsystems"].size() == 1);
@@ -544,9 +553,11 @@ TEST_CASE("ProfilerPanel: a capture's frames, the shown frame's zones by thread 
 	Testing::CaptureBuilder builder = MakeTreeCapture();
 	builder.AddGpuPass("Viewport", "Shadows", 1250000);
 	builder.AddGpuPass("Viewport", "Opaque", 2500000);
-	// A second frame without GPU passes or zones on the worker.
+	builder.AddCounters("Viewport", {{"DrawCalls", 14}, {"Instances", 300}});
+	// A second frame without GPU passes or zones on the worker, whose renderer recorded its counts.
 	builder.AddFrame(10000000, 26000000);
 	builder.AddZone(0, "Scene.Update", 0, 10000000, 4000000);
+	builder.AddCounters("Game", {{"DrawCalls", 5}});
 	ProfilerCapture const capture = builder.Get();
 	fixture.Profiler.SetCapture(capture, "Run.json");
 	fixture.Draw();
@@ -562,6 +573,19 @@ TEST_CASE("ProfilerPanel: a capture's frames, the shown frame's zones by thread 
 	CHECK(record.Frame == 2u);
 	CHECK(fixture.ZoneNames() == std::vector<std::string>{"Main", " Scene.Update"});
 	CHECK(record.GpuRows.empty());
+
+	// A frame without GPU passes still shows its renderers' counts beside them.
+	fixture.Panel.ShowTab(ProfilerPanelTab::GpuPasses);
+	fixture.Draw();
+	fixture.Draw();
+	CHECK(fixture.Panel.GetLastDraw().GpuRows.empty());
+	REQUIRE(fixture.Panel.GetLastDraw().CounterRows.size() == 1);
+	CHECK(fixture.Panel.GetLastDraw().CounterRows[0].View == "Game");
+	CHECK(fixture.Panel.GetLastDraw().CounterRows[0].Counter == "DrawCalls");
+	CHECK(fixture.Panel.GetLastDraw().CounterRows[0].Value == 5);
+	fixture.Panel.ShowTab(ProfilerPanelTab::Zones);
+	fixture.Draw();
+	fixture.Draw();
 
 	// Clicking the first bar shows the first frame: its threads, open, with the zones nested as recorded.
 	REQUIRE(record.BarWidth > 0.0f);
@@ -605,6 +629,13 @@ TEST_CASE("ProfilerPanel: a capture's frames, the shown frame's zones by thread 
 	CHECK(passes[0].Pass == "Shadows");
 	CHECK(passes[0].Milliseconds == doctest::Approx(1.25));
 	CHECK(passes[1].Pass == "Opaque");
+	std::vector<ProfilerPanel::DrawRecord::CounterRow> const& counts = fixture.Panel.GetLastDraw().CounterRows;
+	REQUIRE(counts.size() == 2);
+	CHECK(counts[0].View == "Viewport");
+	CHECK(counts[0].Counter == "DrawCalls");
+	CHECK(counts[0].Value == 14);
+	CHECK(counts[1].Counter == "Instances");
+	CHECK(counts[1].Value == 300);
 
 	fixture.Panel.ShowTab(ProfilerPanelTab::Medians);
 	fixture.Draw();

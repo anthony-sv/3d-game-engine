@@ -28,9 +28,12 @@ Read `Docs/Architecture.md` §5–6 and `Strada/Source/Strada/Renderer/SceneRend
   "Instancing"): a mesh draw is a `MeshBatch` of every instance of one pipeline, GPU mesh, submesh and material binding
   set, and its vertex shader reads `g_Instances[g_InstanceIndices[InstanceOffset + SV_InstanceID]]` with
   `startInstanceLocation = 0`. A pass that draws meshes gets its batches from `BuildBatches` (`Renderer.Batch`) and
-  records them with `DrawBatches`; a new pass puts no matrix per object in push constants (the shadow pass still draws
-  one caster per draw with its matrix there, until its views are batched). Blended items stay one instance per batch,
-  back to front.
+  records them with `DrawBatches`; a new pass puts no matrix per object in push constants. Each shadow view draws its
+  casters' runs (`BuildShadowBatches`, `ShadowView::FirstBatch`), its view-projection and the run's offset in the push
+  constants. Blended items stay one instance per batch, back to front.
+- `SceneRendererStatistics::DrawCalls` counts every draw a pass records: a new draw adds to it where it is recorded
+  (`CountBatch` for mesh batches; the quad renderer's `Render*` functions return the draws they recorded), and a draw
+  that a pass skips is not counted. Tests that pin `DrawCalls` are re-pinned with the reason, never loosened.
 - The frame's items keep shadow casters outside the camera's view (`CullToView`): passes that render from the camera
   skip items whose `InView` is false; passes that render from somewhere else (shadow views) cull against their own
   volume.

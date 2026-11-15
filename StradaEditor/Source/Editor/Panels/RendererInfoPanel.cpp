@@ -144,6 +144,16 @@ namespace Strada
 			        {
 						std::snprintf(text, size, "%u", statistics.DrawCalls);
 					});
+			ViewRow("Mesh batches", sceneView, gameView,
+			        [](SceneRendererStatistics const& statistics, char* text, size_t size)
+			        {
+						std::snprintf(text, size, "%u", statistics.Batches);
+					});
+			ViewRow("Mesh instances", sceneView, gameView,
+			        [](SceneRendererStatistics const& statistics, char* text, size_t size)
+			        {
+						std::snprintf(text, size, "%u", statistics.Instances);
+					});
 			ViewRow("Shadow draws", sceneView, gameView,
 			        [](SceneRendererStatistics const& statistics, char* text, size_t size)
 			        {

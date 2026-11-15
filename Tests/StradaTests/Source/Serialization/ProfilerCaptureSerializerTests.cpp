@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -55,6 +56,25 @@ namespace
 		builder.AddFrame(16 * Microsecond * 1000, 33 * Microsecond * 1000);
 		builder.AddZone(0, "Scene.Update", 0, 17 * Microsecond * 1000, 123456789);
 		builder.AddGpuPass("Game", "Opaque", 1);
+		return builder.Get();
+	}
+
+	// A capture with renderers' counter records: a view with counts and GPU passes, one with counts alone (a renderer whose
+	// GPU measures no time) that recorded twice in a frame, a count named like a zone, the largest count, an empty record and
+	// a frame without records.
+	ProfilerCapture MakeCountedCapture()
+	{
+		Testing::CaptureBuilder builder;
+		builder.AddFrame(0, 16 * Microsecond * 1000);
+		builder.AddZone(0, "Renderer.Prepare", 0, 0, 5 * Microsecond);
+		builder.AddGpuPass("Viewport", "Opaque", 7 * Microsecond);
+		builder.AddCounters("Viewport", {{"DrawCalls", 12}, {"Batches", 9}, {"Instances", 10000}});
+		builder.AddCounters("Thumbnails", {{"DrawCalls", 3}, {"Renderer.Prepare", 18446744073709551615ull}});
+		builder.AddCounters("Thumbnails", {{"DrawCalls", 4}});
+		builder.AddFrame(16 * Microsecond * 1000, 33 * Microsecond * 1000);
+		builder.AddFrame(33 * Microsecond * 1000, 50 * Microsecond * 1000);
+		builder.AddCounters("Game", {});
+		builder.AddCounters("Viewport", {{"Instances", 0}, {"DrawCalls", 1}});
 		return builder.Get();
 	}
 
@@ -142,6 +162,14 @@ namespace
 				usedNames.at(pass.View) = true;
 				usedNames.at(pass.Name) = true;
 			}
+			for (ProfilerCounterRecord const& record : frame.Counters)
+			{
+				usedNames.at(record.View) = true;
+				for (ProfilerCounterValue const& value : record.Values)
+				{
+					usedNames.at(value.Name) = true;
+				}
+			}
 		}
 		CHECK(std::find(usedNames.begin(), usedNames.end(), false) == usedNames.end());
 		CHECK(std::find(usedThreads.begin(), usedThreads.end(), false) == usedThreads.end());
@@ -222,6 +250,245 @@ TEST_CASE("ProfilerCaptureSerializer: names like the format's own words, tied ti
 		}
 	}
 	CHECK(gpuThreadNames == 2);
+}
+
+TEST_CASE("ProfilerCaptureSerializer: renderers' counter records round-trip in their frames, and captures without them read")
+{
+	ProfilerCapture const capture = MakeCountedCapture();
+	std::string const text = WriteCapture(capture);
+	ProfilerCapture const read = ReadCapture(text);
+	CHECK(Testing::DescribeCapture(read) == Testing::DescribeCapture(capture));
+	CheckCompacted(read);
+	CHECK(WriteCapture(read) == text);
+	REQUIRE(read.Frames.size() == 3);
+	CHECK(read.Frames[0].Counters.size() == 3);
+	CHECK(read.Frames[1].Counters.empty());
+	CHECK(read.Frames[2].Counters[0].Values.empty());
+
+	// In the file: a GPU view per view of the counters and passes, the views counters alone use included, and the counts in
+	// their frame's event.
+	Result<Json> const document = ParseJson(text);
+	REQUIRE(document.IsOk());
+	std::vector<std::string> views;
+	Json firstFrame;
+	for (Json const& event : document.GetValue()["traceEvents"])
+	{
+		if (event["ph"] == "M" && event["pid"] == 2 && event["name"] == "thread_name")
+		{
+			views.push_back(event["args"]["name"].get<std::string>());
+		}
+		if (firstFrame.is_null() && event["ph"] == "X" && event["name"] == "Frame")
+		{
+			firstFrame = event;
+		}
+	}
+	CHECK(views == std::vector<std::string>{"Viewport", "Thumbnails", "Game"});
+	CHECK(firstFrame["args"]["Counters"][0] ==
+	      Json::parse(R"({ "View": 1, "Values": { "DrawCalls": 12, "Batches": 9, "Instances": 10000 } })"));
+	CHECK(firstFrame["args"]["Counters"][1]["View"] == 2);
+
+	// A capture written before counters existed is a capture of frames without records.
+	std::string const older = EditCapture(text,
+	                                      [](Json& edited)
+	                                      {
+											  for (Json& event : edited["traceEvents"])
+											  {
+												  if (event["ph"] == "X" && event["name"] == "Frame")
+												  {
+													  event["args"].erase("Counters");
+												  }
+											  }
+										  });
+	for (ProfilerFrame const& frame : ReadCapture(older).Frames)
+	{
+		CHECK(frame.Counters.empty());
+	}
+}
+
+TEST_CASE("ProfilerCaptureSerializer: a frame of as many counter records and counts as a capture holds, of the longest names, reads")
+{
+	Testing::CaptureBuilder builder;
+	builder.AddFrame(0, 1000);
+	for (uint32_t record = 0; record < Profiler::MaxCounterRecords; ++record)
+	{
+		std::vector<std::pair<std::string, uint64_t>> values;
+		for (uint32_t count = 0; count < Profiler::MaxCounters; ++count)
+		{
+			std::string name = std::to_string(count) + ".";
+			name += std::string(Profiler::MaxCounterNameBytes - name.size(), 'n');
+			values.emplace_back(std::move(name), 18446744073709551615ull);
+		}
+		builder.AddCounters("View " + std::to_string(record), values);
+	}
+	std::string const text = WriteCapture(builder.Get());
+	ProfilerCapture const read = ReadCapture(text);
+	CHECK(Testing::DescribeCapture(read) == Testing::DescribeCapture(builder.Get()));
+	CHECK(WriteCapture(read) == text);
+}
+
+TEST_CASE("ProfilerCaptureSerializer: damaged counter records are refused, and the writer refuses what a reader would")
+{
+	std::string const valid = WriteCapture(MakeCountedCapture());
+	auto const refused = [](std::string const& text, std::string_view expected)
+	{
+		Result<ProfilerCapture> const read = ProfilerCaptureSerializer::Read(text);
+		REQUIRE_MESSAGE(read.IsError(), text);
+		CHECK_MESSAGE(read.GetError().find(expected) != std::string::npos, read.GetError());
+	};
+	// Edits the first frame's records.
+	auto const edited = [&valid](std::function<void(Json&)> const& edit)
+	{
+		return EditCapture(valid,
+		                   [&edit](Json& document)
+		                   {
+							   edit(FindEvent(document, "X", "Frame")["args"]["Counters"]);
+						   });
+	};
+	refused(edited(
+				[](Json& counters)
+				{
+					counters = Json::object();
+				}),
+	        "\"Counters\" is not an array");
+	refused(edited(
+				[](Json& counters)
+				{
+					counters[0] = 5;
+				}),
+	        "not an object");
+	refused(edited(
+				[](Json& counters)
+				{
+					counters[0].erase("View");
+				}),
+	        "\"View\"");
+	refused(edited(
+				[](Json& counters)
+				{
+					counters[0]["View"] = 9;
+				}),
+	        "view 9");
+	refused(edited(
+				[](Json& counters)
+				{
+					counters[0]["View"] = 0;
+				}),
+	        "view 0");
+	refused(edited(
+				[](Json& counters)
+				{
+					counters[0]["Values"] = Json::array();
+				}),
+	        "\"Values\"");
+	refused(edited(
+				[](Json& counters)
+				{
+					counters[0]["Values"]["DrawCalls"] = -1;
+				}),
+	        "\"DrawCalls\" is not an unsigned integer");
+	refused(edited(
+				[](Json& counters)
+				{
+					counters[0]["Values"]["DrawCalls"] = 1.5;
+				}),
+	        "not an unsigned integer");
+	refused(edited(
+				[](Json& counters)
+				{
+					counters[0]["Values"]["Draw Calls"] = 1;
+				}),
+	        "name is not");
+	refused(edited(
+				[](Json& counters)
+				{
+					counters[0]["Values"][std::string(Profiler::MaxCounterNameBytes + 1, 'n')] = 1;
+				}),
+	        "name is not");
+	refused(edited(
+				[](Json& counters)
+				{
+					for (uint32_t count = 0; count <= Profiler::MaxCounters; ++count)
+					{
+						counters[0]["Values"]["Count" + std::to_string(count)] = count;
+					}
+				}),
+	        "more than 32 counts");
+	refused(edited(
+				[](Json& counters)
+				{
+					while (counters.size() <= Profiler::MaxCounterRecords)
+					{
+						counters.push_back(counters[0]);
+					}
+				}),
+	        "more than 16 records");
+
+	// The writer refuses a record past the bounds, a count named against the rule or twice, and names the capture lacks.
+	auto const writeRefused = [](std::function<void(Testing::CaptureBuilder&)> const& build, std::string_view expected)
+	{
+		Testing::CaptureBuilder builder;
+		builder.AddFrame(0, 10);
+		build(builder);
+		Result<std::string> const written = ProfilerCaptureSerializer::Write(builder.Get());
+		REQUIRE(written.IsError());
+		CHECK_MESSAGE(written.GetError().find(expected) != std::string::npos, written.GetError());
+	};
+	writeRefused(
+		[](Testing::CaptureBuilder& builder)
+		{
+			for (uint32_t record = 0; record <= Profiler::MaxCounterRecords; ++record)
+			{
+				builder.AddCounters("Viewport", {{"DrawCalls", 1}});
+			}
+		},
+		"counter records");
+	writeRefused(
+		[](Testing::CaptureBuilder& builder)
+		{
+			std::vector<std::pair<std::string, uint64_t>> values;
+			for (uint32_t count = 0; count <= Profiler::MaxCounters; ++count)
+			{
+				values.emplace_back("Count" + std::to_string(count), count);
+			}
+			builder.AddCounters("Viewport", values);
+		},
+		"counts, more than");
+	writeRefused(
+		[](Testing::CaptureBuilder& builder)
+		{
+			builder.AddCounters("Viewport", {{"Draw Calls", 1}});
+		},
+		"is not 1 to 32");
+	writeRefused(
+		[](Testing::CaptureBuilder& builder)
+		{
+			builder.AddCounters("Viewport", {{"DrawCalls", 1}, {"DrawCalls", 2}});
+		},
+		"twice");
+	writeRefused(
+		[](Testing::CaptureBuilder& builder)
+		{
+			builder.GetMutable().Frames.back().Counters.push_back({ProfilerNoName, {}});
+		},
+		"view the capture does not hold");
+	writeRefused(
+		[](Testing::CaptureBuilder& builder)
+		{
+			builder.AddCounters("Viewport", {});
+			builder.GetMutable().Frames.back().Counters.back().Values.push_back({ProfilerNoName, 1});
+		},
+		"name the capture does not hold");
+	// Views of counters count against the views a capture holds, with those of GPU passes.
+	writeRefused(
+		[](Testing::CaptureBuilder& builder)
+		{
+			for (uint32_t view = 0; view < Profiler::MaxGpuViews; ++view)
+			{
+				builder.AddGpuPass("View " + std::to_string(view), "Opaque", 1);
+			}
+			builder.AddCounters("Counted", {{"DrawCalls", 1}});
+		},
+		"GPU views");
 }
 
 TEST_CASE("ProfilerCaptureSerializer: names are written as valid UTF-8 cut to the longest a capture stores")
@@ -383,7 +650,7 @@ TEST_CASE("ProfilerCaptureSerializer: damaged captures are refused")
 
 TEST_CASE("ProfilerCaptureSerializer: damaged captures are refused or read, and what is read writes and reads again")
 {
-	std::vector<std::string> seeds = {WriteCapture(MakeTrickyCapture())};
+	std::vector<std::string> seeds = {WriteCapture(MakeTrickyCapture()), WriteCapture(MakeCountedCapture())};
 #ifdef ST_ENABLE_PROFILING
 	seeds.push_back(WriteCapture(RecordCapture()));
 #endif

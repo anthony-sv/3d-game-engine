@@ -6110,7 +6110,10 @@ namespace Strada
 						? Add("viewport.statistics",
 				              "What the scene view's renderer drew in the last frame it rendered (the scene through the editor "
 				              "camera): gpuMilliseconds (the GPU time of its latest finished frame; null before one finished or when the "
-				              "GPU cannot measure time), drawCalls (shadow-map draws included), triangles, shadowDrawCalls, shadowMapViews, "
+				              "GPU cannot measure time), drawCalls (every draw of every pass: mesh batches, quad batches, the sky, "
+				              "tonemap, FXAA and overlay draws), batches (the mesh draws of the shadow, opaque, transparent and "
+				              "entity-ID passes), instances (the mesh instances those batches drew, once per pass and shadow view), "
+				              "triangles, shadowDrawCalls (the shadow pass's batches), shadowMapViews, "
 				              "shadowsDropped (shadow-casting lights beyond the shadow-map budget), lights, culledLights (point and spot "
 				              "lights out of the view's reach), culled (submeshes outside the view), quads (sprites, text glyphs and UI "
 				              "rectangles). Unavailable without a viewport (headless) or a GPU.",
@@ -6129,6 +6132,8 @@ namespace Strada
 								  return Json::object(
 									  {{"gpuMilliseconds", statistics->GpuMilliseconds ? Json(*statistics->GpuMilliseconds) : Json()},
 					                   {"drawCalls", statistics->DrawCalls},
+					                   {"batches", statistics->Batches},
+					                   {"instances", statistics->Instances},
 					                   {"triangles", statistics->Triangles},
 					                   {"shadowDrawCalls", statistics->ShadowDrawCalls},
 					                   {"shadowMapViews", statistics->ShadowMapViews},

@@ -545,51 +545,58 @@ namespace Strada
 		m_Uploaded = true;
 	}
 
-	void QuadRenderer::RenderWorld(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection)
+	uint32_t QuadRenderer::RenderWorld(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection)
 	{
+		if (m_WorldBatches.empty())
+		{
+			return 0;
+		}
+		return DrawBatches(commandList, m_WorldBatches, GetPipeline(m_WorldPipeline, framebuffer, false, true), framebuffer, viewProjection,
+		                   false);
+	}
+
+	uint32_t QuadRenderer::RenderWorldUI(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
+	                                     glm::mat4 const& viewProjection)
+	{
+		if (m_WorldUIBatches.empty())
+		{
+			return 0;
+		}
+		return DrawBatches(commandList, m_WorldUIBatches, GetPipeline(m_WorldUIPipeline, framebuffer, false, true), framebuffer,
+		                   viewProjection, true);
+	}
+
+	uint32_t QuadRenderer::RenderScreen(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer)
+	{
+		if (m_ScreenBatches.empty())
+		{
+			return 0;
+		}
+		return DrawBatches(commandList, m_ScreenBatches, GetPipeline(m_ScreenPipeline, framebuffer, false, false), framebuffer,
+		                   glm::mat4(1.0f), true);
+	}
+
+	uint32_t QuadRenderer::RenderEntityIds(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
+	                                       glm::mat4 const& viewProjection)
+	{
+		uint32_t draws = 0;
 		if (!m_WorldBatches.empty())
 		{
-			DrawBatches(commandList, m_WorldBatches, GetPipeline(m_WorldPipeline, framebuffer, false, true), framebuffer, viewProjection,
-			            false);
-		}
-	}
-
-	void QuadRenderer::RenderWorldUI(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection)
-	{
-		if (!m_WorldUIBatches.empty())
-		{
-			DrawBatches(commandList, m_WorldUIBatches, GetPipeline(m_WorldUIPipeline, framebuffer, false, true), framebuffer,
-			            viewProjection, true);
-		}
-	}
-
-	void QuadRenderer::RenderScreen(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer)
-	{
-		if (!m_ScreenBatches.empty())
-		{
-			DrawBatches(commandList, m_ScreenBatches, GetPipeline(m_ScreenPipeline, framebuffer, false, false), framebuffer,
-			            glm::mat4(1.0f), true);
-		}
-	}
-
-	void QuadRenderer::RenderEntityIds(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection)
-	{
-		if (!m_WorldBatches.empty())
-		{
-			DrawBatches(commandList, m_WorldBatches, GetPipeline(m_WorldEntityIdPipeline, framebuffer, true, true), framebuffer,
-			            viewProjection, false);
+			draws += DrawBatches(commandList, m_WorldBatches, GetPipeline(m_WorldEntityIdPipeline, framebuffer, true, true), framebuffer,
+			                     viewProjection, false);
 		}
 		if (!m_WorldUIBatches.empty())
 		{
-			DrawBatches(commandList, m_WorldUIBatches, GetPipeline(m_WorldEntityIdPipeline, framebuffer, true, true), framebuffer,
-			            viewProjection, false);
+			draws += DrawBatches(commandList, m_WorldUIBatches, GetPipeline(m_WorldEntityIdPipeline, framebuffer, true, true), framebuffer,
+			                     viewProjection, false);
 		}
 		// Screen-space items are on top of everything.
 		if (!m_ScreenBatches.empty())
 		{
-			DrawBatches(commandList, m_ScreenBatches, GetPipeline(m_ScreenEntityIdPipeline, framebuffer, true, false), framebuffer,
-			            glm::mat4(1.0f), false);
+			draws += DrawBatches(commandList, m_ScreenBatches, GetPipeline(m_ScreenEntityIdPipeline, framebuffer, true, false), framebuffer,
+			                     glm::mat4(1.0f), false);
 		}
+		return draws;
 	}
 
 	void QuadRenderer::Clear()
@@ -662,13 +669,15 @@ namespace Strada
 		return pipeline;
 	}
 
-	void QuadRenderer::DrawBatches(nvrhi::ICommandList* commandList, std::vector<Batch> const& batches, nvrhi::IGraphicsPipeline* pipeline,
-	                               nvrhi::IFramebuffer* framebuffer, glm::mat4 const& transform, bool encodeSrgb)
+	uint32_t QuadRenderer::DrawBatches(nvrhi::ICommandList* commandList, std::vector<Batch> const& batches,
+	                                   nvrhi::IGraphicsPipeline* pipeline, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& transform,
+	                                   bool encodeSrgb)
 	{
 		if (pipeline == nullptr || !m_Uploaded)
 		{
-			return;
+			return 0;
 		}
+		uint32_t draws = 0;
 		nvrhi::FramebufferInfoEx const& info = framebuffer->getFramebufferInfo();
 		nvrhi::Viewport const viewport(static_cast<float>(info.width), static_cast<float>(info.height));
 		for (Batch const& batch : batches)
@@ -700,6 +709,8 @@ namespace Strada
 			arguments.vertexCount = batch.QuadCount * 6;
 			arguments.startVertexLocation = batch.FirstQuad * 4;
 			commandList->drawIndexed(arguments);
+			draws++;
 		}
+		return draws;
 	}
 }

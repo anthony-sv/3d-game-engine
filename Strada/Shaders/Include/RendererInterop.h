@@ -121,11 +121,13 @@ struct DrawConstants
 	float3 Padding;
 };
 
-// Shadow-map rendering (push constants).
+// Per mesh draw of the shadow pass (push constants): the shadow view's view-projection and the draw's run of the frame's
+// instance index buffer, read as DrawConstants' run is.
 struct ShadowDrawConstants
 {
-	float4x4 Model;
 	float4x4 ViewProjection;
+	uint InstanceOffset;
+	float3 Padding;
 };
 
 // One mesh instance of a frame: an entity's mesh as SubmitMesh received it, drawn by every pass that draws the mesh

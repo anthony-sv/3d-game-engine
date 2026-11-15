@@ -115,7 +115,7 @@ component and the whole scripting API.
   view, and `viewport_screenshot` returns an image of the editor. `viewport_overlays` sets what the scene view draws
   over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), and `grid`,
   `icons`, `canvases` and the shapes `off` give clean screenshots. `viewport_statistics` tells what the last frame drew
-  (draw calls, triangles, lights, what was culled): check it when a scene grows large. `editor_entity_menu` and
+  (draw calls, mesh batches and instances, triangles, lights, what was culled): check it when a scene grows large. `editor_entity_menu` and
   `inspector_add_component_menu` open the Entity menu and the Add Component menu as users see them (a `submenu` or
   `category` open) and list what they offer.
 

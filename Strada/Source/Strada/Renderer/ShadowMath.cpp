@@ -177,4 +177,9 @@ namespace Strada::Shadows
 		}
 		return direction.z >= 0.0f ? 4u : 5u;
 	}
+
+	bool IntersectsCascade(AABB const& bounds, glm::mat4 const& viewProjection)
+	{
+		return CascadeTest(viewProjection).Intersects(bounds);
+	}
 }

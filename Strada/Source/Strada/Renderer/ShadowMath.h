@@ -47,6 +47,46 @@ namespace Strada::Shadows
 	std::array<glm::mat4, 6> ComputePointLightViewProjections(glm::vec3 const& position, float range, uint32_t mapSize,
 	                                                          uint32_t guardTexels);
 
+	// Whether world-space boxes can cast into a cascade's orthographic view: a box's footprint in the view's clip space
+	// overlaps the map in x and y, and it does not lie entirely beyond the farthest receiver (clip depth below 0). Boxes
+	// between the light and the map are always inside, since FitCascade extends the depth range to every caster. A box's
+	// center and extents are taken into clip space once, as AABB::Transform does, which for the affine viewProjection of
+	// an orthographic view bounds the same footprint as its eight corners. An invalid (empty) box reaches no view. Made
+	// once per view, then asked for every caster.
+	class CascadeTest
+	{
+	public:
+		explicit CascadeTest(glm::mat4 const& viewProjection)
+			: m_ViewProjection(viewProjection)
+		{
+			glm::mat3 const linear(viewProjection);
+			for (int column = 0; column < 3; column++)
+			{
+				m_Absolute[column] = glm::abs(linear[column]);
+			}
+		}
+
+		bool Intersects(AABB const& bounds) const
+		{
+			if (!bounds.IsValid())
+			{
+				return false;
+			}
+			glm::vec3 const center = glm::vec3(m_ViewProjection * glm::vec4(bounds.GetCenter(), 1.0f));
+			glm::vec3 const extents = m_Absolute * bounds.GetExtents();
+			glm::vec3 const minimum = center - extents;
+			glm::vec3 const maximum = center + extents;
+			return maximum.x >= -1.0f && minimum.x <= 1.0f && maximum.y >= -1.0f && minimum.y <= 1.0f && maximum.z >= 0.0f;
+		}
+
+	private:
+		glm::mat4 m_ViewProjection;
+		glm::mat3 m_Absolute;
+	};
+
+	// CascadeTest(viewProjection).Intersects(bounds), for a single box.
+	bool IntersectsCascade(AABB const& bounds, glm::mat4 const& viewProjection);
+
 	// Index of the cube face (in the order above) whose axis dominates direction.
 	uint32_t GetCubeFace(glm::vec3 const& direction);
 

@@ -368,11 +368,13 @@ namespace Strada
 		static void RecordGpuPasses(uint64_t frameIndex, std::string_view view, std::span<ProfilerGpuPassTiming const> passes);
 		// Attaches a view's counts (a renderer's statistics) to the frame in progress, as one record (ProfilerFrame::Counters):
 		// they are known when the renderer ends its frame, so they never wait. view names the renderer (copied; it shares
-		// the GPU passes' views). Does nothing when no recorded frame is in progress; drops counts past MaxCounters and those
-		// whose name is not MaxCounterNameBytes of the allowed characters, records past MaxCounterRecords in the frame, and
-		// records of a view beyond MaxGpuViews. Callers check IsRecording() before
+		// the GPU passes' views). Does nothing when no recorded frame is in progress; drops counts past MaxCounters, those
+		// whose name is not a counter name (IsCounterName), a name's counts after its first in the record, records past
+		// MaxCounterRecords in the frame, and records of a view beyond MaxGpuViews. Callers check IsRecording() before
 		// they build the counts, so an idle profiler costs them one relaxed load.
 		static void RecordCounters(std::string_view view, std::span<ProfilerCounter const> counters);
+		// Whether a name may name a count: 1 to MaxCounterNameBytes ASCII letters, digits, '_' and '.'. Pure; any thread.
+		[[nodiscard]] static bool IsCounterName(std::string_view name);
 
 		// The history of the current or last recording. The reference stays valid until the next call of Start, Stop,
 		// EndFrame, RecordGpuPasses, RecordCounters or Shutdown.

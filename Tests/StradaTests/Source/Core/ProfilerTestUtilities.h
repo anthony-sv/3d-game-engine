@@ -90,6 +90,20 @@ namespace Strada::Testing
 			m_Capture.Frames.back().GpuPasses.push_back({viewName, passName, duration});
 		}
 
+		// One counter record of a view (ProfilerFrame::Counters), in the order given.
+		void AddCounters(std::string_view view, std::vector<std::pair<std::string, uint64_t>> const& values)
+		{
+			REQUIRE_FALSE(m_Capture.Frames.empty());
+			ProfilerCounterRecord record;
+			record.View = GetName(view);
+			for (std::pair<std::string, uint64_t> const& value : values)
+			{
+				record.Values.push_back({GetName(value.first), value.second});
+			}
+			m_Capture.Frames.back().Counters.push_back(std::move(record));
+		}
+
+		ProfilerCapture& GetMutable() { return m_Capture; }
 		ProfilerCapture const& Get() const { return m_Capture; }
 
 	private:
@@ -97,7 +111,8 @@ namespace Strada::Testing
 	};
 
 	// A capture as text lines that compare by content, not by table indices: each frame, then its zones (thread name, name,
-	// depth, times, value) and GPU passes (view, name, duration) in their order.
+	// depth, times, value), GPU passes (view, name, duration) and counter records (view, then each name and value) in their
+	// order.
 	inline std::vector<std::string> DescribeCapture(ProfilerCapture const& capture)
 	{
 		auto const name = [&capture](uint32_t index) -> std::string
@@ -123,6 +138,15 @@ namespace Strada::Testing
 			for (ProfilerGpuPass const& pass : frame.GpuPasses)
 			{
 				lines.push_back("  GPU " + name(pass.View) + "/" + name(pass.Name) + " for " + std::to_string(pass.DurationNanoseconds));
+			}
+			for (ProfilerCounterRecord const& record : frame.Counters)
+			{
+				std::string line = "  Counts " + name(record.View) + ":";
+				for (ProfilerCounterValue const& value : record.Values)
+				{
+					line += " " + name(value.Name) + "=" + std::to_string(value.Value);
+				}
+				lines.push_back(std::move(line));
 			}
 		}
 		return lines;

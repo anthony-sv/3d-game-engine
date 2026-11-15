@@ -259,10 +259,12 @@ public sealed class TransformProbe : Script
 }
 
 // Moves its entity one meter along X in each OnUpdate, then at once reads where Child is in the world and reports it in its
-// name: a parent moved in a frame moves what its children's reads see in that frame.
+// name: a parent moved in a frame moves what its children's reads see in that frame. When it is destroyed, it moves
+// MovedOnDestroy two meters up: a write made by the deferred destruction at the end of a frame, after the scene's update.
 public sealed class ParentMover : Script
 {
 	public Entity? Child;
+	public Entity? MovedOnDestroy;
 
 	protected override void OnUpdate(float deltaTime)
 	{
@@ -271,6 +273,14 @@ public sealed class ParentMover : Script
 		{
 			Vector3 world = Child.Transform.WorldTranslation;
 			Name = string.Create(CultureInfo.InvariantCulture, $"{world.X:R};{world.Y:R};{world.Z:R}");
+		}
+	}
+
+	protected override void OnDestroy()
+	{
+		if (MovedOnDestroy is not null && MovedOnDestroy.IsValid)
+		{
+			MovedOnDestroy.Translation += new Vector3(0.0f, 2.0f, 0.0f);
 		}
 	}
 }

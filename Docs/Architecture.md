@@ -510,6 +510,10 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   its owner drops during the frame lives until `EndScene` returns, and are resolved once per distinct asset in
   `Renderer.Prepare`: GPU buffers (`Renderer::GetMesh`), material binding set, and the pipelines of each pass (from the
   alpha mode and double-sidedness; null where the material is not drawn: blended materials cast no shadows).
+  `RenderScene` looks each mesh and material handle up once per submission (the asset manager's lookups cost more than
+  a frame's table), and each frame mesh keeps a short list of its (submesh, material) groups, so that a repeated
+  submission finds its frame material and group without hashing. Sorting goes through 64-bit keys of the depth's
+  ordered bits and the item's index, which give the front-to-back (or back-to-front) order with ties by submission.
 - **Culling** stays per item on the CPU: against the camera's frustum, and for the casters against each shadow view's
   volume (a cascade's projection, a local light's range sphere). A cascade's test takes the box's center and extents
   into the cascade's clip space once, in the form `AABB::Transform` uses (`Math/AABB.cpp`), instead of transforming
@@ -528,7 +532,9 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
     front-to-back sort gave;
   - shadow: for each shadow view, its batches in the order of their first submission, their instances in submission
     order. A view's instances reach it as runs of indices, never as copies of their data. The order changes no texel:
-    the depth test keeps the nearest surface whatever comes first;
+    the depth test keeps the nearest surface whatever comes first. The frame's casters are listed once, then tested
+    against each view; a point light's six faces share their range sphere and so the same casters, and draw the same
+    runs (the index buffer holds them once);
   - entity IDs: the opaque batches in the order of their first submission, then the blended items;
   - blended items are never batched: each is a batch of its one instance, back to front by view depth (ties by
     submission), in the transparent and in the entity-ID pass, as before.
@@ -549,8 +555,12 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   - `Triangles`: the batches' triangles (a submesh's triangles times its batch's instances, the entity-ID pass
     included), plus two per quad.
   - While the profiler records, `EndScene` hands them to `Profiler::RecordCounters` under the renderer's view name
-    (§4.4, "Counters"); `viewport.statistics` returns `instances` and `batches` beside `drawCalls`, and the editor's
-    Renderer panel shows them.
+    (§4.4, "Counters"), after the frame is submitted; an idle profiler costs one relaxed load. `viewport.statistics`
+    returns `instances` and `batches` beside `drawCalls`, and the editor's Renderer panel shows them (Mesh batches,
+    Mesh instances).
+  - A mirrored instance (a world matrix of negative determinant) is drawn with the pipelines of its material, whose
+    front faces are the counter-clockwise ones: its winding is not flipped, so back-face culling shows its inner faces,
+    as it did before instancing. Its normals are right (the normal basis keeps their direction).
   - For tests, `SceneRenderer::GetFrameInstances` returns the frame's `InstanceData` as it was uploaded and
     `GetPassInstanceCounts` the instances each mesh pass and each shadow view drew, both valid until the next
     `BeginScene`: what a test reads to check the matrices a frame drew with and what reached each shadow view.
@@ -1485,7 +1495,7 @@ no viewer was run against it yet):
 - one complete event (`"ph": "X"`) per frame on process 1, thread 1, named `Frame` with `"cat": "Frame"`, with
   `"args": { "Frame": <index>, "DroppedZones": <n> }`, and, when the frame holds counter records (§4.4, "Counters"),
   `"Counters": [ { "View": <tid of process 2>, "Values": { "<counter>": <count>, ... } }, ... ]` in the order they were
-  recorded. A frame's events follow it;
+  recorded (a record of no counts is `"Values": {}`). A frame's events follow it;
 - one complete event per zone on process 1, its `"cat"` its subsystem (`Other` when it has none), with
   `"args": { "Frame": <index>, "Depth": <depth> }`, plus `"Value": { "<label>": <count> }` when the zone carries a
   count. `Depth` is the zone's depth in its frame's tree (§4.4: a zone whose parent the frame does not hold is at
@@ -1506,8 +1516,10 @@ a time: each frame's zones and passes come back in the order the file holds them
 The writer writes only the threads, names and views the frames use (the main thread always), renumbered in their
 tables' order, with names made valid UTF-8 (`Utf8::Sanitize`) and cut at a character boundary to `MaxNameBytes` (thread
 names `MaxThreadNameBytes`). It refuses a capture whose text would exceed `Profiler::MaxCaptureBytes` (checked after each
-frame, so it never builds more than one frame past the bound), holding more than the reader accepts, or with a frame
-whose zones are not grouped by thread in the thread table's order.
+frame, so it never builds more than one frame past the bound), holding more than the reader accepts (counter records
+included: more than `MaxCounterRecords` in a frame or `MaxCounters` in a record, a count named against the rule or twice
+in a record, a view or name the tables lack), or with a frame whose zones are not grouped by thread in the thread table's
+order. The views a frame's counters use are written as GPU views even when no pass of theirs was measured.
 
 The reader refuses:
 
@@ -2724,8 +2736,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
 - Renderer Info: the device (adapter, type, Vulkan version, driver, GPU timing support, validation and its error
   count), the frame (average and slowest frame time with a graph over 240 frames, frame count, back buffer), and what
-  the scene view's and the game view's renderers drew in their last frames side by side (GPU time, draw calls and the
-  shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite, text and UI quads).
+  the scene view's and the game view's renderers drew in their last frames side by side (GPU time, draw calls, mesh
+  batches and instances, the shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows,
+  sprite, text and UI quads).
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
   (create presets at the scene view's focal point: Create Empty, then the submenus 3D Object (the primitives and 3D

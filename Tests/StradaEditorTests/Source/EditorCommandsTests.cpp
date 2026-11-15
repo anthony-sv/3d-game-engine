@@ -1240,6 +1240,8 @@ TEST_CASE("EditorCommands: the viewport's renderer statistics are reported")
 
 	SceneRendererStatistics statistics;
 	statistics.DrawCalls = 12;
+	statistics.Batches = 8;
+	statistics.Instances = 260;
 	statistics.Triangles = 3400;
 	statistics.Lights = 3;
 	statistics.ShadowDrawCalls = 7;
@@ -1255,6 +1257,8 @@ TEST_CASE("EditorCommands: the viewport's renderer statistics are reported")
 	fixture.Statistics->GpuMilliseconds = 1.5f;
 	CHECK(fixture.Ok("viewport.statistics") == Json::object({{"gpuMilliseconds", 1.5f},
 	                                                         {"drawCalls", 12},
+	                                                         {"batches", 8},
+	                                                         {"instances", 260},
 	                                                         {"triangles", 3400},
 	                                                         {"shadowDrawCalls", 7},
 	                                                         {"shadowMapViews", 5},

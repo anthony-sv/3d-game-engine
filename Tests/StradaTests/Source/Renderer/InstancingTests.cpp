@@ -4,6 +4,7 @@
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Asset/TextureAsset.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/TextureReadback.h"
 #include "Strada/Renderer/InstanceMath.h"
@@ -41,6 +42,16 @@ namespace
 		glm::mat4 Transform = glm::mat4(1.0f);
 		uint32_t PickingId = 0;
 		bool Selected = false;
+		bool CastShadows = true;
+	};
+
+	// The lights of a test frame and the cascades of its directional light.
+	struct TestLights
+	{
+		std::optional<DirectionalLightSubmission> Directional;
+		std::vector<SpotLightSubmission> Spots;
+		std::vector<PointLightSubmission> Points;
+		uint32_t CascadeCount = 2;
 	};
 
 	Ref<MeshSource> GetMesh(BuiltInAsset mesh)
@@ -75,19 +86,33 @@ namespace
 	}
 
 	Image Draw(SceneRenderer& renderer, SceneRendererCamera const& camera, std::span<TestInstance const> instances,
-	           SceneRendererOverlays const& overlays = {})
+	           SceneRendererOverlays const& overlays = {}, TestLights const& lights = {})
 	{
 		SceneRendererSettings settings;
-		// Images free of the post-processing that would blur the comparisons.
+		// Images free of the post-processing that would blur the comparisons, and hard shadows.
 		settings.Bloom = false;
 		settings.FXAA = false;
 		settings.AmbientOcclusion = false;
 		settings.Dithering = false;
+		settings.SoftShadows = false;
+		settings.CascadeCount = lights.CascadeCount;
 		renderer.BeginScene(camera, settings);
+		if (lights.Directional)
+		{
+			renderer.SubmitDirectionalLight(*lights.Directional);
+		}
+		for (SpotLightSubmission const& spot : lights.Spots)
+		{
+			renderer.SubmitSpotLight(spot);
+		}
+		for (PointLightSubmission const& point : lights.Points)
+		{
+			renderer.SubmitPointLight(point);
+		}
 		for (TestInstance const& instance : instances)
 		{
 			Ref<MaterialAsset> const materials[] = {instance.Material};
-			renderer.SubmitMesh(instance.Mesh, materials, instance.Transform, true, instance.PickingId, instance.Selected);
+			renderer.SubmitMesh(instance.Mesh, materials, instance.Transform, instance.CastShadows, instance.PickingId, instance.Selected);
 		}
 		renderer.SetOverlays(overlays);
 		renderer.EndScene();
@@ -227,7 +252,8 @@ TEST_CASE("Instancing: equal instances are one batch in the opaque and entity-ID
 	SceneRendererStatistics const& statistics = renderer.GetStatistics();
 	CHECK(statistics.Batches == 2);
 	CHECK(statistics.Instances == 128);
-	CHECK(statistics.DrawCalls == 2);
+	// The two batches and the tonemap (no sky, FXAA, overlay or outline is drawn).
+	CHECK(statistics.DrawCalls == 3);
 	CHECK(statistics.Triangles == 2 * 64 * GetTriangles(cube));
 	CHECK(statistics.Culled == 0);
 	SceneRenderer::PassInstanceCounts const& passes = renderer.GetPassInstanceCounts();
@@ -543,16 +569,29 @@ TEST_CASE("Instancing: the instance buffers grow past their first capacity and e
 	};
 	glm::uvec2 const right = ProjectToPixel(camera, {2.0f, 0.0f, 0.75f});
 
+	// A spot light that reaches every cube, so that the shadow pass reads the grown buffers too (its binding set names
+	// them).
+	TestLights lights;
+	SpotLightSubmission& spot = lights.Spots.emplace_back();
+	spot.Position = {0.0f, 0.0f, 8.0f};
+	spot.Direction = {0.0f, 0.0f, -1.0f};
+	spot.Range = 30.0f;
+	spot.OuterConeAngle = 60.0f;
+	spot.CastShadows = true;
+
 	// A small frame first: the buffers and the binding sets that name them at their first size.
 	std::vector<TestInstance> const small = makeFrame(4);
-	Image const before = Draw(renderer, camera, small);
+	Image const before = Draw(renderer, camera, small, {}, lights);
 	CHECK(PixelAt(before, right) == glm::ivec3(0));
+	CHECK(renderer.GetPassInstanceCounts().ShadowViews == std::vector<uint32_t>{4});
 
 	// 1,500 instances: more than the buffers first held, and an upload of more than 64 KiB.
 	std::vector<TestInstance> const large = makeFrame(1500);
-	Image const grown = Draw(renderer, camera, large);
-	CHECK(renderer.GetStatistics().Batches == 2);
-	CHECK(renderer.GetStatistics().Instances == 3000);
+	Image const grown = Draw(renderer, camera, large, {}, lights);
+	CHECK(renderer.GetStatistics().Batches == 3);
+	CHECK(renderer.GetStatistics().ShadowDrawCalls == 1);
+	CHECK(renderer.GetStatistics().Instances == 4500);
+	CHECK(renderer.GetPassInstanceCounts().ShadowViews == std::vector<uint32_t>{1500});
 	REQUIRE(renderer.GetFrameInstances().size() == 1500);
 	// The instance beyond the first capacity is drawn where its own matrix puts it, and picked by its own ID.
 	glm::ivec3 const color = PixelAt(grown, right);
@@ -562,6 +601,402 @@ TEST_CASE("Instancing: the instance buffers grow past their first capacity and e
 	CHECK(Pick(renderer, camera, large, ProjectToPixel(camera, {-4.4f, -3.2f, 0.06f})) == std::optional<uint32_t>(1u));
 
 	// Small frames draw and pick from the grown buffers.
-	CHECK(Testing::CompareImages(Draw(renderer, camera, small), before, 0).MaxDifference == 0);
+	CHECK(Testing::CompareImages(Draw(renderer, camera, small, {}, lights), before, 0).MaxDifference == 0);
 	CHECK(Pick(renderer, camera, small, ProjectToPixel(camera, {-4.4f + 0.13f, -3.2f, 0.06f})) == std::optional<uint32_t>(2u));
+}
+
+TEST_CASE("Instancing: each shadow view draws the casters that reach it, batched by mesh and material")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageSize, ImageSize);
+	SceneRendererCamera const camera = MakeCamera({0.0f, 10.0f, 18.0f}, {0.0f, 0.0f, 0.0f});
+	Ref<MeshSource> const cube = GetMesh(BuiltInAsset::CubeMesh);
+	Ref<MeshSource> const sphere = GetMesh(BuiltInAsset::SphereMesh);
+	Ref<MaterialAsset> const gray = MakeMaterial({0.5f, 0.5f, 0.5f, 1.0f});
+	Ref<MaterialAsset> const red = MakeMaterial({0.8f, 0.2f, 0.2f, 1.0f});
+
+	// Group A around x = -6 and group B around x = 6, eight cubes each, with a sphere in group A and two cubes there that
+	// cast no shadow.
+	std::vector<TestInstance> instances;
+	for (uint32_t i = 0; i < 8; i++)
+	{
+		float const offset = static_cast<float>(i % 4) * 0.6f - 0.9f;
+		float const depth = static_cast<float>(i / 4) * 0.6f - 0.3f;
+		instances.push_back({cube, gray, Place({-6.0f + offset, 0.0f, depth}, 0.0f, glm::vec3(0.4f))});
+		instances.push_back({cube, gray, Place({6.0f + offset, 0.0f, depth}, 0.0f, glm::vec3(0.4f))});
+	}
+	instances.push_back({sphere, red, Place({-6.0f, 1.0f, 1.2f}, 0.0f, glm::vec3(0.5f))});
+	for (float const x : {-7.0f, -5.0f})
+	{
+		TestInstance& silent = instances.emplace_back(TestInstance{cube, gray, Place({x, 0.0f, -1.2f}, 0.0f, glm::vec3(0.4f))});
+		silent.CastShadows = false;
+	}
+	uint32_t const inView = static_cast<uint32_t>(instances.size());
+
+	// The camera's passes: one batch of the 18 gray cubes, one of the sphere.
+	auto const checkCameraPasses = [&renderer, inView]()
+	{
+		SceneRendererStatistics const& statistics = renderer.GetStatistics();
+		SceneRenderer::PassInstanceCounts const& passes = renderer.GetPassInstanceCounts();
+		CHECK(passes.Opaque == inView);
+		CHECK(statistics.Batches - statistics.ShadowDrawCalls == 2);
+		uint32_t shadowInstances = 0;
+		for (uint32_t const count : passes.ShadowViews)
+		{
+			shadowInstances += count;
+		}
+		// The definitions: every batch counts its instances once, and every draw of the frame is a batch or the tonemap.
+		CHECK(statistics.Instances == passes.Opaque + shadowInstances);
+		CHECK(statistics.DrawCalls == statistics.Batches + 1);
+		CHECK(statistics.ShadowMapViews == passes.ShadowViews.size());
+	};
+
+	SUBCASE("a spot light over group A draws its nine casters in two batches")
+	{
+		TestLights lights;
+		SpotLightSubmission& spot = lights.Spots.emplace_back();
+		spot.Position = {-6.0f, 6.0f, 0.0f};
+		spot.Direction = {0.0f, -1.0f, 0.0f};
+		spot.Range = 8.0f;
+		spot.OuterConeAngle = 50.0f;
+		spot.CastShadows = true;
+		(void)Draw(renderer, camera, instances, {}, lights);
+		CHECK(renderer.GetPassInstanceCounts().ShadowViews == std::vector<uint32_t>{9});
+		CHECK(renderer.GetStatistics().ShadowDrawCalls == 2);
+		CHECK(renderer.GetStatistics().Instances == inView + 9);
+		checkCameraPasses();
+	}
+
+	SUBCASE("a point light over group B draws its eight casters into each of its six faces, one batch each")
+	{
+		TestLights lights;
+		PointLightSubmission& point = lights.Points.emplace_back();
+		point.Position = {6.0f, 2.0f, 0.0f};
+		point.Range = 5.0f;
+		point.CastShadows = true;
+		(void)Draw(renderer, camera, instances, {}, lights);
+		CHECK(renderer.GetPassInstanceCounts().ShadowViews == std::vector<uint32_t>(6, 8u));
+		CHECK(renderer.GetStatistics().ShadowDrawCalls == 6);
+		checkCameraPasses();
+	}
+
+	SUBCASE("both lights: each view keeps to its own casters")
+	{
+		TestLights lights;
+		SpotLightSubmission& spot = lights.Spots.emplace_back();
+		spot.Position = {-6.0f, 6.0f, 0.0f};
+		spot.Direction = {0.0f, -1.0f, 0.0f};
+		spot.Range = 8.0f;
+		spot.CastShadows = true;
+		PointLightSubmission& point = lights.Points.emplace_back();
+		point.Position = {6.0f, 2.0f, 0.0f};
+		point.Range = 5.0f;
+		point.CastShadows = true;
+		(void)Draw(renderer, camera, instances, {}, lights);
+		std::vector<uint32_t> expected = {9};
+		expected.insert(expected.end(), 6, 8u);
+		CHECK(renderer.GetPassInstanceCounts().ShadowViews == expected);
+		CHECK(renderer.GetStatistics().ShadowDrawCalls == 2 + 6);
+		checkCameraPasses();
+	}
+
+	SUBCASE("the cascades of a directional light draw what reaches them, at most one batch per mesh and material")
+	{
+		TestLights lights;
+		DirectionalLightSubmission& sun = lights.Directional.emplace();
+		sun.Direction = glm::normalize(glm::vec3(0.3f, -1.0f, -0.2f));
+		sun.CastShadows = true;
+		lights.CascadeCount = 3;
+		(void)Draw(renderer, camera, instances, {}, lights);
+		std::vector<uint32_t> const& views = renderer.GetPassInstanceCounts().ShadowViews;
+		REQUIRE(views.size() == 3);
+		// The casters are all in view, so the farthest cascade, which reaches the shadow distance, holds them all.
+		CHECK(views.back() == 17);
+		for (uint32_t const count : views)
+		{
+			CHECK(count <= 17);
+		}
+		CHECK(renderer.GetStatistics().ShadowDrawCalls <= 2 * 3);
+		checkCameraPasses();
+	}
+
+	SUBCASE("a caster beyond the camera's distance is culled from its passes and still reaches the light")
+	{
+		// 26.7 meters from the camera, 8.5 from the spot light.
+		instances.push_back({cube, gray, Place({-6.0f, 0.0f, -6.0f}, 0.0f, glm::vec3(0.4f))});
+		SceneRendererCamera limited = camera;
+		limited.MaxDistance = 25.0f;
+		TestLights lights;
+		SpotLightSubmission& spot = lights.Spots.emplace_back();
+		spot.Position = {-6.0f, 6.0f, 0.0f};
+		spot.Direction = {0.0f, -1.0f, 0.0f};
+		spot.Range = 9.5f;
+		spot.CastShadows = true;
+		(void)Draw(renderer, limited, instances, {}, lights);
+		CHECK(renderer.GetStatistics().Culled == 1);
+		CHECK(renderer.GetPassInstanceCounts().ShadowViews == std::vector<uint32_t>{10});
+		CHECK(renderer.GetStatistics().ShadowDrawCalls == 2);
+		checkCameraPasses();
+	}
+}
+
+TEST_CASE("Instancing: batched shadows cast what one draw per caster casts")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageSize, ImageSize);
+	SceneRendererCamera const camera = MakeCamera({0.0f, 7.0f, 8.0f}, {0.0f, 0.0f, 0.0f});
+	Ref<MeshSource> const cube = GetMesh(BuiltInAsset::CubeMesh);
+	Ref<MeshSource> const plane = GetMesh(BuiltInAsset::PlaneMesh);
+
+	// Lit, not emissive: the floor shows the shadows of 16 turned cubes floating above it.
+	MaterialData lit;
+	lit.BaseColor = {0.7f, 0.7f, 0.7f, 1.0f};
+	lit.Roughness = 0.9f;
+	Ref<MaterialAsset> const floor = CreateRef<MaterialAsset>(lit);
+	Ref<MaterialAsset> const shared = CreateRef<MaterialAsset>(lit);
+	std::vector<TestInstance> instances = {{plane, floor, Place({0.0f, 0.0f, 0.0f}, 0.0f, glm::vec3(10.0f))}};
+	for (uint32_t i = 0; i < 16; i++)
+	{
+		glm::vec3 const position(static_cast<float>(i % 4) * 1.3f - 1.95f, 1.0f + 0.1f * static_cast<float>(i % 3),
+		                         static_cast<float>(i / 4) * 1.3f - 1.95f);
+		instances.push_back({cube, shared, Place(position, static_cast<float>(i) * 11.0f, glm::vec3(0.5f, 0.3f, 0.7f))});
+	}
+
+	for (bool const directional : {true, false})
+	{
+		CAPTURE(directional);
+		TestLights lights;
+		if (directional)
+		{
+			DirectionalLightSubmission& sun = lights.Directional.emplace();
+			sun.Direction = glm::normalize(glm::vec3(0.4f, -1.0f, -0.3f));
+			sun.Intensity = 3.0f;
+			sun.CastShadows = true;
+		}
+		else
+		{
+			SpotLightSubmission& spot = lights.Spots.emplace_back();
+			spot.Position = {0.5f, 6.0f, 0.5f};
+			spot.Direction = {0.0f, -1.0f, 0.0f};
+			spot.Intensity = 200.0f;
+			spot.Range = 12.0f;
+			spot.OuterConeAngle = 55.0f;
+			spot.CastShadows = true;
+		}
+
+		Image const batched = Draw(renderer, camera, instances, {}, lights);
+		uint32_t const views = renderer.GetStatistics().ShadowMapViews;
+		// The floor and the cubes: two batches per shadow view at most.
+		CHECK(renderer.GetStatistics().ShadowDrawCalls <= 2 * views);
+
+		// A material of its own per cube: one batch per cube in every view that it reaches, and the same image.
+		std::vector<TestInstance> separate = instances;
+		for (size_t i = 1; i < separate.size(); i++)
+		{
+			separate[i].Material = CreateRef<MaterialAsset>(lit);
+		}
+		Image const unbatched = Draw(renderer, camera, separate, {}, lights);
+		CHECK(renderer.GetStatistics().ShadowDrawCalls > 2 * views);
+		CHECK(Testing::CompareImages(batched, unbatched, 0).MaxDifference == 0);
+
+		// Without shadows the floor is lit where the cubes shaded it: the shadows were drawn.
+		std::vector<TestInstance> uncast = instances;
+		for (size_t i = 1; i < uncast.size(); i++)
+		{
+			uncast[i].CastShadows = false;
+		}
+		CHECK(Testing::CompareImages(batched, Draw(renderer, camera, uncast, {}, lights), 16).OutlierFraction > 0.01);
+	}
+}
+
+TEST_CASE("Instancing: the draw count holds every draw of every pass, the fullscreen ones and the quads' included")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageSize, ImageSize);
+	SceneRendererCamera const camera = MakeCamera({0.0f, 0.0f, 6.0f}, {0.0f, 0.0f, 0.0f});
+	SceneRendererSettings settings;
+	settings.Bloom = false;
+	settings.AmbientOcclusion = false;
+	settings.FXAA = false;
+	auto const render = [&renderer, &camera, &settings](auto const& submit)
+	{
+		renderer.BeginScene(camera, settings);
+		submit();
+		renderer.EndScene();
+		return renderer.GetStatistics();
+	};
+	auto const nothing = []() {};
+
+	// An empty frame still tonemaps; FXAA is one more draw.
+	SceneRendererStatistics statistics = render(nothing);
+	CHECK(statistics.DrawCalls == 1);
+	CHECK(statistics.Batches == 0);
+	CHECK(statistics.Instances == 0);
+	settings.FXAA = true;
+	CHECK(render(nothing).DrawCalls == 2);
+
+	// With entity IDs: a selected cube is a batch in the opaque and the entity-ID pass, the grid one draw, the lines two
+	// (their layer and its composite), the outline one, and FXAA and the tonemap one each.
+	renderer.SetEntityIdsEnabled(true);
+	Ref<MeshSource> const cube = GetMesh(BuiltInAsset::CubeMesh);
+	Ref<MaterialAsset> const material = MakeMaterial({0.4f, 0.4f, 0.8f, 1.0f});
+	SceneRendererOverlays overlays;
+	overlays.Grid.Enabled = true;
+	auto const editorFrame = [&renderer, &cube, &material, &overlays]()
+	{
+		Ref<MaterialAsset> const materials[] = {material};
+		renderer.SubmitMesh(cube, materials, glm::mat4(1.0f), true, 7, true);
+		renderer.SubmitLine({-1.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
+		renderer.SetOverlays(overlays);
+	};
+	statistics = render(editorFrame);
+	CHECK(statistics.Batches == 2);
+	CHECK(statistics.Instances == 2);
+	CHECK(statistics.DrawCalls == 2 + 1 + 1 + 2 + 1 + 1);
+
+	// A world sprite and a screen-space sprite: each a quad batch where it is drawn and one in the entity-ID pass.
+	auto const withSprites = [&renderer, &editorFrame]()
+	{
+		editorFrame();
+		SpriteSubmission world;
+		world.Transform = glm::translate(glm::mat4(1.0f), {1.5f, 0.0f, 0.0f});
+		world.PickingId = 8;
+		renderer.SubmitSprite(world);
+		SpriteSubmission screen;
+		screen.ScreenSpace = true;
+		screen.Transform = glm::scale(glm::translate(glm::mat4(1.0f), {20.0f, 20.0f, 0.0f}), {16.0f, 16.0f, 1.0f});
+		screen.PickingId = 9;
+		renderer.SubmitSprite(screen);
+	};
+	statistics = render(withSprites);
+	CHECK(statistics.Quads == 2);
+	CHECK(statistics.Batches == 2);
+	CHECK(statistics.DrawCalls == 2 + 1 + 1 + 2 + 1 + 1 + 2 + 2);
+}
+
+TEST_CASE("Instancing: a scene of instanced meshes, cut-outs, leaves, glass and a scaled group matches the golden image")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	constexpr uint32_t Width = 320;
+	constexpr uint32_t Height = 180;
+	auto const addMaterial = [](MaterialData const& data, char const* name)
+	{
+		return AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(data), name);
+	};
+	MaterialData stone;
+	stone.BaseColor = {0.62f, 0.6f, 0.56f, 1.0f};
+	stone.Roughness = 0.9f;
+	MaterialData brick = stone;
+	brick.BaseColor = {0.7f, 0.32f, 0.22f, 1.0f};
+	// Without an environment a metal reflects nothing: the spheres are a glossy dielectric.
+	MaterialData metal;
+	metal.BaseColor = {0.85f, 0.7f, 0.3f, 1.0f};
+	metal.Roughness = 0.35f;
+
+	// A fence of wide bars: an alpha mask of four columns, two of them cut out, each several pixels wide in the image.
+	Image bars(8, 8, 4);
+	for (uint32_t y = 0; y < 8; y++)
+	{
+		for (uint32_t x = 0; x < 8; x++)
+		{
+			uint8_t* pixel = bars.GetPixel(x, y);
+			pixel[0] = 230;
+			pixel[1] = 230;
+			pixel[2] = 230;
+			pixel[3] = (x / 2) % 2 == 0 ? 255 : 0;
+		}
+	}
+	Result<Ref<TextureAsset>> barsTexture = TextureAsset::CreateFromImage(std::move(bars));
+	REQUIRE(barsTexture.IsOk());
+	MaterialData fence;
+	fence.BaseColor = {0.3f, 0.35f, 0.4f, 1.0f};
+	fence.BaseColorTexture = AssetManager::AddMemoryAsset(barsTexture.GetValue(), "Fence bars");
+	fence.AlphaMode = MaterialAlphaMode::Mask;
+	MaterialData leaf;
+	leaf.BaseColor = {0.25f, 0.55f, 0.2f, 1.0f};
+	leaf.Roughness = 0.7f;
+	leaf.DoubleSided = true;
+	MaterialData glass;
+	glass.BaseColor = {0.3f, 0.6f, 0.9f, 0.45f};
+	glass.Roughness = 0.1f;
+	glass.AlphaMode = MaterialAlphaMode::Blend;
+
+	Scene scene("Instancing");
+	Testing::AddTestMesh(scene, "Ground", BuiltInAsset::PlaneMesh, addMaterial(stone, "Ground"), {0.0f, 0.0f, 0.0f}, glm::vec3(16.0f));
+	// A row of cubes of one mesh and material: one batch in each pass that draws them.
+	AssetHandle const brickMaterial = addMaterial(brick, "Brick");
+	for (int i = 0; i < 9; i++)
+	{
+		Entity block =
+			Testing::AddTestMesh(scene, "Block", BuiltInAsset::CubeMesh, brickMaterial, {static_cast<float>(i) * 0.9f - 3.6f, 0.3f, -2.5f},
+		                         {0.6f, 0.6f + 0.08f * static_cast<float>(i), 0.6f});
+		block.GetComponent<TransformComponent>().SetRotationEuler({0.0f, static_cast<float>(i) * 10.0f, 0.0f});
+	}
+	// A turned and unevenly scaled group of spheres: their world matrices come from the cache through the parent, their
+	// normals from the instance's normal basis. (A mirroring scale would show their back faces: winding is not flipped for
+	// mirrored instances, as it never was.)
+	Entity group = scene.CreateEntity("Group");
+	TransformComponent& groupTransform = group.GetComponent<TransformComponent>();
+	groupTransform.Translation = {-2.0f, 0.0f, 0.5f};
+	groupTransform.SetRotationEuler({0.0f, 35.0f, 0.0f});
+	groupTransform.Scale = {1.3f, 0.8f, 1.1f};
+	AssetHandle const metalMaterial = addMaterial(metal, "Metal");
+	for (int i = 0; i < 6; i++)
+	{
+		Entity ball = scene.CreateEntity("Ball", group);
+		MeshComponent& mesh = ball.AddComponent<MeshComponent>();
+		mesh.Mesh = GetBuiltInHandle(BuiltInAsset::SphereMesh);
+		mesh.Materials = {metalMaterial};
+		TransformComponent& transform = ball.GetComponent<TransformComponent>();
+		transform.Translation = {static_cast<float>(i % 3) * 0.9f - 0.9f, 0.45f + 0.25f * static_cast<float>(i / 3),
+		                         static_cast<float>(i / 3) * 0.9f};
+		transform.Scale = glm::vec3(0.7f);
+	}
+	// A fence of cut-out panels, leaves seen from both sides, and two glass panes.
+	AssetHandle const fenceMaterial = addMaterial(fence, "Fence");
+	for (int i = 0; i < 4; i++)
+	{
+		Entity panel = Testing::AddTestMesh(scene, "Fence", BuiltInAsset::QuadMesh, fenceMaterial,
+		                                    {1.0f + static_cast<float>(i) * 1.1f, 0.55f, -0.8f}, {1.1f, 1.1f, 1.0f});
+		panel.GetComponent<TransformComponent>().SetRotationEuler({0.0f, -20.0f, 0.0f});
+	}
+	AssetHandle const leafMaterial = addMaterial(leaf, "Leaf");
+	for (int i = 0; i < 5; i++)
+	{
+		Entity blade = Testing::AddTestMesh(scene, "Leaf", BuiltInAsset::QuadMesh, leafMaterial,
+		                                    {2.2f + static_cast<float>(i) * 0.5f, 0.45f, 1.4f}, {0.35f, 0.9f, 1.0f});
+		blade.GetComponent<TransformComponent>().SetRotationEuler({0.0f, static_cast<float>(i) * 70.0f, 0.0f});
+	}
+	AssetHandle const glassMaterial = addMaterial(glass, "Glass");
+	for (int i = 0; i < 2; i++)
+	{
+		Testing::AddTestMesh(scene, "Glass", BuiltInAsset::QuadMesh, glassMaterial,
+		                     {-0.4f + static_cast<float>(i) * 0.7f, 0.6f, 1.6f + static_cast<float>(i) * 0.4f}, {1.0f, 1.2f, 1.0f});
+	}
+	Entity sun = scene.CreateEntity("Sun");
+	sun.GetComponent<TransformComponent>().SetRotationEuler({-50.0f, -35.0f, 0.0f});
+	DirectionalLightComponent& light = sun.AddComponent<DirectionalLightComponent>();
+	light.Intensity = 3.0f;
+	light.CastShadows = true;
+	scene.CreateEntity("Sky").AddComponent<SkyLightComponent>().AmbientColor = {0.2f, 0.24f, 0.3f};
+
+	SceneRenderer renderer;
+	renderer.SetViewportSize(Width, Height);
+	SceneRendererCamera const camera = Testing::MakeTestCamera({0.4f, 3.4f, 6.2f}, {0.3f, 0.2f, -0.2f}, Width, Height);
+	Image const image = Testing::RenderToImage(scene, camera, renderer);
+	// The ground, the bricks, the spheres, the fence, the leaves: one camera batch each; the panes one each.
+	SceneRenderer::PassInstanceCounts const& passes = renderer.GetPassInstanceCounts();
+	CHECK(passes.Opaque == 1 + 9 + 6 + 4 + 5);
+	CHECK(passes.Transparent == 2);
+	CHECK(renderer.GetStatistics().Batches - renderer.GetStatistics().ShadowDrawCalls == 5 + 2);
+	CHECK(renderer.GetStatistics().ShadowMapViews == 4);
+	CHECK(renderer.GetStatistics().ShadowDrawCalls <= 5 * 4);
+	Testing::CheckGoldenImage("Instancing", image);
 }

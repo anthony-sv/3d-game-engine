@@ -545,32 +545,67 @@ namespace Strada
 
 	void ProfilerPanel::DrawGpuPasses(ProfilerCapture const& capture, ProfilerFrame const& frame)
 	{
+		if (!ImGui::BeginChild("##GpuAndCounts", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None))
+		{
+			ImGui::EndChild();
+			return;
+		}
 		if (frame.GpuPasses.empty())
 		{
 			ImGui::TextDisabled("No GPU pass was measured for this frame. Passes arrive a few frames late, and a GPU without "
 			                    "timer queries measures none.");
-			return;
 		}
-		if (!BeginTable("##GpuPasses", 3, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
+		else if (BeginTable("##GpuPasses", 3))
 		{
-			return;
+			ImGui::TableSetupColumn("View", ImGuiTableColumnFlags_WidthStretch, 1.5f);
+			SetupTimeColumns("Pass", {"Time (ms)"});
+			for (ProfilerGpuPass const& pass : frame.GpuPasses)
+			{
+				std::string_view const view = GetProfilerName(capture, pass.View);
+				std::string_view const name = GetProfilerName(capture, pass.Name);
+				double const milliseconds = ToMilliseconds(pass.DurationNanoseconds);
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(view.data(), view.data() + view.size());
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(name.data(), name.data() + name.size());
+				TimeCell(milliseconds);
+				m_Record.GpuRows.push_back({std::string(view), std::string(name), milliseconds});
+			}
+			ImGui::EndTable();
 		}
-		ImGui::TableSetupColumn("View", ImGuiTableColumnFlags_WidthStretch, 1.5f);
-		SetupTimeColumns("Pass", {"Time (ms)"});
-		for (ProfilerGpuPass const& pass : frame.GpuPasses)
+
+		// The renderers' statistics of the frame (draws, batches, instances), known as each ended its frame.
+		ImGui::SeparatorText("Renderer counts");
+		if (frame.Counters.empty())
 		{
-			std::string_view const view = GetProfilerName(capture, pass.View);
-			std::string_view const name = GetProfilerName(capture, pass.Name);
-			double const milliseconds = ToMilliseconds(pass.DurationNanoseconds);
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			ImGui::TextUnformatted(view.data(), view.data() + view.size());
-			ImGui::TableNextColumn();
-			ImGui::TextUnformatted(name.data(), name.data() + name.size());
-			TimeCell(milliseconds);
-			m_Record.GpuRows.push_back({std::string(view), std::string(name), milliseconds});
+			ImGui::TextDisabled("No renderer recorded counts in this frame.");
 		}
-		ImGui::EndTable();
+		else if (BeginTable("##Counters", 3))
+		{
+			ImGui::TableSetupColumn("View", ImGuiTableColumnFlags_WidthStretch, 1.5f);
+			ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+			ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+			ImGui::TableHeadersRow();
+			for (ProfilerCounterRecord const& record : frame.Counters)
+			{
+				std::string_view const view = GetProfilerName(capture, record.View);
+				for (ProfilerCounterValue const& value : record.Values)
+				{
+					std::string_view const name = GetProfilerName(capture, value.Name);
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn();
+					ImGui::TextUnformatted(view.data(), view.data() + view.size());
+					ImGui::TableNextColumn();
+					ImGui::TextUnformatted(name.data(), name.data() + name.size());
+					ImGui::TableNextColumn();
+					ImGui::Text("%llu", static_cast<unsigned long long>(value.Value));
+					m_Record.CounterRows.push_back({std::string(view), std::string(name), value.Value});
+				}
+			}
+			ImGui::EndTable();
+		}
+		ImGui::EndChild();
 	}
 
 	void ProfilerPanel::DrawMedians(ProfilerCapture const& capture)
@@ -613,6 +648,26 @@ namespace Strada
 		section("Subsystems (main thread)", "##Subsystems", medians.Subsystems);
 		section("Other threads (busy time)", "##Threads", medians.Threads);
 		section("GPU passes", "##GpuMedians", medians.GpuPasses);
+		if (!medians.Counters.empty())
+		{
+			ImGui::SeparatorText("Renderer counts");
+			if (BeginTable("##CounterMedians", 2))
+			{
+				ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+				ImGui::TableSetupColumn("Per frame", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+				ImGui::TableHeadersRow();
+				for (ProfilerCounterMedian const& counter : medians.Counters)
+				{
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn();
+					ImGui::TextUnformatted(counter.Name.c_str());
+					ImGui::TableNextColumn();
+					ImGui::Text("%.1f", counter.Value);
+					m_Record.MedianRows++;
+				}
+				ImGui::EndTable();
+			}
+		}
 		if (!medians.Zones.empty())
 		{
 			ImGui::SeparatorText("Zones");

@@ -28,7 +28,7 @@ namespace Strada
 	static_assert(sizeof(ShaderInterop::LightData) == 64);
 	static_assert(sizeof(ShaderInterop::ShadowConstants) == 1904);
 	static_assert(sizeof(ShaderInterop::DrawConstants) == 16);
-	static_assert(sizeof(ShaderInterop::ShadowDrawConstants) == 128, "Push constants must fit the 128 bytes Vulkan guarantees");
+	static_assert(sizeof(ShaderInterop::ShadowDrawConstants) == 80, "Push constants must fit the 128 bytes Vulkan guarantees");
 	static_assert(sizeof(ShaderInterop::TonemapConstants) == 64);
 	static_assert(sizeof(ShaderInterop::AmbientOcclusionConstants) == 176);
 	static_assert(sizeof(ShaderInterop::BloomConstants) == 32);
@@ -102,6 +102,27 @@ namespace Strada
 			return buffer ? static_cast<size_t>(buffer->getDesc().byteSize / buffer->getDesc().structStride) : 0u;
 		}
 
+		// A key whose unsigned order is the order of (depth, item): the depth's bits made to sort as the float does (negative
+		// numbers reversed below the positive ones, -0 as +0; depths are never NaN), then the item's index, so that equal
+		// depths keep the order of submission.
+		uint64_t MakeSortKey(float depth, uint32_t item)
+		{
+			uint32_t const bits = std::bit_cast<uint32_t>(depth == 0.0f ? 0.0f : depth);
+			uint32_t const ordered = (bits & 0x80000000u) != 0 ? ~bits : bits | 0x80000000u;
+			return (static_cast<uint64_t>(ordered) << 32) | item;
+		}
+
+		// Sorts the keys and gives their items in that order.
+		void TakeSortedItems(std::vector<uint64_t>& keys, std::vector<uint32_t>& items)
+		{
+			std::sort(keys.begin(), keys.end());
+			items.resize(keys.size());
+			for (size_t index = 0; index < keys.size(); index++)
+			{
+				items[index] = static_cast<uint32_t>(keys[index]);
+			}
+		}
+
 		uint32_t PipelineIndex(bool blend, bool doubleSided)
 		{
 			return (blend ? 2u : 0u) + (doubleSided ? 1u : 0u);
@@ -115,23 +136,6 @@ namespace Strada
 		uint32_t ShadowMapSize(uint32_t requested)
 		{
 			return std::bit_floor(std::clamp(requested, 256u, 8192u));
-		}
-
-		// Whether a world-space box can cast into an orthographic shadow view: its projected footprint overlaps the map and
-		// it is not entirely behind the farthest receiver. Casters towards the light are always inside (FitCascade).
-		bool IntersectsOrthographicView(AABB const& bounds, glm::mat4 const& viewProjection)
-		{
-			glm::vec3 minimum(std::numeric_limits<float>::max());
-			glm::vec3 maximum(std::numeric_limits<float>::lowest());
-			for (uint32_t i = 0; i < 8; i++)
-			{
-				glm::vec3 const corner((i & 1) ? bounds.Max.x : bounds.Min.x, (i & 2) ? bounds.Max.y : bounds.Min.y,
-				                       (i & 4) ? bounds.Max.z : bounds.Min.z);
-				glm::vec3 const clip = glm::vec3(viewProjection * glm::vec4(corner, 1.0f));
-				minimum = glm::min(minimum, clip);
-				maximum = glm::max(maximum, clip);
-			}
-			return maximum.x >= -1.0f && minimum.x <= 1.0f && maximum.y >= -1.0f && minimum.y <= 1.0f && maximum.z >= 0.0f;
 		}
 
 		bool IntersectsSphere(AABB const& bounds, glm::vec3 const& center, float radius)
@@ -268,14 +272,11 @@ namespace Strada
 		shadowLayout.bindings = {
 			nvrhi::BindingLayoutItem::PushConstants(0, sizeof(ShaderInterop::ShadowDrawConstants)),
 			nvrhi::BindingLayoutItem::Sampler(0),
+			nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0),
+			nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1),
 		};
 		m_ShadowLayout = device->createBindingLayout(shadowLayout);
-		nvrhi::BindingSetDesc shadowBindings;
-		shadowBindings.bindings = {
-			nvrhi::BindingSetItem::PushConstants(0, sizeof(ShaderInterop::ShadowDrawConstants)),
-			nvrhi::BindingSetItem::Sampler(0, Renderer::GetMaterialSampler()),
-		};
-		m_ShadowBindings = device->createBindingSet(shadowBindings, m_ShadowLayout);
+		CreateShadowBindings();
 
 		nvrhi::VertexAttributeDesc const attributes[] = {
 			nvrhi::VertexAttributeDesc()
@@ -463,6 +464,17 @@ namespace Strada
 			m_EntityIdLayout);
 	}
 
+	void SceneRenderer::CreateShadowBindings()
+	{
+		m_ShadowBindings = GraphicsDevice::GetDevice()->createBindingSet(
+			nvrhi::BindingSetDesc()
+				.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(ShaderInterop::ShadowDrawConstants)))
+				.addItem(nvrhi::BindingSetItem::Sampler(0, Renderer::GetMaterialSampler()))
+				.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, m_InstanceBuffer))
+				.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_InstanceIndexBuffer)),
+			m_ShadowLayout);
+	}
+
 	bool SceneRenderer::EnsureInstanceBuffers(size_t instanceCount, size_t indexCount)
 	{
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
@@ -488,7 +500,9 @@ namespace Strada
 		}
 		if (grown)
 		{
+			// The frame binding set follows in EndScene (UpdateFrameBindings compares the buffers it names).
 			CreateEntityIdBindings();
+			CreateShadowBindings();
 		}
 		return GetCapacity(m_InstanceBuffer) >= instanceCount && GetCapacity(m_InstanceIndexBuffer) >= indexCount;
 	}
@@ -1058,29 +1072,54 @@ namespace Strada
 		uint32_t const instance = static_cast<uint32_t>(m_Instances.size());
 		m_Instances.push_back(Instancing::MakeInstanceData(submission.Transform, submission.PreviousTransform, entityId));
 		uint32_t const meshIndex = GetFrameMesh(mesh);
+		// No submission below adds a mesh to the frame's table, so the reference stays valid.
+		FrameMesh& frameMesh = m_FrameMeshes[meshIndex];
 
 		glm::mat4 const viewModel = m_Camera.View * submission.Transform;
 		std::vector<Submesh> const& submeshes = mesh->GetSubmeshes();
 		for (uint32_t i = 0; i < submeshes.size(); i++)
 		{
 			Submesh const& submesh = submeshes[i];
+			Ref<MaterialAsset> const* requested =
+				submesh.MaterialIndex < materials.size() && materials[submesh.MaterialIndex] ? &materials[submesh.MaterialIndex] : nullptr;
+			MaterialAsset const* requestedSource = requested != nullptr ? requested->get() : nullptr;
+			auto const known = std::find_if(frameMesh.Groups.begin(), frameMesh.Groups.end(),
+			                                [i, requestedSource](FrameMesh::SubmeshGroup const& entry)
+			                                {
+												return entry.Submesh == i && entry.Material == requestedSource;
+											});
 			uint32_t material = 0;
-			if (submesh.MaterialIndex < materials.size() && materials[submesh.MaterialIndex])
+			uint32_t group = 0;
+			if (known != frameMesh.Groups.end())
 			{
-				material = GetFrameMaterial(materials[submesh.MaterialIndex]);
-			}
-			else if (m_DefaultMaterial)
-			{
-				material = *m_DefaultMaterial;
-			}
-			else if (Ref<MaterialAsset> const fallback = GetDefaultMaterial())
-			{
-				material = GetFrameMaterial(fallback);
-				m_DefaultMaterial = material;
+				material = known->FrameMaterial;
+				group = known->Group;
 			}
 			else
 			{
-				continue;
+				if (requested != nullptr)
+				{
+					material = GetFrameMaterial(*requested);
+				}
+				else if (m_DefaultMaterial)
+				{
+					material = *m_DefaultMaterial;
+				}
+				else if (Ref<MaterialAsset> const fallback = GetDefaultMaterial())
+				{
+					material = GetFrameMaterial(fallback);
+					m_DefaultMaterial = material;
+				}
+				else
+				{
+					continue;
+				}
+				group = m_GroupIndices.try_emplace(GroupKey{meshIndex, i, material}, static_cast<uint32_t>(m_GroupIndices.size()))
+				            .first->second;
+				if (frameMesh.Groups.size() < FrameMesh::MaxSubmeshGroups)
+				{
+					frameMesh.Groups.push_back({i, requestedSource, material, group});
+				}
 			}
 
 			SubmeshItem item;
@@ -1096,8 +1135,7 @@ namespace Strada
 			item.Mesh = meshIndex;
 			item.Submesh = i;
 			item.Material = material;
-			item.Group =
-				m_GroupIndices.try_emplace(GroupKey{meshIndex, i, material}, static_cast<uint32_t>(m_GroupIndices.size())).first->second;
+			item.Group = group;
 			item.CastShadows = submission.CastShadows;
 			m_Items.push_back(item);
 		}
@@ -1108,7 +1146,8 @@ namespace Strada
 		auto const [entry, added] = m_FrameMeshIndices.try_emplace(mesh.get(), static_cast<uint32_t>(m_FrameMeshes.size()));
 		if (added)
 		{
-			m_FrameMeshes.push_back({mesh});
+			FrameMesh& frameMesh = m_FrameMeshes.emplace_back();
+			frameMesh.Source = mesh;
 		}
 		return entry->second;
 	}
@@ -1388,23 +1427,20 @@ namespace Strada
 		m_OpaqueBatches.clear();
 		m_EntityIdBatches.clear();
 		m_BlendBatches.clear();
+		m_ShadowBatches.clear();
 		m_InstanceIndices.clear();
 
-		// The opaque and masked items in the camera's view, front to back (ties by submission), and the blended ones.
-		m_PassItems.clear();
+		// The opaque and masked items in the camera's view, front to back (ties by submission).
+		m_SortKeys.clear();
 		for (uint32_t index = 0; index < m_Items.size(); index++)
 		{
 			SubmeshItem const& item = m_Items[index];
 			if (item.InView && IsDrawable(item) && !m_FrameMaterials[item.Material].Blend)
 			{
-				m_PassItems.push_back(index);
+				m_SortKeys.push_back(MakeSortKey(item.ViewDepth, index));
 			}
 		}
-		std::stable_sort(m_PassItems.begin(), m_PassItems.end(),
-		                 [this](uint32_t a, uint32_t b)
-		                 {
-							 return m_Items[a].ViewDepth < m_Items[b].ViewDepth;
-						 });
+		TakeSortedItems(m_SortKeys, m_PassItems);
 
 		// Each group of the pass is one batch. Met front to back, a group's first item is its nearest, and its first
 		// submission is its lowest item index.
@@ -1467,22 +1503,20 @@ namespace Strada
 			}
 		}
 
+		BuildShadowBatches();
+
 		// Blended items are never batched: one instance each, back to front (ties by submission), in the transparent pass
 		// and then in the entity-ID pass.
-		m_PassItems.clear();
+		m_SortKeys.clear();
 		for (uint32_t index = 0; index < m_Items.size(); index++)
 		{
 			SubmeshItem const& item = m_Items[index];
 			if (item.InView && IsDrawable(item) && m_FrameMaterials[item.Material].Blend)
 			{
-				m_PassItems.push_back(index);
+				m_SortKeys.push_back(MakeSortKey(-item.ViewDepth, index));
 			}
 		}
-		std::stable_sort(m_PassItems.begin(), m_PassItems.end(),
-		                 [this](uint32_t a, uint32_t b)
-		                 {
-							 return m_Items[a].ViewDepth > m_Items[b].ViewDepth;
-						 });
+		TakeSortedItems(m_SortKeys, m_PassItems);
 		for (uint32_t const index : m_PassItems)
 		{
 			SubmeshItem const& item = m_Items[index];
@@ -1495,6 +1529,84 @@ namespace Strada
 				m_EntityIdBatches.push_back(MakeBatch(item, material.EntityIdPipeline, run, 1));
 			}
 		}
+	}
+
+	void SceneRenderer::BuildShadowBatches()
+	{
+		if (m_ShadowViews.empty())
+		{
+			return;
+		}
+
+		// The opaque pass left its state in the groups.
+		m_GroupBatches.assign(m_GroupIndices.size(), GroupBatch{});
+		ShadowView const* previous = nullptr;
+		for (ShadowView& view : m_ShadowViews)
+		{
+			// A point light's faces share its range sphere, so the same casters reach each of them: they draw the same runs.
+			if (previous != nullptr && !view.Directional && !previous->Directional && view.Center == previous->Center &&
+			    view.Radius == previous->Radius)
+			{
+				view.FirstBatch = previous->FirstBatch;
+				view.BatchCount = previous->BatchCount;
+				previous = &view;
+				continue;
+			}
+			previous = &view;
+
+			// The casters that reach the view, in submission order; met in that order, a group's first item is its first
+			// submission.
+			m_PassItems.clear();
+			m_PassGroups.clear();
+			Shadows::CascadeTest const cascade(view.ViewProjection);
+			for (uint32_t const index : m_ShadowCasters)
+			{
+				SubmeshItem const& item = m_Items[index];
+				bool const visible =
+					view.Directional ? cascade.Intersects(item.WorldBounds) : IntersectsSphere(item.WorldBounds, view.Center, view.Radius);
+				if (!visible)
+				{
+					continue;
+				}
+				m_PassItems.push_back(index);
+				GroupBatch& group = m_GroupBatches[item.Group];
+				if (group.Count++ == 0)
+				{
+					m_PassGroups.push_back(item.Group);
+					group.FirstItem = index;
+				}
+			}
+
+			view.FirstBatch = static_cast<uint32_t>(m_ShadowBatches.size());
+			uint32_t offset = static_cast<uint32_t>(m_InstanceIndices.size());
+			for (uint32_t const groupIndex : m_PassGroups)
+			{
+				GroupBatch& group = m_GroupBatches[groupIndex];
+				group.Cursor = offset;
+				SubmeshItem const& first = m_Items[group.FirstItem];
+				m_ShadowBatches.push_back(MakeBatch(first, m_FrameMaterials[first.Material].ShadowPipeline, offset, group.Count));
+				offset += group.Count;
+			}
+			view.BatchCount = static_cast<uint32_t>(m_ShadowBatches.size()) - view.FirstBatch;
+			m_InstanceIndices.resize(offset);
+			for (uint32_t const index : m_PassItems)
+			{
+				m_InstanceIndices[m_GroupBatches[m_Items[index].Group].Cursor++] = m_Items[index].Instance;
+			}
+			// The next view counts its groups from zero.
+			for (uint32_t const groupIndex : m_PassGroups)
+			{
+				m_GroupBatches[groupIndex] = GroupBatch{};
+			}
+		}
+	}
+
+	void SceneRenderer::CountBatch(MeshBatch const& batch)
+	{
+		m_Statistics.DrawCalls++;
+		m_Statistics.Batches++;
+		m_Statistics.Instances += batch.InstanceCount;
+		m_Statistics.Triangles += batch.IndexCount / 3 * batch.InstanceCount;
 	}
 
 	uint32_t SceneRenderer::DrawBatches(nvrhi::ICommandList* commandList, std::span<MeshBatch const> batches,
@@ -1529,10 +1641,7 @@ namespace Strada
 			arguments.startInstanceLocation = 0;
 			commandList->drawIndexed(arguments);
 
-			m_Statistics.DrawCalls++;
-			m_Statistics.Batches++;
-			m_Statistics.Instances += batch.InstanceCount;
-			m_Statistics.Triangles += batch.IndexCount / 3 * batch.InstanceCount;
+			CountBatch(batch);
 			instances += batch.InstanceCount;
 		}
 		return instances;
@@ -1590,12 +1699,15 @@ namespace Strada
 		// Directional light: cascades over the view up to the shadow distance.
 		uint32_t const cascadeCount = std::clamp(m_Settings.CascadeCount, 1u, Shadows::MaxCascades);
 		float const shadowDistance = std::min(std::max(m_Settings.ShadowDistance, 0.1f), std::max(m_Camera.MaxDistance, 0.1f));
+		// The frame's casters, in submission order: the cascades reach to their bounds, and each shadow view tests them.
 		AABB casterBounds;
-		for (SubmeshItem const& item : m_Items)
+		m_ShadowCasters.clear();
+		for (uint32_t index = 0; index < m_Items.size(); index++)
 		{
-			if (IsShadowCaster(item))
+			if (IsShadowCaster(m_Items[index]))
 			{
-				casterBounds.Expand(item.WorldBounds);
+				casterBounds.Expand(m_Items[index].WorldBounds);
+				m_ShadowCasters.push_back(index);
 			}
 		}
 		if (m_ShadowedDirectionalLight >= 0)
@@ -1730,51 +1842,40 @@ namespace Strada
 			nvrhi::FramebufferInfoEx const& info = framebuffer->getFramebufferInfo();
 			m_Statistics.ShadowMapViews++;
 
-			// Each caster that reaches the view is one draw of its one instance, its matrix in the push constants.
-			for (SubmeshItem const& item : m_Items)
+			nvrhi::Viewport const viewport = info.getViewport();
+			std::span<MeshBatch const> const batches =
+				std::span<MeshBatch const>(m_ShadowBatches).subspan(view.FirstBatch, view.BatchCount);
+			uint32_t instances = 0;
+			for (MeshBatch const& batch : batches)
 			{
-				if (!IsShadowCaster(item))
-				{
-					continue;
-				}
-				bool const visible = view.Directional ? IntersectsOrthographicView(item.WorldBounds, view.ViewProjection)
-				                                      : IntersectsSphere(item.WorldBounds, view.Center, view.Radius);
-				if (!visible)
-				{
-					continue;
-				}
-
-				FrameMaterial const& material = m_FrameMaterials[item.Material];
-				FrameMesh const& mesh = m_FrameMeshes[item.Mesh];
 				nvrhi::GraphicsState state;
-				state.pipeline = material.ShadowPipeline;
+				state.pipeline = batch.Pipeline;
 				state.framebuffer = framebuffer;
-				state.viewport.addViewportAndScissorRect(info.getViewport());
-				state.bindings = {m_ShadowBindings, material.Bindings};
-				state.vertexBuffers = {nvrhi::VertexBufferBinding().setBuffer(mesh.Gpu->VertexBuffer).setSlot(0).setOffset(0)};
+				state.viewport.addViewportAndScissorRect(viewport);
+				state.bindings = {m_ShadowBindings, batch.MaterialBindings};
+				state.vertexBuffers = {nvrhi::VertexBufferBinding().setBuffer(batch.Mesh->VertexBuffer).setSlot(0).setOffset(0)};
 				state.indexBuffer =
-					nvrhi::IndexBufferBinding().setBuffer(mesh.Gpu->IndexBuffer).setFormat(nvrhi::Format::R32_UINT).setOffset(0);
+					nvrhi::IndexBufferBinding().setBuffer(batch.Mesh->IndexBuffer).setFormat(nvrhi::Format::R32_UINT).setOffset(0);
 				commandList->setGraphicsState(state);
 
-				ShaderInterop::ShadowDrawConstants constants;
-				constants.Model = m_Instances[item.Instance].Model;
+				ShaderInterop::ShadowDrawConstants constants{};
 				constants.ViewProjection = view.ViewProjection;
+				constants.InstanceOffset = batch.FirstInstance;
 				commandList->setPushConstants(&constants, sizeof(constants));
 
-				Submesh const& submesh = mesh.Source->GetSubmeshes()[item.Submesh];
 				nvrhi::DrawArguments arguments;
-				arguments.vertexCount = submesh.IndexCount;
-				arguments.startIndexLocation = submesh.BaseIndex;
-				arguments.startVertexLocation = submesh.BaseVertex;
+				arguments.vertexCount = batch.IndexCount;
+				arguments.instanceCount = batch.InstanceCount;
+				arguments.startIndexLocation = batch.BaseIndex;
+				arguments.startVertexLocation = batch.BaseVertex;
+				arguments.startInstanceLocation = 0;
 				commandList->drawIndexed(arguments);
 
-				m_Statistics.DrawCalls++;
-				m_Statistics.Batches++;
-				m_Statistics.Instances++;
+				CountBatch(batch);
 				m_Statistics.ShadowDrawCalls++;
-				m_Statistics.Triangles += submesh.IndexCount / 3;
-				m_PassInstanceCounts.ShadowViews[viewIndex]++;
+				instances += batch.InstanceCount;
 			}
+			m_PassInstanceCounts.ShadowViews[viewIndex] = instances;
 		}
 	}
 
@@ -1983,17 +2084,23 @@ namespace Strada
 			ResolveFrameResources(m_Settings.Shadows && (m_ShadowedDirectionalLight >= 0 || !m_LocalShadowLights.empty()));
 			m_Quads->Prepare(m_Camera.Position, glm::uvec2(m_Width, m_Height));
 			m_Statistics.Quads = m_Quads->GetQuadCount();
-			m_Statistics.DrawCalls += m_Quads->GetBatchCount();
 			m_Statistics.Triangles += 2 * m_Quads->GetQuadCount();
 
 			PrepareShadows(shadows);
 			BuildBatches();
-			// The camera's passes draw the frame's meshes only when the instance buffers hold them (the error is logged).
+			// The frame draws its meshes only when the instance buffers hold them (the error is logged); the shadow maps are
+			// still cleared.
 			if (!EnsureInstanceBuffers(m_Instances.size(), m_InstanceIndices.size()))
 			{
 				m_OpaqueBatches.clear();
 				m_EntityIdBatches.clear();
 				m_BlendBatches.clear();
+				m_ShadowBatches.clear();
+				for (ShadowView& view : m_ShadowViews)
+				{
+					view.FirstBatch = 0;
+					view.BatchCount = 0;
+				}
 			}
 			if (!m_Lines.empty())
 			{
@@ -2106,11 +2213,12 @@ namespace Strada
 			ShaderInterop::DrawConstants const unused{};
 			commandList->setPushConstants(&unused, sizeof(unused));
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+			m_Statistics.DrawCalls++;
 		}
 		{
 			PassScope const pass(*this, commandList, "Transparent");
 			m_PassInstanceCounts.Transparent = DrawBatches(commandList, m_BlendBatches, m_SceneFramebuffer, m_FrameBindings);
-			m_Quads->RenderWorld(commandList, m_SceneFramebuffer, frame.ViewProjection);
+			m_Statistics.DrawCalls += m_Quads->RenderWorld(commandList, m_SceneFramebuffer, frame.ViewProjection);
 		}
 		bool pickCopied = false;
 		if (m_EntityIdsEnabled)
@@ -2171,6 +2279,7 @@ namespace Strada
 			tonemap.Frame = m_PostFrame++;
 			commandList->setPushConstants(&tonemap, sizeof(tonemap));
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+			m_Statistics.DrawCalls++;
 		}
 
 		{
@@ -2191,6 +2300,7 @@ namespace Strada
 			fxaa.InverseSize = 1.0f / glm::vec2(static_cast<float>(m_Width), static_cast<float>(m_Height));
 			commandList->setPushConstants(&fxaa, sizeof(fxaa));
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+			m_Statistics.DrawCalls++;
 		}
 		if (m_EntityIdsEnabled && m_HasSelection)
 		{
@@ -2200,7 +2310,7 @@ namespace Strada
 		{
 			// Screen-space sprites and text cover everything else.
 			PassScope const pass(*this, commandList, "ScreenSpace");
-			m_Quads->RenderScreen(commandList, m_FinalFramebuffer);
+			m_Statistics.DrawCalls += m_Quads->RenderScreen(commandList, m_FinalFramebuffer);
 		}
 
 		if (frameTimer != nullptr)
@@ -2230,10 +2340,34 @@ namespace Strada
 		m_OpaqueBatches.clear();
 		m_EntityIdBatches.clear();
 		m_BlendBatches.clear();
+		m_ShadowBatches.clear();
 		m_ShadowViews.clear();
 		m_Lines.clear();
 		m_Quads->Clear();
 		Renderer::CollectGarbage();
+		// An idle profiler costs one relaxed load here.
+		if (Profiler::IsRecording())
+		{
+			RecordProfilerCounters();
+		}
+	}
+
+	void SceneRenderer::RecordProfilerCounters() const
+	{
+		std::array<ProfilerCounter, 11> const counters = {{
+			{"DrawCalls", m_Statistics.DrawCalls},
+			{"Batches", m_Statistics.Batches},
+			{"Instances", m_Statistics.Instances},
+			{"Triangles", m_Statistics.Triangles},
+			{"ShadowDrawCalls", m_Statistics.ShadowDrawCalls},
+			{"ShadowMapViews", m_Statistics.ShadowMapViews},
+			{"ShadowsDropped", m_Statistics.ShadowsDropped},
+			{"Lights", m_Statistics.Lights},
+			{"CulledLights", m_Statistics.CulledLights},
+			{"Culled", m_Statistics.Culled},
+			{"Quads", m_Statistics.Quads},
+		}};
+		Profiler::RecordCounters(m_ViewName, counters);
 	}
 
 	void SceneRenderer::RenderEntityIds(nvrhi::ICommandList* commandList)
@@ -2242,7 +2376,7 @@ namespace Strada
 		commandList->clearDepthStencilTexture(m_EntityIdDepth, nvrhi::AllSubresources, true, 0.0f, false, 0);
 
 		m_PassInstanceCounts.EntityIds = DrawBatches(commandList, m_EntityIdBatches, m_EntityIdFramebuffer, m_EntityIdBindings);
-		m_Quads->RenderEntityIds(commandList, m_EntityIdFramebuffer, m_Camera.Projection * m_Camera.View);
+		m_Statistics.DrawCalls += m_Quads->RenderEntityIds(commandList, m_EntityIdFramebuffer, m_Camera.Projection * m_Camera.View);
 	}
 
 	void SceneRenderer::RenderOverlays(nvrhi::ICommandList* commandList, bool ldrTarget)
@@ -2268,12 +2402,13 @@ namespace Strada
 			constants.FadeDistance = grid.FadeDistance;
 			commandList->setPushConstants(&constants, sizeof(constants));
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+			m_Statistics.DrawCalls++;
 		}
 
 		// UI placed in the world (the editor's scene view shows canvases this way): over the grid, under the lines, and hidden
 		// behind surfaces.
-		m_Quads->RenderWorldUI(commandList, ldrTarget ? m_LdrWorldUIFramebuffer : m_FinalWorldUIFramebuffer,
-		                       m_Camera.Projection * m_Camera.View);
+		m_Statistics.DrawCalls += m_Quads->RenderWorldUI(commandList, ldrTarget ? m_LdrWorldUIFramebuffer : m_FinalWorldUIFramebuffer,
+		                                                 m_Camera.Projection * m_Camera.View);
 
 		if (m_Lines.empty() || !m_LineLayerFramebuffer || !m_LineCompositePipeline)
 		{
@@ -2314,6 +2449,7 @@ namespace Strada
 		commandList->setGraphicsState(lineState);
 		commandList->setPushConstants(&constants, sizeof(constants));
 		commandList->draw(nvrhi::DrawArguments().setVertexCount(6).setInstanceCount(static_cast<uint32_t>(m_Lines.size())));
+		m_Statistics.DrawCalls++;
 
 		nvrhi::GraphicsState compositeState;
 		compositeState.pipeline = m_LineCompositePipeline;
@@ -2322,6 +2458,7 @@ namespace Strada
 		compositeState.bindings = {m_LineCompositeBindings};
 		commandList->setGraphicsState(compositeState);
 		commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+		m_Statistics.DrawCalls++;
 	}
 
 	void SceneRenderer::RenderSelectionOutline(nvrhi::ICommandList* commandList)
@@ -2341,5 +2478,6 @@ namespace Strada
 		constants.Radius = static_cast<int32_t>(std::clamp(m_Overlays.SelectionOutlineWidth, 1u, MaxOutlineWidth));
 		commandList->setPushConstants(&constants, sizeof(constants));
 		commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+		m_Statistics.DrawCalls++;
 	}
 }

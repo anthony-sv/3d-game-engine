@@ -239,7 +239,9 @@ namespace Strada
 				"capture the Profiler panel shows: {{ name, path, frames }}, or null) }}. With medians true, also medians of the "
 				"frames held (null when none is): {{ frameMilliseconds, framePercentile99Milliseconds, subsystems, threads, "
 				"gpuPasses ([{{ name, milliseconds }}] per frame: subsystems on the main thread, other threads' busy time, GPU "
-				"passes as \"<view>/<pass>\"), zones ([{{ name, millisecondsPerFrame, millisecondsPerCall, callsPerFrame }}], the "
+				"passes as \"<view>/<pass>\"), counters ([{{ name, median }}]: each renderer's statistics per frame as "
+				"\"<view>/<counter>\", DrawCalls, Batches and Instances among them, over the frames the view drew), zones ([{{ name, "
+				"millisecondsPerFrame, millisecondsPerCall, callsPerFrame }}], the "
 				"{} costliest per frame), zonesOmitted }}. Changes nothing.",
 				MaxReportedZones);
 			status.Parameters = SchemaBuilder::Object()
@@ -396,6 +398,11 @@ namespace Strada
 		                 {
 							 return first->MillisecondsPerFrame > second->MillisecondsPerFrame;
 						 });
+		Json counterList = Json::array();
+		for (ProfilerCounterMedian const& counter : medians.Counters)
+		{
+			counterList.push_back(Json::object({{"name", counter.Name}, {"median", counter.Value}}));
+		}
 		Json zoneList = Json::array();
 		for (size_t index = 0; index < std::min(zones.size(), maxZones); index++)
 		{
@@ -410,6 +417,7 @@ namespace Strada
 		                     {"subsystems", DescribeMedianList(medians.Subsystems)},
 		                     {"threads", DescribeMedianList(medians.Threads)},
 		                     {"gpuPasses", DescribeMedianList(medians.GpuPasses)},
+		                     {"counters", std::move(counterList)},
 		                     {"zones", std::move(zoneList)},
 		                     {"zonesOmitted", zones.size() - std::min(zones.size(), maxZones)}});
 	}

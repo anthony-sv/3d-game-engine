@@ -1,17 +1,22 @@
 #include "Core/ProfilerTestUtilities.h"
 #include "Fuzzing.h"
 #include "Physics/PhysicsTestUtilities.h"
+#include "Renderer/RenderTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
+#include "Strada/Renderer/SceneRenderer.h"
+#include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Scene/SceneRendering.h"
 #include "Strada/Scene/SceneSerializer.h"
 
 #include <doctest/doctest.h>
@@ -506,6 +511,48 @@ TEST_CASE("Scene: scripts read their children where a parent moved in the same f
 		CHECK(mover.GetComponent<TransformComponent>().Translation.x == doctest::Approx(static_cast<float>(frame)));
 		scene.UpdateTransforms();
 	}
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: a write a script makes in OnDestroy, when the frame ends, reaches the next frame's draw")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope rendering(stGpuTestScope);
+	Testing::ScriptEngineScope scripting;
+	Scene scene("Destroyed");
+	Entity target = scene.CreateEntity("Target");
+	target.AddComponent<MeshComponent>().Mesh = GetBuiltInHandle(BuiltInAsset::CubeMesh);
+	Entity mover = scene.CreateEntity("Mover");
+	ScriptComponent& script = mover.AddComponent<ScriptComponent>();
+	script.ClassName = "Strada.Tests.ParentMover";
+	script.Fields = {{"MovedOnDestroy", ScriptFieldValue::FromEntity(target.GetUUID())}};
+	SceneRenderer renderer;
+	renderer.SetViewportSize(64, 64);
+	SceneRendererCamera const camera = Testing::MakeTestCamera({0.0f, 1.0f, 8.0f}, {0.0f, 0.0f, 0.0f}, 64, 64);
+	auto const drawn = [&renderer]()
+	{
+		REQUIRE(renderer.GetFrameInstances().size() == 1);
+		return renderer.GetFrameInstances()[0];
+	};
+
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	RenderScene(scene, renderer, camera);
+	glm::mat4 const before = drawn().Model;
+	CHECK(glm::vec3(before[3]) == glm::vec3(0.0f));
+
+	// The deferred destruction runs the script's OnDestroy after the update, as the frame ends.
+	UUID const moverId = mover.GetUUID();
+	scene.DestroyEntity(mover);
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	REQUIRE_FALSE(scene.HasEntity(moverId));
+	CHECK(target.GetComponent<TransformComponent>().Translation == glm::vec3(0.0f, 2.0f, 0.0f));
+	RenderScene(scene, renderer, camera);
+	ShaderInterop::InstanceData const after = drawn();
+	CHECK(HasSameBits(after.Model, scene.GetWorldTransform(target)));
+	CHECK(glm::vec3(after.Model[3]) == glm::vec3(0.0f, 2.0f, 0.0f));
+	// The frame began before the write: its previous matrix is the one drawn before.
+	CHECK(HasSameBits(after.PreviousModel, before));
 	scene.OnRuntimeStop();
 }
 
