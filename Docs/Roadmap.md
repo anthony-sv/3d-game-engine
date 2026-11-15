@@ -84,7 +84,7 @@ new share: every public scripting-API member becomes a graph node by reflection,
 | A public scripting-API member | Bound by name on both sides (`ScriptBindings*.cpp` and `InternalCalls.cs`); XML docs; value checks; used by the FeatureTest scripts. As a node it must analyze and run in `VisualScriptNodeCoverageTests.cpp`, or get a `Recipe`, a `MemberTypeRecipes` entry or a checked exclusion (about 5% of nodes need one). A query gets `[PureNode]` and joins `NodeLibraryTests.ExactlyTheListedQueriesAreMarkedPure`. A rename gets a `NodeRedirect`. A member in `Tests/Data/VisualScripting/Editor/Library.json` needs the fixture regenerated |
 | A callback scripts override | A new built-in event node kind: `NodeDefinition.cs` and `BuiltinNodes.cs` (inside the right enum range), `ProgramCompiler`'s table and `VisualScriptRuntime.Invoke`'s range, `VisualScriptEngine::InvokeOn<Name>` and the scene call after the C# callback, the `Documents/Events.json` fixture, `build_features` in `Projects/FeatureTest/Tools/AuthorGraphs.py` and the pinned `FeaturesChecks`, the titles mirror test, the doc tables |
 | A component | A field table with hints, the registry list and tests, entity-reference remapping, add and remove while running, a managed class, an entity in FeatureTest's `Main.sscene` |
-| An asset type | About 20 files today (content browser, inspector, thumbnails, drops, automation, bindings, a typed managed class); E3's data-asset template (§3.13) reduces a field-table asset to one registration |
+| An asset type | A field-table asset is a data asset since First Ride's slice 1 (E3, §3.13): one registration gives its file, migrations, inspector, commands and fuzz test, plus a managed class with its obligations (the `strada-add-data-asset` skill); any other asset type still costs about 20 files (content browser, inspector, thumbnails, drops, automation, bindings, a typed managed class) |
 | A file format users write | A versioned header, a migration on every change, and a `Testing::DocumentMutator` fuzz test |
 | An editor operation | Undoable through the command history; an automation command with a JSON schema and an `Automation.md` row; fuzzed by `AutomationFuzzTests` |
 | A visual-script editing operation | A `graph.edit` operation, entries in both fuzz generators, an `Automation.md` row |
@@ -206,7 +206,7 @@ November 2026 are explained in §3.12.
 | U2 | Localization: string tables, fallback fonts, text shaping (HarfBuzz), right-to-left text, plurals and number formats | 4 | 2 | M | 3 | 12 | 3 | – | Not started |
 | U3 | UI authoring in the editor: canvas editing in place, anchor handles, styles | 4 | 3 | M | 2 | 18 | 3 | – | Not started |
 | S1 | Script conveniences: coroutines and `async` helpers, timers, events between scripts. Graphs have them (latent nodes, custom events, broadcasts, `SendEvent` from C#); C# has none yet, and its pending coroutines must be cancelled at every hot reload | 4 | 2 | S | 2 | 20 | 2 | – | Partly done |
-| S2 | Saves and settings: versioned save slots with atomic writes, player settings (graphics quality presets, audio volumes, controls) and their menus (menus wait for U1's widgets) | 5 | 4 | S | 2 | 30 | 0 | 2 (core) | Not started |
+| S2 | Saves and settings: versioned save slots with atomic writes, player settings (graphics quality presets, audio volumes, controls) and their menus (menus wait for U1's widgets). It writes below the game data folder E11's core built; the editor's export smoke test and Run Game start an exported game with the developer's own environment, so on that machine it logs (and would save) in the game's real folder, and SV decides whether they get a temporary one | 5 | 4 | S | 2 | 30 | 0 | 2 (core) | Not started |
 | S3 | Camera system: follow, orbit and look-at rigs with damping and collision, blends between cameras, shake, rails (rails need W2) | 4 | 5 | M | 2-3 | 18 | 1 | 3 | Not started |
 | S4 | Script debugging: attaching VS Code and Rider to the hosted runtime, documented and tested; script time in the profiler. The graph debugger is done, in the editor only; C# attach and script time are not | 4 | 3 | S | 2 | 23 | 2 | – | Partly done |
 | S5 | Navigation: navmeshes (Recast and Detour), crowds, behavior or state trees (possibly a graph kind on the visual-script infrastructure) | 5 | 1 | L | 3 | 9 | Later | – | Not started |
@@ -408,8 +408,8 @@ Libraries recommended by the survey in EngineComparison.md §7: permissively lic
 
 ### 4.1 Measured velocity
 
-The October plan asked to re-estimate from measured velocity after Phase 0. Phase 0 has not started, but visual
-scripting, an item of roughly XL size, gives the measurement.
+The October plan asked to re-estimate from measured velocity after Phase 0. Phase 0 is under way (First Ride's first
+slice is done), and visual scripting, an item of roughly XL size, gave the first measurement.
 
 | Measure | Visual scripting, 2026-10-21 to 2026-11-04 |
 |---|---|
@@ -478,12 +478,12 @@ joins from Phase 1 on (§8).
 
 The whole backlog sums to about 640 engineer-weeks (§2's sums): about 540 in October, plus about 20 from the
 re-estimates, 50 for distribution (about 6 of them built in Front Door and about 2 moved to First Ride) and 30 for the
-visual-scripting follow-ups. At the measured pace, counting from First Ride's start (§4.4), M1 is about 4.5 weeks away
-with the third lane paused and about 6 with it running, M2 roughly 11-20 weeks after M1 (10-19 if the third lane
-delivered A1's first three slices, which otherwise come first in Effort 3), and M4 about 38-65 calendar weeks from the
-start (late summer 2027 to early 2028, if First Ride starts in late November 2026). Those figures exclude content, which
-runs at the speed of the people who make it, and the obligations' +5-10%. If the allowance binds harder than during
-visual scripting, every range stretches.
+visual-scripting follow-ups. First Ride started on 2026-11-13 and its first slice took 1.26 days; counting from that
+slice's gate (§4.4), M1 is about 6 days away at slice 1's rate and about 27 at the pause-inclusive factors, without a
+third lane; M2 roughly 11-20 weeks after M1 (A1's first three slices come first in Effort 3, since the third lane has
+not delivered them), and M4 about 38-65 calendar weeks from First Ride's start at the factors (late summer 2027 to
+early 2028). Those figures exclude content, which runs at the speed of the people who make it, and the obligations'
++5-10%. If the allowance binds harder than during visual scripting, every range stretches.
 
 The efforts map onto the October phases this way:
 
@@ -723,7 +723,8 @@ in Effort 3 with the rest of The Rider; and the rest of distribution (§3.10), w
   screenshots, with a sourced bike model as the fallback. Content is estimated at 1× unless that review accepts the
   generated look.
 - **The reference machine** is the maintainer's NVIDIA GeForce RTX 4050 Laptop GPU with 12 hardware threads: Release,
-  1920×1080, `StradaRuntime --profile` medians over 600 frames on mains power, recorded in Architecture.md §15.
+  1920×1080, `StradaRuntime --profile` medians over 600 frames on mains power, recorded below the performance targets
+  (§4.3) at each gate.
 - **Cut line and cut order.** TA and the third lane sit below the cut line: M1's exit criteria hold without them, FXAA
   stays as TA's fallback, and nothing waits for splines or skinning. The third lane shares the allowance with lanes A
   and B, so at a slice checkpoint its remaining tracks wait first; they resume when the effort has headroom, or after
@@ -864,7 +865,7 @@ measured. If the factor dates hold, slice 4 falls before the holidays; M1's play
   and the C++ tests precompile their standard and third-party headers on MSVC, Clang and Apple Clang, not on GCC, and
   the Linux Clang Debug job builds without them, as the check that every source includes what it uses. A
   ThreadSanitizer workflow (Linux Clang; on a schedule, by hand, and on a push to a `tsan/` branch) runs the threading
-  cases and never gates a merge. Alarms: 450 s per ctest entry and 50 minutes per job. On the run at slice 1's last
+  cases and never gates a merge. Alarms: 450 s per ctest entry and 45 minutes per job. On the run at slice 1's last
   commit (`13bed91`) every job took under 35 minutes (Windows MSVC Debug 34.4, of which the tests 17.1) and the slowest
   ctest entry was StradaRuntimeTests on macOS, 173 s; one run's figures, not a promise. The clang check reads
   `compile_commands.json` (local tooling, not in the repository). A per-test timeout in StradaToolTests, which a
@@ -1190,7 +1191,7 @@ its permanent cost is now a risk (§8) and a set of obligations (§2.1). Visual 
 | Scope: chasing every engine feature and finishing none | Efforts and phases end in playable milestones; the score and the game decide what comes next; every effort carries a cut order |
 | The allowance: two pauses (about 98 h and 129 h) took about two thirds of visual scripting's calendar, and it, not the number of engineers, sets every date in §4 | Pause-inclusive factors; tracks of 0.5-1.5 active days; a heartbeat cron that resumes the workflow; capped specs; active hours per track as a second velocity point; cut orders; the third lane waits first if it binds |
 | Distribution's cost is easy to underrate: it is about 50 engineer-weeks (§3.10), about as much as First Ride, and its pieces keep asking to come back | The maintainer cut it on 2026-11-10; Front Door took about 6 engineer-weeks of it, and E11's core about 2 more moved to First Ride, on seams that let the rest wait; the backlog stays rated and unscheduled, and a decision to resume (§9) is priced against First Ride's dates with §4.4's formula |
-| CI time: every new command goes through the automation fuzzer, jobs have 60 minutes, hosted runners differ in speed by 40 % or more, and StradaToolTests hung once for 600 s on Linux Clang Debug | Both C++ suites with many cases run as ctest shards with partition checks; precompiled headers for the editor core and the tests (the Windows MSVC Release job went from 35-47 minutes, once killed at 60, to 26-32); Build and Test steps, so that a killed job shows its phase; alarms at 450 s per entry and 50 minutes per job; long rides and the 10,000-prop benchmark behind an environment switch; a ThreadSanitizer workflow outside the merge gate; a per-test timeout in StradaToolTests is not scheduled |
+| CI time: every new command goes through the automation fuzzer, jobs have 60 minutes, hosted runners differ in speed by 40 % or more, and StradaToolTests hung once for 600 s on Linux Clang Debug | Both C++ suites with many cases run as ctest shards with partition checks; precompiled headers for the editor core and the tests (the Windows MSVC Release job went from 35-47 minutes, once killed at 60, to 26-32); Build and Test steps, so that a killed job shows its phase; alarms at 450 s per entry and 45 minutes per job; long rides and the 10,000-prop benchmark behind an environment switch; a ThreadSanitizer workflow outside the merge gate; a per-test timeout in StradaToolTests is not scheduled |
 | Visual scripting's permanent cost: every scripting-API item pays its obligations; the visual-script editor was a 77,000-line component with about 92,000 lines of tests at `d130bc1`; three performance targets were missed (Architecture.md §15: a watched 2,000-node graph's flow frame at 1.75 ms against 1 ms; 200 value pills at 1.02-1.12 ms against 0.4 ms; a new link on a 2,000-node graph at 63.2 ms against 60 ms; still missed at First Ride's first slice gate, where the profiler's zones place the time: 59 ms of the new link's 72-74 ms is the analysis, mostly the managed runtime) | Obligations counted in every estimate and enforced by tests; T1's zones now measure the targets, and VS4 starts from them; no state graphs, macros or player debugging until a game needs them |
 | The bike is unrideable on a gamepad | Assists (§5.6) from the first simulated ride; playtests at every milestone; the pro mode stays a separate layer |
 | Jolt's `MotorcycleController` is "still in development" and has no counter-steering or camber thrust, so First Ride's bike may feel arcade | Tune within Jolt's model against telemetry targets (lean near `atan(v² / (g R))`, stable at speed, a lap-time window); its parameters are data, so agents iterate without code; V1 replaces it |
@@ -1236,8 +1237,9 @@ of D0, D1 and D2 waits, and the start screen, templates, examples and agent-read
 effort to spend time on after them. On 2026-11-12 the maintainer delegated the remaining choices, and the agent that
 orchestrates the efforts decided them under that delegation: Front Door as Effort 1, First Ride's changes (E11's core in
 slice 1, the third lane, no previews, no lane C). The maintainer can change any of them. The State column says where
-each row stands: **Decided**; **Default**, a recommended default that stands until the maintainer changes it; or
-**Waits**, not needed until distribution returns.
+each row stands: **Decided**; **Default**, a recommended default that stands until the maintainer changes it;
+**Open**, a question the maintainer has not answered and nothing has decided by default; or **Waits**, not needed
+until distribution returns.
 
 | Decision | State | Recommended default | Blocks |
 |---|---|---|---|
@@ -1353,7 +1355,7 @@ where it differs from what this section planned:
   the editor core and the C++ tests (not on GCC), with CI's Linux Clang Debug job building without them; CI's Build and
   Test steps and `Tools/build.py --keep-going`.
 - **W2 on the third lane: not started** (§4.3, §9).
-- **Exit, as the gate measured it** with every lane idle on the reference machine (Architecture.md §15): every sample's
+- **Exit, as the gate measured it** with every lane idle on the reference machine (§4.3): every sample's
   frame by subsystem and GPU pass in a capture; the Showcase yard drawn evenly at a 1/144 s frame with 60 Hz physics;
   equal state hashes at 30, 60 and 144 frames per second for the same step, held per platform by a StradaRuntimeTests
   case that every CI job runs; Moto's tour in the player and in the editor; an exported game's log below its own data
