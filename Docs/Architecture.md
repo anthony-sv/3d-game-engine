@@ -1486,7 +1486,7 @@ the two sides, as Jolt's pairs come in body order. With both modes at their defa
 and `std::max(a, b)`, the expressions of the listener before materials, so a scene without materials simulates bit for
 bit as it did and its state hashes do not change. A side is one sub-shape: a collider of a compound body, or a
 triangle's submesh. Its surface is found from the sub-shape ID: `Shape::GetLeafShape`, which compound and decorated
-shapes pass on to the leaf (`CompoundShape.cpp`, `DecoratedShape.h:52` of the pinned Jolt), gives the leaf shape, whose
+shapes pass on to the leaf (`CompoundShape.cpp:136`, `DecoratedShape.h:52` of the pinned Jolt), gives the leaf shape, whose
 user data names its collider's entry in the table below, as before materials; on a triangle mesh with submesh
 materials the rest of the ID is the triangle, whose Jolt material index (`MeshShape::GetMaterialIndex`) is 0 for the
 collider's own surface and i for the i-th submesh's. Such a mesh's shape carries a material list
