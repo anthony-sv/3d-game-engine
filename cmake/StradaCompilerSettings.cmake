@@ -120,7 +120,8 @@ endfunction()
 # Precompiles the third-party and standard headers that nearly every source of a target parses, for the targets whose
 # sources include no precompiled header of their own (the editor core and the C++ test executables; the engine library
 # has Strada/Source/stpch.h). CMake forces the header into every C++ source of the target, so no source includes it,
-# and each source still includes everything it uses: CMAKE_DISABLE_PRECOMPILE_HEADERS=ON builds without it.
+# and each source still includes everything it uses. STRADA_PRECOMPILE_THIRD_PARTY_HEADERS=OFF builds these targets
+# without it, as CI's Linux Clang Debug job does, so a missing include fails there.
 # The list was measured (MSVC Release, /Bt+, eight sources of each target): it halves the front end's time. EnTT,
 # Dear ImGui, NVRHI and doctest saved about 1 s more over eight sources at most, within noise, and stay out. Only
 # third-party and standard headers belong here, never a Strada header: an edit to one would recompile every source of
@@ -161,7 +162,9 @@ set(STRADA_PRECOMPILED_THIRD_PARTY_HEADERS
     <nlohmann/json.hpp>)
 
 function(strada_precompile_third_party_headers target)
-    target_precompile_headers(${target} PRIVATE ${STRADA_PRECOMPILED_THIRD_PARTY_HEADERS})
+    if(STRADA_PRECOMPILE_THIRD_PARTY_HEADERS)
+        target_precompile_headers(${target} PRIVATE ${STRADA_PRECOMPILED_THIRD_PARTY_HEADERS})
+    endif()
 endfunction()
 
 # Build-configuration macros (ST_DEBUG / ST_RELEASE / ST_DIST) for a target and its consumers.

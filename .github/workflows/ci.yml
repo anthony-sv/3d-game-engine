@@ -53,7 +53,11 @@ jobs:
           - { name: "Windows MSVC Release", os: windows-2025, config: release, allowNoGpu: "0" }
           - { name: "Linux GCC Debug", os: ubuntu-24.04, config: debug, compiler: gcc, allowNoGpu: "0" }
           - { name: "Linux GCC Release", os: ubuntu-24.04, config: release, compiler: gcc, allowNoGpu: "0" }
-          - { name: "Linux Clang Debug", os: ubuntu-24.04, config: debug, compiler: clang, allowNoGpu: "0" }
+          # Linux Clang Debug builds the editor core and the C++ tests without their precompiled header of third-party
+          # and standard headers: it is the check that every source of those targets includes what it uses, so a
+          # missing include fails there.
+          - { name: "Linux Clang Debug", os: ubuntu-24.04, config: debug, compiler: clang, allowNoGpu: "0",
+              precompileThirdPartyHeaders: "OFF" }
           - { name: "macOS Apple Clang Debug", os: macos-26, config: debug, allowNoGpu: "1" }
           - { name: "macOS Apple Clang Release", os: macos-26, config: release, allowNoGpu: "1" }
     env:
@@ -109,7 +113,11 @@ jobs:
         run: |
           compiler_args=()
           if [ -n "${{ matrix.compiler }}" ]; then compiler_args=(--compiler "${{ matrix.compiler }}"); fi
-          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" \
+          precompile_args=()
+          if [ -n "${{ matrix.precompileThirdPartyHeaders }}" ]; then
+            precompile_args=("--cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=${{ matrix.precompileThirdPartyHeaders }}")
+          fi
+          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" "${precompile_args[@]}" \
             "--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=${STRADA_DEPENDENCY_CACHE_DIR}"
 
       - name: Test
@@ -117,5 +125,9 @@ jobs:
         run: |
           compiler_args=()
           if [ -n "${{ matrix.compiler }}" ]; then compiler_args=(--compiler "${{ matrix.compiler }}"); fi
-          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" --test \
+          precompile_args=()
+          if [ -n "${{ matrix.precompileThirdPartyHeaders }}" ]; then
+            precompile_args=("--cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=${{ matrix.precompileThirdPartyHeaders }}")
+          fi
+          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" "${precompile_args[@]}" --test \
             "--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=${STRADA_DEPENDENCY_CACHE_DIR}"

@@ -5,6 +5,8 @@ option(STRADA_WARNINGS_AS_ERRORS "Treat compiler warnings in Strada targets as e
 option(STRADA_ENABLE_SANITIZERS "Build Strada targets with AddressSanitizer (and UndefinedBehaviorSanitizer where supported)" OFF)
 option(STRADA_ENABLE_THREAD_SANITIZER
     "Build Strada targets and the third-party code they compile with ThreadSanitizer (GCC and Clang)" OFF)
+option(STRADA_PRECOMPILE_THIRD_PARTY_HEADERS
+    "Precompile the editor core's and the C++ tests' third-party headers (OFF checks that their sources include what they use)" ON)
 set(STRADA_DEPENDENCY_CACHE_DIR "" CACHE PATH
     "Optional directory where dependency archives are cached between build trees (speeds up fresh configures)")
 

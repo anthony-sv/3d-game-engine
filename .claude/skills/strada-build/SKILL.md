@@ -99,10 +99,12 @@ source of StradaTests or StradaEditorTests must also land in exactly one shard o
   nlohmann/json. CMake forces the header (`cmake_pch.hxx` in the target's build directory) into every C++ source of
   those targets, so their sources include no precompiled header. Each target compiles its own copy, because their
   definitions differ.
-- Every source still includes everything it uses, as if there were no precompiled header. A build without them must
-  compile it: `python Tools/build.py --cmake-arg=-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON`. The value stays in the build
-  tree's cache, so switch back with `--cmake-arg=-UCMAKE_DISABLE_PRECOMPILE_HEADERS`. Run that build after removing an
-  include or adding a source to these targets.
+- Every source still includes everything it uses, as if there were no precompiled header. CI's Linux Clang Debug job
+  builds the four targets without it (`STRADA_PRECOMPILE_THIRD_PARTY_HEADERS=OFF`; the engine library keeps
+  `stpch.h`), so a forgotten include fails there. To reproduce that job's failure locally, build with
+  `python Tools/build.py --cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=OFF`. The value stays in the build tree's
+  cache until `--cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=ON` or
+  `--cmake-arg=-USTRADA_PRECOMPILE_THIRD_PARTY_HEADERS`; each switch recompiles the four targets.
 - A header joins the list only when it is third-party or standard, most of the targets' sources parse it, and a
   measurement shows a gain (MSVC `/Bt+` front-end times on a sample of sources, with and without it). EnTT, Dear ImGui,
   NVRHI and doctest were measured that way: on top of the list, they saved about 1 s over eight sources at most,
