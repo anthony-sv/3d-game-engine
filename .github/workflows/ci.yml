@@ -55,7 +55,8 @@ jobs:
           - { name: "Linux GCC Release", os: ubuntu-24.04, config: release, compiler: gcc, allowNoGpu: "0" }
           # Linux Clang Debug builds the editor core and the C++ tests without their precompiled header of third-party
           # and standard headers: it is the check that every source of those targets includes what it uses, so a
-          # missing include fails there.
+          # missing include fails there. The GCC jobs build without that header too, but only because GCC is excluded
+          # from it (cmake/StradaCompilerSettings.cmake); this check does not depend on that.
           - { name: "Linux Clang Debug", os: ubuntu-24.04, config: debug, compiler: clang, allowNoGpu: "0",
               precompileThirdPartyHeaders: "OFF" }
           - { name: "macOS Apple Clang Debug", os: macos-26, config: debug, allowNoGpu: "1" }

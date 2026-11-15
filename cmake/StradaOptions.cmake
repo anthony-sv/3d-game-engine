@@ -6,7 +6,7 @@ option(STRADA_ENABLE_SANITIZERS "Build Strada targets with AddressSanitizer (and
 option(STRADA_ENABLE_THREAD_SANITIZER
     "Build Strada targets and the third-party code they compile with ThreadSanitizer (GCC and Clang)" OFF)
 option(STRADA_PRECOMPILE_THIRD_PARTY_HEADERS
-    "Precompile the editor core's and the C++ tests' third-party headers (OFF checks that their sources include what they use)" ON)
+    "Precompile the editor core's and the C++ tests' third-party headers, except with GCC (OFF checks their sources' includes)" ON)
 set(STRADA_DEPENDENCY_CACHE_DIR "" CACHE PATH
     "Optional directory where dependency archives are cached between build trees (speeds up fresh configures)")
 

@@ -104,9 +104,14 @@ source of StradaTests or StradaEditorTests must also land in exactly one shard o
   nlohmann/json. CMake forces the header (`cmake_pch.hxx` in the target's build directory) into every C++ source of
   those targets, so their sources include no precompiled header. Each target compiles its own copy, because their
   definitions differ.
+- MSVC, clang-cl, Clang and Apple Clang get that header; GCC builds the four targets without it, in every version and
+  configuration. With it, CI's Linux GCC Release job (GCC 13) failed with `-Warray-bounds` errors inside libstdc++'s
+  string concatenation at six ordinary concatenations in five test sources, none of which it reported without the
+  header. The cause is not established.
 - Every source still includes everything it uses, as if there were no precompiled header. CI's Linux Clang Debug job
   builds the four targets without it (`STRADA_PRECOMPILE_THIRD_PARTY_HEADERS=OFF`; the engine library keeps
-  `stpch.h`), so a forgotten include fails there. To reproduce that job's failure locally, build with
+  `stpch.h`), so a forgotten include fails there. A GCC build checks includes too, but only through the exclusion
+  above; the Clang job is the check that does not depend on it. To reproduce that job's failure locally, build with
   `python Tools/build.py --cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=OFF`. The value stays in the build tree's
   cache until `--cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=ON` or
   `--cmake-arg=-USTRADA_PRECOMPILE_THIRD_PARTY_HEADERS`; each switch recompiles the four targets.

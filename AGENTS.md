@@ -97,9 +97,9 @@ code.
 - `#pragma once` in every header.
 - Include order (one block, sorted by clang-format): `stpch.h` (in `.cpp` files of the engine), the matching header,
   other `"Strada/..."` headers, third-party headers, standard headers. The editor core and the C++ tests get a
-  precompiled header of third-party and standard headers forced by CMake: include none, and include everything a file
-  uses even when that header already holds it. CI's Linux Clang Debug job builds them without it, so a missing include
-  fails there (see the `strada-build` skill).
+  precompiled header of third-party and standard headers forced by CMake, on every compiler but GCC: include none, and
+  include everything a file uses even when that header already holds it. GCC builds them without it, and so does CI's
+  Linux Clang Debug job, whatever the compiler exclusion: a missing include fails there (see the `strada-build` skill).
 
 ```cpp
 #pragma once

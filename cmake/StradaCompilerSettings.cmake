@@ -121,7 +121,7 @@ endfunction()
 # sources include no precompiled header of their own (the editor core and the C++ test executables; the engine library
 # has Strada/Source/stpch.h). CMake forces the header into every C++ source of the target, so no source includes it,
 # and each source still includes everything it uses. STRADA_PRECOMPILE_THIRD_PARTY_HEADERS=OFF builds these targets
-# without it, as CI's Linux Clang Debug job does, so a missing include fails there.
+# without it, as CI's Linux Clang Debug job does, so a missing include fails there. GCC always builds them without it.
 # The list was measured (MSVC Release, /Bt+, eight sources of each target): it halves the front end's time. EnTT,
 # Dear ImGui, NVRHI and doctest saved about 1 s more over eight sources at most, within noise, and stay out. Only
 # third-party and standard headers belong here, never a Strada header: an edit to one would recompile every source of
@@ -162,7 +162,10 @@ set(STRADA_PRECOMPILED_THIRD_PARTY_HEADERS
     <nlohmann/json.hpp>)
 
 function(strada_precompile_third_party_headers target)
-    if(STRADA_PRECOMPILE_THIRD_PARTY_HEADERS)
+    # Not with GCC, in any version or configuration: with the header, CI's Linux GCC Release job (GCC 13) failed with
+    # -Warray-bounds errors inside libstdc++'s string concatenation at six places in five test sources, and without it
+    # that job reported none of them. The cause is not established.
+    if(STRADA_PRECOMPILE_THIRD_PARTY_HEADERS AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_precompile_headers(${target} PRIVATE ${STRADA_PRECOMPILED_THIRD_PARTY_HEADERS})
     endif()
 endfunction()
