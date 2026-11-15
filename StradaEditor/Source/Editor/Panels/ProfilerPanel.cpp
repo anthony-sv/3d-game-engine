@@ -310,8 +310,9 @@ namespace Strada
 		}
 		size_t const count = capture.Frames.size();
 		ImVec2 const available = ImGui::GetContentRegionAvail();
-		float const barWidth =
-			count > 0 ? std::clamp(std::floor(available.x / static_cast<float>(count)), MinBarWidth, MaxBarWidth) : MaxBarWidth;
+		// Bars that fit share the strip's whole width: a width in fractions of a pixel, each bar's edges snapped to whole
+		// pixels where it is drawn.
+		float const barWidth = count > 0 ? std::clamp(available.x / static_cast<float>(count), MinBarWidth, MaxBarWidth) : MaxBarWidth;
 		float const barsHeight = std::max(available.y, 1.0f);
 		ImVec2 const origin = ImGui::GetCursorScreenPos();
 		ImGui::InvisibleButton("##Bars", ImVec2(std::max(barWidth * static_cast<float>(count), 1.0f), barsHeight));
@@ -321,6 +322,7 @@ namespace Strada
 		m_Record.BarsTop = origin.y;
 		m_Record.BarsBottom = origin.y + barsHeight;
 		m_Record.BarWidth = barWidth;
+		m_Record.StripWidth = available.x;
 		if (count == 0)
 		{
 			ImGui::EndChild();
@@ -349,12 +351,14 @@ namespace Strada
 			ProfilerFrame const& frame = capture.Frames[index];
 			double const milliseconds = GetFrameMilliseconds(frame);
 			float const barHeight = static_cast<float>(milliseconds / scale) * barsHeight;
-			float const left = origin.x + static_cast<float>(index) * barWidth;
+			float const left = std::floor(origin.x + static_cast<float>(index) * barWidth);
+			float const right = std::floor(origin.x + static_cast<float>(index + 1) * barWidth);
 			ImGuiCol const color = frame.Index == shown                           ? ImGuiCol_PlotLinesHovered
 			                       : milliseconds > 2.0 * FrameBudgetMilliseconds ? ImGuiCol_PlotHistogramHovered
 			                                                                      : ImGuiCol_PlotHistogram;
+			// A pixel's gap after each bar.
 			drawList->AddRectFilled(ImVec2(left, origin.y + barsHeight - std::max(barHeight, 1.0f)),
-			                        ImVec2(left + std::max(barWidth - 1.0f, 1.0f), origin.y + barsHeight), GetColor(color));
+			                        ImVec2(std::max(right - 1.0f, left + 1.0f), origin.y + barsHeight), GetColor(color));
 		}
 		// The 60 Hz line, labelled at the left of the view.
 		float const budget = origin.y + barsHeight - static_cast<float>(FrameBudgetMilliseconds / scale) * barsHeight;

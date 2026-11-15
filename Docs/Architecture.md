@@ -1516,7 +1516,8 @@ it is drawn between). Equal hashes at one step count mean equal simulations. The
 count it holds a different remainder at each frame rate, which is what the hash must not see; snapshots carry it. With
 `SceneRuntimeSettings::PhysicsHashStep` set to n, the scene records its hash right after step n, inside the frame that
 runs it (`Scene::GetRecordedPhysicsHash`); the player's test summary prints it (`--hash-step`), or the hash after the
-run's last step.
+run's last step. The count, the hash and the recorded step are the running scene's: a scene that loads another starts
+it at step 0, so a test run that moves on to another scene reports the hash and steps of the scene it ends in.
 
 **Snapshots.** `Scene::SavePhysicsState` keeps a running scene's simulation in memory: everything Jolt's state recorder
 saves (`PhysicsSystem::SaveState` in full: the last step's length and gravity, the bodies' positions, rotations,
@@ -2403,8 +2404,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 - Arrays in field tables (`FieldEditor`, in the inspector, the data asset editor and the settings panels): an array of
   plain values (numbers, strings, assets, ...) is a row of widgets per element with `-`, then `+`. An array of reflected
   structs is a header row that folds away (its count, `2 of at most 16 elements`), then a folding row per element,
-  `<index>: <title>` (the title is the element's first string field, such as its name, when it is not empty;
-  `Element <index>` otherwise), starting folded, with a menu button (Move Up, Move Down, Duplicate, Insert Above, Remove;
+  `<index>: <title>` (the title is the element's first string field, such as its name, when it is not empty; for a
+  struct without a string field, its first two numbers with their names, as a curve's keys show `0: Time 0.4, Value
+  1.1`; `Element <index>` otherwise), starting folded, with a menu button (Move Up, Move Down, Duplicate, Insert Above, Remove;
   also on a right click of the row) and, unfolded, the element's fields as nested rows, where visibility conditions and
   switches are those of the element's own struct; Add Element after the last appends a default element (each field's
   default). A list edit carries each element row's fold state to where it moves the element (ImGui keeps the states by
@@ -3315,7 +3317,8 @@ asset directory and the script assembly relative to the game's directory (`Proje
   100. A game that cannot start exits with 1, a wrong command line with 2. The summary ends with the running scene's
   physics state hash (§8) and the fixed step it was taken at: after the run's last step, or after step n with
   `--hash-step n` (taken inside the frame that runs it, so runs at different `--timestep`s compare; a run that ends
-  before step n says so), which makes two test runs of one game comparable step for step.
+  before step n says so), which makes two test runs of one game comparable step for step. The steps are counted in the
+  scene the run ends in: a scene load starts the count again.
 
 `GameExporter` (Project module) exports a project for the host platform; the editor's File > Build Game and
 `project.export` run it on a worker thread:
@@ -3443,6 +3446,8 @@ that each platform's names are tested on every platform:
   which has no game file beside it, logs in the shared folder whatever it runs, also an exported game given by `--game`.
 - `Log::Init` and `CrashHandler::Install` create `Logs` and `Crashes` as the program starts, so an exported game's
   folder exists from its first run: the service still creates nothing, the entry point is that folder's first writer.
+  A crash of an exported game reports into `<game data>/Crashes` from then on (CrashHandlerTests run a program on the
+  entry point that aborts, copied beside a game file).
 - Scripts have no API for the folder yet: input bindings (`<game data>/Input/`) and saves bring theirs with their nodes.
 
 ## 14. Build configurations
@@ -3461,7 +3466,8 @@ that each platform's names are tested on every platform:
   (members and elements removed or repeated, values of another kind or extreme): every result must be refused or
   repaired, what loads must save and load again, scenes and prefab instances that load must run with physics and sound,
   graphs that load must run in a scene, and project settings that load must simulate a scene (`STRADA_FUZZ_SCALE`
-  multiplies the rounds). Crash handling runs in a child process (`StradaCrashTester`). Visual scripts are tested with
+  multiplies the rounds). Crash handling runs in a child process (`StradaCrashTester`, and `StradaGameCrashTester`, which
+  aborts on the entry point and is copied beside a game file to show where an exported game's reports go). Visual scripts are tested with
   the shared documents of `Tests/Data/VisualScripting` (every built-in kind of node, valid and canonical): the format
   (the writer's golden file, every refusal and repair, the layout, public variables), the native facade against the
   real runtime (every entry point's statuses and single answer, documents sent once per change, a broken document

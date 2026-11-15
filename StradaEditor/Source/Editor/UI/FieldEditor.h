@@ -154,7 +154,7 @@ namespace Strada
 	// Draws editing widgets for reflected fields as the rows of a two-column property table (labels with descriptions as
 	// tooltips, widgets chosen by the field kind and hints) and reports the user's change; callers turn it into an
 	// undoable operation (Docs/Architecture.md §11). Arrays of plain values are a row of widgets per element with "-",
-	// then "+"; arrays of reflected structs fold open into a row per element ("<index>: <title>", with a menu to move,
+	// then "+"; arrays of reflected structs fold open into a row per element (DescribeElement's title, with a menu to move,
 	// duplicate, insert above and remove it) over the element's own field rows, then Add Element; buttons that add are
 	// disabled at the field's MaxCount. Every array change reports the element's index or the list edit
 	// (FieldChange::ArrayEdit), never the whole array, so each edited object keeps its own elements. A reflected struct
@@ -190,6 +190,10 @@ namespace Strada
 		// asset fields, whose paths need the room. Tables that line up with a field table (rows of their own above it) start
 		// with the same share.
 		static float GetNameColumnShare(std::span<FieldDescriptor const> fields, float tableWidth);
+		// The title of an element's row in an array of reflected structs (array is the array's descriptor, element its value):
+		// "<index>: <first string field>" ("2: Gravel") when the struct has a string field and it is not empty; for a struct
+		// without one, "<index>: <its first two number fields>" ("0: Time 0.4, Value 1.1"); otherwise "Element <index>".
+		[[nodiscard]] static std::string DescribeElement(FieldDescriptor const& array, Json const& element, size_t index);
 
 		// An asset reference as asset fields show it, as wide as the next item: a box with the asset's image (with
 		// SetAssetPreviews) and its path, shortened to fit (UI::FitPath), that opens a searchable picker when clicked and

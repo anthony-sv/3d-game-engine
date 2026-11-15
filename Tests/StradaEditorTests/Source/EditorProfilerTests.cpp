@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <functional>
 #include <optional>
 #include <string>
@@ -689,6 +690,22 @@ TEST_CASE("ProfilerPanel: the frame strip follows the newest frame until it is s
 	fixture.Draw();
 	fixture.Draw();
 	CHECK(fixture.Panel.GetLastDraw().BarsLeft == doctest::Approx(scrolled));
+
+	// Bars that fit share the strip's whole width, also when it does not divide into whole pixels.
+	Testing::CaptureBuilder fitting;
+	for (int64_t frame = 0; frame < 100; frame++)
+	{
+		fitting.AddFrame(frame * 16000000, frame * 16000000 + 8000000);
+	}
+	fixture.Profiler.SetCapture(fitting.Get(), "Short.json");
+	fixture.Draw();
+	fixture.Draw();
+	ProfilerPanel::DrawRecord const& fitted = fixture.Panel.GetLastDraw();
+	REQUIRE(fitted.Frames == 100);
+	REQUIRE(fitted.StripWidth > 300.0f);
+	REQUIRE(fitted.StripWidth < 1200.0f);
+	REQUIRE(std::fmod(fitted.StripWidth, 100.0f) > 1.0f);
+	CHECK(fitted.BarWidth * 100.0f == doctest::Approx(fitted.StripWidth));
 }
 
 TEST_CASE("ProfilerPanel: the live history shows the recording the open panel makes, paused by Stop")

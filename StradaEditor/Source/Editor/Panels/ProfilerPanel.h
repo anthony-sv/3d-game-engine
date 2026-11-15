@@ -74,7 +74,10 @@ namespace Strada
 			float BarsLeft = 0.0f;
 			float BarsTop = 0.0f;
 			float BarsBottom = 0.0f;
+			// In fractions of a pixel; bars are drawn with their edges snapped to whole pixels.
 			float BarWidth = 0.0f;
+			// The width of the strip's view: bars that fit fill it, more scroll it.
+			float StripWidth = 0.0f;
 			// The frame whose details show, none without frames.
 			std::optional<uint64_t> Frame;
 			ProfilerPanelTab Tab = ProfilerPanelTab::Zones;

@@ -17,7 +17,8 @@ from one field table. Follow every step — the tests enforce several of them.
   `JsonTraits` specialization (with tests) for anything new.
 - Asset references are `AssetHandle` (default = no asset), entity references are `UUID`.
 - A list of structs is a `std::vector<Point>` of a reflected struct (`StructTraits<Point>` in `ComponentTraits.h`) with
-  `.MaxCount(n)` on its field: the inspector shows it as a row per element that unfolds into the element's fields, with
+  `.MaxCount(n)` on its field: the inspector shows it as a row per element (titled by the struct's first string field,
+  or without one by its first two numbers) that unfolds into the element's fields, with
   a menu to move, duplicate, insert above and remove it, and Add Element (disabled at `MaxCount`), each one undo step
   that patches every selected entity's own list by index; `component.set` takes the field whole, with all its elements.
   No inspector code: a struct that needs a widget of its own (a curve) gets a struct drawer
