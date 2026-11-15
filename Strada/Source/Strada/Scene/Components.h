@@ -162,6 +162,8 @@ namespace Strada
 		glm::vec3 HalfExtents = {0.5f, 0.5f, 0.5f};
 		glm::vec3 Offset = {0.0f, 0.0f, 0.0f};
 		bool IsTrigger = false;
+		// A PhysicsMaterial asset; set, it replaces Friction and Restitution (Docs/Architecture.md §8).
+		AssetHandle Material;
 		float Friction = 0.6f;
 		float Restitution = 0.0f;
 	};
@@ -171,6 +173,8 @@ namespace Strada
 		float Radius = 0.5f;
 		glm::vec3 Offset = {0.0f, 0.0f, 0.0f};
 		bool IsTrigger = false;
+		// A PhysicsMaterial asset; set, it replaces Friction and Restitution (Docs/Architecture.md §8).
+		AssetHandle Material;
 		float Friction = 0.6f;
 		float Restitution = 0.0f;
 	};
@@ -182,6 +186,8 @@ namespace Strada
 		float HalfHeight = 0.5f;
 		glm::vec3 Offset = {0.0f, 0.0f, 0.0f};
 		bool IsTrigger = false;
+		// A PhysicsMaterial asset; set, it replaces Friction and Restitution (Docs/Architecture.md §8).
+		AssetHandle Material;
 		float Friction = 0.6f;
 		float Restitution = 0.0f;
 	};
@@ -193,6 +199,11 @@ namespace Strada
 		// Convex hulls can move (dynamic bodies); triangle meshes are only valid for static and kinematic bodies.
 		bool Convex = true;
 		bool IsTrigger = false;
+		// A PhysicsMaterial asset; set, it replaces Friction and Restitution (Docs/Architecture.md §8).
+		AssetHandle Material;
+		// Triangle meshes: a PhysicsMaterial per submesh of the mesh (at most MaxMeshColliderMaterials); a missing or invalid
+		// entry uses Material, or Friction and Restitution without one. Convex hulls use Material alone.
+		std::vector<AssetHandle> Materials;
 		float Friction = 0.6f;
 		float Restitution = 0.0f;
 	};

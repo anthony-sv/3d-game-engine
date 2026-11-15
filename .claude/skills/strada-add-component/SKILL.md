@@ -48,10 +48,12 @@ out-of-range values; the inspector clamps to them), `AsColor()` (vec3/vec4), `As
 an enum or bool field of the same struct has one of up to 16 values (editors hide them otherwise: a camera's
 orthographic size, a joint's limits), `EnabledBy("<bool field>")` for a field another bool field of the table switches
 on (the inspector draws the switch as a check box in front of the field, like a post-process volume's overrides),
-`HiddenInEditors()` for a field the editor edits with UI of its own (a Mesh's material overrides, which the material
+`OverriddenBy("<asset field>")` for a field an asset field of the same table replaces while it holds an asset (a
+collider's `Material` replaces its `Friction` and `Restitution`: the inspector shows them disabled, saying what sets
+them), `HiddenInEditors()` for a field the editor edits with UI of its own (a Mesh's material overrides, which the material
 slot sections edit) and `Doc("...")` for anything not obvious from the name. Hints that do not fit the field's type,
-visibility conditions that name no value of such a field, and switches that are not unswitched bool fields of the table
-fail to compile. Defaults must lie inside their ranges (tested). Systems reading values scripts set (which skip the
+visibility conditions that name no value of such a field, switches that are not unswitched bool fields of the table, and
+replacements that are not unreplaced single-asset fields of the table fail to compile. Defaults must lie inside their ranges (tested). Systems reading values scripts set (which skip the
 range checks) can use `ClampToFieldRanges`.
 
 `Category` is one of `ComponentCategory::All` (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting`, `UI`): the

@@ -17,6 +17,10 @@ namespace Strada
 	inline constexpr size_t MaxPhysicsLayers = 16;
 	// Collision steps a physics step may be divided into (PhysicsWorldSettings::CollisionSteps).
 	inline constexpr uint32_t MaxPhysicsCollisionSteps = 4;
+	// Physics materials of a triangle-mesh collider's submeshes (MeshColliderComponent::Materials). Jolt's mesh shape holds
+	// at most 32 materials (MeshShape::FLAGS_MATERIAL_BITS, refused beyond at MeshShape.cpp's "Supporting max %d materials
+	// per mesh"): one per submesh entry, and the collider's own for the submeshes without one.
+	inline constexpr uint32_t MaxMeshColliderMaterials = 31;
 
 	// Jolt computes in single precision, and its math would overflow long before larger worlds became usable, so the
 	// physics world keeps within these limits: positions within MaxPhysicsCoordinate meters of the origin on every axis

@@ -44,7 +44,8 @@ time):
 | `inspector` | 1 | The Add Component menu as users see it |
 | `asset` | 12 | Listing, importing (also as a drop from the file manager), moving and deleting assets and folders, and the content browser |
 | `material` | 3 | Creating, reading and setting materials |
-| `curve` | 3 | Creating, reading and setting curve assets (`.scurve`), the data asset type the engine registers: every data asset type gets these three commands from its registration |
+| `curve` | 3 | Creating, reading and setting curve assets (`.scurve`), a data asset type the engine registers: every data asset type gets these three commands from its registration |
+| `physics-material` | 3 | Creating, reading and setting physics materials (`.sphysmat`): the surfaces colliders reference |
 | `graph` | 16 | Visual scripts: creating, reading, checking and editing them, arranging, copying, the node library and types, finding, and the graph windows |
 | `graph` (debugging) | 11 | Breakpoints, targets, stops, continue, step, break, wait, traces, values, instances and live edits |
 | `prefab` | 2 | Creating prefabs and placing instances |

@@ -70,6 +70,10 @@ namespace Strada
 			{
 				description["EnabledBy"] = std::string(field.Hints.EnabledBy);
 			}
+			if (!field.Hints.OverriddenBy.empty())
+			{
+				description["OverriddenBy"] = std::string(field.Hints.OverriddenBy);
+			}
 			if (field.Hints.HiddenInEditors)
 			{
 				description["HiddenInEditors"] = true;

@@ -1298,6 +1298,17 @@ namespace Strada
 					ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
 				}
 
+				// A field an asset field replaces (OverriddenBy) is disabled while that field holds an asset, and says so in place of
+				// its value (enabled when the selected objects differ there, so all of them can be edited).
+				FieldDescriptor const* overrider = field.Hints.OverriddenBy.empty() ? nullptr : FindField(fields, field.Hints.OverriddenBy);
+				bool overridden = false;
+				if (overrider != nullptr)
+				{
+					std::string const overriderKey(overrider->Name);
+					overridden = !isMixed(overriderKey) && AssetHandle(ReadID(getValue(*overrider, overriderKey))).IsValid();
+					enabled = enabled && !overridden;
+				}
+
 				if (IsStructArray(field))
 				{
 					// A header that folds the elements' rows away, with their count in the value column.
@@ -1348,7 +1359,12 @@ namespace Strada
 					FieldChange fieldChange;
 					std::optional<uint32_t> element;
 					bool changed = false;
-					if (structDrawer != nullptr)
+					if (overridden)
+					{
+						ImGui::AlignTextToFramePadding();
+						ImGui::TextDisabled("Set by %s", UI::FormatDisplayName(overrider->Name).c_str());
+					}
+					else if (structDrawer != nullptr)
 					{
 						changed = DrawWithStructDrawer(*structDrawer, field, value, mixed, fieldChange);
 					}

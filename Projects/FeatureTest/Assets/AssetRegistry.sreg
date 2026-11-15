@@ -20,6 +20,11 @@
 			"Path": "Materials/Painted.smat"
 		},
 		{
+			"Handle": "11281368738810150711",
+			"Type": "PhysicsMaterial",
+			"Path": "PhysicsMaterials/Rubber.sphysmat"
+		},
+		{
 			"Handle": "17000004240335447843",
 			"Type": "Prefab",
 			"Path": "Prefabs/Crate.sprefab"

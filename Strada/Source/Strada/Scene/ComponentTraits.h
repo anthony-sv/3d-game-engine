@@ -410,12 +410,19 @@ namespace Strada
 				.Doc("Half the size of the box along each axis, in meters."),
 			Field("Offset", &BoxColliderComponent::Offset).Doc("Center of the shape relative to the entity, in meters."),
 			Field("IsTrigger", &BoxColliderComponent::IsTrigger).Doc("Reports overlaps instead of colliding."),
+			Field("Material", &BoxColliderComponent::Material)
+				.References("PhysicsMaterial")
+				.Doc("A physics material; set, its friction, restitution and combine modes replace Friction and Restitution, and "
+		             "contacts and raycasts report it."),
 			Field("Friction", &BoxColliderComponent::Friction)
 				.AtLeast(0.0)
-				.Doc("Resists sliding along other bodies; two touching bodies use the square root of the product of their frictions."),
+				.OverriddenBy("Material")
+				.Doc("Resists sliding along other bodies; two touching colliders without materials use the square root of the "
+		             "product of their frictions."),
 			Field("Restitution", &BoxColliderComponent::Restitution)
 				.Range(0.0, 1.0)
-				.Doc("Bounciness: 0 does not bounce, 1 is perfectly elastic."));
+				.OverriddenBy("Material")
+				.Doc("Bounciness: 0 does not bounce, 1 is perfectly elastic; two touching colliders without materials use the larger."));
 	};
 
 	template<>
@@ -429,12 +436,19 @@ namespace Strada
 			Field("Radius", &SphereColliderComponent::Radius).AtLeast(0.001).Doc("Radius in meters."),
 			Field("Offset", &SphereColliderComponent::Offset).Doc("Center of the shape relative to the entity, in meters."),
 			Field("IsTrigger", &SphereColliderComponent::IsTrigger).Doc("Reports overlaps instead of colliding."),
+			Field("Material", &SphereColliderComponent::Material)
+				.References("PhysicsMaterial")
+				.Doc("A physics material; set, its friction, restitution and combine modes replace Friction and Restitution, and "
+		             "contacts and raycasts report it."),
 			Field("Friction", &SphereColliderComponent::Friction)
 				.AtLeast(0.0)
-				.Doc("Resists sliding along other bodies; two touching bodies use the square root of the product of their frictions."),
+				.OverriddenBy("Material")
+				.Doc("Resists sliding along other bodies; two touching colliders without materials use the square root of the "
+		             "product of their frictions."),
 			Field("Restitution", &SphereColliderComponent::Restitution)
 				.Range(0.0, 1.0)
-				.Doc("Bounciness: 0 does not bounce, 1 is perfectly elastic."));
+				.OverriddenBy("Material")
+				.Doc("Bounciness: 0 does not bounce, 1 is perfectly elastic; two touching colliders without materials use the larger."));
 	};
 
 	template<>
@@ -451,12 +465,19 @@ namespace Strada
 				.Doc("Half the height of the cylindrical part (without the caps), in meters."),
 			Field("Offset", &CapsuleColliderComponent::Offset).Doc("Center of the shape relative to the entity, in meters."),
 			Field("IsTrigger", &CapsuleColliderComponent::IsTrigger).Doc("Reports overlaps instead of colliding."),
+			Field("Material", &CapsuleColliderComponent::Material)
+				.References("PhysicsMaterial")
+				.Doc("A physics material; set, its friction, restitution and combine modes replace Friction and Restitution, and "
+		             "contacts and raycasts report it."),
 			Field("Friction", &CapsuleColliderComponent::Friction)
 				.AtLeast(0.0)
-				.Doc("Resists sliding along other bodies; two touching bodies use the square root of the product of their frictions."),
+				.OverriddenBy("Material")
+				.Doc("Resists sliding along other bodies; two touching colliders without materials use the square root of the "
+		             "product of their frictions."),
 			Field("Restitution", &CapsuleColliderComponent::Restitution)
 				.Range(0.0, 1.0)
-				.Doc("Bounciness: 0 does not bounce, 1 is perfectly elastic."));
+				.OverriddenBy("Material")
+				.Doc("Bounciness: 0 does not bounce, 1 is perfectly elastic; two touching colliders without materials use the larger."));
 	};
 
 	template<>
@@ -471,12 +492,25 @@ namespace Strada
 			Field("Convex", &MeshColliderComponent::Convex)
 				.Doc("Convex hulls can move; triangle meshes are only valid for static and kinematic bodies."),
 			Field("IsTrigger", &MeshColliderComponent::IsTrigger).Doc("Reports overlaps instead of colliding."),
+			Field("Material", &MeshColliderComponent::Material)
+				.References("PhysicsMaterial")
+				.Doc("A physics material; set, its friction, restitution and combine modes replace Friction and Restitution, and "
+		             "contacts and raycasts report it."),
+			Field("Materials", &MeshColliderComponent::Materials)
+				.References("PhysicsMaterial")
+				.MaxCount(MaxMeshColliderMaterials)
+				.VisibleWhen("Convex", "false")
+				.Doc("Triangle meshes: a physics material per submesh of the mesh, in submesh order; an empty or missing entry "
+		             "uses Material. Convex hulls, and the hulls of dynamic bodies, use Material alone."),
 			Field("Friction", &MeshColliderComponent::Friction)
 				.AtLeast(0.0)
-				.Doc("Resists sliding along other bodies; two touching bodies use the square root of the product of their frictions."),
+				.OverriddenBy("Material")
+				.Doc("Resists sliding along other bodies; two touching colliders without materials use the square root of the "
+		             "product of their frictions."),
 			Field("Restitution", &MeshColliderComponent::Restitution)
 				.Range(0.0, 1.0)
-				.Doc("Bounciness: 0 does not bounce, 1 is perfectly elastic."));
+				.OverriddenBy("Material")
+				.Doc("Bounciness: 0 does not bounce, 1 is perfectly elastic; two touching colliders without materials use the larger."));
 	};
 
 	template<>

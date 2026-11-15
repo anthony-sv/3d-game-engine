@@ -7,7 +7,7 @@ Every component you can add to an entity, with every field: its type, its defaul
 it does. The inspector, scene files, the automation command `component.types` and the scripting API all read the same
 registry, so this page matches the engine: the engine's tests fail when it does not.
 
-28 components in 6 categories, with 202 fields in all. Vectors are written `(x, y, z)`, colors are
+28 components in 6 categories, with 207 fields in all. Vectors are written `(x, y, z)`, colors are
 linear RGB or RGBA from 0 to 1, distances are in meters and angles in degrees. Fields that only matter for some
 settings say when the inspector shows them. Scripts reach the same fields through the component classes of
 [ScriptingAPI.md](ScriptingAPI.md), and agents through `component.get` and `component.set`
@@ -257,8 +257,9 @@ Box collision shape, scaled by the entity.
 | `HalfExtents` | vec3 | `(0.5, 0.5, 0.5)` | at least 0.001 | Half the size of the box along each axis, in meters. |
 | `Offset` | vec3 | `(0, 0, 0)` |  | Center of the shape relative to the entity, in meters. |
 | `IsTrigger` | bool | `false` |  | Reports overlaps instead of colliding. |
-| `Friction` | float | `0.6` | at least 0 | Resists sliding along other bodies; two touching bodies use the square root of the product of their frictions. |
-| `Restitution` | float | `0` | 0 to 1 | Bounciness: 0 does not bounce, 1 is perfectly elastic. |
+| `Material` | PhysicsMaterial asset | none |  | A physics material; set, its friction, restitution and combine modes replace Friction and Restitution, and contacts and raycasts report it. |
+| `Friction` | float | `0.6` | at least 0 | Resists sliding along other bodies; two touching colliders without materials use the square root of the product of their frictions. Applies while `Material` is not set. |
+| `Restitution` | float | `0` | 0 to 1 | Bounciness: 0 does not bounce, 1 is perfectly elastic; two touching colliders without materials use the larger. Applies while `Material` is not set. |
 
 ### SphereCollider
 
@@ -269,8 +270,9 @@ Sphere collision shape, scaled by the entity.
 | `Radius` | float | `0.5` | at least 0.001 | Radius in meters. |
 | `Offset` | vec3 | `(0, 0, 0)` |  | Center of the shape relative to the entity, in meters. |
 | `IsTrigger` | bool | `false` |  | Reports overlaps instead of colliding. |
-| `Friction` | float | `0.6` | at least 0 | Resists sliding along other bodies; two touching bodies use the square root of the product of their frictions. |
-| `Restitution` | float | `0` | 0 to 1 | Bounciness: 0 does not bounce, 1 is perfectly elastic. |
+| `Material` | PhysicsMaterial asset | none |  | A physics material; set, its friction, restitution and combine modes replace Friction and Restitution, and contacts and raycasts report it. |
+| `Friction` | float | `0.6` | at least 0 | Resists sliding along other bodies; two touching colliders without materials use the square root of the product of their frictions. Applies while `Material` is not set. |
+| `Restitution` | float | `0` | 0 to 1 | Bounciness: 0 does not bounce, 1 is perfectly elastic; two touching colliders without materials use the larger. Applies while `Material` is not set. |
 
 ### CapsuleCollider
 
@@ -282,8 +284,9 @@ Capsule collision shape along the local Y axis, scaled by the entity.
 | `HalfHeight` | float | `0.5` | at least 0 | Half the height of the cylindrical part (without the caps), in meters. |
 | `Offset` | vec3 | `(0, 0, 0)` |  | Center of the shape relative to the entity, in meters. |
 | `IsTrigger` | bool | `false` |  | Reports overlaps instead of colliding. |
-| `Friction` | float | `0.6` | at least 0 | Resists sliding along other bodies; two touching bodies use the square root of the product of their frictions. |
-| `Restitution` | float | `0` | 0 to 1 | Bounciness: 0 does not bounce, 1 is perfectly elastic. |
+| `Material` | PhysicsMaterial asset | none |  | A physics material; set, its friction, restitution and combine modes replace Friction and Restitution, and contacts and raycasts report it. |
+| `Friction` | float | `0.6` | at least 0 | Resists sliding along other bodies; two touching colliders without materials use the square root of the product of their frictions. Applies while `Material` is not set. |
+| `Restitution` | float | `0` | 0 to 1 | Bounciness: 0 does not bounce, 1 is perfectly elastic; two touching colliders without materials use the larger. Applies while `Material` is not set. |
 
 ### MeshCollider
 
@@ -294,8 +297,10 @@ Collision shape made from a mesh, as a convex hull or as triangles.
 | `Mesh` | Mesh asset | none |  | Collision mesh; none uses the entity's Mesh component. |
 | `Convex` | bool | `true` |  | Convex hulls can move; triangle meshes are only valid for static and kinematic bodies. |
 | `IsTrigger` | bool | `false` |  | Reports overlaps instead of colliding. |
-| `Friction` | float | `0.6` | at least 0 | Resists sliding along other bodies; two touching bodies use the square root of the product of their frictions. |
-| `Restitution` | float | `0` | 0 to 1 | Bounciness: 0 does not bounce, 1 is perfectly elastic. |
+| `Material` | PhysicsMaterial asset | none |  | A physics material; set, its friction, restitution and combine modes replace Friction and Restitution, and contacts and raycasts report it. |
+| `Materials` | PhysicsMaterial assets | none |  | Triangle meshes: a physics material per submesh of the mesh, in submesh order; an empty or missing entry uses Material. Convex hulls, and the hulls of dynamic bodies, use Material alone. Shown when `Convex` is off. |
+| `Friction` | float | `0.6` | at least 0 | Resists sliding along other bodies; two touching colliders without materials use the square root of the product of their frictions. Applies while `Material` is not set. |
+| `Restitution` | float | `0` | 0 to 1 | Bounciness: 0 does not bounce, 1 is perfectly elastic; two touching colliders without materials use the larger. Applies while `Material` is not set. |
 
 ### Joint
 

@@ -85,6 +85,8 @@ set(STRADA_ASSET_SOURCES
     Source/Strada/Asset/MeshProcessing.h
     Source/Strada/Asset/MeshSource.cpp
     Source/Strada/Asset/MeshSource.h
+    Source/Strada/Asset/PhysicsMaterial.h
+    Source/Strada/Asset/PhysicsMaterialAsset.h
     Source/Strada/Asset/PrefabAsset.cpp
     Source/Strada/Asset/PrefabAsset.h
     Source/Strada/Asset/TextureAsset.cpp

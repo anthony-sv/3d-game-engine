@@ -14,6 +14,7 @@ add_executable(StradaTests
     Source/Asset/MeshImporterFuzzTests.cpp
     Source/Asset/MeshImporterTests.cpp
     Source/Asset/MeshSourceTests.cpp
+    Source/Asset/PhysicsMaterialAssetTests.cpp
     Source/Asset/TestDataAsset.h
     Source/Asset/TrueTypeSanitizerTests.cpp
     Source/Asset/VisualScriptFuzzTests.cpp

@@ -475,3 +475,65 @@ TEST_CASE("Components: post-process settings are switched by their overrides and
 		CHECK(field.Hints.Display == setting->Hints.Display);
 	}
 }
+
+TEST_CASE("Components: colliders reference physics materials in fields older scenes read as unset")
+{
+	// Every collider has a Material that replaces its Friction and Restitution while it is set.
+	for (ComponentInfo const* info :
+	     {&ComponentRegistry::Get<BoxColliderComponent>(), &ComponentRegistry::Get<SphereColliderComponent>(),
+	      &ComponentRegistry::Get<CapsuleColliderComponent>(), &ComponentRegistry::Get<MeshColliderComponent>()})
+	{
+		CAPTURE(info->Name);
+		FieldDescriptor const* material = info->FindField("Material");
+		REQUIRE(material != nullptr);
+		CHECK(material->Kind == FieldKind::Asset);
+		CHECK(material->Hints.AssetTypeName == "PhysicsMaterial");
+		CHECK(info->FindField("Friction")->Hints.OverriddenBy == "Material");
+		CHECK(info->FindField("Restitution")->Hints.OverriddenBy == "Material");
+		CHECK(info->Describe()["Fields"].dump().find(R"("OverriddenBy":"Material")") != std::string::npos);
+	}
+	// A triangle mesh has one per submesh, at most as many as Jolt's mesh shape holds besides the collider's own.
+	FieldDescriptor const* materials = ComponentRegistry::Get<MeshColliderComponent>().FindField("Materials");
+	REQUIRE(materials != nullptr);
+	CHECK(materials->Kind == FieldKind::Array);
+	CHECK(materials->ElementKind == FieldKind::Asset);
+	CHECK(materials->Hints.AssetTypeName == "PhysicsMaterial");
+	CHECK(materials->Hints.MaxCount == MaxMeshColliderMaterials);
+	CHECK(materials->Hints.VisibleWhenField == "Convex");
+
+	// A collider of a scene written before materials reads with none, and writes the new fields at their defaults beside
+	// the values it had.
+	BoxColliderComponent box;
+	REQUIRE(DeserializeComponent(Json::parse(R"({ "HalfExtents": [1, 2, 3], "IsTrigger": false, "Friction": 0.25, "Restitution": 0.5 })"),
+	                             box, DeserializationContext{})
+	            .IsOk());
+	CHECK_FALSE(box.Material.IsValid());
+	CHECK(box.Friction == 0.25f);
+	Json const written = SerializeComponent(box);
+	CHECK(written["Material"] == "0");
+	CHECK(written["Friction"] == 0.25f);
+	CHECK(written["Restitution"] == 0.5f);
+
+	MeshColliderComponent mesh;
+	REQUIRE(DeserializeComponent(Json::parse(R"({ "Mesh": "1", "Convex": false })"), mesh, DeserializationContext{}).IsOk());
+	CHECK_FALSE(mesh.Material.IsValid());
+	CHECK(mesh.Materials.empty());
+	CHECK(SerializeComponent(mesh)["Materials"] == Json::array());
+
+	// Set, the references round trip; a list longer than a mesh shape holds is refused and changes nothing.
+	mesh.Material = AssetHandle(UUID(11));
+	mesh.Materials = {AssetHandle(UUID(12)), AssetHandle(), AssetHandle(UUID(13))};
+	MeshColliderComponent loaded;
+	REQUIRE(DeserializeComponent(SerializeComponent(mesh), loaded, DeserializationContext{}).IsOk());
+	CHECK(loaded.Material == mesh.Material);
+	CHECK(loaded.Materials == mesh.Materials);
+	Json tooMany = Json::array();
+	for (uint32_t index = 0; index <= MaxMeshColliderMaterials; index++)
+	{
+		tooMany.push_back("12");
+	}
+	Result<void> const refused = DeserializeComponent(Json::object({{"Materials", tooMany}}), loaded, DeserializationContext{});
+	REQUIRE(refused.IsError());
+	CHECK(refused.GetError().find("Materials") != std::string::npos);
+	CHECK(loaded.Materials == mesh.Materials);
+}

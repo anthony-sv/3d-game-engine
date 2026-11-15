@@ -1,0 +1,16 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "PhysicsMaterial"
+	},
+	"PhysicsMaterial": {
+		"Friction": 1.100000023841858,
+		"Restitution": 0.3499999940395355,
+		"FrictionCombine": "Maximum",
+		"RestitutionCombine": "Average",
+		"RollingResistance": 0.014999999664723873,
+		"Surface": "Rubber",
+		"ImpactSound": "9906031496213900225",
+		"ImpactParticles": "17000004240335447843"
+	}
+}

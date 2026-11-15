@@ -8,11 +8,14 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Physics/PhysicsTypes.h"
 
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -402,4 +405,79 @@ TEST_CASE("DataAssetCommands: the engine's Curve has curve.create, get and set, 
 	CHECK(unordered.Code == AutomationErrorCode::InvalidParams);
 	CHECK(unordered.Message.find("Keys[1].Time: keys are in time order: 0 comes after 1") != std::string::npos);
 	CHECK(fixture.ReadFile("Curves/Ramp.scurve") == edited);
+}
+
+TEST_CASE("DataAssetCommands: the engine's PhysicsMaterial has physics-material.create, get and set, and colliders reference it")
+{
+	DataAssetCommandFixture fixture;
+	CommandDefinition const* create = fixture.Registry.Find("physics-material.create");
+	REQUIRE(create != nullptr);
+	CHECK(create->Description.find(".sphysmat") != std::string::npos);
+	REQUIRE(fixture.Registry.Find("physics-material.set") != nullptr);
+	CHECK(fixture.Registry.Find("physics-material.get")->Parameters["required"] == Json::array({"physicsMaterial"}));
+	// The schema of fields names the combine modes.
+	std::string const fieldsSchema = create->Parameters["properties"]["fields"].dump();
+	for (char const* mode : {"GeometricMean", "Average", "Minimum", "Multiply", "Maximum"})
+	{
+		CAPTURE(mode);
+		CHECK(fieldsSchema.find(mode) != std::string::npos);
+	}
+	Json const& types = fixture.Registry.Find("asset.list")->Parameters["properties"]["type"]["enum"];
+	CHECK(std::find(types.begin(), types.end(), Json("PhysicsMaterial")) != types.end());
+	Result<std::string> const reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
+	REQUIRE(reference.IsOk());
+	for (char const* name : {"physics-material.create", "physics-material.get", "physics-material.set"})
+	{
+		CAPTURE(name);
+		CHECK(reference.GetValue().find(std::string("`") + name + "`") != std::string::npos);
+	}
+
+	Json const created = fixture.Ok("physics-material.create",
+	                                Json::object({{"path", "Surfaces/Gravel.sphysmat"},
+	                                              {"fields", {{"Friction", 0.9}, {"Surface", "Gravel"}, {"FrictionCombine", "Minimum"}}}}));
+	CHECK(created["physicsMaterial"]["type"] == "PhysicsMaterial");
+	CHECK(created["fields"]["RestitutionCombine"] == "Maximum");
+	std::string const id = created["physicsMaterial"]["id"].get<std::string>();
+	AssetHandle const handle = AssetManager::FindByPath("Surfaces/Gravel.sphysmat");
+	Ref<TypedDataAsset<PhysicsMaterial>> const material = AssetManager::GetAsset<TypedDataAsset<PhysicsMaterial>>(handle);
+	REQUIRE(material != nullptr);
+	CHECK(material->GetData().Surface == "Gravel");
+	CHECK(material->GetData().FrictionCombine == PhysicsMaterialCombine::Minimum);
+
+	// One step, undone and redone; the object stays and its version moves.
+	uint64_t const version = material->GetVersion();
+	fixture.Ok("physics-material.set", Json::object({{"physicsMaterial", id}, {"fields", {{"Restitution", 0.5}}}}));
+	CHECK(fixture.Ok("editor.status")["undo"] == "Edit PhysicsMaterial");
+	CHECK(material->GetData().Restitution == 0.5f);
+	CHECK(material->GetVersion() != version);
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit PhysicsMaterial");
+	CHECK(material->GetData().Restitution == 0.0f);
+	CHECK(fixture.Ok("editor.redo")["redone"] == "Edit PhysicsMaterial");
+	CHECK(material->GetData().Restitution == 0.5f);
+
+	// A combine mode the type does not have is refused, naming the field; nothing is written.
+	std::string const edited = fixture.ReadFile("Surfaces/Gravel.sphysmat");
+	CommandError const unknown =
+		fixture.Fails("physics-material.set", Json::object({{"physicsMaterial", id}, {"fields", {{"RestitutionCombine", "Harmonic"}}}}));
+	CHECK(unknown.Code == AutomationErrorCode::InvalidParams);
+	CHECK(unknown.Message.find("RestitutionCombine") != std::string::npos);
+	CHECK(fixture.ReadFile("Surfaces/Gravel.sphysmat") == edited);
+
+	// A collider references it, beside per-submesh materials on a triangle mesh.
+	std::string const entity = fixture.Ok("entity.create", Json::object({{"name", "Road"}}))["id"].get<std::string>();
+	Json const box =
+		fixture.Ok("component.add", Json::object({{"entity", entity}, {"component", "BoxCollider"}, {"fields", {{"Material", id}}}}));
+	CHECK(box["fields"]["Material"] == id);
+	Json const mesh = fixture.Ok("component.add", Json::object({{"entity", entity},
+	                                                            {"component", "MeshCollider"},
+	                                                            {"fields", {{"Convex", false}, {"Materials", Json::array({"0", id})}}}}));
+	CHECK(mesh["fields"]["Materials"] == Json::array({"0", id}));
+	Json tooMany = Json::array();
+	for (uint32_t index = 0; index <= MaxMeshColliderMaterials; index++)
+	{
+		tooMany.push_back(id);
+	}
+	CommandError const refused = fixture.Fails(
+		"component.set", Json::object({{"entity", entity}, {"component", "MeshCollider"}, {"fields", {{"Materials", tooMany}}}}));
+	CHECK(refused.Code == AutomationErrorCode::InvalidParams);
 }

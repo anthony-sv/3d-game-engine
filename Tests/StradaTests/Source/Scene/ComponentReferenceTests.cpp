@@ -227,6 +227,10 @@ namespace
 		{
 			sentences.push_back(fmt::format("Applies while {} is on.", Quote(field["EnabledBy"].get<std::string>())));
 		}
+		if (field.contains("OverriddenBy"))
+		{
+			sentences.push_back(fmt::format("Applies while {} is not set.", Quote(field["OverriddenBy"].get<std::string>())));
+		}
 		if (field.value("HiddenInEditors", false))
 		{
 			sentences.push_back("The inspector edits it with controls of its own.");

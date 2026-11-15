@@ -125,7 +125,7 @@ executable with Project's reader before logging starts (§13.1).
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; versioned documents of one struct, with migrations; profiler captures (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `StructDocumentFormat`, `ProfilerCaptureSerializer` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
-| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer` |
+| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer`, `PhysicsMaterial` |
 | Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
@@ -1039,9 +1039,11 @@ from that table. Fields carry optional hints: an inclusive range (enforced whene
 and the editor all reject out-of-range values), a presentation (color, angle, multi-line text), the referenced asset
 type, a one-sentence description, a visibility condition (the field only matters while an enum or bool field of the
 same struct has one of at most 16 values, like a camera's orthographic size), a switch (`EnabledBy`: another bool field
-of the table, not switched itself, that turns the field on; drawn by the inspector as a check box in front of the field)
-and, for arrays, the most elements they hold (`MaxCount`, enforced whenever JSON is read, like ranges; the inspector's
-add buttons stop there); the conditions and switches are checked at compile time. Values that skip the JSON checks
+of the table, not switched itself, that turns the field on; drawn by the inspector as a check box in front of the field),
+what replaces the field (`OverriddenBy`: another field of the table that references one asset and is not replaced
+itself; while it holds an asset the inspector shows the field disabled and says what sets it, as a collider's `Material`
+replaces its `Friction` and `Restitution`; files and automation read and write the field as usual) and, for arrays, the most elements they hold (`MaxCount`, enforced whenever JSON is read, like ranges; the inspector's
+add buttons stop there); the conditions, switches and replacements are checked at compile time. Values that skip the JSON checks
 (scripts, values made in C++) can be brought into range, and their arrays down to their `MaxCount`, with
 `ClampToFieldRanges` (`FitToFieldRanges` for imported data, which also replaces NaN and says what it changed). Field tables of other structs (renderer settings,
 materials, data assets) use the same hints. Each component
@@ -1063,10 +1065,10 @@ category), and script interop component lookups.
 | `SpotLight` | `SpotLightComponent` | `Color`, `Intensity`, `Range`, `InnerConeAngle`, `OuterConeAngle` (half-angles, deg), `CastShadows` |
 | `SkyLight` | `SkyLightComponent` | `Environment` asset (HDRI), `Intensity`, `Rotation` (deg around Y), `SkyboxBlur` (0..1), `DrawSkybox`, `AmbientColor` (used when no environment) |
 | `RigidBody` | `RigidBodyComponent` | `Type` (Static/Dynamic/Kinematic), `Mass`, `LinearDamping`, `AngularDamping`, `GravityFactor`, `Layer`, `LockTranslation` bvec3, `LockRotation` bvec3, `ContinuousCollision`, `AllowSleep`, `Interpolation` (None/Interpolate), `InitialLinearVelocity`, `InitialAngularVelocity` |
-| `BoxCollider` | `BoxColliderComponent` | `HalfExtents`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
-| `SphereCollider` | `SphereColliderComponent` | `Radius`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
-| `CapsuleCollider` | `CapsuleColliderComponent` | `Radius`, `HalfHeight`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
-| `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Friction`, `Restitution` |
+| `BoxCollider` | `BoxColliderComponent` | `HalfExtents`, `Offset`, `IsTrigger`, `Material` (a `.sphysmat`; 0 = none, §8), `Friction`, `Restitution` (both replaced by a set `Material`) |
+| `SphereCollider` | `SphereColliderComponent` | `Radius`, `Offset`, `IsTrigger`, `Material`, `Friction`, `Restitution` |
+| `CapsuleCollider` | `CapsuleColliderComponent` | `Radius`, `HalfHeight`, `Offset`, `IsTrigger`, `Material`, `Friction`, `Restitution` |
+| `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Material`, `Materials` (`.sphysmat`[], one per submesh of a triangle mesh, at most 31; 0 or missing = `Material`), `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
 | `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
 | `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
@@ -1221,6 +1223,23 @@ every number finite.
 			{ "Time": 0.0, "Value": 0.0, "Interpolation": "Cubic", "HasIn": false, "In": 0.0, "HasOut": true, "Out": 0.5 },
 			{ "Time": 1.0, "Value": 1.0, "Interpolation": "Linear", "HasIn": false, "In": 0.0, "HasOut": false, "Out": 0.0 }
 		]
+	}
+}
+```
+
+Physics material (`.sphysmat`, the data asset type `PhysicsMaterial`, version 1, §8): `"PhysicsMaterial": { "Friction",
+"Restitution", "FrictionCombine", "RestitutionCombine", "RollingResistance", "Surface", "ImpactSound", "ImpactParticles" }`.
+`Friction` and `RollingResistance` are at least 0 and `Restitution` 0 to 1; the combine modes are `GeometricMean`,
+`Average`, `Minimum`, `Multiply` or `Maximum`; `Surface` is any text (empty for none); `ImpactSound` references an
+`AudioClip` and `ImpactParticles` a `Prefab` (0 for none). A new material (`{}`) is what a collider without one does:
+friction 0.6 by the geometric mean, restitution 0 by the maximum.
+
+```json
+{
+	"Strada": { "Version": 1, "Type": "PhysicsMaterial" },
+	"PhysicsMaterial": {
+		"Friction": 0.9, "Restitution": 0.1, "FrictionCombine": "Minimum", "RestitutionCombine": "Maximum",
+		"RollingResistance": 0.012, "Surface": "Gravel", "ImpactSound": "9906031496213900225", "ImpactParticles": "0"
 	}
 }
 ```
@@ -1423,13 +1442,67 @@ the body moves (static bodies never meet each other); broad-phase layers separat
 project's ignored layer pairs never collide. An entity's colliders form one compound shape scaled by the entity's
 world scale (mirroring is ignored); triangle-mesh colliders on dynamic bodies use the mesh's convex hull, kinematic ones
 keep the triangles (bodies that move take the `RigidBody`'s mass, which Jolt cannot compute for triangles). Friction
-(geometric mean), restitution (maximum) and triggers are applied per contact by the contact listener, so one entity
-can mix solid and trigger colliders. The listener, called on Jolt's worker threads, turns sub-shape contacts into one
+and restitution (combined from both sides' physics materials, below) and triggers are applied per contact by the
+contact listener, so one entity can mix solid and trigger colliders and surfaces. The listener, called on Jolt's worker threads, turns sub-shape contacts into one
 enter and one exit event per entity pair and contact kind; removing a body ends its contacts with exit events. Jolt
 drops the contacts of bodies that fall asleep and finds them again when they wake up; such contacts persist (no exit
 while asleep, no second enter on waking) and end only when the awake bodies no longer touch. Jolt is
 built at the SSE4.2 baseline (its instruction-set flags reach the engine sources that include it) with its asserts,
 routed to the engine log, in Debug builds only.
+
+**Physics materials.** A physics material (`PhysicsMaterial`, `Strada/Asset/PhysicsMaterial.h`; the data of a
+`.sphysmat` asset, registered as a data asset type in `Strada/Asset/PhysicsMaterialAsset.h`, §6.4 and §7.3) says how a
+surface slides, bounces and rolls and what it is called. In this slice its fields do this:
+
+| Field | Default | What it does |
+|---|---|---|
+| `Friction` | 0.6 | The surface's friction coefficient, combined with the other side's per contact |
+| `Restitution` | 0 | Its bounciness (0 to 1), combined likewise |
+| `FrictionCombine`, `RestitutionCombine` | `GeometricMean`, `Maximum` | How a contact combines the two sides' values: `GeometricMean` (the square root of the product), `Average`, `Minimum`, `Multiply` or `Maximum` |
+| `RollingResistance` | 0 | A rolling resistance coefficient (force per newton of load) for scripts, graphs and, later, the vehicle; rigid-body contacts ignore it |
+| `Surface` | empty | A name scripts and graphs compare (`"Asphalt"`, `"Gravel"`) |
+| `ImpactSound`, `ImpactParticles` | none | An `AudioClip` and a `Prefab` (a particle system) for impacts, which scripts and graphs (later the audio director) play and spawn; contacts play and spawn nothing |
+
+Every collider component has a `Material` reference. Unset, the collider's own `Friction` and `Restitution` apply with
+the modes `GeometricMean` and `Maximum`, which is how every collider combined before materials existed; set, the
+material's values and modes replace them, and the inspector shows the two fields disabled, saying that `Material`
+sets them (the `OverriddenBy` field hint, §7.2). A reference that names no loaded asset of the type (missing, unloadable
+or of another type) counts as unset, with a warning when the body is made. A `MeshCollider` with triangles
+(`Convex` off, on a static or kinematic body) also has `Materials`, one per submesh of its mesh in submesh order; an
+empty entry, or a submesh past the list, uses the collider's `Material` (or its floats). Jolt's mesh shape holds at most
+32 materials (`MeshShape::FLAGS_MATERIAL_BITS`, refused beyond at `MeshShape.cpp:161-163` of the pinned Jolt), so the
+list holds at most 31 (`MaxMeshColliderMaterials`, the field's `MaxCount`) beside the collider's own. Convex hulls,
+and the hulls that stand in for the triangles of dynamic bodies, have one surface: the collider's `Material`.
+
+A contact combines, per pair of sub-shapes as before, the two sides' friction and restitution
+(`CombinePhysicsMaterialValues`): each side brings its value and its mode, and when the modes differ the one later in
+the order `GeometricMean`, `Average`, `Minimum`, `Multiply`, `Maximum` wins (so a material that says `Maximum` for
+restitution bounces off everything, and one that says `GeometricMean` defers to any other). The rule is symmetric in
+the two sides, as Jolt's pairs come in body order. With both modes at their defaults it is exactly `std::sqrt(a * b)`
+and `std::max(a, b)`, the expressions of the listener before materials, so a scene without materials simulates bit for
+bit as it did and its state hashes do not change. A side is one sub-shape: a collider of a compound body, or a
+triangle's submesh. Its material is found from the sub-shape ID: a triangle mesh's shape carries a material list
+(Jolt's `MeshShapeSettings::mMaterials`, entries derived from `JPH::PhysicsMaterial` that name the engine's material
+table entry; each triangle's `mMaterialIndex` is its submesh's entry) read through `Shape::GetMaterial`, which compound
+and decorated shapes pass on to the leaf (`CompoundShape.cpp:126-134`, `DecoratedShape.cpp:47-50`); every other shape
+names its collider's entry through its user data, as before. Jolt's body-level friction and restitution are the first
+collider's values (its material's when it has one); they matter only where a shape carries no collider entry.
+
+The listener runs on Jolt's worker threads. The values it reads live in the world's table of collider materials
+(`PhysicsScene`: per collider, its trigger flag, friction, restitution, both modes and the material's handle, and per
+triangle-mesh submesh an entry of its own), which only the main thread writes, between steps (bodies made, rebuilt and
+removed, and material edits), and which no step resizes: inside `PhysicsSystem::Update` it is immutable, so the
+workers read it without a lock and see one value per step. A material edited while a scene plays (the inspector,
+`physics-material.set`, undo, a reload of its file) reaches the bodies that use it before the frame's next step: the
+scene keeps the version (`DataAsset::GetVersion`) of each material its bodies use, and before the frame's steps, when
+the data asset registry's epoch moved, it writes the values of every material whose version changed into the entries
+that name it. No body is rebuilt, so velocities, contacts and joints stay; contacts that persist take the new values at
+the next step (Jolt calls `OnContactPersisted` every step). Materials are inputs of the simulation, like the project's
+settings: the state hash and snapshots do not hold them.
+
+`RaycastHit::Material` (and `Strada.RaycastHit.Material`) is the handle of the material of the sub-shape or triangle a
+ray hits, found the same way, and none when that collider has no material. Scripts and graphs read a material's fields
+through `Strada.PhysicsMaterial`.
 
 The scene drives it while running. `OnRuntimeStart(SceneRuntimeSettings)` (from `MakeSceneRuntimeSettings(project
 settings)`) creates bodies for entities with colliders (static without a `RigidBody`; a `RigidBody` without colliders
@@ -1438,8 +1511,8 @@ the rebuilt body keeps its velocities. Physics runs in fixed steps: before each 
 transforms (`MoveKinematic`) and static or dynamic bodies whose transforms changed (scripts, the editor, a moving
 parent) are teleported; after it, awake dynamic bodies write their world transforms back (parents first, converted to
 parent-local space, keeping their scale). Events delivered to scripts: `OnCollisionEnter/Exit(Entity other)`,
-`OnTriggerEnter/Exit(Entity other)`. Queries: raycast (closest solid hit; triggers and colliders containing the origin
-are ignored), with a layer mask.
+`OnTriggerEnter/Exit(Entity other)`. Queries: raycast (closest solid hit, with the physics material hit; triggers and
+colliders containing the origin are ignored), with a layer mask.
 
 **Step control.** A step lasts the project's `Physics.FixedTimestep` (0.0005 to 0.1 s, default 1/60); a frame runs at
 most `Physics.MaxStepsPerFrame` of them (1 to 64, default 8; a slower frame drops the backlog beyond one step, so the

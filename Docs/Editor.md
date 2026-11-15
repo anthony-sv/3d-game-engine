@@ -530,6 +530,7 @@ Copy ID), says when it is built into the engine or was imported with a model, an
 | Scene | A hint to double-click it in the Content Browser to open it |
 | Visual script | An Open button, its description, numbers of nodes and links, the events it uses, which scripts use it, its variables and its functions |
 | Curve | The curve editor, then its fields: the extrapolations and the keys ([Curves](#curves)) |
+| Physics material | Its fields: friction, restitution and how contacts combine them, rolling resistance, the surface's name, the impact sound and particles ([Physics materials](#physics-materials)) |
 
 An asset whose file is missing says so. Inspecting an asset never writes its file.
 
@@ -595,6 +596,7 @@ The "+" button and the context menus create, in the displayed folder:
 | Visual Script | `New Visual Script.sgraph` with an `Event.Create` and an `Event.Update` node |
 | Visual Script Library | `New Visual Script Library.sgraph`: functions other visual scripts call; it runs on no entity |
 | Curve | `New Curve.scurve`, a curve without keys ([Curves](#curves)) |
+| Physics Material | `New Physics Material.sphysmat`, a material that behaves like a collider without one ([Physics materials](#physics-materials)) |
 | C# Script... | The New Script dialog ([Creating C# scripts](#creating-c-scripts)) |
 
 A taken name gets a number (`New Material 1.smat`). The new item is selected with its name ready to edit. Materials,
@@ -665,6 +667,7 @@ The asset directory registers these file types:
 | Font | `.ttf`, `.otf` | Importing |
 | Visual script | `.sgraph` | "+" > Visual Script, Create Visual Script |
 | Curve | `.scurve` | "+" > Curve |
+| Physics material | `.sphysmat` | "+" > Physics Material |
 
 Built-in assets need no files: the meshes Cube, Sphere, Plane, Cylinder, Capsule, Cone and Quad, the DefaultMaterial,
 the textures White, Black, FlatNormal and Particle, the DefaultFont and the procedural DefaultSky. Pickers list them as
@@ -785,6 +788,24 @@ Each drag is one undo step, written to the file as it goes. Below the curve edit
 and the keys as a list (each key's `HasIn` and `HasOut` switch its set slopes on); agents edit the same fields with
 `curve.set` ([Automation](Automation.md)). While the game plays, an edit reaches the scripts that read the curve on the
 next frame.
+
+### Physics materials
+
+A physics material (`.sphysmat`) is a surface: how it slides (`Friction`), bounces (`Restitution`) and rolls
+(`RollingResistance`), the name scripts tell it by (`Surface`: Asphalt, Gravel, Ice) and the sound and particles of an
+impact on it (`ImpactSound`, `ImpactParticles`, which scripts and graphs play and spawn; contacts do neither by
+themselves, and rigid bodies roll without the rolling resistance, which is for scripts and vehicles). Pick one in a
+collider's `Material` field: its values then replace the collider's own `Friction` and `Restitution`, which the
+inspector shows disabled ("Set by Material") until the field is cleared. A triangle-mesh collider (`Convex` off) also has
+`Materials`, one per submesh of its mesh (at most 31, in submesh order; an empty entry uses `Material`), so one road mesh
+can be asphalt, kerbs and gravel.
+
+Where two colliders touch, their values are combined: `FrictionCombine` and `RestitutionCombine` say how
+(`GeometricMean`, `Average`, `Minimum`, `Multiply` or `Maximum`), and when the two sides differ the one later in that
+list wins. A collider without a material combines its friction by `GeometricMean` and its restitution by `Maximum`, as
+every collider did before materials, so scenes without them behave exactly as before. Edit a material in the Inspector,
+or agents with `physics-material.set` ([Automation](Automation.md)); while the game plays, the bodies that use it take
+the new values before the next physics step.
 
 ## Scene Settings
 
