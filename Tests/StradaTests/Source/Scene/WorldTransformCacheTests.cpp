@@ -116,8 +116,8 @@ namespace
 		return transform;
 	}
 
-	// Whether the entity's chain of parents comes back to an entity it passed.
-	bool ReachesCycle(Scene& scene, entt::entity handle)
+	// The entities of the entity's chain of parents, itself included; none when the chain comes back to an entity it passed.
+	std::optional<size_t> CountLevels(Scene& scene, entt::entity handle)
 	{
 		std::vector<UUID> seen;
 		Entity entity(handle, &scene);
@@ -126,12 +126,12 @@ namespace
 			UUID const id = entity.GetUUID();
 			if (std::find(seen.begin(), seen.end(), id) != seen.end())
 			{
-				return true;
+				return std::nullopt;
 			}
 			seen.push_back(id);
 			entity = scene.GetEntityByUUID(entity.GetComponent<RelationshipComponent>().Parent);
 		}
-		return false;
+		return seen.size();
 	}
 
 	// Whether the children lists below the entity, followed down, reach each entity once. Direct writes of Parent leave
@@ -205,11 +205,12 @@ namespace
 		{
 			handles.push_back(handle);
 		}
-		// The view's order follows the registry's history: sorted, a pick by index is the same on every platform.
+		// Sorted by handle: handles follow the sequence of creations and destructions alone, whereas the UUIDs of entities
+		// made outside a run are random, so a pick by index is the same in every run and on every platform.
 		std::sort(handles.begin(), handles.end(),
-		          [&scene](entt::entity a, entt::entity b)
+		          [](entt::entity a, entt::entity b)
 		          {
-					  return scene.GetRegistry().get<IDComponent>(a).ID.GetValue() < scene.GetRegistry().get<IDComponent>(b).ID.GetValue();
+					  return entt::to_integral(a) < entt::to_integral(b);
 				  });
 		return handles;
 	}
@@ -295,9 +296,13 @@ TEST_CASE("Scene: world transforms equal an uncached walk after every edit of fu
 			glm::mat4 const world = scene.GetWorldTransform(Entity(picked, &scene));
 			CAPTURE(checkedRound);
 			REQUIRE(HasSameBits(world, ReferenceWorld(scene, picked)));
-			if (IsFinite(world) && !ReachesCycle(scene, picked))
+			// The two orders round differently at each level, so the tolerance grows with the depth: deep chains of the
+			// fuzzed edits reach dozens of levels.
+			std::optional<size_t> const levels = CountLevels(scene, picked);
+			if (IsFinite(world) && levels.has_value())
 			{
-				CHECK(IsClose(world, BottomUpWorld(scene, picked), 1e-5f));
+				CAPTURE(*levels);
+				CHECK(IsClose(world, BottomUpWorld(scene, picked), 1e-6f * static_cast<float>(std::max<size_t>(*levels, 10))));
 			}
 		}
 	};

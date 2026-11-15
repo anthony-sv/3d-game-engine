@@ -1224,7 +1224,7 @@ stale.
   The target is a refresh of 12,000 entities in at most 0.5 ms in Release on the reference machine, whether none, some
   or all of them moved; the benchmark case of `WorldTransformCacheTests.cpp` (`STRADA_TRANSFORM_BENCHMARK=1`) measures
   the three. Measured at IN-2 (100 roots of 119 children, one refresh per frame, 300 frames, the zone's median):
-  0.12 ms with nothing moved, 0.15 ms with 1,000 children moved, 0.47 ms with every root moved, every matrix computed
+  0.12 ms with nothing moved, 0.15 ms with 1,000 children moved, 0.46 ms with every root moved, every matrix computed
   again. A read through a current chain costs about 0.05 µs per entity, half of slice 1's walk.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
