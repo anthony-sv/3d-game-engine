@@ -22,10 +22,11 @@ namespace Strada
 	namespace
 	{
 		// The folder that holds this program's log and crash reports: an exported game's own data folder when a game file
-		// beside the executable names its identity, so that they sit with the game's data on its players' machines;
-		// otherwise (the editor, the player of a build, tools, an exported game whose file is missing or damaged) the
-		// engine's shared folder. Read before logging starts, so nothing is logged about it: a damaged file is the
-		// player's to report.
+		// beside the executable names its identity (its header, Name and Identity read), so that they sit with the game's
+		// data on its players' machines, also when the rest of the file keeps the game from running; otherwise (the
+		// editor, the player of a build, tools, an exported game whose file is missing or whose identity cannot be read)
+		// the engine's shared folder. Read before logging starts, so nothing is logged about it: a damaged file is the
+		// player's to report, in whichever folder this chose.
 		std::filesystem::path FindProgramDataDirectory()
 		{
 			if (Result<GameIdentity> const identity = Project::ReadGameIdentity(Project::FindExportedGameFile(), ProjectFileKind::Game))

@@ -494,17 +494,21 @@ TEST_CASE(
 	CHECK(GameData::IsTemporary());
 	CHECK(*temporary != playData);
 	CHECK_FALSE(FileSystem::IsInside(*temporary, fixture.Directory.GetPath()));
+	// What the run writes there goes with the folder.
+	REQUIRE(FileSystem::WriteTextFile(*temporary / "Saves" / "Slot1.json", "{}").IsOk());
 	fixture.Play.Stop();
 	CHECK_FALSE(GameData::GetDirectory().has_value());
 	CHECK_FALSE(FileSystem::Exists(*temporary));
 
-	// Stopping by destroying play mode empties it too.
+	// Stopping by destroying play mode empties it too, and what playing wrote into the play data stays.
 	{
 		PlayMode play(fixture.Context, fixture.Scripts);
 		REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
 		CHECK(GameData::GetDirectory() == playData);
+		REQUIRE(FileSystem::WriteTextFile(playData / "Saves" / "Slot1.json", "{}").IsOk());
 	}
 	CHECK_FALSE(GameData::GetDirectory().has_value());
+	CHECK(FileSystem::IsRegularFile(playData / "Saves" / "Slot1.json"));
 }
 
 TEST_CASE("PlayMode: script fields edited while playing reach the running script at once, and edits start from its values")

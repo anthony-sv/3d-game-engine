@@ -529,6 +529,6 @@ namespace Strada
 		{
 			return UserDataLocations::MakeEngineDirectory(*root, platform);
 		}
-		return GetExecutableDirectory() / "UserData";
+		return UserDataLocations::MakeFallbackEngineDirectory(GetExecutableDirectory());
 	}
 }

@@ -581,9 +581,10 @@ Run the game by starting its executable. It is the player renamed, so it takes t
 are disabled in exported games.
 
 On each player's machine the game has a data folder of its own, named by the **Identity** in Project Settings
-(**Company** and **Product**; an empty product uses the game's name): `%APPDATA%\<Company>\<Product>` on Windows,
-`~/Library/Application Support/<Company>/<Product>` on macOS and `~/.local/share/<company>-<product>` on Linux. The game
-logs to `Logs/<Name>.log` there and leaves crash reports in `Crashes/`. Playing the game in the editor never touches
+(**Company** and **Product**; an empty product uses the game's name, so set an ASCII one for a name in another script):
+`%APPDATA%\<Company>\<Product>` on Windows, `~/Library/Application Support/<Company>/<Product>` on macOS and
+`~/.local/share/<company>-<product>` on Linux. The game logs to `Logs/<Name>.log` there and leaves crash reports in
+`Crashes/`. Playing the game in the editor never touches
 that folder: play mode uses the project's `.strada/PlayData` folder instead
 ([Editor.md](Editor.md#where-an-exported-game-keeps-its-data) has the details).
 

@@ -28,8 +28,14 @@ namespace Strada
 		// The game's name; empty only before Resolve.
 		std::string Product;
 
-		// The identity a project's settings give: an empty product is the project's name.
+		// The identity a project's settings give. A company or product names something only when it holds an ASCII letter
+		// or digit (HasLetterOrDigit): a company without one is none, and a product without one (empty, spaces, text that
+		// is not ASCII) is the project's name, as set. Distinct games whose products have no ASCII letter or digit would
+		// otherwise share one folder whose name only says how many bytes their names have.
 		[[nodiscard]] static GameIdentity Resolve(std::string_view company, std::string_view product, std::string_view name);
+		// Whether a company or product names anything in a folder name or a bundle identifier: it holds an ASCII letter or
+		// digit, the only characters both keep.
+		[[nodiscard]] static bool HasLetterOrDigit(std::string_view text);
 
 		bool operator==(GameIdentity const& other) const = default;
 	};
@@ -38,8 +44,8 @@ namespace Strada
 	class UserDataLocations
 	{
 	public:
-		// Longest name of a folder below the per-user root, in bytes (longer names are cut, keeping paths short enough
-		// for every platform).
+		// Longest company or product in a game's folder, in bytes (longer ones are cut, keeping paths short enough for
+		// every platform). Linux joins the two into one folder name of at most twice this plus the '-'.
 		static constexpr size_t MaxFolderNameLength = 64;
 
 		using EnvironmentReader = std::function<std::optional<std::string>(std::string const& name)>;
@@ -66,11 +72,18 @@ namespace Strada
 		[[nodiscard]] static std::filesystem::path MakeEngineDirectory(std::filesystem::path const& root, UserDataPlatform platform);
 		// A game's data folder below a root: <root>/<Company>/<Product> on Windows and macOS, <root>/<company>-<product>
 		// lower-cased on Linux, and without the company when there is none. Each name is made portable
-		// (FileSystem::MakePortableFileName) and cut to MaxFolderNameLength; a product with nothing portable is "Game",
-		// a company with nothing portable is none. The folder never is the engine's own folder, nor inside it: a first
-		// name that is the engine's folder in any letter case gets a trailing '_', as reserved device names do.
+		// (FileSystem::MakePortableFileName) and cut to MaxFolderNameLength; a company that then holds no ASCII letter or
+		// digit is none, and such a product is "Game". Below the same root the folder never is the engine's own folder
+		// (MakeEngineDirectory), nor inside it: a first name that is the engine's folder in any letter case gets a trailing
+		// '_', as reserved device names do.
 		[[nodiscard]] static std::filesystem::path MakeGameDirectory(std::filesystem::path const& root, GameIdentity const& identity,
 		                                                             UserDataPlatform platform);
+
+		// When the environment names no per-user root, the folders go beside the executable: the engine's is
+		// <executable directory>/UserData, and the games' are below <executable directory>/GameData, which stands in for the
+		// root (MakeGameDirectory), so that no game's folder is the engine's or inside it there either.
+		[[nodiscard]] static std::filesystem::path MakeFallbackEngineDirectory(std::filesystem::path const& executableDirectory);
+		[[nodiscard]] static std::filesystem::path MakeFallbackGameRoot(std::filesystem::path const& executableDirectory);
 	};
 
 	// The service that tells the engine where the running game keeps its data (input bindings, saves, the player's
@@ -88,8 +101,7 @@ namespace Strada
 		[[nodiscard]] static bool IsTemporary();
 
 		// A game's data folder on this machine: UserDataLocations::MakeGameDirectory below this process's per-user root,
-		// or below <executable directory>/UserData when the environment names none (as FileSystem::GetUserDataDirectory
-		// falls back). Thread-safe.
+		// or below UserDataLocations::MakeFallbackGameRoot when the environment names none. Thread-safe.
 		[[nodiscard]] static std::filesystem::path GetUserDirectory(GameIdentity const& identity);
 		// A new, unique folder name below the system's temporary folder for a test run's data (not created). Empty when the
 		// system names no temporary folder. Thread-safe.

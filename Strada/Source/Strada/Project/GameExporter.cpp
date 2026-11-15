@@ -295,19 +295,22 @@ namespace Strada
 		}
 
 		// One part of a reverse-DNS bundle identifier, which allows ASCII letters, digits and '-' between its dots: other
-		// characters become '-'. Nothing when the text has no letter or digit.
+		// characters become '-'. Nothing when the text has no letter or digit (GameIdentity::HasLetterOrDigit, the rule
+		// the game's data folder follows).
 		std::optional<std::string> MakeBundleIdentifierPart(std::string_view text)
 		{
+			if (!GameIdentity::HasLetterOrDigit(text))
+			{
+				return std::nullopt;
+			}
 			std::string part;
-			bool any = false;
 			for (char const character : text)
 			{
 				bool const usable = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
 				                    (character >= '0' && character <= '9');
 				part += usable ? character : '-';
-				any = any || usable;
 			}
-			return any ? std::optional<std::string>(std::move(part)) : std::nullopt;
+			return part;
 		}
 
 		// org.strada.<company>.<product>, without the company part when there is none (or none of it is usable). A project

@@ -228,9 +228,13 @@ TEST_CASE("GameExporter: the macOS bundle identifier comes from the identity, an
 	CHECK(identifierOf("", "Moto Racer", "") == "org.strada.Moto-Racer");
 	CHECK(identifierOf("Acme & Sons", "", "") == "org.strada.Acme---Sons.Space---Time");
 	CHECK(identifierOf("Acme", "Moto", "") == "org.strada.Acme.Moto");
-	// A company with nothing usable is left out; a product with nothing usable keeps today's form.
+	// A company with no ASCII letter or digit is left out, and such a product is the project's name, as the game's data
+	// folder takes them; a name with none keeps today's form.
 	CHECK(identifierOf("  ..  ", "Moto", "") == "org.strada.Moto");
-	CHECK(identifierOf("Acme", "..", "") == "org.strada.Acme.--game");
+	CHECK(identifierOf("Acme", "..", "") == "org.strada.Acme.Space---Time");
+	CHECK(identifierOf("Acme", "  ", "") == "org.strada.Acme.Space---Time");
+	CHECK(identifierOf("Acme", "\xd0\x98\xd0\xb3\xd1\x80\xd0\xb0", "") == "org.strada.Acme.Space---Time");
+	CHECK(identifierOf("Acme", "..", "\xc3\xa9") == "org.strada.Acme.--game");
 	CHECK(identifierOf("", "", "\xc3\xa9") == "org.strada.--game");
 }
 

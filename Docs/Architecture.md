@@ -3352,9 +3352,11 @@ bindings, saves and player's settings to come go there.
 
 **The identity.** `ProjectSettings::Identity` holds `Company` and `Product`, both optional strings, compatible fields of
 project format 1: an engine from before them warns about the unknown key and drops it on its next save. `Game.sgame`
-carries them as it carries every setting. `GetGameIdentity` resolves them into a `GameIdentity` (Core): an empty
-`Product` is the project's `Name`, an empty `Company` means no company level, so a project that sets neither is named by
-its name alone. They are edited in the Project Settings panel and through `project.settings`. The macOS bundle
+carries them as it carries every setting. `GetGameIdentity` resolves them into a `GameIdentity` (Core,
+`GameIdentity::Resolve`). A part names something only when it holds an ASCII letter or digit
+(`GameIdentity::HasLetterOrDigit`), the only characters a folder name and a bundle identifier both keep: a `Product`
+without one (empty, spaces, text that is not ASCII) is the project's `Name`, and a `Company` without one means no company
+level, so a project that sets neither is named by its name alone. They are edited in the Project Settings panel and through `project.settings`. The macOS bundle
 identifier is `org.strada.<company>.<product>`, each part with every character other than an ASCII letter or digit
 made `-`; a company with no letter or digit is left out, and a project that sets neither keeps `org.strada.<name>`
 (with `game` after the dashes of a name that has no letter or digit), as before the identity existed.
@@ -3369,16 +3371,22 @@ that each platform's names are tested on every platform:
 | Linux | `$XDG_DATA_HOME`, else `$HOME/.local/share` | `<root>/strada` | `<root>/<company>-<product>`, lower-cased |
 
 - A variable that is unset, empty or not an absolute path (by the platform's rules) counts as unset, so no folder is ever
-  relative to the working directory. When none names a root, the engine's folder is `<executable directory>/UserData`
-  and a game's folder is below it.
-- Each name is made portable (`FileSystem::MakePortableFileName`: ASCII letters, digits, spaces, `-` and `_`; device
-  names Windows reserves get a trailing `_`) and cut to `MaxFolderNameLength` (64) bytes. A company with nothing portable
-  is none; a product with nothing portable is `Game`. Without a company there is no company level (`<root>/<Product>`,
+  relative to the working directory; `strada` reads the variables by the same rule (`UserDataDirectory.cs`), so it looks
+  for editors where they write. When none names a root, the folders go beside the executable: the engine's is
+  `<executable directory>/UserData` (`MakeFallbackEngineDirectory`), and `<executable directory>/GameData`
+  (`MakeFallbackGameRoot`) stands in for the root of the games' folders.
+- Each company and product is made portable (`FileSystem::MakePortableFileName`: ASCII letters, digits, spaces, `-` and
+  `_`; device names Windows reserves get a trailing `_`) and cut to `MaxFolderNameLength` (64) bytes, so Linux's joined
+  name has at most 129. A company that then holds no ASCII letter or digit is none, and such a product is `Game` (which a
+  project reaches only when its name has none either). Without a company there is no company level (`<root>/<Product>`,
   `<root>/<product>` on Linux).
-- No game's folder is the engine's or inside it: a first name below the root that is `Strada` in any letter case (a
-  company named so, or a game without a company) gets a trailing `_`.
+- No game's folder is the engine's or inside it, with a root or without one: a first name below the root that is
+  `Strada` in any letter case (a company named so, or a game without a company) gets a trailing `_`, and without a root
+  the games' folders and the engine's are apart.
 - Two identities can name one folder (on Linux `a-b` and `c` as `a` and `b-c`; any two that differ only in what is not
-  portable): the identity is the developer's to keep unique.
+  portable, such as `Café` and `Cafè`; every game without a company whose product and name hold no ASCII letter or
+  digit, which share `<root>/Game`): the identity is the developer's to keep unique, and a game whose name is not in
+  ASCII sets an ASCII `Product`.
 - There is no split into settings, data, state and cache folders, and no variable that moves the root: a test isolates
   a child process by the variable that names its root (`APPDATA`, `HOME`, `XDG_DATA_HOME`), as StradaToolTests do.
   StradaRuntimeTests start every player with a root of its own below a temporary directory
@@ -3417,8 +3425,11 @@ that each platform's names are tested on every platform:
   `OpenGame` uses, without opening it and without logging, and resolves them with `GetGameIdentity`; the folder is
   `GameData::GetUserDirectory` of that identity, the computation the player fills the service with. A game that opens
   therefore logs where its data goes (the game file fuzz case checks that every file `OpenGame` opens gives the entry
-  point the identity of the opened settings). A missing or damaged file, one that is not a game, or one whose name is
-  empty keeps the shared folder, where the player then logs why the game cannot run.
+  point the identity of the opened settings). Only a file whose identity cannot be read keeps the shared folder: one
+  that is missing or not JSON, one that is not a game or whose header `OpenGame` refuses, one whose `Name` is empty or
+  is not a string, one whose `Identity` is not what `OpenGame` reads. A file whose identity reads but whose other
+  settings are damaged (a `Window` that is not an object, no physics layer) logs below the game's folder. Either way the
+  player logs there why the game cannot run, so the reason sits where the game's log is looked for.
 - The log follows the program, the data the run: an exported game's executable logs below its folder whatever it is
   asked to run (`--test`, whose data is temporary; `--game` or `--project` naming another), and the player of a build,
   which has no game file beside it, logs in the shared folder whatever it runs, also an exported game given by `--game`.

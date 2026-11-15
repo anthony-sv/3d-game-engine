@@ -70,7 +70,7 @@ namespace Strada
 				// and marks a reserved name the cut made.
 				portable = FileSystem::MakePortableFileName(std::string_view(portable).substr(0, UserDataLocations::MaxFolderNameLength));
 			}
-			return portable;
+			return GameIdentity::HasLetterOrDigit(portable) ? portable : std::string();
 		}
 
 		// The name of a folder directly below the root, kept apart from the engine's own folder in any letter case.
@@ -82,7 +82,18 @@ namespace Strada
 
 	GameIdentity GameIdentity::Resolve(std::string_view company, std::string_view product, std::string_view name)
 	{
-		return GameIdentity{std::string(company), std::string(product.empty() ? name : product)};
+		return GameIdentity{HasLetterOrDigit(company) ? std::string(company) : std::string(),
+		                    std::string(HasLetterOrDigit(product) ? product : name)};
+	}
+
+	bool GameIdentity::HasLetterOrDigit(std::string_view text)
+	{
+		return std::any_of(text.begin(), text.end(),
+		                   [](char character)
+		                   {
+							   unsigned char const byte = static_cast<unsigned char>(character);
+							   return byte < 0x80 && std::isalnum(byte) != 0;
+						   });
 	}
 
 	std::optional<std::filesystem::path> UserDataLocations::FindRoot(UserDataPlatform platform, EnvironmentReader const& readVariable)
@@ -156,6 +167,16 @@ namespace Strada
 		return root / FileSystem::PathFromUtf8(KeepApartFromEngine(company)) / FileSystem::PathFromUtf8(product);
 	}
 
+	std::filesystem::path UserDataLocations::MakeFallbackEngineDirectory(std::filesystem::path const& executableDirectory)
+	{
+		return executableDirectory / "UserData";
+	}
+
+	std::filesystem::path UserDataLocations::MakeFallbackGameRoot(std::filesystem::path const& executableDirectory)
+	{
+		return executableDirectory / "GameData";
+	}
+
 	std::optional<std::filesystem::path> GameData::GetDirectory()
 	{
 		GameDataState& state = GetState();
@@ -178,7 +199,8 @@ namespace Strada
 	{
 		constexpr UserDataPlatform platform = UserDataLocations::GetHostPlatform();
 		std::optional<std::filesystem::path> const root = UserDataLocations::FindRoot(platform, &Platform::ReadEnvironmentVariable);
-		return UserDataLocations::MakeGameDirectory(root ? *root : FileSystem::GetExecutableDirectory() / "UserData", identity, platform);
+		return UserDataLocations::MakeGameDirectory(
+			root ? *root : UserDataLocations::MakeFallbackGameRoot(FileSystem::GetExecutableDirectory()), identity, platform);
 	}
 
 	std::filesystem::path GameData::MakeTemporaryDirectory()

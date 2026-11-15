@@ -104,9 +104,9 @@ namespace Strada
 	// and the macOS bundle identifier. Both are optional, and a project that sets neither keeps what it had before them.
 	struct ProjectIdentity
 	{
-		// Empty means no company level.
+		// Empty, or without an ASCII letter or digit, means no company level.
 		std::string Company;
-		// Empty uses the project's name.
+		// Empty, or without an ASCII letter or digit, uses the project's name (GameIdentity::Resolve).
 		std::string Product;
 
 		bool operator==(ProjectIdentity const& other) const = default;
@@ -116,11 +116,13 @@ namespace Strada
 	struct StructTraits<ProjectIdentity>
 	{
 		static constexpr std::string_view Name = "Identity";
-		static constexpr auto Fields =
-			std::make_tuple(Field("Company", &ProjectIdentity::Company)
-		                        .Doc("Who makes the game; names the folder that holds the game's data folder. Empty for none."),
-		                    Field("Product", &ProjectIdentity::Product)
-		                        .Doc("The game's name in its data folder and bundle identifier; empty uses the project's name."));
+		static constexpr auto Fields = std::make_tuple(
+			Field("Company", &ProjectIdentity::Company)
+				.Doc(
+					"Who makes the game; names the folder that holds the game's data folder. Empty, or without an ASCII letter or digit, for none."),
+			Field("Product", &ProjectIdentity::Product)
+				.Doc(
+					"The game's name in its data folder and bundle identifier; empty, or without an ASCII letter or digit, uses the project's name."));
 	};
 
 	// Settings of a project, stored in its project file (.sproj) under "Project".

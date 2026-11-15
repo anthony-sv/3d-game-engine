@@ -587,6 +587,8 @@ TEST_CASE("Runtime: projects run with their last script build, and games without
 TEST_CASE(
 	"Runtime: an exported game runs with its own data folder, a project with its play data, a test run with a temporary one it removes")
 {
+	// What the player logs when it gives the game a folder that it removes at exit.
+	std::string_view const removedAtExit = "', a test run's folder removed at exit";
 	// The folder the player logs that it gave the game; empty when it logged none.
 	auto const dataFolder = [](std::string_view output) -> std::string
 	{
@@ -616,12 +618,14 @@ TEST_CASE(
 	CHECK(development.ExitCode == 0);
 	std::filesystem::path const playData = (project.GetDirectory() / ".strada" / "PlayData").lexically_normal();
 	CHECK(dataFolder(development.Output) == FileSystem::PathToUtf8(playData));
+	CHECK_FALSE(Contains(development.Output, removedAtExit));
 	CHECK_FALSE(FileSystem::Exists(project.GetDirectory() / ".strada"));
 	CHECK(Contains(ReadText(GetLogFile(developmentRoot.GetEngineDirectory(), player)), "The game keeps its data in"));
 	CHECK(FileSystem::IsDirectory(developmentRoot.GetEngineDirectory() / "Crashes"));
 	CHECK_FALSE(FileSystem::Exists(developmentRoot.GetGameDirectory(GameIdentity{"", "Runtime Test"})));
 
-	// A test run: a folder of its own, gone when the run ends.
+	// A test run: a folder of its own, gone when the run ends. The run writes nothing there, so the line the player logs is
+	// what shows that it gave the service a temporary folder (GameDataTests show that such a folder goes with its contents).
 	ProcessResult const test = RunPlayer({"--project", file, "--test"});
 	CAPTURE(test.Output);
 	CHECK(test.ExitCode == 0);
@@ -629,6 +633,7 @@ TEST_CASE(
 	REQUIRE_FALSE(temporary.empty());
 	CHECK(temporary != FileSystem::PathToUtf8(playData));
 	CHECK(Contains(temporary, "StradaGameData-"));
+	CHECK(Contains(test.Output, "The game keeps its data in '" + temporary + std::string(removedAtExit)));
 	CHECK_FALSE(FileSystem::Exists(FileSystem::PathFromUtf8(temporary)));
 	CHECK_FALSE(FileSystem::Exists(project.GetDirectory() / ".strada"));
 
@@ -643,13 +648,14 @@ TEST_CASE(
 	CHECK(exported.ExitCode == 0);
 	std::filesystem::path const gameData = exportedRoot.GetGameDirectory(GameIdentity{"", "Runtime Test"});
 	CHECK(dataFolder(exported.Output) == FileSystem::PathToUtf8(gameData));
+	CHECK_FALSE(Contains(exported.Output, removedAtExit));
 	CHECK_FALSE(FileSystem::Exists(gameData));
 	CHECK_FALSE(FileSystem::Exists(game.GetDirectory() / ".strada"));
 	CHECK(Contains(ReadText(GetLogFile(exportedRoot.GetEngineDirectory(), player)), "The game keeps its data in"));
 }
 
 TEST_CASE("Runtime: an exported game logs and keeps its crash reports below its own data folder, or in the shared folder "
-          "when its game file is missing or damaged")
+          "when its game file is missing or names no identity")
 {
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path player;
@@ -691,18 +697,6 @@ TEST_CASE("Runtime: an exported game logs and keeps its crash reports below its 
 	CHECK(Contains(ReadText(GetLogFile(gameData, player)), "StradaGameData-"));
 	CHECK_FALSE(FileSystem::Exists(userRoot.GetEngineDirectory()));
 
-	// Without a usable game file beside it the program logs in the shared folder, where it says why it cannot run.
-	auto const runWithoutGame = [&player, &identity](char const* what)
-	{
-		CAPTURE(what);
-		Testing::IsolatedUserRoot const sharedRoot;
-		ProcessResult const refused = RunProgram(player, {"--headless", "--frames", "2"}, sharedRoot);
-		CAPTURE(refused.Output);
-		CHECK(refused.ExitCode == 1);
-		CHECK(Contains(ReadText(GetLogFile(sharedRoot.GetEngineDirectory(), player)), "Cannot run the game"));
-		CHECK(FileSystem::IsDirectory(sharedRoot.GetEngineDirectory() / "Crashes"));
-		CHECK_FALSE(FileSystem::Exists(sharedRoot.GetGameDirectory(identity)));
-	};
 	std::filesystem::path gameFile = player.parent_path() / FileSystem::PathFromUtf8(Project::GameFileName);
 	if (player.parent_path().filename() == "MacOS")
 	{
@@ -712,15 +706,52 @@ TEST_CASE("Runtime: an exported game logs and keeps its crash reports below its 
 	REQUIRE(configuration.IsOk());
 	Result<Json> parsed = ParseJson(configuration.GetValue());
 	REQUIRE(parsed.IsOk());
-	Json projectFile = parsed.TakeValue();
+	Json const gameSettings = parsed.TakeValue();
+
+	// A game file that names its identity but cannot run (here its window settings are damaged) still logs below the
+	// game's own folder, where the player says why it cannot run: the entry point needs only the header, the name and the
+	// identity.
+	{
+		Json damaged = gameSettings;
+		damaged["Game"]["Window"] = "garbage";
+		REQUIRE(FileSystem::WriteTextFile(gameFile, DumpJson(damaged)).IsOk());
+		Testing::IsolatedUserRoot const damagedRoot;
+		ProcessResult const refused = RunProgram(player, {"--headless", "--frames", "2"}, damagedRoot);
+		CAPTURE(refused.Output);
+		CHECK(refused.ExitCode == 1);
+		std::string const log = ReadText(GetLogFile(damagedRoot.GetGameDirectory(identity), player));
+		CHECK(Contains(log, "Cannot run the game"));
+		CHECK(Contains(log, "Window"));
+		CHECK(FileSystem::IsDirectory(damagedRoot.GetGameDirectory(identity) / "Crashes"));
+		CHECK_FALSE(FileSystem::Exists(damagedRoot.GetEngineDirectory()));
+	}
+
+	// Without a game file beside it whose header, name and identity read, the program logs in the shared folder, where it
+	// says why it cannot run (what the player read before the engine started, or what opening the game found).
+	auto const runWithoutGame = [&player, &identity](char const* what, std::string_view reason)
+	{
+		CAPTURE(what);
+		Testing::IsolatedUserRoot const sharedRoot;
+		ProcessResult const refused = RunProgram(player, {"--headless", "--frames", "2"}, sharedRoot);
+		CAPTURE(refused.Output);
+		CHECK(refused.ExitCode == 1);
+		CHECK(Contains(ReadText(GetLogFile(sharedRoot.GetEngineDirectory(), player)), reason));
+		CHECK(FileSystem::IsDirectory(sharedRoot.GetEngineDirectory() / "Crashes"));
+		CHECK_FALSE(FileSystem::Exists(sharedRoot.GetGameDirectory(identity)));
+	};
+	Json projectFile = gameSettings;
 	projectFile["Strada"]["Type"] = "Project";
+	Json unnamedIdentity = gameSettings;
+	unnamedIdentity["Game"]["Identity"] = Json::array();
 
 	REQUIRE(FileSystem::WriteTextFile(gameFile, "{ \"Strada\": ").IsOk());
-	runWithoutGame("a game file that is not JSON");
+	runWithoutGame("a game file that is not JSON", "Cannot run the game");
+	REQUIRE(FileSystem::WriteTextFile(gameFile, DumpJson(unnamedIdentity)).IsOk());
+	runWithoutGame("a game file whose identity is not an object", "Application initialization failed");
 	REQUIRE(FileSystem::WriteTextFile(gameFile, DumpJson(projectFile)).IsOk());
-	runWithoutGame("a project file in the game file's place");
+	runWithoutGame("a project file in the game file's place", "Cannot run the game");
 	REQUIRE(FileSystem::RemoveAll(gameFile).IsOk());
-	runWithoutGame("no game file");
+	runWithoutGame("no game file", "Cannot run the game");
 }
 
 TEST_CASE("Runtime: games in directories with non-ASCII names start from the command line")

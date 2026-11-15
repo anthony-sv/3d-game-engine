@@ -42,7 +42,8 @@ namespace
 	}
 
 	// The names below the root, which must be one (no company) or two (a company, then the product) on Windows and macOS
-	// and one on Linux, each a portable name of at most MaxFolderNameLength bytes that is not the engine's folder.
+	// and one on Linux, each a portable name with an ASCII letter or digit that is not the engine's folder, of at most
+	// MaxFolderNameLength bytes (twice that and the '-' for Linux's joined name).
 	void CheckBelowRoot(UserDataPlatform platform, std::string_view company, std::string_view product)
 	{
 		CAPTURE(company);
@@ -56,8 +57,9 @@ namespace
 		for (std::filesystem::path const& part : relative)
 		{
 			std::string const name = FileSystem::PathToUtf8(part);
-			CHECK_FALSE(name.empty());
-			CHECK(name.size() <= UserDataLocations::MaxFolderNameLength * 2 + 1);
+			CHECK(GameIdentity::HasLetterOrDigit(name));
+			CHECK(name.size() <=
+			      (platform == OnLinux ? UserDataLocations::MaxFolderNameLength * 2 + 1 : UserDataLocations::MaxFolderNameLength));
 			CHECK(name == FileSystem::MakePortableFileName(name));
 			names++;
 		}
@@ -82,30 +84,52 @@ TEST_CASE("GameData: a game's folder is <root>/<Company>/<Product> on Windows an
 	CHECK(GameFolder(OnWindows, "", "Moto") == "/root/Moto");
 	CHECK(GameFolder(OnMacOS, "", "Moto") == "/root/Moto");
 	CHECK(GameFolder(OnLinux, "", "Moto") == "/root/moto");
-	// A company with nothing portable left is none; a product with nothing portable left is "Game".
+	// A company with no ASCII letter or digit left is none; such a product is "Game".
 	CHECK(GameFolder(OnWindows, "   ", "Moto") == "/root/Moto");
+	CHECK(GameFolder(OnMacOS, "--", "Moto") == "/root/Moto");
 	CHECK(GameFolder(OnLinux, "   ", "Moto") == "/root/moto");
 	CHECK(GameFolder(OnWindows, "Acme", "") == "/root/Acme/Game");
 	CHECK(GameFolder(OnMacOS, "Acme", "  ") == "/root/Acme/Game");
 	CHECK(GameFolder(OnLinux, "Acme", "") == "/root/acme-game");
 	CHECK(GameFolder(OnWindows, "", "") == "/root/Game");
 	CHECK(GameFolder(OnLinux, "", "") == "/root/game");
+	// Text that is not ASCII has nothing portable either, so products of equal byte length do not silently share a folder
+	// of underscores.
+	CHECK(GameFolder(OnWindows, "\xce\xa9", "\xd0\x98\xd0\xb3\xd1\x80\xd0\xb0") == "/root/Game");
+	CHECK(GameFolder(OnMacOS, "Acme", "___") == "/root/Acme/Game");
+	CHECK(GameFolder(OnLinux, "\xe6\x97\xa5", "Moto") == "/root/moto");
 }
 
-TEST_CASE("GameData: an identity's empty product is the project's name, and its company stays as set")
+TEST_CASE("GameData: an identity's product without an ASCII letter or digit is the project's name, and such a company is none")
 {
 	CHECK(GameIdentity::Resolve("", "", "Moto") == GameIdentity{"", "Moto"});
 	CHECK(GameIdentity::Resolve("Acme", "", "Moto") == GameIdentity{"Acme", "Moto"});
 	CHECK(GameIdentity::Resolve("Acme", "Moto Racer", "Moto") == GameIdentity{"Acme", "Moto Racer"});
 	CHECK(GameIdentity::Resolve("", "Moto Racer", "") == GameIdentity{"", "Moto Racer"});
+	// Spaces, punctuation and text that is not ASCII name nothing in a folder or a bundle identifier.
+	CHECK(GameIdentity::Resolve("Acme", " ", "Moto") == GameIdentity{"Acme", "Moto"});
+	CHECK(GameIdentity::Resolve("Acme", "\xd0\x98\xd0\xb3\xd1\x80\xd0\xb0", "Moto") == GameIdentity{"Acme", "Moto"});
+	CHECK(GameIdentity::Resolve("  ", "Moto", "Game") == GameIdentity{"", "Moto"});
+	CHECK(GameIdentity::Resolve("..", "Moto", "Game") == GameIdentity{"", "Moto"});
+	// The name is kept as set, whatever it holds: the folder and the bundle identifier each fall back from it.
+	CHECK(GameIdentity::Resolve("", "-", "\xc3\xa9") == GameIdentity{"", "\xc3\xa9"});
+	// Text keeps its other characters once it holds one letter or digit.
+	CHECK(GameIdentity::Resolve(" Caf\xc3\xa9 ", " 2 ", "Moto") == GameIdentity{" Caf\xc3\xa9 ", " 2 "});
+
+	CHECK(GameIdentity::HasLetterOrDigit("a"));
+	CHECK(GameIdentity::HasLetterOrDigit("--7--"));
+	CHECK_FALSE(GameIdentity::HasLetterOrDigit(""));
+	CHECK_FALSE(GameIdentity::HasLetterOrDigit(" _-.~"));
+	CHECK_FALSE(GameIdentity::HasLetterOrDigit("\xc3\xa9\xff"));
 }
 
 TEST_CASE("GameData: hostile names make portable folders below the root, kept apart from the engine's own folder")
 {
 	// Paths, separators and parent folders stay one name each.
-	CHECK(GameFolder(OnWindows, "../..", "../../Windows/System32") == "/root/_____/______Windows_System32");
+	CHECK(GameFolder(OnWindows, "../..", "../../Windows/System32") == "/root/______Windows_System32");
 	CHECK(GameFolder(OnMacOS, "/etc", "C:\\Games") == "/root/_etc/C__Games");
-	CHECK(GameFolder(OnLinux, "..", ".") == "/root/__-_");
+	CHECK(GameFolder(OnLinux, "..", ".") == "/root/game");
+	CHECK(GameFolder(OnLinux, "..a", ".b") == "/root/__a-_b");
 	// Device names Windows reserves, and what lower-casing does to them on Linux.
 	CHECK(GameFolder(OnWindows, "CON", "nul") == "/root/CON_/nul_");
 	CHECK(GameFolder(OnLinux, "", "COM1") == "/root/com1_");
@@ -172,27 +196,50 @@ TEST_CASE("GameData: the per-user root of each platform comes from its environme
 	CHECK(FileSystem::PathToUtf8(UserDataLocations::MakeEngineDirectory("/root", OnLinux)) == "/root/strada");
 }
 
+TEST_CASE("GameData: without a per-user root the engine's folder and the games' are apart beside the executable")
+{
+	std::filesystem::path const executableDirectory = FileSystem::PathFromUtf8("/opt/Game");
+	std::filesystem::path const engine = UserDataLocations::MakeFallbackEngineDirectory(executableDirectory);
+	std::filesystem::path const games = UserDataLocations::MakeFallbackGameRoot(executableDirectory);
+	CHECK(FileSystem::PathToUtf8(engine) == "/opt/Game/UserData");
+	CHECK(FileSystem::PathToUtf8(games) == "/opt/Game/GameData");
+	// The engine's own folders, and the fallback folders' names, are names a game may have.
+	for (UserDataPlatform const platform : {OnWindows, OnMacOS, OnLinux})
+	{
+		for (char const* company : {"", "Logs", "UserData", "GameData", "Strada"})
+		{
+			for (char const* product : {"Logs", "Crashes", "Editor", "UserData", "GameData", "Strada", ".."})
+			{
+				CAPTURE(static_cast<int>(platform));
+				CAPTURE(company);
+				CAPTURE(product);
+				std::filesystem::path const game =
+					UserDataLocations::MakeGameDirectory(games, GameIdentity{std::string(company), std::string(product)}, platform);
+				CHECK(FileSystem::IsInside(game, games));
+				CHECK(game != engine);
+				CHECK_FALSE(FileSystem::IsInside(game, engine));
+				CHECK_FALSE(FileSystem::IsInside(engine, game));
+			}
+		}
+	}
+}
+
 TEST_CASE("GameData: on this machine the engine's folder and a game's share the per-user root")
 {
 	constexpr UserDataPlatform host = UserDataLocations::GetHostPlatform();
 	std::optional<std::filesystem::path> const root = UserDataLocations::FindRoot(host, &Platform::ReadEnvironmentVariable);
-	std::filesystem::path const base = root ? *root : FileSystem::GetExecutableDirectory() / "UserData";
-	if (root)
+	std::filesystem::path const executableDirectory = FileSystem::GetExecutableDirectory();
+	std::filesystem::path const base = root ? *root : UserDataLocations::MakeFallbackGameRoot(executableDirectory);
+	CHECK(FileSystem::GetUserDataDirectory() == (root ? UserDataLocations::MakeEngineDirectory(*root, host)
+	                                                  : UserDataLocations::MakeFallbackEngineDirectory(executableDirectory)));
+	for (GameIdentity const& identity : {GameIdentity{"Acme", "Moto"}, GameIdentity{"", "Logs"}, GameIdentity{"", "Editor"}})
 	{
-		CHECK(FileSystem::GetUserDataDirectory() == UserDataLocations::MakeEngineDirectory(*root, host));
-	}
-	else
-	{
-		CHECK(FileSystem::GetUserDataDirectory() == base);
-	}
-	GameIdentity const identity{"Acme", "Moto"};
-	std::filesystem::path const game = GameData::GetUserDirectory(identity);
-	CHECK(game == UserDataLocations::MakeGameDirectory(base, identity, host));
-	CHECK(game.is_absolute());
-	CHECK(FileSystem::IsInside(game, base));
-	if (root)
-	{
-		// Beside the engine's folder, not in it (without a root, both fall back to the executable's UserData folder).
+		CAPTURE(identity.Product);
+		std::filesystem::path const game = GameData::GetUserDirectory(identity);
+		CHECK(game == UserDataLocations::MakeGameDirectory(base, identity, host));
+		CHECK(game.is_absolute());
+		CHECK(FileSystem::IsInside(game, base));
+		// Beside the engine's folder, never in it.
 		CHECK_FALSE(FileSystem::IsInside(game, FileSystem::GetUserDataDirectory()));
 	}
 }

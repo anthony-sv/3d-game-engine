@@ -827,7 +827,7 @@ apply at once and are saved to the project file when an edit ends. They are not 
 |---------|--------------|
 | `Name` | The game's name |
 | `Identity.Company` | Who makes the game: the folder above the game's data folder on players' machines (`<Company>/<Product>`, `<company>-<product>` on Linux; see [Where an exported game keeps its data](#where-an-exported-game-keeps-its-data)). Empty for none |
-| `Identity.Product` | The game's name in its data folder and in the macOS bundle identifier (`org.strada.<company>.<product>`); empty uses `Name` |
+| `Identity.Product` | The game's name in its data folder and in the macOS bundle identifier (`org.strada.<company>.<product>`); empty uses `Name`. Set an ASCII product for a game whose `Name` is not in ASCII: a name without an ASCII letter or digit names its folder `Game` |
 | `ScriptModule` | The compiled C# game assembly, relative to the project folder (default `Scripts/Binaries/Game.dll`) |
 | `StartScene` | The scene exported games start with, and the one the editor opens with the project |
 | `Window.Title` | The exported game's window title; empty uses the project name |
@@ -1059,9 +1059,12 @@ Settings; without a company there is no company level, and without a product the
 | macOS | `~/Library/Application Support/<Company>/<Product>` |
 | Linux | `$XDG_DATA_HOME/<company>-<product>` (or `~/.local/share/...`), lower-cased |
 
-Each name keeps only letters, digits, spaces, `-` and `_`. The game logs to `Logs/<Name>.log` there (named after its
-executable) and leaves crash reports in `Crashes/`. A game whose `Game.sgame` is missing or damaged logs in the engine's
-user data folder instead, where it says why it cannot start.
+Each name keeps only ASCII letters, digits, spaces, `-` and `_`, and a product without an ASCII letter or digit (empty,
+spaces, a name in another script) is the game's `Name`, or `Game` when that has none either; such a company is none.
+The game logs to `Logs/<Name>.log` there (named after its executable) and leaves crash reports in `Crashes/`. It does
+so as soon as its `Game.sgame` names the game, also when other settings in the file keep it from starting, and the log
+says why. Only a game whose `Game.sgame` is missing, or so damaged that its name or identity cannot be read, logs in the
+engine's user data folder instead, where it says why it cannot start.
 
 While you work on the game it never touches that folder: playing in the editor and `StradaRuntime --project` give the
 game the project's `.strada/PlayData` folder (left out of version control and of project copies), and test runs

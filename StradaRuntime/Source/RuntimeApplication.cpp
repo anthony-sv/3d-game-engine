@@ -163,7 +163,9 @@ namespace Strada
 				ST_WARN("The game has no data folder: the system names no temporary folder");
 				return;
 			}
-			ST_INFO("The game keeps its data in '{}'", FileSystem::PathToUtf8(m_GameData->GetDirectory()));
+			// The lifetime is read back from the service, so the line says what happens at exit.
+			ST_INFO("The game keeps its data in '{}'{}", FileSystem::PathToUtf8(m_GameData->GetDirectory()),
+			        GameData::IsTemporary() ? ", a test run's folder removed at exit" : "");
 		}
 
 		// Games without C# scripts or visual scripts run without .NET; visual scripts need no game assembly.
