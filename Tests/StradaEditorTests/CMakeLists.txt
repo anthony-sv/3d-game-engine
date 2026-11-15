@@ -134,6 +134,7 @@ add_dependencies(StradaEditorTests StradaTestScripts StradaBlocksScripts StradaC
 add_dependencies(StradaEditorTests StradaRuntime)
 
 strada_configure_target(StradaEditorTests)
+strada_precompile_third_party_headers(StradaEditorTests)
 set_target_properties(StradaEditorTests PROPERTIES FOLDER "Tests")
 
 # One ctest entry per shard (StradaEditorTests.<shard>) and StradaEditorTests.Partition, which checks that the shards

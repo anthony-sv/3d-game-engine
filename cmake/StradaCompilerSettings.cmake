@@ -116,6 +116,54 @@ function(strada_configure_third_party_target target)
     strada_add_thread_sanitizer(${target})
 endfunction()
 
+# strada_precompile_third_party_headers(<target>)
+# Precompiles the third-party and standard headers that nearly every source of a target parses, for the targets whose
+# sources include no precompiled header of their own (the editor core and the C++ test executables; the engine library
+# has Strada/Source/stpch.h). CMake forces the header into every C++ source of the target, so no source includes it,
+# and each source still includes everything it uses: CMAKE_DISABLE_PRECOMPILE_HEADERS=ON builds without it.
+# The list was measured (MSVC Release, /Bt+, eight sources of each target): it halves the front end's time. EnTT,
+# Dear ImGui, NVRHI and doctest saved about 1 s more over eight sources at most, within noise, and stay out. Only
+# third-party and standard headers belong here, never a Strada header: an edit to one would recompile every source of
+# these targets, and a source that defines a configuration macro before its first include
+# (Core/ProfilerDistFormTests.cpp) would no longer see it first.
+set(STRADA_PRECOMPILED_THIRD_PARTY_HEADERS
+    <algorithm>
+    <array>
+    <atomic>
+    <chrono>
+    <cmath>
+    <cstddef>
+    <cstdint>
+    <cstring>
+    <filesystem>
+    <functional>
+    <limits>
+    <map>
+    <memory>
+    <optional>
+    <set>
+    <span>
+    <string>
+    <string_view>
+    <system_error>
+    <tuple>
+    <unordered_map>
+    <unordered_set>
+    <utility>
+    <variant>
+    <vector>
+    # Strada/Core/Log.h's: spdlog with its bundled fmt (the larger half of what these headers cost), and glm.
+    <glm/glm.hpp>
+    <glm/gtc/quaternion.hpp>
+    <spdlog/fmt/std.h>
+    <spdlog/spdlog.h>
+    # Strada/Serialization/JsonSerialization.h's, which most sources reach through the serializers and assets.
+    <nlohmann/json.hpp>)
+
+function(strada_precompile_third_party_headers target)
+    target_precompile_headers(${target} PRIVATE ${STRADA_PRECOMPILED_THIRD_PARTY_HEADERS})
+endfunction()
+
 # Build-configuration macros (ST_DEBUG / ST_RELEASE / ST_DIST) for a target and its consumers.
 function(strada_add_configuration_definitions target)
     target_compile_definitions(${target} PUBLIC

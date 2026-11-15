@@ -24,6 +24,7 @@ add_dependencies(StradaRuntimeTests StradaRuntime StradaTestScripts StradaFeatur
     StradaShowcaseScripts)
 
 strada_configure_target(StradaRuntimeTests)
+strada_precompile_third_party_headers(StradaRuntimeTests)
 set_target_properties(StradaRuntimeTests PROPERTIES FOLDER "Tests")
 
 add_test(NAME StradaRuntimeTests COMMAND StradaRuntimeTests --reporters=console --no-intro=true)

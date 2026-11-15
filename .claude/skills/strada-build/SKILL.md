@@ -90,6 +90,30 @@ module's list in `Strada/CMakeLists.txt` (or the test/editor/runtime target), ke
 source of StradaTests or StradaEditorTests must also land in exactly one shard of its suite's `Shards.cmake` (see
 [Test shards](#test-shards)): `<suite>.Partition` fails, naming its test cases, when none or two select it.
 
+## Precompiled headers
+
+- The engine library precompiles `Strada/Source/stpch.h`, which its `.cpp` files include first.
+  `StradaEditorCore`, `StradaTests`, `StradaEditorTests` and `StradaRuntimeTests` precompile
+  `STRADA_PRECOMPILED_THIRD_PARTY_HEADERS` instead, through `strada_precompile_third_party_headers(<target>)`
+  (`cmake/StradaCompilerSettings.cmake`). That list holds the common standard headers, glm, spdlog with its fmt, and
+  nlohmann/json. CMake forces the header (`cmake_pch.hxx` in the target's build directory) into every C++ source of
+  those targets, so their sources include no precompiled header. Each target compiles its own copy, because their
+  definitions differ.
+- Every source still includes everything it uses, as if there were no precompiled header. A build without them must
+  compile it: `python Tools/build.py --cmake-arg=-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON`. The value stays in the build
+  tree's cache, so switch back with `--cmake-arg=-UCMAKE_DISABLE_PRECOMPILE_HEADERS`. Run that build after removing an
+  include or adding a source to these targets.
+- A header joins the list only when it is third-party or standard, most of the targets' sources parse it, and a
+  measurement shows a gain (MSVC `/Bt+` front-end times on a sample of sources, with and without it). EnTT, Dear ImGui,
+  NVRHI and doctest were measured that way: on top of the list, they saved about 1 s over eight sources at most,
+  within noise.
+- Never add a Strada header to the list. An edit to it would rebuild every source of the four targets, and a source
+  that defines a configuration macro before its first include (`Core/ProfilerDistFormTests.cpp`) would no longer see
+  it first.
+- A header in the list needs no macro defined before it: the configuration macros of glm, ImGui and Vulkan-HPP are
+  target definitions. A source that must not see the header gets `SKIP_PRECOMPILE_HEADERS`, as the generated resource
+  and shader sources do. A change to the list rebuilds the four targets.
+
 ## C# projects
 
 - CMake builds each C# project with `strada_add_dotnet_project(<target> PROJECT <csproj> OUTPUT_DIRECTORY <dir>

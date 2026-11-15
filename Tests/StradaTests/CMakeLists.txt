@@ -166,6 +166,7 @@ target_compile_definitions(StradaTests PRIVATE
     STRADA_README_PATH="${PROJECT_SOURCE_DIR}/README.md")
 
 strada_configure_target(StradaTests)
+strada_precompile_third_party_headers(StradaTests)
 
 # Crashes on purpose for the crash handler tests (a crash cannot be tested inside the test process).
 add_executable(StradaCrashTester CrashTester/CrashTester.cpp)

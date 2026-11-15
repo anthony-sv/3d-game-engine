@@ -1,5 +1,5 @@
 // Compiles the profiling macros in the form Dist builds give them, in every configuration: defined before the first
-// include (StradaTests has no precompiled header), ST_DISABLE_PROFILING selects that form.
+// include (StradaTests' precompiled header holds no Strada header), ST_DISABLE_PROFILING selects that form.
 #define ST_DISABLE_PROFILING
 
 #include "Strada/Core/Profiler.h"

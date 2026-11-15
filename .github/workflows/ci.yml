@@ -101,7 +101,18 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then g++ --version; clang++ --version; fi
           dotnet --version
 
-      - name: Build and test
+      # Building and testing are separate steps: a job killed by its time limit keeps its steps' times but no log, so the
+      # step it was in tells which phase ran out of time. The test step runs the same command with --test: its configure
+      # and build find everything up to date.
+      - name: Build
+        shell: bash
+        run: |
+          compiler_args=()
+          if [ -n "${{ matrix.compiler }}" ]; then compiler_args=(--compiler "${{ matrix.compiler }}"); fi
+          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" \
+            "--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=${STRADA_DEPENDENCY_CACHE_DIR}"
+
+      - name: Test
         shell: bash
         run: |
           compiler_args=()

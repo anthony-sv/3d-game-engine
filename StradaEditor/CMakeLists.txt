@@ -294,6 +294,7 @@ if(WIN32)
     target_link_libraries(StradaEditorCore PRIVATE ws2_32)
 endif()
 strada_configure_target(StradaEditorCore)
+strada_precompile_third_party_headers(StradaEditorCore)
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES ${STRADA_EDITOR_CORE_SOURCES})
 set_target_properties(StradaEditorCore PROPERTIES FOLDER "Editor")
 

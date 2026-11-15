@@ -72,6 +72,10 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration
 ```
 
+The engine library precompiles `Source/stpch.h`, which its sources include. `StradaEditorCore` and the C++ test
+executables precompile the third-party and standard headers that `strada_precompile_third_party_headers`
+(`cmake/StradaCompilerSettings.cmake`) lists, and CMake forces that header into their sources, which include none.
+
 Build output: `build/<preset>/bin/` contains every executable, `Strada.ScriptCore.dll` and the `strada` tool. Fonts
 and other binary resources are compiled into the binaries (`cmake/StradaResources.cmake`, `EmbeddedResources`).
 Beside the executables CMake writes the build-tree marker `engine.json` (`cmake/StradaEngineManifest.cmake`, §7.3),
