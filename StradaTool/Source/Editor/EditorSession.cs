@@ -141,7 +141,7 @@ internal sealed class EditorSession : IAsyncDisposable
 	}
 
 	private string InstanceDirectory => m_Options.InstanceDirectory ?? UserDataDirectory.GetInstanceDirectory() ??
-		throw new EditorUnavailableException("there is no user data directory to find editors in (HOME, or APPDATA on Windows, is not set)");
+		throw new EditorUnavailableException("there is no user data directory to find editors in (HOME, or APPDATA on Windows, is not set to an absolute path)");
 
 	private async Task<EditorConnection?> AttachAsync(CancellationToken cancellationToken)
 	{

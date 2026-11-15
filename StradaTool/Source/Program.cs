@@ -237,7 +237,7 @@ internal static class Program
 	{
 		arguments.Require(new HashSet<string> { "--editor", "--project", "--headless" }, 0, 0);
 		string instanceDirectory = UserDataDirectory.GetInstanceDirectory() ??
-			throw new EditorUnavailableException("there is no user data directory for editors (HOME, or APPDATA on Windows, is not set)");
+			throw new EditorUnavailableException("there is no user data directory for editors (HOME, or APPDATA on Windows, is not set to an absolute path)");
 		string? project = arguments.Project is null ? null : Path.GetFullPath(arguments.Project);
 		using LaunchedEditor editor = await EditorLauncher.LaunchAsync(CreateLaunchOptions(arguments,
 			EditorLocator.Find(arguments.Editor, Environment.GetEnvironmentVariable, AppContext.BaseDirectory, Environment.CurrentDirectory),
