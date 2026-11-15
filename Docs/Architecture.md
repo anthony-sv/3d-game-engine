@@ -510,9 +510,9 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   its owner drops during the frame lives until `EndScene` returns, and are resolved once per distinct asset in
   `Renderer.Prepare`: GPU buffers (`Renderer::GetMesh`), material binding set, and the pipelines of each pass (from the
   alpha mode and double-sidedness; null where the material is not drawn: blended materials cast no shadows).
-  `RenderScene` looks each mesh and material handle up once per submission (the asset manager's lookups cost more than
-  a frame's table), and each frame mesh keeps a short list of its (submesh, material) groups, so that a repeated
-  submission finds its frame material and group without hashing. Sorting goes through 64-bit keys of the depth's
+  `RenderScene` asks the asset manager for each distinct mesh and material handle once per submission and keeps what it
+  got for the rest of that submission, and each frame mesh keeps a short list of its (submesh, material) groups, so
+  that a repeated submission finds its frame material and group without the frame's two maps. Sorting goes through 64-bit keys of the depth's
   ordered bits and the item's index, which give the front-to-back (or back-to-front) order with ties by submission.
 - **Culling** stays per item on the CPU: against the camera's frustum, and for the casters against each shadow view's
   volume (a cascade's projection, a local light's range sphere). A cascade's test takes the box's center and extents
