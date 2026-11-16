@@ -48,6 +48,11 @@ namespace Strada
 		uint32_t MaxVoices = DefaultAudioSourceVoices;
 	};
 
+	// A loaded clip whose samples would take more than this once decoded (4 bytes a sample, in the clip's own channels and
+	// sample rate) is refused: it must stream (AudioSourceDesc::StreamFile, AudioSourceComponent::Stream). 32 MiB is about
+	// 87 s of 48 kHz stereo and 175 s of mono.
+	inline constexpr uint64_t MaxDecodedClipBytes = 32ull * 1024 * 1024;
+
 	// Lowest playback speed; lower values are raised to it.
 	inline constexpr float MinAudioPitch = 0.01f;
 	// Shortest attenuation distance in meters; shorter minimum distances are raised to it.

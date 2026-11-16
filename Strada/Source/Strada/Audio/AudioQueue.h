@@ -1,6 +1,6 @@
 #pragma once
 
-// Internal to the Audio module.
+// Internal to the Audio module (and its tests: it includes no miniaudio header).
 
 #include "Strada/Asset/Mixer.h"
 

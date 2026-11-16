@@ -4,6 +4,7 @@
 
 #include "Strada/Asset/Mixer.h"
 #include "Strada/Audio/AudioEffects.h"
+#include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/AudioQueue.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
@@ -15,7 +16,6 @@
 #include <cstdint>
 #include <span>
 #include <string>
-#include <thread>
 #include <vector>
 
 // The mixing thread's side of the engine (Docs/Architecture.md §9.1, §9.2 and §9.5): the blocks, the scenes' groups, the
@@ -24,20 +24,6 @@ namespace Strada
 {
 	class AudioBusNode;
 	class AudioVoice;
-
-	// The mix is rendered in blocks of at most this many frames, and the queue is applied at the start of each: 5.3 ms at
-	// 48 kHz, the longest a command waits once it is in the ring. Every ReadFrames and every device callback starts a new
-	// block, so a change made before a read is heard from that read's first frame.
-	inline constexpr uint32_t AudioBlockFrames = 256;
-	// Gains ramp linearly in amplitude over this: a voice's volume (miniaudio's volume smoothing,
-	// ma_sound_config::volumeSmoothTimeInPCMFrames), a bus's volumes and mutes, the master volume, the dips of moves and
-	// swaps (and MX2's sends). A value set before a voice's first block is taken at once.
-	inline constexpr float AudioGainSmoothingSeconds = 0.005f;
-	// Pitch and effect parameters reach a new value over this, on their scales: pitch on a log2 scale, stepped once a block;
-	// effect parameters as AudioEffect::SetParameter says, stepped every AudioEffectStepFrames.
-	inline constexpr float AudioParameterSmoothingSeconds = 0.02f;
-	// When a device or null output has mixed no block for this long, the main thread takes the mixer over (§9.1).
-	inline constexpr float AudioMixerStallSeconds = 0.5f;
 
 	// A gain on its way to a target, ramped linearly per frame on the mixing thread.
 	struct AudioSmoothedGain
@@ -163,7 +149,8 @@ namespace Strada
 	// ma_engine_read_pcm_frames, then finishes the voices that ended or faded and pushes what it lets go onto the return
 	// list. It never allocates, locks, waits or logs: miniaudio's graph reads without locking (miniaudio.h:74198-74202), and
 	// the graph's attach and detach, which take spinlocks (:74017, :74086) and wait for readers (:74051-74059), are only ever
-	// called by this thread between blocks, so no lock is contended and no reader is waited for.
+	// called by this thread between blocks, so no lock is contended and no reader is waited for. Render records its thread
+	// in the engine's static mixing-thread identity for its length (AudioEngine::IsMixingOnThisThread).
 	class AudioMixer
 	{
 	public:
@@ -178,9 +165,6 @@ namespace Strada
 
 		// Any thread: blocks rendered since the mixer was made (the main thread's stall check reads it).
 		uint64_t GetBlockCount() const { return m_BlockCount.load(std::memory_order_acquire); }
-		// Any thread: whether the calling thread is inside Render. Lock-free, and reaches no thread-local storage
-		// (std::this_thread::get_id reads the thread's identity from the system), so an allocation hook may call it.
-		bool IsMixingOnThisThread() const;
 
 	private:
 		void Apply(AudioCommand const& command);
@@ -197,7 +181,6 @@ namespace Strada
 		AudioVoice* m_Fading = nullptr;
 		AudioBusNode* m_Master = nullptr;
 		AudioSmoothedGain m_MasterVolume;
-		std::atomic<std::thread::id> m_MixingThread{};
 		std::atomic<uint64_t> m_BlockCount{0};
 	};
 }

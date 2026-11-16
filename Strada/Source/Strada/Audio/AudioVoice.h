@@ -3,6 +3,7 @@
 // Internal to the Audio module.
 
 #include "Strada/Audio/AudioQueue.h"
+#include "Strada/Audio/AudioScene.h"
 #include "Strada/Audio/AudioTypes.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
@@ -24,11 +25,6 @@ namespace Strada
 	class AudioClipAsset;
 	class AudioSceneGroup;
 	class AudioStream;
-
-	// A loaded clip whose samples would take more than this once decoded (4 bytes a sample, in the clip's own channels and
-	// sample rate) is refused: it must stream (AudioSourceComponent::Stream). 32 MiB is about 87 s of 48 kHz stereo and
-	// 175 s of mono.
-	inline constexpr uint64_t MaxDecodedClipBytes = 32ull * 1024 * 1024;
 
 	// A loaded clip's samples, decoded once on the main thread and shared by every voice that plays the clip, in every
 	// scene. Immutable once made, so any number of voices read it at once from cursors of their own. Its memory is

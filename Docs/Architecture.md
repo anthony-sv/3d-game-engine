@@ -2567,11 +2567,14 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
 
 - **Sound is measured, never listened to**: levels, frequencies and decays read from manual output
   (`Testing::AudioEngineScope`), never from a device, never depending on wall-clock time or a thread's scheduling.
-- **Allocations on the mixing thread** are counted by two hooks, both keyed on `AudioEngine::IsMixingOnThisThread()`
-  (the mixer records its thread's identity, `std::thread::id`, in an atomic for the length of each render; reading it
-  needs no lock and no thread-local storage):
+- **Allocations on the mixing thread** are counted by two hooks, both keyed on `AudioEngine::IsMixingOnThisThread()`.
+  The mixer records its thread's identity (`std::thread::id`) for the length of each render in an atomic of static
+  storage in `AudioEngine.cpp`, beside the mixer's `ProfilerThreadState`, and the function reads nothing else: no lock,
+  no thread-local storage and none of the engine's data, so a hook may call it from any thread at any time, while `Init`
+  starts the streaming thread and while `Shutdown` frees the engine included. The hooks:
   - `AudioEngine::GetMixAllocationCount()`: the engine's allocation callbacks, through which miniaudio allocates for
-    every object of the module, count the calls made on the mixing thread while it mixes.
+    every object of the module, count the calls made on the mixing thread while it mixes, in a counter of static storage
+    that `Init` resets.
   - StradaTests replaces the global allocation functions (every form of `operator new` and `operator delete`) in one
     source of its own, counting those called on the mixing thread while it mixes; the engine's own code allocates only
     through them.

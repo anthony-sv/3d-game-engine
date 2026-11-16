@@ -27,6 +27,20 @@ namespace Strada
 	// whose audio starts later, as in damaged files, are refused instead of being read on.
 	inline constexpr uint64_t MaxAudioStreamHeaderBytes = 4 * 1024 * 1024;
 
+	// The mix is rendered in blocks of at most this many frames, and the queue is applied at the start of each: 5.3 ms at
+	// 48 kHz, the longest a command waits once it is in the ring. Every ReadFrames and every device callback starts a new
+	// block, so a change made before a read is heard from that read's first frame.
+	inline constexpr uint32_t AudioBlockFrames = 256;
+	// Gains ramp linearly in amplitude over this: a voice's volume (miniaudio's volume smoothing,
+	// ma_sound_config::volumeSmoothTimeInPCMFrames, miniaudio.h:11222), a bus's volumes and mutes, the master volume, the
+	// dips of moves and swaps (and MX2's sends). A value set before a voice's first block is taken at once.
+	inline constexpr float AudioGainSmoothingSeconds = 0.005f;
+	// Pitch and effect parameters reach a new value over this, on their scales: pitch on a log2 scale, stepped once a block;
+	// effect parameters as the effects say (Docs/Architecture.md §9.6).
+	inline constexpr float AudioParameterSmoothingSeconds = 0.02f;
+	// When a device or null output has mixed no block for this long, the main thread takes the mixer over (§9.1).
+	inline constexpr float AudioMixerStallSeconds = 0.5f;
+
 	struct AudioEngineSettings
 	{
 		AudioOutput Output = AudioOutput::Device;
@@ -98,11 +112,14 @@ namespace Strada
 		static size_t GetDeferredCommandCount();
 
 		// Diagnostics for tests (§9.9). Whether the calling thread is mixing right now (inside a device callback's or
-		// ReadFrames' render): lock-free and free of thread-local storage, so a counting allocation hook can call it. Any
-		// thread.
+		// ReadFrames' render). It reads only an atomic thread identity in static storage (beside the mixer's profiler
+		// state), never the engine's data, so a replaced operator new may call it from any thread at any time, during Init
+		// and Shutdown and while uninitialized included; it takes no lock and reaches no thread-local storage
+		// (std::this_thread::get_id asks the system). Any thread.
 		static bool IsMixingOnThisThread();
 		// The allocations miniaudio made through the engine's allocation callbacks on the thread that was mixing, while it
-		// mixed, since Init. Every miniaudio object of the Audio module is made with those callbacks. Any thread.
+		// mixed: a counter in static storage, reset by Init. Every miniaudio object of the Audio module is made with those
+		// callbacks. Any thread.
 		static uint64_t GetMixAllocationCount();
 
 		// Manual output only: mixes the next frames into interleaved samples (GetChannelCount() per frame; a partial frame
