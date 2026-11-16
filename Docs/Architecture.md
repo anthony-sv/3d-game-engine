@@ -4093,7 +4093,8 @@ that each platform's names are tested on every platform:
   (found by its names from the root; `entity.create` takes an `id`), as do the test scene's own entities, so a part
   run again with nothing changed writes the same files. **The props** are 10,000 static entities placed by seed
   (`Tools/Props.py`): tyre stacks lining the walls round the corners' outsides and cones at their insides, braking
-  markers, catch fences of posts and chain-link panels, advertising boards with invented names, grandstands, marshals'
+  markers, catch fences of posts and chain-link panels (continuous from one structure to the next: posts at most 3 m
+  apart along the fence's line, panels halved where the line bends sharply), advertising boards with invented names, grandstands, marshals'
   posts, floodlights, bushes and trees, on 18 meshes `GenerateAssets.py` makes (`Meshes/Props`), each one primitive,
   and two materials: `Props`, whose texture is an atlas of flat colors, the markers' figures and the boards' names, and
   `Fence`, a chain-link cut out by an alpha mask and drawn from both sides. So the renderer draws them as instances, a
@@ -4103,7 +4104,8 @@ that each platform's names are tested on every platform:
   other; the part makes each group with all its props in one `entity.create` request (its `children`), which keeps
   their IDs and makes the 10,000 in seconds where a request each would take minutes. `Props.py`'s `check()` asserts
   that no prop stands on any part of the circuit (only the stacks and cones stand at a wall's foot, in the last strip
-  of its skirt), on a structure's legs, piers or stairs, in the camera tour's way or in another prop's. Graphs keep their asset handles
+  of its skirt), on a structure's legs, piers or stairs, in the camera tour's way or in another prop's, and that a
+  fence panel covers every point of the fences' lines between structures. Graphs keep their asset handles
   when they are written again (emptied with `graph.set`, then written batch by batch). The sector gates are timing
   lines whose entities stand on the center line with their forward along the travel: gates 1 and 2 carry an arch, gate
   3 is the start and finish line under the gantry. **The bike and its rider** (`Tools/Bike.py`) are a stylized

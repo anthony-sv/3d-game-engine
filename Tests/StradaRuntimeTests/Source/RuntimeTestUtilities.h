@@ -22,9 +22,9 @@
 #include <utility>
 #include <vector>
 
-// What the game player's tests share (RuntimeTests.cpp, SampleTests.cpp): running the player and other programs with a
-// per-user root of their own, reading their output, a scene the player shows, and copies of the repository's projects
-// and templates.
+// What the game player's tests share (RuntimeTests.cpp, SampleTests.cpp, TemplateTests.cpp): running the player and
+// other programs with a per-user root of their own, reading their output, a scene the player shows, and copies of the
+// repository's projects and templates.
 namespace Strada::RuntimeTesting
 {
 	// Runs a program to completion with the per-user root given, where it writes its log, its crash reports and its game's
