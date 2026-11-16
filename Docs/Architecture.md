@@ -1584,9 +1584,9 @@ parent-local space, keeping their scale). Events delivered to scripts: `OnCollis
 colliders containing the origin are ignored), with a layer mask.
 
 **Contact data.** An enter event (`ContactEvent`, `Physics/PhysicsTypes.h`) carries where and how its contact began:
-up to `MaxContactPoints` (four, as many as Jolt keeps in a manifold: `PhysicsSystem.cpp:1238-1239` prunes it to four
-before reporting it) `ContactPoint`s, each with a position, a normal, an impulse, a relative velocity and the physics
-materials of both sides. They are stored as the event's `First` sees them; `ReverseContactPoint` gives
+up to `MaxContactPoints` (four, as many as Jolt keeps in a manifold its step finds: `PhysicsSystem.cpp:1238-1239` prunes
+it to four before reporting it) `ContactPoint`s, each with a position, a normal, an impulse, a relative velocity and the
+physics materials of both sides. They are stored as the event's `First` sees them; `ReverseContactPoint` gives
 `Second`'s view (the normal and the relative velocity reversed, the materials exchanged). Exits carry none: Jolt reports
 no points when contacts end.
 
@@ -1602,7 +1602,10 @@ no points when contacts end.
   keeps private (`PhysicsSystem.h:373`), and no callback follows the solve. The listener calls
   `EstimateCollisionResponse` (`Jolt/Physics/Collision/EstimateCollisionResponse.h:30-42`), which Jolt provides for this
   callback: a sequential-impulse solve of the two bodies alone, from their velocities as the contact begins (the step's
-  gravity applied, which Jolt does before it looks for contacts, nothing solved yet), with the pair's combined friction
+  gravity applied, which Jolt does before it looks for contacts, nothing solved yet; for a body with `ContinuousCollision`
+  whose sweep finds the contact, which Jolt reports from its continuous collision job after the velocity solve
+  (`PhysicsSystem.cpp:2079`, called from `JobPostIntegrateVelocity`), the velocities that solve left, and a manifold
+  that Jolt has not pruned to four points), with the pair's combined friction
   and restitution, Jolt's restitution threshold (`mMinVelocityForRestitution`, 1 m/s) and the world solver's iterations
   (`mNumVelocitySteps`, 10). The figure is the impulse along the normal at that point, in newton seconds, that stops the
   approach and, with restitution, sends the bodies apart again: what the collision takes in all, also when Jolt's solver

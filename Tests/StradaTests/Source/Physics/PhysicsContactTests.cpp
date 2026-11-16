@@ -140,11 +140,11 @@ namespace
 		return events;
 	}
 
-	// A static V of two faces sloping up at 30 degrees to each side of x = 0 (along Z, from z = -2 to 2), one submesh each:
-	// the left face (x < 0) first.
-	Ref<MeshSource> MakeGroove()
+	// A V of two faces sloping up at `degrees` to each side of x = 0 (along Z, from z = -2 to 2), one submesh each: the left
+	// face (x < 0) first.
+	Ref<MeshSource> MakeGroove(float degrees)
 	{
-		float const height = 2.0f * std::tan(glm::radians(30.0f));
+		float const height = 2.0f * std::tan(glm::radians(degrees));
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
 		std::vector<Submesh> submeshes;
@@ -177,6 +177,19 @@ namespace
 			MeshSource::Create(std::move(vertices), std::move(indices), std::move(submeshes), {AssetHandle(UUID(1))});
 		REQUIRE_MESSAGE(mesh.IsOk(), (mesh ? std::string() : mesh.GetError()));
 		return mesh.GetValue();
+	}
+
+	// A static triangle mesh of a groove whose faces have materials of their own.
+	BodyDesc Groove(float degrees)
+	{
+		ColliderDesc groove;
+		groove.Shape = ColliderShape::TriangleMesh;
+		groove.Mesh = MakeGroove(degrees);
+		groove.Surface.Material = GroundMaterial;
+		groove.SubmeshSurfaces.resize(2);
+		groove.SubmeshSurfaces[0].Material = LeftMaterial;
+		groove.SubmeshSurfaces[1].Material = RightMaterial;
+		return MakeBody(GroundId, RigidBodyType::Static, glm::vec3(0.0f), groove);
 	}
 }
 
@@ -312,15 +325,8 @@ TEST_CASE("PhysicsScene: contact points name both sides' physics materials, a su
 
 	SUBCASE("A ball in a groove touches both faces in one step: one event, a point on each face with its normal and material")
 	{
-		ColliderDesc groove;
-		groove.Shape = ColliderShape::TriangleMesh;
-		groove.Mesh = MakeGroove();
-		groove.Surface.Material = GroundMaterial;
-		groove.SubmeshSurfaces.resize(2);
-		groove.SubmeshSurfaces[0].Material = LeftMaterial;
-		groove.SubmeshSurfaces[1].Material = RightMaterial;
 		Scope<PhysicsScene> world = CreateWorld();
-		REQUIRE(world->AddBody(MakeBody(GroundId, RigidBodyType::Static, glm::vec3(0.0f), groove)).IsOk());
+		REQUIRE(world->AddBody(Groove(30.0f)).IsOk());
 		REQUIRE(world->AddBody(Ball({0.0f, 3.0f, 0.0f}, BallMaterial)).IsOk());
 		std::vector<ContactEvent> const events = Simulate(*world, 1.0f / 60.0f, 90);
 		CHECK(std::count_if(events.begin(), events.end(),
@@ -492,4 +498,93 @@ TEST_CASE("PhysicsScene: two worlds built and stepped alike report the same even
 	}
 	// The boxes land on faces and edges.
 	CHECK(withPoints > 0);
+}
+
+TEST_CASE("PhysicsScene: a box landing on both faces of a groove keeps the four strongest of its eight points")
+{
+	Testing::PhysicsSystemScope physics;
+	// A box turned 45 degrees about Z lands with two faces flat on the two faces of a 90 degree groove, in one step: two
+	// manifolds of four points each.
+	Scope<PhysicsScene> world = CreateWorld();
+	REQUIRE(world->AddBody(Groove(45.0f)).IsOk());
+	BodyDesc box = MakeBody(BoxId, RigidBodyType::Dynamic, {0.0f, 2.5f, 0.0f}, Box(glm::vec3(0.3f), BallMaterial));
+	box.Rotation = glm::angleAxis(glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	box.Mass = 2.0f;
+	box.LinearDamping = 0.0f;
+	box.AngularDamping = 0.0f;
+	REQUIRE(world->AddBody(box).IsOk());
+	std::optional<ContactEvent> landing;
+	float speed = 0.0f;
+	for (int index = 0; index < 120 && !landing; index++)
+	{
+		speed = -(world->GetLinearVelocity(BoxId).y - Gravity / 60.0f);
+		world->Step(1.0f / 60.0f);
+		landing = FindEvent(world->TakeContactEvents(), ContactEventType::CollisionEnter, BoxId, GroundId);
+	}
+	REQUIRE(landing);
+	REQUIRE(landing->PointCount == MaxContactPoints);
+	CHECK(AreSorted(*landing));
+	float kept = 0.0f;
+	int onLeft = 0;
+	for (ContactPoint const& point : PointsSeenBy(*landing, BoxId))
+	{
+		onLeft += point.Normal.x > 0.0f ? 1 : 0;
+		// On one face or the other, pushed up and away from it at 45 degrees.
+		CHECK(std::abs(point.Normal.x) == doctest::Approx(std::sqrt(0.5f)).epsilon(1e-3));
+		CHECK(point.Normal.y == doctest::Approx(std::sqrt(0.5f)).epsilon(1e-3));
+		CHECK(point.OtherMaterial == (point.Normal.x > 0.0f ? LeftMaterial : RightMaterial));
+		kept += point.Impulse;
+	}
+	// The strongest are the corners near the groove's bottom, two on each face: the event holds both manifolds.
+	CHECK(onLeft == 2);
+	// Each face takes m v / sqrt(2) along its normal to stop the box, sqrt(2) m v over its eight points in all; the four
+	// kept hold most of it but not all, so the weaker four were left out.
+	float const all = std::sqrt(2.0f) * 2.0f * speed;
+	CHECK(kept >= 0.5f * all);
+	CHECK(kept <= 0.92f * all);
+}
+
+TEST_CASE("PhysicsScene: a fast ball's swept contact with a thin wall reports its points from the sweep, after the step's solve")
+{
+	Testing::PhysicsSystemScope physics;
+	for (bool const ballFirst : {false, true})
+	{
+		CAPTURE(ballFirst);
+		Scope<PhysicsScene> world = CreateWorld();
+		// 100 m/s, 1.7 m a step: the discrete step never finds the 10 cm wall, the sweep of a body with continuous collision
+		// does (Jolt calls the listener from its continuous collision job, after the velocity solve).
+		BodyDesc ball = Ball({-3.0f, 2.0f, 0.0f}, BallMaterial);
+		ball.ContinuousCollision = true;
+		ball.GravityFactor = 0.0f;
+		ball.LinearVelocity = {100.0f, 0.0f, 0.0f};
+		BodyDesc const wall = MakeBody(GroundId, RigidBodyType::Static, {0.0f, 2.0f, 0.0f}, Box({0.05f, 2.0f, 2.0f}, GroundMaterial));
+		if (ballFirst)
+		{
+			REQUIRE(world->AddBody(ball).IsOk());
+			REQUIRE(world->AddBody(wall).IsOk());
+		}
+		else
+		{
+			REQUIRE(world->AddBody(wall).IsOk());
+			REQUIRE(world->AddBody(ball).IsOk());
+		}
+		std::optional<ContactEvent> const hit =
+			FindEvent(Simulate(*world, 1.0f / 60.0f, 6), ContactEventType::CollisionEnter, BallId, GroundId);
+		REQUIRE(hit);
+		CHECK((hit->First == BallId) == ballFirst);
+		REQUIRE(hit->PointCount >= 1);
+		CHECK(hit->PointCount <= MaxContactPoints);
+		CHECK(AreSorted(*hit));
+		// The ball stopped against the wall rather than passing it.
+		CHECK(world->GetBodyTransform(BallId)->Position.x < 0.0f);
+		ContactPoint const point = PointsSeenBy(*hit, BallId)[0];
+		// The wall pushes the ball back, against which it came in at 100 m/s: what stops 2 kg.
+		CHECK(point.Normal.x == doctest::Approx(-1.0f).epsilon(1e-4));
+		CHECK(point.RelativeVelocity.x == doctest::Approx(100.0f).epsilon(1e-3));
+		CHECK(std::abs(point.Point.x + 0.05f) <= 0.5f * SpeculativeDistance + 1e-3f);
+		CHECK(std::isfinite(point.Impulse));
+		CHECK(point.Impulse == doctest::Approx(200.0f).epsilon(1e-3));
+		CHECK(point.Material == BallMaterial);
+		CHECK(point.OtherMaterial == GroundMaterial);
+	}
 }

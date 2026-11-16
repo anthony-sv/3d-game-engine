@@ -257,12 +257,14 @@ namespace Strada
 		TriggerExit
 	};
 
-	// The contact points an event carries at most (ContactEvent::Points). Jolt reduces a manifold to at most four points
-	// before it reports it (PhysicsSystem.cpp's PruneContactPoints of the pinned Jolt), so one manifold always fits.
+	// The contact points an event carries at most (ContactEvent::Points): the strongest when it is offered more. Jolt reduces
+	// a manifold found by its step to at most four points before it reports it (PhysicsSystem.cpp's PruneContactPoints of
+	// the pinned Jolt), but not one found by the sweep of a body with continuous collision, nor several manifolds together.
 	inline constexpr uint32_t MaxContactPoints = 4;
 
 	// Where and how two bodies touch as their contact begins, seen from one side ("this" body; the other is the other side
-	// of the event). Taken from Jolt's contact manifold when the contact is added, before the step resolves it.
+	// of the event). Taken from Jolt's contact manifold when the contact is added: before the step resolves it, or for a
+	// contact found by a continuous collision sweep, after the step's velocity solve (with the velocities it left).
 	struct ContactPoint
 	{
 		// World space: halfway between the two surfaces' points, where Jolt's solver applies its impulse. A contact found
