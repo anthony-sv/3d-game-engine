@@ -2,14 +2,17 @@
 #include "Renderer/RenderTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Core/Image.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/TextureReadback.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Renderer/TextureMips.h"
+#include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneRendering.h"
@@ -574,4 +577,48 @@ TEST_CASE("SceneRenderer: image-based lighting matches the golden image")
 	skyLight.AmbientColor = glm::vec3(0.0f);
 	glm::vec3 const corner = PixelColor(Testing::RenderToImage(scene, camera, renderer), 2, 2);
 	CHECK(corner.r + corner.g + corner.b < 3.0f);
+}
+
+TEST_CASE("SceneRenderer: the first sky light in hierarchy order lights the scene, whatever the order the lights were made in")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	constexpr uint32_t Size = 64;
+	Scene scene("Skies");
+	MaterialData white;
+	white.BaseColor = glm::vec4(1.0f);
+	white.Roughness = 1.0f;
+	Testing::AddTestMesh(scene, "Cube", BuiltInAsset::CubeMesh, AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(white), "White"),
+	                     glm::vec3(0.0f));
+	SceneRenderer renderer;
+	renderer.SetViewportSize(Size, Size);
+	SceneRendererCamera const camera = Testing::MakeTestCamera({0.0f, 0.5f, 3.0f}, glm::vec3(0.0f), Size, Size);
+	auto const center = [&scene, &renderer, &camera]
+	{
+		Image const image = Testing::RenderToImage(scene, camera, renderer);
+		uint8_t const* pixel = image.GetPixel(Size / 2, Size / 2);
+		return glm::ivec3(pixel[0], pixel[1], pixel[2]);
+	};
+
+	// No sky light: no ambient light, and nothing else lights the cube.
+	glm::ivec3 const dark = center();
+	CHECK(dark.r + dark.g + dark.b < 30);
+
+	// One sky light, wherever it is.
+	Entity first = scene.CreateEntity("First root");
+	Entity second = scene.CreateEntity("Second root");
+	Entity red = scene.CreateEntity("Red sky", second);
+	red.AddComponent<SkyLightComponent>().AmbientColor = {1.0f, 0.0f, 0.0f};
+	glm::ivec3 const alone = center();
+	CHECK(alone.r > alone.g + 40);
+	CHECK(alone.r > alone.b + 40);
+
+	// Three: the first in hierarchy order is neither the first made nor the last (the green one, below the first root).
+	Entity green = scene.CreateEntity("Green sky", first);
+	green.AddComponent<SkyLightComponent>().AmbientColor = {0.0f, 1.0f, 0.0f};
+	Entity blue = scene.CreateEntity("Blue sky", second);
+	blue.AddComponent<SkyLightComponent>().AmbientColor = {0.0f, 0.0f, 1.0f};
+	glm::ivec3 const several = center();
+	CHECK(several.g > several.r + 40);
+	CHECK(several.g > several.b + 40);
 }

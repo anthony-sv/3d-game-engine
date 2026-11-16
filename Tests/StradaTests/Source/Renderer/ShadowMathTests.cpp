@@ -5,9 +5,12 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <random>
+#include <vector>
 
 using namespace Strada;
 
@@ -255,4 +258,75 @@ TEST_CASE("Shadows: a box reaches a cascade by its center and extents exactly wh
 	CHECK(Shadows::IntersectsCascade(AABB({-0.1f, -0.1f, 1.5f}, {0.1f, 0.1f, 1.7f}), glm::mat4(1.0f)));
 	CHECK_FALSE(Shadows::IntersectsCascade(AABB({-0.1f, -0.1f, -1.7f}, {0.1f, 0.1f, -1.5f}), glm::mat4(1.0f)));
 	CHECK_FALSE(Shadows::IntersectsCascade(AABB({1.5f, -0.1f, 0.2f}, {1.7f, 0.1f, 0.4f}), glm::mat4(1.0f)));
+}
+
+TEST_CASE("Shadows: boxes moved into a light's space once reach each of its cascades as the cascade's own test says")
+{
+	std::mt19937 random(20261115u);
+	std::uniform_real_distribution<float> coordinate(-40.0f, 40.0f);
+	std::uniform_real_distribution<float> size(0.01f, 12.0f);
+	std::uniform_real_distribution<float> angle(-3.14f, 3.14f);
+	size_t agreed = 0;
+	size_t inside = 0;
+	for (int round = 0; round < 20; round++)
+	{
+		glm::vec3 const direction =
+			glm::normalize(glm::vec3(std::sin(angle(random)), -1.0f - std::abs(std::cos(angle(random))), std::cos(angle(random))));
+		glm::mat4 const view = glm::lookAt(glm::vec3(0.0f, 2.0f, 8.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		glm::mat4 const projection = Math::PerspectiveReversedZ(glm::radians(50.0f), 1.6f, 0.1f);
+		AABB const casters({-30.0f, -5.0f, -30.0f}, {30.0f, 10.0f, 30.0f});
+		// Four cascades of one light, as the renderer fits them: they share the light's view.
+		std::array<float, Shadows::MaxCascades> const splits = Shadows::ComputeCascadeSplits(0.1f, 60.0f, Shadows::MaxCascades, 0.7f);
+		std::vector<Shadows::CascadeProjection> cascades;
+		float start = 0.1f;
+		for (float const split : splits)
+		{
+			cascades.push_back(
+				Shadows::FitCascade(Shadows::ComputeFrustumSliceCorners(view, projection, start, split), direction, casters, 2048));
+			start = split;
+		}
+		for (Shadows::CascadeProjection const& cascade : cascades)
+		{
+			CHECK(cascade.LightView == cascades.front().LightView);
+			glm::mat4 const product = cascade.Projection * cascade.LightView;
+			CHECK(std::memcmp(&product, &cascade.ViewProjection, sizeof(glm::mat4)) == 0);
+		}
+		Shadows::LightSpaceTransform const lightSpace(cascades.front().LightView);
+		for (int box = 0; box < 200; box++)
+		{
+			glm::vec3 const center(coordinate(random), coordinate(random) * 0.25f, coordinate(random));
+			glm::vec3 const extents(size(random), size(random), size(random));
+			AABB const bounds(center - extents, center + extents);
+			Shadows::LightSpaceBox const moved = lightSpace.Apply(bounds);
+			for (Shadows::CascadeProjection const& cascade : cascades)
+			{
+				bool const expected = Shadows::IntersectsCascade(bounds, cascade.ViewProjection);
+				bool const actual = Shadows::LightSpaceCascadeTest(cascade.Projection).Intersects(moved);
+				// The two forms round differently: a box whose footprint touches an edge of the map within a rounding
+				// error may fall either way.
+				if (expected != actual)
+				{
+					glm::dvec3 const clipCenter = glm::dmat4(cascade.ViewProjection) * glm::dvec4(glm::dvec3(center), 1.0);
+					glm::dmat4 const exact(cascade.ViewProjection);
+					glm::dvec3 const clipExtents =
+						glm::dmat3(glm::abs(glm::dvec3(exact[0])), glm::abs(glm::dvec3(exact[1])), glm::abs(glm::dvec3(exact[2]))) *
+						glm::dvec3(extents);
+					glm::dvec3 const low = clipCenter - clipExtents;
+					glm::dvec3 const high = clipCenter + clipExtents;
+					double const nearest = std::min(
+						{std::abs(high.x + 1.0), std::abs(low.x - 1.0), std::abs(high.y + 1.0), std::abs(low.y - 1.0), std::abs(high.z)});
+					CAPTURE(round);
+					CAPTURE(box);
+					CHECK(nearest < 1e-4);
+					continue;
+				}
+				agreed++;
+				inside += actual ? 1 : 0;
+			}
+		}
+	}
+	// The boxes fall both ways, and the two forms agree on all but the few that touch an edge.
+	CHECK(agreed >= 15990);
+	CHECK(inside > 1000);
+	CHECK(inside < agreed - 1000);
 }

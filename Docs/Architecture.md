@@ -510,14 +510,27 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   its owner drops during the frame lives until `EndScene` returns, and are resolved once per distinct asset in
   `Renderer.Prepare`: GPU buffers (`Renderer::GetMesh`), material binding set, and the pipelines of each pass (from the
   alpha mode and double-sidedness; null where the material is not drawn: blended materials cast no shadows).
-  `RenderScene` asks the asset manager for each distinct mesh and material handle once per submission and keeps what it
-  got for the rest of that submission, and each frame mesh keeps a short list of its (submesh, material) groups, so
-  that a repeated submission finds its frame material and group without the frame's two maps. Sorting goes through 64-bit keys of the depth's
-  ordered bits and the item's index, which give the front-to-back (or back-to-front) order with ties by submission.
+  A submission comes in two steps: `SceneRenderer::PrepareMeshDraw` resolves a mesh and the materials of its slots
+  into a *mesh draw* (`MeshDraw`; the frame mesh, and each drawn submesh's frame material and group), and
+  `SubmitMesh(MeshDraw, MeshSubmission)` submits one instance of it, looking nothing up (the one-step `SubmitMesh`
+  overloads do both). `RenderScene` prepares one mesh draw per distinct pair of mesh handle and material handles that
+  its `MeshComponent`s name in a submission (`FrameMeshDraws` in `Scene/SceneRendering.cpp`, one lookup of a hash of
+  the handles per instance, no asset lookup and no `Ref` copied per instance), and walks the meshes with
+  `Scene::ForEachCachedWorldTransform`, which finds the cache's storage once instead of once per entity. An item's
+  world bounds come from Arvo's method as `AABB::Transform` computes them (the matrix's absolute linear part made once
+  per instance), and its view depth from the same world center (the view matrix's third row), not from a product of the
+  view and model matrices. Sorting goes through 64-bit keys of the depth's ordered bits and the item's index, listed in
+  item order and ordered by a stable radix sort of the depth bits (bytes equal in every key are skipped), which gives
+  the front-to-back (or back-to-front) order with ties by submission in time linear in the items.
 - **Culling** stays per item on the CPU: against the camera's frustum, and for the casters against each shadow view's
-  volume (a cascade's projection, a local light's range sphere). A cascade's test takes the box's center and extents
-  into the cascade's clip space once, in the form `AABB::Transform` uses (`Math/AABB.cpp`), instead of transforming
-  its eight corners as slice 1 did: with 10,000 casters and 4 cascades that test runs 40,000 times a frame inside
+  volume (a cascade's projection, a local light's range sphere). `PrepareShadows` lists the frame's casters once, each
+  with its world bounds, its item, group and instance (`ShadowCaster`), so that the views read one contiguous list. A
+  directional light's cascades share the light's view (`CascadeProjection::LightView`) and differ by an orthographic
+  projection along its axes: each caster's box is moved into the light's space once (center and extents, in the form
+  `AABB::Transform` uses, `Shadows::LightSpaceTransform`), and each cascade then scales and offsets it per axis
+  (`Shadows::LightSpaceCascadeTest`), instead of taking the box through the whole view-projection per cascade (and
+  instead of transforming its eight corners, as slice 1 did). Its verdicts are `Shadows::CascadeTest`'s but for boxes
+  within rounding of a cascade's border: with 10,000 casters and 4 cascades the test runs 40,000 times a frame inside
   `Renderer.Prepare`, whose budget it shares with submission.
 - **Batching** (`Renderer.Batch`, inside `Renderer.Prepare`, after the pipelines and the shadow views are known). In the
   opaque (masked materials included), shadow and entity-ID passes, the items a pass draws (in the camera's view; for a
@@ -558,12 +571,27 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
     (§4.4, "Counters"), after the frame is submitted; an idle profiler costs one relaxed load. `viewport.statistics`
     returns `instances` and `batches` beside `drawCalls`, and the editor's Renderer panel shows them (Mesh batches,
     Mesh instances).
-  - A mirrored instance (a world matrix of negative determinant) is drawn with the pipelines of its material, whose
-    front faces are the counter-clockwise ones: its winding is not flipped, so back-face culling shows its inner faces,
-    as it did before instancing. Its normals are right (the normal basis keeps their direction).
+  - A mirrored instance (a world matrix of negative determinant) turns the winding of its triangles. It is drawn with
+    pipeline variants whose front faces are the clockwise ones (in the opaque, transparent, shadow and entity-ID passes,
+    double-sided materials included, whose pixel shader turns back faces' normals), so back-face culling keeps its outer
+    faces; its normals keep their direction through the normal basis, and its vertex shader turns the tangent frame's
+    handedness (the bitangent's sign) with the determinant's sign. Mirroring is part of the batch key (a group's
+    `GroupKey::Mirrored`): mirrored and unmirrored instances of one mesh, submesh and material are two batches. A turn
+    by two negative scales keeps the winding and is no mirror. Slice 1 and IN's first steps drew mirrored instances
+    inside out.
   - For tests, `SceneRenderer::GetFrameInstances` returns the frame's `InstanceData` as it was uploaded and
     `GetPassInstanceCounts` the instances each mesh pass and each shadow view drew, both valid until the next
     `BeginScene`: what a test reads to check the matrices a frame drew with and what reached each shadow view.
+- **Costs.** The benchmark case of `Renderer/InstancingBenchmarkTests.cpp` (`STRADA_INSTANCING_BENCHMARK=1`, Release)
+  draws 10,000 instances of 4 meshes and 3 materials among 12,001 entities, with a sun of 4 cascades, at 1920x1080,
+  in three scenarios (nothing moved, 1,000 children moved, every root moved), entity IDs off and on. The targets are
+  at most 400 draws, `Renderer.Submit` and `Renderer.Prepare` together at most 2.0 ms, and the cache's refresh at most
+  0.5 ms. Measured at IN's last step on the reference machine, with no build or test running: 47 draws with entity IDs
+  off and 62 with them on; `Renderer.Submit` and `Renderer.Prepare` 1.12 to 1.26 ms in a sitting where the step's
+  first tree took 2.72 to 2.95 ms, and 1.27 to 2.32 ms in a later sitting where every figure, the first tree's too
+  (4.0 to 5.6 ms), was about 1.5 times slower; `Renderer.Batch` 0.37 to 0.39 ms of it. What changed against the first
+  tree, in that order of saving: the sky light found without a walk through the hierarchy, mesh draws prepared once
+  per frame, the light-space cascade test, the radix sort.
 
 Visibility: `EndScene` tests the world bounds of every submitted submesh against the camera's `Frustum`
 (`Math/Frustum.h`), built from its view-projection and limited to `SceneRendererCamera::MaxDistance` (the camera
@@ -1229,15 +1257,20 @@ stale.
   Frames that no view drew refresh nothing, so after them `Previous` is older than the frame before. A renderer that
   keeps history tells the frame after the one it drew by `Scene::GetTransformFrame` (the frames begun) and
   `Scene::GetSerial` (unique among the scenes this process made, a copy included): see "Velocities and cuts" in §6.2.
-- **Costs.** An entry is 224 bytes, kept in a storage of the scene's registry for an internal type that
+- **Costs.** An entry is 288 bytes, kept in a storage of the scene's registry for an internal type that
   `ComponentRegistry` does not list: it is no component, so it is never serialized, copied (`Scene::Copy`, duplicates
   and prefab instances start without entries), shown or scripted. EnTT's storage keeps elements in pages that never
   move (`entt/entity/storage.hpp`, `assure_at_least`), so the refresh adds entries while it holds references to others.
   The target is a refresh of 12,000 entities in at most 0.5 ms in Release on the reference machine, whether none, some
   or all of them moved; the benchmark case of `WorldTransformCacheTests.cpp` (`STRADA_TRANSFORM_BENCHMARK=1`) measures
-  the three. Measured at IN-2 (100 roots of 119 children, one refresh per frame, 300 frames, the zone's median):
-  0.12 ms with nothing moved, 0.15 ms with 1,000 children moved, 0.46 ms with every root moved, every matrix computed
-  again. A read through a current chain costs about 0.05 µs per entity, half of slice 1's walk.
+  the three. An entry keeps its local matrix (`Local`, the product of its translation, rotation and scale), so an
+  entity whose own inputs did not change is computed again under its parent's new matrix with one affine product: what
+  every child costs when its root moves. Measured at IN's last step (Release, the reference machine idle, 100 roots of
+  119 children, one refresh per frame, 300 frames, the zone's median): 0.13 ms with nothing moved, 0.17 ms with 1,000
+  children moved, 0.31 ms with every root moved, every matrix computed again; inside a rendered frame of the instancing
+  benchmark (`Renderer/InstancingBenchmarkTests.cpp`, 12,001 entities, where the renderer's work leaves the cache
+  colder) 0.14, 0.18 and 0.31 to 0.34 ms. Before the local matrix was kept, every root moved cost 0.48 ms in that frame
+  and 0.47 ms alone. A read through a current chain costs about 0.05 µs per entity, half of slice 1's walk.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
 

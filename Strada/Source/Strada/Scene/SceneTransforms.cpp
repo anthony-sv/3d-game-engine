@@ -139,10 +139,15 @@ namespace Strada
 		}
 	}
 
-	void Scene::StoreWorldTransform(WorldTransformEntry& entry, TransformComponent const& transform, UUID parentId,
+	void Scene::StoreWorldTransform(WorldTransformEntry& entry, TransformComponent const& transform, bool sameInputs, UUID parentId,
 	                                entt::entity parentHandle, entt::entity worldParent, WorldTransformEntry const* worldParentEntry)
 	{
-		glm::mat4 const local = transform.GetTransform();
+		// The local matrix is a function of the inputs' bits, so the one kept for them is the one computing it gives.
+		if (!sameInputs || entry.Version == 0)
+		{
+			entry.Local = transform.GetTransform();
+		}
+		glm::mat4 const& local = entry.Local;
 		glm::mat4 const world = worldParentEntry != nullptr ? Math::ComposeWorldTransform(worldParentEntry->World, local) : local;
 		// The matrix the frame began with is kept the first time the entry changes in the frame; a new entry has none.
 		if (entry.Version == 0)
@@ -196,12 +201,12 @@ namespace Strada
 			}
 		}
 		entry.CheckedRefresh = m_TransformRefresh;
-		if (entry.ParentVersion == (parentEntry != nullptr ? parentEntry->Version : 0) &&
-		    HasSameInputs(transform, entry.Translation, entry.Rotation, entry.Scale))
+		bool const sameInputs = HasSameInputs(transform, entry.Translation, entry.Rotation, entry.Scale);
+		if (sameInputs && entry.ParentVersion == (parentEntry != nullptr ? parentEntry->Version : 0))
 		{
 			return true;
 		}
-		StoreWorldTransform(entry, transform, parentId, entry.ParentHandle, entry.WorldParent, parentEntry);
+		StoreWorldTransform(entry, transform, sameInputs, parentId, entry.ParentHandle, entry.WorldParent, parentEntry);
 		return true;
 	}
 
@@ -219,14 +224,15 @@ namespace Strada
 				entry = &storages.Entries.emplace(link.Handle);
 				entry->Id = storages.Ids.contains(link.Handle) ? storages.Ids.get(link.Handle).ID : UUID::Invalid();
 			}
-			bool const current = entry->Version != 0 && HasSameInputs(*link.Transform, entry->Translation, entry->Rotation, entry->Scale) &&
-			                     entry->Parent == link.ParentId && entry->ParentHandle == link.Parent &&
+			bool const sameInputs =
+				entry->Version != 0 && HasSameInputs(*link.Transform, entry->Translation, entry->Rotation, entry->Scale);
+			bool const current = sameInputs && entry->Parent == link.ParentId && entry->ParentHandle == link.Parent &&
 			                     entry->WorldParent == worldParent &&
 			                     entry->ParentVersion == (parentEntry != nullptr ? parentEntry->Version : 0);
 			entry->CheckedRefresh = m_TransformRefresh;
 			if (!current)
 			{
-				StoreWorldTransform(*entry, *link.Transform, link.ParentId, link.Parent, worldParent, parentEntry);
+				StoreWorldTransform(*entry, *link.Transform, sameInputs, link.ParentId, link.Parent, worldParent, parentEntry);
 			}
 		}
 	}

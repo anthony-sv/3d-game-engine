@@ -190,48 +190,119 @@ namespace Strada
 			std::unordered_map<AssetHandle, Ref<TAsset>> m_Assets;
 		};
 
-		void SubmitMeshes(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options)
+		// The renderer's mesh draw (SceneRenderer::PrepareMeshDraw) of each mesh and material slots met while submitting a
+		// frame, keyed by a MeshComponent's handles as they are: an instance then costs one lookup, with no asset looked up
+		// and no reference copied. Lives for one submission only, as FrameAssets.
+		class FrameMeshDraws
 		{
-			FrameAssets<MeshSource> meshes;
-			FrameAssets<MaterialAsset> frameMaterials;
-			bool const identifies = options.GetPickingId || options.IsSelected;
-			std::vector<Ref<MaterialAsset>> materials;
-			for (entt::entity const handle : scene.GetAllEntitiesWith<MeshComponent>())
+		public:
+			MeshDraw Get(SceneRenderer& renderer, MeshComponent const& component)
 			{
-				Entity const entity(handle, &scene);
-				MeshComponent const& component = entity.GetComponent<MeshComponent>();
-				if (!component.Visible)
+				uint64_t const key = MakeKey(component);
+				// Equal keys of different handles are told apart by the handles each entry keeps.
+				auto const [first, last] = m_Entries.equal_range(key);
+				for (auto entry = first; entry != last; ++entry)
 				{
-					continue;
-				}
-				Ref<MeshSource> const& mesh = meshes.Get(component.Mesh);
-				if (!mesh)
-				{
-					continue;
+					if (entry->second.Mesh == component.Mesh &&
+					    std::equal(component.Materials.begin(), component.Materials.end(), m_Handles.begin() + entry->second.FirstMaterial,
+					               m_Handles.begin() + entry->second.FirstMaterial + entry->second.MaterialCount))
+					{
+						return entry->second.Draw;
+					}
 				}
 
-				std::vector<AssetHandle> const& defaults = mesh->GetMaterials();
-				materials.resize(defaults.size());
-				for (size_t slot = 0; slot < defaults.size(); slot++)
+				Entry added;
+				added.Mesh = component.Mesh;
+				added.FirstMaterial = static_cast<uint32_t>(m_Handles.size());
+				added.MaterialCount = static_cast<uint32_t>(component.Materials.size());
+				m_Handles.insert(m_Handles.end(), component.Materials.begin(), component.Materials.end());
+				if (Ref<MeshSource> const& mesh = m_Meshes.Get(component.Mesh))
 				{
-					AssetHandle const handleForSlot = slot < component.Materials.size() && component.Materials[slot].IsValid()
-					                                      ? component.Materials[slot]
-					                                      : defaults[slot];
-					materials[slot] = frameMaterials.Get(handleForSlot);
+					// A slot the component leaves empty (or names no asset for) takes the mesh's own material.
+					std::vector<AssetHandle> const& defaults = mesh->GetMaterials();
+					m_Slots.resize(defaults.size());
+					for (size_t slot = 0; slot < defaults.size(); slot++)
+					{
+						AssetHandle const handleForSlot = slot < component.Materials.size() && component.Materials[slot].IsValid()
+						                                      ? component.Materials[slot]
+						                                      : defaults[slot];
+						m_Slots[slot] = m_Materials.Get(handleForSlot);
+					}
+					added.Draw = renderer.PrepareMeshDraw(mesh, m_Slots);
 				}
-				CachedWorldTransform const world = scene.GetCachedWorldTransform(handle);
-				MeshSubmission submission;
-				submission.Transform = world.World;
-				submission.PreviousTransform = world.Previous;
-				submission.CastShadows = component.CastShadows;
-				if (identifies)
-				{
-					UUID const id = entity.GetUUID();
-					submission.PickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
-					submission.Selected = options.IsSelected && options.IsSelected(id);
-				}
-				renderer.SubmitMesh(mesh, materials, submission);
+				m_Entries.emplace(key, added);
+				return added.Draw;
 			}
+
+		private:
+			struct Entry
+			{
+				AssetHandle Mesh;
+				uint32_t FirstMaterial = 0;
+				uint32_t MaterialCount = 0;
+				MeshDraw Draw;
+			};
+
+			// The handles mixed (64-bit FNV-1a over their values, the count included).
+			static uint64_t MakeKey(MeshComponent const& component)
+			{
+				uint64_t hash = 14695981039346656037ull;
+				auto const mix = [&hash](uint64_t value)
+				{
+					hash = (hash ^ value) * 1099511628211ull;
+				};
+				mix(component.Mesh.GetUUID().GetValue());
+				mix(component.Materials.size());
+				for (AssetHandle const material : component.Materials)
+				{
+					mix(material.GetUUID().GetValue());
+				}
+				return hash;
+			}
+
+			// The key is a hash already.
+			struct KeyHash
+			{
+				size_t operator()(uint64_t key) const { return static_cast<size_t>(key); }
+			};
+
+			std::unordered_multimap<uint64_t, Entry, KeyHash> m_Entries;
+			// Every entry's material handles, one entry after another.
+			std::vector<AssetHandle> m_Handles;
+			FrameAssets<MeshSource> m_Meshes;
+			FrameAssets<MaterialAsset> m_Materials;
+			std::vector<Ref<MaterialAsset>> m_Slots;
+		};
+
+		void SubmitMeshes(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options)
+		{
+			FrameMeshDraws draws;
+			bool const identifies = options.GetPickingId || options.IsSelected;
+			scene.ForEachCachedWorldTransform<MeshComponent>(
+				[&scene, &renderer, &options, &draws, identifies](entt::entity meshEntity, MeshComponent const& mesh,
+			                                                      glm::mat4 const& world, glm::mat4 const& previous)
+				{
+					if (!mesh.Visible)
+					{
+						return;
+					}
+					MeshDraw const draw = draws.Get(renderer, mesh);
+					if (!draw.IsValid())
+					{
+						return;
+					}
+					MeshSubmission submission;
+					submission.Transform = world;
+					submission.PreviousTransform = previous;
+					submission.CastShadows = mesh.CastShadows;
+					if (identifies)
+					{
+						UUID const id = Entity(meshEntity, &scene).GetUUID();
+						submission.PickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
+						submission.Selected = options.IsSelected && options.IsSelected(id);
+					}
+					renderer.SubmitMesh(draw, submission);
+				});
 		}
 
 		// With screenSpaceOnly, only the sprites drawn over the image.
@@ -286,6 +357,47 @@ namespace Strada
 			}
 		}
 
+		void SubmitSkyLight(SceneRenderer& renderer, SkyLightComponent const& sky)
+		{
+			renderer.SetAmbientLight(sky.AmbientColor * sky.Intensity);
+			if (Ref<EnvironmentAsset> environment = AssetManager::GetAsset<EnvironmentAsset>(sky.Environment))
+			{
+				EnvironmentSubmission submission;
+				submission.Environment = std::move(environment);
+				submission.Intensity = sky.Intensity;
+				submission.Rotation = sky.Rotation;
+				submission.SkyboxBlur = sky.SkyboxBlur;
+				submission.DrawSkybox = sky.DrawSkybox;
+				renderer.SetEnvironment(submission);
+			}
+		}
+
+		// The first sky light in hierarchy order provides the ambient light. Scenes mostly have one or none, which needs no
+		// walk through the hierarchy: a walk visits every entity, and in a scene of 12,000 it took nearly half the time the
+		// submission of their meshes took.
+		void SubmitSkyLight(Scene& scene, SceneRenderer& renderer)
+		{
+			auto const skies = scene.GetAllEntitiesWith<SkyLightComponent>();
+			if (skies.empty())
+			{
+				return;
+			}
+			if (skies.size() == 1)
+			{
+				SubmitSkyLight(renderer, scene.GetRegistry().get<SkyLightComponent>(skies.front()));
+				return;
+			}
+			scene.ForEachEntityInHierarchyOrder(
+				[&renderer, found = false](Entity entity) mutable
+				{
+					if (!found && entity.HasComponent<SkyLightComponent>())
+					{
+						SubmitSkyLight(renderer, entity.GetComponent<SkyLightComponent>());
+						found = true;
+					}
+				});
+		}
+
 		void SubmitLights(Scene& scene, SceneRenderer& renderer)
 		{
 			for (entt::entity const handle : scene.GetAllEntitiesWith<DirectionalLightComponent>())
@@ -331,27 +443,7 @@ namespace Strada
 				renderer.SubmitSpotLight(submission);
 			}
 
-			// The first sky light (in hierarchy order) provides the ambient light.
-			scene.ForEachEntityInHierarchyOrder(
-				[&renderer, found = false](Entity entity) mutable
-				{
-					if (!found && entity.HasComponent<SkyLightComponent>())
-					{
-						SkyLightComponent const& sky = entity.GetComponent<SkyLightComponent>();
-						renderer.SetAmbientLight(sky.AmbientColor * sky.Intensity);
-						if (Ref<EnvironmentAsset> environment = AssetManager::GetAsset<EnvironmentAsset>(sky.Environment))
-						{
-							EnvironmentSubmission submission;
-							submission.Environment = std::move(environment);
-							submission.Intensity = sky.Intensity;
-							submission.Rotation = sky.Rotation;
-							submission.SkyboxBlur = sky.SkyboxBlur;
-							submission.DrawSkybox = sky.DrawSkybox;
-							renderer.SetEnvironment(submission);
-						}
-						found = true;
-					}
-				});
+			SubmitSkyLight(scene, renderer);
 		}
 
 		// Screen-space content alone has nothing to shade: every pass that works on the world is off, and the black background

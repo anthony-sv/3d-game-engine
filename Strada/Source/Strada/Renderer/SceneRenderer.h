@@ -5,6 +5,7 @@
 #include "Strada/Math/Frustum.h"
 #include "Strada/Renderer/QuadRenderer.h"
 #include "Strada/Renderer/SceneRendererSettings.h"
+#include "Strada/Renderer/ShadowMath.h"
 
 #include "RendererInterop.h"
 
@@ -88,6 +89,17 @@ namespace Strada
 		// selection outline.
 		uint32_t PickingId = 0;
 		bool Selected = false;
+	};
+
+	// A mesh with the materials of its slots, resolved for one frame (SceneRenderer::PrepareMeshDraw): the instances submitted
+	// with it find their mesh, materials and batching groups without looking any of them up. Valid until EndScene.
+	struct MeshDraw
+	{
+		static constexpr uint32_t NoDraw = std::numeric_limits<uint32_t>::max();
+
+		uint32_t Index = NoDraw;
+
+		bool IsValid() const { return Index != NoDraw; }
 	};
 
 	struct EnvironmentSubmission
@@ -222,6 +234,11 @@ namespace Strada
 		// Each call is one instance (ShaderInterop::InstanceData), whose normal basis is computed here, once for every pass.
 		// The mesh and the materials are kept alive until EndScene returns, one reference per distinct asset of the frame.
 		void SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, MeshSubmission const& submission);
+		// The same in two steps, for many instances of few meshes: PrepareMeshDraw resolves a mesh and its materials (as
+		// above) once for the frame, and SubmitMesh(draw, submission) submits one instance of it, with the cost of the instance
+		// alone. The draw of a null mesh is invalid, and its instances are ignored.
+		[[nodiscard]] MeshDraw PrepareMeshDraw(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials);
+		void SubmitMesh(MeshDraw draw, MeshSubmission const& submission);
 		// Sprites and text, in world space (unlit, alpha blended, sorted back to front) or over the final image (see
 		// SpriteSubmission and TextSubmission). Picking IDs and selection work as for meshes.
 		void SubmitSprite(SpriteSubmission const& sprite);
@@ -310,13 +327,38 @@ namespace Strada
 		{
 			Ref<MaterialAsset> Source;
 			nvrhi::IBindingSet* Bindings = nullptr;
-			// Null in a pass that does not draw the material: blended materials cast no shadows, and the entity-ID pipeline
-			// is null while entity IDs are off.
-			nvrhi::IGraphicsPipeline* Pipeline = nullptr;
-			nvrhi::IGraphicsPipeline* ShadowPipeline = nullptr;
-			nvrhi::IGraphicsPipeline* EntityIdPipeline = nullptr;
+			// Each pass's pipelines, indexed by mirroring (0 for instances whose world matrix keeps the winding, 1 for
+			// mirrored ones, whose front faces are the clockwise ones), resolved for each kind the frame draws the material
+			// with. Null in a pass that does not draw the material: blended materials cast no shadows, and the entity-ID
+			// pipelines are null while entity IDs are off.
+			std::array<nvrhi::IGraphicsPipeline*, 2> Pipelines{};
+			std::array<nvrhi::IGraphicsPipeline*, 2> ShadowPipelines{};
+			std::array<nvrhi::IGraphicsPipeline*, 2> EntityIdPipelines{};
+			std::array<bool, 2> PipelinesResolved{};
 			bool Blend = false;
 			bool Resolved = false;
+		};
+
+		// A prepared mesh draw (MeshDraw::Index): its frame mesh, and its drawn submeshes as a range of m_DrawSubmeshes.
+		struct FrameMeshDraw
+		{
+			uint32_t Mesh = 0;
+			uint32_t FirstSubmesh = 0;
+			uint32_t SubmeshCount = 0;
+		};
+
+		// A submesh a prepared mesh draw draws (one with a material to draw it with): its bounds in the mesh's space, its
+		// index in the mesh, its material's index in the frame's table, and its groups for instances that keep the winding
+		// and for mirrored ones (made when the first mirrored instance is submitted).
+		struct FrameDrawSubmesh
+		{
+			static constexpr uint32_t NoGroup = std::numeric_limits<uint32_t>::max();
+
+			AABB Bounds;
+			uint32_t Submesh = 0;
+			uint32_t Material = 0;
+			uint32_t Group = 0;
+			uint32_t MirroredGroup = NoGroup;
 		};
 
 		// One submitted submesh: what culling, sorting and batching read, and its instance, mesh, submesh and material by
@@ -335,19 +377,24 @@ namespace Strada
 			uint32_t Submesh = 0;
 			// Index into the frame's material table.
 			uint32_t Material = 0;
-			// The frame's dense index of its mesh, submesh and material: items of one group are drawn by one batch per pass.
+			// The frame's dense index of its mesh, submesh, material and mirroring: items of one group are drawn by one batch
+			// per pass.
 			uint32_t Group = 0;
 			bool CastShadows = true;
+			// Its instance's world matrix has a negative determinant: drawn with the pipelines whose front faces are
+			// clockwise, so that back-face culling keeps its outer faces.
+			bool Mirrored = false;
 			// Inside the camera's view: drawn by its passes (items outside it are kept only as shadow casters).
 			bool InView = true;
 		};
 
-		// The key of a group: the frame's mesh and material indices and the submesh.
+		// The key of a group: the frame's mesh and material indices, the submesh, and whether its instances are mirrored.
 		struct GroupKey
 		{
 			uint32_t Mesh = 0;
 			uint32_t Submesh = 0;
 			uint32_t Material = 0;
+			uint32_t Mirrored = 0;
 
 			bool operator==(GroupKey const& other) const = default;
 		};
@@ -403,11 +450,25 @@ namespace Strada
 			float OuterConeAngle = 0.0f;
 		};
 
+		// A shadow caster of the frame (PrepareShadows), as each shadow view tests it: its world bounds, the same box in the
+		// directional light's view space (when the light has cascades), and its item, group and instance.
+		struct ShadowCaster
+		{
+			AABB Bounds;
+			Shadows::LightSpaceBox LightBox;
+			uint32_t Item = 0;
+			uint32_t Group = 0;
+			uint32_t Instance = 0;
+		};
+
 		struct ShadowView
 		{
 			glm::mat4 ViewProjection = glm::mat4(1.0f);
+			// A cascade's orthographic projection in its light's view space (ViewProjection is Projection times that view).
+			glm::mat4 Projection = glm::mat4(1.0f);
 			nvrhi::IFramebuffer* Framebuffer = nullptr;
-			// Directional views cull casters against their projection, local views against the light's range sphere.
+			// Directional views cull casters against their projection (in light space), local views against the light's
+			// range sphere.
 			bool Directional = false;
 			glm::vec3 Center = glm::vec3(0.0f);
 			float Radius = 0.0f;
@@ -505,8 +566,9 @@ namespace Strada
 		// Hands the times of a finished frame's passes to the profiler and makes their timers reusable.
 		void ReportPassTimes(FrameTimer& timer);
 		void UpdateFrameBindings(FrameResources const& resources);
-		nvrhi::IGraphicsPipeline* GetMeshPipeline(bool blend, bool doubleSided);
-		nvrhi::IGraphicsPipeline* GetShadowPipeline(bool masked, bool doubleSided);
+		// mirrored: the pipeline for mirrored instances, whose front faces are the clockwise ones.
+		nvrhi::IGraphicsPipeline* GetMeshPipeline(bool blend, bool doubleSided, bool mirrored);
+		nvrhi::IGraphicsPipeline* GetShadowPipeline(bool masked, bool doubleSided, bool mirrored);
 		void EnsureShadowMap(nvrhi::TextureHandle& texture, std::vector<nvrhi::FramebufferHandle>& framebuffers, uint32_t size,
 		                     uint32_t slices, char const* name);
 		void ReleaseShadowMap(nvrhi::TextureHandle& texture, std::vector<nvrhi::FramebufferHandle>& framebuffers);
@@ -515,7 +577,7 @@ namespace Strada
 		void RenderShadows(nvrhi::ICommandList* commandList);
 		void RenderAmbientOcclusion(nvrhi::ICommandList* commandList);
 		void RenderBloom(nvrhi::ICommandList* commandList);
-		nvrhi::IGraphicsPipeline* GetEntityIdPipeline(bool blend, bool doubleSided);
+		nvrhi::IGraphicsPipeline* GetEntityIdPipeline(bool blend, bool doubleSided, bool mirrored);
 		// Entity IDs of the opaque and then the blended items, and of the quads.
 		void RenderEntityIds(nvrhi::ICommandList* commandList);
 		// Grid, UI placed in the world and lines onto the tonemapped image (before FXAA when it is enabled).
@@ -548,10 +610,14 @@ namespace Strada
 		std::vector<ShaderInterop::InstanceData> m_Instances;
 		std::vector<SubmeshItem> m_Items;
 		std::unordered_map<GroupKey, uint32_t, GroupKeyHash> m_GroupIndices;
+		// The frame's prepared mesh draws (PrepareMeshDraw) and the submeshes they draw.
+		std::vector<FrameMeshDraw> m_MeshDraws;
+		std::vector<FrameDrawSubmesh> m_DrawSubmeshes;
 		// Batching's working state, kept between frames for its memory: per group, and the items of one pass.
 		std::vector<GroupBatch> m_GroupBatches;
-		// A pass's items as (depth, item) keys while they are sorted.
+		// A pass's items as (depth, item) keys while they are sorted, and the sort's second buffer.
 		std::vector<uint64_t> m_SortKeys;
+		std::vector<uint64_t> m_SortScratch;
 		std::vector<uint32_t> m_PassItems;
 		std::vector<uint32_t> m_PassGroups;
 		// The frame's batches: the opaque pass's (front to back), the entity-ID pass's (the opaque batches by first
@@ -561,9 +627,9 @@ namespace Strada
 		std::vector<MeshBatch> m_EntityIdBatches;
 		std::vector<MeshBatch> m_BlendBatches;
 		// Every shadow view's batches, one view after another (ShadowView::FirstBatch), and the frame's shadow casters in
-		// submission order (indices into m_Items, listed by PrepareShadows), which each view tests.
+		// submission order (listed by PrepareShadows), which each view tests.
 		std::vector<MeshBatch> m_ShadowBatches;
-		std::vector<uint32_t> m_ShadowCasters;
+		std::vector<ShadowCaster> m_ShadowCasters;
 		std::vector<uint32_t> m_InstanceIndices;
 		PassInstanceCounts m_PassInstanceCounts;
 
@@ -622,7 +688,8 @@ namespace Strada
 		nvrhi::InputLayoutHandle m_InputLayout;
 		// Positions and texture coordinates only (shadow and entity ID passes).
 		nvrhi::InputLayoutHandle m_DepthInputLayout;
-		nvrhi::GraphicsPipelineHandle m_MeshPipelines[4];
+		// By PipelineIndex: blending, double-sidedness and mirroring.
+		nvrhi::GraphicsPipelineHandle m_MeshPipelines[8];
 
 		nvrhi::BufferHandle m_ShadowConstants;
 		nvrhi::SamplerHandle m_ShadowCompareSampler;
@@ -635,7 +702,7 @@ namespace Strada
 		nvrhi::TextureHandle m_FallbackShadowMap;
 		nvrhi::BindingLayoutHandle m_ShadowLayout;
 		nvrhi::BindingSetHandle m_ShadowBindings;
-		nvrhi::GraphicsPipelineHandle m_ShadowPipelines[4];
+		nvrhi::GraphicsPipelineHandle m_ShadowPipelines[8];
 
 		nvrhi::BufferHandle m_OcclusionConstants;
 		nvrhi::BindingLayoutHandle m_OcclusionLayout;
@@ -697,7 +764,7 @@ namespace Strada
 		nvrhi::FramebufferHandle m_EntityIdFramebuffer;
 		nvrhi::BindingLayoutHandle m_EntityIdLayout;
 		nvrhi::BindingSetHandle m_EntityIdBindings;
-		nvrhi::GraphicsPipelineHandle m_EntityIdPipelines[4];
+		nvrhi::GraphicsPipelineHandle m_EntityIdPipelines[8];
 		nvrhi::BindingLayoutHandle m_OutlineLayout;
 		nvrhi::BindingSetHandle m_OutlineBindings;
 		nvrhi::GraphicsPipelineHandle m_OutlinePipeline;

@@ -15,6 +15,7 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
+#include "Editor/Panels/RendererInfoPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/SceneSettingsPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
@@ -43,6 +44,7 @@
 #include "Strada/Project/ScriptProject.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/Renderer/Renderer.h"
+#include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Scene/Entity.h"
@@ -4322,4 +4324,49 @@ TEST_CASE("Panels: the content browser's + menu makes a file of every data asset
 	// Making files is no step of the scene's history.
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
 	CHECK(fixture.BrowserOpen);
+}
+
+TEST_CASE("Panels: the Renderer panel's views show each view's mesh batches and instances, and a dash for a view without one")
+{
+	HeadlessImGui imgui;
+	SceneRendererStatistics scene;
+	scene.DrawCalls = 47;
+	scene.Batches = 4321;
+	scene.Instances = 98765;
+	SceneRendererStatistics game;
+	game.Batches = 1234;
+	game.Instances = 56789;
+	auto const lineOf = [](std::string const& text, std::string_view name)
+	{
+		size_t const start = text.find(name);
+		REQUIRE(start != std::string::npos);
+		size_t const end = text.find('\n', start);
+		return text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+	};
+	auto const drawViews = [](SceneRendererStatistics const* sceneView, SceneRendererStatistics const* gameView)
+	{
+		return [sceneView, gameView]
+		{
+			ImGui::Begin("Renderer Info");
+			RendererInfoPanel::DrawViews(sceneView, gameView);
+			ImGui::End();
+		};
+	};
+
+	std::string const both = CaptureText(imgui, drawViews(&scene, &game));
+	std::string const batches = lineOf(both, "Mesh batches");
+	CHECK(batches.find("4321") != std::string::npos);
+	CHECK(batches.find("1234") != std::string::npos);
+	std::string const instances = lineOf(both, "Mesh instances");
+	CHECK(instances.find("98765") != std::string::npos);
+	CHECK(instances.find("56789") != std::string::npos);
+	CHECK(lineOf(both, "Draw calls").find("47") != std::string::npos);
+
+	// A view without a renderer shows a dash in every row.
+	std::string const sceneOnly = CaptureText(imgui, drawViews(&scene, nullptr));
+	std::string const alone = lineOf(sceneOnly, "Mesh batches");
+	CHECK(alone.find("4321") != std::string::npos);
+	CHECK(alone.find("1234") == std::string::npos);
+	CHECK(alone.find('-') != std::string::npos);
+	CHECK(lineOf(sceneOnly, "Mesh instances").find('-') != std::string::npos);
 }

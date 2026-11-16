@@ -25,7 +25,11 @@ namespace Strada::Shadows
 
 	struct CascadeProjection
 	{
+		// Projection * LightView. Every cascade of one light shares its LightView (the light's rotation, from the origin);
+		// Projection is orthographic along that view's axes.
 		glm::mat4 ViewProjection = glm::mat4(1.0f);
+		glm::mat4 LightView = glm::mat4(1.0f);
+		glm::mat4 Projection = glm::mat4(1.0f);
 		// World-space size of one shadow-map texel.
 		float TexelSize = 0.0f;
 		// World-space width of the cascade and length of its depth range (light to the farthest receiver).
@@ -86,6 +90,67 @@ namespace Strada::Shadows
 
 	// CascadeTest(viewProjection).Intersects(bounds), for a single box.
 	bool IntersectsCascade(AABB const& bounds, glm::mat4 const& viewProjection);
+
+	// A world-space box moved into a light's view space (CascadeProjection::LightView), as AABB::Transform moves it: its
+	// center and half extents. A light's casters are moved once, then tested against each of its cascades.
+	struct LightSpaceBox
+	{
+		glm::vec3 Center = glm::vec3(0.0f);
+		glm::vec3 Extents = glm::vec3(0.0f);
+	};
+
+	// Moves valid world-space boxes into the space of an affine lightView.
+	class LightSpaceTransform
+	{
+	public:
+		explicit LightSpaceTransform(glm::mat4 const& lightView)
+			: m_LightView(lightView)
+		{
+			glm::mat3 const linear(lightView);
+			for (int column = 0; column < 3; column++)
+			{
+				m_Absolute[column] = glm::abs(linear[column]);
+			}
+		}
+
+		LightSpaceBox Apply(AABB const& bounds) const
+		{
+			return {glm::vec3(m_LightView * glm::vec4(bounds.GetCenter(), 1.0f)), m_Absolute * bounds.GetExtents()};
+		}
+
+	private:
+		glm::mat4 m_LightView;
+		glm::mat3 m_Absolute;
+	};
+
+	// CascadeTest for boxes already in the light's view space: a cascade's orthographic projection
+	// (CascadeProjection::Projection) scales and offsets each axis, three multiplications and additions per axis instead of
+	// the whole view-projection per cascade. Its verdicts are CascadeTest(Projection * LightView)'s but for boxes within
+	// rounding of a cascade's border.
+	class LightSpaceCascadeTest
+	{
+	public:
+		explicit LightSpaceCascadeTest(glm::mat4 const& projection)
+			: m_Scale(projection[0][0], projection[1][1], projection[2][2]),
+			  m_AbsoluteScale(glm::abs(m_Scale)),
+			  m_Offset(projection[3])
+		{
+		}
+
+		bool Intersects(LightSpaceBox const& box) const
+		{
+			glm::vec3 const center = m_Scale * box.Center + m_Offset;
+			glm::vec3 const extents = m_AbsoluteScale * box.Extents;
+			glm::vec3 const minimum = center - extents;
+			glm::vec3 const maximum = center + extents;
+			return maximum.x >= -1.0f && minimum.x <= 1.0f && maximum.y >= -1.0f && minimum.y <= 1.0f && maximum.z >= 0.0f;
+		}
+
+	private:
+		glm::vec3 m_Scale;
+		glm::vec3 m_AbsoluteScale;
+		glm::vec3 m_Offset;
+	};
 
 	// Index of the cube face (in the order above) whose axis dominates direction.
 	uint32_t GetCubeFace(glm::vec3 const& direction);

@@ -59,7 +59,9 @@ VertexOutput VSMain(VertexInput input, uint instanceId : SV_InstanceID)
 	// The normal basis is the inverse transpose scaled by |det|: the pixel shader normalizes.
 	output.Normal = instance.NormalBasis[0].xyz * input.Normal.x + instance.NormalBasis[1].xyz * input.Normal.y +
 	                instance.NormalBasis[2].xyz * input.Normal.z;
-	output.Tangent = float4(mul((float3x3)instance.Model, input.Tangent.xyz), input.Tangent.w);
+	// A mirroring matrix turns the tangent frame's handedness: the bitangent's sign follows the determinant's.
+	float handedness = determinant((float3x3)instance.Model) < 0.0 ? -1.0 : 1.0;
+	output.Tangent = float4(mul((float3x3)instance.Model, input.Tangent.xyz), input.Tangent.w * handedness);
 	output.TexCoord = input.TexCoord * g_Material.UVTiling + g_Material.UVOffset;
 	return output;
 }

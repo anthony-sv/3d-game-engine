@@ -355,6 +355,113 @@ TEST_CASE("Instancing: each mesh and material is a batch of its own, masked and 
 	}
 }
 
+namespace
+{
+	// The image mirrored left to right.
+	Image MirrorImage(Image const& image)
+	{
+		Image mirrored(image.GetWidth(), image.GetHeight(), image.GetChannels());
+		for (uint32_t y = 0; y < image.GetHeight(); y++)
+		{
+			for (uint32_t x = 0; x < image.GetWidth(); x++)
+			{
+				std::memcpy(mirrored.GetPixel(image.GetWidth() - 1 - x, y), image.GetPixel(x, y), image.GetChannels());
+			}
+		}
+		return mirrored;
+	}
+}
+
+TEST_CASE("Instancing: mirrored instances are batched apart and drawn as the mirror image of their unmirrored scene")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageSize, ImageSize);
+	Ref<MeshSource> const cube = GetMesh(BuiltInAsset::CubeMesh);
+
+	SUBCASE("a mirrored instance and an unmirrored one of a mesh and material are two batches")
+	{
+		Ref<MaterialAsset> const material = MakeMaterial({0.8f, 0.4f, 0.2f, 1.0f});
+		SceneRendererCamera const camera = MakeCamera({0.0f, 0.0f, 6.0f}, {0.0f, 0.0f, 0.0f});
+		std::vector<TestInstance> const instances = {{cube, material, Place({-1.0f, 0.0f, 0.0f})},
+		                                             {cube, material, Place({1.0f, 0.0f, 0.0f}, 0.0f, {-1.0f, 1.0f, 1.0f})},
+		                                             {cube, material, Place({0.0f, 1.5f, 0.0f}, 0.0f, {1.0f, -1.0f, -1.0f})}};
+		(void)Draw(renderer, camera, instances);
+		// A turn by 180 degrees (two negative scales) keeps the winding: it joins the unmirrored instance.
+		CHECK(renderer.GetStatistics().Batches == 2);
+		CHECK(renderer.GetStatistics().Instances == 3);
+	}
+
+	SUBCASE("a scene under a mirroring parent draws the mirror image of the scene: outer faces, normals, tangents, shadows")
+	{
+		// Lit (not emissive), so that every face's shading shows its normal; a normal map whose normals lean along both
+		// texture axes, so that its shading also shows the tangent frame's handedness.
+		Image bumps(8, 8, 4);
+		for (uint32_t y = 0; y < 8; y++)
+		{
+			for (uint32_t x = 0; x < 8; x++)
+			{
+				uint8_t* pixel = bumps.GetPixel(x, y);
+				pixel[0] = x < 4 ? 210 : 45;
+				pixel[1] = y < 4 ? 210 : 45;
+				pixel[2] = 200;
+				pixel[3] = 255;
+			}
+		}
+		Result<Ref<TextureAsset>> bumpsTexture = TextureAsset::CreateFromImage(std::move(bumps));
+		REQUIRE(bumpsTexture.IsOk());
+		auto const makeLit = [](glm::vec4 const& baseColor, bool doubleSided)
+		{
+			MaterialData data;
+			data.BaseColor = baseColor;
+			data.Roughness = 0.6f;
+			data.DoubleSided = doubleSided;
+			return CreateRef<MaterialAsset>(data);
+		};
+		Ref<MaterialAsset> const stone = makeLit({0.6f, 0.6f, 0.58f, 1.0f}, false);
+		Ref<MaterialAsset> const brick = makeLit({0.8f, 0.35f, 0.2f, 1.0f}, false);
+		Ref<MaterialAsset> const leaf = makeLit({0.3f, 0.7f, 0.25f, 1.0f}, true);
+		MaterialData bumped;
+		bumped.BaseColor = {0.7f, 0.7f, 0.75f, 1.0f};
+		bumped.Roughness = 0.4f;
+		bumped.NormalTexture = AssetManager::AddMemoryAsset(bumpsTexture.GetValue(), "Bumps");
+		Ref<MaterialAsset> const bumpy = CreateRef<MaterialAsset>(bumped);
+
+		// The camera lies in the mirror's plane (x = 0) and looks along it, so the mirrored scene's image is the image
+		// mirrored.
+		SceneRendererCamera const camera = MakeCamera({0.0f, 2.6f, 4.2f}, {0.0f, 0.4f, 0.0f});
+		std::vector<TestInstance> scene = {
+			{GetMesh(BuiltInAsset::PlaneMesh), stone, Place({0.0f, 0.0f, 0.0f}, 0.0f, glm::vec3(6.0f))},
+			{cube, brick, Place({-0.9f, 0.5f, 0.0f}, 25.0f, {0.8f, 1.0f, 0.6f})},
+			{GetMesh(BuiltInAsset::ConeMesh), brick, Place({0.9f, 0.4f, 0.6f}, -40.0f, glm::vec3(0.7f))},
+			{GetMesh(BuiltInAsset::QuadMesh), bumpy, Place({0.4f, 0.8f, -0.7f}, 15.0f, glm::vec3(1.4f))},
+			{GetMesh(BuiltInAsset::QuadMesh), leaf, Place({-0.3f, 0.5f, 1.0f}, 140.0f, glm::vec3(0.8f))},
+		};
+		TestLights lights;
+		lights.Directional = DirectionalLightSubmission{};
+		lights.Directional->Direction = glm::normalize(glm::vec3(0.5f, -1.0f, -0.4f));
+		lights.Directional->Intensity = 3.0f;
+		lights.Directional->CastShadows = true;
+		Image const image = Draw(renderer, camera, scene, {}, lights);
+
+		glm::mat4 const mirror = glm::scale(glm::mat4(1.0f), glm::vec3(-1.0f, 1.0f, 1.0f));
+		for (TestInstance& instance : scene)
+		{
+			instance.Transform = mirror * instance.Transform;
+		}
+		lights.Directional->Direction.x = -lights.Directional->Direction.x;
+		Image const mirrored = Draw(renderer, camera, scene, {}, lights);
+		// Every instance is mirrored now, each one a batch of its own as before.
+		CHECK(renderer.GetStatistics().Batches - renderer.GetStatistics().ShadowDrawCalls == 5);
+
+		// Only rasterization and the shadow map's texel grid, which do not mirror, may differ: along edges.
+		Testing::ImageDifference const difference = Testing::CompareImages(mirrored, MirrorImage(image), 24);
+		CHECK(difference.MeanDifference < 1.0);
+		CHECK(difference.OutlierFraction <= 0.01);
+	}
+}
+
 TEST_CASE("Instancing: blended items are never batched and are drawn back to front whatever their submission order")
 {
 	ST_REQUIRE_GPU();
@@ -880,7 +987,7 @@ TEST_CASE("Instancing: the draw count holds every draw of every pass, the fullsc
 	CHECK(statistics.DrawCalls == 2 + 1 + 1 + 2 + 1 + 1 + 2 + 2);
 }
 
-TEST_CASE("Instancing: a scene of instanced meshes, cut-outs, leaves, glass and a scaled group matches the golden image")
+TEST_CASE("Instancing: a scene of instanced meshes, cut-outs, leaves, glass, a scaled and a mirrored group matches the golden image")
 {
 	ST_REQUIRE_GPU();
 	Testing::RenderTestScope scope(stGpuTestScope);
@@ -940,8 +1047,7 @@ TEST_CASE("Instancing: a scene of instanced meshes, cut-outs, leaves, glass and 
 		block.GetComponent<TransformComponent>().SetRotationEuler({0.0f, static_cast<float>(i) * 10.0f, 0.0f});
 	}
 	// A turned and unevenly scaled group of spheres: their world matrices come from the cache through the parent, their
-	// normals from the instance's normal basis. (A mirroring scale would show their back faces: winding is not flipped for
-	// mirrored instances, as it never was.)
+	// normals from the instance's normal basis.
 	Entity group = scene.CreateEntity("Group");
 	TransformComponent& groupTransform = group.GetComponent<TransformComponent>();
 	groupTransform.Translation = {-2.0f, 0.0f, 0.5f};
@@ -958,6 +1064,24 @@ TEST_CASE("Instancing: a scene of instanced meshes, cut-outs, leaves, glass and 
 		transform.Translation = {static_cast<float>(i % 3) * 0.9f - 0.9f, 0.45f + 0.25f * static_cast<float>(i / 3),
 		                         static_cast<float>(i / 3) * 0.9f};
 		transform.Scale = glm::vec3(0.7f);
+	}
+	// A mirrored group of leaning cones, a batch apart from unmirrored cones: drawn with the pipelines whose front faces are
+	// clockwise, they show their outer faces.
+	Entity mirrored = scene.CreateEntity("Mirrored");
+	TransformComponent& mirroredTransform = mirrored.GetComponent<TransformComponent>();
+	mirroredTransform.Translation = {-2.3f, 0.0f, 2.6f};
+	mirroredTransform.SetRotationEuler({0.0f, -20.0f, 0.0f});
+	mirroredTransform.Scale = {-1.0f, 1.0f, 1.0f};
+	for (int i = 0; i < 3; i++)
+	{
+		Entity cone = scene.CreateEntity("Cone", mirrored);
+		MeshComponent& mesh = cone.AddComponent<MeshComponent>();
+		mesh.Mesh = GetBuiltInHandle(BuiltInAsset::ConeMesh);
+		mesh.Materials = {brickMaterial};
+		TransformComponent& transform = cone.GetComponent<TransformComponent>();
+		transform.Translation = {static_cast<float>(i) * -0.7f, 0.35f, 0.0f};
+		transform.SetRotationEuler({0.0f, 0.0f, -25.0f});
+		transform.Scale = glm::vec3(0.5f);
 	}
 	// A fence of cut-out panels, leaves seen from both sides, and two glass panes.
 	AssetHandle const fenceMaterial = addMaterial(fence, "Fence");
@@ -991,12 +1115,13 @@ TEST_CASE("Instancing: a scene of instanced meshes, cut-outs, leaves, glass and 
 	renderer.SetViewportSize(Width, Height);
 	SceneRendererCamera const camera = Testing::MakeTestCamera({0.4f, 3.4f, 6.2f}, {0.3f, 0.2f, -0.2f}, Width, Height);
 	Image const image = Testing::RenderToImage(scene, camera, renderer);
-	// The ground, the bricks, the spheres, the fence, the leaves: one camera batch each; the panes one each.
+	// The ground, the bricks, the spheres, the mirrored cones, the fence, the leaves: one camera batch each; the panes one
+	// each.
 	SceneRenderer::PassInstanceCounts const& passes = renderer.GetPassInstanceCounts();
-	CHECK(passes.Opaque == 1 + 9 + 6 + 4 + 5);
+	CHECK(passes.Opaque == 1 + 9 + 6 + 3 + 4 + 5);
 	CHECK(passes.Transparent == 2);
-	CHECK(renderer.GetStatistics().Batches - renderer.GetStatistics().ShadowDrawCalls == 5 + 2);
+	CHECK(renderer.GetStatistics().Batches - renderer.GetStatistics().ShadowDrawCalls == 6 + 2);
 	CHECK(renderer.GetStatistics().ShadowMapViews == 4);
-	CHECK(renderer.GetStatistics().ShadowDrawCalls <= 5 * 4);
+	CHECK(renderer.GetStatistics().ShadowDrawCalls <= 6 * 4);
 	Testing::CheckGoldenImage("Instancing", image);
 }

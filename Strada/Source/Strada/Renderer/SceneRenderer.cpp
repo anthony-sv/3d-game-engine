@@ -112,20 +112,56 @@ namespace Strada
 			return (static_cast<uint64_t>(ordered) << 32) | item;
 		}
 
-		// Sorts the keys and gives their items in that order.
-		void TakeSortedItems(std::vector<uint64_t>& keys, std::vector<uint32_t>& items)
+		// Gives the items of (depth, item) keys in the keys' order. The keys must be listed in increasing item order: a stable
+		// least-significant-digit radix sort of their depths' 32 bits then leaves equal depths in item order, as the keys'
+		// order wants, in time linear in the keys (the opaque pass orders thousands of items each frame). A byte equal in
+		// every key needs no pass.
+		void TakeSortedItems(std::vector<uint64_t>& keys, std::vector<uint64_t>& scratch, std::vector<uint32_t>& items)
 		{
-			std::sort(keys.begin(), keys.end());
-			items.resize(keys.size());
-			for (size_t index = 0; index < keys.size(); index++)
+			scratch.resize(keys.size());
+			std::span<uint64_t> from(keys);
+			std::span<uint64_t> to(scratch);
+			for (uint32_t shift = 32; shift < 64 && !from.empty(); shift += 8)
 			{
-				items[index] = static_cast<uint32_t>(keys[index]);
+				std::array<uint32_t, 256> starts{};
+				for (uint64_t const key : from)
+				{
+					starts[(key >> shift) & 0xFFu]++;
+				}
+				if (starts[(from.front() >> shift) & 0xFFu] == from.size())
+				{
+					continue;
+				}
+				uint32_t total = 0;
+				for (uint32_t& start : starts)
+				{
+					uint32_t const count = start;
+					start = total;
+					total += count;
+				}
+				for (uint64_t const key : from)
+				{
+					to[starts[(key >> shift) & 0xFFu]++] = key;
+				}
+				std::swap(from, to);
+			}
+			items.resize(keys.size());
+			for (size_t index = 0; index < from.size(); index++)
+			{
+				items[index] = static_cast<uint32_t>(from[index]);
 			}
 		}
 
-		uint32_t PipelineIndex(bool blend, bool doubleSided)
+		// The pipeline arrays' index of a variant: blending (or masking, for shadows), double-sidedness and mirroring.
+		uint32_t PipelineIndex(bool blend, bool doubleSided, bool mirrored)
 		{
-			return (blend ? 2u : 0u) + (doubleSided ? 1u : 0u);
+			return (mirrored ? 4u : 0u) + (blend ? 2u : 0u) + (doubleSided ? 1u : 0u);
+		}
+
+		// Mirrored instances flip the winding of what they draw: their front faces are the clockwise ones.
+		size_t MirrorVariant(bool mirrored)
+		{
+			return mirrored ? 1u : 0u;
 		}
 
 		Ref<MaterialAsset> GetDefaultMaterial()
@@ -922,9 +958,9 @@ namespace Strada
 		}
 	}
 
-	nvrhi::IGraphicsPipeline* SceneRenderer::GetEntityIdPipeline(bool blend, bool doubleSided)
+	nvrhi::IGraphicsPipeline* SceneRenderer::GetEntityIdPipeline(bool blend, bool doubleSided, bool mirrored)
 	{
-		nvrhi::GraphicsPipelineHandle& pipeline = m_EntityIdPipelines[PipelineIndex(blend, doubleSided)];
+		nvrhi::GraphicsPipelineHandle& pipeline = m_EntityIdPipelines[PipelineIndex(blend, doubleSided, mirrored)];
 		if (pipeline || !m_EntityIdFramebuffer)
 		{
 			return pipeline;
@@ -936,7 +972,7 @@ namespace Strada
 		desc.PS = ShaderLibrary::Get("EntityId_PS");
 		desc.bindingLayouts = {m_EntityIdLayout, Renderer::GetMaterialBindingLayout()};
 		desc.renderState.rasterState.cullMode = doubleSided ? nvrhi::RasterCullMode::None : nvrhi::RasterCullMode::Back;
-		desc.renderState.rasterState.frontCounterClockwise = true;
+		desc.renderState.rasterState.frontCounterClockwise = !mirrored;
 		// Opaque items are drawn first and write depth; blended items follow back to front and only test it, so the nearest
 		// blended surface in front of the opaque scene wins.
 		desc.renderState.depthStencilState.depthTestEnable = true;
@@ -950,9 +986,9 @@ namespace Strada
 		return pipeline;
 	}
 
-	nvrhi::IGraphicsPipeline* SceneRenderer::GetMeshPipeline(bool blend, bool doubleSided)
+	nvrhi::IGraphicsPipeline* SceneRenderer::GetMeshPipeline(bool blend, bool doubleSided, bool mirrored)
 	{
-		nvrhi::GraphicsPipelineHandle& pipeline = m_MeshPipelines[PipelineIndex(blend, doubleSided)];
+		nvrhi::GraphicsPipelineHandle& pipeline = m_MeshPipelines[PipelineIndex(blend, doubleSided, mirrored)];
 		if (pipeline)
 		{
 			return pipeline;
@@ -965,7 +1001,8 @@ namespace Strada
 		desc.PS = ShaderLibrary::Get(blend ? "ForwardPBR_BlendPS" : "ForwardPBR_PS");
 		desc.bindingLayouts = {m_FrameLayout, Renderer::GetMaterialBindingLayout()};
 		desc.renderState.rasterState.cullMode = doubleSided ? nvrhi::RasterCullMode::None : nvrhi::RasterCullMode::Back;
-		desc.renderState.rasterState.frontCounterClockwise = true;
+		// Double-sided surfaces need it too: the pixel shader turns the normals of back faces (SV_IsFrontFace).
+		desc.renderState.rasterState.frontCounterClockwise = !mirrored;
 		desc.renderState.depthStencilState.depthTestEnable = true;
 		desc.renderState.depthStencilState.depthWriteEnable = !blend;
 		desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::GreaterOrEqual;
@@ -987,9 +1024,9 @@ namespace Strada
 		return pipeline;
 	}
 
-	nvrhi::IGraphicsPipeline* SceneRenderer::GetShadowPipeline(bool masked, bool doubleSided)
+	nvrhi::IGraphicsPipeline* SceneRenderer::GetShadowPipeline(bool masked, bool doubleSided, bool mirrored)
 	{
-		nvrhi::GraphicsPipelineHandle& pipeline = m_ShadowPipelines[(masked ? 2u : 0u) + (doubleSided ? 1u : 0u)];
+		nvrhi::GraphicsPipelineHandle& pipeline = m_ShadowPipelines[PipelineIndex(masked, doubleSided, mirrored)];
 		if (pipeline)
 		{
 			return pipeline;
@@ -1002,7 +1039,7 @@ namespace Strada
 		desc.PS = masked ? ShaderLibrary::Get("Shadow_PS") : nullptr;
 		desc.bindingLayouts = {m_ShadowLayout, Renderer::GetMaterialBindingLayout()};
 		desc.renderState.rasterState.cullMode = doubleSided ? nvrhi::RasterCullMode::None : nvrhi::RasterCullMode::Back;
-		desc.renderState.rasterState.frontCounterClockwise = true;
+		desc.renderState.rasterState.frontCounterClockwise = !mirrored;
 		// Reversed Z: a negative slope-scaled bias moves stored depths away from the light, against self-shadowing on
 		// surfaces at grazing angles (receivers also apply a normal offset).
 		desc.renderState.rasterState.slopeScaledDepthBias = -1.5f;
@@ -1059,23 +1096,22 @@ namespace Strada
 	                               MeshSubmission const& submission)
 	{
 		ST_CORE_ASSERT(m_InScene, "SubmitMesh outside BeginScene/EndScene");
-		ST_CORE_ASSERT(submission.PickingId <= MaxPickingId, "Picking IDs must stay below the selection bit");
+		SubmitMesh(PrepareMeshDraw(mesh, materials), submission);
+	}
+
+	MeshDraw SceneRenderer::PrepareMeshDraw(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials)
+	{
+		ST_CORE_ASSERT(m_InScene, "PrepareMeshDraw outside BeginScene/EndScene");
 		if (!mesh)
 		{
-			return;
+			return {};
 		}
-		uint32_t const entityId =
-			submission.PickingId == 0
-				? 0u
-				: ((submission.PickingId & MaxPickingId) | (submission.Selected ? ShaderInterop::EntityIdSelectedBit : 0u));
-		m_HasSelection = m_HasSelection || (entityId & ShaderInterop::EntityIdSelectedBit) != 0;
-		uint32_t const instance = static_cast<uint32_t>(m_Instances.size());
-		m_Instances.push_back(Instancing::MakeInstanceData(submission.Transform, submission.PreviousTransform, entityId));
 		uint32_t const meshIndex = GetFrameMesh(mesh);
-		// No submission below adds a mesh to the frame's table, so the reference stays valid.
+		// No call below adds a mesh to the frame's table, so the reference stays valid.
 		FrameMesh& frameMesh = m_FrameMeshes[meshIndex];
-
-		glm::mat4 const viewModel = m_Camera.View * submission.Transform;
+		FrameMeshDraw draw;
+		draw.Mesh = meshIndex;
+		draw.FirstSubmesh = static_cast<uint32_t>(m_DrawSubmeshes.size());
 		std::vector<Submesh> const& submeshes = mesh->GetSubmeshes();
 		for (uint32_t i = 0; i < submeshes.size(); i++)
 		{
@@ -1121,22 +1157,76 @@ namespace Strada
 					frameMesh.Groups.push_back({i, requestedSource, material, group});
 				}
 			}
+			m_DrawSubmeshes.push_back({submesh.Bounds, i, material, group});
+		}
+		draw.SubmeshCount = static_cast<uint32_t>(m_DrawSubmeshes.size()) - draw.FirstSubmesh;
+		m_MeshDraws.push_back(draw);
+		return MeshDraw{static_cast<uint32_t>(m_MeshDraws.size() - 1)};
+	}
 
+	void SceneRenderer::SubmitMesh(MeshDraw draw, MeshSubmission const& submission)
+	{
+		ST_CORE_ASSERT(m_InScene, "SubmitMesh outside BeginScene/EndScene");
+		ST_CORE_ASSERT(submission.PickingId <= MaxPickingId, "Picking IDs must stay below the selection bit");
+		ST_CORE_ASSERT(!draw.IsValid() || draw.Index < m_MeshDraws.size(), "A mesh draw of another frame");
+		if (!draw.IsValid() || draw.Index >= m_MeshDraws.size())
+		{
+			return;
+		}
+		uint32_t const entityId =
+			submission.PickingId == 0
+				? 0u
+				: ((submission.PickingId & MaxPickingId) | (submission.Selected ? ShaderInterop::EntityIdSelectedBit : 0u));
+		m_HasSelection = m_HasSelection || (entityId & ShaderInterop::EntityIdSelectedBit) != 0;
+		uint32_t const instance = static_cast<uint32_t>(m_Instances.size());
+		m_Instances.push_back(Instancing::MakeInstanceData(submission.Transform, submission.PreviousTransform, entityId));
+
+		FrameMeshDraw const& meshDraw = m_MeshDraws[draw.Index];
+		// The camera's depth axis: a point's distance along the view direction (the camera looks down -Z) is minus its
+		// view-space z, the third row of the view matrix applied to it.
+		glm::mat4 const& view = m_Camera.View;
+		glm::vec4 const depthRow(-view[0][2], -view[1][2], -view[2][2], -view[3][2]);
+		// World bounds by Arvo's method, as AABB::Transform computes them, with the matrix's absolute linear part made once
+		// for the instance's submeshes.
+		glm::mat4 const& transform = submission.Transform;
+		glm::mat3 absolute;
+		for (int column = 0; column < 3; column++)
+		{
+			absolute[column] = glm::abs(glm::vec3(transform[column]));
+		}
+		// A negative determinant mirrors the instance (a zero or undefined one does not, as for its normal basis).
+		bool const mirrored = glm::dot(glm::vec3(transform[0]), glm::cross(glm::vec3(transform[1]), glm::vec3(transform[2]))) < 0.0f;
+		for (uint32_t index = meshDraw.FirstSubmesh; index < meshDraw.FirstSubmesh + meshDraw.SubmeshCount; index++)
+		{
+			FrameDrawSubmesh& part = m_DrawSubmeshes[index];
+			if (mirrored && part.MirroredGroup == FrameDrawSubmesh::NoGroup)
+			{
+				part.MirroredGroup =
+					m_GroupIndices
+						.try_emplace(GroupKey{meshDraw.Mesh, part.Submesh, part.Material, 1u}, static_cast<uint32_t>(m_GroupIndices.size()))
+						.first->second;
+			}
 			SubmeshItem item;
-			// Distance along the view direction (camera looks down -Z) for sorting; a matrix that is not a number sorts last,
-			// so that the orders stay strict.
-			item.ViewDepth = -(viewModel * glm::vec4(submesh.Bounds.GetCenter(), 1.0f)).z;
+			glm::vec4 const center = transform * glm::vec4(part.Bounds.GetCenter(), 1.0f);
+			if (part.Bounds.IsValid())
+			{
+				glm::vec3 const extents = absolute * part.Bounds.GetExtents();
+				item.WorldBounds = {glm::vec3(center) - extents, glm::vec3(center) + extents};
+			}
+			// Sorted by the depth of its bounds' center; a matrix that is not a number sorts last, so that the orders stay
+			// strict.
+			item.ViewDepth = glm::dot(depthRow, center);
 			if (std::isnan(item.ViewDepth))
 			{
 				item.ViewDepth = std::numeric_limits<float>::infinity();
 			}
-			item.WorldBounds = submesh.Bounds.Transform(submission.Transform);
 			item.Instance = instance;
-			item.Mesh = meshIndex;
-			item.Submesh = i;
-			item.Material = material;
-			item.Group = group;
+			item.Mesh = meshDraw.Mesh;
+			item.Submesh = part.Submesh;
+			item.Material = part.Material;
+			item.Group = mirrored ? part.MirroredGroup : part.Group;
 			item.CastShadows = submission.CastShadows;
+			item.Mirrored = mirrored;
 			m_Items.push_back(item);
 		}
 	}
@@ -1164,9 +1254,9 @@ namespace Strada
 
 	size_t SceneRenderer::GroupKeyHash::operator()(GroupKey const& key) const
 	{
-		// Mixes the three indices (64-bit FNV-1a over their words).
+		// Mixes the key's words (64-bit FNV-1a).
 		uint64_t hash = 14695981039346656037ull;
-		for (uint32_t const word : {key.Mesh, key.Submesh, key.Material})
+		for (uint32_t const word : {key.Mesh, key.Submesh, key.Material, key.Mirrored})
 		{
 			hash = (hash ^ word) * 1099511628211ull;
 		}
@@ -1376,18 +1466,25 @@ namespace Strada
 				mesh.Gpu = Renderer::GetMesh(mesh.Source);
 				mesh.Resolved = true;
 			}
+			MaterialData const& data = material.Source->GetData();
 			if (!material.Resolved)
 			{
-				MaterialData const& data = material.Source->GetData();
 				material.Blend = data.AlphaMode == MaterialAlphaMode::Blend;
 				material.Bindings = Renderer::GetMaterialBindingSet(material.Source);
-				material.Pipeline = GetMeshPipeline(material.Blend, data.DoubleSided);
-				// Every mesh is drawn into the ID target (non-pickable ones write 0) so it hides what lies behind it.
-				material.EntityIdPipeline = m_EntityIdsEnabled ? GetEntityIdPipeline(material.Blend, data.DoubleSided) : nullptr;
-				// Blended surfaces do not cast shadows.
-				material.ShadowPipeline =
-					material.Blend ? nullptr : GetShadowPipeline(data.AlphaMode == MaterialAlphaMode::Mask, data.DoubleSided);
 				material.Resolved = true;
+			}
+			size_t const variant = MirrorVariant(item.Mirrored);
+			if (!material.PipelinesResolved[variant])
+			{
+				material.Pipelines[variant] = GetMeshPipeline(material.Blend, data.DoubleSided, item.Mirrored);
+				// Every mesh is drawn into the ID target (non-pickable ones write 0) so it hides what lies behind it.
+				material.EntityIdPipelines[variant] =
+					m_EntityIdsEnabled ? GetEntityIdPipeline(material.Blend, data.DoubleSided, item.Mirrored) : nullptr;
+				// Blended surfaces do not cast shadows.
+				material.ShadowPipelines[variant] =
+					material.Blend ? nullptr
+								   : GetShadowPipeline(data.AlphaMode == MaterialAlphaMode::Mask, data.DoubleSided, item.Mirrored);
+				material.PipelinesResolved[variant] = true;
 			}
 		}
 	}
@@ -1396,12 +1493,13 @@ namespace Strada
 	{
 		FrameMesh const& mesh = m_FrameMeshes[item.Mesh];
 		FrameMaterial const& material = m_FrameMaterials[item.Material];
-		return mesh.Gpu != nullptr && material.Bindings != nullptr && material.Pipeline != nullptr;
+		return mesh.Gpu != nullptr && material.Bindings != nullptr && material.Pipelines[MirrorVariant(item.Mirrored)] != nullptr;
 	}
 
 	bool SceneRenderer::IsShadowCaster(SubmeshItem const& item) const
 	{
-		return item.CastShadows && IsDrawable(item) && m_FrameMaterials[item.Material].ShadowPipeline != nullptr;
+		return item.CastShadows && IsDrawable(item) &&
+		       m_FrameMaterials[item.Material].ShadowPipelines[MirrorVariant(item.Mirrored)] != nullptr;
 	}
 
 	SceneRenderer::MeshBatch SceneRenderer::MakeBatch(SubmeshItem const& item, nvrhi::IGraphicsPipeline* pipeline, uint32_t firstInstance,
@@ -1440,7 +1538,7 @@ namespace Strada
 				m_SortKeys.push_back(MakeSortKey(item.ViewDepth, index));
 			}
 		}
-		TakeSortedItems(m_SortKeys, m_PassItems);
+		TakeSortedItems(m_SortKeys, m_SortScratch, m_PassItems);
 
 		// Each group of the pass is one batch. Met front to back, a group's first item is its nearest, and its first
 		// submission is its lowest item index.
@@ -1471,7 +1569,8 @@ namespace Strada
 			GroupBatch& group = m_GroupBatches[groupIndex];
 			group.Cursor = offset;
 			SubmeshItem const& first = m_Items[group.FirstItem];
-			m_OpaqueBatches.push_back(MakeBatch(first, m_FrameMaterials[first.Material].Pipeline, offset, group.Count));
+			m_OpaqueBatches.push_back(
+				MakeBatch(first, m_FrameMaterials[first.Material].Pipelines[MirrorVariant(first.Mirrored)], offset, group.Count));
 			offset += group.Count;
 		}
 		// Each run holds its instances front to back, as the pass's items are ordered.
@@ -1494,7 +1593,7 @@ namespace Strada
 			{
 				GroupBatch const& group = m_GroupBatches[groupIndex];
 				SubmeshItem const& first = m_Items[group.FirstItem];
-				nvrhi::IGraphicsPipeline* pipeline = m_FrameMaterials[first.Material].EntityIdPipeline;
+				nvrhi::IGraphicsPipeline* pipeline = m_FrameMaterials[first.Material].EntityIdPipelines[MirrorVariant(first.Mirrored)];
 				if (pipeline != nullptr)
 				{
 					// The run's cursor ended at its end.
@@ -1516,17 +1615,18 @@ namespace Strada
 				m_SortKeys.push_back(MakeSortKey(-item.ViewDepth, index));
 			}
 		}
-		TakeSortedItems(m_SortKeys, m_PassItems);
+		TakeSortedItems(m_SortKeys, m_SortScratch, m_PassItems);
 		for (uint32_t const index : m_PassItems)
 		{
 			SubmeshItem const& item = m_Items[index];
 			FrameMaterial const& material = m_FrameMaterials[item.Material];
 			uint32_t const run = static_cast<uint32_t>(m_InstanceIndices.size());
 			m_InstanceIndices.push_back(item.Instance);
-			m_BlendBatches.push_back(MakeBatch(item, material.Pipeline, run, 1));
-			if (material.EntityIdPipeline != nullptr)
+			size_t const variant = MirrorVariant(item.Mirrored);
+			m_BlendBatches.push_back(MakeBatch(item, material.Pipelines[variant], run, 1));
+			if (material.EntityIdPipelines[variant] != nullptr)
 			{
-				m_EntityIdBatches.push_back(MakeBatch(item, material.EntityIdPipeline, run, 1));
+				m_EntityIdBatches.push_back(MakeBatch(item, material.EntityIdPipelines[variant], run, 1));
 			}
 		}
 	}
@@ -1558,22 +1658,22 @@ namespace Strada
 			// submission.
 			m_PassItems.clear();
 			m_PassGroups.clear();
-			Shadows::CascadeTest const cascade(view.ViewProjection);
-			for (uint32_t const index : m_ShadowCasters)
+			Shadows::LightSpaceCascadeTest const cascade(view.Projection);
+			for (uint32_t index = 0; index < m_ShadowCasters.size(); index++)
 			{
-				SubmeshItem const& item = m_Items[index];
+				ShadowCaster const& caster = m_ShadowCasters[index];
 				bool const visible =
-					view.Directional ? cascade.Intersects(item.WorldBounds) : IntersectsSphere(item.WorldBounds, view.Center, view.Radius);
+					view.Directional ? cascade.Intersects(caster.LightBox) : IntersectsSphere(caster.Bounds, view.Center, view.Radius);
 				if (!visible)
 				{
 					continue;
 				}
 				m_PassItems.push_back(index);
-				GroupBatch& group = m_GroupBatches[item.Group];
+				GroupBatch& group = m_GroupBatches[caster.Group];
 				if (group.Count++ == 0)
 				{
-					m_PassGroups.push_back(item.Group);
-					group.FirstItem = index;
+					m_PassGroups.push_back(caster.Group);
+					group.FirstItem = caster.Item;
 				}
 			}
 
@@ -1584,14 +1684,16 @@ namespace Strada
 				GroupBatch& group = m_GroupBatches[groupIndex];
 				group.Cursor = offset;
 				SubmeshItem const& first = m_Items[group.FirstItem];
-				m_ShadowBatches.push_back(MakeBatch(first, m_FrameMaterials[first.Material].ShadowPipeline, offset, group.Count));
+				m_ShadowBatches.push_back(
+					MakeBatch(first, m_FrameMaterials[first.Material].ShadowPipelines[MirrorVariant(first.Mirrored)], offset, group.Count));
 				offset += group.Count;
 			}
 			view.BatchCount = static_cast<uint32_t>(m_ShadowBatches.size()) - view.FirstBatch;
 			m_InstanceIndices.resize(offset);
 			for (uint32_t const index : m_PassItems)
 			{
-				m_InstanceIndices[m_GroupBatches[m_Items[index].Group].Cursor++] = m_Items[index].Instance;
+				ShadowCaster const& caster = m_ShadowCasters[index];
+				m_InstanceIndices[m_GroupBatches[caster.Group].Cursor++] = caster.Instance;
 			}
 			// The next view counts its groups from zero.
 			for (uint32_t const groupIndex : m_PassGroups)
@@ -1704,10 +1806,16 @@ namespace Strada
 		m_ShadowCasters.clear();
 		for (uint32_t index = 0; index < m_Items.size(); index++)
 		{
-			if (IsShadowCaster(m_Items[index]))
+			SubmeshItem const& item = m_Items[index];
+			// A caster without bounds (an empty submesh) reaches no view.
+			if (IsShadowCaster(item) && item.WorldBounds.IsValid())
 			{
-				casterBounds.Expand(m_Items[index].WorldBounds);
-				m_ShadowCasters.push_back(index);
+				casterBounds.Expand(item.WorldBounds);
+				ShadowCaster& caster = m_ShadowCasters.emplace_back();
+				caster.Bounds = item.WorldBounds;
+				caster.Item = index;
+				caster.Group = item.Group;
+				caster.Instance = item.Instance;
 			}
 		}
 		if (m_ShadowedDirectionalLight >= 0)
@@ -1735,6 +1843,15 @@ namespace Strada
 				Shadows::CascadeProjection const projection =
 					Shadows::FitCascade(corners, light.Direction, casterBounds, static_cast<uint32_t>(mapSize));
 				sliceStart = splits[cascade];
+				// The cascades share the light's view: each caster is moved into it once, for all of them.
+				if (cascade == 0)
+				{
+					Shadows::LightSpaceTransform const lightSpace(projection.LightView);
+					for (ShadowCaster& caster : m_ShadowCasters)
+					{
+						caster.LightBox = lightSpace.Apply(caster.Bounds);
+					}
+				}
 
 				constants.CascadeViewProjection[cascade] = projection.ViewProjection;
 				constants.CascadeSplits[static_cast<int>(cascade)] = splits[cascade];
@@ -1744,6 +1861,7 @@ namespace Strada
 
 				ShadowView view;
 				view.ViewProjection = projection.ViewProjection;
+				view.Projection = projection.Projection;
 				view.Framebuffer = m_CascadeFramebuffers[cascade];
 				view.Directional = true;
 				m_ShadowViews.push_back(view);
@@ -2331,6 +2449,8 @@ namespace Strada
 		// The frame's tables keep its meshes and materials alive only for this frame; its instances stay readable
 		// (GetFrameInstances) until the next BeginScene.
 		m_Items.clear();
+		m_MeshDraws.clear();
+		m_DrawSubmeshes.clear();
 		m_FrameMeshes.clear();
 		m_FrameMaterials.clear();
 		m_FrameMeshIndices.clear();

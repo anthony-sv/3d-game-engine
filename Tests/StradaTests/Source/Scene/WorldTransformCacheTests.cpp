@@ -791,6 +791,57 @@ TEST_CASE("Scene: the previous matrix is the one each frame began with, for ever
 	CHECK(other.GetSerial() != scene.GetSerial());
 }
 
+TEST_CASE("Scene: a walk over a component's entities reads the cache as GetCachedWorldTransform does, in the view's order")
+{
+	Scene scene("Walk");
+	Entity parent = scene.CreateEntity("Parent");
+	std::vector<Entity> meshes;
+	for (int index = 0; index < 6; ++index)
+	{
+		Entity child = scene.CreateEntity("Child", parent);
+		child.GetComponent<TransformComponent>().Translation = {static_cast<float>(index), 0.5f, 0.0f};
+		if (index % 2 == 0)
+		{
+			child.AddComponent<MeshComponent>();
+			meshes.push_back(child);
+		}
+	}
+	TransformComponent& transform = parent.GetComponent<TransformComponent>();
+	scene.BeginTransformFrame();
+	scene.UpdateTransforms();
+	// A frame that moved the parent: the children have motion.
+	scene.BeginTransformFrame();
+	transform.Translation = {1.0f, 2.0f, 3.0f};
+	transform.SetRotationEuler({0.0f, 30.0f, 0.0f});
+	scene.UpdateTransforms();
+	// Made since the refresh: computed, without motion.
+	Entity made = scene.CreateEntity("Made", parent);
+	made.AddComponent<MeshComponent>();
+
+	std::vector<entt::entity> visited;
+	scene.ForEachCachedWorldTransform<MeshComponent>(
+		[&scene, &visited](entt::entity meshEntity, MeshComponent const&, glm::mat4 const& world, glm::mat4 const& previous)
+		{
+			CachedWorldTransform const expected = scene.GetCachedWorldTransform(meshEntity);
+			CHECK(HasSameBits(world, expected.World));
+			CHECK(HasSameBits(previous, expected.Previous));
+			visited.push_back(meshEntity);
+		});
+	std::vector<entt::entity> viewOrder;
+	for (entt::entity const handle : scene.GetAllEntitiesWith<MeshComponent>())
+	{
+		viewOrder.push_back(handle);
+	}
+	CHECK(visited == viewOrder);
+	CHECK(visited.size() == meshes.size() + 1);
+	// The moved children carry their motion, the one made since the refresh none.
+	CachedWorldTransform const moved = scene.GetCachedWorldTransform(meshes.front().GetHandle());
+	CHECK_FALSE(HasSameBits(moved.World, moved.Previous));
+	CachedWorldTransform const fresh = scene.GetCachedWorldTransform(made.GetHandle());
+	CHECK(HasSameBits(fresh.World, ReferenceWorld(scene, made.GetHandle())));
+	CHECK(HasSameBits(fresh.World, fresh.Previous));
+}
+
 TEST_CASE("Scene: a running scene begins a frame in every update, paused or not, and a stopped one in none")
 {
 	Scene scene("Running");

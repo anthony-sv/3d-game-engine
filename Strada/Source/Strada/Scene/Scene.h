@@ -290,6 +290,29 @@ namespace Strada
 		// the refresh) is computed as GetWorldTransform would compute it, with Previous equal to World. For phases that
 		// refreshed the cache and then read many entities (the renderer).
 		CachedWorldTransform GetCachedWorldTransform(entt::entity handle);
+		// Calls function(handle, component, world, previous) for every entity with a TComponent, in the order of the
+		// registry's view of it, with the matrices GetCachedWorldTransform gives: the walk of a phase that reads thousands of
+		// entities (the renderer's meshes), which finds the cache's storage once. The matrices are valid during the call; the
+		// function adds or removes no TComponent and no entity.
+		template<typename TComponent, typename TFunction>
+		void ForEachCachedWorldTransform(TFunction&& function)
+		{
+			entt::storage_for_t<WorldTransformEntry> const& entries = m_Registry.storage<WorldTransformEntry>();
+			for (auto const& [handle, component] : m_Registry.view<TComponent>().each())
+			{
+				WorldTransformEntry const* entry = entries.contains(handle) ? &entries.get(handle) : nullptr;
+				if (entry != nullptr && entry->Version != 0)
+				{
+					bool const changedThisFrame = m_TransformFrame != 0 && entry->ChangedFrame == m_TransformFrame;
+					function(handle, component, entry->World, changedThisFrame ? entry->Previous : entry->World);
+				}
+				else
+				{
+					CachedWorldTransform const computed = GetCachedWorldTransform(handle);
+					function(handle, component, computed.World, computed.Previous);
+				}
+			}
+		}
 		// The frames of the scene begun so far (BeginTransformFrame); 0 for a scene that never began one. A renderer that keeps
 		// history tells from it, with GetSerial, whether it draws the frame after the one it drew last.
 		uint64_t GetTransformFrame() const { return m_TransformFrame; }
@@ -645,6 +668,9 @@ namespace Strada
 			// The matrix World replaced in the frame ChangedFrame: the entity's previous matrix during that frame only (in
 			// later frames World is).
 			glm::mat4 Previous = glm::mat4(1.0f);
+			// The local matrix of Translation, Rotation and Scale (TransformComponent::GetTransform): an entity whose own
+			// inputs did not change is computed again under its parent's new matrix with the product alone.
+			glm::mat4 Local = glm::mat4(1.0f);
 		};
 		// One entity of a walk up the hierarchy: its transform, and the handle its Parent resolved to (null for none).
 		struct TransformLink
@@ -670,9 +696,10 @@ namespace Strada
 		// TransformComponent.
 		entt::entity ResolveTransformParent(TransformStorages const& storages, entt::entity handle, UUID parentId) const;
 		// Computes an entry's World again from its entity's transform and the entry of the entity it is computed under
-		// (null for a root), keeping the matrix the frame began with (Previous) and giving World a new Version.
-		void StoreWorldTransform(WorldTransformEntry& entry, TransformComponent const& transform, UUID parentId, entt::entity parentHandle,
-		                         entt::entity worldParent, WorldTransformEntry const* worldParentEntry);
+		// (null for a root), keeping the matrix the frame began with (Previous) and giving World a new Version. sameInputs:
+		// the transform holds the inputs the entry's Local was made from, which then serves again.
+		void StoreWorldTransform(WorldTransformEntry& entry, TransformComponent const& transform, bool sameInputs, UUID parentId,
+		                         entt::entity parentHandle, entt::entity worldParent, WorldTransformEntry const* worldParentEntry);
 		// The refresh's step for an entity without a walk, when its entry was computed under the parent link it has now and
 		// that parent was checked by this refresh already; false when it needs the walk.
 		bool UpdateTransformEntry(TransformStorages const& storages, entt::entity handle, TransformComponent const& transform,
