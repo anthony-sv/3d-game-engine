@@ -1,6 +1,8 @@
 #include "Core/UserDataTestUtilities.h"
 #include "GpuTestUtilities.h"
+#include "Runtime/ResolutionRequest.h"
 #include "Runtime/ScreenshotRequest.h"
+#include "RuntimeTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
@@ -11,11 +13,11 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Image.h"
+#include "Strada/Core/PlatformDetection.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Platform/Process.h"
 #include "Strada/Project/GameExporter.h"
 #include "Strada/Project/Project.h"
-#include "Strada/Project/ProjectTemplate.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -23,9 +25,9 @@
 #include "Strada/Serialization/ProfilerCaptureSerializer.h"
 
 #include <doctest/doctest.h>
+#include <glm/glm.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cstdlib>
 #include <initializer_list>
 #include <optional>
@@ -34,45 +36,12 @@
 #include <vector>
 
 using namespace Strada;
+using namespace Strada::RuntimeTesting;
 
 namespace
 {
 	constexpr uint32_t WindowWidth = 320;
 	constexpr uint32_t WindowHeight = 200;
-
-	// Runs a program to completion with the per-user root given, where it writes its log, its crash reports and its game's
-	// data: never into this user's folders.
-	ProcessResult RunProgram(std::filesystem::path const& program, std::vector<std::string> arguments,
-	                         Testing::IsolatedUserRoot const& userRoot)
-	{
-		ProcessSpecification specification;
-		specification.Executable = program;
-		specification.Arguments = std::move(arguments);
-		specification.Environment = userRoot.GetEnvironment();
-		specification.Timeout = std::chrono::minutes(2);
-		Result<ProcessResult> result = Process::Run(specification);
-		REQUIRE_MESSAGE(result.IsOk(), (result ? std::string() : result.GetError()));
-		REQUIRE_FALSE(result.GetValue().TimedOut);
-		return result.TakeValue();
-	}
-
-	// Runs a program to completion with a per-user root of its own, removed after the run.
-	ProcessResult RunProgram(std::filesystem::path const& program, std::vector<std::string> arguments)
-	{
-		Testing::IsolatedUserRoot const userRoot;
-		return RunProgram(program, std::move(arguments), userRoot);
-	}
-
-	// Runs the player of this build to completion, as RunProgram does.
-	ProcessResult RunPlayer(std::vector<std::string> arguments, Testing::IsolatedUserRoot const& userRoot)
-	{
-		return RunProgram(FileSystem::PathFromUtf8(STRADA_RUNTIME_PATH), std::move(arguments), userRoot);
-	}
-
-	ProcessResult RunPlayer(std::vector<std::string> arguments)
-	{
-		return RunProgram(FileSystem::PathFromUtf8(STRADA_RUNTIME_PATH), std::move(arguments));
-	}
 
 	// The log a program of the given executable writes below a data folder (Strada/Core/EntryPoint.cpp).
 	std::filesystem::path GetLogFile(std::filesystem::path const& dataDirectory, std::filesystem::path const& executable)
@@ -87,11 +56,6 @@ namespace
 		return text ? text.TakeValue() : std::string();
 	}
 
-	bool Contains(std::string_view text, std::string_view part)
-	{
-		return text.find(part) != std::string_view::npos;
-	}
-
 	size_t CountOccurrences(std::string_view text, std::string_view part)
 	{
 		size_t count = 0;
@@ -104,35 +68,6 @@ namespace
 
 	// What every application logs at startup about the engine marker beside it (Strada/Core/EntryPoint.cpp).
 	constexpr std::string_view EngineLayoutWarning = "Engine layout: ";
-
-	// The test run's summary in a player's output ("Tests passed: <checks> checks in <frames> frames"); empty without one.
-	std::string_view TestSummary(std::string_view output)
-	{
-		size_t const start = output.find("Tests passed: ");
-		if (start == std::string_view::npos)
-		{
-			return {};
-		}
-		size_t const end = output.find_first_of("\r\n", start);
-		return output.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
-	}
-
-	// A scene seen by a primary camera against a red sky; with fields, an entity runs Strada.Tests.SelfTest with them.
-	Ref<Scene> MakeScene(std::string const& name, std::optional<ScriptFieldMap> selfTest)
-	{
-		Ref<Scene> scene = CreateRef<Scene>(name);
-		scene->CreateEntity("Camera").AddComponent<CameraComponent>();
-		scene->CreateEntity("Sky").AddComponent<SkyLightComponent>().AmbientColor = glm::vec3(1.0f, 0.0f, 0.0f);
-		scene->GetSettings().Renderer.Tonemapper = TonemapOperator::None;
-		scene->GetSettings().Renderer.Dithering = false;
-		if (selfTest)
-		{
-			ScriptComponent& script = scene->CreateEntity("Tester").AddComponent<ScriptComponent>();
-			script.ClassName = "Strada.Tests.SelfTest";
-			script.Fields = std::move(*selfTest);
-		}
-		return scene;
-	}
 
 	// A game in a temporary directory: scenes in Assets/Scenes, the test scripts as its scripts, and its configuration, as
 	// an exported game (Game.sgame, with the scripting API next to the scripts) or as a project.
@@ -179,6 +114,8 @@ namespace
 
 		// The window's icon: an asset path relative to Assets (empty: none).
 		void SetIcon(std::string icon) { m_Icon = std::move(icon); }
+		// Whether the game's window settings make it fullscreen.
+		void SetFullscreen(bool fullscreen) { m_Fullscreen = fullscreen; }
 
 		// Registers the scenes (as the editor did) and writes the configuration; startScene is relative to Assets, or empty.
 		std::filesystem::path Write(std::string const& startScene) const
@@ -189,6 +126,7 @@ namespace
 				FileSystem::PathToUtf8(FileSystem::GetRelativePath(GetScriptDirectory(), GetDirectory()) / "Strada.TestScripts.dll");
 			settings.Window.Width = WindowWidth;
 			settings.Window.Height = WindowHeight;
+			settings.Window.Fullscreen = m_Fullscreen;
 			{
 				Testing::AssetManagerScope assets;
 				REQUIRE(FileSystem::CreateDirectories(GetDirectory() / "Assets").IsOk());
@@ -214,12 +152,8 @@ namespace
 		ProjectFileKind m_Kind;
 		Testing::TemporaryDirectory m_Directory;
 		std::string m_Icon;
+		bool m_Fullscreen = false;
 	};
-
-	std::string Native(std::filesystem::path const& path)
-	{
-		return FileSystem::PathToNativeUtf8(path);
-	}
 
 	VisualScriptNode MakeNode(uint32_t id, std::string type, Json inputs = Json::object())
 	{
@@ -376,39 +310,6 @@ namespace
 		return document;
 	}
 
-	// A copy of Projects/<name> (its project file named after it) in the directory. A project with C# scripts
-	// (Scripts/<name>.csproj, the rule the engine tests' ProjectScriptsScope follows) gets the scripts CMake built for it
-	// (bin/<name>) where the editor's build puts them; a project made of visual scripts alone has none to copy. Returns the
-	// copy's project file.
-	std::filesystem::path CopyRepositoryProject(std::string const& name, std::filesystem::path const& directory)
-	{
-		std::filesystem::path const source = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / FileSystem::PathFromUtf8(name);
-		std::filesystem::path const project = directory / FileSystem::PathFromUtf8(name);
-		std::filesystem::path const file = FileSystem::PathFromUtf8(name + ".sproj");
-		REQUIRE(FileSystem::CopyDirectory(source / "Assets", project / "Assets").IsOk());
-		REQUIRE(FileSystem::Copy(source / file, project / file, false).IsOk());
-		if (FileSystem::Exists(source / "Scripts" / FileSystem::PathFromUtf8(name + ".csproj")))
-		{
-			REQUIRE(FileSystem::CopyDirectory(FileSystem::GetExecutableDirectory() / FileSystem::PathFromUtf8(name),
-			                                  project / "Scripts" / "Binaries")
-			            .IsOk());
-		}
-		return project / file;
-	}
-
-	// A new project in the directory made from a template of the repository's Templates, as the editor makes one (a
-	// default-scene template starts with startScene); returns its project file.
-	std::filesystem::path InstantiateRepositoryTemplate(std::string_view id, std::filesystem::path const& directory,
-	                                                    std::string const& name, Scene const* startScene = nullptr)
-	{
-		Result<ProjectTemplate> loaded =
-			ProjectTemplate::Load(FileSystem::PathFromUtf8(STRADA_TEMPLATES_DIR) / FileSystem::PathFromUtf8(id));
-		REQUIRE_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
-		Result<std::filesystem::path> created =
-			ProjectTemplate::Instantiate(loaded.GetValue(), directory, name, TemplateOptions{}, startScene);
-		REQUIRE_MESSAGE(created.IsOk(), (created ? std::string() : created.GetError()));
-		return created.TakeValue();
-	}
 }
 
 TEST_CASE("Runtime: test runs of an exported game exit with the number of failures")
@@ -956,6 +857,33 @@ TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 	REQUIRE(sizedImage.IsOk());
 	CHECK(sizedImage.GetValue().GetWidth() == 320);
 	CHECK(sizedImage.GetValue().GetHeight() == 184);
+	CHECK_FALSE(Contains(resolution.Output, "The run stops"));
+
+	// A game whose window settings make it fullscreen runs in a window of that size too.
+	game.SetFullscreen(true);
+	std::filesystem::path const windowed = game.GetDirectory() / "Windowed.png";
+	ProcessResult const fullscreen = RunPlayer({"--game", Native(game.Write("Scenes/Main.sscene")), "--frames", "10", "--resolution",
+	                                            "320x184", "--screenshot", Native(windowed)});
+	game.SetFullscreen(false);
+	CAPTURE(fullscreen.Output);
+	REQUIRE(fullscreen.ExitCode == 0);
+	Result<Image> windowedImage = Image::LoadFromFile(windowed);
+	REQUIRE(windowedImage.IsOk());
+	CHECK(windowedImage.GetValue().GetWidth() == 320);
+	CHECK(windowedImage.GetValue().GetHeight() == 184);
+
+#if defined(ST_PLATFORM_WINDOWS)
+	// Windows keeps a window within about the desktop's size, so no window has a drawing area this large: the run stops in
+	// the frame that judges its size, naming both sizes, and takes no screenshot.
+	std::filesystem::path const tooLarge = game.GetDirectory() / "TooLarge.png";
+	ProcessResult const oversized = RunPlayer({"--game", Native(game.Write("Scenes/Main.sscene")), "--frames", "10", "--resolution",
+	                                           "16384x16384", "--screenshot", Native(tooLarge)});
+	CAPTURE(oversized.Output);
+	CHECK(oversized.ExitCode == 1);
+	CHECK(Contains(oversized.Output, "The run stops: --resolution asked for 16384x16384 pixels, but the window's drawing area is "));
+	CHECK_FALSE(Contains(oversized.Output, "Saved screenshot"));
+	CHECK_FALSE(FileSystem::Exists(tooLarge));
+#endif
 
 	// The project's icon becomes the window's; one that is not a texture is reported and left out.
 	Image icon(32, 32, 3);
@@ -1007,6 +935,46 @@ TEST_CASE("Runtime: the player asks for its screenshot in the first frame drawn 
 	CHECK_FALSE(none.IsWanted());
 	CHECK_FALSE(none.TakeRequest(100, true));
 	CHECK(none.DescribeFailure().empty());
+}
+
+TEST_CASE("Runtime: a run asked for a resolution judges its drawing area once, in the first frame drawn from the settle frame on")
+{
+	// The frames before the settle frame may still be of the old size where a resize arrives with later events.
+	ResolutionRequest request(glm::uvec2(1920, 1080));
+	CHECK(request.IsWanted());
+	CHECK(request.Judge(0, glm::uvec2(1600, 900)).empty());
+	CHECK(request.Judge(ResolutionRequest::SettleFrame - 1, glm::uvec2(1600, 900)).empty());
+	CHECK_FALSE(request.IsJudged());
+	CHECK(request.Judge(ResolutionRequest::SettleFrame, glm::uvec2(1920, 1080)).empty());
+	CHECK(request.IsJudged());
+	// Judged once: a later resize by the user is the game's.
+	CHECK(request.Judge(ResolutionRequest::SettleFrame + 1, glm::uvec2(800, 600)).empty());
+	CHECK(request.DescribeUnjudged().empty());
+
+	// A drawing area the system kept smaller ends the run, naming both sizes; the first frame drawn at or after the settle
+	// frame judges it, whichever it is.
+	ResolutionRequest clamped(glm::uvec2(3840, 2160));
+	CHECK(clamped.Judge(ResolutionRequest::SettleFrame + 5, glm::uvec2(3840, 2124)) ==
+	      "--resolution asked for 3840x2160 pixels, but the window's drawing area is 3840x2124 (the system keeps a window within "
+	      "the size it allows, on Windows about the desktop's)");
+	CHECK(clamped.IsJudged());
+	CHECK(clamped.Judge(ResolutionRequest::SettleFrame + 6, glm::uvec2(3840, 2124)).empty());
+	CHECK(clamped.DescribeUnjudged().empty());
+
+	// A run too short to judge its drawing area is judged at its end by the last frame drawn.
+	ResolutionRequest shortRun(glm::uvec2(320, 184));
+	CHECK(shortRun.Judge(0, glm::uvec2(320, 200)).empty());
+	CHECK(Contains(shortRun.DescribeUnjudged(), "but the window's drawing area is 320x200"));
+	CHECK(shortRun.Judge(1, glm::uvec2(320, 184)).empty());
+	CHECK(shortRun.DescribeUnjudged().empty());
+	ResolutionRequest undrawn(glm::uvec2(320, 184));
+	CHECK(undrawn.DescribeUnjudged().empty());
+
+	// Without --resolution nothing is judged.
+	ResolutionRequest none;
+	CHECK_FALSE(none.IsWanted());
+	CHECK(none.Judge(ResolutionRequest::SettleFrame, glm::uvec2(1, 1)).empty());
+	CHECK(none.DescribeUnjudged().empty());
 }
 
 TEST_CASE("Runtime: a windowed run that saves no screenshot ends with an error line and exit code 1")
@@ -1393,303 +1361,4 @@ TEST_CASE("Runtime: an exported game of graphs calls a function library and broa
 		CHECK(Contains(game.Output, check));
 	}
 	CHECK(Contains(game.Output, "Tests passed: 3 checks in 1 frame"));
-}
-
-TEST_CASE("Runtime: the feature-test project passes its test run")
-{
-	Testing::TemporaryDirectory directory;
-	std::filesystem::path const project = CopyRepositoryProject("FeatureTest", directory.GetPath());
-
-	ProcessResult const run = RunPlayer({"--project", Native(project), "--test"});
-	CAPTURE(run.Output);
-	CHECK(run.ExitCode == 0);
-	CHECK(Contains(run.Output, "Tests passed"));
-}
-
-TEST_CASE("Runtime: the Showcase sample plays and passes its tests")
-{
-	// Its Poly Haven models, sky and maps are only there after Tools/FetchAssets.py; the checks do not depend on them.
-	Testing::TemporaryDirectory directory;
-	std::filesystem::path const project = CopyRepositoryProject("Showcase", directory.GetPath());
-
-	ProcessResult const tests = RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test"});
-	CAPTURE(tests.Output);
-	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 68 checks"));
-
-	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});
-	CAPTURE(game.Output);
-	CHECK(game.ExitCode == 0);
-
-	// The Graph Garden's visual scripts run without a word, in the tests and in the game. A graph's messages name its file:
-	// "<path>.sgraph: " before a node's error or warning, "<path>.sgraph on <entity>" before a warning of the API scripts
-	// call it through (SendEvent, GetVariable) or of its variables. A graph that cannot run says "Visual script" or "runs no
-	// visual script".
-	constexpr std::string_view GraphMessages[] = {".sgraph", "Visual script", " runs no visual script"};
-	for (std::string_view const message : GraphMessages)
-	{
-		CAPTURE(message);
-		CHECK_FALSE(Contains(tests.Output, message));
-		CHECK_FALSE(Contains(game.Output, message));
-	}
-}
-
-TEST_CASE("Runtime: the Blocks sample plays and passes its tests")
-{
-	Testing::TemporaryDirectory directory;
-	std::filesystem::path const project = CopyRepositoryProject("Blocks", directory.GetPath());
-
-	ProcessResult const tests = RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test"});
-	CAPTURE(tests.Output);
-	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 57 checks"));
-
-	// The checks seed the game's random numbers, so every run plays the same frames.
-	ProcessResult const again = RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test"});
-	CAPTURE(again.Output);
-	CHECK(again.ExitCode == 0);
-	CHECK_FALSE(TestSummary(tests.Output).empty());
-	CHECK(TestSummary(again.Output) == TestSummary(tests.Output));
-
-	// They wait in seconds of the game, so they pass at other frame rates too.
-	for (char const* timestep : {"0.0333333", "0.00694444"})
-	{
-		ProcessResult const run =
-			RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timestep", timestep});
-		CAPTURE(timestep);
-		CAPTURE(run.Output);
-		CHECK(run.ExitCode == 0);
-		CHECK(Contains(run.Output, "Tests passed: 57 checks"));
-	}
-
-	// The game's own scene runs as well (two seconds, without a window).
-	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});
-	CAPTURE(game.Output);
-	CHECK(game.ExitCode == 0);
-}
-
-TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays and passes its tests, and so does its exported game")
-{
-	// Thirteen graphs and no C#: the player starts .NET for them, and its 29 checks are graphs too (spec-slice4 section 18.10).
-	Testing::TemporaryDirectory directory;
-	std::filesystem::path const project = CopyRepositoryProject("PrismBreak", directory.GetPath());
-	std::vector<std::string> const testRun = {"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timeout", "90"};
-
-	ProcessResult const tests = RunPlayer(testRun);
-	CAPTURE(tests.Output);
-	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 29 checks"));
-	CHECK_FALSE(Contains(tests.Output, "The game has no scripts"));
-
-	// The test scene seeds the game's random numbers, so every run plays the same frames.
-	ProcessResult const again = RunPlayer(testRun);
-	CAPTURE(again.Output);
-	CHECK(again.ExitCode == 0);
-	CHECK_FALSE(TestSummary(tests.Output).empty());
-	CHECK(TestSummary(again.Output) == TestSummary(tests.Output));
-
-	// The checks wait in seconds of the game, so they pass at another frame rate too.
-	std::vector<std::string> slower = testRun;
-	slower.insert(slower.end(), {"--timestep", "0.0333333"});
-	ProcessResult const slow = RunPlayer(slower);
-	CAPTURE(slow.Output);
-	CHECK(slow.ExitCode == 0);
-	CHECK(Contains(slow.Output, "Tests passed: 29 checks"));
-
-	// The game's own scene, whose title plays itself, runs five seconds without a window and without a word from its graphs.
-	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "300"});
-	CAPTURE(game.Output);
-	CHECK(game.ExitCode == 0);
-	CHECK_FALSE(Contains(game.Output, "Visual script"));
-	CHECK_FALSE(Contains(game.Output, " runs no visual script"));
-	// What the graphs' nodes report while they run (an aborting error, a node's warning) starts with the graph's path.
-	CHECK_FALSE(Contains(game.Output, ".sgraph:"));
-
-	// Its exported game carries the scripting API and no game scripts, and passes the same checks.
-	std::filesystem::path player;
-	std::filesystem::path scripts;
-	{
-		Testing::AssetManagerScope assets;
-		Result<Ref<Project>> opened = Project::Open(project);
-		REQUIRE_MESSAGE(opened.IsOk(), (opened ? std::string() : opened.GetError()));
-		Result<GameExportSettings> prepared = GameExporter::Prepare(*opened.GetValue(), directory.GetPath() / "Export");
-		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
-		CHECK(prepared.GetValue().UsesVisualScripts);
-		CHECK(prepared.GetValue().ScriptProjectFile.empty());
-		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
-		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
-		REQUIRE(exported.GetValue().Succeeded);
-		player = exported.GetValue().Executable;
-		scripts = directory.GetPath() / "Export" / "Scripts";
-		if (player.extension() == ".app")
-		{
-			scripts = player / "Contents" / "Resources" / "Scripts";
-			player = player / "Contents" / "MacOS" / player.stem();
-		}
-	}
-	CHECK(FileSystem::IsRegularFile(scripts / "Strada.ScriptCore.dll"));
-	CHECK_FALSE(FileSystem::Exists(scripts / "Game.dll"));
-	ProcessResult const exportedTests = RunProgram(player, {"--test", "--scene", "Scenes/Tests.sscene", "--timeout", "90"});
-	CAPTURE(exportedTests.Output);
-	CHECK(exportedTests.ExitCode == 0);
-	CHECK(Contains(exportedTests.Output, "Tests passed: 29 checks"));
-}
-
-TEST_CASE("Runtime: the Moto sample, made of graphs alone, flies its camera tour and passes its tests")
-{
-	// Three graphs and no C#: the main camera's tour is a timeline (Scripts/Tour.sgraph), and the test scene's 18 checks of
-	// the circuit (its surfaces and their physics materials, a crate at rest, two blocks sliding on asphalt and on gravel)
-	// and of the tour are graphs too.
-	Testing::TemporaryDirectory directory;
-	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
-	std::vector<std::string> const testRun = {"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timeout", "90"};
-
-	ProcessResult const tests = RunPlayer(testRun);
-	CAPTURE(tests.Output);
-	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 18 checks"));
-	CHECK_FALSE(Contains(tests.Output, "The game has no scripts"));
-
-	// Nothing in the scene is random, so every run plays the same frames.
-	ProcessResult const again = RunPlayer(testRun);
-	CAPTURE(again.Output);
-	CHECK(again.ExitCode == 0);
-	CHECK_FALSE(TestSummary(tests.Output).empty());
-	CHECK(TestSummary(again.Output) == TestSummary(tests.Output));
-
-	// The checks wait in seconds of the game, so they pass at another frame rate too.
-	std::vector<std::string> slower = testRun;
-	slower.insert(slower.end(), {"--timestep", "0.0333333"});
-	ProcessResult const slow = RunPlayer(slower);
-	CAPTURE(slow.Output);
-	CHECK(slow.ExitCode == 0);
-	CHECK(Contains(slow.Output, "Tests passed: 18 checks"));
-
-	// The game's own scene, whose tour takes off at once, runs five seconds without a window and without a word from its
-	// graphs.
-	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "300"});
-	CAPTURE(game.Output);
-	CHECK(game.ExitCode == 0);
-	CHECK_FALSE(Contains(game.Output, "Visual script"));
-	CHECK_FALSE(Contains(game.Output, " runs no visual script"));
-	CHECK_FALSE(Contains(game.Output, ".sgraph:"));
-}
-
-TEST_CASE("Runtime: a project made from the empty-3d template loads and runs")
-{
-	Testing::TemporaryDirectory directory;
-	Ref<Scene> const scene = MakeScene("Main", std::nullopt);
-	std::filesystem::path const project =
-		InstantiateRepositoryTemplate("empty-3d", directory.GetPath() / "Empty", "First Light", scene.get());
-	CHECK(project.filename() == "First Light.sproj");
-
-	ProcessResult const run = RunPlayer({"--project", Native(project), "--headless", "--frames", "30"});
-	CAPTURE(run.Output);
-	CHECK(run.ExitCode == 0);
-}
-
-TEST_CASE("Runtime: a project made from the graph-starter template, Orb Run in visual scripts alone, plays and passes its tests")
-{
-	// Seven graphs and no C#: the project takes the name it was made with, the player starts .NET for its graphs, and its 13
-	// checks are graphs too.
-	Testing::TemporaryDirectory directory;
-	std::filesystem::path const project =
-		InstantiateRepositoryTemplate("graph-starter", directory.GetPath() / "Spark Chase", "Spark Chase");
-	CHECK(project.filename() == "Spark Chase.sproj");
-	{
-		Testing::AssetManagerScope assets;
-		Result<Ref<Project>> opened = Project::Open(project);
-		REQUIRE_MESSAGE(opened.IsOk(), (opened ? std::string() : opened.GetError()));
-		CHECK(opened.GetValue()->GetSettings().Name == "Spark Chase");
-		CHECK(opened.GetValue()->GetSettings().Window.Title == "Spark Chase");
-	}
-	std::vector<std::string> const testRun = {"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timeout", "90"};
-
-	ProcessResult const tests = RunPlayer(testRun);
-	CAPTURE(tests.Output);
-	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 13 checks"));
-	CHECK_FALSE(Contains(tests.Output, "The game has no scripts"));
-
-	// The checks place what they test, so every run plays the same frames.
-	ProcessResult const again = RunPlayer(testRun);
-	CAPTURE(again.Output);
-	CHECK(again.ExitCode == 0);
-	CHECK_FALSE(TestSummary(tests.Output).empty());
-	CHECK(TestSummary(again.Output) == TestSummary(tests.Output));
-
-	// They wait in seconds of the game, so they pass at another frame rate too.
-	std::vector<std::string> slower = testRun;
-	slower.insert(slower.end(), {"--timestep", "0.0333333"});
-	ProcessResult const slow = RunPlayer(slower);
-	CAPTURE(slow.Output);
-	CHECK(slow.ExitCode == 0);
-	CHECK(Contains(slow.Output, "Tests passed: 13 checks"));
-
-	// The game's own scene runs five seconds without a window and without a word from its graphs.
-	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "300"});
-	CAPTURE(game.Output);
-	CHECK(game.ExitCode == 0);
-	CHECK_FALSE(Contains(game.Output, "Visual script"));
-	CHECK_FALSE(Contains(game.Output, " runs no visual script"));
-	CHECK_FALSE(Contains(game.Output, ".sgraph:"));
-}
-
-TEST_CASE("Runtime: a project made from the csharp-starter template, Orb Run in C#, plays and passes its tests")
-{
-	// C# scripts (the assembly and namespace Game) and one graph that calls a C# member: the project takes the name it was
-	// made with, its C# project names nothing of the engine's repository, and its 14 checks are C#.
-	Testing::TemporaryDirectory directory;
-	std::filesystem::path const project =
-		InstantiateRepositoryTemplate("csharp-starter", directory.GetPath() / "Spark Chase", "Spark Chase");
-	CHECK(project.filename() == "Spark Chase.sproj");
-	std::filesystem::path const scripts = project.parent_path() / "Scripts";
-	{
-		Testing::AssetManagerScope assets;
-		Result<Ref<Project>> opened = Project::Open(project);
-		REQUIRE_MESSAGE(opened.IsOk(), (opened ? std::string() : opened.GetError()));
-		CHECK(opened.GetValue()->GetSettings().Name == "Spark Chase");
-		CHECK(opened.GetValue()->GetSettings().Window.Title == "Spark Chase");
-		CHECK(opened.GetValue()->GetSettings().ScriptModule == "Scripts/Binaries/Game.dll");
-	}
-	Result<std::string> const scriptProject = FileSystem::ReadTextFile(scripts / "Game.csproj");
-	REQUIRE(scriptProject.IsOk());
-	CHECK(Contains(scriptProject.GetValue(), "<RootNamespace>Game</RootNamespace>"));
-	CHECK_FALSE(Contains(scriptProject.GetValue(), "repository-only"));
-	CHECK_FALSE(Contains(scriptProject.GetValue(), "Strada-ScriptCore"));
-	CHECK(FileSystem::IsRegularFile(scripts / "Source" / "OrbRun.cs"));
-	CHECK_FALSE(FileSystem::Exists(scripts / "Binaries"));
-	CHECK_FALSE(FileSystem::Exists(scripts / "Strada.props"));
-
-	// The editor builds the scripts when the project opens; here they are the ones CMake built for the template.
-	REQUIRE(FileSystem::CopyDirectory(FileSystem::GetExecutableDirectory() / "CSharpStarter", scripts / "Binaries").IsOk());
-	std::vector<std::string> const testRun = {"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timeout", "90"};
-
-	ProcessResult const tests = RunPlayer(testRun);
-	CAPTURE(tests.Output);
-	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 14 checks"));
-
-	// The checks place what they test, so every run plays the same frames.
-	ProcessResult const again = RunPlayer(testRun);
-	CAPTURE(again.Output);
-	CHECK(again.ExitCode == 0);
-	CHECK_FALSE(TestSummary(tests.Output).empty());
-	CHECK(TestSummary(again.Output) == TestSummary(tests.Output));
-
-	// They wait in seconds of the game, so they pass at another frame rate too.
-	std::vector<std::string> slower = testRun;
-	slower.insert(slower.end(), {"--timestep", "0.0333333"});
-	ProcessResult const slow = RunPlayer(slower);
-	CAPTURE(slow.Output);
-	CHECK(slow.ExitCode == 0);
-	CHECK(Contains(slow.Output, "Tests passed: 14 checks"));
-
-	// The game's own scene runs five seconds without a window, without an exception and without a word from its graph.
-	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "300"});
-	CAPTURE(game.Output);
-	CHECK(game.ExitCode == 0);
-	CHECK_FALSE(Contains(game.Output, "Exception"));
-	CHECK_FALSE(Contains(game.Output, "Visual script"));
-	CHECK_FALSE(Contains(game.Output, ".sgraph:"));
 }

@@ -1,5 +1,5 @@
 # Test shards: a doctest suite runs as one ctest entry per shard, so that no entry runs into ctest's timeout as the suite
-# grows. StradaTests and StradaEditorTests use them.
+# grows. StradaTests, StradaEditorTests and StradaRuntimeTests use them.
 #
 # A suite's Shards.cmake (beside its CMakeLists.txt) defines its shards and nothing else, because the partition check
 # includes it in script mode too:

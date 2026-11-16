@@ -274,7 +274,8 @@ namespace Strada
 		               "Record the profiler and save its capture (the last 600 frames) here at exit, logging the medians")
 			.AddOption("resolution", "WxH",
 		               "Draw at this size in pixels, such as 1920x1080: the window's drawing area, whatever the display's scale, "
-		               "also for a fullscreen game (default: the game's window settings)")
+		               "also for a fullscreen game (default: the game's window settings); a run whose window cannot have it "
+		               "(larger than the desktop allows) exits with 1")
 			.AddOption("gpu", "index", "Use the GPU with this adapter index")
 			.AddFlag("validation", "Enable Vulkan and NVRHI validation")
 			.AddFlag("no-validation", "Disable Vulkan and NVRHI validation")
@@ -406,6 +407,7 @@ namespace Strada
 		specification.Window.VSync = window.GetValue().VSync && !arguments.HasFlag("no-vsync");
 		// Scripting starts once the game's C# scripts or visual scripts are found (StartScripts).
 		specification.EnableScripting = false;
+		runtime.Layer.Resolution = resolution;
 		runtime.Layer.ViewportWidth = resolution ? resolution->x : window.GetValue().Width;
 		runtime.Layer.ViewportHeight = resolution ? resolution->y : window.GetValue().Height;
 

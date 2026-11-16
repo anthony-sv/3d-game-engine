@@ -29,7 +29,7 @@ namespace Strada
 
 		// Called in each update with the application's frame and whether that frame's window image can be captured: true
 		// exactly once, in the first such update at or after the requested frame.
-		bool TakeRequest(uint64_t frame, bool capturable)
+		[[nodiscard]] bool TakeRequest(uint64_t frame, bool capturable)
 		{
 			if (!IsWanted() || m_Requested || frame < m_Frame || !capturable)
 			{

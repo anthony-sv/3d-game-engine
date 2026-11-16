@@ -117,9 +117,10 @@ namespace Strada
 		void SetSize(uint32_t width, uint32_t height);
 		// Sets the window size so that its framebuffer is this many pixels, whatever the display's scale: the size in screen
 		// coordinates is the framebuffer's scaled as the two compare now (one to one on Windows and X11, so the framebuffer
-		// is exact there; on a display with points of several pixels, it is exact when the sizes divide evenly). The
-		// framebuffer's new size arrives with the resize event, during the call on Windows and with the next events
-		// elsewhere.
+		// is exact there; on a display with points of several pixels, it is exact when the sizes divide evenly), as far as
+		// the system lets the window grow: Windows keeps a window within about the desktop's size. The framebuffer's new
+		// size arrives with the resize event, during the call on Windows and with the next events elsewhere; a caller that
+		// needs the exact size compares GetWidth and GetHeight with it then (the player's --resolution does).
 		void SetFramebufferSize(uint32_t width, uint32_t height);
 		void Maximize();
 		void Restore();

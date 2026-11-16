@@ -45,7 +45,8 @@ namespace Strada
 		  m_Runner(MakeRunnerSettings(*m_Game, m_Specification)),
 		  m_ViewportWidth(m_Specification.ViewportWidth),
 		  m_ViewportHeight(m_Specification.ViewportHeight),
-		  m_Screenshot(m_Specification.ScreenshotPath, m_Specification.ScreenshotFrame)
+		  m_Screenshot(m_Specification.ScreenshotPath, m_Specification.ScreenshotFrame),
+		  m_Resolution(m_Specification.Resolution)
 	{
 	}
 
@@ -102,6 +103,11 @@ namespace Strada
 
 	void RuntimeLayer::OnDetach()
 	{
+		// A run too short to judge its drawing area is judged by its last frame.
+		if (std::string const unjudged = m_Resolution.DescribeUnjudged(); !unjudged.empty())
+		{
+			ReportWrongResolution(unjudged);
+		}
 		// The application has served or cancelled every capture before its layers detach.
 		ReportMissingScreenshot();
 		if (m_Specification.Test && m_Runner.IsRunning())
@@ -142,9 +148,22 @@ namespace Strada
 			return;
 		}
 
+		Application& application = Application::Get();
+		if (nvrhi::IFramebuffer* const backBuffer = application.GetBackBuffer(); backBuffer != nullptr)
+		{
+			nvrhi::FramebufferInfoEx const& target = backBuffer->getFramebufferInfo();
+			if (std::string const failure = m_Resolution.Judge(application.GetFrameCount(), glm::uvec2(target.width, target.height));
+			    !failure.empty())
+			{
+				// Nothing more is drawn, captured or profiled at a size nobody asked for.
+				ReportWrongResolution(failure);
+				application.Close();
+				return;
+			}
+		}
+
 		Render();
 		// A frame with a back buffer is presented, and captured, at its end.
-		Application& application = Application::Get();
 		if (m_Screenshot.TakeRequest(application.GetFrameCount(), application.GetBackBuffer() != nullptr))
 		{
 			// The layer outlives the request: the application serves or cancels captures before detaching its layers.
@@ -181,6 +200,15 @@ namespace Strada
 		}
 		ST_ERROR("No screenshot was saved to '{}': {}", FileSystem::PathToUtf8(m_Screenshot.GetPath()), failure);
 		// The run did not do what it was asked; a failure code it already has stays.
+		if (Application::Get().GetExitCode() == 0)
+		{
+			Application::Get().SetExitCode(1);
+		}
+	}
+
+	void RuntimeLayer::ReportWrongResolution(std::string const& failure)
+	{
+		ST_ERROR("The run stops: {}", failure);
 		if (Application::Get().GetExitCode() == 0)
 		{
 			Application::Get().SetExitCode(1);
