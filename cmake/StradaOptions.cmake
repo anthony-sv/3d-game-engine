@@ -7,6 +7,11 @@ option(STRADA_ENABLE_THREAD_SANITIZER
     "Build Strada targets and the third-party code they compile with ThreadSanitizer (GCC and Clang)" OFF)
 option(STRADA_PRECOMPILE_THIRD_PARTY_HEADERS
     "Precompile the editor core's and the C++ tests' third-party headers, except with GCC (OFF checks their sources' includes)" ON)
+# Every test suite, in the order the build adds them (Tests/<suite>). STRADA_TEST_SUITES names the ones a build adds: CI's
+# Windows Release build is two jobs, each with some of the suites, so that each stays far from the job's time limit.
+set(STRADA_ALL_TEST_SUITES StradaTests StradaEditorTests StradaRuntimeTests ScriptCoreTests StradaToolTests)
+set(STRADA_TEST_SUITES "${STRADA_ALL_TEST_SUITES}" CACHE STRING
+    "The test suites to build when STRADA_BUILD_TESTS is ON, separated by semicolons (default: every one)")
 set(STRADA_DEPENDENCY_CACHE_DIR "" CACHE PATH
     "Optional directory where dependency archives are cached between build trees (speeds up fresh configures)")
 

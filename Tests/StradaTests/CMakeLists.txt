@@ -195,12 +195,8 @@ set_target_properties(StradaGameCrashTester PROPERTIES FOLDER "Tests")
 add_dependencies(StradaTests StradaGameCrashTester)
 target_compile_definitions(StradaTests PRIVATE STRADA_GAME_CRASH_TESTER_PATH="$<TARGET_FILE:StradaGameCrashTester>")
 
-# Game scripts the scripting tests run, built against the engine's Strada.ScriptCore.dll like a game's.
-strada_add_dotnet_project(StradaTestScripts
-    PROJECT "${PROJECT_SOURCE_DIR}/Tests/TestScripts/Strada.TestScripts.csproj"
-    OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/TestScripts"
-    DEPENDS StradaScriptCore
-    PROPERTIES "StradaScriptCoreDirectory=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+# The game scripts the scripting tests run (StradaTestScripts, defined in the root CMakeLists.txt beside the projects'
+# scripts, since the editor and player suites use them too).
 add_dependencies(StradaTests StradaTestScripts)
 # The projects' scripts: the visual scripts of their scenes may use their classes as types (VisualScriptEngineTests).
 add_dependencies(StradaTests StradaFeatureTestScripts StradaBlocksScripts StradaShowcaseScripts)

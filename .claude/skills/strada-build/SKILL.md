@@ -27,6 +27,17 @@ python Tools/build.py --keep-going             # build past failed compiles, rep
 - The script fills in `VULKAN_SDK` from the default install location when the variable is missing.
 - Pass extra CMake arguments with `--cmake-arg=-DNAME=VALUE` (note the `=`), e.g.
   `--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=<dir>` to reuse downloaded dependency archives across build trees.
+- `STRADA_TEST_SUITES` names the test suites a build adds, separated by semicolons; by default every one
+  (`StradaTests;StradaEditorTests;StradaRuntimeTests;ScriptCoreTests;StradaToolTests`), and a name that is not a suite
+  fails the configure. Quote the argument in a shell, where `;` ends a command:
+  `python Tools/build.py "--cmake-arg=-DSTRADA_TEST_SUITES=StradaTests;ScriptCoreTests"`. Every target that is not a
+  test suite is built whatever it names, and so are the script projects the suites share (the test scripts and the
+  scripts of FeatureTest, Blocks, Showcase and the csharp-starter template, defined in the root `CMakeLists.txt`). A
+  target that more than one suite uses belongs in the root file too: in one suite's directory it would be missing from
+  a build without that suite. CI's Windows MSVC Release build is two jobs with it, `StradaTests;ScriptCoreTests` and
+  `StradaEditorTests;StradaRuntimeTests;StradaToolTests`, so that each stays far from the job's time limit; together
+  they build every target and run every ctest entry once. The value stays in the build tree's cache until
+  `--cmake-arg=-USTRADA_TEST_SUITES`.
 - A build stops at the first failed command. `--keep-going` (Ninja's `-k 0`) builds everything that does not depend on
   a failed command, so one build reports every compile error, and still exits with a failure. CI's Build step passes
   it, so that one run reports every compile error on each platform: most contributors cannot build two of the three

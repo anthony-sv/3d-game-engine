@@ -26,6 +26,20 @@ add_subdirectory(StradaRuntime)
 add_subdirectory(StradaTool)
 
 if(STRADA_BUILD_TESTS)
+    # The suites the build adds (STRADA_TEST_SUITES, cmake/StradaOptions.cmake): at least one, each a suite of
+    # STRADA_ALL_TEST_SUITES.
+    list(JOIN STRADA_ALL_TEST_SUITES ", " allTestSuites)
+    if(STRADA_TEST_SUITES STREQUAL "")
+        message(FATAL_ERROR "STRADA_TEST_SUITES names no test suite: name one or more of ${allTestSuites}, separated by "
+            "semicolons, or set STRADA_BUILD_TESTS=OFF to build without tests")
+    endif()
+    foreach(suite IN LISTS STRADA_TEST_SUITES)
+        if(NOT suite IN_LIST STRADA_ALL_TEST_SUITES)
+            message(FATAL_ERROR "STRADA_TEST_SUITES names '${suite}', which is not a test suite: the suites are "
+                "${allTestSuites}")
+        endif()
+    endforeach()
+
     enable_testing()
     # strada_add_test_shards: the suites that run as shards, one ctest entry each, with a partition check.
     include(StradaTestShards)
@@ -55,9 +69,18 @@ if(STRADA_BUILD_TESTS)
         OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Showcase"
         DEPENDS StradaScriptCore
         PROPERTIES "StradaScriptCoreAssembly=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Strada.ScriptCore.dll")
-    add_subdirectory(Tests/StradaTests)
-    add_subdirectory(Tests/StradaEditorTests)
-    add_subdirectory(Tests/StradaRuntimeTests)
-    add_subdirectory(Tests/ScriptCoreTests)
-    add_subdirectory(Tests/StradaToolTests)
+    # Game scripts the scripting tests run, built against the engine's Strada.ScriptCore.dll like a game's: StradaTests
+    # runs them, StradaRuntimeTests plays games with them and StradaEditorTests shows their fields in the inspector. They
+    # are built here, not in one suite's directory, so that each suite has them whichever suites the build adds.
+    strada_add_dotnet_project(StradaTestScripts
+        PROJECT "${PROJECT_SOURCE_DIR}/Tests/TestScripts/Strada.TestScripts.csproj"
+        OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/TestScripts"
+        DEPENDS StradaScriptCore
+        PROPERTIES "StradaScriptCoreDirectory=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+    # In the order of STRADA_ALL_TEST_SUITES whatever the order of STRADA_TEST_SUITES, so ctest runs them in one order.
+    foreach(suite IN LISTS STRADA_ALL_TEST_SUITES)
+        if(suite IN_LIST STRADA_TEST_SUITES)
+            add_subdirectory(Tests/${suite})
+        endif()
+    endforeach()
 endif()
