@@ -319,12 +319,16 @@ namespace
 			{
 				AdjustDataAssetParameters(params);
 			}
+			if (std::optional<Json> sure = SureRequest())
+			{
+				params = std::move(*sure);
+			}
 			return params;
 		}
 
-		// A graph.find request of this kind ("query" or "references") succeeded: the generator stops sending the requests of the
-		// kind that succeed (AdjustGraphParameters).
-		void SetFindReached(std::string const& kind) { m_FindReached.insert(kind); }
+		// A request to a command succeeded ("graph.find query" and "graph.find references" name graph.find's two kinds): the
+		// generator stops sending it the request that succeeds (SureRequest).
+		void SetReached(std::string const& goal) { m_Reached.insert(goal); }
 
 	private:
 		Json Value(Json const& schema, std::string_view property, Json const& siblings, int depth)
@@ -591,6 +595,52 @@ namespace
 			}
 		}
 
+		// The work the case checks that the stream would otherwise reach only by chance: until a goal has been reached once, its
+		// command is sent a request that succeeds. graph.find gets a text alone (every script is searched, and one that does not
+		// load is reported, not refused), then the references of the state's script's first variable; graph.set the state's
+		// script's own document; graph.create, every data asset type's create and profiler.capture a file of a name not given
+		// before (the drawn names exist after their first success), a data asset with its type's defaults. A request that still
+		// fails (the state can be a few rounds old, the profiler can hold no frames yet) is followed by another at the command's
+		// next round, so reaching every goal needs only a round or two of its command, whatever the other draws and the commands
+		// registered. Nothing is drawn here, so every other request stays as the stream made it.
+		std::optional<Json> SureRequest()
+		{
+			std::string const command(m_Command);
+			if (command == "graph.find" && !m_Reached.contains("graph.find query"))
+			{
+				return Json::object({{"query", "Get"}});
+			}
+			if (command == "graph.find" && !m_Reached.contains("graph.find references") && !m_State.Graph.empty() &&
+			    !m_State.GraphVariables.empty())
+			{
+				return Json::object(
+					{{"references",
+				      Json::object({{"kind", "Variable"}, {"graph", m_State.Graph}, {"id", m_State.GraphVariables.front()}})}});
+			}
+			if (m_Reached.contains(command))
+			{
+				return std::nullopt;
+			}
+			if (command == "graph.set" && !m_State.Graph.empty())
+			{
+				return Json::object({{"graph", m_State.Graph}, {"document", m_State.GraphDocument}});
+			}
+			if (command == "graph.create")
+			{
+				return Json::object({{"path", "Scripts/Sure" + std::to_string(m_SureFiles++) + ".sgraph"}});
+			}
+			if (command == "profiler.capture" && Profiler::GetStatus().Available)
+			{
+				return Json::object({{"path", "Captures/Sure" + std::to_string(m_SureFiles++) + ".json"}});
+			}
+			if (DataAssetType const* type = FindDataAssetCommandType(m_Command); type != nullptr && command.ends_with(".create"))
+			{
+				return Json::object(
+					{{"path", "Data/Sure" + std::to_string(m_SureFiles++) + type->GetExtension()}, {"fields", type->GetDefaultFields()}});
+			}
+			return std::nullopt;
+		}
+
 		// A data asset type's set: a third of the time an asset of the type with the fields the state read, undamaged and alone,
 		// which succeeds; the independent parameters and the damaged patches otherwise leave too few that do in a run's few
 		// rounds of the command.
@@ -650,22 +700,6 @@ namespace
 				params = Json::object(
 					{{"references",
 				      Json::object({{"kind", "Variable"}, {"graph", m_State.Graph}, {"id", PickFrom(m_State.GraphVariables)}})}});
-			}
-			// Until graph.find has found text and listed references once each, it is sent a request of the first kind that has
-			// not, which succeeds: a text alone (every script is searched, and one that does not load is reported, not refused),
-			// then the references of the state's script's first variable, again until one succeeds since the state can be a few
-			// rounds old. Reaching both then needs only two rounds of the command, whatever the other draws and the commands
-			// registered; nothing is drawn here, so every other request stays as the stream made it.
-			if (m_Command == "graph.find" && !m_FindReached.contains("query"))
-			{
-				params = Json::object({{"query", "Get"}});
-			}
-			else if (m_Command == "graph.find" && !m_FindReached.contains("references") && !m_State.Graph.empty() &&
-			         !m_State.GraphVariables.empty())
-			{
-				params = Json::object(
-					{{"references",
-				      Json::object({{"kind", "Variable"}, {"graph", m_State.Graph}, {"id", m_State.GraphVariables.front()}})}});
 			}
 			// graph.open: half the time the state's script alone, since a run draws it only about a dozen times and its many
 			// independent members refuse most other draws.
@@ -1468,8 +1502,9 @@ namespace
 		int64_t m_BatchFunction = 0;
 		// A graph.edit right in every part was drawn.
 		bool m_RightEditDrawn = false;
-		// The kinds of graph.find request that succeeded (SetFindReached).
-		std::set<std::string> m_FindReached;
+		// The goals reached (SetReached), and the files SureRequest named.
+		std::set<std::string> m_Reached;
+		uint64_t m_SureFiles = 0;
 	};
 
 	// A project with something of everything, open in an editor model with the commands the editor layer registers.
@@ -2144,10 +2179,11 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 									 if (result.IsOk())
 									 {
 										 outcomes[name].first++;
+										 generator.SetReached(name);
 										 if (name == "graph.find")
 										 {
 											 findSuccesses[findKind]++;
-											 generator.SetFindReached(findKind);
+											 generator.SetReached(name + " " + findKind);
 										 }
 										 // Graph edits say what the running game took: without the scripting runtime, nothing.
 										 if (name == "graph.edit" || name == "graph.set")
