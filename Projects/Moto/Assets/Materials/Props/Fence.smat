@@ -26,7 +26,7 @@
 		"OcclusionTexture": "0",
 		"OcclusionStrength": 1.0,
 		"AlphaMode": "Mask",
-		"AlphaCutoff": 0.5,
+		"AlphaCutoff": 0.30000001192092896,
 		"DoubleSided": true,
 		"UVTiling": [
 			1.0,

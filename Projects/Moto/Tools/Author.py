@@ -415,9 +415,11 @@ class Moto:
         materials = {
             # The atlas of flat colors, figures and names that every prop but the fence's panels is drawn with.
             "Props": self.material("Props/Props", {"BaseColorTexture": "asset://Textures/Props/Props.png", "Roughness": 0.8}),
-            # The chain-link, galvanized: its holes cut out, seen from both sides.
+            # The chain-link, galvanized: its holes cut out, seen from both sides. Its wires cover about a third of the
+            # texture, which is what its smaller images average to; the cutoff stays under that, so a fence far off reads as
+            # a grey veil instead of vanishing.
             "Fence": self.material("Props/Fence", {"BaseColorTexture": "asset://Textures/Props/Fence.png", "Roughness": 0.45,
-                                                   "Metallic": 0.6, "AlphaMode": "Mask", "AlphaCutoff": 0.5, "DoubleSided": True}),
+                                                   "Metallic": 0.6, "AlphaMode": "Mask", "AlphaCutoff": 0.3, "DoubleSided": True}),
         }
         props = Props.place()
         print("props:", Props.check(props))

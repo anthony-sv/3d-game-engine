@@ -990,10 +990,11 @@ LETTERS = {
     "Y": ("10001", "10001", "01010", "00100", "00100", "00100", "00100"),
     " ": ("00000",) * 7,
 }
-# The fence's chain-link: its texture repeats every meter; the wires run diagonally every DIAMOND pixels, WIRE wide.
+# The fence's chain-link: its texture repeats every meter; the wires run diagonally every DIAMOND pixels, WIRE wide, and
+# cover about a third of it (the Fence material's alpha cutoff stays below that, Author.py).
 FENCE_SIZE = 128
 DIAMOND = 16
-WIRE = 2
+WIRE = 3
 FENCE_WIDTH = 3.0
 FENCE_HEIGHT = 2.6
 

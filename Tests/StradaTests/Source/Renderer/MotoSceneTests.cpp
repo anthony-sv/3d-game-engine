@@ -52,8 +52,10 @@ TEST_CASE("SceneRenderer: Moto's dressed main scene draws its 10,000 props as in
 		});
 	REQUIRE(meshes > 10000);
 
-	constexpr uint32_t Width = 1920;
-	constexpr uint32_t Height = 1080;
+	// 1080p's shape at a quarter of its pixels: the views are 1080p's, so the same props are seen and drawn, and a device
+	// without a GPU (CI's lavapipe) shades a quarter as much.
+	constexpr uint32_t Width = 960;
+	constexpr uint32_t Height = 540;
 	SUBCASE("from the scene's camera, at the home view over the start")
 	{
 		for (bool const entityIds : {false, true})
