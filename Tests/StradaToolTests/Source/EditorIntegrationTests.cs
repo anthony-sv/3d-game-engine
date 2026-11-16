@@ -62,6 +62,8 @@ public sealed class EditorIntegrationTests
 			{
 				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == profilerTool);
 			}
+			// The playing scene's physics queries.
+			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "physics_query");
 			// The engine's data asset types' tools, generated from their registrations: curves and physics materials.
 			foreach (string dataTool in new[] { "curve_create", "curve_get", "curve_set", "physics_material_create", "physics_material_get", "physics_material_set" })
 			{
@@ -184,6 +186,61 @@ public sealed class EditorIntegrationTests
 		// The next frame sees the key held, not pressed.
 		await CallAsync("play_advance", new JsonObject { ["frames"] = 1 });
 		Assert.Equal(1, await CountPressesAsync());
+		Assert.Equal("edit", (await CallAsync("play_stop", new JsonObject()))["state"]!.GetValue<string>());
+	}
+
+	[Fact]
+	public async Task PhysicsQueriesAskThePlayingScenesWorld()
+	{
+		string editor = TestEditor.Require();
+		using TemporaryDirectory directory = new();
+		await using McpTestClient client = new(TestEditor.IsolatedSession(editor, Path.Combine(directory.Path, "UserData")));
+		await client.ResultAsync("initialize", new JsonObject { ["protocolVersion"] = "2025-06-18" });
+		async Task<JsonNode> CallAsync(string tool, JsonObject arguments)
+		{
+			JsonObject result = await client.CallToolAsync(tool, arguments);
+			Assert.False(result["isError"]!.GetValue<bool>(), $"{tool}: {McpTestClient.Text(result)}");
+			return McpTestClient.ParseText(result);
+		}
+		JsonObject Down() => new() { ["kind"] = "raycast", ["origin"] = new JsonArray(0.0, 5.0, 0.0), ["direction"] = new JsonArray(0.0, -1.0, 0.0) };
+
+		await CallAsync("project_create",
+			new JsonObject { ["directory"] = Path.Combine(directory.Path, "Game"), ["name"] = "Game", ["discardChanges"] = true, ["agents"] = false });
+		string floor = (await CallAsync("entity_create", new JsonObject
+		{
+			["name"] = "Floor",
+			["components"] = new JsonObject
+			{
+				["Transform"] = new JsonObject { ["Translation"] = new JsonArray(0.0, -0.5, 0.0) },
+				["BoxCollider"] = new JsonObject { ["HalfExtents"] = new JsonArray(10.0, 0.5, 10.0) },
+			},
+		}))["id"]!.GetValue<string>();
+
+		// Nothing plays yet: the tool says so.
+		JsonObject editing = await client.CallToolAsync("physics_query", Down());
+		Assert.True(editing["isError"]!.GetValue<bool>());
+		Assert.StartsWith("Unavailable (1005)", McpTestClient.Text(editing));
+
+		Assert.True((await CallAsync("play_start", new JsonObject { ["mode"] = "simulate", ["paused"] = true }))["paused"]!.GetValue<bool>());
+		JsonNode ray = await CallAsync("physics_query", Down());
+		Assert.Equal(1, ray["count"]!.GetValue<int>());
+		JsonNode hit = ray["hits"]![0]!;
+		Assert.Equal(floor, hit["entity"]!.GetValue<string>());
+		Assert.Equal("Floor", hit["name"]!.GetValue<string>());
+		Assert.Equal(5.0, hit["distance"]!.GetValue<double>(), 3);
+		Assert.Equal(1.0, hit["normal"]![1]!.GetValue<double>(), 3);
+		// A sphere swept down touches the floor its radius earlier.
+		JsonObject cast = Down();
+		cast["kind"] = "shapeCast";
+		cast["shape"] = "sphere";
+		cast["radius"] = 1.0;
+		Assert.Equal(4.0, (await CallAsync("physics_query", cast))["hits"]![0]!["distance"]!.GetValue<double>(), 3);
+		// A parameter the kind has no use for is refused, naming it.
+		JsonObject wrong = Down();
+		wrong["shape"] = "box";
+		JsonObject refused = await client.CallToolAsync("physics_query", wrong);
+		Assert.True(refused["isError"]!.GetValue<bool>());
+		Assert.StartsWith("InvalidParams", McpTestClient.Text(refused));
 		Assert.Equal("edit", (await CallAsync("play_stop", new JsonObject()))["state"]!.GetValue<string>());
 	}
 

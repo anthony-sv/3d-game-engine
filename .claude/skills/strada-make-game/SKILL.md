@@ -445,6 +445,11 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
 
 - `play_start`, then `play_pause` and `play_advance` with `frames` for deterministic steps; `input_set` presses keys
   and buttons in the game; `play_state` reports the frame and time; `play_stop` discards everything the run changed.
+- `physics_query` asks the playing game's physics world what its scripts' queries would see: `{"kind":"raycast",
+  "origin":[0,2,0],"direction":[0,-1,0]}` gives the first solid hit (entity, point, normal, distance, physics
+  material); `raycastAll` every entity along the ray; `shapeCast` with `shape` (`sphere`, `box`, `capsule`) the first
+  hit of the swept shape; `overlap` the entities a shape overlaps at `origin`. `mask` picks layers, `triggers` counts
+  trigger colliders. A cast that starts inside a body hits that body.
   With `play_start {paused: true}`, an `input_set` press reaches the next `play_advance` or `play_step` frame even with
   other calls between; the frame after it sees the key held, not pressed.
   To click a UI button, read its `center` from `ui_layout` (game-view pixels), `input_set` the `mousePosition` there

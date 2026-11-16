@@ -3872,7 +3872,8 @@ inspector's primary entity as the context entity; without an asset directory the
   `graph.debug-panel` drives the Debugger panel), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
   `input.*` (inject keys/mouse during play), `ui.*` (where the screen-space UI's elements and buttons are in the game
-  view), `viewport.*` (screenshot, camera, frame entities, overlays, renderer statistics),
+  view), `physics.*` (query: the playing scene's rays, casts and overlaps through `Scene`'s queries, read-only and
+  Unavailable while nothing plays), `viewport.*` (screenshot, camera, frame entities, overlays, renderer statistics),
   `inspector.*` (the Add Component menu, as users see it), `log.*` (read since index), `test.*` (run a test scene and
   return results). Renderer settings are scene settings (`scene.settings`).
 - Claude Code integration: `.mcp.json` registers `strada mcp` (through `dotnet run`, so it works in any checkout);

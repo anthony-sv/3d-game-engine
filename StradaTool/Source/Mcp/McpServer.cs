@@ -63,6 +63,8 @@ internal sealed class McpServer
 		"over some frames (pass graphs and nodes to narrow it; summary false lists every step); graph_live lists what edits did " +
 		"to the running game and the errors graphs met while it ran. viewport_screenshot shows the editor or one of its windows, " +
 		"and graph_debug_panel picks what the Debugger panel shows. " +
+		"While the game plays, physics_query asks its physics world what a ray (raycast, raycastAll), a swept sphere, box or " +
+		"capsule (shapeCast) or a shape in place (overlap) meets, with a layer mask, as scripts' queries see it. " +
 		"To measure a game: profiler_start records where each editor frame's time goes (a play_advance call is one frame), " +
 		"profiler_status with medians true reports the frame's median and 99th percentile, subsystems, threads, GPU passes " +
 		"and the costliest zones (Graph.<asset path> per graph, Script.<class> per C# script), profiler_capture writes a " +
