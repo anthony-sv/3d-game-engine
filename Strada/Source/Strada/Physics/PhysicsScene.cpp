@@ -730,12 +730,23 @@ namespace Strada
 				return JPH::RefConst<JPH::Shape>(result.Get());
 			}
 
+			// Jolt tells the edges between triangles apart by their shared vertex indices (MeshShape::sFindActiveEdges): where a
+			// mesh repeats a position (where its submeshes meet, along a hard edge or a texture seam) the edge would be an open
+			// one, a bump that a body sliding or rolling across it hits. The shape is built over the mesh's distinct positions.
 			JPH::VertexList points;
 			points.reserve(vertices.size());
-			for (Vertex const& vertex : vertices)
+			std::vector<uint32_t> welded(vertices.size());
+			std::map<std::array<float, 3>, uint32_t> distinct;
+			for (size_t vertexIndex = 0; vertexIndex < vertices.size(); vertexIndex++)
 			{
-				glm::vec3 const position = vertex.Position * scale;
-				points.push_back(JPH::Float3(position.x, position.y, position.z));
+				glm::vec3 const position = vertices[vertexIndex].Position * scale;
+				auto const [found, inserted] =
+					distinct.try_emplace(std::array<float, 3>{position.x, position.y, position.z}, static_cast<uint32_t>(points.size()));
+				if (inserted)
+				{
+					points.push_back(JPH::Float3(position.x, position.y, position.z));
+				}
+				welded[vertexIndex] = found->second;
 			}
 			// Submesh indices are relative to the submesh's first vertex (MeshSource validated the ranges).
 			std::vector<uint32_t> const& indices = collider.Mesh->GetIndices();
@@ -750,8 +761,9 @@ namespace Strada
 				for (uint32_t i = 0; i + 2 < submesh.IndexCount; i += 3)
 				{
 					uint32_t const* triangle = indices.data() + submesh.BaseIndex + i;
-					triangles.push_back(JPH::IndexedTriangle(submesh.BaseVertex + triangle[0], submesh.BaseVertex + triangle[1],
-					                                         submesh.BaseVertex + triangle[2], material));
+					triangles.push_back(JPH::IndexedTriangle(welded[submesh.BaseVertex + triangle[0]],
+					                                         welded[submesh.BaseVertex + triangle[1]],
+					                                         welded[submesh.BaseVertex + triangle[2]], material));
 				}
 			}
 			// Placeholders: the collider's table entry holds what each index means (ColliderMaterial). Without submesh surfaces

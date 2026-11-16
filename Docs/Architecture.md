@@ -1759,6 +1759,16 @@ empty entry, or a submesh past the list, uses the collider's `Material` (or its 
 list holds at most 31 (`MaxMeshColliderMaterials`, the field's `MaxCount`) beside the collider's own. Convex hulls,
 and the hulls that stand in for the triangles of dynamic bodies, have one surface: the collider's `Material`.
 
+A triangle mesh's shape is built over the mesh's distinct positions (`CreateMeshShape` in `PhysicsScene.cpp`): the
+importer gives each submesh vertices of its own, and splits vertices along hard edges and texture seams, but Jolt tells
+the edges between triangles apart by their shared vertex indices (`MeshShape::sFindActiveEdges`, `MeshShape.cpp:299-336`
+of the pinned Jolt): an edge that one triangle alone holds is an active one, and a body crossing it meets the edge
+itself. Where two surfaces of a road meet, that was a bump: a ball crossing coplanar strips at 4 m/s leapt and lost an
+eighth of its speed, a box sliding corner first at 8 m/s rose 0.32 m (`PhysicsScene:` case "bodies slide and roll across
+the edges ..."). Welding by exact position shares those edges, which Jolt then judges by the angle between their
+triangles as it judges any other. A mesh without repeated positions builds the same shape as before; one with them now
+has fewer active edges, and a body that touched one of those edges now slides or rolls over it.
+
 A contact combines, per pair of sub-shapes as before, the two sides' friction and restitution
 (`CombinePhysicsMaterialValues`): each side brings its value and its mode, and when the modes differ the one later in
 the order `GeometricMean`, `Average`, `Minimum`, `Multiply`, `Maximum` wins (so a material that says `Maximum` for

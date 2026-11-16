@@ -8,6 +8,7 @@
 #include <doctest/doctest.h>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -362,6 +363,65 @@ TEST_CASE("PhysicsScene: a triangle mesh's submeshes have their own surfaces for
 	std::optional<RaycastHit> const throughTrigger = world->Raycast({0.0f, 10.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, 100.0f);
 	REQUIRE(throughTrigger);
 	CHECK(throughTrigger->Entity == GroundId);
+}
+
+TEST_CASE("PhysicsScene: bodies slide and roll across the edges where a triangle mesh's submeshes meet without hitting them")
+{
+	Testing::PhysicsSystemScope physics;
+	// Four frictionless strips, each a submesh with vertices of its own: where two meet, their positions repeat. Built over
+	// the mesh's distinct positions, the shape shares the edges there, so Jolt sees flat ground. With the positions apart,
+	// each edge was an open one: a ball crossing at 4 m/s leapt at 0.34 m/s and lost an eighth of its speed, and a box
+	// sliding corner first at 8 m/s rose 0.32 m.
+	ColliderDesc mesh;
+	mesh.Shape = ColliderShape::TriangleMesh;
+	mesh.Mesh = MakeStrips(4, -8.0f);
+	mesh.Surface = MakeSurface(ColliderMaterial, 0.0f, PhysicsMaterialCombine::Minimum);
+	mesh.SubmeshSurfaces = {MakeSurface(SlipperyMaterial, 0.0f, PhysicsMaterialCombine::Minimum),
+	                        MakeSurface(GrippyMaterial, 0.0f, PhysicsMaterialCombine::Minimum)};
+	ColliderDesc ball;
+	ball.Shape = ColliderShape::Sphere;
+	ball.Radius = 0.25f;
+	ball.Surface = MakeSurface(BoxMaterial, 1.0f, PhysicsMaterialCombine::GeometricMean);
+	ColliderDesc const box = Box(glm::vec3(0.25f), MakeSurface(BoxMaterial, 1.0f, PhysicsMaterialCombine::GeometricMean));
+	glm::quat const upright(1.0f, 0.0f, 0.0f, 0.0f);
+	glm::quat const cornerFirst = glm::angleAxis(glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+	struct Crossing
+	{
+		char const* Name;
+		ColliderDesc Collider;
+		glm::quat Rotation;
+		bool Rolls;
+	};
+	for (float const speed : {4.0f, 8.0f})
+	{
+		for (Crossing const& crossing : {Crossing{"a sliding ball", ball, upright, false}, Crossing{"a rolling ball", ball, upright, true},
+		                                 Crossing{"a box sliding corner first", box, cornerFirst, false}})
+		{
+			CAPTURE(crossing.Name);
+			CAPTURE(speed);
+			Scope<PhysicsScene> world = CreateWorld();
+			REQUIRE(world->AddBody(MakeStatic(GroundId, glm::vec3(0.0f), upright, mesh)).IsOk());
+			BodyDesc body = MakeSlider(FirstId, {-7.5f, 0.25f, 0.0f}, crossing.Rotation, {crossing.Collider}, {speed, 0.0f, 0.0f});
+			body.LockRotation = glm::bvec3(!crossing.Rolls);
+			REQUIRE(world->AddBody(body).IsOk());
+			// Across the edges at x = -4, 0 and 4.
+			float rise = 0.0f;
+			float fastestUp = 0.0f;
+			float slowest = speed;
+			for (int step = 0; step < 600 && world->GetBodyTransform(FirstId)->Position.x < 6.0f; step++)
+			{
+				world->Step(Step);
+				rise = std::max(rise, world->GetBodyTransform(FirstId)->Position.y - 0.25f);
+				fastestUp = std::max(fastestUp, std::abs(world->GetLinearVelocity(FirstId).y));
+				slowest = std::min(slowest, world->GetLinearVelocity(FirstId).x);
+			}
+			CHECK(world->GetBodyTransform(FirstId)->Position.x >= 6.0f);
+			CHECK(rise < 0.005f);
+			CHECK(fastestUp < 0.01f);
+			CHECK(slowest == doctest::Approx(speed).epsilon(0.001));
+		}
+	}
 }
 
 TEST_CASE("PhysicsScene: submesh surfaces beyond the mesh are ignored, beyond the limit refused, and hulls have one surface")
