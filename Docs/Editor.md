@@ -324,7 +324,7 @@ the shapes are drawn for the selected entities until you pick All.
 | Post-process volumes | Boxes of local post-process volumes and where their blending ends |
 | Debug drawing (scripts) | Lines scripts draw with `Debug.DrawLine` and its relatives |
 | UI canvases | Each canvas's UI in its entity's plane, faint until the canvas or one of its elements is selected |
-| Contacts (while playing) | A cross at each point where a contact began in the last frame and a line along its normal (triggers in blue): a contact shows for the frame it began in, and stays while the game is paused |
+| Contacts (while playing) | A cross at each point where a contact began in the last frame and a line 0.3 m long from it along its normal, pointing towards the body the contact pushes: out of the surface a dynamic body lands on (triggers in blue): a contact shows for the frame it began in, and stays while the game is paused |
 
 Each of the five shape overlays has a Selected and an All choice. Overlay lines are dimmed where surfaces hide them,
 except joints, directional lights, post-process volumes, the capsules of selected characters, canvas outlines and

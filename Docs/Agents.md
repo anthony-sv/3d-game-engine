@@ -30,7 +30,7 @@ and the [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill 
 
 The editor runs an automation server: a JSON-RPC 2.0 endpoint on `127.0.0.1`. Every command runs on the editor's main
 thread through the same operations and undo history as the UI, so an agent and a person see and edit the same state. The
-editor has 113 commands in 20 domains, each with a JSON schema of its parameters (`editor.commands` lists them at run
+editor has 117 commands in 22 domains, each with a JSON schema of its parameters (`editor.commands` lists them at run
 time):
 
 | Group | Commands | What they cover |
@@ -60,24 +60,24 @@ time):
 six tools of its own that search and import [Poly Haven](https://polyhaven.com) assets (CC0):
 `polyhaven_search_hdris` and `polyhaven_import_hdri` (skies for image-based lighting), `polyhaven_search_models` and
 `polyhaven_import_model` (glTF models with their textures), and `polyhaven_search_textures` and
-`polyhaven_import_texture` (PBR texture sets, made into a material). That is 119 tools in all.
+`polyhaven_import_texture` (PBR texture sets, made into a material). That is 123 tools in all.
 
 ### The safety model
 
 - **The server is local and authenticated.** The editor listens on `127.0.0.1` only. A client must first send the token
   from the editor's instance file, which lives in a user-only directory; strada does this for you. `--no-automation`
   starts an editor without the server.
-- **Edits are undo steps.** Edits of the scene, its entities and components, materials, data assets (`curve_set`) and
-  visual scripts made through the commands are steps of the editor's history, the same history as the UI's. The person
-  at the editor can undo what an agent did with Ctrl+Z (Edit > Undo names the step), and `editor_undo` undoes it for the
-  agent. A `graph_edit` batch is one step, however many operations it holds.
+- **Edits are undo steps.** Edits of the scene, its entities and components, materials, data assets (`curve_set`,
+  `physics_material_set`) and visual scripts made through the commands are steps of the editor's history, the same
+  history as the UI's. The person at the editor can undo what an agent did with Ctrl+Z (Edit > Undo names the step),
+  and `editor_undo` undoes it for the agent. A `graph_edit` batch is one step, however many operations it holds.
 - **Agents work on the editor you see, or on a headless one.** With an editor open, strada uses it, and you watch the
   agent's edits arrive. An agent can also work on an editor without a window (`--headless`), which strada closes when
   it ends.
 - **Some operations are not undo steps.** Project settings are saved to the project file at once. Asset file operations
   (importing, moving, deleting assets and folders, `asset_drop`), `graph_create` and a data asset type's `create`
-  (`curve_create`) change files directly; deleting an asset discards the undo steps that edited its file, and creating,
-  opening or closing a project drops every step of asset files. Selections (`entity_select`, `asset_select`), the scene
+  (`curve_create`, `physics_material_create`) change files directly; deleting an asset discards the undo steps that
+  edited its file, and creating, opening or closing a project drops every step of asset files. Selections (`entity_select`, `asset_select`), the scene
   view's camera and overlays, and the visual-script debugger's breakpoints and targets are view state, not history, and
   so are the profiler's recordings (`profiler_*`).
 - **Unsaved work is protected.** Commands that would discard unsaved changes (a new scene, another project, quitting)

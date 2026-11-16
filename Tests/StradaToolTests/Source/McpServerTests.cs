@@ -50,6 +50,12 @@ public sealed class McpServerTests
 		{
 			Assert.Matches($@"\b{tool}\b", instructions);
 		}
+		// Physics materials, the second engine data asset type, the playing world's queries and the renderer's statistics.
+		foreach (string tool in new[] { "physics_material_create", "physics_material_get", "physics_material_set", "physics_query",
+			"viewport_statistics" })
+		{
+			Assert.Matches($@"\b{tool}\b", instructions);
+		}
 		// Visual scripts are written through the graph tools, which the instructions name.
 		Assert.Contains("visual scripts", instructions);
 		Assert.Contains("graph_library", instructions);

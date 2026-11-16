@@ -504,7 +504,8 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   world and previous matrices (`MeshSubmission`).
 - **Velocities and cuts.** A previous matrix is the frame before's only when the renderer drew the frame before: frames
   no view drew refresh nothing (§7.1), a scene can be replaced by another (a scene load, play mode's copy), and one
-  renderer may draw several scenes (thumbnails). So a renderer that keeps history (TA1) compares, at each
+  renderer may draw several scenes (thumbnails). So a renderer that keeps history (temporal anti-aliasing, track TA1:
+  designed here, not built, since it was cut from First Ride's second slice; Roadmap.md R5) compares, at each
   `BeginScene`, the scene's `Scene::GetSerial` and `Scene::GetTransformFrame` with those of its last draw:
   `SceneRendererCamera` gains `SceneSerial` and `SceneFrame` (0 for unknown, as a camera made without a scene
   has), which `RenderScene` fills. A draw that is not of the same serial at the frame after the last draw is a cut:
@@ -614,10 +615,15 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   with no build or test running (two runs of the case, 24 medians of 300 frames), `Renderer.Submit` and
   `Renderer.Prepare` together took 1.19 to 1.93 ms (`Renderer.Batch` 0.37 to 0.58 ms of it); the first scenario of a
   run is the fastest, and the later ones settle at 1.7 to 1.9 ms. Between those two runs, in the same sitting, IN's
-  first batched tree took 4.19 to 4.68 ms; it had taken 2.72 to 2.95 ms in an earlier sitting, so the machine ran
-  that sitting about 1.5 times slower than its fastest, and the final tree's figure is an upper bound. What changed
-  against the first tree, in the order of what each saved: the sky light found without a walk through the hierarchy,
-  mesh draws prepared once per frame, the light-space cascade test, the radix sort.
+  first batched tree took 4.19 to 4.68 ms; it had taken 2.72 to 2.95 ms in an earlier sitting, so the in-frame figures
+  and Submit + Prepare read about 1.5 times higher in that sitting, cause unknown (the isolated reading of the cache's
+  refresh was at its usual value, §7.1), and the final tree's figure is an upper bound. At slice 2's gate, with the
+  machine otherwise idle, two sittings about a quarter of a minute apart read the merged tree at 1.19 to 1.71 ms while
+  the first tree, as the gauge, read 3.67 to 3.87 ms: out of the band of 3.3 ms in which a sitting judges. Two later
+  sittings, ten minutes apart, with no build, test or Strada process at the start or the end of either, read the gauge at
+  2.65 to 2.83 ms, in band, and the merged tree at 1.15 to 1.28 ms (`Renderer.Batch` 0.37 to 0.40 ms of it): the
+  target is met in band. What changed against the first tree, in the order of what each saved: the sky light found without a
+  walk through the hierarchy, mesh draws prepared once per frame, the light-space cascade test, the radix sort.
 
 Visibility: `EndScene` tests the world bounds of every submitted submesh against the camera's `Frustum`
 (`Math/Frustum.h`), built from its view-projection and limited to `SceneRendererCamera::MaxDistance` (the camera
@@ -1298,9 +1304,15 @@ stale.
   0.17 to 0.18 ms with 1,000 children moved, 0.31 to 0.34 ms with every root moved, every matrix computed again; inside
   a rendered frame of the instancing benchmark (`Renderer/InstancingBenchmarkTests.cpp`, 12,001 entities, where the
   renderer's work leaves the cache colder) 0.15 to 0.22, 0.26 to 0.29 and 0.44 to 0.50 ms. In the same sitting the
-  tree before the local matrix was kept took 0.51 ms alone and 0.69 to 0.71 ms in the frame with every root moved; that
-  sitting ran about 1.5 times slower than the machine's fastest, where the same refresh took 0.31 to 0.34 ms in the
-  frame. A read through a current chain costs about 0.05 µs per entity, half of slice 1's walk.
+  tree before the local matrix was kept took 0.51 ms alone and 0.69 to 0.71 ms in the frame with every root moved; the
+  in-frame figures of that sitting read about 1.5 times higher than in the machine's fastest, where the same refresh
+  took 0.31 to 0.34 ms in the frame, cause unknown, while the isolated reading was at its usual value. At slice 2's gate
+  (two sittings with the gauge out of band, as in §6.2): 0.32 ms alone with every root moved, and 0.42 to 0.44 ms in the
+  frame (0.14 to 0.20 with nothing moved, 0.23 to 0.27 with 1,000 children moved), while the first tree read 0.50 to
+  0.51 ms alone and 0.65 to 0.66 ms in the frame. In its two later sittings, in band: 0.29 to 0.30 ms alone with every
+  root moved, and 0.31 to 0.36 ms in the frame (0.15 to 0.17 with nothing moved, 0.18 to 0.21 with 1,000 children
+  moved), while the first tree read 0.49 ms alone and 0.48 to 0.49 ms in the frame: the target is met in band. A read through a current chain
+  costs about 0.05 µs per entity, half of slice 1's walk.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
 
@@ -1780,10 +1792,13 @@ the order `GeometricMean`, `Average`, `Minimum`, `Multiply`, `Maximum` wins (so 
 restitution bounces off everything, and one that says `GeometricMean` defers to any other). The rule is symmetric in
 the two sides, as Jolt's pairs come in body order. With both modes at their defaults it is exactly `std::sqrt(a * b)`
 and `std::max(a, b)`, the expressions of the listener before materials, so a scene without materials simulates bit for
-bit as it did and its state hashes do not change, with two exceptions: a character's inner body touching a body of
+bit as it did and its state hashes do not change, with three exceptions: a character's inner body touching a body of
 several colliders through one that is not its first now meets that collider's values, where before it met the first
-collider's (below); and a triangle mesh whose positions repeat is now welded, so a body that met one of its open edges
-crosses it (above). A side is one sub-shape: a collider of a compound body, or a
+collider's (below); a triangle mesh whose positions repeat is now welded, so a body that met one of its open edges
+crosses it (above); and a body two or more levels below a root, whose world matrix the transform cache composes top
+down and may give in different last bits than slice 1's walk did (§7.1), so its first sync can differ. An exact tie of
+`Raycast` now goes to the smaller UUID ("Queries" below): that changes a query's answer, not the simulation. No
+sample's pinned checks changed through any of them. A side is one sub-shape: a collider of a compound body, or a
 triangle's submesh. Its surface is found from the sub-shape ID: `Shape::GetLeafShape`, which compound and decorated
 shapes pass on to the leaf (`CompoundShape.cpp:136`, `DecoratedShape.h:52` of the pinned Jolt), gives the leaf shape, whose
 user data names its collider's entry in the table below, as before materials; on a triangle mesh with submesh
@@ -1795,7 +1810,7 @@ exactly as before. A side without a collider entry (a character's inner body) br
 restitution (Jolt's defaults, 0.2 and 0) with the default modes, which is the rule Jolt's own default combination
 applies to two bodies. The other side brings the surface of the sub-shape it touches. Before materials it brought its
 body's body-level values, which were its first collider's, so a character that touched any other collider of a
-compound body met the wrong collider's friction and restitution; that is the one change a scene without materials sees.
+compound body met the wrong collider's friction and restitution; that is the first of the exceptions above.
 The rigid bodies' body-level values are no longer taken from their first collider, and nothing reads them. Jolt merges the
 contacts of neighbouring sub-shapes with similar normals into one manifold (manifold reduction, on by default), and a
 manifold names one sub-shape of each side: a body that touches two surfaces at once in one such manifold (a box
@@ -3174,8 +3189,10 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   the rounded outlines where their blend distances end), each for the selected entities or every entity, the lines
   scripts draw, the UI canvases, and, off by default, the contacts of a playing scene
   (`ViewportOverlays::AppendContactLines`: a cross at each point of the events of the scene's last frame,
-  `Scene::GetContactEvents`, and a line along its normal, drawn over everything; a contact shows for the frame it began
-  in, and stays while play is paused). Colliders show the shapes physics collides with: mesh colliders as the convex hull
+  `Scene::GetContactEvents`, and a line `ContactNormalLength` (0.3 m) long from it along its normal, drawn over
+  everything; the normal is shown towards the body the contact pushes, the dynamic one when only one of the two is, so
+  it points out of the surface a body lands on, and from the event's `First` otherwise; a contact shows for the frame it
+  began in, and stays while play is paused). Colliders show the shapes physics collides with: mesh colliders as the convex hull
   Jolt builds (`MeshColliderOutline`; also for the triangle meshes of dynamic bodies) or as their triangles, without the
   diagonals of flat faces, and character controllers as the upright capsule physics moves. Its lines are wide,
   light-colored and outlined in dark so they read on bright and dark surfaces, and dimmed where surfaces hide them,
@@ -4330,7 +4347,19 @@ that each platform's names are tested on every platform:
   `StradaRuntime --profile` over the 600 frames of the whole tour, `--no-vsync`, slice 2's MO2 sitting) the frame's
   median is 3.5 to 3.9 ms (99th percentile 5.7 to 9.2 ms), with a median of 149 draws (at most 256), 146 batches and
   5,291 instances a frame; `Renderer.Submit` 0.72 to 0.74 ms and `Renderer.Prepare` 0.43 to 0.46 ms; the GPU's ambient
-  occlusion 1.29 to 1.32 ms, opaque 1.00 to 1.03 ms and shadows 0.41 ms a frame. **The camera tour** is the first sample tour made of a graph
+  occlusion 1.29 to 1.32 ms, opaque 1.00 to 1.03 ms and shadows 0.41 ms a frame. At slice 2's gate, with the fences
+  continuous (two counted sittings, four runs, the machine otherwise idle, IN's gauge out of band at 3.67 to 3.87 ms):
+  a median of 3.42 to 3.46 ms (99th percentile 4.0 to 4.1 ms), 149 draws (at most 256), 146 batches and 5,339
+  instances a frame, `Renderer.Submit` 0.71 to 0.72 ms and `Renderer.Prepare` 0.44 to 0.46 ms, ambient occlusion 1.29
+  to 1.34 ms, opaque 1.01 to 1.03 ms and shadows 0.40 to 0.41 ms; in its two later sittings, with the gauge in band
+  (2.65 to 2.83 ms), a median of 3.47 to 3.56 ms (99th percentile 6.3 to 6.4 ms), the same draws, batches and
+  instances, `Renderer.Submit` 0.74 to 0.81 ms and `Renderer.Prepare` 0.42 to 0.44 ms, ambient occlusion 1.28 to 1.29 ms,
+  opaque 0.99 to 1.00 ms and shadows 0.41 ms. The editor's scene view draws more of the same
+  scene, since `DrawCalls` counts its entity-ID pass as well: at slice 2's gate (`viewport.statistics`) 392 draws of the
+  400 with the camera at the start line beside the bike (388 batches, 190 of the draws in the shadow pass), 261 over the
+  whole circuit from above and 212 across the main straight's fences. A bike of other materials would add up to 16
+  draws to each pass that sees it and pass 400 there, so MO3's ghost shares the bike's meshes and materials and joins
+  their batches. **The camera tour** is the first sample tour made of a graph
   (`Scripts/Tour.sgraph`, on the main camera): a `Flow.Timeline` with two Vector3 curves, `Eye` and `LookAt`, flies the
   camera from the home view once round the lap and back to it in about 51 s; each update sets the camera's
   translation and the Euler angles that point it at `LookAt` (a formula: pitch, then yaw, no roll, so no keyed angle

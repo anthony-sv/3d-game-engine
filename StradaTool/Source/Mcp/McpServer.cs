@@ -71,6 +71,10 @@ internal sealed class McpServer
 		"capture into the project, profiler_open shows one in the Profiler panel, and profiler_stop ends the recording. " +
 		"Curves (.scurve data assets: keys that map a number to another, which C# scripts and graphs evaluate with " +
 		"Curve.Evaluate): curve_create makes one, curve_get reads it and curve_set changes it as one undo step. " +
+		"Physics materials (.sphysmat data assets: friction, restitution and how they combine, rolling resistance and a " +
+		"surface name, which a collider's Material names and raycasts and contacts report) are made, read and changed the " +
+		"same way with physics_material_create, physics_material_get and physics_material_set, also while the game plays. " +
+		"viewport_statistics says what the scene view drew in its last frame (draw calls, mesh batches, instances). " +
 		"polyhaven_search_hdris and polyhaven_import_hdri bring CC0 skies from Poly Haven into the project for a SkyLight.";
 
 	private readonly EditorSession m_Session;

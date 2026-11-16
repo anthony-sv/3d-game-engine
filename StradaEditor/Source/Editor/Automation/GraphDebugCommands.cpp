@@ -316,10 +316,7 @@ namespace Strada
 			Result<AssetHandle> const handle = AssetManager::ResolveReference(text);
 			if (!handle || !AssetManager::IsValid(handle.GetValue()))
 			{
-				CommandError error =
-					MakeCommandError(AutomationErrorCode::AssetNotFound, "{}: no asset '{}' is registered", parameter, text);
-				error.Data = Json::object({{"path", std::string(parameter)}});
-				return error;
+				return MakeAssetNotFoundError(parameter, text);
 			}
 			if (AssetType const type = AssetManager::GetAssetType(handle.GetValue()); type != AssetType::VisualScript)
 			{

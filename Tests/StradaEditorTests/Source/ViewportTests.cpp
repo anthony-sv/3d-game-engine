@@ -763,7 +763,7 @@ TEST_CASE("ViewportOverlays: the overlays draw shapes for the selection or every
 
 TEST_CASE("ViewportOverlays: contacts show the points and normals of the contacts that began in a playing scene's last frame")
 {
-	// Each point is a cross and a line along its normal through it, drawn over everything; triggers in their colour, and
+	// Each point is a cross and a line from it along its normal, drawn over everything; triggers in their colour, and
 	// events without points (exits) draw nothing.
 	ContactEvent collision;
 	collision.PointCount = 2;
@@ -792,9 +792,23 @@ TEST_CASE("ViewportOverlays: contacts show the points and normals of the contact
 	}
 	CHECK(NearlyEqual(lines[0].From, {1.0f - ViewportOverlays::ContactPointSize, 0.0f, 2.0f}));
 	CHECK(NearlyEqual(lines[0].To, {1.0f + ViewportOverlays::ContactPointSize, 0.0f, 2.0f}));
-	CHECK(NearlyEqual(lines[3].From, {1.0f, -ViewportOverlays::ContactNormalLength, 2.0f}));
+	CHECK(NearlyEqual(lines[3].From, {1.0f, 0.0f, 2.0f}));
 	CHECK(NearlyEqual(lines[3].To, {1.0f, ViewportOverlays::ContactNormalLength, 2.0f}));
+	CHECK(NearlyEqual(lines[11].From, {0.0f, 3.0f, 0.0f}));
 	CHECK(NearlyEqual(lines[11].To, {ViewportOverlays::ContactNormalLength, 3.0f, 0.0f}));
+
+	// An event the selector shows from its Second draws the normals reversed, from the same points.
+	std::vector<OverlayLine> reversed;
+	ViewportOverlays::AppendContactLines(events, reversed,
+	                                     [](ContactEvent const& selected)
+	                                     {
+											 return selected.Type == ContactEventType::CollisionEnter;
+										 });
+	REQUIRE(reversed.size() == 12);
+	CHECK(NearlyEqual(reversed[3].From, {1.0f, 0.0f, 2.0f}));
+	CHECK(NearlyEqual(reversed[3].To, {1.0f, -ViewportOverlays::ContactNormalLength, 2.0f}));
+	CHECK(NearlyEqual(reversed[7].To, {-1.0f, -ViewportOverlays::ContactNormalLength, 2.0f}));
+	CHECK(NearlyEqual(reversed[11].To, lines[11].To));
 
 	// A ball dropped on the ground of a running scene: the frame it lands in shows its point, with the overlay on only, and
 	// later frames, which begin no contact, show none. A scene that is not running reports none.
@@ -832,8 +846,16 @@ TEST_CASE("ViewportOverlays: contacts show the points and normals of the contact
 	REQUIRE(event.Type == ContactEventType::CollisionEnter);
 	std::vector<OverlayLine> const contacts = draw(shown);
 	REQUIRE(contacts.size() == 4 * event.PointCount);
-	CHECK(NearlyEqual((contacts[3].From + contacts[3].To) * 0.5f, event.Points[0].Point));
 	CHECK(std::abs(event.Points[0].Point.y) < 0.05f);
+	// Each normal starts at its point and points out of the ground, towards the ball it pushes, whichever of the two
+	// bodies the event names first.
+	for (uint32_t index = 0; index < event.PointCount; index++)
+	{
+		CAPTURE(index);
+		OverlayLine const& normal = contacts[4 * index + 3];
+		CHECK(NearlyEqual(normal.From, event.Points[index].Point));
+		CHECK(NearlyEqual(normal.To, normal.From + glm::vec3(0.0f, ViewportOverlays::ContactNormalLength, 0.0f), 1e-3f));
+	}
 	CHECK(draw(SceneViewOverlays()).empty());
 	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
 	CHECK(scene.GetContactEvents().empty());

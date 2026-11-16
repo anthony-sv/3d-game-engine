@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -140,8 +141,8 @@ namespace Strada
 		// Length of the drawn hinge and slider axes, and size of the anchor's cross.
 		inline constexpr float JointAxisLength = 0.6f;
 		inline constexpr float JointAnchorSize = 0.1f;
-		// Contacts: a cross at each point and a line along its normal through it, orange for collisions, the trigger colour
-		// for overlaps.
+		// Contacts: a cross at each point and a line from it along its normal, orange for collisions, the trigger colour for
+		// overlaps.
 		inline constexpr glm::vec4 ContactColor = glm::vec4(1.0f, 0.6f, 0.2f, 1.0f);
 		inline constexpr float ContactPointSize = 0.05f;
 		inline constexpr float ContactNormalLength = 0.3f;
@@ -167,12 +168,18 @@ namespace Strada
 		                        MeshColliderOutlineCache* meshOutlines = nullptr);
 		// The kinds of shapes (Shapes flags) the overlays draw for an entity that is selected, or not.
 		uint32_t GetShapeKinds(SceneViewOverlays const& overlays, bool selected);
+		// Whether a contact event's points are drawn as its Second entity sees them (ReverseContactPoint) rather than its First.
+		using ContactSideSelector = std::function<bool(ContactEvent const& event)>;
 		// Each contact point of the events (only events that begin have points): a cross ContactPointSize across each axis
-		// and a line ContactNormalLength along the normal to either side, drawn over everything (points lie on surfaces), in
-		// ContactColor for collisions and TriggerColor for triggers, in the events' order.
-		void AppendContactLines(std::span<ContactEvent const> events, std::vector<OverlayLine>& lines);
+		// and a line ContactNormalLength long from the point along its normal, so the cross marks where the normal starts,
+		// drawn over everything (points lie on surfaces), in ContactColor for collisions and TriggerColor for triggers, in the
+		// events' order. The normal is the side's seen from Second where seenFromSecond says so, from First otherwise.
+		void AppendContactLines(std::span<ContactEvent const> events, std::vector<OverlayLine>& lines,
+		                        ContactSideSelector const& seenFromSecond = {});
 		// The shapes the overlays draw: those of the selected entities (drawn as selected: Shapes::Selected), and of every
-		// entity for the kinds shown for all, in hierarchy order when any is, then the scene's contacts when they are shown.
+		// entity for the kinds shown for all, in hierarchy order when any is, then the scene's contacts when they are shown,
+		// each normal pointing towards the body it pushes: the dynamic one when only one of the two bodies is dynamic (out of
+		// the surface a body lands on), the event's First otherwise.
 		// meshOutlines also forgets the outlines of meshes that are gone.
 		void AppendSceneShapes(Scene& scene, std::span<UUID const> selection, SceneViewOverlays const& overlays, float aspectRatio,
 		                       glm::vec3 const& viewPosition, std::vector<OverlayLine>& lines,

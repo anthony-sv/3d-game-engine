@@ -210,6 +210,12 @@ namespace Strada
 - What a running game writes for its player (its bindings, saves and settings to come) goes below the folder the
   `GameData` service names (`Strada/Core/GameData.h`, Docs/Architecture.md §13.1), never into the engine's shared
   per-user folder; an empty service means no game runs, and nothing is written.
+- World transforms come from the scene's cache: `Scene::GetWorldTransform` (checked, never stale), or the unchecked
+  cached matrix only in code that runs after a view's refresh (Docs/Architecture.md §7.1). Meshes are drawn as
+  instances: a new pass or submission path keeps per-object data in `InstanceData`, not in push constants (§6.2).
+- Physics is deterministic per platform (Docs/Architecture.md §8): Jolt is called in body-UUID order, results scripts
+  see (queries, contact points, contact events) are ordered by a stated key that ends in a UUID, and Jolt's callbacks
+  on its worker threads read data fixed for the step or enqueue, never touching engine state.
 
 ## Testing
 

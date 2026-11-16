@@ -2,6 +2,7 @@
 
 #include "Editor/Agents/AgentKit.h"
 #include "Editor/Automation/CommandRegistry.h"
+#include "Editor/Automation/CommandResult.h"
 #include "Editor/EditorLocations.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/UI/WindowCapture.h"
@@ -120,6 +121,12 @@ namespace Strada
 	// edited scene ({ name, path, dirty, entityCount }).
 	[[nodiscard]] Json DescribeEditorProject(EditorContext const& context);
 	[[nodiscard]] Json DescribeEditorScene(EditorContext const& context);
+
+	// The AssetNotFound error of an asset parameter whose value (a handle, "asset://<path>" or "builtin://<name>") names no
+	// registered asset, with data.path naming the parameter. A path alone is no reference: when the value is a registered
+	// asset's path relative to Assets the message gives the reference to use, and other values without a scheme are told the
+	// forms an asset parameter takes. Assets must be initialized.
+	[[nodiscard]] CommandError MakeAssetNotFoundError(std::string_view parameter, std::string const& value);
 
 	// graph.library's notes: the library's notes (the game's [VisualNode] members without a node) whose category is the given
 	// one or lies below it (any for an empty one) and whose member or message contains the query (any for an empty one), both

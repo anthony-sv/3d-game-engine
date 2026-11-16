@@ -975,7 +975,7 @@ MARKERS = ("100", "200", "300")
 # The advertising boards' names, invented: the text, its color and the board's, each a strip as wide as the atlas below
 # its cells (64 pixels high: a board 4 m by 0.5 m).
 BRANDS = (("VOLTA", (0.96, 0.8, 0.12), (0.05, 0.05, 0.06)), ("KESTREL OIL", (0.95, 0.95, 0.93), (0.74, 0.08, 0.06)),
-          ("NORDA TYRES", (0.95, 0.95, 0.93), (0.04, 0.13, 0.42)), ("AURUM", (0.1, 0.34, 0.19), (0.92, 0.91, 0.87)))
+          ("NORDA TYRES", (0.95, 0.95, 0.93), (0.04, 0.13, 0.42)), ("OKARI", (0.1, 0.34, 0.19), (0.92, 0.91, 0.87)))
 BRAND_TOP = 256
 # The letters the names use, five pixels by seven.
 LETTERS = {

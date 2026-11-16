@@ -377,10 +377,7 @@ namespace Strada
 			Result<AssetHandle> handle = AssetManager::ResolveReference(text);
 			if (!handle || !AssetManager::IsValid(handle.GetValue()))
 			{
-				CommandError error =
-					MakeCommandError(AutomationErrorCode::AssetNotFound, "{}: no asset '{}' is registered", parameter, text);
-				error.Data = Json::object({{"path", std::string(parameter)}});
-				return error;
+				return MakeAssetNotFoundError(parameter, text);
 			}
 			return handle.GetValue();
 		}
@@ -6510,6 +6507,29 @@ namespace Strada
 	Json DescribeEditorScene(EditorContext const& context)
 	{
 		return DescribeScene(context);
+	}
+
+	CommandError MakeAssetNotFoundError(std::string_view parameter, std::string const& value)
+	{
+		CommandError error;
+		if (value.find("://") != std::string::npos)
+		{
+			error = MakeCommandError(AutomationErrorCode::AssetNotFound, "{}: no asset '{}' is registered", parameter, value);
+		}
+		else if (AssetHandle const byPath = AssetManager::FindByPath(value); byPath.IsValid())
+		{
+			error = MakeCommandError(AutomationErrorCode::AssetNotFound,
+			                         "{}: '{}' is a path, not a reference: name the asset \"{}\" or by its handle", parameter, value,
+			                         AssetManager::GetReference(byPath));
+		}
+		else
+		{
+			error = MakeCommandError(AutomationErrorCode::AssetNotFound,
+			                         "{}: no asset '{}' is registered (name an asset by its handle or as \"asset://<path in Assets>\")",
+			                         parameter, value);
+		}
+		error.Data = Json::object({{"path", std::string(parameter)}});
+		return error;
 	}
 
 	std::string GetVisualScriptProgramRevision(VisualScriptDocument const& document)
