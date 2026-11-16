@@ -16,9 +16,11 @@
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseQuery.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/EstimateCollisionResponse.h>
+#include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/PhysicsMaterial.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -29,6 +31,7 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/ShapeFilter.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
@@ -46,6 +49,7 @@
 #include <cmath>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -1095,6 +1099,325 @@ namespace Strada
 		{
 			return JPH::Plane(JPH::Vec3::sAxisY(), halfCylinder);
 		}
+
+		// --- Queries ---
+
+		// The unit vector along a direction, computed without overflowing; none for a zero or non-finite direction.
+		std::optional<glm::vec3> MakeUnitDirection(glm::vec3 const& direction)
+		{
+			if (!IsFinite(direction))
+			{
+				return std::nullopt;
+			}
+			float const largest = std::max({std::abs(direction.x), std::abs(direction.y), std::abs(direction.z)});
+			if (!(largest > 0.0f))
+			{
+				return std::nullopt;
+			}
+			return glm::normalize(direction / largest);
+		}
+
+		// Whether a query may start there: a finite position within the world's limits.
+		bool IsQueryPosition(glm::vec3 const& position)
+		{
+			return IsFinite(position) && glm::all(glm::lessThanEqual(glm::abs(position), glm::vec3(MaxPhysicsCoordinate)));
+		}
+
+		// How far a query reaches, cut to MaxPhysicsQueryDistance; none for a distance that is not finite and positive.
+		std::optional<float> MakeQueryDistance(float maxDistance)
+		{
+			if (!(maxDistance > 0.0f) || !std::isfinite(maxDistance))
+			{
+				return std::nullopt;
+			}
+			return std::min(maxDistance, MaxPhysicsQueryDistance);
+		}
+
+		// A size of a query's shape: at least MinimumExtent, as colliders' sizes; none when negative, not finite or beyond
+		// MaxPhysicsExtent.
+		std::optional<float> MakeQuerySize(float size)
+		{
+			if (!(size >= 0.0f) || !(size <= MaxPhysicsExtent))
+			{
+				return std::nullopt;
+			}
+			return std::max(size, MinimumExtent);
+		}
+
+		// The Jolt shape of a query's shape, held here (embedded: Jolt's queries take it by pointer and keep no reference to
+		// it), or none when one of its sizes is not valid.
+		class QueryShape
+		{
+		public:
+			explicit QueryShape(PhysicsQueryShape const& shape)
+			{
+				switch (shape.Type)
+				{
+					case PhysicsQueryShapeType::Sphere:
+					{
+						if (std::optional<float> const radius = MakeQuerySize(shape.Radius))
+						{
+							m_Shape = &m_Sphere.emplace(*radius);
+						}
+						break;
+					}
+					case PhysicsQueryShapeType::Box:
+					{
+						std::optional<float> const x = MakeQuerySize(shape.HalfExtents.x);
+						std::optional<float> const y = MakeQuerySize(shape.HalfExtents.y);
+						std::optional<float> const z = MakeQuerySize(shape.HalfExtents.z);
+						if (x && y && z)
+						{
+							// No convex radius: in every support mode the box is the full box, with its sharp edges.
+							m_Shape = &m_Box.emplace(JPH::Vec3(*x, *y, *z), 0.0f);
+						}
+						break;
+					}
+					case PhysicsQueryShapeType::Capsule:
+					{
+						std::optional<float> const radius = MakeQuerySize(shape.Radius);
+						std::optional<float> const halfHeight = MakeQuerySize(shape.HalfHeight);
+						if (radius && halfHeight && shape.HalfHeight < MinimumExtent)
+						{
+							// As a capsule collider without a cylinder.
+							m_Shape = &m_Sphere.emplace(*radius);
+						}
+						else if (radius && halfHeight)
+						{
+							m_Shape = &m_Capsule.emplace(*halfHeight, *radius);
+						}
+						break;
+					}
+				}
+				if (m_Shape != nullptr)
+				{
+					m_Shape->SetEmbedded();
+				}
+			}
+
+			QueryShape(QueryShape const&) = delete;
+			QueryShape& operator=(QueryShape const&) = delete;
+
+			// Null when the shape's sizes are not valid.
+			JPH::Shape const* Get() const { return m_Shape; }
+
+		private:
+			std::optional<JPH::SphereShape> m_Sphere;
+			std::optional<JPH::BoxShape> m_Box;
+			std::optional<JPH::CapsuleShape> m_Capsule;
+			JPH::Shape* m_Shape = nullptr;
+		};
+
+		// Where a query's shape is: a finite position within the world's limits, turned by a finite rotation (normalized, the
+		// identity for zero); none otherwise.
+		std::optional<JPH::RMat44> MakeQueryTransform(glm::vec3 const& position, glm::quat const& rotation)
+		{
+			if (!IsQueryPosition(position) || !IsFinite(rotation))
+			{
+				return std::nullopt;
+			}
+			return JPH::RMat44::sRotationTranslation(Jolt::ToJolt(Math::NormalizeRotation(rotation)), Jolt::ToJolt(position));
+		}
+
+		// Of one body's hits, whether one is the one a query reports rather than another: the nearer (by Jolt's early-out
+		// key: the fraction, or at fraction 0 the deeper overlap first), then the one of the smaller sub-shape ID, so that the
+		// choice does not depend on the order Jolt finds them in.
+		bool IsBodyHitBefore(float key, JPH::SubShapeID const& subShape, float otherKey, JPH::SubShapeID const& otherSubShape)
+		{
+			if (key != otherKey)
+			{
+				return key < otherKey;
+			}
+			return subShape.GetValue() < otherSubShape.GetValue();
+		}
+
+		// What a query's collector keeps of the body Jolt reports hits of. Jolt calls OnBody with the body locked and releases
+		// the lock before the narrow phase that reports the body's hits (NarrowPhaseQuery.cpp), so what the hits need is taken
+		// there; the shape stays alive in Jolt's TransformedShape until OnBodyEnd.
+		struct QueryBody
+		{
+			UUID Entity = UUID::Invalid();
+			JPH::Shape const* Shape = nullptr;
+			JPH::RMat44 InverseCenterOfMass = JPH::RMat44::sIdentity();
+
+			void Take(JPH::Body const& body)
+			{
+				Entity = UUID(body.GetUserData());
+				Shape = body.GetShape();
+				InverseCenterOfMass = body.GetInverseCenterOfMassTransform();
+			}
+
+			// The physics material of the surface of the sub-shape hit.
+			AssetHandle FindMaterial(std::vector<ColliderMaterial> const& materials, JPH::SubShapeID const& subShape) const
+			{
+				SubShapeMaterial const material = FindSubShapeMaterial(materials, *Shape, subShape);
+				return material.Surface != nullptr ? material.Surface->Material : AssetHandle();
+			}
+
+			// The surface normal at a world position on the sub-shape (Body::GetWorldSpaceSurfaceNormal, Body.inl).
+			glm::vec3 GetSurfaceNormal(JPH::SubShapeID const& subShape, JPH::RVec3Arg position) const
+			{
+				JPH::Vec3 const local = Shape->GetSurfaceNormal(subShape, JPH::Vec3(InverseCenterOfMass * position));
+				return Jolt::ToGlm(InverseCenterOfMass.Multiply3x3Transposed(local).Normalized());
+			}
+		};
+
+		// RaycastAll's hits: one per body, its nearest.
+		class RayHitCollector final : public JPH::CastRayCollector
+		{
+		public:
+			RayHitCollector(JPH::RRayCast const& ray, float length, std::vector<ColliderMaterial> const& materials,
+			                std::vector<RaycastHit>& hits)
+				: m_Ray(ray),
+				  m_Length(length),
+				  m_Materials(materials),
+				  m_Hits(hits)
+			{
+			}
+
+			void OnBody(JPH::Body const& body) override
+			{
+				m_Body.Take(body);
+				m_HasHit = false;
+			}
+
+			void AddHit(JPH::RayCastResult const& result) override
+			{
+				if (m_Body.Shape == nullptr || (m_HasHit && !IsBodyHitBefore(result.mFraction, result.mSubShapeID2, m_Key, m_SubShape)))
+				{
+					return;
+				}
+				JPH::RVec3 const point = m_Ray.GetPointOnRay(result.mFraction);
+				m_Hit.Entity = m_Body.Entity;
+				m_Hit.Point = Jolt::ToGlm(point);
+				m_Hit.Normal = m_Body.GetSurfaceNormal(result.mSubShapeID2, point);
+				m_Hit.Distance = result.mFraction * m_Length;
+				m_Hit.Material = m_Body.FindMaterial(m_Materials, result.mSubShapeID2);
+				m_HasHit = true;
+				m_Key = result.mFraction;
+				m_SubShape = result.mSubShapeID2;
+			}
+
+			void OnBodyEnd() override
+			{
+				if (m_HasHit)
+				{
+					m_Hits.push_back(m_Hit);
+				}
+				m_Body = {};
+				m_HasHit = false;
+			}
+
+		private:
+			JPH::RRayCast const& m_Ray;
+			float m_Length;
+			std::vector<ColliderMaterial> const& m_Materials;
+			std::vector<RaycastHit>& m_Hits;
+			// The body being reported, and its nearest hit so far.
+			QueryBody m_Body;
+			bool m_HasHit = false;
+			RaycastHit m_Hit;
+			float m_Key = 0.0f;
+			JPH::SubShapeID m_SubShape;
+		};
+
+		// ShapeCast's hit: of each body its nearest, and of the bodies the first by IsQueryHitBefore.
+		class ShapeHitCollector final : public JPH::CastShapeCollector
+		{
+		public:
+			ShapeHitCollector(glm::vec3 const& origin, glm::vec3 const& direction, float length,
+			                  std::vector<ColliderMaterial> const& materials)
+				: m_Origin(origin),
+				  m_Direction(direction),
+				  m_Length(length),
+				  m_Materials(materials)
+			{
+			}
+
+			void OnBody(JPH::Body const& body) override
+			{
+				m_Body.Take(body);
+				m_HasHit = false;
+			}
+
+			void AddHit(JPH::ShapeCastResult const& result) override
+			{
+				float const key = result.GetEarlyOutFraction();
+				if (m_Body.Shape == nullptr || (m_HasHit && !IsBodyHitBefore(key, result.mSubShapeID2, m_Key, m_SubShape)))
+				{
+					return;
+				}
+				m_Hit.Entity = m_Body.Entity;
+				// Jolt's points are relative to the cast's base offset, its origin.
+				m_Hit.Point = m_Origin + Jolt::ToGlm(result.mContactPointOn2);
+				// The penetration axis points from the cast shape into the collider hit (and is the cast's direction where Jolt
+				// cannot tell, EPAPenetrationDepth::CastShape).
+				std::optional<glm::vec3> const into = MakeUnitDirection(Jolt::ToGlm(result.mPenetrationAxis));
+				m_Hit.Normal = into ? -*into : -m_Direction;
+				m_Hit.Distance = result.mFraction * m_Length;
+				m_Hit.Material = m_Body.FindMaterial(m_Materials, result.mSubShapeID2);
+				m_HasHit = true;
+				m_Key = key;
+				m_SubShape = result.mSubShapeID2;
+			}
+
+			void OnBodyEnd() override
+			{
+				if (m_HasHit && (!m_First || IsQueryHitBefore(m_Hit.Distance, m_Hit.Entity, m_First->Distance, m_First->Entity)))
+				{
+					m_First = m_Hit;
+				}
+				m_Body = {};
+				m_HasHit = false;
+			}
+
+			std::optional<ShapeCastHit> const& GetFirst() const { return m_First; }
+
+		private:
+			glm::vec3 m_Origin;
+			glm::vec3 m_Direction;
+			float m_Length;
+			std::vector<ColliderMaterial> const& m_Materials;
+			// The body being reported, and its nearest hit so far.
+			QueryBody m_Body;
+			bool m_HasHit = false;
+			ShapeCastHit m_Hit;
+			float m_Key = 0.0f;
+			JPH::SubShapeID m_SubShape;
+			std::optional<ShapeCastHit> m_First;
+		};
+
+		// Overlap's entities: each body with a hit, once.
+		class OverlapCollector final : public JPH::CollideShapeCollector
+		{
+		public:
+			explicit OverlapCollector(std::vector<UUID>& entities)
+				: m_Entities(entities)
+			{
+			}
+
+			void OnBody(JPH::Body const& body) override
+			{
+				m_Entity = UUID(body.GetUserData());
+				m_HasHit = false;
+			}
+
+			void AddHit(JPH::CollideShapeResult const&) override { m_HasHit = true; }
+
+			void OnBodyEnd() override
+			{
+				if (m_HasHit)
+				{
+					m_Entities.push_back(m_Entity);
+				}
+				m_HasHit = false;
+			}
+
+		private:
+			std::vector<UUID>& m_Entities;
+			UUID m_Entity = UUID::Invalid();
+			bool m_HasHit = false;
+		};
 	}
 
 	struct PhysicsScene::Data
@@ -2460,5 +2783,96 @@ namespace Strada
 			return result;
 		}
 		return std::nullopt;
+	}
+
+	size_t PhysicsScene::RaycastAll(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance, std::vector<RaycastHit>& hits,
+	                                PhysicsQueryFilter const& filter) const
+	{
+		hits.clear();
+		std::optional<glm::vec3> const unit = MakeUnitDirection(direction);
+		std::optional<float> const length = MakeQueryDistance(maxDistance);
+		if (!unit || !length || !IsQueryPosition(origin))
+		{
+			return 0;
+		}
+		JPH::RRayCast const ray(Jolt::ToJolt(origin), Jolt::ToJolt(*unit * *length));
+		// As Raycast: a ray starting inside a convex collider passes out of it, and triangles are hit from the front only
+		// (RayCastSettings' default back-face modes).
+		JPH::RayCastSettings settings;
+		settings.mTreatConvexAsSolid = false;
+		RayHitCollector collector(ray, *length, m_Data->Materials, hits);
+		// The trigger rule tests each sub-shape before its narrow phase, so a trigger in front never hides what is behind it.
+		SolidShapeFilter const solid(m_Data->Materials);
+		JPH::ShapeFilter const everything{};
+		JPH::ShapeFilter const& shapes = filter.IncludeTriggers ? everything : solid;
+		m_Data->System.GetNarrowPhaseQuery().CastRay(ray, settings, collector, {}, LayerMaskFilter(filter.LayerMask), {}, shapes);
+		std::sort(hits.begin(), hits.end(),
+		          [](RaycastHit const& a, RaycastHit const& b)
+		          {
+					  return IsQueryHitBefore(a.Distance, a.Entity, b.Distance, b.Entity);
+				  });
+		return hits.size();
+	}
+
+	std::optional<ShapeCastHit> PhysicsScene::ShapeCast(PhysicsQueryShape const& shape, glm::vec3 const& origin, glm::quat const& rotation,
+	                                                    glm::vec3 const& direction, float maxDistance,
+	                                                    PhysicsQueryFilter const& filter) const
+	{
+		QueryShape const queryShape(shape);
+		std::optional<glm::vec3> const unit = MakeUnitDirection(direction);
+		std::optional<float> const length = MakeQueryDistance(maxDistance);
+		std::optional<JPH::RMat44> const start = MakeQueryTransform(origin, rotation);
+		if (queryShape.Get() == nullptr || !unit || !length || !start)
+		{
+			return std::nullopt;
+		}
+		JPH::RShapeCast const cast(queryShape.Get(), JPH::Vec3::sOne(), *start, Jolt::ToJolt(*unit * *length));
+		JPH::ShapeCastSettings settings;
+		// Triangles are one-sided, as for rays: a cast passes a triangle it reaches from behind or moves away from
+		// (CastConvexVsTriangles.cpp, CastSphereVsTriangles.cpp).
+		settings.mBackFaceModeTriangles = JPH::EBackFaceMode::IgnoreBackFaces;
+		// A convex collider the shape overlaps where it starts is hit at fraction 0 whichever way the cast goes (with
+		// IgnoreBackFaces ConvexShape::sCastConvexVsConvex drops it when the cast moves out of it), at the deepest point of
+		// the overlap (EPAPenetrationDepth::CastShape runs EPA for it where GJK's points are not reliable).
+		settings.mBackFaceModeConvex = JPH::EBackFaceMode::CollideWithBackFaces;
+		settings.mReturnDeepestPoint = true;
+		// The shapes as they are, sharp edges included, rather than shrunk and rounded by their convex radius.
+		settings.mUseShrunkenShapeAndConvexRadius = false;
+		// On the inner edges of a triangle mesh, the face's normal where that hinders the cast's movement less.
+		settings.mActiveEdgeMovementDirection = Jolt::ToJolt(*unit);
+		ShapeHitCollector collector(origin, *unit, *length, m_Data->Materials);
+		SolidShapeFilter const solid(m_Data->Materials);
+		JPH::ShapeFilter const everything{};
+		JPH::ShapeFilter const& shapes = filter.IncludeTriggers ? everything : solid;
+		m_Data->System.GetNarrowPhaseQuery().CastShape(cast, settings, Jolt::ToJolt(origin), collector, {},
+		                                               LayerMaskFilter(filter.LayerMask), {}, shapes);
+		return collector.GetFirst();
+	}
+
+	size_t PhysicsScene::Overlap(PhysicsQueryShape const& shape, glm::vec3 const& center, glm::quat const& rotation,
+	                             std::vector<UUID>& entities, PhysicsQueryFilter const& filter) const
+	{
+		entities.clear();
+		QueryShape const queryShape(shape);
+		std::optional<JPH::RMat44> const transform = MakeQueryTransform(center, rotation);
+		if (queryShape.Get() == nullptr || !transform)
+		{
+			return 0;
+		}
+		JPH::CollideShapeSettings settings;
+		// Volumes that meet: a triangle counts from either side.
+		settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+		OverlapCollector collector(entities);
+		SolidShapeFilter const solid(m_Data->Materials);
+		JPH::ShapeFilter const everything{};
+		JPH::ShapeFilter const& shapes = filter.IncludeTriggers ? everything : solid;
+		m_Data->System.GetNarrowPhaseQuery().CollideShape(queryShape.Get(), JPH::Vec3::sOne(), *transform, settings, Jolt::ToJolt(center),
+		                                                  collector, {}, LayerMaskFilter(filter.LayerMask), {}, shapes);
+		std::sort(entities.begin(), entities.end(),
+		          [](UUID a, UUID b)
+		          {
+					  return a.GetValue() < b.GetValue();
+				  });
+		return entities.size();
 	}
 }
