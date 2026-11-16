@@ -599,10 +599,11 @@ namespace
 		// command is sent a request that succeeds. graph.find gets a text alone (every script is searched, and one that does not
 		// load is reported, not refused), then the references of the state's script's first variable; graph.set the state's
 		// script's own document; graph.create, every data asset type's create and profiler.capture a file of a name not given
-		// before (the drawn names exist after their first success), a data asset with its type's defaults. A request that still
-		// fails (the state can be a few rounds old, the profiler can hold no frames yet) is followed by another at the command's
-		// next round, so reaching every goal needs only a round or two of its command, whatever the other draws and the commands
-		// registered. Nothing is drawn here, so every other request stays as the stream made it.
+		// before (the drawn names exist after their first success), a data asset with its type's defaults; project.copy-example
+		// the available example into a fresh directory, unopened. A request that still fails (the state can be a few rounds old,
+		// the profiler can hold no frames yet) is followed by another at the command's next round, so reaching every goal needs
+		// only a round or two of its command, whatever the other draws and the commands registered. Nothing is drawn here, so
+		// every other request stays as the stream made it.
 		std::optional<Json> SureRequest()
 		{
 			std::string const command(m_Command);
@@ -632,6 +633,12 @@ namespace
 			if (command == "profiler.capture" && Profiler::GetStatus().Available)
 			{
 				return Json::object({{"path", "Captures/Sure" + std::to_string(m_SureFiles++) + ".json"}});
+			}
+			// The test content's available example, into a directory not given before, never opened (an open copy would replace
+			// the fuzzed project).
+			if (command == "project.copy-example")
+			{
+				return Json::object({{"example", "tiny"}, {"directory", "Copies/Sure" + std::to_string(m_SureFiles++)}, {"open", false}});
 			}
 			if (DataAssetType const* type = FindDataAssetCommandType(m_Command); type != nullptr && command.ends_with(".create"))
 			{
