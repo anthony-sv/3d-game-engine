@@ -55,6 +55,8 @@ component and the whole scripting API.
 
 - `entity_create` with `name`, `parent` and `components`, such as
   `{"Transform": {"Translation": [0, 1, 0], "RotationEuler": [0, 45, 0]}, "Mesh": {"Mesh": "builtin://Cube"}}`.
+  Many entities of one kind (a level's trees, a fence's posts) go in one request: `children`, a list of
+  `{name, components}` made under the new entity in one undo step.
 - Entities are UUIDs written as strings. Asset fields take `asset://<path in Assets>` or `builtin://<Name>`.
   Rotations are quaternions `[x, y, z, w]`, or `RotationEuler` in degrees on Transform.
 - `component_add`, `component_set` (partial patch) and `component_remove` change entities; `entity_reparent`,

@@ -69,6 +69,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -85,6 +86,16 @@ namespace Strada
 		SchemaBuilder EntityListSchema(std::string_view description)
 		{
 			return SchemaBuilder::Array(EntityIdSchema("Entity ID"), description).MinItems(1);
+		}
+
+		// The most children one entity.create makes: a level's props in one request, well below what the automation
+		// server's largest message (16 MiB) can describe.
+		constexpr uint64_t MaxCreatedChildren = 65536;
+
+		SchemaBuilder ComponentsSchema()
+		{
+			return SchemaBuilder::Object("Components to add: { \"<Component>\": { \"<Field>\": value } }")
+			    .AdditionalProperties(SchemaBuilder::Object().AllowAdditionalProperties());
 		}
 
 		// Parses an entity ID parameter ("<decimal UUID>").
@@ -141,6 +152,37 @@ namespace Strada
 				                        name);
 			}
 			return info;
+		}
+
+		// Parses an entity ID parameter that no entity of the scene has yet (an entity to create).
+		CommandValue<UUID> ParseUnusedEntityId(EditorOperations& operations, Json const& value, std::string_view parameter)
+		{
+			CommandValue<UUID> id = ParseEntityId(value, parameter);
+			if (!id)
+			{
+				return id;
+			}
+			if (operations.FindEntity(id.GetValue()))
+			{
+				CommandError error =
+					MakeCommandError(AutomationErrorCode::InvalidParams, "an entity with the ID {} exists already", id.GetValue());
+				error.Data = Json::object({{"path", std::string(parameter)}});
+				return error;
+			}
+			return id;
+		}
+
+		// Whether every component a { "<Component>": { fields } } object names is one users may name.
+		CommandValue<bool> CheckPublicComponents(Json const& components)
+		{
+			for (auto const& [component, fields] : components.items())
+			{
+				if (CommandValue<ComponentInfo const*> known = FindPublicComponent(component); !known)
+				{
+					return known.TakeError();
+				}
+			}
+			return true;
 		}
 
 		CommandError Failure(AutomationErrorCode code, Result<void> const& result)
@@ -5159,74 +5201,137 @@ namespace Strada
 
 			Result<void> RegisterEntities()
 			{
-				Result<void> result =
-					Add("entity.create",
-				        "Creates an entity, optionally under a parent and with components in the scene-file format ({ \"PointLight\": { "
-				        "\"Range\": 5 }, \"Transform\": { \"Translation\": [0, 1, 0] } }). Asset fields accept \"builtin://Cube\" and "
-				        "\"asset://<path>\". Returns the new entity ID: the one given (no entity of the scene may have it), or a "
-				        "fresh one.",
-				        SchemaBuilder::Object()
-				            .Property("name", SchemaBuilder::String("Entity name").MinLength(1).Default("Entity"))
-				            .Property("id", EntityIdSchema("The new entity's ID, unused in the scene (omit for a fresh one), so that a "
-				                                           "tool that makes a scene again keeps its entities' IDs"))
-				            .Property("parent", EntityIdSchema("Parent entity ID (omit for a root entity)"))
-				            .Property("siblingIndex", SchemaBuilder::Integer("Position among the siblings (default: last)").Minimum(0))
-				            .Property("components", SchemaBuilder::Object("Components to add: { \"<Component>\": { \"<Field>\": value } }")
-				                                        .AdditionalProperties(SchemaBuilder::Object().AllowAdditionalProperties()))
-				            .Build(),
-				        false,
-				        [this](Json const& params) -> CommandResult
-				        {
-							EntityCreateInfo info;
-							info.Name = GetString(params, "name", "Entity");
-							std::optional<UUID> id;
-							if (params.contains("id"))
+				Result<void> result = Add(
+					"entity.create",
+					"Creates an entity, optionally under a parent and with components in the scene-file format ({ \"PointLight\": { "
+					"\"Range\": 5 }, \"Transform\": { \"Translation\": [0, 1, 0] } }). Asset fields accept \"builtin://Cube\" and "
+					"\"asset://<path>\". Returns the new entity ID: the one given (no entity of the scene may have it), or a "
+					"fresh one. With children, it also creates those entities under the new one, in order and in the same undo "
+					"step (many props of a level in one request), and returns their IDs too; nothing is created when one is "
+					"refused.",
+					SchemaBuilder::Object()
+						.Property("name", SchemaBuilder::String("Entity name").MinLength(1).Default("Entity"))
+						.Property("id", EntityIdSchema("The new entity's ID, unused in the scene (omit for a fresh one), so that a "
+				                                       "tool that makes a scene again keeps its entities' IDs"))
+						.Property("parent", EntityIdSchema("Parent entity ID (omit for a root entity)"))
+						.Property("siblingIndex", SchemaBuilder::Integer("Position among the siblings (default: last)").Minimum(0))
+						.Property("components", ComponentsSchema())
+						.Property("children", SchemaBuilder::Array(
+												  SchemaBuilder::Object("A child: its name, ID and components, as the entity's")
+													  .Property("name", SchemaBuilder::String("Child name").MinLength(1).Default("Entity"))
+													  .Property("id", EntityIdSchema("The child's ID, unused in the scene and by the "
+				                                                                     "other entities of the request (omit for a "
+				                                                                     "fresh one)"))
+													  .Property("components", ComponentsSchema()),
+												  "Entities to create under the new one, in order (one undo step with it)")
+				                                  .MaxItems(MaxCreatedChildren))
+						.Build(),
+					false,
+					[this](Json const& params) -> CommandResult
+					{
+						EntityCreateInfo info;
+						info.Name = GetString(params, "name", "Entity");
+						std::optional<UUID> id;
+						if (params.contains("id"))
+						{
+							CommandValue<UUID> given = ParseUnusedEntityId(m_Operations, params["id"], "id");
+							if (!given)
 							{
-								CommandValue<UUID> given = ParseEntityId(params["id"], "id");
-								if (!given)
-								{
-									return given.TakeError();
-								}
-								if (m_Operations.FindEntity(given.GetValue()))
-								{
-									CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams,
-							                                              "an entity with the ID {} exists already", given.GetValue());
-									error.Data = Json::object({{"path", "id"}});
-									return error;
-								}
-								id = given.GetValue();
+								return given.TakeError();
 							}
-							if (params.contains("parent"))
+							id = given.GetValue();
+						}
+						if (params.contains("parent"))
+						{
+							CommandValue<UUID> parent = ParseExistingEntity(m_Operations, params["parent"], "parent");
+							if (!parent)
 							{
-								CommandValue<UUID> parent = ParseExistingEntity(m_Operations, params["parent"], "parent");
-								if (!parent)
-								{
-									return parent.TakeError();
-								}
-								info.Parent = parent.GetValue();
+								return parent.TakeError();
 							}
-							if (params.contains("siblingIndex"))
+							info.Parent = parent.GetValue();
+						}
+						if (params.contains("siblingIndex"))
+						{
+							info.SiblingIndex = params["siblingIndex"].get<size_t>();
+						}
+						if (params.contains("components"))
+						{
+							if (CommandValue<bool> known = CheckPublicComponents(params["components"]); !known)
 							{
-								info.SiblingIndex = params["siblingIndex"].get<size_t>();
+								return known.TakeError();
 							}
-							if (params.contains("components"))
-							{
-								for (auto const& [component, fields] : params["components"].items())
-								{
-									if (CommandValue<ComponentInfo const*> known = FindPublicComponent(component); !known)
-									{
-										return known.TakeError();
-									}
-								}
-								info.Components = params["components"];
-							}
+							info.Components = params["components"];
+						}
+						if (!params.contains("children"))
+						{
 							Result<UUID> created = m_Operations.CreateEntity(std::move(info), id);
 							if (!created)
 							{
 								return CommandError{AutomationErrorCode::InvalidParams, created.GetError(), Json()};
 							}
 							return Json::object({{"id", created.GetValue().ToString()}});
-						});
+						}
+
+						// Every child is checked before anything is created: its ID unused and given once, its
+					    // components known.
+						Json const& requested = params["children"];
+						std::vector<EntityCreateInfo> children;
+						children.reserve(requested.size());
+						std::vector<std::optional<UUID>> ids;
+						ids.reserve(requested.size() + 1);
+						ids.push_back(id);
+						std::unordered_set<UUID> given;
+						if (id)
+						{
+							given.insert(*id);
+						}
+						for (size_t index = 0; index < requested.size(); index++)
+						{
+							Json const& request = requested[index];
+							std::string const path = fmt::format("children[{}]", index);
+							EntityCreateInfo child;
+							child.Name = GetString(request, "name", "Entity");
+							std::optional<UUID> childId;
+							if (request.contains("id"))
+							{
+								CommandValue<UUID> parsed = ParseUnusedEntityId(m_Operations, request["id"], path + ".id");
+								if (!parsed)
+								{
+									return parsed.TakeError();
+								}
+								if (!given.insert(parsed.GetValue()).second)
+								{
+									CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams,
+								                                          "the ID {} is given to two entities", parsed.GetValue());
+									error.Data = Json::object({{"path", path + ".id"}});
+									return error;
+								}
+								childId = parsed.GetValue();
+							}
+							if (request.contains("components"))
+							{
+								if (CommandValue<bool> known = CheckPublicComponents(request["components"]); !known)
+								{
+									return known.TakeError();
+								}
+								child.Components = request["components"];
+							}
+							children.push_back(std::move(child));
+							ids.push_back(childId);
+						}
+						Result<std::vector<UUID>> created =
+							m_Operations.CreateEntityWithChildren(std::move(info), std::move(children), ids);
+						if (!created)
+						{
+							return CommandError{AutomationErrorCode::InvalidParams, created.GetError(), Json()};
+						}
+						Json childIds = Json::array();
+						for (size_t index = 1; index < created.GetValue().size(); index++)
+						{
+							childIds.push_back(created.GetValue()[index].ToString());
+						}
+						return Json::object({{"id", created.GetValue().front().ToString()}, {"children", std::move(childIds)}});
+					});
 				result =
 					result
 						? Add("entity.delete", "Deletes entities and their descendants (one undo step).",

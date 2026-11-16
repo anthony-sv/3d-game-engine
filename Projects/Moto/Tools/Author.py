@@ -10,13 +10,18 @@ visual scripts alone (no C#). In order:
 3. the lighting part: the sun, the sky and the scene's renderer settings (shadows over 220 m in four cascades);
 4. the camera part: the main camera at the home view over the start, its far plane past the hills, and its tour, a graph
    (Scripts/Tour.sgraph) whose timeline flies it once round the circuit and home (Tour.py makes the path);
-5. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks) and its graphs (Checks.py);
-6. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+5. the props part: 10,000 props placed by seed (Props.py: tyre stacks, cones, braking markers, catch fences, advertising
+   boards, grandstands, marshals' posts, floodlights, bushes and trees) on the meshes and textures GenerateAssets.py makes
+   (Meshes/Props, Textures/Props) with two materials (Materials/Props), a group under the Props entity for each kind,
+   each group made with all its props in one request;
+6. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks and without the props) and its
+   graphs (Checks.py);
+7. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
    rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
    path puts it; and nothing logs a warning.
 
     python Projects/Moto/Tools/Author.py [strada executable]
-    python Projects/Moto/Tools/Author.py --part camera [strada executable]
+    python Projects/Moto/Tools/Author.py --part props [strada executable]
 
 The project is rebuilt from scratch: everything but this Tools folder is replaced. Without an executable, strada runs
 from the repository (dotnet run).
@@ -47,6 +52,7 @@ import Checks  # noqa: E402  (the test scene and its graphs)
 import Circuit  # noqa: E402  (the layout)
 import GenerateAssets  # noqa: E402  (the circuit's meshes, textures and sky)
 import Graphs  # noqa: E402  (writing graphs)
+import Props  # noqa: E402  (the props' placement)
 import Tour  # noqa: E402  (the camera tour)
 
 PROJECT = os.path.dirname(TOOLS)
@@ -102,10 +108,12 @@ PARTS = {
                                "Assets/AssetRegistry.sreg")),
     "lighting": (("Sun", "Sky"), ("Assets/Scenes/Main.sscene",)),
     "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Tour.sgraph", "Assets/AssetRegistry.sreg")),
+    "props": (("Props",), ("Assets/Meshes/Props/*.gltf", "Assets/Textures/Props/*.png", "Assets/Materials/Props/*.smat",
+                           "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
     "tests": ((), ("Assets/Scenes/Tests.sscene", "Assets/Scripts/Checks.sgraph", "Assets/Scripts/Tests.sgraph",
                    "Assets/AssetRegistry.sreg")),
 }
-ORDER = ("circuit", "lighting", "camera", "tests")
+ORDER = ("circuit", "lighting", "camera", "props", "tests")
 # The parts that make entities of the main scene.
 SCENE_PARTS = ORDER[:-1]
 # Every graph of the project, in the order they are written.
@@ -244,6 +252,26 @@ class Moto:
         self.paths[created] = path
         return created
 
+    def entity_with_children(self, name, components, parent, children):
+        """Creates an entity under the parent and its children ([(name, components)]) in one request, each with the ID it
+        had before the part made it again (a new one when it had none); returns the entity's ID. Siblings' names are
+        unique, so that a name from the root finds one entity."""
+        path = self.paths[parent] + (name,)
+        assert len({child for child, _ in children}) == len(children), f"{name}: children share names"
+        arguments = {"name": name, "parent": parent, "components": components, "children": []}
+        if path in self.previous_ids:
+            arguments["id"] = self.previous_ids[path]
+        for child, child_components in children:
+            request = {"name": child, "components": child_components}
+            if path + (child,) in self.previous_ids:
+                request["id"] = self.previous_ids[path + (child,)]
+            arguments["children"].append(request)
+        created = self.call("entity_create", arguments)
+        self.paths[created["id"]] = path
+        for (child, _), child_id in zip(children, created["children"]):
+            self.paths[child_id] = path + (child,)
+        return created["id"]
+
     def material(self, name, fields):
         """The material at Materials/<name>.smat with the fields: created, or set when it exists (its handle stays). Set
         replaces only the fields given, so every material gives all the fields it changes from the defaults."""
@@ -276,7 +304,7 @@ class Moto:
 
     def build_part(self, part):
         self.remove_roots(PARTS[part][0])
-        {"circuit": self.make_circuit, "lighting": self.make_lighting, "camera": self.make_camera}[part]()
+        {"circuit": self.make_circuit, "lighting": self.make_lighting, "camera": self.make_camera, "props": self.make_props}[part]()
 
     def write_graphs(self, graphs, declare, write):
         """Writes graphs from scratch, keeping the handles of those that exist: declare(author) adds their interfaces and
@@ -289,7 +317,7 @@ class Moto:
         print(f"wrote {', '.join(graph[len('asset://'):] for graph in graphs)} in {author.batches} batches")
 
     def make_circuit(self):
-        GenerateAssets.generate(os.path.join(PROJECT, "Assets"), GenerateAssets.SEED)
+        GenerateAssets.generate(os.path.join(PROJECT, "Assets"), GenerateAssets.SEED, groups=("circuit",))
         refreshed = self.call("asset_refresh")
         if refreshed.get("warnings"):
             raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
@@ -376,6 +404,35 @@ class Moto:
                 "EmissiveColor": [1.0, 1.0, 1.0], "EmissiveIntensity": 0.6, "EmissiveTexture": "asset://Textures/SectorBoards.png",
                 "UVTiling": [1.0 / 3.0, 1.0], "UVOffset": [(number - 1) / 3.0, 0.0]})
         material("BridgePanel", {"BaseColor": [0.05, 0.2, 0.55, 1.0], "Roughness": 0.5})
+
+    def make_props(self):
+        """The props (Props.py places them, GenerateAssets.py makes their meshes and textures): their two materials, then a
+        group under Props for each kind, made with all its props in one request."""
+        GenerateAssets.generate(os.path.join(PROJECT, "Assets"), GenerateAssets.SEED, groups=("props",))
+        refreshed = self.call("asset_refresh")
+        if refreshed.get("warnings"):
+            raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
+        materials = {
+            # The atlas of flat colors, figures and names that every prop but the fence's panels is drawn with.
+            "Props": self.material("Props/Props", {"BaseColorTexture": "asset://Textures/Props/Props.png", "Roughness": 0.8}),
+            # The chain-link, galvanized: its holes cut out, seen from both sides.
+            "Fence": self.material("Props/Fence", {"BaseColorTexture": "asset://Textures/Props/Fence.png", "Roughness": 0.45,
+                                                   "Metallic": 0.6, "AlphaMode": "Mask", "AlphaCutoff": 0.5, "DoubleSided": True}),
+        }
+        props = Props.place()
+        print("props:", Props.check(props))
+        root = self.entity("Props", {"Transform": {"Translation": [0.0, 0.0, 0.0]}})
+        for group, name, meshes in Props.GROUPS:
+            members = [prop for prop in props if prop.mesh in meshes]
+            children = []
+            for number, prop in enumerate(members, start=1):
+                transform = {"Translation": list(prop.position), "RotationEuler": [0.0, prop.yaw, 0.0]}
+                if prop.scale != (1.0, 1.0, 1.0):
+                    transform["Scale"] = list(prop.scale)
+                children.append((f"{name} {number}", {
+                    "Transform": transform,
+                    "Mesh": {"Mesh": mesh(f"Props/{prop.mesh}"), "Materials": [materials[GenerateAssets.prop_material(prop.mesh)]]}}))
+            self.entity_with_children(group, {}, root, children)
 
     def make_lighting(self):
         self.call("scene_settings", {"name": "Main", "settings": {"Renderer": {

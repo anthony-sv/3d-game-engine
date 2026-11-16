@@ -116,8 +116,12 @@ namespace Strada
 		// Creates an entity with the given ID (an ID no entity of the scene has; a fresh one when none is given), so that a tool
 		// that makes a scene again can keep the IDs it had.
 		[[nodiscard]] Result<UUID> CreateEntity(EntityCreateInfo info, std::optional<UUID> id = std::nullopt);
-		// Creates an entity and children under it (their Parent is replaced) as one undo step. Returns the IDs, the root's first.
-		[[nodiscard]] Result<std::vector<UUID>> CreateEntityWithChildren(EntityCreateInfo root, std::vector<EntityCreateInfo> children);
+		// Creates an entity and children under it (their Parent is replaced), in order, as one undo step. The IDs are empty
+		// (every entity gets a fresh one) or one per entity, the root's first, then each child's: an ID no entity of the scene
+		// and no other entity of the call has, or none for a fresh one. Returns the IDs, the root's first; on failure nothing
+		// is created.
+		[[nodiscard]] Result<std::vector<UUID>> CreateEntityWithChildren(EntityCreateInfo root, std::vector<EntityCreateInfo> children,
+		                                                                 std::span<std::optional<UUID> const> ids = {});
 		[[nodiscard]] Result<void> DeleteEntities(std::span<UUID const> entities);
 		// Returns the UUIDs of the copies, one per duplicated subtree, in request order.
 		[[nodiscard]] Result<std::vector<UUID>> DuplicateEntities(std::span<UUID const> entities);

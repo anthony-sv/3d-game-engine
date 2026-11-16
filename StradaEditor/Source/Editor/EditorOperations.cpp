@@ -21,8 +21,12 @@
 #include "Strada/Scene/SceneSerializer.h"
 
 #include <algorithm>
+#include <optional>
+#include <span>
 #include <system_error>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -374,18 +378,48 @@ namespace Strada
 		return created;
 	}
 
-	Result<std::vector<UUID>> EditorOperations::CreateEntityWithChildren(EntityCreateInfo root, std::vector<EntityCreateInfo> children)
+	Result<std::vector<UUID>> EditorOperations::CreateEntityWithChildren(EntityCreateInfo root, std::vector<EntityCreateInfo> children,
+	                                                                     std::span<std::optional<UUID> const> givenIds)
 	{
 		Scene& scene = m_Context.GetScene();
-		std::vector<UUID> ids;
-		ids.reserve(children.size() + 1);
-		while (ids.size() < children.size() + 1)
+		size_t const count = children.size() + 1;
+		if (!givenIds.empty() && givenIds.size() != count)
 		{
-			UUID const id = scene.GenerateUniqueID();
-			if (std::find(ids.begin(), ids.end(), id) == ids.end())
+			return MakeError("{} IDs for {} entities", givenIds.size(), count);
+		}
+		// The given IDs first, so that no fresh one takes an ID a later entity of the call asks for.
+		std::unordered_set<UUID> taken;
+		taken.reserve(count);
+		for (std::optional<UUID> const& id : givenIds)
+		{
+			if (!id)
 			{
-				ids.push_back(id);
+				continue;
 			}
+			if (!id->IsValid() || scene.HasEntity(*id))
+			{
+				return MakeError("entity ID {} is invalid or already in use", *id);
+			}
+			if (!taken.insert(*id).second)
+			{
+				return MakeError("entity ID {} is given twice", *id);
+			}
+		}
+		std::vector<UUID> ids;
+		ids.reserve(count);
+		for (size_t index = 0; index < count; index++)
+		{
+			if (!givenIds.empty() && givenIds[index])
+			{
+				ids.push_back(*givenIds[index]);
+				continue;
+			}
+			UUID id = scene.GenerateUniqueID();
+			while (!taken.insert(id).second)
+			{
+				id = scene.GenerateUniqueID();
+			}
+			ids.push_back(id);
 		}
 		std::vector<Scope<EditorCommand>> commands;
 		commands.reserve(ids.size());

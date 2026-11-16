@@ -4075,12 +4075,25 @@ that each platform's names are tested on every platform:
   write (`circuit`: the generated assets, the materials and the `Circuit` entity with the track, the walls, the ground,
   the hills, the start gantry, the sector gates and the footbridge, every surface a static body with a triangle-mesh
   `MeshCollider`; `lighting`: the sun, the sky and the renderer settings, shadows over 220 m in four cascades;
-  `camera`: the main camera, near plane 0.1 m and far plane 5 km, and its tour; `tests`: the test scene and its graphs);
+  `camera`: the main camera, near plane 0.1 m and far plane 5 km, and its tour; `props`: the props' meshes, textures and
+  materials and the `Props` entity; `tests`: the test scene and its graphs);
   `--part <name>` rebuilds one part in place, then the `tests` part (the test scene is the main scene with the checks,
   which name its entities), and fails, naming them, when files neither owns changed. A part made again keeps what it
   does not change: its roots are made where they stood among the roots, and every entity it makes takes the ID it had
   (found by its names from the root; `entity.create` takes an `id`), as do the test scene's own entities, so a part
-  run again with nothing changed writes the same files. Graphs keep their asset handles
+  run again with nothing changed writes the same files. **The props** are 10,000 static entities placed by seed
+  (`Tools/Props.py`): tyre stacks lining the walls round the corners' outsides and cones at their insides, braking
+  markers, catch fences of posts and chain-link panels, advertising boards with invented names, grandstands, marshals'
+  posts, floodlights, bushes and trees, on 18 meshes `GenerateAssets.py` makes (`Meshes/Props`), each one primitive,
+  and two materials: `Props`, whose texture is an atlas of flat colors, the markers' figures and the boards' names, and
+  `Fence`, a chain-link cut out by an alpha mask and drawn from both sides. So the renderer draws them as instances, a
+  batch per mesh and pass (§6.2, "Instancing"), and the whole frame stays within 400 draws where without instancing each prop would be a draw in
+  every pass that sees it, thousands in a frame (`MotoSceneTests.cpp` holds it on the GPU tests' device). Every prop is an entity
+  of a transform and a mesh in a group of its kind under `Props`, so the editor shows, selects and moves each like any
+  other; the part makes each group with all its props in one `entity.create` request (its `children`), which keeps
+  their IDs and makes the 10,000 in seconds where a request each would take minutes. `Props.py`'s `check()` asserts
+  that no prop stands on any part of the circuit (only the stacks and cones stand at a wall's foot, in the last strip
+  of its skirt), on a structure's legs, piers or stairs, in the camera tour's way or in another prop's. Graphs keep their asset handles
   when they are written again (emptied with `graph.set`, then written batch by batch). The sector gates are timing
   lines whose entities stand on the center line with their forward along the travel: gates 1 and 2 carry an arch, gate
   3 is the start and finish line under the gantry. **The camera tour** is the first sample tour made of a graph
@@ -4094,7 +4107,8 @@ that each platform's names are tested on every platform:
   gantry, low down the straights and under the footbridge, beside the sector gates' boards, higher over the corners).
   Its `check()` evaluates the curves as the engine does (Catmull-Rom on the keys' times, flat at the ends) and asserts
   that the camera keeps 2 m from every surface of the layout the whole way, which is a property of the data, not of
-  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene with a crate over the road, two blocks sent
+  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene without its props, which stand clear of all it
+  checks, with a crate over the road, two blocks sent
   sliding with the scene, the `Waiting Tour` and the `Tests` entity) holds 18 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
   reporting through the `Checks` library): rays down at points of the layout hit the road, a kerb, a wall's top, the
   ground and the footbridge's deck at their heights, facing up, and name the physics material of the asphalt (also

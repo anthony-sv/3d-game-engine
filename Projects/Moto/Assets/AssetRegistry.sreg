@@ -110,6 +110,16 @@
 			"Path": "Materials/MeadowHaze8.smat"
 		},
 		{
+			"Handle": "10253575150139811164",
+			"Type": "Material",
+			"Path": "Materials/Props/Fence.smat"
+		},
+		{
+			"Handle": "6147152729641585606",
+			"Type": "Material",
+			"Path": "Materials/Props/Props.smat"
+		},
+		{
 			"Handle": "17182585141271066399",
 			"Type": "Material",
 			"Path": "Materials/SectorBoard1.smat"
@@ -163,6 +173,96 @@
 			"Handle": "10224707081030729703",
 			"Type": "Mesh",
 			"Path": "Meshes/Hills.gltf"
+		},
+		{
+			"Handle": "14243088392321116845",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Board1.gltf"
+		},
+		{
+			"Handle": "10971304707284091319",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Board2.gltf"
+		},
+		{
+			"Handle": "14203210568648336920",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Board3.gltf"
+		},
+		{
+			"Handle": "16292813448536242772",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Board4.gltf"
+		},
+		{
+			"Handle": "2402020815709396062",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Broadleaf.gltf"
+		},
+		{
+			"Handle": "402928342318649075",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Bush.gltf"
+		},
+		{
+			"Handle": "17869836105486542428",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Cone.gltf"
+		},
+		{
+			"Handle": "248213735155065325",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Conifer.gltf"
+		},
+		{
+			"Handle": "7448858432631607235",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/FencePanel.gltf"
+		},
+		{
+			"Handle": "15183408416693652179",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/FencePost.gltf"
+		},
+		{
+			"Handle": "6598720269516611724",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Grandstand.gltf"
+		},
+		{
+			"Handle": "5514049035235538614",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/LightPole.gltf"
+		},
+		{
+			"Handle": "10380499107730219378",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Marker100.gltf"
+		},
+		{
+			"Handle": "12335030238157461282",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Marker200.gltf"
+		},
+		{
+			"Handle": "11410880206511140239",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Marker300.gltf"
+		},
+		{
+			"Handle": "6856617992762747952",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/MarshalPost.gltf"
+		},
+		{
+			"Handle": "2361608923474482071",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/RoundTree.gltf"
+		},
+		{
+			"Handle": "12706252508619327186",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/TyreStack.gltf"
 		},
 		{
 			"Handle": "17648517083905525447",
@@ -253,6 +353,16 @@
 			"Handle": "13749410299577165266",
 			"Type": "Texture",
 			"Path": "Textures/Meadow.png"
+		},
+		{
+			"Handle": "7985213725984901337",
+			"Type": "Texture",
+			"Path": "Textures/Props/Fence.png"
+		},
+		{
+			"Handle": "3369206380653655569",
+			"Type": "Texture",
+			"Path": "Textures/Props/Props.png"
 		},
 		{
 			"Handle": "3479788475672880843",

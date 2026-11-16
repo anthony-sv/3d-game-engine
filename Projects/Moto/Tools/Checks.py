@@ -1,5 +1,5 @@
-"""Moto's test scene (Scenes/Tests.sscene) and its checks, all of them graphs: the main scene as it is, with a crate to
-drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
+"""Moto's test scene (Scenes/Tests.sscene) and its checks, all of them graphs: the main scene as it is without its props
+(they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
 that waits to be sent it (the Waiting Tour) and the Tests entity, whose graph checks the circuit's surfaces and the camera
 tour one after another, then reports to the test run. Its own entities keep their IDs when it is made again.
 
@@ -188,6 +188,8 @@ TEST_ENTITIES = (
 )
 # The test scene's own entities, which it keeps the IDs of when it is made again.
 OWN_ENTITIES = ("Probe Crate", "Asphalt Slider", "Gravel Slider", "Waiting Tour", "Tests")
+# The main scene's root entities the test scene leaves out.
+LEFT_OUT = ("Props",)
 
 
 # --- The interfaces ---------------------------------------------------------------------------------------------------------
@@ -507,6 +509,11 @@ def build_scene(session, handles, project):
     session.call("scene_open", {"path": "Scenes/Main.sscene"})
     session.call("scene_save", {"path": "Scenes/Tests.sscene"})
     session.call("scene_settings", {"name": "Tests"})
+    # The props stand clear of everything the checks touch and have no colliders: the test scene leaves them out, which
+    # keeps the project small (they are most of the main scene's file) and the test runs short.
+    props = [entity["id"] for entity in session.call("scene_hierarchy")["entities"] if entity["name"] in LEFT_OUT]
+    if props:
+        session.call("entity_delete", {"entities": props})
     create("Probe Crate", {
         "Transform": {"Translation": list(crate_start()), "RotationEuler": [0.0, Circuit.yaw(CRATE_AT), 0.0]},
         "Mesh": {"Mesh": "builtin://Cube"},
