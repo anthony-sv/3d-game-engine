@@ -34,6 +34,7 @@
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 #include "Strada/Serialization/ProfilerCaptureSerializer.h"
@@ -310,6 +311,10 @@ namespace
 			{
 				AdjustRecentParameters(params);
 			}
+			if (params.is_object() && m_Command == "physics.query")
+			{
+				AdjustPhysicsQueryParameters(params);
+			}
 			if (params.is_object())
 			{
 				AdjustDataAssetParameters(params);
@@ -504,6 +509,81 @@ namespace
 			if (params.contains("remove") && m_Random.Pick(2) == 0)
 			{
 				params["remove"] = FileSystem::PathToUtf8(m_Outside / "Missing" / "Missing.sproj");
+			}
+		}
+
+		// physics.query refuses every parameter its kind has no use for, so the independent optional ones would almost never
+		// make a query: four times in five the request keeps only what its kind uses and gains what it needs (a direction, a
+		// shape), and one time in eight a coordinate is not finite, as a request built in memory can hold.
+		void AdjustPhysicsQueryParameters(Json& params)
+		{
+			auto const kind = params.find("kind");
+			if (kind == params.end() || !kind->is_string() || m_Random.Pick(5) == 0)
+			{
+				return;
+			}
+			std::string const kindName = kind->get<std::string>();
+			bool const isRay = kindName == "raycast" || kindName == "raycastAll";
+			bool const moves = kindName != "overlap";
+			if (isRay)
+			{
+				for (char const* const name : {"shape", "radius", "halfExtents", "halfHeight", "rotation", "rotationEuler"})
+				{
+					params.erase(name);
+				}
+			}
+			else
+			{
+				if (!params.contains("shape"))
+				{
+					std::array<char const*, 3> const shapes = {"sphere", "box", "capsule"};
+					params["shape"] = shapes[m_Random.Pick(shapes.size())];
+				}
+				std::string const shape = params["shape"].is_string() ? params["shape"].get<std::string>() : std::string();
+				if (shape == "box")
+				{
+					params.erase("radius");
+				}
+				if (shape != "box")
+				{
+					params.erase("halfExtents");
+				}
+				if (shape != "capsule")
+				{
+					params.erase("halfHeight");
+				}
+				if (shape == "sphere")
+				{
+					params.erase("rotation");
+					params.erase("rotationEuler");
+				}
+				if (params.contains("rotation") && params.contains("rotationEuler"))
+				{
+					params.erase(m_Random.Pick(2) == 0 ? "rotation" : "rotationEuler");
+				}
+			}
+			if (moves && !params.contains("direction"))
+			{
+				params["direction"] = Json::array({0.0, -1.0, 0.0});
+			}
+			if (!moves)
+			{
+				params.erase("direction");
+				params.erase("distance");
+			}
+			if (kindName == "raycast" || kindName == "shapeCast")
+			{
+				params.erase("maxHits");
+			}
+			if (kindName == "raycast")
+			{
+				params.erase("triggers");
+			}
+			if (params.contains("origin") && params["origin"].is_array() && params["origin"].size() == 3 && m_Random.Pick(8) == 0)
+			{
+				std::array<double, 3> const unreadable = {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(),
+				                                          -std::numeric_limits<double>::infinity()};
+				params["origin"][m_Random.Pick(3)] = unreadable[m_Random.Pick(unreadable.size())];
 			}
 		}
 
@@ -2170,6 +2250,12 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 			CHECK(debugRefusals.contains(code));
 		}
 	}
+	// physics.query answers, or is refused for its parameters or because nothing plays (its own case below reaches every kind).
+	for (AutomationErrorCode const code : debugErrors["physics.query"])
+	{
+		CAPTURE(GetAutomationErrorCodeName(code));
+		CHECK((code == AutomationErrorCode::InvalidParams || code == AutomationErrorCode::Unavailable));
+	}
 	// The agent kit's commands set the project up when confirmed, refuse without the user's consent and answer dry runs.
 	CHECK(outcomes["project.agents"].first > 0);
 	CHECK(outcomes["project.setup-agents"].first > 0);
@@ -2197,4 +2283,97 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	// Nothing outside the project changed, but where absolute scene paths pointed, and nothing of the engine content.
 	CHECK(SnapshotFiles(fixture.Directory.GetPath(), writable) == filesBefore);
 	CHECK(SnapshotFiles(Testing::GetTestContentDirectory(), {}) == contentBefore);
+}
+
+TEST_CASE("Automation: physics.query answers any parameters while the scene plays, and every kind reaches its query")
+{
+	FuzzFixture fixture;
+	// A floor, a ball and a trigger capsule below the origin, where the fuzzed rays mostly start and go down, beside the
+	// prefab of everything the project already holds.
+	fixture.Ok("entity.create", Json::object({{"name", "Floor"},
+	                                          {"components",
+	                                           {{"Transform", Json::object({{"Translation", {0.0, -2.0, 0.0}}})},
+	                                            {"BoxCollider", Json::object({{"HalfExtents", {50.0, 0.5, 50.0}}})}}}}));
+	fixture.Ok("entity.create", Json::object({{"name", "Ball"},
+	                                          {"components",
+	                                           {{"Transform", Json::object({{"Translation", {0.0, -1.0, 0.0}}})},
+	                                            {"RigidBody", Json::object({{"Type", "Static"}})},
+	                                            {"SphereCollider", Json::object()}}}}));
+	fixture.Ok("entity.create", Json::object({{"name", "Pillar"},
+	                                          {"components",
+	                                           {{"Transform", Json::object({{"Translation", {0.5, 0.0, 0.5}}})},
+	                                            {"CapsuleCollider", Json::object({{"IsTrigger", true}})}}}}));
+	EditorState const state = fixture.ReadState();
+	ParameterGenerator generator(13, state, fixture.Outside, {}, fixture.ProjectDirectory);
+	CommandDefinition const* const command = fixture.Registry.Find("physics.query");
+	REQUIRE(command != nullptr);
+
+	REQUIRE(fixture.Play.Start(EditorPlayState::Simulate, 640, 480).IsOk());
+	fixture.Play.SetPaused(true);
+	std::map<std::string, int> answered;
+	std::map<AutomationErrorCode, int> refused;
+	// The playing world's state after the first query since the last frame (which applies what changed before it): the
+	// queries after it, until the next frame, must leave it as it is.
+	std::optional<uint64_t> queriedState;
+	int stateChecks = 0;
+	for (int round = 0, rounds = Testing::GetFuzzRounds(600); round < rounds; round++)
+	{
+		// Now and then a frame runs, so queries see a world that stepped.
+		if (round % 50 == 49)
+		{
+			fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+			queriedState.reset();
+		}
+		Json const params = generator.Generate(command->Name, command->Parameters);
+		std::string const request = params.dump();
+		CAPTURE(round);
+		CAPTURE(request);
+		CommandResult const result = fixture.Run(command->Name, params);
+		PhysicsScene const* const physics = fixture.Context.GetScene().GetPhysicsScene();
+		REQUIRE(physics != nullptr);
+		if (!queriedState && result.IsOk())
+		{
+			queriedState = physics->ComputeStateHash();
+		}
+		else if (queriedState)
+		{
+			CHECK(physics->ComputeStateHash() == *queriedState);
+			stateChecks++;
+		}
+		if (result.IsOk())
+		{
+			Json const& value = result.GetValue();
+			answered[value["kind"].get<std::string>()]++;
+			CHECK(value["hits"].size() <= value["count"].get<size_t>());
+			CHECK(value["truncated"] == (value["hits"].size() < value["count"].get<size_t>()));
+			for (Json const& hit : value["hits"])
+			{
+				CHECK(hit["entity"].is_string());
+				if (hit.contains("distance"))
+				{
+					CHECK(std::isfinite(hit["distance"].get<double>()));
+					CHECK(hit["distance"].get<double>() >= 0.0);
+				}
+			}
+			continue;
+		}
+		refused[result.GetError().Code]++;
+		CHECK_MESSAGE(result.GetError().Code == AutomationErrorCode::InvalidParams, result.GetError().Message);
+	}
+	// Every kind reached its query, and bad parameters were refused.
+	for (char const* const kind : {"raycast", "raycastAll", "shapeCast", "overlap"})
+	{
+		CAPTURE(kind);
+		CHECK(answered[kind] > 0);
+	}
+	CHECK(refused[AutomationErrorCode::InvalidParams] > 0);
+	CHECK(stateChecks > 0);
+	// The scene the editor edits comes back as it was.
+	fixture.Play.Stop();
+	CommandResult const stopped =
+		fixture.Run(command->Name, Json::object({{"kind", "raycast"}, {"origin", {0.0, 0.0, 0.0}}, {"direction", {0.0, -1.0, 0.0}}}));
+	REQUIRE(stopped.IsError());
+	CHECK(stopped.GetError().Code == AutomationErrorCode::Unavailable);
+	fixture.CheckSceneLoads();
+	fixture.CheckHistory();
 }

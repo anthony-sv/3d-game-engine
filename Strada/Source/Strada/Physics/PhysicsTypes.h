@@ -18,6 +18,8 @@ namespace Strada
 
 	// Physics layers a project can define (RigidBodyComponent::Layer indexes them).
 	inline constexpr size_t MaxPhysicsLayers = 16;
+	// A query's layer mask that sees every layer (PhysicsQueryFilter::LayerMask; bit i is layer i).
+	inline constexpr uint32_t AllPhysicsLayers = 0xFFFFFFFFu;
 	// Collision steps a physics step may be divided into (PhysicsWorldSettings::CollisionSteps).
 	inline constexpr uint32_t MaxPhysicsCollisionSteps = 4;
 	// Physics materials of a triangle-mesh collider's submeshes (MeshColliderComponent::Materials, ColliderDesc::
@@ -41,6 +43,17 @@ namespace Strada
 	inline constexpr float MaxPhysicsGravity = 1.0e6f;
 	inline constexpr float MaxPhysicsGravityFactor = 1.0e3f;
 	inline constexpr float MaxCharacterSpeed = 500.0f;
+	// The farthest a query reaches (PhysicsScene's RaycastAll and ShapeCast): farther than any two points of the world are
+	// apart (positions within MaxPhysicsCoordinate on each axis, colliders within MaxPhysicsExtent of them), so a longer
+	// distance is cut to it without losing a hit.
+	inline constexpr float MaxPhysicsQueryDistance = 4.0e7f;
+	// The largest sizes of a query's shape (PhysicsQueryShape), far below MaxPhysicsExtent: a cast runs Jolt's GJK on the moving
+	// shape's core (a box whole, a capsule's segment) and adds its radius after, and casts of longer cores and wider capsules
+	// lose its precision. Against closed forms over 2,000 random poses of each shape, cores of 20 m and radii of 100 m stay
+	// within 0.8 mm of where they touch; cores of 100 m and capsules of radius 1000 m miss by up to 3 cm, and cores of 300 m
+	// and more touch bodies they pass by (Architecture.md section 8, "Queries").
+	inline constexpr float MaxPhysicsQueryExtent = 20.0f;
+	inline constexpr float MaxPhysicsQueryRadius = 100.0f;
 
 	enum class RigidBodyType : uint8_t
 	{
@@ -248,6 +261,91 @@ namespace Strada
 		// ColliderSurface::Material, none when it has its own values.
 		AssetHandle Material;
 	};
+
+	// What a query sees (PhysicsScene's RaycastAll, ShapeCast and Overlap).
+	struct PhysicsQueryFilter
+	{
+		// Bit i sees the bodies and characters on layer i; the bits past MaxPhysicsLayers see nothing, and 0 sees nothing.
+		uint32_t LayerMask = AllPhysicsLayers;
+		// Whether trigger colliders count. Without, a query passes through them, as Raycast does.
+		bool IncludeTriggers = false;
+	};
+
+	enum class PhysicsQueryShapeType : uint8_t
+	{
+		Sphere = 0,
+		Box,
+		// Along the local Y axis, as a capsule collider.
+		Capsule
+	};
+
+	// The shape a cast sweeps or an overlap tests, placed by the query's position and rotation (a sphere ignores the
+	// rotation). Exact: a box keeps its sharp edges and corners. A size below a millimeter counts as a millimeter, and a
+	// capsule whose HalfHeight is below a millimeter is a sphere; a size that is negative or not finite, a radius beyond
+	// MaxPhysicsQueryRadius or a half extent or half height beyond MaxPhysicsQueryExtent makes the query find nothing.
+	struct PhysicsQueryShape
+	{
+		PhysicsQueryShapeType Type = PhysicsQueryShapeType::Sphere;
+		// Spheres and capsules.
+		float Radius = 0.5f;
+		// Boxes.
+		glm::vec3 HalfExtents = glm::vec3(0.5f);
+		// Capsules: half the length of the cylinder between the caps.
+		float HalfHeight = 0.5f;
+
+		static PhysicsQueryShape MakeSphere(float radius)
+		{
+			PhysicsQueryShape shape;
+			shape.Type = PhysicsQueryShapeType::Sphere;
+			shape.Radius = radius;
+			return shape;
+		}
+
+		static PhysicsQueryShape MakeBox(glm::vec3 const& halfExtents)
+		{
+			PhysicsQueryShape shape;
+			shape.Type = PhysicsQueryShapeType::Box;
+			shape.HalfExtents = halfExtents;
+			return shape;
+		}
+
+		static PhysicsQueryShape MakeCapsule(float radius, float halfHeight)
+		{
+			PhysicsQueryShape shape;
+			shape.Type = PhysicsQueryShapeType::Capsule;
+			shape.Radius = radius;
+			shape.HalfHeight = halfHeight;
+			return shape;
+		}
+	};
+
+	// What a shape cast touches first (PhysicsScene::ShapeCast).
+	struct ShapeCastHit
+	{
+		UUID Entity = UUID::Invalid();
+		// World space: where the shape touches the collider hit, on that collider's surface; for a collider the shape
+		// overlapped where it started, the deepest point of the overlap.
+		glm::vec3 Point = glm::vec3(0.0f);
+		// Unit length, out of the collider hit towards the shape: the way that pushes the shape off it. On a face it is the
+		// face's normal; on an edge or a corner it points from there towards the shape.
+		glm::vec3 Normal = glm::vec3(0.0f);
+		// How far the shape travelled along the cast's direction until it touched, in meters: its center is then at origin +
+		// direction * Distance. 0 for a collider the shape overlapped where it started.
+		float Distance = 0.0f;
+		// The physics material of the surface hit, as RaycastHit::Material.
+		AssetHandle Material;
+	};
+
+	// The order of a query's hits (RaycastAll's, and which hit ShapeCast reports): by distance from the nearest, then by
+	// entity UUID from the smallest. A query reports at most one hit per entity, so two different hits never tie.
+	inline bool IsQueryHitBefore(float distance, UUID entity, float otherDistance, UUID otherEntity)
+	{
+		if (distance != otherDistance)
+		{
+			return distance < otherDistance;
+		}
+		return entity.GetValue() < otherEntity.GetValue();
+	}
 
 	enum class ContactEventType : uint8_t
 	{

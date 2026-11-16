@@ -51,6 +51,7 @@ time):
 | `prefab` | 2 | Creating prefabs and placing instances |
 | `script` | 4 | The C# scripts' status and classes, creating and building scripts |
 | `play`, `input`, `ui`, `test` | 10 | Play mode with exact frame steps, keys and mouse buttons, where the UI is on screen, and test runs |
+| `physics` | 1 | What a ray, a shape cast or an overlap meets in the playing scene's physics world |
 | `log`, `viewport` | 6 | The log, screenshots of the editor or one of its windows, the scene view's camera, overlays and statistics |
 | `profiler` | 5 | Recording where each frame's time goes (CPU zones of every thread, GPU passes), medians, and captures written and opened |
 
@@ -288,7 +289,11 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
 9. **Play and test.** `play_start`, then `play_pause` and `play_advance` with `frames` for exact steps; `input_set`
    presses keys and mouse buttons in the game; `play_stop` discards what the run changed. To click a UI button, read its
    `center` from `ui_layout`, set the `mousePosition` there with `input_set`, press and release `Left` a frame apart.
-   `test_run` runs a test scene (`scene`, `timeout`) and returns every check's result.
+   `test_run` runs a test scene (`scene`, `timeout`) and returns every check's result. While the game plays,
+   `physics_query` asks its physics world what scripts' queries would see: `kind` `raycast` or `raycastAll` from an
+   `origin` along a `direction`, `shapeCast` (a `sphere`, `box` or `capsule` swept along it) or `overlap` (the
+   entities a shape overlaps), with a layer `mask`; it answers the entities hit, with point, normal, distance and
+   physics material, which tells why a wheel, a ground check or a trigger saw what it saw.
 10. **Measure.** `profiler_start` records from the next editor frame; let frames run (a playing game, or editor frames
     between calls: `play_advance` runs all its game frames inside one editor frame, so it gives one profiler frame), then
     `profiler_status` with `medians: true` tells where the time goes: the frame's median and 99th percentile, each

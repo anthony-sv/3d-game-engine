@@ -389,6 +389,20 @@ namespace Strada
 		AudioScene* GetAudioScene() { return m_Audio.get(); }
 		// Collisions and trigger overlaps that began or ended during the last runtime update.
 		std::vector<ContactEvent> const& GetContactEvents() const { return m_ContactEvents; }
+		// The running scene's physics queries (PhysicsScene's, Architecture.md section 8 "Queries"). Physics changes not applied
+		// yet are applied first (ApplyPhysicsChanges), so a body made or rebuilt since the last step is found where its entity
+		// is; every other body is found where the last step left it, which is where OnFixedUpdate reads it (an entity moved
+		// since, by a script, the editor or its parent, is found where it was until the next step takes its body there, and
+		// in OnUpdate a body drawn between its last two steps is found up to a step ahead of where it is drawn). They find
+		// nothing while the scene runs no physics.
+		std::optional<RaycastHit> Raycast(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance,
+		                                  uint32_t layerMask = AllPhysicsLayers);
+		size_t RaycastAll(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance, std::vector<RaycastHit>& hits,
+		                  PhysicsQueryFilter const& filter = {});
+		std::optional<ShapeCastHit> ShapeCast(PhysicsQueryShape const& shape, glm::vec3 const& origin, glm::quat const& rotation,
+		                                      glm::vec3 const& direction, float maxDistance, PhysicsQueryFilter const& filter = {});
+		size_t Overlap(PhysicsQueryShape const& shape, glm::vec3 const& center, glm::quat const& rotation, std::vector<UUID>& entities,
+		               PhysicsQueryFilter const& filter = {});
 
 		// How fast the runtime's time passes for scripts and physics (sounds are not affected); 0 freezes the simulation.
 		float GetTimeScale() const { return m_TimeScale; }

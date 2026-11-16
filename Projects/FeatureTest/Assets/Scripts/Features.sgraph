@@ -4,7 +4,7 @@
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
-		"Description": "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click events (Contacts.sgraph and Clicks.sgraph have those), each reported through TestReporter by the function Check: Checks counts the passed ones and Done is set after the last. The waiting kinds come last, since each suspends the checks after it. The input events count into InputEvents (test runs have no input). The custom event Add adds its Amount to Score: the graph raises it with Event.Send, VisualScriptTests from C#. The custom event Retrigger enters a RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast onto the physics material probe names the material it hits.",
+		"Description": "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click events (Contacts.sgraph and Clicks.sgraph have those), each reported through TestReporter by the function Check: Checks counts the passed ones and Done is set after the last. The waiting kinds come last, since each suspends the checks after it. The input events count into InputEvents (test runs have no input). The custom event Add adds its Amount to Score: the graph raises it with Event.Send, VisualScriptTests from C#. The custom event Retrigger enters a RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, box and capsule casts onto the physics material probe name the material they hit.",
 		"Variables": [
 			{
 				"ID": 1,
@@ -7712,6 +7712,721 @@
 				},
 				{
 					"ID": 690,
+					"Type": "Call:Strada.Physics.SphereCast(Strada.Vector3,float,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)",
+					"Position": [
+						640.0,
+						19760.0
+					],
+					"Inputs": {
+						"Origin": [
+							60.0,
+							10.0,
+							60.0
+						],
+						"Direction": [
+							0.0,
+							-1.0,
+							0.0
+						],
+						"MaxDistance": 20.0,
+						"Radius": 0.25
+					}
+				},
+				{
+					"ID": 691,
+					"Type": "Call:Strada.Physics.BoxCast(Strada.Vector3,Strada.Vector3,Strada.Quaternion,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)",
+					"Position": [
+						960.0,
+						12720.0
+					],
+					"Inputs": {
+						"Origin": [
+							60.0,
+							10.0,
+							60.0
+						],
+						"Direction": [
+							0.0,
+							-1.0,
+							0.0
+						],
+						"MaxDistance": 20.0,
+						"HalfExtents": [
+							0.2,
+							0.3,
+							0.2
+						]
+					}
+				},
+				{
+					"ID": 692,
+					"Type": "Call:Strada.Physics.CapsuleCast(Strada.Vector3,float,float,Strada.Quaternion,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)",
+					"Position": [
+						1280.0,
+						13200.0
+					],
+					"Inputs": {
+						"Origin": [
+							60.0,
+							10.0,
+							60.0
+						],
+						"Direction": [
+							0.0,
+							-1.0,
+							0.0
+						],
+						"MaxDistance": 20.0,
+						"Radius": 0.2,
+						"HalfHeight": 0.3
+					}
+				},
+				{
+					"ID": 693,
+					"Type": "Break",
+					"Position": [
+						960.0,
+						12880.0
+					],
+					"Settings": {
+						"Type": "Strada.ShapeCastHit"
+					}
+				},
+				{
+					"ID": 694,
+					"Type": "Get:Strada.Entity.Name",
+					"Position": [
+						1280.0,
+						13360.0
+					]
+				},
+				{
+					"ID": 695,
+					"Type": "Operator.Subtract",
+					"Position": [
+						1280.0,
+						13520.0
+					],
+					"Inputs": {
+						"B": 4.75
+					}
+				},
+				{
+					"ID": 696,
+					"Type": "Call:Strada.Mathf.Abs(float)",
+					"Position": [
+						1600.0,
+						9840.0
+					]
+				},
+				{
+					"ID": 697,
+					"Type": "Get:Strada.Vector3.Y",
+					"Position": [
+						1280.0,
+						13680.0
+					]
+				},
+				{
+					"ID": 698,
+					"Type": "Get:Strada.Vector3.Y",
+					"Position": [
+						1280.0,
+						13840.0
+					]
+				},
+				{
+					"ID": 699,
+					"Type": "Operator.Equal",
+					"Position": [
+						1600.0,
+						10000.0
+					],
+					"Inputs": {
+						"B": "Physics Material Probe"
+					}
+				},
+				{
+					"ID": 700,
+					"Type": "Operator.Less",
+					"Position": [
+						1920.0,
+						8080.0
+					],
+					"Inputs": {
+						"B": 0.001
+					}
+				},
+				{
+					"ID": 701,
+					"Type": "Operator.Greater",
+					"Position": [
+						1600.0,
+						10160.0
+					],
+					"Inputs": {
+						"B": 4.999
+					}
+				},
+				{
+					"ID": 702,
+					"Type": "Operator.Less",
+					"Position": [
+						1600.0,
+						10320.0
+					],
+					"Inputs": {
+						"B": 5.001
+					}
+				},
+				{
+					"ID": 703,
+					"Type": "Operator.Greater",
+					"Position": [
+						1600.0,
+						10480.0
+					],
+					"Inputs": {
+						"B": 0.999
+					}
+				},
+				{
+					"ID": 704,
+					"Type": "Operator.Equal",
+					"Position": [
+						1280.0,
+						14000.0
+					]
+				},
+				{
+					"ID": 705,
+					"Type": "Break",
+					"Position": [
+						1280.0,
+						14160.0
+					],
+					"Settings": {
+						"Type": "Strada.ShapeCastHit"
+					}
+				},
+				{
+					"ID": 706,
+					"Type": "Get:Strada.Entity.Name",
+					"Position": [
+						1600.0,
+						10640.0
+					]
+				},
+				{
+					"ID": 707,
+					"Type": "Operator.Subtract",
+					"Position": [
+						1600.0,
+						10800.0
+					],
+					"Inputs": {
+						"B": 4.7
+					}
+				},
+				{
+					"ID": 708,
+					"Type": "Call:Strada.Mathf.Abs(float)",
+					"Position": [
+						1920.0,
+						8240.0
+					]
+				},
+				{
+					"ID": 709,
+					"Type": "Get:Strada.Vector3.Y",
+					"Position": [
+						1600.0,
+						10960.0
+					]
+				},
+				{
+					"ID": 710,
+					"Type": "Get:Strada.Vector3.Y",
+					"Position": [
+						1600.0,
+						11120.0
+					]
+				},
+				{
+					"ID": 711,
+					"Type": "Operator.Equal",
+					"Position": [
+						1920.0,
+						8400.0
+					],
+					"Inputs": {
+						"B": "Physics Material Probe"
+					}
+				},
+				{
+					"ID": 712,
+					"Type": "Operator.Less",
+					"Position": [
+						2240.0,
+						6640.0
+					],
+					"Inputs": {
+						"B": 0.001
+					}
+				},
+				{
+					"ID": 713,
+					"Type": "Operator.Greater",
+					"Position": [
+						1920.0,
+						8560.0
+					],
+					"Inputs": {
+						"B": 4.999
+					}
+				},
+				{
+					"ID": 714,
+					"Type": "Operator.Less",
+					"Position": [
+						1920.0,
+						8720.0
+					],
+					"Inputs": {
+						"B": 5.001
+					}
+				},
+				{
+					"ID": 715,
+					"Type": "Operator.Greater",
+					"Position": [
+						1920.0,
+						8880.0
+					],
+					"Inputs": {
+						"B": 0.999
+					}
+				},
+				{
+					"ID": 716,
+					"Type": "Operator.Equal",
+					"Position": [
+						1600.0,
+						11280.0
+					]
+				},
+				{
+					"ID": 717,
+					"Type": "Break",
+					"Position": [
+						1600.0,
+						11440.0
+					],
+					"Settings": {
+						"Type": "Strada.ShapeCastHit"
+					}
+				},
+				{
+					"ID": 718,
+					"Type": "Get:Strada.Entity.Name",
+					"Position": [
+						1920.0,
+						9040.0
+					]
+				},
+				{
+					"ID": 719,
+					"Type": "Operator.Subtract",
+					"Position": [
+						1920.0,
+						9200.0
+					],
+					"Inputs": {
+						"B": 4.5
+					}
+				},
+				{
+					"ID": 720,
+					"Type": "Call:Strada.Mathf.Abs(float)",
+					"Position": [
+						2240.0,
+						6800.0
+					]
+				},
+				{
+					"ID": 721,
+					"Type": "Get:Strada.Vector3.Y",
+					"Position": [
+						1920.0,
+						9360.0
+					]
+				},
+				{
+					"ID": 722,
+					"Type": "Get:Strada.Vector3.Y",
+					"Position": [
+						1920.0,
+						9520.0
+					]
+				},
+				{
+					"ID": 723,
+					"Type": "Operator.Equal",
+					"Position": [
+						2240.0,
+						6960.0
+					],
+					"Inputs": {
+						"B": "Physics Material Probe"
+					}
+				},
+				{
+					"ID": 724,
+					"Type": "Operator.Less",
+					"Position": [
+						2560.0,
+						5680.0
+					],
+					"Inputs": {
+						"B": 0.001
+					}
+				},
+				{
+					"ID": 725,
+					"Type": "Operator.Greater",
+					"Position": [
+						2240.0,
+						7120.0
+					],
+					"Inputs": {
+						"B": 4.999
+					}
+				},
+				{
+					"ID": 726,
+					"Type": "Operator.Less",
+					"Position": [
+						2240.0,
+						7280.0
+					],
+					"Inputs": {
+						"B": 5.001
+					}
+				},
+				{
+					"ID": 727,
+					"Type": "Operator.Greater",
+					"Position": [
+						2240.0,
+						7440.0
+					],
+					"Inputs": {
+						"B": 0.999
+					}
+				},
+				{
+					"ID": 728,
+					"Type": "Operator.Equal",
+					"Position": [
+						1920.0,
+						9680.0
+					]
+				},
+				{
+					"ID": 729,
+					"Type": "Break",
+					"Position": [
+						960.0,
+						13040.0
+					],
+					"Settings": {
+						"Type": "Strada.ShapeCastHit"
+					}
+				},
+				{
+					"ID": 730,
+					"Type": "Make",
+					"Position": [
+						1280.0,
+						14320.0
+					],
+					"Settings": {
+						"Type": "Strada.ShapeCastHit"
+					},
+					"Inputs": {
+						"Point": [
+							60.0,
+							5.0,
+							60.0
+						],
+						"Normal": [
+							0.0,
+							1.0,
+							0.0
+						],
+						"Distance": 4.5
+					}
+				},
+				{
+					"ID": 731,
+					"Type": "Break",
+					"Position": [
+						1600.0,
+						11600.0
+					],
+					"Settings": {
+						"Type": "Strada.ShapeCastHit"
+					}
+				},
+				{
+					"ID": 732,
+					"Type": "Operator.Equal",
+					"Position": [
+						1920.0,
+						9840.0
+					],
+					"Inputs": {
+						"B": 4.5
+					}
+				},
+				{
+					"ID": 733,
+					"Type": "Operator.Equal",
+					"Position": [
+						1920.0,
+						10000.0
+					]
+				},
+				{
+					"ID": 734,
+					"Type": "Get:Strada.Entity.Name",
+					"Position": [
+						1920.0,
+						10160.0
+					]
+				},
+				{
+					"ID": 735,
+					"Type": "Operator.Equal",
+					"Position": [
+						2240.0,
+						7600.0
+					],
+					"Inputs": {
+						"B": "Physics Material Probe"
+					}
+				},
+				{
+					"ID": 736,
+					"Type": "Operator.And",
+					"Position": [
+						1920.0,
+						10320.0
+					]
+				},
+				{
+					"ID": 737,
+					"Type": "Operator.And",
+					"Position": [
+						2240.0,
+						7760.0
+					]
+				},
+				{
+					"ID": 738,
+					"Type": "Operator.And",
+					"Position": [
+						2560.0,
+						5840.0
+					]
+				},
+				{
+					"ID": 739,
+					"Type": "Operator.And",
+					"Position": [
+						2880.0,
+						5360.0
+					]
+				},
+				{
+					"ID": 740,
+					"Type": "Operator.And",
+					"Position": [
+						3200.0,
+						5040.0
+					]
+				},
+				{
+					"ID": 741,
+					"Type": "Operator.And",
+					"Position": [
+						3520.0,
+						4720.0
+					]
+				},
+				{
+					"ID": 742,
+					"Type": "Operator.And",
+					"Position": [
+						3840.0,
+						4560.0
+					]
+				},
+				{
+					"ID": 743,
+					"Type": "Operator.And",
+					"Position": [
+						4160.0,
+						4080.0
+					]
+				},
+				{
+					"ID": 744,
+					"Type": "Operator.And",
+					"Position": [
+						4480.0,
+						4080.0
+					]
+				},
+				{
+					"ID": 745,
+					"Type": "Operator.And",
+					"Position": [
+						4800.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 746,
+					"Type": "Operator.And",
+					"Position": [
+						5120.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 747,
+					"Type": "Operator.And",
+					"Position": [
+						5440.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 748,
+					"Type": "Operator.And",
+					"Position": [
+						5760.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 749,
+					"Type": "Operator.And",
+					"Position": [
+						6080.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 750,
+					"Type": "Operator.And",
+					"Position": [
+						6400.0,
+						3600.0
+					]
+				},
+				{
+					"ID": 751,
+					"Type": "Operator.And",
+					"Position": [
+						6720.0,
+						3600.0
+					]
+				},
+				{
+					"ID": 752,
+					"Type": "Operator.And",
+					"Position": [
+						7040.0,
+						3600.0
+					]
+				},
+				{
+					"ID": 753,
+					"Type": "Operator.And",
+					"Position": [
+						7360.0,
+						3600.0
+					]
+				},
+				{
+					"ID": 754,
+					"Type": "Operator.And",
+					"Position": [
+						7680.0,
+						3600.0
+					]
+				},
+				{
+					"ID": 755,
+					"Type": "Operator.And",
+					"Position": [
+						8000.0,
+						3600.0
+					]
+				},
+				{
+					"ID": 756,
+					"Type": "Operator.And",
+					"Position": [
+						8320.0,
+						3600.0
+					]
+				},
+				{
+					"ID": 757,
+					"Type": "Operator.And",
+					"Position": [
+						8640.0,
+						3600.0
+					]
+				},
+				{
+					"ID": 758,
+					"Type": "Operator.And",
+					"Position": [
+						8960.0,
+						3600.0
+					]
+				},
+				{
+					"ID": 759,
+					"Type": "FormatString",
+					"Position": [
+						1920.0,
+						10480.0
+					],
+					"Settings": {
+						"Format": "the casts touched after {D0}, {D1} and {D2} m"
+					}
+				},
+				{
+					"ID": 760,
+					"Type": "Function.Call",
+					"Position": [
+						9280.0,
+						3600.0
+					],
+					"Settings": {
+						"Function": 27
+					},
+					"Inputs": {
+						"Name": "shape casts touch the physics material probe and name its material, and Make and Break their hits"
+					}
+				},
+				{
+					"ID": 761,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -7722,7 +8437,7 @@
 					}
 				},
 				{
-					"ID": 691,
+					"ID": 762,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -7733,7 +8448,7 @@
 					}
 				},
 				{
-					"ID": 692,
+					"ID": 763,
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
@@ -7744,7 +8459,7 @@
 					}
 				},
 				{
-					"ID": 693,
+					"ID": 764,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -7755,7 +8470,7 @@
 					}
 				},
 				{
-					"ID": 694,
+					"ID": 765,
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
@@ -7766,7 +8481,7 @@
 					}
 				},
 				{
-					"ID": 695,
+					"ID": 766,
 					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
@@ -7777,7 +8492,7 @@
 					}
 				},
 				{
-					"ID": 696,
+					"ID": 767,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -7788,7 +8503,7 @@
 					}
 				},
 				{
-					"ID": 697,
+					"ID": 768,
 					"Type": "Get:Strada.Time.FixedDeltaTime",
 					"Position": [
 						0.0,
@@ -7796,7 +8511,7 @@
 					]
 				},
 				{
-					"ID": 698,
+					"ID": 769,
 					"Type": "Operator.Equal",
 					"Position": [
 						320.0,
@@ -7804,31 +8519,31 @@
 					]
 				},
 				{
-					"ID": 699,
+					"ID": 770,
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
-						19760.0
+						19920.0
 					]
 				},
 				{
-					"ID": 700,
+					"ID": 771,
 					"Type": "Operator.And",
 					"Position": [
 						960.0,
-						12720.0
-					]
-				},
-				{
-					"ID": 701,
-					"Type": "Operator.And",
-					"Position": [
-						1280.0,
 						13200.0
 					]
 				},
 				{
-					"ID": 702,
+					"ID": 772,
+					"Type": "Operator.And",
+					"Position": [
+						1280.0,
+						14480.0
+					]
+				},
+				{
+					"ID": 773,
 					"Type": "FormatString",
 					"Position": [
 						320.0,
@@ -7839,11 +8554,11 @@
 					}
 				},
 				{
-					"ID": 703,
+					"ID": 774,
 					"Type": "Function.Call",
 					"Position": [
 						1600.0,
-						9840.0
+						11760.0
 					],
 					"Settings": {
 						"Function": 27
@@ -7853,11 +8568,11 @@
 					}
 				},
 				{
-					"ID": 704,
+					"ID": 775,
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						19920.0
+						20080.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -7867,7 +8582,7 @@
 					}
 				},
 				{
-					"ID": 705,
+					"ID": 776,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -7878,7 +8593,7 @@
 					}
 				},
 				{
-					"ID": 706,
+					"ID": 777,
 					"Type": "FormatString",
 					"Position": [
 						320.0,
@@ -7889,15 +8604,15 @@
 					}
 				},
 				{
-					"ID": 707,
+					"ID": 778,
 					"Type": "Call:Strada.Log.Info(string)",
 					"Position": [
 						960.0,
-						12880.0
+						13360.0
 					]
 				},
 				{
-					"ID": 708,
+					"ID": 779,
 					"Type": "Event.Create",
 					"Position": [
 						0.0,
@@ -7905,18 +8620,18 @@
 					]
 				},
 				{
-					"ID": 709,
+					"ID": 780,
 					"Type": "Flow.Sequence",
 					"Position": [
 						320.0,
 						23600.0
 					],
 					"Settings": {
-						"Count": 41
+						"Count": 42
 					}
 				},
 				{
-					"ID": 710,
+					"ID": 781,
 					"Type": "Event.Destroy",
 					"Position": [
 						0.0,
@@ -7924,7 +8639,7 @@
 					]
 				},
 				{
-					"ID": 711,
+					"ID": 782,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
@@ -7935,7 +8650,7 @@
 					}
 				},
 				{
-					"ID": 712,
+					"ID": 783,
 					"Type": "Function.Call",
 					"Position": [
 						320.0,
@@ -15884,27 +16599,47 @@
 				{
 					"From": [
 						690,
-						"Value"
+						"Then"
 					],
 					"To": [
-						692,
-						"A"
-					]
-				},
-				{
-					"From": [
-						693,
-						"Value"
-					],
-					"To": [
-						694,
-						"A"
+						691,
+						"Execute"
 					]
 				},
 				{
 					"From": [
 						691,
+						"Then"
+					],
+					"To": [
+						692,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						690,
+						"Hit"
+					],
+					"To": [
+						693,
 						"Value"
+					]
+				},
+				{
+					"From": [
+						693,
+						"Entity"
+					],
+					"To": [
+						694,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						693,
+						"Distance"
 					],
 					"To": [
 						695,
@@ -15913,11 +16648,51 @@
 				},
 				{
 					"From": [
+						695,
+						"Result"
+					],
+					"To": [
 						696,
 						"Value"
+					]
+				},
+				{
+					"From": [
+						693,
+						"Point"
+					],
+					"To": [
+						697,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						693,
+						"Normal"
 					],
 					"To": [
 						698,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						694,
+						"Value"
+					],
+					"To": [
+						699,
+						"A"
+					]
+				},
+				{
+					"From": [
+						696,
+						"Result"
+					],
+					"To": [
+						700,
 						"A"
 					]
 				},
@@ -15927,8 +16702,668 @@
 						"Value"
 					],
 					"To": [
+						701,
+						"A"
+					]
+				},
+				{
+					"From": [
+						697,
+						"Value"
+					],
+					"To": [
+						702,
+						"A"
+					]
+				},
+				{
+					"From": [
 						698,
+						"Value"
+					],
+					"To": [
+						703,
+						"A"
+					]
+				},
+				{
+					"From": [
+						693,
+						"Material"
+					],
+					"To": [
+						704,
+						"A"
+					]
+				},
+				{
+					"From": [
+						651,
+						"Value"
+					],
+					"To": [
+						704,
 						"B"
+					]
+				},
+				{
+					"From": [
+						691,
+						"Hit"
+					],
+					"To": [
+						705,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						705,
+						"Entity"
+					],
+					"To": [
+						706,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						705,
+						"Distance"
+					],
+					"To": [
+						707,
+						"A"
+					]
+				},
+				{
+					"From": [
+						707,
+						"Result"
+					],
+					"To": [
+						708,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						705,
+						"Point"
+					],
+					"To": [
+						709,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						705,
+						"Normal"
+					],
+					"To": [
+						710,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						706,
+						"Value"
+					],
+					"To": [
+						711,
+						"A"
+					]
+				},
+				{
+					"From": [
+						708,
+						"Result"
+					],
+					"To": [
+						712,
+						"A"
+					]
+				},
+				{
+					"From": [
+						709,
+						"Value"
+					],
+					"To": [
+						713,
+						"A"
+					]
+				},
+				{
+					"From": [
+						709,
+						"Value"
+					],
+					"To": [
+						714,
+						"A"
+					]
+				},
+				{
+					"From": [
+						710,
+						"Value"
+					],
+					"To": [
+						715,
+						"A"
+					]
+				},
+				{
+					"From": [
+						705,
+						"Material"
+					],
+					"To": [
+						716,
+						"A"
+					]
+				},
+				{
+					"From": [
+						651,
+						"Value"
+					],
+					"To": [
+						716,
+						"B"
+					]
+				},
+				{
+					"From": [
+						692,
+						"Hit"
+					],
+					"To": [
+						717,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						717,
+						"Entity"
+					],
+					"To": [
+						718,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						717,
+						"Distance"
+					],
+					"To": [
+						719,
+						"A"
+					]
+				},
+				{
+					"From": [
+						719,
+						"Result"
+					],
+					"To": [
+						720,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						717,
+						"Point"
+					],
+					"To": [
+						721,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						717,
+						"Normal"
+					],
+					"To": [
+						722,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						718,
+						"Value"
+					],
+					"To": [
+						723,
+						"A"
+					]
+				},
+				{
+					"From": [
+						720,
+						"Result"
+					],
+					"To": [
+						724,
+						"A"
+					]
+				},
+				{
+					"From": [
+						721,
+						"Value"
+					],
+					"To": [
+						725,
+						"A"
+					]
+				},
+				{
+					"From": [
+						721,
+						"Value"
+					],
+					"To": [
+						726,
+						"A"
+					]
+				},
+				{
+					"From": [
+						722,
+						"Value"
+					],
+					"To": [
+						727,
+						"A"
+					]
+				},
+				{
+					"From": [
+						717,
+						"Material"
+					],
+					"To": [
+						728,
+						"A"
+					]
+				},
+				{
+					"From": [
+						651,
+						"Value"
+					],
+					"To": [
+						728,
+						"B"
+					]
+				},
+				{
+					"From": [
+						690,
+						"Hit"
+					],
+					"To": [
+						729,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						729,
+						"Entity"
+					],
+					"To": [
+						730,
+						"Entity"
+					]
+				},
+				{
+					"From": [
+						651,
+						"Value"
+					],
+					"To": [
+						730,
+						"Material"
+					]
+				},
+				{
+					"From": [
+						730,
+						"Value"
+					],
+					"To": [
+						731,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						731,
+						"Distance"
+					],
+					"To": [
+						732,
+						"A"
+					]
+				},
+				{
+					"From": [
+						731,
+						"Material"
+					],
+					"To": [
+						733,
+						"A"
+					]
+				},
+				{
+					"From": [
+						651,
+						"Value"
+					],
+					"To": [
+						733,
+						"B"
+					]
+				},
+				{
+					"From": [
+						731,
+						"Entity"
+					],
+					"To": [
+						734,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						734,
+						"Value"
+					],
+					"To": [
+						735,
+						"A"
+					]
+				},
+				{
+					"From": [
+						690,
+						"Result"
+					],
+					"To": [
+						736,
+						"A"
+					]
+				},
+				{
+					"From": [
+						699,
+						"Result"
+					],
+					"To": [
+						736,
+						"B"
+					]
+				},
+				{
+					"From": [
+						736,
+						"Result"
+					],
+					"To": [
+						737,
+						"A"
+					]
+				},
+				{
+					"From": [
+						700,
+						"Result"
+					],
+					"To": [
+						737,
+						"B"
+					]
+				},
+				{
+					"From": [
+						737,
+						"Result"
+					],
+					"To": [
+						738,
+						"A"
+					]
+				},
+				{
+					"From": [
+						701,
+						"Result"
+					],
+					"To": [
+						738,
+						"B"
+					]
+				},
+				{
+					"From": [
+						738,
+						"Result"
+					],
+					"To": [
+						739,
+						"A"
+					]
+				},
+				{
+					"From": [
+						702,
+						"Result"
+					],
+					"To": [
+						739,
+						"B"
+					]
+				},
+				{
+					"From": [
+						739,
+						"Result"
+					],
+					"To": [
+						740,
+						"A"
+					]
+				},
+				{
+					"From": [
+						703,
+						"Result"
+					],
+					"To": [
+						740,
+						"B"
+					]
+				},
+				{
+					"From": [
+						740,
+						"Result"
+					],
+					"To": [
+						741,
+						"A"
+					]
+				},
+				{
+					"From": [
+						704,
+						"Result"
+					],
+					"To": [
+						741,
+						"B"
+					]
+				},
+				{
+					"From": [
+						741,
+						"Result"
+					],
+					"To": [
+						742,
+						"A"
+					]
+				},
+				{
+					"From": [
+						691,
+						"Result"
+					],
+					"To": [
+						742,
+						"B"
+					]
+				},
+				{
+					"From": [
+						742,
+						"Result"
+					],
+					"To": [
+						743,
+						"A"
+					]
+				},
+				{
+					"From": [
+						711,
+						"Result"
+					],
+					"To": [
+						743,
+						"B"
+					]
+				},
+				{
+					"From": [
+						743,
+						"Result"
+					],
+					"To": [
+						744,
+						"A"
+					]
+				},
+				{
+					"From": [
+						712,
+						"Result"
+					],
+					"To": [
+						744,
+						"B"
+					]
+				},
+				{
+					"From": [
+						744,
+						"Result"
+					],
+					"To": [
+						745,
+						"A"
+					]
+				},
+				{
+					"From": [
+						713,
+						"Result"
+					],
+					"To": [
+						745,
+						"B"
+					]
+				},
+				{
+					"From": [
+						745,
+						"Result"
+					],
+					"To": [
+						746,
+						"A"
+					]
+				},
+				{
+					"From": [
+						714,
+						"Result"
+					],
+					"To": [
+						746,
+						"B"
+					]
+				},
+				{
+					"From": [
+						746,
+						"Result"
+					],
+					"To": [
+						747,
+						"A"
+					]
+				},
+				{
+					"From": [
+						715,
+						"Result"
+					],
+					"To": [
+						747,
+						"B"
+					]
+				},
+				{
+					"From": [
+						747,
+						"Result"
+					],
+					"To": [
+						748,
+						"A"
+					]
+				},
+				{
+					"From": [
+						716,
+						"Result"
+					],
+					"To": [
+						748,
+						"B"
+					]
+				},
+				{
+					"From": [
+						748,
+						"Result"
+					],
+					"To": [
+						749,
+						"A"
 					]
 				},
 				{
@@ -15937,143 +17372,443 @@
 						"Result"
 					],
 					"To": [
-						699,
-						"A"
-					]
-				},
-				{
-					"From": [
-						694,
-						"Result"
-					],
-					"To": [
-						699,
+						749,
 						"B"
 					]
 				},
 				{
 					"From": [
-						699,
+						749,
 						"Result"
 					],
 					"To": [
-						700,
+						750,
 						"A"
 					]
 				},
 				{
 					"From": [
-						695,
+						723,
 						"Result"
 					],
 					"To": [
-						700,
+						750,
 						"B"
 					]
 				},
 				{
 					"From": [
-						700,
+						750,
 						"Result"
 					],
 					"To": [
-						701,
+						751,
 						"A"
 					]
 				},
 				{
 					"From": [
-						698,
+						724,
 						"Result"
 					],
 					"To": [
-						701,
+						751,
 						"B"
 					]
 				},
 				{
 					"From": [
-						690,
-						"Value"
-					],
-					"To": [
-						702,
-						"Frames"
-					]
-				},
-				{
-					"From": [
-						691,
-						"Value"
-					],
-					"To": [
-						702,
-						"Steps"
-					]
-				},
-				{
-					"From": [
-						701,
+						751,
 						"Result"
 					],
 					"To": [
-						703,
-						"Passed"
+						752,
+						"A"
 					]
 				},
 				{
 					"From": [
-						702,
+						725,
 						"Result"
 					],
 					"To": [
-						703,
-						"Message"
+						752,
+						"B"
+					]
+				},
+				{
+					"From": [
+						752,
+						"Result"
+					],
+					"To": [
+						753,
+						"A"
+					]
+				},
+				{
+					"From": [
+						726,
+						"Result"
+					],
+					"To": [
+						753,
+						"B"
+					]
+				},
+				{
+					"From": [
+						753,
+						"Result"
+					],
+					"To": [
+						754,
+						"A"
+					]
+				},
+				{
+					"From": [
+						727,
+						"Result"
+					],
+					"To": [
+						754,
+						"B"
+					]
+				},
+				{
+					"From": [
+						754,
+						"Result"
+					],
+					"To": [
+						755,
+						"A"
+					]
+				},
+				{
+					"From": [
+						728,
+						"Result"
+					],
+					"To": [
+						755,
+						"B"
+					]
+				},
+				{
+					"From": [
+						755,
+						"Result"
+					],
+					"To": [
+						756,
+						"A"
+					]
+				},
+				{
+					"From": [
+						732,
+						"Result"
+					],
+					"To": [
+						756,
+						"B"
+					]
+				},
+				{
+					"From": [
+						756,
+						"Result"
+					],
+					"To": [
+						757,
+						"A"
+					]
+				},
+				{
+					"From": [
+						733,
+						"Result"
+					],
+					"To": [
+						757,
+						"B"
+					]
+				},
+				{
+					"From": [
+						757,
+						"Result"
+					],
+					"To": [
+						758,
+						"A"
+					]
+				},
+				{
+					"From": [
+						735,
+						"Result"
+					],
+					"To": [
+						758,
+						"B"
+					]
+				},
+				{
+					"From": [
+						693,
+						"Distance"
+					],
+					"To": [
+						759,
+						"D0"
 					]
 				},
 				{
 					"From": [
 						705,
-						"Value"
+						"Distance"
 					],
 					"To": [
-						706,
-						"Checks"
+						759,
+						"D1"
 					]
 				},
 				{
 					"From": [
-						706,
+						717,
+						"Distance"
+					],
+					"To": [
+						759,
+						"D2"
+					]
+				},
+				{
+					"From": [
+						758,
 						"Result"
 					],
 					"To": [
-						707,
+						760,
+						"Passed"
+					]
+				},
+				{
+					"From": [
+						759,
+						"Result"
+					],
+					"To": [
+						760,
 						"Message"
 					]
 				},
 				{
 					"From": [
-						704,
+						692,
 						"Then"
 					],
 					"To": [
-						707,
+						760,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						708,
+						761,
+						"Value"
+					],
+					"To": [
+						763,
+						"A"
+					]
+				},
+				{
+					"From": [
+						764,
+						"Value"
+					],
+					"To": [
+						765,
+						"A"
+					]
+				},
+				{
+					"From": [
+						762,
+						"Value"
+					],
+					"To": [
+						766,
+						"A"
+					]
+				},
+				{
+					"From": [
+						767,
+						"Value"
+					],
+					"To": [
+						769,
+						"A"
+					]
+				},
+				{
+					"From": [
+						768,
+						"Value"
+					],
+					"To": [
+						769,
+						"B"
+					]
+				},
+				{
+					"From": [
+						763,
+						"Result"
+					],
+					"To": [
+						770,
+						"A"
+					]
+				},
+				{
+					"From": [
+						765,
+						"Result"
+					],
+					"To": [
+						770,
+						"B"
+					]
+				},
+				{
+					"From": [
+						770,
+						"Result"
+					],
+					"To": [
+						771,
+						"A"
+					]
+				},
+				{
+					"From": [
+						766,
+						"Result"
+					],
+					"To": [
+						771,
+						"B"
+					]
+				},
+				{
+					"From": [
+						771,
+						"Result"
+					],
+					"To": [
+						772,
+						"A"
+					]
+				},
+				{
+					"From": [
+						769,
+						"Result"
+					],
+					"To": [
+						772,
+						"B"
+					]
+				},
+				{
+					"From": [
+						761,
+						"Value"
+					],
+					"To": [
+						773,
+						"Frames"
+					]
+				},
+				{
+					"From": [
+						762,
+						"Value"
+					],
+					"To": [
+						773,
+						"Steps"
+					]
+				},
+				{
+					"From": [
+						772,
+						"Result"
+					],
+					"To": [
+						774,
+						"Passed"
+					]
+				},
+				{
+					"From": [
+						773,
+						"Result"
+					],
+					"To": [
+						774,
+						"Message"
+					]
+				},
+				{
+					"From": [
+						776,
+						"Value"
+					],
+					"To": [
+						777,
+						"Checks"
+					]
+				},
+				{
+					"From": [
+						777,
+						"Result"
+					],
+					"To": [
+						778,
+						"Message"
+					]
+				},
+				{
+					"From": [
+						775,
 						"Then"
 					],
 					"To": [
-						709,
+						778,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						709,
+						779,
+						"Then"
+					],
+					"To": [
+						780,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						780,
 						"Then0"
 					],
 					"To": [
@@ -16083,7 +17818,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then1"
 					],
 					"To": [
@@ -16093,7 +17828,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then2"
 					],
 					"To": [
@@ -16103,7 +17838,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then3"
 					],
 					"To": [
@@ -16113,7 +17848,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then4"
 					],
 					"To": [
@@ -16123,7 +17858,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then5"
 					],
 					"To": [
@@ -16133,7 +17868,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then6"
 					],
 					"To": [
@@ -16143,7 +17878,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then7"
 					],
 					"To": [
@@ -16153,7 +17888,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then8"
 					],
 					"To": [
@@ -16163,7 +17898,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then9"
 					],
 					"To": [
@@ -16173,7 +17908,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then10"
 					],
 					"To": [
@@ -16183,7 +17918,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then11"
 					],
 					"To": [
@@ -16193,7 +17928,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then12"
 					],
 					"To": [
@@ -16203,7 +17938,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then13"
 					],
 					"To": [
@@ -16213,7 +17948,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then14"
 					],
 					"To": [
@@ -16223,7 +17958,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then15"
 					],
 					"To": [
@@ -16233,7 +17968,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then16"
 					],
 					"To": [
@@ -16243,7 +17978,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then17"
 					],
 					"To": [
@@ -16253,7 +17988,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then18"
 					],
 					"To": [
@@ -16263,7 +17998,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then19"
 					],
 					"To": [
@@ -16273,7 +18008,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then20"
 					],
 					"To": [
@@ -16283,7 +18018,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then21"
 					],
 					"To": [
@@ -16293,7 +18028,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then22"
 					],
 					"To": [
@@ -16303,7 +18038,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then23"
 					],
 					"To": [
@@ -16313,7 +18048,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then24"
 					],
 					"To": [
@@ -16323,7 +18058,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then25"
 					],
 					"To": [
@@ -16333,7 +18068,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then26"
 					],
 					"To": [
@@ -16343,7 +18078,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then27"
 					],
 					"To": [
@@ -16353,7 +18088,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then28"
 					],
 					"To": [
@@ -16363,7 +18098,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then29"
 					],
 					"To": [
@@ -16373,7 +18108,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then30"
 					],
 					"To": [
@@ -16383,7 +18118,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then31"
 					],
 					"To": [
@@ -16393,7 +18128,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then32"
 					],
 					"To": [
@@ -16403,7 +18138,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then33"
 					],
 					"To": [
@@ -16413,7 +18148,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then34"
 					],
 					"To": [
@@ -16423,7 +18158,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then35"
 					],
 					"To": [
@@ -16433,7 +18168,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then36"
 					],
 					"To": [
@@ -16443,7 +18178,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then37"
 					],
 					"To": [
@@ -16453,7 +18188,7 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then38"
 					],
 					"To": [
@@ -16463,41 +18198,51 @@
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then39"
 					],
 					"To": [
-						703,
+						690,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						709,
+						780,
 						"Then40"
 					],
 					"To": [
-						704,
+						774,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						711,
+						780,
+						"Then41"
+					],
+					"To": [
+						775,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						782,
 						"Value"
 					],
 					"To": [
-						712,
+						783,
 						"Passed"
 					]
 				},
 				{
 					"From": [
-						710,
+						781,
 						"Then"
 					],
 					"To": [
-						712,
+						783,
 						"Execute"
 					]
 				}

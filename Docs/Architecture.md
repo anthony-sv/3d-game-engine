@@ -1837,8 +1837,8 @@ the rebuilt body keeps its velocities. Physics runs in fixed steps: before each 
 transforms (`MoveKinematic`) and static or dynamic bodies whose transforms changed (scripts, the editor, a moving
 parent) are teleported; after it, awake dynamic bodies write their world transforms back (parents first, converted to
 parent-local space, keeping their scale). Events delivered to scripts: `OnCollisionEnter/Exit(Entity other)`,
-`OnTriggerEnter/Exit(Entity other)`, with `Strada.Collision` for the rest of the event (below). Queries: raycast (closest solid hit, with the physics material hit; triggers and
-colliders containing the origin are ignored), with a layer mask.
+`OnTriggerEnter/Exit(Entity other)`, with `Strada.Collision` for the rest of the event (below). Queries (below): the
+closest solid hit of a ray, every hit of a ray, sphere, box and capsule casts and overlaps, each with a layer mask.
 
 **Contact data.** An enter event (`ContactEvent`, `Physics/PhysicsTypes.h`) carries where and how its contact began:
 up to `MaxContactPoints` (four, as many as Jolt keeps in a manifold its step finds: `PhysicsSystem.cpp:1238-1239` prunes
@@ -1929,6 +1929,93 @@ given. A flow the debugger stopped is not waiting: like `Time.DeltaTime`, the st
 contact it read (`IVisualScriptEnvironment.SaveContact`, a `HandledContact`, only when it stops inside a handler), and
 `ContinueStopped` makes `Collision` read that copy while the chain continues (`RestoreContact`), so a stop changes
 nothing the flow computes.
+
+**Queries.** `PhysicsScene` answers four queries (`Physics/PhysicsScene.h`, types in `Physics/PhysicsTypes.h`), and a
+running `Scene` the same four:
+
+| Query | Finds | Order |
+|---|---|---|
+| `Raycast` | the closest solid collider along a ray | of entities at exactly the same distance, the one of the smaller UUID (`RaycastAll`'s first hit) |
+| `RaycastAll` | every entity along a ray, at its nearest hit | distance, then entity UUID |
+| `ShapeCast` | the first entity a sphere, box or capsule (`PhysicsQueryShape`) touches as it moves along a line without turning | the first by distance, then entity UUID |
+| `Overlap` | every entity with a collider such a shape overlaps where it is | entity UUID |
+
+- *Mask and triggers.* The three new queries take a `PhysicsQueryFilter`: a 32-bit layer mask (bit i sees the bodies
+  and characters on project layer i; a project has at most 16 layers, so bits 16 to 31 see nothing, and a mask of 0
+  sees nothing) and whether trigger colliders count. By default they do not, and a query passes through them as
+  `Raycast` does. The rule is per collider: a shape filter on each sub-shape (`SolidShapeFilter`, which characters'
+  sweeps use too; Jolt asks it for every sub-shape before testing it, `CollisionDispatch.h:38` and `:58`), so a trigger
+  collider of an entity with solid ones is skipped alone, and a trigger is never tested at all, so it cannot hide what
+  lies behind it.
+- *One hit per entity, so the order is total.* An entity's colliders form one body, and a query reports each body at
+  most once: `RaycastAll` and `ShapeCast` its nearest hit over its colliders and, on a triangle mesh, its triangles (of
+  hits at the same distance, the one of the smaller Jolt sub-shape ID; for a cast that starts overlapping several of its
+  colliders, the deepest overlap), `Overlap` the entity if any of its colliders overlaps. Hits are ordered by distance
+  from the nearest and then by entity UUID from the smallest (`IsQueryHitBefore`); overlaps by UUID. No two hits share
+  an entity, so two different hits never tie, and the order depends neither on the order Jolt visits bodies in nor on
+  the order the entities were made in. `ShapeCast` returns the first hit of that order, so it never depends on which
+  of two entities at the same distance Jolt finds first.
+- *What a hit carries.* `RaycastHit` (entity, point, the surface normal there, distance along the ray, material) and
+  `ShapeCastHit`: the entity; the point where the shape touches the collider, on that collider's surface;
+  the unit normal out of that collider towards the shape (Jolt's penetration axis reversed: the face's normal on a face,
+  from the edge or corner towards the shape's center on one, so a sphere over an edge gets the direction it would roll
+  off); the distance the shape travelled (its center is then at origin + direction · distance); and the physics
+  material of the surface hit, found from the sub-shape as for rays and contacts (`FindSubShapeMaterial`): a submesh's
+  on a triangle mesh with submesh materials, none for a collider's own values and for a character's inner body.
+  Overlaps report entities only.
+- *Casts.* A shape cast is Jolt's `NarrowPhaseQuery::CastShape` on exact shapes: `mUseShrunkenShapeAndConvexRadius` is
+  off and the query's box has no convex radius, so a box keeps its sharp edges and corners (in Jolt's `Default`
+  support mode a box is the full box, `BoxShape.cpp:111-118`). A collider the shape already overlaps where it starts is
+  touched at distance 0 at the deepest point of the overlap, whichever way the cast goes: `mReturnDeepestPoint` makes
+  Jolt run EPA where GJK's points at fraction 0 cannot be trusted (`EPAPenetrationDepth.h:535-546`), and
+  `mBackFaceModeConvex` is `CollideWithBackFaces`, which skips the test that drops a cast moving out of what it starts
+  in (`ConvexShape.cpp:284-285`). So a shape cast from where a wheel or a foot rests on the ground finds the ground at
+  distance 0. That holds for the caller's own colliders too, and `PhysicsQueryFilter` excludes no entity: a cast meant
+  to find what is below or ahead of a body (a wheel's under a chassis, a foot's under a character) starts outside that
+  body's colliders, or leaves the body's layer out of its mask. This is unlike rays, which pass out of a convex
+  collider they start inside: a ray has no volume to be touching with. Triangles are one-sided, as for
+  rays (`mBackFaceModeTriangles` is `IgnoreBackFaces`, `CastConvexVsTriangles.cpp:41-42`, `CastSphereVsTriangles.cpp:133-135`):
+  a cast passes a triangle it reaches from behind and leaves one it moves away from. On the inner edges of a mesh the
+  normal is the face's where that hinders the movement less (`mActiveEdgeMovementDirection` is the cast's direction).
+- *Overlaps.* `NarrowPhaseQuery::CollideShape`, with triangles from either side (`mBackFaceMode` is
+  `CollideWithBackFaces`): a shape that meets a mesh's surface overlaps it. A triangle mesh is its surface, so a shape
+  wholly inside a closed mesh does not overlap it; convex colliders are solid. Jolt's collide test runs GJK on shapes
+  shrunk by their convex radius and adds the radius back (`ConvexShape::sCollideConvexVsConvex`, `ConvexShape.cpp:86-93`),
+  so an overlap sees a box collider with its edges and corners rounded by its convex radius (at most 5 cm,
+  `cDefaultConvexRadius`), where a cast sees it sharp: a shape that only grazes a box's edge or corner may be touched
+  by a cast at distance 0 and not overlap it.
+- *Limits.* A query whose origin or center is not finite or lies beyond `MaxPhysicsCoordinate`, whose direction is zero
+  or not finite, whose distance is not finite and positive, whose rotation is not finite, or whose shape has a size that
+  is negative or not finite, a radius beyond `MaxPhysicsQueryRadius` (100 m) or a half extent or half height beyond
+  `MaxPhysicsQueryExtent` (20 m) (or an unknown shape type) finds nothing. Those sizes are far below a collider's
+  (`MaxPhysicsExtent`) because a cast runs Jolt's GJK on the moving shape's core (a box whole, a capsule's segment, a
+  sphere's center) and adds its radius after, and longer cores and wider capsules lose its precision. Measured against
+  closed forms over 2,000 random poses of each shape, near the origin and kilometers from it: at the limits a cast is
+  within 0.8 mm of where it touches (`PhysicsQueryTests.cpp` holds it to 5 mm, and checks that a 20 m box cast among
+  boxes names the first it reaches); cores of 50 m miss by up to 4 mm, of 100 m and capsules of radius 1,000 m by up to
+  3 cm, and from 300 m a cast touches bodies it passes by, at distance 0 among them. A size below a
+  millimeter counts as a millimeter and a capsule shorter than that is a sphere, as for colliders; a rotation is
+  normalized (zero is the identity); a direction is normalized without overflowing; a distance beyond
+  `MaxPhysicsQueryDistance` (40,000 km, farther than any two points of the world are apart) is cut to it. So nothing a
+  script or an agent sends reaches a Jolt assertion. `Raycast` keeps its own checks.
+- *Which world, from where.* Queries are main-thread calls between steps; they change nothing (the simulation, its
+  state hash and its contacts are the same with and without them) and read the bodies and characters as they are in
+  the world, and the material table, which no step changes. Jolt calls a collector's `OnBody` with the body locked and
+  releases the lock before the narrow phase that reports the body's hits (`NarrowPhaseQuery.cpp:121-124` and `:351-354`
+  of the pinned Jolt), so the collectors take the entity, the shape and the inverse transform there and never touch the
+  body afterwards. `Scene::Raycast`, `RaycastAll`, `ShapeCast` and `Overlap` first apply physics changes not applied yet
+  (`ApplyPhysicsChanges`, as the raycast binding does), so a body made or rebuilt since the last step is found where its
+  entity is. Every other body is found where the last step left it, which is where `OnFixedUpdate` reads it: an entity
+  moved since by a script, the editor or its parent is found where it was until the next step takes its body there. In
+  `OnUpdate` and contact handlers, bodies drawn between their last two steps (below) are found up to a step ahead of
+  where they are drawn. A game that decides from queries in `OnFixedUpdate` therefore stays deterministic per platform
+  at any frame rate (below). A scene that runs no physics finds nothing.
+- *Many hits.* `RaycastAll` and `Overlap` replace the contents of the caller's vector with every hit, in order, keeping
+  its capacity, and return the count; a caller with a fixed buffer takes the first ones of the order.
+- *From scripts.* `Strada.Physics` gives the queries per shape (§10.4): the scripting bindings call the `Scene` forms and
+  copy the first of the order into the script's buffer. StradaTests' `ScenePhysicsQueryTests.cpp` checks that scripts
+  get exactly what the scene's queries give, and that hovering balls whose forces their `OnFixedUpdate` queries decide
+  reach the same state hash, and the same query results, at 30, 60 and 144 frames per second.
 
 **Step control.** A step lasts the project's `Physics.FixedTimestep` (0.0005 to 0.1 s, default 1/60); a frame runs at
 most `Physics.MaxStepsPerFrame` of them (1 to 64, default 8; a slower frame drops the backlog beyond one step, so the
@@ -2245,7 +2332,24 @@ editor's Simulate mode runs neither kind.
 - `Time`: `DeltaTime`, `FixedDeltaTime`, `Elapsed`, `FrameCount`, `TimeScale`.
 - `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`; `RaycastHit` (`Entity`,
   `Point`, `Normal`, `Distance`, `Material`: the `PhysicsMaterial` of the surface hit, null for none, one shared
-  reference per material).
+  reference per material). The queries of §8 "Queries", each with a `layerMask` and `includeTriggers` (every layer, no
+  triggers, by default): `SphereCast(origin, radius, ...)`, `BoxCast(origin, halfExtents, rotation, ...)` and
+  `CapsuleCast(origin, radius, halfHeight, rotation, ...)`, each `(direction, maxDistance, out ShapeCastHit hit)`, one
+  binding (`Physics_ShapeCast`, the shape as `NativeQueryShape`, the hit in `NativeRaycastHit`'s layout); `ShapeCastHit`,
+  a struct of public fields (`Entity`, `Point`, `Normal`, `Distance`, `Material`) that graphs Make and Break. The
+  many-hit forms fill a `Span` the caller passes and return how many they wrote, the first of the order (the nearest, or
+  the smallest UUIDs): `RaycastAll(origin, direction, maxDistance, Span<RaycastHit>)` (`Physics_RaycastAll`) and
+  `OverlapSphere`, `OverlapBox`, `OverlapCapsule(..., Span<Entity>)` (`Physics_Overlap`, entity IDs). The bindings copy
+  at most the buffer's length out of the scene's query; the managed side gathers them on the stack (up to 32 hits or
+  128 entities) or in a pooled buffer, and `ScriptRegistry.GetEntity` keeps the `Entity` it makes for an entity without
+  a script (empty again when the scene's instances go, and started over past 4,096 entities, since nothing tells scripts
+  that such an entity was destroyed), so a query allocates no managed memory once the entities it finds have been met;
+  the bindings' own vectors are native. Sizes that are not finite, negative or above `MaxPhysicsQueryRadius` and
+  `MaxPhysicsQueryExtent` and values that are not finite are script
+  errors naming the member; zero directions and distances that are not positive find nothing, silently, as for
+  `Raycast`. The casts are impure nodes, as `Raycast` is; the four many-hit forms are not nodes, because a `Span` is a
+  ref struct and because graphs hold arrays as values that a node may not write into (an array a variable or literal
+  starts with is one object every run of the graph shares, `GraphInstance`'s constructor).
 - `Collision` (the contact event being handled, empty outside a contact handler): `Entity`, `Other`, `Step`, `Points`
   (up to four `ContactPoint`s, strongest first, a new array per read); `ContactPoint`, a struct of public fields
   (`Point`, `Normal` from the other side towards this one, `Impulse`, `RelativeVelocity`, `Material`, `OtherMaterial`).
@@ -3785,7 +3889,8 @@ inspector's primary entity as the context entity; without an asset directory the
   `graph.debug-panel` drives the Debugger panel), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
   `input.*` (inject keys/mouse during play), `ui.*` (where the screen-space UI's elements and buttons are in the game
-  view), `viewport.*` (screenshot, camera, frame entities, overlays, renderer statistics),
+  view), `physics.*` (query: the playing scene's rays, casts and overlaps through `Scene`'s queries, read-only and
+  Unavailable while nothing plays), `viewport.*` (screenshot, camera, frame entities, overlays, renderer statistics),
   `inspector.*` (the Add Component menu, as users see it), `log.*` (read since index), `test.*` (run a test scene and
   return results). Renderer settings are scene settings (`scene.settings`).
 - Claude Code integration: `.mcp.json` registers `strada mcp` (through `dotnet run`, so it works in any checkout);

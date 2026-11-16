@@ -635,6 +635,35 @@ namespace Strada
 		}
 	}
 
+	std::optional<RaycastHit> Scene::Raycast(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance, uint32_t layerMask)
+	{
+		ApplyPhysicsChanges();
+		return m_Physics ? m_Physics->Raycast(origin, direction, maxDistance, layerMask) : std::nullopt;
+	}
+
+	size_t Scene::RaycastAll(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance, std::vector<RaycastHit>& hits,
+	                         PhysicsQueryFilter const& filter)
+	{
+		hits.clear();
+		ApplyPhysicsChanges();
+		return m_Physics ? m_Physics->RaycastAll(origin, direction, maxDistance, hits, filter) : 0;
+	}
+
+	std::optional<ShapeCastHit> Scene::ShapeCast(PhysicsQueryShape const& shape, glm::vec3 const& origin, glm::quat const& rotation,
+	                                             glm::vec3 const& direction, float maxDistance, PhysicsQueryFilter const& filter)
+	{
+		ApplyPhysicsChanges();
+		return m_Physics ? m_Physics->ShapeCast(shape, origin, rotation, direction, maxDistance, filter) : std::nullopt;
+	}
+
+	size_t Scene::Overlap(PhysicsQueryShape const& shape, glm::vec3 const& center, glm::quat const& rotation, std::vector<UUID>& entities,
+	                      PhysicsQueryFilter const& filter)
+	{
+		entities.clear();
+		ApplyPhysicsChanges();
+		return m_Physics ? m_Physics->Overlap(shape, center, rotation, entities, filter) : 0;
+	}
+
 	float Scene::GetDrawingAlpha() const
 	{
 		return std::clamp(m_PhysicsAccumulator / GetFixedTimestep(), 0.0f, 1.0f);

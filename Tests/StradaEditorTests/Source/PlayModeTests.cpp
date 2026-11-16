@@ -26,12 +26,14 @@
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -949,12 +951,12 @@ TEST_CASE("PlayMode: after an entity drop, deleting its graph keeps the step, wh
 	CHECK(variables() == ScriptFieldMap{{"Door", ScriptFieldValue::FromEntity(door)}});
 }
 
-TEST_CASE("PlayCommands: every play, input and test command is documented in Docs/Automation.md")
+TEST_CASE("PlayCommands: every play, input, physics and test command is documented in Docs/Automation.md")
 {
 	PlayFixture fixture;
 	Result<std::string> reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
 	REQUIRE(reference.IsOk());
-	CHECK(fixture.Registry.GetCommandCount() == 10);
+	CHECK(fixture.Registry.GetCommandCount() == 11);
 	for (CommandDefinition const* command : fixture.Registry.GetCommands())
 	{
 		CAPTURE(command->Name);
@@ -2128,4 +2130,387 @@ TEST_CASE("PlayMode: playing clears the live log first, so a run's problems are 
 	fixture.Ok("play.start", Json::object({{"mode", "simulate"}}));
 	CHECK(countProblems() == 1);
 	fixture.Ok("play.stop");
+}
+
+namespace
+{
+	// A row of boxes along -Z from the origin at y = 0.5, on a ground whose top is y = 0: a trigger whose face is 1.25 m
+	// away, Near (2.5 m) and Far (5.5 m, a static rigid body). Everything is static, so the world is the same at every step.
+	// Without a project the world has one layer, 0, which every body is on.
+	struct QueryScene
+	{
+		UUID Ground;
+		UUID Trigger;
+		UUID Near;
+		UUID Far;
+
+		explicit QueryScene(PlayFixture& fixture)
+		{
+			Ground = fixture.Create("Ground", Json::object({{"Transform", Json::object({{"Translation", {0.0, -0.5, 0.0}}})},
+			                                                {"BoxCollider", Json::object({{"HalfExtents", {10.0, 0.5, 10.0}}})}}));
+			Trigger = fixture.Create(
+				"Trigger", Json::object({{"Transform", Json::object({{"Translation", {0.0, 0.5, -1.5}}})},
+			                             {"BoxCollider", Json::object({{"HalfExtents", {0.25, 0.25, 0.25}}, {"IsTrigger", true}})}}));
+			Near = fixture.Create(
+				"Near", Json::object({{"Transform", Json::object({{"Translation", {0.0, 0.5, -3.0}}})}, {"BoxCollider", Json::object()}}));
+			Far = fixture.Create("Far", Json::object({{"Transform", Json::object({{"Translation", {0.0, 0.5, -6.0}}})},
+			                                          {"RigidBody", Json::object({{"Type", "Static"}})},
+			                                          {"BoxCollider", Json::object()}}));
+		}
+	};
+
+	// A query along the row: from (0, 0.5, 0) towards -Z, with a direction that is not of unit length.
+	Json AlongTheRow(std::string_view kind, Json const& extra = Json::object())
+	{
+		Json params = Json::object({{"kind", kind}, {"origin", {0.0, 0.5, 0.0}}, {"direction", {0.0, 0.0, -2.0}}});
+		params.update(extra);
+		return params;
+	}
+
+	std::vector<std::string> HitEntities(Json const& result)
+	{
+		std::vector<std::string> entities;
+		for (Json const& hit : result["hits"])
+		{
+			entities.push_back(hit["entity"].get<std::string>());
+		}
+		return entities;
+	}
+
+	void CheckVector(Json const& value, glm::vec3 const& expected)
+	{
+		REQUIRE(value.is_array());
+		REQUIRE(value.size() == 3);
+		for (glm::length_t index = 0; index < 3; index++)
+		{
+			CHECK(value[static_cast<size_t>(index)].get<double>() == doctest::Approx(expected[index]).epsilon(1.0e-4));
+		}
+	}
+}
+
+TEST_CASE("PlayCommands: physics.query answers each kind from the playing scene's physics world, as the scene's queries do")
+{
+	Testing::PhysicsSystemScope physics;
+	PlayFixture fixture;
+	QueryScene const row(fixture);
+	CommandDefinition const* const command = fixture.Registry.Find("physics.query");
+	REQUIRE(command != nullptr);
+	CHECK(command->ReadOnly);
+
+	// Paused before its first frame: the world has run no step, and its bodies are already where the scene puts them.
+	Json const started = fixture.Ok("play.start", Json::object({{"mode", "simulate"}, {"paused", true}}));
+	CHECK(started["state"] == "simulate");
+	Scene& scene = fixture.Context.GetScene();
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	bool const dirty = fixture.Context.IsDirty();
+
+	// raycast: the first solid hit; the trigger before it is passed through.
+	Json const ray = fixture.Ok("physics.query", AlongTheRow("raycast"));
+	CHECK(ray["kind"] == "raycast");
+	CHECK(ray["state"] == "simulate");
+	CHECK(ray["step"] == 0);
+	CHECK(ray["count"] == 1);
+	CHECK(ray["truncated"] == false);
+	REQUIRE(ray["hits"].size() == 1);
+	Json const& first = ray["hits"][0];
+	CHECK(first["entity"] == row.Near.ToString());
+	CHECK(first["name"] == "Near");
+	CHECK(first["distance"].get<double>() == doctest::Approx(2.5).epsilon(1.0e-4));
+	CheckVector(first["point"], glm::vec3(0.0f, 0.5f, -2.5f));
+	CheckVector(first["normal"], glm::vec3(0.0f, 0.0f, 1.0f));
+	CHECK(first["material"].is_null());
+	std::optional<RaycastHit> const expected = scene.Raycast(glm::vec3(0.0f, 0.5f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), 100.0f);
+	REQUIRE(expected.has_value());
+	CHECK(first["distance"].get<double>() == doctest::Approx(expected->Distance));
+	// Too short a ray meets nothing.
+	Json const shortRay = fixture.Ok("physics.query", AlongTheRow("raycast", Json::object({{"distance", 2.0}})));
+	CHECK(shortRay["count"] == 0);
+	CHECK(shortRay["hits"].empty());
+
+	// raycastAll: every entity, nearest first; triggers when asked; masks by layer; maxHits keeps the nearest.
+	CHECK(HitEntities(fixture.Ok("physics.query", AlongTheRow("raycastAll"))) ==
+	      std::vector<std::string>{row.Near.ToString(), row.Far.ToString()});
+	Json const all = fixture.Ok("physics.query", AlongTheRow("raycastAll", Json::object({{"triggers", true}})));
+	CHECK(HitEntities(all) == std::vector<std::string>{row.Trigger.ToString(), row.Near.ToString(), row.Far.ToString()});
+	CHECK(all["hits"][0]["distance"].get<double>() == doctest::Approx(1.25).epsilon(1.0e-4));
+	CHECK(all["hits"][2]["distance"].get<double>() == doctest::Approx(5.5).epsilon(1.0e-4));
+	std::vector<RaycastHit> sceneHits;
+	PhysicsQueryFilter withTriggers;
+	withTriggers.IncludeTriggers = true;
+	REQUIRE(scene.RaycastAll(glm::vec3(0.0f, 0.5f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), MaxPhysicsQueryDistance, sceneHits, withTriggers) ==
+	        3);
+	for (size_t index = 0; index < sceneHits.size(); index++)
+	{
+		CHECK(all["hits"][index]["entity"] == sceneHits[index].Entity.ToString());
+		CHECK(all["hits"][index]["distance"].get<double>() == doctest::Approx(sceneHits[index].Distance));
+	}
+	// The mask: bit 0 sees layer 0, where everything is; a mask without it sees nothing, for each kind.
+	CHECK(HitEntities(fixture.Ok("physics.query", AlongTheRow("raycastAll", Json::object({{"mask", 1}})))) ==
+	      std::vector<std::string>{row.Near.ToString(), row.Far.ToString()});
+	for (std::string_view const kind : {"raycast", "raycastAll", "shapeCast", "overlap"})
+	{
+		CAPTURE(kind);
+		Json params = AlongTheRow(kind, Json::object({{"mask", 4294967294ull}}));
+		if (kind == "overlap")
+		{
+			params.erase("direction");
+			params["origin"] = Json::array({0.0, 0.5, -3.0});
+		}
+		if (kind == "shapeCast" || kind == "overlap")
+		{
+			params["shape"] = "sphere";
+		}
+		Json const masked = fixture.Ok("physics.query", params);
+		CHECK(masked["count"] == 0);
+		params["mask"] = 1;
+		CHECK(fixture.Ok("physics.query", params)["count"].get<size_t>() > 0);
+	}
+	Json const truncated = fixture.Ok("physics.query", AlongTheRow("raycastAll", Json::object({{"triggers", true}, {"maxHits", 2}})));
+	CHECK(truncated["count"] == 3);
+	CHECK(truncated["truncated"] == true);
+	CHECK(HitEntities(truncated) == std::vector<std::string>{row.Trigger.ToString(), row.Near.ToString()});
+
+	// shapeCast: the distance the shape travels until it touches Near's face at z = -2.5.
+	struct Cast
+	{
+		Json Shape;
+		double Distance = 0.0;
+	};
+	double const halfTurn = std::sqrt(0.5);
+	std::array<Cast, 5> const casts = {
+		Cast{Json::object({{"shape", "sphere"}, {"radius", 0.25}}), 2.25},
+		Cast{Json::object({{"shape", "box"}, {"halfExtents", {0.25, 0.25, 0.25}}}), 2.25},
+		// Upright, along its local Y axis: its side touches first.
+		Cast{Json::object({{"shape", "capsule"}, {"radius", 0.2}, {"halfHeight", 0.1}}), 2.3},
+		// Lying along Z, turned by a pitch of 90 degrees or by the same quaternion: its cap reaches 0.3 m ahead.
+		Cast{Json::object({{"shape", "capsule"}, {"radius", 0.2}, {"halfHeight", 0.1}, {"rotationEuler", {90.0, 0.0, 0.0}}}), 2.2},
+		Cast{Json::object({{"shape", "capsule"}, {"radius", 0.2}, {"halfHeight", 0.1}, {"rotation", {halfTurn, 0.0, 0.0, halfTurn}}}), 2.2},
+	};
+	for (Cast const& cast : casts)
+	{
+		CAPTURE(cast.Shape.dump());
+		Json const result = fixture.Ok("physics.query", AlongTheRow("shapeCast", cast.Shape));
+		CHECK(result["count"] == 1);
+		REQUIRE(result["hits"].size() == 1);
+		CHECK(result["hits"][0]["entity"] == row.Near.ToString());
+		CHECK(result["hits"][0]["distance"].get<double>() == doctest::Approx(cast.Distance).epsilon(1.0e-3));
+		CheckVector(result["hits"][0]["normal"], glm::vec3(0.0f, 0.0f, 1.0f));
+		CHECK(result["hits"][0]["point"][2].get<double>() == doctest::Approx(-2.5).epsilon(1.0e-3));
+	}
+	std::optional<ShapeCastHit> const sphereHit = scene.ShapeCast(PhysicsQueryShape::MakeSphere(0.25f), glm::vec3(0.0f, 0.5f, 0.0f),
+	                                                              glm::quat(1.0f, 0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), 100.0f);
+	REQUIRE(sphereHit.has_value());
+	CHECK(fixture.Ok("physics.query", AlongTheRow("shapeCast", casts[0].Shape))["hits"][0]["distance"].get<double>() ==
+	      doctest::Approx(sphereHit->Distance));
+	// With triggers the cast stops at the trigger's face.
+	Json const castTriggers =
+		fixture.Ok("physics.query", AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"radius", 0.1}, {"triggers", true}})));
+	REQUIRE(castTriggers["hits"].size() == 1);
+	CHECK(castTriggers["hits"][0]["entity"] == row.Trigger.ToString());
+
+	// overlap: by entity ID, triggers when asked; a box over Near and Far, above the ground.
+	Json const overlapBox =
+		Json::object({{"kind", "overlap"}, {"origin", {0.0, 1.0, -4.5}}, {"shape", "box"}, {"halfExtents", {0.5, 0.4, 1.5}}});
+	std::vector<std::string> both = {row.Near.ToString(), row.Far.ToString()};
+	std::ranges::sort(both,
+	                  [](std::string const& left, std::string const& right)
+	                  {
+						  return std::stoull(left) < std::stoull(right);
+					  });
+	Json const overlapped = fixture.Ok("physics.query", overlapBox);
+	CHECK(overlapped["count"] == 2);
+	CHECK(HitEntities(overlapped) == both);
+	REQUIRE_FALSE(overlapped["hits"].empty());
+	CHECK(overlapped["hits"][0]["name"].is_string());
+	CHECK_FALSE(overlapped["hits"][0].contains("distance"));
+	Json overlapOne = overlapBox;
+	overlapOne["maxHits"] = 1;
+	Json const one = fixture.Ok("physics.query", overlapOne);
+	CHECK(one["count"] == 2);
+	CHECK(one["truncated"] == true);
+	CHECK(HitEntities(one) == std::vector<std::string>{both[0]});
+	Json const sphereOverTrigger = Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.5, -1.5}}, {"shape", "sphere"}, {"radius", 0.1}});
+	CHECK(fixture.Ok("physics.query", sphereOverTrigger)["count"] == 0);
+	Json sphereWithTriggers = sphereOverTrigger;
+	sphereWithTriggers["triggers"] = true;
+	CHECK(HitEntities(fixture.Ok("physics.query", sphereWithTriggers)) == std::vector<std::string>{row.Trigger.ToString()});
+	Json const capsuleOverlap =
+		Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.5, -3.0}}, {"shape", "capsule"}, {"radius", 0.1}, {"halfHeight", 0.1}});
+	CHECK(HitEntities(fixture.Ok("physics.query", capsuleOverlap)) == std::vector<std::string>{row.Near.ToString()});
+
+	// Queries are no step of the playing copy's history and change nothing.
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	CHECK(fixture.Context.IsDirty() == dirty);
+
+	// A body made while playing is found before the next step, and still after steps.
+	UUID const added = fixture.Create("Added", Json::object({{"Transform", Json::object({{"Translation", {0.0, 0.5, -2.0}}})},
+	                                                         {"BoxCollider", Json::object({{"HalfExtents", {0.1, 0.1, 0.1}}})}}));
+	CHECK(fixture.Ok("physics.query", AlongTheRow("raycast"))["hits"][0]["entity"] == added.ToString());
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 2}}))["framesRun"] == 2);
+	Json const later = fixture.Ok("physics.query", AlongTheRow("raycast"));
+	CHECK(later["step"].get<uint64_t>() > 0);
+	CHECK(later["frame"] == scene.GetRuntimeFrame());
+	CHECK(later["hits"][0]["entity"] == added.ToString());
+
+	// Stopped, nothing plays.
+	fixture.Ok("play.stop");
+	CHECK(fixture.Fails("physics.query", AlongTheRow("raycast")) == AutomationErrorCode::Unavailable);
+}
+
+TEST_CASE("PlayCommands: physics.query is Unavailable while nothing plays or without physics, and refuses what a kind has no use for")
+{
+	PlayFixture fixture;
+	QueryScene const row(fixture);
+	// While editing: Unavailable, whatever the parameters the schema lets through.
+	CommandResult const editing = fixture.Run("physics.query", AlongTheRow("raycast"));
+	REQUIRE(editing.IsError());
+	CHECK(editing.GetError().Code == AutomationErrorCode::Unavailable);
+	CHECK(editing.GetError().Message.find("play.start") != std::string::npos);
+	CHECK(fixture.Fails("physics.query", AlongTheRow("overlap")) == AutomationErrorCode::Unavailable);
+	// The schema refuses before the state is read.
+	CHECK(fixture.Fails("physics.query", Json::object({{"origin", {0.0, 0.0, 0.0}}})) == AutomationErrorCode::InvalidParams);
+
+	SUBCASE("without the physics system the playing scene has no world")
+	{
+		fixture.Ok("play.start", Json::object({{"mode", "simulate"}, {"paused", true}}));
+		CommandResult const result = fixture.Run("physics.query", AlongTheRow("raycast"));
+		REQUIRE(result.IsError());
+		CHECK(result.GetError().Code == AutomationErrorCode::Unavailable);
+		CHECK(result.GetError().Message.find("no physics world") != std::string::npos);
+		fixture.Ok("play.stop");
+	}
+
+	SUBCASE("while playing, each parameter is checked")
+	{
+		Testing::PhysicsSystemScope physics;
+		fixture.Ok("play.start", Json::object({{"mode", "simulate"}}));
+		double const nan = std::numeric_limits<double>::quiet_NaN();
+		struct Refusal
+		{
+			Json Params;
+			std::string_view Path;
+		};
+		std::vector<Refusal> const refusals = {
+			{AlongTheRow("raycast", Json::object({{"shape", "sphere"}})), "shape"},
+			{AlongTheRow("raycastAll", Json::object({{"radius", 1.0}})), "radius"},
+			{AlongTheRow("raycast", Json::object({{"rotationEuler", {0.0, 0.0, 0.0}}})), "rotationEuler"},
+			{AlongTheRow("shapeCast"), "shape"},
+			{Json::object({{"kind", "raycast"}, {"origin", {0.0, 0.0, 0.0}}}), "direction"},
+			{Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.0, 0.0}}, {"shape", "sphere"}, {"direction", {1.0, 0.0, 0.0}}}),
+		     "direction"},
+			{Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.0, 0.0}}, {"shape", "sphere"}, {"distance", 1.0}}), "distance"},
+			{AlongTheRow("raycast", Json::object({{"maxHits", 2}})), "maxHits"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"maxHits", 2}})), "maxHits"},
+			{AlongTheRow("raycast", Json::object({{"triggers", true}})), "triggers"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"radius", 1.0}})), "radius"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"halfExtents", {1.0, 1.0, 1.0}}})), "halfExtents"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"halfHeight", 1.0}})), "halfHeight"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"halfHeight", 1.0}})), "halfHeight"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"rotation", {0.0, 0.0, 0.0, 1.0}}})), "rotation"},
+			{Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.0, 0.0}}, {"shape", "sphere"}, {"rotationEuler", {0.0, 0.0, 0.0}}}),
+		     "rotationEuler"},
+			{AlongTheRow("shapeCast",
+		                 Json::object({{"shape", "box"}, {"rotation", {0.0, 0.0, 0.0, 1.0}}, {"rotationEuler", {0.0, 0.0, 0.0}}})),
+		     "rotationEuler"},
+			{AlongTheRow("raycast", Json::object({{"direction", {0.0, 0.0, 0.0}}})), "direction"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"rotation", {0.0, 0.0, 0.0, 0.0}}})), "rotation"},
+			// Values no JSON text holds, which a request built in memory can.
+			{AlongTheRow("raycast", Json::object({{"origin", {0.0, nan, 0.0}}})), "origin"},
+			{AlongTheRow("raycast", Json::object({{"direction", {nan, 0.0, -1.0}}})), "direction"},
+			{AlongTheRow("raycast", Json::object({{"distance", nan}})), "distance"},
+			// A query of no length would find nothing, not even what a shape starts in.
+			{AlongTheRow("raycast", Json::object({{"distance", 0.0}})), "distance"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"distance", 0.0}})), "distance"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"radius", nan}})), "radius"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "capsule"}, {"halfHeight", nan}})), "halfHeight"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"halfExtents", {1.0, nan, 1.0}}})), "halfExtents"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"rotation", {0.0, nan, 0.0, 1.0}}})), "rotation"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"rotationEuler", {0.0, nan, 0.0}}})), "rotationEuler"},
+		};
+		for (Refusal const& refusal : refusals)
+		{
+			CAPTURE(refusal.Params.dump());
+			CommandResult const result = fixture.Run("physics.query", refusal.Params);
+			REQUIRE(result.IsError());
+			CHECK(result.GetError().Code == AutomationErrorCode::InvalidParams);
+			CHECK(result.GetError().Data.value("path", std::string()) == refusal.Path);
+			CHECK_FALSE(result.GetError().Message.empty());
+		}
+		// The schema's limits: beyond the world, a negative size or distance, a size past the largest a query's shape may have,
+		// a mask past 32 bits, an unknown kind, shape or parameter, a vector of two numbers.
+		std::array<Json, 12> const outOfRange = {
+			AlongTheRow("raycast", Json::object({{"origin", {2.0e7, 0.0, 0.0}}})),
+			AlongTheRow("raycast", Json::object({{"distance", -1.0}})),
+			AlongTheRow("raycast", Json::object({{"distance", 1.0e8}})),
+			AlongTheRow("raycast", Json::object({{"mask", 4294967296ull}})),
+			AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"radius", -1.0}})),
+			AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"radius", 1.01 * MaxPhysicsQueryRadius}})),
+			AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"halfExtents", {0.5, 1.01 * MaxPhysicsQueryExtent, 0.5}}})),
+			Json::object(
+				{{"kind", "overlap"}, {"origin", {0.0, 0.0, 0.0}}, {"shape", "capsule"}, {"halfHeight", 1.01 * MaxPhysicsQueryExtent}}),
+			AlongTheRow("shapeCast", Json::object({{"shape", "cone"}})),
+			AlongTheRow("sweep"),
+			AlongTheRow("raycast", Json::object({{"direction", {0.0, 1.0}}})),
+			AlongTheRow("raycast", Json::object({{"unknown", 1}})),
+		};
+		for (Json const& params : outOfRange)
+		{
+			CAPTURE(params.dump());
+			CHECK(fixture.Fails("physics.query", params) == AutomationErrorCode::InvalidParams);
+		}
+		// The valid extremes answer, and right: the world's edge with the longest distance, the largest shapes beside bodies
+		// they do not touch, a direction of any length.
+		auto const query = [&fixture](Json const& asked)
+		{
+			CAPTURE(asked.dump());
+			return fixture.Ok("physics.query", asked);
+		};
+		Json const fromTheEdge = query(Json::object({{"kind", "raycastAll"},
+		                                             {"origin", {MaxPhysicsCoordinate, MaxPhysicsCoordinate, -MaxPhysicsCoordinate}},
+		                                             {"direction", {-1.0, -1.0, 1.0}},
+		                                             {"distance", MaxPhysicsQueryDistance}}));
+		CHECK(HitEntities(fromTheEdge) == std::vector<std::string>{row.Ground.ToString()});
+		// A sheet as wide as a query's box may be, through Near and Far where it starts: both at distance 0, Near or Far by
+		// entity ID, as the overlap of the same box says; the ground half a meter below is not touched.
+		Json const sheet = Json::object({{"shape", "box"}, {"halfExtents", {MaxPhysicsQueryExtent, 0.0, MaxPhysicsQueryExtent}}});
+		Json sheetOverlap = Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.5, 0.0}}});
+		sheetOverlap.update(sheet);
+		std::vector<std::string> const sheetEntities = HitEntities(query(sheetOverlap));
+		std::vector<std::string> both = {row.Near.ToString(), row.Far.ToString()};
+		std::ranges::sort(both,
+		                  [](std::string const& left, std::string const& right)
+		                  {
+							  return std::stoull(left) < std::stoull(right);
+						  });
+		CHECK(sheetEntities == both);
+		Json const sheetCast = query(AlongTheRow("shapeCast", sheet));
+		REQUIRE(sheetCast["hits"].size() == 1);
+		CHECK(sheetCast["hits"][0]["entity"] == both[0]);
+		CHECK(sheetCast["hits"][0]["distance"] == 0.0);
+		// A rod as long as a query's capsule may be: upright it starts in the ground; lying across the row it meets Near's face.
+		Json const upright =
+			query(AlongTheRow("shapeCast", Json::object({{"shape", "capsule"}, {"radius", 0.0}, {"halfHeight", MaxPhysicsQueryExtent}})));
+		REQUIRE(upright["hits"].size() == 1);
+		CHECK(upright["hits"][0]["entity"] == row.Ground.ToString());
+		CHECK(upright["hits"][0]["distance"] == 0.0);
+		Json const lying = query(AlongTheRow(
+			"shapeCast",
+			Json::object(
+				{{"shape", "capsule"}, {"radius", 0.0}, {"halfHeight", MaxPhysicsQueryExtent}, {"rotationEuler", {0.0, 0.0, 90.0}}})));
+		REQUIRE(lying["hits"].size() == 1);
+		CHECK(lying["hits"][0]["entity"] == row.Near.ToString());
+		CHECK(lying["hits"][0]["distance"].get<double>() == doctest::Approx(2.5 - 0.001).epsilon(1.0e-3));
+		// Every entity of the scene lies in the largest sphere around the origin; the trigger counts only when asked.
+		Json const everything =
+			query(Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.0, 0.0}}, {"shape", "sphere"}, {"radius", MaxPhysicsQueryRadius}}));
+		CHECK(everything["count"] == 3);
+		CHECK(everything["state"] == "simulate");
+		// A direction of any length but zero is a direction: down onto the ground, a meter's worth of diagonal away.
+		Json const diagonal = query(AlongTheRow("raycast", Json::object({{"direction", {1.0e6, -1.0e6, 1.0e6}}})));
+		REQUIRE(diagonal["hits"].size() == 1);
+		CHECK(diagonal["hits"][0]["entity"] == row.Ground.ToString());
+		CHECK(diagonal["hits"][0]["distance"].get<double>() == doctest::Approx(0.5 * std::sqrt(3.0)).epsilon(1.0e-4));
+		fixture.Ok("play.stop");
+	}
+	CHECK(row.Ground.IsValid());
 }

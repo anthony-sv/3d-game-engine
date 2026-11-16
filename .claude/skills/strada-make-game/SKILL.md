@@ -451,6 +451,11 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
   with `mouseButtons` `{"Left": true}`, advance a frame, then release `Left` and advance another; `ui_layout` also
   reports each button's `state`. Prefer a headless editor for this (a windowed editor's game view also follows the
   real mouse).
+- `physics_query` asks the playing game's physics world what its scripts' queries would see: `{"kind":"raycast",
+  "origin":[0,2,0],"direction":[0,-1,0]}` gives the first solid hit (entity, point, normal, distance, physics
+  material); `raycastAll` every entity along the ray; `shapeCast` with `shape` (`sphere`, `box`, `capsule`) the first
+  hit of the swept shape; `overlap` the entities a shape overlaps at `origin`. `mask` picks layers, `triggers` counts
+  trigger colliders. A cast that starts inside a body hits that body.
 - Verify behavior with test scripts: `Strada.Testing` (`TestReporter.Run(name, check)`, `Assert`,
   `TestReporter.Finish()`) in a scene, run by `test_run` with `scene` and `timeout`, which returns every check's
   result. The engine repository's `Projects/FeatureTest` shows the pattern.

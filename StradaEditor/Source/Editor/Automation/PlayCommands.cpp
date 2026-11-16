@@ -6,13 +6,22 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/KeyCodes.h"
+#include "Strada/Math/Math.h"
+#include "Strada/Physics/PhysicsScene.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Project/SceneRunner.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/UILayout.h"
 
+#include <glm/gtc/quaternion.hpp>
+#include <spdlog/fmt/fmt.h>
+
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Strada
@@ -179,6 +188,305 @@ namespace Strada
 			}
 			return Json::object(
 				{{"width", size.x}, {"height", size.y}, {"pointerOverUI", scene.IsPointerOverUI()}, {"elements", std::move(elements)}});
+		}
+
+		// physics.query's kinds of query: Scene's Raycast, RaycastAll, ShapeCast and Overlap.
+		enum class PhysicsQueryKind : uint8_t
+		{
+			Ray = 0,
+			RayAll,
+			Cast,
+			Overlap
+		};
+
+		constexpr uint64_t DefaultQueryHits = 100;
+		constexpr uint64_t MaxQueryHits = 10000;
+
+		CommandError RefuseQuery(std::string_view path, std::string message)
+		{
+			CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}", message);
+			error.Data = Json::object({{"path", path}});
+			return error;
+		}
+
+		// A vector the schema shaped as numbers; null when one is not finite (no JSON text holds one, a request built in
+		// memory can).
+		template<glm::length_t N>
+		std::optional<glm::vec<N, double>> ReadQueryVector(Json const& value)
+		{
+			glm::vec<N, double> vector(0.0);
+			for (glm::length_t index = 0; index < N; index++)
+			{
+				vector[index] = value[static_cast<size_t>(index)].get<double>();
+				if (!std::isfinite(vector[index]))
+				{
+					return std::nullopt;
+				}
+			}
+			return vector;
+		}
+
+		Json ToJson(glm::vec3 const& value)
+		{
+			return Json::array({value.x, value.y, value.z});
+		}
+
+		Json DescribeQueryEntity(Scene& scene, UUID id)
+		{
+			Entity const entity = scene.GetEntityByUUID(id);
+			return Json::object({{"entity", id.ToString()}, {"name", entity ? Json(entity.GetName()) : Json()}});
+		}
+
+		Json DescribeQueryHit(Scene& scene, UUID id, glm::vec3 const& point, glm::vec3 const& normal, float distance, AssetHandle material)
+		{
+			Json hit = DescribeQueryEntity(scene, id);
+			hit["point"] = ToJson(point);
+			hit["normal"] = ToJson(normal);
+			hit["distance"] = distance;
+			hit["material"] = !material.IsValid()             ? Json()
+			                  : AssetManager::IsInitialized() ? Json(AssetManager::GetReference(material))
+			                                                  : Json(material.ToString());
+			return hit;
+		}
+
+		// physics.query: the playing scene's physics world as of its last step, with the changes made since applied (as a
+		// script's query sees it). Every parameter is checked before the query runs; a parameter the kind has no use for is
+		// refused rather than ignored, so a request never means something it does not say.
+		CommandResult QueryPhysics(PlayMode& playMode, EditorContext& context, Json const& params)
+		{
+			playMode.RefreshObserver();
+			if (!playMode.IsPlaying())
+			{
+				return MakeCommandError(AutomationErrorCode::Unavailable,
+				                        "nothing is playing: physics.query reads the playing scene's physics world (play.start)");
+			}
+			Scene& scene = context.GetScene();
+			if (scene.GetPhysicsScene() == nullptr)
+			{
+				return MakeCommandError(AutomationErrorCode::Unavailable,
+				                        "the playing scene has no physics world (physics is unavailable)");
+			}
+
+			std::string const& kindName = params.at("kind").get_ref<std::string const&>();
+			PhysicsQueryKind const kind = kindName == "raycast"      ? PhysicsQueryKind::Ray
+			                              : kindName == "raycastAll" ? PhysicsQueryKind::RayAll
+			                              : kindName == "shapeCast"  ? PhysicsQueryKind::Cast
+			                                                         : PhysicsQueryKind::Overlap;
+			bool const isRay = kind == PhysicsQueryKind::Ray || kind == PhysicsQueryKind::RayAll;
+			auto const has = [&params](char const* parameter)
+			{
+				return params.contains(parameter);
+			};
+
+			// What the kind uses.
+			if (isRay)
+			{
+				for (char const* const name : {"shape", "radius", "halfExtents", "halfHeight", "rotation", "rotationEuler"})
+				{
+					if (has(name))
+					{
+						return RefuseQuery(name, fmt::format("a ray has no shape: {} is for shapeCast and overlap", name));
+					}
+				}
+			}
+			else if (!has("shape"))
+			{
+				return RefuseQuery("shape", fmt::format("{} needs a shape (sphere, box or capsule)", kindName));
+			}
+			if (kind == PhysicsQueryKind::Overlap)
+			{
+				for (char const* const name : {"direction", "distance"})
+				{
+					if (has(name))
+					{
+						return RefuseQuery(name,
+						                   fmt::format("an overlap does not move: {} is for raycast, raycastAll and shapeCast", name));
+					}
+				}
+			}
+			else if (!has("direction"))
+			{
+				return RefuseQuery("direction", fmt::format("{} needs a direction", kindName));
+			}
+			if ((kind == PhysicsQueryKind::Ray || kind == PhysicsQueryKind::Cast) && has("maxHits"))
+			{
+				return RefuseQuery("maxHits", fmt::format("{} gives one hit: maxHits is for raycastAll and overlap", kindName));
+			}
+			bool const triggers = params.value("triggers", false);
+			if (kind == PhysicsQueryKind::Ray && triggers)
+			{
+				return RefuseQuery("triggers", "raycast passes through triggers: raycastAll sees them");
+			}
+			if (has("rotation") && has("rotationEuler"))
+			{
+				return RefuseQuery("rotationEuler", "give rotation or rotationEuler, not both");
+			}
+
+			PhysicsQueryShape shape;
+			if (!isRay)
+			{
+				std::string const& shapeName = params.at("shape").get_ref<std::string const&>();
+				shape.Type = shapeName == "sphere" ? PhysicsQueryShapeType::Sphere
+				             : shapeName == "box"  ? PhysicsQueryShapeType::Box
+				                                   : PhysicsQueryShapeType::Capsule;
+				bool const round = shape.Type != PhysicsQueryShapeType::Box;
+				if (has("radius") && !round)
+				{
+					return RefuseQuery("radius", "a box has no radius: its size is halfExtents");
+				}
+				if (has("halfExtents") && round)
+				{
+					return RefuseQuery("halfExtents", fmt::format("a {} has no halfExtents: its size is radius", shapeName));
+				}
+				if (has("halfHeight") && shape.Type != PhysicsQueryShapeType::Capsule)
+				{
+					return RefuseQuery("halfHeight", fmt::format("a {} has no halfHeight: only a capsule has one", shapeName));
+				}
+				for (char const* const name : {"rotation", "rotationEuler"})
+				{
+					if (has(name) && shape.Type == PhysicsQueryShapeType::Sphere)
+					{
+						return RefuseQuery(name, fmt::format("a sphere looks the same turned: {} is for a box or a capsule", name));
+					}
+				}
+				if (has("radius"))
+				{
+					double const radius = params.at("radius").get<double>();
+					if (!std::isfinite(radius))
+					{
+						return RefuseQuery("radius", "radius is not finite");
+					}
+					shape.Radius = static_cast<float>(radius);
+				}
+				if (has("halfHeight"))
+				{
+					double const halfHeight = params.at("halfHeight").get<double>();
+					if (!std::isfinite(halfHeight))
+					{
+						return RefuseQuery("halfHeight", "halfHeight is not finite");
+					}
+					shape.HalfHeight = static_cast<float>(halfHeight);
+				}
+				if (has("halfExtents"))
+				{
+					std::optional<glm::dvec3> const halfExtents = ReadQueryVector<3>(params.at("halfExtents"));
+					if (!halfExtents)
+					{
+						return RefuseQuery("halfExtents", "halfExtents is not finite");
+					}
+					shape.HalfExtents = glm::vec3(*halfExtents);
+				}
+			}
+
+			std::optional<glm::dvec3> const origin = ReadQueryVector<3>(params.at("origin"));
+			if (!origin)
+			{
+				return RefuseQuery("origin", "origin is not finite");
+			}
+			glm::vec3 direction(0.0f);
+			if (has("direction"))
+			{
+				// Normalized in double, so that no finite direction overflows on its way to a unit vector.
+				std::optional<glm::dvec3> const value = ReadQueryVector<3>(params.at("direction"));
+				double const length = value ? glm::length(*value) : 0.0;
+				if (!value || !std::isfinite(length) || length < 1.0e-9)
+				{
+					return RefuseQuery("direction", "direction must be a finite vector that is not zero");
+				}
+				direction = glm::vec3(*value / length);
+			}
+			float distance = MaxPhysicsQueryDistance;
+			if (has("distance"))
+			{
+				double const value = params.at("distance").get<double>();
+				if (!std::isfinite(value))
+				{
+					return RefuseQuery("distance", "distance is not finite");
+				}
+				distance = static_cast<float>(value);
+				// A query of no length finds nothing, even what a shape starts in: refused so the request means what it says.
+				if (!(distance > 0.0f))
+				{
+					return RefuseQuery("distance", "distance must be more than 0");
+				}
+			}
+			glm::quat rotation(1.0f, 0.0f, 0.0f, 0.0f);
+			if (has("rotation"))
+			{
+				std::optional<glm::dvec4> const value = ReadQueryVector<4>(params.at("rotation"));
+				double const length = value ? glm::length(*value) : 0.0;
+				if (!value || !std::isfinite(length) || length < 1.0e-9)
+				{
+					return RefuseQuery("rotation", "rotation must be a finite quaternion [x, y, z, w] that is not zero");
+				}
+				glm::dvec4 const unit = *value / length;
+				rotation = glm::quat(static_cast<float>(unit.w), static_cast<float>(unit.x), static_cast<float>(unit.y),
+				                     static_cast<float>(unit.z));
+			}
+			else if (has("rotationEuler"))
+			{
+				std::optional<glm::dvec3> const degrees = ReadQueryVector<3>(params.at("rotationEuler"));
+				if (!degrees)
+				{
+					return RefuseQuery("rotationEuler", "rotationEuler is not finite");
+				}
+				rotation = Math::EulerDegreesToQuaternion(glm::vec3(*degrees));
+			}
+			PhysicsQueryFilter filter;
+			filter.LayerMask = params.value("mask", AllPhysicsLayers);
+			filter.IncludeTriggers = triggers;
+			uint64_t const maxHits = params.value("maxHits", DefaultQueryHits);
+
+			glm::vec3 const position(*origin);
+			Json hits = Json::array();
+			size_t count = 0;
+			switch (kind)
+			{
+				case PhysicsQueryKind::Ray:
+					if (std::optional<RaycastHit> const hit = scene.Raycast(position, direction, distance, filter.LayerMask))
+					{
+						hits.push_back(DescribeQueryHit(scene, hit->Entity, hit->Point, hit->Normal, hit->Distance, hit->Material));
+						count = 1;
+					}
+					break;
+				case PhysicsQueryKind::RayAll:
+				{
+					std::vector<RaycastHit> found;
+					count = scene.RaycastAll(position, direction, distance, found, filter);
+					for (size_t index = 0; index < found.size() && index < maxHits; index++)
+					{
+						RaycastHit const& hit = found[index];
+						hits.push_back(DescribeQueryHit(scene, hit.Entity, hit.Point, hit.Normal, hit.Distance, hit.Material));
+					}
+					break;
+				}
+				case PhysicsQueryKind::Cast:
+					if (std::optional<ShapeCastHit> const hit = scene.ShapeCast(shape, position, rotation, direction, distance, filter))
+					{
+						hits.push_back(DescribeQueryHit(scene, hit->Entity, hit->Point, hit->Normal, hit->Distance, hit->Material));
+						count = 1;
+					}
+					break;
+				case PhysicsQueryKind::Overlap:
+				{
+					std::vector<UUID> found;
+					count = scene.Overlap(shape, position, rotation, found, filter);
+					for (size_t index = 0; index < found.size() && index < maxHits; index++)
+					{
+						hits.push_back(DescribeQueryEntity(scene, found[index]));
+					}
+					break;
+				}
+			}
+			bool const truncated = hits.size() < count;
+			PhysicsScene const* const physics = scene.GetPhysicsScene();
+			return Json::object({{"kind", kindName},
+			                     {"state", GetEditorPlayStateName(context.GetPlayState())},
+			                     {"frame", scene.GetRuntimeFrame()},
+			                     {"step", physics != nullptr ? physics->GetStepCount() : uint64_t(0)},
+			                     {"count", count},
+			                     {"truncated", truncated},
+			                     {"hits", std::move(hits)}});
 		}
 
 		Result<void> Add(CommandRegistry& registry, std::string name, std::string description, Json parameters, bool readOnly,
@@ -485,6 +793,81 @@ namespace Strada
 		              [&context, viewportSize](Json const& params) -> CommandResult
 		              {
 						  return DescribeUILayout(context, viewportSize, params);
+					  })
+				: result;
+
+		SchemaBuilder const coordinateSchema = SchemaBuilder::Number().Minimum(-MaxPhysicsCoordinate).Maximum(MaxPhysicsCoordinate);
+		SchemaBuilder const radiusSchema = SchemaBuilder::Number().Minimum(0.0).Maximum(MaxPhysicsQueryRadius);
+		SchemaBuilder const extentSchema = SchemaBuilder::Number().Minimum(0.0).Maximum(MaxPhysicsQueryExtent);
+		SchemaBuilder const componentSchema = SchemaBuilder::Number().Minimum(-1.0e6).Maximum(1.0e6);
+		result =
+			result
+				? Add(registry, "physics.query",
+		              "Asks the playing scene's physics world (play or simulate, paused or not) what a ray or a shape meets, as a "
+		              "script's query does: the world as of its last step, with the bodies made or moved since put where they "
+		              "are. kind: raycast (the first solid hit, triggers passed through), raycastAll (every entity along the ray, "
+		              "its nearest hit each, nearest first, then by entity ID), shapeCast (the first hit of a sphere, box or capsule "
+		              "swept along direction; a collider the shape starts in is hit at distance 0) or overlap (the entities the shape "
+		              "overlaps where it is, by entity ID). origin is the ray's start or the shape's center. Returns { kind, state, "
+		              "frame, step (physics steps run), count (hits found), truncated (more than maxHits), hits: [{ entity, name, "
+		              "point, normal, distance, material (the physics material's reference or null) }] (overlap: entity and name "
+		              "only) }. A parameter the kind has no use for is refused (InvalidParams). Read-only: not an undo step. "
+		              "Unavailable while nothing plays or without physics.",
+		              SchemaBuilder::Object()
+		                  .Property("kind", SchemaBuilder::String("What to ask").Enum({"raycast", "raycastAll", "shapeCast", "overlap"}),
+		                            true)
+		                  .Property(
+							  "origin",
+							  SchemaBuilder::Array(coordinateSchema, "World position [x, y, z]: the ray's start or the shape's center")
+								  .MinItems(3)
+								  .MaxItems(3),
+							  true)
+		                  .Property("direction",
+		                            SchemaBuilder::Array(componentSchema, "Where the ray or shape goes [x, y, z], any length but zero "
+		                                                                  "(raycast, raycastAll and shapeCast: required)")
+		                                .MinItems(3)
+		                                .MaxItems(3))
+		                  .Property(
+							  "distance",
+							  SchemaBuilder::Number(
+								  "How far in meters, more than 0 (raycast, raycastAll, shapeCast; default as far as the world reaches)")
+								  .Minimum(0.0)
+								  .Maximum(MaxPhysicsQueryDistance))
+		                  .Property("shape",
+		                            SchemaBuilder::String("The shape (shapeCast and overlap: required)").Enum({"sphere", "box", "capsule"}))
+		                  .Property("radius", SchemaBuilder(radiusSchema).Description("Sphere and capsule radius in meters").Default(0.5))
+		                  .Property("halfExtents",
+		                            SchemaBuilder::Array(extentSchema, "Box half extents [x, y, z] in meters (default 0.5 each)")
+		                                .MinItems(3)
+		                                .MaxItems(3))
+		                  .Property("halfHeight", SchemaBuilder(extentSchema)
+		                                              .Description("Capsule: half the length of the cylinder between its caps, along "
+		                                                           "its local Y axis")
+		                                              .Default(0.5))
+		                  .Property("rotation",
+		                            SchemaBuilder::Array(componentSchema, "The shape's rotation as a quaternion [x, y, z, w] (box and "
+		                                                                  "capsule; default none)")
+		                                .MinItems(4)
+		                                .MaxItems(4))
+		                  .Property("rotationEuler",
+		                            SchemaBuilder::Array(componentSchema, "The shape's rotation as [pitch, yaw, roll] in degrees, "
+		                                                                  "in place of rotation")
+		                                .MinItems(3)
+		                                .MaxItems(3))
+		                  .Property("mask", SchemaBuilder::Integer("Layers seen: bit i sees layer i (default every layer)")
+		                                        .Minimum(0)
+		                                        .Maximum(AllPhysicsLayers)
+		                                        .Default(AllPhysicsLayers))
+		                  .Property("triggers", SchemaBuilder::Boolean("Whether trigger colliders count (not for raycast)").Default(false))
+		                  .Property("maxHits", SchemaBuilder::Integer("Most hits returned (raycastAll and overlap)")
+		                                           .Minimum(1)
+		                                           .Maximum(MaxQueryHits)
+		                                           .Default(DefaultQueryHits))
+		                  .Build(),
+		              true,
+		              [&playMode, &context](Json const& params) -> CommandResult
+		              {
+						  return QueryPhysics(playMode, context, params);
 					  })
 				: result;
 		if (!result)

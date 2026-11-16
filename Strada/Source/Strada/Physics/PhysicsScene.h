@@ -172,12 +172,43 @@ namespace Strada
 		bool IsSleeping(UUID entity) const;
 		void WakeUp(UUID entity);
 
-		// --- Queries ---
+		// --- Queries (Architecture.md section 8, "Queries") ---
+		//
+		// They read the world as the last step left it (and bodies added or changed since), on the main thread between
+		// steps, and change nothing. A query sees the bodies and characters on the layers of its mask (bit i = layer i), and
+		// trigger colliders only when its filter includes them (PhysicsQueryFilter). It reports each entity at most once:
+		// a ray or cast its nearest hit over the entity's colliders and triangles (at equal distances the one of the smaller
+		// Jolt sub-shape ID), an overlap the entity alone. Directions need not be normalized. A query whose origin or center
+		// is not finite or beyond MaxPhysicsCoordinate, whose direction is zero or not finite, whose distance is not finite
+		// and positive, whose rotation is not finite or whose shape is not valid (PhysicsQueryShape) finds nothing;
+		// distances beyond MaxPhysicsQueryDistance are cut to it and rotations normalized (zero is the identity). The
+		// many-hit forms replace the vector's contents (keeping its capacity) with every hit, in order, and return the count.
 
 		// The closest solid collider along a ray (trigger colliders are ignored) on the layers of the mask (bit i =
-		// layer i), with the physics material of the surface hit. The direction need not be normalized.
+		// layer i), with the physics material of the surface hit. The direction need not be normalized. A ray starting
+		// inside a convex collider passes out of it. Of entities hit at exactly the same distance it reports the one of the
+		// smaller UUID, as RaycastAll's first hit; its checks are its own (finite positive distance, non-zero direction).
 		std::optional<RaycastHit> Raycast(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance,
-		                                  uint32_t layerMask = 0xFFFFFFFFu) const;
+		                                  uint32_t layerMask = AllPhysicsLayers) const;
+		// Every entity along a ray, each at its nearest hit, ordered by IsQueryHitBefore (distance, then UUID). As Raycast, a
+		// ray starting inside a convex collider passes out of it and triangles are hit from their front only.
+		size_t RaycastAll(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance, std::vector<RaycastHit>& hits,
+		                  PhysicsQueryFilter const& filter = {}) const;
+		// The first entity a shape touches as it moves from origin (its center), turned by rotation, along direction for at
+		// most maxDistance without turning: of the entities touched, the first by IsQueryHitBefore (distance, then UUID).
+		// A collider the shape overlaps where it starts is touched at distance 0, at the deepest point of the overlap,
+		// whichever way the cast goes; triangles are touched from their front only, as by rays. That includes the caller's own
+		// colliders: PhysicsQueryFilter excludes no entity, so a cast meant to find what lies below or ahead of a body (a
+		// wheel under a chassis, a foot under a character) starts outside that body's colliders or leaves its layer out of
+		// the mask.
+		std::optional<ShapeCastHit> ShapeCast(PhysicsQueryShape const& shape, glm::vec3 const& origin, glm::quat const& rotation,
+		                                      glm::vec3 const& direction, float maxDistance, PhysicsQueryFilter const& filter = {}) const;
+		// Every entity with a collider the shape overlaps at center, turned by rotation, ordered by UUID. A triangle counts
+		// from either side; a shape wholly inside a closed triangle mesh does not meet its surface and does not overlap it.
+		// Box colliders count with their edges and corners rounded by their convex radius (at most 5 cm), as Jolt's collide
+		// test sees them, so a shape that only grazes an edge may be touched by a cast at distance 0 and not overlap it.
+		size_t Overlap(PhysicsQueryShape const& shape, glm::vec3 const& center, glm::quat const& rotation, std::vector<UUID>& entities,
+		               PhysicsQueryFilter const& filter = {}) const;
 
 	private:
 		struct Data;

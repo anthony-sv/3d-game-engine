@@ -502,6 +502,11 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<Vector3*, void> Physics_GetGravity;
 	internal static delegate* unmanaged<Vector3*, void> Physics_SetGravity;
 	internal static delegate* unmanaged<Vector3*, Vector3*, float, uint, NativeRaycastHit*, byte> Physics_Raycast;
+	// The number of hits copied into the buffer (at most its capacity, the last argument).
+	internal static delegate* unmanaged<Vector3*, Vector3*, float, uint, byte, NativeRaycastHit*, int, int> Physics_RaycastAll;
+	internal static delegate* unmanaged<NativeQueryShape*, Vector3*, Quaternion*, Vector3*, float, uint, byte, NativeRaycastHit*, byte> Physics_ShapeCast;
+	// The number of entity IDs copied into the buffer (at most its capacity, the last argument).
+	internal static delegate* unmanaged<NativeQueryShape*, Vector3*, Quaternion*, uint, byte, ulong*, int, int> Physics_Overlap;
 	// 0 outside a contact handler; points (null, or room for NativeContactPoint.MaxCount) receives the event's points.
 	internal static delegate* unmanaged<NativeCollision*, NativeContactPoint*, byte> Collision_Read;
 

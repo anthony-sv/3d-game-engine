@@ -44,6 +44,12 @@ internal static class ScriptRegistry
 	private static GameLoadContext? s_LoadContext;
 	private static readonly SortedDictionary<string, ScriptClass> s_Classes = new(StringComparer.Ordinal);
 	private static readonly Dictionary<ulong, Script> s_Instances = [];
+	// The Entity handed out for each entity without a script instance, so that a query, an event or a graph that meets the
+	// entity again allocates nothing. Entities compare by ID and hold nothing else, so a kept one is the same as a new one.
+	// The engine tells scripts of no destruction of an entity without a script, so the cache empties with the scene's
+	// instances and, at MaxKeptEntities, starts over rather than growing with every entity a long run makes.
+	private static readonly Dictionary<ulong, Entity> s_Entities = [];
+	internal const int MaxKeptEntities = 4096;
 	// The public types of the game assembly (nested public types included), by full name: what [VisualNode] can mark.
 	private static readonly List<Type> s_GameTypes = [];
 
@@ -93,6 +99,7 @@ internal static class ScriptRegistry
 		Host.VisualScripts.OnGameAssemblyUnloading();
 		EngineLibrary.Drop();
 		s_Instances.Clear();
+		s_Entities.Clear();
 		s_Classes.Clear();
 		s_GameTypes.Clear();
 		if (s_LoadContext == null)
@@ -290,6 +297,7 @@ internal static class ScriptRegistry
 			ApplyFields(instance, className, scriptClass, fieldsJson);
 		}
 		s_Instances[entity] = instance;
+		s_Entities.Remove(entity);
 		return Host.Success;
 	}
 
@@ -383,7 +391,11 @@ internal static class ScriptRegistry
 
 	internal static bool DestroyInstance(ulong entity) => s_Instances.Remove(entity);
 
-	internal static void DestroyAllInstances() => s_Instances.Clear();
+	internal static void DestroyAllInstances()
+	{
+		s_Instances.Clear();
+		s_Entities.Clear();
+	}
 
 	// Runs a lifecycle method of the entity's instance (Destroy also removes the instance); script exceptions are
 	// logged and reported as Failure. The values are the event's time step or other entity.
@@ -438,6 +450,27 @@ internal static class ScriptRegistry
 		}
 	}
 
-	// The script instance of the entity when it has one, so scripts can test what they touched with `is`.
-	internal static Entity GetEntity(ulong entity) => s_Instances.TryGetValue(entity, out Script? instance) ? instance : new Entity(entity);
+	// The script instance of the entity when it has one, so scripts can test what they touched with `is`; else the Entity
+	// kept for it, made at its first use.
+	internal static Entity GetEntity(ulong entity)
+	{
+		if (s_Instances.TryGetValue(entity, out Script? instance))
+		{
+			return instance;
+		}
+		if (s_Entities.TryGetValue(entity, out Entity? kept))
+		{
+			return kept;
+		}
+		if (s_Entities.Count >= MaxKeptEntities)
+		{
+			s_Entities.Clear();
+		}
+		Entity made = new(entity);
+		s_Entities.Add(entity, made);
+		return made;
+	}
+
+	// How many Entity objects are kept for entities without a script (for tests).
+	internal static int KeptEntityCount => s_Entities.Count;
 }

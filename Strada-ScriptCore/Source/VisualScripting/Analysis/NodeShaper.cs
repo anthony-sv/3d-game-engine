@@ -1061,9 +1061,9 @@ internal sealed class NodeShaper
 	private void Struct(AnalyzedNode node, bool make)
 	{
 		VisualType? type = make
-			? ReadType(node, "Type", "Make builds structs whose public fields are all writable (vectors, quaternions, colors, matrices, rays, contact points)",
+			? ReadType(node, "Type", "Make builds structs whose public fields are all writable (vectors, quaternions, colors, matrices, rays, contact points, shape cast hits)",
 				static candidate => candidate.Makeable)
-			: ReadType(node, "Type", "Break splits structs (vectors, quaternions, colors, matrices, rays, raycast hits, contact points, asset handles)",
+			: ReadType(node, "Type", "Break splits structs (vectors, quaternions, colors, matrices, rays, raycast hits, shape cast hits, contact points, asset handles)",
 				static candidate => candidate.Breakable);
 		if (type == null)
 		{
