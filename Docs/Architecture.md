@@ -587,15 +587,14 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   draws 10,000 instances of 4 meshes and 3 materials among 12,001 entities, with a sun of 4 cascades, at 1920x1080,
   in three scenarios (nothing moved, 1,000 children moved, every root moved), entity IDs off and on. The targets are
   at most 400 draws, `Renderer.Submit` and `Renderer.Prepare` together at most 2.0 ms, and the cache's refresh at most
-  0.5 ms. Draws are 47 with entity IDs off and 62 with them on. Measured at IN's last step on the reference machine
-  with no build or test running, `Renderer.Submit` and `Renderer.Prepare` together took 1.12 to 1.26 ms
-  (`Renderer.Batch` 0.37 to 0.39 ms of it), on that step's tree before its mirroring change, which adds a sign test
-  per instance; the step's first tree had taken 2.72 to 2.95 ms in the same idle state 25 minutes before. In three
-  later sittings the machine ran every figure, the first tree's included (3.9 to 6.4 ms), 1.4 to 2.2 times slower,
-  and the final tree took 1.25 to 2.62 ms there, 0.45 to 0.5 of the first tree's time in the same sitting: the exit's
-  figure is the gate's, measured again with every lane idle. What changed against the first tree, in the order of
-  what each saved: the sky light found without a walk through the hierarchy, mesh draws prepared once per frame, the
-  light-space cascade test, the radix sort.
+  0.5 ms. Draws are 47 with entity IDs off and 62 with them on. Measured on IN's final tree on the reference machine
+  with no build or test running (two runs of the case, 24 medians of 300 frames), `Renderer.Submit` and
+  `Renderer.Prepare` together took 1.19 to 1.93 ms (`Renderer.Batch` 0.37 to 0.58 ms of it); the first scenario of a
+  run is the fastest, and the later ones settle at 1.7 to 1.9 ms. Between those two runs, in the same sitting, IN's
+  first batched tree took 4.19 to 4.68 ms; it had taken 2.72 to 2.95 ms in an earlier sitting, so the machine ran
+  that sitting about 1.5 times slower than its fastest, and the final tree's figure is an upper bound. What changed
+  against the first tree, in the order of what each saved: the sky light found without a walk through the hierarchy,
+  mesh draws prepared once per frame, the light-space cascade test, the radix sort.
 
 Visibility: `EndScene` tests the world bounds of every submitted submesh against the camera's `Frustum`
 (`Math/Frustum.h`), built from its view-projection and limited to `SceneRendererCamera::MaxDistance` (the camera
@@ -1269,14 +1268,14 @@ stale.
   or all of them moved; the benchmark case of `WorldTransformCacheTests.cpp` (`STRADA_TRANSFORM_BENCHMARK=1`) measures
   the three. An entry keeps its local matrix (`Local`, the product of its translation, rotation and scale), so an
   entity whose own inputs did not change is computed again under its parent's new matrix with one affine product: what
-  every child costs when its root moves. Measured at IN's last step (Release, 100 roots of 119 children, one refresh
-  per frame, 300 frames, the zone's median), with the reference machine idle: 0.13 ms with nothing moved, 0.17 ms with
-  1,000 children moved, 0.31 ms with every root moved, every matrix computed again; inside a rendered frame of the
-  instancing benchmark (`Renderer/InstancingBenchmarkTests.cpp`, 12,001 entities, where the renderer's work leaves the
-  cache colder) 0.14, 0.18 and 0.31 to 0.34 ms, against 0.47 to 0.49 ms for every root moved before the local matrix
-  was kept. In later sittings where the machine ran 1.4 to 2.2 times slower, every root moved took 0.32 to 0.35 ms alone
-  (0.51 to 0.53 ms before the local matrix, in the same sittings) and 0.44 to 0.58 ms in the frame (0.66 to 0.95 ms
-  before). A read through a current chain costs about 0.05 µs per entity, half of slice 1's walk.
+  every child costs when its root moves. Measured on IN's final tree (Release, 100 roots of 119 children, one refresh
+  per frame, 300 frames, the zone's median), with the reference machine idle: 0.13 to 0.14 ms with nothing moved,
+  0.17 to 0.18 ms with 1,000 children moved, 0.31 to 0.34 ms with every root moved, every matrix computed again; inside
+  a rendered frame of the instancing benchmark (`Renderer/InstancingBenchmarkTests.cpp`, 12,001 entities, where the
+  renderer's work leaves the cache colder) 0.15 to 0.22, 0.26 to 0.29 and 0.44 to 0.50 ms. In the same sitting the
+  tree before the local matrix was kept took 0.51 ms alone and 0.69 to 0.71 ms in the frame with every root moved; that
+  sitting ran about 1.5 times slower than the machine's fastest, where the same refresh took 0.31 to 0.34 ms in the
+  frame. A read through a current chain costs about 0.05 µs per entity, half of slice 1's walk.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
 
