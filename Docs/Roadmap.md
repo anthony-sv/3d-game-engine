@@ -514,7 +514,7 @@ The efforts map onto the October phases this way:
 - **Effort 2, First Ride,** is Phase 0 without T3, T4 and T5 (they move to Phase 1, with M1's texture criterion),
   without P1's new constraint kinds and V7's UDP output, and with only the same-platform half of P3; it adds the
   enablers E1-E8 and E13, E11's core, VS1, VS2, Moto finished as a game made of graphs, and R5's TAA and motion blur
-  below the cut line. A third lane, also below the cut line, carries W2 splines (Phase 2) and the first three slices of
+  below the cut line (cut from slice 2; whether they return to First Ride is open, §9). A third lane, also below the cut line, carries W2 splines (Phase 2) and the first three slices of
   A1 (Phase 1).
 - **Effort 3, The Rider,** takes Phase 1's engine items (A1's fourth slice, R4 and the rest of R5, AU3, I2, S3) and
   Phase 0's remainder (T3, T4, T5, P1's constraints). Its milestone M1.5 is new.
@@ -1188,8 +1188,9 @@ Two rules the graphs cannot show:
 
 - **Every item with scripting API depends on the visual-script obligations** (§2.1): its members become nodes, its
   callbacks become built-in event kinds, and failing tests enforce both.
-- **R5 before R4.** R5's TAA and motion blur land in First Ride before the render graph, carrying a per-view history
-  registry as R4's first layer; R4 follows in Effort 3, before the rest of R5. The graph debugger informs S4's design
+- **R5 before R4.** R5's TAA and motion blur were planned to land in First Ride before the render graph, carrying a
+  per-view history registry as R4's first layer, and R4 to follow in Effort 3, before the rest of R5. Their tracks were
+  cut from slice 2 (§4.3): if they move to Effort 3 (§9), R4 and they are ordered when that effort is specified. The graph debugger informs S4's design
   only (the dotted edge): C# debugging attaches an external debugger to the hosted runtime.
 
 ## 7. Not planned
@@ -1289,7 +1290,7 @@ until distribution returns.
 | Distribution | Decided (2026-11-10): cut, except Front Door | Not scheduled (§3.10): no installer, signing, registry or updates; Strada runs from its build tree | Every row marked Waits |
 | What Front Door and First Ride contain | Decided under the maintainer's delegation (2026-11-12) | Front Door as §4.3 lists it; E11's core (a per-game identity and data folder, no engine line, no registry) in First Ride's slice 1; a third lane below the cut line for W2 splines and then A1's first three slices; no previews and no lane C | Effort 2's spec; the third lane's worktree |
 | Agent files in new projects | Decided, built in Front Door | On by default, visible, one click to turn off; never automatic for existing projects (a plan the user confirms) | Nothing now |
-| R5 in First Ride | Open | Its three tracks (TA1 TAA with the scene format's first migration, TA2 camera motion blur, TA3 per-object motion blur; 5.5 engineer-weeks) were cut from slice 2 by the slice's rule and keep their specs. Either they take lane A's time in slice 3 or 4 (M1 then moves by about half a day at the slices' rates, about 4.4 days at their factor), or they go to Effort 3 with the rest of R5. Recommended: Effort 3, since M1's criteria hold with FXAA, and the fences' moiré is the one look marginal TA would fix | Moto's fences under TAA; R5's place |
+| R5 in First Ride | Open | Its three tracks (TA1 TAA with the scene format's first migration, TA2 camera motion blur, TA3 per-object motion blur; 5.5 engineer-weeks) were cut from slice 2 by the slice's rule and keep their specs. Either they take lane A's time in slice 3 or 4 (M1 then moves by about half a day at the slices' rates, about 4.4 days at their factor), or they go to Effort 3 with the rest of R5. M1's criteria hold with FXAA either way; the fences' moiré at mid range, one of the look review's two marginals, waits for TA | Moto's fences under TAA; R5's place |
 | Moto's art direction | Default | A stylized procedural bike, a rigid rider, a CC0 environment and a synthesized engine sound. Slice 2's look review passed with two marginals (the bike up close, the fences under FXAA): the generated look stands, and the fallback, a sourced bike model that keeps the generated bike's proportions, parts and budgets, can be called until MO3 starts | MO3 |
 | Worktrees | Default | Reuse `vs-a` and `vs-b` for lanes A and B, as Front Door did, and give a third lane its own if one starts; remove the `build\windows-release` folder only on the maintainer's word | A third lane's start |
 | The third lane (W2 splines, then A1's first three slices) | Open | The machine carries two working lanes, so the lane did not start in slices 1 and 2 and is not scheduled in slice 3. Either it takes a lane's time from lanes A and B in a later slice (M1 then moves by its weeks at their factors), or it waits until after M1, where W2 and A1 return to Phases 2 and 1. Not a cut: M1's criteria never depended on it | Splines in Moto's circuit; A1 before Effort 3 |
