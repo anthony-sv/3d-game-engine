@@ -396,7 +396,7 @@ namespace Strada
 		// Collisions and trigger overlaps that began or ended during the last runtime update.
 		std::vector<ContactEvent> const& GetContactEvents() const { return m_ContactEvents; }
 		// The running scene's input actions as its latest frame evaluated them (Docs/Architecture.md §7.4): what scripts'
-		// and graphs' action queries read while the scene runs them, inside fixed steps the step's edges. Empty (every
+		// and graphs' action queries read while the scene runs them (a fixed step's edges for OnFixedUpdate's code). Empty (every
 		// action zero) while the scene does not run or the runtime settings name no actions that load.
 		InputActionState& GetInputActions() { return m_InputActions; }
 		InputActionState const& GetInputActions() const { return m_InputActions; }

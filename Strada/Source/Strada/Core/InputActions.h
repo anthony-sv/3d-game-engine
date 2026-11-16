@@ -185,6 +185,15 @@ namespace Strada
 		bool operator==(InputActionEdge const& other) const = default;
 	};
 
+	// Which edges a query reads: the frame's (OnUpdate and everything outside the fixed steps) or a fixed step's
+	// (OnFixedUpdate). The caller says which, from the code it runs for: a graph execution that OnFixedUpdate started keeps
+	// asking for the step's view when a debugger resumes it between frames.
+	enum class InputActionView : uint8_t
+	{
+		Frame = 0,
+		FixedStep
+	};
+
 	// The actions of one consumer, evaluated once per frame from Input and its action overrides: a running scene owns one
 	// (Scene::UpdateInputActions evaluates it, scripts' queries read it). Between two evaluations it does not change
 	// except at fixed steps, whose edges it latches (Docs/Architecture.md §7.4, "The fixed-step rule"). Main thread.
@@ -211,9 +220,10 @@ namespace Strada
 		// The edges of the latest evaluation, in dispatch order.
 		std::span<InputActionEdge const> GetEdges() const { return m_Edges; }
 
-		// Brackets one fixed step (the scene's FixedUpdateScripts): from Begin, the step's view holds the edges latched
-		// since the previous step, and the latch starts empty; End returns the queries to the frame's view. Nested calls
-		// are a programmer error.
+		// Brackets one fixed step (the scene's FixedUpdateScripts): Begin makes the step's view the edges latched since the
+		// previous step began, and empties the latch. The step's view stays the latest step's until the next Begin, so code
+		// that a debugger resumes between frames reads the step it ran in (or a later one of that frame), never an edge a
+		// later step will see. The next evaluation does not change it. Nested calls are a programmer error.
 		void BeginFixedStep();
 		void EndFixedStep();
 		bool IsInFixedStep() const { return m_InFixedStep; }
@@ -232,12 +242,13 @@ namespace Strada
 		};
 
 		// Queries by index into the set (an index the set lacks reads zero). The value and level are the latest
-		// evaluation's, in a fixed step too; Pressed and Released are the frame's edges, or inside a fixed step the step's.
+		// evaluation's in either view; Pressed and Released are the latest evaluation's edges in the Frame view, and the
+		// latest fixed step's in the FixedStep view.
 		[[nodiscard]] float GetValue(uint32_t action) const;
 		[[nodiscard]] glm::vec2 GetVector(uint32_t action) const;
 		[[nodiscard]] bool IsDown(uint32_t action) const;
-		[[nodiscard]] bool IsPressed(uint32_t action) const;
-		[[nodiscard]] bool IsReleased(uint32_t action) const;
+		[[nodiscard]] bool IsPressed(uint32_t action, InputActionView view) const;
+		[[nodiscard]] bool IsReleased(uint32_t action, InputActionView view) const;
 
 		// The index of the named action. A name the set lacks (or every name, without a set) is logged once per name until
 		// the set changes or Clear, and reads as zero through the queries: callers pass the result on as it is.
@@ -262,7 +273,7 @@ namespace Strada
 			// Edges since the last fixed step began, for the next one.
 			uint32_t PendingPresses = 0;
 			uint32_t PendingReleases = 0;
-			// The current fixed step's edges.
+			// The latest fixed step's edges (kept after the step, until the next one begins).
 			bool StepPressed = false;
 			bool StepReleased = false;
 			// One per digital control of the action's bindings, in binding and control order.

@@ -1875,9 +1875,14 @@ OnUpdateRuntime: BeginTransformFrame → UpdateInputActions (evaluate; the edges
 **The fixed-step rule** (the effort's rule for actions):
 
 - In `OnUpdate`, and in everything else that runs outside the fixed steps (the action events, clicks, contact events,
-  `OnDestroy`, code a debugger resume runs), `IsActionPressed` and `IsActionReleased` are the frame's edges.
+  `OnDestroy`), `IsActionPressed` and `IsActionReleased` are the frame's edges.
 - Every edge also increments a latch of its action. `FixedUpdateScripts` brackets each fixed step with
-  `InputActionState::FixedStepScope`: the step's view takes the latch and the latch starts empty. Since a frame's steps
+  `InputActionState::FixedStepScope`: the step's view takes the latch and the latch starts empty. The step's view stays
+  the latest step's until the next step begins.
+- Each query says which view it reads (`InputActionView`), from the code it runs for: C# code inside `OnFixedUpdate`
+  and a graph execution that `Event.FixedUpdate` started (also when a debugger resumes it, or a latent node continues
+  it) read the step's view; everything else reads the frame's. The managed side knows which: the script registry marks
+  its `FixedUpdate` dispatch, and the graph runtime marks the executions that event starts. Since a frame's steps
   run after its evaluation, each edge is seen by **exactly one** `OnFixedUpdate`, the first at or after its frame: a
   frame of eight steps shows it to the first alone, and frames that run no step (a frame shorter than a step, a time
   scale of 0) carry it to the next step.
@@ -1889,16 +1894,19 @@ OnUpdateRuntime: BeginTransformFrame → UpdateInputActions (evaluate; the edges
 
 **What a debugger resume sees.** While an execution is stopped the editor refuses game frames
 (`PlayMode::GetFrameStepRefusal`), so no evaluation runs between frames. Code that a resume runs (`graph.continue`,
-`graph.step`, `play.pause` with `paused: false`) runs outside any step: it reads the latest evaluation through the
-frame's view, and input given meanwhile (keys, `input.set`'s actions and gamepads) reaches actions at the next frame's
-evaluation only. The action events are dispatched by the frame's call alone, so a resume never fires one. So no action
-edge is seen twice, unlike a key's: a press given while stopped is read by the resumed code and again by the next frame
-(`GraphDebugCommandsTests` pins that for keys, and it stays).
+`graph.step`, `play.pause` with `paused: false`) reads the latest evaluation through its own view: code of
+`OnUpdate` or an event reads the frame's edges, which its frame already showed it; code of `OnFixedUpdate` reads the
+latest step's edges, which are the edges of the step it stopped in when that was the frame's last step, and otherwise
+those of a later step of the same frame, which took no edge the earlier one had (so a resumed step may miss an edge it
+saw before it stopped, but never reads one another step sees). Input given meanwhile (keys, `input.set`'s actions and
+gamepads) reaches actions at the next frame's evaluation only, and the action events are dispatched by the frame's call
+alone, so a resume never fires one. So no action edge is seen twice, unlike a key's: a press given while stopped is read
+by the resumed code and again by the next frame (`GraphDebugCommandsTests` pins that for keys, and it stays).
 
 **Queries.** `Strada.Input` gains `GetAction(name)` (a float: a `Vector2` action's length), `GetActionVector(name)` (a
 `Button` or `Axis` action gives (value, 0)), `IsActionDown(name)`, `IsActionPressed(name)` and `IsActionReleased(name)`,
-each a pure node (`[PureNode]`). They read the state of the scene that runs scripts (through its view of the moment:
-frame or step) and read zero outside a running scene. A name the set lacks reads zero and is logged once per name until
+each a pure node (`[PureNode]`). They read the state of the scene that runs scripts, in the view of the code that asks
+(frame or step), and read zero outside a running scene. A name the set lacks reads zero and is logged once per name until
 the set changes; without a set (a project that names no actions, or an asset that does not load) every name does, and
 the message says the project names no input actions.
 
@@ -1929,8 +1937,10 @@ exec output only.
   `InvokeOnActionReleased`; `VisualScriptRuntime.Invoke` accepts events up to `ActionReleased`.
 - **The two kinds** sit in `BuiltinNode` right after `EventGamepadButtonReleased` and before `EventCustom`, so
   `IsInputEvent` (whose range now ends at `EventActionReleased`) and `IsEvent` (which ends at `EventCustom`) hold: they
-  are input events to the rules (two enabled nodes of one kind and one action are `DuplicateEvent`, as two of one key
-  are) and to the editor's palette, but they are not polled. `ProgramCompiler` compiles them into a table of (kind,
+  are input events to the duplicate rule (two enabled nodes of one kind and one action are `DuplicateEvent`, as two of
+  one key are; that rule keys on `InputEventBinding`, which carries an enumerator, so the action kinds get a binding of
+  their own that carries the action's name, and `GraphRules` compares it), but they are not polled. Their `Action`
+  setting is a `String` setting (`SettingKind.String`). `ProgramCompiler` compiles them into a table of (kind,
   action, node) beside the nine-slot event table, and `VisualScriptRuntime`'s `Update` keeps polling only the key,
   mouse and gamepad kinds (`IsTriggered`). The built-in kinds go from 92 to 94.
 
