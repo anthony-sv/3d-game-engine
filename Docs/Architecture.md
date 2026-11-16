@@ -1775,9 +1775,10 @@ the order `GeometricMean`, `Average`, `Minimum`, `Multiply`, `Maximum` wins (so 
 restitution bounces off everything, and one that says `GeometricMean` defers to any other). The rule is symmetric in
 the two sides, as Jolt's pairs come in body order. With both modes at their defaults it is exactly `std::sqrt(a * b)`
 and `std::max(a, b)`, the expressions of the listener before materials, so a scene without materials simulates bit for
-bit as it did and its state hashes do not change, with one exception: a character's inner body touching a body of
+bit as it did and its state hashes do not change, with two exceptions: a character's inner body touching a body of
 several colliders through one that is not its first now meets that collider's values, where before it met the first
-collider's (below). A side is one sub-shape: a collider of a compound body, or a
+collider's (below); and a triangle mesh whose positions repeat is now welded, so a body that met one of its open edges
+crosses it (above). A side is one sub-shape: a collider of a compound body, or a
 triangle's submesh. Its surface is found from the sub-shape ID: `Shape::GetLeafShape`, which compound and decorated
 shapes pass on to the leaf (`CompoundShape.cpp:136`, `DecoratedShape.h:52` of the pinned Jolt), gives the leaf shape, whose
 user data names its collider's entry in the table below, as before materials; on a triangle mesh with submesh

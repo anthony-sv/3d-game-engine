@@ -204,9 +204,6 @@ HAZE_COLOR = (0.62, 0.72, 0.86)
 HAZE_PER_RING = 0.06
 HAZE_BRIGHTNESS = 0.4
 
-# Files of earlier versions of the circuit part that it no longer makes: it deletes them through the editor.
-OBSOLETE = ("Materials/LineWhite.smat", "Materials/Checker.smat", "Textures/Checker.png")
-
 
 def entity_ids(entities, path=()):
     """The IDs of a hierarchy's entities (scene_hierarchy's tree) by their names from the root: {(root, ..., name): id}.
@@ -296,9 +293,6 @@ class Moto:
         refreshed = self.call("asset_refresh")
         if refreshed.get("warnings"):
             raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
-        for path in OBSOLETE:
-            if os.path.exists(os.path.join(PROJECT, "Assets", *path.split("/"))):
-                self.call("asset_delete", {"asset": f"asset://{path}"})
         self.make_materials()
         surfaces = {name: self.physics_material(name, fields) for name, fields in SURFACE_MATERIALS.items()}
         static = {"Type": "Static"}
