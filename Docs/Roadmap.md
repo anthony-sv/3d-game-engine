@@ -809,8 +809,9 @@ Showcase); scripts and graphs at most 0.2 ms a frame; a zone costs about 1.4 ns 
 collected, which is at most 0.3 % of a sample's frame while recording and under 0.01 % idle.
 
 Measured at slice 2's gate (Release, on mains power, no build, test or Strada process at any snapshot; three sittings
-about a quarter of a minute apart, of which the first is not counted, since the browser took about half a core through
-it, then two more, the first over twenty minutes after any other load and the second ten minutes after it): Moto's dressed circuit over
+within six minutes, the look review's captures taken between the first and the second and the third a quarter of a
+minute after the second, of which the first is not counted, since the browser took about half a core through it; then
+two more, ten minutes apart, an hour later): Moto's dressed circuit over
 the 600 frames of its tour at 1920×1080 runs at a frame median of 3.42 to 3.46 ms (99th percentile at most 4.14 ms),
 with a median of 149 draws (256 at most), 146 batches and 5,339 instances a frame, `Renderer.Submit` and
 `Renderer.Prepare` together about 1.17 ms; its GPU passes: ambient occlusion 1.29 to 1.34 ms, opaque 1.01 to 1.03,

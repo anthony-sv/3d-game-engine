@@ -620,7 +620,7 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   refresh was at its usual value, §7.1), and the final tree's figure is an upper bound. At slice 2's gate, with the
   machine otherwise idle, two sittings about a quarter of a minute apart read the merged tree at 1.19 to 1.71 ms while
   the first tree, as the gauge, read 3.67 to 3.87 ms: out of the band of 3.3 ms in which a sitting judges. Two later
-  sittings, the first over twenty minutes after any other load and the second ten minutes after it, read the gauge at
+  sittings, ten minutes apart, with no build, test or Strada process at the start or the end of either, read the gauge at
   2.65 to 2.83 ms, in band, and the merged tree at 1.15 to 1.28 ms (`Renderer.Batch` 0.37 to 0.40 ms of it): the
   target is met in band. What changed against the first tree, in the order of what each saved: the sky light found without a
   walk through the hierarchy, mesh draws prepared once per frame, the light-space cascade test, the radix sort.
