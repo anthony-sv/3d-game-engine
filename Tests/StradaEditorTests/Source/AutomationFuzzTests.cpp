@@ -322,6 +322,10 @@ namespace
 			return params;
 		}
 
+		// A graph.find request of this kind ("query" or "references") succeeded: the generator stops sending the requests of the
+		// kind that succeed (AdjustGraphParameters).
+		void SetFindReached(std::string const& kind) { m_FindReached.insert(kind); }
+
 	private:
 		Json Value(Json const& schema, std::string_view property, Json const& siblings, int depth)
 		{
@@ -646,6 +650,22 @@ namespace
 				params = Json::object(
 					{{"references",
 				      Json::object({{"kind", "Variable"}, {"graph", m_State.Graph}, {"id", PickFrom(m_State.GraphVariables)}})}});
+			}
+			// Until graph.find has found text and listed references once each, it is sent a request of the first kind that has
+			// not, which succeeds: a text alone (every script is searched, and one that does not load is reported, not refused),
+			// then the references of the state's script's first variable, again until one succeeds since the state can be a few
+			// rounds old. Reaching both then needs only two rounds of the command, whatever the other draws and the commands
+			// registered; nothing is drawn here, so every other request stays as the stream made it.
+			if (m_Command == "graph.find" && !m_FindReached.contains("query"))
+			{
+				params = Json::object({{"query", "Get"}});
+			}
+			else if (m_Command == "graph.find" && !m_FindReached.contains("references") && !m_State.Graph.empty() &&
+			         !m_State.GraphVariables.empty())
+			{
+				params = Json::object(
+					{{"references",
+				      Json::object({{"kind", "Variable"}, {"graph", m_State.Graph}, {"id", m_State.GraphVariables.front()}})}});
 			}
 			// graph.open: half the time the state's script alone, since a run draws it only about a dozen times and its many
 			// independent members refuse most other draws.
@@ -1448,6 +1468,8 @@ namespace
 		int64_t m_BatchFunction = 0;
 		// A graph.edit right in every part was drawn.
 		bool m_RightEditDrawn = false;
+		// The kinds of graph.find request that succeeded (SetFindReached).
+		std::set<std::string> m_FindReached;
 	};
 
 	// A project with something of everything, open in an editor model with the commands the editor layer registers.
@@ -2110,7 +2132,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		std::optional<int> refusedRound;
 		unanswered.insert(round);
 		fixture.Registry.Execute(command.Name, params,
-		                         [&unanswered, &outcomes, &findSuccesses, &paletteErrors, &debugErrors, &recent, &refusedRound,
+		                         [&unanswered, &outcomes, &findSuccesses, &generator, &paletteErrors, &debugErrors, &recent, &refusedRound,
 		                          name = command.Name, round, request, findKind](CommandResult result)
 		                         {
 									 CHECK_MESSAGE(unanswered.erase(round) == 1, "answered twice: " << request);
@@ -2125,6 +2147,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 										 if (name == "graph.find")
 										 {
 											 findSuccesses[findKind]++;
+											 generator.SetFindReached(findKind);
 										 }
 										 // Graph edits say what the running game took: without the scripting runtime, nothing.
 										 if (name == "graph.edit" || name == "graph.set")
