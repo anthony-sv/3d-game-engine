@@ -1935,7 +1935,7 @@ running `Scene` the same four:
 
 | Query | Finds | Order |
 |---|---|---|
-| `Raycast` | the closest solid collider along a ray | of two entities at exactly the same distance, the one Jolt lists first (unchanged since before the other three) |
+| `Raycast` | the closest solid collider along a ray | of entities at exactly the same distance, the one of the smaller UUID (`RaycastAll`'s first hit) |
 | `RaycastAll` | every entity along a ray, at its nearest hit | distance, then entity UUID |
 | `ShapeCast` | the first entity a sphere, box or capsule (`PhysicsQueryShape`) touches as it moves along a line without turning | the first by distance, then entity UUID |
 | `Overlap` | every entity with a collider such a shape overlaps where it is | entity UUID |
@@ -1969,17 +1969,31 @@ running `Scene` the same four:
   touched at distance 0 at the deepest point of the overlap, whichever way the cast goes: `mReturnDeepestPoint` makes
   Jolt run EPA where GJK's points at fraction 0 cannot be trusted (`EPAPenetrationDepth.h:535-546`), and
   `mBackFaceModeConvex` is `CollideWithBackFaces`, which skips the test that drops a cast moving out of what it starts
-  in (`ConvexShape.cpp:284-285`). So a wheel or a foot resting on the ground finds it. This is unlike rays, which pass
-  out of a convex collider they start inside: a ray has no volume to be touching with. Triangles are one-sided, as for
+  in (`ConvexShape.cpp:284-285`). So a shape cast from where a wheel or a foot rests on the ground finds the ground at
+  distance 0. That holds for the caller's own colliders too, and `PhysicsQueryFilter` excludes no entity: a cast meant
+  to find what is below or ahead of a body (a wheel's under a chassis, a foot's under a character) starts outside that
+  body's colliders, or leaves the body's layer out of its mask. This is unlike rays, which pass out of a convex
+  collider they start inside: a ray has no volume to be touching with. Triangles are one-sided, as for
   rays (`mBackFaceModeTriangles` is `IgnoreBackFaces`, `CastConvexVsTriangles.cpp:41-42`, `CastSphereVsTriangles.cpp:133-135`):
   a cast passes a triangle it reaches from behind and leaves one it moves away from. On the inner edges of a mesh the
   normal is the face's where that hinders the movement less (`mActiveEdgeMovementDirection` is the cast's direction).
 - *Overlaps.* `NarrowPhaseQuery::CollideShape`, with triangles from either side (`mBackFaceMode` is
   `CollideWithBackFaces`): a shape that meets a mesh's surface overlaps it. A triangle mesh is its surface, so a shape
-  wholly inside a closed mesh does not overlap it; convex colliders are solid.
+  wholly inside a closed mesh does not overlap it; convex colliders are solid. Jolt's collide test runs GJK on shapes
+  shrunk by their convex radius and adds the radius back (`ConvexShape::sCollideConvexVsConvex`, `ConvexShape.cpp:86-93`),
+  so an overlap sees a box collider with its edges and corners rounded by its convex radius (at most 5 cm,
+  `cDefaultConvexRadius`), where a cast sees it sharp: a shape that only grazes a box's edge or corner may be touched
+  by a cast at distance 0 and not overlap it.
 - *Limits.* A query whose origin or center is not finite or lies beyond `MaxPhysicsCoordinate`, whose direction is zero
   or not finite, whose distance is not finite and positive, whose rotation is not finite, or whose shape has a size that
-  is negative, not finite or beyond `MaxPhysicsExtent` (or an unknown shape type) finds nothing. A size below a
+  is negative or not finite, a radius beyond `MaxPhysicsQueryRadius` (100 m) or a half extent or half height beyond
+  `MaxPhysicsQueryExtent` (20 m) (or an unknown shape type) finds nothing. Those sizes are far below a collider's
+  (`MaxPhysicsExtent`) because a cast runs Jolt's GJK on the moving shape's core (a box whole, a capsule's segment, a
+  sphere's center) and adds its radius after, and longer cores and wider capsules lose its precision. Measured against
+  closed forms over 2,000 random poses of each shape, near the origin and kilometers from it: at the limits a cast is
+  within 0.8 mm of where it touches (`PhysicsQueryTests.cpp` holds it to 5 mm, and checks that a 20 m box cast among
+  boxes names the first it reaches); cores of 50 m miss by up to 4 mm, of 100 m and capsules of radius 1,000 m by up to
+  3 cm, and from 300 m a cast touches bodies it passes by, at distance 0 among them. A size below a
   millimeter counts as a millimeter and a capsule shorter than that is a sphere, as for colliders; a rotation is
   normalized (zero is the identity); a direction is normalized without overflowing; a distance beyond
   `MaxPhysicsQueryDistance` (40,000 km, farther than any two points of the world are apart) is cut to it. So nothing a
@@ -2327,8 +2341,11 @@ editor's Simulate mode runs neither kind.
   the smallest UUIDs): `RaycastAll(origin, direction, maxDistance, Span<RaycastHit>)` (`Physics_RaycastAll`) and
   `OverlapSphere`, `OverlapBox`, `OverlapCapsule(..., Span<Entity>)` (`Physics_Overlap`, entity IDs). The bindings copy
   at most the buffer's length out of the scene's query; the managed side gathers them on the stack (up to 32 hits or
-  128 entities) or in a pooled buffer, so a query allocates nothing but the `Entity` of each entity found that has no
-  script. Sizes that are not finite, negative or above `MaxPhysicsExtent` and values that are not finite are script
+  128 entities) or in a pooled buffer, and `ScriptRegistry.GetEntity` keeps the `Entity` it makes for an entity without
+  a script (empty again when the scene's instances go, and started over past 4,096 entities, since nothing tells scripts
+  that such an entity was destroyed), so a query allocates no managed memory once the entities it finds have been met;
+  the bindings' own vectors are native. Sizes that are not finite, negative or above `MaxPhysicsQueryRadius` and
+  `MaxPhysicsQueryExtent` and values that are not finite are script
   errors naming the member; zero directions and distances that are not positive find nothing, silently, as for
   `Raycast`. The casts are impure nodes, as `Raycast` is; the four many-hit forms are not nodes, because a `Span` is a
   ref struct and because graphs hold arrays as values that a node may not write into (an array a variable or literal

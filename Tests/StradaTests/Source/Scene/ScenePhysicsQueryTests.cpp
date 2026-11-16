@@ -214,9 +214,10 @@ TEST_CASE(
 	std::optional<ShapeCastHit> const capsule =
 		scene.ShapeCast(PhysicsQueryShape::MakeCapsule(Radius, HalfHeight), origin, turned, direction, 20.0f, everything);
 	REQUIRE(capsule.has_value());
+	// Turned by the script's quaternion too: as close as the box, not bit for bit.
 	CHECK(read.at("CapsuleEntity").GetEntity() == capsule->Entity);
-	CHECK(read.at("CapsuleNormal").GetVector3() == capsule->Normal);
-	CHECK(read.at("CapsuleDistance").GetFloat() == capsule->Distance);
+	CHECK(glm::all(glm::epsilonEqual(read.at("CapsuleNormal").GetVector3(), capsule->Normal, 1e-4f)));
+	CHECK(read.at("CapsuleDistance").GetFloat() == doctest::Approx(capsule->Distance).epsilon(1e-5));
 
 	// The buffer of two keeps the nearest two of the three hits: the trigger, then the wall with its material.
 	std::vector<RaycastHit> hits;
@@ -242,7 +243,7 @@ TEST_CASE(
 
 	// What the queries refuse they report as script errors, naming the member, and find nothing.
 	CHECK(read.at("RefusedFound").GetInt32() == 0);
-	CHECK(Testing::WasLogged(logStart, "Physics.SphereCast: a radius of -1 is not valid (it must be 0 to 1000000)"));
+	CHECK(Testing::WasLogged(logStart, "Physics.SphereCast: a radius of -1 is not valid (it must be 0 to 100)"));
 	CHECK(Testing::WasLogged(logStart, "Physics.BoxCast: the value is not a finite number"));
 	CHECK(Testing::WasLogged(logStart, "Physics.CapsuleCast: a half height of inf is not valid"));
 	CHECK(Testing::WasLogged(logStart, "Physics.RaycastAll: the value is not a finite number"));

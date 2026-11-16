@@ -34,6 +34,7 @@
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 #include "Strada/Serialization/ProfilerCaptureSerializer.h"
@@ -2311,18 +2312,34 @@ TEST_CASE("Automation: physics.query answers any parameters while the scene play
 	fixture.Play.SetPaused(true);
 	std::map<std::string, int> answered;
 	std::map<AutomationErrorCode, int> refused;
+	// The playing world's state after the first query since the last frame (which applies what changed before it): the
+	// queries after it, until the next frame, must leave it as it is.
+	std::optional<uint64_t> queriedState;
+	int stateChecks = 0;
 	for (int round = 0, rounds = Testing::GetFuzzRounds(600); round < rounds; round++)
 	{
 		// Now and then a frame runs, so queries see a world that stepped.
 		if (round % 50 == 49)
 		{
 			fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+			queriedState.reset();
 		}
 		Json const params = generator.Generate(command->Name, command->Parameters);
 		std::string const request = params.dump();
 		CAPTURE(round);
 		CAPTURE(request);
 		CommandResult const result = fixture.Run(command->Name, params);
+		PhysicsScene const* const physics = fixture.Context.GetScene().GetPhysicsScene();
+		REQUIRE(physics != nullptr);
+		if (!queriedState && result.IsOk())
+		{
+			queriedState = physics->ComputeStateHash();
+		}
+		else if (queriedState)
+		{
+			CHECK(physics->ComputeStateHash() == *queriedState);
+			stateChecks++;
+		}
 		if (result.IsOk())
 		{
 			Json const& value = result.GetValue();
@@ -2350,7 +2367,8 @@ TEST_CASE("Automation: physics.query answers any parameters while the scene play
 		CHECK(answered[kind] > 0);
 	}
 	CHECK(refused[AutomationErrorCode::InvalidParams] > 0);
-	// The queries changed nothing of the playing copy, and the scene the editor edits comes back as it was.
+	CHECK(stateChecks > 0);
+	// The scene the editor edits comes back as it was.
 	fixture.Play.Stop();
 	CommandResult const stopped =
 		fixture.Run(command->Name, Json::object({{"kind", "raycast"}, {"origin", {0.0, 0.0, 0.0}}, {"direction", {0.0, -1.0, 0.0}}}));

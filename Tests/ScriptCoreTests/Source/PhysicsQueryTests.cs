@@ -235,15 +235,16 @@ public sealed unsafe class PhysicsQueryTests : IDisposable
 	}
 
 	[Fact]
-	public void QueriesAllocateNothingButTheEntitiesOfTheirHits()
+	public void QueriesAllocateNothingOnceTheirEntitiesHaveBeenMet()
 	{
+		ScriptRegistry.DestroyAllInstances();
 		s_Hits = [Hit(31, 1.0f, 7), Hit(32, 2.0f, 7), Hit(33, 3.0f, 7)];
 		s_Entities = [31, 32, 33];
 		RaycastHit[] small = new RaycastHit[4];
 		RaycastHit[] large = new RaycastHit[100];
 		Entity[] entities = new Entity[3];
 		Entity[] many = new Entity[200];
-		// Every path once, so that what is made once (the shared material, the pooled buffers) is made.
+		// Every path once, so that what is made once (the shared material, the pooled buffers, the entities' Entity) is made.
 		Physics.Raycast(Vector3.Zero, Vector3.Forward, 10.0f, out _);
 		Physics.SphereCast(Vector3.Zero, 0.5f, Vector3.Forward, 10.0f, out _);
 		Physics.RaycastAll(Vector3.Zero, Vector3.Forward, 10.0f, small);
@@ -251,22 +252,63 @@ public sealed unsafe class PhysicsQueryTests : IDisposable
 		Physics.OverlapSphere(Vector3.Zero, 1.0f, many);
 		s_Recording = false;
 
-		// A cast allocates what a raycast does: its hit's Entity (these entities have no script instance to give).
+		// The single-hit forms, Raycast among them, allocate nothing: their entities have no script instance, and the Entity
+		// made for each at its first hit is kept.
 		long before = GC.GetAllocatedBytesForCurrentThread();
-		Physics.Raycast(Vector3.Zero, Vector3.Forward, 10.0f, out _);
-		long entity = GC.GetAllocatedBytesForCurrentThread() - before;
-		Assert.True(entity > 0);
-		before = GC.GetAllocatedBytesForCurrentThread();
-		Physics.SphereCast(Vector3.Zero, 0.5f, Vector3.Forward, 10.0f, out _);
-		Physics.BoxCast(Vector3.Zero, Vector3.One, Quaternion.Identity, Vector3.Forward, 10.0f, out _);
-		Physics.CapsuleCast(Vector3.Zero, 0.5f, 0.5f, Quaternion.Identity, Vector3.Forward, 10.0f, out _);
-		Assert.Equal(3 * entity, GC.GetAllocatedBytesForCurrentThread() - before);
-		// The many-hit forms allocate the three hits' entities, whatever the size of the buffer.
+		Physics.Raycast(Vector3.Zero, Vector3.Forward, 10.0f, out RaycastHit ray);
+		Physics.SphereCast(Vector3.Zero, 0.5f, Vector3.Forward, 10.0f, out ShapeCastHit sphere);
+		Physics.BoxCast(Vector3.Zero, Vector3.One, Quaternion.Identity, Vector3.Forward, 10.0f, out ShapeCastHit box);
+		Physics.CapsuleCast(Vector3.Zero, 0.5f, 0.5f, Quaternion.Identity, Vector3.Forward, 10.0f, out ShapeCastHit capsule);
+		Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+		Assert.Same(ray.Entity, sphere.Entity);
+		Assert.Same(sphere.Entity, box.Entity);
+		Assert.Same(box.Entity, capsule.Entity);
+		// Nor do the many-hit forms, whatever the size of the buffer.
 		before = GC.GetAllocatedBytesForCurrentThread();
 		Physics.RaycastAll(Vector3.Zero, Vector3.Forward, 10.0f, small);
 		Physics.RaycastAll(Vector3.Zero, Vector3.Forward, 10.0f, large);
 		Physics.OverlapSphere(Vector3.Zero, 1.0f, entities);
 		Physics.OverlapSphere(Vector3.Zero, 1.0f, many);
-		Assert.Equal(12 * entity, GC.GetAllocatedBytesForCurrentThread() - before);
+		Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+		Assert.Same(small[1].Entity, entities[1]);
+
+		// An entity met for the first time costs its Entity once.
+		s_Hits = [Hit(34, 1.0f, 7)];
+		before = GC.GetAllocatedBytesForCurrentThread();
+		Physics.SphereCast(Vector3.Zero, 0.5f, Vector3.Forward, 10.0f, out ShapeCastHit first);
+		Assert.True(GC.GetAllocatedBytesForCurrentThread() - before > 0);
+		before = GC.GetAllocatedBytesForCurrentThread();
+		Physics.SphereCast(Vector3.Zero, 0.5f, Vector3.Forward, 10.0f, out ShapeCastHit again);
+		Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+		Assert.Same(first.Entity, again.Entity);
+		Assert.Equal(new Entity(34), again.Entity);
+		ScriptRegistry.DestroyAllInstances();
+	}
+
+	[Fact]
+	public void TheKeptEntitiesGoWithTheScenesInstancesAndStartOverWhenThereAreTooMany()
+	{
+		ScriptRegistry.DestroyAllInstances();
+		s_Hits = [Hit(41, 1.0f)];
+		Physics.SphereCast(Vector3.Zero, 0.5f, Vector3.Forward, 10.0f, out ShapeCastHit before);
+		Assert.Equal(1, ScriptRegistry.KeptEntityCount);
+		// The scene's instances go when it stops: the next hit makes the entity's Entity again, equal but not the same.
+		ScriptRegistry.DestroyAllInstances();
+		Assert.Equal(0, ScriptRegistry.KeptEntityCount);
+		Physics.SphereCast(Vector3.Zero, 0.5f, Vector3.Forward, 10.0f, out ShapeCastHit after);
+		Assert.Equal(before.Entity, after.Entity);
+		Assert.NotSame(before.Entity, after.Entity);
+
+		// Past MaxKeptEntities entities the cache starts over, so it never grows with every entity a run makes.
+		ScriptRegistry.DestroyAllInstances();
+		for (ulong id = 1000; id < 1000 + (ulong)ScriptRegistry.MaxKeptEntities + 10; id++)
+		{
+			s_Hits = [Hit(id, 1.0f)];
+			Physics.SphereCast(Vector3.Zero, 0.5f, Vector3.Forward, 10.0f, out ShapeCastHit hit);
+			Assert.Equal(id, hit.Entity!.ID);
+			Assert.True(ScriptRegistry.KeptEntityCount <= ScriptRegistry.MaxKeptEntities);
+		}
+		Assert.Equal(10, ScriptRegistry.KeptEntityCount);
+		ScriptRegistry.DestroyAllInstances();
 	}
 }

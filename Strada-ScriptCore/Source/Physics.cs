@@ -94,8 +94,10 @@ public struct ShapeCastHit
 /// its parent) is found where it was until the next step takes its body there. A body made or changed since the last step is
 /// found where its entity is. A query sees the bodies and characters on the layers of its layer mask (bit n is layer n), each
 /// entity at most once, and trigger colliders only when it includes them. Directions need not be unit length. Values that
-/// are not finite, and sizes below 0 or above a million meters, are script errors and find nothing; a zero direction or a
-/// distance that is not positive finds nothing.</summary>
+/// are not finite, sizes below 0, radii above 100 meters and half extents or half heights above 20 meters are script
+/// errors and find nothing (longer shapes lose the physics engine's precision); a zero direction or a distance that is not
+/// positive finds nothing. Queries allocate no managed memory once the entities they find have been met: the
+/// <see cref="Entity"/> of an entity without a script is made when a query first finds it, then kept.</summary>
 public static unsafe class Physics
 {
 	// The most hits and entities the many-hit queries gather on the stack before they copy them out; larger buffers borrow
@@ -141,8 +143,8 @@ public static unsafe class Physics
 	/// <paramref name="hits"/>; returns how many were written. A buffer smaller than the hits keeps the nearest. As with
 	/// <see cref="Raycast(Vector3, Vector3, float, out RaycastHit, uint)"/>, a ray starting inside a convex collider passes out of
 	/// it, and triangles are hit from their front only; triggers count when <paramref name="includeTriggers"/> is true. Allocates
-	/// nothing but the hits' <see cref="RaycastHit.Entity"/> of entities without a script, as a raycast does. Graphs have no
-	/// node of it: they hold arrays as values, which a node may not write into.</summary>
+	/// no managed memory once the entities it finds have been met. Graphs have no node of it: they hold arrays as values, which
+	/// a node may not write into.</summary>
 	public static int RaycastAll(Vector3 origin, Vector3 direction, float maxDistance, Span<RaycastHit> hits, uint layerMask = AllLayers,
 		bool includeTriggers = false)
 	{
@@ -209,8 +211,8 @@ public static unsafe class Physics
 	/// <summary>Every entity with a collider that a sphere of <paramref name="radius"/> at <paramref name="center"/> overlaps,
 	/// by entity ID from the smallest, written into <paramref name="entities"/>; returns how many were written. A buffer smaller
 	/// than the overlaps keeps the smallest IDs. A triangle counts from either side; a shape wholly inside a closed triangle mesh
-	/// does not meet its surface and does not overlap it. Allocates nothing but the <see cref="Entity"/> of entities without a
-	/// script. Graphs have no node of it: they hold arrays as values, which a node may not write into.</summary>
+	/// does not meet its surface and does not overlap it. Allocates no managed memory once the entities it finds have been met.
+	/// Graphs have no node of it: they hold arrays as values, which a node may not write into.</summary>
 	public static int OverlapSphere(Vector3 center, float radius, Span<Entity> entities, uint layerMask = AllLayers, bool includeTriggers = false)
 	{
 		NativeQueryShape shape = NativeQueryShape.MakeSphere(radius);

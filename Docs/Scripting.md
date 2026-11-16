@@ -293,8 +293,10 @@ Beside `Physics.Raycast`, scripts sweep shapes, test overlaps and collect every 
 Each takes a layer mask (bit n is layer n; `Physics.AllLayers` by default) and whether trigger colliders count (they do not
 by default, so a cast passes through triggers as a ray does). Each entity is reported at most once, and equal distances are
 ordered by entity ID, so the results are the same on every run. A buffer smaller than the results keeps the first of them
-(the nearest, or the smallest IDs). Keep the buffers in fields: the queries allocate nothing but an `Entity` for each entity
-found that has no script, and a buffer made every call would be garbage every step.
+(the nearest, or the smallest IDs). Keep the buffers in fields: the queries allocate no managed memory once the entities
+they find have been met (the `Entity` of an entity without a script is made when a query first finds it, then kept), and
+a buffer made every call would be garbage every step. A shape's radius is at most 100 m and its half extents and half
+height at most 20 m: longer shapes lose the physics engine's precision, and a larger value is a script error.
 
 Queries read the world as the last physics step left it. In `OnFixedUpdate` that is exactly where the bodies are, so logic
 that decides forces (a hover, a wheel's suspension, a sensor) queries there and stays the same at any frame rate. In

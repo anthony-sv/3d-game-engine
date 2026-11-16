@@ -404,6 +404,11 @@ namespace Strada
 					return RefuseQuery("distance", "distance is not finite");
 				}
 				distance = static_cast<float>(value);
+				// A query of no length finds nothing, even what a shape starts in: refused so the request means what it says.
+				if (!(distance > 0.0f))
+				{
+					return RefuseQuery("distance", "distance must be more than 0");
+				}
 			}
 			glm::quat rotation(1.0f, 0.0f, 0.0f, 0.0f);
 			if (has("rotation"))
@@ -792,7 +797,8 @@ namespace Strada
 				: result;
 
 		SchemaBuilder const coordinateSchema = SchemaBuilder::Number().Minimum(-MaxPhysicsCoordinate).Maximum(MaxPhysicsCoordinate);
-		SchemaBuilder const sizeSchema = SchemaBuilder::Number().Minimum(0.0).Maximum(MaxPhysicsExtent);
+		SchemaBuilder const radiusSchema = SchemaBuilder::Number().Minimum(0.0).Maximum(MaxPhysicsQueryRadius);
+		SchemaBuilder const extentSchema = SchemaBuilder::Number().Minimum(0.0).Maximum(MaxPhysicsQueryExtent);
 		SchemaBuilder const componentSchema = SchemaBuilder::Number().Minimum(-1.0e6).Maximum(1.0e6);
 		result =
 			result
@@ -821,19 +827,20 @@ namespace Strada
 		                                                                  "(raycast, raycastAll and shapeCast: required)")
 		                                .MinItems(3)
 		                                .MaxItems(3))
-		                  .Property("distance",
-		                            SchemaBuilder::Number(
-										"How far in meters (raycast, raycastAll, shapeCast; default as far as the world reaches)")
-		                                .Minimum(0.0)
-		                                .Maximum(MaxPhysicsQueryDistance))
+		                  .Property(
+							  "distance",
+							  SchemaBuilder::Number(
+								  "How far in meters, more than 0 (raycast, raycastAll, shapeCast; default as far as the world reaches)")
+								  .Minimum(0.0)
+								  .Maximum(MaxPhysicsQueryDistance))
 		                  .Property("shape",
 		                            SchemaBuilder::String("The shape (shapeCast and overlap: required)").Enum({"sphere", "box", "capsule"}))
-		                  .Property("radius", SchemaBuilder(sizeSchema).Description("Sphere and capsule radius in meters").Default(0.5))
+		                  .Property("radius", SchemaBuilder(radiusSchema).Description("Sphere and capsule radius in meters").Default(0.5))
 		                  .Property("halfExtents",
-		                            SchemaBuilder::Array(sizeSchema, "Box half extents [x, y, z] in meters (default 0.5 each)")
+		                            SchemaBuilder::Array(extentSchema, "Box half extents [x, y, z] in meters (default 0.5 each)")
 		                                .MinItems(3)
 		                                .MaxItems(3))
-		                  .Property("halfHeight", SchemaBuilder(sizeSchema)
+		                  .Property("halfHeight", SchemaBuilder(extentSchema)
 		                                              .Description("Capsule: half the length of the cylinder between its caps, along "
 		                                                           "its local Y axis")
 		                                              .Default(0.5))

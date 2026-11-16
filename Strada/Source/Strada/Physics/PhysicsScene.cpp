@@ -1133,11 +1133,11 @@ namespace Strada
 			return std::min(maxDistance, MaxPhysicsQueryDistance);
 		}
 
-		// A size of a query's shape: at least MinimumExtent, as colliders' sizes; none when negative, not finite or beyond
-		// MaxPhysicsExtent.
-		std::optional<float> MakeQuerySize(float size)
+		// A size of a query's shape: at least MinimumExtent, as colliders' sizes; none when negative, not finite or beyond the
+		// largest (MaxPhysicsQueryRadius for a radius, MaxPhysicsQueryExtent for a half extent or half height).
+		std::optional<float> MakeQuerySize(float size, float largest)
 		{
-			if (!(size >= 0.0f) || !(size <= MaxPhysicsExtent))
+			if (!(size >= 0.0f) || !(size <= largest))
 			{
 				return std::nullopt;
 			}
@@ -1155,7 +1155,7 @@ namespace Strada
 				{
 					case PhysicsQueryShapeType::Sphere:
 					{
-						if (std::optional<float> const radius = MakeQuerySize(shape.Radius))
+						if (std::optional<float> const radius = MakeQuerySize(shape.Radius, MaxPhysicsQueryRadius))
 						{
 							m_Shape = &m_Sphere.emplace(*radius);
 						}
@@ -1163,9 +1163,9 @@ namespace Strada
 					}
 					case PhysicsQueryShapeType::Box:
 					{
-						std::optional<float> const x = MakeQuerySize(shape.HalfExtents.x);
-						std::optional<float> const y = MakeQuerySize(shape.HalfExtents.y);
-						std::optional<float> const z = MakeQuerySize(shape.HalfExtents.z);
+						std::optional<float> const x = MakeQuerySize(shape.HalfExtents.x, MaxPhysicsQueryExtent);
+						std::optional<float> const y = MakeQuerySize(shape.HalfExtents.y, MaxPhysicsQueryExtent);
+						std::optional<float> const z = MakeQuerySize(shape.HalfExtents.z, MaxPhysicsQueryExtent);
 						if (x && y && z)
 						{
 							// No convex radius: in every support mode the box is the full box, with its sharp edges.
@@ -1175,8 +1175,8 @@ namespace Strada
 					}
 					case PhysicsQueryShapeType::Capsule:
 					{
-						std::optional<float> const radius = MakeQuerySize(shape.Radius);
-						std::optional<float> const halfHeight = MakeQuerySize(shape.HalfHeight);
+						std::optional<float> const radius = MakeQuerySize(shape.Radius, MaxPhysicsQueryRadius);
+						std::optional<float> const halfHeight = MakeQuerySize(shape.HalfHeight, MaxPhysicsQueryExtent);
 						if (radius && halfHeight && shape.HalfHeight < MinimumExtent)
 						{
 							// As a capsule collider without a cylinder.
@@ -2759,9 +2759,18 @@ namespace Strada
 		m_Data->System.GetNarrowPhaseQuery().CastRay(ray, settings, collector, {}, LayerMaskFilter(layerMask));
 		collector.Sort();
 
+		// The first solid hit; of solid hits at that very distance, the entity of the smaller UUID (IsQueryHitBefore, as
+		// RaycastAll orders them), and of its sub-shapes there the smaller ID, so that the order Jolt lists them in decides
+		// nothing.
 		JPH::BodyLockInterfaceLocking const& locks = m_Data->System.GetBodyLockInterface();
+		std::optional<RaycastHit> first;
+		JPH::SubShapeID firstSubShape;
 		for (JPH::RayCastResult const& hit : collector.mHits)
 		{
+			if (first && hit.mFraction * maxDistance != first->Distance)
+			{
+				break;
+			}
 			JPH::BodyLockRead const lock(locks, hit.mBodyID);
 			if (!lock.Succeeded())
 			{
@@ -2773,16 +2782,23 @@ namespace Strada
 			{
 				continue;
 			}
+			UUID const entity(body.GetUserData());
+			if (first && (entity.GetValue() > first->Entity.GetValue() ||
+			              (entity == first->Entity && hit.mSubShapeID2.GetValue() >= firstSubShape.GetValue())))
+			{
+				continue;
+			}
 			JPH::RVec3 const point = ray.GetPointOnRay(hit.mFraction);
 			RaycastHit result;
-			result.Entity = UUID(body.GetUserData());
+			result.Entity = entity;
 			result.Point = Jolt::ToGlm(point);
 			result.Normal = Jolt::ToGlm(body.GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, point));
 			result.Distance = hit.mFraction * maxDistance;
 			result.Material = material.Surface != nullptr ? material.Surface->Material : AssetHandle();
-			return result;
+			first = result;
+			firstSubShape = hit.mSubShapeID2;
 		}
-		return std::nullopt;
+		return first;
 	}
 
 	size_t PhysicsScene::RaycastAll(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance, std::vector<RaycastHit>& hits,

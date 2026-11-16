@@ -13,6 +13,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
@@ -388,14 +389,17 @@ TEST_CASE("PhysicsScene: RaycastAll reports each entity on the ray once, the nea
 TEST_CASE("PhysicsScene: hits at equal distances are ordered by entity UUID, whatever order the bodies were made in")
 {
 	Testing::PhysicsSystemScope physics;
-	// Two identical boxes in the same place hit at exactly the same distance, and a third behind them.
+	// Two identical boxes in the same place hit at exactly the same distance, and a third behind them; a trigger of a smaller
+	// UUID in the same place, which no query here sees.
 	UUID const low(900);
 	UUID const high(901);
 	UUID const behind(899);
+	UUID const trigger(898);
 	for (bool const lowFirst : {true, false})
 	{
 		CAPTURE(lowFirst);
 		Scope<PhysicsScene> world = CreateWorld();
+		REQUIRE(world->AddBody(MakeBody(trigger, {0.0f, 0.0f, 5.0f}, {Trigger(glm::vec3(0.5f))})).IsOk());
 		REQUIRE(world->AddBody(MakeBody(behind, {0.0f, 0.0f, 9.0f}, {Box(glm::vec3(0.5f))})).IsOk());
 		for (UUID const& entity : lowFirst ? std::vector<UUID>{low, high} : std::vector<UUID>{high, low})
 		{
@@ -406,6 +410,11 @@ TEST_CASE("PhysicsScene: hits at equal distances are ordered by entity UUID, wha
 		REQUIRE(world->RaycastAll(glm::vec3(0.0f), {0.0f, 0.0f, 1.0f}, 100.0f, hits) == 3);
 		CHECK(hits[0].Distance == hits[1].Distance);
 		CHECK(EntitiesOf(hits) == std::vector<UUID>{low, high, behind});
+		// Raycast's hit is RaycastAll's first: the smaller UUID of the solid two, whichever Jolt lists first.
+		std::optional<RaycastHit> const ray = world->Raycast(glm::vec3(0.0f), {0.0f, 0.0f, 1.0f}, 100.0f);
+		REQUIRE(ray);
+		CHECK(ray->Entity == low);
+		CHECK(ray->Distance == hits[0].Distance);
 
 		std::optional<ShapeCastHit> const cast =
 			world->ShapeCast(PhysicsQueryShape::MakeSphere(0.25f), glm::vec3(0.0f), Upright, {0.0f, 0.0f, 1.0f}, 100.0f);
@@ -648,10 +657,16 @@ TEST_CASE("PhysicsScene: queries with values beyond the world's limits find noth
 		CHECK_FALSE(world->ShapeCast(sphere, origin, Upright, Down, bad));
 	}
 	for (PhysicsQueryShape const& bad :
-	     {PhysicsQueryShape::MakeSphere(-1.0f), PhysicsQueryShape::MakeSphere(nan), PhysicsQueryShape::MakeSphere(2.0f * MaxPhysicsExtent),
-	      PhysicsQueryShape::MakeBox({0.5f, -0.5f, 0.5f}), PhysicsQueryShape::MakeBox({0.5f, infinity, 0.5f}),
-	      PhysicsQueryShape::MakeCapsule(0.5f, nan), PhysicsQueryShape::MakeCapsule(-0.5f, 0.5f)})
+	     {PhysicsQueryShape::MakeSphere(-1.0f), PhysicsQueryShape::MakeSphere(nan),
+	      PhysicsQueryShape::MakeSphere(1.01f * MaxPhysicsQueryRadius), PhysicsQueryShape::MakeBox({0.5f, -0.5f, 0.5f}),
+	      PhysicsQueryShape::MakeBox({0.5f, infinity, 0.5f}), PhysicsQueryShape::MakeBox({0.5f, 0.5f, 1.01f * MaxPhysicsQueryExtent}),
+	      PhysicsQueryShape::MakeCapsule(0.5f, nan), PhysicsQueryShape::MakeCapsule(-0.5f, 0.5f),
+	      PhysicsQueryShape::MakeCapsule(1.01f * MaxPhysicsQueryRadius, 0.5f),
+	      PhysicsQueryShape::MakeCapsule(0.5f, 1.01f * MaxPhysicsQueryExtent)})
 	{
+		CAPTURE(bad.Radius);
+		CAPTURE(bad.HalfExtents);
+		CAPTURE(bad.HalfHeight);
 		CHECK_FALSE(world->ShapeCast(bad, origin, Upright, Down, 100.0f));
 		CHECK(world->Overlap(bad, glm::vec3(0.0f), Upright, entities) == 0);
 	}
@@ -679,6 +694,365 @@ TEST_CASE("PhysicsScene: queries with values beyond the world's limits find noth
 	CHECK(far->Distance == doctest::Approx(4.5f).epsilon(Tolerance));
 	// A direction too large to square is still a direction.
 	CHECK(world->RaycastAll(origin, {0.0f, -3.0e38f, 0.0f}, 100.0f, hits) == 1);
+}
+
+namespace
+{
+	// The same numbers on every platform, in [0, 1): each draw is its own statement, since the order a call's arguments are
+	// evaluated in is the compiler's.
+	class Numbers
+	{
+	public:
+		float Next()
+		{
+			m_State = m_State * 6364136223846793005ull + 1442695040888963407ull;
+			return static_cast<float>(m_State >> 40) / static_cast<float>(1ull << 24);
+		}
+
+		float Between(float low, float high) { return low + (high - low) * Next(); }
+
+		glm::vec3 Vector(float low, float high)
+		{
+			float const x = Between(low, high);
+			float const y = Between(low, high);
+			float const z = Between(low, high);
+			return {x, y, z};
+		}
+
+		glm::vec3 Direction() { return glm::normalize(Vector(-1.0f, 1.0f) + 1e-3f); }
+
+		glm::quat Rotation()
+		{
+			glm::vec3 const axis = Vector(-1.0f, 1.0f);
+			return glm::normalize(glm::quat(1.0f, axis.x, axis.y, axis.z));
+		}
+
+	private:
+		uint64_t m_State = 20261116;
+	};
+
+	// Where a cast first touches a body, from a function of how far the shape moved that is convex, positive while they are
+	// apart and negative while they overlap: its least value by ternary search, then where it first closes by bisection.
+	// None when it never closes within reach, and none at all (a pose to leave out) when it comes within the grazing
+	// margin of zero at the start or at its least, where the answer depends on the last bits.
+	struct ClosedForm
+	{
+		bool Grazing = false;
+		std::optional<double> Distance;
+	};
+
+	template<typename TGap>
+	ClosedForm FindFirstTouch(TGap const& gap, double reach, double grazing)
+	{
+		double low = 0.0;
+		double high = reach;
+		for (int round = 0; round < 200; round++)
+		{
+			double const third = (high - low) / 3.0;
+			if (gap(low + third) < gap(high - third))
+			{
+				high -= third;
+			}
+			else
+			{
+				low += third;
+			}
+		}
+		double const nearest = (low + high) / 2.0;
+		ClosedForm form;
+		if (std::abs(gap(0.0)) < grazing || std::abs(gap(nearest)) < grazing)
+		{
+			form.Grazing = true;
+			return form;
+		}
+		if (gap(0.0) < 0.0)
+		{
+			form.Distance = 0.0;
+		}
+		else if (gap(nearest) < 0.0)
+		{
+			double open = 0.0;
+			double closed = nearest;
+			for (int round = 0; round < 100; round++)
+			{
+				double const middle = (open + closed) / 2.0;
+				if (gap(middle) < 0.0)
+				{
+					closed = middle;
+				}
+				else
+				{
+					open = middle;
+				}
+			}
+			form.Distance = closed;
+		}
+		return form;
+	}
+
+	// How far a query's sphere, box or capsule at center, turned by rotation, is from a ball (negative: they overlap), in
+	// double so that the closed form is exact to far below the tolerance. Sizes below a millimeter count as a millimeter.
+	double GetGapToBall(PhysicsQueryShape const& shape, glm::dvec3 const& center, glm::dquat const& rotation, glm::dvec3 const& ball,
+	                    double ballRadius)
+	{
+		glm::dvec3 const local = glm::conjugate(rotation) * (ball - center);
+		switch (shape.Type)
+		{
+			case PhysicsQueryShapeType::Box:
+			{
+				glm::dvec3 const halfExtents = glm::max(glm::dvec3(shape.HalfExtents), glm::dvec3(0.001));
+				return glm::length(local - glm::clamp(local, -halfExtents, halfExtents)) - ballRadius;
+			}
+			case PhysicsQueryShapeType::Capsule:
+			{
+				double const along = std::clamp(local.y, -static_cast<double>(shape.HalfHeight), static_cast<double>(shape.HalfHeight));
+				return glm::length(local - glm::dvec3(0.0, along, 0.0)) - std::max(static_cast<double>(shape.Radius), 0.001) - ballRadius;
+			}
+			case PhysicsQueryShapeType::Sphere:
+				break;
+		}
+		return glm::length(local) - std::max(static_cast<double>(shape.Radius), 0.001) - ballRadius;
+	}
+
+	// The separation of two boxes along the axes that tell whether they overlap (each box's three, and their cross products):
+	// positive exactly when they are apart, negative when they overlap, and convex in how far one of them moved.
+	double GetBoxSeparation(glm::dvec3 const& centerA, glm::dmat3 const& axesA, glm::dvec3 const& halfA, glm::dvec3 const& centerB,
+	                        glm::dvec3 const& halfB)
+	{
+		std::vector<glm::dvec3> axes = {axesA[0], axesA[1], axesA[2], {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+		for (glm::length_t a = 0; a < 3; a++)
+		{
+			for (glm::length_t b = 0; b < 3; b++)
+			{
+				glm::dvec3 unit(0.0);
+				unit[b] = 1.0;
+				axes.push_back(glm::cross(axesA[a], unit));
+			}
+		}
+		double separation = -std::numeric_limits<double>::infinity();
+		for (glm::dvec3 const& axis : axes)
+		{
+			double const length = glm::length(axis);
+			if (length < 1e-9)
+			{
+				continue;
+			}
+			glm::dvec3 const unit = axis / length;
+			double const reachA = halfA.x * std::abs(glm::dot(axesA[0], unit)) + halfA.y * std::abs(glm::dot(axesA[1], unit)) +
+			                      halfA.z * std::abs(glm::dot(axesA[2], unit));
+			double const reachB = glm::dot(halfB, glm::abs(unit));
+			separation = std::max(separation, std::abs(glm::dot(centerB - centerA, unit)) - reachA - reachB);
+		}
+		return separation;
+	}
+
+	// Closer than this to touching, at the start or at its nearest, a pose is left out.
+	constexpr double Grazing = 0.01;
+	// How far the cast's distances at the largest sizes may be from their closed forms: about five times the farthest
+	// measured over 2,000 poses of each shape (MaxPhysicsQueryExtent).
+	constexpr float LargeShapeTolerance = 0.005f;
+}
+
+TEST_CASE("PhysicsScene: query shapes as large as they may be cast to where they touch, and touch nothing they pass by")
+{
+	Testing::PhysicsSystemScope physics;
+	constexpr float Reach = 10.0f;
+	constexpr float BallRadius = 0.5f;
+	float const extent = MaxPhysicsQueryExtent;
+	float const radius = MaxPhysicsQueryRadius;
+	struct Case
+	{
+		PhysicsQueryShape Shape;
+		std::string Name;
+	};
+	std::vector<Case> const cases = {
+		{PhysicsQueryShape::MakeBox({extent, 0.0f, 0.0f}), "a rod of a box"},
+		{PhysicsQueryShape::MakeBox({extent, extent, 0.0f}), "a sheet"},
+		{PhysicsQueryShape::MakeBox(glm::vec3(extent)), "a block"},
+		{PhysicsQueryShape::MakeCapsule(0.0f, extent), "a rod of a capsule"},
+		{PhysicsQueryShape::MakeCapsule(radius, extent), "a wide capsule"},
+		{PhysicsQueryShape::MakeSphere(radius), "a large sphere"},
+	};
+	// A small ball the shapes are cast at, near the world's origin and a few kilometers from it.
+	for (glm::vec3 const& ball : {glm::vec3(2.0f, 10.0f, 1.0f), glm::vec3(3000.0f, 10.0f, -2000.0f)})
+	{
+		CAPTURE(ball);
+		Scope<PhysicsScene> world = CreateWorld();
+		REQUIRE(world->AddBody(MakeBody(UUID(100), ball, {Sphere(BallRadius)})).IsOk());
+		Numbers numbers;
+		for (Case const& tested : cases)
+		{
+			CAPTURE(tested.Name);
+			PhysicsQueryShape const& shape = tested.Shape;
+			int checked = 0;
+			int startsIn = 0;
+			int touches = 0;
+			int misses = 0;
+			float worst = 0.0f;
+			for (int pose = 0; pose < 150; pose++)
+			{
+				CAPTURE(pose);
+				glm::quat const rotation = shape.Type == PhysicsQueryShapeType::Sphere ? Upright : numbers.Rotation();
+				glm::vec3 const direction = numbers.Direction();
+				// The shape put so that its surface passes through a point a few meters from the ball, the ball outside or
+				// inside it.
+				glm::vec3 const near = ball + numbers.Vector(-3.0f, 3.0f);
+				glm::vec3 const toward = numbers.Direction();
+				float const side = numbers.Next() < 0.5f ? -1.0f : 1.0f;
+				glm::vec3 surface(0.0f);
+				switch (shape.Type)
+				{
+					case PhysicsQueryShapeType::Box:
+					{
+						// A point on the box's surface, from its center.
+						glm::vec3 const magnitude = glm::abs(toward);
+						glm::vec3 const scaled = toward / std::max({magnitude.x, magnitude.y, magnitude.z});
+						surface = rotation * (scaled * shape.HalfExtents);
+						break;
+					}
+					case PhysicsQueryShapeType::Capsule:
+						surface = rotation * glm::vec3(0.0f, toward.y * shape.HalfHeight, 0.0f) +
+						          side * glm::normalize(near - ball) * shape.Radius;
+						break;
+					case PhysicsQueryShapeType::Sphere:
+						surface = side * glm::normalize(near - ball) * shape.Radius;
+						break;
+				}
+				glm::vec3 const origin = near - surface;
+				ClosedForm const truth = FindFirstTouch(
+					[&shape, &origin, &direction, &rotation, &ball](double moved)
+					{
+						return GetGapToBall(shape, glm::dvec3(origin) + glm::dvec3(direction) * moved, glm::dquat(rotation),
+					                        glm::dvec3(ball), BallRadius);
+					},
+					Reach, Grazing);
+				if (truth.Grazing)
+				{
+					continue;
+				}
+				checked++;
+				std::optional<ShapeCastHit> const hit = world->ShapeCast(shape, origin, rotation, direction, Reach);
+				std::vector<UUID> overlapped;
+				world->Overlap(shape, origin, rotation, overlapped);
+				CHECK(overlapped.empty() == (truth.Distance != 0.0));
+				REQUIRE(hit.has_value() == truth.Distance.has_value());
+				if (!truth.Distance)
+				{
+					misses++;
+					continue;
+				}
+				if (*truth.Distance == 0.0)
+				{
+					startsIn++;
+				}
+				else
+				{
+					touches++;
+				}
+				CHECK((hit->Distance == 0.0f) == (*truth.Distance == 0.0));
+				worst = std::max(worst, static_cast<float>(std::abs(hit->Distance - *truth.Distance)));
+			}
+			MESSAGE(tested.Name << ": " << checked << " poses, " << startsIn << " start in the ball, " << touches << " touch it, " << misses
+			                    << " miss it; the farthest from the closed form " << worst << " m");
+			CHECK(checked >= 120);
+			CHECK(startsIn > 0);
+			CHECK(touches > 0);
+			CHECK(misses > 0);
+			CHECK(worst <= LargeShapeTolerance);
+		}
+	}
+}
+
+TEST_CASE("PhysicsScene: a long box cast among boxes touches the first it reaches, not those it passes by")
+{
+	Testing::PhysicsSystemScope physics;
+	// The ground, two boxes and a pole near the shape's middle, of smaller UUIDs than the ground's, so that a false touch
+	// would win over the true one: the scene that showed casts of long boxes touching bodies they passed by, at distance 0,
+	// when query shapes could be ten thousand times longer than they may be now.
+	struct Block
+	{
+		UUID Entity;
+		glm::vec3 Center;
+		glm::vec3 HalfExtents;
+	};
+	std::array<Block, 4> const blocks = {
+		Block{UUID(500), {0.0f, -0.5f, 0.0f}, {50.0f, 0.5f, 50.0f}}, Block{UUID(300), {0.0f, 1.0f, 10.0f}, glm::vec3(0.5f)},
+		Block{UUID(200), {10.0f, 1.0f, 0.0f}, glm::vec3(0.5f)}, Block{UUID(150), {4.0f, 6.0f, 3.0f}, {0.2f, 3.0f, 0.2f}}};
+	Scope<PhysicsScene> world = CreateWorld();
+	for (Block const& block : blocks)
+	{
+		REQUIRE(world->AddBody(MakeBody(block.Entity, block.Center, {Box(block.HalfExtents)})).IsOk());
+	}
+	constexpr float Reach = 30.0f;
+	Numbers numbers;
+	int checked = 0;
+	int atZero = 0;
+	int later = 0;
+	float worst = 0.0f;
+	for (int pose = 0; pose < 300; pose++)
+	{
+		CAPTURE(pose);
+		glm::quat const rotation = numbers.Rotation();
+		float const thickness = numbers.Between(0.0f, 1.0f);
+		glm::vec3 const origin = pose % 2 == 0 ? glm::vec3(0.0f, 10.0f, 0.0f) : numbers.Vector(-6.0f, 14.0f);
+		glm::vec3 const direction = pose % 2 == 0 ? glm::normalize(glm::vec3(1.0f, 0.3f, 0.0f)) : numbers.Direction();
+		glm::vec3 const halfExtents(std::max(thickness, 0.001f), MaxPhysicsQueryExtent, std::max(thickness, 0.001f));
+		glm::dmat3 const axes = glm::mat3_cast(glm::dquat(rotation));
+
+		// The closed form: of the blocks, the first touched (at distance 0 the one of the smallest UUID).
+		bool grazing = false;
+		std::optional<double> firstDistance;
+		UUID first = UUID::Invalid();
+		for (Block const& block : blocks)
+		{
+			ClosedForm const touch = FindFirstTouch(
+				[&origin, &direction, &axes, &halfExtents, &block](double moved)
+				{
+					return GetBoxSeparation(glm::dvec3(origin) + glm::dvec3(direction) * moved, axes, glm::dvec3(halfExtents),
+				                            glm::dvec3(block.Center), glm::dvec3(block.HalfExtents));
+				},
+				Reach, Grazing);
+			grazing = grazing || touch.Grazing;
+			if (touch.Distance && (!firstDistance || IsQueryHitBefore(static_cast<float>(*touch.Distance), block.Entity,
+			                                                          static_cast<float>(*firstDistance), first)))
+			{
+				firstDistance = touch.Distance;
+				first = block.Entity;
+			}
+		}
+		if (grazing)
+		{
+			continue;
+		}
+		checked++;
+		std::optional<ShapeCastHit> const hit =
+			world->ShapeCast(PhysicsQueryShape::MakeBox(halfExtents), origin, rotation, direction, Reach);
+		REQUIRE(hit.has_value() == firstDistance.has_value());
+		if (!hit)
+		{
+			continue;
+		}
+		CAPTURE(hit->Entity.GetValue());
+		CAPTURE(first.GetValue());
+		CAPTURE(*firstDistance);
+		CHECK(hit->Entity == first);
+		CHECK((hit->Distance == 0.0f) == (*firstDistance == 0.0));
+		if (*firstDistance == 0.0)
+		{
+			atZero++;
+		}
+		else
+		{
+			later++;
+			worst = std::max(worst, static_cast<float>(std::abs(hit->Distance - *firstDistance)));
+		}
+	}
+	MESSAGE(checked << " poses, " << atZero << " start in a block, " << later << " touch one later; the farthest from the closed form "
+	                << worst << " m");
+	CHECK(checked >= 200);
+	CHECK(atZero > 0);
+	CHECK(later > 0);
+	CHECK(worst <= LargeShapeTolerance);
 }
 
 namespace

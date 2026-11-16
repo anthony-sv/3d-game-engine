@@ -47,6 +47,13 @@ namespace Strada
 	// apart (positions within MaxPhysicsCoordinate on each axis, colliders within MaxPhysicsExtent of them), so a longer
 	// distance is cut to it without losing a hit.
 	inline constexpr float MaxPhysicsQueryDistance = 4.0e7f;
+	// The largest sizes of a query's shape (PhysicsQueryShape), far below MaxPhysicsExtent: a cast runs Jolt's GJK on the moving
+	// shape's core (a box whole, a capsule's segment) and adds its radius after, and casts of longer cores and wider capsules
+	// lose its precision. Against closed forms over 2,000 random poses of each shape, cores of 20 m and radii of 100 m stay
+	// within 0.8 mm of where they touch; cores of 100 m and capsules of radius 1000 m miss by up to 3 cm, and cores of 300 m
+	// and more touch bodies they pass by (Architecture.md section 8, "Queries").
+	inline constexpr float MaxPhysicsQueryExtent = 20.0f;
+	inline constexpr float MaxPhysicsQueryRadius = 100.0f;
 
 	enum class RigidBodyType : uint8_t
 	{
@@ -274,8 +281,8 @@ namespace Strada
 
 	// The shape a cast sweeps or an overlap tests, placed by the query's position and rotation (a sphere ignores the
 	// rotation). Exact: a box keeps its sharp edges and corners. A size below a millimeter counts as a millimeter, and a
-	// capsule whose HalfHeight is below a millimeter is a sphere; a size that is negative, not finite or beyond
-	// MaxPhysicsExtent makes the query find nothing.
+	// capsule whose HalfHeight is below a millimeter is a sphere; a size that is negative or not finite, a radius beyond
+	// MaxPhysicsQueryRadius or a half extent or half height beyond MaxPhysicsQueryExtent makes the query find nothing.
 	struct PhysicsQueryShape
 	{
 		PhysicsQueryShapeType Type = PhysicsQueryShapeType::Sphere;

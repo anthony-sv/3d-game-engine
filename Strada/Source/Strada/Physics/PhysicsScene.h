@@ -186,9 +186,8 @@ namespace Strada
 
 		// The closest solid collider along a ray (trigger colliders are ignored) on the layers of the mask (bit i =
 		// layer i), with the physics material of the surface hit. The direction need not be normalized. A ray starting
-		// inside a convex collider passes out of it. Of two entities hit at exactly the same distance it reports the one
-		// Jolt lists first (RaycastAll orders them by UUID); its checks are its own (finite positive distance, non-zero
-		// direction).
+		// inside a convex collider passes out of it. Of entities hit at exactly the same distance it reports the one of the
+		// smaller UUID, as RaycastAll's first hit; its checks are its own (finite positive distance, non-zero direction).
 		std::optional<RaycastHit> Raycast(glm::vec3 const& origin, glm::vec3 const& direction, float maxDistance,
 		                                  uint32_t layerMask = AllPhysicsLayers) const;
 		// Every entity along a ray, each at its nearest hit, ordered by IsQueryHitBefore (distance, then UUID). As Raycast, a
@@ -198,11 +197,16 @@ namespace Strada
 		// The first entity a shape touches as it moves from origin (its center), turned by rotation, along direction for at
 		// most maxDistance without turning: of the entities touched, the first by IsQueryHitBefore (distance, then UUID).
 		// A collider the shape overlaps where it starts is touched at distance 0, at the deepest point of the overlap,
-		// whichever way the cast goes; triangles are touched from their front only, as by rays.
+		// whichever way the cast goes; triangles are touched from their front only, as by rays. That includes the caller's own
+		// colliders: PhysicsQueryFilter excludes no entity, so a cast meant to find what lies below or ahead of a body (a
+		// wheel under a chassis, a foot under a character) starts outside that body's colliders or leaves its layer out of
+		// the mask.
 		std::optional<ShapeCastHit> ShapeCast(PhysicsQueryShape const& shape, glm::vec3 const& origin, glm::quat const& rotation,
 		                                      glm::vec3 const& direction, float maxDistance, PhysicsQueryFilter const& filter = {}) const;
 		// Every entity with a collider the shape overlaps at center, turned by rotation, ordered by UUID. A triangle counts
 		// from either side; a shape wholly inside a closed triangle mesh does not meet its surface and does not overlap it.
+		// Box colliders count with their edges and corners rounded by their convex radius (at most 5 cm), as Jolt's collide
+		// test sees them, so a shape that only grazes an edge may be touched by a cast at distance 0 and not overlap it.
 		size_t Overlap(PhysicsQueryShape const& shape, glm::vec3 const& center, glm::quat const& rotation, std::vector<UUID>& entities,
 		               PhysicsQueryFilter const& filter = {}) const;
 

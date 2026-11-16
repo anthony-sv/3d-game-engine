@@ -2418,6 +2418,9 @@ TEST_CASE("PlayCommands: physics.query is Unavailable while nothing plays or wit
 			{AlongTheRow("raycast", Json::object({{"origin", {0.0, nan, 0.0}}})), "origin"},
 			{AlongTheRow("raycast", Json::object({{"direction", {nan, 0.0, -1.0}}})), "direction"},
 			{AlongTheRow("raycast", Json::object({{"distance", nan}})), "distance"},
+			// A query of no length would find nothing, not even what a shape starts in.
+			{AlongTheRow("raycast", Json::object({{"distance", 0.0}})), "distance"},
+			{AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"distance", 0.0}})), "distance"},
 			{AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"radius", nan}})), "radius"},
 			{AlongTheRow("shapeCast", Json::object({{"shape", "capsule"}, {"halfHeight", nan}})), "halfHeight"},
 			{AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"halfExtents", {1.0, nan, 1.0}}})), "halfExtents"},
@@ -2433,14 +2436,18 @@ TEST_CASE("PlayCommands: physics.query is Unavailable while nothing plays or wit
 			CHECK(result.GetError().Data.value("path", std::string()) == refusal.Path);
 			CHECK_FALSE(result.GetError().Message.empty());
 		}
-		// The schema's limits: beyond the world, a negative size or distance, a mask past 32 bits, an unknown kind, shape or
-		// parameter, a vector of two numbers.
-		std::array<Json, 9> const outOfRange = {
+		// The schema's limits: beyond the world, a negative size or distance, a size past the largest a query's shape may have,
+		// a mask past 32 bits, an unknown kind, shape or parameter, a vector of two numbers.
+		std::array<Json, 12> const outOfRange = {
 			AlongTheRow("raycast", Json::object({{"origin", {2.0e7, 0.0, 0.0}}})),
 			AlongTheRow("raycast", Json::object({{"distance", -1.0}})),
 			AlongTheRow("raycast", Json::object({{"distance", 1.0e8}})),
 			AlongTheRow("raycast", Json::object({{"mask", 4294967296ull}})),
 			AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"radius", -1.0}})),
+			AlongTheRow("shapeCast", Json::object({{"shape", "sphere"}, {"radius", 1.01 * MaxPhysicsQueryRadius}})),
+			AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"halfExtents", {0.5, 1.01 * MaxPhysicsQueryExtent, 0.5}}})),
+			Json::object(
+				{{"kind", "overlap"}, {"origin", {0.0, 0.0, 0.0}}, {"shape", "capsule"}, {"halfHeight", 1.01 * MaxPhysicsQueryExtent}}),
 			AlongTheRow("shapeCast", Json::object({{"shape", "cone"}})),
 			AlongTheRow("sweep"),
 			AlongTheRow("raycast", Json::object({{"direction", {0.0, 1.0}}})),
@@ -2451,26 +2458,58 @@ TEST_CASE("PlayCommands: physics.query is Unavailable while nothing plays or wit
 			CAPTURE(params.dump());
 			CHECK(fixture.Fails("physics.query", params) == AutomationErrorCode::InvalidParams);
 		}
-		// The valid extremes answer: the world's edge, the longest distance, the largest and smallest shapes.
-		std::array<Json, 5> const extremes = {
-			Json::object({{"kind", "raycastAll"},
-		                  {"origin", {MaxPhysicsCoordinate, MaxPhysicsCoordinate, -MaxPhysicsCoordinate}},
-		                  {"direction", {-1.0, -1.0, 1.0}},
-		                  {"distance", MaxPhysicsQueryDistance}}),
-			AlongTheRow("shapeCast", Json::object({{"shape", "box"}, {"halfExtents", {MaxPhysicsExtent, 0.0, MaxPhysicsExtent}}})),
-			AlongTheRow("shapeCast", Json::object({{"shape", "capsule"}, {"radius", 0.0}, {"halfHeight", MaxPhysicsExtent}})),
-			Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.0, 0.0}}, {"shape", "sphere"}, {"radius", MaxPhysicsExtent}}),
-			AlongTheRow("raycast", Json::object({{"direction", {1.0e6, -1.0e6, 1.0e6}}, {"distance", 0.0}})),
-		};
-		for (Json const& params : extremes)
+		// The valid extremes answer, and right: the world's edge with the longest distance, the largest shapes beside bodies
+		// they do not touch, a direction of any length.
+		auto const query = [&fixture](Json const& asked)
 		{
-			CAPTURE(params.dump());
-			CHECK(fixture.Run("physics.query", params).IsOk());
-		}
-		// Every entity of the scene lies in the sphere around the origin.
-		Json const everything = fixture.Ok("physics.query", extremes[3]);
+			CAPTURE(asked.dump());
+			return fixture.Ok("physics.query", asked);
+		};
+		Json const fromTheEdge = query(Json::object({{"kind", "raycastAll"},
+		                                             {"origin", {MaxPhysicsCoordinate, MaxPhysicsCoordinate, -MaxPhysicsCoordinate}},
+		                                             {"direction", {-1.0, -1.0, 1.0}},
+		                                             {"distance", MaxPhysicsQueryDistance}}));
+		CHECK(HitEntities(fromTheEdge) == std::vector<std::string>{row.Ground.ToString()});
+		// A sheet as wide as a query's box may be, through Near and Far where it starts: both at distance 0, Near or Far by
+		// entity ID, as the overlap of the same box says; the ground half a meter below is not touched.
+		Json const sheet = Json::object({{"shape", "box"}, {"halfExtents", {MaxPhysicsQueryExtent, 0.0, MaxPhysicsQueryExtent}}});
+		Json sheetOverlap = Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.5, 0.0}}});
+		sheetOverlap.update(sheet);
+		std::vector<std::string> const sheetEntities = HitEntities(query(sheetOverlap));
+		std::vector<std::string> both = {row.Near.ToString(), row.Far.ToString()};
+		std::ranges::sort(both,
+		                  [](std::string const& left, std::string const& right)
+		                  {
+							  return std::stoull(left) < std::stoull(right);
+						  });
+		CHECK(sheetEntities == both);
+		Json const sheetCast = query(AlongTheRow("shapeCast", sheet));
+		REQUIRE(sheetCast["hits"].size() == 1);
+		CHECK(sheetCast["hits"][0]["entity"] == both[0]);
+		CHECK(sheetCast["hits"][0]["distance"] == 0.0);
+		// A rod as long as a query's capsule may be: upright it starts in the ground; lying across the row it meets Near's face.
+		Json const upright =
+			query(AlongTheRow("shapeCast", Json::object({{"shape", "capsule"}, {"radius", 0.0}, {"halfHeight", MaxPhysicsQueryExtent}})));
+		REQUIRE(upright["hits"].size() == 1);
+		CHECK(upright["hits"][0]["entity"] == row.Ground.ToString());
+		CHECK(upright["hits"][0]["distance"] == 0.0);
+		Json const lying = query(AlongTheRow(
+			"shapeCast",
+			Json::object(
+				{{"shape", "capsule"}, {"radius", 0.0}, {"halfHeight", MaxPhysicsQueryExtent}, {"rotationEuler", {0.0, 0.0, 90.0}}})));
+		REQUIRE(lying["hits"].size() == 1);
+		CHECK(lying["hits"][0]["entity"] == row.Near.ToString());
+		CHECK(lying["hits"][0]["distance"].get<double>() == doctest::Approx(2.5 - 0.001).epsilon(1.0e-3));
+		// Every entity of the scene lies in the largest sphere around the origin; the trigger counts only when asked.
+		Json const everything =
+			query(Json::object({{"kind", "overlap"}, {"origin", {0.0, 0.0, 0.0}}, {"shape", "sphere"}, {"radius", MaxPhysicsQueryRadius}}));
 		CHECK(everything["count"] == 3);
 		CHECK(everything["state"] == "simulate");
+		// A direction of any length but zero is a direction: down onto the ground, a meter's worth of diagonal away.
+		Json const diagonal = query(AlongTheRow("raycast", Json::object({{"direction", {1.0e6, -1.0e6, 1.0e6}}})));
+		REQUIRE(diagonal["hits"].size() == 1);
+		CHECK(diagonal["hits"][0]["entity"] == row.Ground.ToString());
+		CHECK(diagonal["hits"][0]["distance"].get<double>() == doctest::Approx(0.5 * std::sqrt(3.0)).epsilon(1.0e-4));
 		fixture.Ok("play.stop");
 	}
 	CHECK(row.Ground.IsValid());

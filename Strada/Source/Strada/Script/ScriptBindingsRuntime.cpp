@@ -310,17 +310,16 @@ namespace Strada::ScriptGlue
 		}
 
 		// The query shape a script gave, with the API member's name for messages; nothing (and a script error) for a size that is
-		// not finite, negative or beyond MaxPhysicsExtent.
+		// not finite, negative or beyond its largest (MaxPhysicsQueryRadius, MaxPhysicsQueryExtent).
 		std::optional<PhysicsQueryShape> ReadQueryShape(QueryShapeValues const& values, bool cast, std::string_view& function)
 		{
-			auto const checkSize = [&function](std::string_view size, float value)
+			auto const checkSize = [&function](std::string_view size, float value, float largest)
 			{
-				if (std::isfinite(value) && value >= 0.0f && value <= MaxPhysicsExtent)
+				if (std::isfinite(value) && value >= 0.0f && value <= largest)
 				{
 					return true;
 				}
-				Log::GetScriptLogger().error("{}: a {} of {} is not valid (it must be 0 to {:.0f})", function, size, value,
-				                             MaxPhysicsExtent);
+				Log::GetScriptLogger().error("{}: a {} of {} is not valid (it must be 0 to {:.0f})", function, size, value, largest);
 				return false;
 			};
 			if (values.Type < static_cast<int32_t>(PhysicsQueryShapeType::Sphere) ||
@@ -334,22 +333,24 @@ namespace Strada::ScriptGlue
 			{
 				case PhysicsQueryShapeType::Sphere:
 					function = cast ? "Physics.SphereCast" : "Physics.OverlapSphere";
-					if (!checkSize("radius", values.Radius))
+					if (!checkSize("radius", values.Radius, MaxPhysicsQueryRadius))
 					{
 						return std::nullopt;
 					}
 					return PhysicsQueryShape::MakeSphere(values.Radius);
 				case PhysicsQueryShapeType::Box:
 					function = cast ? "Physics.BoxCast" : "Physics.OverlapBox";
-					if (!checkSize("half extent", values.HalfExtents.X) || !checkSize("half extent", values.HalfExtents.Y) ||
-					    !checkSize("half extent", values.HalfExtents.Z))
+					if (!checkSize("half extent", values.HalfExtents.X, MaxPhysicsQueryExtent) ||
+					    !checkSize("half extent", values.HalfExtents.Y, MaxPhysicsQueryExtent) ||
+					    !checkSize("half extent", values.HalfExtents.Z, MaxPhysicsQueryExtent))
 					{
 						return std::nullopt;
 					}
 					return PhysicsQueryShape::MakeBox(FromScript(values.HalfExtents));
 				case PhysicsQueryShapeType::Capsule:
 					function = cast ? "Physics.CapsuleCast" : "Physics.OverlapCapsule";
-					if (!checkSize("radius", values.Radius) || !checkSize("half height", values.HalfHeight))
+					if (!checkSize("radius", values.Radius, MaxPhysicsQueryRadius) ||
+					    !checkSize("half height", values.HalfHeight, MaxPhysicsQueryExtent))
 					{
 						return std::nullopt;
 					}

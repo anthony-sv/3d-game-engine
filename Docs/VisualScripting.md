@@ -334,7 +334,9 @@ and `Result` keep what that run found. `Hit` is a `Strada.ShapeCastHit`: Break (
 and the surface's `Material` (its `Surface` tells gravel from asphalt); Make builds one. The shape moves without turning and
 keeps its sharp corners; it touches a collider it starts in at distance 0, and that includes its own entity's, so cast from
 outside the entity's colliders or leave its layer out of `LayerMask`. Of two entities touched at the same distance it gives
-the one of the smaller entity ID, so a graph does the same on every run.
+the one of the smaller entity ID, so a graph does the same on every run. A `Radius` is at most 100 m, a half extent or
+`HalfHeight` at most 20 m: a larger one is a script error and the cast finds nothing, since longer shapes lose the physics
+engine's precision.
 
 Casts read the world as the last physics step left it: in `Event.FixedUpdate` exactly where the bodies are, which is where
 logic that decides forces (a hover, a suspension, a sensor) belongs; in `Event.Update` a body drawn between its last two
