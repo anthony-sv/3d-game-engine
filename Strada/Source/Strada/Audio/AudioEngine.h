@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Strada/Asset/Mixer.h"
 #include "Strada/Audio/AudioStreamFile.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace Strada
 {
@@ -34,16 +37,25 @@ namespace Strada
 		AudioStreamFileOpener StreamFileOpener;
 	};
 
-	// The global audio engine (miniaudio): mixes the sounds of every AudioScene into one output, on miniaudio's audio
-	// thread unless the output is manual. Streamed sounds are read and decoded ahead on the audio streaming thread, so the
-	// mix never waits for a file. Initialized by Application after the PhysicsSystem. Main thread only.
+	// The global audio engine (miniaudio): mixes the voices of every AudioScene through the mixer's buses into one output,
+	// on miniaudio's audio thread unless the output is manual (Docs/Architecture.md §9). The main thread changes the mix
+	// only through the audio queue, which the thread that mixes applies at the start of each block; streamed sounds are read
+	// and decoded ahead on the audio streaming thread, so the mix never waits for a file. Initialized by Application after
+	// the PhysicsSystem. Main thread only, except where a function says otherwise.
 	class AudioEngine
 	{
 	public:
 		// When the output cannot be opened the failure is logged and the engine stays uninitialized (no audio).
 		static void Init(AudioEngineSettings const& settings = {});
+		// Stops the device first, so that no block runs any more, then destroys every object the mixer held or was
+		// returning. Every AudioScene must be destroyed before.
 		static void Shutdown();
 		static bool IsInitialized();
+
+		// Once a frame (Application calls it; zone Audio.Update): destroys what the mixer handed back, moves deferred commands
+		// into the queue, and takes the mixer over while a device or null output has mixed nothing for
+		// AudioMixerStallSeconds (§9.1).
+		static void Update();
 
 		// Null while uninitialized.
 		static AudioOutput GetOutput();
@@ -52,13 +64,52 @@ namespace Strada
 		static uint32_t GetSampleRate();
 		static uint32_t GetChannelCount();
 
-		// Linear gain applied to everything (1 = unchanged).
+		// Linear gain applied after Master's effects and volume (1 = unchanged); ramped over AudioGainSmoothingSeconds. A
+		// value above 1 can take the output past a limiter on Master. The getter answers the value last set.
 		static float GetMasterVolume();
 		static void SetMasterVolume(float volume);
 
+		// The mixer every scene's voices play through (§9.5); without one set, Master alone, which mixes exactly as the
+		// engine did before buses. A mixer that ValidateMixer refuses is logged and the current one kept. Value edits reach
+		// the mix at the next block, ramped; added, removed or re-parented buses and changed effect lists reach it with a
+		// dip of twice AudioGainSmoothingSeconds on the buses they change, never a click. Effects whose bus and kind carry
+		// on keep their state (a reverb's tail).
+		static void SetMixer(Mixer const& mixer);
+		static Mixer const& GetMixer();
+
+		// The game's value of a bus (§9.5): a gain stage after the mixer's own (the asset's value, blended by snapshots), so
+		// that a settings menu and the mix design never overwrite each other. Volumes in decibels (MinMixerVolumeDb is
+		// silence). An unknown name reads 0 dB, not muted, and setting it does nothing; each unknown name is logged once.
+		static float GetBusVolume(std::string_view bus);
+		static void SetBusVolume(std::string_view bus, float decibels);
+		static bool IsBusMuted(std::string_view bus);
+		static void SetBusMuted(std::string_view bus, bool muted);
+		// The master volume back to 1 and every bus's game value back to 0 dB, not muted: what a game starts and ends with
+		// (SceneRunner calls it).
+		static void ResetGameValues();
+
+		// The voices mixed at the last block, across every scene (at most MaxMixedAudioVoices, plus the stolen ones still
+		// fading out). Any thread.
+		static uint32_t GetActiveVoiceCount();
+		// Voices stolen since Init: by a full pool (a one-shot) or by the engine's limit, the voices that lost before they
+		// played included. Any thread.
+		static uint64_t GetStolenVoiceCount();
+		// Commands waiting on the main thread's side of the queue (AudioCommandQueue): 0 unless a burst filled the ring.
+		static size_t GetDeferredCommandCount();
+
+		// Diagnostics for tests (§9.9). Whether the calling thread is mixing right now (inside a device callback's or
+		// ReadFrames' render): lock-free and free of thread-local storage, so a counting allocation hook can call it. Any
+		// thread.
+		static bool IsMixingOnThisThread();
+		// The allocations miniaudio made through the engine's allocation callbacks on the thread that was mixing, while it
+		// mixed, since Init. Every miniaudio object of the Audio module is made with those callbacks. Any thread.
+		static uint64_t GetMixAllocationCount();
+
 		// Manual output only: mixes the next frames into interleaved samples (GetChannelCount() per frame; a partial frame
-		// at the end is left untouched) and returns the number of frames written. Never waits for streamed sounds: one whose
-		// file has not been read far enough is silent until it has.
+		// at the end is left untouched) and returns the number of frames written. On the calling thread, through the same
+		// mixer a device's callback runs, in blocks of at most AudioBlockFrames: deferred commands are flushed before each
+		// block and what the mixer hands back is destroyed after the last. Never waits for streamed sounds: one whose file
+		// has not been read far enough is silent until it has.
 		static uint64_t ReadFrames(std::span<float> samples);
 		// Waits until every streamed sound has read and decoded as far ahead as it can (AudioStreamBufferSeconds, or to a
 		// file that cannot be read further) and has carried out its seeks. With manual output the next ReadFrames, up to

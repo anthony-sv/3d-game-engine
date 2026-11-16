@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
+#include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
 

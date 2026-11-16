@@ -87,6 +87,8 @@ set(STRADA_ASSET_SOURCES
     Source/Strada/Asset/MeshProcessing.h
     Source/Strada/Asset/MeshSource.cpp
     Source/Strada/Asset/MeshSource.h
+    Source/Strada/Asset/Mixer.h
+    Source/Strada/Asset/MixerAsset.h
     Source/Strada/Asset/PhysicsMaterial.h
     Source/Strada/Asset/PhysicsMaterialAsset.h
     Source/Strada/Asset/PrefabAsset.cpp
@@ -119,14 +121,19 @@ set(STRADA_MATH_SOURCES
 set(STRADA_AUDIO_SOURCES
     Source/Strada/Audio/AudioDecoder.cpp
     Source/Strada/Audio/AudioDecoder.h
+    Source/Strada/Audio/AudioEffects.h
     Source/Strada/Audio/AudioEngine.cpp
     Source/Strada/Audio/AudioEngine.h
+    Source/Strada/Audio/AudioMixer.h
+    Source/Strada/Audio/AudioQueue.h
     Source/Strada/Audio/AudioScene.cpp
     Source/Strada/Audio/AudioScene.h
     Source/Strada/Audio/AudioStream.cpp
     Source/Strada/Audio/AudioStream.h
     Source/Strada/Audio/AudioStreamFile.cpp
     Source/Strada/Audio/AudioStreamFile.h
+    Source/Strada/Audio/AudioTypes.h
+    Source/Strada/Audio/AudioVoice.h
     Source/Strada/Audio/AudioWaveform.cpp
     Source/Strada/Audio/AudioWaveform.h
     Source/Strada/Audio/MiniaudioContext.h

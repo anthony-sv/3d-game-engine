@@ -1,7 +1,9 @@
 #include "stpch.h"
 #include "Strada/Audio/AudioEngine.h"
 
+#include "Strada/Audio/AudioMixer.h"
 #include "Strada/Audio/AudioStream.h"
+#include "Strada/Audio/AudioVoice.h"
 #include "Strada/Audio/MiniaudioContext.h"
 #include "Strada/Core/Profiler.h"
 
