@@ -1998,6 +1998,10 @@ running `Scene` the same four:
   at any frame rate (below). A scene that runs no physics finds nothing.
 - *Many hits.* `RaycastAll` and `Overlap` replace the contents of the caller's vector with every hit, in order, keeping
   its capacity, and return the count; a caller with a fixed buffer takes the first ones of the order.
+- *From scripts.* `Strada.Physics` gives the queries per shape (§10.4): the scripting bindings call the `Scene` forms and
+  copy the first of the order into the script's buffer. StradaTests' `ScenePhysicsQueryTests.cpp` checks that scripts
+  get exactly what the scene's queries give, and that hovering balls whose forces their `OnFixedUpdate` queries decide
+  reach the same state hash, and the same query results, at 30, 60 and 144 frames per second.
 
 **Step control.** A step lasts the project's `Physics.FixedTimestep` (0.0005 to 0.1 s, default 1/60); a frame runs at
 most `Physics.MaxStepsPerFrame` of them (1 to 64, default 8; a slower frame drops the backlog beyond one step, so the
@@ -2314,7 +2318,21 @@ editor's Simulate mode runs neither kind.
 - `Time`: `DeltaTime`, `FixedDeltaTime`, `Elapsed`, `FrameCount`, `TimeScale`.
 - `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`; `RaycastHit` (`Entity`,
   `Point`, `Normal`, `Distance`, `Material`: the `PhysicsMaterial` of the surface hit, null for none, one shared
-  reference per material).
+  reference per material). The queries of §8 "Queries", each with a `layerMask` and `includeTriggers` (every layer, no
+  triggers, by default): `SphereCast(origin, radius, ...)`, `BoxCast(origin, halfExtents, rotation, ...)` and
+  `CapsuleCast(origin, radius, halfHeight, rotation, ...)`, each `(direction, maxDistance, out ShapeCastHit hit)`, one
+  binding (`Physics_ShapeCast`, the shape as `NativeQueryShape`, the hit in `NativeRaycastHit`'s layout); `ShapeCastHit`,
+  a struct of public fields (`Entity`, `Point`, `Normal`, `Distance`, `Material`) that graphs Make and Break. The
+  many-hit forms fill a `Span` the caller passes and return how many they wrote, the first of the order (the nearest, or
+  the smallest UUIDs): `RaycastAll(origin, direction, maxDistance, Span<RaycastHit>)` (`Physics_RaycastAll`) and
+  `OverlapSphere`, `OverlapBox`, `OverlapCapsule(..., Span<Entity>)` (`Physics_Overlap`, entity IDs). The bindings copy
+  at most the buffer's length out of the scene's query; the managed side gathers them on the stack (up to 32 hits or
+  128 entities) or in a pooled buffer, so a query allocates nothing but the `Entity` of each entity found that has no
+  script. Sizes that are not finite, negative or above `MaxPhysicsExtent` and values that are not finite are script
+  errors naming the member; zero directions and distances that are not positive find nothing, silently, as for
+  `Raycast`. The casts are impure nodes, as `Raycast` is; the four many-hit forms are not nodes, because a `Span` is a
+  ref struct and because graphs hold arrays as values that a node may not write into (an array a variable or literal
+  starts with is one object every run of the graph shares, `GraphInstance`'s constructor).
 - `Collision` (the contact event being handled, empty outside a contact handler): `Entity`, `Other`, `Step`, `Points`
   (up to four `ContactPoint`s, strongest first, a new array per read); `ContactPoint`, a struct of public fields
   (`Point`, `Normal` from the other side towards this one, `Impulse`, `RelativeVelocity`, `Material`, `OtherMaterial`).

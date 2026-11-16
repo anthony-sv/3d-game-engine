@@ -117,7 +117,8 @@ internal static class ApiReference
 		document.Append("     STRADA_UPDATE_DOCS=1. -->\n\n");
 		document.Append("Every public type and member of `Strada.ScriptCore`, the API that C# scripts and visual scripts use, with the\n");
 		document.Append("summary C# editors show as you type. The [scripting guide](Scripting.md) shows the API in use and the\n");
-		document.Append("[visual scripting guide](VisualScripting.md) how graphs call it: every member listed here is a node.\n");
+		document.Append("[visual scripting guide](VisualScripting.md) how graphs call it: every member listed here is a node, but for\n");
+		document.Append("the few whose summary says graphs have none.\n");
 		document.Append("The engine's tests generate this page from the API, so it lists exactly what the API has.\n\n");
 		int namespaceCount = types.Select(type => type.Namespace).Distinct().Count();
 		document.Append($"{types.Count} types in {namespaceCount} namespaces, with {memberCount} members and enum values in all.\n");

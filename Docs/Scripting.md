@@ -251,7 +251,7 @@ if (Physics.Raycast(Transform.WorldTranslation, Transform.Forward, 100.0f, out R
 
 A hit also names the physics material of the surface it hit (`hit.Material`, null for a collider without one:
 [Physics materials](#physics-materials)). A camera turns screen positions into rays:
-`camera.ScreenToWorldRay(Input.MousePosition)` picks what is under the cursor. Collision layers and which layers collide are set in the project settings; raycasts take a layer mask.
+`camera.ScreenToWorldRay(Input.MousePosition)` picks what is under the cursor. Collision layers and which layers collide are set in the project settings; raycasts and the other queries ([Queries](#queries)) take a layer mask.
 
 A `JointComponent` joins a body to another (`ConnectedEntity`) or to the world (null): `Hinge` for doors, wheels and
 pendulums (with `LimitsEnabled`, `MinLimit`/`MaxLimit` in degrees, and a motor: `MotorEnabled`, `MotorSpeed` in degrees
@@ -273,6 +273,65 @@ public class Windmill : Script
 	}
 }
 ```
+
+### Queries
+
+Beside `Physics.Raycast`, scripts sweep shapes, test overlaps and collect every hit along a ray:
+
+- **Casts.** `Physics.SphereCast`, `BoxCast` and `CapsuleCast` move a sphere, a box (with its half extents and a rotation) or a
+  capsule (radius and half height along its local Y axis, as a capsule collider, and a rotation) from an origin along a
+  direction without turning, and give the first entity they touch in a `ShapeCastHit`: its `Entity`, the `Point` on the
+  surface touched, the `Normal` out of it towards the shape, the `Distance` the shape travelled until it touched (its center
+  is then at the origin plus the unit direction times that) and the surface's `Material`. A cast that starts overlapping a
+  collider touches it at distance 0, and that includes the caster's own body: cast from outside it (below a ball, ahead
+  of a car), or leave its layer out of the mask. Boxes keep their sharp corners.
+- **Overlaps.** `Physics.OverlapSphere`, `OverlapBox` and `OverlapCapsule` write every entity whose colliders a shape overlaps
+  into a buffer you pass, by entity ID from the smallest, and return how many they wrote.
+- **Every hit.** `Physics.RaycastAll` writes every entity along a ray into a buffer of `RaycastHit`s, each where the ray first
+  hits it, nearest first, and returns how many it wrote.
+
+Each takes a layer mask (bit n is layer n; `Physics.AllLayers` by default) and whether trigger colliders count (they do not
+by default, so a cast passes through triggers as a ray does). Each entity is reported at most once, and equal distances are
+ordered by entity ID, so the results are the same on every run. A buffer smaller than the results keeps the first of them
+(the nearest, or the smallest IDs). Keep the buffers in fields: the queries allocate nothing but an `Entity` for each entity
+found that has no script, and a buffer made every call would be garbage every step.
+
+Queries read the world as the last physics step left it. In `OnFixedUpdate` that is exactly where the bodies are, so logic
+that decides forces (a hover, a wheel's suspension, a sensor) queries there and stays the same at any frame rate. In
+`OnUpdate` a body drawn between its last two steps is found up to a step ahead of where it is drawn. A body made or changed
+since the last step is found where its entity is.
+
+```csharp
+public class Hover : Script
+{
+	public float Height = 1.0f;
+
+	private readonly Entity[] m_Nearby = new Entity[8];
+
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		RigidBodyComponent body = GetComponent<RigidBodyComponent>()!;
+		// From just below the body's sphere of radius 0.5, so that the cast does not start inside it.
+		if (Physics.SphereCast(Translation + new Vector3(0.0f, -0.55f, 0.0f), 0.05f, Vector3.Down, 5.0f, out ShapeCastHit ground))
+		{
+			float push = (20.0f * (Height - ground.Distance)) - (4.0f * body.LinearVelocity.Y);
+			body.AddForce(Vector3.Up * (push + 9.81f), ForceMode.Acceleration);
+		}
+		int count = Physics.OverlapSphere(Translation, 3.0f, m_Nearby);
+		for (int index = 0; index < count; index++)
+		{
+			if (m_Nearby[index].Name == "Mine")
+			{
+				m_Nearby[index].Destroy();
+			}
+		}
+	}
+}
+```
+
+Sizes and positions that are not finite, and sizes below 0 or above a million meters, are script errors (logged, naming
+the member) and find nothing; a zero direction or a distance that is not positive finds nothing. Graphs have the three
+casts as nodes, not the overlaps or `RaycastAll` ([Visual scripting](VisualScripting.md#physics-queries) says why).
 
 ### Contacts
 

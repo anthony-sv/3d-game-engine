@@ -213,8 +213,8 @@ FEATURES_DESCRIPTION = (
     "RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library "
     "MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes "
     "its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it "
-    "before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast onto the "
-    "physics material probe names the material it hits.")
+    "before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, "
+    "box and capsule casts onto the physics material probe name the material they hit.")
 
 
 def build_features(references):
@@ -832,6 +832,41 @@ def build_features(references):
                            g.format("{Surface}: friction {Friction} ({Mode}), the ray hit {Hit}", Surface=members["Surface"],
                                     Friction=members["Friction"], Mode=members["FrictionCombine"], Hit=hit_surface)))
     groups.append(ray)
+
+    # Shape casts down onto the same probe: its topmost collider, a capsule of Rubber, ends at y = 5, so from (60, 10, 60) a
+    # sphere of 0.25 touches it 4.75 m down, a box of half height 0.3 4.7 m down and an upright capsule reaching 0.5 below its
+    # center 4.5 m down, each at (60, 5, 60) with the normal up. Break splits each hit; Make builds one that Break gives back.
+    above = {"Origin": [60.0, 10.0, 60.0], "Direction": [0.0, -1.0, 0.0], "MaxDistance": 20.0}
+    casts = [
+        (g.node("Call:Strada.Physics.SphereCast(Strada.Vector3,float,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)", None,
+                {**above, "Radius": 0.25}), 4.75),
+        (g.node("Call:Strada.Physics.BoxCast(Strada.Vector3,Strada.Vector3,Strada.Quaternion,Strada.Vector3,float,out Strada.ShapeCastHit,"
+                "uint,bool)", None, {**above, "HalfExtents": [0.2, 0.3, 0.2]}), 4.7),
+        (g.node("Call:Strada.Physics.CapsuleCast(Strada.Vector3,float,float,Strada.Quaternion,Strada.Vector3,float,out Strada.ShapeCastHit,"
+                "uint,bool)", None, {**above, "Radius": 0.2, "HalfHeight": 0.3}), 4.5),
+    ]
+    g.chain(*[cast for cast, _ in casts])
+    conditions = []
+    distances = {}
+    for index, (cast, expected_distance) in enumerate(casts):
+        parts = g.node("Break", {"Type": "Strada.ShapeCastHit"}, Value=(cast, "Hit"))
+        name_of = (g.node("Get:Strada.Entity.Name", Target=(parts, "Entity")), "Value")
+        error = (g.node("Call:Strada.Mathf.Abs(float)", Value=g.op("Subtract", (parts, "Distance"), B=expected_distance)), "Result")
+        point_y = (g.node("Get:Strada.Vector3.Y", Target=(parts, "Point")), "Value")
+        normal_y = (g.node("Get:Strada.Vector3.Y", Target=(parts, "Normal")), "Value")
+        conditions += [(cast, "Result"), g.equal(name_of, "Physics Material Probe"), g.op("Less", error, B=0.001),
+                       g.op("Greater", point_y, B=4.999), g.op("Less", point_y, B=5.001), g.op("Greater", normal_y, B=0.999),
+                       g.op("Equal", (parts, "Material"), rubber)]
+        distances[f"D{index}"] = (parts, "Distance")
+    made = g.node("Make", {"Type": "Strada.ShapeCastHit"}, {"Point": [60.0, 5.0, 60.0], "Normal": [0.0, 1.0, 0.0], "Distance": 4.5},
+                  Entity=(g.node("Break", {"Type": "Strada.ShapeCastHit"}, Value=(casts[0][0], "Hit")), "Entity"), Material=rubber)
+    remade = g.node("Break", {"Type": "Strada.ShapeCastHit"}, Value=(made, "Value"))
+    conditions += [g.equal((remade, "Distance"), 4.5), g.op("Equal", (remade, "Material"), rubber),
+                   g.equal((g.node("Get:Strada.Entity.Name", Target=(remade, "Entity")), "Value"), "Physics Material Probe")]
+    g.flow(casts[-1][0], call_check("shape casts touch the physics material probe and name its material, and Make and Break their hits",
+                                    g.all_of(*conditions),
+                                    g.format("the casts touched after {D0}, {D1} and {D2} m", **distances)))
+    groups.append(casts[0][0])
 
     # By now the scene has updated and stepped physics.
     frames_now = g.get(frames)

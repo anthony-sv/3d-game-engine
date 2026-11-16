@@ -193,7 +193,8 @@ public sealed class NodeLibraryTests
 			Assert.Equal(NodeKind.Pure, VisualScriptTesting.LibraryNode(type).Kind);
 		}
 		foreach (string type in new[] { "Call:Strada.Entity.Destroy()", "Call:Strada.Random.Seed(int)",
-			"Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)", "Set:Strada.Entity.Name",
+			"Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)", SphereCast, BoxCast, CapsuleCast,
+			"Set:Strada.Entity.Name",
 			"Call:Strada.Entity.Create(string)", "Call:Strada.Log.Info(string)" })
 		{
 			Assert.False(VisualScriptTesting.LibraryNode(type).Pure, $"{type} is impure");
@@ -202,6 +203,58 @@ public sealed class NodeLibraryTests
 		// Impure nodes have Execute and Then; pure ones have no exec pins.
 		Assert.Contains(VisualScriptTesting.LibraryNode("Call:Strada.Random.Seed(int)").Pins, static pin => pin.Name == "Execute" && pin.IsExec);
 		Assert.DoesNotContain(VisualScriptTesting.LibraryNode("Call:Strada.Mathf.Sin(float)").Pins, static pin => pin.IsExec);
+	}
+
+	// The shape casts' nodes: impure, as Physics.Raycast's (a query with an out parameter is not marked pure), with the
+	// hit as an output and the result as a bool.
+	private const string SphereCast = "Call:Strada.Physics.SphereCast(Strada.Vector3,float,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)";
+	private const string BoxCast =
+		"Call:Strada.Physics.BoxCast(Strada.Vector3,Strada.Vector3,Strada.Quaternion,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)";
+	private const string CapsuleCast =
+		"Call:Strada.Physics.CapsuleCast(Strada.Vector3,float,float,Strada.Quaternion,Strada.Vector3,float,out Strada.ShapeCastHit,uint,bool)";
+
+	[Fact]
+	public void ShapeCastsAreNodesAsRaycastsAre()
+	{
+		Assert.Equal(["Execute", "Origin", "Radius", "Direction", "MaxDistance", "LayerMask", "IncludeTriggers", "Then", "Hit", "Result"],
+			VisualScriptTesting.LibraryNode(SphereCast).Pins.Select(static pin => pin.Name));
+		Assert.Equal(["Execute", "Origin", "HalfExtents", "Rotation", "Direction", "MaxDistance", "LayerMask", "IncludeTriggers", "Then", "Hit",
+			"Result"], VisualScriptTesting.LibraryNode(BoxCast).Pins.Select(static pin => pin.Name));
+		Assert.Equal(["Execute", "Origin", "Radius", "HalfHeight", "Rotation", "Direction", "MaxDistance", "LayerMask", "IncludeTriggers", "Then",
+			"Hit", "Result"], VisualScriptTesting.LibraryNode(CapsuleCast).Pins.Select(static pin => pin.Name));
+		foreach (string type in new[] { SphereCast, BoxCast, CapsuleCast })
+		{
+			NodeDefinition node = VisualScriptTesting.LibraryNode(type);
+			Assert.Equal("Strada.ShapeCastHit", node.Pins.Single(static pin => pin.Name == "Hit").Type.Id);
+			Assert.Equal("uint", node.Pins.Single(static pin => pin.Name == "LayerMask").Type.Id);
+			Assert.Equal("bool", node.Pins.Single(static pin => pin.Name == "IncludeTriggers").Type.Id);
+		}
+	}
+
+	// The many-hit queries fill a caller's buffer, a Span: graphs hold arrays as values (Array nodes give new ones, and the
+	// arrays of variables, literals and unlinked inputs are shared by every run of a graph), so a node that wrote into its
+	// input would change values that are not its own. They have no nodes, for that reason.
+	[Fact]
+	public void TheManyHitQueriesAreNotNodesSinceTheirBuffersAreRefStructs()
+	{
+		string[] names = ["RaycastAll", "OverlapSphere", "OverlapBox", "OverlapCapsule"];
+		Assert.DoesNotContain(Members, member => names.Any(name => member.Type.StartsWith($"Call:Strada.Physics.{name}(", StringComparison.Ordinal)));
+		string[] problems = [.. typeof(Physics).GetMethods()
+			.Where(method => names.Contains(method.Name))
+			.OrderBy(static method => method.Name, StringComparer.Ordinal)
+			.Select(static method =>
+			{
+				Assert.Null(MemberNodes.Shape(MemberNodeKind.Call, method, false,
+					static type => TypeIds.Of(type) is { } id ? Library.FindType(id) : null, Library.FindType("Strada.Entity")!, out string? problem));
+				return $"{method.Name}: {problem}";
+			})];
+		Assert.Equal(
+		[
+			"OverlapBox: System.Span<Strada.Entity> is a ref struct: graphs cannot hold its values",
+			"OverlapCapsule: System.Span<Strada.Entity> is a ref struct: graphs cannot hold its values",
+			"OverlapSphere: System.Span<Strada.Entity> is a ref struct: graphs cannot hold its values",
+			"RaycastAll: System.Span<Strada.RaycastHit> is a ref struct: graphs cannot hold its values",
+		], problems);
 	}
 
 	[Fact]
@@ -253,10 +306,11 @@ public sealed class NodeLibraryTests
 	public void MakeAndBreakCoverTheStructs()
 	{
 		// The library lists types by ID.
-		Assert.Equal(["Strada.Color", "Strada.ContactPoint", "Strada.Matrix4", "Strada.Quaternion", "Strada.Ray", "Strada.Vector2", "Strada.Vector3",
-			"Strada.Vector4"], Library.Types.Where(static type => type.Makeable).Select(static type => type.Id));
+		Assert.Equal(["Strada.Color", "Strada.ContactPoint", "Strada.Matrix4", "Strada.Quaternion", "Strada.Ray", "Strada.ShapeCastHit", "Strada.Vector2",
+			"Strada.Vector3", "Strada.Vector4"], Library.Types.Where(static type => type.Makeable).Select(static type => type.Id));
 		Assert.Equal(["Strada.AssetHandle", "Strada.Color", "Strada.ContactPoint", "Strada.Matrix4", "Strada.Quaternion", "Strada.Ray",
-			"Strada.RaycastHit", "Strada.Vector2", "Strada.Vector3", "Strada.Vector4"], Library.Types.Where(static type => type.Breakable).Select(static type => type.Id));
+			"Strada.RaycastHit", "Strada.ShapeCastHit", "Strada.Vector2", "Strada.Vector3", "Strada.Vector4"],
+			Library.Types.Where(static type => type.Breakable).Select(static type => type.Id));
 		Assert.Equal(["X", "Y", "Z"], Library.FindType("Strada.Vector3")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["R", "G", "B", "A"], Library.FindType("Strada.Color")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["Column0", "Column1", "Column2", "Column3"], Library.FindType("Strada.Matrix4")!.Fields.Select(static field => field.Name));
@@ -269,6 +323,10 @@ public sealed class NodeLibraryTests
 			Library.FindType("Strada.ContactPoint")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["Strada.Vector3", "Strada.Vector3", "float", "Strada.Vector3", "Strada.PhysicsMaterial", "Strada.PhysicsMaterial"],
 			Library.FindType("Strada.ContactPoint")!.Fields.Select(static field => field.Type.Id));
+		// A shape cast's hit has a raycast hit's values, as fields that Make sets.
+		Assert.Equal(["Entity", "Point", "Normal", "Distance", "Material"], Library.FindType("Strada.ShapeCastHit")!.Fields.Select(static field => field.Name));
+		Assert.Equal(["Strada.Entity", "Strada.Vector3", "Strada.Vector3", "float", "Strada.PhysicsMaterial"],
+			Library.FindType("Strada.ShapeCastHit")!.Fields.Select(static field => field.Type.Id));
 	}
 
 	[Fact]

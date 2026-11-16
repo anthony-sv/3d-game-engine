@@ -3,7 +3,8 @@
 A visual script is a graph of nodes instead of code: a `.sgraph` asset that a `VisualScriptComponent` runs on its
 entity, beside a C# script or instead of one. Its nodes are events (the callbacks C# scripts override, keys and buttons,
 events of your own), flow control (branches, sequences, loops, delays), variables and functions, operators, and a node
-for each member of the scripting API, so graphs reach the engine the way C# scripts do. Graphs run in the same .NET
+for each member of the scripting API (but for the few that fill a buffer the caller passes: [Physics
+queries](#physics-queries)), so graphs reach the engine the way C# scripts do. Graphs run in the same .NET
 runtime as C# scripts but need no C# project: a game can be made of graphs alone.
 
 This guide goes the way you learn them: a first graph, the events and the flow, variables, functions, formulas, text
@@ -320,6 +321,33 @@ on each face than the faces share when they are at a shallow angle, and less whe
 
 **Try it:** give a slab a collider whose physics material has the Surface "Gravel", drop a ball with a graph on it, and
 log the ball's `Event.CollisionEnter` `Surface` and `Impulse`: drop it from higher, and the impulse grows.
+
+### Physics queries
+
+Beside the raycast, a graph sweeps a shape and sees what it touches first: **Sphere Cast**
+(`Call:Strada.Physics.SphereCast(...)`: `Origin`, `Radius`), **Box Cast** (`Origin`, `HalfExtents`, `Rotation`) and
+**Capsule Cast** (`Origin`, `Radius`, `HalfHeight` along the capsule's local Y axis, `Rotation`), each with `Direction`,
+`MaxDistance`, `LayerMask` (every layer by default) and `IncludeTriggers` (off by default, so the shape passes through
+triggers as a ray does). They are impure calls, as the raycast is: they run when their `Execute` is reached, and their `Hit`
+and `Result` keep what that run found. `Hit` is a `Strada.ShapeCastHit`: Break (or a split of the pin) gives its `Entity`, the
+`Point` on the surface touched, the `Normal` out of it towards the shape, the `Distance` the shape travelled until it touched
+and the surface's `Material` (its `Surface` tells gravel from asphalt); Make builds one. The shape moves without turning and
+keeps its sharp corners; it touches a collider it starts in at distance 0, and that includes its own entity's, so cast from
+outside the entity's colliders or leave its layer out of `LayerMask`. Of two entities touched at the same distance it gives
+the one of the smaller entity ID, so a graph does the same on every run.
+
+Casts read the world as the last physics step left it: in `Event.FixedUpdate` exactly where the bodies are, which is where
+logic that decides forces (a hover, a suspension, a sensor) belongs; in `Event.Update` a body drawn between its last two
+steps is found up to a step ahead of where it is drawn.
+
+C#'s `Physics.RaycastAll`, `OverlapSphere`, `OverlapBox` and `OverlapCapsule` are not nodes. They fill a buffer the caller
+passes and return how many results they wrote, and graphs hold arrays as values (Array nodes give new arrays, and an array
+a variable or a literal starts with is shared by every run of the graph), so a node that wrote into its input would change
+values that are not its own. A graph that needs them calls a function of the game's C# marked `[VisualNode]` that returns
+what it needs.
+
+**Try it:** on a ball with a graph, in `FixedUpdate`, sphere-cast down from just below the ball, and add an upward force
+that grows as the hit's `Distance` falls below 1: the ball hovers.
 
 ## Graphs that talk to graphs
 

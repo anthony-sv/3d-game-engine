@@ -135,6 +135,11 @@ public sealed class InteropTests
 		Assert.Equal(48, Unsafe.SizeOf<NativeRaycastHit>());
 		Assert.Equal(32, (int)Marshal.OffsetOf<NativeRaycastHit>(nameof(NativeRaycastHit.Distance)));
 		Assert.Equal(40, (int)Marshal.OffsetOf<NativeRaycastHit>(nameof(NativeRaycastHit.Material)));
+		Assert.Equal(24, Unsafe.SizeOf<NativeQueryShape>());
+		Assert.Equal(8, (int)Marshal.OffsetOf<NativeQueryShape>(nameof(NativeQueryShape.HalfHeight)));
+		Assert.Equal(12, (int)Marshal.OffsetOf<NativeQueryShape>(nameof(NativeQueryShape.HalfExtents)));
+		// PhysicsQueryShapeType's values (static_asserted beside the engine's layout).
+		Assert.Equal([0, 1, 2], new[] { NativeQueryShape.Sphere, NativeQueryShape.Box, NativeQueryShape.Capsule });
 		Assert.Equal(32, Unsafe.SizeOf<NativeCollision>());
 		Assert.Equal(16, (int)Marshal.OffsetOf<NativeCollision>(nameof(NativeCollision.Step)));
 		Assert.Equal(24, (int)Marshal.OffsetOf<NativeCollision>(nameof(NativeCollision.PointCount)));

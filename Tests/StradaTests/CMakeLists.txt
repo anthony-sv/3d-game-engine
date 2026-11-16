@@ -110,6 +110,7 @@ add_executable(StradaTests
     Source/Scene/SceneFuzzTests.cpp
     Source/Scene/SceneInterpolationTests.cpp
     Source/Scene/ScenePhysicsMaterialTests.cpp
+    Source/Scene/ScenePhysicsQueryTests.cpp
     Source/Scene/ScenePhysicsStateTests.cpp
     Source/Scene/SceneProfilingTests.cpp
     Source/Scene/SceneRuntimeTests.cpp

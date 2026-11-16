@@ -7,12 +7,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <optional>
+#include <string_view>
+#include <vector>
 
 namespace Strada::ScriptGlue
 {
 	namespace
 	{
-		// The layout of Strada.Interop.NativeRaycastHit (no implicit padding).
+		// The layout of Strada.Interop.NativeRaycastHit (no implicit padding): what a ray hits, and what a shape cast touches
+		// (ShapeCastHit has the same values).
 		struct RaycastHit
 		{
 			uint64_t Entity;
@@ -25,6 +29,22 @@ namespace Strada::ScriptGlue
 		};
 
 		static_assert(sizeof(RaycastHit) == 48 && offsetof(RaycastHit, Distance) == 32 && offsetof(RaycastHit, Material) == 40);
+
+		// The layout of Strada.Interop.NativeQueryShape (no implicit padding): a PhysicsQueryShape as scripts give it, Type a
+		// PhysicsQueryShapeType.
+		struct QueryShapeValues
+		{
+			int32_t Type;
+			float Radius;
+			float HalfHeight;
+			Vector3 HalfExtents;
+		};
+
+		static_assert(sizeof(QueryShapeValues) == 24 && offsetof(QueryShapeValues, HalfHeight) == 8 &&
+		              offsetof(QueryShapeValues, HalfExtents) == 12);
+		// Strada.Interop.NativeQueryShape names the shapes by these values (InteropTests pins them).
+		static_assert(static_cast<int32_t>(PhysicsQueryShapeType::Sphere) == 0 && static_cast<int32_t>(PhysicsQueryShapeType::Box) == 1 &&
+		              static_cast<int32_t>(PhysicsQueryShapeType::Capsule) == 2);
 
 		// The layout of Strada.Interop.NativeCollision (no implicit padding).
 		struct CollisionValues
@@ -231,6 +251,16 @@ namespace Strada::ScriptGlue
 			}
 		}
 
+		RaycastHit ToScriptHit(Strada::RaycastHit const& hit)
+		{
+			return {hit.Entity.GetValue(), ToScript(hit.Point), ToScript(hit.Normal), hit.Distance, 0u, hit.Material.GetUUID().GetValue()};
+		}
+
+		RaycastHit ToScriptHit(ShapeCastHit const& hit)
+		{
+			return {hit.Entity.GetValue(), ToScript(hit.Point), ToScript(hit.Normal), hit.Distance, 0u, hit.Material.GetUUID().GetValue()};
+		}
+
 		uint8_t Physics_Raycast(Vector3 const* origin, Vector3 const* direction, float maxDistance, uint32_t layerMask, RaycastHit* hit)
 		{
 			*hit = {};
@@ -250,13 +280,135 @@ namespace Strada::ScriptGlue
 			{
 				return 0;
 			}
-			*hit = {result->Entity.GetValue(),
-			        ToScript(result->Point),
-			        ToScript(result->Normal),
-			        result->Distance,
-			        0u,
-			        result->Material.GetUUID().GetValue()};
+			*hit = ToScriptHit(*result);
 			return 1;
+		}
+
+		// Every entity along a ray, each at its nearest hit, ordered by distance then entity UUID (Scene::RaycastAll); copies the
+		// first capacity of them into hits and returns how many it copied.
+		int32_t Physics_RaycastAll(Vector3 const* origin, Vector3 const* direction, float maxDistance, uint32_t layerMask,
+		                           uint8_t includeTriggers, RaycastHit* hits, int32_t capacity)
+		{
+			if (!CheckFinite("Physics.RaycastAll", *origin, *direction, maxDistance))
+			{
+				return 0;
+			}
+			Scene* const scene = GetScene("Physics.RaycastAll");
+			if (scene == nullptr || capacity <= 0)
+			{
+				return 0;
+			}
+			std::vector<Strada::RaycastHit> found;
+			scene->RaycastAll(FromScript(*origin), FromScript(*direction), maxDistance, found, {layerMask, includeTriggers != 0});
+			// The order puts the nearest first, so a buffer smaller than the hits keeps the nearest.
+			size_t const count = std::min(found.size(), static_cast<size_t>(capacity));
+			for (size_t index = 0; index < count; index++)
+			{
+				hits[index] = ToScriptHit(found[index]);
+			}
+			return static_cast<int32_t>(count);
+		}
+
+		// The query shape a script gave, with the API member's name for messages; nothing (and a script error) for a size that is
+		// not finite, negative or beyond MaxPhysicsExtent.
+		std::optional<PhysicsQueryShape> ReadQueryShape(QueryShapeValues const& values, bool cast, std::string_view& function)
+		{
+			auto const checkSize = [&function](std::string_view size, float value)
+			{
+				if (std::isfinite(value) && value >= 0.0f && value <= MaxPhysicsExtent)
+				{
+					return true;
+				}
+				Log::GetScriptLogger().error("{}: a {} of {} is not valid (it must be 0 to {:.0f})", function, size, value,
+				                             MaxPhysicsExtent);
+				return false;
+			};
+			if (values.Type < static_cast<int32_t>(PhysicsQueryShapeType::Sphere) ||
+			    values.Type > static_cast<int32_t>(PhysicsQueryShapeType::Capsule))
+			{
+				function = cast ? "Physics.ShapeCast" : "Physics.Overlap";
+				Log::GetScriptLogger().error("{}: {} is not a query shape", function, values.Type);
+				return std::nullopt;
+			}
+			switch (static_cast<PhysicsQueryShapeType>(values.Type))
+			{
+				case PhysicsQueryShapeType::Sphere:
+					function = cast ? "Physics.SphereCast" : "Physics.OverlapSphere";
+					if (!checkSize("radius", values.Radius))
+					{
+						return std::nullopt;
+					}
+					return PhysicsQueryShape::MakeSphere(values.Radius);
+				case PhysicsQueryShapeType::Box:
+					function = cast ? "Physics.BoxCast" : "Physics.OverlapBox";
+					if (!checkSize("half extent", values.HalfExtents.X) || !checkSize("half extent", values.HalfExtents.Y) ||
+					    !checkSize("half extent", values.HalfExtents.Z))
+					{
+						return std::nullopt;
+					}
+					return PhysicsQueryShape::MakeBox(FromScript(values.HalfExtents));
+				case PhysicsQueryShapeType::Capsule:
+					function = cast ? "Physics.CapsuleCast" : "Physics.OverlapCapsule";
+					if (!checkSize("radius", values.Radius) || !checkSize("half height", values.HalfHeight))
+					{
+						return std::nullopt;
+					}
+					return PhysicsQueryShape::MakeCapsule(values.Radius, values.HalfHeight);
+			}
+			return std::nullopt;
+		}
+
+		// The first entity a sphere, box or capsule touches as it moves along a direction (Scene::ShapeCast).
+		uint8_t Physics_ShapeCast(QueryShapeValues const* shape, Vector3 const* origin, Quaternion const* rotation,
+		                          Vector3 const* direction, float maxDistance, uint32_t layerMask, uint8_t includeTriggers, RaycastHit* hit)
+		{
+			*hit = {};
+			std::string_view function;
+			std::optional<PhysicsQueryShape> const query = ReadQueryShape(*shape, true, function);
+			if (!query || !CheckFinite(function, *origin, *rotation, *direction, maxDistance))
+			{
+				return 0;
+			}
+			Scene* const scene = GetScene(function);
+			if (scene == nullptr)
+			{
+				return 0;
+			}
+			std::optional<ShapeCastHit> const result = scene->ShapeCast(
+				*query, FromScript(*origin), ToRotation(*rotation), FromScript(*direction), maxDistance, {layerMask, includeTriggers != 0});
+			if (!result)
+			{
+				return 0;
+			}
+			*hit = ToScriptHit(*result);
+			return 1;
+		}
+
+		// Every entity a sphere, box or capsule overlaps, ordered by UUID (Scene::Overlap); copies the first capacity of their
+		// IDs into entities and returns how many it copied.
+		int32_t Physics_Overlap(QueryShapeValues const* shape, Vector3 const* center, Quaternion const* rotation, uint32_t layerMask,
+		                        uint8_t includeTriggers, uint64_t* entities, int32_t capacity)
+		{
+			std::string_view function;
+			std::optional<PhysicsQueryShape> const query = ReadQueryShape(*shape, false, function);
+			if (!query || !CheckFinite(function, *center, *rotation))
+			{
+				return 0;
+			}
+			Scene* const scene = GetScene(function);
+			if (scene == nullptr || capacity <= 0)
+			{
+				return 0;
+			}
+			std::vector<UUID> found;
+			scene->Overlap(*query, FromScript(*center), ToRotation(*rotation), found, {layerMask, includeTriggers != 0});
+			// The order is by UUID, so a buffer smaller than the overlaps keeps the smallest UUIDs.
+			size_t const count = std::min(found.size(), static_cast<size_t>(capacity));
+			for (size_t index = 0; index < count; index++)
+			{
+				entities[index] = found[index].GetValue();
+			}
+			return static_cast<int32_t>(count);
 		}
 
 		// --- Collision ---
@@ -318,6 +470,9 @@ namespace Strada::ScriptGlue
 		table.Add("Physics_GetGravity", &Physics_GetGravity);
 		table.Add("Physics_SetGravity", &Physics_SetGravity);
 		table.Add("Physics_Raycast", &Physics_Raycast);
+		table.Add("Physics_RaycastAll", &Physics_RaycastAll);
+		table.Add("Physics_ShapeCast", &Physics_ShapeCast);
+		table.Add("Physics_Overlap", &Physics_Overlap);
 
 		table.Add("Collision_Read", &Collision_Read);
 	}
