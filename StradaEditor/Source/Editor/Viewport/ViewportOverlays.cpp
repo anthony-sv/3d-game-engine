@@ -527,23 +527,24 @@ namespace Strada::ViewportOverlays
 		       kind(overlays.Volumes, Shapes::Volumes);
 	}
 
-	void AppendContactLines(std::span<ContactEvent const> events, std::vector<OverlayLine>& lines)
+	void AppendContactLines(std::span<ContactEvent const> events, std::vector<OverlayLine>& lines,
+	                        ContactSideSelector const& seenFromSecond)
 	{
 		for (ContactEvent const& event : events)
 		{
 			bool const trigger = event.Type == ContactEventType::TriggerEnter || event.Type == ContactEventType::TriggerExit;
 			glm::vec4 const color = trigger ? TriggerColor : ContactColor;
+			bool const fromSecond = seenFromSecond && seenFromSecond(event);
 			for (uint32_t index = 0; index < std::min(event.PointCount, MaxContactPoints); index++)
 			{
-				ContactPoint const& point = event.Points[index];
+				ContactPoint const point = fromSecond ? ReverseContactPoint(event.Points[index]) : event.Points[index];
 				for (int axis = 0; axis < 3; axis++)
 				{
 					glm::vec3 offset(0.0f);
 					offset[axis] = ContactPointSize;
 					AddLine(lines, point.Point - offset, point.Point + offset, color, false);
 				}
-				glm::vec3 const normal = point.Normal * ContactNormalLength;
-				AddLine(lines, point.Point - normal, point.Point + normal, color, false);
+				AddLine(lines, point.Point, point.Point + point.Normal * ContactNormalLength, color, false);
 			}
 		}
 	}
@@ -578,7 +579,19 @@ namespace Strada::ViewportOverlays
 		}
 		if (overlays.Contacts)
 		{
-			AppendContactLines(scene.GetContactEvents(), lines);
+			// A contact's normal points from the other body towards the one it pushes; the overlay shows it for the body that
+			// moves, out of the surface a body lands on, and from the event's First when both or neither are dynamic.
+			auto const isDynamic = [&scene](UUID id)
+			{
+				Entity contactEntity = scene.GetEntityByUUID(id);
+				RigidBodyComponent const* const body = contactEntity.TryGetComponent<RigidBodyComponent>();
+				return body != nullptr && body->Type == RigidBodyType::Dynamic;
+			};
+			AppendContactLines(scene.GetContactEvents(), lines,
+			                   [&isDynamic](ContactEvent const& event)
+			                   {
+								   return !isDynamic(event.First) && isDynamic(event.Second);
+							   });
 		}
 	}
 }

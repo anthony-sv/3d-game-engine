@@ -763,19 +763,22 @@ in Effort 3 with the rest of The Rider; and the rest of distribution (§3.10), w
 
 1. All suites are green on every CI job at the M1 merge; Debug and Release build warning-free; the format check passes.
 2. Every new behavior is tested where AGENTS.md puts it: unit tests per module, editor automation tests, runtime tests
-on generated games, scripting tests, audio tests with manual output, GPU tests with validation. 3. Every new
-user-written format has a `Testing::DocumentMutator` test: `.scurve`, `.sphysmat`, `.sinput`, input binding profiles,
-`.smixer`, `.svehicle`, `.ssave`, the player's `Settings.json`, the project's identity settings; so do the profiler
-capture reader and the scene and prefab format bumps (VS1, and TA's anti-aliasing setting; scenes take the next version
-if TA's bump lands first). 4. Every new automation command is documented in `Automation.md` and fuzzed by
-`AutomationFuzzTests`. 5. Every new node analyzes and runs in `VisualScriptNodeCoverageTests.cpp`; the FeatureTest
-graphs use the two new built-in event kinds (92 built-in kinds become 94, or 95 if the third lane's animation event
-lands). 6. One new golden image, `Instancing.png` (4 become 5; landed in slice 2), plus TA's frame-sequence goldens with
-a deterministic jitter if TA lands, and a skinning golden if the third lane's skinning lands; the existing four are
-unchanged. 7. The physics state hashes are identical at every fixed step of a 60 s Moto run at 30, 60 and 144 fps; each
-CI platform is compared with itself. 8. Moto's test scene passes with a pinned check count in StradaRuntimeTests, each
-run within 60 s on CI's Debug jobs, and the exported game passes the same checks. 9. Every ctest entry takes under 450 s
-on CI's Windows MSVC Debug job, and every CI job under 50 minutes.
+   on generated games, scripting tests, audio tests with manual output, GPU tests with validation.
+3. Every new user-written format has a `Testing::DocumentMutator` test: `.scurve`, `.sphysmat`, `.sinput`, input binding
+   profiles, `.smixer`, `.svehicle`, `.ssave`, the player's `Settings.json`, the project's identity settings; so do the
+   profiler capture reader and the scene and prefab format bumps (VS1, and TA's anti-aliasing setting; scenes take the
+   next version if TA's bump lands first).
+4. Every new automation command is documented in `Automation.md` and fuzzed by `AutomationFuzzTests`.
+5. Every new node analyzes and runs in `VisualScriptNodeCoverageTests.cpp`; the FeatureTest graphs use the two new
+   built-in event kinds (92 built-in kinds become 94, or 95 if the third lane's animation event lands).
+6. One new golden image, `Instancing.png` (4 become 5; landed in slice 2), plus TA's frame-sequence goldens with a
+   deterministic jitter if TA lands, and a skinning golden if the third lane's skinning lands; the existing four are
+   unchanged.
+7. The physics state hashes are identical at every fixed step of a 60 s Moto run at 30, 60 and 144 fps; each CI platform
+   is compared with itself.
+8. Moto's test scene passes with a pinned check count in StradaRuntimeTests, each run within 60 s on CI's Debug jobs,
+   and the exported game passes the same checks.
+9. Every ctest entry takes under 450 s on CI's Windows MSVC Debug job, and every CI job under 50 minutes.
 
 The third lane adds to this list only what lands: W2's component and meshes (a field table, scene seeds for the fuzz
 tests, a spline in FeatureTest's scene), A1's skeleton and clip data and its API (FeatureTest scripts, node coverage
@@ -805,16 +808,19 @@ otherwise idle): every sample's frame by subsystem and GPU pass, the frame media
 Showcase); scripts and graphs at most 0.2 ms a frame; a zone costs about 1.4 ns idle and about 80 ns recorded and
 collected, which is at most 0.3 % of a sample's frame while recording and under 0.01 % idle.
 
-Measured at slice 2's gate (Release; three sittings minutes apart on mains power, no build, test or Strada process at any
-snapshot; the first is not counted, since the browser took about half a core through it): Moto's dressed circuit over
+Measured at slice 2's gate (Release, on mains power, no build, test or Strada process at any snapshot; three sittings
+about a quarter of a minute apart, of which the first is not counted, since the browser took about half a core through
+it, then two more, the first over twenty minutes after any other load and the second ten minutes after it): Moto's dressed circuit over
 the 600 frames of its tour at 1920×1080 runs at a frame median of 3.42 to 3.46 ms (99th percentile at most 4.14 ms),
 with a median of 149 draws (256 at most), 146 batches and 5,339 instances a frame, `Renderer.Submit` and
 `Renderer.Prepare` together about 1.17 ms; its GPU passes: ambient occlusion 1.29 to 1.34 ms, opaque 1.01 to 1.03,
 shadows 0.40 to 0.41, bloom 0.18 to 0.19, upload 0.16, FXAA 0.10, tonemapping 0.08 and the sky 0.02. In the 10,000-instance
 benchmark of 12,001 entities, CPU submission and preparation took 1.19 to 1.71 ms against 2.0, and the cache's
-refresh with every root moved 0.42 to 0.44 ms in the frame (0.32 ms alone) against 0.5: both met out of band, since the
-gauge (IN's first batched tree, which read 2.72 to 2.95 ms at the machine's fastest) read 3.67 to 3.87 ms in those
-sittings, above the band of 3.3 ms in which a sitting can judge. The rows of features not built yet wait for their
+refresh with every root moved 0.42 to 0.44 ms in the frame (0.32 ms alone) against 0.5, while the gauge (IN's first
+batched tree, which read 2.72 to 2.95 ms at the machine's fastest) read 3.67 to 3.87 ms, above the band of 3.3 ms in
+which a sitting can judge. In the two later sittings the gauge read 2.65 to 2.83 ms, in band, and the merged tree 1.15
+to 1.28 ms and 0.31 to 0.36 ms in the frame (0.29 to 0.30 ms alone): both targets are met in band. Moto's frame
+median read 3.47 to 3.56 ms there (99th percentile at most 6.43 ms), with the same draws. The rows of features not built yet wait for their
 tracks.
 
 #### Distribution after Front Door
@@ -1448,8 +1454,10 @@ had merged, then the gate. What each delivered, and where it differs from what t
 - **The third lane: not started** (§4.3, §9).
 - **Exit, as the gate measured it** with every lane idle on the reference machine: Moto's dressed circuit over the 600
   frames of its tour at 1920×1080 at a frame median of 3.42 to 3.46 ms (about 290 frames per second; 99th percentile at most 4.14 ms),
-  with a median of 149 draws (256 at most, against 400), 146 batches and 5,339 instances a frame; the look review passed with two marginals; without TA the exit holds
-  with FXAA.
+  with a median of 149 draws (256 at most, against 400; the editor's scene view, which counts its entity-ID pass, reads
+  392 at the start line), 146 batches and 5,339 instances a frame; IN's CPU submission and preparation (1.15 to 1.28 ms
+  against 2.0) and the cache's refresh (0.31 to 0.36 ms in the frame against 0.5) met in band (§4.3); the look review
+  passed with two marginals; without TA the exit holds with FXAA.
 
 ### 10.6 First Ride, slice 3 "Feel and sound"
 
@@ -1457,4 +1465,7 @@ MX (AU1 with E8: the mixer, its `.smixer` data asset and `mixer.set`) and MO3 (M
 bike) on lane A; IA (I1: input actions, `Event.ActionPressed` and `Event.ActionReleased`, `input.set {action, value}`),
 PB (Prism Break on actions, with VS2) and AR (VS1: script field arrays) on lane B. Exit: Prism Break on a gamepad with
 rebinding; Moto's ghost dopplers past a TV camera and echoes under the footbridge; the pause snapshot muffles the mix.
-Its spec decides whether TA's tracks or the third lane take any time in it (§9).
+The ghost shares the bike's meshes and materials, so it joins their batches: the editor's scene view, which counts its
+entity-ID pass, reads 392 of the 400 draws at the start line (slice 2's gate), and a bike of other materials would add
+up to 16 draws to each pass that sees it. Its spec decides whether TA's tracks or the third lane take any time in it
+(§9).

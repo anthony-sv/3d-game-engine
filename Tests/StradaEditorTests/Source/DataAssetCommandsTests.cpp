@@ -252,6 +252,18 @@ TEST_CASE("DataAssetCommands: values the type refuses, other assets, files that 
 	CommandError const missing = fixture.Fails("test-data.get", Json::object({{"testData", "asset://Nope.stestdata"}}));
 	CHECK(missing.Code == AutomationErrorCode::AssetNotFound);
 	CHECK(missing.Data["path"] == "testData");
+	CHECK(missing.Message == "testData: no asset 'asset://Nope.stestdata' is registered");
+	// A path alone is no reference: the message gives the asset's reference, and other values without a scheme the forms.
+	CommandError const byPath = fixture.Fails("test-data.get", Json::object({{"testData", "Data/Crate.stestdata"}}));
+	CHECK(byPath.Code == AutomationErrorCode::AssetNotFound);
+	CHECK(byPath.Data["path"] == "testData");
+	CHECK(byPath.Message ==
+	      "testData: 'Data/Crate.stestdata' is a path, not a reference: name the asset \"asset://Data/Crate.stestdata\" or by its handle");
+	CommandError const unknown =
+		fixture.Fails("test-data.set", Json::object({{"testData", "Data/Nope.stestdata"}, {"fields", Json::object()}}));
+	CHECK(unknown.Code == AutomationErrorCode::AssetNotFound);
+	CHECK(unknown.Message ==
+	      "testData: no asset 'Data/Nope.stestdata' is registered (name an asset by its handle or as \"asset://<path in Assets>\")");
 	fixture.Ok("material.create", Json::object({{"path", "Materials/Rock.smat"}}));
 	CommandError const material = fixture.Fails("test-data.get", Json::object({{"testData", "asset://Materials/Rock.smat"}}));
 	CHECK(material.Code == AutomationErrorCode::InvalidParams);

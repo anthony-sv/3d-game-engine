@@ -365,6 +365,9 @@ TEST_CASE("GraphCommands: graphs are created from templates and read back, and w
 	CommandError const unregistered = fixture.Fails("graph.get", Json::object({{"graph", "123"}}));
 	CHECK(unregistered.Code == AutomationErrorCode::AssetNotFound);
 	CHECK(unregistered.Data["path"] == "graph");
+	CommandError const byPath = fixture.Fails("graph.get", Json::object({{"graph", "Scripts/Mover.sgraph"}}));
+	CHECK(byPath.Code == AutomationErrorCode::AssetNotFound);
+	CHECK(byPath.Message.find("\"asset://Scripts/Mover.sgraph\"") != std::string::npos);
 	std::string const material =
 		fixture.Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}}))["material"]["id"].get<std::string>();
 	CommandError const notAGraph = fixture.Fails("graph.get", Json::object({{"graph", material}}));
