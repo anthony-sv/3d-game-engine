@@ -3,8 +3,10 @@ visual scripts alone (no C#). In order:
 
 1. the project and its settings;
 2. the circuit part: the meshes, textures and sky GenerateAssets.py makes from the layout in Circuit.py, the materials,
-   and the circuit's entities (the track, the barriers, the ground and the hills, the start gantry, the three sector
-   gates and the footbridge), each surface a static body with a triangle-mesh collider;
+   the physics materials of the surfaces (Surfaces/*.sphysmat: asphalt, kerb, gravel and grass), and the circuit's
+   entities (the track, the barriers, the ground and the hills, the start gantry, the three sector gates and the
+   footbridge), each surface a static body with a triangle-mesh collider, the track's with a physics material per
+   surface;
 3. the lighting part: the sun, the sky and the scene's renderer settings (shadows over 220 m in four cascades);
 4. the camera part: the main camera at the home view over the start, its far plane past the hills, and its tour, a graph
    (Scripts/Tour.sgraph) whose timeline flies it once round the circuit and home (Tour.py makes the path);
@@ -20,11 +22,13 @@ The project is rebuilt from scratch: everything but this Tools folder is replace
 from the repository (dotnet run).
 
 With --part, one part is built in place instead: the project is opened as it is, the part's root entities are made anew
-in the main scene, and its files are written (materials and graphs keep their asset handles). The tests part follows
-every other, since the test scene is the main scene with the checks and they name its entities. The run compares every
-file of the project outside Tools before and after: when a file the part (or the tests part after it) does not own
-changed, it names the files and fails, also when the authoring itself failed. After a change to how graphs are arranged,
-`--part camera` writes every graph again.
+in the main scene where they were among the roots, each entity with the ID it had (found by its names from the root),
+and its files are written (materials, physics materials and graphs keep their asset handles), so that a part run again
+with nothing changed writes the same files. The tests part follows every other, since the test scene is the main scene
+with the checks and they name its entities; its own entities keep their IDs too. The run compares every file of the
+project outside Tools before and after: when a file the part (or the tests part after it) does not own changed, it names
+the files and fails, also when the authoring itself failed. After a change to how graphs are arranged, `--part camera`
+writes every graph again.
 """
 import argparse
 import hashlib
@@ -94,7 +98,8 @@ class McpClient:
 # part makes no entity of the main scene: its own scene is made from it.
 PARTS = {
     "circuit": (("Circuit",), ("Assets/Meshes/*.gltf", "Assets/Textures/*.png", "Assets/Environments/*.hdr",
-                               "Assets/Materials/*.smat", "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
+                               "Assets/Materials/*.smat", "Assets/Surfaces/*.sphysmat", "Assets/Scenes/Main.sscene",
+                               "Assets/AssetRegistry.sreg")),
     "lighting": (("Sun", "Sky"), ("Assets/Scenes/Main.sscene",)),
     "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Tour.sgraph", "Assets/AssetRegistry.sreg")),
     "tests": ((), ("Assets/Scenes/Tests.sscene", "Assets/Scripts/Checks.sgraph", "Assets/Scripts/Tests.sgraph",
@@ -177,19 +182,70 @@ def material_reference(name):
     return f"asset://Materials/{name}.smat"
 
 
+def surface_reference(name):
+    return f"asset://Surfaces/{name}.sphysmat"
+
+
+# The physics materials of the circuit's surfaces (GenerateAssets.SURFACES): how a body slides on each, and how much it
+# holds back a wheel that rolls on it. A box sliding on the gravel ploughs into it: the gravel's friction is the larger
+# and wins over the other side's (Maximum), so whatever slides into a trap stops sooner than on the asphalt. A tyre grips
+# the loose gravel less than the asphalt: how much is the vehicle's to model, from RollingResistance and its own tyres,
+# not from this sliding friction.
+SURFACE_MATERIALS = {
+    "Asphalt": {"Friction": 1.0, "RollingResistance": 0.015, "Surface": "Asphalt"},
+    "Kerb": {"Friction": 0.8, "RollingResistance": 0.02, "Surface": "Kerb"},
+    "Gravel": {"Friction": 1.5, "FrictionCombine": "Maximum", "RollingResistance": 0.25, "Surface": "Gravel"},
+    "Grass": {"Friction": 0.5, "RollingResistance": 0.08, "Surface": "Grass"},
+}
+
+# The air's haze over the far ground and the hills: its color (the horizon's), how much of the meadow's own color each
+# ring of the ground loses to it, and how bright it is when it has all of it.
+HAZE_COLOR = (0.62, 0.72, 0.86)
+HAZE_PER_RING = 0.06
+HAZE_BRIGHTNESS = 0.4
+
+# Files of earlier versions of the circuit part that it no longer makes: it deletes them through the editor.
+OBSOLETE = ("Materials/LineWhite.smat", "Materials/Checker.smat", "Textures/Checker.png")
+
+
+def entity_ids(entities, path=()):
+    """The IDs of a hierarchy's entities (scene_hierarchy's tree) by their names from the root: {(root, ..., name): id}.
+    Where siblings share a name, the first keeps it."""
+    ids = {}
+    for entity in entities:
+        key = path + (entity["name"],)
+        ids.setdefault(key, entity["id"])
+        ids.update({inner: found for inner, found in entity_ids(entity.get("children", []), key).items() if inner not in ids})
+    return ids
+
+
 class Moto:
     def __init__(self, client):
         self.client = client
         self.handles = {}
+        # The IDs the entities a part makes again had, by their names from the root, and where its roots stood.
+        self.previous_ids = {}
+        self.root_indices = {}
+        # The names from the root of the entities made in this session, by their IDs.
+        self.paths = {}
 
     def call(self, tool, arguments=None):
         return self.client.call(tool, arguments)
 
     def entity(self, name, components, parent=None):
+        """Creates an entity with the ID it had before the part made it again (a new one when it had none), a root where it
+        stood among the roots."""
+        path = (self.paths[parent] if parent is not None else ()) + (name,)
         arguments = {"name": name, "components": components}
+        if path in self.previous_ids:
+            arguments["id"] = self.previous_ids[path]
         if parent is not None:
             arguments["parent"] = parent
-        return self.call("entity_create", arguments)["id"]
+        elif name in self.root_indices:
+            arguments["siblingIndex"] = self.root_indices[name]
+        created = self.call("entity_create", arguments)["id"]
+        self.paths[created] = path
+        return created
 
     def material(self, name, fields):
         """The material at Materials/<name>.smat with the fields: created, or set when it exists (its handle stays). Set
@@ -200,11 +256,24 @@ class Moto:
             self.call("material_create", {"path": f"Materials/{name}.smat", "fields": fields})
         return material_reference(name)
 
+    def physics_material(self, name, fields):
+        """The physics material at Surfaces/<name>.sphysmat with the fields: created, or set when it exists (its handle
+        stays). Set replaces only the fields given, so every material gives all the fields it changes from the defaults."""
+        if os.path.exists(os.path.join(PROJECT, "Assets", "Surfaces", f"{name}.sphysmat")):
+            self.call("physics_material_set", {"physicsMaterial": surface_reference(name), "fields": fields})
+        else:
+            self.call("physics_material_create", {"path": f"Surfaces/{name}.sphysmat", "fields": fields})
+        return surface_reference(name)
+
     def remove_roots(self, names):
-        """Deletes the main scene's root entities of these names (with their children)."""
-        roots = [entity["id"] for entity in self.call("scene_hierarchy")["entities"] if entity["name"] in names]
-        if roots:
-            self.call("entity_delete", {"entities": roots})
+        """Deletes the main scene's root entities of these names (with their children), noting the IDs they and their
+        descendants had and where the roots stood, so that the part makes them again as they were."""
+        roots = self.call("scene_hierarchy")["entities"]
+        removed = [entity for entity in roots if entity["name"] in names]
+        self.previous_ids.update(entity_ids(removed))
+        self.root_indices.update({entity["name"]: index for index, entity in enumerate(roots) if entity["name"] in names})
+        if removed:
+            self.call("entity_delete", {"entities": [entity["id"] for entity in removed]})
 
     # --- The parts -------------------------------------------------------------------------------------------------------
 
@@ -227,24 +296,32 @@ class Moto:
         refreshed = self.call("asset_refresh")
         if refreshed.get("warnings"):
             raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
+        for path in OBSOLETE:
+            if os.path.exists(os.path.join(PROJECT, "Assets", *path.split("/"))):
+                self.call("asset_delete", {"asset": f"asset://{path}"})
         self.make_materials()
+        surfaces = {name: self.physics_material(name, fields) for name, fields in SURFACE_MATERIALS.items()}
         static = {"Type": "Static"}
         root = self.entity("Circuit", {"Transform": {"Translation": [0.0, 0.0, 0.0]}})
         track_materials = [material_reference(name) for name in GenerateAssets.TRACK_MATERIALS]
+        # The collision mesh has a submesh per surface, each with its physics material.
         self.entity("Track", {
             "Mesh": {"Mesh": mesh("Track"), "Materials": track_materials},
             "RigidBody": static,
-            "MeshCollider": {"Mesh": mesh("TrackCollision"), "Convex": False, "Friction": 1.0}}, root)
+            "MeshCollider": {"Mesh": mesh("TrackCollision"), "Convex": False,
+                             "Materials": [surfaces[name] for name in GenerateAssets.SURFACES]}}, root)
         self.entity("Barriers", {
             "Mesh": {"Mesh": mesh("Barriers"), "Materials": [material_reference("Concrete")]},
             "RigidBody": static,
             "MeshCollider": {"Mesh": mesh("BarrierCollision"), "Convex": False, "Friction": 0.4}}, root)
         # The ground and the hills lie beyond the shadows' reach and under everything: they cast none.
         self.entity("Ground", {
-            "Mesh": {"Mesh": mesh("Ground"), "Materials": [material_reference("Grass")], "CastShadows": False},
+            "Mesh": {"Mesh": mesh("Ground"), "Materials": [material_reference(name) for name in GenerateAssets.GROUND_MATERIALS],
+                     "CastShadows": False},
             "RigidBody": static,
-            "MeshCollider": {"Convex": False, "Friction": 0.8}}, root)
-        self.entity("Hills", {"Mesh": {"Mesh": mesh("Hills"), "Materials": [material_reference("Forest")], "CastShadows": False}}, root)
+            "MeshCollider": {"Convex": False, "Material": surfaces["Grass"]}}, root)
+        hills = [material_reference(name) for name in GenerateAssets.HILLS_MATERIALS]
+        self.entity("Hills", {"Mesh": {"Mesh": mesh("Hills"), "Materials": hills, "CastShadows": False}}, root)
         gantry = [material_reference(name) for name in ("GantrySteel", "GantryPanel", "StartLamp", "GantryAccent")]
         self.entity("Start Gantry", {"Transform": place(0.0), "Mesh": {"Mesh": mesh("Gantry"), "Materials": gantry},
                                      "RigidBody": static, "MeshCollider": {"Convex": False}}, root)
@@ -271,17 +348,25 @@ class Moto:
             return {"BaseColor": list(color), "BaseColorTexture": f"asset://Textures/{texture}.png", "Roughness": roughness,
                     "UVTiling": [1.0 / size[0], 1.0 / size[1]]}
 
-        material("Asphalt", textured("Asphalt", 12.0, 0.82))
+        material("Asphalt", textured("Asphalt", GenerateAssets.ASPHALT_TILE, 0.82))
+        # The road around the timing lines: the asphalt with the lines painted on, mapped as the asphalt is.
+        material("TimingLines", textured("TimingLines", GenerateAssets.ASPHALT_TILE, 0.82))
         material("Kerb", textured("Kerb", (Circuit.KERB_WIDTH, 2.0), 0.55))
         material("Grass", textured("Grass", 8.0, 0.95))
         material("Gravel", textured("Gravel", 3.0, 1.0))
-        material("LineWhite", {"BaseColor": [0.86, 0.86, 0.84, 1.0], "Roughness": 0.6})
-        material("Checker", textured("Checker", 1.0, 0.6))
         material("Concrete", textured("Concrete", 4.0, 0.9))
+        # The meadow beyond the barriers, and its rings farther out: the air between lightens and blues them towards the
+        # horizon's color, more with every ring, up to the haze of the hills' foot (there is no fog).
+        material("Meadow", textured("Meadow", 16.0, 0.95))
+        for ring, name in enumerate(GenerateAssets.GROUND_MATERIALS[1:], start=1):
+            haze = HAZE_PER_RING * ring
+            hazy = textured("Meadow", 16.0, 0.95, (1.0 - haze, 1.0 - haze, 1.0 - haze, 1.0))
+            hazy.update({"EmissiveColor": list(HAZE_COLOR), "EmissiveIntensity": round(HAZE_BRIGHTNESS * haze, 4)})
+            material(name, hazy)
         # The hills are kilometers away: the air between lightens and blues them (there is no fog), as the light the
         # material emits in the horizon's color.
         forest = textured("Forest", 60.0, 1.0)
-        forest.update({"EmissiveColor": [0.62, 0.72, 0.86], "EmissiveIntensity": 0.22})
+        forest.update({"EmissiveColor": list(HAZE_COLOR), "EmissiveIntensity": 0.22})
         material("Forest", forest)
         material("GantrySteel", {"BaseColor": [0.09, 0.1, 0.12, 1.0], "Roughness": 0.45})
         material("GantryPanel", {"BaseColor": [0.02, 0.02, 0.025, 1.0], "Roughness": 0.35})
@@ -328,7 +413,7 @@ class Moto:
             self.handles[Tour.TOUR] = self.call("graph_get", {"graph": Tour.TOUR, "analyze": False})["asset"]
         self.write_graphs(Checks.GRAPHS, Checks.declare, Checks.write)
         Graphs.verify(self, GRAPHS)
-        Checks.build_scene(self, self.handles)
+        Checks.build_scene(self, self.handles, PROJECT)
         expected = len(Checks.checks())
         run = self.call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": math.ceil(Tour.LENGTH) + 30})
         print("test run:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})

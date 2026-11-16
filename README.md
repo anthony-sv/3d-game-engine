@@ -201,7 +201,8 @@ player:
 `StradaRuntime --project Projects/PrismBreak/PrismBreak.sproj`. A fourth project,
 [FeatureTest](Projects/FeatureTest), uses every component, the entire scripting API and every built-in node kind; CI
 plays it and fails on any failed check. [Moto](Projects/Moto), a motorcycle time trial in the making, is so far its
-circuit and a camera tour made of a graph, with 13 test checks that are graphs too.
+circuit, whose surfaces have physics materials, and a camera tour made of a graph, with 18 test checks that are graphs
+too.
 
 ## Features
 

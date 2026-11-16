@@ -11,21 +11,29 @@ them with the files in Assets (a PNG whose bytes differ there but whose pixels a
 builds may compress differently). It fails when the two runs differ or when Assets holds something else.
 
 Meshes (glTF 2.0 with positions, normals and texture coordinates in meters, Y up; materials named per slot):
-- Track: the road (crowned asphalt, the timing lines cut into it), the kerbs, the verges, the gravel traps and the skirts
-  sloping down to the ground, in world space, one primitive per material and 200 m of the lap (culled one by one).
-- TrackCollision: the same surface welded into one primitive (positions and normals, no texture coordinates), so the
-  physics finds the edges between its triangles: a seam of duplicated vertices would be a bump.
+- Track: the road (crowned asphalt; around each timing line the asphalt with the line painted on it), the kerbs, the
+  verges, the gravel traps and the skirts sloping down to the ground, in world space, one primitive per material and
+  200 m of the lap (culled one by one).
+- TrackCollision: the same surface, one primitive per surface the physics tells apart (SURFACES: asphalt, kerb, gravel,
+  grass; the scene gives each its physics material), each welded (positions and normals, no texture coordinates): the
+  physics builds the shape over the mesh's distinct positions, so the edges between triangles, also where two surfaces
+  meet, are shared and not bumps.
 - Barriers and BarrierCollision: the concrete walls along both sides, drawn and welded likewise.
-- Ground: the flat grass disc the circuit lies on, out to where the hills begin.
-- Hills: the ring of wooded hills around it that makes the skyline, in sectors.
+- Ground: the flat meadow the circuit lies on, out to where the hills begin, in rings whose materials (GROUND_RINGS) the
+  haze of the air between fades towards the horizon's color, the farther the more.
+- Hills: the ring of wooded hills around it that makes the skyline, in sectors; their foot is meadow as hazy as the
+  ground's last ring, so that the ground runs into the hills without an edge.
 - Gantry: the start gantry over the line (legs, beam, the lights' panel and five lamps); local to its entity, which stands
   on the center line with its forward (-Z) along the direction of travel.
 - Gate: a sector gate's arch with its board (local likewise).
-- Footbridge: the bridge over the back straight with its piers and stairs (local likewise).
+- Footbridge: the bridge over the back straight with its piers, and at each end a flight of stairs: treads and risers on
+  two stringers, under a railing (local likewise).
 
-Textures (RGB PNG, tiling): Asphalt (12 m square, with the edge lines), Grass (8 m, mown in stripes), Gravel (3 m), Kerb
-(red and white blocks, 2 m along), Checker (the finish line's checks, 1 m), Concrete (4 m), Forest (the hills' canopy,
-60 m) and SectorBoards (the boards' "S1", "S2" and "S3" side by side).
+Textures (RGB PNG, tiling): Asphalt (12 m square, with the edge lines), TimingLines (the same asphalt with the timing
+lines painted where the road around each line maps it: the sector lines and the finish line's checks), Grass (8 m, mown
+in stripes, beside the track), Meadow (16 m, fine blades without stripes or patches that would repeat as a grid when
+seen from the air), Gravel (3 m), Kerb (red and white blocks, 2 m along), Concrete (4 m), Forest (the hills' canopy, 60
+m) and SectorBoards (the boards' "S1", "S2" and "S3" side by side).
 
 Sky.hdr (Radiance RGBE, run-length encoded): a clear afternoon sky over hazy land, with the sun's glow where
 sun_direction() points; it is the same for every seed.
@@ -241,8 +249,15 @@ def write_gltf(assets, name, parts, materials, log):
 
 # --- The track ------------------------------------------------------------------------------------------------------------
 
-TRACK_MATERIALS = ("Asphalt", "Kerb", "Grass", "Gravel", "LineWhite", "Checker")
-ASPHALT, KERB, GRASS, GRAVEL, LINE_WHITE, CHECKER = range(len(TRACK_MATERIALS))
+TRACK_MATERIALS = ("Asphalt", "Kerb", "Grass", "Gravel", "TimingLines")
+ASPHALT, KERB, GRASS, GRAVEL, TIMING_LINES = range(len(TRACK_MATERIALS))
+# The surfaces the physics tells apart, in the order of TrackCollision's primitives (its submeshes): the scene gives each
+# its physics material (Assets/Surfaces/<name>.sphysmat), which raycasts and contacts name.
+SURFACES = ("Asphalt", "Kerb", "Gravel", "Grass")
+# The surface of each drawn material: the timing lines are paint on the asphalt.
+SURFACE_OF = {ASPHALT: 0, TIMING_LINES: 0, KERB: 1, GRAVEL: 2, GRASS: 3}
+# The asphalt texture's size along the lap and across it (meters): Asphalt and TimingLines map the road alike.
+ASPHALT_TILE = 12.0
 
 
 def side_profile(s, side):
@@ -276,22 +291,19 @@ def cross_section(s):
 STRIPS = ("skirt", "gravel", "verge", "kerb", "kerb", "road", "road", "kerb", "kerb", "verge", "gravel", "skirt")
 
 
-def line_at(s):
-    """The timing line whose painted band holds the lap distance, and the band's start; None off the lines."""
+def band_at(s):
+    """The timing line whose band of painted road (Circuit.timing_band) holds the lap distance; None elsewhere."""
     for line in Circuit.SECTOR_GATES:
-        start, end = Circuit.timing_line(line)
+        start, end = Circuit.timing_band(line)
         if (s - start) % Circuit.LENGTH < end - start:
-            return line, start % Circuit.LENGTH
+            return line
     return None
 
 
 def strip_material(kind, s0, s1, side):
     middle = (s0 + s1) / 2.0
     if kind == "road":
-        line = line_at(middle)
-        if line is not None:
-            return CHECKER if line[0] == 0.0 else LINE_WHITE
-        return ASPHALT
+        return TIMING_LINES if band_at(middle) is not None else ASPHALT
     if kind == "kerb":
         return KERB if Circuit.kerb(middle, side) > 0.02 else GRASS
     if kind == "gravel":
@@ -299,15 +311,38 @@ def strip_material(kind, s0, s1, side):
     return GRASS
 
 
-def strip_uv(material, s, lateral, point, line_start):
-    """Texture coordinates in meters; the materials' UVTiling sets how often their textures repeat."""
-    if material == ASPHALT:
+def strip_uv(material, s, lateral, point):
+    """Texture coordinates in meters; the materials' UVTiling sets how often their textures repeat. The timing lines' road
+    maps the texture as the asphalt does, so the two meet without a seam and each line lies where painted_lines() puts
+    it."""
+    if material in (ASPHALT, TIMING_LINES):
         return (lateral + Circuit.HALF_WIDTH, s)
     if material == KERB:
         return (abs(lateral) - Circuit.HALF_WIDTH, s)
-    if material in (CHECKER, LINE_WHITE):
-        return (lateral + Circuit.HALF_WIDTH, s - line_start if s - line_start > -1e-6 else s - line_start + Circuit.LENGTH)
     return (point[0], point[2])
+
+
+def tile_span(start, end):
+    """A span of lap distances as the road maps it into the asphalt texture: (start, end) meters along a tile, start in
+    [0, ASPHALT_TILE). Spans before the line (negative) map as the rows at the lap's end do (LENGTH on)."""
+    if start < 0.0:
+        start, end = start + Circuit.LENGTH, end + Circuit.LENGTH
+    return start % ASPHALT_TILE, start % ASPHALT_TILE + (end - start)
+
+
+def painted_lines():
+    """Where the timing lines lie in the asphalt texture: (start, end, is the finish line) per line, in meters along the
+    tile. Asserts that each band of painted road shows its own line alone."""
+    lines = [tile_span(*Circuit.timing_line(line)) + (line == 0.0,) for line in Circuit.SECTOR_GATES]
+    for line in Circuit.SECTOR_GATES:
+        low, high = tile_span(*Circuit.timing_band(line))
+        for other, (paint_start, paint_end, _) in zip(Circuit.SECTOR_GATES, lines):
+            if other == line:
+                continue
+            for shift in (-ASPHALT_TILE, 0.0, ASPHALT_TILE):
+                assert paint_end + shift <= low or paint_start + shift >= high, \
+                    f"the band of the line at {line:.1f} m would show the line at {other:.1f} m"
+    return lines
 
 
 def build_track():
@@ -341,27 +376,28 @@ def build_track():
                     abs(laterals[(i + 1) % count][j + 1] - laterals[(i + 1) % count][j]) < 1e-3:
                 continue
             mesh = parts.setdefault((material, chunk), MeshBuilder())
-            line = line_at((s0 + s1) / 2.0)
-            line_start = line[1] if line is not None else 0.0
             corners = []
             for (row, s), column in (((i, s0), j), ((i, s0), j + 1), (((i + 1) % count, s1), j + 1), (((i + 1) % count, s1), j)):
                 point = rows[row][column]
                 # Smooth along the lap within the strip: the normal of the strip's two faces meeting at the row.
                 normal = normalize(add(faces[row][j], faces[row - 1][j]))
-                uv = strip_uv(material, s, laterals[row][column], point, line_start)
+                uv = strip_uv(material, s, laterals[row][column], point)
                 corners.append(mesh.vertex(point, normal, uv, key=(row, column, j, s == Circuit.LENGTH)))
             mesh.quad(*corners, (0.0, 1.0, 0.0))
     drawn = [(parts[key], key[0]) for key in sorted(parts)]
 
-    # Welded: points at the same place (a gravel trap of no width) are one vertex.
-    collision = MeshBuilder(uvs=False)
+    # One primitive per surface, each welded: points at the same place (a gravel trap of no width) are one vertex.
+    surfaces = [MeshBuilder(uvs=False) for _ in SURFACES]
     for i in range(count):
-        for j in range(len(STRIPS)):
+        s0 = sections[i]
+        s1 = sections[i + 1] if i + 1 < count else Circuit.LENGTH
+        for j, kind in enumerate(STRIPS):
+            collision = surfaces[SURFACE_OF[strip_material(kind, s0, s1, side_of[j])]]
             a, b = welded(collision, rows[i][j]), welded(collision, rows[i][j + 1])
             c, d = welded(collision, rows[(i + 1) % count][j + 1]), welded(collision, rows[(i + 1) % count][j])
             if len({a, b, c, d}) >= 3:
                 collision.quad(a, b, c, d, (0.0, 1.0, 0.0))
-    return drawn, collision
+    return drawn, [(surface, index) for index, surface in enumerate(surfaces)]
 
 
 def welded(mesh, point):
@@ -437,20 +473,45 @@ def skyline(seed):
     return height
 
 
+# The ground's rings, from the middle outwards: (outer radius in meters, material). The meadow is the same everywhere; the
+# farther rings' materials lighten and blue it towards the horizon's color, as the air between does (there is no fog), up
+# to the haze of the hills' foot, so that the ground meets the hills without an edge. Author.py makes the materials.
+GROUND_RINGS = ((600.0, "Meadow"),) + tuple((600.0 + 200.0 * ring, f"MeadowHaze{ring}") for ring in range(1, 9))
+assert GROUND_RINGS[-1][0] == GROUND_RADIUS
+GROUND_MATERIALS = tuple(material for _, material in GROUND_RINGS)
+
+
 def build_ground():
+    """The flat meadow out to the hills: a disc and rings around it, one primitive per ring (GROUND_RINGS)."""
     cx, cz = circuit_center()
-    mesh = MeshBuilder()
-    middle = mesh.vertex((cx, 0.0, cz), (0.0, 1.0, 0.0), (cx, cz))
-    ring = []
-    for k in range(SEGMENTS_AROUND):
-        angle = 2.0 * math.pi * k / SEGMENTS_AROUND
-        point = (cx + GROUND_RADIUS * math.cos(angle), 0.0, cz + GROUND_RADIUS * math.sin(angle))
-        ring.append(mesh.vertex(point, (0.0, 1.0, 0.0), (point[0], point[2])))
-    for k in range(SEGMENTS_AROUND):
-        a, b = ring[k], ring[(k + 1) % SEGMENTS_AROUND]
-        n = cross(subtract(mesh.positions[a], mesh.positions[middle]), subtract(mesh.positions[b], mesh.positions[middle]))
-        mesh.indices.extend((middle, a, b) if n[1] > 0.0 else (middle, b, a))
-    return mesh
+    parts = []
+    inner = 0.0
+    for index, (outer, _) in enumerate(GROUND_RINGS):
+        mesh = MeshBuilder()
+
+        def ring(radius):
+            vertices = []
+            for k in range(SEGMENTS_AROUND):
+                angle = 2.0 * math.pi * k / SEGMENTS_AROUND
+                point = (cx + radius * math.cos(angle), 0.0, cz + radius * math.sin(angle))
+                vertices.append(mesh.vertex(point, (0.0, 1.0, 0.0), (point[0], point[2])))
+            return vertices
+
+        outside = ring(outer)
+        if inner == 0.0:
+            middle = mesh.vertex((cx, 0.0, cz), (0.0, 1.0, 0.0), (cx, cz))
+            for k in range(SEGMENTS_AROUND):
+                a, b = outside[k], outside[(k + 1) % SEGMENTS_AROUND]
+                n = cross(subtract(mesh.positions[a], mesh.positions[middle]), subtract(mesh.positions[b], mesh.positions[middle]))
+                mesh.indices.extend((middle, a, b) if n[1] > 0.0 else (middle, b, a))
+        else:
+            inside = ring(inner)
+            for k in range(SEGMENTS_AROUND):
+                after = (k + 1) % SEGMENTS_AROUND
+                mesh.quad(inside[k], inside[after], outside[after], outside[k], (0.0, 1.0, 0.0))
+        parts.append((mesh, index))
+        inner = outer
+    return parts
 
 
 def build_hills(seed):
@@ -474,20 +535,29 @@ def build_hills(seed):
         n = n if n[1] > 0.0 else scale(n, -1.0)
         return normalize(n)
 
+    # The forest covers the slopes from the second row up; the foot of the hills, below it, is meadow in the ground's last
+    # ring's haze, one primitive round the whole ring.
     sectors = 16
     per = SEGMENTS_AROUND // sectors
     parts = []
+    foot = MeshBuilder()
     for sector in range(sectors):
         mesh = MeshBuilder()
         for k in range(sector * per, (sector + 1) * per):
             for r in range(len(radii) - 1):
+                target = foot if r == 0 else mesh
                 corners = []
                 for kk, rr in ((k, r), (k + 1, r), (k + 1, r + 1), (k, r + 1)):
                     p = point(kk, rr)
-                    corners.append(mesh.vertex(p, normal(kk, rr), (p[0], p[2]), key=(kk, rr)))
-                mesh.quad(*corners, (0.0, 1.0, 0.0))
+                    corners.append(target.vertex(p, normal(kk, rr), (p[0], p[2]), key=(kk, rr)))
+                target.quad(*corners, (0.0, 1.0, 0.0))
         parts.append((mesh, 0))
+    parts.append((foot, 1))
     return parts
+
+
+# The hills' materials: the forest, and at their foot the meadow of the ground's last ring.
+HILLS_MATERIALS = ("Forest", GROUND_MATERIALS[-1])
 
 
 # --- The structures (local to their entities: x right, y up, -z the direction of travel) ----------------------------------
@@ -531,6 +601,23 @@ def build_gate():
     return [(steel, 0), (board, 1)], ("GateSteel", "SectorBoard")
 
 
+def slab(mesh, outline, z0, z1):
+    """A prism standing on a convex outline in the x-y plane (meters), from z0 to z1: its two faces and its sides, each
+    with vertices of its own (flat shading), texture coordinates in meters."""
+    area = sum(outline[k][0] * outline[(k + 1) % len(outline)][1] - outline[(k + 1) % len(outline)][0] * outline[k][1]
+               for k in range(len(outline)))
+    if area < 0.0:
+        outline = list(reversed(outline))
+    mesh.face([(x, y, z1) for x, y in outline], (0.0, 0.0, 1.0), [(x, -y) for x, y in outline])
+    mesh.face([(x, y, z0) for x, y in reversed(outline)], (0.0, 0.0, -1.0), [(-x, -y) for x, y in reversed(outline)])
+    for k, (x0, y0) in enumerate(outline):
+        x1, y1 = outline[(k + 1) % len(outline)]
+        length = math.hypot(x1 - x0, y1 - y0)
+        normal = normalize((y1 - y0, x0 - x1, 0.0))
+        mesh.face([(x0, y0, z0), (x1, y1, z0), (x1, y1, z1), (x0, y0, z1)], normal,
+                  [(0.0, 0.0), (length, 0.0), (length, z1 - z0), (0.0, z1 - z0)])
+
+
 def build_footbridge():
     concrete, panel = MeshBuilder(), MeshBuilder()
     deck_bottom = Circuit.BRIDGE_CLEARANCE
@@ -543,27 +630,45 @@ def build_footbridge():
             concrete.box((x, deck_bottom / 2.0, z), (0.5, deck_bottom, 0.5))
     for z in (-width / 2.0 + 0.06, width / 2.0 - 0.06):
         panel.box((0.0, deck_top + 0.6, z), (2.0 * span, 1.2, 0.12))
-    # The stairs go down from each end of the deck, outwards, as a solid flight of steps.
+    # The stairs go down from each end of the deck, outwards: a tread and a riser per step, open beneath, resting on a
+    # stringer each side, with a railing above the stringers. Seen from the side, the steps' edges show above the
+    # stringers.
     steps = 38
     rise = deck_top / steps
     run = 0.28
+    tread = 0.05
+    inside = width / 2.0 - 0.2
+    count = 0
+    while deck_top - (count + 1) * rise > 1e-6:
+        count += 1
     for sign in (-1.0, 1.0):
-        for k in range(steps):
+        previous = deck_top
+        for k in range(count):
             top = deck_top - (k + 1) * rise
-            if top <= 0.0:
-                break
             inner = span + k * run
-            concrete.box((sign * (inner + run / 2.0), top / 2.0, 0.0), (run, top, width - 0.2))
-        flight = steps * run
-        for z in (-width / 2.0 + 0.06, width / 2.0 - 0.06):
-            # The side panels along the flight, sloping with it.
-            x0, x1 = sign * span, sign * (span + flight)
-            normal = (0.0, 0.0, 1.0 if z > 0.0 else -1.0)
-            for offset in (-0.06, 0.06):
-                zz = z + offset
-                panel.face([(x0, deck_top + 1.2, zz), (x1, 1.2, zz), (x1, 0.0, zz), (x0, deck_top - 0.4, zz)],
-                           normal if (offset > 0.0) == (z > 0.0) else scale(normal, -1.0),
-                           [(0.0, 0.0), (flight, 0.0), (flight, 1.2), (0.0, 1.2)])
+            concrete.box((sign * (inner + run / 2.0), top - tread / 2.0, 0.0), (run, tread, 2.0 * inside))
+            concrete.box((sign * (inner + 0.015), (top - tread + previous) / 2.0, 0.0), (0.03, previous - top + tread, 2.0 * inside))
+            previous = top
+        # The stringers' tops run below the steps' inner corners (the line of the nosings less a rise and a tread), their
+        # undersides 0.35 m lower, both down to the ground.
+        slope = rise / run
+        top0 = deck_top - rise - tread - 0.02
+        bottom0 = top0 - 0.35
+        outline = [(sign * span, bottom0), (sign * (span + bottom0 / slope), 0.0), (sign * (span + top0 / slope), 0.0),
+                   (sign * span, top0)]
+        for z0, z1 in ((inside, width / 2.0), (-width / 2.0, -inside)):
+            slab(concrete, outline, z0, z1)
+        # The railing: posts every fourth step, and a hand rail and a middle rail along the slope, 1 m and 0.5 m over the
+        # nosings.
+        last = span + count * run
+        for z in (-width / 2.0 + 0.1, width / 2.0 - 0.1):
+            for k in range(0, count, 4):
+                top = deck_top - (k + 1) * rise
+                panel.box((sign * (span + k * run + run / 2.0), top + 0.5, z), (0.06, 1.0, 0.06))
+            for height in (1.0, 0.5):
+                start, end = deck_top + height, deck_top - count * rise + height
+                rail = [(sign * span, start - 0.03), (sign * last, end - 0.03), (sign * last, end + 0.03), (sign * span, start + 0.03)]
+                slab(panel, rail, z - 0.03, z + 0.03)
     return [(concrete, 0), (panel, 1)], ("Concrete", "BridgePanel")
 
 
@@ -655,6 +760,38 @@ def make_textures(assets, seed, log):
 
     write_png(assets, "Asphalt", size, size, asphalt, log)
 
+    # TimingLines: the asphalt with the timing lines painted where the road around each line maps them (painted_lines()):
+    # the sector lines in the edge lines' worn paint, the finish line's two rows of 0.5 m checks across the road. A pixel
+    # the paint touches takes its share of it (4 x 4 samples), so the lines' edges are smooth.
+    lines = painted_lines()
+    pixel_meters = meters / size
+
+    def painted(u_meters, v_meters, base):
+        for start, end, finish in lines:
+            for shift in (-meters, 0.0, meters):
+                if start + shift <= v_meters < end + shift:
+                    if not finish:
+                        tone = 0.82 - 0.18 * wear(u_meters / meters, v_meters / meters)
+                        return [tone, tone, tone * 0.98]
+                    dark = (int(u_meters // 0.5) + int((v_meters - start - shift) // 0.5)) % 2 == 1
+                    tone = 0.06 if dark else 0.85
+                    return [tone, tone, tone]
+        return base
+
+    def timing_lines(x, y):
+        base = asphalt(x, y)
+        v0, v1 = y * pixel_meters, (y + 1) * pixel_meters
+        if not any(start + shift < v1 and v0 < end + shift for start, end, _ in lines for shift in (-meters, 0.0, meters)):
+            return base
+        total = [0.0, 0.0, 0.0]
+        for sy in range(4):
+            for sx in range(4):
+                color = painted((x + (sx + 0.5) / 4.0) * pixel_meters, (y + (sy + 0.5) / 4.0) * pixel_meters, base)
+                total = [total[k] + color[k] / 16.0 for k in range(3)]
+        return [quantize(c) for c in total]
+
+    write_png(assets, "TimingLines", size, size, timing_lines, log)
+
     # Grass: 8 m square, mown in two stripes (4 m each, along v) of lighter and darker green, with clumps and blades.
     blades = value_noise(seed + 11, 256)
     clumps = fractal(seed + 12, 4, 4)
@@ -704,13 +841,20 @@ def make_textures(assets, seed, log):
 
     write_png(assets, "Kerb", 64, 128, kerb, log)
 
-    # Checker: 1 m square, four checks of 0.5 m.
-    def checker(x, y):
-        dark = (x < 32) != (y < 32)
-        tone = 0.06 if dark else 0.85
-        return [tone, tone, tone]
+    # Meadow: 16 m square of uncut grass, blades and small tufts only. A stripe or a patch the size of meters would repeat
+    # every tile and show as a grid from the air; detail this fine averages out at a distance instead.
+    fine = value_noise(seed + 61, 512)
+    tufts = value_noise(seed + 62, 128)
+    hues = fractal(seed + 63, 2, 32)
 
-    write_png(assets, "Checker", 64, 64, checker, log)
+    def meadow(x, y):
+        u, v = (x + 0.5) / size, (y + 0.5) / size
+        light = 0.92 + 0.16 * (fine(u, v) - 0.5) + 0.12 * (tufts(u, v * 0.6) - 0.5)
+        warm = hues(u, v)
+        color = (0.23 + 0.06 * warm, 0.37 + 0.03 * warm, 0.14 + 0.02 * warm)
+        return [quantize(c * light) for c in color]
+
+    write_png(assets, "Meadow", size, size, meadow, log)
 
     # Concrete: 4 m square, pale and mottled.
     mottle = fractal(seed + 41, 4, 4)
@@ -874,12 +1018,12 @@ def generate(assets, seed, log=print):
     log(Circuit.check())
     drawn, collision = build_track()
     write_gltf(assets, "Track", drawn, TRACK_MATERIALS, log)
-    write_gltf(assets, "TrackCollision", [(collision, 0)], ("Collision",), log)
+    write_gltf(assets, "TrackCollision", collision, SURFACES, log)
     barriers, barrier_collision = build_barriers(Circuit.sections(spacing=2.5))
     write_gltf(assets, "Barriers", barriers, ("Concrete",), log)
     write_gltf(assets, "BarrierCollision", [(barrier_collision, 0)], ("Collision",), log)
-    write_gltf(assets, "Ground", [(build_ground(), 0)], ("Grass",), log)
-    write_gltf(assets, "Hills", build_hills(seed), ("Forest",), log)
+    write_gltf(assets, "Ground", build_ground(), GROUND_MATERIALS, log)
+    write_gltf(assets, "Hills", build_hills(seed), HILLS_MATERIALS, log)
     for name, (parts, materials) in (("Gantry", build_gantry()), ("Gate", build_gate()), ("Footbridge", build_footbridge())):
         write_gltf(assets, name, parts, materials, log)
     make_textures(assets, seed, log)
@@ -889,8 +1033,8 @@ def generate(assets, seed, log=print):
 # The files generate() writes, relative to Assets.
 OUTPUTS = tuple([f"Meshes/{name}.gltf" for name in ("Track", "TrackCollision", "Barriers", "BarrierCollision", "Ground", "Hills",
                                                      "Gantry", "Gate", "Footbridge")] +
-                [f"Textures/{name}.png" for name in ("Asphalt", "Grass", "Gravel", "Kerb", "Checker", "Concrete", "Forest",
-                                                      "SectorBoards")] +
+                [f"Textures/{name}.png" for name in ("Asphalt", "TimingLines", "Grass", "Meadow", "Gravel", "Kerb", "Concrete",
+                                                      "Forest", "SectorBoards")] +
                 ["Environments/Sky.hdr"])
 
 

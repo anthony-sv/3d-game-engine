@@ -5,11 +5,14 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <set>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -131,26 +134,34 @@ TEST_CASE("Project: the visual scripting guide's table of Prism Break's graphs n
 	CHECK(listed == graphs);
 }
 
-TEST_CASE("Project: Moto's collision meshes import welded, one vertex wherever triangles meet")
+TEST_CASE("Project: Moto's collision meshes import welded, a submesh per surface, one vertex wherever its triangles meet")
 {
 	// Jolt finds the edges between a mesh's triangles by their shared vertex indices: two vertices at one place would make
-	// the edge between their triangles a bump a wheel hits. The generator writes the collision meshes welded (normals all
-	// up, no texture coordinates); the importer must keep them so.
+	// the edge between their triangles a bump a wheel hits. The generator writes each surface of the collision meshes
+	// welded (normals all up, no texture coordinates), and the importer must keep them so; where two surfaces meet, the
+	// physics shares their edges (it builds the shape over the mesh's distinct positions). The track's submeshes are its
+	// surfaces in the order the scene gives them their physics materials (Tools/GenerateAssets.py, SURFACES).
 	std::filesystem::path const meshes = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto" / "Assets" / "Meshes";
-	for (char const* const name : {"TrackCollision.gltf", "BarrierCollision.gltf"})
+	for (auto const& [name, surfaces] : {std::pair<char const*, size_t>{"TrackCollision.gltf", 4}, {"BarrierCollision.gltf", 1}})
 	{
 		CAPTURE(name);
 		Result<ImportedModel> imported = MeshImporter::Import(meshes / name);
 		REQUIRE_MESSAGE(imported.IsOk(), (imported ? std::string() : imported.GetError()));
 		ImportedModel const& model = imported.GetValue();
 		CHECK(model.Warnings.empty());
-		CHECK(model.Submeshes.size() == 1);
+		REQUIRE(model.Submeshes.size() == surfaces);
 		REQUIRE(model.Vertices.size() > 1000);
-		std::set<std::array<float, 3>> positions;
-		for (Vertex const& vertex : model.Vertices)
+		for (Submesh const& submesh : model.Submeshes)
 		{
-			positions.insert({vertex.Position.x, vertex.Position.y, vertex.Position.z});
+			CAPTURE(submesh.Name);
+			CHECK(submesh.IndexCount >= 3);
+			std::set<std::array<float, 3>> positions;
+			for (uint32_t index = 0; index < submesh.VertexCount; index++)
+			{
+				glm::vec3 const& position = model.Vertices[submesh.BaseVertex + index].Position;
+				positions.insert({position.x, position.y, position.z});
+			}
+			CHECK(positions.size() == submesh.VertexCount);
 		}
-		CHECK(positions.size() == model.Vertices.size());
 	}
 }

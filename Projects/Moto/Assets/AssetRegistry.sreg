@@ -20,11 +20,6 @@
 			"Path": "Materials/BridgePanel.smat"
 		},
 		{
-			"Handle": "17678251460209051611",
-			"Type": "Material",
-			"Path": "Materials/Checker.smat"
-		},
-		{
 			"Handle": "10050210890784848329",
 			"Type": "Material",
 			"Path": "Materials/Concrete.smat"
@@ -70,9 +65,49 @@
 			"Path": "Materials/Kerb.smat"
 		},
 		{
-			"Handle": "15745637732639020673",
+			"Handle": "16581966529300385010",
 			"Type": "Material",
-			"Path": "Materials/LineWhite.smat"
+			"Path": "Materials/Meadow.smat"
+		},
+		{
+			"Handle": "1826397523122005479",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze1.smat"
+		},
+		{
+			"Handle": "8889534955654055428",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze2.smat"
+		},
+		{
+			"Handle": "17857525847719365787",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze3.smat"
+		},
+		{
+			"Handle": "5581409923019099630",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze4.smat"
+		},
+		{
+			"Handle": "7360490602862285314",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze5.smat"
+		},
+		{
+			"Handle": "5336146829897545834",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze6.smat"
+		},
+		{
+			"Handle": "4043129992099541868",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze7.smat"
+		},
+		{
+			"Handle": "3994030263495547754",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze8.smat"
 		},
 		{
 			"Handle": "17182585141271066399",
@@ -88,6 +123,11 @@
 			"Handle": "16924574414837725192",
 			"Type": "Material",
 			"Path": "Materials/StartLamp.smat"
+		},
+		{
+			"Handle": "12081241118904071116",
+			"Type": "Material",
+			"Path": "Materials/TimingLines.smat"
 		},
 		{
 			"Handle": "5171630588505078153",
@@ -160,14 +200,29 @@
 			"Path": "Scripts/Tour.sgraph"
 		},
 		{
+			"Handle": "1115383244513682738",
+			"Type": "PhysicsMaterial",
+			"Path": "Surfaces/Asphalt.sphysmat"
+		},
+		{
+			"Handle": "3779313402414917349",
+			"Type": "PhysicsMaterial",
+			"Path": "Surfaces/Grass.sphysmat"
+		},
+		{
+			"Handle": "13159216021552518136",
+			"Type": "PhysicsMaterial",
+			"Path": "Surfaces/Gravel.sphysmat"
+		},
+		{
+			"Handle": "5753974094360694805",
+			"Type": "PhysicsMaterial",
+			"Path": "Surfaces/Kerb.sphysmat"
+		},
+		{
 			"Handle": "1120607662871141938",
 			"Type": "Texture",
 			"Path": "Textures/Asphalt.png"
-		},
-		{
-			"Handle": "9392488307944790590",
-			"Type": "Texture",
-			"Path": "Textures/Checker.png"
 		},
 		{
 			"Handle": "4745811410313937805",
@@ -195,9 +250,19 @@
 			"Path": "Textures/Kerb.png"
 		},
 		{
+			"Handle": "13749410299577165266",
+			"Type": "Texture",
+			"Path": "Textures/Meadow.png"
+		},
+		{
 			"Handle": "3479788475672880843",
 			"Type": "Texture",
 			"Path": "Textures/SectorBoards.png"
+		},
+		{
+			"Handle": "11890263462930504271",
+			"Type": "Texture",
+			"Path": "Textures/TimingLines.png"
 		}
 	]
 }

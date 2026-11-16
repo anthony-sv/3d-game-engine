@@ -4052,21 +4052,34 @@ that each platform's names are tested on every platform:
   circuit closer than 8 m. `Tools/GenerateAssets.py` (standard library only) makes from it the meshes (glTF with
   positions, normals and texture coordinates in meters; the track and the walls in world space, one primitive per
   material and 200 m of the lap, so that each is culled on its own), the textures, and the sky (a Radiance file with
-  run-length encoded scanlines). The track's and the walls' colliders are meshes of their own, welded into one
-  primitive whose vertices all point up and have no texture coordinates, so that the importer keeps them welded: Jolt
-  finds the edges between a mesh's triangles by their shared vertex indices, and a seam of duplicated vertices (a
-  material's or a chunk's border) would be an edge a wheel bumps on. The same seed gives the same bytes (values are
+  run-length encoded scanlines). The track's and the walls' colliders are meshes of their own whose vertices all point
+  up and have no texture coordinates, so that the importer keeps them welded: Jolt finds the edges between a mesh's
+  triangles by their shared vertex indices, and a seam of duplicated vertices (a material's or a chunk's border) would be
+  an edge a wheel bumps on. The track's collider has one primitive per surface the physics tells apart (asphalt, kerb,
+  gravel, grass), each welded, and the physics builds the shape over the mesh's distinct positions (§8, "Physics
+  materials"), so the edges where two surfaces meet are shared too; the track's `MeshCollider` gives each submesh its
+  physics material (`Surfaces/<name>.sphysmat`: friction, rolling resistance and the `Surface` name scripts compare;
+  the gravel's friction is the larger and wins by `Maximum`, so whatever slides into a trap stops sooner than on the
+  asphalt), and the ground's collider has the grass. The timing lines are painted into a texture of the asphalt
+  (`TimingLines`) that the road around each line maps as the asphalt does, rather than cut into the road as thin
+  geometry, which broke into dashes at a distance. The meadow beyond the barriers has a texture of fine detail only,
+  which averages out at a distance where a larger pattern would repeat as a grid seen from the air. The same seed gives the same bytes (values are
   rounded before they are packed, against maths libraries that differ in their last digit); `GenerateAssets.py
   --check` generates twice and compares the runs with each other and with `Assets` (a PNG of equal pixels but other
-  compression passes, naming the zlib). There is no fog: the ring of hills that makes the skyline beyond the grass
-  emits a little of the horizon's color, which stands for the air between. `Tools/Author.py` builds the project
+  compression passes, naming the zlib). There is no fog: the ground lies in rings whose materials lose a share of their
+  color to the horizon's, more with every ring outwards, and the ring of hills that makes the skyline, whose foot is
+  meadow in the last ring's haze, emits a little of it too; that stands for the air between, so that the ground runs
+  into the hills without an edge. `Tools/Author.py` builds the project
   through `strada mcp --headless` in parts, each of which owns root entities of the main scene and the files it may
   write (`circuit`: the generated assets, the materials and the `Circuit` entity with the track, the walls, the ground,
   the hills, the start gantry, the sector gates and the footbridge, every surface a static body with a triangle-mesh
   `MeshCollider`; `lighting`: the sun, the sky and the renderer settings, shadows over 220 m in four cascades;
   `camera`: the main camera, near plane 0.1 m and far plane 5 km, and its tour; `tests`: the test scene and its graphs);
   `--part <name>` rebuilds one part in place, then the `tests` part (the test scene is the main scene with the checks,
-  which name its entities), and fails, naming them, when files neither owns changed. Graphs keep their asset handles
+  which name its entities), and fails, naming them, when files neither owns changed. A part made again keeps what it
+  does not change: its roots are made where they stood among the roots, and every entity it makes takes the ID it had
+  (found by its names from the root; `entity.create` takes an `id`), as do the test scene's own entities, so a part
+  run again with nothing changed writes the same files. Graphs keep their asset handles
   when they are written again (emptied with `graph.set`, then written batch by batch). The sector gates are timing
   lines whose entities stand on the center line with their forward along the travel: gates 1 and 2 carry an arch, gate
   3 is the start and finish line under the gantry. **The camera tour** is the first sample tour made of a graph
@@ -4080,10 +4093,13 @@ that each platform's names are tested on every platform:
   gantry, low down the straights and under the footbridge, beside the sector gates' boards, higher over the corners).
   Its `check()` evaluates the curves as the engine does (Catmull-Rom on the keys' times, flat at the ends) and asserts
   that the camera keeps 2 m from every surface of the layout the whole way, which is a property of the data, not of
-  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene with a crate over the road, the `Waiting Tour`
-  and the `Tests` entity) holds 13 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
+  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene with a crate over the road, two blocks sent
+  sliding with the scene, the `Waiting Tour` and the `Tests` entity) holds 18 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
   reporting through the `Checks` library): rays down at points of the layout hit the road, a kerb, a wall's top, the
-  ground and the footbridge's deck at their heights, facing up; the crate comes to rest on the road; and the camera is
+  ground and the footbridge's deck at their heights, facing up, and name the physics material of the asphalt (also
+  where a timing line is painted), a kerb, a gravel trap, a verge and the ground; the crate comes to rest on the road;
+  of the two blocks sent off at 8 m/s, rotation locked, the one on the asphalt slides farther than the one in the gravel,
+  each within a tenth of v²/(2gμ); and the camera is
   at the home view when the scene starts, where the path puts it under the footbridge, home again when the tour ends,
   and off on the next one after it; the `Waiting Tour`, a second entity running `Tour.sgraph` with `PlayOnStart` and
   `Repeat` off, stays where the scene put it until the `Tests` graph sends it `PlayTour`, then flies, and stays at the

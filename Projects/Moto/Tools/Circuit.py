@@ -346,7 +346,7 @@ SECTOR_GATES, FOOTBRIDGE = _place()
 def sections(spacing=0.25):
     """The lap distances at which the meshes have a cross-section: at most 8 m apart on straights and 2 degrees of turn (and
     3 m) on arcs, 1 m apart where a kerb rises and 2.5 m where a gravel trap widens, and at both edges of each timing
-    line; no two closer than the spacing. Sorted, from 0 up to (but without) LENGTH."""
+    line's band; no two closer than the spacing. Sorted, from 0 up to (but without) LENGTH."""
     points = []
     for index, segment in enumerate(SEGMENTS):
         start = STARTS[index]
@@ -359,7 +359,7 @@ def sections(spacing=0.25):
                 for first in (start - ramp, end):
                     count = int(math.ceil(ramp / step))
                     points += [(first + ramp * k / count) % LENGTH for k in range(count + 1)]
-    lines = sorted({round(edge % LENGTH, 4) for line in SECTOR_GATES for edge in timing_line(line)})
+    lines = sorted({round(edge % LENGTH, 4) for line in SECTOR_GATES for edge in timing_band(line)})
     kept = list(lines)
     for point in sorted(round(point, 4) for point in points):
         index = bisect.bisect_left(kept, point)
@@ -375,6 +375,17 @@ def timing_line(s):
     0.4 m."""
     width = 1.0 if s == 0.0 else 0.4
     return (s - width, s) if s == 0.0 else (s - width / 2.0, s + width / 2.0)
+
+
+# The road around a timing line is drawn with the line painted into its texture (GenerateAssets.py): geometry thinner than
+# a pixel breaks into dashes at a distance, while a texture's smaller images blend the line into the asphalt.
+TIMING_MARGIN = 1.0
+
+
+def timing_band(s):
+    """The lap distances of the road drawn with a timing line's paint: the line and TIMING_MARGIN either side of it."""
+    start, end = timing_line(s)
+    return start - TIMING_MARGIN, end + TIMING_MARGIN
 
 
 # --- Checks --------------------------------------------------------------------------------------------------------------

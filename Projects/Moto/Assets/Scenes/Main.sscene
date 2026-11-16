@@ -122,8 +122,7 @@
 						"8127015975830188493",
 						"3118176467674485412",
 						"470712795584087812",
-						"15745637732639020673",
-						"17678251460209051611"
+						"12081241118904071116"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -163,7 +162,14 @@
 					"Mesh": "17230076990940009830",
 					"Convex": false,
 					"IsTrigger": false,
-					"Friction": 1.0,
+					"Material": "0",
+					"Materials": [
+						"1115383244513682738",
+						"5753974094360694805",
+						"13159216021552518136",
+						"3779313402414917349"
+					],
+					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
 			}
@@ -239,6 +245,8 @@
 					"Mesh": "5171630588505078153",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.4000000059604645,
 					"Restitution": 0.0
 				}
@@ -275,7 +283,15 @@
 				"Mesh": {
 					"Mesh": "16144419852617799839",
 					"Materials": [
-						"3118176467674485412"
+						"16581966529300385010",
+						"1826397523122005479",
+						"8889534955654055428",
+						"17857525847719365787",
+						"5581409923019099630",
+						"7360490602862285314",
+						"5336146829897545834",
+						"4043129992099541868",
+						"3994030263495547754"
 					],
 					"CastShadows": false,
 					"Visible": true
@@ -315,7 +331,9 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
-					"Friction": 0.800000011920929,
+					"Material": "3779313402414917349",
+					"Materials": [],
+					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
 			}
@@ -351,7 +369,8 @@
 				"Mesh": {
 					"Mesh": "10224707081030729703",
 					"Materials": [
-						"4944508948686901293"
+						"4944508948686901293",
+						"3994030263495547754"
 					],
 					"CastShadows": false,
 					"Visible": true
@@ -432,6 +451,8 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
@@ -509,6 +530,8 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
@@ -586,6 +609,8 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
@@ -693,6 +718,8 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
