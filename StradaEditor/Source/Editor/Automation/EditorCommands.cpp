@@ -5163,9 +5163,12 @@ namespace Strada
 					Add("entity.create",
 				        "Creates an entity, optionally under a parent and with components in the scene-file format ({ \"PointLight\": { "
 				        "\"Range\": 5 }, \"Transform\": { \"Translation\": [0, 1, 0] } }). Asset fields accept \"builtin://Cube\" and "
-				        "\"asset://<path>\". Returns the new entity ID.",
+				        "\"asset://<path>\". Returns the new entity ID: the one given (no entity of the scene may have it), or a "
+				        "fresh one.",
 				        SchemaBuilder::Object()
 				            .Property("name", SchemaBuilder::String("Entity name").MinLength(1).Default("Entity"))
+				            .Property("id", EntityIdSchema("The new entity's ID, unused in the scene (omit for a fresh one), so that a "
+				                                           "tool that makes a scene again keeps its entities' IDs"))
 				            .Property("parent", EntityIdSchema("Parent entity ID (omit for a root entity)"))
 				            .Property("siblingIndex", SchemaBuilder::Integer("Position among the siblings (default: last)").Minimum(0))
 				            .Property("components", SchemaBuilder::Object("Components to add: { \"<Component>\": { \"<Field>\": value } }")
@@ -5176,6 +5179,23 @@ namespace Strada
 				        {
 							EntityCreateInfo info;
 							info.Name = GetString(params, "name", "Entity");
+							std::optional<UUID> id;
+							if (params.contains("id"))
+							{
+								CommandValue<UUID> given = ParseEntityId(params["id"], "id");
+								if (!given)
+								{
+									return given.TakeError();
+								}
+								if (m_Operations.FindEntity(given.GetValue()))
+								{
+									CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams,
+							                                              "an entity with the ID {} exists already", given.GetValue());
+									error.Data = Json::object({{"path", "id"}});
+									return error;
+								}
+								id = given.GetValue();
+							}
 							if (params.contains("parent"))
 							{
 								CommandValue<UUID> parent = ParseExistingEntity(m_Operations, params["parent"], "parent");
@@ -5200,12 +5220,12 @@ namespace Strada
 								}
 								info.Components = params["components"];
 							}
-							Result<UUID> id = m_Operations.CreateEntity(std::move(info));
-							if (!id)
+							Result<UUID> created = m_Operations.CreateEntity(std::move(info), id);
+							if (!created)
 							{
-								return CommandError{AutomationErrorCode::InvalidParams, id.GetError(), Json()};
+								return CommandError{AutomationErrorCode::InvalidParams, created.GetError(), Json()};
 							}
-							return Json::object({{"id", id.GetValue().ToString()}});
+							return Json::object({{"id", created.GetValue().ToString()}});
 						});
 				result =
 					result

@@ -312,6 +312,36 @@ TEST_CASE("EditorCommands: entities can be created, inspected, edited and undone
 	CHECK(fixture.Context.GetScene().GetEntityCount() == 1);
 }
 
+TEST_CASE("EditorCommands: entity.create keeps an ID it is given, refuses one in use, and undo and redo keep it")
+{
+	// A tool that makes a scene again deletes its entities and creates them with the IDs they had, so the file stays the same.
+	CommandFixture fixture;
+	std::string const parent = fixture.Create("Parent", Json::object({{"id", "1234567890123"}}));
+	CHECK(parent == "1234567890123");
+	std::string const child = fixture.Create("Child", Json::object({{"id", "42"}, {"parent", parent}, {"siblingIndex", 0}}));
+	CHECK(child == "42");
+	CHECK(fixture.Ok("entity.get", Json::object({{"entity", "42"}}))["parent"] == parent);
+
+	// An ID in use, an invalid one and one that is not a number are refused, naming the parameter; nothing is created.
+	for (char const* const id : {"42", "0", "child"})
+	{
+		CAPTURE(id);
+		CommandResult const refused = fixture.Run("entity.create", Json::object({{"name", "Again"}, {"id", id}}));
+		REQUIRE(refused.IsError());
+		CHECK(refused.GetError().Code == AutomationErrorCode::InvalidParams);
+		CHECK(refused.GetError().Data["path"] == "id");
+	}
+	CHECK(fixture.Context.GetScene().GetEntityCount() == 2);
+
+	// Deleted, the ID is free again; undoing the new entity and redoing it keep the ID.
+	fixture.Ok("entity.delete", Json::object({{"entities", {child}}}));
+	CHECK(fixture.Create("Child", Json::object({{"id", "42"}, {"parent", parent}})) == "42");
+	fixture.Ok("editor.undo");
+	CHECK_FALSE(fixture.Context.GetScene().HasEntity(UUID(42)));
+	fixture.Ok("editor.redo");
+	CHECK(fixture.Ok("entity.get", Json::object({{"entity", "42"}}))["name"] == "Child");
+}
+
 TEST_CASE("EditorCommands: errors carry precise codes")
 {
 	CommandFixture fixture;

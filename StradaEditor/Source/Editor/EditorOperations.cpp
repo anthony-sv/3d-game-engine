@@ -364,14 +364,14 @@ namespace Strada
 		return m_Context.ExecuteCommand(CreateScope<SetScenePropertiesCommand>(std::move(name), settingsPatch, mergeKey));
 	}
 
-	Result<UUID> EditorOperations::CreateEntity(EntityCreateInfo info)
+	Result<UUID> EditorOperations::CreateEntity(EntityCreateInfo info, std::optional<UUID> id)
 	{
-		UUID const id = m_Context.GetScene().GenerateUniqueID();
-		if (Result<void> result = m_Context.ExecuteCommand(CreateScope<CreateEntityCommand>(id, std::move(info))); !result)
+		UUID const created = id.value_or(m_Context.GetScene().GenerateUniqueID());
+		if (Result<void> result = m_Context.ExecuteCommand(CreateScope<CreateEntityCommand>(created, std::move(info))); !result)
 		{
 			return Error{result.GetError()};
 		}
-		return id;
+		return created;
 	}
 
 	Result<std::vector<UUID>> EditorOperations::CreateEntityWithChildren(EntityCreateInfo root, std::vector<EntityCreateInfo> children)

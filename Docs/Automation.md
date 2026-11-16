@@ -215,7 +215,7 @@ already waiting for a draw answers Cancelled). `editor.entity-menu` and `editor.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `entity.create` | `name`, `parent`, `siblingIndex`, `components` (`{ "<Component>": { fields } }`) | `id` |
+| `entity.create` | `name`, `id` (the new entity's ID, which no entity of the scene may have; omitted: a fresh one; a tool that makes a scene again passes the IDs it had, so the file keeps them), `parent`, `siblingIndex`, `components` (`{ "<Component>": { fields } }`) | `id` |
 | `entity.delete` | `entities`* (deletes descendants too, one undo step) | `deleted` |
 | `entity.duplicate` | `entities`* | `ids` of the copies |
 | `entity.rename` | `entity`*, `name`* | `id`, `name` |
