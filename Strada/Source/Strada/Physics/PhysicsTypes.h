@@ -274,15 +274,22 @@ namespace Strada
 		// Unit length, from the other body towards this one: the way this one is pushed.
 		glm::vec3 Normal = glm::vec3(0.0f);
 		// The impulse along the normal at this point (newton seconds, kg m/s, at least 0) that stops the bodies' approach,
-		// and with the pair's restitution bounces them apart, estimated by Jolt (EstimateCollisionResponse) from the two
-		// bodies alone: what the collision takes in all, also when Jolt spreads it over two steps. Inaccurate when more
-		// than two bodies collide at once; 0 for a trigger contact and a pair without a dynamic body.
+		// and with the pair's restitution bounces them apart, estimated by Jolt (EstimateCollisionResponse) for the points of
+		// this point's manifold together, from the two bodies alone: what the collision takes in all, also when Jolt spreads
+		// it over two steps. Each manifold is estimated as if it alone stopped the pair, so when a contact begins on several
+		// manifolds in one step their impulses are not shared out: for a body that comes down evenly on two, too large when
+		// their normals are less than 90 degrees apart (a ball landing in a groove whose faces rise at 30 degrees: m v cos 30
+		// on each face, where solved together each takes m v / (2 cos 30)), too small when more than 90 apart, exact at right
+		// angles. Inaccurate as well when more than two bodies collide at once; 0 for a trigger contact and a pair without a
+		// dynamic body.
 		float Impulse = 0.0f;
 		// This body's velocity at the point minus the other's (meters per second), as the contact began: the bodies
 		// approach when it points against Normal.
 		glm::vec3 RelativeVelocity = glm::vec3(0.0f);
 		// The physics materials of the surfaces that touch there, this side's and the other's: the ColliderSurface::Material
 		// of the collider, or of a triangle mesh's submesh; none for a collider's own values and a character's inner body.
+		// A manifold names one sub-shape per side, so when Jolt merges the contacts of neighbouring sub-shapes with similar
+		// normals into one (manifold reduction), all its points name the surfaces of the sub-shapes its contact started on.
 		AssetHandle Material;
 		AssetHandle OtherMaterial;
 
@@ -302,6 +309,47 @@ namespace Strada
 		return reversed;
 	}
 
+	// The order of an event's points (ContactEvent::Points): whether a goes before b. The strongest first, by Impulse from
+	// the largest; then by Point, Normal and RelativeVelocity, each by x, y and z from the smallest; then by the UUIDs of
+	// Material and OtherMaterial from the smallest. The key is every value of a point, so only equal points tie, and the
+	// order never depends on the order in which Jolt reports points.
+	inline bool IsContactPointBefore(ContactPoint const& a, ContactPoint const& b)
+	{
+		if (a.Impulse != b.Impulse)
+		{
+			return a.Impulse > b.Impulse;
+		}
+		// -1, 0 or 1 as left is smaller than, equal to or larger than right: by x, then y, then z.
+		auto const compare = [](glm::vec3 const& left, glm::vec3 const& right)
+		{
+			for (glm::length_t axis = 0; axis < 3; axis++)
+			{
+				if (left[axis] != right[axis])
+				{
+					return left[axis] < right[axis] ? -1 : 1;
+				}
+			}
+			return 0;
+		};
+		if (int const byPoint = compare(a.Point, b.Point); byPoint != 0)
+		{
+			return byPoint < 0;
+		}
+		if (int const byNormal = compare(a.Normal, b.Normal); byNormal != 0)
+		{
+			return byNormal < 0;
+		}
+		if (int const byVelocity = compare(a.RelativeVelocity, b.RelativeVelocity); byVelocity != 0)
+		{
+			return byVelocity < 0;
+		}
+		if (a.Material != b.Material)
+		{
+			return a.Material.GetUUID().GetValue() < b.Material.GetUUID().GetValue();
+		}
+		return a.OtherMaterial.GetUUID().GetValue() < b.OtherMaterial.GetUUID().GetValue();
+	}
+
 	// Two entities started or stopped touching (collision) or overlapping (when either collider is a trigger).
 	struct ContactEvent
 	{
@@ -315,8 +363,8 @@ namespace Strada
 		uint64_t Step = 0;
 		// Enter events: the points where the contact began, seen from First (ReverseContactPoint gives Second's view): those
 		// of every manifold (one pair of sub-shapes, one normal) with which the pair's contact began in that step, the
-		// MaxContactPoints strongest, strongest first: by Impulse from the largest, then by Point's x, y and z from the
-		// smallest. Exits carry none (Jolt reports no points when contacts end), and neither does a contact that sleeping
+		// MaxContactPoints strongest, in the order of IsContactPointBefore (by Impulse from the largest, then by the rest of
+		// the point's values). Exits carry none (Jolt reports no points when contacts end), and neither does a contact that sleeping
 		// bodies resume on waking, which makes no event.
 		uint32_t PointCount = 0;
 		std::array<ContactPoint, MaxContactPoints> Points{};

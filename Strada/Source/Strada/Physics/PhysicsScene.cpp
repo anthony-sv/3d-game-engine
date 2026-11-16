@@ -348,21 +348,11 @@ namespace Strada
 			std::unordered_map<UUID, std::vector<UUID>> m_Entries;
 		};
 
-		// Whether a contact point goes before another in an event: the larger impulse first, then the smaller x, y and z.
-		bool IsStrongerContactPoint(ContactPoint const& a, ContactPoint const& b)
-		{
-			if (a.Impulse != b.Impulse)
-			{
-				return a.Impulse > b.Impulse;
-			}
-			return std::tuple(a.Point.x, a.Point.y, a.Point.z) < std::tuple(b.Point.x, b.Point.y, b.Point.z);
-		}
-
-		// Puts a point in its place among the event's points, keeping the MaxContactPoints strongest.
+		// Puts a point in its place among the event's points (IsContactPointBefore), keeping the MaxContactPoints first.
 		void InsertContactPoint(ContactEvent& event, ContactPoint const& point)
 		{
 			uint32_t index = 0;
-			while (index < event.PointCount && !IsStrongerContactPoint(point, event.Points[index]))
+			while (index < event.PointCount && !IsContactPointBefore(point, event.Points[index]))
 			{
 				index++;
 			}
@@ -399,9 +389,10 @@ namespace Strada
 		// first body, with the impulse Jolt estimates for them (ContactPoint). Jolt reports no applied impulses: when it
 		// adds a contact its solver has not run, and the impulses it solves stay inside its contact constraint manager,
 		// which PhysicsSystem does not expose; EstimateCollisionResponse, which Jolt provides for this callback, solves the
-		// two bodies' collision alone from their velocities then. The points go into the event's fixed array, so taking
-		// them allocates nothing (the bookkeeping of pairs and the event list allocate as they grow, as they did before
-		// points existed; the list keeps its capacity from step to step).
+		// two bodies' collision alone from their velocities then, one manifold at a time (each as if it alone stopped the
+		// pair: ContactPoint::Impulse says what that means for a contact that begins on several). The points go into the
+		// event's fixed array, so taking them allocates nothing (the bookkeeping of pairs and the event list allocate as they
+		// grow, as they did before points existed; the list keeps its capacity from step to step).
 		class ContactCollector final : public JPH::ContactListener
 		{
 		public:

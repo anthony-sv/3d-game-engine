@@ -37,6 +37,14 @@ internal interface IVisualScriptEnvironment
 	// contact handler or for a contact without points.
 	bool TryGetContactPoint(out ContactPoint point, out string surface);
 
+	// A copy of the contact event being handled (Strada.Collision), or null outside a contact handler: a stopped execution
+	// continues with the contact it read, as with Time.DeltaTime (spec-slice4 section 4.12).
+	HandledContact? SaveContact();
+
+	// Makes Strada.Collision read the contact while a stopped execution continues (null: the engine's again); answers the
+	// one it replaces, which the caller puts back.
+	HandledContact? RestoreContact(HandledContact? contact);
+
 	// Sets Time.DeltaTime for the Update dispatch, as C# dispatch does.
 	void SetDeltaTime(float timeStep);
 

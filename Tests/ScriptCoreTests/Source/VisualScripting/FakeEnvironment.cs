@@ -58,6 +58,7 @@ internal sealed class FakeEnvironment : IVisualScriptEnvironment
 	{
 		EntityLookups++;
 		DeltaTimeAtLookup = DeltaTime;
+		ContactAtLookup = Continued ?? Handled;
 		if (id == 0)
 		{
 			return null;
@@ -97,6 +98,24 @@ internal sealed class FakeEnvironment : IVisualScriptEnvironment
 		point = Contact?.Point ?? default;
 		surface = Contact?.Surface ?? string.Empty;
 		return Contact != null;
+	}
+
+	// The contact event the engine handles now (what SaveContact copies), and the one a continuing stopped execution reads in
+	// its place (RestoreContact).
+	internal HandledContact? Handled { get; set; }
+
+	internal HandledContact? Continued { get; private set; }
+
+	// The contact as the last GetEntity saw it: what a graph's Self node read Strada.Collision as.
+	internal HandledContact? ContactAtLookup { get; private set; }
+
+	public HandledContact? SaveContact() => Continued ?? Handled;
+
+	public HandledContact? RestoreContact(HandledContact? contact)
+	{
+		HandledContact? previous = Continued;
+		Continued = contact;
+		return previous;
 	}
 
 	// Time.DeltaTime as the last GetEntity saw it: what a graph's Self node read it as.

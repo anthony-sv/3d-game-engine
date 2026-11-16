@@ -478,6 +478,48 @@ public sealed class DebugStopTests
 		Assert.Equal(["update", "stopped", "Entity(7)"], runtime.Records);
 	}
 
+	// The contact event (Strada.Collision) as the stopped execution read it: a flow of a contact event that a breakpoint
+	// stopped continues, after its handler has returned, with the contact it was dispatched with, so the stop changes nothing
+	// it reads; afterwards reads are the engine's again. A stop outside a contact handler continues with none (the pooled
+	// execution keeps nothing of the earlier one).
+	[Theory]
+	[InlineData((int)ScriptEvent.CollisionEnter, "Event.CollisionEnter")]
+	[InlineData((int)ScriptEvent.TriggerExit, "Event.TriggerExit")]
+	public void AStoppedContactFlowContinuesWithTheContactItRead(int scriptEvent, string eventType)
+	{
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint dispatched = graph.Node(eventType);
+		uint stop = graph.Write("stopped");
+		graph.Flow(dispatched, stop);
+		// Self asks the environment for the entity: FakeEnvironment notes the contact then.
+		graph.Flow(stop, graph.Write(graph.Node("Self"), "Self"));
+		uint update = graph.Node("Event.Update");
+		uint updateStop = graph.Write("update");
+		graph.Flow(update, updateStop);
+		graph.Flow(updateStop, graph.Write(graph.Node("Self"), "Self"));
+		TestRuntime runtime = TestRuntime.Start(document);
+		DebugSession session = new(runtime);
+		session.Break(stop);
+
+		HandledContact contact = new(new NativeCollision { Entity = 7, Other = TestRuntime.Hero, Step = 12 }, []);
+		runtime.Environment.Handled = contact;
+		runtime.Invoke((ScriptEvent)scriptEvent, 0.0f, other: TestRuntime.Hero);
+		// The handler returned: the engine handles no contact any more.
+		runtime.Environment.Handled = null;
+		Assert.Single(session.Stops());
+		session.Continue();
+		Assert.Same(contact, runtime.Environment.ContactAtLookup);
+		Assert.Null(runtime.Environment.Continued);
+
+		session.Break(updateStop);
+		runtime.Invoke(ScriptEvent.Update, 0.016f);
+		session.Continue();
+		Assert.Null(runtime.Environment.ContactAtLookup);
+		Assert.Null(runtime.Environment.Continued);
+		Assert.Equal(["stopped", "Entity(7)", "update", "Entity(7)"], runtime.Records);
+	}
+
 	// Targets (spec-slice4 section 3.1): a graph's breakpoints stop the instance of its target entity only; entity 0 or no entry
 	// is any instance; a target of another graph changes nothing.
 	[Fact]

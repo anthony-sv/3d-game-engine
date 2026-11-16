@@ -45,6 +45,10 @@ internal sealed unsafe class EngineEnvironment : IVisualScriptEnvironment
 		return found;
 	}
 
+	public HandledContact? SaveContact() => Collision.SaveHandled();
+
+	public HandledContact? RestoreContact(HandledContact? contact) => Collision.SetContinued(contact);
+
 	public void SetDeltaTime(float timeStep)
 	{
 		Time.DeltaTime = timeStep;

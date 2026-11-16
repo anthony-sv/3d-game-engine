@@ -53,6 +53,9 @@ namespace Strada::ScriptGlue
 
 		static_assert(sizeof(ContactPointValues) == 56 && offsetof(ContactPointValues, Impulse) == 36 &&
 		              offsetof(ContactPointValues, Material) == 40 && offsetof(ContactPointValues, OtherMaterial) == 48);
+		// The managed side sizes the buffer Collision_Read fills with its own constant (NativeContactPoint.MaxCount, which
+		// InteropTests pins): both change together.
+		static_assert(MaxContactPoints == 4, "Strada.Interop.NativeContactPoint.MaxCount must equal MaxContactPoints");
 
 		// --- Time ---
 

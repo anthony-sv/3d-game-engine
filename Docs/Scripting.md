@@ -281,7 +281,9 @@ runs. `Collision.Entity` is the script's entity, `Collision.Other` the other one
 contact began or ended in, and `Collision.Points` where the colliders touch as it begins: up to four `ContactPoint`s, the
 strongest first, each with its `Point`, its `Normal` (unit length, from the other collider towards this one: the way this
 entity is pushed), its `Impulse` (newton seconds, the impulse that stops the two bodies' approach: how hard the impact is;
-0 for a trigger and for a contact without a dynamic body), the `RelativeVelocity` of the two bodies there, and the
+0 for a trigger and for a contact without a dynamic body; the points of each surface a contact begins on are estimated as
+if that surface alone stopped the bodies, so a ball landing on two faces at once reads too much on each when the faces
+are at a shallow angle and too little when they are steep), the `RelativeVelocity` of the two bodies there, and the
 physics materials of this side's surface and the other's (`Material`, `OtherMaterial`, null for a collider without one).
 Trigger overlaps have points too, with no impulse. A contact that ends has no points, and outside a callback `Collision`
 is empty (no entities, step 0, no points). Each read of `Points` makes a new array.

@@ -204,11 +204,13 @@ internal sealed class Execution
 	// breakpoints, snapshotted.
 	internal bool CanStop { get; set; }
 
-	// A stopped execution: the steps its budget had left and Time.DeltaTime as it read it (spec-slice4 section 4.2), both
-	// restored when it continues.
+	// A stopped execution: the steps its budget had left, Time.DeltaTime as it read it (spec-slice4 section 4.2) and the
+	// contact event it read (Strada.Collision; null outside a contact handler), all restored when it continues.
 	internal int SavedSteps { get; set; }
 
 	internal float SavedDeltaTime { get; set; }
+
+	internal HandledContact? SavedContact { get; set; }
 
 	// The first stop point of the run passes: every resume runs at least one instruction (spec-slice4 section 4.1).
 	internal bool SkipStop { get; set; }
@@ -375,6 +377,7 @@ internal sealed class Execution
 		CanStop = false;
 		SavedSteps = 0;
 		SavedDeltaTime = 0.0f;
+		SavedContact = null;
 		SkipStop = false;
 		Start = default;
 		Delivery = null;

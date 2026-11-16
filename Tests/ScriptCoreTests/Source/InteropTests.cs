@@ -142,6 +142,9 @@ public sealed class InteropTests
 		Assert.Equal(36, (int)Marshal.OffsetOf<NativeContactPoint>(nameof(NativeContactPoint.Impulse)));
 		Assert.Equal(40, (int)Marshal.OffsetOf<NativeContactPoint>(nameof(NativeContactPoint.Material)));
 		Assert.Equal(48, (int)Marshal.OffsetOf<NativeContactPoint>(nameof(NativeContactPoint.OtherMaterial)));
+		// Collision_Read writes up to the engine's MaxContactPoints (4, static_asserted beside its layout) into a buffer of this
+		// many.
+		Assert.Equal(4, NativeContactPoint.MaxCount);
 		Assert.Equal(48, Unsafe.SizeOf<NativePhysicsMaterial>());
 		Assert.Equal(24, (int)Marshal.OffsetOf<NativePhysicsMaterial>(nameof(NativePhysicsMaterial.Friction)));
 		Assert.Equal(36, (int)Marshal.OffsetOf<NativePhysicsMaterial>(nameof(NativePhysicsMaterial.FrictionCombine)));

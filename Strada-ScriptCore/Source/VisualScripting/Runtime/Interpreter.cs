@@ -53,6 +53,7 @@ internal sealed partial class VisualScriptRuntime
 				// Spec-slice4 section 4.2: what the execution continues with.
 				execution.SavedSteps = m_StepsRemaining;
 				execution.SavedDeltaTime = m_Environment.GetDeltaTime();
+				execution.SavedContact = m_Environment.SaveContact();
 			}
 			return result;
 		}

@@ -1611,7 +1611,14 @@ no points when contacts end.
   approach and, with restitution, sends the bodies apart again: what the collision takes in all, also when Jolt's solver
   spreads it over two steps (a speculative contact first lets the bodies close the gap). A 2 kg ball that comes in at
   6 m/s on static ground reports 12 N s, and 18 N s with a restitution of 0.5. It knows nothing of other bodies in the
-  same collision (a body landing on a stack). A trigger contact, and a pair without a dynamic body (a character's inner
+  same collision (a body landing on a stack), nor of the pair's other manifolds: each manifold is estimated as if it
+  alone stopped the pair. A contact that begins on several manifolds in one step therefore reports impulses that are not
+  shared out between them: for a body that comes down evenly on two, too large when their normals are less than 90
+  degrees apart, too small when more, exact at right angles. A 2 kg ball landing at speed v in a groove whose faces rise at 30 degrees reports m v cos 30 on each
+  face, where the two solved together take m v / (2 cos 30) each (1.5 times less); at 60 degrees it reports m v cos 60,
+  where they take m v each (twice as much). A joint solve was left out: it needs every candidate point of the pair's
+  manifolds and the bodies' velocities from before the step's solve (a swept contact arrives after it), which the
+  listener would have to store as they grow, where the fixed points allocate nothing. A trigger contact, and a pair without a dynamic body (a character's inner
   body on static ground), report 0: Jolt gives them no response.
 - *The relative velocity* is this body's velocity at the point minus the other's, at the same moment as the impulse's:
   the bodies approach when it points against the normal.
@@ -1620,8 +1627,10 @@ no points when contacts end.
   points name the surfaces its contact started on (manifold reduction, above). A contact that begins on several
   manifolds in one step (a ball landing in a groove of two faces, a box across two colliders at an angle) gives the
   event the points of each, each with its own normal and materials, the four strongest kept.
-- *The order* is strongest first: by impulse from the largest, then by position x, y and z from the smallest, a function
-  of the values rather than of Jolt's order of points. The first point is the strongest.
+- *The order* is strongest first: by impulse from the largest, then by position, normal and relative velocity (each by
+  x, y and z) from the smallest, then by the materials' UUIDs (`IsContactPointBefore`, `PhysicsTypes.h`). The key is
+  every value of a point, so only equal points tie, and the order is a function of the values rather than of Jolt's
+  order of points. The first point is the strongest.
 - *Taking them* happens in `OnContactAdded`, on Jolt's worker threads, under the collector's lock, and only for the
   manifolds of a contact that begins (each pair's state remembers its enter event while the step runs). The estimate
   works on the stack and the points go into the event's fixed array, so taking points allocates nothing; the pairs'
@@ -1658,8 +1667,11 @@ reference); the managed `ContactPoint` is a struct of public fields, so graphs M
 its other side's material ("" for none): the outputs follow `Other`, and stored graphs name pins by text, so graphs
 saved before them load unchanged. The runtime reads them (`IVisualScriptEnvironment.TryGetContactPoint`, no array) only
 for a graph that has the node, as it looks up `Other`. A graph's flow reads `Strada.Collision` until its first wait: a
-fiber that resumes later (after a delay, or from a debugger stop) runs outside the handler, while the event node's
-outputs keep the values they were given.
+fiber that resumes later after a delay runs outside the handler, while the event node's outputs keep the values they were
+given. A flow the debugger stopped is not waiting: like `Time.DeltaTime`, the stopped execution saves a copy of the
+contact it read (`IVisualScriptEnvironment.SaveContact`, a `HandledContact`, only when it stops inside a handler), and
+`ContinueStopped` makes `Collision` read that copy while the chain continues (`RestoreContact`), so a stop changes
+nothing the flow computes.
 
 **Step control.** A step lasts the project's `Physics.FixedTimestep` (0.0005 to 0.1 s, default 1/60); a frame runs at
 most `Physics.MaxStepsPerFrame` of them (1 to 64, default 8; a slower frame drops the backlog beyond one step, so the

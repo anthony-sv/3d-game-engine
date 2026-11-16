@@ -110,17 +110,14 @@ namespace
 		return points;
 	}
 
-	// The stated order of an event's points: the larger impulse first, then the smaller x, y and z.
+	// The stated order of an event's points (IsContactPointBefore, which its own case checks): the larger impulse first.
 	bool AreSorted(ContactEvent const& event)
 	{
 		for (uint32_t index = 1; index < event.PointCount; index++)
 		{
 			ContactPoint const& before = event.Points[index - 1];
 			ContactPoint const& after = event.Points[index];
-			bool const inOrder = before.Impulse > after.Impulse ||
-			                     (before.Impulse == after.Impulse && std::tuple(before.Point.x, before.Point.y, before.Point.z) <
-			                                                             std::tuple(after.Point.x, after.Point.y, after.Point.z));
-			if (!inOrder)
+			if (before.Impulse < after.Impulse || IsContactPointBefore(after, before))
 			{
 				return false;
 			}
@@ -323,38 +320,63 @@ TEST_CASE("PhysicsScene: contact points name both sides' physics materials, a su
 		CHECK(ground.OtherMaterial == BallMaterial);
 	}
 
-	SUBCASE("A ball in a groove touches both faces in one step: one event, a point on each face with its normal and material")
+	SUBCASE("A ball in a groove touches both faces in one step: one event, a point on each face with its normal, its material and "
+	        "the impulse that face alone would take")
 	{
-		Scope<PhysicsScene> world = CreateWorld();
-		REQUIRE(world->AddBody(Groove(30.0f)).IsOk());
-		REQUIRE(world->AddBody(Ball({0.0f, 3.0f, 0.0f}, BallMaterial)).IsOk());
-		std::vector<ContactEvent> const events = Simulate(*world, 1.0f / 60.0f, 90);
-		CHECK(std::count_if(events.begin(), events.end(),
-		                    [](ContactEvent const& event)
-		                    {
-								return event.Type == ContactEventType::CollisionEnter;
-							}) == 1);
-		std::optional<ContactEvent> const landing = FindEvent(events, ContactEventType::CollisionEnter, BallId, GroundId);
-		REQUIRE(landing);
-		REQUIRE(landing->PointCount == 2);
-		CHECK(AreSorted(*landing));
-		std::vector<ContactPoint> const points = PointsSeenBy(*landing, BallId);
-		// Each face pushes the ball up and away from itself, 30 degrees from the vertical.
-		ContactPoint const& left = points[0].Normal.x > 0.0f ? points[0] : points[1];
-		ContactPoint const& right = points[0].Normal.x > 0.0f ? points[1] : points[0];
-		CHECK(left.Normal.x == doctest::Approx(0.5f).epsilon(1e-4));
-		CHECK(left.Normal.y == doctest::Approx(std::sqrt(0.75f)).epsilon(1e-4));
-		CHECK(right.Normal.x == doctest::Approx(-0.5f).epsilon(1e-4));
-		CHECK(right.Normal.y == doctest::Approx(std::sqrt(0.75f)).epsilon(1e-4));
-		CHECK(left.Point.x < 0.0f);
-		CHECK(right.Point.x > 0.0f);
-		CHECK(left.OtherMaterial == LeftMaterial);
-		CHECK(right.OtherMaterial == RightMaterial);
-		CHECK(left.Material == BallMaterial);
-		CHECK(right.Material == BallMaterial);
-		// The two faces share the landing: each takes a part of what stops the ball.
-		CHECK(left.Impulse > 0.0f);
-		CHECK(right.Impulse > 0.0f);
+		for (float const degrees : {30.0f, 60.0f})
+		{
+			CAPTURE(degrees);
+			Scope<PhysicsScene> world = CreateWorld();
+			REQUIRE(world->AddBody(Groove(degrees)).IsOk());
+			REQUIRE(world->AddBody(Ball({0.0f, 3.0f, 0.0f}, BallMaterial)).IsOk());
+			std::vector<ContactEvent> events;
+			float speed = 0.0f;
+			for (int index = 0; index < 90; index++)
+			{
+				bool const landed = FindEvent(events, ContactEventType::CollisionEnter, BallId, GroundId).has_value();
+				if (!landed)
+				{
+					// Straight down, as Jolt finds the contacts (gravity acts before it looks for them).
+					speed = -(world->GetLinearVelocity(BallId).y - Gravity / 60.0f);
+				}
+				world->Step(1.0f / 60.0f);
+				std::vector<ContactEvent> const stepEvents = world->TakeContactEvents();
+				events.insert(events.end(), stepEvents.begin(), stepEvents.end());
+			}
+			CHECK(std::count_if(events.begin(), events.end(),
+			                    [](ContactEvent const& event)
+			                    {
+									return event.Type == ContactEventType::CollisionEnter;
+								}) == 1);
+			std::optional<ContactEvent> const landing = FindEvent(events, ContactEventType::CollisionEnter, BallId, GroundId);
+			REQUIRE(landing);
+			REQUIRE(landing->PointCount == 2);
+			CHECK(AreSorted(*landing));
+			std::vector<ContactPoint> const points = PointsSeenBy(*landing, BallId);
+			// Each face pushes the ball up and away from itself, as far from the vertical as the face rises.
+			float const sine = std::sin(glm::radians(degrees));
+			float const cosine = std::cos(glm::radians(degrees));
+			ContactPoint const& left = points[0].Normal.x > 0.0f ? points[0] : points[1];
+			ContactPoint const& right = points[0].Normal.x > 0.0f ? points[1] : points[0];
+			CHECK(left.Normal.x == doctest::Approx(sine).epsilon(1e-4));
+			CHECK(left.Normal.y == doctest::Approx(cosine).epsilon(1e-4));
+			CHECK(right.Normal.x == doctest::Approx(-sine).epsilon(1e-4));
+			CHECK(right.Normal.y == doctest::Approx(cosine).epsilon(1e-4));
+			CHECK(left.Point.x < 0.0f);
+			CHECK(right.Point.x > 0.0f);
+			CHECK(left.OtherMaterial == LeftMaterial);
+			CHECK(right.OtherMaterial == RightMaterial);
+			CHECK(left.Material == BallMaterial);
+			CHECK(right.Material == BallMaterial);
+			// Each face's manifold is estimated alone (ContactPoint::Impulse): it takes what stops the 2 kg ball's speed along
+			// its normal, m v cos(degrees). Solved together each face would take m v / (2 cos(degrees)): less at 30 degrees,
+			// whose normals are 60 apart, more at 60, whose normals are 120 apart.
+			float const alone = 2.0f * speed * cosine;
+			CHECK(left.Impulse == doctest::Approx(alone).epsilon(1e-4));
+			CHECK(right.Impulse == doctest::Approx(alone).epsilon(1e-4));
+			float const together = 2.0f * speed / (2.0f * cosine);
+			CHECK((degrees < 45.0f ? alone > 1.4f * together : alone < 0.6f * together));
+		}
 	}
 
 	SUBCASE("A trigger's points have no impulse, and its exit no points")
@@ -586,5 +608,55 @@ TEST_CASE("PhysicsScene: a fast ball's swept contact with a thin wall reports it
 		CHECK(point.Impulse == doctest::Approx(200.0f).epsilon(1e-3));
 		CHECK(point.Material == BallMaterial);
 		CHECK(point.OtherMaterial == GroundMaterial);
+	}
+}
+
+TEST_CASE("PhysicsScene: contact points are ordered by every value they hold, the strongest first, so only equal points tie")
+{
+	ContactPoint base;
+	base.Point = {1.0f, 2.0f, 3.0f};
+	base.Normal = {0.0f, 1.0f, 0.0f};
+	base.Impulse = 4.0f;
+	base.RelativeVelocity = {0.0f, -2.0f, 0.0f};
+	base.Material = BallMaterial;
+	base.OtherMaterial = GroundMaterial;
+	CHECK_FALSE(IsContactPointBefore(base, base));
+
+	// Each a little larger than the base in one value only: after it, but for the impulse, whose larger value goes first.
+	std::vector<ContactPoint> larger(14, base);
+	larger[0].Impulse = 5.0f;
+	for (glm::length_t axis = 0; axis < 3; axis++)
+	{
+		larger[1 + static_cast<size_t>(axis)].Point[axis] += 0.5f;
+		larger[4 + static_cast<size_t>(axis)].Normal[axis] += 0.5f;
+		larger[7 + static_cast<size_t>(axis)].RelativeVelocity[axis] += 0.5f;
+	}
+	larger[10].Material = AssetHandle(UUID(BallMaterial.GetUUID().GetValue() + 10));
+	larger[11].OtherMaterial = AssetHandle(UUID(GroundMaterial.GetUUID().GetValue() + 10));
+	// An earlier value decides before a later one.
+	larger[12].Point.z += 0.5f;
+	larger[12].Normal.x -= 0.5f;
+	larger[13].Normal.z += 0.5f;
+	larger[13].Material = AssetHandle();
+	for (size_t index = 0; index < larger.size(); index++)
+	{
+		CAPTURE(index);
+		bool const first = index == 0;
+		CHECK(IsContactPointBefore(larger[index], base) == first);
+		CHECK(IsContactPointBefore(base, larger[index]) == !first);
+	}
+
+	// A strict order: sorting any arrangement of the points gives one sequence.
+	std::vector<ContactPoint> points = larger;
+	points.push_back(base);
+	std::sort(points.begin(), points.end(), IsContactPointBefore);
+	std::vector<ContactPoint> reversed(larger.rbegin(), larger.rend());
+	reversed.insert(reversed.begin() + 3, base);
+	std::sort(reversed.begin(), reversed.end(), IsContactPointBefore);
+	CHECK(points == reversed);
+	CHECK(points.front() == larger[0]);
+	for (size_t index = 1; index < points.size(); index++)
+	{
+		CHECK(IsContactPointBefore(points[index - 1], points[index]));
 	}
 }

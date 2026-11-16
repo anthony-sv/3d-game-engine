@@ -32,6 +32,7 @@ public sealed unsafe class CollisionTests : IDisposable
 
 	public void Dispose()
 	{
+		Collision.SetContinued(null);
 		InternalCalls.Collision_Read = m_PreviousRead;
 		s_Collision = null;
 		s_Points = [];
@@ -141,5 +142,45 @@ public sealed unsafe class CollisionTests : IDisposable
 		Assert.True(environment.TryGetContactPoint(out ContactPoint point, out string surface));
 		Assert.Equal(2.0f, point.Impulse);
 		Assert.Equal(string.Empty, surface);
+	}
+
+	// What a graph execution the debugger stopped inside a contact flow continues with: a copy of the contact being handled
+	// (none outside a handler), which reads give in place of the engine's, without asking it, until it is put back.
+	[Fact]
+	public void ASavedContactIsReadInPlaceOfTheEnginesWhileItContinues()
+	{
+		Assert.Null(Collision.SaveHandled());
+		Handle(5, 9, 42,
+			new NativeContactPoint { Point = new Vector3(1.0f, 0.0f, 0.0f), Normal = Vector3.Up, Impulse = 3.0f, OtherMaterial = 12 },
+			new NativeContactPoint { Point = new Vector3(-1.0f, 0.0f, 0.0f), Normal = Vector3.Up, Impulse = 1.0f });
+		EngineEnvironment environment = new();
+		HandledContact? saved = environment.SaveContact();
+		Assert.NotNull(saved);
+		Assert.Equal(2u, saved.Collision.PointCount);
+		Assert.Equal(2, saved.Points.Length);
+
+		// The handler returned.
+		s_Collision = null;
+		s_Points = [];
+		int reads = s_Reads;
+		Assert.Null(environment.RestoreContact(saved));
+		Assert.Same(saved, Collision.SaveHandled());
+		Assert.Equal(new Entity(5), Collision.Entity);
+		Assert.Equal(new Entity(9), Collision.Other);
+		Assert.Equal(42ul, Collision.Step);
+		ContactPoint[] points = Collision.Points;
+		Assert.Equal(2, points.Length);
+		Assert.Equal(3.0f, points[0].Impulse);
+		Assert.Equal(1.0f, points[1].Impulse);
+		Assert.Equal(new AssetHandle(12), points[0].OtherMaterial!.Handle);
+		Assert.True(Collision.TryGetStrongestPoint(out ContactPoint strongest));
+		Assert.Equal(3.0f, strongest.Impulse);
+		Assert.Equal(reads, s_Reads);
+
+		// Put back: the engine's again, which handles none now.
+		Assert.Same(saved, environment.RestoreContact(null));
+		Assert.Null(Collision.Entity);
+		Assert.Empty(Collision.Points);
+		Assert.Equal(reads + 2, s_Reads);
 	}
 }
