@@ -23,6 +23,8 @@
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/ComponentTraits.h"
+#include "Strada/Scene/Components.h"
+#include "Strada/Scene/Entity.h"
 
 #include <doctest/doctest.h>
 
@@ -310,6 +312,118 @@ TEST_CASE("EditorCommands: entities can be created, inspected, edited and undone
 	CHECK(fixture.Fails("editor.undo") == AutomationErrorCode::InvalidOperation);
 	fixture.Ok("editor.redo");
 	CHECK(fixture.Context.GetScene().GetEntityCount() == 1);
+}
+
+TEST_CASE("EditorCommands: entity.create keeps an ID it is given, refuses one in use, and undo and redo keep it")
+{
+	// A tool that makes a scene again deletes its entities and creates them with the IDs they had, so the file stays the same.
+	CommandFixture fixture;
+	std::string const parent = fixture.Create("Parent", Json::object({{"id", "1234567890123"}}));
+	CHECK(parent == "1234567890123");
+	std::string const child = fixture.Create("Child", Json::object({{"id", "42"}, {"parent", parent}, {"siblingIndex", 0}}));
+	CHECK(child == "42");
+	CHECK(fixture.Ok("entity.get", Json::object({{"entity", "42"}}))["parent"] == parent);
+
+	// An ID in use, an invalid one and one that is not a number are refused, naming the parameter; nothing is created.
+	for (char const* const id : {"42", "0", "child"})
+	{
+		CAPTURE(id);
+		CommandResult const refused = fixture.Run("entity.create", Json::object({{"name", "Again"}, {"id", id}}));
+		REQUIRE(refused.IsError());
+		CHECK(refused.GetError().Code == AutomationErrorCode::InvalidParams);
+		CHECK(refused.GetError().Data["path"] == "id");
+	}
+	CHECK(fixture.Context.GetScene().GetEntityCount() == 2);
+
+	// Deleted, the ID is free again; undoing the new entity and redoing it keep the ID.
+	fixture.Ok("entity.delete", Json::object({{"entities", {child}}}));
+	CHECK(fixture.Create("Child", Json::object({{"id", "42"}, {"parent", parent}})) == "42");
+	fixture.Ok("editor.undo");
+	CHECK_FALSE(fixture.Context.GetScene().HasEntity(UUID(42)));
+	fixture.Ok("editor.redo");
+	CHECK(fixture.Ok("entity.get", Json::object({{"entity", "42"}}))["name"] == "Child");
+}
+
+TEST_CASE("EditorCommands: entity.create makes children under the new entity in one undo step, and refuses them all or none")
+{
+	// A level's props in one request: a tool that places thousands keeps their IDs and their order, and one undo takes them
+	// all back.
+	CommandFixture fixture;
+	Json const children = Json::array({
+		Json::object({{"name", "Cone"}, {"id", "7"}, {"components", {{"Transform", {{"Translation", {1.0, 0.0, 2.0}}}}}}}),
+		Json::object({{"name", "Tyres"}}),
+		Json::object({{"id", "9"}, {"components", {{"PointLight", {{"Range", 5.0}}}}}}),
+	});
+	Json const made = fixture.Ok("entity.create", Json::object({{"name", "Props"}, {"id", "5"}, {"children", children}}));
+	CHECK(made["id"] == "5");
+	REQUIRE(made["children"].size() == 3);
+	CHECK(made["children"][0] == "7");
+	CHECK(made["children"][2] == "9");
+	std::string const tyres = made["children"][1].get<std::string>();
+	CHECK(tyres != "5");
+	Json const props = fixture.Ok("entity.get", Json::object({{"entity", "5"}}));
+	CHECK(props["children"] == Json::array({"7", tyres, "9"}));
+	CHECK(fixture.Ok("entity.get", Json::object({{"entity", "9"}}))["name"] == "Entity");
+	CHECK(fixture.Ok("component.get", Json::object({{"entity", "7"}, {"component", "Transform"}}))["fields"]["Translation"] ==
+	      Json::array({1.0, 0.0, 2.0}));
+	CHECK(fixture.Context.GetScene().GetEntityByUUID(UUID(9)).HasComponent<PointLightComponent>());
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == 1);
+
+	// One undo takes the entity and its children; redo brings them back with their IDs, in their order.
+	fixture.Ok("editor.undo");
+	CHECK(fixture.Context.GetScene().GetEntityCount() == 0);
+	fixture.Ok("editor.redo");
+	CHECK(fixture.Context.GetScene().GetEntityCount() == 4);
+	CHECK(fixture.Ok("entity.get", Json::object({{"entity", "5"}}))["children"] == Json::array({"7", tyres, "9"}));
+
+	// No children asked for: an empty list, and the entity alone.
+	Json const alone = fixture.Ok("entity.create", Json::object({{"name", "Alone"}, {"children", Json::array()}}));
+	CHECK(alone["children"] == Json::array());
+
+	// Each refusal names what it refuses and creates nothing: an ID in use, an ID given twice (also the new entity's
+	// own), an ID that is not one, an unknown component, fields that do not load.
+	size_t const entities = fixture.Context.GetScene().GetEntityCount();
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	struct Refusal
+	{
+		Json Params;
+		AutomationErrorCode Code;
+		char const* Path;
+	};
+	auto const child = [](char const* key, Json value)
+	{
+		return Json::object({{key, std::move(value)}});
+	};
+	Json const unknown = Json::object({{"NoSuchComponent", Json::object()}});
+	Json const unloadable = Json::object({{"Transform", Json::object({{"Translation", "here"}})}});
+	std::vector<Refusal> const refusals = {
+		{Json::object({{"children", Json::array({child("name", "A"), child("id", "7")})}}), AutomationErrorCode::InvalidParams,
+	     "children[1].id"},
+		{Json::object({{"children", Json::array({child("id", "11"), child("id", "11")})}}), AutomationErrorCode::InvalidParams,
+	     "children[1].id"},
+		{Json::object({{"id", "12"}, {"children", Json::array({child("id", "12")})}}), AutomationErrorCode::InvalidParams,
+	     "children[0].id"},
+		{Json::object({{"children", Json::array({child("id", "zero")})}}), AutomationErrorCode::InvalidParams, "children[0].id"},
+		{Json::object({{"children", Json::array({child("name", "A"), child("components", unknown)})}}),
+	     AutomationErrorCode::ComponentNotFound, nullptr},
+		{Json::object({{"children", Json::array({child("name", "A"), child("components", unloadable)})}}),
+	     AutomationErrorCode::InvalidParams, nullptr},
+	};
+	for (Refusal const& refusal : refusals)
+	{
+		CAPTURE(refusal.Params.dump());
+		CommandResult const refused = fixture.Run("entity.create", refusal.Params);
+		REQUIRE(refused.IsError());
+		CHECK(refused.GetError().Code == refusal.Code);
+		if (refusal.Path != nullptr)
+		{
+			CHECK(refused.GetError().Data["path"] == refusal.Path);
+		}
+		CHECK(fixture.Context.GetScene().GetEntityCount() == entities);
+		CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	}
+	CHECK_FALSE(fixture.Context.GetScene().HasEntity(UUID(11)));
+	CHECK_FALSE(fixture.Context.GetScene().HasEntity(UUID(12)));
 }
 
 TEST_CASE("EditorCommands: errors carry precise codes")

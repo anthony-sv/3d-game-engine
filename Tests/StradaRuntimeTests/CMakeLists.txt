@@ -3,13 +3,18 @@
 
 add_executable(StradaRuntimeTests
     Source/Main.cpp
+    Source/RuntimeTestUtilities.h
     Source/RuntimeTests.cpp
+    Source/SampleTests.cpp
+    Source/TemplateTests.cpp
 )
 
 target_include_directories(StradaRuntimeTests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Source"
     # Shared helpers (Testing::TemporaryDirectory, the test scripts, the display and GPU switches).
-    "${PROJECT_SOURCE_DIR}/Tests/StradaTests/Source")
+    "${PROJECT_SOURCE_DIR}/Tests/StradaTests/Source"
+    # The player's own pure pieces (Runtime/ScreenshotRequest.h), checked without starting it.
+    "${PROJECT_SOURCE_DIR}/StradaRuntime/Source")
 target_link_libraries(StradaRuntimeTests PRIVATE Strada doctest::doctest)
 target_compile_definitions(StradaRuntimeTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
@@ -27,5 +32,6 @@ strada_configure_target(StradaRuntimeTests)
 strada_precompile_third_party_headers(StradaRuntimeTests)
 set_target_properties(StradaRuntimeTests PROPERTIES FOLDER "Tests")
 
-add_test(NAME StradaRuntimeTests COMMAND StradaRuntimeTests --reporters=console --no-intro=true)
-set_tests_properties(StradaRuntimeTests PROPERTIES TIMEOUT 600)
+# One ctest entry per shard (StradaRuntimeTests.<shard>) and StradaRuntimeTests.Partition, which checks that the shards
+# hold every test case exactly once.
+strada_add_test_shards(StradaRuntimeTests "${CMAKE_CURRENT_SOURCE_DIR}/Shards.cmake")

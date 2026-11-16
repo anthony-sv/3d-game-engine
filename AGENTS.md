@@ -33,7 +33,7 @@ before changing anything structural; it is the architectural contract.
 | `Projects/FeatureTest/` | Project exercising every component and the entire scripting API, with graphs of every built-in node kind and every `[VisualNode]` member of its scripts |
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
 | `Projects/PrismBreak/` | A game made of visual scripts alone (a neon brick breaker), built by `Tools/Author.py` through the agent tools; its test scene's checks are graphs too |
-| `Projects/Moto/` | A motorcycle time trial in the making, of visual scripts alone: a 2.6 km circuit that `Tools/GenerateAssets.py` generates from the layout in `Tools/Circuit.py`, its scene and a camera tour made of a graph (a Timeline on the path `Tools/Tour.py` makes), built by `Tools/Author.py` through the agent tools (`--part <name>` rebuilds one part in place behind a hash guard); its test scene's checks are graphs too |
+| `Projects/Moto/` | A motorcycle time trial in the making, of visual scripts alone: a 2.6 km circuit that `Tools/GenerateAssets.py` generates from the layout in `Tools/Circuit.py`, lined with 10,000 props `Tools/Props.py` places by seed, a generated superbike and rider (`Tools/Bike.py`) on the grid, its scene and a camera tour made of a graph (a Timeline on the path `Tools/Tour.py` makes), built by `Tools/Author.py` through the agent tools (`--part <name>` rebuilds one part in place behind a hash guard; `--captures` takes the player's screenshots from fixed cameras); its test scene's checks are graphs too |
 | `Projects/Showcase/` | Every engine feature in exhibit areas of a forest clearing (materials, glass, lights, post-processing, physics, triggers, a yard to walk in, particles, sound, a garden of chimes played by visual scripts (`Tools/GraphGarden.py`; `Tools/Author.py --exhibit GraphGarden` rebuilds it in place)) with an opening camera tour, a HUD and day and night, built by `Tools/Author.py` through the agent tools; `Tools/FetchAssets.py` downloads its Poly Haven assets |
 | `Projects/Thumbnails/` | The examples' thumbnails (640x360, taken with the player's `--screenshot`), which `Projects/catalog.json`, the catalog of the examples the editor copies (PrismBreak, Blocks, Showcase), names |
 | `Templates/` | Project templates (`<id>/template.json`, `thumbnail.png` and, but for `empty-3d`, a project whose file is `Template.sproj`) that `project.create` and the editor start new projects from; `Tools/AuthorTemplates.py` builds `graph-starter` (Orb Run, made of visual scripts) and `csharp-starter` (Orb Run in C#, whose sources in `Scripts/Source` are written by hand) through the agent tools |
@@ -218,9 +218,10 @@ namespace Strada
   `Testing::TemporaryDirectory`.
 - Run everything with `python Tools/build.py --test`; CI runs the same command on Windows, Linux and macOS.
 - No ctest entry may outgrow its timeout: an entry that passes 450 s on CI's Windows MSVC Debug job is split by
-  source-file patterns. StradaTests and StradaEditorTests run as the shards of their `Shards.cmake`
-  (`Tests/StradaTests/Shards.cmake`, `Tests/StradaEditorTests/Shards.cmake`): `StradaTests.<shard>` and
-  `StradaEditorTests.<shard>`, which `ctest -R StradaTests` and `ctest -R StradaEditorTests` run all of. Each suite's
+  source-file patterns. StradaTests, StradaEditorTests and StradaRuntimeTests run as the shards of their `Shards.cmake`
+  (`Tests/StradaTests/Shards.cmake`, `Tests/StradaEditorTests/Shards.cmake`, `Tests/StradaRuntimeTests/Shards.cmake`):
+  `StradaTests.<shard>`, `StradaEditorTests.<shard>` and `StradaRuntimeTests.<shard>`, which `ctest -R StradaTests`,
+  `ctest -R StradaEditorTests` and `ctest -R StradaRuntimeTests` run all of. Each suite's
   `.Partition` entry keeps its shards a partition: it fails when a test case is in no shard or in two, or when a shard
   selects nothing.
 - Every file format users write gets a fuzz test (`Testing::DocumentMutator` in `Tests/StradaTests/Source/Fuzzing.h`):

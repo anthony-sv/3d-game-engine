@@ -11,24 +11,44 @@ them with the files in Assets (a PNG whose bytes differ there but whose pixels a
 builds may compress differently). It fails when the two runs differ or when Assets holds something else.
 
 Meshes (glTF 2.0 with positions, normals and texture coordinates in meters, Y up; materials named per slot):
-- Track: the road (crowned asphalt, the timing lines cut into it), the kerbs, the verges, the gravel traps and the skirts
-  sloping down to the ground, in world space, one primitive per material and 200 m of the lap (culled one by one).
-- TrackCollision: the same surface welded into one primitive (positions and normals, no texture coordinates), so the
-  physics finds the edges between its triangles: a seam of duplicated vertices would be a bump.
+- Track: the road (crowned asphalt; around each timing line the asphalt with the line painted on it), the kerbs, the
+  verges, the gravel traps and the skirts sloping down to the ground, in world space, one primitive per material and
+  200 m of the lap (culled one by one).
+- TrackCollision: the same surface, one primitive per surface the physics tells apart (SURFACES: asphalt, kerb, gravel,
+  grass; the scene gives each its physics material), each welded (positions and normals, no texture coordinates): the
+  physics builds the shape over the mesh's distinct positions, so the edges between triangles, also where two surfaces
+  meet, are shared and not bumps.
 - Barriers and BarrierCollision: the concrete walls along both sides, drawn and welded likewise.
-- Ground: the flat grass disc the circuit lies on, out to where the hills begin.
-- Hills: the ring of wooded hills around it that makes the skyline, in sectors.
+- Ground: the flat meadow the circuit lies on, out to where the hills begin, in rings whose materials (GROUND_RINGS) the
+  haze of the air between fades towards the horizon's color, the farther the more.
+- Hills: the ring of wooded hills around it that makes the skyline, in sectors; their foot is meadow as hazy as the
+  ground's last ring, so that the ground runs into the hills without an edge.
 - Gantry: the start gantry over the line (legs, beam, the lights' panel and five lamps); local to its entity, which stands
   on the center line with its forward (-Z) along the direction of travel.
 - Gate: a sector gate's arch with its board (local likewise).
-- Footbridge: the bridge over the back straight with its piers and stairs (local likewise).
+- Footbridge: the bridge over the back straight with its piers, and at each end a flight of stairs: treads and risers on
+  two stringers, under a railing (local likewise).
 
-Textures (RGB PNG, tiling): Asphalt (12 m square, with the edge lines), Grass (8 m, mown in stripes), Gravel (3 m), Kerb
-(red and white blocks, 2 m along), Checker (the finish line's checks, 1 m), Concrete (4 m), Forest (the hills' canopy,
-60 m) and SectorBoards (the boards' "S1", "S2" and "S3" side by side).
+Textures (RGB PNG, tiling): Asphalt (12 m square, with the edge lines), TimingLines (the same asphalt with the timing
+lines painted where the road around each line maps it: the sector lines and the finish line's checks), Grass (8 m, mown
+in stripes, beside the track), Meadow (16 m, fine blades without stripes or patches that would repeat as a grid when
+seen from the air), Gravel (3 m), Kerb (red and white blocks, 2 m along), Concrete (4 m), Forest (the hills' canopy, 60
+m) and SectorBoards (the boards' "S1", "S2" and "S3" side by side).
 
 Sky.hdr (Radiance RGBE, run-length encoded): a clear afternoon sky over hazy land, with the sun's glow where
 sun_direction() points; it is the same for every seed.
+
+The props' meshes and textures (Meshes/Props, Textures/Props; Props.py places them): a tyre stack, a cone, braking
+markers (300, 200, 100), a fence post and a chain-link panel, three trees and a bush, a grandstand block, a marshals'
+post, a floodlight and advertising boards with invented names, each one primitive, local to its entity and standing on
+the ground at its origin. Every one but the panel is drawn with an atlas (Props.png: flat colors, the markers' figures,
+the boards' names); the panel with Fence.png, a chain-link with alpha whose holes the Fence material cuts out.
+
+The motorcycle and its rider (Meshes/Bike: Body, Fork, FrontWheel, RearWheel and Rider; Textures/Bike/Livery.png): Bike.py
+makes them.
+
+The circuit, the props and the bike are generate()'s three groups (GROUPS): Author.py's circuit, props and bike parts
+each write theirs; the command line writes them all.
 """
 import argparse
 import base64
@@ -241,8 +261,15 @@ def write_gltf(assets, name, parts, materials, log):
 
 # --- The track ------------------------------------------------------------------------------------------------------------
 
-TRACK_MATERIALS = ("Asphalt", "Kerb", "Grass", "Gravel", "LineWhite", "Checker")
-ASPHALT, KERB, GRASS, GRAVEL, LINE_WHITE, CHECKER = range(len(TRACK_MATERIALS))
+TRACK_MATERIALS = ("Asphalt", "Kerb", "Grass", "Gravel", "TimingLines")
+ASPHALT, KERB, GRASS, GRAVEL, TIMING_LINES = range(len(TRACK_MATERIALS))
+# The surfaces the physics tells apart, in the order of TrackCollision's primitives (its submeshes): the scene gives each
+# its physics material (Assets/Surfaces/<name>.sphysmat), which raycasts and contacts name.
+SURFACES = ("Asphalt", "Kerb", "Gravel", "Grass")
+# The surface of each drawn material: the timing lines are paint on the asphalt.
+SURFACE_OF = {ASPHALT: 0, TIMING_LINES: 0, KERB: 1, GRAVEL: 2, GRASS: 3}
+# The asphalt texture's size along the lap and across it (meters): Asphalt and TimingLines map the road alike.
+ASPHALT_TILE = 12.0
 
 
 def side_profile(s, side):
@@ -276,22 +303,19 @@ def cross_section(s):
 STRIPS = ("skirt", "gravel", "verge", "kerb", "kerb", "road", "road", "kerb", "kerb", "verge", "gravel", "skirt")
 
 
-def line_at(s):
-    """The timing line whose painted band holds the lap distance, and the band's start; None off the lines."""
+def band_at(s):
+    """The timing line whose band of painted road (Circuit.timing_band) holds the lap distance; None elsewhere."""
     for line in Circuit.SECTOR_GATES:
-        start, end = Circuit.timing_line(line)
+        start, end = Circuit.timing_band(line)
         if (s - start) % Circuit.LENGTH < end - start:
-            return line, start % Circuit.LENGTH
+            return line
     return None
 
 
 def strip_material(kind, s0, s1, side):
     middle = (s0 + s1) / 2.0
     if kind == "road":
-        line = line_at(middle)
-        if line is not None:
-            return CHECKER if line[0] == 0.0 else LINE_WHITE
-        return ASPHALT
+        return TIMING_LINES if band_at(middle) is not None else ASPHALT
     if kind == "kerb":
         return KERB if Circuit.kerb(middle, side) > 0.02 else GRASS
     if kind == "gravel":
@@ -299,15 +323,38 @@ def strip_material(kind, s0, s1, side):
     return GRASS
 
 
-def strip_uv(material, s, lateral, point, line_start):
-    """Texture coordinates in meters; the materials' UVTiling sets how often their textures repeat."""
-    if material == ASPHALT:
+def strip_uv(material, s, lateral, point):
+    """Texture coordinates in meters; the materials' UVTiling sets how often their textures repeat. The timing lines' road
+    maps the texture as the asphalt does, so the two meet without a seam and each line lies where painted_lines() puts
+    it."""
+    if material in (ASPHALT, TIMING_LINES):
         return (lateral + Circuit.HALF_WIDTH, s)
     if material == KERB:
         return (abs(lateral) - Circuit.HALF_WIDTH, s)
-    if material in (CHECKER, LINE_WHITE):
-        return (lateral + Circuit.HALF_WIDTH, s - line_start if s - line_start > -1e-6 else s - line_start + Circuit.LENGTH)
     return (point[0], point[2])
+
+
+def tile_span(start, end):
+    """A span of lap distances as the road maps it into the asphalt texture: (start, end) meters along a tile, start in
+    [0, ASPHALT_TILE). Spans before the line (negative) map as the rows at the lap's end do (LENGTH on)."""
+    if start < 0.0:
+        start, end = start + Circuit.LENGTH, end + Circuit.LENGTH
+    return start % ASPHALT_TILE, start % ASPHALT_TILE + (end - start)
+
+
+def painted_lines():
+    """Where the timing lines lie in the asphalt texture: (start, end, is the finish line) per line, in meters along the
+    tile. Asserts that each band of painted road shows its own line alone."""
+    lines = [tile_span(*Circuit.timing_line(line)) + (line == 0.0,) for line in Circuit.SECTOR_GATES]
+    for line in Circuit.SECTOR_GATES:
+        low, high = tile_span(*Circuit.timing_band(line))
+        for other, (paint_start, paint_end, _) in zip(Circuit.SECTOR_GATES, lines):
+            if other == line:
+                continue
+            for shift in (-ASPHALT_TILE, 0.0, ASPHALT_TILE):
+                assert paint_end + shift <= low or paint_start + shift >= high, \
+                    f"the band of the line at {line:.1f} m would show the line at {other:.1f} m"
+    return lines
 
 
 def build_track():
@@ -341,27 +388,28 @@ def build_track():
                     abs(laterals[(i + 1) % count][j + 1] - laterals[(i + 1) % count][j]) < 1e-3:
                 continue
             mesh = parts.setdefault((material, chunk), MeshBuilder())
-            line = line_at((s0 + s1) / 2.0)
-            line_start = line[1] if line is not None else 0.0
             corners = []
             for (row, s), column in (((i, s0), j), ((i, s0), j + 1), (((i + 1) % count, s1), j + 1), (((i + 1) % count, s1), j)):
                 point = rows[row][column]
                 # Smooth along the lap within the strip: the normal of the strip's two faces meeting at the row.
                 normal = normalize(add(faces[row][j], faces[row - 1][j]))
-                uv = strip_uv(material, s, laterals[row][column], point, line_start)
+                uv = strip_uv(material, s, laterals[row][column], point)
                 corners.append(mesh.vertex(point, normal, uv, key=(row, column, j, s == Circuit.LENGTH)))
             mesh.quad(*corners, (0.0, 1.0, 0.0))
     drawn = [(parts[key], key[0]) for key in sorted(parts)]
 
-    # Welded: points at the same place (a gravel trap of no width) are one vertex.
-    collision = MeshBuilder(uvs=False)
+    # One primitive per surface, each welded: points at the same place (a gravel trap of no width) are one vertex.
+    surfaces = [MeshBuilder(uvs=False) for _ in SURFACES]
     for i in range(count):
-        for j in range(len(STRIPS)):
+        s0 = sections[i]
+        s1 = sections[i + 1] if i + 1 < count else Circuit.LENGTH
+        for j, kind in enumerate(STRIPS):
+            collision = surfaces[SURFACE_OF[strip_material(kind, s0, s1, side_of[j])]]
             a, b = welded(collision, rows[i][j]), welded(collision, rows[i][j + 1])
             c, d = welded(collision, rows[(i + 1) % count][j + 1]), welded(collision, rows[(i + 1) % count][j])
             if len({a, b, c, d}) >= 3:
                 collision.quad(a, b, c, d, (0.0, 1.0, 0.0))
-    return drawn, collision
+    return drawn, [(surface, index) for index, surface in enumerate(surfaces)]
 
 
 def welded(mesh, point):
@@ -422,35 +470,62 @@ def build_barriers(sections):
 
 # --- The ground and the hills ---------------------------------------------------------------------------------------------
 
-SEGMENTS_AROUND = 128
+# Round the ground's rings and the hills: enough for the shortest of the skyline's swells (skyline()).
+SEGMENTS_AROUND = 256
 
 
 def skyline(seed):
-    """The hills' height (meters) by angle: a few long swells with seeded phases."""
+    """The hills' height (meters) by angle: a few long swells with seeded phases, and shorter ones on them, so that the
+    ridge against the sky has shoulders and notches as distant country does rather than one smooth band."""
     generator = random.Random(seed * 7 + 3)
     waves = [(frequency, generator.uniform(0.0, 2.0 * math.pi), amplitude)
-             for frequency, amplitude in ((2, 38.0), (3, 26.0), (5, 18.0), (8, 10.0), (13, 6.0))]
+             for frequency, amplitude in ((2, 38.0), (3, 26.0), (5, 18.0), (8, 10.0), (13, 6.0), (21, 7.0), (34, 4.5), (55, 2.5))]
 
     def height(angle):
-        return 110.0 + sum(amplitude * math.sin(frequency * angle + phase) for frequency, phase, amplitude in waves)
+        return 120.0 + sum(amplitude * math.sin(frequency * angle + phase) for frequency, phase, amplitude in waves)
 
     return height
 
 
+# The ground's rings, from the middle outwards: (outer radius in meters, material). The meadow is the same everywhere; the
+# farther rings' materials lighten and blue it towards the horizon's color, as the air between does (there is no fog), up
+# to the haze of the hills' foot, so that the ground meets the hills without an edge. Author.py makes the materials.
+GROUND_RINGS = ((600.0, "Meadow"),) + tuple((600.0 + 200.0 * ring, f"MeadowHaze{ring}") for ring in range(1, 9))
+assert GROUND_RINGS[-1][0] == GROUND_RADIUS
+GROUND_MATERIALS = tuple(material for _, material in GROUND_RINGS)
+
+
 def build_ground():
+    """The flat meadow out to the hills: a disc and rings around it, one primitive per ring (GROUND_RINGS)."""
     cx, cz = circuit_center()
-    mesh = MeshBuilder()
-    middle = mesh.vertex((cx, 0.0, cz), (0.0, 1.0, 0.0), (cx, cz))
-    ring = []
-    for k in range(SEGMENTS_AROUND):
-        angle = 2.0 * math.pi * k / SEGMENTS_AROUND
-        point = (cx + GROUND_RADIUS * math.cos(angle), 0.0, cz + GROUND_RADIUS * math.sin(angle))
-        ring.append(mesh.vertex(point, (0.0, 1.0, 0.0), (point[0], point[2])))
-    for k in range(SEGMENTS_AROUND):
-        a, b = ring[k], ring[(k + 1) % SEGMENTS_AROUND]
-        n = cross(subtract(mesh.positions[a], mesh.positions[middle]), subtract(mesh.positions[b], mesh.positions[middle]))
-        mesh.indices.extend((middle, a, b) if n[1] > 0.0 else (middle, b, a))
-    return mesh
+    parts = []
+    inner = 0.0
+    for index, (outer, _) in enumerate(GROUND_RINGS):
+        mesh = MeshBuilder()
+
+        def ring(radius):
+            vertices = []
+            for k in range(SEGMENTS_AROUND):
+                angle = 2.0 * math.pi * k / SEGMENTS_AROUND
+                point = (cx + radius * math.cos(angle), 0.0, cz + radius * math.sin(angle))
+                vertices.append(mesh.vertex(point, (0.0, 1.0, 0.0), (point[0], point[2])))
+            return vertices
+
+        outside = ring(outer)
+        if inner == 0.0:
+            middle = mesh.vertex((cx, 0.0, cz), (0.0, 1.0, 0.0), (cx, cz))
+            for k in range(SEGMENTS_AROUND):
+                a, b = outside[k], outside[(k + 1) % SEGMENTS_AROUND]
+                n = cross(subtract(mesh.positions[a], mesh.positions[middle]), subtract(mesh.positions[b], mesh.positions[middle]))
+                mesh.indices.extend((middle, a, b) if n[1] > 0.0 else (middle, b, a))
+        else:
+            inside = ring(inner)
+            for k in range(SEGMENTS_AROUND):
+                after = (k + 1) % SEGMENTS_AROUND
+                mesh.quad(inside[k], inside[after], outside[after], outside[k], (0.0, 1.0, 0.0))
+        parts.append((mesh, index))
+        inner = outer
+    return parts
 
 
 def build_hills(seed):
@@ -474,20 +549,29 @@ def build_hills(seed):
         n = n if n[1] > 0.0 else scale(n, -1.0)
         return normalize(n)
 
+    # The forest covers the slopes from the second row up; the foot of the hills, below it, is meadow in the ground's last
+    # ring's haze, one primitive round the whole ring.
     sectors = 16
     per = SEGMENTS_AROUND // sectors
     parts = []
+    foot = MeshBuilder()
     for sector in range(sectors):
         mesh = MeshBuilder()
         for k in range(sector * per, (sector + 1) * per):
             for r in range(len(radii) - 1):
+                target = foot if r == 0 else mesh
                 corners = []
                 for kk, rr in ((k, r), (k + 1, r), (k + 1, r + 1), (k, r + 1)):
                     p = point(kk, rr)
-                    corners.append(mesh.vertex(p, normal(kk, rr), (p[0], p[2]), key=(kk, rr)))
-                mesh.quad(*corners, (0.0, 1.0, 0.0))
+                    corners.append(target.vertex(p, normal(kk, rr), (p[0], p[2]), key=(kk, rr)))
+                target.quad(*corners, (0.0, 1.0, 0.0))
         parts.append((mesh, 0))
+    parts.append((foot, 1))
     return parts
+
+
+# The hills' materials: the forest, and at their foot the meadow of the ground's last ring.
+HILLS_MATERIALS = ("Forest", GROUND_MATERIALS[-1])
 
 
 # --- The structures (local to their entities: x right, y up, -z the direction of travel) ----------------------------------
@@ -531,6 +615,23 @@ def build_gate():
     return [(steel, 0), (board, 1)], ("GateSteel", "SectorBoard")
 
 
+def slab(mesh, outline, z0, z1):
+    """A prism standing on a convex outline in the x-y plane (meters), from z0 to z1: its two faces and its sides, each
+    with vertices of its own (flat shading), texture coordinates in meters."""
+    area = sum(outline[k][0] * outline[(k + 1) % len(outline)][1] - outline[(k + 1) % len(outline)][0] * outline[k][1]
+               for k in range(len(outline)))
+    if area < 0.0:
+        outline = list(reversed(outline))
+    mesh.face([(x, y, z1) for x, y in outline], (0.0, 0.0, 1.0), [(x, -y) for x, y in outline])
+    mesh.face([(x, y, z0) for x, y in reversed(outline)], (0.0, 0.0, -1.0), [(-x, -y) for x, y in reversed(outline)])
+    for k, (x0, y0) in enumerate(outline):
+        x1, y1 = outline[(k + 1) % len(outline)]
+        length = math.hypot(x1 - x0, y1 - y0)
+        normal = normalize((y1 - y0, x0 - x1, 0.0))
+        mesh.face([(x0, y0, z0), (x1, y1, z0), (x1, y1, z1), (x0, y0, z1)], normal,
+                  [(0.0, 0.0), (length, 0.0), (length, z1 - z0), (0.0, z1 - z0)])
+
+
 def build_footbridge():
     concrete, panel = MeshBuilder(), MeshBuilder()
     deck_bottom = Circuit.BRIDGE_CLEARANCE
@@ -543,39 +644,60 @@ def build_footbridge():
             concrete.box((x, deck_bottom / 2.0, z), (0.5, deck_bottom, 0.5))
     for z in (-width / 2.0 + 0.06, width / 2.0 - 0.06):
         panel.box((0.0, deck_top + 0.6, z), (2.0 * span, 1.2, 0.12))
-    # The stairs go down from each end of the deck, outwards, as a solid flight of steps.
+    # The stairs go down from each end of the deck, outwards: a tread and a riser per step, open beneath, resting on a
+    # stringer each side, with a railing above the stringers. Seen from the side, the steps' edges show above the
+    # stringers.
     steps = 38
     rise = deck_top / steps
     run = 0.28
+    tread = 0.05
+    inside = width / 2.0 - 0.2
+    count = 0
+    while deck_top - (count + 1) * rise > 1e-6:
+        count += 1
     for sign in (-1.0, 1.0):
-        for k in range(steps):
+        previous = deck_top
+        for k in range(count):
             top = deck_top - (k + 1) * rise
-            if top <= 0.0:
-                break
             inner = span + k * run
-            concrete.box((sign * (inner + run / 2.0), top / 2.0, 0.0), (run, top, width - 0.2))
-        flight = steps * run
-        for z in (-width / 2.0 + 0.06, width / 2.0 - 0.06):
-            # The side panels along the flight, sloping with it.
-            x0, x1 = sign * span, sign * (span + flight)
-            normal = (0.0, 0.0, 1.0 if z > 0.0 else -1.0)
-            for offset in (-0.06, 0.06):
-                zz = z + offset
-                panel.face([(x0, deck_top + 1.2, zz), (x1, 1.2, zz), (x1, 0.0, zz), (x0, deck_top - 0.4, zz)],
-                           normal if (offset > 0.0) == (z > 0.0) else scale(normal, -1.0),
-                           [(0.0, 0.0), (flight, 0.0), (flight, 1.2), (0.0, 1.2)])
+            concrete.box((sign * (inner + run / 2.0), top - tread / 2.0, 0.0), (run, tread, 2.0 * inside))
+            concrete.box((sign * (inner + 0.015), (top - tread + previous) / 2.0, 0.0), (0.03, previous - top + tread, 2.0 * inside))
+            previous = top
+        # The stringers' tops run below the steps' inner corners (the line of the nosings less a rise and a tread), their
+        # undersides 0.35 m lower, both down to the ground.
+        slope = rise / run
+        top0 = deck_top - rise - tread - 0.02
+        bottom0 = top0 - 0.35
+        outline = [(sign * span, bottom0), (sign * (span + bottom0 / slope), 0.0), (sign * (span + top0 / slope), 0.0),
+                   (sign * span, top0)]
+        for z0, z1 in ((inside, width / 2.0), (-width / 2.0, -inside)):
+            slab(concrete, outline, z0, z1)
+        # The railing: posts every fourth step, and a hand rail and a middle rail along the slope, 1 m and 0.5 m over the
+        # nosings.
+        last = span + count * run
+        for z in (-width / 2.0 + 0.1, width / 2.0 - 0.1):
+            for k in range(0, count, 4):
+                top = deck_top - (k + 1) * rise
+                panel.box((sign * (span + k * run + run / 2.0), top + 0.5, z), (0.06, 1.0, 0.06))
+            for height in (1.0, 0.5):
+                start, end = deck_top + height, deck_top - count * rise + height
+                rail = [(sign * span, start - 0.03), (sign * last, end - 0.03), (sign * last, end + 0.03), (sign * span, start + 0.03)]
+                slab(panel, rail, z - 0.03, z + 0.03)
     return [(concrete, 0), (panel, 1)], ("Concrete", "BridgePanel")
 
 
 # --- Textures ------------------------------------------------------------------------------------------------------------
 
-def write_png(assets, name, width, height, pixel, log):
-    """Writes Textures/<name>.png, 8-bit RGB, from pixel(x, y) -> (r, g, b) in 0..1 (sRGB)."""
+def write_png(assets, name, width, height, pixel, log, alpha=False):
+    """Writes Textures/<name>.png, 8-bit RGB, from pixel(x, y) -> (r, g, b) in 0..1 (sRGB); with alpha, RGBA from (r, g, b,
+    a)."""
     rows = bytearray()
     for y in range(height):
         rows.append(0)
         for x in range(width):
-            for value in pixel(x, y):
+            values = pixel(x, y)
+            assert len(values) == (4 if alpha else 3), f"{name}: {len(values)} channels"
+            for value in values:
                 rows.append(max(0, min(255, int(round(value * 255.0)))))
 
     def chunk(kind, data):
@@ -584,7 +706,7 @@ def write_png(assets, name, width, height, pixel, log):
     path = os.path.join(assets, "Textures", f"{name}.png")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as file:
-        file.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) +
+        file.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6 if alpha else 2, 0, 0, 0)) +
                    chunk(b"IDAT", zlib.compress(bytes(rows), 9)) + chunk(b"IEND", b""))
     log(f"Textures/{name}.png: {width}x{height}")
 
@@ -655,6 +777,38 @@ def make_textures(assets, seed, log):
 
     write_png(assets, "Asphalt", size, size, asphalt, log)
 
+    # TimingLines: the asphalt with the timing lines painted where the road around each line maps them (painted_lines()):
+    # the sector lines in the edge lines' worn paint, the finish line's two rows of 0.5 m checks across the road. A pixel
+    # the paint touches takes its share of it (4 x 4 samples), so the lines' edges are smooth.
+    lines = painted_lines()
+    pixel_meters = meters / size
+
+    def painted(u_meters, v_meters, base):
+        for start, end, finish in lines:
+            for shift in (-meters, 0.0, meters):
+                if start + shift <= v_meters < end + shift:
+                    if not finish:
+                        tone = 0.82 - 0.18 * wear(u_meters / meters, v_meters / meters)
+                        return [tone, tone, tone * 0.98]
+                    dark = (int(u_meters // 0.5) + int((v_meters - start - shift) // 0.5)) % 2 == 1
+                    tone = 0.06 if dark else 0.85
+                    return [tone, tone, tone]
+        return base
+
+    def timing_lines(x, y):
+        base = asphalt(x, y)
+        v0, v1 = y * pixel_meters, (y + 1) * pixel_meters
+        if not any(start + shift < v1 and v0 < end + shift for start, end, _ in lines for shift in (-meters, 0.0, meters)):
+            return base
+        total = [0.0, 0.0, 0.0]
+        for sy in range(4):
+            for sx in range(4):
+                color = painted((x + (sx + 0.5) / 4.0) * pixel_meters, (y + (sy + 0.5) / 4.0) * pixel_meters, base)
+                total = [total[k] + color[k] / 16.0 for k in range(3)]
+        return [quantize(c) for c in total]
+
+    write_png(assets, "TimingLines", size, size, timing_lines, log)
+
     # Grass: 8 m square, mown in two stripes (4 m each, along v) of lighter and darker green, with clumps and blades.
     blades = value_noise(seed + 11, 256)
     clumps = fractal(seed + 12, 4, 4)
@@ -704,13 +858,20 @@ def make_textures(assets, seed, log):
 
     write_png(assets, "Kerb", 64, 128, kerb, log)
 
-    # Checker: 1 m square, four checks of 0.5 m.
-    def checker(x, y):
-        dark = (x < 32) != (y < 32)
-        tone = 0.06 if dark else 0.85
-        return [tone, tone, tone]
+    # Meadow: 16 m square of uncut grass, blades and small tufts only. A stripe or a patch the size of meters would repeat
+    # every tile and show as a grid from the air; detail this fine averages out at a distance instead.
+    fine = value_noise(seed + 61, 512)
+    tufts = value_noise(seed + 62, 128)
+    hues = fractal(seed + 63, 2, 32)
 
-    write_png(assets, "Checker", 64, 64, checker, log)
+    def meadow(x, y):
+        u, v = (x + 0.5) / size, (y + 0.5) / size
+        light = 0.92 + 0.16 * (fine(u, v) - 0.5) + 0.12 * (tufts(u, v * 0.6) - 0.5)
+        warm = hues(u, v)
+        color = (0.23 + 0.06 * warm, 0.37 + 0.03 * warm, 0.14 + 0.02 * warm)
+        return [quantize(c * light) for c in color]
+
+    write_png(assets, "Meadow", size, size, meadow, log)
 
     # Concrete: 4 m square, pale and mottled.
     mottle = fractal(seed + 41, 4, 4)
@@ -740,7 +901,7 @@ def make_textures(assets, seed, log):
 
 
 # Seven segments: a top, b upper right, c lower right, d bottom, e lower left, f upper left, g middle.
-FIGURES = {"S": "afgcd", "1": "bc", "2": "abged", "3": "abgcd"}
+FIGURES = {"S": "afgcd", "0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd"}
 
 
 def segment_rectangles(figure, left, top, width, height, thickness):
@@ -785,6 +946,417 @@ def sector_boards():
         return [lerp(background[k], 0.95, t) for k in range(3)]
 
     return pixel
+
+
+# --- Props ---------------------------------------------------------------------------------------------------------------
+#
+# The trackside props Props.py places by the thousand: few meshes and two materials, so that their instances draw in few
+# batches. Every mesh but the fence panel is drawn with Props, whose texture (Textures/Props/Props.png) is an atlas of
+# flat colors, the marker boards' figures and the advertising boards' names; the fence panel with Fence, a chain-link
+# whose holes are cut out (an alpha mask) and which shows both sides. Each mesh stands on the ground at its origin, local
+# to its entity; its front (+Z) is what faces the track or the riders coming (Props.py turns it so).
+
+ATLAS_SIZE = 512
+CELL = 64
+# The atlas's cells of color (8 to a row from the top left, 64 pixels each), with how much the color varies across a
+# cell (foliage and bark more than paint), in sRGB.
+SWATCHES = (
+    ("Rubber", (0.055, 0.055, 0.06), 0.08), ("TyreWhite", (0.86, 0.86, 0.84), 0.04), ("TyreRed", (0.72, 0.09, 0.07), 0.04),
+    ("ConeOrange", (0.96, 0.36, 0.05), 0.03), ("White", (0.9, 0.9, 0.89), 0.03), ("Steel", (0.56, 0.58, 0.61), 0.05),
+    ("DarkSteel", (0.17, 0.18, 0.2), 0.05), ("Concrete", (0.62, 0.61, 0.58), 0.1), ("Bark", (0.27, 0.19, 0.12), 0.25),
+    ("LeafLight", (0.25, 0.4, 0.12), 0.3), ("LeafDeep", (0.14, 0.29, 0.09), 0.3), ("Needles", (0.08, 0.2, 0.11), 0.3),
+    ("Shrub", (0.2, 0.33, 0.1), 0.3), ("SeatBlue", (0.07, 0.2, 0.55), 0.04), ("SeatRed", (0.62, 0.08, 0.07), 0.04),
+    ("Roof", (0.8, 0.81, 0.82), 0.04), ("Marshal", (0.94, 0.46, 0.07), 0.04), ("Window", (0.05, 0.07, 0.09), 0.02),
+    ("Lamp", (1.0, 0.97, 0.86), 0.0), ("BoardBlue", (0.04, 0.11, 0.33), 0.03),
+)
+SWATCH = {name: index for index, (name, _, _) in enumerate(SWATCHES)}
+# The marker boards' figures (meters to the corner), each in a cell after the swatches: white on blue, framed white.
+MARKERS = ("100", "200", "300")
+# The advertising boards' names, invented: the text, its color and the board's, each a strip as wide as the atlas below
+# its cells (64 pixels high: a board 4 m by 0.5 m).
+BRANDS = (("VOLTA", (0.96, 0.8, 0.12), (0.05, 0.05, 0.06)), ("KESTREL OIL", (0.95, 0.95, 0.93), (0.74, 0.08, 0.06)),
+          ("NORDA TYRES", (0.95, 0.95, 0.93), (0.04, 0.13, 0.42)), ("AURUM", (0.1, 0.34, 0.19), (0.92, 0.91, 0.87)))
+BRAND_TOP = 256
+# The letters the names use, five pixels by seven.
+LETTERS = {
+    "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
+    "D": ("11110", "10001", "10001", "10001", "10001", "10001", "11110"),
+    "E": ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
+    "I": ("01110", "00100", "00100", "00100", "00100", "00100", "01110"),
+    "K": ("10001", "10010", "10100", "11000", "10100", "10010", "10001"),
+    "L": ("10000", "10000", "10000", "10000", "10000", "10000", "11111"),
+    "M": ("10001", "11011", "10101", "10101", "10001", "10001", "10001"),
+    "N": ("10001", "11001", "10101", "10011", "10001", "10001", "10001"),
+    "O": ("01110", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "R": ("11110", "10001", "10001", "11110", "10100", "10010", "10001"),
+    "S": ("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
+    "T": ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
+    "U": ("10001", "10001", "10001", "10001", "10001", "10001", "01110"),
+    "V": ("10001", "10001", "10001", "10001", "10001", "01010", "00100"),
+    "Y": ("10001", "10001", "01010", "00100", "00100", "00100", "00100"),
+    " ": ("00000",) * 7,
+}
+# The fence's chain-link: its texture repeats every meter; the wires run diagonally every DIAMOND pixels, WIRE wide, and
+# cover about a third of it (the Fence material's alpha cutoff stays below that, Author.py).
+FENCE_SIZE = 128
+DIAMOND = 16
+WIRE = 3
+FENCE_WIDTH = 3.0
+FENCE_HEIGHT = 2.6
+
+
+def cell_origin(cell):
+    """The top left pixel of an atlas cell (swatches first, then the markers)."""
+    return (cell % 8) * CELL, (cell // 8) * CELL
+
+
+def swatch_uv(name):
+    """The texture coordinate at the middle of a swatch's cell: a face drawn in one color."""
+    x, y = cell_origin(SWATCH[name])
+    return ((x + CELL / 2.0) / ATLAS_SIZE, (y + CELL / 2.0) / ATLAS_SIZE)
+
+
+def cell_uv(cell, u, v, inset=4.0):
+    """A texture coordinate inside an atlas cell, from u and v in 0..1 across it, kept inset pixels from its edges (the
+    smaller images of the atlas blend neighboring cells at their borders)."""
+    x, y = cell_origin(cell)
+    return ((x + inset + u * (CELL - 2.0 * inset)) / ATLAS_SIZE, (y + inset + v * (CELL - 2.0 * inset)) / ATLAS_SIZE)
+
+
+def brand_uv(brand, u, v):
+    """A texture coordinate on an advertising board's strip, u along the board and v down it, both 0..1."""
+    return ((1.0 + u * (ATLAS_SIZE - 2.0)) / ATLAS_SIZE, (BRAND_TOP + brand * CELL + 1.0 + v * (CELL - 2.0)) / ATLAS_SIZE)
+
+
+def painted_box(mesh, center, size, name, front=None):
+    """A box drawn in one swatch's color, flat shaded; front, when given, is the texture coordinates of its +Z face's
+    corners (bottom left, bottom right, top right, top left), which shows them instead."""
+    hx, hy, hz = (value / 2.0 for value in size)
+    cx, cy, cz = center
+    uv = swatch_uv(name)
+    for normal, points in (
+            ((1.0, 0.0, 0.0), [(hx, -hy, hz), (hx, -hy, -hz), (hx, hy, -hz), (hx, hy, hz)]),
+            ((-1.0, 0.0, 0.0), [(-hx, -hy, -hz), (-hx, -hy, hz), (-hx, hy, hz), (-hx, hy, -hz)]),
+            ((0.0, 1.0, 0.0), [(-hx, hy, hz), (hx, hy, hz), (hx, hy, -hz), (-hx, hy, -hz)]),
+            ((0.0, -1.0, 0.0), [(-hx, -hy, -hz), (hx, -hy, -hz), (hx, -hy, hz), (-hx, -hy, hz)]),
+            ((0.0, 0.0, 1.0), [(-hx, -hy, hz), (hx, -hy, hz), (hx, hy, hz), (-hx, hy, hz)]),
+            ((0.0, 0.0, -1.0), [(hx, -hy, -hz), (-hx, -hy, -hz), (-hx, hy, -hz), (hx, hy, -hz)])):
+        uvs = front if front is not None and normal == (0.0, 0.0, 1.0) else [uv] * 4
+        mesh.face([(cx + x, cy + y, cz + z) for x, y, z in points], normal, uvs)
+
+
+def ring_point(radius, angle, y):
+    return (radius * math.cos(angle), y, radius * math.sin(angle))
+
+
+def frustum(mesh, y0, y1, r0, r1, sides, name, top=False, phase=0.0):
+    """The flat-shaded sides of a vertical frustum round the Y axis (a cylinder when the radii are equal, a cone when the
+    top's is 0), in one swatch's color, with its top cap when asked."""
+    uv = swatch_uv(name)
+    for k in range(sides):
+        a0 = phase + 2.0 * math.pi * k / sides
+        a1 = phase + 2.0 * math.pi * (k + 1) / sides
+        middle = (a0 + a1) / 2.0
+        slope = (r0 - r1) / (y1 - y0)
+        normal = normalize((math.cos(middle), slope, math.sin(middle)))
+        points = [ring_point(r0, a0, y0), ring_point(r0, a1, y0), ring_point(r1, a1, y1), ring_point(r1, a0, y1)]
+        if r1 <= 1e-6:
+            points = points[:3]
+        mesh.face(points, normal, [uv] * len(points))
+    if top and r1 > 1e-6:
+        mesh.face([ring_point(r1, phase + 2.0 * math.pi * k / sides, y1) for k in range(sides)], (0.0, 1.0, 0.0), [uv] * sides)
+
+
+def disc(mesh, y, inner, outer, sides, name, down=False):
+    """A flat ring (a disc when inner is 0) facing up, or down, in one swatch's color."""
+    uv = swatch_uv(name)
+    normal = (0.0, -1.0 if down else 1.0, 0.0)
+    for k in range(sides):
+        a0, a1 = 2.0 * math.pi * k / sides, 2.0 * math.pi * (k + 1) / sides
+        if inner <= 1e-6:
+            mesh.face([(0.0, y, 0.0), ring_point(outer, a0, y), ring_point(outer, a1, y)], normal, [uv] * 3)
+        else:
+            mesh.face([ring_point(inner, a0, y), ring_point(outer, a0, y), ring_point(outer, a1, y), ring_point(inner, a1, y)],
+                      normal, [uv] * 4)
+
+
+def lump(mesh, center, radii, name, seed):
+    """A rough ball of foliage: an icosahedron split once, its corners pushed in and out a little, flat shaded, its
+    swatch's cell mapped across it from the side so that the leaves' shades vary over it."""
+    generator = random.Random(seed)
+    t = (1.0 + math.sqrt(5.0)) / 2.0
+    corners = [normalize(p) for p in ((-1, t, 0), (1, t, 0), (-1, -t, 0), (1, -t, 0), (0, -1, t), (0, 1, t), (0, -1, -t),
+                                       (0, 1, -t), (t, 0, -1), (t, 0, 1), (-t, 0, -1), (-t, 0, 1))]
+    faces = ((0, 11, 5), (0, 5, 1), (0, 1, 7), (0, 7, 10), (0, 10, 11), (1, 5, 9), (5, 11, 4), (11, 10, 2), (10, 7, 6),
+             (7, 1, 8), (3, 9, 4), (3, 4, 2), (3, 2, 6), (3, 6, 8), (3, 8, 9), (4, 9, 5), (2, 4, 11), (6, 2, 10), (8, 6, 7),
+             (9, 8, 1))
+    points = list(corners)
+    middles = {}
+
+    def middle(a, b):
+        key = (min(a, b), max(a, b))
+        if key not in middles:
+            middles[key] = len(points)
+            points.append(normalize(scale(add(points[a], points[b]), 0.5)))
+        return middles[key]
+
+    split = []
+    for a, b, c in faces:
+        ab, bc, ca = middle(a, b), middle(b, c), middle(c, a)
+        split += [(a, ab, ca), (b, bc, ab), (c, ca, bc), (ab, bc, ca)]
+    pushed = [scale(p, 0.86 + 0.28 * generator.random()) for p in points]
+    world = [(center[0] + p[0] * radii[0], center[1] + p[1] * radii[1], center[2] + p[2] * radii[2]) for p in pushed]
+    cell = SWATCH[name]
+    for a, b, c in split:
+        triangle = [world[a], world[b], world[c]]
+        normal = normalize(cross(subtract(triangle[1], triangle[0]), subtract(triangle[2], triangle[0])))
+        if dot(normal, subtract(triangle[0], center)) < 0.0:
+            normal = scale(normal, -1.0)
+        uvs = [cell_uv(cell, min(1.0, max(0.0, 0.5 + 0.45 * (p[0] - center[0]) / radii[0])),
+                       min(1.0, max(0.0, 0.5 - 0.45 * (p[1] - center[1]) / radii[1]))) for p in triangle]
+        mesh.face(triangle, normal, uvs)
+
+
+def build_tyre_stack():
+    """Four tyres stacked (60 cm across, 96 cm high), the top one painted white, as they line the walls of a run-off."""
+    mesh = MeshBuilder()
+    outer, inner, height, sides = 0.3, 0.17, 0.24, 12
+    for k in range(4):
+        y0 = k * height
+        frustum(mesh, y0, y0 + height * 0.5, outer * 0.94, outer, sides, "TyreWhite" if k == 3 else "Rubber")
+        frustum(mesh, y0 + height * 0.5, y0 + height, outer, outer * 0.94, sides, "TyreWhite" if k == 3 else "Rubber")
+    disc(mesh, 4 * height, inner, outer * 0.94, sides, "TyreWhite")
+    # The hole down the middle, dark.
+    disc(mesh, 4 * height - 0.06, 0.0, inner, sides, "Rubber")
+    return mesh
+
+
+def build_cone():
+    """A traffic cone, 53 cm high: orange with a white band, on a black base."""
+    mesh = MeshBuilder()
+    painted_box(mesh, (0.0, 0.015, 0.0), (0.36, 0.03, 0.36), "Rubber")
+    bands = ((0.03, 0.26, 0.15, 0.085, "ConeOrange"), (0.26, 0.36, 0.085, 0.057, "White"), (0.36, 0.53, 0.057, 0.012, "ConeOrange"))
+    for y0, y1, r0, r1, name in bands:
+        frustum(mesh, y0, y1, r0, r1, 10, name, top=y1 == 0.53)
+    return mesh
+
+
+def build_marker(cell):
+    """A braking marker: a square board (90 cm) on two posts, its figures facing the riders coming (+Z)."""
+    mesh = MeshBuilder()
+    for x in (-0.3, 0.3):
+        painted_box(mesh, (x, 0.5, 0.0), (0.06, 1.0, 0.06), "DarkSteel")
+    front = [cell_uv(cell, 0.0, 1.0, 1.0), cell_uv(cell, 1.0, 1.0, 1.0), cell_uv(cell, 1.0, 0.0, 1.0), cell_uv(cell, 0.0, 0.0, 1.0)]
+    painted_box(mesh, (0.0, 1.45, 0.05), (0.9, 0.9, 0.04), "DarkSteel", front)
+    return mesh
+
+
+def build_fence_post():
+    mesh = MeshBuilder()
+    painted_box(mesh, (0.0, FENCE_HEIGHT / 2.0 + 0.1, 0.0), (0.07, FENCE_HEIGHT + 0.2, 0.07), "Steel")
+    painted_box(mesh, (0.0, 0.05, 0.0), (0.2, 0.1, 0.2), "Concrete")
+    return mesh
+
+
+def build_fence_panel():
+    """A catch fence's panel between two posts: one quad of chain-link, 3 m wide and 2.6 m high, texture coordinates in
+    meters (the Fence material shows both sides and cuts out the holes)."""
+    mesh = MeshBuilder()
+    w = FENCE_WIDTH / 2.0
+    mesh.face([(-w, 0.0, 0.0), (w, 0.0, 0.0), (w, FENCE_HEIGHT, 0.0), (-w, FENCE_HEIGHT, 0.0)], (0.0, 0.0, 1.0),
+              [(0.0, FENCE_HEIGHT), (FENCE_WIDTH, FENCE_HEIGHT), (FENCE_WIDTH, 0.0), (0.0, 0.0)])
+    return mesh
+
+
+def build_broadleaf(seed):
+    """A broadleaf tree about 7 m high: a trunk and a crown of three lumps."""
+    mesh = MeshBuilder()
+    frustum(mesh, 0.0, 3.4, 0.2, 0.13, 6, "Bark")
+    lump(mesh, (0.0, 4.6, 0.0), (2.3, 1.9, 2.3), "LeafLight", seed)
+    lump(mesh, (0.9, 5.6, -0.5), (1.6, 1.4, 1.6), "LeafLight", seed + 1)
+    lump(mesh, (-0.8, 5.3, 0.7), (1.5, 1.3, 1.5), "LeafDeep", seed + 2)
+    return mesh
+
+
+def build_round_tree(seed):
+    """A tree with a round crown, about 6.5 m high."""
+    mesh = MeshBuilder()
+    frustum(mesh, 0.0, 2.6, 0.17, 0.11, 6, "Bark")
+    lump(mesh, (0.0, 4.2, 0.0), (2.4, 2.3, 2.4), "LeafDeep", seed)
+    return mesh
+
+
+def build_conifer():
+    """A conifer about 9 m high: a short trunk under three tiers of needles."""
+    mesh = MeshBuilder()
+    frustum(mesh, 0.0, 1.6, 0.16, 0.12, 6, "Bark")
+    for y0, y1, radius, phase in ((1.0, 4.6, 2.1, 0.0), (3.2, 6.8, 1.6, 0.4), (5.4, 9.0, 1.05, 0.8)):
+        frustum(mesh, y0, y1, radius, 0.0, 9, "Needles", phase=phase)
+        disc(mesh, y0, 0.0, radius, 9, "Needles", down=True)
+    return mesh
+
+
+def build_bush(seed):
+    """A low bush, 2 m across and 1.2 m high."""
+    mesh = MeshBuilder()
+    lump(mesh, (0.0, 0.55, 0.0), (1.0, 0.65, 1.0), "Shrub", seed)
+    return mesh
+
+
+def build_grandstand():
+    """A block of a grandstand, 10 m wide: six rows of seats on concrete steps rising from the front (+Z, towards the
+    track), a back wall, and a roof on two posts."""
+    mesh = MeshBuilder()
+    width, rows, depth, rise, first = 10.0, 6, 1.0, 0.5, 0.6
+    front = 3.0
+    for k in range(rows):
+        top = first + rise * k
+        z = front - depth * (k + 0.5)
+        painted_box(mesh, (0.0, top / 2.0, z), (width, top, depth), "Concrete")
+        painted_box(mesh, (0.0, top + 0.15, z - 0.2), (width - 0.4, 0.3, 0.45), "SeatBlue")
+    back = front - depth * rows
+    wall = first + rise * rows + 2.2
+    painted_box(mesh, (0.0, wall / 2.0, back - 0.15), (width, wall, 0.3), "Concrete")
+    for x in (-width / 2.0 + 0.2, width / 2.0 - 0.2):
+        painted_box(mesh, (x, wall / 2.0, front - 0.3), (0.2, wall, 0.2), "Steel")
+    painted_box(mesh, (0.0, wall + 0.08, (front + back) / 2.0 - 0.2), (width + 0.3, 0.16, front - back + 0.9), "Roof")
+    return mesh
+
+
+def build_marshal_post():
+    """A marshals' post: an orange hut with a dark window band on a platform 1.2 m up, under a white roof."""
+    mesh = MeshBuilder()
+    for x in (-0.8, 0.8):
+        for z in (-0.8, 0.8):
+            painted_box(mesh, (x, 0.6, z), (0.12, 1.2, 0.12), "Steel")
+    painted_box(mesh, (0.0, 1.25, 0.0), (2.0, 0.1, 2.0), "Concrete")
+    painted_box(mesh, (0.0, 1.75, 0.0), (1.8, 0.9, 1.8), "Marshal")
+    painted_box(mesh, (0.0, 2.45, 0.0), (1.82, 0.5, 1.82), "Window")
+    painted_box(mesh, (0.0, 2.8, 0.0), (1.8, 0.2, 1.8), "Marshal")
+    painted_box(mesh, (0.0, 2.96, 0.0), (2.3, 0.12, 2.3), "Roof")
+    return mesh
+
+
+def build_light_pole():
+    """A floodlight pole 11 m high whose lamp leans out over its front (+Z)."""
+    mesh = MeshBuilder()
+    frustum(mesh, 0.0, 11.0, 0.13, 0.08, 6, "Steel")
+    painted_box(mesh, (0.0, 0.1, 0.0), (0.45, 0.2, 0.45), "Concrete")
+    painted_box(mesh, (0.0, 10.9, 0.75), (0.1, 0.1, 1.5), "Steel")
+    painted_box(mesh, (0.0, 10.88, 1.55), (0.9, 0.2, 0.5), "DarkSteel")
+    # The lamp's glass, under its housing.
+    painted_box(mesh, (0.0, 10.75, 1.55), (0.84, 0.06, 0.44), "Lamp")
+    return mesh
+
+
+def build_board(brand):
+    """An advertising board, 4 m by 0.5 m, on two legs: its name faces the track (+Z), its back is dark."""
+    mesh = MeshBuilder()
+    bottom, top = 0.9, 1.4
+    for x in (-1.5, 1.5):
+        painted_box(mesh, (x, bottom / 2.0, -0.06), (0.06, bottom, 0.06), "DarkSteel")
+    front = [brand_uv(brand, 0.0, 1.0), brand_uv(brand, 1.0, 1.0), brand_uv(brand, 1.0, 0.0), brand_uv(brand, 0.0, 0.0)]
+    painted_box(mesh, (0.0, (bottom + top) / 2.0, 0.0), (4.0, top - bottom, 0.04), "DarkSteel", front)
+    return mesh
+
+
+def prop_meshes(seed):
+    """The props' meshes by name (Meshes/Props/<name>.gltf), each one primitive: the fence panel's of Fence, every other's
+    of Props."""
+    meshes = {
+        "TyreStack": build_tyre_stack(), "Cone": build_cone(), "FencePost": build_fence_post(), "FencePanel": build_fence_panel(),
+        "Broadleaf": build_broadleaf(seed + 10), "RoundTree": build_round_tree(seed + 20), "Conifer": build_conifer(),
+        "Bush": build_bush(seed + 30), "Grandstand": build_grandstand(), "MarshalPost": build_marshal_post(),
+        "LightPole": build_light_pole(),
+    }
+    for index, figures in enumerate(MARKERS):
+        meshes[f"Marker{figures}"] = build_marker(len(SWATCHES) + index)
+    for index in range(len(BRANDS)):
+        meshes[f"Board{index + 1}"] = build_board(index)
+    return meshes
+
+
+# The props' meshes, in the order they are written (prop_meshes).
+PROP_MESH_NAMES = ("TyreStack", "Cone", "FencePost", "FencePanel", "Broadleaf", "RoundTree", "Conifer", "Bush", "Grandstand",
+                   "MarshalPost", "LightPole") + tuple(f"Marker{figures}" for figures in MARKERS) +     tuple(f"Board{index + 1}" for index in range(len(BRANDS)))
+# Each prop mesh's material: the fence panel's Fence, every other's Props (Materials/Props/<name>.smat).
+PROP_MATERIALS = ("Props", "Fence")
+
+
+def prop_material(name):
+    return "Fence" if name == "FencePanel" else "Props"
+
+
+def draw_text(text, left, top, size):
+    """The pixels (x, y) the letters of the text cover, each letter's dots size pixels square, a dot apart."""
+    covered = set()
+    for index, letter in enumerate(text):
+        for row, bits in enumerate(LETTERS[letter]):
+            for column, bit in enumerate(bits):
+                if bit == "1":
+                    x0, y0 = left + (index * 6 + column) * size, top + row * size
+                    covered.update((x, y) for x in range(x0, x0 + size) for y in range(y0, y0 + size))
+    return covered
+
+
+def make_prop_textures(assets, seed, log):
+    # The atlas: noise varies each swatch's color by its amount, the markers' figures and the boards' names.
+    grain = fractal(seed + 40, 3, 8)
+    figures = []
+    for index, text in enumerate(MARKERS):
+        left, top = cell_origin(len(SWATCHES) + index)
+        figures.append([shape for k, digit in enumerate(text) for shape in segment_rectangles(digit, left + 8 + k * 17, top + 16, 13, 32, 4)])
+    names = []
+    for index, (text, _, _) in enumerate(BRANDS):
+        dot = 6
+        width = (len(text) * 6 - 1) * dot
+        names.append(draw_text(text, (ATLAS_SIZE - width) // 2, BRAND_TOP + index * CELL + (CELL - 7 * dot) // 2 - 3, dot))
+
+    def atlas(x, y):
+        if y >= BRAND_TOP:
+            index = (y - BRAND_TOP) // CELL
+            _, ink, paper = BRANDS[index]
+            local = (y - BRAND_TOP) % CELL
+            if (x, y) in names[index]:
+                return list(ink)
+            # A band of the name's color along the board's foot.
+            return list(ink) if local >= CELL - 6 else list(paper)
+        cell = (y // CELL) * 8 + x // CELL
+        if cell < len(SWATCHES):
+            _, color, amount = SWATCHES[cell]
+            shade = 1.0 + amount * (grain((x + 0.5) / ATLAS_SIZE, (y + 0.5) / ATLAS_SIZE) - 0.5) * 2.0
+            return [quantize(min(1.0, value * shade)) for value in color]
+        marker = cell - len(SWATCHES)
+        if marker < len(MARKERS):
+            left, top = cell_origin(cell)
+            frame = min(x - left, left + CELL - 1 - x, y - top, top + CELL - 1 - y) < 4
+            inside = any(l <= x + 0.5 < r and t <= y + 0.5 < b for l, t, r, b in figures[marker])
+            return [0.92, 0.92, 0.9] if frame or inside else list(SWATCHES[SWATCH["BoardBlue"]][1])
+        return [0.5, 0.5, 0.5]
+
+    write_png(assets, "Props/Props", ATLAS_SIZE, ATLAS_SIZE, atlas, log)
+
+    # The chain-link: galvanized wires on the diagonals, the holes between them transparent (their color the wires', so
+    # that the smaller images keep the wires' shade as the holes blend in).
+    wire = (0.62, 0.64, 0.66)
+
+    def fence(x, y):
+        a, b = (x + y) % DIAMOND, (x - y) % DIAMOND
+        covered = a < WIRE or b < WIRE
+        # Where two wires cross, a little brighter.
+        tone = 1.0 if a < WIRE and b < WIRE else 0.9
+        return [quantize(value * tone) for value in wire] + [1.0 if covered else 0.0]
+
+    write_png(assets, "Props/Fence", FENCE_SIZE, FENCE_SIZE, fence, log, alpha=True)
+
+
+def generate_props(assets, seed, log=print):
+    """The props' meshes and textures (Meshes/Props, Textures/Props)."""
+    meshes = prop_meshes(seed)
+    assert tuple(meshes) == PROP_MESH_NAMES, tuple(meshes)
+    for name, mesh in meshes.items():
+        write_gltf(assets, f"Props/{name}", [(mesh, 0)], (prop_material(name),), log)
+    make_prop_textures(assets, seed, log)
 
 
 # --- The sky -------------------------------------------------------------------------------------------------------------
@@ -870,28 +1442,51 @@ def run_length(values):
 
 # --- Everything ----------------------------------------------------------------------------------------------------------
 
-def generate(assets, seed, log=print):
+def generate_circuit(assets, seed, log=print):
+    """The circuit's meshes, textures and sky."""
     log(Circuit.check())
     drawn, collision = build_track()
     write_gltf(assets, "Track", drawn, TRACK_MATERIALS, log)
-    write_gltf(assets, "TrackCollision", [(collision, 0)], ("Collision",), log)
+    write_gltf(assets, "TrackCollision", collision, SURFACES, log)
     barriers, barrier_collision = build_barriers(Circuit.sections(spacing=2.5))
     write_gltf(assets, "Barriers", barriers, ("Concrete",), log)
     write_gltf(assets, "BarrierCollision", [(barrier_collision, 0)], ("Collision",), log)
-    write_gltf(assets, "Ground", [(build_ground(), 0)], ("Grass",), log)
-    write_gltf(assets, "Hills", build_hills(seed), ("Forest",), log)
+    write_gltf(assets, "Ground", build_ground(), GROUND_MATERIALS, log)
+    write_gltf(assets, "Hills", build_hills(seed), HILLS_MATERIALS, log)
     for name, (parts, materials) in (("Gantry", build_gantry()), ("Gate", build_gate()), ("Footbridge", build_footbridge())):
         write_gltf(assets, name, parts, materials, log)
     make_textures(assets, seed, log)
     write_hdr(assets, "Sky", 1024, 512, log)
 
 
-# The files generate() writes, relative to Assets.
-OUTPUTS = tuple([f"Meshes/{name}.gltf" for name in ("Track", "TrackCollision", "Barriers", "BarrierCollision", "Ground", "Hills",
-                                                     "Gantry", "Gate", "Footbridge")] +
-                [f"Textures/{name}.png" for name in ("Asphalt", "Grass", "Gravel", "Kerb", "Checker", "Concrete", "Forest",
-                                                      "SectorBoards")] +
-                ["Environments/Sky.hdr"])
+def generate_bike(assets, seed, log=print):
+    """The motorcycle's and the rider's meshes and texture (Meshes/Bike, Textures/Bike)."""
+    # Bike.py builds its shapes with this module's, so it is imported when it is used.
+    import Bike
+    assert Bike.OUTPUTS == OUTPUTS["bike"], Bike.OUTPUTS
+    log(Bike.check())
+    Bike.generate(assets, seed, log)
+
+
+# What each group of generate() writes (Author.py's circuit, props and bike parts each write theirs), relative to Assets.
+GROUPS = {"circuit": generate_circuit, "props": generate_props, "bike": generate_bike}
+OUTPUTS = {
+    "circuit": tuple([f"Meshes/{name}.gltf" for name in ("Track", "TrackCollision", "Barriers", "BarrierCollision", "Ground",
+                                                         "Hills", "Gantry", "Gate", "Footbridge")] +
+                     [f"Textures/{name}.png" for name in ("Asphalt", "TimingLines", "Grass", "Meadow", "Gravel", "Kerb",
+                                                          "Concrete", "Forest", "SectorBoards")] +
+                     ["Environments/Sky.hdr"]),
+    "props": tuple([f"Meshes/Props/{name}.gltf" for name in PROP_MESH_NAMES] + ["Textures/Props/Props.png", "Textures/Props/Fence.png"]),
+    "bike": tuple(f"Meshes/Bike/{name}.gltf" for name in ("Body", "Fork", "FrontWheel", "RearWheel", "Rider")) +
+    ("Textures/Bike/Livery.png",),
+}
+ALL_OUTPUTS = OUTPUTS["circuit"] + OUTPUTS["props"] + OUTPUTS["bike"]
+
+
+def generate(assets, seed, log=print, groups=tuple(GROUPS)):
+    """Writes the files of the groups named (by default all of them) into the assets folder."""
+    for group in groups:
+        GROUPS[group](assets, seed, log)
 
 
 def png_pixels(path):
@@ -914,14 +1509,14 @@ def check(seed):
         for folder in folders:
             generate(folder, seed, log=lambda line: None)
         problems = []
-        for path in OUTPUTS:
+        for path in ALL_OUTPUTS:
             first, second = (os.path.join(folder, *path.split("/")) for folder in folders)
             if not filecmp.cmp(first, second, shallow=False):
                 problems.append(f"{path}: two runs with seed {seed} differ")
-        print(f"two runs with seed {seed}: {'the same bytes' if not problems else 'different'} ({len(OUTPUTS)} files)")
+        print(f"two runs with seed {seed}: {'the same bytes' if not problems else 'different'} ({len(ALL_OUTPUTS)} files)")
         if seed == SEED:
             assets = os.path.join(PROJECT, "Assets")
-            for path in OUTPUTS:
+            for path in ALL_OUTPUTS:
                 fresh, committed = os.path.join(folders[0], *path.split("/")), os.path.join(assets, *path.split("/"))
                 if not os.path.exists(committed):
                     problems.append(f"{path}: missing from Assets")

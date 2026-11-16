@@ -1,5 +1,4 @@
 #include "Editor/EditorLayer.h"
-#include "Editor/EditorWindowOptions.h"
 
 #include "Strada/Core/CommandLine.h"
 #include "Strada/Core/EntryPoint.h"
@@ -88,11 +87,11 @@ namespace Strada
 		specification.Window.Maximized = arguments.HasFlag("maximized");
 		if (std::optional<std::string> const windowSize = arguments.GetValue("window-size"))
 		{
-			std::optional<glm::uvec2> const size = ParseEditorWindowSize(*windowSize);
+			std::optional<glm::uvec2> const size = ParseWindowSize(*windowSize);
 			if (!size)
 			{
 				std::fprintf(stderr, "--window-size must be <width>x<height> with both between 1 and %u\n",
-				             static_cast<unsigned>(MaxEditorWindowSize));
+				             static_cast<unsigned>(MaxWindowSize));
 				exitCode = 2;
 				return nullptr;
 			}

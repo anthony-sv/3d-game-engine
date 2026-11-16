@@ -8,6 +8,7 @@
 #include <doctest/doctest.h>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -145,6 +146,103 @@ namespace
 			MeshSource::Create(std::move(vertices), std::move(indices), std::move(submeshes), {AssetHandle(UUID(1))});
 		REQUIRE_MESSAGE(mesh.IsOk(), (mesh ? std::string() : mesh.GetError()));
 		return mesh.GetValue();
+	}
+
+	// A flat sheet of strips along Z at y = 0 like MakeStrips', in one submesh whose strips share their vertices, and its
+	// back: the same triangles turned the other way over vertices of their own (as an importer gives the back of a
+	// double-sided face, whose normals differ), in a second submesh.
+	Ref<MeshSource> MakeDoubleFacedSheet(uint32_t count, float x0)
+	{
+		std::vector<Vertex> vertices;
+		std::vector<uint32_t> indices;
+		std::vector<Submesh> submeshes;
+		for (float const up : {1.0f, -1.0f})
+		{
+			Submesh submesh;
+			submesh.BaseVertex = static_cast<uint32_t>(vertices.size());
+			submesh.VertexCount = 2 * (count + 1);
+			submesh.BaseIndex = static_cast<uint32_t>(indices.size());
+			submesh.IndexCount = 6 * count;
+			for (uint32_t edge = 0; edge <= count; edge++)
+			{
+				for (float const z : {-10.0f, 10.0f})
+				{
+					Vertex vertex;
+					vertex.Position = {x0 + 4.0f * static_cast<float>(edge), 0.0f, z};
+					vertex.Normal = {0.0f, up, 0.0f};
+					vertices.push_back(vertex);
+				}
+			}
+			for (uint32_t strip = 0; strip < count; strip++)
+			{
+				// The strip's corners at z = -10 and 10 on its left, then on its right.
+				uint32_t const leftNear = 2 * strip;
+				uint32_t const leftFar = leftNear + 1;
+				uint32_t const rightNear = leftNear + 2;
+				uint32_t const rightFar = leftNear + 3;
+				// Counter-clockwise seen from above for the sheet, from below for its back.
+				std::array<uint32_t, 6> const front = {leftNear, leftFar, rightFar, leftNear, rightFar, rightNear};
+				std::array<uint32_t, 6> const back = {leftNear, rightFar, leftFar, leftNear, rightNear, rightFar};
+				std::array<uint32_t, 6> const& triangles = up > 0.0f ? front : back;
+				indices.insert(indices.end(), triangles.begin(), triangles.end());
+			}
+			submeshes.push_back(submesh);
+		}
+		Result<Ref<MeshSource>> mesh =
+			MeshSource::Create(std::move(vertices), std::move(indices), std::move(submeshes), {AssetHandle(UUID(1))});
+		REQUIRE_MESSAGE(mesh.IsOk(), (mesh ? std::string() : mesh.GetError()));
+		return mesh.GetValue();
+	}
+
+	// Slides and rolls bodies along +X across a flat, frictionless mesh at y = 0 (over x from -7.5 to 6), at 4 and 8 m/s:
+	// none may rise, leap or lose speed on the way.
+	void CheckFlatCrossings(ColliderDesc const& mesh)
+	{
+		ColliderDesc ball;
+		ball.Shape = ColliderShape::Sphere;
+		ball.Radius = 0.25f;
+		ball.Surface = MakeSurface(BoxMaterial, 1.0f, PhysicsMaterialCombine::GeometricMean);
+		ColliderDesc const box = Box(glm::vec3(0.25f), MakeSurface(BoxMaterial, 1.0f, PhysicsMaterialCombine::GeometricMean));
+		glm::quat const upright(1.0f, 0.0f, 0.0f, 0.0f);
+		glm::quat const cornerFirst = glm::angleAxis(glm::radians(45.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
+		struct Crossing
+		{
+			std::string Name;
+			ColliderDesc Collider;
+			glm::quat Rotation;
+			bool Rolls;
+		};
+		for (float const speed : {4.0f, 8.0f})
+		{
+			for (Crossing const& crossing :
+			     {Crossing{"a sliding ball", ball, upright, false}, Crossing{"a rolling ball", ball, upright, true},
+			      Crossing{"a box sliding corner first", box, cornerFirst, false}})
+			{
+				CAPTURE(crossing.Name);
+				CAPTURE(speed);
+				Scope<PhysicsScene> world = CreateWorld();
+				REQUIRE(world->AddBody(MakeStatic(GroundId, glm::vec3(0.0f), upright, mesh)).IsOk());
+				BodyDesc body = MakeSlider(FirstId, {-7.5f, 0.25f, 0.0f}, crossing.Rotation, {crossing.Collider}, {speed, 0.0f, 0.0f});
+				body.LockRotation = glm::bvec3(!crossing.Rolls);
+				REQUIRE(world->AddBody(body).IsOk());
+				// Across the edges at x = -4, 0 and 4.
+				float rise = 0.0f;
+				float fastestUp = 0.0f;
+				float slowest = speed;
+				for (int step = 0; step < 600 && world->GetBodyTransform(FirstId)->Position.x < 6.0f; step++)
+				{
+					world->Step(Step);
+					rise = std::max(rise, world->GetBodyTransform(FirstId)->Position.y - 0.25f);
+					fastestUp = std::max(fastestUp, std::abs(world->GetLinearVelocity(FirstId).y));
+					slowest = std::min(slowest, world->GetLinearVelocity(FirstId).x);
+				}
+				CHECK(world->GetBodyTransform(FirstId)->Position.x >= 6.0f);
+				CHECK(rise < 0.005f);
+				CHECK(fastestUp < 0.01f);
+				CHECK(slowest == doctest::Approx(speed).epsilon(0.001));
+			}
+		}
 	}
 
 	AssetHandle MaterialBelow(PhysicsScene const& world, float x, float z)
@@ -362,6 +460,35 @@ TEST_CASE("PhysicsScene: a triangle mesh's submeshes have their own surfaces for
 	std::optional<RaycastHit> const throughTrigger = world->Raycast({0.0f, 10.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, 100.0f);
 	REQUIRE(throughTrigger);
 	CHECK(throughTrigger->Entity == GroundId);
+}
+
+TEST_CASE("PhysicsScene: bodies slide and roll across the edges where a triangle mesh's submeshes meet without hitting them")
+{
+	Testing::PhysicsSystemScope physics;
+	// Four frictionless strips, each a submesh with vertices of its own: where two meet, their positions repeat. Built over
+	// the mesh's distinct positions, the shape shares the edges there, so Jolt sees flat ground. With the positions apart,
+	// each edge was an open one: a ball crossing at 4 m/s leapt at 0.34 m/s and lost an eighth of its speed, and a box
+	// sliding corner first at 8 m/s rose 0.32 m.
+	ColliderDesc mesh;
+	mesh.Shape = ColliderShape::TriangleMesh;
+	mesh.Mesh = MakeStrips(4, -8.0f);
+	mesh.Surface = MakeSurface(ColliderMaterial, 0.0f, PhysicsMaterialCombine::Minimum);
+	mesh.SubmeshSurfaces = {MakeSurface(SlipperyMaterial, 0.0f, PhysicsMaterialCombine::Minimum),
+	                        MakeSurface(GrippyMaterial, 0.0f, PhysicsMaterialCombine::Minimum)};
+	CheckFlatCrossings(mesh);
+}
+
+TEST_CASE("PhysicsScene: a double-faced triangle mesh keeps each face's edges to itself, so bodies cross it as flat ground")
+{
+	Testing::PhysicsSystemScope physics;
+	// A sheet and its back, whose vertices repeat the sheet's positions: welded together, every inner edge of the sheet
+	// would have four triangles, which Jolt takes for an edge a body hits (three or more triangles on an edge make it an
+	// active one). Only positions whose triangles face the same way are welded, so each face keeps its edges shared by two.
+	ColliderDesc mesh;
+	mesh.Shape = ColliderShape::TriangleMesh;
+	mesh.Mesh = MakeDoubleFacedSheet(4, -8.0f);
+	mesh.Surface = MakeSurface(ColliderMaterial, 0.0f, PhysicsMaterialCombine::Minimum);
+	CheckFlatCrossings(mesh);
 }
 
 TEST_CASE("PhysicsScene: submesh surfaces beyond the mesh are ignored, beyond the limit refused, and hulls have one surface")

@@ -1,13 +1,17 @@
-"""Moto's test scene (Scenes/Tests.sscene) and its checks, all of them graphs: the main scene as it is, with a crate to
-drop on the road, a second entity running the tour that waits to be sent it (the Waiting Tour) and the Tests entity,
-whose graph checks the circuit's surfaces and the camera tour one after another, then reports to the test run.
+"""Moto's test scene (Scenes/Tests.sscene) and its checks, all of them graphs: the main scene as it is without its props
+(they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
+that waits to be sent it (the Waiting Tour) and the Tests entity, whose graph checks the circuit's surfaces and the camera
+tour one after another, then reports to the test run. Its own entities keep their IDs when it is made again.
 
 - Checks.sgraph, a function library: reporting a check, and comparing points and directions.
 - Tests.sgraph (the Tests entity): each check a latent function that acts or waits for its moment, then reports through
   Checks; the event graph runs them in turn from a Sequence and finishes the run.
 
 The circuit's checks cast rays down at points the layout (Circuit.py) gives and require the surface hit, its height and
-that it faces up; a crate dropped on the road must come to rest on it. The tour's checks compare the camera with the path
+that it faces up, and the physics material it has (its Surface name: asphalt, also where a timing line is painted,
+kerb, gravel, grass on the verges and the ground); a crate dropped on the road must come to rest on it, and of two blocks
+sent off at one speed the one on the asphalt slides farther than the one in the gravel, each as far as its friction
+says. The tour's checks compare the camera with the path
 Tour.py made: at the home view when the scene starts, under the footbridge when the path passes it, home again when the
 tour ends, and off on the next tour after it. The Waiting Tour checks the tour's interface for other graphs: with
 PlayOnStart off it stays where the scene put it until the Tests graph sends it PlayTour, then it flies, and with Repeat
@@ -38,6 +42,15 @@ CRATE_LATERAL = 4.0
 CRATE_DROP = 1.0
 # How close a surface hit must come to its expected height (meters).
 SURFACE_TOLERANCE = 0.03
+# The sliding blocks (builtin://Cube, its collider as large, rotation locked, friction 1.0): sent off at SLIDE_SPEED along
+# the lap at a lap distance and a lateral offset, they stop after v^2 / (2 g mu), mu the friction their contact combines
+# (the asphalt's, by the geometric mean; the gravel's, which wins by Maximum: Author.SURFACE_MATERIALS).
+SLIDE_SPEED = 8.0
+GRAVITY = 9.81
+SLIDE_TOLERANCE = 0.1
+ASPHALT_SLIDE = (360.0, -3.0)
+ASPHALT_FRICTION = 1.0
+GRAVEL_FRICTION = 1.5
 # Where the Waiting Tour stands until it is sent PlayTour: 20 m over the home view, where its tour starts.
 WAITING_SPOT = (Tour.HOME_EYE[0], Tour.HOME_EYE[1] + 20.0, Tour.HOME_EYE[2])
 
@@ -47,11 +60,54 @@ def crate_start():
     return Circuit.offset_point(CRATE_AT, CRATE_LATERAL, Circuit.road_height(CRATE_LATERAL) + CRATE_HALF + CRATE_DROP)
 
 
+def turn6():
+    """Turn 6's apex (lap distance) and the side its inside lies on (1 right of travel, -1 left)."""
+    apex = next(start + 0.5 * (end - start) for corner, start, end, side in Circuit.corner_ranges() if corner.name == "Turn 6")
+    return apex, 1 if Circuit.curvature(apex) < 0.0 else -1
+
+
+def gravel_spot(s):
+    """The middle of the gravel trap across the lap at s (Turn 6's outside), as (lateral offset, the gravel's height
+    there): the trap's surface falls in a straight line from the verge's edge to the trap's outer edge."""
+    _, inside = turn6()
+    side = "left" if inside > 0 else "right"
+    width = Circuit.gravel(s, side)
+    inner = Circuit.HALF_WIDTH + Circuit.KERB_WIDTH + Circuit.VERGE_WIDTH
+    outer_height = Circuit.VERGE_HEIGHT + (Circuit.GRAVEL_HEIGHT - Circuit.VERGE_HEIGHT) * min(1.0, width)
+    height = Circuit.VERGE_HEIGHT + (outer_height - Circuit.VERGE_HEIGHT) * 0.5
+    return -inside * (inner + 0.5 * width), height
+
+
+def gravel_slide():
+    """Where the gravel's block starts: 30 m before Turn 6's apex, in the middle of the trap."""
+    apex, _ = turn6()
+    return apex - 30.0
+
+
+def slider_start(s, lateral, surface):
+    """A sliding block's center at rest on the surface at s and the lateral offset, and the direction of travel there."""
+    return Circuit.offset_point(s, lateral, surface + CRATE_HALF), Circuit.frame(s)[1]
+
+
+def sliders():
+    """The two sliding blocks: (scene entity, variable, start, direction, friction)."""
+    asphalt_s, asphalt_lateral = ASPHALT_SLIDE
+    gravel_s = gravel_slide()
+    gravel_lateral, gravel_height = gravel_spot(gravel_s)
+    asphalt = slider_start(asphalt_s, asphalt_lateral, Circuit.road_height(asphalt_lateral))
+    gravel = slider_start(gravel_s, gravel_lateral, gravel_height)
+    return (("Asphalt Slider", "AsphaltSlider") + asphalt + (ASPHALT_FRICTION,),
+            ("Gravel Slider", "GravelSlider") + gravel + (GRAVEL_FRICTION,))
+
+
+def stopping_distance(friction):
+    return SLIDE_SPEED * SLIDE_SPEED / (2.0 * GRAVITY * friction)
+
+
 def probes():
     """The surfaces the rays find: (function, title of its box, the check's name, the scene entity, where the ray starts
     (world, 3 m above the surface), the surface's height)."""
-    apex = next(start + 0.5 * (end - start) for corner, start, end, side in Circuit.corner_ranges() if corner.name == "Turn 6")
-    inside = 1 if Circuit.curvature(apex) < 0.0 else -1
+    apex, inside = turn6()
     kerb = (Circuit.HALF_WIDTH + Circuit.KERB_WIDTH - 0.3) * inside
     face = Circuit.barrier_offset(Circuit.FOOTBRIDGE + 30.0, "right")
     bridge = Circuit.offset_point(Circuit.FOOTBRIDGE, 0.0)
@@ -72,16 +128,41 @@ def probes():
                  for function, title, name, entity, point, height in rows)
 
 
+def surface_probes():
+    """The physics materials the rays find: (function, title of its box, the check's name, the expected Surface, the rays'
+    starts (world, 3 m above the surface))."""
+    apex, inside = turn6()
+    kerb = (Circuit.HALF_WIDTH + Circuit.KERB_WIDTH - 0.3) * inside
+    gravel_lateral, _ = gravel_spot(apex)
+    verge = Circuit.HALF_WIDTH + Circuit.KERB_WIDTH + 1.5
+    face = Circuit.barrier_offset(Circuit.FOOTBRIDGE + 30.0, "right")
+    rows = (
+        ("CheckAsphaltSurface", "Asphalt: the road, and where the first sector line is painted", "the road's surface is asphalt",
+         "Asphalt", (Circuit.offset_point(300.0, 2.0), Circuit.offset_point(Circuit.SECTOR_GATES[0], 1.0))),
+        ("CheckKerbSurface", "Kerb: the kerb on the inside of Turn 6", "the kerb's surface is kerb", "Kerb",
+         (Circuit.offset_point(apex, kerb),)),
+        ("CheckGravelSurface", "Gravel: the trap on the outside of Turn 6", "the gravel trap's surface is gravel", "Gravel",
+         (Circuit.offset_point(apex, gravel_lateral),)),
+        ("CheckGrassSurface", "Grass: a verge, and the ground beyond the barrier", "the verges and the ground are grass", "Grass",
+         (Circuit.offset_point(Circuit.FOOTBRIDGE - 40.0, -verge), Circuit.offset_point(Circuit.FOOTBRIDGE + 30.0, face + 6.0))),
+    )
+    return tuple((function, title, name, surface, tuple([round(point[0], 3), 3.0, round(point[2], 3)] for point in points))
+                 for function, title, name, surface, points in rows)
+
+
 # The checks in the order they run: (function, title of its box, the check's name in the report). The surface checks come
-# from probes(); the others' bodies are written by their writers in WRITERS.
+# from probes() and surface_probes(); the others' bodies are written by their writers in WRITERS.
 def checks():
     tour_start = (("CheckTourStartsHome", "Tour start: the camera at the home view, looking down the straight",
                    "the tour starts at the home view"),
                   ("CheckTourWaits", "Waiting tour: with PlayOnStart off it stays put, then is sent PlayTour",
                    "a tour with PlayOnStart off waits until it is sent PlayTour"))
     surfaces = tuple((function, title, name) for function, title, name, _, _, _ in probes())
+    materials = tuple((function, title, name) for function, title, name, _, _ in surface_probes())
     later = (
         ("CheckCrateRests", "Crate: dropped on the road, it comes to rest on it", "a crate dropped on the road comes to rest on it"),
+        ("CheckSlides", "Slides: a block slides farther on the asphalt than in the gravel",
+         "a block slides farther on the asphalt than in the gravel"),
         ("CheckUnderFootbridge", "Footbridge pass: the camera where the tour puts it, under the deck",
          "the tour flies the camera under the footbridge"),
         ("CheckSentTourFlies", "Sent tour: PlayTour from another graph flies it", "a tour sent PlayTour by another graph flies"),
@@ -90,7 +171,7 @@ def checks():
         ("CheckSentTourStops", "Repeat off: the sent tour stays at the home view after one tour",
          "a tour with Repeat off stays at the home view after one tour"),
     )
-    return tour_start + surfaces + later
+    return tour_start + surfaces + materials + later
 
 
 # The entities the checks look at, by the names of Tests.sgraph's variables: (variable, the scene entity's name, tooltip).
@@ -102,7 +183,13 @@ TEST_ENTITIES = (
     ("Footbridge", "Footbridge", "The footbridge over the back straight"),
     ("Crate", "Probe Crate", "The crate dropped on the road"),
     ("WaitingTour", "Waiting Tour", "Runs the tour with PlayOnStart and Repeat off; the checks send it PlayTour"),
+    ("AsphaltSlider", "Asphalt Slider", "The block sent sliding along the asphalt"),
+    ("GravelSlider", "Gravel Slider", "The block sent sliding along a gravel trap"),
 )
+# The test scene's own entities, which it keeps the IDs of when it is made again.
+OWN_ENTITIES = ("Probe Crate", "Asphalt Slider", "Gravel Slider", "Waiting Tour", "Tests")
+# The main scene's root entities the test scene leaves out.
+LEFT_OUT = ("Props",)
 
 
 # --- The interfaces ---------------------------------------------------------------------------------------------------------
@@ -118,7 +205,9 @@ def declare(author):
                    "another, each a latent function that acts or waits for its moment, then reports it.", variables=(
         tuple(public(name, ENTITY, None, tooltip) for name, _, tooltip in TEST_ENTITIES) + (private("StepStart", "double", 0.0),)),
         functions=(("Probe", False, (("From", VECTOR), ("Surface", ENTITY), ("Height", "float")),
-                    (("Passed", "bool"), ("Detail", "string")), ()),) + tuple((name, False, (), (), ()) for name, _, _ in checks()))
+                    (("Passed", "bool"), ("Detail", "string")), ()),
+                   ("ProbeSurface", False, (("From", VECTOR), ("Expected", "string")), (("Passed", "bool"), ("Detail", "string")),
+                    (("Found", "string", ""),)),) + tuple((name, False, (), (), ()) for name, _, _ in checks()))
 
 
 # --- Checks.sgraph -----------------------------------------------------------------------------------------------------------
@@ -243,9 +332,22 @@ def write_tests(author):
         b.link(b.fmt("the ray hit {Surface} at {Point}, facing {Normal}", Surface=surface, Point=point, Normal=normal), b.ret["Detail"])
         b.chain(b.entry, ray, b.ret)
 
+    with author.region(TESTS, "Probe surface: the physics material a ray down from a point hits", CHECK, "ProbeSurface") as b:
+        ray = b.call(RAYCAST, Origin=b.entry["From"], Direction=[0.0, -1.0, 0.0], MaxDistance=20.0)
+        material = b.pure("Get:Strada.RaycastHit.Material", "Value", Target=ray["Hit"])
+        known = b.branch(b.pure("IsValid", Value=material), comment="A collider without a physics material names none")
+        found = b.set("Found", b.pure("Get:Strada.PhysicsMaterial.Surface", "Value", Target=material))
+        passed = b.both(ray["Result"], b.equal(b.var("Found"), b.entry["Expected"]))
+        b.link(passed, b.ret["Passed"])
+        b.link(b.fmt("the ray hit the surface '{Found}' at {Point}", Found=b.var("Found"),
+                     Point=b.pure("Get:Strada.RaycastHit.Point", "Value", Target=ray["Hit"])), b.ret["Detail"])
+        b.chain(b.entry, ray, known)
+        b.chain(known["True"], found, b.ret)
+        b.flow(known["False"], b.ret)
+
     for function, title, name in order:
         with author.region(TESTS, title, CHECK, function) as b:
-            WRITERS.get(function, check_surface)(b, name)
+            WRITERS.get(function, check_material if function in MATERIAL_CHECKS else check_surface)(b, name)
 
 
 def check_tour_starts_home(b, name):
@@ -258,6 +360,47 @@ def check_surface(b, name):
     probe = b.own("Probe", From=start, Surface=b.var(entity), Height=height)
     reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=probe["Passed"], Detail=probe["Detail"])
     run(b, probe, reported)
+
+
+MATERIAL_CHECKS = {function for function, _, _, _, _ in surface_probes()}
+
+
+def check_material(b, name):
+    _, _, _, surface, starts = next(row for row in surface_probes() if row[2] == name)
+    steps = []
+    passes = []
+    details = []
+    for start in starts:
+        probe = b.own("ProbeSurface", From=start, Expected=surface)
+        steps.append(probe)
+        passes.append(probe["Passed"])
+        details.append(probe["Detail"])
+    passed = passes[0] if len(passes) == 1 else b.both(passes[0], passes[1])
+    detail = details[0] if len(details) == 1 else b.fmt("{First}; {Second}", First=details[0], Second=details[1])
+    reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, *steps, reported)
+
+
+def check_slides(b, name):
+    (_, asphalt_variable, asphalt_start, _, asphalt_friction), (_, gravel_variable, gravel_start, _, gravel_friction) = sliders()
+    asphalt, gravel = b.var(asphalt_variable), b.var(gravel_variable)
+
+    def travelled(block, start):
+        at = b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=block)
+        return b.expr("distance(vec2(at.X, at.Z), vec2(start.X, start.Z))", at=at, start=b.lit(VECTOR, rounded(start)))
+
+    def speed(block):
+        return b.expr("length(v)", v=b.pure("Get:Strada.RigidBodyComponent.LinearVelocity", "Value", Target=block))
+
+    on_asphalt, in_gravel = travelled(asphalt, asphalt_start), travelled(gravel, gravel_start)
+    stopped = b.expr("a < 0.02 && g < 0.02", a=speed(asphalt), g=speed(gravel))
+    expected_asphalt, expected_gravel = round(stopping_distance(asphalt_friction), 3), round(stopping_distance(gravel_friction), 3)
+    passed = b.both(stopped, b.expr(f"abs(a - {expected_asphalt}) <= {round(SLIDE_TOLERANCE * expected_asphalt, 3)} && "
+                                    f"abs(g - {expected_gravel}) <= {round(SLIDE_TOLERANCE * expected_gravel, 3)} && a > g",
+                                    a=on_asphalt, g=in_gravel))
+    detail = b.fmt(f"{{Asphalt}} m on the asphalt (about {expected_asphalt}), {{Gravel}} m in the gravel (about {expected_gravel})",
+                   Asphalt=on_asphalt, Gravel=in_gravel)
+    run(b, check(b, name, stopped, 4, detail, passed))
 
 
 def check_crate_rests(b, name):
@@ -327,6 +470,7 @@ WRITERS = {
     "CheckSentTourFlies": check_sent_tour_flies,
     "CheckSentTourStops": check_sent_tour_stops,
     "CheckCrateRests": check_crate_rests,
+    "CheckSlides": check_slides,
     "CheckUnderFootbridge": check_under_footbridge,
     "CheckTourEndsHome": check_tour_ends_home,
     "CheckTourRepeats": check_tour_repeats,
@@ -346,21 +490,48 @@ def entity_value(entity):
     return {"Type": "Entity", "Value": entity}
 
 
-def build_scene(session, handles):
-    """The test scene: the main scene saved as Tests (its entities keep their IDs), the crate over the road, the Waiting
-    Tour and the entity whose graph runs the checks. Leaves the main scene open."""
+def build_scene(session, handles, project):
+    """The test scene: the main scene saved as Tests (its entities keep their IDs), the crate over the road, the two
+    sliding blocks, the Waiting Tour and the entity whose graph runs the checks, each with the ID it had in the test scene
+    when there was one. Leaves the main scene open."""
+    previous = {}
+    if os.path.exists(os.path.join(project, "Assets", "Scenes", "Tests.sscene")):
+        session.call("scene_open", {"path": "Scenes/Tests.sscene"})
+        previous = {entity["name"]: entity["id"] for entity in session.call("scene_hierarchy")["entities"]
+                    if entity["name"] in OWN_ENTITIES}
+
+    def create(name, components):
+        arguments = {"name": name, "components": components}
+        if name in previous:
+            arguments["id"] = previous[name]
+        return session.call("entity_create", arguments)["id"]
+
     session.call("scene_open", {"path": "Scenes/Main.sscene"})
     session.call("scene_save", {"path": "Scenes/Tests.sscene"})
     session.call("scene_settings", {"name": "Tests"})
-    session.call("entity_create", {"name": "Probe Crate", "components": {
+    # The props stand clear of everything the checks touch and have no colliders: the test scene leaves them out, which
+    # keeps the project small (they are most of the main scene's file) and the test runs short.
+    props = [entity["id"] for entity in session.call("scene_hierarchy")["entities"] if entity["name"] in LEFT_OUT]
+    if props:
+        session.call("entity_delete", {"entities": props})
+    create("Probe Crate", {
         "Transform": {"Translation": list(crate_start()), "RotationEuler": [0.0, Circuit.yaw(CRATE_AT), 0.0]},
         "Mesh": {"Mesh": "builtin://Cube"},
         "RigidBody": {"Type": "Dynamic", "Mass": 20.0, "LinearDamping": 0.5, "AngularDamping": 0.5},
-        "BoxCollider": {"HalfExtents": [CRATE_HALF] * 3, "Friction": 0.8}}})
-    session.call("entity_create", {"name": "Waiting Tour", "components": {
+        "BoxCollider": {"HalfExtents": [CRATE_HALF] * 3, "Friction": 0.8}})
+    # The blocks start sliding with the scene, rotation locked and undamped, so that friction alone stops them.
+    for entity, _, start, direction, _ in sliders():
+        heading = math.degrees(math.atan2(-direction[0], -direction[2]))
+        create(entity, {
+            "Transform": {"Translation": [round(value, 4) for value in start], "RotationEuler": [0.0, heading, 0.0]},
+            "Mesh": {"Mesh": "builtin://Cube"},
+            "RigidBody": {"Type": "Dynamic", "Mass": 20.0, "LinearDamping": 0.0, "AngularDamping": 0.0, "LockRotation": [True, True, True],
+                          "InitialLinearVelocity": [round(SLIDE_SPEED * value, 4) for value in direction]},
+            "BoxCollider": {"HalfExtents": [CRATE_HALF] * 3, "Friction": 1.0}})
+    create("Waiting Tour", {
         "Transform": {"Translation": list(WAITING_SPOT)},
         "VisualScript": {"Graph": handles[Tour.TOUR], "Variables": {
-            "PlayOnStart": {"Type": "Bool", "Value": False}, "Repeat": {"Type": "Bool", "Value": False}}}}})
+            "PlayOnStart": {"Type": "Bool", "Value": False}, "Repeat": {"Type": "Bool", "Value": False}}}})
     found = {}
 
     def walk(entities):
@@ -372,7 +543,7 @@ def build_scene(session, handles):
     missing = [scene_name for _, scene_name, _ in TEST_ENTITIES if scene_name not in found]
     if missing:
         raise SystemExit(f"the test scene has no {', '.join(missing)}")
-    session.call("entity_create", {"name": "Tests", "components": {"VisualScript": {"Graph": handles[TESTS], "Variables": {
-        name: entity_value(found[scene_name]) for name, scene_name, _ in TEST_ENTITIES}}}})
+    create("Tests", {"VisualScript": {"Graph": handles[TESTS], "Variables": {
+        name: entity_value(found[scene_name]) for name, scene_name, _ in TEST_ENTITIES}}})
     session.call("scene_save")
     session.call("scene_open", {"path": "Scenes/Main.sscene"})

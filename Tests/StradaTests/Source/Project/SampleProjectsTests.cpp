@@ -1,22 +1,36 @@
+#include "TestUtilities.h"
+
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MeshImporter.h"
+#include "Strada/Asset/MeshSource.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Scene/Components.h"
+#include "Strada/Scene/Entity.h"
+#include "Strada/Scene/Scene.h"
+#include "Strada/Scene/SceneSerializer.h"
 
 #include <doctest/doctest.h>
+#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <set>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
 
 // The documents that name the sample projects (AGENTS.md's repository map, README.md's layout and the visual scripting
-// guide's table of Prism Break's graphs) name exactly what the repository holds, and Moto's collision meshes import as
-// the physics needs them.
+// guide's table of Prism Break's graphs) name exactly what the repository holds, Moto's collision meshes import as the
+// physics needs them, and its bike has the proportions the vehicle and the rider build on.
 namespace
 {
 	std::string ReadDocument(char const* path)
@@ -131,26 +145,111 @@ TEST_CASE("Project: the visual scripting guide's table of Prism Break's graphs n
 	CHECK(listed == graphs);
 }
 
-TEST_CASE("Project: Moto's collision meshes import welded, one vertex wherever triangles meet")
+TEST_CASE("Project: Moto's collision meshes import welded, a submesh per surface, one vertex wherever its triangles meet")
 {
 	// Jolt finds the edges between a mesh's triangles by their shared vertex indices: two vertices at one place would make
-	// the edge between their triangles a bump a wheel hits. The generator writes the collision meshes welded (normals all
-	// up, no texture coordinates); the importer must keep them so.
+	// the edge between their triangles a bump a wheel hits. The generator writes each surface of the collision meshes
+	// welded (normals all up, no texture coordinates), and the importer must keep them so; where two surfaces meet, the
+	// physics shares their edges (it builds the shape over the mesh's distinct positions). The track's submeshes are its
+	// surfaces in the order the scene gives them their physics materials (Tools/GenerateAssets.py, SURFACES).
 	std::filesystem::path const meshes = FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto" / "Assets" / "Meshes";
-	for (char const* const name : {"TrackCollision.gltf", "BarrierCollision.gltf"})
+	for (auto const& [name, surfaces] : {std::pair<char const*, size_t>{"TrackCollision.gltf", 4}, {"BarrierCollision.gltf", 1}})
 	{
 		CAPTURE(name);
 		Result<ImportedModel> imported = MeshImporter::Import(meshes / name);
 		REQUIRE_MESSAGE(imported.IsOk(), (imported ? std::string() : imported.GetError()));
 		ImportedModel const& model = imported.GetValue();
 		CHECK(model.Warnings.empty());
-		CHECK(model.Submeshes.size() == 1);
+		REQUIRE(model.Submeshes.size() == surfaces);
 		REQUIRE(model.Vertices.size() > 1000);
-		std::set<std::array<float, 3>> positions;
-		for (Vertex const& vertex : model.Vertices)
+		for (Submesh const& submesh : model.Submeshes)
 		{
-			positions.insert({vertex.Position.x, vertex.Position.y, vertex.Position.z});
+			CAPTURE(submesh.Name);
+			CHECK(submesh.IndexCount >= 3);
+			std::set<std::array<float, 3>> positions;
+			for (uint32_t index = 0; index < submesh.VertexCount; index++)
+			{
+				glm::vec3 const& position = model.Vertices[submesh.BaseVertex + index].Position;
+				positions.insert({position.x, position.y, position.z});
+			}
+			CHECK(positions.size() == submesh.VertexCount);
 		}
-		CHECK(positions.size() == model.Vertices.size());
 	}
+}
+
+TEST_CASE("Project: Moto's bike stands on both tyres with a 1,485 mm wheelbase, a 24 degree rake and a 98 mm trail")
+{
+	// The bike and its rider are five meshes under the Bike entity (Projects/Moto/Tools/Bike.py), which the ghost, the
+	// vehicle and the rider's lean build on: each wheel's entity on its axle, the fork's at the foot of the steering axis
+	// with its Y up the axis, the bike's frame with its origin on the ground between the contact patches and its front
+	// along -Z. The test scene is the main scene without its props, with the same bike.
+	Testing::TemporaryDirectory const directory;
+	Testing::AssetManagerScope const manager;
+	std::filesystem::path const assets = directory.GetPath() / "Assets";
+	std::error_code error;
+	// The registry's refresh may write; the test reads a copy of the sample.
+	std::filesystem::copy(FileSystem::PathFromUtf8(STRADA_SAMPLE_PROJECTS_DIR) / "Moto" / "Assets", assets,
+	                      std::filesystem::copy_options::recursive, error);
+	REQUIRE_MESSAGE(!error, error.message());
+	Result<AssetRefreshResult> opened = AssetManager::OpenAssetDirectory(assets);
+	REQUIRE_MESSAGE(opened.IsOk(), (opened ? std::string() : opened.GetError()));
+	Result<Ref<Scene>> loaded =
+		SceneSerializer::LoadFromFile(assets / "Scenes" / "Tests.sscene", AssetManager::CreateDeserializationContext());
+	REQUIRE_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
+	Scene& scene = *loaded.GetValue();
+
+	Entity const bike = scene.FindEntityByName("Bike");
+	REQUIRE(bike);
+	glm::mat4 const toBike = glm::inverse(scene.GetWorldTransform(bike));
+	auto const local = [&scene, &toBike](Entity entity)
+	{
+		return toBike * scene.GetWorldTransform(entity);
+	};
+	for (char const* const name : {"Body", "Fork", "Front Wheel", "Rear Wheel", "Rider"})
+	{
+		CAPTURE(name);
+		Entity const part = scene.FindEntityByName(name);
+		REQUIRE(part);
+		REQUIRE(part.HasComponent<MeshComponent>());
+		Ref<MeshSource> const mesh = AssetManager::GetAsset<MeshSource>(part.GetComponent<MeshComponent>().Mesh);
+		REQUIRE(mesh);
+		CHECK_FALSE(mesh->GetSubmeshes().empty());
+	}
+
+	// The axles (each wheel's origin) and where each tyre touches the ground: its lowest vertex in the bike's frame.
+	constexpr float Millimeter = 0.001f;
+	auto const contact = [&scene, &local](char const* name)
+	{
+		Entity const wheel = scene.FindEntityByName(name);
+		glm::mat4 const transform = local(wheel);
+		glm::vec3 lowest(0.0f, std::numeric_limits<float>::max(), 0.0f);
+		// Held while its vertices are read: a range-for keeps no temporary its range was reached through alive.
+		Ref<MeshSource> const wheelMesh = AssetManager::GetAsset<MeshSource>(wheel.GetComponent<MeshComponent>().Mesh);
+		REQUIRE(wheelMesh);
+		for (Vertex const& vertex : wheelMesh->GetVertices())
+		{
+			glm::vec3 const point = glm::vec3(transform * glm::vec4(vertex.Position, 1.0f));
+			lowest = point.y < lowest.y ? point : lowest;
+		}
+		return lowest;
+	};
+	glm::vec3 const front = contact("Front Wheel");
+	glm::vec3 const rear = contact("Rear Wheel");
+	CHECK(std::abs(front.y) <= Millimeter);
+	CHECK(std::abs(rear.y) <= Millimeter);
+	CHECK(std::abs((rear.z - front.z) - 1.485f) <= Millimeter);
+	glm::vec3 const frontAxle = glm::vec3(local(scene.FindEntityByName("Front Wheel"))[3]);
+	glm::vec3 const rearAxle = glm::vec3(local(scene.FindEntityByName("Rear Wheel"))[3]);
+	CHECK(std::abs(frontAxle.z - front.z) <= Millimeter);
+	CHECK(std::abs(rearAxle.z - rear.z) <= Millimeter);
+
+	// The steering axis: the fork's Y, leaning back (towards +Z) by the rake, meeting the ground the trail ahead of the
+	// front tyre's contact.
+	glm::mat4 const fork = local(scene.FindEntityByName("Fork"));
+	glm::vec3 const axis = glm::normalize(glm::vec3(fork[1]));
+	glm::vec3 const foot = glm::vec3(fork[3]);
+	CHECK(std::abs(glm::degrees(std::atan2(axis.z, axis.y)) - 24.0f) <= 0.05f);
+	CHECK(std::abs(axis.x) <= 1e-5f);
+	CHECK(std::abs(foot.y) <= Millimeter);
+	CHECK(std::abs((front.z - foot.z) - 0.098f) <= Millimeter);
 }

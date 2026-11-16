@@ -15,14 +15,29 @@
 			"Path": "Materials/Asphalt.smat"
 		},
 		{
+			"Handle": "18431788629982675903",
+			"Type": "Material",
+			"Path": "Materials/Bike/Dark.smat"
+		},
+		{
+			"Handle": "7446032774219383372",
+			"Type": "Material",
+			"Path": "Materials/Bike/Glass.smat"
+		},
+		{
+			"Handle": "4984434297058937164",
+			"Type": "Material",
+			"Path": "Materials/Bike/Metal.smat"
+		},
+		{
+			"Handle": "17959715501337604447",
+			"Type": "Material",
+			"Path": "Materials/Bike/Paint.smat"
+		},
+		{
 			"Handle": "11059763544319701252",
 			"Type": "Material",
 			"Path": "Materials/BridgePanel.smat"
-		},
-		{
-			"Handle": "17678251460209051611",
-			"Type": "Material",
-			"Path": "Materials/Checker.smat"
 		},
 		{
 			"Handle": "10050210890784848329",
@@ -70,9 +85,59 @@
 			"Path": "Materials/Kerb.smat"
 		},
 		{
-			"Handle": "15745637732639020673",
+			"Handle": "16581966529300385010",
 			"Type": "Material",
-			"Path": "Materials/LineWhite.smat"
+			"Path": "Materials/Meadow.smat"
+		},
+		{
+			"Handle": "1826397523122005479",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze1.smat"
+		},
+		{
+			"Handle": "8889534955654055428",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze2.smat"
+		},
+		{
+			"Handle": "17857525847719365787",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze3.smat"
+		},
+		{
+			"Handle": "5581409923019099630",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze4.smat"
+		},
+		{
+			"Handle": "7360490602862285314",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze5.smat"
+		},
+		{
+			"Handle": "5336146829897545834",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze6.smat"
+		},
+		{
+			"Handle": "4043129992099541868",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze7.smat"
+		},
+		{
+			"Handle": "3994030263495547754",
+			"Type": "Material",
+			"Path": "Materials/MeadowHaze8.smat"
+		},
+		{
+			"Handle": "10253575150139811164",
+			"Type": "Material",
+			"Path": "Materials/Props/Fence.smat"
+		},
+		{
+			"Handle": "6147152729641585606",
+			"Type": "Material",
+			"Path": "Materials/Props/Props.smat"
 		},
 		{
 			"Handle": "17182585141271066399",
@@ -90,6 +155,11 @@
 			"Path": "Materials/StartLamp.smat"
 		},
 		{
+			"Handle": "12081241118904071116",
+			"Type": "Material",
+			"Path": "Materials/TimingLines.smat"
+		},
+		{
 			"Handle": "5171630588505078153",
 			"Type": "Mesh",
 			"Path": "Meshes/BarrierCollision.gltf"
@@ -98,6 +168,31 @@
 			"Handle": "18075086976973300326",
 			"Type": "Mesh",
 			"Path": "Meshes/Barriers.gltf"
+		},
+		{
+			"Handle": "6054894987297752229",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/Body.gltf"
+		},
+		{
+			"Handle": "16522392693025804384",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/Fork.gltf"
+		},
+		{
+			"Handle": "15043423790136795479",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/FrontWheel.gltf"
+		},
+		{
+			"Handle": "2826647978675977762",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/RearWheel.gltf"
+		},
+		{
+			"Handle": "15584948622662202879",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/Rider.gltf"
 		},
 		{
 			"Handle": "10643124185050336685",
@@ -123,6 +218,96 @@
 			"Handle": "10224707081030729703",
 			"Type": "Mesh",
 			"Path": "Meshes/Hills.gltf"
+		},
+		{
+			"Handle": "14243088392321116845",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Board1.gltf"
+		},
+		{
+			"Handle": "10971304707284091319",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Board2.gltf"
+		},
+		{
+			"Handle": "14203210568648336920",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Board3.gltf"
+		},
+		{
+			"Handle": "16292813448536242772",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Board4.gltf"
+		},
+		{
+			"Handle": "2402020815709396062",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Broadleaf.gltf"
+		},
+		{
+			"Handle": "402928342318649075",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Bush.gltf"
+		},
+		{
+			"Handle": "17869836105486542428",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Cone.gltf"
+		},
+		{
+			"Handle": "248213735155065325",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Conifer.gltf"
+		},
+		{
+			"Handle": "7448858432631607235",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/FencePanel.gltf"
+		},
+		{
+			"Handle": "15183408416693652179",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/FencePost.gltf"
+		},
+		{
+			"Handle": "6598720269516611724",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Grandstand.gltf"
+		},
+		{
+			"Handle": "5514049035235538614",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/LightPole.gltf"
+		},
+		{
+			"Handle": "10380499107730219378",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Marker100.gltf"
+		},
+		{
+			"Handle": "12335030238157461282",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Marker200.gltf"
+		},
+		{
+			"Handle": "11410880206511140239",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/Marker300.gltf"
+		},
+		{
+			"Handle": "6856617992762747952",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/MarshalPost.gltf"
+		},
+		{
+			"Handle": "2361608923474482071",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/RoundTree.gltf"
+		},
+		{
+			"Handle": "12706252508619327186",
+			"Type": "Mesh",
+			"Path": "Meshes/Props/TyreStack.gltf"
 		},
 		{
 			"Handle": "17648517083905525447",
@@ -160,14 +345,34 @@
 			"Path": "Scripts/Tour.sgraph"
 		},
 		{
+			"Handle": "1115383244513682738",
+			"Type": "PhysicsMaterial",
+			"Path": "Surfaces/Asphalt.sphysmat"
+		},
+		{
+			"Handle": "3779313402414917349",
+			"Type": "PhysicsMaterial",
+			"Path": "Surfaces/Grass.sphysmat"
+		},
+		{
+			"Handle": "13159216021552518136",
+			"Type": "PhysicsMaterial",
+			"Path": "Surfaces/Gravel.sphysmat"
+		},
+		{
+			"Handle": "5753974094360694805",
+			"Type": "PhysicsMaterial",
+			"Path": "Surfaces/Kerb.sphysmat"
+		},
+		{
 			"Handle": "1120607662871141938",
 			"Type": "Texture",
 			"Path": "Textures/Asphalt.png"
 		},
 		{
-			"Handle": "9392488307944790590",
+			"Handle": "13915413865723162255",
 			"Type": "Texture",
-			"Path": "Textures/Checker.png"
+			"Path": "Textures/Bike/Livery.png"
 		},
 		{
 			"Handle": "4745811410313937805",
@@ -195,9 +400,29 @@
 			"Path": "Textures/Kerb.png"
 		},
 		{
+			"Handle": "13749410299577165266",
+			"Type": "Texture",
+			"Path": "Textures/Meadow.png"
+		},
+		{
+			"Handle": "7985213725984901337",
+			"Type": "Texture",
+			"Path": "Textures/Props/Fence.png"
+		},
+		{
+			"Handle": "3369206380653655569",
+			"Type": "Texture",
+			"Path": "Textures/Props/Props.png"
+		},
+		{
 			"Handle": "3479788475672880843",
 			"Type": "Texture",
 			"Path": "Textures/SectorBoards.png"
+		},
+		{
+			"Handle": "11890263462930504271",
+			"Type": "Texture",
+			"Path": "Textures/TimingLines.png"
 		}
 	]
 }

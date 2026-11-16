@@ -14,6 +14,7 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <cmath>
 #include <span>
 
 namespace Strada
@@ -494,6 +495,28 @@ namespace Strada
 		{
 			glfwSetWindowSize(m_Window, size.x, size.y);
 		}
+	}
+
+	void Window::SetFramebufferSize(uint32_t width, uint32_t height)
+	{
+		// A window is created at a size in screen coordinates scaled by the monitor's content scale (GLFW_SCALE_TO_MONITOR),
+		// so no size at creation gives a framebuffer of a size the scale does not divide.
+		int windowWidth = 0;
+		int windowHeight = 0;
+		int framebufferWidth = 0;
+		int framebufferHeight = 0;
+		glfwGetWindowSize(m_Window, &windowWidth, &windowHeight);
+		glfwGetFramebufferSize(m_Window, &framebufferWidth, &framebufferHeight);
+		if (windowWidth <= 0 || windowHeight <= 0 || framebufferWidth <= 0 || framebufferHeight <= 0)
+		{
+			// Minimized: nothing to compare, so screen coordinates are taken for pixels.
+			SetSize(width, height);
+			return;
+		}
+		double const unitsPerPixelX = static_cast<double>(windowWidth) / static_cast<double>(framebufferWidth);
+		double const unitsPerPixelY = static_cast<double>(windowHeight) / static_cast<double>(framebufferHeight);
+		SetSize(static_cast<uint32_t>(std::lround(static_cast<double>(width) * unitsPerPixelX)),
+		        static_cast<uint32_t>(std::lround(static_cast<double>(height) * unitsPerPixelY)));
 	}
 
 	void Window::Maximize()

@@ -98,7 +98,7 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
   --template graph-starter` (or `--template csharp-starter`), or `python Projects/Showcase/Tools/Author.py --exhibit
   GraphGarden` for the Showcase, never
   the Showcase's full rebuild, which rewrites its materials); a change to a sample or a template updates the check counts
-  its tests pin (`RuntimeTests.cpp`); doc fixtures
+  its tests pin (StradaRuntimeTests' `SampleTests.cpp` and `TemplateTests.cpp`); doc fixtures
   (`Agents/Spinner.json`, `Agents/Debugging.json`) are shown verbatim where the docs show them, which their doc tests
   check. A change under `Projects/Showcase` leaves the two protected materials
   (`Assets/Materials/Gallery/Metallic100Roughness0.smat`, `Assets/Textures/rusty_metal_02/rusty_metal_02.smat`) untouched:

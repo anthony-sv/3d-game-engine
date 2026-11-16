@@ -3,7 +3,9 @@
 
 set(STRADA_RUNTIME_SOURCES
     Source/Runtime/RuntimeLayer.cpp
+    Source/Runtime/ResolutionRequest.h
     Source/Runtime/RuntimeLayer.h
+    Source/Runtime/ScreenshotRequest.h
     Source/RuntimeApplication.cpp
 )
 

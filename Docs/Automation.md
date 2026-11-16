@@ -215,7 +215,7 @@ already waiting for a draw answers Cancelled). `editor.entity-menu` and `editor.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `entity.create` | `name`, `parent`, `siblingIndex`, `components` (`{ "<Component>": { fields } }`) | `id` |
+| `entity.create` | `name`, `id` (the new entity's ID, which no entity of the scene may have; omitted: a fresh one; a tool that makes a scene again passes the IDs it had, so the file keeps them), `parent`, `siblingIndex`, `components` (`{ "<Component>": { fields } }`), `children` (up to 65,536 entities to create under the new one, in order: `[{ name, id, components }]`, each `id` unused in the scene and by the rest of the request; a level's many props in one request) | `id`; with `children`, also `children`: their IDs in order. One undo step with its children; when one is refused (an ID in use or given twice, naming `children[<i>].id`; an unknown component; fields that do not load), nothing is created |
 | `entity.delete` | `entities`* (deletes descendants too, one undo step) | `deleted` |
 | `entity.duplicate` | `entities`* | `ids` of the copies |
 | `entity.rename` | `entity`*, `name`* | `id`, `name` |

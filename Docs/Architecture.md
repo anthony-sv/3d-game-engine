@@ -1759,15 +1759,31 @@ empty entry, or a submesh past the list, uses the collider's `Material` (or its 
 list holds at most 31 (`MaxMeshColliderMaterials`, the field's `MaxCount`) beside the collider's own. Convex hulls,
 and the hulls that stand in for the triangles of dynamic bodies, have one surface: the collider's `Material`.
 
+A triangle mesh's shape is built over the mesh's distinct positions (`CreateMeshShape` in `PhysicsScene.cpp`): the
+importer gives each submesh vertices of its own, and splits vertices along hard edges and texture seams, but Jolt tells
+the edges between triangles apart by their shared vertex indices (`MeshShape::sFindActiveEdges`, `MeshShape.cpp:299-336`
+of the pinned Jolt): an edge that one triangle alone holds is an active one, and a body crossing it meets the edge
+itself. Where two surfaces of a road meet, that was a bump: a ball crossing coplanar strips at 4 m/s leapt and lost an
+eighth of its speed, a box sliding corner first at 8 m/s rose 0.32 m (`PhysicsScene:` case "bodies slide and roll across
+the edges ..."). Welding by exact position shares those edges, which Jolt then judges by the angle between their
+triangles as it judges any other. A vertex is welded only to one at its position whose triangles face the same way (the
+sums of their triangles' normals less than 90 degrees apart): the back of a double-sided face repeats the front's
+positions with triangles turned the other way, and welding the two would give every inner edge four triangles, which
+Jolt also takes for an active edge (`MeshShape.cpp:316-322`: three or more triangles on an edge), so each face keeps its
+own vertices and its edges shared by two (case "a double-faced triangle mesh keeps each face's edges to itself ..."). A
+mesh without repeated positions builds the same shape as before; one with them now has fewer active edges, and a body
+that touched one of those edges now slides or rolls over it.
+
 A contact combines, per pair of sub-shapes as before, the two sides' friction and restitution
 (`CombinePhysicsMaterialValues`): each side brings its value and its mode, and when the modes differ the one later in
 the order `GeometricMean`, `Average`, `Minimum`, `Multiply`, `Maximum` wins (so a material that says `Maximum` for
 restitution bounces off everything, and one that says `GeometricMean` defers to any other). The rule is symmetric in
 the two sides, as Jolt's pairs come in body order. With both modes at their defaults it is exactly `std::sqrt(a * b)`
 and `std::max(a, b)`, the expressions of the listener before materials, so a scene without materials simulates bit for
-bit as it did and its state hashes do not change, with one exception: a character's inner body touching a body of
+bit as it did and its state hashes do not change, with two exceptions: a character's inner body touching a body of
 several colliders through one that is not its first now meets that collider's values, where before it met the first
-collider's (below). A side is one sub-shape: a collider of a compound body, or a
+collider's (below); and a triangle mesh whose positions repeat is now welded, so a body that met one of its open edges
+crosses it (above). A side is one sub-shape: a collider of a compound body, or a
 triangle's submesh. Its surface is found from the sub-shape ID: `Shape::GetLeafShape`, which compound and decorated
 shapes pass on to the leaf (`CompoundShape.cpp:136`, `DecoratedShape.h:52` of the pinned Jolt), gives the leaf shape, whose
 user data names its collider's entry in the table below, as before materials; on a triangle mesh with submesh
@@ -4101,7 +4117,7 @@ that each platform's names are tested on every platform:
   shards by module folder of `Source/`, one entry each, defined once in `Tests/StradaTests/Shards.cmake`:
   `StradaTests.Asset`, `.Scripting` (`Script/` and `Scene/`), `.Rendering` (`RHI/`, `Renderer/` and `ImGui/`, the GPU
   tests) and `.Core` (every other folder). `StradaTests.Partition` checks them as the editor's partition entry checks
-  its own (`strada_add_test_shards` in `cmake/StradaTestShards.cmake` registers both suites' entries). Every test
+  its own (`strada_add_test_shards` in `cmake/StradaTestShards.cmake` registers the three suites' entries). Every test
   source passes alone in its own process, so no test depends on what another file's tests left behind.
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project. ctest runs it as shards, one
   entry each, defined once in `Tests/StradaEditorTests/Shards.cmake` as doctest source-file filters:
@@ -4139,7 +4155,11 @@ that each platform's names are tested on every platform:
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
   layouts, test runs and their exit codes, games whose only scripts are visual scripts, among them one whose graph calls
   a function library and broadcasts to two entities, development-only nodes the project runs and the exported game
-  skips, command-line errors, a windowed run's presented image).
+  skips, command-line errors, a windowed run's presented image, its screenshot and its `--resolution`). ctest runs it as
+  shards defined in `Tests/StradaRuntimeTests/Shards.cmake`: `StradaRuntimeTests.Samples` (`SampleTests.cpp`: the
+  sample projects, each played several times), `.Templates` (`TemplateTests.cpp`: a project made from each template)
+  and `.Core` (every other file), with `StradaRuntimeTests.Partition`; the helpers they share are in
+  `RuntimeTestUtilities.h`.
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
   stand-in editor, Poly Haven downloads against a stand-in server, and MCP sessions with the real editor started
   headless (`STRADA_EDITOR`; ctest sets it), among them an agent's whole workflow: a project, a script it writes and
@@ -4245,24 +4265,72 @@ that each platform's names are tested on every platform:
   circuit closer than 8 m. `Tools/GenerateAssets.py` (standard library only) makes from it the meshes (glTF with
   positions, normals and texture coordinates in meters; the track and the walls in world space, one primitive per
   material and 200 m of the lap, so that each is culled on its own), the textures, and the sky (a Radiance file with
-  run-length encoded scanlines). The track's and the walls' colliders are meshes of their own, welded into one
-  primitive whose vertices all point up and have no texture coordinates, so that the importer keeps them welded: Jolt
-  finds the edges between a mesh's triangles by their shared vertex indices, and a seam of duplicated vertices (a
-  material's or a chunk's border) would be an edge a wheel bumps on. The same seed gives the same bytes (values are
+  run-length encoded scanlines). The track's and the walls' colliders are meshes of their own whose vertices all point
+  up and have no texture coordinates, so that the importer keeps them welded: Jolt finds the edges between a mesh's
+  triangles by their shared vertex indices, and a seam of duplicated vertices (a material's or a chunk's border) would be
+  an edge a wheel bumps on. The track's collider has one primitive per surface the physics tells apart (asphalt, kerb,
+  gravel, grass), each welded, and the physics builds the shape over the mesh's distinct positions (§8, "Physics
+  materials"), so the edges where two surfaces meet are shared too; the track's `MeshCollider` gives each submesh its
+  physics material (`Surfaces/<name>.sphysmat`: friction, rolling resistance and the `Surface` name scripts compare;
+  the gravel's friction is the larger and wins by `Maximum`, so whatever slides into a trap stops sooner than on the
+  asphalt), and the ground's collider has the grass. The timing lines are painted into a texture of the asphalt
+  (`TimingLines`) that the road around each line maps as the asphalt does, rather than cut into the road as thin
+  geometry, which broke into dashes at a distance. The meadow beyond the barriers has a texture of fine detail only,
+  which averages out at a distance where a larger pattern would repeat as a grid seen from the air. The same seed gives the same bytes (values are
   rounded before they are packed, against maths libraries that differ in their last digit); `GenerateAssets.py
   --check` generates twice and compares the runs with each other and with `Assets` (a PNG of equal pixels but other
-  compression passes, naming the zlib). There is no fog: the ring of hills that makes the skyline beyond the grass
-  emits a little of the horizon's color, which stands for the air between. `Tools/Author.py` builds the project
+  compression passes, naming the zlib). There is no fog: the ground lies in rings whose materials lose a share of their
+  color to the horizon's, more with every ring outwards, and the ring of hills that makes the skyline, whose foot is
+  meadow in the last ring's haze, emits a little of it too; that stands for the air between, so that the ground runs
+  into the hills without an edge. `Tools/Author.py` builds the project
   through `strada mcp --headless` in parts, each of which owns root entities of the main scene and the files it may
   write (`circuit`: the generated assets, the materials and the `Circuit` entity with the track, the walls, the ground,
   the hills, the start gantry, the sector gates and the footbridge, every surface a static body with a triangle-mesh
   `MeshCollider`; `lighting`: the sun, the sky and the renderer settings, shadows over 220 m in four cascades;
-  `camera`: the main camera, near plane 0.1 m and far plane 5 km, and its tour; `tests`: the test scene and its graphs);
+  `camera`: the main camera, near plane 0.1 m and far plane 5 km, and its tour; `props`: the props' meshes, textures and
+  materials and the `Props` entity; `bike`: the motorcycle's and the rider's meshes, livery and materials and the `Bike`
+  entity on the grid; `tests`: the test scene and its graphs);
   `--part <name>` rebuilds one part in place, then the `tests` part (the test scene is the main scene with the checks,
-  which name its entities), and fails, naming them, when files neither owns changed. Graphs keep their asset handles
+  which name its entities), and fails, naming them, when files neither owns changed. A part made again keeps what it
+  does not change: its roots are made where they stood among the roots, and every entity it makes takes the ID it had
+  (found by its names from the root; `entity.create` takes an `id`), as do the test scene's own entities, so a part
+  run again with nothing changed writes the same files. **The props** are 10,000 static entities placed by seed
+  (`Tools/Props.py`): tyre stacks lining the walls round the corners' outsides and cones at their insides, braking
+  markers, catch fences of posts and chain-link panels (continuous from one structure to the next: posts at most 3 m
+  apart along the fence's line, panels halved where the line bends sharply), advertising boards with invented names, grandstands, marshals'
+  posts, floodlights, bushes and trees, on 18 meshes `GenerateAssets.py` makes (`Meshes/Props`), each one primitive,
+  and two materials: `Props`, whose texture is an atlas of flat colors, the markers' figures and the boards' names, and
+  `Fence`, a chain-link cut out by an alpha mask and drawn from both sides. So the renderer draws them as instances, a
+  batch per mesh and pass (§6.2, "Instancing"), and the whole frame stays within 400 draws where without instancing each prop would be a draw in
+  every pass that sees it, thousands in a frame (`MotoSceneTests.cpp` holds it on the GPU tests' device). Every prop is an entity
+  of a transform and a mesh in a group of its kind under `Props`, so the editor shows, selects and moves each like any
+  other; the part makes each group with all its props in one `entity.create` request (its `children`), which keeps
+  their IDs and makes the 10,000 in seconds where a request each would take minutes. `Props.py`'s `check()` asserts
+  that no prop stands on any part of the circuit (only the stacks and cones stand at a wall's foot, in the last strip
+  of its skirt), on a structure's legs, piers or stairs, in the camera tour's way or in another prop's, and that a
+  fence panel covers every point of the fences' lines between structures. Graphs keep their asset handles
   when they are written again (emptied with `graph.set`, then written batch by batch). The sector gates are timing
   lines whose entities stand on the center line with their forward along the travel: gates 1 and 2 carry an arch, gate
-  3 is the start and finish line under the gantry. **The camera tour** is the first sample tour made of a graph
+  3 is the start and finish line under the gantry. **The bike and its rider** (`Tools/Bike.py`) are a stylized
+  superbike generated to the published proportions (a wheelbase of 1,485 mm, a rake of 24°, a trail of 98 mm, 120/70
+  and 200/55 ZR17 tyres, so a fork offset of 32.5 mm) and a rigid rider on it, waiting on the pole slot 9 m before the
+  line: five static meshes (`Meshes/Bike`), so that what turns on a motorcycle can turn, under the `Bike` entity, whose
+  origin is on the ground midway between the contact patches with its front along -Z: `Body`; `Fork`, at the foot of
+  the steering axis and turned 24° about X, so that turning it about its own Y steers; `Front Wheel` under it and
+  `Rear Wheel`, each on its axle; and `Rider`, at his hips. They share one livery texture and four materials (paint,
+  dark, metal, glass): 16 primitives, so 16 draws in each pass that sees all of it, for 10,560 triangles (a second bike of the same meshes and materials joins their batches). `Bike.py`'s `check()` measures the wheelbase, the
+  rake and the trail from the meshes and entities made, and that both tyres touch the ground; `check_grid()` keeps the
+  tour 2 m from it. MO3's ghost, the vehicle and the rider's lean build on these parts. **The captures**:
+  `Author.py --captures <folder> --player <StradaRuntime>` builds nothing; it takes the player's own screenshots at 1920
+  by 1080 pixels (`--resolution`) from a fixed list of cameras (`Tools/Captures.py`: the bike on the grid close up and
+  in profile, Turn 1 and Turn 6 with the bike leaned at mid and far range, Sector Gate 1, the footbridge, an aerial, the
+  rider's view, and two adjacent frames of the tour along the fences), each from a copy of the project outside the
+  repository whose main scene puts the camera and the bike there, with a per-user root of its own, and fails a view
+  whose picture is missing or of another size after three runs. On the reference machine (Release, 1920 by 1080,
+  `StradaRuntime --profile` over the 600 frames of the whole tour, `--no-vsync`, slice 2's MO2 sitting) the frame's
+  median is 3.5 to 3.9 ms (99th percentile 5.7 to 9.2 ms), with a median of 149 draws (at most 256), 146 batches and
+  5,291 instances a frame; `Renderer.Submit` 0.72 to 0.74 ms and `Renderer.Prepare` 0.43 to 0.46 ms; the GPU's ambient
+  occlusion 1.29 to 1.32 ms, opaque 1.00 to 1.03 ms and shadows 0.41 ms a frame. **The camera tour** is the first sample tour made of a graph
   (`Scripts/Tour.sgraph`, on the main camera): a `Flow.Timeline` with two Vector3 curves, `Eye` and `LookAt`, flies the
   camera from the home view once round the lap and back to it in about 51 s; each update sets the camera's
   translation and the Euler angles that point it at `LookAt` (a formula: pitch, then yaw, no roll, so no keyed angle
@@ -4273,10 +4341,14 @@ that each platform's names are tested on every platform:
   gantry, low down the straights and under the footbridge, beside the sector gates' boards, higher over the corners).
   Its `check()` evaluates the curves as the engine does (Catmull-Rom on the keys' times, flat at the ends) and asserts
   that the camera keeps 2 m from every surface of the layout the whole way, which is a property of the data, not of
-  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene with a crate over the road, the `Waiting Tour`
-  and the `Tests` entity) holds 13 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
+  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene without its props, which stand clear of all it
+  checks, with a crate over the road, two blocks sent
+  sliding with the scene, the `Waiting Tour` and the `Tests` entity) holds 18 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
   reporting through the `Checks` library): rays down at points of the layout hit the road, a kerb, a wall's top, the
-  ground and the footbridge's deck at their heights, facing up; the crate comes to rest on the road; and the camera is
+  ground and the footbridge's deck at their heights, facing up, and name the physics material of the asphalt (also
+  where a timing line is painted), a kerb, a gravel trap, a verge and the ground; the crate comes to rest on the road;
+  of the two blocks sent off at 8 m/s, rotation locked, the one on the asphalt slides farther than the one in the gravel,
+  each within a tenth of v²/(2gμ); and the camera is
   at the home view when the scene starts, where the path puts it under the footbridge, home again when the tour ends,
   and off on the next one after it; the `Waiting Tour`, a second entity running `Tour.sgraph` with `PlayOnStart` and
   `Repeat` off, stays where the scene put it until the `Tests` graph sends it `PlayTour`, then flies, and stays at the

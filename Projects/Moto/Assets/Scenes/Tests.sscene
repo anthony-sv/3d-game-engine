@@ -122,8 +122,7 @@
 						"8127015975830188493",
 						"3118176467674485412",
 						"470712795584087812",
-						"15745637732639020673",
-						"17678251460209051611"
+						"12081241118904071116"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -163,7 +162,14 @@
 					"Mesh": "17230076990940009830",
 					"Convex": false,
 					"IsTrigger": false,
-					"Friction": 1.0,
+					"Material": "0",
+					"Materials": [
+						"1115383244513682738",
+						"5753974094360694805",
+						"13159216021552518136",
+						"3779313402414917349"
+					],
+					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
 			}
@@ -239,6 +245,8 @@
 					"Mesh": "5171630588505078153",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.4000000059604645,
 					"Restitution": 0.0
 				}
@@ -275,7 +283,15 @@
 				"Mesh": {
 					"Mesh": "16144419852617799839",
 					"Materials": [
-						"3118176467674485412"
+						"16581966529300385010",
+						"1826397523122005479",
+						"8889534955654055428",
+						"17857525847719365787",
+						"5581409923019099630",
+						"7360490602862285314",
+						"5336146829897545834",
+						"4043129992099541868",
+						"3994030263495547754"
 					],
 					"CastShadows": false,
 					"Visible": true
@@ -315,7 +331,9 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
-					"Friction": 0.800000011920929,
+					"Material": "3779313402414917349",
+					"Materials": [],
+					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
 			}
@@ -351,7 +369,8 @@
 				"Mesh": {
 					"Mesh": "10224707081030729703",
 					"Materials": [
-						"4944508948686901293"
+						"4944508948686901293",
+						"3994030263495547754"
 					],
 					"CastShadows": false,
 					"Visible": true
@@ -432,6 +451,8 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
@@ -509,6 +530,8 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
@@ -586,6 +609,8 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
@@ -693,6 +718,8 @@
 					"Mesh": "0",
 					"Convex": false,
 					"IsTrigger": false,
+					"Material": "0",
+					"Materials": [],
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				}
@@ -830,6 +857,244 @@
 			}
 		},
 		{
+			"ID": "1233048084916068541",
+			"Components": {
+				"Tag": {
+					"Tag": "Bike"
+				},
+				"Transform": {
+					"Translation": [
+						66.00826263427734,
+						0.14499999582767487,
+						-223.99378967285156
+					],
+					"Rotation": [
+						-0.0,
+						0.8226891756057739,
+						-0.0,
+						-0.5684914588928223
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"16165067387090811894",
+						"2517882329644190629",
+						"14578883764489122022",
+						"748496418618621722"
+					]
+				}
+			}
+		},
+		{
+			"ID": "16165067387090811894",
+			"Components": {
+				"Tag": {
+					"Tag": "Body"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "1233048084916068541",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "6054894987297752229",
+					"Materials": [
+						"17959715501337604447",
+						"18431788629982675903",
+						"4984434297058937164",
+						"7446032774219383372"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "2517882329644190629",
+			"Components": {
+				"Tag": {
+					"Tag": "Fork"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						-0.840499997138977
+					],
+					"Rotation": [
+						0.20791170001029968,
+						0.0,
+						0.0,
+						0.9781476259231567
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "1233048084916068541",
+					"Children": [
+						"8024168299216003545"
+					]
+				},
+				"Mesh": {
+					"Mesh": "16522392693025804384",
+					"Materials": [
+						"17959715501337604447",
+						"18431788629982675903",
+						"4984434297058937164"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "8024168299216003545",
+			"Components": {
+				"Tag": {
+					"Tag": "Front Wheel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.31383246183395386,
+						-0.032452862709760666
+					],
+					"Rotation": [
+						-0.20791170001029968,
+						0.0,
+						0.0,
+						0.9781476259231567
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "2517882329644190629",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "15043423790136795479",
+					"Materials": [
+						"17959715501337604447",
+						"18431788629982675903",
+						"4984434297058937164"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "14578883764489122022",
+			"Components": {
+				"Tag": {
+					"Tag": "Rear Wheel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.32589998841285706,
+						0.7425000071525574
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "1233048084916068541",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2826647978675977762",
+					"Materials": [
+						"17959715501337604447",
+						"18431788629982675903",
+						"4984434297058937164"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "748496418618621722",
+			"Components": {
+				"Tag": {
+					"Tag": "Rider"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.8600000143051147,
+						0.30000001192092896
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "1233048084916068541",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "15584948622662202879",
+					"Materials": [
+						"17959715501337604447",
+						"18431788629982675903",
+						"7446032774219383372"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
 			"ID": "6319871157374525983",
 			"Components": {
 				"Tag": {
@@ -906,7 +1171,174 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.800000011920929,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "16781400818259800589",
+			"Components": {
+				"Tag": {
+					"Tag": "Asphalt Slider"
+				},
+				"Transform": {
+					"Translation": [
+						411.1647033691406,
+						0.6449999809265137,
+						-93.50240325927734
+					],
+					"Rotation": [
+						0.0,
+						-0.8226892948150635,
+						0.0,
+						0.5684912800788879
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 20.0,
+					"LinearDamping": 0.0,
+					"AngularDamping": 0.0,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						true,
+						true,
+						true
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						7.483099937438965,
+						0.0,
+						2.8290998935699463
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Material": "0",
+					"Friction": 1.0,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "15880767950090353129",
+			"Components": {
+				"Tag": {
+					"Tag": "Gravel Slider"
+				},
+				"Transform": {
+					"Translation": [
+						-79.74320220947266,
+						0.5799999833106995,
+						374.6022033691406
+					],
+					"Rotation": [
+						0.0,
+						0.5868281126022339,
+						0.0,
+						0.8097115159034729
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 20.0,
+					"LinearDamping": 0.0,
+					"AngularDamping": 0.0,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						true,
+						true,
+						true
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"Interpolation": "Interpolate",
+					"InitialLinearVelocity": [
+						-7.60260009765625,
+						0.0,
+						-2.4900999069213867
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Material": "0",
+					"Friction": 1.0,
 					"Restitution": 0.0
 				}
 			}
@@ -985,6 +1417,10 @@
 				"VisualScript": {
 					"Graph": "7930426497277894226",
 					"Variables": {
+						"AsphaltSlider": {
+							"Type": "Entity",
+							"Value": "16781400818259800589"
+						},
 						"Barriers": {
 							"Type": "Entity",
 							"Value": "12923157835273252348"
@@ -1000,6 +1436,10 @@
 						"Footbridge": {
 							"Type": "Entity",
 							"Value": "144626559652851171"
+						},
+						"GravelSlider": {
+							"Type": "Entity",
+							"Value": "15880767950090353129"
 						},
 						"Ground": {
 							"Type": "Entity",
