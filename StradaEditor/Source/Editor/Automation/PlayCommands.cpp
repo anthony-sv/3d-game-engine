@@ -273,9 +273,9 @@ namespace Strada
 			                              : kindName == "shapeCast"  ? PhysicsQueryKind::Cast
 			                                                         : PhysicsQueryKind::Overlap;
 			bool const isRay = kind == PhysicsQueryKind::Ray || kind == PhysicsQueryKind::RayAll;
-			auto const has = [&params](char const* name)
+			auto const has = [&params](char const* parameter)
 			{
-				return params.contains(name);
+				return params.contains(parameter);
 			};
 
 			// What the kind uses.
@@ -341,6 +341,13 @@ namespace Strada
 				if (has("halfHeight") && shape.Type != PhysicsQueryShapeType::Capsule)
 				{
 					return RefuseQuery("halfHeight", fmt::format("a {} has no halfHeight: only a capsule has one", shapeName));
+				}
+				for (char const* const name : {"rotation", "rotationEuler"})
+				{
+					if (has(name) && shape.Type == PhysicsQueryShapeType::Sphere)
+					{
+						return RefuseQuery(name, fmt::format("a sphere looks the same turned: {} is for a box or a capsule", name));
+					}
 				}
 				if (has("radius"))
 				{
@@ -831,8 +838,8 @@ namespace Strada
 		                                                           "its local Y axis")
 		                                              .Default(0.5))
 		                  .Property("rotation",
-		                            SchemaBuilder::Array(componentSchema, "The shape's rotation as a quaternion [x, y, z, w] (a sphere "
-		                                                                  "ignores it; default none)")
+		                            SchemaBuilder::Array(componentSchema, "The shape's rotation as a quaternion [x, y, z, w] (box and "
+		                                                                  "capsule; default none)")
 		                                .MinItems(4)
 		                                .MaxItems(4))
 		                  .Property("rotationEuler",

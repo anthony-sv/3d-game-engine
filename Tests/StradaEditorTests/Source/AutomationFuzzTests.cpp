@@ -551,6 +551,11 @@ namespace
 				{
 					params.erase("halfHeight");
 				}
+				if (shape == "sphere")
+				{
+					params.erase("rotation");
+					params.erase("rotationEuler");
+				}
 				if (params.contains("rotation") && params.contains("rotationEuler"))
 				{
 					params.erase(m_Random.Pick(2) == 0 ? "rotation" : "rotationEuler");
