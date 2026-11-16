@@ -1,5 +1,6 @@
 #include "Core/UserDataTestUtilities.h"
 #include "GpuTestUtilities.h"
+#include "Runtime/ScreenshotRequest.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
@@ -936,6 +937,8 @@ TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 	CHECK(center[0] > 150);
 	CHECK(center[1] < 40);
 	CHECK(center[2] < 40);
+	CHECK(Contains(result.Output, "Saved screenshot to"));
+	CHECK_FALSE(Contains(result.Output, "No screenshot was saved"));
 	CHECK_FALSE(Contains(result.Output, "icon is not used"));
 
 	// The project's icon becomes the window's; one that is not a texture is reported and left out.
@@ -951,6 +954,76 @@ TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 	CAPTURE(wrongIcon.Output);
 	CHECK(wrongIcon.ExitCode == 0);
 	CHECK(Contains(wrongIcon.Output, "icon is not used"));
+}
+
+TEST_CASE("Runtime: the player asks for its screenshot in the first frame drawn at or after the one requested, once")
+{
+	// Frame 4 is not drawn (a minimized window runs no update, or the swapchain gave no image): the request waits for frame 5.
+	ScreenshotRequest request(FileSystem::PathFromUtf8("Shot.png"), 4);
+	CHECK(request.IsWanted());
+	CHECK_FALSE(request.TakeRequest(3, true));
+	CHECK_FALSE(request.TakeRequest(4, false));
+	CHECK(request.TakeRequest(5, true));
+	CHECK(request.IsRequested());
+	CHECK_FALSE(request.TakeRequest(6, true));
+	CHECK(Contains(request.DescribeFailure(), "before the capture was made"));
+	request.SetSaved();
+	CHECK(request.IsSaved());
+	CHECK(request.DescribeFailure().empty());
+
+	// A frame passed by while nothing was drawn is not waited for again: the next drawn frame takes it.
+	ScreenshotRequest late(FileSystem::PathFromUtf8("Late.png"), 2);
+	CHECK(late.TakeRequest(40, true));
+
+	// A run that never drew a frame at or after the one requested says so.
+	ScreenshotRequest missed(FileSystem::PathFromUtf8("Missed.png"), 59);
+	CHECK_FALSE(missed.TakeRequest(59, false));
+	CHECK(Contains(missed.DescribeFailure(), "before a frame at or after frame 59 was drawn"));
+
+	// A capture or a write that failed gives its reason.
+	ScreenshotRequest failed(FileSystem::PathFromUtf8("Failed.png"), 0);
+	CHECK(failed.TakeRequest(0, true));
+	failed.SetFailed("the disk is full");
+	CHECK(failed.DescribeFailure() == "the disk is full");
+
+	// Without a path no screenshot is wanted, asked for or missed.
+	ScreenshotRequest none;
+	CHECK_FALSE(none.IsWanted());
+	CHECK_FALSE(none.TakeRequest(100, true));
+	CHECK(none.DescribeFailure().empty());
+}
+
+TEST_CASE("Runtime: a windowed run that saves no screenshot ends with an error line and exit code 1")
+{
+	{
+		// The player needs a Vulkan device (this probe's is released at the end of the block) and a display.
+		ST_REQUIRE_GPU();
+	}
+	ST_REQUIRE_DISPLAY();
+	TestGame game(ProjectFileKind::Game);
+	game.AddScene("Main", MakeScene("Main", std::nullopt));
+	game.AddScene("Quitter", MakeScene("Quitter", ScriptFieldMap{{"Quit", ScriptFieldValue::FromBool(true)}}));
+	game.AddScripts();
+	std::string const file = Native(game.Write("Scenes/Main.sscene"));
+
+	// The file cannot be written: its folder is a file.
+	std::filesystem::path const blocker = game.GetDirectory() / "NotAFolder";
+	REQUIRE(FileSystem::WriteTextFile(blocker, "a file").IsOk());
+	std::filesystem::path const unwritable = blocker / "Shot.png";
+	ProcessResult const written = RunPlayer({"--game", file, "--frames", "3", "--screenshot", Native(unwritable)});
+	CAPTURE(written.Output);
+	CHECK(written.ExitCode == 1);
+	CHECK(Contains(written.Output, "No screenshot was saved to"));
+	CHECK_FALSE(Contains(written.Output, "Saved screenshot"));
+	CHECK_FALSE(FileSystem::Exists(unwritable));
+
+	// The game quits at its first update, long before frame 60, so no frame is drawn to capture.
+	std::filesystem::path const screenshot = game.GetDirectory() / "Quit.png";
+	ProcessResult const quit = RunPlayer({"--game", file, "--scene", "Scenes/Quitter.sscene", "--screenshot", Native(screenshot)});
+	CAPTURE(quit.Output);
+	CHECK(quit.ExitCode == 1);
+	CHECK(Contains(quit.Output, "before a frame at or after frame 60 was drawn"));
+	CHECK_FALSE(FileSystem::Exists(screenshot));
 }
 
 TEST_CASE("Runtime: a windowed run of a menu without a camera shows its UI over black")

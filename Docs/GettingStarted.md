@@ -236,7 +236,7 @@ them. Prism Break has no C# scripts and runs at once.
 | `--hash-step <count>` | End the test summary with the physics state hash after this fixed step instead of the last one, so runs at different time steps compare (only with `--test`). Steps are counted in the scene the run ends in: loading another scene starts the count again |
 | `--headless` | Run without a window, rendering or sound |
 | `--frames <count>` | Exit after this many frames |
-| `--screenshot <path>` | Save a PNG of the window (on the last frame with `--frames`, otherwise frame 60) |
+| `--screenshot <path>` | Save a PNG of the window, in the first frame drawn at or after the last one with `--frames` (otherwise frame 60): a minimized window draws no frame, and a run that saves no screenshot ends with an error line and exit code 1 |
 | `--profile <path>` | Record the profiler while the game runs, save the capture of its last 600 frames to this file at exit, and log the median time per frame of each subsystem, thread, GPU pass and zone, and the renderer's counts per frame (`Profile counter Game/DrawCalls`: every draw of the frame; its mesh batches and instances beside it) (not in Dist builds) |
 | `--gpu <index>` | Use the GPU with this adapter index |
 | `--validation`, `--no-validation` | Enable or disable Vulkan and NVRHI validation |

@@ -3,6 +3,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/TextureAsset.h"
 #include "Strada/Core/Application.h"
+#include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
@@ -14,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace Strada
 {
@@ -42,7 +44,8 @@ namespace Strada
 		  m_StartScene(std::move(startScene)),
 		  m_Runner(MakeRunnerSettings(*m_Game, m_Specification)),
 		  m_ViewportWidth(m_Specification.ViewportWidth),
-		  m_ViewportHeight(m_Specification.ViewportHeight)
+		  m_ViewportHeight(m_Specification.ViewportHeight),
+		  m_Screenshot(m_Specification.ScreenshotPath, m_Specification.ScreenshotFrame)
 	{
 	}
 
@@ -99,6 +102,8 @@ namespace Strada
 
 	void RuntimeLayer::OnDetach()
 	{
+		// The application has served or cancelled every capture before its layers detach.
+		ReportMissingScreenshot();
 		if (m_Specification.Test && m_Runner.IsRunning())
 		{
 			// Closed before the run ended (--frames): it did not finish.
@@ -138,9 +143,47 @@ namespace Strada
 		}
 
 		Render();
-		if (!m_Specification.ScreenshotPath.empty() && Application::Get().GetFrameCount() == m_Specification.ScreenshotFrame)
+		// A frame with a back buffer is presented, and captured, at its end.
+		Application& application = Application::Get();
+		if (m_Screenshot.TakeRequest(application.GetFrameCount(), application.GetBackBuffer() != nullptr))
 		{
-			Application::Get().RequestScreenshot(m_Specification.ScreenshotPath);
+			// The layer outlives the request: the application serves or cancels captures before detaching its layers.
+			application.RequestScreenshotImage(
+				[this](Result<Image> image)
+				{
+					SaveScreenshot(std::move(image));
+				});
+		}
+	}
+
+	void RuntimeLayer::SaveScreenshot(Result<Image> image)
+	{
+		if (!image)
+		{
+			m_Screenshot.SetFailed(fmt::format("the window could not be captured: {}", image.GetError()));
+			return;
+		}
+		if (Result<void> written = image.GetValue().WritePNG(m_Screenshot.GetPath()); !written)
+		{
+			m_Screenshot.SetFailed(written.GetError());
+			return;
+		}
+		m_Screenshot.SetSaved();
+		ST_INFO("Saved screenshot to '{}'", FileSystem::PathToUtf8(m_Screenshot.GetPath()));
+	}
+
+	void RuntimeLayer::ReportMissingScreenshot()
+	{
+		std::string const failure = m_Screenshot.DescribeFailure();
+		if (failure.empty())
+		{
+			return;
+		}
+		ST_ERROR("No screenshot was saved to '{}': {}", FileSystem::PathToUtf8(m_Screenshot.GetPath()), failure);
+		// The run did not do what it was asked; a failure code it already has stays.
+		if (Application::Get().GetExitCode() == 0)
+		{
+			Application::Get().SetExitCode(1);
 		}
 	}
 

@@ -256,7 +256,9 @@ namespace Strada
 		               "End the test summary with the physics state hash after this fixed step (default: after the last one)")
 			.AddFlag("headless", "Run without a window, rendering or sound")
 			.AddOption("frames", "count", "Exit after the given number of frames")
-			.AddOption("screenshot", "path", "Save a PNG of the window (on the last frame with --frames, otherwise frame 60)")
+			.AddOption("screenshot", "path",
+		               "Save a PNG of the window in the first frame drawn at or after the last one with --frames, otherwise frame 60; "
+		               "a run that saves none exits with 1")
 			.AddOption("profile", "path",
 		               "Record the profiler and save its capture (the last 600 frames) here at exit, logging the medians")
 			.AddOption("gpu", "index", "Use the GPU with this adapter index")
@@ -408,7 +410,8 @@ namespace Strada
 		}
 		if (screenshot)
 		{
-			// Captured on the last frame when --frames is given, otherwise once the game has run a moment.
+			// Captured on the last frame when --frames is given, otherwise once the game has run a moment (or in the first frame
+			// drawn after it: a minimized window draws none).
 			runtime.Layer.ScreenshotPath = FileSystem::PathFromUtf8(*screenshot);
 			runtime.Layer.ScreenshotFrame = specification.MaxFrames > 0 ? specification.MaxFrames - 1 : 60;
 		}

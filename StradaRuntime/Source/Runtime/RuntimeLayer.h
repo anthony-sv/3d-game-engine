@@ -1,6 +1,9 @@
 #pragma once
 
+#include "Runtime/ScreenshotRequest.h"
+#include "Strada/Core/Image.h"
 #include "Strada/Core/Layer.h"
+#include "Strada/Core/Result.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Project/SceneRunner.h"
 #include "Strada/Renderer/SceneRenderer.h"
@@ -23,7 +26,8 @@ namespace Strada
 		uint64_t HashStep = 0;
 		// Seconds each frame advances the game; 0 advances it by the real frame time.
 		float FixedTimestep = 0.0f;
-		// Saves the window's contents to this file when the given frame is presented (empty: no screenshot).
+		// Saves the window's contents to this file in the first frame drawn at or after the given one (empty: no
+		// screenshot); a run that saves none exits with an error (ScreenshotRequest).
 		std::filesystem::path ScreenshotPath;
 		uint64_t ScreenshotFrame = 0;
 		// The scenes' view size when nothing is rendered (headless runs): the game's window size.
@@ -54,6 +58,10 @@ namespace Strada
 		// pixels on high-DPI displays (macOS, Wayland).
 		void UpdateMousePosition();
 		void Render();
+		// Writes the captured window image to the screenshot's file and records how it went.
+		void SaveScreenshot(Result<Image> image);
+		// A run that wanted a screenshot and saved none says why and fails.
+		void ReportMissingScreenshot();
 		// Reports the test run, sets the exit code and closes the player.
 		void FinishTestRun();
 		// The end of the test summary: the running scene's physics state hash and the fixed step it was taken after.
@@ -69,6 +77,7 @@ namespace Strada
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;
 		uint64_t m_Frames = 0;
+		ScreenshotRequest m_Screenshot;
 		bool m_MissingCameraReported = false;
 	};
 }

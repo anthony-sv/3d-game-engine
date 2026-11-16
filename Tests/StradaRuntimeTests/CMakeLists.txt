@@ -9,7 +9,9 @@ add_executable(StradaRuntimeTests
 target_include_directories(StradaRuntimeTests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Source"
     # Shared helpers (Testing::TemporaryDirectory, the test scripts, the display and GPU switches).
-    "${PROJECT_SOURCE_DIR}/Tests/StradaTests/Source")
+    "${PROJECT_SOURCE_DIR}/Tests/StradaTests/Source"
+    # The player's own pure pieces (Runtime/ScreenshotRequest.h), checked without starting it.
+    "${PROJECT_SOURCE_DIR}/StradaRuntime/Source")
 target_link_libraries(StradaRuntimeTests PRIVATE Strada doctest::doctest)
 target_compile_definitions(StradaRuntimeTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
