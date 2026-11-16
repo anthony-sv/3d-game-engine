@@ -94,12 +94,14 @@ jobs:
           done
 
       # A report fails the run that made it (exit code 66) without stopping it, so every report of a run is printed.
+      # Each run ends with the suppressions it matched and how often (print_suppressions), so a log shows whether an
+      # entry of tsan-suppressions.txt still leaves anything out.
       - name: Prepare the test runs
         id: prepare
         if: ${{ steps.build.outcome == 'success' }}
         shell: bash
         run: |
-          echo "TSAN_OPTIONS=halt_on_error=0 second_deadlock_stack=1 history_size=4 suppressions=${GITHUB_WORKSPACE}/.github/tsan-suppressions.txt external_symbolizer_path=$(command -v llvm-symbolizer)" >> "${GITHUB_ENV}"
+          echo "TSAN_OPTIONS=halt_on_error=0 second_deadlock_stack=1 history_size=4 print_suppressions=1 suppressions=${GITHUB_WORKSPACE}/.github/tsan-suppressions.txt external_symbolizer_path=$(command -v llvm-symbolizer)" >> "${GITHUB_ENV}"
           cat > "${RUNNER_TEMP}/run-cases.sh" <<'SCRIPT'
           # run_cases <executable> <doctest filters...>: runs the test cases the filters select. A filter that selects
           # nothing (a test case renamed or removed) fails, so that the job never passes by running nothing.
