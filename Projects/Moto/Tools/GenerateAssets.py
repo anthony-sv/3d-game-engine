@@ -42,9 +42,13 @@ The props' meshes and textures (Meshes/Props, Textures/Props; Props.py places th
 markers (300, 200, 100), a fence post and a chain-link panel, three trees and a bush, a grandstand block, a marshals'
 post, a floodlight and advertising boards with invented names, each one primitive, local to its entity and standing on
 the ground at its origin. Every one but the panel is drawn with an atlas (Props.png: flat colors, the markers' figures,
-the boards' names); the panel with Fence.png, a chain-link with alpha whose holes the Fence material cuts out. The
-circuit and the props are generate()'s two groups (GROUPS): Author.py's circuit part writes the first, its props part
-the second; the command line writes both.
+the boards' names); the panel with Fence.png, a chain-link with alpha whose holes the Fence material cuts out.
+
+The motorcycle and its rider (Meshes/Bike: Body, Fork, FrontWheel, RearWheel and Rider; Textures/Bike/Livery.png): Bike.py
+makes them.
+
+The circuit, the props and the bike are generate()'s three groups (GROUPS): Author.py's circuit, props and bike parts
+each write theirs; the command line writes them all.
 """
 import argparse
 import base64
@@ -1453,8 +1457,17 @@ def generate_circuit(assets, seed, log=print):
     write_hdr(assets, "Sky", 1024, 512, log)
 
 
-# What each group of generate() writes (Author.py's circuit and props parts each write theirs), relative to Assets.
-GROUPS = {"circuit": generate_circuit, "props": generate_props}
+def generate_bike(assets, seed, log=print):
+    """The motorcycle's and the rider's meshes and texture (Meshes/Bike, Textures/Bike)."""
+    # Bike.py builds its shapes with this module's, so it is imported when it is used.
+    import Bike
+    assert Bike.OUTPUTS == OUTPUTS["bike"], Bike.OUTPUTS
+    log(Bike.check())
+    Bike.generate(assets, seed, log)
+
+
+# What each group of generate() writes (Author.py's circuit, props and bike parts each write theirs), relative to Assets.
+GROUPS = {"circuit": generate_circuit, "props": generate_props, "bike": generate_bike}
 OUTPUTS = {
     "circuit": tuple([f"Meshes/{name}.gltf" for name in ("Track", "TrackCollision", "Barriers", "BarrierCollision", "Ground",
                                                          "Hills", "Gantry", "Gate", "Footbridge")] +
@@ -1462,8 +1475,10 @@ OUTPUTS = {
                                                           "Concrete", "Forest", "SectorBoards")] +
                      ["Environments/Sky.hdr"]),
     "props": tuple([f"Meshes/Props/{name}.gltf" for name in PROP_MESH_NAMES] + ["Textures/Props/Props.png", "Textures/Props/Fence.png"]),
+    "bike": tuple(f"Meshes/Bike/{name}.gltf" for name in ("Body", "Fork", "FrontWheel", "RearWheel", "Rider")) +
+    ("Textures/Bike/Livery.png",),
 }
-ALL_OUTPUTS = OUTPUTS["circuit"] + OUTPUTS["props"]
+ALL_OUTPUTS = OUTPUTS["circuit"] + OUTPUTS["props"] + OUTPUTS["bike"]
 
 
 def generate(assets, seed, log=print, groups=tuple(GROUPS)):

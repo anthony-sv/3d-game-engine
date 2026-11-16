@@ -790,6 +790,9 @@ TEST_CASE("Runtime: games that cannot start and wrong command lines fail before 
 			 {"--game", withoutStartScene, "--test", "--timestep", "0"},
 			 {"--game", withoutStartScene, "--unknown"},
 			 {"--game", Native(game.GetDirectory() / "Missing.sgame"), "--headless", "--screenshot", "Shot.png"},
+			 {"--game", withoutStartScene, "--resolution", "1920"},
+			 {"--game", withoutStartScene, "--resolution", "0x1080"},
+			 {"--game", withoutStartScene, "--headless", "--resolution", "1920x1080"},
 		 })
 	{
 		ProcessResult const result = RunPlayer(arguments);
@@ -940,6 +943,17 @@ TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 	CHECK(Contains(result.Output, "Saved screenshot to"));
 	CHECK_FALSE(Contains(result.Output, "No screenshot was saved"));
 	CHECK_FALSE(Contains(result.Output, "icon is not used"));
+
+	// --resolution sizes the drawing area in pixels, whatever the display's scale: the picture is of that size.
+	std::filesystem::path const sized = game.GetDirectory() / "Sized.png";
+	ProcessResult const resolution = RunPlayer(
+		{"--game", Native(game.Write("Scenes/Main.sscene")), "--frames", "3", "--resolution", "320x184", "--screenshot", Native(sized)});
+	CAPTURE(resolution.Output);
+	REQUIRE(resolution.ExitCode == 0);
+	Result<Image> sizedImage = Image::LoadFromFile(sized);
+	REQUIRE(sizedImage.IsOk());
+	CHECK(sizedImage.GetValue().GetWidth() == 320);
+	CHECK(sizedImage.GetValue().GetHeight() == 184);
 
 	// The project's icon becomes the window's; one that is not a texture is reported and left out.
 	Image icon(32, 32, 3);

@@ -15,6 +15,26 @@
 			"Path": "Materials/Asphalt.smat"
 		},
 		{
+			"Handle": "18431788629982675903",
+			"Type": "Material",
+			"Path": "Materials/Bike/Dark.smat"
+		},
+		{
+			"Handle": "7446032774219383372",
+			"Type": "Material",
+			"Path": "Materials/Bike/Glass.smat"
+		},
+		{
+			"Handle": "4984434297058937164",
+			"Type": "Material",
+			"Path": "Materials/Bike/Metal.smat"
+		},
+		{
+			"Handle": "17959715501337604447",
+			"Type": "Material",
+			"Path": "Materials/Bike/Paint.smat"
+		},
+		{
 			"Handle": "11059763544319701252",
 			"Type": "Material",
 			"Path": "Materials/BridgePanel.smat"
@@ -148,6 +168,31 @@
 			"Handle": "18075086976973300326",
 			"Type": "Mesh",
 			"Path": "Meshes/Barriers.gltf"
+		},
+		{
+			"Handle": "6054894987297752229",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/Body.gltf"
+		},
+		{
+			"Handle": "16522392693025804384",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/Fork.gltf"
+		},
+		{
+			"Handle": "15043423790136795479",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/FrontWheel.gltf"
+		},
+		{
+			"Handle": "2826647978675977762",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/RearWheel.gltf"
+		},
+		{
+			"Handle": "15584948622662202879",
+			"Type": "Mesh",
+			"Path": "Meshes/Bike/Rider.gltf"
 		},
 		{
 			"Handle": "10643124185050336685",
@@ -323,6 +368,11 @@
 			"Handle": "1120607662871141938",
 			"Type": "Texture",
 			"Path": "Textures/Asphalt.png"
+		},
+		{
+			"Handle": "13915413865723162255",
+			"Type": "Texture",
+			"Path": "Textures/Bike/Livery.png"
 		},
 		{
 			"Handle": "4745811410313937805",

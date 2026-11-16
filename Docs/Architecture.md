@@ -4076,7 +4076,8 @@ that each platform's names are tested on every platform:
   the hills, the start gantry, the sector gates and the footbridge, every surface a static body with a triangle-mesh
   `MeshCollider`; `lighting`: the sun, the sky and the renderer settings, shadows over 220 m in four cascades;
   `camera`: the main camera, near plane 0.1 m and far plane 5 km, and its tour; `props`: the props' meshes, textures and
-  materials and the `Props` entity; `tests`: the test scene and its graphs);
+  materials and the `Props` entity; `bike`: the motorcycle's and the rider's meshes, livery and materials and the `Bike`
+  entity on the grid; `tests`: the test scene and its graphs);
   `--part <name>` rebuilds one part in place, then the `tests` part (the test scene is the main scene with the checks,
   which name its entities), and fails, naming them, when files neither owns changed. A part made again keeps what it
   does not change: its roots are made where they stood among the roots, and every entity it makes takes the ID it had
@@ -4096,7 +4097,26 @@ that each platform's names are tested on every platform:
   of its skirt), on a structure's legs, piers or stairs, in the camera tour's way or in another prop's. Graphs keep their asset handles
   when they are written again (emptied with `graph.set`, then written batch by batch). The sector gates are timing
   lines whose entities stand on the center line with their forward along the travel: gates 1 and 2 carry an arch, gate
-  3 is the start and finish line under the gantry. **The camera tour** is the first sample tour made of a graph
+  3 is the start and finish line under the gantry. **The bike and its rider** (`Tools/Bike.py`) are a stylized
+  superbike generated to the published proportions (a wheelbase of 1,485 mm, a rake of 24°, a trail of 98 mm, 120/70
+  and 200/55 ZR17 tyres, so a fork offset of 32.5 mm) and a rigid rider on it, waiting on the pole slot 9 m before the
+  line: five static meshes (`Meshes/Bike`), so that what turns on a motorcycle can turn, under the `Bike` entity, whose
+  origin is on the ground midway between the contact patches with its front along -Z: `Body`; `Fork`, at the foot of
+  the steering axis and turned 24° about X, so that turning it about its own Y steers; `Front Wheel` under it and
+  `Rear Wheel`, each on its axle; and `Rider`, at his hips. They share one livery texture and four materials (paint,
+  dark, metal, glass), about 14 draws a pass for 10,600 triangles. `Bike.py`'s `check()` measures the wheelbase, the
+  rake and the trail from the meshes and entities made, and that both tyres touch the ground; `check_grid()` keeps the
+  tour 2 m from it. MO3's ghost, the vehicle and the rider's lean build on these parts. **The captures**:
+  `Author.py --captures <folder> --player <StradaRuntime>` builds nothing; it takes the player's own screenshots at 1920
+  by 1080 pixels (`--resolution`) from a fixed list of cameras (`Tools/Captures.py`: the bike on the grid close up and
+  in profile, Turn 1 and Turn 6 with the bike leaned at mid and far range, Sector Gate 1, the footbridge, an aerial, the
+  rider's view, and two adjacent frames of the tour along the fences), each from a copy of the project outside the
+  repository whose main scene puts the camera and the bike there, with a per-user root of its own, and fails a view
+  whose picture is missing or of another size after three runs. On the reference machine (Release, 1920 by 1080,
+  `StradaRuntime --profile` over the 600 frames of the whole tour, `--no-vsync`, slice 2's MO2 sitting) the frame's
+  median is 3.5 to 3.9 ms (99th percentile 5.7 to 8.6 ms), with a median of 149 draws (at most 256), 146 batches and
+  5,291 instances a frame; `Renderer.Submit` 0.74 ms and `Renderer.Prepare` 0.44 ms; the GPU's ambient occlusion 1.29
+  ms, opaque 1.00 ms and shadows 0.41 ms a frame. **The camera tour** is the first sample tour made of a graph
   (`Scripts/Tour.sgraph`, on the main camera): a `Flow.Timeline` with two Vector3 curves, `Eye` and `LookAt`, flies the
   camera from the home view once round the lap and back to it in about 51 s; each update sets the camera's
   translation and the Euler angles that point it at `LookAt` (a formula: pitch, then yaw, no roll, so no keyed angle

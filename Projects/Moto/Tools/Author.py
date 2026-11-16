@@ -14,14 +14,18 @@ visual scripts alone (no C#). In order:
    boards, grandstands, marshals' posts, floodlights, bushes and trees) on the meshes and textures GenerateAssets.py makes
    (Meshes/Props, Textures/Props) with two materials (Materials/Props), a group under the Props entity for each kind,
    each group made with all its props in one request;
-6. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks and without the props) and its
+6. the bike part: the motorcycle and its rider on the grid (Bike.py makes them; GenerateAssets.py writes their meshes to
+   Meshes/Bike and their livery to Textures/Bike), with their four materials (Materials/Bike), the Bike entity with its
+   body, fork, wheels and rider;
+7. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks and without the props) and its
    graphs (Checks.py);
-7. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+8. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
    rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
    path puts it; and nothing logs a warning.
 
     python Projects/Moto/Tools/Author.py [strada executable]
     python Projects/Moto/Tools/Author.py --part props [strada executable]
+    python Projects/Moto/Tools/Author.py --captures <output folder> --player <StradaRuntime executable> [--views ...]
 
 The project is rebuilt from scratch: everything but this Tools folder is replaced. Without an executable, strada runs
 from the repository (dotnet run).
@@ -34,6 +38,9 @@ with the checks and they name its entities; its own entities keep their IDs too.
 project outside Tools before and after: when a file the part (or the tests part after it) does not own changed, it names
 the files and fails, also when the authoring itself failed. After a change to how graphs are arranged, `--part camera`
 writes every graph again.
+
+With --captures, nothing is built: the player takes its screenshots of the main scene from the fixed list of cameras in
+Captures.py, each from a copy of the project outside the repository, at 1920 by 1080 pixels, into the output folder.
 """
 import argparse
 import hashlib
@@ -51,6 +58,8 @@ sys.path.insert(0, TOOLS)
 import Checks  # noqa: E402  (the test scene and its graphs)
 import Circuit  # noqa: E402  (the layout)
 import GenerateAssets  # noqa: E402  (the circuit's meshes, textures and sky)
+import Bike  # noqa: E402  (the motorcycle and its rider)
+import Captures  # noqa: E402  (the player's screenshots from fixed cameras)
 import Graphs  # noqa: E402  (writing graphs)
 import Props  # noqa: E402  (the props' placement)
 import Tour  # noqa: E402  (the camera tour)
@@ -110,10 +119,12 @@ PARTS = {
     "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Tour.sgraph", "Assets/AssetRegistry.sreg")),
     "props": (("Props",), ("Assets/Meshes/Props/*.gltf", "Assets/Textures/Props/*.png", "Assets/Materials/Props/*.smat",
                            "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
+    "bike": (("Bike",), ("Assets/Meshes/Bike/*.gltf", "Assets/Textures/Bike/*.png", "Assets/Materials/Bike/*.smat",
+                         "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
     "tests": ((), ("Assets/Scenes/Tests.sscene", "Assets/Scripts/Checks.sgraph", "Assets/Scripts/Tests.sgraph",
                    "Assets/AssetRegistry.sreg")),
 }
-ORDER = ("circuit", "lighting", "camera", "props", "tests")
+ORDER = ("circuit", "lighting", "camera", "props", "bike", "tests")
 # The parts that make entities of the main scene.
 SCENE_PARTS = ORDER[:-1]
 # Every graph of the project, in the order they are written.
@@ -304,7 +315,8 @@ class Moto:
 
     def build_part(self, part):
         self.remove_roots(PARTS[part][0])
-        {"circuit": self.make_circuit, "lighting": self.make_lighting, "camera": self.make_camera, "props": self.make_props}[part]()
+        {"circuit": self.make_circuit, "lighting": self.make_lighting, "camera": self.make_camera, "props": self.make_props,
+         "bike": self.make_bike}[part]()
 
     def write_graphs(self, graphs, declare, write):
         """Writes graphs from scratch, keeping the handles of those that exist: declare(author) adds their interfaces and
@@ -435,6 +447,32 @@ class Moto:
                     "Transform": transform,
                     "Mesh": {"Mesh": mesh(f"Props/{prop.mesh}"), "Materials": [materials[GenerateAssets.prop_material(prop.mesh)]]}}))
             self.entity_with_children(group, {}, root, children)
+
+    def make_bike(self):
+        """The motorcycle and its rider on the grid (Bike.py makes them): their materials, then the Bike entity with its
+        parts, each where Bike.ENTITIES puts it."""
+        GenerateAssets.generate(os.path.join(PROJECT, "Assets"), GenerateAssets.SEED, groups=("bike",))
+        refreshed = self.call("asset_refresh")
+        if refreshed.get("warnings"):
+            raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
+        print("bike:", Bike.check_grid())
+        livery = "asset://Textures/Bike/Livery.png"
+        materials = {
+            # The bodywork's livery, the rims, the leathers and the helmet: lacquered.
+            "Paint": self.material("Bike/Paint", {"BaseColorTexture": livery, "Roughness": 0.28}),
+            # Rubber, the seat, the engine's castings, the grips, the gloves and the boots.
+            "Dark": self.material("Bike/Dark", {"BaseColorTexture": livery, "Roughness": 0.8}),
+            "Metal": self.material("Bike/Metal", {"BaseColorTexture": livery, "Metallic": 1.0, "Roughness": 0.3}),
+            # The screen, the lights and the visor: smooth and opaque.
+            "Glass": self.material("Bike/Glass", {"BaseColorTexture": livery, "Roughness": 0.05}),
+        }
+        translation, yaw = Bike.grid_place()
+        made = {"Bike": self.entity("Bike", {"Transform": {"Translation": list(translation), "RotationEuler": [0.0, yaw, 0.0]}})}
+        for name, mesh_name, parent, offset, angle in Bike.ENTITIES:
+            made[name] = self.entity(name, {
+                "Transform": {"Translation": list(offset), "RotationEuler": [angle, 0.0, 0.0]},
+                "Mesh": {"Mesh": mesh(f"Bike/{mesh_name}"),
+                         "Materials": [materials[material] for material in Bike.mesh_materials(mesh_name)]}}, made[parent])
 
     def make_lighting(self):
         self.call("scene_settings", {"name": "Main", "settings": {"Renderer": {
@@ -596,7 +634,18 @@ def main():
     parser.add_argument("strada", nargs="?", help="the strada executable (default: dotnet run of the repository's StradaTool)")
     parser.add_argument("--part", choices=ORDER, help="build this part (and the tests part after it) in place, leaving every "
                         "file they do not own as it is")
+    parser.add_argument("--captures", metavar="FOLDER", help="build nothing: take the player's screenshots from the fixed "
+                        "cameras (Captures.py) into this folder")
+    parser.add_argument("--player", help="the StradaRuntime executable that takes the captures")
+    parser.add_argument("--views", nargs="+", help="with --captures, only these views")
     arguments = parser.parse_args()
+    if arguments.captures:
+        if not arguments.player or arguments.part:
+            parser.error("--captures takes --player, and no --part")
+        Captures.take(os.path.abspath(arguments.player), os.path.abspath(arguments.captures), arguments.views)
+        return
+    if arguments.player or arguments.views:
+        parser.error("--player and --views go with --captures")
     command = [os.path.abspath(arguments.strada)] if arguments.strada else \
         ["dotnet", "run", "--project", os.path.join(ROOT, "StradaTool"), "-c", "Release", "--no-launch-profile", "--"]
     if arguments.part:

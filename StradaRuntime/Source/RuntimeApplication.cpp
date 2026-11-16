@@ -7,10 +7,13 @@
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Core/Window.h"
 #include "Strada/Project/ScriptProject.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Serialization/ProfilerCaptureSerializer.h"
+
+#include <glm/glm.hpp>
 
 #include <cmath>
 #include <cstdio>
@@ -34,6 +37,9 @@ namespace Strada
 			std::string StartScene;
 			// Where the profiler's capture of the run goes (--profile); empty when the run is not profiled.
 			std::filesystem::path ProfilePath;
+			// The framebuffer's size in pixels the window gets before the game starts (--resolution), whatever the display's
+			// scale; none keeps the size the game's window settings give.
+			std::optional<glm::uvec2> Resolution;
 			RuntimeLayerSpecification Layer;
 		};
 
@@ -84,6 +90,11 @@ namespace Strada
 	protected:
 		Result<void> OnInit() override
 		{
+			if (Window* const window = GetWindow(); window != nullptr && m_RuntimeSpecification.Resolution)
+			{
+				// Before the first frame, so that every frame the game draws, profiles and captures is of that size.
+				window->SetFramebufferSize(m_RuntimeSpecification.Resolution->x, m_RuntimeSpecification.Resolution->y);
+			}
 			std::vector<std::string> warnings;
 			Result<Ref<Project>> opened = m_RuntimeSpecification.GameKind == ProjectFileKind::Game
 			                                  ? Project::OpenGame(m_RuntimeSpecification.GameFile, &warnings)
@@ -261,6 +272,9 @@ namespace Strada
 		               "a run that saves none exits with 1")
 			.AddOption("profile", "path",
 		               "Record the profiler and save its capture (the last 600 frames) here at exit, logging the medians")
+			.AddOption("resolution", "WxH",
+		               "Draw at this size in pixels, such as 1920x1080: the window's drawing area, whatever the display's scale, "
+		               "also for a fullscreen game (default: the game's window settings)")
 			.AddOption("gpu", "index", "Use the GPU with this adapter index")
 			.AddFlag("validation", "Enable Vulkan and NVRHI validation")
 			.AddFlag("no-validation", "Disable Vulkan and NVRHI validation")
@@ -321,6 +335,19 @@ namespace Strada
 		{
 			return fail("--screenshot needs a window (not --headless or --test)");
 		}
+		std::optional<glm::uvec2> resolution;
+		if (std::optional<std::string> const value = arguments.GetValue("resolution"))
+		{
+			resolution = ParseWindowSize(*value);
+			if (!resolution)
+			{
+				return fail(fmt::format("--resolution must be <width>x<height> with both between 1 and {}", MaxWindowSize));
+			}
+			if (headless)
+			{
+				return fail("--resolution needs a window (not --headless or --test)");
+			}
+		}
 		std::filesystem::path profile;
 		if (std::optional<std::string> const value = arguments.GetValue("profile"))
 		{
@@ -354,6 +381,7 @@ namespace Strada
 			runtime.StartScene = FileSystem::PathToUtf8(FileSystem::PathFromUtf8(*scene));
 		}
 		runtime.ProfilePath = std::move(profile);
+		runtime.Resolution = resolution;
 
 		// The window comes from the game, and opens before the engine starts.
 		Result<ProjectWindowSettings> window = Project::ReadWindowSettings(runtime.GameFile, runtime.GameKind);
@@ -372,13 +400,14 @@ namespace Strada
 		specification.Window.Title = window.GetValue().Title;
 		specification.Window.Width = window.GetValue().Width;
 		specification.Window.Height = window.GetValue().Height;
-		specification.Window.Fullscreen = window.GetValue().Fullscreen;
+		// A drawing area of a size the run names is a window's, also for a game that runs fullscreen.
+		specification.Window.Fullscreen = window.GetValue().Fullscreen && !resolution;
 		specification.Window.Resizable = window.GetValue().Resizable;
 		specification.Window.VSync = window.GetValue().VSync && !arguments.HasFlag("no-vsync");
 		// Scripting starts once the game's C# scripts or visual scripts are found (StartScripts).
 		specification.EnableScripting = false;
-		runtime.Layer.ViewportWidth = window.GetValue().Width;
-		runtime.Layer.ViewportHeight = window.GetValue().Height;
+		runtime.Layer.ViewportWidth = resolution ? resolution->x : window.GetValue().Width;
+		runtime.Layer.ViewportHeight = resolution ? resolution->y : window.GetValue().Height;
 
 		if (headless)
 		{

@@ -3,6 +3,8 @@
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -61,4 +63,11 @@ namespace Strada
 		std::string m_Description;
 		std::vector<OptionSpecification> m_Options;
 	};
+
+	// The largest width or height ParseWindowSize accepts.
+	inline constexpr uint32_t MaxWindowSize = 16384;
+
+	// A window's size as a command line gives it (the editor's --window-size, the player's --resolution): "<width>x<height>"
+	// (or "X"), two positive decimal numbers of at most MaxWindowSize, nothing else. Nothing for any other text.
+	[[nodiscard]] std::optional<glm::uvec2> ParseWindowSize(std::string_view text);
 }

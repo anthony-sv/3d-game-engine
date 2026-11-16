@@ -5,6 +5,7 @@
 #include <charconv>
 #include <locale>
 #include <sstream>
+#include <system_error>
 
 namespace Strada
 {
@@ -194,5 +195,45 @@ namespace Strada
 			}
 		}
 		return nullptr;
+	}
+
+	namespace
+	{
+		bool IsDecimalDigit(char character)
+		{
+			return character >= '0' && character <= '9';
+		}
+
+		// A whole positive number of at most MaxWindowSize, digits only (no sign, no spaces).
+		std::optional<uint32_t> ParseWindowDimension(std::string_view text)
+		{
+			if (text.empty() || !std::all_of(text.begin(), text.end(), IsDecimalDigit))
+			{
+				return std::nullopt;
+			}
+			uint64_t value = 0;
+			auto const [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+			if (error != std::errc() || end != text.data() + text.size() || value == 0 || value > MaxWindowSize)
+			{
+				return std::nullopt;
+			}
+			return static_cast<uint32_t>(value);
+		}
+	}
+
+	std::optional<glm::uvec2> ParseWindowSize(std::string_view text)
+	{
+		size_t const separator = text.find_first_of("xX");
+		if (separator == std::string_view::npos)
+		{
+			return std::nullopt;
+		}
+		std::optional<uint32_t> const width = ParseWindowDimension(text.substr(0, separator));
+		std::optional<uint32_t> const height = ParseWindowDimension(text.substr(separator + 1));
+		if (!width || !height)
+		{
+			return std::nullopt;
+		}
+		return glm::uvec2(*width, *height);
 	}
 }
