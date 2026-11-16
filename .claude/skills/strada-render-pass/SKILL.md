@@ -22,9 +22,21 @@ Read `Docs/Architecture.md` §5–6 and `Strada/Source/Strada/Renderer/SceneRend
 ## Recording
 
 - Never create or upload GPU resources while a command list is open: NVRHI allows one open immediate command list, and
-  `Renderer` caches upload through their own. Resolve resources first (see `SceneRenderer::PrepareItems`).
-- Draw lists keep shadow casters outside the camera's view (`CullToView`): passes that render from the camera skip items
-  whose `InView` is false; passes that render from somewhere else (shadow views) cull against their own volume.
+  `Renderer` caches upload through their own. Resolve resources first (see `SceneRenderer::ResolveFrameResources`,
+  which resolves each distinct mesh and material of the frame once).
+- Meshes are instances (`ShaderInterop::InstanceData` in one structured buffer per renderer, Docs/Architecture.md §6.2
+  "Instancing"): a mesh draw is a `MeshBatch` of every instance of one pipeline, GPU mesh, submesh and material binding
+  set, and its vertex shader reads `g_Instances[g_InstanceIndices[InstanceOffset + SV_InstanceID]]` with
+  `startInstanceLocation = 0`. A pass that draws meshes gets its batches from `BuildBatches` (`Renderer.Batch`) and
+  records them with `DrawBatches`; a new pass puts no matrix per object in push constants. Each shadow view draws its
+  casters' runs (`BuildShadowBatches`, `ShadowView::FirstBatch`), its view-projection and the run's offset in the push
+  constants. Blended items stay one instance per batch, back to front.
+- `SceneRendererStatistics::DrawCalls` counts every draw a pass records: a new draw adds to it where it is recorded
+  (`CountBatch` for mesh batches; the quad renderer's `Render*` functions return the draws they recorded), and a draw
+  that a pass skips is not counted. Tests that pin `DrawCalls` are re-pinned with the reason, never loosened.
+- The frame's items keep shadow casters outside the camera's view (`CullToView`): passes that render from the camera
+  skip items whose `InView` is false; passes that render from somewhere else (shadow views) cull against their own
+  volume.
 - Per-frame data goes in volatile constant buffers or buffers written at the start of the frame's command list.
 - Keep render targets as members so clears (which NVRHI does not track) never release a texture in use.
 - Record each pass inside a `SceneRenderer::PassScope pass(*this, commandList, "<Pass>")`: it opens an NVRHI marker

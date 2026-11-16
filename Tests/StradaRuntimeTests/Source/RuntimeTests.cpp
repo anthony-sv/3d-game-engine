@@ -867,6 +867,52 @@ TEST_CASE("Runtime: a profiled run saves a capture of its frames and logs each s
 }
 #endif
 
+#ifdef ST_ENABLE_PROFILING
+TEST_CASE("Runtime: a profiled windowed run logs the renderer's draws, batches and instances per frame")
+{
+	{
+		// The player needs a Vulkan device (this probe's is released at the end of the block) and a display.
+		ST_REQUIRE_GPU();
+	}
+	ST_REQUIRE_DISPLAY();
+	TestGame game(ProjectFileKind::Game);
+	game.AddScene("Main", MakeScene("Main", std::nullopt));
+	Testing::TemporaryDirectory const directory;
+	std::filesystem::path const capturePath = directory.GetPath() / "Drawn.json";
+	ProcessResult const run =
+		RunPlayer({"--game", Native(game.Write("Scenes/Main.sscene")), "--frames", "10", "--profile", Native(capturePath)});
+	CAPTURE(run.Output);
+	REQUIRE(run.ExitCode == 0);
+	// The exit's draws are the player's view's count.
+	for (char const* const counter : {"DrawCalls", "Batches", "Instances", "Triangles", "ShadowDrawCalls", "Quads"})
+	{
+		CAPTURE(counter);
+		CHECK(Contains(run.Output, std::string("Profile counter Game/") + counter + ": "));
+	}
+
+	Result<ProfilerCapture> const capture = ProfilerCaptureSerializer::Load(capturePath);
+	REQUIRE_MESSAGE(capture.IsOk(), (capture ? std::string() : capture.GetError()));
+	size_t recorded = 0;
+	for (ProfilerFrame const& frame : capture.GetValue().Frames)
+	{
+		for (ProfilerCounterRecord const& record : frame.Counters)
+		{
+			CHECK(capture.GetValue().Names[record.View] == "Game");
+			for (ProfilerCounterValue const& value : record.Values)
+			{
+				// Every frame tonemaps at least.
+				if (capture.GetValue().Names[value.Name] == "DrawCalls")
+				{
+					CHECK(value.Value >= 1);
+					recorded++;
+				}
+			}
+		}
+	}
+	CHECK(recorded >= 1);
+}
+#endif
+
 TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 {
 	{

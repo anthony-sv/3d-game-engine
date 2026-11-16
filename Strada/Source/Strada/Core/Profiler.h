@@ -50,6 +50,15 @@ namespace Strada
 		uint64_t DurationNanoseconds = 0;
 	};
 
+	// A count a renderer hands the profiler for a frame (Profiler::RecordCounters): a draw count, an instance count.
+	struct ProfilerCounter
+	{
+		// A name with static storage duration (a string literal) of at most Profiler::MaxCounterNameBytes ASCII letters,
+		// digits, '_' and '.'.
+		char const* Name = nullptr;
+		uint64_t Value = 0;
+	};
+
 	// The handle of a zone in progress, returned by Profiler::BeginZone and passed to Profiler::EndZone. Trivially
 	// copyable and at most 64 bytes, so that callers whose scopes are not C++ scopes (Jolt's external profile
 	// measurement, whose user data is 64 bytes) can keep it. A token whose Name is null records nothing.
@@ -125,6 +134,22 @@ namespace Strada
 		int64_t DurationNanoseconds = 0;
 	};
 
+	// One count of a record: its name (an index into ProfilerCapture::Names) and its value.
+	struct ProfilerCounterValue
+	{
+		uint32_t Name = ProfilerNoName;
+		uint64_t Value = 0;
+	};
+
+	// The counts one view recorded in a frame (Profiler::RecordCounters), in the order it gave them.
+	struct ProfilerCounterRecord
+	{
+		// The renderer that recorded them; views are the GPU passes' views (Profiler::MaxGpuViews).
+		uint32_t View = ProfilerNoName;
+		// At most Profiler::MaxCounters.
+		std::vector<ProfilerCounterValue> Values;
+	};
+
 	// One main-loop iteration, from Profiler::BeginFrame to Profiler::EndFrame.
 	struct ProfilerFrame
 	{
@@ -141,6 +166,9 @@ namespace Strada
 		// In the order the renderers reported them; a view that rendered twice in the frame reports its passes twice. A
 		// frame's passes arrive frames later; frames whose GPU work was not measured have none.
 		std::vector<ProfilerGpuPass> GpuPasses;
+		// In the order the renderers recorded them during the frame, at most Profiler::MaxCounterRecords; a view that
+		// rendered twice in the frame records twice.
+		std::vector<ProfilerCounterRecord> Counters;
 		// Zones lost because a thread's buffer was full, a thread found no free buffer or no thread entry left
 		// (Profiler::MaxRecordedThreads), a name could not be stored (Profiler::MaxInternedNames, MaxCaptureNames), or the
 		// frame alone collected more zones than the history holds (ProfilerSettings::HistoryZones).
@@ -209,6 +237,13 @@ namespace Strada
 		double CallsPerFrame = 0.0;
 	};
 
+	// A count's median over a capture's frames.
+	struct ProfilerCounterMedian
+	{
+		std::string Name;
+		double Value = 0.0;
+	};
+
 	// Every per-frame sum counts a zone whole in the frame that collected it, never clipped to the frame's interval: a
 	// capture's frames partition its zones, so the sums over all frames are the recording's totals. The one exception is
 	// a zone collected by a later frame than the zones nested in it (on a thread whose work runs independently of
@@ -234,6 +269,9 @@ namespace Strada
 		// Per view and pass ("<view>/<pass>"), sorted by name, over the frames that measured the pass: per frame, the summed
 		// durations of the pass (a view that rendered twice adds both).
 		std::vector<ProfilerMedian> GpuPasses;
+		// Per view and count ("<view>/<counter>"), sorted by name, over the frames that hold a record of the view: per
+		// frame, the summed values of the count (a view that rendered twice adds both).
+		std::vector<ProfilerCounterMedian> Counters;
 	};
 
 	// The subsystem of a zone name written "<Subsystem>.<Phase>" ("Physics.Step" is in "Physics"): the text before the
@@ -280,6 +318,13 @@ namespace Strada
 		static constexpr uint32_t MaxRecordedThreads = 1024;
 		// Renderers whose GPU passes one recording keeps at most (RecordGpuPasses); passes of further views are dropped.
 		static constexpr uint32_t MaxGpuViews = 16;
+		// Counts one RecordCounters call keeps at most (later ones are dropped), the calls one frame keeps at most (later
+		// calls are dropped), and the longest counter name in bytes, of ASCII letters, digits, '_' and '.' only (other names
+		// are dropped). A capture's reader refuses more. Together they keep a frame's counters below about 30 KiB of capture
+		// text, inside the 64 KiB the reader accepts for one event (the frame event that carries them).
+		static constexpr uint32_t MaxCounters = 32;
+		static constexpr uint32_t MaxCounterRecords = 16;
+		static constexpr uint32_t MaxCounterNameBytes = 32;
 		// Longest name in bytes (a run-time name, a view, any name a recording stores); longer names are cut at a UTF-8
 		// character boundary.
 		static constexpr uint32_t MaxNameBytes = 256;
@@ -321,9 +366,18 @@ namespace Strada
 		// recorded). Passes of a recorded frame still in progress wait for its end; passes of a frame the history no
 		// longer holds, or that was not recorded, are dropped. view names the renderer (copied).
 		static void RecordGpuPasses(uint64_t frameIndex, std::string_view view, std::span<ProfilerGpuPassTiming const> passes);
+		// Attaches a view's counts (a renderer's statistics) to the frame in progress, as one record (ProfilerFrame::Counters):
+		// they are known when the renderer ends its frame, so they never wait. view names the renderer (copied; it shares
+		// the GPU passes' views). Does nothing when no recorded frame is in progress; drops counts past MaxCounters, those
+		// whose name is not a counter name (IsCounterName), a name's counts after its first in the record, records past
+		// MaxCounterRecords in the frame, and records of a view beyond MaxGpuViews. Callers check IsRecording() before
+		// they build the counts, so an idle profiler costs them one relaxed load.
+		static void RecordCounters(std::string_view view, std::span<ProfilerCounter const> counters);
+		// Whether a name may name a count: 1 to MaxCounterNameBytes ASCII letters, digits, '_' and '.'. Pure; any thread.
+		[[nodiscard]] static bool IsCounterName(std::string_view name);
 
 		// The history of the current or last recording. The reference stays valid until the next call of Start, Stop,
-		// EndFrame, RecordGpuPasses or Shutdown.
+		// EndFrame, RecordGpuPasses, RecordCounters or Shutdown.
 		static ProfilerCapture const& GetRecording();
 		static ProfilerStatus GetStatus();
 

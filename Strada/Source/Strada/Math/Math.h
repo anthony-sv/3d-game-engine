@@ -8,6 +8,13 @@ namespace Strada::Math
 	// Builds translation * rotation * scale.
 	glm::mat4 ComposeTransform(glm::vec3 const& translation, glm::quat const& rotation, glm::vec3 const& scale);
 
+	// A child's world matrix: parentWorld * local for affine matrices, each bottom row taken as (0, 0, 0, 1), which the
+	// result gets exactly. The products are glm's (each column summed left to right) without the terms the bottom rows
+	// make zero. Every world matrix of a scene is made by this one function, kept out of line, so that the scene's cache,
+	// its reads and their tests compute the same bits on every compiler (an inlined product may be contracted into fused
+	// multiply-adds differently where it is inlined).
+	glm::mat4 ComposeWorldTransform(glm::mat4 const& parentWorld, glm::mat4 const& local);
+
 	// Splits an affine transform into translation, rotation and scale. A negative determinant (mirroring) is folded into
 	// a negative X scale. Returns false (outputs unchanged) for degenerate matrices: a basis vector of zero length, or one
 	// whose length is not finite.

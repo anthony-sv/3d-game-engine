@@ -158,6 +158,48 @@ namespace Strada
 					usedNames[pass.View] = true;
 					usedNames[pass.Name] = true;
 				}
+				// What the reader refuses is never written (§7.3): bounded records of distinct, well-formed counter names.
+				if (frame.Counters.size() > Profiler::MaxCounterRecords)
+				{
+					return MakeError("frame {} holds {} counter records, more than the {} a frame may hold", frame.Index,
+					                 frame.Counters.size(), Profiler::MaxCounterRecords);
+				}
+				for (ProfilerCounterRecord const& record : frame.Counters)
+				{
+					if (record.View >= capture.Names.size())
+					{
+						return Error{"a counter record refers to a view the capture does not hold"};
+					}
+					if (record.Values.size() > Profiler::MaxCounters)
+					{
+						return MakeError("a counter record of frame {} holds {} counts, more than the {} a record may hold", frame.Index,
+						                 record.Values.size(), Profiler::MaxCounters);
+					}
+					for (size_t value = 0; value < record.Values.size(); value++)
+					{
+						uint32_t const name = record.Values[value].Name;
+						if (name >= capture.Names.size())
+						{
+							return Error{"a count refers to a name the capture does not hold"};
+						}
+						if (!Profiler::IsCounterName(capture.Names[name]))
+						{
+							return MakeError("the count name \"{}\" is not 1 to {} ASCII letters, digits, '_' and '.'",
+							                 MakeStoredName(capture.Names[name], Profiler::MaxNameBytes), Profiler::MaxCounterNameBytes);
+						}
+						for (size_t earlier = 0; earlier < value; earlier++)
+						{
+							if (capture.Names[record.Values[earlier].Name] == capture.Names[name])
+							{
+								return MakeError("a counter record of frame {} holds the count \"{}\" twice", frame.Index,
+								                 capture.Names[name]);
+							}
+						}
+						usedNames[name] = true;
+					}
+					tables.ViewIds[record.View] = 1;
+					usedNames[record.View] = true;
+				}
 			}
 			if (zones > Profiler::MaxHistoryZones)
 			{
@@ -626,8 +668,79 @@ namespace Strada
 				frame.StartNanoseconds = start;
 				frame.EndNanoseconds = start + duration;
 				frame.DroppedZones = static_cast<uint32_t>(dropped.GetValue());
+				if (auto const counters = args.find("Counters"); counters != args.end())
+				{
+					Result<void> const read = ReadCounters(*counters, frame);
+					if (!read)
+					{
+						return read;
+					}
+				}
 				m_Capture.Frames.push_back(std::move(frame));
 				m_TrackEnds.emplace_back();
+				return {};
+			}
+
+			// A frame's counter records (§7.3): optional, so captures without counters read as frames without them.
+			Result<void> ReadCounters(Json const& counters, ProfilerFrame& frame)
+			{
+				if (!counters.is_array())
+				{
+					return Error{"\"Counters\" is not an array"};
+				}
+				if (counters.size() > Profiler::MaxCounterRecords)
+				{
+					return MakeError("\"Counters\" holds more than {} records", Profiler::MaxCounterRecords);
+				}
+				for (Json const& record : counters)
+				{
+					if (!record.is_object())
+					{
+						return Error{"a record of \"Counters\" is not an object"};
+					}
+					Result<uint64_t> const view = ReadUnsigned(record, "View", std::numeric_limits<uint32_t>::max());
+					if (!view)
+					{
+						return Error{view.GetError()};
+					}
+					if (view.GetValue() == 0 || view.GetValue() > m_Views.size())
+					{
+						return MakeError("a counter record's view {} is not one a \"thread_name\" event before it names", view.GetValue());
+					}
+					Result<Json const*> const values = ReadObject(record, "Values");
+					if (!values)
+					{
+						return Error{values.GetError()};
+					}
+					Json const& counts = *values.GetValue();
+					if (counts.size() > Profiler::MaxCounters)
+					{
+						return MakeError("a counter record holds more than {} counts", Profiler::MaxCounters);
+					}
+					ProfilerCounterRecord read;
+					read.View = m_Views[view.GetValue() - 1];
+					for (auto entry = counts.begin(); entry != counts.end(); ++entry)
+					{
+						std::string const& counterName = entry.key();
+						Json const& count = entry.value();
+						if (!Profiler::IsCounterName(counterName))
+						{
+							return MakeError("a count's name is not 1 to {} ASCII letters, digits, '_' and '.'",
+							                 Profiler::MaxCounterNameBytes);
+						}
+						if (!count.is_number_integer() || (!count.is_number_unsigned() && count.get<int64_t>() < 0))
+						{
+							return MakeError("the count \"{}\" is not an unsigned integer", counterName);
+						}
+						Result<uint32_t> const name = AddName(counterName);
+						if (!name)
+						{
+							return Error{name.GetError()};
+						}
+						read.Values.push_back({name.GetValue(), count.get<uint64_t>()});
+					}
+					frame.Counters.push_back(std::move(read));
+				}
 				return {};
 			}
 
@@ -717,6 +830,27 @@ namespace Strada
 			writer.Unsigned(frame.Index);
 			writer.Key("DroppedZones");
 			writer.Unsigned(frame.DroppedZones);
+			if (!frame.Counters.empty())
+			{
+				writer.Key("Counters");
+				writer.BeginArray();
+				for (ProfilerCounterRecord const& record : frame.Counters)
+				{
+					writer.BeginObject();
+					writer.Key("View");
+					writer.Unsigned(tables.ViewIds[record.View]);
+					writer.Key("Values");
+					writer.BeginObject();
+					for (ProfilerCounterValue const& value : record.Values)
+					{
+						writer.Key(tables.Names[value.Name]);
+						writer.Unsigned(value.Value);
+					}
+					writer.EndObject();
+					writer.EndObject();
+				}
+				writer.EndArray();
+			}
 			writer.EndObject();
 			writer.EndObject();
 

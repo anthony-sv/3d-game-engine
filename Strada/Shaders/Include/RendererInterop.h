@@ -113,19 +113,41 @@ struct MaterialConstants
 	float3 Padding;
 };
 
-// Per draw (push constants).
+// Per mesh draw of the opaque and transparent passes (push constants): the draw's run of the frame's instance index buffer.
+// A draw's instances are g_Instances[g_InstanceIndices[InstanceOffset + SV_InstanceID]].
 struct DrawConstants
 {
-	float4x4 Model;
-	// Inverse transpose of the model matrix (upper 3x3 used).
-	float4x4 NormalMatrix;
+	uint InstanceOffset;
+	float3 Padding;
 };
 
-// Shadow-map rendering (push constants).
+// Per mesh draw of the shadow pass (push constants): the shadow view's view-projection and the draw's run of the frame's
+// instance index buffer, read as DrawConstants' run is.
 struct ShadowDrawConstants
 {
-	float4x4 Model;
 	float4x4 ViewProjection;
+	uint InstanceOffset;
+	float3 Padding;
+};
+
+// One mesh instance of a frame: an entity's mesh as SubmitMesh received it, drawn by every pass that draws the mesh
+// (Docs/Architecture.md §6.2, "Instancing"). A structured buffer per scene renderer holds every instance of the frame;
+// mesh draws find theirs through the frame's instance index buffer, at their push constants' offset plus SV_InstanceID.
+struct InstanceData
+{
+	float4x4 Model;
+	// The columns of the inverse transpose of Model's upper 3x3 times the absolute value of its determinant (the cofactor
+	// matrix times the determinant's sign): shaders normalize the normals they transform, so no division is needed, and a
+	// singular scale gives a finite basis. Computed once per instance, for every pass. W is 0.
+	float4 NormalBasis[3];
+	// Picking ID with EntityIdSelectedBit for selected meshes; 0 when not pickable.
+	uint EntityId;
+	float3 Padding;
+	// The entity's world matrix when the scene's current frame began, which is the previous frame's when that frame was
+	// drawn (Scene's CachedWorldTransform::Previous); equal to Model for an instance that did not move. Read for
+	// velocities, which a renderer reads as zero in a draw that does not follow its last one (Docs/Architecture.md §6.2,
+	// "Velocities and cuts").
+	float4x4 PreviousModel;
 };
 
 // Ground-truth ambient occlusion (compute, b0).
@@ -202,11 +224,10 @@ struct OverlayConstants
 	float2 Padding1;
 };
 
-// Entity ID pass (push constants).
+// Per mesh draw of the entity ID pass (push constants): as DrawConstants; each instance carries its entity ID.
 struct EntityIdDrawConstants
 {
-	float4x4 Model;
-	uint EntityId;
+	uint InstanceOffset;
 	float3 Padding;
 };
 
@@ -274,5 +295,15 @@ struct QuadConstants
 };
 
 ST_SHADER_NAMESPACE_END
+
+#if defined(__cplusplus)
+// InstanceData is uploaded as is into a structured buffer: its rows must stay where the shaders read them.
+static_assert(sizeof(Strada::ShaderInterop::InstanceData) == 192, "InstanceData must keep its 192-byte layout");
+static_assert(offsetof(Strada::ShaderInterop::InstanceData, Model) == 0);
+static_assert(offsetof(Strada::ShaderInterop::InstanceData, NormalBasis) == 64);
+static_assert(offsetof(Strada::ShaderInterop::InstanceData, EntityId) == 112);
+static_assert(offsetof(Strada::ShaderInterop::InstanceData, PreviousModel) == 128);
+static_assert(sizeof(Strada::ShaderInterop::InstanceData) % 16 == 0, "Structured buffer rows are 16 bytes");
+#endif
 
 #endif

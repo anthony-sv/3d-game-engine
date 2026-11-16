@@ -123,6 +123,12 @@ namespace Strada
 		ImGui::PlotLines("##FrameTimes", m_FrameTimes.data(), static_cast<int>(m_FrameTimes.size()), static_cast<int>(m_FrameTimeOffset),
 		                 overlay, 0.0f, std::max(33.3f, worst), ImVec2(-1.0f, 70.0f));
 
+		DrawViews(sceneView, gameView);
+		ImGui::End();
+	}
+
+	void RendererInfoPanel::DrawViews(SceneRendererStatistics const* sceneView, SceneRendererStatistics const* gameView)
+	{
 		if (BeginSection("Views", 3))
 		{
 			ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
@@ -143,6 +149,16 @@ namespace Strada
 			        [](SceneRendererStatistics const& statistics, char* text, size_t size)
 			        {
 						std::snprintf(text, size, "%u", statistics.DrawCalls);
+					});
+			ViewRow("Mesh batches", sceneView, gameView,
+			        [](SceneRendererStatistics const& statistics, char* text, size_t size)
+			        {
+						std::snprintf(text, size, "%u", statistics.Batches);
+					});
+			ViewRow("Mesh instances", sceneView, gameView,
+			        [](SceneRendererStatistics const& statistics, char* text, size_t size)
+			        {
+						std::snprintf(text, size, "%u", statistics.Instances);
 					});
 			ViewRow("Shadow draws", sceneView, gameView,
 			        [](SceneRendererStatistics const& statistics, char* text, size_t size)
@@ -176,6 +192,5 @@ namespace Strada
 					});
 			ImGui::EndTable();
 		}
-		ImGui::End();
 	}
 }

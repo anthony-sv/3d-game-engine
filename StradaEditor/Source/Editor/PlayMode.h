@@ -151,6 +151,9 @@ namespace Strada
 		// tells the observer and ends the input frame. Runs no frame while the observer refuses frames, whatever frames are
 		// queued, and the input then waits for the next frame that runs. A scene that a frame of a paused scene loads is paused
 		// too, with the steps still queued (Step's frames all run, then play stays paused); one that a running scene loads runs.
+		// The editor calls it once per editor frame, so it also begins the frame of the scene the views show while no game
+		// frame runs (Scene::BeginTransformFrame): the edited scene while nothing plays, the running scene while the observer
+		// refuses frames. A running scene begins its own frames, paused or not.
 		void Update(Timestep timestep);
 		// Runs frames at once with a fixed time step (paused scenes too), each ending the input frame (the input given before
 		// the call, also while paused, is seen by the first frame only): deterministic play for automation and tests. Stops

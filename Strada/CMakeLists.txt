@@ -174,6 +174,8 @@ set(STRADA_RENDERER_SOURCES
     Source/Strada/Renderer/EnvironmentMap.h
     Source/Strada/Renderer/FontAtlas.cpp
     Source/Strada/Renderer/FontAtlas.h
+    Source/Strada/Renderer/InstanceMath.cpp
+    Source/Strada/Renderer/InstanceMath.h
     Source/Strada/Renderer/QuadRenderer.cpp
     Source/Strada/Renderer/QuadRenderer.h
     Source/Strada/Renderer/Renderer.cpp
@@ -214,6 +216,7 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/SceneScripting.cpp
     Source/Strada/Scene/SceneSerializer.cpp
     Source/Strada/Scene/SceneSerializer.h
+    Source/Strada/Scene/SceneTransforms.cpp
     Source/Strada/Scene/SceneUI.cpp
     Source/Strada/Scene/SceneVisualScripting.cpp
     Source/Strada/Scene/UILayout.cpp

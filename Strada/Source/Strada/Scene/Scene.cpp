@@ -13,6 +13,7 @@
 #include "Strada/Scene/SceneSerializer.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <vector>
 
@@ -29,6 +30,9 @@ namespace Strada
 			value = (value ^ (value >> 27)) * 0x94d049bb133111ebull;
 			return value ^ (value >> 31);
 		}
+
+		// Atomic, so that serials stay unique whichever thread makes a scene.
+		std::atomic<uint64_t> s_NextSceneSerial{1};
 
 		// Entity-typed values that refer to remapped entities refer to their copies; the others are kept.
 		void RemapEntityValues(ScriptFieldMap& values, std::unordered_map<UUID, UUID> const& remap)
@@ -48,7 +52,8 @@ namespace Strada
 	}
 
 	Scene::Scene(std::string name)
-		: m_Name(std::move(name))
+		: m_Serial(s_NextSceneSerial.fetch_add(1, std::memory_order_relaxed)),
+		  m_Name(std::move(name))
 	{
 	}
 
@@ -500,53 +505,6 @@ namespace Strada
 		return static_cast<size_t>(it - siblings.begin());
 	}
 
-	glm::mat4 Scene::GetWorldTransform(Entity entity)
-	{
-		if (!entity || entity.GetScene() != this)
-		{
-			return glm::mat4(1.0f);
-		}
-
-		glm::mat4 transform = entity.GetComponent<TransformComponent>().GetTransform();
-		UUID parent = entity.GetComponent<RelationshipComponent>().Parent;
-		for (size_t depth = 0; parent.IsValid() && depth <= m_EntityMap.size(); depth++)
-		{
-			entt::entity const handle = FindHandle(parent);
-			if (handle == entt::null)
-			{
-				break;
-			}
-			transform = m_Registry.get<TransformComponent>(handle).GetTransform() * transform;
-			parent = m_Registry.get<RelationshipComponent>(handle).Parent;
-		}
-		return transform;
-	}
-
-	void Scene::SetWorldTransform(Entity entity, glm::mat4 const& worldTransform)
-	{
-		if (!entity || entity.GetScene() != this)
-		{
-			return;
-		}
-
-		glm::mat4 localTransform = worldTransform;
-		if (Entity const parent = GetParent(entity))
-		{
-			localTransform = glm::inverse(GetWorldTransform(parent)) * worldTransform;
-		}
-
-		TransformComponent& transform = entity.GetComponent<TransformComponent>();
-		glm::vec3 translation;
-		glm::quat rotation;
-		glm::vec3 scale;
-		if (Math::DecomposeTransform(localTransform, translation, rotation, scale))
-		{
-			transform.Translation = translation;
-			transform.Rotation = rotation;
-			transform.Scale = scale;
-		}
-	}
-
 	void Scene::ForEachEntityInHierarchyOrder(std::function<void(Entity)> const& function)
 	{
 		// Explicit stack: deep hierarchies must not overflow the call stack.
@@ -674,10 +632,14 @@ namespace Strada
 		{
 			if (m_StepFrames == 0)
 			{
+				// Nothing runs, and the views still draw a frame of the scene (edits made while paused move what they show).
+				BeginTransformFrame();
 				return;
 			}
 			m_StepFrames--;
 		}
+		// Before anything of the frame writes: the matrices the cache holds become the frame's previous ones.
+		BeginTransformFrame();
 
 		ST_PROFILE_SCOPE("Scene.Update");
 		float const deltaTime = timestep.GetSeconds() * m_TimeScale;

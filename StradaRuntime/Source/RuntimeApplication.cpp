@@ -37,7 +37,8 @@ namespace Strada
 			RuntimeLayerSpecification Layer;
 		};
 
-		// The figures plan targets are read from: the frame, each subsystem, each thread, each GPU pass and each zone name.
+		// The figures plan targets are read from: the frame, each subsystem, each thread, each GPU pass, each renderer's
+		// counts and each zone name.
 		void LogProfileMedians(ProfilerMedians const& medians, size_t frames, uint64_t droppedZones)
 		{
 			ST_INFO("Profile: {} frames, frame median {:.3f} ms, 99th percentile {:.3f} ms, {} zones dropped", frames,
@@ -58,6 +59,10 @@ namespace Strada
 			for (ProfilerMedian const& pass : medians.GpuPasses)
 			{
 				ST_INFO("Profile GPU pass {}: {:.3f} ms per frame", pass.Name, pass.Milliseconds);
+			}
+			for (ProfilerCounterMedian const& counter : medians.Counters)
+			{
+				ST_INFO("Profile counter {}: {:.1f} per frame", counter.Name, counter.Value);
 			}
 			for (ProfilerZoneMedian const& zone : medians.Zones)
 			{

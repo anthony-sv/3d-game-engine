@@ -971,8 +971,9 @@ matter). It keeps the last 5000 lines; the full log is in the user data's `Logs`
 Renderer Info shows the GPU device (adapter, type, Vulkan version, driver, GPU timing support, validation and the number
 of validation errors), the frame (average and slowest frame time with a graph of the last 240 frames, the frame count
 and the back buffer), and, side by side for the Scene View and the Game View, what their renderers drew in the last
-frame: GPU time, draw calls, shadow draws, triangles, culled submeshes, lights, dropped shadows, and sprite, text and
-UI quads.
+frame: GPU time, draw calls (every draw of every pass), mesh batches and the mesh instances they drew (an instance
+counts once in each pass and shadow view that draws it), shadow draws, triangles, culled submeshes, lights, dropped
+shadows, and sprite, text and UI quads.
 
 ### Profiler
 
@@ -995,8 +996,12 @@ until `profiler.stop`); a closed panel costs nothing.
   time.
 - **GPU Passes.** The shown frame's GPU passes per view (the Scene View is `Viewport`, the Game View `Game View`).
   GPU times arrive a few frames late, so the newest frame has none yet; a GPU without timer queries measures none.
+  Below them, the frame's renderer counts: each view's draw calls, mesh batches, instances, triangles, shadow draws and
+  views, lights, culled submeshes and quads, as it recorded them when it ended its frame (a view that rendered twice
+  has two records).
 - **Medians.** Over every frame held: the frame's median and 99th percentile, each subsystem's time on the main
-  thread, each other thread's busy time, each GPU pass, and every zone per frame and per call, the costliest first.
+  thread, each other thread's busy time, each GPU pass, each view's renderer counts per frame (over the frames the
+  view drew), and every zone per frame and per call, the costliest first.
 
 A frame is one editor frame: while the game plays in the editor it holds the game's frame and the editor's own work
 (its panels and windows). Measure a game alone with `StradaRuntime --profile` ([GettingStarted.md](GettingStarted.md)).

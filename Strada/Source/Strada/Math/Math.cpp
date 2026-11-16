@@ -36,6 +36,22 @@ namespace Strada::Math
 		return result;
 	}
 
+	glm::mat4 ComposeWorldTransform(glm::mat4 const& parentWorld, glm::mat4 const& local)
+	{
+		glm::vec3 const x(parentWorld[0]);
+		glm::vec3 const y(parentWorld[1]);
+		glm::vec3 const z(parentWorld[2]);
+		glm::mat4 result;
+		for (glm::length_t column = 0; column < 3; ++column)
+		{
+			glm::vec4 const& from = local[column];
+			result[column] = glm::vec4(x * from.x + y * from.y + z * from.z, 0.0f);
+		}
+		glm::vec4 const& translation = local[3];
+		result[3] = glm::vec4(x * translation.x + y * translation.y + z * translation.z + glm::vec3(parentWorld[3]), 1.0f);
+		return result;
+	}
+
 	bool DecomposeTransform(glm::mat4 const& transform, glm::vec3& translation, glm::quat& rotation, glm::vec3& scale)
 	{
 		glm::vec3 columns[3] = {glm::vec3(transform[0]), glm::vec3(transform[1]), glm::vec3(transform[2])};

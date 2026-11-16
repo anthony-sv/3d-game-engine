@@ -71,6 +71,7 @@ TEST_CASE("ScriptEngine: loads game scripts and describes their classes")
 	                                        "Strada.Tests.InputProbe",
 	                                        "Strada.Tests.Lifecycle",
 	                                        "Strada.Tests.Mover",
+	                                        "Strada.Tests.ParentMover",
 	                                        "Strada.Tests.PhysicsMaterialProbe",
 	                                        "Strada.Tests.PhysicsProbe",
 	                                        "Strada.Tests.PrefabMember",

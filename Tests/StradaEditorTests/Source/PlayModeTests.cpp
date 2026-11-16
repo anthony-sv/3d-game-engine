@@ -1830,6 +1830,56 @@ TEST_CASE("PlayMode: while the observer refuses frames, unpausing, steps and fra
 	fixture.Play.SetObserver(nullptr);
 }
 
+TEST_CASE("PlayMode: the scene the views show begins one frame of its world-transform cache per editor frame, also while no "
+          "game frame runs")
+{
+	PlayFixture fixture;
+	RecordingObserver observer(fixture.Context);
+	ObserverGuard const guard(fixture.Play);
+	fixture.Play.SetObserver(&observer);
+	constexpr float Frame = 1.0f / 60.0f;
+
+	// Nothing plays: the edited scene's frames are play mode's to begin.
+	Scene& edited = fixture.Context.GetScene();
+	uint64_t const editedStart = edited.GetTransformFrame();
+	for (int frame = 0; frame < 3; frame++)
+	{
+		fixture.Play.Update(Timestep(Frame));
+	}
+	CHECK(edited.GetTransformFrame() == editedStart + 3);
+
+	// Playing: the running scene begins its own in each update, paused or not, and each frame Advance runs begins one.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	Scene& running = fixture.Context.GetScene();
+	REQUIRE(&running != &edited);
+	uint64_t const runningStart = running.GetTransformFrame();
+	fixture.Play.Update(Timestep(Frame));
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(running.GetTransformFrame() == runningStart + 2);
+	CHECK(fixture.Play.Advance(3, Timestep(Frame)) == 3);
+	CHECK(running.GetTransformFrame() == runningStart + 5);
+	REQUIRE(fixture.Play.SetPaused(true));
+	uint64_t const pausedFrame = running.GetRuntimeFrame();
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(running.GetTransformFrame() == runningStart + 6);
+	CHECK(running.GetRuntimeFrame() == pausedFrame);
+
+	// The debugger holds the game: no game frame runs, and play mode begins the frame the views draw.
+	observer.Refusal = "an execution is stopped at a breakpoint";
+	fixture.Play.Update(Timestep(Frame));
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(running.GetTransformFrame() == runningStart + 8);
+	CHECK(running.GetRuntimeFrame() == pausedFrame);
+	CHECK(edited.GetTransformFrame() == editedStart + 3);
+	observer.Refusal.reset();
+	fixture.Play.Stop();
+
+	// Stopped: the edited scene's frames go on.
+	fixture.Play.Update(Timestep(Frame));
+	CHECK(edited.GetTransformFrame() == editedStart + 4);
+	fixture.Play.SetObserver(nullptr);
+}
+
 TEST_CASE("PlayMode: FollowScripts loads the scene script code asked for between frames, and stops when it quit")
 {
 	Testing::AssetManagerScope assets;

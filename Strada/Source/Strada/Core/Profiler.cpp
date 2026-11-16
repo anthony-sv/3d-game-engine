@@ -192,8 +192,9 @@ namespace Strada
 			std::unordered_map<std::string, uint32_t, StringHash, std::equal_to<>> NameIndicesByText;
 			// Name indices of the views that reported GPU passes.
 			std::vector<uint32_t> Views;
-			// GPU passes of the recorded frame in progress, attached at its end.
+			// GPU passes and counter records of the recorded frame in progress, attached at its end.
 			std::vector<ProfilerGpuPass> PendingGpuPasses;
+			std::vector<ProfilerCounterRecord> PendingCounters;
 
 			// Scratch storage of the collection, kept to avoid allocating every frame.
 			std::vector<ZoneRecord> Drained;
@@ -340,6 +341,27 @@ namespace Strada
 				data.NameIndicesByPointer.emplace(name, index);
 			}
 			return index;
+		}
+
+		// The index of a view's name (copied by text, never by address: the caller's string may not outlive the call), adding
+		// it to the recording's views; ProfilerNoName when its name cannot be stored or the views are full
+		// (Profiler::MaxGpuViews, which GPU passes and counters share).
+		uint32_t GetViewIndex(ProfilerData& data, std::string_view view)
+		{
+			uint32_t const viewIndex = GetTextIndex(data, view);
+			if (viewIndex == ProfilerNoName)
+			{
+				return ProfilerNoName;
+			}
+			if (std::find(data.Views.begin(), data.Views.end(), viewIndex) == data.Views.end())
+			{
+				if (data.Views.size() >= Profiler::MaxGpuViews)
+				{
+					return ProfilerNoName;
+				}
+				data.Views.push_back(viewIndex);
+			}
+			return viewIndex;
 		}
 
 		// The thread entry of a slot's owner, binding one when the owner has none: the main thread's entry, a free entry
@@ -580,6 +602,8 @@ namespace Strada
 			CollectSlots(data, &frame);
 			frame.GpuPasses = std::move(data.PendingGpuPasses);
 			data.PendingGpuPasses.clear();
+			frame.Counters = std::move(data.PendingCounters);
+			data.PendingCounters.clear();
 
 			std::deque<ProfilerFrame>& frames = data.History.Frames;
 			data.ZonesHeld += frame.Zones.size();
@@ -676,6 +700,7 @@ namespace Strada
 		data.NameIndicesByText.clear();
 		data.Views.clear();
 		data.PendingGpuPasses.clear();
+		data.PendingCounters.clear();
 		data.ZonesHeld = 0;
 		data.DroppedZones = 0;
 		data.RecordingHasFrame = false;
@@ -712,6 +737,7 @@ namespace Strada
 		data.Recording = false;
 		data.FrameRecorded = false;
 		data.PendingGpuPasses.clear();
+		data.PendingCounters.clear();
 		data.EntryBound.assign(data.History.Threads.size(), false);
 	}
 
@@ -780,19 +806,10 @@ namespace Strada
 			return;
 		}
 
-		// The view's text is copied (by text, never by address: the caller's string may not outlive the call).
-		uint32_t const viewIndex = GetTextIndex(data, view);
+		uint32_t const viewIndex = GetViewIndex(data, view);
 		if (viewIndex == ProfilerNoName)
 		{
 			return;
-		}
-		if (std::find(data.Views.begin(), data.Views.end(), viewIndex) == data.Views.end())
-		{
-			if (data.Views.size() >= MaxGpuViews)
-			{
-				return;
-			}
-			data.Views.push_back(viewIndex);
 		}
 
 		for (ProfilerGpuPassTiming const& pass : passes)
@@ -809,6 +826,70 @@ namespace Strada
 			uint64_t const duration = std::min<uint64_t>(pass.DurationNanoseconds, std::numeric_limits<int64_t>::max());
 			target->push_back({viewIndex, name, static_cast<int64_t>(duration)});
 		}
+	}
+
+	void Profiler::RecordCounters(std::string_view view, std::span<ProfilerCounter const> counters)
+	{
+		if (!s_Data || !s_Data->Recording || !s_Data->FrameInProgress || !s_Data->FrameRecorded)
+		{
+			return;
+		}
+		ProfilerData& data = *s_Data;
+		if (data.PendingCounters.size() >= MaxCounterRecords)
+		{
+			return;
+		}
+		uint32_t const viewIndex = GetViewIndex(data, view);
+		if (viewIndex == ProfilerNoName)
+		{
+			return;
+		}
+
+		ProfilerCounterRecord record;
+		record.View = viewIndex;
+		record.Values.reserve(std::min<size_t>(counters.size(), MaxCounters));
+		for (ProfilerCounter const& counter : counters)
+		{
+			if (record.Values.size() >= MaxCounters)
+			{
+				break;
+			}
+			if (counter.Name == nullptr || !IsCounterName(counter.Name))
+			{
+				continue;
+			}
+			uint32_t const name = GetNameIndex(data, counter.Name);
+			if (name == ProfilerNoName)
+			{
+				continue;
+			}
+			// A name given twice keeps its first count, so that a record never holds a name twice (a capture's counts
+			// are an object keyed by name).
+			bool const repeated = std::any_of(record.Values.begin(), record.Values.end(),
+			                                  [name](ProfilerCounterValue const& value)
+			                                  {
+												  return value.Name == name;
+											  });
+			if (!repeated)
+			{
+				record.Values.push_back({name, counter.Value});
+			}
+		}
+		data.PendingCounters.push_back(std::move(record));
+	}
+
+	bool Profiler::IsCounterName(std::string_view name)
+	{
+		if (name.empty() || name.size() > MaxCounterNameBytes)
+		{
+			return false;
+		}
+		return std::all_of(name.begin(), name.end(),
+		                   [](char character)
+		                   {
+							   return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			                          (character >= '0' && character <= '9') || character == '_' || character == '.';
+						   });
 	}
 
 	ProfilerCapture const& Profiler::GetRecording()
@@ -1188,6 +1269,13 @@ namespace Strada
 		std::unordered_map<uint64_t, uint32_t> passIndices;
 		std::vector<std::string> passNames;
 		std::vector<FrameSums> passes;
+		// Counts per (view, counter) series, and per view the frames that hold a record of it: a series' median covers
+		// those frames, a frame of the view without the count counting 0.
+		std::unordered_map<uint64_t, uint32_t> counterIndices;
+		std::vector<std::string> counterNames;
+		std::vector<FrameSums> counters;
+		std::vector<uint32_t> counterViews;
+		std::unordered_map<uint32_t, FrameSums> viewFrames;
 
 		for (size_t frameIndex = 0; frameIndex < frameCount; frameIndex++)
 		{
@@ -1260,6 +1348,32 @@ namespace Strada
 				}
 				passes[found->second].Add(frameIndex, ToMilliseconds(pass.DurationNanoseconds));
 			}
+
+			for (ProfilerCounterRecord const& record : frame.Counters)
+			{
+				if (record.View >= capture.Names.size())
+				{
+					continue;
+				}
+				uint32_t const view = nameSeries[record.View];
+				viewFrames[view].Add(frameIndex, 1.0);
+				for (ProfilerCounterValue const& value : record.Values)
+				{
+					if (value.Name >= capture.Names.size())
+					{
+						continue;
+					}
+					uint64_t const key = (static_cast<uint64_t>(view) << 32) | nameSeries[value.Name];
+					auto const [found, added] = counterIndices.try_emplace(key, static_cast<uint32_t>(counters.size()));
+					if (added)
+					{
+						counterNames.push_back(capture.Names[record.View] + "/" + capture.Names[value.Name]);
+						counters.emplace_back();
+						counterViews.push_back(view);
+					}
+					counters[found->second].Add(frameIndex, static_cast<double>(value.Value));
+				}
+			}
 		}
 
 		std::vector<double> percentileTimes = frameTimes;
@@ -1289,6 +1403,16 @@ namespace Strada
 		}
 		std::sort(medians.GpuPasses.begin(), medians.GpuPasses.end(),
 		          [](ProfilerMedian const& left, ProfilerMedian const& right)
+		          {
+					  return left.Name < right.Name;
+				  });
+		for (uint32_t counter = 0; counter < counters.size(); counter++)
+		{
+			size_t const frames = viewFrames[counterViews[counter]].Values.size();
+			medians.Counters.push_back({std::move(counterNames[counter]), TakeMedian(counters[counter].Values, frames)});
+		}
+		std::sort(medians.Counters.begin(), medians.Counters.end(),
+		          [](ProfilerCounterMedian const& left, ProfilerCounterMedian const& right)
 		          {
 					  return left.Name < right.Name;
 				  });

@@ -89,6 +89,8 @@ add_executable(StradaTests
     Source/Renderer/EditorOverlayTests.cpp
     Source/Renderer/FontAtlasTests.cpp
     Source/Renderer/FontTestUtilities.h
+    Source/Renderer/InstancingBenchmarkTests.cpp
+    Source/Renderer/InstancingTests.cpp
     Source/Renderer/PostProcessingTests.cpp
     Source/Renderer/SceneRendererTests.cpp
     Source/Renderer/ShadowMathTests.cpp
@@ -118,6 +120,7 @@ add_executable(StradaTests
     Source/Scene/SceneUITests.cpp
     Source/Scene/SceneVisualScriptingTests.cpp
     Source/Scene/UILayoutTests.cpp
+    Source/Scene/WorldTransformCacheTests.cpp
     Source/Script/ScriptEngineTests.cpp
     Source/Script/ScriptFieldTests.cpp
     Source/Script/ScriptTestUtilities.h

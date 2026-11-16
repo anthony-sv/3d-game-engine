@@ -129,20 +129,18 @@ namespace Strada
 		void Prepare(glm::vec3 const& cameraPosition, glm::uvec2 const& viewportSize);
 		// Records the vertex upload; call once per frame before the Render functions.
 		void Upload(nvrhi::ICommandList* commandList);
-		void RenderWorld(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
+		// Each Render function returns the draws it recorded: one per batch, but none for a batch whose texture cannot be
+		// bound, and none at all without a pipeline or an uploaded frame.
+		uint32_t RenderWorld(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
 		// The UI placed in the world, onto an 8-bit sRGB-encoded image with the scene depth attached read-only.
-		void RenderWorldUI(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
-		void RenderScreen(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer);
-		void RenderEntityIds(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
+		uint32_t RenderWorldUI(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
+		uint32_t RenderScreen(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer);
+		uint32_t RenderEntityIds(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
 		// Forgets the frame's submissions (they keep their assets alive until then).
 		void Clear();
 
-		// Quads and draw calls of the prepared frame (per pass that draws them).
+		// Quads of the prepared frame.
 		uint32_t GetQuadCount() const { return m_QuadCount; }
-		uint32_t GetBatchCount() const
-		{
-			return static_cast<uint32_t>(m_WorldBatches.size() + m_WorldUIBatches.size() + m_ScreenBatches.size());
-		}
 
 	private:
 		struct Vertex
@@ -210,8 +208,9 @@ namespace Strada
 		nvrhi::IBindingSet* GetBindingSet(nvrhi::ITexture* texture, nvrhi::ISampler* sampler);
 		nvrhi::IGraphicsPipeline* GetPipeline(nvrhi::GraphicsPipelineHandle& pipeline, nvrhi::IFramebuffer* framebuffer, bool entityIds,
 		                                      bool depthTest);
-		void DrawBatches(nvrhi::ICommandList* commandList, std::vector<Batch> const& batches, nvrhi::IGraphicsPipeline* pipeline,
-		                 nvrhi::IFramebuffer* framebuffer, glm::mat4 const& transform, bool encodeSrgb);
+		// Returns the draws it recorded.
+		uint32_t DrawBatches(nvrhi::ICommandList* commandList, std::vector<Batch> const& batches, nvrhi::IGraphicsPipeline* pipeline,
+		                     nvrhi::IFramebuffer* framebuffer, glm::mat4 const& transform, bool encodeSrgb);
 
 		std::vector<std::pair<SpriteSubmission, uint32_t>> m_Sprites;
 		std::vector<std::pair<TextSubmission, uint32_t>> m_Texts;

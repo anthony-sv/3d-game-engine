@@ -14,6 +14,9 @@ namespace Strada
 	public:
 		// sceneView, gameView: statistics of the views' last rendered frames; null when they have no renderer.
 		void OnImGuiRender(bool& isOpen, SceneRendererStatistics const* sceneView, SceneRendererStatistics const* gameView);
+		// The panel's Views section, in the current window: one row per statistic with the value of each view (a dash for a
+		// view without a renderer). Reads nothing but its arguments, so it draws without an application or a GPU.
+		static void DrawViews(SceneRendererStatistics const* sceneView, SceneRendererStatistics const* gameView);
 
 	private:
 		std::array<float, 240> m_FrameTimes = {};

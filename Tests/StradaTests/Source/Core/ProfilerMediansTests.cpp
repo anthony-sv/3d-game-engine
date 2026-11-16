@@ -149,6 +149,55 @@ TEST_CASE("Profiler: medians read subsystems on the main thread, busy time per t
 	CHECK(FindMedian(medians.GpuPasses, "Viewport/Opaque") == doctest::Approx(2.5));
 }
 
+TEST_CASE("ProfilerMedians: a view's counts have their median over the frames that hold a record of the view")
+{
+	Testing::CaptureBuilder builder;
+	// Five frames. Viewport records in four of them (twice in the second, which adds both, and once without Batches);
+	// Game in the third only; the fifth frame holds no record.
+	builder.AddFrame(0, 10);
+	builder.AddCounters("Viewport", {{"DrawCalls", 10}, {"Batches", 4}});
+	builder.AddFrame(10, 20);
+	builder.AddCounters("Viewport", {{"DrawCalls", 10}, {"Batches", 4}});
+	builder.AddCounters("Viewport", {{"DrawCalls", 30}, {"Batches", 6}});
+	builder.AddFrame(20, 30);
+	builder.AddCounters("Game", {{"DrawCalls", 300}});
+	builder.AddCounters("Viewport", {{"DrawCalls", 20}});
+	builder.AddFrame(30, 40);
+	builder.AddCounters("Viewport", {{"DrawCalls", 50}, {"Batches", 8}});
+	builder.AddFrame(40, 50);
+
+	ProfilerMedians const medians = ComputeProfilerMedians(builder.Get());
+	std::vector<std::string> names;
+	for (ProfilerCounterMedian const& counter : medians.Counters)
+	{
+		names.push_back(counter.Name);
+	}
+	CHECK(names == std::vector<std::string>{"Game/DrawCalls", "Viewport/Batches", "Viewport/DrawCalls"});
+	auto const find = [&medians](std::string_view name)
+	{
+		auto const found = std::find_if(medians.Counters.begin(), medians.Counters.end(),
+		                                [name](ProfilerCounterMedian const& counter)
+		                                {
+											return counter.Name == name;
+										});
+		REQUIRE(found != medians.Counters.end());
+		return found->Value;
+	};
+	// Viewport/DrawCalls over its four frames: 10, 40, 20, 50.
+	CHECK(find("Viewport/DrawCalls") == doctest::Approx(30.0));
+	// Viewport/Batches: 4, 10, 0 (the frame of the view without the count), 8.
+	CHECK(find("Viewport/Batches") == doctest::Approx(6.0));
+	// Game's one frame.
+	CHECK(find("Game/DrawCalls") == doctest::Approx(300.0));
+
+	// A capture without counters has no counter medians, and one whose record names nothing the capture holds is read past.
+	CHECK(ComputeProfilerMedians(Testing::CaptureBuilder().Get()).Counters.empty());
+	Testing::CaptureBuilder broken;
+	broken.AddFrame(0, 10);
+	broken.GetMutable().Frames.back().Counters.push_back({ProfilerNoName, {{ProfilerNoName, 3}}});
+	CHECK(ComputeProfilerMedians(broken.Get()).Counters.empty());
+}
+
 namespace
 {
 	// The medians as a dense count works them out: a value per frame for every series, and each zone's enclosing zones

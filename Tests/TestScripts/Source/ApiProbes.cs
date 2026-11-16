@@ -258,6 +258,33 @@ public sealed class TransformProbe : Script
 	private static Vector3 Round(Vector3 value) => new(MathF.Round(value.X, 3) + 0.0f, MathF.Round(value.Y, 3) + 0.0f, MathF.Round(value.Z, 3) + 0.0f);
 }
 
+// Moves its entity one meter along X in each OnUpdate, then at once reads where Child is in the world and reports it in its
+// name: a parent moved in a frame moves what its children's reads see in that frame. When it is destroyed, it moves
+// MovedOnDestroy two meters up: a write made by the deferred destruction at the end of a frame, after the scene's update.
+public sealed class ParentMover : Script
+{
+	public Entity? Child;
+	public Entity? MovedOnDestroy;
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		Translation += new Vector3(1.0f, 0.0f, 0.0f);
+		if (Child is not null)
+		{
+			Vector3 world = Child.Transform.WorldTranslation;
+			Name = string.Create(CultureInfo.InvariantCulture, $"{world.X:R};{world.Y:R};{world.Z:R}");
+		}
+	}
+
+	protected override void OnDestroy()
+	{
+		if (MovedOnDestroy is not null && MovedOnDestroy.IsValid)
+		{
+			MovedOnDestroy.Translation += new Vector3(0.0f, 2.0f, 0.0f);
+		}
+	}
+}
+
 // A camera ten meters in front of the origin, looking at it with a field of view of 90 degrees on an 800 x 600 viewport (the
 // engine test sets it up): turns world positions into screen positions and back, and reports what it saw in its name.
 public sealed class CameraProbe : Script

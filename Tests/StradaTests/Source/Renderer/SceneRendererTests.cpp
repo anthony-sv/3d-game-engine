@@ -2,13 +2,17 @@
 #include "Renderer/RenderTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Core/Image.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Math/Math.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/TextureReadback.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Renderer/TextureMips.h"
+#include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneRendering.h"
@@ -16,6 +20,12 @@
 
 #include <doctest/doctest.h>
 #include <glm/gtc/matrix_transform.hpp>
+
+#include <algorithm>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 using namespace Strada;
 
@@ -160,7 +170,10 @@ TEST_CASE("SceneRenderer: lit scene matches the golden image")
 	renderer.SetViewportSize(ImageWidth, ImageHeight);
 	Image const image = Testing::RenderToImage(*scene, MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f}), renderer);
 	CHECK(renderer.GetStatistics().Lights == 3);
-	CHECK(renderer.GetStatistics().DrawCalls - renderer.GetStatistics().ShadowDrawCalls == 5);
+	// Four opaque meshes and the glass are a batch each; the tonemap and FXAA are one draw each (no sky without an
+	// environment).
+	CHECK(renderer.GetStatistics().Batches - renderer.GetStatistics().ShadowDrawCalls == 5);
+	CHECK(renderer.GetStatistics().DrawCalls - renderer.GetStatistics().ShadowDrawCalls == 7);
 	CHECK(renderer.GetStatistics().ShadowMapViews == 4);
 	CHECK(renderer.GetStatistics().ShadowDrawCalls > 0);
 	Testing::CheckGoldenImage("SceneRenderer_Showcase", image);
@@ -182,15 +195,20 @@ TEST_CASE("SceneRenderer: meshes outside the view or beyond its distance are not
 	renderer.SetViewportSize(ImageWidth, ImageHeight);
 	SceneRendererCamera camera = MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f});
 
-	// Without lights, every draw call is a mesh in the main pass.
+	// Without lights the one mesh batch is of the main pass: the two cubes in view share their mesh and material, so they
+	// are one batch of two instances. The tonemap and FXAA are the frame's other draws.
 	(void)Testing::RenderToImage(scene, camera, renderer);
 	CHECK(renderer.GetStatistics().Culled == 3);
-	CHECK(renderer.GetStatistics().DrawCalls == 2);
+	CHECK(renderer.GetStatistics().Batches == 1);
+	CHECK(renderer.GetStatistics().DrawCalls == 3);
+	CHECK(renderer.GetStatistics().Instances == 2);
 
 	camera.MaxDistance = 20.0f;
 	(void)Testing::RenderToImage(scene, camera, renderer);
 	CHECK(renderer.GetStatistics().Culled == 4);
-	CHECK(renderer.GetStatistics().DrawCalls == 1);
+	CHECK(renderer.GetStatistics().Batches == 1);
+	CHECK(renderer.GetStatistics().DrawCalls == 3);
+	CHECK(renderer.GetStatistics().Instances == 1);
 }
 
 TEST_CASE("SceneRenderer: frames report their GPU time when the GPU can measure it")
@@ -256,7 +274,8 @@ TEST_CASE("SceneRenderer: while the profiler records, each pass's GPU time reach
 	ProfilerCapture const& capture = Profiler::GetRecording();
 	REQUIRE(capture.Frames.size() == 12);
 	// Every frame's CPU phases of the renderer.
-	for (std::string_view const phase : {"Renderer.Submit", "Renderer.Cull", "Renderer.Sort", "Renderer.Prepare", "Renderer.Record"})
+	for (std::string_view const phase :
+	     {"Scene.UpdateTransforms", "Renderer.Submit", "Renderer.Cull", "Renderer.Prepare", "Renderer.Batch", "Renderer.Record"})
 	{
 		CAPTURE(phase);
 		CHECK(Testing::FindZones(capture, phase).size() == 12);
@@ -289,6 +308,94 @@ TEST_CASE("SceneRenderer: while the profiler records, each pass's GPU time reach
 		CHECK(measuredFrames == 0);
 	}
 }
+
+TEST_CASE("SceneRenderer: while the profiler records, each frame carries the renderer's statistics, and none while it is idle")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	Testing::ProfilerScope const profiler;
+	Scope<Scene> scene = MakeShowcaseScene();
+	SceneRenderer renderer("Probe");
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+	SceneRendererCamera const camera = MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f});
+	auto const findCount = [](ProfilerCapture const& capture, ProfilerCounterRecord const& record, std::string_view name)
+	{
+		for (ProfilerCounterValue const& value : record.Values)
+		{
+			if (capture.Names[value.Name] == name)
+			{
+				return std::optional<uint64_t>(value.Value);
+			}
+		}
+		return std::optional<uint64_t>();
+	};
+
+	// An idle profiler's frames record nothing; a recorded frame holds one record per frame the renderer drew in it.
+	Profiler::BeginFrame();
+	RenderScene(*scene, renderer, camera);
+	Profiler::EndFrame();
+	REQUIRE(Profiler::Start().IsOk());
+	std::vector<SceneRendererStatistics> drawn;
+	for (int frame = 0; frame < 3; frame++)
+	{
+		Profiler::BeginFrame();
+		RenderScene(*scene, renderer, camera);
+		drawn.push_back(renderer.GetStatistics());
+		if (frame == 2)
+		{
+			// A view that renders twice in a frame records twice.
+			RenderScene(*scene, renderer, camera);
+			drawn.push_back(renderer.GetStatistics());
+		}
+		Profiler::EndFrame();
+	}
+	Profiler::Stop();
+	RenderScene(*scene, renderer, camera);
+
+	ProfilerCapture const& capture = Profiler::GetRecording();
+	REQUIRE(capture.Frames.size() == 3);
+	std::vector<ProfilerCounterRecord const*> records;
+	for (ProfilerFrame const& frame : capture.Frames)
+	{
+		CHECK(frame.Counters.size() == (frame.Index == capture.Frames.back().Index ? 2u : 1u));
+		for (ProfilerCounterRecord const& record : frame.Counters)
+		{
+			records.push_back(&record);
+		}
+	}
+	REQUIRE(records.size() == drawn.size());
+	for (size_t index = 0; index < records.size(); index++)
+	{
+		CAPTURE(index);
+		ProfilerCounterRecord const& record = *records[index];
+		SceneRendererStatistics const& statistics = drawn[index];
+		CHECK(capture.Names[record.View] == "Probe");
+		CHECK(record.Values.size() == 11);
+		CHECK(findCount(capture, record, "DrawCalls") == statistics.DrawCalls);
+		CHECK(findCount(capture, record, "Batches") == statistics.Batches);
+		CHECK(findCount(capture, record, "Instances") == statistics.Instances);
+		CHECK(findCount(capture, record, "Triangles") == statistics.Triangles);
+		CHECK(findCount(capture, record, "ShadowDrawCalls") == statistics.ShadowDrawCalls);
+		CHECK(findCount(capture, record, "ShadowMapViews") == statistics.ShadowMapViews);
+		CHECK(findCount(capture, record, "ShadowsDropped") == statistics.ShadowsDropped);
+		CHECK(findCount(capture, record, "Lights") == statistics.Lights);
+		CHECK(findCount(capture, record, "CulledLights") == statistics.CulledLights);
+		CHECK(findCount(capture, record, "Culled") == statistics.Culled);
+		CHECK(findCount(capture, record, "Quads") == statistics.Quads);
+	}
+	CHECK(drawn.front().DrawCalls > 0);
+
+	// The medians name the counts by view.
+	ProfilerMedians const medians = ComputeProfilerMedians(capture);
+	auto const drawCalls = std::find_if(medians.Counters.begin(), medians.Counters.end(),
+	                                    [](ProfilerCounterMedian const& counter)
+	                                    {
+											return counter.Name == "Probe/DrawCalls";
+										});
+	REQUIRE(drawCalls != medians.Counters.end());
+	// Two frames rendered once and one twice, the same scene each time: the median frame rendered once.
+	CHECK(drawCalls->Value == doctest::Approx(static_cast<double>(drawn.front().DrawCalls)));
+}
 #endif
 
 TEST_CASE("SceneRenderer: the primary camera's far distance culls what lies beyond it")
@@ -305,20 +412,25 @@ TEST_CASE("SceneRenderer: the primary camera's far distance culls what lies beyo
 	SceneRenderer renderer;
 	renderer.SetViewportSize(ImageWidth, ImageHeight);
 
+	// The two cubes share their mesh and material: one batch, of two instances while both are in view. The tonemap and
+	// FXAA are the frame's other draws.
 	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
 	CHECK(renderer.GetStatistics().Culled == 0);
-	CHECK(renderer.GetStatistics().DrawCalls == 2);
+	CHECK(renderer.GetStatistics().DrawCalls == 3);
+	CHECK(renderer.GetStatistics().Instances == 2);
 
 	camera.PerspectiveFar = 20.0f;
 	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
 	CHECK(renderer.GetStatistics().Culled == 1);
-	CHECK(renderer.GetStatistics().DrawCalls == 1);
+	CHECK(renderer.GetStatistics().DrawCalls == 3);
+	CHECK(renderer.GetStatistics().Instances == 1);
 
 	camera.Projection = ProjectionType::Orthographic;
 	camera.OrthographicFar = 20.0f;
 	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
 	CHECK(renderer.GetStatistics().Culled == 1);
-	CHECK(renderer.GetStatistics().DrawCalls == 1);
+	CHECK(renderer.GetStatistics().DrawCalls == 3);
+	CHECK(renderer.GetStatistics().Instances == 1);
 }
 
 TEST_CASE("SceneRenderer: lights that cannot reach the view are culled")
@@ -465,4 +577,48 @@ TEST_CASE("SceneRenderer: image-based lighting matches the golden image")
 	skyLight.AmbientColor = glm::vec3(0.0f);
 	glm::vec3 const corner = PixelColor(Testing::RenderToImage(scene, camera, renderer), 2, 2);
 	CHECK(corner.r + corner.g + corner.b < 3.0f);
+}
+
+TEST_CASE("SceneRenderer: the first sky light in hierarchy order lights the scene, whatever the order the lights were made in")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	constexpr uint32_t Size = 64;
+	Scene scene("Skies");
+	MaterialData white;
+	white.BaseColor = glm::vec4(1.0f);
+	white.Roughness = 1.0f;
+	Testing::AddTestMesh(scene, "Cube", BuiltInAsset::CubeMesh, AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(white), "White"),
+	                     glm::vec3(0.0f));
+	SceneRenderer renderer;
+	renderer.SetViewportSize(Size, Size);
+	SceneRendererCamera const camera = Testing::MakeTestCamera({0.0f, 0.5f, 3.0f}, glm::vec3(0.0f), Size, Size);
+	auto const center = [&scene, &renderer, &camera]
+	{
+		Image const image = Testing::RenderToImage(scene, camera, renderer);
+		uint8_t const* pixel = image.GetPixel(Size / 2, Size / 2);
+		return glm::ivec3(pixel[0], pixel[1], pixel[2]);
+	};
+
+	// No sky light: no ambient light, and nothing else lights the cube.
+	glm::ivec3 const dark = center();
+	CHECK(dark.r + dark.g + dark.b < 30);
+
+	// One sky light, wherever it is.
+	Entity first = scene.CreateEntity("First root");
+	Entity second = scene.CreateEntity("Second root");
+	Entity red = scene.CreateEntity("Red sky", second);
+	red.AddComponent<SkyLightComponent>().AmbientColor = {1.0f, 0.0f, 0.0f};
+	glm::ivec3 const alone = center();
+	CHECK(alone.r > alone.g + 40);
+	CHECK(alone.r > alone.b + 40);
+
+	// Three: the first in hierarchy order is neither the first made nor the last (the green one, below the first root).
+	Entity green = scene.CreateEntity("Green sky", first);
+	green.AddComponent<SkyLightComponent>().AmbientColor = {0.0f, 1.0f, 0.0f};
+	Entity blue = scene.CreateEntity("Blue sky", second);
+	blue.AddComponent<SkyLightComponent>().AmbientColor = {0.0f, 0.0f, 1.0f};
+	glm::ivec3 const several = center();
+	CHECK(several.g > several.r + 40);
+	CHECK(several.g > several.b + 40);
 }

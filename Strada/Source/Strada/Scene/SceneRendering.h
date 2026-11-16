@@ -52,7 +52,8 @@ namespace Strada
 	// Renders the scene from an explicit camera (the editor camera) with the scene's renderer settings as its post-process
 	// volumes change them at the camera's position: submits visible meshes with their materials (per-slot overrides first,
 	// then the mesh's defaults), lights and ambient light, sprites, text and particles, and the screen-space UI (buttons
-	// in the color of their state), then ends the frame.
+	// in the color of their state), then ends the frame. It refreshes the scene's world-transform cache first
+	// (Scene::UpdateTransforms) and reads every matrix it submits from the cache.
 	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options = {});
 
 	// Whether the scene shows something without a camera: a UI canvas, or screen-space sprites or text (menus, loading

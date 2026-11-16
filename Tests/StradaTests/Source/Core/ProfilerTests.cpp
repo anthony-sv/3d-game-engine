@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <future>
 #include <limits>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -36,6 +37,7 @@ TEST_CASE("Profiler: every function does nothing before Init and after Shutdown"
 		Profiler::EndFrame();
 		Profiler::Stop();
 		Profiler::RecordGpuPasses(1, "View", {});
+		Profiler::RecordCounters("View", {});
 		Profiler::SetThreadName("Ignored");
 		Profiler::EndThread();
 		CHECK(Profiler::InternName("Ignored") == nullptr);
@@ -1102,6 +1104,118 @@ TEST_CASE("Profiler: GPU passes attach to the frame that measured them")
 	// Viewport and Game are two of the views: 14 more fit.
 	CHECK(later.Frames.back().GpuPasses.size() == 2 * (Profiler::MaxGpuViews - 2));
 	CheckWellFormed(later);
+}
+
+TEST_CASE("Profiler: counter records attach to the frame in progress, within their bounds")
+{
+	ProfilerScope const profiler;
+	std::array<ProfilerCounter, 2> const counts{{{"DrawCalls", 12}, {"Batches", 7}}};
+	auto const describe = [](ProfilerCapture const& capture, ProfilerCounterRecord const& record)
+	{
+		std::string text(GetName(capture, record.View));
+		for (ProfilerCounterValue const& value : record.Values)
+		{
+			text += " " + std::string(GetName(capture, value.Name)) + "=" + std::to_string(value.Value);
+		}
+		return text;
+	};
+
+	// Not recording, and recording outside a frame: nothing is kept.
+	Profiler::BeginFrame();
+	Profiler::RecordCounters("Viewport", counts);
+	Profiler::EndFrame();
+	REQUIRE(Profiler::Start(MakeSettings(4, DefaultSettings.HistoryZones, DefaultSettings.ZonesPerThread)).IsOk());
+	Profiler::RecordCounters("Viewport", counts);
+	Profiler::BeginFrame();
+	Profiler::EndFrame();
+	Profiler::RecordCounters("Viewport", counts);
+	REQUIRE(Profiler::GetRecording().Frames.size() == 1);
+	CHECK(Profiler::GetRecording().Frames[0].Counters.empty());
+
+	// A frame's records, in the order recorded; a view that renders twice records twice. The view's text is copied.
+	Profiler::BeginFrame();
+	{
+		std::string view = "Viewport";
+		Profiler::RecordCounters(view, counts);
+		view = "Overwritten";
+	}
+	Profiler::RecordCounters("Game", std::span<ProfilerCounter const>(counts).first(1));
+	Profiler::RecordCounters("Viewport", counts);
+	// Names that break the rule, a missing name and a name given again are left out of their record.
+	std::array<ProfilerCounter, 6> const mixed{{{"Draw Calls", 1},
+	                                            {nullptr, 2},
+	                                            {"Instances", 3},
+	                                            {"Instances", 4},
+	                                            {"AB.Name_Of_Exactly_32_Characters", 5},
+	                                            {"Name.Of.Thirty.Three.Characters..", 6}}};
+	Profiler::RecordCounters("Game", mixed);
+	Profiler::EndFrame();
+	{
+		ProfilerCapture const& capture = Profiler::GetRecording();
+		REQUIRE(capture.Frames.size() == 2);
+		std::vector<ProfilerCounterRecord> const& records = capture.Frames[1].Counters;
+		REQUIRE(records.size() == 4);
+		CHECK(describe(capture, records[0]) == "Viewport DrawCalls=12 Batches=7");
+		CHECK(describe(capture, records[1]) == "Game DrawCalls=12");
+		CHECK(describe(capture, records[2]) == "Viewport DrawCalls=12 Batches=7");
+		CHECK(describe(capture, records[3]) == "Game Instances=3 AB.Name_Of_Exactly_32_Characters=5");
+		CHECK(records[0].View == records[2].View);
+	}
+
+	// Past MaxCounters a record keeps the first ones; past MaxCounterRecords a frame keeps the first records.
+	std::vector<std::string> names;
+	for (uint32_t index = 0; index < Profiler::MaxCounters + 3; ++index)
+	{
+		names.push_back("Count" + std::to_string(index));
+	}
+	std::vector<ProfilerCounter> many;
+	for (uint32_t index = 0; index < names.size(); ++index)
+	{
+		// The names live until the frame ends: the recorder stores them by text.
+		many.push_back({names[index].c_str(), index});
+	}
+	Profiler::BeginFrame();
+	for (uint32_t record = 0; record < Profiler::MaxCounterRecords + 2; ++record)
+	{
+		Profiler::RecordCounters("Viewport", many);
+	}
+	Profiler::EndFrame();
+	{
+		ProfilerFrame const& frame = Profiler::GetRecording().Frames.back();
+		REQUIRE(frame.Counters.size() == Profiler::MaxCounterRecords);
+		CHECK(frame.Counters.front().Values.size() == Profiler::MaxCounters);
+		CHECK(frame.Counters.front().Values.back().Value == Profiler::MaxCounters - 1);
+	}
+
+	// Views past MaxGpuViews, which counters share with GPU passes, are dropped.
+	Profiler::BeginFrame();
+	for (uint32_t view = 0; view < Profiler::MaxGpuViews; ++view)
+	{
+		Profiler::RecordCounters("View " + std::to_string(view), counts);
+	}
+	Profiler::EndFrame();
+	// Viewport and Game are two of the views: 14 more fit.
+	CHECK(Profiler::GetRecording().Frames.back().Counters.size() == Profiler::MaxGpuViews - 2);
+
+	// Stop discards the records of the frame in progress; a new recording starts without any.
+	Profiler::BeginFrame();
+	Profiler::RecordCounters("Viewport", counts);
+	Profiler::Stop();
+	Profiler::EndFrame();
+	CHECK(Profiler::GetRecording().Frames.back().Counters.size() == Profiler::MaxGpuViews - 2);
+	REQUIRE(Profiler::Start().IsOk());
+	Profiler::BeginFrame();
+	Profiler::EndFrame();
+	REQUIRE(Profiler::GetRecording().Frames.size() == 1);
+	CHECK(Profiler::GetRecording().Frames[0].Counters.empty());
+	CheckWellFormed(Profiler::GetRecording());
+
+	CHECK(Profiler::IsCounterName("DrawCalls"));
+	CHECK(Profiler::IsCounterName("Renderer.Draw_2"));
+	CHECK_FALSE(Profiler::IsCounterName(""));
+	CHECK_FALSE(Profiler::IsCounterName("Draw-Calls"));
+	CHECK_FALSE(Profiler::IsCounterName("Dr\xc3\xa4ws"));
+	CHECK_FALSE(Profiler::IsCounterName(std::string(Profiler::MaxCounterNameBytes + 1, 'a')));
 }
 
 TEST_CASE("Profiler: the cost of a zone, idle and recording" *

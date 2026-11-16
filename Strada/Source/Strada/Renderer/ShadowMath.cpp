@@ -124,6 +124,8 @@ namespace Strada::Shadows
 
 		CascadeProjection cascade;
 		cascade.ViewProjection = projection * lightView;
+		cascade.LightView = lightView;
+		cascade.Projection = projection;
 		cascade.TexelSize = texelSize;
 		cascade.Width = 2.0f * radius;
 		cascade.DepthRange = farPlane - nearPlane;
@@ -176,5 +178,10 @@ namespace Strada::Shadows
 			return direction.y >= 0.0f ? 2u : 3u;
 		}
 		return direction.z >= 0.0f ? 4u : 5u;
+	}
+
+	bool IntersectsCascade(AABB const& bounds, glm::mat4 const& viewProjection)
+	{
+		return CascadeTest(viewProjection).Intersects(bounds);
 	}
 }

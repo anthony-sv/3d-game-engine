@@ -60,6 +60,14 @@ namespace Strada
 				double Milliseconds = 0.0;
 			};
 
+			// One count of a renderer's record (ProfilerFrame::Counters), shown beside the GPU passes.
+			struct CounterRow
+			{
+				std::string View;
+				std::string Counter;
+				uint64_t Value = 0;
+			};
+
 			// Whether the window's contents were drawn (not collapsed or hidden behind another tab).
 			bool Drawn = false;
 			// The live history, or a capture opened in its place.
@@ -88,6 +96,7 @@ namespace Strada
 			// kept.
 			bool TreesBuilt = false;
 			std::vector<GpuRow> GpuRows;
+			std::vector<CounterRow> CounterRows;
 			// Rows of the medians' tables.
 			size_t MedianRows = 0;
 		};
@@ -154,6 +163,7 @@ namespace Strada
 		bool IsLineOpen(ZoneLine const& line) const;
 		void DrawZoneLine(ProfilerCapture const& capture, ProfilerFrame const& frame, uint32_t visible);
 		void DrawZones(ProfilerCapture const& capture, ProfilerFrame const& frame, ShownTrees const& shown);
+		// The shown frame's GPU passes, then its renderers' counts.
 		void DrawGpuPasses(ProfilerCapture const& capture, ProfilerFrame const& frame);
 		void DrawMedians(ProfilerCapture const& capture);
 
