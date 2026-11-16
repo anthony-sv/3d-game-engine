@@ -17,9 +17,10 @@ with where it stands in its parent:
 - Rear Wheel: its origin on the rear axle;
 - Rider: its origin at his hips on the saddle (HIP), where he leans and tucks from.
 
-Every mesh is made of four materials (Materials/Bike, all drawing the livery texture): Paint, glossy (the bodywork's
-livery, the rims, the rider's leathers and helmet), Dark (tyres, seat, engine, grips, gloves and boots), Metal (frame,
-forks, discs, exhaust) and Glass (the screen, the lights and the visor).
+The meshes draw with four materials (Materials/Bike, all with the livery texture), each mesh with those it uses, in this
+order: Paint, glossy (the bodywork's livery, the rims, the rider's leathers and helmet), Dark (tyres, seat, engine,
+chain, grips, gloves and boots), Metal (frame, forks, discs, exhaust) and Glass (the screen, the lights and the visor).
+That is 16 primitives, so the bike costs 16 draws in each pass that sees all of it.
 
     python Projects/Moto/Tools/Bike.py
 
@@ -416,9 +417,8 @@ def build_body():
     tube(metal, [P(0.17, 0.4, -0.36), P(0.18, 0.47, -0.6), P(0.185, 0.54, -0.82)], [(0.042, 0.042), (0.05, 0.05),
                                                                                        (0.048, 0.048)], flat("Silver"))
     # The screen over the fairing's top, smoked.
-    screen = []
-    for f, y, half in ((0.86, 0.905, 0.17), (0.74, 1.0, 0.165), (0.62, 1.07, 0.14), (0.55, 1.095, 0.12)):
-        screen.append((f, y, half))
+    # Its sections from the fairing's top up and back: f, the height on the middle, half its width.
+    screen = ((0.86, 0.905, 0.17), (0.74, 1.0, 0.165), (0.62, 1.07, 0.14), (0.55, 1.095, 0.12))
     for thickness, facing in ((0.0, 1.0), (-0.006, -1.0)):
         rings = [[P(half * math.sin(t), y + thickness - 0.05 * (1.0 - math.cos(t)), f) for t in
                   (-1.2, -0.9, -0.6, -0.3, 0.0, 0.3, 0.6, 0.9, 1.2)] for f, y, half in screen]
@@ -520,9 +520,9 @@ def build_wheel(radius, width, front):
         for side in (-1.0, 1.0):
             disc(metal, side * 0.076 - 0.0025, side * 0.076 + 0.0025, 0.105, 0.165, swatch("Silver"), 48)
     else:
-        disc(metal, -0.082, -0.077, 0.075, 0.11, swatch("Silver"), 40)
-        # The sprocket on the right.
-        disc(dark, 0.085, 0.091, 0.05, 0.1, swatch("Trim"), 40)
+        # The disc on the right, the sprocket on the left where the chain runs.
+        disc(metal, 0.077, 0.082, 0.075, 0.11, swatch("Silver"), 40)
+        disc(dark, -0.091, -0.085, 0.05, 0.1, swatch("Trim"), 40)
     return parts
 
 

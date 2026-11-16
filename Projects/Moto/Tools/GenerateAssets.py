@@ -470,17 +470,19 @@ def build_barriers(sections):
 
 # --- The ground and the hills ---------------------------------------------------------------------------------------------
 
-SEGMENTS_AROUND = 128
+# Round the ground's rings and the hills: enough for the shortest of the skyline's swells (skyline()).
+SEGMENTS_AROUND = 256
 
 
 def skyline(seed):
-    """The hills' height (meters) by angle: a few long swells with seeded phases."""
+    """The hills' height (meters) by angle: a few long swells with seeded phases, and shorter ones on them, so that the
+    ridge against the sky has shoulders and notches as distant country does rather than one smooth band."""
     generator = random.Random(seed * 7 + 3)
     waves = [(frequency, generator.uniform(0.0, 2.0 * math.pi), amplitude)
-             for frequency, amplitude in ((2, 38.0), (3, 26.0), (5, 18.0), (8, 10.0), (13, 6.0))]
+             for frequency, amplitude in ((2, 38.0), (3, 26.0), (5, 18.0), (8, 10.0), (13, 6.0), (21, 7.0), (34, 4.5), (55, 2.5))]
 
     def height(angle):
-        return 110.0 + sum(amplitude * math.sin(frequency * angle + phase) for frequency, phase, amplitude in waves)
+        return 120.0 + sum(amplitude * math.sin(frequency * angle + phase) for frequency, phase, amplitude in waves)
 
     return height
 

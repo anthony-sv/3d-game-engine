@@ -4104,7 +4104,7 @@ that each platform's names are tested on every platform:
   origin is on the ground midway between the contact patches with its front along -Z: `Body`; `Fork`, at the foot of
   the steering axis and turned 24° about X, so that turning it about its own Y steers; `Front Wheel` under it and
   `Rear Wheel`, each on its axle; and `Rider`, at his hips. They share one livery texture and four materials (paint,
-  dark, metal, glass), about 14 draws a pass for 10,600 triangles. `Bike.py`'s `check()` measures the wheelbase, the
+  dark, metal, glass): 16 primitives, so 16 draws in each pass that sees all of it, for 10,600 triangles (a second bike of the same meshes and materials joins their batches). `Bike.py`'s `check()` measures the wheelbase, the
   rake and the trail from the meshes and entities made, and that both tyres touch the ground; `check_grid()` keeps the
   tour 2 m from it. MO3's ghost, the vehicle and the rider's lean build on these parts. **The captures**:
   `Author.py --captures <folder> --player <StradaRuntime>` builds nothing; it takes the player's own screenshots at 1920
@@ -4114,9 +4114,9 @@ that each platform's names are tested on every platform:
   repository whose main scene puts the camera and the bike there, with a per-user root of its own, and fails a view
   whose picture is missing or of another size after three runs. On the reference machine (Release, 1920 by 1080,
   `StradaRuntime --profile` over the 600 frames of the whole tour, `--no-vsync`, slice 2's MO2 sitting) the frame's
-  median is 3.5 to 3.9 ms (99th percentile 5.7 to 8.6 ms), with a median of 149 draws (at most 256), 146 batches and
-  5,291 instances a frame; `Renderer.Submit` 0.74 ms and `Renderer.Prepare` 0.44 ms; the GPU's ambient occlusion 1.29
-  ms, opaque 1.00 ms and shadows 0.41 ms a frame. **The camera tour** is the first sample tour made of a graph
+  median is 3.5 to 3.9 ms (99th percentile 5.7 to 9.2 ms), with a median of 149 draws (at most 256), 146 batches and
+  5,291 instances a frame; `Renderer.Submit` 0.72 to 0.74 ms and `Renderer.Prepare` 0.43 to 0.46 ms; the GPU's ambient
+  occlusion 1.29 to 1.32 ms, opaque 1.00 to 1.03 ms and shadows 0.41 ms a frame. **The camera tour** is the first sample tour made of a graph
   (`Scripts/Tour.sgraph`, on the main camera): a `Flow.Timeline` with two Vector3 curves, `Eye` and `LookAt`, flies the
   camera from the home view once round the lap and back to it in about 51 s; each update sets the camera's
   translation and the Euler angles that point it at `LookAt` (a formula: pitch, then yaw, no roll, so no keyed angle

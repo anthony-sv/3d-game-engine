@@ -944,10 +944,12 @@ TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 	CHECK_FALSE(Contains(result.Output, "No screenshot was saved"));
 	CHECK_FALSE(Contains(result.Output, "icon is not used"));
 
-	// --resolution sizes the drawing area in pixels, whatever the display's scale: the picture is of that size.
+	// --resolution sizes the drawing area in pixels, whatever the display's scale: the picture is of that size. The window
+	// is resized before the first frame, and the framebuffer follows within the call on Windows and with the next events
+	// elsewhere, so the run gives it a few frames.
 	std::filesystem::path const sized = game.GetDirectory() / "Sized.png";
 	ProcessResult const resolution = RunPlayer(
-		{"--game", Native(game.Write("Scenes/Main.sscene")), "--frames", "3", "--resolution", "320x184", "--screenshot", Native(sized)});
+		{"--game", Native(game.Write("Scenes/Main.sscene")), "--frames", "10", "--resolution", "320x184", "--screenshot", Native(sized)});
 	CAPTURE(resolution.Output);
 	REQUIRE(resolution.ExitCode == 0);
 	Result<Image> sizedImage = Image::LoadFromFile(sized);
