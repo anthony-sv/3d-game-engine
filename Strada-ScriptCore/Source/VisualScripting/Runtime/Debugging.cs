@@ -105,7 +105,7 @@ internal sealed partial class VisualScriptRuntime
 	internal HostReply TakeTrace() => m_Debugger is VisualScriptDebugger debugger ? HostReply.Success(debugger.TakeTrace()) : HostReply.NotFound;
 
 	// Continues a stopped chain from its root (spec-slice4 sections 4.3, 4.5 and 4.12): with the budget it had left,
-	// Time.DeltaTime as it read it and the run modes of each member decided again as it continues. The leaf passes the stop
+	// Time.DeltaTime and the contact event (Strada.Collision) as it read them and the run modes of each member decided again as it continues. The leaf passes the stop
 	// point it stands at, so every resume runs at least one instruction (in this run only: Execute clears the pass when the
 	// leaf's run ends); a leaf that waits inside its Send (its receiver was released) is inside its instruction already. The
 	// chain may stop again (debug fibers again), suspend, end or abort (the error logged once); the root must not be used
@@ -117,6 +117,7 @@ internal sealed partial class VisualScriptRuntime
 		Trace(root);
 		float deltaTime = m_Environment.GetDeltaTime();
 		m_Environment.SetDeltaTime(root.SavedDeltaTime);
+		HandledContact? contact = m_Environment.RestoreContact(root.SavedContact);
 		GraphProgram program = root.Program;
 		Enter(program);
 		try
@@ -129,6 +130,7 @@ internal sealed partial class VisualScriptRuntime
 		{
 			Leave(program);
 			m_Environment.SetDeltaTime(deltaTime);
+			m_Environment.RestoreContact(contact);
 		}
 	}
 

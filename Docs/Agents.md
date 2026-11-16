@@ -280,7 +280,7 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
    (see [Visual scripts with agents](#visual-scripts-with-agents)).
 8. **Look at the result.** In a windowed editor, `viewport_frame` points the scene view's camera at entities,
    `viewport_camera` sets the view, `viewport_overlays` chooses what the scene view draws over the scene (`colliders`
-   `all` shows every physics shape), and `viewport_screenshot` returns an image of the editor or of one window
+   `all` shows every physics shape, `contacts` where contacts began in the last frame while the game plays), and `viewport_screenshot` returns an image of the editor or of one window
    (`window`: `SceneView`, `GameView`, `Hierarchy`, `Inspector`, `ContentBrowser`, `Console`, `Debugger`, `Profiler`
    or `Graph` with `graph`). MCP clients receive the screenshot as image content. To show the user the start screen or the File
    menu's dialogs, `start_show` and `editor_dialog` (`new-project` or `agent-setup`) open them and change nothing

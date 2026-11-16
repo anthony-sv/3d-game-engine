@@ -186,7 +186,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						816.0
+						912.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -213,7 +213,7 @@
 					"Type": "Get:Strada.Entity.Translation",
 					"Position": [
 						0.0,
-						880.0
+						976.0
 					]
 				},
 				{
@@ -221,7 +221,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1008.0
+						1104.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -240,7 +240,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1072.0
+						1168.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -263,7 +263,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1136.0
+						1232.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -305,7 +305,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1200.0
+						1296.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -329,7 +329,7 @@
 					"Type": "Event.CollisionExit",
 					"Position": [
 						0.0,
-						1376.0
+						1472.0
 					]
 				},
 				{
@@ -337,7 +337,7 @@
 					"Type": "RunsGraph",
 					"Position": [
 						192.0,
-						1376.0
+						1472.0
 					],
 					"Settings": {
 						"Graph": "406140568513313708"
@@ -348,7 +348,7 @@
 					"Type": "Operator.Not",
 					"Position": [
 						400.0,
-						1376.0
+						1472.0
 					]
 				},
 				{
@@ -356,7 +356,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1504.0
+						1600.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -367,7 +367,7 @@
 					"Type": "Operator.NotEqual",
 					"Position": [
 						192.0,
-						1488.0
+						1584.0
 					]
 				},
 				{
@@ -375,7 +375,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						592.0,
-						1376.0
+						1472.0
 					]
 				},
 				{
@@ -383,7 +383,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						720.0,
-						1376.0
+						1472.0
 					]
 				},
 				{
@@ -391,7 +391,7 @@
 					"Type": "Call:Strada.AudioSourceComponent.Play()",
 					"Position": [
 						944.0,
-						1376.0
+						1472.0
 					]
 				}
 			],
@@ -795,7 +795,7 @@
 					],
 					"Size": [
 						1064.0,
-						644.0
+						740.0
 					],
 					"Color": [
 						0.949999988079071,
@@ -809,7 +809,7 @@
 					"Text": "Sounds: walls tick as the ball leaves them",
 					"Position": [
 						-32.0,
-						1304.0
+						1400.0
 					],
 					"Size": [
 						1139.13623046875,

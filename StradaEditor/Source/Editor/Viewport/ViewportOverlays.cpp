@@ -4,6 +4,7 @@
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/MeshColliderOutline.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneCamera.h"
@@ -526,6 +527,27 @@ namespace Strada::ViewportOverlays
 		       kind(overlays.Volumes, Shapes::Volumes);
 	}
 
+	void AppendContactLines(std::span<ContactEvent const> events, std::vector<OverlayLine>& lines)
+	{
+		for (ContactEvent const& event : events)
+		{
+			bool const trigger = event.Type == ContactEventType::TriggerEnter || event.Type == ContactEventType::TriggerExit;
+			glm::vec4 const color = trigger ? TriggerColor : ContactColor;
+			for (uint32_t index = 0; index < std::min(event.PointCount, MaxContactPoints); index++)
+			{
+				ContactPoint const& point = event.Points[index];
+				for (int axis = 0; axis < 3; axis++)
+				{
+					glm::vec3 offset(0.0f);
+					offset[axis] = ContactPointSize;
+					AddLine(lines, point.Point - offset, point.Point + offset, color, false);
+				}
+				glm::vec3 const normal = point.Normal * ContactNormalLength;
+				AddLine(lines, point.Point - normal, point.Point + normal, color, false);
+			}
+		}
+	}
+
 	void AppendSceneShapes(Scene& scene, std::span<UUID const> selection, SceneViewOverlays const& overlays, float aspectRatio,
 	                       glm::vec3 const& viewPosition, std::vector<OverlayLine>& lines, MeshColliderOutlineCache* meshOutlines)
 	{
@@ -543,14 +565,20 @@ namespace Strada::ViewportOverlays
 			{
 				AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines, selectedShapes, viewPosition, meshOutlines);
 			}
-			return;
 		}
-		std::unordered_set<UUID> const selected(selection.begin(), selection.end());
-		scene.ForEachEntityInHierarchyOrder(
-			[&](Entity entity)
-			{
-				AppendEntityShapes(scene, entity, aspectRatio, lines, selected.contains(entity.GetUUID()) ? selectedShapes : otherKinds,
-			                       viewPosition, meshOutlines);
-			});
+		else
+		{
+			std::unordered_set<UUID> const selected(selection.begin(), selection.end());
+			scene.ForEachEntityInHierarchyOrder(
+				[&](Entity entity)
+				{
+					AppendEntityShapes(scene, entity, aspectRatio, lines, selected.contains(entity.GetUUID()) ? selectedShapes : otherKinds,
+				                       viewPosition, meshOutlines);
+				});
+		}
+		if (overlays.Contacts)
+		{
+			AppendContactLines(scene.GetContactEvents(), lines);
+		}
 	}
 }

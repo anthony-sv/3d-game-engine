@@ -299,12 +299,17 @@ namespace Strada
 		{
 			return;
 		}
-		// A copy: scripts may destroy entities and so change what physics reports.
+		// A copy: scripts may destroy entities and so change what physics reports. Each entity's handlers read the event,
+		// seen from their entity, through Strada.Collision while they run.
 		std::vector<ContactEvent> const events = m_ContactEvents;
 		for (ContactEvent const& event : events)
 		{
-			ScriptEngine::InvokeContactEvent(event.First, event.Second, event.Type);
-			VisualScriptEngine::InvokeContactEvent(event.First, event.Second, event.Type);
+			{
+				ScriptEngine::ContactEventScope const first(event, false);
+				ScriptEngine::InvokeContactEvent(event.First, event.Second, event.Type);
+				VisualScriptEngine::InvokeContactEvent(event.First, event.Second, event.Type);
+			}
+			ScriptEngine::ContactEventScope const second(event, true);
 			ScriptEngine::InvokeContactEvent(event.Second, event.First, event.Type);
 			VisualScriptEngine::InvokeContactEvent(event.Second, event.First, event.Type);
 		}

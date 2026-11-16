@@ -98,8 +98,15 @@ namespace Strada
 		void Step(float deltaTime);
 		// Positions and rotations of the dynamic bodies that are awake.
 		std::vector<BodyTransform> GetActiveBodyTransforms() const;
-		// Events since the last call, in the order they happened.
+		// Events since the last call, in the order of their steps (ContactEvent::Step); a removed body's exits come between
+		// the steps they happened between. The events of one step are simultaneous, so they are sorted by First, then
+		// Second, then Type, which gives the same order on every run whatever order Jolt's worker threads found them in.
+		// An enter event carries the points of the manifolds with which its contact began in that step (contacts Jolt finds
+		// again when sleeping bodies wake make no event); the listener takes them on the worker threads into the event,
+		// whose points are a fixed array.
 		std::vector<ContactEvent> TakeContactEvents();
+		// The steps this world has run (0 before the first): the Step of the events of the last step.
+		uint64_t GetStepCount() const;
 		// Collision steps each Step is divided into (1 to MaxPhysicsCollisionSteps; PhysicsWorldSettings::CollisionSteps).
 		uint32_t GetCollisionSteps() const;
 
@@ -108,7 +115,7 @@ namespace Strada
 		// Saves what the simulation changes: everything Jolt's state recorder saves (the last step's length and gravity, the
 		// bodies' positions, rotations, velocities, forces and sleep state, the contacts and the joints' warm starts), each
 		// character's state with its own and walking velocity and ground displacement, and the contacts reported so far with
-		// the events not taken yet.
+		// the events not taken yet and the step count.
 		[[nodiscard]] PhysicsSnapshot SaveState() const;
 		// Goes back to a snapshot of this world, so that the steps that follow run as they did from there. Fails, changing
 		// nothing, for a snapshot of another world or once a body, joint or character was added, removed or replaced since

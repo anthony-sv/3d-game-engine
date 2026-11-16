@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 namespace Strada
 {
@@ -601,5 +602,28 @@ namespace Strada
 	void ScriptEngine::InvokeOnClick(UUID entity, UUID button)
 	{
 		Invoke(entity, ScriptEvent::Click, 0.0f, button);
+	}
+
+	HandledContactEvent const* ScriptEngine::GetHandledContactEvent()
+	{
+		return s_Data != nullptr ? s_Data->HandledContact : nullptr;
+	}
+
+	ScriptEngine::ContactEventScope::ContactEventScope(ContactEvent const& event, bool fromSecond)
+		: m_Handled{&event, fromSecond}
+	{
+		if (s_Data != nullptr)
+		{
+			m_Previous = std::exchange(s_Data->HandledContact, &m_Handled);
+			m_IsActive = true;
+		}
+	}
+
+	ScriptEngine::ContactEventScope::~ContactEventScope()
+	{
+		if (m_IsActive && s_Data != nullptr)
+		{
+			s_Data->HandledContact = m_Previous;
+		}
 	}
 }

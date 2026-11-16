@@ -4,6 +4,7 @@
 #include "Strada/Core/Input.h"
 #include "Strada/Physics/PhysicsScene.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 
@@ -24,6 +25,37 @@ namespace Strada::ScriptGlue
 		};
 
 		static_assert(sizeof(RaycastHit) == 48 && offsetof(RaycastHit, Distance) == 32 && offsetof(RaycastHit, Material) == 40);
+
+		// The layout of Strada.Interop.NativeCollision (no implicit padding).
+		struct CollisionValues
+		{
+			uint64_t Entity;
+			uint64_t Other;
+			uint64_t Step;
+			uint32_t PointCount;
+			uint32_t Reserved;
+		};
+
+		static_assert(sizeof(CollisionValues) == 32 && offsetof(CollisionValues, Step) == 16 &&
+		              offsetof(CollisionValues, PointCount) == 24);
+
+		// The layout of Strada.Interop.NativeContactPoint (no implicit padding).
+		struct ContactPointValues
+		{
+			Vector3 Point;
+			Vector3 Normal;
+			Vector3 RelativeVelocity;
+			float Impulse;
+			// The physics materials' handles (ContactPoint::Material, OtherMaterial); 0 for none.
+			uint64_t Material;
+			uint64_t OtherMaterial;
+		};
+
+		static_assert(sizeof(ContactPointValues) == 56 && offsetof(ContactPointValues, Impulse) == 36 &&
+		              offsetof(ContactPointValues, Material) == 40 && offsetof(ContactPointValues, OtherMaterial) == 48);
+		// The managed side sizes the buffer Collision_Read fills with its own constant (NativeContactPoint.MaxCount, which
+		// InteropTests pins): both change together.
+		static_assert(MaxContactPoints == 4, "Strada.Interop.NativeContactPoint.MaxCount must equal MaxContactPoints");
 
 		// --- Time ---
 
@@ -226,6 +258,36 @@ namespace Strada::ScriptGlue
 			        result->Material.GetUUID().GetValue()};
 			return 1;
 		}
+
+		// --- Collision ---
+
+		// The contact event whose handlers run (ScriptEngine::GetHandledContactEvent), seen from the handling entity; 0 and
+		// zeros outside one. points, when given, has room for MaxContactPoints.
+		uint8_t Collision_Read(CollisionValues* collision, ContactPointValues* points)
+		{
+			*collision = {};
+			HandledContactEvent const* const handled = ScriptEngine::GetHandledContactEvent();
+			if (handled == nullptr)
+			{
+				return 0;
+			}
+			uint32_t const count = std::min(handled->Event->PointCount, MaxContactPoints);
+			*collision = {handled->GetEntity().GetValue(), handled->GetOther().GetValue(), handled->Event->Step, count, 0u};
+			if (points != nullptr)
+			{
+				for (uint32_t index = 0; index < count; index++)
+				{
+					ContactPoint const point = handled->GetPoint(index);
+					points[index] = {ToScript(point.Point),
+					                 ToScript(point.Normal),
+					                 ToScript(point.RelativeVelocity),
+					                 point.Impulse,
+					                 point.Material.GetUUID().GetValue(),
+					                 point.OtherMaterial.GetUUID().GetValue()};
+				}
+			}
+			return 1;
+		}
 	}
 
 	void RegisterRuntimeBindings(BindingTable& table)
@@ -256,5 +318,7 @@ namespace Strada::ScriptGlue
 		table.Add("Physics_GetGravity", &Physics_GetGravity);
 		table.Add("Physics_SetGravity", &Physics_SetGravity);
 		table.Add("Physics_Raycast", &Physics_Raycast);
+
+		table.Add("Collision_Read", &Collision_Read);
 	}
 }

@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/EstimateCollisionResponse.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 #include <Jolt/Physics/Collision/PhysicsMaterial.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -347,6 +348,34 @@ namespace Strada
 			std::unordered_map<UUID, std::vector<UUID>> m_Entries;
 		};
 
+		// Puts a point in its place among the event's points (IsContactPointBefore), keeping the MaxContactPoints first.
+		void InsertContactPoint(ContactEvent& event, ContactPoint const& point)
+		{
+			uint32_t index = 0;
+			while (index < event.PointCount && !IsContactPointBefore(point, event.Points[index]))
+			{
+				index++;
+			}
+			if (index == MaxContactPoints)
+			{
+				return;
+			}
+			uint32_t const last = std::min(event.PointCount, MaxContactPoints - 1);
+			for (uint32_t slot = last; slot > index; slot--)
+			{
+				event.Points[slot] = event.Points[slot - 1];
+			}
+			event.Points[index] = point;
+			event.PointCount = std::min(event.PointCount + 1, MaxContactPoints);
+		}
+
+		// The physics materials of the two sub-shapes of a contact, in Jolt's body order.
+		struct ContactMaterials
+		{
+			AssetHandle First;
+			AssetHandle Second;
+		};
+
 		// Turns Jolt's per sub-shape contacts into enter/exit events per entity pair, combines the friction and restitution
 		// of the two sub-shapes' surfaces, makes contacts with trigger colliders sensor contacts and keeps characters from
 		// touching their own parts. Jolt calls it from its worker threads.
@@ -354,6 +383,16 @@ namespace Strada
 		// Jolt removes the contacts of bodies that fall asleep (and finds them again when they wake up). Those contacts
 		// persist here: a removed contact whose bodies are all inactive after the step goes dormant instead of ending,
 		// resumes without a new enter event when Jolt finds it again, and ends once its bodies are active without it.
+		//
+		// An enter event takes the points of the manifold that begins its contact, and of every further manifold of the same
+		// pair that Jolt adds in that step (a body landing on two colliders, or on two faces at an angle), seen from the
+		// first body, with the impulse Jolt estimates for them (ContactPoint). Jolt reports no applied impulses: when it
+		// adds a contact its solver has not run, and the impulses it solves stay inside its contact constraint manager,
+		// which PhysicsSystem does not expose; EstimateCollisionResponse, which Jolt provides for this callback, solves the
+		// two bodies' collision alone from their velocities then, one manifold at a time (each as if it alone stopped the
+		// pair: ContactPoint::Impulse says what that means for a contact that begins on several). The points go into the
+		// event's fixed array, so taking them allocates nothing (the bookkeeping of pairs and the event list allocate as they
+		// grow, as they did before points existed; the list keeps its capacity from step to step).
 		class ContactCollector final : public JPH::ContactListener
 		{
 		public:
@@ -361,6 +400,27 @@ namespace Strada
 				: m_Materials(materials),
 				  m_Exclusions(exclusions)
 			{
+			}
+
+			// How the world's solver treats restitution and how many velocity iterations it runs, which the impulse estimate
+			// follows. Set once the system is initialized; the world never changes its settings.
+			void SetSolverSettings(JPH::PhysicsSettings const& settings)
+			{
+				m_MinVelocityForRestitution = settings.mMinVelocityForRestitution;
+				m_VelocitySteps = settings.mNumVelocitySteps;
+			}
+
+			// Before each step, on the main thread: the events the step makes carry its number.
+			void BeginStep()
+			{
+				std::scoped_lock const lock(m_Mutex);
+				m_Step++;
+			}
+
+			uint64_t GetStepCount() const
+			{
+				std::scoped_lock const lock(m_Mutex);
+				return m_Step;
 			}
 
 			JPH::ValidateResult OnContactValidate(JPH::Body const& first, JPH::Body const& second, JPH::RVec3Arg,
@@ -375,7 +435,7 @@ namespace Strada
 			void OnContactAdded(JPH::Body const& first, JPH::Body const& second, JPH::ContactManifold const& manifold,
 			                    JPH::ContactSettings& settings) override
 			{
-				ApplyMaterials(first, second, manifold, settings);
+				ContactMaterials const materials = ApplyMaterials(first, second, manifold, settings);
 				JPH::SubShapeIDPair const pair(first.GetID(), manifold.mSubShapeID1, second.GetID(), manifold.mSubShapeID2);
 				std::scoped_lock const lock(m_Mutex);
 				m_ActivePairs[pair] = settings.mIsSensor;
@@ -391,15 +451,24 @@ namespace Strada
 					state.FirstBody = first.GetID();
 					state.SecondBody = second.GetID();
 					state.Trigger = settings.mIsSensor;
-					m_Events.push_back({settings.mIsSensor ? ContactEventType::TriggerEnter : ContactEventType::CollisionEnter, state.First,
-					                    state.Second});
+					state.EnterStep = m_Step;
+					state.EnterEvent = m_Events.size();
+					ContactEvent& event = m_Events.emplace_back(MakeEvent(
+						settings.mIsSensor ? ContactEventType::TriggerEnter : ContactEventType::CollisionEnter, state.First, state.Second));
+					AddPoints(event, first, second, manifold, settings, materials);
+				}
+				else if (state.EnterStep == m_Step && state.EnterEvent < m_Events.size())
+				{
+					// Another manifold with which the contact begins in this step (the step's events are not sorted yet, so the
+					// index still names its event).
+					AddPoints(m_Events[static_cast<size_t>(state.EnterEvent)], first, second, manifold, settings, materials);
 				}
 			}
 
 			void OnContactPersisted(JPH::Body const& first, JPH::Body const& second, JPH::ContactManifold const& manifold,
 			                        JPH::ContactSettings& settings) override
 			{
-				ApplyMaterials(first, second, manifold, settings);
+				static_cast<void>(ApplyMaterials(first, second, manifold, settings));
 			}
 
 			// The bodies cannot be read here (to tell sleep from separation): FinishStep decides.
@@ -475,8 +544,8 @@ namespace Strada
 					PairState const& state = it->second;
 					if (state.FirstBody == body || state.SecondBody == body)
 					{
-						m_Events.push_back(
-							{state.Trigger ? ContactEventType::TriggerExit : ContactEventType::CollisionExit, state.First, state.Second});
+						m_Events.push_back(MakeEvent(state.Trigger ? ContactEventType::TriggerExit : ContactEventType::CollisionExit,
+						                             state.First, state.Second));
 						it = m_PairStates.erase(it);
 					}
 					else
@@ -489,11 +558,14 @@ namespace Strada
 				m_StepEventsBegin = m_Events.size();
 			}
 
+			// A copy, so that the list keeps its capacity and the workers seldom grow it.
 			std::vector<ContactEvent> TakeEvents()
 			{
 				std::scoped_lock const lock(m_Mutex);
+				std::vector<ContactEvent> events(m_Events.begin(), m_Events.end());
+				m_Events.clear();
 				m_StepEventsBegin = 0;
-				return std::exchange(m_Events, {});
+				return events;
 			}
 
 			// The contacts it reported, those of sleeping bodies, and the events not taken yet. Between steps.
@@ -520,9 +592,19 @@ namespace Strada
 				stream.Write(static_cast<uint64_t>(m_Events.size()));
 				for (ContactEvent const& event : m_Events)
 				{
-					stream.Write(event);
+					// Field by field, with only the points it holds.
+					stream.Write(event.Type);
+					stream.Write(event.First);
+					stream.Write(event.Second);
+					stream.Write(event.Step);
+					stream.Write(event.PointCount);
+					for (uint32_t point = 0; point < event.PointCount; point++)
+					{
+						stream.Write(event.Points[point]);
+					}
 				}
 				stream.Write(static_cast<uint64_t>(m_StepEventsBegin));
+				stream.Write(m_Step);
 			}
 
 			// What SaveState wrote; false (changing nothing) when the stream does not hold it.
@@ -533,6 +615,7 @@ namespace Strada
 				std::unordered_map<BodyPairKey, PairState, BodyPairKeyHash> states;
 				std::vector<ContactEvent> events;
 				uint64_t eventsBegin = 0;
+				uint64_t step = 0;
 				auto const readCount = [&stream]
 				{
 					uint64_t count = 0;
@@ -560,14 +643,25 @@ namespace Strada
 					stream.Read(state);
 					states.emplace(key, state);
 				}
-				for (uint64_t i = 0, count = readCount(); i < count && !stream.IsFailed(); i++)
+				bool pointsFit = true;
+				for (uint64_t i = 0, count = readCount(); i < count && !stream.IsFailed() && pointsFit; i++)
 				{
 					ContactEvent event;
-					stream.Read(event);
+					stream.Read(event.Type);
+					stream.Read(event.First);
+					stream.Read(event.Second);
+					stream.Read(event.Step);
+					stream.Read(event.PointCount);
+					pointsFit = event.PointCount <= MaxContactPoints;
+					for (uint32_t point = 0; pointsFit && point < event.PointCount && !stream.IsFailed(); point++)
+					{
+						stream.Read(event.Points[point]);
+					}
 					events.push_back(event);
 				}
 				stream.Read(eventsBegin);
-				if (stream.IsFailed() || eventsBegin > events.size())
+				stream.Read(step);
+				if (stream.IsFailed() || !pointsFit || eventsBegin > events.size())
 				{
 					return false;
 				}
@@ -578,6 +672,7 @@ namespace Strada
 				m_PairStates = std::move(states);
 				m_Events = std::move(events);
 				m_StepEventsBegin = static_cast<size_t>(eventsBegin);
+				m_Step = step;
 				return true;
 			}
 
@@ -590,7 +685,53 @@ namespace Strada
 				JPH::BodyID FirstBody;
 				JPH::BodyID SecondBody;
 				bool Trigger = false;
+				// The step whose enter event began the contact and that event's index among m_Events, which stays valid
+				// until the step ends (FinishStep sorts its events).
+				uint64_t EnterStep = 0;
+				uint64_t EnterEvent = 0;
 			};
+
+			// An event of the current step (the step before it, between steps). Under the lock.
+			ContactEvent MakeEvent(ContactEventType type, UUID first, UUID second) const
+			{
+				ContactEvent event;
+				event.Type = type;
+				event.First = first;
+				event.Second = second;
+				event.Step = m_Step;
+				return event;
+			}
+
+			// Adds a manifold's points to the event, seen from the first body. On a worker thread, under the lock; allocates
+			// nothing.
+			void AddPoints(ContactEvent& event, JPH::Body const& first, JPH::Body const& second, JPH::ContactManifold const& manifold,
+			               JPH::ContactSettings const& settings, ContactMaterials const& materials) const
+			{
+				// Jolt gives a pair without a dynamic body no response (the constraint's effective mass is 0), nor a sensor.
+				bool const responds = !settings.mIsSensor && (first.IsDynamic() || second.IsDynamic());
+				JPH::CollisionEstimationResult estimate;
+				if (responds)
+				{
+					JPH::EstimateCollisionResponse(first, second, manifold, estimate, settings.mCombinedFriction,
+					                               settings.mCombinedRestitution, m_MinVelocityForRestitution, m_VelocitySteps);
+				}
+				// Jolt's normal points from the first body to the second (the way to move the second out).
+				glm::vec3 const normal = -Jolt::ToGlm(manifold.mWorldSpaceNormal);
+				JPH::uint const count = manifold.mRelativeContactPointsOn1.size();
+				for (JPH::uint index = 0; index < count; index++)
+				{
+					JPH::RVec3 const point = manifold.mBaseOffset +
+					                         0.5f * (manifold.mRelativeContactPointsOn1[index] + manifold.mRelativeContactPointsOn2[index]);
+					ContactPoint contact;
+					contact.Point = Jolt::ToGlm(point);
+					contact.Normal = normal;
+					contact.Impulse = responds ? estimate.mContactImpulse[index] : 0.0f;
+					contact.RelativeVelocity = Jolt::ToGlm(first.GetPointVelocity(point) - second.GetPointVelocity(point));
+					contact.Material = materials.First;
+					contact.OtherMaterial = materials.Second;
+					InsertContactPoint(event, contact);
+				}
+			}
 
 			void SortEvents(size_t begin)
 			{
@@ -614,8 +755,8 @@ namespace Strada
 				auto const state = m_PairStates.find(BodyPairKey(pair.GetBody1ID(), pair.GetBody2ID(), trigger));
 				if (state != m_PairStates.end() && --state->second.Count == 0)
 				{
-					m_Events.push_back({trigger ? ContactEventType::TriggerExit : ContactEventType::CollisionExit, state->second.First,
-					                    state->second.Second});
+					m_Events.push_back(MakeEvent(trigger ? ContactEventType::TriggerExit : ContactEventType::CollisionExit,
+					                             state->second.First, state->second.Second));
 					m_PairStates.erase(state);
 				}
 			}
@@ -625,8 +766,9 @@ namespace Strada
 			// default modes, so a pair of those combines as Jolt's own default would. Jolt merges contacts of neighbouring
 			// sub-shapes with similar normals into one manifold (manifold reduction, Body::SetUseManifoldReduction), which
 			// carries one sub-shape of each side: a body touching two surfaces at once in such a manifold takes the values of one.
-			void ApplyMaterials(JPH::Body const& first, JPH::Body const& second, JPH::ContactManifold const& manifold,
-			                    JPH::ContactSettings& settings) const
+			// Returns the two surfaces' materials.
+			ContactMaterials ApplyMaterials(JPH::Body const& first, JPH::Body const& second, JPH::ContactManifold const& manifold,
+			                                JPH::ContactSettings& settings) const
 			{
 				SubShapeMaterial const a = FindSubShapeMaterial(m_Materials, *first.GetShape(), manifold.mSubShapeID1);
 				SubShapeMaterial const b = FindSubShapeMaterial(m_Materials, *second.GetShape(), manifold.mSubShapeID2);
@@ -649,6 +791,7 @@ namespace Strada
 				                                                          secondSurface.FrictionCombine, secondSurface.Friction);
 				settings.mCombinedRestitution = CombinePhysicsMaterialValues(firstSurface.RestitutionCombine, firstSurface.Restitution,
 				                                                             secondSurface.RestitutionCombine, secondSurface.Restitution);
+				return {firstSurface.Material, secondSurface.Material};
 			}
 
 			// Read during steps (no changes while Jolt runs).
@@ -666,6 +809,11 @@ namespace Strada
 			std::vector<ContactEvent> m_Events;
 			// Where the events of the current step start (earlier ones are sorted).
 			size_t m_StepEventsBegin = 0;
+			// The steps begun: the current step's number during a step, the last one's between steps.
+			uint64_t m_Step = 0;
+			// PhysicsSettings::mMinVelocityForRestitution and mNumVelocitySteps of the world (Jolt's defaults until set).
+			float m_MinVelocityForRestitution = 1.0f;
+			JPH::uint m_VelocitySteps = 10;
 		};
 
 		struct BodyRecord
@@ -1176,6 +1324,7 @@ namespace Strada
 		Scope<Data> data = CreateScope<Data>(settings);
 		data->System.Init(MaxBodies, 0, MaxBodyPairs, MaxContactConstraints, data->BroadPhase, data->ObjectVsBroadPhase, data->LayerPairs);
 		data->System.SetContactListener(&data->Contacts);
+		data->Contacts.SetSolverSettings(data->System.GetPhysicsSettings());
 		data->System.SetGravity(
 			Jolt::ToJolt(IsFinite(settings.Gravity) ? ClampLength(settings.Gravity, MaxPhysicsGravity) : glm::vec3(0.0f)));
 		return CreateScope<PhysicsScene>(PrivateTag{}, std::move(data));
@@ -1800,6 +1949,7 @@ namespace Strada
 			return;
 		}
 		ST_PROFILE_SCOPE("Physics.Step");
+		data.Contacts.BeginStep();
 		if (data.OptimizeBroadPhase)
 		{
 			data.System.OptimizeBroadPhase();
@@ -1852,6 +2002,11 @@ namespace Strada
 	std::vector<ContactEvent> PhysicsScene::TakeContactEvents()
 	{
 		return m_Data->Contacts.TakeEvents();
+	}
+
+	uint64_t PhysicsScene::GetStepCount() const
+	{
+		return m_Data->Contacts.GetStepCount();
 	}
 
 	uint32_t PhysicsScene::GetCollisionSteps() const

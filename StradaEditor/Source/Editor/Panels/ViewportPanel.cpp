@@ -816,6 +816,8 @@ namespace Strada
 			ImGui::SetItemTooltip("Lines scripts draw with Debug.DrawLine and its relatives");
 			ImGui::Checkbox("UI canvases", &m_Overlays.Canvases);
 			ImGui::SetItemTooltip("Each canvas's UI in its entity's plane, faint until the canvas or one of its elements is selected");
+			ImGui::Checkbox("Contacts (while playing)", &m_Overlays.Contacts);
+			ImGui::SetItemTooltip("Points and normals of the contacts that began in the last frame (triggers in blue)");
 			ImGui::EndPopup();
 		}
 		ImGui::Dummy(ImVec2(0.0f, 2.0f));

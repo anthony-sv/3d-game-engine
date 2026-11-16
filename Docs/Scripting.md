@@ -51,7 +51,7 @@ Override the methods you need:
 | `OnCreate()` | Once, when the scene starts or the entity is created while it runs, after every script of the scene exists |
 | `OnUpdate(float deltaTime)` | Every frame, with the seconds since the previous frame |
 | `OnFixedUpdate(float fixedDeltaTime)` | Before every physics step, at the scene's fixed rate |
-| `OnCollisionEnter(Entity other)`, `OnCollisionExit(Entity other)` | When a collider of the entity starts or stops touching one of `other` |
+| `OnCollisionEnter(Entity other)`, `OnCollisionExit(Entity other)` | When a collider of the entity starts or stops touching one of `other` (`Collision` tells where and how hard: [Contacts](#contacts)) |
 | `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)` | When a trigger collider of either entity starts or stops overlapping the other |
 | `OnClick(Entity button)` | When a UI button that is the entity or one of its descendants was clicked, before the frame's `OnUpdate` |
 | `OnDestroy()` | When the entity is destroyed or the scene stops |
@@ -270,6 +270,44 @@ public class Windmill : Script
 		hub.Axis = Vector3.Forward;
 		hub.MotorEnabled = true;
 		hub.MotorSpeed = 45.0f;
+	}
+}
+```
+
+### Contacts
+
+A contact callback is given the other entity; `Collision` tells the rest of the contact being handled while the callback
+runs. `Collision.Entity` is the script's entity, `Collision.Other` the other one, `Collision.Step` the physics step the
+contact began or ended in, and `Collision.Points` where the colliders touch as it begins: up to four `ContactPoint`s, the
+strongest first, each with its `Point`, its `Normal` (unit length, from the other collider towards this one: the way this
+entity is pushed), its `Impulse` (newton seconds, the impulse that stops the two bodies' approach: how hard the impact is;
+0 for a trigger and for a contact without a dynamic body; the points of each surface a contact begins on are estimated as
+if that surface alone stopped the bodies, so a ball landing on two faces at once reads too much on each when the faces
+are at a shallow angle and too little when they are steep), the `RelativeVelocity` of the two bodies there, and the
+physics materials of this side's surface and the other's (`Material`, `OtherMaterial`, null for a collider without one).
+Trigger overlaps have points too, with no impulse. A contact that ends has no points, and outside a callback `Collision`
+is empty (no entities, step 0, no points). Each read of `Points` makes a new array.
+
+Physics reports contacts once per frame, after the frame's physics steps, so the callbacks run where `OnUpdate` runs,
+and `Step` says which of the frame's steps a contact happened in. Logic that must act within the step a contact
+happens in queries the world from `OnFixedUpdate` instead.
+
+```csharp
+public class Impacts : Script
+{
+	protected override void OnCollisionEnter(Entity other)
+	{
+		ContactPoint[] points = Collision.Points;
+		if (points.Length == 0)
+		{
+			return;
+		}
+		// A hard landing on gravel throws up the gravel's dust where it hit.
+		ContactPoint hit = points[0];
+		if (hit.Impulse > 5.0f && hit.OtherMaterial?.Surface == "Gravel" && hit.OtherMaterial.ImpactParticles is { } dust)
+		{
+			Entity.Instantiate(dust, hit.Point, Quaternion.Identity);
+		}
 	}
 }
 ```

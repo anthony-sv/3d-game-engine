@@ -188,6 +188,8 @@ namespace Strada::ScriptEngineInternal
 		ScriptHost* Application = nullptr;
 		// The entities with a C# script instance.
 		std::unordered_set<UUID> Instances;
+		// The contact event being handled (ScriptEngine::ContactEventScope), or null.
+		HandledContactEvent const* HandledContact = nullptr;
 
 		// Visual scripts: the programs by graph handle, the entities with a graph instance, and the node library (read when
 		// first needed and dropped when the game assembly changes; IsLibraryUnavailable remembers a failure until then).

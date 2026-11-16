@@ -64,6 +64,7 @@ add_executable(StradaTests
     Source/Math/MathTests.cpp
     Source/Physics/MeshColliderOutlineTests.cpp
     Source/Physics/PhysicsCharacterTests.cpp
+    Source/Physics/PhysicsContactTests.cpp
     Source/Physics/PhysicsJointTests.cpp
     Source/Physics/PhysicsMaterialTests.cpp
     Source/Physics/PhysicsSceneTests.cpp

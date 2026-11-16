@@ -105,7 +105,7 @@ in the inspector.
 | Event node | Runs |
 |------------|------|
 | `Event.Create`, `Event.Update` (`DeltaTime`), `Event.FixedUpdate` (`FixedDeltaTime`), `Event.Destroy` | When a script's `OnCreate`, `OnUpdate`, `OnFixedUpdate` and `OnDestroy` would |
-| `Event.CollisionEnter`, `Event.CollisionExit`, `Event.TriggerEnter`, `Event.TriggerExit` (`Other`) | When the contacts of the C# methods of those names happen |
+| `Event.CollisionEnter` (`Other`, `Point`, `Normal`, `Impulse`, `Surface`), `Event.CollisionExit`, `Event.TriggerEnter`, `Event.TriggerExit` (`Other`) | When the contacts of the C# methods of those names happen ([Contacts](#contacts)) |
 | `Event.Click` (`Button`) | When a UI button that is the entity or one of its descendants was clicked |
 | `Event.KeyPressed`, `Event.KeyReleased` (setting `Key`), `Event.MouseButtonPressed`, `Event.MouseButtonReleased`, `Event.GamepadButtonPressed`, `Event.GamepadButtonReleased` (setting `Button`) | When the key or button went down or up this frame, before `Event.Update` |
 | `Event.Custom` (settings `Name` and `Parameters`, which become outputs) | When a graph's `Event.Send` or a C# script's `SendEvent` raises it |
@@ -300,6 +300,26 @@ nothing and an edit while the game plays reaches the graph on its next frame.
 
 **Try it:** cast a ray down from the player in `FixedUpdate`, and when its `Hit`'s `Material` is valid and its `Surface`
 is "Ice", lower the player's speed.
+
+### Contacts
+
+`Event.CollisionEnter` gives, after `Other`, where and how hard the collision began: `Point` and `Normal` (unit length,
+from Other towards the entity: the way the entity is pushed) of the strongest point where they touch, its `Impulse`
+(newton seconds: how hard the impact is), and `Surface`, the `Surface` of the physics material of Other's side there (empty
+when it has none), which an `Operator.Equal` compares with "Gravel" or "Ice". Graphs saved before these outputs existed
+load as they were. The rest of the contact is `Strada.Collision`'s, pure getters that read the contact being handled
+while a contact event's flow runs, until its first wait (after a `Flow.Delay` they read as outside a handler: no
+entities, step 0, no points; the event's outputs keep their values), and in a flow a breakpoint stopped, which continues
+with the contact it read, so stopping changes nothing it computes: `Entity`, `Other`, `Step`
+(the physics step it began or ended in: contacts reach graphs once per frame, after the frame's steps) and `Points`, an
+array of up to four `Strada.ContactPoint`s, the strongest first. Break splits a contact point into `Point`, `Normal`,
+`Impulse`, `RelativeVelocity` (the entity's velocity there minus Other's), `Material` and `OtherMaterial`, and Make builds
+one. Trigger contacts have points with no impulse; a contact that ends has none. Each surface a contact begins on is
+estimated as if it alone stopped the bodies, so a ball that lands in a groove, touching both faces at once, reads more
+on each face than the faces share when they are at a shallow angle, and less when they are steep.
+
+**Try it:** give a slab a collider whose physics material has the Surface "Gravel", drop a ball with a graph on it, and
+log the ball's `Event.CollisionEnter` `Surface` and `Impulse`: drop it from higher, and the impulse grows.
 
 ## Graphs that talk to graphs
 

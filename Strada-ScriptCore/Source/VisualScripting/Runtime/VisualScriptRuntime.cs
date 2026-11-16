@@ -286,11 +286,31 @@ internal sealed partial class VisualScriptRuntime
 				m_Instances.Remove(instance.Entity);
 				Kill(instance);
 				return Start(instance, program.Events[(int)ScriptEvent.Destroy], default);
+			case ScriptEvent.CollisionEnter:
+				return StartCollisionEnter(instance, program.Events[(int)ScriptEvent.CollisionEnter], other);
 			default:
 				// Contacts and clicks look the other entity up only for a graph that has a node for the event.
 				int eventNode = program.Events[(int)scriptEvent];
 				return eventNode >= 0 && Start(instance, eventNode, Slot.FromObject(m_Environment.GetEntity(other)));
 		}
+	}
+
+	// Event.CollisionEnter's outputs in pin order: Other, then the strongest point of the contact being handled (Point,
+	// Normal, Impulse) and the surface name of Other's material there, read only for a graph that has the node.
+	private bool StartCollisionEnter(GraphInstance instance, int eventNode, ulong other)
+	{
+		if (eventNode < 0)
+		{
+			return false;
+		}
+		Entity? entity = m_Environment.GetEntity(other);
+		m_Environment.TryGetContactPoint(out ContactPoint point, out string surface);
+		ReadOnlySpan<Slot> values =
+		[
+			Slot.FromObject(entity), Slot.FromVector3(point.Point), Slot.FromVector3(point.Normal), Slot.FromFloat(point.Impulse),
+			Slot.FromString(surface),
+		];
+		return StartWith(instance, eventNode, values);
 	}
 
 	// The Update dispatch (spec section 5.2): the frame time, the input events in Nodes order, Event.Update, then one pass
@@ -334,17 +354,17 @@ internal sealed partial class VisualScriptRuntime
 
 	// Starts an execution at an event node of the instance (none runs without one), its first output set to value. True when
 	// it ended in an aborting error. An execution is outermost, with a budget of its own, unless another one is running.
-	private bool Start(GraphInstance instance, int eventNode, Slot value)
+	private bool Start(GraphInstance instance, int eventNode, Slot value) => StartWith(instance, eventNode, [value]);
+
+	// Starts an execution at an event node of the instance as Start does, its first outputs set to values in pin order.
+	private bool StartWith(GraphInstance instance, int eventNode, ReadOnlySpan<Slot> values)
 	{
 		if (eventNode < 0)
 		{
 			return false;
 		}
 		CompiledNode node = instance.Program.EventGraph.Nodes[eventNode];
-		if (node.OutputCount > 0)
-		{
-			instance.Frame.Slots[node.OutputBase] = value;
-		}
+		values[..Math.Min(values.Length, node.OutputCount)].CopyTo(instance.Frame.Slots.AsSpan(node.OutputBase));
 		Execution execution = Acquire(instance, eventNode, 0, new ExecutionStart(StartKind.Event, node, -1, 0, 0));
 		return Finish(execution, Execute(execution, !IsExecuting));
 	}

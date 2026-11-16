@@ -88,6 +88,23 @@ namespace Strada
 		virtual void OnScriptException() = 0;
 	};
 
+	// A contact event as one of its two entities' handlers see it (Strada.Collision): the event, and whether the handling
+	// entity is its Second, whose view of the points ReverseContactPoint gives.
+	struct HandledContactEvent
+	{
+		ContactEvent const* Event = nullptr;
+		bool FromSecond = false;
+
+		// The handling entity, and the other one.
+		UUID GetEntity() const { return FromSecond ? Event->Second : Event->First; }
+		UUID GetOther() const { return FromSecond ? Event->First : Event->Second; }
+		// The event's point at the index (below Event->PointCount), seen from the handling entity.
+		ContactPoint GetPoint(uint32_t index) const
+		{
+			return FromSecond ? ReverseContactPoint(Event->Points[index]) : Event->Points[index];
+		}
+	};
+
 	struct ScriptEngineSettings
 	{
 		// The directory of Strada.ScriptCore.dll and its runtimeconfig.json; empty for the executable's directory.
@@ -150,7 +167,28 @@ namespace Strada
 		// Then destroys the instance.
 		static void InvokeOnDestroy(UUID entity);
 		static void InvokeContactEvent(UUID entity, UUID other, ContactEventType type);
+		// The contact event whose handlers run now, C# scripts' and graphs' alike (Strada.Collision), while a
+		// ContactEventScope lives; null outside one.
+		static HandledContactEvent const* GetHandledContactEvent();
 		// OnClick(button) of the entity's instance: the entity is the clicked UI button or one of its ancestors.
 		static void InvokeOnClick(UUID entity, UUID button);
+
+		// Makes a contact event, seen from one of its entities, the one being handled (GetHandledContactEvent) for its
+		// lifetime: the scene keeps one around the InvokeContactEvent calls of that entity's C# script and graph. Scopes
+		// nest, each restoring the one before; the event must outlive the scope. Without an initialized engine it does
+		// nothing.
+		class ContactEventScope
+		{
+		public:
+			ContactEventScope(ContactEvent const& event, bool fromSecond);
+			~ContactEventScope();
+			ContactEventScope(ContactEventScope const&) = delete;
+			ContactEventScope& operator=(ContactEventScope const&) = delete;
+
+		private:
+			HandledContactEvent m_Handled;
+			HandledContactEvent const* m_Previous = nullptr;
+			bool m_IsActive = false;
+		};
 	};
 }

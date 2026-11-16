@@ -6,6 +6,7 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/PlayMode.h"
+#include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MaterialAsset.h"
@@ -16,12 +17,15 @@
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
+#include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 #include "Strada/Script/VisualScriptEngine.h"
 
 #include <doctest/doctest.h>
+#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <array>
@@ -691,6 +695,52 @@ TEST_CASE("PlayMode: simulating runs physics only, and pausing holds the scene")
 
 	fixture.Play.Stop();
 	CHECK(height() == 5.0f);
+}
+
+TEST_CASE("PlayMode: the contacts overlay draws the playing copy's contacts of the last frame, and keeps them while paused")
+{
+	Testing::PhysicsSystemScope physics;
+	PlayFixture fixture;
+	fixture.Create("Ground", Json::object({{"Transform", Json::object({{"Translation", {0.0, -0.5, 0.0}}})},
+	                                       {"BoxCollider", Json::object({{"HalfExtents", {10.0, 0.5, 10.0}}})}}));
+	fixture.Create("Ball", Json::object({{"Transform", Json::object({{"Translation", {0.0, 2.0, 0.0}}})},
+	                                     {"RigidBody", Json::object({{"Type", "Dynamic"}})},
+	                                     {"SphereCollider", Json::object()}}));
+	SceneViewOverlays overlays;
+	overlays.Contacts = true;
+	auto const contactLines = [&fixture, &overlays]
+	{
+		std::vector<OverlayLine> lines;
+		ViewportOverlays::AppendSceneShapes(fixture.Context.GetScene(), {}, overlays, 1.0f, glm::vec3(0.0f, 0.0f, 10.0f), lines);
+		return lines.size();
+	};
+	CHECK(contactLines() == 0);
+
+	REQUIRE(fixture.Play.Start(EditorPlayState::Simulate, 640, 480).IsOk());
+	bool landed = false;
+	for (int frame = 0; frame < 120 && !landed; frame++)
+	{
+		fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+		landed = !fixture.Context.GetScene().GetContactEvents().empty();
+	}
+	REQUIRE(landed);
+	size_t const drawn = contactLines();
+	CHECK(drawn == 4 * fixture.Context.GetScene().GetContactEvents().front().PointCount);
+	CHECK(drawn > 0);
+
+	// Paused, the editor's frames hold the scene and its last frame's contacts with it.
+	fixture.Play.SetPaused(true);
+	fixture.Play.Update(Timestep(1.0f / 60.0f));
+	fixture.Play.Update(Timestep(1.0f / 60.0f));
+	CHECK(contactLines() == drawn);
+	// A frame that begins no contact draws none.
+	fixture.Play.SetPaused(false);
+	fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+	CHECK(contactLines() == 0);
+
+	// The edited scene does not run: it has no contacts.
+	fixture.Play.Stop();
+	CHECK(contactLines() == 0);
 }
 
 TEST_CASE("PlayMode: graph and material edits made while playing stay undoable after Stop, and a saved scene stays clean")
