@@ -1766,8 +1766,13 @@ of the pinned Jolt): an edge that one triangle alone holds is an active one, and
 itself. Where two surfaces of a road meet, that was a bump: a ball crossing coplanar strips at 4 m/s leapt and lost an
 eighth of its speed, a box sliding corner first at 8 m/s rose 0.32 m (`PhysicsScene:` case "bodies slide and roll across
 the edges ..."). Welding by exact position shares those edges, which Jolt then judges by the angle between their
-triangles as it judges any other. A mesh without repeated positions builds the same shape as before; one with them now
-has fewer active edges, and a body that touched one of those edges now slides or rolls over it.
+triangles as it judges any other. A vertex is welded only to one at its position whose triangles face the same way (the
+sums of their triangles' normals less than 90 degrees apart): the back of a double-sided face repeats the front's
+positions with triangles turned the other way, and welding the two would give every inner edge four triangles, which
+Jolt also takes for an active edge (`MeshShape.cpp:316-322`: three or more triangles on an edge), so each face keeps its
+own vertices and its edges shared by two (case "a double-faced triangle mesh keeps each face's edges to itself ..."). A
+mesh without repeated positions builds the same shape as before; one with them now has fewer active edges, and a body
+that touched one of those edges now slides or rolls over it.
 
 A contact combines, per pair of sub-shapes as before, the two sides' friction and restitution
 (`CombinePhysicsMaterialValues`): each side brings its value and its mode, and when the modes differ the one later in
@@ -3909,7 +3914,7 @@ that each platform's names are tested on every platform:
   shards by module folder of `Source/`, one entry each, defined once in `Tests/StradaTests/Shards.cmake`:
   `StradaTests.Asset`, `.Scripting` (`Script/` and `Scene/`), `.Rendering` (`RHI/`, `Renderer/` and `ImGui/`, the GPU
   tests) and `.Core` (every other folder). `StradaTests.Partition` checks them as the editor's partition entry checks
-  its own (`strada_add_test_shards` in `cmake/StradaTestShards.cmake` registers both suites' entries). Every test
+  its own (`strada_add_test_shards` in `cmake/StradaTestShards.cmake` registers the three suites' entries). Every test
   source passes alone in its own process, so no test depends on what another file's tests left behind.
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project. ctest runs it as shards, one
   entry each, defined once in `Tests/StradaEditorTests/Shards.cmake` as doctest source-file filters:
@@ -3947,7 +3952,11 @@ that each platform's names are tested on every platform:
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
   layouts, test runs and their exit codes, games whose only scripts are visual scripts, among them one whose graph calls
   a function library and broadcasts to two entities, development-only nodes the project runs and the exported game
-  skips, command-line errors, a windowed run's presented image).
+  skips, command-line errors, a windowed run's presented image, its screenshot and its `--resolution`). ctest runs it as
+  shards defined in `Tests/StradaRuntimeTests/Shards.cmake`: `StradaRuntimeTests.Samples` (`SampleTests.cpp`: the
+  sample projects, each played several times), `.Templates` (`TemplateTests.cpp`: a project made from each template)
+  and `.Core` (every other file), with `StradaRuntimeTests.Partition`; the helpers they share are in
+  `RuntimeTestUtilities.h`.
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
   stand-in editor, Poly Haven downloads against a stand-in server, and MCP sessions with the real editor started
   headless (`STRADA_EDITOR`; ctest sets it), among them an agent's whole workflow: a project, a script it writes and
@@ -4104,7 +4113,7 @@ that each platform's names are tested on every platform:
   origin is on the ground midway between the contact patches with its front along -Z: `Body`; `Fork`, at the foot of
   the steering axis and turned 24° about X, so that turning it about its own Y steers; `Front Wheel` under it and
   `Rear Wheel`, each on its axle; and `Rider`, at his hips. They share one livery texture and four materials (paint,
-  dark, metal, glass): 16 primitives, so 16 draws in each pass that sees all of it, for 10,600 triangles (a second bike of the same meshes and materials joins their batches). `Bike.py`'s `check()` measures the wheelbase, the
+  dark, metal, glass): 16 primitives, so 16 draws in each pass that sees all of it, for 10,560 triangles (a second bike of the same meshes and materials joins their batches). `Bike.py`'s `check()` measures the wheelbase, the
   rake and the trail from the meshes and entities made, and that both tyres touch the ground; `check_grid()` keeps the
   tour 2 m from it. MO3's ghost, the vehicle and the rider's lean build on these parts. **The captures**:
   `Author.py --captures <folder> --player <StradaRuntime>` builds nothing; it takes the player's own screenshots at 1920

@@ -13,7 +13,8 @@ trees across the infield and the land round the circuit.
 
 prints the figures and runs check(): no prop on the road, a kerb, a verge, a gravel trap or a skirt of any part of the
 circuit (only the stacks and cones stand at a wall's foot, in the last strip of the skirt), none on a structure's legs,
-piers or stairs, none where the camera tour flies, and none in another prop's way.
+piers or stairs, none where the camera tour flies, and none in another prop's way; and the catch fences have no hole: a
+panel covers every point of their lines from one structure to the next.
 """
 import bisect
 import math
@@ -215,9 +216,11 @@ def corners():
 
 
 def line_along(start, end, side, beyond, spacing):
-    """Points along a line a distance beyond the wall's face on the side, every spacing meters of the line itself (round a
-    corner's outside it is longer than the center line), from the lap distance start to end; each as (s, point). No point
-    lies near a structure: a line that meets one goes on after it."""
+    """Points along a line a distance beyond the wall's face on the side, from the lap distance start to end; each as (s,
+    point). The line is followed in steps of 0.25 m of lap distance, and a point is taken at the first step after the line
+    itself has run spacing meters since the last (round a corner's outside a step is longer than 0.25 m, so points there
+    lie a little farther apart). No point lies near a structure: a line that meets one goes on after it. The fences are
+    spaced exactly instead (fence_runs)."""
     points = []
     step = 0.25
     s = start
@@ -271,32 +274,110 @@ def place_markers(props):
                 props.append(Prop(f"Marker{figures}", outward(s, outside, BEHIND_WALL + 0.5), along_yaw(s)))
 
 
-def fence_sides(start, end):
-    """The sides a straight's or a corner's catch fence stands on: the lap's outside everywhere, its inside along the main
-    and back straights too."""
-    return ("left", "right") if Circuit.segment_at((start + end) / 2.0)[0] in FENCED_BOTH else ("left",)
+# The catch fences' lines (side, from, to in lap distance): the lap's outside (left) all the way round, and the inside
+# (right) of the main and back straights. A structure breaks a line (near_structure), and nothing else does.
+FENCE_LINES = (("left", 0.0, Circuit.LENGTH),) + tuple(("right", start, end) for start, end, name in straights()
+                                                        if name in ("Main straight", "Back straight"))
+# How finely a fence's line is followed (meters of lap distance), and the shortest stretch between two structures that
+# gets a fence.
+FENCE_STEP = 0.25
+FENCE_SHORTEST = 1.0
+# The shortest panel a bend or a corner cut halves a panel to (meters).
+FENCE_SHORTEST_PANEL = 0.3
 
 
-FENCED_BOTH = {index for index, segment in enumerate(Circuit.SEGMENTS) if segment.name in ("Main straight", "Back straight")}
+def fence_stretches():
+    """The fences' lines as stretches that no structure breaks, each its side and its points every FENCE_STEP meters of
+    lap distance: [(side, [(s, point)])]."""
+    stretches = []
+    for side, start, end in FENCE_LINES:
+        count = int(math.floor((end - start) / FENCE_STEP + 1e-9))
+        stretch = []
+        for index in range(count + 1):
+            s = start + index * FENCE_STEP
+            if near_structure(s):
+                if stretch:
+                    stretches.append((side, stretch))
+                stretch = []
+            else:
+                stretch.append((s, outward(s, side, FENCE)))
+        if stretch:
+            stretches.append((side, stretch))
+    return stretches
 
 
-def place_fences(props):
-    """The catch fences: a post every 3 m along a line behind the wall, a panel between each two, turned along their chord
-    and stretched to it."""
-    spans = [(start, end) for start, end, _ in straights()] + [(start, end) for start, end, *_ in corners()]
-    for start, end in spans:
-        for side in fence_sides(start, end):
-            posts = line_along(start, end - 0.25, side, FENCE, GenerateAssets.FENCE_WIDTH)
-            for (s0, p0), (s1, p1) in zip(posts, posts[1:]):
-                chord = math.dist(p0, p1)
-                if chord > GenerateAssets.FENCE_WIDTH * 1.1:
-                    continue
-                middle = ((p0[0] + p1[0]) / 2.0, 0.0, (p0[2] + p1[2]) / 2.0)
-                direction = ((p1[0] - p0[0]) / chord, 0.0, (p1[2] - p0[2]) / chord)
-                props.append(Prop("FencePanel", middle, facing((-direction[2], 0.0, direction[0])),
-                                  (chord / GenerateAssets.FENCE_WIDTH, 1.0, 1.0)))
-            for s, point in posts:
-                props.append(Prop("FencePost", point, along_yaw(s)))
+def fence_runs(checker=None):
+    """The fences' posts, one run per stretch: [[(s, point)]]. Each run has a post at both ends of its stretch and posts
+    evenly between, as many as keep them at most FENCE_WIDTH apart measured along the line, so that a panel joins every
+    two neighbours. Where the line bends so sharply that a panel would leave it by more than half of FENCE_COVER (where the
+    wall swings out round a gravel trap), or would cut a corner onto the circuit's side of a wall (the checker says), that
+    panel is halved until none does."""
+    checker = Checker() if checker is None else checker
+    runs = []
+    for _, stretch in fence_stretches():
+        lengths = [0.0]
+        for (_, a), (_, b) in zip(stretch, stretch[1:]):
+            lengths.append(lengths[-1] + math.dist(a, b))
+        total = lengths[-1]
+        if total < FENCE_SHORTEST:
+            continue
+        panels = int(math.ceil(total / GenerateAssets.FENCE_WIDTH - 1e-9))
+        marks = [total * index / panels for index in range(panels + 1)]
+        index = 0
+        while index < len(marks) - 1:
+            fits = covers(stretch, lengths, marks[index], marks[index + 1]) and                 not checker.problems(fence_panel(point_along(stretch, lengths, marks[index])[1],
+                                                 point_along(stretch, lengths, marks[index + 1])[1]))
+            if fits or marks[index + 1] - marks[index] < 2.0 * FENCE_SHORTEST_PANEL:
+                index += 1
+            else:
+                marks.insert(index + 1, (marks[index] + marks[index + 1]) / 2.0)
+        runs.append([point_along(stretch, lengths, along) for along in marks])
+    return runs
+
+
+def point_along(stretch, lengths, along):
+    """The point of a stretch (and its lap distance) that lies the distance along its line: (s, point)."""
+    segment = max(0, min(len(stretch) - 2, bisect.bisect_right(lengths, along) - 1))
+    (s0, p0), (s1, p1) = stretch[segment], stretch[segment + 1]
+    span = lengths[segment + 1] - lengths[segment]
+    t = 0.0 if span <= 0.0 else min(1.0, max(0.0, (along - lengths[segment]) / span))
+    return s0 + (s1 - s0) * t, tuple(p0[axis] + (p1[axis] - p0[axis]) * t for axis in range(3))
+
+
+def covers(stretch, lengths, start, end):
+    """Whether a straight panel between the points start and end along a stretch's line keeps within FENCE_COVER of every
+    point of the line between them."""
+    _, a = point_along(stretch, lengths, start)
+    _, b = point_along(stretch, lengths, end)
+    for along, (_, point) in zip(lengths, stretch):
+        if start < along < end and distance_to_segment((point[0], point[2]), (a[0], a[2]), (b[0], b[2])) > FENCE_COVER / 2.0:
+            return False
+    return True
+
+
+def fence_panel(p0, p1):
+    """The panel between two posts: turned along their chord and stretched or shrunk to it."""
+    chord = math.dist(p0, p1)
+    middle = ((p0[0] + p1[0]) / 2.0, 0.0, (p0[2] + p1[2]) / 2.0)
+    direction = ((p1[0] - p0[0]) / chord, 0.0, (p1[2] - p0[2]) / chord)
+    return Prop("FencePanel", middle, facing((-direction[2], 0.0, direction[0])), (chord / GenerateAssets.FENCE_WIDTH, 1.0, 1.0))
+
+
+def fence_props(checker=None):
+    """The catch fences as props: a panel between every two neighbouring posts of a run, then the posts."""
+    found = []
+    for run in fence_runs(checker):
+        for (_, p0), (_, p1) in zip(run, run[1:]):
+            found.append(fence_panel(p0, p1))
+        for s, point in run:
+            found.append(Prop("FencePost", point, along_yaw(s)))
+    return found
+
+
+def place_fences(props, checker):
+    """The catch fences, continuous from structure to structure (the checker, which holds no prop yet, says where a panel
+    would stand on the circuit's side of a wall)."""
+    props.extend(fence_props(checker))
 
 
 def place_boards(props, generator):
@@ -392,8 +473,9 @@ def place(seed=SEED):
     generator = random.Random(seed)
     checker = Checker()
     props = []
-    for step in (place_tyres, place_cones, place_markers, place_fences):
+    for step in (place_tyres, place_cones, place_markers):
         step(props)
+    place_fences(props, checker)
     place_boards(props, generator)
     for step in (place_stands, place_marshals, place_poles):
         step(props)
@@ -529,8 +611,49 @@ class Checker:
         return found
 
 
+# How far a point of a fence's line may lie from the panel that covers it (meters): the line bends between two posts
+# while a panel is straight, and positions are rounded.
+FENCE_COVER = 0.2
+
+
+def fence_gaps(props):
+    """The points of the fences' lines that no panel covers, as (s, side): every point of a stretch between two structures
+    (fence_stretches) lies on a panel of the props, whatever placed them."""
+    panels = {}
+    for prop in props:
+        if prop.mesh != "FencePanel":
+            continue
+        yaw = math.radians(prop.yaw)
+        half = prop.scale[0] * GenerateAssets.FENCE_WIDTH / 2.0
+        u = (math.cos(yaw), -math.sin(yaw))
+        x, z = prop.position[0], prop.position[2]
+        ends = ((x - half * u[0], z - half * u[1]), (x + half * u[0], z + half * u[1]))
+        panels.setdefault((int(math.floor(x / Checker.CELL)), int(math.floor(z / Checker.CELL))), []).append(ends)
+    gaps = []
+    for side, stretch in fence_stretches():
+        length = sum(math.dist(a, b) for (_, a), (_, b) in zip(stretch, stretch[1:]))
+        if length < FENCE_SHORTEST:
+            continue
+        for s, point in stretch:
+            cx, cz = int(math.floor(point[0] / Checker.CELL)), int(math.floor(point[2] / Checker.CELL))
+            nearest = min((distance_to_segment((point[0], point[2]), a, b) for dx in (-1, 0, 1) for dz in (-1, 0, 1)
+                           for a, b in panels.get((cx + dx, cz + dz), ())), default=math.inf)
+            if nearest > FENCE_COVER:
+                gaps.append((round(s % Circuit.LENGTH, 2), side))
+    return gaps
+
+
+def distance_to_segment(point, a, b):
+    """How far a point lies from the segment from a to b (all (x, z))."""
+    dx, dz = b[0] - a[0], b[1] - a[1]
+    length = dx * dx + dz * dz
+    t = 0.0 if length == 0.0 else max(0.0, min(1.0, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dz) / length))
+    return math.hypot(point[0] - a[0] - t * dx, point[1] - a[1] - t * dz)
+
+
 def check(props=None):
-    """Asserts that every prop stands clear (Checker) and that there are COUNT; returns the figures."""
+    """Asserts that every prop stands clear (Checker), that there are COUNT and that the catch fences have no hole
+    (fence_gaps); returns the figures."""
     props = place() if props is None else props
     assert len(props) == COUNT, f"{len(props)} props"
     checker = Checker()
@@ -538,6 +661,8 @@ def check(props=None):
         problems = checker.problems(prop)
         assert not problems, f"{prop.mesh} at {prop.position}: {problems}"
         checker.add(prop)
+    gaps = fence_gaps(props)
+    assert not gaps, f"the catch fences have no panel at {len(gaps)} points of their lines, the first at {gaps[0][0]} m on the {gaps[0][1]}"
     counts = {}
     for prop in props:
         group = GROUP_OF[prop.mesh]
