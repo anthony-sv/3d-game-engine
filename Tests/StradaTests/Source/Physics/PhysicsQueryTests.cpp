@@ -689,9 +689,9 @@ TEST_CASE("PhysicsScene: queries with values beyond the world's limits find noth
 	// A distance beyond the farthest a query reaches is cut to it, and still finds what is there.
 	CHECK(world->RaycastAll(origin, Down, std::numeric_limits<float>::max(), hits) == 1);
 	CHECK(hits[0].Distance == doctest::Approx(5.0f).epsilon(Tolerance));
-	std::optional<ShapeCastHit> const far = world->ShapeCast(sphere, origin, Upright, Down, std::numeric_limits<float>::max());
-	REQUIRE(far);
-	CHECK(far->Distance == doctest::Approx(4.5f).epsilon(Tolerance));
+	std::optional<ShapeCastHit> const farthest = world->ShapeCast(sphere, origin, Upright, Down, std::numeric_limits<float>::max());
+	REQUIRE(farthest);
+	CHECK(farthest->Distance == doctest::Approx(4.5f).epsilon(Tolerance));
 	// A direction too large to square is still a direction.
 	CHECK(world->RaycastAll(origin, {0.0f, -3.0e38f, 0.0f}, 100.0f, hits) == 1);
 }
@@ -896,7 +896,7 @@ TEST_CASE("PhysicsScene: query shapes as large as they may be cast to where they
 				glm::vec3 const direction = numbers.Direction();
 				// The shape put so that its surface passes through a point a few meters from the ball, the ball outside or
 				// inside it.
-				glm::vec3 const near = ball + numbers.Vector(-3.0f, 3.0f);
+				glm::vec3 const passing = ball + numbers.Vector(-3.0f, 3.0f);
 				glm::vec3 const toward = numbers.Direction();
 				float const side = numbers.Next() < 0.5f ? -1.0f : 1.0f;
 				glm::vec3 surface(0.0f);
@@ -912,13 +912,13 @@ TEST_CASE("PhysicsScene: query shapes as large as they may be cast to where they
 					}
 					case PhysicsQueryShapeType::Capsule:
 						surface = rotation * glm::vec3(0.0f, toward.y * shape.HalfHeight, 0.0f) +
-						          side * glm::normalize(near - ball) * shape.Radius;
+						          side * glm::normalize(passing - ball) * shape.Radius;
 						break;
 					case PhysicsQueryShapeType::Sphere:
-						surface = side * glm::normalize(near - ball) * shape.Radius;
+						surface = side * glm::normalize(passing - ball) * shape.Radius;
 						break;
 				}
-				glm::vec3 const origin = near - surface;
+				glm::vec3 const origin = passing - surface;
 				ClosedForm const truth = FindFirstTouch(
 					[&shape, &origin, &direction, &rotation, &ball](double moved)
 					{
