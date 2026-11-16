@@ -43,6 +43,7 @@
 #include <array>
 #include <cfloat>
 #include <cmath>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <tuple>
@@ -730,28 +731,63 @@ namespace Strada
 				return JPH::RefConst<JPH::Shape>(result.Get());
 			}
 
-			// Jolt tells the edges between triangles apart by their shared vertex indices (MeshShape::sFindActiveEdges): where a
-			// mesh repeats a position (where its submeshes meet, along a hard edge or a texture seam) the edge would be an open
-			// one, a bump that a body sliding or rolling across it hits. The shape is built over the mesh's distinct positions.
-			JPH::VertexList points;
-			points.reserve(vertices.size());
-			std::vector<uint32_t> welded(vertices.size());
-			std::map<std::array<float, 3>, uint32_t> distinct;
-			for (size_t vertexIndex = 0; vertexIndex < vertices.size(); vertexIndex++)
-			{
-				glm::vec3 const position = vertices[vertexIndex].Position * scale;
-				auto const [found, inserted] =
-					distinct.try_emplace(std::array<float, 3>{position.x, position.y, position.z}, static_cast<uint32_t>(points.size()));
-				if (inserted)
-				{
-					points.push_back(JPH::Float3(position.x, position.y, position.z));
-				}
-				welded[vertexIndex] = found->second;
-			}
 			// Submesh indices are relative to the submesh's first vertex (MeshSource validated the ranges).
 			std::vector<uint32_t> const& indices = collider.Mesh->GetIndices();
 			std::vector<Submesh> const& submeshes = collider.Mesh->GetSubmeshes();
 			size_t const surfaces = std::min(collider.SubmeshSurfaces.size(), submeshes.size());
+			// Jolt tells the edges between triangles apart by their shared vertex indices (MeshShape::sFindActiveEdges): where a
+			// mesh repeats a position (where its submeshes meet, along a hard edge or a texture seam) the edge would be an open
+			// one, a bump that a body sliding or rolling across it hits. The shape is built over the mesh's distinct positions:
+			// a vertex joins one at its position whose triangles face the same way (their summed normals less than 90 degrees
+			// apart). The back of a double-sided face, whose triangles face the other way, keeps vertices of its own, because an
+			// edge of four triangles would be an active one too (three or more triangles on an edge make it one).
+			std::vector<glm::vec3> facing(vertices.size(), glm::vec3(0.0f));
+			for (Submesh const& submesh : submeshes)
+			{
+				for (uint32_t i = 0; i + 2 < submesh.IndexCount; i += 3)
+				{
+					uint32_t const* triangle = indices.data() + submesh.BaseIndex + i;
+					size_t const first = submesh.BaseVertex + triangle[0];
+					size_t const second = submesh.BaseVertex + triangle[1];
+					size_t const third = submesh.BaseVertex + triangle[2];
+					// As long as twice the triangle's area, so that a vertex faces the way most of its surface does.
+					glm::vec3 const normal = glm::cross((vertices[second].Position - vertices[first].Position) * scale,
+					                                    (vertices[third].Position - vertices[first].Position) * scale);
+					facing[first] += normal;
+					facing[second] += normal;
+					facing[third] += normal;
+				}
+			}
+			constexpr uint32_t NoPoint = std::numeric_limits<uint32_t>::max();
+			JPH::VertexList points;
+			points.reserve(vertices.size());
+			// Per point: the way its first vertex faces, and the next point at the same position (NoPoint for none).
+			std::vector<glm::vec3> pointFacing;
+			std::vector<uint32_t> nextAtPosition;
+			std::map<std::array<float, 3>, uint32_t> firstAtPosition;
+			std::vector<uint32_t> welded(vertices.size());
+			for (size_t vertexIndex = 0; vertexIndex < vertices.size(); vertexIndex++)
+			{
+				glm::vec3 const position = vertices[vertexIndex].Position * scale;
+				auto const found = firstAtPosition.try_emplace(std::array<float, 3>{position.x, position.y, position.z}, NoPoint).first;
+				uint32_t* link = &found->second;
+				uint32_t point = *link;
+				while (point != NoPoint && glm::dot(pointFacing[point], facing[vertexIndex]) <= 0.0f)
+				{
+					link = &nextAtPosition[point];
+					point = *link;
+				}
+				if (point == NoPoint)
+				{
+					point = static_cast<uint32_t>(points.size());
+					// Written before nextAtPosition grows, which may move the link it points into.
+					*link = point;
+					points.push_back(JPH::Float3(position.x, position.y, position.z));
+					pointFacing.push_back(facing[vertexIndex]);
+					nextAtPosition.push_back(NoPoint);
+				}
+				welded[vertexIndex] = point;
+			}
 			JPH::IndexedTriangleList triangles;
 			triangles.reserve(indices.size() / 3);
 			for (size_t submeshIndex = 0; submeshIndex < submeshes.size(); submeshIndex++)

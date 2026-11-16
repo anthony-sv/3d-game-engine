@@ -223,7 +223,10 @@ TEST_CASE("Project: Moto's bike stands on both tyres with a 1,485 mm wheelbase, 
 		Entity const wheel = scene.FindEntityByName(name);
 		glm::mat4 const transform = local(wheel);
 		glm::vec3 lowest(0.0f, std::numeric_limits<float>::max(), 0.0f);
-		for (Vertex const& vertex : AssetManager::GetAsset<MeshSource>(wheel.GetComponent<MeshComponent>().Mesh)->GetVertices())
+		// Held while its vertices are read: a range-for keeps no temporary its range was reached through alive.
+		Ref<MeshSource> const wheelMesh = AssetManager::GetAsset<MeshSource>(wheel.GetComponent<MeshComponent>().Mesh);
+		REQUIRE(wheelMesh);
+		for (Vertex const& vertex : wheelMesh->GetVertices())
 		{
 			glm::vec3 const point = glm::vec3(transform * glm::vec4(vertex.Position, 1.0f));
 			lowest = point.y < lowest.y ? point : lowest;
