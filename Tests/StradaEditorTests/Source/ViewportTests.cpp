@@ -12,11 +12,13 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MeshFactory.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/PostProcessVolumes.h"
+#include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 
 #include <doctest/doctest.h>
@@ -756,6 +758,86 @@ TEST_CASE("ViewportOverlays: the overlays draw shapes for the selection or every
 	// Turned off, colliders are not drawn for the selection either.
 	overlays.Colliders.Enabled = false;
 	CHECK(characterLines(drawLines(overlays, {hero})).empty());
+}
+
+TEST_CASE("ViewportOverlays: contacts show the points and normals of the contacts that began in a playing scene's last frame")
+{
+	// Each point is a cross and a line along its normal through it, drawn over everything; triggers in their colour, and
+	// events without points (exits) draw nothing.
+	ContactEvent collision;
+	collision.PointCount = 2;
+	collision.Points[0].Point = {1.0f, 0.0f, 2.0f};
+	collision.Points[0].Normal = {0.0f, 1.0f, 0.0f};
+	collision.Points[1].Point = {-1.0f, 0.0f, 2.0f};
+	collision.Points[1].Normal = {0.0f, 1.0f, 0.0f};
+	ContactEvent trigger;
+	trigger.Type = ContactEventType::TriggerEnter;
+	trigger.PointCount = 1;
+	trigger.Points[0].Point = {0.0f, 3.0f, 0.0f};
+	trigger.Points[0].Normal = {1.0f, 0.0f, 0.0f};
+	ContactEvent exit;
+	exit.Type = ContactEventType::CollisionExit;
+	std::vector<ContactEvent> const events = {collision, trigger, exit};
+	std::vector<OverlayLine> lines;
+	ViewportOverlays::AppendContactLines(events, lines);
+	REQUIRE(lines.size() == 12);
+	for (size_t index = 0; index < lines.size(); index++)
+	{
+		CAPTURE(index);
+		OverlayLine const& line = lines[index];
+		CHECK_FALSE(line.DepthTest);
+		CHECK(line.Color == (index < 8 ? ViewportOverlays::ContactColor : ViewportOverlays::TriggerColor));
+		CHECK(CountAxes(line) == 1);
+	}
+	CHECK(NearlyEqual(lines[0].From, {1.0f - ViewportOverlays::ContactPointSize, 0.0f, 2.0f}));
+	CHECK(NearlyEqual(lines[0].To, {1.0f + ViewportOverlays::ContactPointSize, 0.0f, 2.0f}));
+	CHECK(NearlyEqual(lines[3].From, {1.0f, -ViewportOverlays::ContactNormalLength, 2.0f}));
+	CHECK(NearlyEqual(lines[3].To, {1.0f, ViewportOverlays::ContactNormalLength, 2.0f}));
+	CHECK(NearlyEqual(lines[11].To, {ViewportOverlays::ContactNormalLength, 3.0f, 0.0f}));
+
+	// A ball dropped on the ground of a running scene: the frame it lands in shows its point, with the overlay on only, and
+	// later frames, which begin no contact, show none. A scene that is not running reports none.
+	Testing::PhysicsSystemScope physics;
+	Scene scene("Contacts");
+	Entity ground = scene.CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {10.0f, 0.5f, 10.0f};
+	Entity ball = scene.CreateEntity("Ball");
+	ball.GetComponent<TransformComponent>().Translation = {0.0f, 2.0f, 0.0f};
+	ball.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
+	ball.AddComponent<SphereColliderComponent>().Radius = 0.5f;
+	SceneViewOverlays shown;
+	shown.Contacts = true;
+	auto const draw = [&scene](SceneViewOverlays const& overlays)
+	{
+		std::vector<OverlayLine> drawn;
+		ViewportOverlays::AppendSceneShapes(scene, {}, overlays, 1.0f, glm::vec3(0.0f, 0.0f, 10.0f), drawn);
+		return drawn;
+	};
+	CHECK(draw(shown).empty());
+
+	SceneRuntimeSettings settings;
+	settings.RunScripts = false;
+	settings.PlayAudio = false;
+	scene.OnRuntimeStart(settings);
+	bool landed = false;
+	for (int frame = 0; frame < 120 && !landed; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+		landed = !scene.GetContactEvents().empty();
+	}
+	REQUIRE(landed);
+	ContactEvent const& event = scene.GetContactEvents().front();
+	REQUIRE(event.Type == ContactEventType::CollisionEnter);
+	std::vector<OverlayLine> const contacts = draw(shown);
+	REQUIRE(contacts.size() == 4 * event.PointCount);
+	CHECK(NearlyEqual((contacts[3].From + contacts[3].To) * 0.5f, event.Points[0].Point));
+	CHECK(std::abs(event.Points[0].Point.y) < 0.05f);
+	CHECK(draw(SceneViewOverlays()).empty());
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(scene.GetContactEvents().empty());
+	CHECK(draw(shown).empty());
+	scene.OnRuntimeStop();
 }
 
 TEST_CASE("ViewportOverlays: mesh colliders show the convex hull or the triangles physics collides with")

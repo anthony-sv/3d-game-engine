@@ -193,9 +193,12 @@ internal static class BuiltinNodes
 			["physics", "step", "fixed"], [ExecOut(), Out("FixedDeltaTime", types.Float)]);
 		Event(nodes, BuiltinNode.EventDestroy, "Destroy", "Runs when the entity is destroyed or the scene stops.", ["end", "stop", "remove"],
 			[ExecOut()]);
+		// The contact's outputs follow Other, so graphs saved before they existed load as they were.
 		Event(nodes, BuiltinNode.EventCollisionEnter, "Collision Enter",
-			"Runs when a collider of the entity starts touching a collider of Other.", ["contact", "hit", "touch", "physics"],
-			[ExecOut(), Out("Other", types.Entity)]);
+			"Runs when a collider of the entity starts touching a collider of Other. Point, Normal and Impulse are those of the strongest point where they touch (Normal pushes the entity away from Other; Impulse in newton seconds), and Surface names the physics material of Other's surface there (empty for none); Strada.Collision.Points has every point.",
+			["contact", "hit", "touch", "physics", "impact", "surface"],
+			[ExecOut(), Out("Other", types.Entity), Out("Point", types.Vector3), Out("Normal", types.Vector3), Out("Impulse", types.Float),
+				Out("Surface", types.String)]);
 		Event(nodes, BuiltinNode.EventCollisionExit, "Collision Exit", "Runs when the colliders of the entity stop touching those of Other.",
 			["contact", "touch", "physics"], [ExecOut(), Out("Other", types.Entity)]);
 		Event(nodes, BuiltinNode.EventTriggerEnter, "Trigger Enter",
@@ -694,4 +697,4 @@ internal static class BuiltinNodes
 
 // The library types the built-in kinds use.
 internal sealed record BuiltinTypes(VisualType Bool, VisualType Int, VisualType Float, VisualType String, VisualType Entity,
-	VisualType KeyCode, VisualType MouseButton, VisualType GamepadButton, VisualType StringArray, VisualType TimelineDirection);
+	VisualType KeyCode, VisualType MouseButton, VisualType GamepadButton, VisualType StringArray, VisualType TimelineDirection, VisualType Vector3);

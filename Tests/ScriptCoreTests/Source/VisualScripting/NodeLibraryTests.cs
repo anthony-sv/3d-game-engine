@@ -253,10 +253,10 @@ public sealed class NodeLibraryTests
 	public void MakeAndBreakCoverTheStructs()
 	{
 		// The library lists types by ID.
-		Assert.Equal(["Strada.Color", "Strada.Matrix4", "Strada.Quaternion", "Strada.Ray", "Strada.Vector2", "Strada.Vector3", "Strada.Vector4"],
-			Library.Types.Where(static type => type.Makeable).Select(static type => type.Id));
-		Assert.Equal(["Strada.AssetHandle", "Strada.Color", "Strada.Matrix4", "Strada.Quaternion", "Strada.Ray", "Strada.RaycastHit", "Strada.Vector2",
-			"Strada.Vector3", "Strada.Vector4"], Library.Types.Where(static type => type.Breakable).Select(static type => type.Id));
+		Assert.Equal(["Strada.Color", "Strada.ContactPoint", "Strada.Matrix4", "Strada.Quaternion", "Strada.Ray", "Strada.Vector2", "Strada.Vector3",
+			"Strada.Vector4"], Library.Types.Where(static type => type.Makeable).Select(static type => type.Id));
+		Assert.Equal(["Strada.AssetHandle", "Strada.Color", "Strada.ContactPoint", "Strada.Matrix4", "Strada.Quaternion", "Strada.Ray",
+			"Strada.RaycastHit", "Strada.Vector2", "Strada.Vector3", "Strada.Vector4"], Library.Types.Where(static type => type.Breakable).Select(static type => type.Id));
 		Assert.Equal(["X", "Y", "Z"], Library.FindType("Strada.Vector3")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["R", "G", "B", "A"], Library.FindType("Strada.Color")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["Column0", "Column1", "Column2", "Column3"], Library.FindType("Strada.Matrix4")!.Fields.Select(static field => field.Name));
@@ -264,6 +264,11 @@ public sealed class NodeLibraryTests
 		Assert.Equal(["ID", "IsValid"], Library.FindType("Strada.AssetHandle")!.Fields.Select(static field => field.Name));
 		Assert.Equal(["Strada.Entity", "Strada.Vector3", "Strada.Vector3", "float", "Strada.PhysicsMaterial"],
 			Library.FindType("Strada.RaycastHit")!.Fields.Select(static field => field.Type.Id));
+		// The first struct Make builds with fields of a reference type: the two sides' materials.
+		Assert.Equal(["Point", "Normal", "Impulse", "RelativeVelocity", "Material", "OtherMaterial"],
+			Library.FindType("Strada.ContactPoint")!.Fields.Select(static field => field.Name));
+		Assert.Equal(["Strada.Vector3", "Strada.Vector3", "float", "Strada.Vector3", "Strada.PhysicsMaterial", "Strada.PhysicsMaterial"],
+			Library.FindType("Strada.ContactPoint")!.Fields.Select(static field => field.Type.Id));
 	}
 
 	[Fact]
@@ -315,7 +320,8 @@ public sealed class NodeLibraryTests
 				{
 					continue;
 				}
-				bool produced = pin.Type.HasLiteral || outputs.Exists(output => TypeRules.GetConversion(output, pin.Type) != null);
+				// Make builds every struct it can (Strada.ContactPoint has no other source but arrays of contact points).
+				bool produced = pin.Type.HasLiteral || pin.Type.Makeable || outputs.Exists(output => TypeRules.GetConversion(output, pin.Type) != null);
 				Assert.True(produced, $"nothing produces the {pin.Type.Id} input {pin.Name} of {node.Type}");
 			}
 		}

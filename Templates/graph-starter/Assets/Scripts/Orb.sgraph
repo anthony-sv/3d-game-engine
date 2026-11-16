@@ -630,7 +630,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1440.0
+						1536.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -703,7 +703,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						1616.0
+						1712.0
 					],
 					"Settings": {
 						"Name": "StateChanged",
@@ -720,7 +720,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						192.0,
-						1616.0
+						1712.0
 					],
 					"Inputs": {
 						"B": "Play"
@@ -731,7 +731,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						480.0,
-						1616.0
+						1712.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -1086,7 +1086,7 @@
 					],
 					"Size": [
 						1395.13623046875,
-						388.0
+						484.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -1100,7 +1100,7 @@
 					"Text": "Control: the orb rolls only while a run is on",
 					"Position": [
 						-32.0,
-						1544.0
+						1640.0
 					],
 					"Size": [
 						669.572509765625,

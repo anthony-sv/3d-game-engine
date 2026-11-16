@@ -3,6 +3,9 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/PhysicsMaterial.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -20,6 +23,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -654,6 +658,123 @@ TEST_CASE("Scene: physics contacts reach both entities' C# and visual scripts, a
 	REQUIRE(landed >= 0);
 	CHECK(IndexOf(records, "Ball graph:CollisionEnter(Ground)") == landed + 1);
 	CHECK(ballExit < landed);
+	scene.OnRuntimeStop();
+}
+
+namespace
+{
+	// At the first collision that begins, keeps Event.CollisionEnter's Point, Normal, Impulse and Surface, and from
+	// Strada.Collision inside the event's flow the step, the number of points and the strongest point's impulse (through
+	// Array.Get and Break), in public variables.
+	VisualScriptDocument MakeContactReaderDocument()
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Point", "Strada.Vector3", Json::array({0.0, 0.0, 0.0})));
+		document.Variables.push_back(MakeVariable(2, "Normal", "Strada.Vector3", Json::array({0.0, 0.0, 0.0})));
+		document.Variables.push_back(MakeVariable(3, "Impulse", "float", 0.0));
+		document.Variables.push_back(MakeVariable(4, "Surface", "string", "none"));
+		document.Variables.push_back(MakeVariable(5, "PointCount", "int", 0));
+		document.Variables.push_back(MakeVariable(6, "StrongestImpulse", "float", 0.0));
+		document.Variables.push_back(MakeVariable(7, "Step", "ulong", "0"));
+		std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+		std::vector<VisualScriptLink>& links = document.Graph.Links;
+		nodes.push_back(MakeNode(10, "Event.CollisionEnter"));
+		nodes.push_back(MakeNode(11, "Flow.DoOnce"));
+		links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		nodes.push_back(MakeNode(20, "Get:Strada.Collision.Points"));
+		nodes.push_back(MakeNode(21, "Array.Length"));
+		nodes.push_back(MakeNode(22, "Array.Get", Json::object(), Json::object({{"Index", 0}})));
+		nodes.push_back(MakeNode(23, "Break", Json::object({{"Type", "Strada.ContactPoint"}})));
+		nodes.push_back(MakeNode(24, "Get:Strada.Collision.Step"));
+		links.push_back(MakeLink(20, "Value", 21, "Array"));
+		links.push_back(MakeLink(20, "Value", 22, "Array"));
+		links.push_back(MakeLink(22, "Element", 23, "Value"));
+		struct Write
+		{
+			uint32_t Variable;
+			uint32_t From;
+			char const* Pin;
+		};
+		Write const writes[] = {{1, 10, "Point"},  {2, 10, "Normal"},  {3, 10, "Impulse"}, {4, 10, "Surface"},
+		                        {5, 21, "Length"}, {6, 23, "Impulse"}, {7, 24, "Value"}};
+		VisualScriptPinReference previous{11, "Completed"};
+		uint32_t next = 30;
+		for (Write const& write : writes)
+		{
+			uint32_t const set = next++;
+			nodes.push_back(MakeNode(set, "Variable.Set", Json::object({{"Variable", write.Variable}})));
+			links.push_back(MakeLink(write.From, write.Pin, set, "Value"));
+			links.push_back(MakeLink(previous.Node, previous.Pin, set, "Execute"));
+			previous = {set, "Then"};
+		}
+		return document;
+	}
+
+	AssetHandle AddSurfaceMaterial(std::string const& surface)
+	{
+		TypedDataAssetType<PhysicsMaterial> const* type = DataAssetRegistry::Find<PhysicsMaterial>();
+		REQUIRE(type != nullptr);
+		Ref<TypedDataAsset<PhysicsMaterial>> const asset = std::static_pointer_cast<TypedDataAsset<PhysicsMaterial>>(type->CreateAsset());
+		PhysicsMaterial material;
+		material.Surface = surface;
+		REQUIRE(asset->SetData(material).IsOk());
+		return AssetManager::AddMemoryAsset(asset, surface);
+	}
+}
+
+TEST_CASE("Scene: Event.CollisionEnter gives the strongest point and the surface of the other side, and Strada.Collision its flow")
+{
+	Testing::PhysicsSystemScope physics;
+	Testing::AssetManagerScope assets;
+	Testing::ScriptEngineScope scripting;
+	AssetHandle const graph = AddGraph(MakeContactReaderDocument(), "Contact Reader");
+	AssetHandle const asphalt = AddSurfaceMaterial("Asphalt");
+	Scene scene("Contacts");
+	Entity ground = scene.CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	BoxColliderComponent& floor = ground.AddComponent<BoxColliderComponent>();
+	floor.HalfExtents = {10.0f, 0.5f, 10.0f};
+	floor.Material = asphalt;
+	AddVisualScript(ground, graph);
+	Entity ball = scene.CreateEntity("Ball");
+	ball.GetComponent<TransformComponent>().Translation = {0.0f, 3.0f, 0.0f};
+	ball.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
+	ball.AddComponent<SphereColliderComponent>().Radius = 0.5f;
+	AddVisualScript(ball, graph);
+
+	scene.OnRuntimeStart();
+	std::vector<ContactEvent> events;
+	for (int frame = 0; frame < 120; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(FrameTime));
+		events.insert(events.end(), scene.GetContactEvents().begin(), scene.GetContactEvents().end());
+	}
+	auto const landed = std::find_if(events.begin(), events.end(),
+	                                 [](ContactEvent const& event)
+	                                 {
+										 return event.Type == ContactEventType::CollisionEnter;
+									 });
+	REQUIRE(landed != events.end());
+	REQUIRE(landed->PointCount > 0);
+	for (Entity const& entity : {ball, ground})
+	{
+		CAPTURE(entity.GetName());
+		HandledContactEvent const handled{&*landed, landed->Second == entity.GetUUID()};
+		ContactPoint const strongest = handled.GetPoint(0);
+		Result<ScriptFieldMap> const variables = VisualScriptEngine::GetInstanceVariables(entity.GetUUID());
+		REQUIRE_MESSAGE(variables.IsOk(), variables.GetError());
+		ScriptFieldMap const& read = variables.GetValue();
+		CHECK(read.at("Point").GetVector3() == strongest.Point);
+		CHECK(read.at("Normal").GetVector3() == strongest.Normal);
+		CHECK(read.at("Impulse").GetFloat() == strongest.Impulse);
+		CHECK(read.at("StrongestImpulse").GetFloat() == strongest.Impulse);
+		CHECK(read.at("PointCount").GetInt32() == static_cast<int32_t>(landed->PointCount));
+		CHECK(read.at("Step").GetUInt64() == landed->Step);
+		// The other side's surface: the ball meets asphalt; the ground meets a ball without a material.
+		CHECK(read.at("Surface").GetString() == (entity == ball ? "Asphalt" : ""));
+		CHECK(read.at("Normal").GetVector3().y == doctest::Approx(entity == ball ? 1.0f : -1.0f).epsilon(1e-3));
+	}
+	CHECK(landed->Points[0].Impulse > 0.0f);
 	scene.OnRuntimeStop();
 }
 

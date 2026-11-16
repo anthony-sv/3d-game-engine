@@ -119,8 +119,9 @@ component and the whole scripting API.
   and the material a raycast hit (`RaycastHit.Material`, `Get:Strada.RaycastHit.Material`), and compare its `Surface`.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
   view, and `viewport_screenshot` returns an image of the editor. `viewport_overlays` sets what the scene view draws
-  over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), and `grid`,
-  `icons`, `canvases` and the shapes `off` give clean screenshots. `viewport_statistics` tells what the last frame drew
+  over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), `contacts` shows
+  where contacts began in the last frame while the game plays (pause it to keep them on screen), and `grid`, `icons`,
+  `canvases` and the shapes `off` give clean screenshots. `viewport_statistics` tells what the last frame drew
   (draw calls, triangles, lights, what was culled): check it when a scene grows large. `editor_entity_menu` and
   `inspector_add_component_menu` open the Entity menu and the Add Component menu as users see them (a `submenu` or
   `category` open) and list what they offer.
@@ -129,7 +130,8 @@ component and the whole scripting API.
 
 - `script_create` with `className` adds a class to the project's C# project and returns its file; write the class
   (a `Strada.Script` with `OnCreate`, `OnUpdate(float)`, `OnFixedUpdate(float)`, `OnCollisionEnter(Entity)`...,
-  using `Entity`, the component classes, `Input`, `Physics`, `Time`, `Assets`, `SceneManager`, `Application`, `Log`).
+  using `Entity`, the component classes, `Input`, `Physics`, `Collision` (inside a contact callback: where and how hard
+  the contact began, and on which surfaces), `Time`, `Assets`, `SceneManager`, `Application`, `Log`).
   `Scripting.md` shows the API in use, with examples.
 - `script_build` compiles and loads the scripts; fix every diagnostic it returns. `script_classes` lists the classes
   and their fields.

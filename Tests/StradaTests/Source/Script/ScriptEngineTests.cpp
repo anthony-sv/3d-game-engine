@@ -59,6 +59,7 @@ TEST_CASE("ScriptEngine: loads game scripts and describes their classes")
 	                                        "Strada.Tests.CharacterProbe",
 	                                        "Strada.Tests.ClickRecorder",
 	                                        "Strada.Tests.ComponentWriter",
+	                                        "Strada.Tests.ContactReader",
 	                                        "Strada.Tests.CurveProbe",
 	                                        "Strada.Tests.DerivedBehaviour",
 	                                        "Strada.Tests.FieldReporter",
@@ -173,7 +174,7 @@ TEST_CASE("ScriptEngine: shuts down, starts again and replaces game assemblies")
 		CHECK(ScriptEngine::FindClass("Strada.Tests.Mover") != nullptr);
 		// Loading again replaces the assembly.
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
-		CHECK(ScriptEngine::GetClasses().size() == 33);
+		CHECK(ScriptEngine::GetClasses().size() == 34);
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath().parent_path() / "Missing.dll").IsError());
 	}
 	CHECK_FALSE(ScriptEngine::IsInitialized());

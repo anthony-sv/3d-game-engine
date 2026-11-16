@@ -265,6 +265,30 @@ public sealed class DataNodeTests
 		Assert.Empty(runtime.Environment.Errors);
 	}
 
+	// Strada.ContactPoint is a struct Make builds with fields of a reference type, the two sides' physics materials: Make and
+	// Break carry them, a split input takes a field from its field pins and a split output gives one.
+	[Fact]
+	public void ContactPointsAreMadeAndBrokenWithTheirMaterials()
+	{
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint make = graph.Node("Make", """{ "Type": "Strada.ContactPoint" }""",
+			"""{ "Point": [1.0, 2.0, 3.0], "Normal": [0.0, 1.0, 0.0], "Impulse": 2.5, "RelativeVelocity.X": 0.5, "Material": "7" }""",
+			split: """{ "Inputs": ["RelativeVelocity"] }""");
+		graph.Link(graph.Literal("float", "-4.0"), "Value", make, "RelativeVelocity.Y");
+		uint parts = graph.Node("Break", """{ "Type": "Strada.ContactPoint" }""", split: """{ "Outputs": ["Point"] }""");
+		graph.Link(make, "Value", parts, "Value");
+		uint text = graph.Node("FormatString", """{ "Format": "{Y} {Normal} {Impulse} {Velocity} {Material} {Other}" }""");
+		graph.Link(parts, "Point.Y", text, "Y");
+		graph.Link(parts, "Normal", text, "Normal");
+		graph.Link(parts, "Impulse", text, "Impulse");
+		graph.Link(parts, "RelativeVelocity", text, "Velocity");
+		graph.Link(parts, "Material", text, "Material");
+		graph.Link(parts, "OtherMaterial", text, "Other");
+		TestRuntime runtime = WriteOnCreate(document, text, "Result");
+		Assert.Equal(["2 (0, 1, 0) 2.5 (0.5, -4, 0) PhysicsMaterial(7) None"], runtime.Records);
+	}
+
 	[Fact]
 	public void MakeAndBreakBuildAndSplitStructs()
 	{

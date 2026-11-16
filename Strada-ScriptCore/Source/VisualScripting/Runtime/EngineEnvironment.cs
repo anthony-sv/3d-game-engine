@@ -38,6 +38,13 @@ internal sealed unsafe class EngineEnvironment : IVisualScriptEnvironment
 
 	public Component? GetComponent(ulong id, Type componentType) => IsEntityValid(id) ? Component.FetchFrom(id, componentType) : null;
 
+	public bool TryGetContactPoint(out ContactPoint point, out string surface)
+	{
+		bool found = Collision.TryGetStrongestPoint(out point);
+		surface = point.OtherMaterial?.Surface ?? string.Empty;
+		return found;
+	}
+
 	public void SetDeltaTime(float timeStep)
 	{
 		Time.DeltaTime = timeStep;

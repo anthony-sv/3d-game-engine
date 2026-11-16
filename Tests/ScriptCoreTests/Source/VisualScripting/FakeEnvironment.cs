@@ -85,6 +85,20 @@ internal sealed class FakeEnvironment : IVisualScriptEnvironment
 		return view;
 	}
 
+	// The contact event being handled as TryGetContactPoint reports it: none, or its strongest point and the surface name of
+	// its other side.
+	internal (ContactPoint Point, string Surface)? Contact { get; set; }
+
+	internal int ContactReads { get; private set; }
+
+	public bool TryGetContactPoint(out ContactPoint point, out string surface)
+	{
+		ContactReads++;
+		point = Contact?.Point ?? default;
+		surface = Contact?.Surface ?? string.Empty;
+		return Contact != null;
+	}
+
 	// Time.DeltaTime as the last GetEntity saw it: what a graph's Self node read it as.
 	internal float? DeltaTimeAtLookup { get; private set; }
 

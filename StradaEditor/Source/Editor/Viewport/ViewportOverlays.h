@@ -18,6 +18,7 @@ namespace Strada
 {
 	class MeshSource;
 	class Scene;
+	struct ContactEvent;
 
 	struct OverlayLine
 	{
@@ -63,6 +64,9 @@ namespace Strada
 		bool DebugLines = true;
 		// The UI of each canvas in its entity's plane with the canvas's outline (CanvasOverlay).
 		bool Canvases = true;
+		// The points and normals of the contacts that began in the scene's last frame (Scene::GetContactEvents), which only a
+		// playing scene has: a contact shows for the frame it began in, and stays while the game is paused.
+		bool Contacts = false;
 
 		bool operator==(SceneViewOverlays const&) const = default;
 	};
@@ -136,6 +140,11 @@ namespace Strada
 		// Length of the drawn hinge and slider axes, and size of the anchor's cross.
 		inline constexpr float JointAxisLength = 0.6f;
 		inline constexpr float JointAnchorSize = 0.1f;
+		// Contacts: a cross at each point and a line along its normal through it, orange for collisions, the trigger colour
+		// for overlaps.
+		inline constexpr glm::vec4 ContactColor = glm::vec4(1.0f, 0.6f, 0.2f, 1.0f);
+		inline constexpr float ContactPointSize = 0.05f;
+		inline constexpr float ContactNormalLength = 0.3f;
 
 		// How the scene view draws its lines (SceneRendererOverlays), in pixels at a UI scale of 1: wide enough to see at a
 		// glance, with a dark outline for bright backgrounds, and dimmed where surfaces hide them.
@@ -158,9 +167,13 @@ namespace Strada
 		                        MeshColliderOutlineCache* meshOutlines = nullptr);
 		// The kinds of shapes (Shapes flags) the overlays draw for an entity that is selected, or not.
 		uint32_t GetShapeKinds(SceneViewOverlays const& overlays, bool selected);
+		// Each contact point of the events (only events that begin have points): a cross ContactPointSize across each axis
+		// and a line ContactNormalLength along the normal to either side, drawn over everything (points lie on surfaces), in
+		// ContactColor for collisions and TriggerColor for triggers, in the events' order.
+		void AppendContactLines(std::span<ContactEvent const> events, std::vector<OverlayLine>& lines);
 		// The shapes the overlays draw: those of the selected entities (drawn as selected: Shapes::Selected), and of every
-		// entity for the kinds shown for all, in hierarchy order when any is. meshOutlines also forgets the outlines of meshes
-		// that are gone.
+		// entity for the kinds shown for all, in hierarchy order when any is, then the scene's contacts when they are shown.
+		// meshOutlines also forgets the outlines of meshes that are gone.
 		void AppendSceneShapes(Scene& scene, std::span<UUID const> selection, SceneViewOverlays const& overlays, float aspectRatio,
 		                       glm::vec3 const& viewPosition, std::vector<OverlayLine>& lines,
 		                       MeshColliderOutlineCache* meshOutlines = nullptr);

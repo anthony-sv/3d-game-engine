@@ -1580,7 +1580,7 @@ the rebuilt body keeps its velocities. Physics runs in fixed steps: before each 
 transforms (`MoveKinematic`) and static or dynamic bodies whose transforms changed (scripts, the editor, a moving
 parent) are teleported; after it, awake dynamic bodies write their world transforms back (parents first, converted to
 parent-local space, keeping their scale). Events delivered to scripts: `OnCollisionEnter/Exit(Entity other)`,
-`OnTriggerEnter/Exit(Entity other)`. Queries: raycast (closest solid hit, with the physics material hit; triggers and
+`OnTriggerEnter/Exit(Entity other)`, with `Strada.Collision` for the rest of the event (below). Queries: raycast (closest solid hit, with the physics material hit; triggers and
 colliders containing the origin are ignored), with a layer mask.
 
 **Contact data.** An enter event (`ContactEvent`, `Physics/PhysicsTypes.h`) carries where and how its contact began:
@@ -1643,6 +1643,23 @@ steps they would run user code between Jolt's step and the scene's write-back, a
 says which step it came from. Logic that must react inside a step (a vehicle's tyres, a sensor) asks the world from
 `OnFixedUpdate` with queries rather than waiting for events; this is why contact events stay outside the determinism
 promise below, although their content (entities, steps, points) is the same on every run.
+
+**Contacts in scripts and graphs.** The handlers keep their signatures (the other entity); the rest of the event is
+read through `Strada.Collision` while they run. `Scene::DispatchContactEventsToScripts` holds a
+`ScriptEngine::ContactEventScope` around each entity's two invocations (its C# script, then its graph), which makes the
+event, seen from that entity (`HandledContactEvent`: the event and whether the entity is its `Second`, whose points
+`ReverseContactPoint` gives), the one `ScriptEngine::GetHandledContactEvent` returns; scopes nest, each restoring the one
+before, and outside them it is null. One binding, `Collision_Read`, copies the handled event's entities, step and points
+(`NativeCollision`, 32 bytes, and up to four `NativeContactPoint`s of 56, neither padded implicitly) for
+`Collision.Entity`, `Other`, `Step` and `Points`, which read as empty outside a handler. `Points` makes a new array of
+`ContactPoint`s on each read (materials through `PhysicsMaterialCache.GetShared`, so points on one material share one
+reference); the managed `ContactPoint` is a struct of public fields, so graphs Make and Break it.
+`Event.CollisionEnter` gives, after `Other`, the strongest point's `Point`, `Normal` and `Impulse` and the `Surface` of
+its other side's material ("" for none): the outputs follow `Other`, and stored graphs name pins by text, so graphs
+saved before them load unchanged. The runtime reads them (`IVisualScriptEnvironment.TryGetContactPoint`, no array) only
+for a graph that has the node, as it looks up `Other`. A graph's flow reads `Strada.Collision` until its first wait: a
+fiber that resumes later (after a delay, or from a debugger stop) runs outside the handler, while the event node's
+outputs keep the values they were given.
 
 **Step control.** A step lasts the project's `Physics.FixedTimestep` (0.0005 to 0.1 s, default 1/60); a frame runs at
 most `Physics.MaxStepsPerFrame` of them (1 to 64, default 8; a slower frame drops the backlog beyond one step, so the
@@ -1909,7 +1926,8 @@ every instance is created before the first `OnCreate`, so scripts can find each 
 follows `ScriptComponent` changes (new components get instances and `OnCreate`; a changed class or a removed
 component gets `OnDestroy`; unknown classes are logged once per class name), then calls `OnUpdate`; `OnFixedUpdate`
 runs before every fixed step, with or without physics; contacts reach the scripts of both entities, the other entity
-arriving as its script instance when it has one; clicks reach the scripts of the button and its ancestors before the
+arriving as its script instance when it has one, and `Strada.Collision` reads the event as the handling entity sees it
+while its handlers run (§8, "Contacts in scripts and graphs"); clicks reach the scripts of the button and its ancestors before the
 frame's `OnUpdate`. Destroyed entities get `OnDestroy` while still intact (children
 after their parent), and stopping or destroying the running scene calls `OnDestroy` on every script.
 While a scene runs, `Scene::ReadScriptFields` copies the values a script's fields hold
@@ -1959,6 +1977,9 @@ editor's Simulate mode runs neither kind.
 - `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`; `RaycastHit` (`Entity`,
   `Point`, `Normal`, `Distance`, `Material`: the `PhysicsMaterial` of the surface hit, null for none, one shared
   reference per material).
+- `Collision` (the contact event being handled, empty outside a contact handler): `Entity`, `Other`, `Step`, `Points`
+  (up to four `ContactPoint`s, strongest first, a new array per read); `ContactPoint`, a struct of public fields
+  (`Point`, `Normal` from the other side towards this one, `Impulse`, `RelativeVelocity`, `Material`, `OtherMaterial`).
 - `Log`: `Trace/Info/Warn/Error`. `Debug`: `DrawLine(from, to, color, duration)`.
 - `SceneManager`: `LoadScene(path)`, `CurrentSceneName`. `Application`: `Quit()`, `WindowWidth/Height`, `IsEditor`.
 - `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`, `Font`, `EnvironmentMap`,
@@ -2165,7 +2186,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   entity) with their fibers, the member invokers and the attached debugger. `Host.VisualScripts` is the engine's
   runtime; `Initialize` and `Shutdown` replace it with an empty one. The VM reaches the engine only through
   `IVisualScriptEnvironment`: the log, entities and their script instances, names and validity, components by runtime
-  type, `Time.DeltaTime` and input. ScriptCoreTests replace it with a fake engine. Calls of reflected API members are
+  type, `Time.DeltaTime`, input, and the strongest point of the contact being handled with its other side's surface
+  (`Event.CollisionEnter`'s outputs). ScriptCoreTests replace it with a fake engine. Calls of reflected API members are
   not seam calls.
 - **Programs and instances**: `Load` analyzes and compiles a document and always stores a program. A program with an
   Error diagnostic is broken and kept for its diagnostics, and its handle runs its last working program.
@@ -2760,7 +2782,10 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   kept at a constant size on screen, point light ranges, spot light cones with their inner cone), colliders and
   characters (the capsules of character controllers), joints and post-process volumes (the boxes of local volumes with
   the rounded outlines where their blend distances end), each for the selected entities or every entity, the lines
-  scripts draw, and the UI canvases. Colliders show the shapes physics collides with: mesh colliders as the convex hull
+  scripts draw, the UI canvases, and, off by default, the contacts of a playing scene
+  (`ViewportOverlays::AppendContactLines`: a cross at each point of the events of the scene's last frame,
+  `Scene::GetContactEvents`, and a line along its normal, drawn over everything; a contact shows for the frame it began
+  in, and stays while play is paused). Colliders show the shapes physics collides with: mesh colliders as the convex hull
   Jolt builds (`MeshColliderOutline`; also for the triangle meshes of dynamic bodies) or as their triangles, without the
   diagonals of flat faces, and character controllers as the upright capsule physics moves. Its lines are wide,
   light-colored and outlined in dark so they read on bright and dark surfaces, and dimmed where surfaces hide them,

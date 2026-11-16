@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using Strada.Interop;
 using Strada.VisualScripting;
@@ -86,6 +87,71 @@ public sealed class EventTests
 		], runtime.Records);
 	}
 
+	// Event.CollisionEnter also gives the strongest point of the contact being handled and the surface Other has there; a
+	// contact without points (or none being handled) gives their defaults. The other contact events read no contact.
+	[Fact]
+	public void CollisionEnterGivesTheStrongestPointAndTheSurfaceOfOther()
+	{
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint enter = graph.Node("Event.CollisionEnter");
+		uint text = graph.Node("FormatString", """{ "Format": "{Other} {Point} {Normal} {Impulse} '{Surface}'" }""");
+		foreach (string pin in new[] { "Other", "Point", "Normal", "Impulse", "Surface" })
+		{
+			graph.Link(enter, pin, text, pin);
+		}
+		graph.Flow(enter, graph.Write(text, "Result"));
+		foreach (string contact in new[] { "Event.CollisionExit", "Event.TriggerEnter", "Event.TriggerExit" })
+		{
+			graph.Writes(graph.Node(contact), "Then", contact);
+		}
+		TestRuntime runtime = TestRuntime.Start(document);
+		FakeEnvironment environment = runtime.Environment;
+		environment.Add(9, "Ground");
+		environment.Contact = (new ContactPoint
+		{
+			Point = new Vector3(1.0f, 0.0f, -2.0f),
+			Normal = Vector3.Up,
+			Impulse = 2.5f,
+			RelativeVelocity = new Vector3(0.0f, -4.0f, 0.0f),
+		}, "Asphalt");
+
+		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.CollisionEnter, other: 9));
+		Assert.Equal(1, environment.ContactReads);
+		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.CollisionExit, other: 9));
+		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.TriggerEnter, other: 9));
+		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.TriggerExit, other: 9));
+		Assert.Equal(1, environment.ContactReads);
+		environment.Contact = null;
+		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.CollisionEnter, other: 9));
+		Assert.Equal(
+		[
+			"Entity(9) (1, 0, -2) (0, 1, 0) 2.5 'Asphalt'", "Event.CollisionExit", "Event.TriggerEnter", "Event.TriggerExit",
+			"Entity(9) (0, 0, 0) (0, 0, 0) 0 ''",
+		], runtime.Records);
+	}
+
+	// Documents/Events.json was written before Event.CollisionEnter had more outputs than Other: it still resolves exactly,
+	// its link from Other is kept, and the node shows the new outputs after it.
+	[Fact]
+	public void AGraphSavedBeforeTheContactOutputsLoadsAsItWasAndGainsThem()
+	{
+		byte[] text = File.ReadAllBytes(Path.Combine(VisualScriptTesting.FixtureDirectory, "Documents", "Events.json"));
+		AnalyzedDocument analyzed = GraphAnalyzer.Analyze(VisualScriptTesting.Library, text);
+		VisualScriptTesting.AssertNoErrors(analyzed);
+		AnalyzedNode enter = VisualScriptTesting.Node(analyzed, 23);
+		Assert.Equal("Event.CollisionEnter", enter.Source.Type);
+		Assert.Equal(NodeResolution.Exact, enter.Resolution);
+		Assert.Equal(["Then", "Other", "Point", "Normal", "Impulse", "Surface"], enter.Pins.Select(static pin => pin.Name));
+		Assert.Single(enter.FindShownPin("Other", PinDirection.Out)!.Links);
+		Assert.Empty(enter.FindShownPin("Surface", PinDirection.Out)!.Links);
+
+		TestRuntime runtime = new();
+		runtime.LoadWorking(System.Text.Encoding.UTF8.GetString(text));
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.CollisionEnter, other: 9));
+	}
+
 	[Fact]
 	public void AMissingEventRunsNothing()
 	{
@@ -120,6 +186,7 @@ public sealed class EventTests
 			Assert.Equal(VisualScriptStatus.Success, runtime.Invoke((ScriptEvent)scriptEvent, other: 9));
 		}
 		Assert.Equal(0, runtime.Environment.EntityLookups);
+		Assert.Equal(0, runtime.Environment.ContactReads);
 		Assert.Empty(runtime.Records);
 	}
 

@@ -309,8 +309,8 @@ lights show round icons that you can click too. A press that turns into a drag, 
 
 ### Overlays
 
-The Overlays button opens a menu of what the view draws over the scene. Everything is on by default, and the shapes are
-drawn for the selected entities until you pick All.
+The Overlays button opens a menu of what the view draws over the scene. Everything but contacts is on by default, and
+the shapes are drawn for the selected entities until you pick All.
 
 | Overlay | What it draws |
 |---------|---------------|
@@ -324,10 +324,11 @@ drawn for the selected entities until you pick All.
 | Post-process volumes | Boxes of local post-process volumes and where their blending ends |
 | Debug drawing (scripts) | Lines scripts draw with `Debug.DrawLine` and its relatives |
 | UI canvases | Each canvas's UI in its entity's plane, faint until the canvas or one of its elements is selected |
+| Contacts (while playing) | A cross at each point where a contact began in the last frame and a line along its normal (triggers in blue): a contact shows for the frame it began in, and stays while the game is paused |
 
 Each of the five shape overlays has a Selected and an All choice. Overlay lines are dimmed where surfaces hide them,
-except joints, directional lights, post-process volumes, the capsules of selected characters and canvas outlines,
-which are drawn over everything. Screen-space UI would cover the scene, so the UI canvases overlay draws each canvas
+except joints, directional lights, post-process volumes, the capsules of selected characters, canvas outlines and
+contacts, which are drawn over everything. Screen-space UI would cover the scene, so the UI canvases overlay draws each canvas
 standing in its entity's XY plane instead.
 
 ### Dropping into the view

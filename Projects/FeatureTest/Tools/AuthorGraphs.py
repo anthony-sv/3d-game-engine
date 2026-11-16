@@ -1,7 +1,8 @@
 """Writes the FeatureTest project's visual scripts through `strada mcp`, the way an agent does, then runs the project's tests:
 
 - Scripts/MathLibrary.sgraph, a function library whose pure and latent functions Features calls,
-- Scripts/Contacts.sgraph counts the contacts of the falling box and ball, and adds what its custom event Ping gets,
+- Scripts/Contacts.sgraph counts the contacts of the falling box and ball, checks where and how hard the first collision
+  began (Event.CollisionEnter's outputs against Strada.Collision.Points), and adds what its custom event Ping gets,
 - Scripts/Clicks.sgraph counts the clicks that reach the UI canvas,
 - Scripts/Features.sgraph checks every built-in node kind but the contact and click events (on 'Visual Script Tests'), and
   every [VisualNode] member of the project's scripts (Scripts/Source/GameNodes.cs and VisualScriptTests.cs); it calls
@@ -864,10 +865,13 @@ def build_features(references):
 # --- Contacts.sgraph: the contact events, on the falling box and ball (which also run the C# CollisionProbe) ---------------
 
 CONTACTS_DESCRIPTION = (
-    "Counts its entity's contacts: collisions and triggers that begin and end. At the first contact that ends, it checks "
-    "that every contact that ended had begun (Checks counts it) and sets Done. The feature test's falling box and ball run "
-    "it next to their C# CollisionProbe. Its custom event Ping adds its Amount to Pings: Features.sgraph sends it to the "
-    "box, broadcasts it to both and reads and writes Pings from there.")
+    "Counts its entity's contacts: collisions and triggers that begin and end. At the first collision that begins, it checks "
+    "that Collision Enter gives the strongest point of Strada.Collision.Points (pushing the entity up, with an impulse) and "
+    "the surface ExpectedSurface names; at the first contact that ends, that every contact that ended had begun. Checks "
+    "counts the checks that passed, and Done is set when both have. The feature test's falling box (on the ground, which has "
+    "no material) and ball (on the Contact Pad, of Rubber) run it next to their C# CollisionProbe. Its custom event Ping "
+    "adds its Amount to Pings: Features.sgraph sends it to the box, broadcasts it to both and reads and writes Pings from "
+    "there.")
 
 
 def build_contacts(references):
@@ -877,18 +881,61 @@ def build_contacts(references):
     triggers_entered = doc.variable("TriggersEntered", "int", 0, True, "Trigger overlaps that began")
     triggers_exited = doc.variable("TriggersExited", "int", 0, True, "Trigger overlaps that ended")
     checks = doc.variable("Checks", "int", 0, True, "Checks that passed")
-    done = doc.variable("Done", "bool", False, True, "Whether a contact has ended")
+    done = doc.variable("Done", "bool", False, True, "Whether both checks passed")
     last_other = doc.variable("LastOther", "Strada.Entity")
     pings = doc.variable("Pings", "int", 0, True, "What the custom event Ping added")
+    # After Pings, whose ID Features.sgraph names.
+    expected_surface = doc.variable("ExpectedSurface", "string", "", True,
+                                    "The surface of the physics material the entity first lands on (empty for none)")
     g = doc.graph
+    me = (g.node("Self"), "Self")
+    name = (g.node("Get:Strada.Entity.Name", Target=me), "Value")
+
+    def finish(*nodes):
+        """The nodes, then Checks += 1, then Done when both checks have passed."""
+        last = g.chain(*nodes, g.increment(checks))
+        both = g.node("Flow.Branch", Condition=g.op("GreaterOrEqual", g.get(checks), B=2))
+        g.flow(last, both)
+        g.flow((both, "True"), g.set(done, literal=True))
 
     # Ping(Amount): Pings += Amount.
     pinged = g.node("Event.Custom", {"Name": "Ping", "Parameters": [{"Name": "Amount", "Type": "int"}]})
     g.flow(pinged, g.set(pings, g.op("Add", g.get(pings), (pinged, "Amount"))))
 
+    events = {}
     for kind, counter in [("Event.CollisionEnter", collisions_entered), ("Event.TriggerEnter", triggers_entered)]:
         event = g.node(kind)
-        g.chain(event, g.increment(counter), g.set(last_other, (event, "Other")))
+        events[kind] = (event, g.chain(event, g.increment(counter), g.set(last_other, (event, "Other"))))
+
+    # The first collision that begins: its outputs are the strongest point's (Collision.Points[0], strongest first), which
+    # pushes the entity up from what it lands on, with an impulse, and its Surface is the one expected; Collision names the
+    # entity, Other and a step.
+    enter, entered = events["Event.CollisionEnter"]
+    landed = g.node("Flow.DoOnce")
+    g.flow(entered, landed)
+    points = (g.node("Get:Strada.Collision.Points"), "Value")
+    strongest = g.node("Break", {"Type": "Strada.ContactPoint"},
+                       Value=(g.node("Array.Get", None, {"Index": 0}, Array=points), "Element"))
+    normal = g.node("Break", {"Type": "Strada.Vector3"}, Value=(enter, "Normal"))
+    touched = g.all_of(
+        g.op("GreaterOrEqual", (g.node("Array.Length", Array=points), "Length"), B=1),
+        g.op("Equal", (enter, "Point"), (strongest, "Point")), g.op("Equal", (enter, "Normal"), (strongest, "Normal")),
+        g.op("Equal", (enter, "Impulse"), (strongest, "Impulse")), g.op("Greater", (enter, "Impulse"), B=0.0),
+        g.op("Greater", (normal, "Y"), B=0.5), g.op("Equal", (enter, "Surface"), g.get(expected_surface)),
+        g.op("Equal", (g.node("Get:Strada.Collision.Entity"), "Value"), me),
+        g.op("Equal", (g.node("Get:Strada.Collision.Other"), "Value"), (enter, "Other")),
+        g.op("Greater", (g.node("Get:Strada.Collision.Step"), "Value"), g.literal("ulong", "0")))
+    collided = g.node("Flow.Branch", Condition=touched)
+    g.flow((landed, "Completed"), collided)
+    collision_check = g.format("Contacts: {Name}: a collision begins at its strongest point, on the surface it touches", Name=name)
+    finish((collided, "True"), g.node("Call:Strada.Testing.TestReporter.Pass(string)", Name=collision_check))
+    g.flow((collided, "False"), g.node(
+        "Call:Strada.Testing.TestReporter.Fail(string,string)", Name=collision_check,
+        Message=g.format("{Point}, normal {Normal}, impulse {Impulse} on '{Surface}' ('{Expected}' expected); the strongest of "
+                         "Collision.Points is at {Strongest}", Point=(enter, "Point"), Normal=(enter, "Normal"),
+                         Impulse=(enter, "Impulse"), Surface=(enter, "Surface"), Expected=g.get(expected_surface),
+                         Strongest=(strongest, "Point"))))
+
     once = g.node("Flow.DoOnce")
     for kind, counter in [("Event.CollisionExit", collisions_exited), ("Event.TriggerExit", triggers_exited)]:
         event = g.node(kind)
@@ -899,15 +946,12 @@ def build_contacts(references):
     passed = g.all_of(g.op("GreaterOrEqual", began, ended), (g.node("IsValid", Value=g.get(last_other)), "Result"))
     branch = g.node("Flow.Branch", Condition=passed)
     g.flow((once, "Completed"), branch)
-    me = (g.node("Self"), "Self")
-    name = g.format("Contacts: {Name}: every contact that ended had begun",
-                    Name=(g.node("Get:Strada.Entity.Name", Target=me), "Value"))
-    reported = g.node("Call:Strada.Testing.TestReporter.Pass(string)", Name=name)
-    g.chain((branch, "True"), reported, g.increment(checks), g.set(done, literal=True))
-    failed = g.node("Call:Strada.Testing.TestReporter.Fail(string,string)", Name=name,
+    ended_check = g.format("Contacts: {Name}: every contact that ended had begun", Name=name)
+    finish((branch, "True"), g.node("Call:Strada.Testing.TestReporter.Pass(string)", Name=ended_check))
+    failed = g.node("Call:Strada.Testing.TestReporter.Fail(string,string)", Name=ended_check,
                     Message=g.format("{Began} began, {Ended} ended", Began=began, Ended=ended))
     g.flow((branch, "False"), failed)
-    return doc, 1, {"Pings": pings}
+    return doc, 2, {"Pings": pings}
 
 
 # --- Clicks.sgraph: Event.Click, on the UI canvas (an ancestor of the button UITests clicks) -------------------------------

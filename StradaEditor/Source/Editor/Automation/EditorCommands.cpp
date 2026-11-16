@@ -6177,7 +6177,8 @@ namespace Strada
 				                 "all of them: { grid, selectionOutline, icons (light and camera gizmos), cameras (frustums), lights "
 				                 "(directional light rays, point light ranges, spot light cones), colliders (with character capsules), "
 				                 "joints, volumes (boxes of local post-process volumes), debugDrawing (lines scripts draw), canvases (the "
-				                 "UI of each canvas in its entity's plane, with its outline) }; the shape kinds are \"off\", \"selected\" "
+				                 "UI of each canvas in its entity's plane, with its outline), contacts (the points and normals of the "
+				                 "contacts that began in the last frame of a playing scene) }; the shape kinds are \"off\", \"selected\" "
 				                 "(for the selected entities) or \"all\" (for every entity). Changes nothing in the scene. Not undoable; "
 				                 "Unavailable without a viewport (headless).",
 				                 SchemaBuilder::Object()
@@ -6192,6 +6193,8 @@ namespace Strada
 				                     .Property("debugDrawing", SchemaBuilder::Boolean("Lines scripts draw (Debug.DrawLine)"))
 				                     .Property("canvases",
 				                               SchemaBuilder::Boolean("The UI of each canvas in its entity's plane, with its outline"))
+				                     .Property("contacts", SchemaBuilder::Boolean("The points and normals of the contacts that began in "
+				                                                                  "the last frame, while a scene plays"))
 				                     .Build(),
 				                 false,
 				                 [this](Json const& params) -> CommandResult
@@ -6231,6 +6234,7 @@ namespace Strada
 									 setShapes("volumes", overlays.Volumes);
 									 setFlag("debugDrawing", overlays.DebugLines);
 									 setFlag("canvases", overlays.Canvases);
+									 setFlag("contacts", overlays.Contacts);
 									 return DescribeOverlays(overlays);
 								 })
 				           : result;
@@ -6251,7 +6255,8 @@ namespace Strada
 				                     {"joints", shapes(overlays.Joints)},
 				                     {"volumes", shapes(overlays.Volumes)},
 				                     {"debugDrawing", overlays.DebugLines},
-				                     {"canvases", overlays.Canvases}});
+				                     {"canvases", overlays.Canvases},
+				                     {"contacts", overlays.Contacts}});
 			}
 
 			static Json DescribeCamera(EditorCamera const& camera)

@@ -32,6 +32,11 @@ internal interface IVisualScriptEnvironment
 	// The entity's component of the type (a component view), or null when the entity has none.
 	Component? GetComponent(ulong id, Type componentType);
 
+	// The strongest point of the contact event being handled (Strada.Collision.Points[0]: seen from the entity that handles
+	// it) and the Surface of its other side's physics material ("" for none); false, a default point and "" outside a
+	// contact handler or for a contact without points.
+	bool TryGetContactPoint(out ContactPoint point, out string surface);
+
 	// Sets Time.DeltaTime for the Update dispatch, as C# dispatch does.
 	void SetDeltaTime(float timeStep);
 

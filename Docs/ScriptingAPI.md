@@ -9,7 +9,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 [visual scripting guide](VisualScripting.md) how graphs call it: every member listed here is a node.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-88 types in 2 namespaces, with 755 members and enum values in all.
+90 types in 2 namespaces, with 765 members and enum values in all.
 
 ## Strada
 
@@ -26,8 +26,10 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [CameraComponent](#cameracomponent) | class | Renders the scene from the entity's position, looking down its -Z axis. |
 | [CapsuleColliderComponent](#capsulecollidercomponent) | class | A capsule collision shape along the entity's local Y axis. |
 | [CharacterControllerComponent](#charactercontrollercomponent) | class | Makes the entity a character that scripts move, such as the player: an upright capsule that walks at the velocity given to `CharacterControllerComponent.Move`, slides along walls, climbs steps up to `CharacterControllerComponent.StepHeight` and slopes up to `CharacterControllerComponent.MaxSlopeAngle`, slides down steeper slopes, falls with gravity, rides what it stands on (moving platforms, elevators) and pushes dynamic bodies. The entity's transform follows the capsule, which does not turn with the entity: in `Script.OnFixedUpdate` it is where the last physics step left the character, and between steps it is drawn on its way there (a step behind), so it moves smoothly at any frame rate. Raycasts hit the character, and triggers and bodies report it in their contact callbacks like a kinematic body. The colliders of the entities below it are its own parts: they neither block it nor report touching it. |
+| [Collision](#collision) | static class | The contact event being handled: readable inside a script's `Script.OnCollisionEnter`, `Script.OnCollisionExit`, `Script.OnTriggerEnter` and `Script.OnTriggerExit`, and while a graph's contact event runs, until its first wait. Physics reports contacts once per frame, after the frame's physics steps, so `Collision.Step` says which step a contact happened in. Outside a handler `Collision.Entity` and `Collision.Other` are null, `Collision.Step` is 0 and `Collision.Points` is empty. |
 | [Color](#color) | struct | A linear RGBA color with single-precision components (1 is full intensity; lights may exceed it). |
 | [Component](#component) | abstract class | Base class of the engine components scripts can access through `Entity.GetComponent`. Component objects are views: they read and write the entity's data directly. |
+| [ContactPoint](#contactpoint) | struct | Where and how two colliders touch as their contact begins, seen from one of them: the entity whose handler reads it (`Collision.Entity`), against `Collision.Other`. |
 | [CursorMode](#cursormode) | enum | How the mouse cursor behaves. |
 | [Curve](#curve) | class | A curve asset (`.scurve`): keys with values, how each segment interpolates (smooth, linear or a step) and their slopes, and what the curve does before its first key and after its last (hold, loop, ping-pong or go on along a line). Use one to map a number to another, such as a speed to an engine's pitch or a time to a light's intensity. Edit it in the editor's curve editor; scripts read it. |
 | [Debug](#debug) | static class | Drawing for debugging, in the editor and development builds (shipped Dist games draw nothing). |
@@ -287,6 +289,21 @@ Makes the entity a character that scripts move, such as the player: an upright c
 | `void Move(Vector3 velocity)` | Walks the character at a velocity (meters per second, world space) during the next physics step: call it from `Script.OnFixedUpdate` every step the character should move (a later call before the step replaces the velocity). Gravity acts on top of it, so the velocity is usually horizontal; to jump, set `CharacterControllerComponent.Velocity`. |
 | `void Teleport(Vector3 position)` | Places the entity at a world position at once, keeping its rotation, and stops the character, which finds the ground where it is placed. |
 
+### Collision
+
+```csharp
+public static class Collision
+```
+
+The contact event being handled: readable inside a script's `Script.OnCollisionEnter`, `Script.OnCollisionExit`, `Script.OnTriggerEnter` and `Script.OnTriggerExit`, and while a graph's contact event runs, until its first wait. Physics reports contacts once per frame, after the frame's physics steps, so `Collision.Step` says which step a contact happened in. Outside a handler `Collision.Entity` and `Collision.Other` are null, `Collision.Step` is 0 and `Collision.Points` is empty.
+
+| Member | Summary |
+|---|---|
+| `static Entity? Entity { get; }` | The entity whose handler runs (its script instance when it has one): the script's own entity. |
+| `static Entity? Other { get; }` | The other entity of the contact (its script instance when it has one): the handler's argument. |
+| `static ulong Step { get; }` | The physics step the contact began or ended in, counting the scene's physics steps from 1 (a contact that ends because an entity was destroyed between steps has the number of the step before). |
+| `static ContactPoint[] Points { get; }` | Where the colliders touch as the contact begins, seen from `Collision.Entity`: up to four points, the strongest first (by `ContactPoint.Impulse`, then by position). Empty when a contact ends, for a contact sleeping bodies resume on waking (which raises no event), and outside a handler. A new array on each read. |
+
 ### Color
 
 ```csharp
@@ -326,6 +343,23 @@ Base class of the engine components scripts can access through `Entity.GetCompon
 | Member | Summary |
 |---|---|
 | `Entity Entity { get; }` | The entity the component belongs to. |
+
+### ContactPoint
+
+```csharp
+public struct ContactPoint
+```
+
+Where and how two colliders touch as their contact begins, seen from one of them: the entity whose handler reads it (`Collision.Entity`), against `Collision.Other`.
+
+| Member | Summary |
+|---|---|
+| `Vector3 Point` | The world-space point where they touch: halfway between the two surfaces (a contact found just before they touch has it in the gap between them). |
+| `Vector3 Normal` | The contact's normal, unit length, from the other collider towards this one: the way this entity is pushed. |
+| `float Impulse` | The impulse along the normal at this point (newton seconds) that stops the two bodies' approach and, with their restitution, bounces them apart: how hard the impact is. Estimated by the physics engine from the two bodies alone, so inaccurate when more than two collide at once; 0 for a trigger and for a contact without a dynamic body. |
+| `Vector3 RelativeVelocity` | This entity's velocity at the point minus the other's (meters per second) as the contact began: they approach when it points against `ContactPoint.Normal`. |
+| `PhysicsMaterial? Material` | The physics material of this side's surface at the point (its collider's Material, or for a triangle of a mesh collider its submesh's); null when the collider's own Friction and Restitution apply. |
+| `PhysicsMaterial? OtherMaterial` | The physics material of the other side's surface at the point (see `ContactPoint.Material`); its `PhysicsMaterial.Surface` tells what was hit. |
 
 ### CursorMode
 

@@ -3,7 +3,11 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/PhysicsMaterial.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptEngine.h"
@@ -12,6 +16,9 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -305,6 +312,143 @@ TEST_CASE("Scene: physics contacts reach the scripts of both entities")
 	// The ball sleeps on the ground: the contact goes on.
 	CHECK_FALSE(Contains(records, "Ball:CollisionExit(Ground)"));
 	scene.OnRuntimeStop();
+}
+
+namespace
+{
+	AssetHandle AddPhysicsMaterial(std::string const& surface)
+	{
+		TypedDataAssetType<PhysicsMaterial> const* type = DataAssetRegistry::Find<PhysicsMaterial>();
+		REQUIRE(type != nullptr);
+		Ref<TypedDataAsset<PhysicsMaterial>> const asset = std::static_pointer_cast<TypedDataAsset<PhysicsMaterial>>(type->CreateAsset());
+		PhysicsMaterial material;
+		material.Surface = surface;
+		REQUIRE(asset->SetData(material).IsOk());
+		return AssetManager::AddMemoryAsset(asset, surface);
+	}
+
+	// The first event of that type between the two entities.
+	ContactEvent const& FindEvent(std::vector<ContactEvent> const& events, ContactEventType type, UUID a, UUID b)
+	{
+		auto const found = std::find_if(events.begin(), events.end(),
+		                                [&](ContactEvent const& event)
+		                                {
+											return event.Type == type &&
+			                                       ((event.First == a && event.Second == b) || (event.First == b && event.Second == a));
+										});
+		REQUIRE(found != events.end());
+		return *found;
+	}
+
+	// What Strada.Tests.ContactReader kept of the first collision that began is the event as its entity sees it.
+	void CheckCollisionRead(ScriptFieldMap const& read, ContactEvent const& event, UUID entity, AssetHandle material, AssetHandle other)
+	{
+		HandledContactEvent const handled{&event, event.Second == entity};
+		REQUIRE(event.PointCount > 0);
+		CHECK(read.at("CollisionsEntered").GetInt32() >= 1);
+		CHECK(read.at("EnterEntity").GetEntity() == entity);
+		CHECK(read.at("EnterOther").GetEntity() == handled.GetOther());
+		CHECK(read.at("EnterStep").GetUInt64() == event.Step);
+		CHECK(read.at("EnterPointCount").GetInt32() == static_cast<int32_t>(event.PointCount));
+		ContactPoint const first = handled.GetPoint(0);
+		ContactPoint const last = handled.GetPoint(event.PointCount - 1);
+		// The values cross unchanged.
+		CHECK(read.at("FirstPoint").GetVector3() == first.Point);
+		CHECK(read.at("FirstNormal").GetVector3() == first.Normal);
+		CHECK(read.at("FirstImpulse").GetFloat() == first.Impulse);
+		CHECK(read.at("FirstRelativeVelocity").GetVector3() == first.RelativeVelocity);
+		CHECK(read.at("FirstMaterial").GetAsset() == material);
+		CHECK(read.at("FirstOtherMaterial").GetAsset() == other);
+		CHECK(read.at("LastPoint").GetVector3() == last.Point);
+		CHECK(read.at("LastImpulse").GetFloat() == last.Impulse);
+		CHECK(read.at("EmptyOutsideHandlers").GetBool());
+	}
+}
+
+TEST_CASE("Scene: contact handlers read the event's entities, step and points through Strada.Collision, seen from their entity")
+{
+	Testing::PhysicsSystemScope physics;
+	Testing::AssetManagerScope assets;
+	Testing::ScriptEngineScope scripting;
+	AssetHandle const asphalt = AddPhysicsMaterial("Asphalt");
+	AssetHandle const rubber = AddPhysicsMaterial("Rubber");
+	struct Run
+	{
+		uint64_t EnterStep = 0;
+		float FirstImpulse = 0.0f;
+	};
+	std::vector<Run> runs;
+	// The steps are of 1/60 s at every frame rate: the contact is the same, and is read the same.
+	for (float const frameTime : {1.0f / 30.0f, 1.0f / 60.0f, 1.0f / 144.0f})
+	{
+		CAPTURE(frameTime);
+		Scene scene("Contacts");
+		Entity ground = AddScript(scene, "Ground", "Strada.Tests.ContactReader");
+		ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+		BoxColliderComponent& floor = ground.AddComponent<BoxColliderComponent>();
+		floor.HalfExtents = {10.0f, 0.5f, 10.0f};
+		floor.Material = asphalt;
+		Entity zone = scene.CreateEntity("Zone");
+		zone.GetComponent<TransformComponent>().Translation = {0.0f, 2.5f, 0.0f};
+		BoxColliderComponent& trigger = zone.AddComponent<BoxColliderComponent>();
+		trigger.HalfExtents = {2.0f, 1.0f, 2.0f};
+		trigger.IsTrigger = true;
+		// A box that lands flat: four points.
+		Entity box = AddScript(scene, "Box", "Strada.Tests.ContactReader");
+		box.GetComponent<TransformComponent>().Translation = {0.0f, 6.0f, 0.0f};
+		box.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
+		BoxColliderComponent& crate = box.AddComponent<BoxColliderComponent>();
+		crate.HalfExtents = {0.5f, 0.5f, 0.5f};
+		crate.Material = rubber;
+
+		scene.OnRuntimeStart();
+		std::vector<ContactEvent> events;
+		int const frames = static_cast<int>(std::lround(3.0f / frameTime));
+		for (int frame = 0; frame < frames; frame++)
+		{
+			scene.OnUpdateRuntime(Timestep(frameTime));
+			events.insert(events.end(), scene.GetContactEvents().begin(), scene.GetContactEvents().end());
+		}
+		ContactEvent const& landed = FindEvent(events, ContactEventType::CollisionEnter, box.GetUUID(), ground.GetUUID());
+		CHECK(landed.PointCount == MaxContactPoints);
+		Result<ScriptFieldMap> const boxRead = ScriptEngine::GetInstanceFields(box.GetUUID());
+		Result<ScriptFieldMap> const groundRead = ScriptEngine::GetInstanceFields(ground.GetUUID());
+		REQUIRE(boxRead.IsOk());
+		REQUIRE(groundRead.IsOk());
+		ScriptFieldMap const& read = boxRead.GetValue();
+		CheckCollisionRead(read, landed, box.GetUUID(), rubber, asphalt);
+		CheckCollisionRead(groundRead.GetValue(), landed, ground.GetUUID(), asphalt, rubber);
+		// The ground pushes the box up and the box the ground down; the strongest point comes first.
+		CHECK(read.at("FirstNormal").GetVector3().y > 0.99f);
+		CHECK(groundRead.GetValue().at("FirstNormal").GetVector3().y < -0.99f);
+		CHECK(read.at("FirstImpulse").GetFloat() > 0.0f);
+		CHECK(read.at("FirstImpulse").GetFloat() >= read.at("LastImpulse").GetFloat());
+
+		// A trigger's points carry no impulse, and a contact that ends has none.
+		ContactEvent const& entered = FindEvent(events, ContactEventType::TriggerEnter, box.GetUUID(), zone.GetUUID());
+		ContactEvent const& left = FindEvent(events, ContactEventType::TriggerExit, box.GetUUID(), zone.GetUUID());
+		CHECK(read.at("TriggersEntered").GetInt32() == 1);
+		CHECK(read.at("TriggerEnterStep").GetUInt64() == entered.Step);
+		CHECK(read.at("TriggerEnterPointCount").GetInt32() == static_cast<int32_t>(entered.PointCount));
+		CHECK(read.at("TriggerEnterPointCount").GetInt32() > 0);
+		CHECK(read.at("TriggerEnterImpulse").GetFloat() == 0.0f);
+		CHECK(read.at("TriggersExited").GetInt32() == 1);
+		CHECK(read.at("TriggerExitStep").GetUInt64() == left.Step);
+		CHECK(read.at("TriggerExitPointCount").GetInt32() == 0);
+		CHECK(read.at("TriggerExitOther").GetEntity() == zone.GetUUID());
+		CHECK(entered.Step < left.Step);
+		CHECK(left.Step < landed.Step);
+		runs.push_back({landed.Step, read.at("FirstImpulse").GetFloat()});
+		scene.OnRuntimeStop();
+	}
+	REQUIRE(runs.size() == 3);
+	for (Run const& run : runs)
+	{
+		CHECK(run.EnterStep == runs.front().EnterStep);
+		CHECK(run.FirstImpulse == runs.front().FirstImpulse);
+	}
+	// Outside the scene's dispatch no contact is being handled.
+	CHECK(ScriptEngine::GetHandledContactEvent() == nullptr);
 }
 
 TEST_CASE("Scene: destroying a running scene ends its scripts, and one scene runs scripts at a time")

@@ -61,6 +61,21 @@ public sealed class DebugValueTests
 		Assert.Equal(expected, Encode(value, Type(type)));
 	}
 
+	// A contact point crosses as its text, as the other structs of physics do: its point, normal and impulse.
+	[Fact]
+	public void ContactPointsCrossAsTheirText()
+	{
+		ContactPoint point = new()
+		{
+			Point = new Vector3(1.0f, 0.0f, 2.5f),
+			Normal = Vector3.Up,
+			Impulse = 3.5f,
+			Material = new PhysicsMaterial(new AssetHandle(7)),
+		};
+		Assert.Equal("""{"Type":"Strada.ContactPoint","Text":"Point (1, 0, 2.5), Normal (0, 1, 0), Impulse 3.5"}""",
+			Encode(point, Type(typeof(ContactPoint))));
+	}
+
 	[Fact]
 	public void MatricesAndEnumsCrossAsTheirLiterals()
 	{
