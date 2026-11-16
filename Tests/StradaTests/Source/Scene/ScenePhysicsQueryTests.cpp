@@ -90,7 +90,8 @@ namespace
 			Entity probe = AddScript(scene, UUID(50 + i), "Probe", "Strada.Tests.QueryProbe",
 			                         ScriptFieldMap{{"HashStep", ScriptFieldValue::FromInt32(hashStep)},
 			                                        {"HoverHeight", ScriptFieldValue::FromFloat(0.8f + 0.4f * offset)}});
-			probe.GetComponent<TransformComponent>().Translation = {-1.0f + 2.0f * offset, 2.0f, 0.5f * offset};
+			// Near its height (the cast starts 0.55 below the center, and its sphere reaches 0.05 below that).
+			probe.GetComponent<TransformComponent>().Translation = {-1.0f + 2.0f * offset, 1.6f + 0.4f * offset, 0.5f * offset};
 			probe.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
 			probe.AddComponent<SphereColliderComponent>().Radius = 0.5f;
 		}
@@ -104,6 +105,8 @@ namespace
 		std::array<uint64_t, 2> ResultHashes = {};
 		// At the end of the frame that ran the step (a frame of 1/30 s runs two).
 		std::array<int32_t, 2> Found = {};
+		// The first fixed update whose ground cast found nothing; 0 for none.
+		std::array<int32_t, 2> FirstMissSteps = {};
 		std::array<float, 2> Heights = {};
 	};
 
@@ -132,6 +135,7 @@ namespace
 			REQUIRE(read.IsOk());
 			run.ResultHashes[i] = read.GetValue().at("ResultHashAtStep").GetUInt64();
 			run.Found[i] = read.GetValue().at("Found").GetInt32();
+			run.FirstMissSteps[i] = read.GetValue().at("FirstMissStep").GetInt32();
 			run.Heights[i] = scene.GetPhysicsScene()->GetBodyTransform(probe)->Position.y;
 		}
 		scene.OnRuntimeStop();
@@ -264,13 +268,14 @@ TEST_CASE("ScenePhysics: queries from OnFixedUpdate that decide forces give the 
 			CHECK(other.ResultHashes == at60.ResultHashes);
 		}
 	}
-	// The casts found something in more than half the steps, and the forces they decide hold the balls up (falling, they would
-	// rest at 0.5).
+	// The ground cast found the ground in every step, and the forces it decides hold the balls up (falling, they would rest at
+	// 0.5).
 	HoverRun const run = RunHover(1.0f / 60.0f, 240);
 	for (size_t i = 0; i < 2; i++)
 	{
 		CAPTURE(i);
-		CHECK(run.Found[i] > 120);
+		CHECK(run.FirstMissSteps[i] == 0);
+		CHECK(run.Found[i] >= 240);
 		CHECK(run.Heights[i] > 1.0f);
 	}
 	// The results tell steps apart.

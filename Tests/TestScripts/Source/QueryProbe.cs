@@ -15,6 +15,9 @@ public sealed class QueryProbe : Script
 	public int Found;
 	public ulong ResultHash = 14695981039346656037ul;
 	public ulong ResultHashAtStep;
+	// The first fixed update whose ground cast found nothing, and where the body was then.
+	public int FirstMissStep;
+	public Vector3 FirstMiss;
 
 	private readonly RaycastHit[] m_Hits = new RaycastHit[4];
 	private readonly Entity[] m_Entities = new Entity[8];
@@ -26,10 +29,16 @@ public sealed class QueryProbe : Script
 		Vector3 position = Translation;
 		Vector3 force = Vector3.Zero;
 		// Below the body, so that the cast never starts inside it.
-		if (Physics.SphereCast(position + new Vector3(0.0f, -0.55f, 0.0f), 0.05f, Vector3.Down, 4.0f, out ShapeCastHit ground))
+		if (Physics.SphereCast(position + new Vector3(0.0f, -0.55f, 0.0f), 0.05f, Vector3.Down, 6.0f, out ShapeCastHit ground))
 		{
 			Fold(ground);
-			force.Y = (40.0f * (HoverHeight - ground.Distance)) - (6.0f * body.LinearVelocity.Y) + 9.81f;
+			// A spring a little below critical damping: the body settles on its height without bouncing off the ground.
+			force.Y = (40.0f * (HoverHeight - ground.Distance)) - (11.0f * body.LinearVelocity.Y) + 9.81f;
+		}
+		else if (FirstMissStep == 0)
+		{
+			FirstMissStep = Steps;
+			FirstMiss = position;
 		}
 		Quaternion turned = Quaternion.AngleAxis(30.0f, Vector3.Up);
 		if (Physics.BoxCast(position + new Vector3(0.8f, 0.0f, 0.0f), new Vector3(0.2f), turned, Vector3.Right, 3.0f, out ShapeCastHit ahead,
