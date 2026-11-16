@@ -537,9 +537,10 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   shadow view, the casters that pass its test) with equal pipeline, GPU mesh, submesh and material binding set are one
   batch (`MeshBatch`): one `drawIndexed` of as many instances. Masked and double-sided materials have binding sets or
   pipelines of their own, so they never join another material's batch. Each item gets one dense group index when it
-  is submitted, keyed on its mesh, submesh and material through the frame tables' indices (one lookup per submitted
-  submesh); each pass then buckets the items it draws by that index (a count, then a placement), so no pass hashes and
-  none sorts every item on pointers. The orders:
+  is submitted, keyed on its mesh, submesh, material (through the frame tables' indices) and mirroring: a mesh draw
+  looks up each of its submeshes' groups once when it is prepared, and the mirrored group the first time it submits a
+  mirrored instance, so an instance looks nothing up. Each pass then buckets the items it draws by that index (a
+  count, then a placement), so no pass hashes and none sorts every item on pointers. The orders:
   - opaque: batches front to back by their nearest instance's view depth (ties by the batch's first submission), and
     each batch's instances front to back (ties by submission), which keeps the early depth rejection that slice 1's
     front-to-back sort gave;
@@ -586,12 +587,15 @@ and the instances of equal submeshes are drawn together by one `drawIndexed`:
   draws 10,000 instances of 4 meshes and 3 materials among 12,001 entities, with a sun of 4 cascades, at 1920x1080,
   in three scenarios (nothing moved, 1,000 children moved, every root moved), entity IDs off and on. The targets are
   at most 400 draws, `Renderer.Submit` and `Renderer.Prepare` together at most 2.0 ms, and the cache's refresh at most
-  0.5 ms. Measured at IN's last step on the reference machine, with no build or test running: 47 draws with entity IDs
-  off and 62 with them on; `Renderer.Submit` and `Renderer.Prepare` 1.12 to 1.26 ms in a sitting where the step's
-  first tree took 2.72 to 2.95 ms, and 1.27 to 2.32 ms in a later sitting where every figure, the first tree's too
-  (4.0 to 5.6 ms), was about 1.5 times slower; `Renderer.Batch` 0.37 to 0.39 ms of it. What changed against the first
-  tree, in that order of saving: the sky light found without a walk through the hierarchy, mesh draws prepared once
-  per frame, the light-space cascade test, the radix sort.
+  0.5 ms. Draws are 47 with entity IDs off and 62 with them on. Measured at IN's last step on the reference machine
+  with no build or test running, `Renderer.Submit` and `Renderer.Prepare` together took 1.12 to 1.26 ms
+  (`Renderer.Batch` 0.37 to 0.39 ms of it), on that step's tree before its mirroring change, which adds a sign test
+  per instance; the step's first tree had taken 2.72 to 2.95 ms in the same idle state 25 minutes before. In three
+  later sittings the machine ran every figure, the first tree's included (3.9 to 6.4 ms), 1.4 to 2.2 times slower,
+  and the final tree took 1.25 to 2.62 ms there, 0.45 to 0.5 of the first tree's time in the same sitting: the exit's
+  figure is the gate's, measured again with every lane idle. What changed against the first tree, in the order of
+  what each saved: the sky light found without a walk through the hierarchy, mesh draws prepared once per frame, the
+  light-space cascade test, the radix sort.
 
 Visibility: `EndScene` tests the world bounds of every submitted submesh against the camera's `Frustum`
 (`Math/Frustum.h`), built from its view-projection and limited to `SceneRendererCamera::MaxDistance` (the camera
@@ -1265,12 +1269,14 @@ stale.
   or all of them moved; the benchmark case of `WorldTransformCacheTests.cpp` (`STRADA_TRANSFORM_BENCHMARK=1`) measures
   the three. An entry keeps its local matrix (`Local`, the product of its translation, rotation and scale), so an
   entity whose own inputs did not change is computed again under its parent's new matrix with one affine product: what
-  every child costs when its root moves. Measured at IN's last step (Release, the reference machine idle, 100 roots of
-  119 children, one refresh per frame, 300 frames, the zone's median): 0.13 ms with nothing moved, 0.17 ms with 1,000
-  children moved, 0.31 ms with every root moved, every matrix computed again; inside a rendered frame of the instancing
-  benchmark (`Renderer/InstancingBenchmarkTests.cpp`, 12,001 entities, where the renderer's work leaves the cache
-  colder) 0.14, 0.18 and 0.31 to 0.34 ms. Before the local matrix was kept, every root moved cost 0.48 ms in that frame
-  and 0.47 ms alone. A read through a current chain costs about 0.05 µs per entity, half of slice 1's walk.
+  every child costs when its root moves. Measured at IN's last step (Release, 100 roots of 119 children, one refresh
+  per frame, 300 frames, the zone's median), with the reference machine idle: 0.13 ms with nothing moved, 0.17 ms with
+  1,000 children moved, 0.31 ms with every root moved, every matrix computed again; inside a rendered frame of the
+  instancing benchmark (`Renderer/InstancingBenchmarkTests.cpp`, 12,001 entities, where the renderer's work leaves the
+  cache colder) 0.14, 0.18 and 0.31 to 0.34 ms, against 0.47 to 0.49 ms for every root moved before the local matrix
+  was kept. In later sittings where the machine ran 1.4 to 2.2 times slower, every root moved took 0.32 to 0.35 ms alone
+  (0.51 to 0.53 ms before the local matrix, in the same sittings) and 0.44 to 0.58 ms in the frame (0.66 to 0.95 ms
+  before). A read through a current chain costs about 0.05 µs per entity, half of slice 1's walk.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
 

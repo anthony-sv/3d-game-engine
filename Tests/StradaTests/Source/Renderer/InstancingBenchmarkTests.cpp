@@ -245,13 +245,14 @@ TEST_CASE("Instancing: 10,000 instances benchmark" * doctest::skip(!Platform::Re
 		GraphicsDevice::WaitForIdle();
 	}
 
-	// Where submission's time goes: the walk over the meshes with their cached world matrices, the asset lookups a walk
-	// without a per-frame memo would make (each mesh and its two material slots), and SceneRenderer::SubmitMesh with the
-	// assets and matrices at hand.
+	// Where submission's time goes: RenderScene's walk over the meshes with their cached world matrices, and
+	// SceneRenderer's submission of an instance, in one step (SubmitMesh with the assets at hand, which resolves the mesh
+	// and its materials each call) and in two (a mesh draw prepared once per frame, then SubmitMesh(draw) per instance,
+	// as RenderScene submits).
 	using Clock = std::chrono::steady_clock;
 	std::vector<double> walks;
-	std::vector<double> lookups;
-	std::vector<double> submissions;
+	std::vector<double> oneStep;
+	std::vector<double> twoSteps;
 	SceneRenderer renderer("Bench");
 	renderer.SetViewportSize(Width, Height);
 	std::vector<std::pair<Ref<MeshSource>, std::array<Ref<MaterialAsset>, 2>>> resolved;
@@ -269,40 +270,54 @@ TEST_CASE("Instancing: 10,000 instances benchmark" * doctest::skip(!Platform::Re
 	for (int repeat = 0; repeat < 21; repeat++)
 	{
 		auto const walkStart = Clock::now();
-		for (entt::entity const handle : bench.World.GetAllEntitiesWith<MeshComponent>())
-		{
-			Entity const entity(handle, &bench.World);
-			found += entity.GetComponent<MeshComponent>().Visible ? 1 : 0;
-			sink += bench.World.GetCachedWorldTransform(handle).World[3];
-		}
-		auto const lookupStart = Clock::now();
-		for (Entity const& child : bench.MeshChildren)
-		{
-			MeshComponent const& mesh = child.GetComponent<MeshComponent>();
-			found += AssetManager::GetAsset<MeshSource>(mesh.Mesh) ? 1 : 0;
-			found += AssetManager::GetAsset<MaterialAsset>(mesh.Materials[0]) ? 1 : 0;
-			found += AssetManager::GetAsset<MaterialAsset>(mesh.Materials[1]) ? 1 : 0;
-		}
-		auto const lookupEnd = Clock::now();
+		bench.World.ForEachCachedWorldTransform<MeshComponent>(
+			[&found, &sink](entt::entity, MeshComponent const& mesh, glm::mat4 const& world, glm::mat4 const&)
+			{
+				found += mesh.Visible ? 1 : 0;
+				sink += world[3];
+			});
+		auto const walkEnd = Clock::now();
+
 		renderer.BeginScene(camera, SceneRendererSettings());
-		auto const submitStart = Clock::now();
+		auto const oneStepStart = Clock::now();
 		for (size_t index = 0; index < resolved.size(); index++)
 		{
 			renderer.SubmitMesh(resolved[index].first, resolved[index].second, worlds[index]);
 		}
-		auto const submitEnd = Clock::now();
+		auto const oneStepEnd = Clock::now();
 		renderer.EndScene();
 		GraphicsDevice::EndFrame();
-		walks.push_back(std::chrono::duration<double, std::milli>(lookupStart - walkStart).count());
-		lookups.push_back(std::chrono::duration<double, std::milli>(lookupEnd - lookupStart).count());
-		submissions.push_back(std::chrono::duration<double, std::milli>(submitEnd - submitStart).count());
+
+		// The children repeat 12 pairs of mesh and materials (child % 4 and child % 3): 12 draws.
+		renderer.BeginScene(camera, SceneRendererSettings());
+		std::vector<MeshDraw> draws;
+		for (size_t index = 0; index < 12; index++)
+		{
+			draws.push_back(renderer.PrepareMeshDraw(resolved[index].first, resolved[index].second));
+		}
+		auto const twoStepsStart = Clock::now();
+		for (size_t index = 0; index < resolved.size(); index++)
+		{
+			MeshSubmission submission;
+			submission.Transform = worlds[index];
+			submission.PreviousTransform = worlds[index];
+			renderer.SubmitMesh(draws[index % draws.size()], submission);
+		}
+		auto const twoStepsEnd = Clock::now();
+		found += renderer.GetFrameInstances().size();
+		renderer.EndScene();
+		GraphicsDevice::EndFrame();
+
+		walks.push_back(std::chrono::duration<double, std::milli>(walkEnd - walkStart).count());
+		oneStep.push_back(std::chrono::duration<double, std::milli>(oneStepEnd - oneStepStart).count());
+		twoSteps.push_back(std::chrono::duration<double, std::milli>(twoStepsEnd - twoStepsStart).count());
 	}
 	GraphicsDevice::WaitForIdle();
 	std::sort(walks.begin(), walks.end());
-	std::sort(lookups.begin(), lookups.end());
-	std::sort(submissions.begin(), submissions.end());
-	CHECK(found == 21 * 40000);
-	MESSAGE("10,000 meshes walked with their cached matrices "
-	        << walks[walks.size() / 2] << " ms; 30,000 asset lookups " << lookups[lookups.size() / 2]
-	        << " ms; 10,000 SceneRenderer::SubmitMesh calls " << submissions[submissions.size() / 2] << " ms (checksum " << sink.x << ")");
+	std::sort(oneStep.begin(), oneStep.end());
+	std::sort(twoSteps.begin(), twoSteps.end());
+	CHECK(found == 21 * 20000);
+	MESSAGE("10,000 meshes walked with their cached matrices " << walks[walks.size() / 2] << " ms; 10,000 instances submitted in one step "
+	                                                           << oneStep[oneStep.size() / 2] << " ms, in two (prepared mesh draws) "
+	                                                           << twoSteps[twoSteps.size() / 2] << " ms (checksum " << sink.x << ")");
 }
