@@ -748,6 +748,11 @@ Audio clips play through AudioSource components. A clip is loaded whole before i
 field is on: then it is read from its file while it plays, which suits music and long ambience. The Content Browser
 shows a clip's waveform and length, and its tooltip the sample rate and channels.
 
+An Audio Source also has `Bus`, the bus of the project's mixer it plays on ([Mixers](#mixers); empty is Master),
+`Priority` (0 to 255, 128 by default: when more sounds play than the engine mixes at once, 64, those of lower priority
+go silent first and come back when there is room) and `MaxVoices` (1 to 64, 4 by default: how many of its sounds play at
+once, its clip and the one-shots scripts and graphs play on it; a one-shot past it stops the source's oldest one-shot).
+
 ### Fonts
 
 Fonts with TrueType outlines (`.ttf`, `.otf`; the first font of a collection) are used by Text and UI Text
@@ -853,6 +858,11 @@ Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer i
 glide over 5 ms, and a bus added, removed or moved, or whose effects change in kind or order, fades out and back in over
 10 ms, so nothing clicks. An effect that keeps its kind and its place among that kind's effects keeps its sound, so a
 reverb's tail rings on when a filter is inserted before it. When the game stops, the effects' tails stop with it.
+
+A game sets its own volume and mute of each bus on top of the mixer's (`Audio.SetBusVolume` and `Audio.SetBusMuted` in
+[scripts](Scripting.md#sound-text-and-materials) and graphs), as a settings menu does: they are never written to the
+mixer, and each game starts with them at 0 dB and not muted, so editing the mixer while a game plays and the game's own
+values never overwrite each other.
 
 ## Scene Settings
 

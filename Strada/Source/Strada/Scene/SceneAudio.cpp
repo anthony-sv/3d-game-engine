@@ -142,6 +142,47 @@ namespace Strada
 		return sound && m_Audio->IsPlaying(*sound);
 	}
 
+	bool Scene::PlayAudioOneShot(Entity entity, AssetHandle clip, float volume)
+	{
+		std::optional<UUID> const sound = PrepareAudioSource(entity);
+		if (!sound)
+		{
+			return false;
+		}
+		Ref<AudioClipAsset> clipAsset;
+		if (clip.IsValid())
+		{
+			Result<Ref<AudioClipAsset>> loaded = AssetManager::TryGetAsset<AudioClipAsset>(clip);
+			if (!loaded)
+			{
+				ST_CORE_WARN("Entity '{}' plays no one-shot: {}", entity.GetName(), loaded.GetError());
+				return false;
+			}
+			clipAsset = loaded.TakeValue();
+		}
+		return m_Audio->PlayOneShot(*sound, clipAsset, volume);
+	}
+
+	bool Scene::PlayAudioClipAtPoint(AssetHandle clip, glm::vec3 const& position, float volume, std::string_view bus)
+	{
+		if (!m_Audio)
+		{
+			return false;
+		}
+		if (!AssetManager::IsInitialized())
+		{
+			ST_CORE_WARN("Scene '{}' plays no clip at a point: the asset manager is not initialized", m_Name);
+			return false;
+		}
+		Result<Ref<AudioClipAsset>> loaded = AssetManager::TryGetAsset<AudioClipAsset>(clip);
+		if (!loaded)
+		{
+			ST_CORE_WARN("Scene '{}' plays no clip at a point: {}", m_Name, loaded.GetError());
+			return false;
+		}
+		return m_Audio->PlayClipAtPoint(loaded.GetValue(), position, volume, bus);
+	}
+
 	void Scene::CreateAudioSource(entt::entity handle, AudioSourceState& state, AudioSourceComponent const& component, bool playOnStart)
 	{
 		m_Audio->RemoveSource(state.Entity);

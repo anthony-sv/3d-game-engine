@@ -269,11 +269,13 @@ public sealed class NodeLibraryTests
 			.Order(StringComparer.Ordinal)];
 		Assert.Equal(
 		[
-			"Assets.Load", "CameraComponent.ScreenToWorldRay", "CameraComponent.WorldToScreenPoint", "Curve.Evaluate", "Entity.As",
-			"Entity.FindByID", "Entity.FindByName", "Entity.GetComponent", "Entity.HasComponent", "Input.GetGamepadAxis",
-			"Input.IsGamepadButtonDown", "Input.IsGamepadButtonPressed", "Input.IsGamepadButtonReleased", "Input.IsGamepadConnected",
-			"Input.IsKeyDown", "Input.IsKeyPressed", "Input.IsKeyReleased", "Input.IsMouseButtonDown", "Input.IsMouseButtonPressed",
-			"Input.IsMouseButtonReleased", "MeshComponent.GetMaterial", "Ray.GetPoint",
+			"Assets.Load", "Audio.GetBusVolume", "Audio.IsBusMuted", "CameraComponent.ScreenToWorldRay",
+			"CameraComponent.WorldToScreenPoint", "Curve.Evaluate", "Entity.As", "Entity.FindByID", "Entity.FindByName",
+			"Entity.GetComponent", "Entity.HasComponent", "Input.GetGamepadAxis", "Input.IsGamepadButtonDown",
+			"Input.IsGamepadButtonPressed", "Input.IsGamepadButtonReleased", "Input.IsGamepadConnected", "Input.IsKeyDown",
+			"Input.IsKeyPressed", "Input.IsKeyReleased", "Input.IsMouseButtonDown", "Input.IsMouseButtonPressed",
+			"Input.IsMouseButtonReleased", "MeshComponent.GetMaterial", "Mixer.GetBusName", "Mixer.GetBusParent", "Mixer.GetBusVolume",
+			"Mixer.HasBus", "Mixer.IsBusMuted", "Ray.GetPoint",
 		], marked);
 	}
 
@@ -448,7 +450,7 @@ public sealed class NodeLibraryTests
 		Assert.Contains(Library.Domains.Components, static type => type.Id == "Strada.TransformComponent");
 		Assert.DoesNotContain(Library.Domains.Components, static type => type.Id == "Strada.Component");
 		Assert.Equal(["Strada.AudioClip", "Strada.Curve", "Strada.EnvironmentMap", "Strada.Font", "Strada.Material", "Strada.Mesh",
-				"Strada.PhysicsMaterial", "Strada.Prefab", "Strada.Texture", "Strada.VisualScript"],
+				"Strada.Mixer", "Strada.PhysicsMaterial", "Strada.Prefab", "Strada.Texture", "Strada.VisualScript"],
 			Library.Domains.Assets.Select(static type => type.Id));
 		Assert.Empty(Library.Domains.Scripts);
 		Assert.Equal(["Strada.ScriptCore.Tests.ProbeBoss", "Strada.ScriptCore.Tests.ProbeEnemy", "Strada.ScriptCore.Tests.ProbePlayer"],

@@ -23,6 +23,7 @@ add_executable(StradaTests
     Source/Asset/VisualScriptReferencesTests.cpp
     Source/Asset/VisualScriptRoundTrip.h
     Source/Asset/VisualScriptSerializerTests.cpp
+    Source/Audio/AudioBenchmarkTests.cpp
     Source/Audio/AudioEngineTests.cpp
     Source/Audio/AudioMixerTests.cpp
     Source/Audio/AudioQueueTests.cpp

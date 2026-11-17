@@ -978,7 +978,7 @@ scripts reach data assets through the Script module's bindings.
 **Scripts: the managed pattern.** A data asset type that scripts use gets a sealed managed class of the same name in
 `Strada-ScriptCore`, deriving from `Asset` with an internal constructor, as `Material` does; no public member lands
 without a use in the FeatureTest scripts (ScriptCoreTests' coverage), so each type's track adds its class with its first
-user (CV's `Curve` is the first, PM's `PhysicsMaterial` the second). Managed code identifies asset classes by name, never by a native number: `AssetTypes`
+user (CV's `Curve` is the first, PM's `PhysicsMaterial` the second, MX1's `Mixer` the third). Managed code identifies asset classes by name, never by a native number: `AssetTypes`
 maps each class to its type name (`"Material"`, `"Curve"`) without calling native code, and the visual script library's
 types, the script field codec, the library writer and the literal codec carry that name, as the JSON they write already
 does. So ScriptCoreTests build, write and check the node library, and run graphs, without a native engine, data asset
@@ -2607,7 +2607,13 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   `PlayClipAtPoint(clip, position, volume, bus)` and `ActiveVoiceCount` (a pure getter); and on `AudioSourceComponent`,
   `PlayOneShot(volume)` (the source's clip), `PlayOneShot(clip, volume)`, `Bus`, `Priority` and `MaxVoices`. Each is a
   node, with a recipe where its defaults do not run it (a one-shot needs a source with a clip; `PlayClipAtPoint` a
-  clip). What scripts set is run-time state of the mix (the game's values, §9.5), never written to the asset.
+  clip). What scripts set is run-time state of the mix (the game's values, §9.5), never written to the asset. The calls
+  reach the scene through `Scene::PlayAudioOneShot` and `Scene::PlayAudioClipAtPoint`, which bring the source up to date
+  with its component first (a clip, bus or pool size set this frame applies) and load the clip asset; a source needs a
+  sound of its own (a clip that plays) for its one-shots, and numbers that are not finite are script errors naming the
+  member. The managed `Mixer` reads the asset's own buses (names, parents, volumes, mutes) for a settings menu; the game's
+  values are `Audio`'s. A test run mixes into the null device in real time, so FeatureTest's checks assert what the main
+  thread knows at a call (a voice started, a count right after a start), never that a sound ended.
 - **The editor and the agents.** The `.smixer` inspector is the generic data asset editor; `mixer.*` are the generated
   commands. The rows of a list of buses are titled by their `Name`; an effect's row, which has no string field, by its
   first two numbers (`FieldEditor::DescribeElement`). MX2 adds the Mixer panel.
@@ -2733,7 +2739,7 @@ Scripts derive from `Strada.Script` (which derives from `Entity`) and override a
 Public fields (and private fields marked `[SerializeField]`) of supported types are editable in the inspector and
 serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `string`, `Vector2`, `Vector3`,
 `Vector4`, `Quaternion`, `Color`, `Entity`, `Prefab`, `AssetHandle`, typed asset references (`Mesh`, `Material`,
-`Texture`, `AudioClip`, `Font`, `EnvironmentMap`, `VisualScript`, `Curve`, `PhysicsMaterial`), and enums. Enums are stored as integers of their size (the class
+`Texture`, `AudioClip`, `Font`, `EnvironmentMap`, `VisualScript`, `Curve`, `Mixer`, `PhysicsMaterial`), and enums. Enums are stored as integers of their size (the class
 metadata lists the enumerators in declaration order and marks `[Flags]` enums; stored values out of the enum's range
 are ignored) and typed references as asset handles (the metadata names the accepted asset type).
 
@@ -2776,7 +2782,8 @@ editor's Simulate mode runs neither kind.
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
   `GroundNormal`, `Teleport(Vector3)`),
-  `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`, `Stream`),
+  `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`, `Stream`,
+  `PlayOneShot(volume)`, `PlayOneShot(clip, volume)`, `Bus`, `Priority`, `MaxVoices`; §9.3),
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
   `Emit(count)`, `Clear()`, `ParticleCount`), `PostProcessComponent` (every field; `Tonemapper` is a `TonemapOperator`),
   `UICanvasComponent`, `UIRectComponent`, `UIImageComponent`, `UITextComponent` (every field), `UIButtonComponent`
@@ -2816,8 +2823,15 @@ editor's Simulate mode runs neither kind.
 - `Log`: `Trace/Info/Warn/Error`. `Debug`: `DrawLine(from, to, color, duration)`.
 - `SceneManager`: `LoadScene(path)`, `CurrentSceneName`. `Application`: `Quit()`, `WindowWidth/Height`, `IsEditor`.
 - `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`, `Font`, `EnvironmentMap`,
-  `VisualScript`, `Curve`, `PhysicsMaterial`.
+  `VisualScript`, `Curve`, `Mixer`, `PhysicsMaterial`.
 - `Curve` (a `.scurve` asset, §6.5): `Evaluate(time)`, a pure node, evaluated by the runtime's copy of the keys.
+- `Audio` (§9.5, §9.7): `MasterVolume`, `GetBusVolume(bus)`, `SetBusVolume(bus, decibels)`, `IsBusMuted(bus)`,
+  `SetBusMuted(bus, muted)` (the game's values of the mix, by bus name in any letter case), `PlayClipAtPoint(clip,
+  position, volume, bus)`, `ActiveVoiceCount`. Bindings `Audio_*` in `ScriptBindingsRuntime.cpp`; without an audio engine
+  reads are the defaults and writes do nothing.
+- `Mixer` (a `.smixer` asset, §9.5): `BusCount`, `GetBusName(index)`, `HasBus(bus)`, `GetBusParent(bus)`,
+  `GetBusVolume(bus)`, `IsBusMuted(bus)`: the asset's own values, read from the runtime's copy of its buses (`Mixer_Read`,
+  `MixerCache`; effects are not copied); every member a pure node.
 - `PhysicsMaterial` (a `.sphysmat` asset, §8): `Friction`, `Restitution`, `FrictionCombine`, `RestitutionCombine`
   (`PhysicsMaterialCombine`), `RollingResistance`, `Surface`, `ImpactSound` (`AudioClip`), `ImpactParticles` (`Prefab`):
   read-only properties, so pure nodes, read from the runtime's copy of the values.
@@ -2838,7 +2852,7 @@ without a simulated character the reads are a character at rest and `Move` and s
 lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
 entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
 `Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
-`Prefab`, `VisualScript`, `Curve`, `PhysicsMaterial`). Calls without a running scene
+`Prefab`, `VisualScript`, `Curve`, `Mixer`, `PhysicsMaterial`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the

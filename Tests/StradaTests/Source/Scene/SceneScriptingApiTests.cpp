@@ -5,6 +5,8 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
+#include "Strada/Asset/Mixer.h"
+#include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/AudioScene.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/KeyCodes.h"
@@ -523,5 +525,58 @@ TEST_CASE("Scene: scripts play, pause and stop sounds")
 	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
 	CHECK(probe.GetName() == "Playing=False");
 	CHECK_FALSE(scene.GetAudioScene()->IsPlaying(probe.GetUUID()));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: scripts play one-shots and clips at points, and set the voices of a source and the game's values of the mix")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	Testing::ScriptEngineScope scripting;
+	InputScope input;
+	Mixer mixer;
+	mixer.Buses.push_back(MixerBus{"Music", "Master", -3.0f, false, {}});
+	AudioEngine::SetMixer(mixer);
+	AssetHandle const clip = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
+	Scene scene("Audio");
+	Entity probe = AddScript(scene, "Probe", "Strada.Tests.AudioProbe");
+	AudioSourceComponent& source = probe.AddComponent<AudioSourceComponent>();
+	source.Clip = clip;
+	source.Spatial = false;
+	scene.OnRuntimeStart();
+	REQUIRE(scene.GetAudioScene() != nullptr);
+	AudioScene const& audio = *scene.GetAudioScene();
+	REQUIRE(audio.GetVoiceCount(probe.GetUUID()) == 1);
+
+	// Two one-shots join the main voice in the source's pool of 4, and a clip plays at a point: what the main thread knows
+	// at the call (no block has mixed, so none has ended).
+	Input::SetKeyState(KeyCode::O, true);
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	Input::SetKeyState(KeyCode::O, false);
+	Input::EndFrame();
+	CHECK(probe.GetName() == "OneShots=True,True;AtPoint=True;Voices=4");
+	CHECK(audio.GetVoiceCount(probe.GetUUID()) == 3);
+	CHECK(AudioEngine::GetActiveVoiceCount() == 4);
+	CHECK(AudioEngine::GetStolenVoiceCount() == 0);
+
+	// The source's fields reach its sound in the same frame: a pool of 2 steals the oldest one-shot. The game's values are
+	// the engine's, and a value that is not a number is refused and logged.
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Input::SetKeyState(KeyCode::M, true);
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(probe.GetName() == "Bus=Music;Priority=200;MaxVoices=2;Music=-6,True;Master=False");
+	CHECK(source.Bus == "Music");
+	CHECK(source.Priority == 200);
+	CHECK(source.MaxVoices == 2);
+	CHECK(audio.GetBus(probe.GetUUID()) == "Music");
+	CHECK(audio.GetPriority(probe.GetUUID()) == 200);
+	CHECK(audio.GetMaxVoices(probe.GetUUID()) == 2);
+	CHECK(audio.GetVoiceCount(probe.GetUUID()) == 2);
+	CHECK(AudioEngine::GetStolenVoiceCount() == 1);
+	CHECK(AudioEngine::GetMasterVolume() == 0.5f);
+	CHECK(AudioEngine::GetBusVolume("Music") == -6.0f);
+	CHECK(AudioEngine::IsBusMuted("Music"));
+	CHECK_FALSE(AudioEngine::IsBusMuted("Master"));
+	CHECK(Testing::WasLogged(logStart, "Audio.SetBusVolume: the value is not a finite number"));
 	scene.OnRuntimeStop();
 }

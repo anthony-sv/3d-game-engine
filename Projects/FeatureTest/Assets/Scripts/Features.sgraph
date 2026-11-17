@@ -4,7 +4,7 @@
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
-		"Description": "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click events (Contacts.sgraph and Clicks.sgraph have those), each reported through TestReporter by the function Check: Checks counts the passed ones and Done is set after the last. The waiting kinds come last, since each suspends the checks after it. The input events count into InputEvents (test runs have no input). The custom event Add adds its Amount to Score: the graph raises it with Event.Send, VisualScriptTests from C#. The custom event Retrigger enters a RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, box and capsule casts onto the physics material probe name the material they hit.",
+		"Description": "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click events (Contacts.sgraph and Clicks.sgraph have those), each reported through TestReporter by the function Check: Checks counts the passed ones and Done is set after the last. The waiting kinds come last, since each suspends the checks after it. The input events count into InputEvents (test runs have no input). The custom event Add adds its Amount to Score: the graph raises it with Event.Send, VisualScriptTests from C#. The custom event Retrigger enters a RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, box and capsule casts onto the physics material probe name the material they hit. A source it makes plays one-shots, the scene a clip at a point, and it reads the project's mixer and sets the game's values of its Voices bus.",
 		"Variables": [
 			{
 				"ID": 1,
@@ -8427,138 +8427,748 @@
 				},
 				{
 					"ID": 761,
-					"Type": "Variable.Get",
+					"Type": "Literal",
 					"Position": [
 						0.0,
 						22160.0
 					],
 					"Settings": {
-						"Variable": 4
+						"Type": "Strada.Mixer",
+						"Value": "15018235737354920508"
 					}
 				},
 				{
 					"ID": 762,
-					"Type": "Variable.Get",
+					"Type": "Call:Strada.Assets.Load<T>(string)",
 					"Position": [
 						0.0,
 						22320.0
 					],
 					"Settings": {
-						"Variable": 6
+						"TypeArguments": [
+							"Strada.Mixer"
+						]
+					},
+					"Inputs": {
+						"Path": "Audio/FeatureTest.smixer"
 					}
 				},
 				{
 					"ID": 763,
-					"Type": "Operator.Greater",
-					"Position": [
-						320.0,
-						22640.0
-					],
-					"Inputs": {
-						"B": 0
-					}
-				},
-				{
-					"ID": 764,
-					"Type": "Variable.Get",
+					"Type": "Literal",
 					"Position": [
 						0.0,
 						22480.0
 					],
 					"Settings": {
-						"Variable": 5
+						"Type": "Strada.AudioClip",
+						"Value": "9906031496213900225"
+					}
+				},
+				{
+					"ID": 764,
+					"Type": "Call:Strada.Entity.Create(string)",
+					"Position": [
+						640.0,
+						19920.0
+					],
+					"Inputs": {
+						"Name": "Graph Speaker"
 					}
 				},
 				{
 					"ID": 765,
-					"Type": "Operator.Greater",
+					"Type": "Call:Strada.Entity.AddComponent<T>()",
 					"Position": [
-						320.0,
-						22800.0
+						960.0,
+						13200.0
 					],
-					"Inputs": {
-						"B": 0.0
+					"Settings": {
+						"TypeArguments": [
+							"Strada.AudioSourceComponent"
+						]
 					}
 				},
 				{
 					"ID": 766,
-					"Type": "Operator.Greater",
-					"Position": [
-						320.0,
-						22960.0
-					],
-					"Inputs": {
-						"B": 0
-					}
-				},
-				{
-					"ID": 767,
-					"Type": "Variable.Get",
-					"Position": [
-						0.0,
-						22640.0
-					],
-					"Settings": {
-						"Variable": 7
-					}
-				},
-				{
-					"ID": 768,
-					"Type": "Get:Strada.Time.FixedDeltaTime",
-					"Position": [
-						0.0,
-						22800.0
-					]
-				},
-				{
-					"ID": 769,
-					"Type": "Operator.Equal",
-					"Position": [
-						320.0,
-						23120.0
-					]
-				},
-				{
-					"ID": 770,
-					"Type": "Operator.And",
-					"Position": [
-						640.0,
-						19920.0
-					]
-				},
-				{
-					"ID": 771,
-					"Type": "Operator.And",
-					"Position": [
-						960.0,
-						13200.0
-					]
-				},
-				{
-					"ID": 772,
-					"Type": "Operator.And",
+					"Type": "Set:Strada.AudioSourceComponent.Clip",
 					"Position": [
 						1280.0,
 						14480.0
 					]
 				},
 				{
+					"ID": 767,
+					"Type": "Set:Strada.AudioSourceComponent.Bus",
+					"Position": [
+						1600.0,
+						11760.0
+					],
+					"Inputs": {
+						"Value": "Voices"
+					}
+				},
+				{
+					"ID": 768,
+					"Type": "Set:Strada.AudioSourceComponent.Priority",
+					"Position": [
+						1920.0,
+						10640.0
+					],
+					"Inputs": {
+						"Value": 200
+					}
+				},
+				{
+					"ID": 769,
+					"Type": "Set:Strada.AudioSourceComponent.MaxVoices",
+					"Position": [
+						2240.0,
+						7920.0
+					],
+					"Inputs": {
+						"Value": 3
+					}
+				},
+				{
+					"ID": 770,
+					"Type": "Call:Strada.AudioSourceComponent.PlayOneShot(float)",
+					"Position": [
+						2560.0,
+						6000.0
+					],
+					"Inputs": {
+						"Volume": 0.5
+					}
+				},
+				{
+					"ID": 771,
+					"Type": "Call:Strada.AudioSourceComponent.PlayOneShot(Strada.AudioClip,float)",
+					"Position": [
+						2880.0,
+						5520.0
+					],
+					"Inputs": {
+						"Volume": 0.25
+					}
+				},
+				{
+					"ID": 772,
+					"Type": "Call:Strada.Audio.PlayClipAtPoint(Strada.AudioClip,Strada.Vector3,float,string)",
+					"Position": [
+						3200.0,
+						5200.0
+					],
+					"Inputs": {
+						"Position": [
+							2.0,
+							1.0,
+							-3.0
+						],
+						"Volume": 0.5,
+						"Bus": "Voices"
+					}
+				},
+				{
 					"ID": 773,
-					"Type": "FormatString",
+					"Type": "Set:Strada.Audio.MasterVolume",
+					"Position": [
+						3520.0,
+						4880.0
+					],
+					"Inputs": {
+						"Value": 0.9
+					}
+				},
+				{
+					"ID": 774,
+					"Type": "Call:Strada.Audio.SetBusVolume(string,float)",
+					"Position": [
+						3840.0,
+						4720.0
+					],
+					"Inputs": {
+						"Bus": "voices",
+						"Decibels": -9.0
+					}
+				},
+				{
+					"ID": 775,
+					"Type": "Call:Strada.Audio.SetBusMuted(string,bool)",
+					"Position": [
+						4160.0,
+						4240.0
+					],
+					"Inputs": {
+						"Bus": "VOICES",
+						"Muted": true
+					}
+				},
+				{
+					"ID": 776,
+					"Type": "Get:Strada.AudioSourceComponent.Bus",
+					"Position": [
+						960.0,
+						13360.0
+					]
+				},
+				{
+					"ID": 777,
+					"Type": "Get:Strada.AudioSourceComponent.Priority",
+					"Position": [
+						960.0,
+						13520.0
+					]
+				},
+				{
+					"ID": 778,
+					"Type": "Get:Strada.AudioSourceComponent.MaxVoices",
+					"Position": [
+						960.0,
+						13680.0
+					]
+				},
+				{
+					"ID": 779,
+					"Type": "Get:Strada.Audio.ActiveVoiceCount",
+					"Position": [
+						0.0,
+						22640.0
+					]
+				},
+				{
+					"ID": 780,
+					"Type": "Get:Strada.Audio.MasterVolume",
+					"Position": [
+						0.0,
+						22800.0
+					]
+				},
+				{
+					"ID": 781,
+					"Type": "Call:Strada.Audio.GetBusVolume(string)",
+					"Position": [
+						0.0,
+						22960.0
+					],
+					"Inputs": {
+						"Bus": "Voices"
+					}
+				},
+				{
+					"ID": 782,
+					"Type": "Call:Strada.Audio.IsBusMuted(string)",
+					"Position": [
+						0.0,
+						23120.0
+					],
+					"Inputs": {
+						"Bus": "Voices"
+					}
+				},
+				{
+					"ID": 783,
+					"Type": "Get:Strada.Mixer.BusCount",
+					"Position": [
+						320.0,
+						22640.0
+					]
+				},
+				{
+					"ID": 784,
+					"Type": "Call:Strada.Mixer.GetBusName(int)",
+					"Position": [
+						320.0,
+						22800.0
+					],
+					"Inputs": {
+						"Index": 3
+					}
+				},
+				{
+					"ID": 785,
+					"Type": "Call:Strada.Mixer.GetBusParent(string)",
+					"Position": [
+						320.0,
+						22960.0
+					],
+					"Inputs": {
+						"Bus": "voices"
+					}
+				},
+				{
+					"ID": 786,
+					"Type": "Call:Strada.Mixer.GetBusVolume(string)",
+					"Position": [
+						320.0,
+						23120.0
+					],
+					"Inputs": {
+						"Bus": "Voices"
+					}
+				},
+				{
+					"ID": 787,
+					"Type": "Operator.Greater",
 					"Position": [
 						320.0,
 						23280.0
+					],
+					"Inputs": {
+						"B": 2
+					}
+				},
+				{
+					"ID": 788,
+					"Type": "Operator.Equal",
+					"Position": [
+						1280.0,
+						14640.0
+					],
+					"Inputs": {
+						"B": "Voices"
+					}
+				},
+				{
+					"ID": 789,
+					"Type": "Operator.Equal",
+					"Position": [
+						1280.0,
+						14800.0
+					],
+					"Inputs": {
+						"B": 200
+					}
+				},
+				{
+					"ID": 790,
+					"Type": "Operator.Equal",
+					"Position": [
+						1280.0,
+						14960.0
+					],
+					"Inputs": {
+						"B": 3
+					}
+				},
+				{
+					"ID": 791,
+					"Type": "Operator.Equal",
+					"Position": [
+						320.0,
+						23440.0
+					],
+					"Inputs": {
+						"B": 0.9
+					}
+				},
+				{
+					"ID": 792,
+					"Type": "Operator.Equal",
+					"Position": [
+						320.0,
+						23600.0
+					],
+					"Inputs": {
+						"B": -9.0
+					}
+				},
+				{
+					"ID": 793,
+					"Type": "Operator.Equal",
+					"Position": [
+						320.0,
+						23760.0
+					]
+				},
+				{
+					"ID": 794,
+					"Type": "Operator.Equal",
+					"Position": [
+						640.0,
+						20080.0
+					],
+					"Inputs": {
+						"B": 4
+					}
+				},
+				{
+					"ID": 795,
+					"Type": "Operator.Equal",
+					"Position": [
+						640.0,
+						20240.0
+					],
+					"Inputs": {
+						"B": "Voices"
+					}
+				},
+				{
+					"ID": 796,
+					"Type": "Operator.Equal",
+					"Position": [
+						640.0,
+						20400.0
+					],
+					"Inputs": {
+						"B": "Effects"
+					}
+				},
+				{
+					"ID": 797,
+					"Type": "Operator.Equal",
+					"Position": [
+						640.0,
+						20560.0
+					],
+					"Inputs": {
+						"B": 3.0
+					}
+				},
+				{
+					"ID": 798,
+					"Type": "Call:Strada.Mixer.HasBus(string)",
+					"Position": [
+						320.0,
+						23920.0
+					],
+					"Inputs": {
+						"Bus": "MUSIC"
+					}
+				},
+				{
+					"ID": 799,
+					"Type": "Call:Strada.Mixer.IsBusMuted(string)",
+					"Position": [
+						320.0,
+						24080.0
+					],
+					"Inputs": {
+						"Bus": "Effects"
+					}
+				},
+				{
+					"ID": 800,
+					"Type": "Operator.And",
+					"Position": [
+						3200.0,
+						5360.0
+					]
+				},
+				{
+					"ID": 801,
+					"Type": "Operator.And",
+					"Position": [
+						3520.0,
+						5040.0
+					]
+				},
+				{
+					"ID": 802,
+					"Type": "Operator.And",
+					"Position": [
+						3840.0,
+						4880.0
+					]
+				},
+				{
+					"ID": 803,
+					"Type": "Operator.And",
+					"Position": [
+						4160.0,
+						4400.0
+					]
+				},
+				{
+					"ID": 804,
+					"Type": "Operator.And",
+					"Position": [
+						4480.0,
+						4240.0
+					]
+				},
+				{
+					"ID": 805,
+					"Type": "Operator.And",
+					"Position": [
+						4800.0,
+						3920.0
+					]
+				},
+				{
+					"ID": 806,
+					"Type": "Operator.And",
+					"Position": [
+						5120.0,
+						3920.0
+					]
+				},
+				{
+					"ID": 807,
+					"Type": "Operator.And",
+					"Position": [
+						5440.0,
+						3920.0
+					]
+				},
+				{
+					"ID": 808,
+					"Type": "Operator.And",
+					"Position": [
+						5760.0,
+						3920.0
+					]
+				},
+				{
+					"ID": 809,
+					"Type": "Operator.And",
+					"Position": [
+						6080.0,
+						3920.0
+					]
+				},
+				{
+					"ID": 810,
+					"Type": "Operator.And",
+					"Position": [
+						6400.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 811,
+					"Type": "Operator.And",
+					"Position": [
+						6720.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 812,
+					"Type": "Operator.And",
+					"Position": [
+						7040.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 813,
+					"Type": "Operator.And",
+					"Position": [
+						7360.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 814,
+					"Type": "Operator.And",
+					"Position": [
+						7680.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 815,
+					"Type": "Operator.And",
+					"Position": [
+						8000.0,
+						3760.0
+					]
+				},
+				{
+					"ID": 816,
+					"Type": "FormatString",
+					"Position": [
+						640.0,
+						20720.0
+					],
+					"Settings": {
+						"Format": "{Voices} voices; Voices at {Volume} dB, {Buses} buses"
+					}
+				},
+				{
+					"ID": 817,
+					"Type": "Function.Call",
+					"Position": [
+						8320.0,
+						3760.0
+					],
+					"Settings": {
+						"Function": 27
+					},
+					"Inputs": {
+						"Name": "a source plays one-shots, the scene a clip at a point, and the game sets its values of the mixer's buses"
+					}
+				},
+				{
+					"ID": 818,
+					"Type": "Set:Strada.Audio.MasterVolume",
+					"Position": [
+						8640.0,
+						3760.0
+					],
+					"Inputs": {
+						"Value": 1.0
+					}
+				},
+				{
+					"ID": 819,
+					"Type": "Call:Strada.Audio.SetBusVolume(string,float)",
+					"Position": [
+						8960.0,
+						3760.0
+					],
+					"Inputs": {
+						"Bus": "Voices",
+						"Decibels": 0.0
+					}
+				},
+				{
+					"ID": 820,
+					"Type": "Call:Strada.Audio.SetBusMuted(string,bool)",
+					"Position": [
+						9280.0,
+						3760.0
+					],
+					"Inputs": {
+						"Bus": "Voices",
+						"Muted": false
+					}
+				},
+				{
+					"ID": 821,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						23280.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 822,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						23440.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				},
+				{
+					"ID": 823,
+					"Type": "Operator.Greater",
+					"Position": [
+						320.0,
+						24240.0
+					],
+					"Inputs": {
+						"B": 0
+					}
+				},
+				{
+					"ID": 824,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						23600.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 825,
+					"Type": "Operator.Greater",
+					"Position": [
+						320.0,
+						24400.0
+					],
+					"Inputs": {
+						"B": 0.0
+					}
+				},
+				{
+					"ID": 826,
+					"Type": "Operator.Greater",
+					"Position": [
+						320.0,
+						24560.0
+					],
+					"Inputs": {
+						"B": 0
+					}
+				},
+				{
+					"ID": 827,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						23760.0
+					],
+					"Settings": {
+						"Variable": 7
+					}
+				},
+				{
+					"ID": 828,
+					"Type": "Get:Strada.Time.FixedDeltaTime",
+					"Position": [
+						0.0,
+						23920.0
+					]
+				},
+				{
+					"ID": 829,
+					"Type": "Operator.Equal",
+					"Position": [
+						320.0,
+						24720.0
+					]
+				},
+				{
+					"ID": 830,
+					"Type": "Operator.And",
+					"Position": [
+						640.0,
+						20880.0
+					]
+				},
+				{
+					"ID": 831,
+					"Type": "Operator.And",
+					"Position": [
+						960.0,
+						13840.0
+					]
+				},
+				{
+					"ID": 832,
+					"Type": "Operator.And",
+					"Position": [
+						1280.0,
+						15120.0
+					]
+				},
+				{
+					"ID": 833,
+					"Type": "FormatString",
+					"Position": [
+						320.0,
+						24880.0
 					],
 					"Settings": {
 						"Format": "{Frames} updates, {Steps} fixed steps"
 					}
 				},
 				{
-					"ID": 774,
+					"ID": 834,
 					"Type": "Function.Call",
 					"Position": [
 						1600.0,
-						11760.0
+						11920.0
 					],
 					"Settings": {
 						"Function": 27
@@ -8568,11 +9178,11 @@
 					}
 				},
 				{
-					"ID": 775,
+					"ID": 835,
 					"Type": "Variable.Set",
 					"Position": [
 						640.0,
-						20080.0
+						21040.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -8582,79 +9192,79 @@
 					}
 				},
 				{
-					"ID": 776,
+					"ID": 836,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						22960.0
+						24080.0
 					],
 					"Settings": {
 						"Variable": 1
 					}
 				},
 				{
-					"ID": 777,
+					"ID": 837,
 					"Type": "FormatString",
 					"Position": [
 						320.0,
-						23440.0
+						25040.0
 					],
 					"Settings": {
 						"Format": "Features: {Checks} checks passed"
 					}
 				},
 				{
-					"ID": 778,
+					"ID": 838,
 					"Type": "Call:Strada.Log.Info(string)",
 					"Position": [
 						960.0,
-						13360.0
+						14000.0
 					]
 				},
 				{
-					"ID": 779,
+					"ID": 839,
 					"Type": "Event.Create",
 					"Position": [
 						0.0,
-						23120.0
+						24240.0
 					]
 				},
 				{
-					"ID": 780,
+					"ID": 840,
 					"Type": "Flow.Sequence",
 					"Position": [
 						320.0,
-						23600.0
+						25200.0
 					],
 					"Settings": {
-						"Count": 42
+						"Count": 43
 					}
 				},
 				{
-					"ID": 781,
+					"ID": 841,
 					"Type": "Event.Destroy",
 					"Position": [
 						0.0,
-						23840.0
+						25440.0
 					]
 				},
 				{
-					"ID": 782,
+					"ID": 842,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						24000.0
+						25600.0
 					],
 					"Settings": {
 						"Variable": 2
 					}
 				},
 				{
-					"ID": 783,
+					"ID": 843,
 					"Type": "Function.Call",
 					"Position": [
 						320.0,
-						23840.0
+						25440.0
 					],
 					"Settings": {
 						"Function": 27
@@ -17618,112 +18228,242 @@
 				},
 				{
 					"From": [
-						761,
-						"Value"
+						764,
+						"Result"
 					],
 					"To": [
-						763,
-						"A"
+						765,
+						"Target"
 					]
 				},
 				{
 					"From": [
 						764,
-						"Value"
-					],
-					"To": [
-						765,
-						"A"
-					]
-				},
-				{
-					"From": [
-						762,
-						"Value"
+						"Result"
 					],
 					"To": [
 						766,
-						"A"
-					]
-				},
-				{
-					"From": [
-						767,
-						"Value"
-					],
-					"To": [
-						769,
-						"A"
-					]
-				},
-				{
-					"From": [
-						768,
-						"Value"
-					],
-					"To": [
-						769,
-						"B"
+						"Target"
 					]
 				},
 				{
 					"From": [
 						763,
+						"Value"
+					],
+					"To": [
+						766,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						764,
+						"Result"
+					],
+					"To": [
+						767,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						764,
+						"Result"
+					],
+					"To": [
+						768,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						764,
+						"Result"
+					],
+					"To": [
+						769,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						764,
 						"Result"
 					],
 					"To": [
 						770,
-						"A"
+						"Target"
+					]
+				},
+				{
+					"From": [
+						764,
+						"Result"
+					],
+					"To": [
+						771,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						763,
+						"Value"
+					],
+					"To": [
+						771,
+						"Clip"
+					]
+				},
+				{
+					"From": [
+						763,
+						"Value"
+					],
+					"To": [
+						772,
+						"Clip"
+					]
+				},
+				{
+					"From": [
+						764,
+						"Then"
+					],
+					"To": [
+						765,
+						"Execute"
 					]
 				},
 				{
 					"From": [
 						765,
-						"Result"
+						"Then"
 					],
 					"To": [
-						770,
-						"B"
-					]
-				},
-				{
-					"From": [
-						770,
-						"Result"
-					],
-					"To": [
-						771,
-						"A"
+						766,
+						"Execute"
 					]
 				},
 				{
 					"From": [
 						766,
-						"Result"
+						"Then"
 					],
 					"To": [
-						771,
-						"B"
+						767,
+						"Execute"
 					]
 				},
 				{
 					"From": [
-						771,
-						"Result"
+						767,
+						"Then"
 					],
 					"To": [
-						772,
-						"A"
+						768,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						768,
+						"Then"
+					],
+					"To": [
+						769,
+						"Execute"
 					]
 				},
 				{
 					"From": [
 						769,
-						"Result"
+						"Then"
+					],
+					"To": [
+						770,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						770,
+						"Then"
+					],
+					"To": [
+						771,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						771,
+						"Then"
 					],
 					"To": [
 						772,
-						"B"
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						772,
+						"Then"
+					],
+					"To": [
+						773,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						773,
+						"Then"
+					],
+					"To": [
+						774,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						774,
+						"Then"
+					],
+					"To": [
+						775,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						764,
+						"Result"
+					],
+					"To": [
+						776,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						764,
+						"Result"
+					],
+					"To": [
+						777,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						764,
+						"Result"
+					],
+					"To": [
+						778,
+						"Target"
 					]
 				},
 				{
@@ -17732,38 +18472,48 @@
 						"Value"
 					],
 					"To": [
-						773,
-						"Frames"
+						783,
+						"Target"
 					]
 				},
 				{
 					"From": [
-						762,
+						761,
 						"Value"
 					],
 					"To": [
-						773,
-						"Steps"
+						784,
+						"Target"
 					]
 				},
 				{
 					"From": [
-						772,
-						"Result"
+						761,
+						"Value"
 					],
 					"To": [
-						774,
-						"Passed"
+						785,
+						"Target"
 					]
 				},
 				{
 					"From": [
-						773,
-						"Result"
+						761,
+						"Value"
 					],
 					"To": [
-						774,
-						"Message"
+						786,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						779,
+						"Value"
+					],
+					"To": [
+						787,
+						"A"
 					]
 				},
 				{
@@ -17772,17 +18522,497 @@
 						"Value"
 					],
 					"To": [
-						777,
-						"Checks"
+						788,
+						"A"
 					]
 				},
 				{
 					"From": [
 						777,
+						"Value"
+					],
+					"To": [
+						789,
+						"A"
+					]
+				},
+				{
+					"From": [
+						778,
+						"Value"
+					],
+					"To": [
+						790,
+						"A"
+					]
+				},
+				{
+					"From": [
+						780,
+						"Value"
+					],
+					"To": [
+						791,
+						"A"
+					]
+				},
+				{
+					"From": [
+						781,
 						"Result"
 					],
 					"To": [
-						778,
+						792,
+						"A"
+					]
+				},
+				{
+					"From": [
+						761,
+						"Value"
+					],
+					"To": [
+						793,
+						"A"
+					]
+				},
+				{
+					"From": [
+						762,
+						"Result"
+					],
+					"To": [
+						793,
+						"B"
+					]
+				},
+				{
+					"From": [
+						783,
+						"Value"
+					],
+					"To": [
+						794,
+						"A"
+					]
+				},
+				{
+					"From": [
+						784,
+						"Result"
+					],
+					"To": [
+						795,
+						"A"
+					]
+				},
+				{
+					"From": [
+						785,
+						"Result"
+					],
+					"To": [
+						796,
+						"A"
+					]
+				},
+				{
+					"From": [
+						786,
+						"Result"
+					],
+					"To": [
+						797,
+						"A"
+					]
+				},
+				{
+					"From": [
+						761,
+						"Value"
+					],
+					"To": [
+						798,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						761,
+						"Value"
+					],
+					"To": [
+						799,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						770,
+						"Result"
+					],
+					"To": [
+						800,
+						"A"
+					]
+				},
+				{
+					"From": [
+						771,
+						"Result"
+					],
+					"To": [
+						800,
+						"B"
+					]
+				},
+				{
+					"From": [
+						800,
+						"Result"
+					],
+					"To": [
+						801,
+						"A"
+					]
+				},
+				{
+					"From": [
+						772,
+						"Result"
+					],
+					"To": [
+						801,
+						"B"
+					]
+				},
+				{
+					"From": [
+						801,
+						"Result"
+					],
+					"To": [
+						802,
+						"A"
+					]
+				},
+				{
+					"From": [
+						787,
+						"Result"
+					],
+					"To": [
+						802,
+						"B"
+					]
+				},
+				{
+					"From": [
+						802,
+						"Result"
+					],
+					"To": [
+						803,
+						"A"
+					]
+				},
+				{
+					"From": [
+						788,
+						"Result"
+					],
+					"To": [
+						803,
+						"B"
+					]
+				},
+				{
+					"From": [
+						803,
+						"Result"
+					],
+					"To": [
+						804,
+						"A"
+					]
+				},
+				{
+					"From": [
+						789,
+						"Result"
+					],
+					"To": [
+						804,
+						"B"
+					]
+				},
+				{
+					"From": [
+						804,
+						"Result"
+					],
+					"To": [
+						805,
+						"A"
+					]
+				},
+				{
+					"From": [
+						790,
+						"Result"
+					],
+					"To": [
+						805,
+						"B"
+					]
+				},
+				{
+					"From": [
+						805,
+						"Result"
+					],
+					"To": [
+						806,
+						"A"
+					]
+				},
+				{
+					"From": [
+						791,
+						"Result"
+					],
+					"To": [
+						806,
+						"B"
+					]
+				},
+				{
+					"From": [
+						806,
+						"Result"
+					],
+					"To": [
+						807,
+						"A"
+					]
+				},
+				{
+					"From": [
+						792,
+						"Result"
+					],
+					"To": [
+						807,
+						"B"
+					]
+				},
+				{
+					"From": [
+						807,
+						"Result"
+					],
+					"To": [
+						808,
+						"A"
+					]
+				},
+				{
+					"From": [
+						782,
+						"Result"
+					],
+					"To": [
+						808,
+						"B"
+					]
+				},
+				{
+					"From": [
+						808,
+						"Result"
+					],
+					"To": [
+						809,
+						"A"
+					]
+				},
+				{
+					"From": [
+						793,
+						"Result"
+					],
+					"To": [
+						809,
+						"B"
+					]
+				},
+				{
+					"From": [
+						809,
+						"Result"
+					],
+					"To": [
+						810,
+						"A"
+					]
+				},
+				{
+					"From": [
+						794,
+						"Result"
+					],
+					"To": [
+						810,
+						"B"
+					]
+				},
+				{
+					"From": [
+						810,
+						"Result"
+					],
+					"To": [
+						811,
+						"A"
+					]
+				},
+				{
+					"From": [
+						795,
+						"Result"
+					],
+					"To": [
+						811,
+						"B"
+					]
+				},
+				{
+					"From": [
+						811,
+						"Result"
+					],
+					"To": [
+						812,
+						"A"
+					]
+				},
+				{
+					"From": [
+						796,
+						"Result"
+					],
+					"To": [
+						812,
+						"B"
+					]
+				},
+				{
+					"From": [
+						812,
+						"Result"
+					],
+					"To": [
+						813,
+						"A"
+					]
+				},
+				{
+					"From": [
+						797,
+						"Result"
+					],
+					"To": [
+						813,
+						"B"
+					]
+				},
+				{
+					"From": [
+						813,
+						"Result"
+					],
+					"To": [
+						814,
+						"A"
+					]
+				},
+				{
+					"From": [
+						798,
+						"Result"
+					],
+					"To": [
+						814,
+						"B"
+					]
+				},
+				{
+					"From": [
+						814,
+						"Result"
+					],
+					"To": [
+						815,
+						"A"
+					]
+				},
+				{
+					"From": [
+						799,
+						"Result"
+					],
+					"To": [
+						815,
+						"B"
+					]
+				},
+				{
+					"From": [
+						779,
+						"Value"
+					],
+					"To": [
+						816,
+						"Voices"
+					]
+				},
+				{
+					"From": [
+						781,
+						"Result"
+					],
+					"To": [
+						816,
+						"Volume"
+					]
+				},
+				{
+					"From": [
+						783,
+						"Value"
+					],
+					"To": [
+						816,
+						"Buses"
+					]
+				},
+				{
+					"From": [
+						815,
+						"Result"
+					],
+					"To": [
+						817,
+						"Passed"
+					]
+				},
+				{
+					"From": [
+						816,
+						"Result"
+					],
+					"To": [
+						817,
 						"Message"
 					]
 				},
@@ -17792,23 +19022,233 @@
 						"Then"
 					],
 					"To": [
-						778,
+						817,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						779,
+						817,
 						"Then"
 					],
 					"To": [
-						780,
+						818,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						780,
+						818,
+						"Then"
+					],
+					"To": [
+						819,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						819,
+						"Then"
+					],
+					"To": [
+						820,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						821,
+						"Value"
+					],
+					"To": [
+						823,
+						"A"
+					]
+				},
+				{
+					"From": [
+						824,
+						"Value"
+					],
+					"To": [
+						825,
+						"A"
+					]
+				},
+				{
+					"From": [
+						822,
+						"Value"
+					],
+					"To": [
+						826,
+						"A"
+					]
+				},
+				{
+					"From": [
+						827,
+						"Value"
+					],
+					"To": [
+						829,
+						"A"
+					]
+				},
+				{
+					"From": [
+						828,
+						"Value"
+					],
+					"To": [
+						829,
+						"B"
+					]
+				},
+				{
+					"From": [
+						823,
+						"Result"
+					],
+					"To": [
+						830,
+						"A"
+					]
+				},
+				{
+					"From": [
+						825,
+						"Result"
+					],
+					"To": [
+						830,
+						"B"
+					]
+				},
+				{
+					"From": [
+						830,
+						"Result"
+					],
+					"To": [
+						831,
+						"A"
+					]
+				},
+				{
+					"From": [
+						826,
+						"Result"
+					],
+					"To": [
+						831,
+						"B"
+					]
+				},
+				{
+					"From": [
+						831,
+						"Result"
+					],
+					"To": [
+						832,
+						"A"
+					]
+				},
+				{
+					"From": [
+						829,
+						"Result"
+					],
+					"To": [
+						832,
+						"B"
+					]
+				},
+				{
+					"From": [
+						821,
+						"Value"
+					],
+					"To": [
+						833,
+						"Frames"
+					]
+				},
+				{
+					"From": [
+						822,
+						"Value"
+					],
+					"To": [
+						833,
+						"Steps"
+					]
+				},
+				{
+					"From": [
+						832,
+						"Result"
+					],
+					"To": [
+						834,
+						"Passed"
+					]
+				},
+				{
+					"From": [
+						833,
+						"Result"
+					],
+					"To": [
+						834,
+						"Message"
+					]
+				},
+				{
+					"From": [
+						836,
+						"Value"
+					],
+					"To": [
+						837,
+						"Checks"
+					]
+				},
+				{
+					"From": [
+						837,
+						"Result"
+					],
+					"To": [
+						838,
+						"Message"
+					]
+				},
+				{
+					"From": [
+						835,
+						"Then"
+					],
+					"To": [
+						838,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						839,
+						"Then"
+					],
+					"To": [
+						840,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						840,
 						"Then0"
 					],
 					"To": [
@@ -17818,7 +19258,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then1"
 					],
 					"To": [
@@ -17828,7 +19268,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then2"
 					],
 					"To": [
@@ -17838,7 +19278,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then3"
 					],
 					"To": [
@@ -17848,7 +19288,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then4"
 					],
 					"To": [
@@ -17858,7 +19298,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then5"
 					],
 					"To": [
@@ -17868,7 +19308,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then6"
 					],
 					"To": [
@@ -17878,7 +19318,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then7"
 					],
 					"To": [
@@ -17888,7 +19328,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then8"
 					],
 					"To": [
@@ -17898,7 +19338,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then9"
 					],
 					"To": [
@@ -17908,7 +19348,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then10"
 					],
 					"To": [
@@ -17918,7 +19358,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then11"
 					],
 					"To": [
@@ -17928,7 +19368,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then12"
 					],
 					"To": [
@@ -17938,7 +19378,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then13"
 					],
 					"To": [
@@ -17948,7 +19388,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then14"
 					],
 					"To": [
@@ -17958,7 +19398,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then15"
 					],
 					"To": [
@@ -17968,7 +19408,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then16"
 					],
 					"To": [
@@ -17978,7 +19418,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then17"
 					],
 					"To": [
@@ -17988,7 +19428,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then18"
 					],
 					"To": [
@@ -17998,7 +19438,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then19"
 					],
 					"To": [
@@ -18008,7 +19448,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then20"
 					],
 					"To": [
@@ -18018,7 +19458,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then21"
 					],
 					"To": [
@@ -18028,7 +19468,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then22"
 					],
 					"To": [
@@ -18038,7 +19478,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then23"
 					],
 					"To": [
@@ -18048,7 +19488,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then24"
 					],
 					"To": [
@@ -18058,7 +19498,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then25"
 					],
 					"To": [
@@ -18068,7 +19508,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then26"
 					],
 					"To": [
@@ -18078,7 +19518,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then27"
 					],
 					"To": [
@@ -18088,7 +19528,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then28"
 					],
 					"To": [
@@ -18098,7 +19538,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then29"
 					],
 					"To": [
@@ -18108,7 +19548,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then30"
 					],
 					"To": [
@@ -18118,7 +19558,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then31"
 					],
 					"To": [
@@ -18128,7 +19568,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then32"
 					],
 					"To": [
@@ -18138,7 +19578,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then33"
 					],
 					"To": [
@@ -18148,7 +19588,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then34"
 					],
 					"To": [
@@ -18158,7 +19598,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then35"
 					],
 					"To": [
@@ -18168,7 +19608,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then36"
 					],
 					"To": [
@@ -18178,7 +19618,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then37"
 					],
 					"To": [
@@ -18188,7 +19628,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then38"
 					],
 					"To": [
@@ -18198,7 +19638,7 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then39"
 					],
 					"To": [
@@ -18208,41 +19648,51 @@
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then40"
 					],
 					"To": [
-						774,
+						764,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						780,
+						840,
 						"Then41"
 					],
 					"To": [
-						775,
+						834,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						782,
+						840,
+						"Then42"
+					],
+					"To": [
+						835,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						842,
 						"Value"
 					],
 					"To": [
-						783,
+						843,
 						"Passed"
 					]
 				},
 				{
 					"From": [
-						781,
+						841,
 						"Then"
 					],
 					"To": [
-						783,
+						843,
 						"Execute"
 					]
 				}

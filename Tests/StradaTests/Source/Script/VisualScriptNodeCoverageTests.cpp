@@ -194,6 +194,15 @@ namespace
 		Recipe("Set:Strada.JointComponent.Axis").WithInputs(R"({"Value": [0.0, 0.0, 1.0]})"),
 		Recipe("Set:Strada.JointComponent.ConnectedEntity").WithExpectedLog("cannot be joined to itself"),
 		Recipe("Set:Strada.MeshColliderComponent.Mesh").WithInputs(R"({"Value": "1"})"),
+		// A one-shot plays on a source with a sound of its own (Audio/Beep.wav); a clip at a point needs the clip. The master
+		// volume stays as every case hears it.
+		Recipe("Call:Strada.AudioSourceComponent.PlayOneShot(float)").WithComponents(R"({"AudioSource": {"Clip": "9906031496213900225"}})"),
+		Recipe("Call:Strada.AudioSourceComponent.PlayOneShot(Strada.AudioClip,float)")
+			.WithComponents(R"({"AudioSource": {"Clip": "9906031496213900225"}})")
+			.WithInputs(R"({"Clip": "9906031496213900225"})"),
+		Recipe("Call:Strada.Audio.PlayClipAtPoint(Strada.AudioClip,Strada.Vector3,float,string)")
+			.WithInputs(R"({"Clip": "9906031496213900225"})"),
+		Recipe("Set:Strada.Audio.MasterVolume").WithInputs(R"({"Value": 1.0})"),
 	});
 
 	// What every member of a type needs beyond its own component: components added before a recipe's own.

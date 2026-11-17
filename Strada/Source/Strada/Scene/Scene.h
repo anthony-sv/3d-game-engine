@@ -22,6 +22,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -428,6 +429,15 @@ namespace Strada
 		void PauseAudioSource(Entity entity);
 		void StopAudioSource(Entity entity);
 		bool IsAudioSourcePlaying(Entity entity);
+		// Plays a clip once more on a new voice of the entity's AudioSource (AudioScene::PlayOneShot): the source's own clip
+		// when clip is invalid, at volume (linear) times the source's. The source needs a sound of its own (a clip that
+		// plays), brought up to date with the component first. Returns whether the voice started; false without a running
+		// audio scene, a sound, or a clip that loads (logged).
+		bool PlayAudioOneShot(Entity entity, AssetHandle clip, float volume);
+		// Plays a clip once at a world position on a voice of the scene, outliving whatever entity asked for it
+		// (AudioScene::PlayClipAtPoint): spatial, at volume (linear), on the mixer's bus of that name (empty for Master).
+		// Returns whether the voice started; false without a running audio scene or a clip that loads (logged).
+		bool PlayAudioClipAtPoint(AssetHandle clip, glm::vec3 const& position, float volume, std::string_view bus);
 		// While the scene runs scripts: the values the fields of the entity's script hold now, which also become the stored
 		// values of its Script component (Fields), so that the component shows them and edits start from them. Fails when
 		// the entity runs no script.

@@ -469,6 +469,30 @@ public sealed class AudioProbe : Script
 	protected override void OnUpdate(float deltaTime)
 	{
 		AudioSourceComponent source = GetComponent<AudioSourceComponent>()!;
+		if (Input.IsKeyPressed(KeyCode.O))
+		{
+			// One-shots of the source's clip and of a clip given, beside its main voice, and a clip at a point on a bus.
+			bool own = source.PlayOneShot(0.5f);
+			bool given = source.PlayOneShot(source.Clip!, 0.25f);
+			bool atPoint = Audio.PlayClipAtPoint(source.Clip!, new Vector3(0.0f, 0.0f, -2.0f), 0.5f, "Music");
+			Name = $"OneShots={own},{given};AtPoint={atPoint};Voices={Audio.ActiveVoiceCount}";
+			return;
+		}
+		if (Input.IsKeyPressed(KeyCode.M))
+		{
+			// The source's voice fields, and the game's values of the mix (bus names in any letter case); a value that is not
+			// a number is refused.
+			source.Bus = "Music";
+			source.Priority = 200;
+			source.MaxVoices = 2;
+			Audio.MasterVolume = 0.5f;
+			Audio.SetBusVolume("music", -6.0f);
+			Audio.SetBusVolume("Music", float.NaN);
+			Audio.SetBusMuted("MUSIC", true);
+			Name = $"Bus={source.Bus};Priority={source.Priority};MaxVoices={source.MaxVoices};" +
+				$"Music={(int)Audio.GetBusVolume("Music")},{Audio.IsBusMuted("Music")};Master={Audio.IsBusMuted("")}";
+			return;
+		}
 		if (Input.IsKeyPressed(KeyCode.P))
 		{
 			source.Pause();

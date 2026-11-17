@@ -637,6 +637,17 @@ namespace Strada::ScriptGlue
 			Entity const entity = FindAudioSource(id);
 			return entity && entity.GetScene()->IsAudioSourcePlaying(entity) ? 1 : 0;
 		}
+
+		// clip 0 plays the source's own clip.
+		uint8_t AudioSourceComponent_PlayOneShot(uint64_t id, uint64_t clip, float volume)
+		{
+			if (!CheckFinite("AudioSourceComponent.PlayOneShot", volume))
+			{
+				return 0;
+			}
+			Entity const entity = FindAudioSource(id);
+			return entity && entity.GetScene()->PlayAudioOneShot(entity, AssetHandle(UUID(clip)), volume) ? 1 : 0;
+		}
 	}
 
 	void RegisterComponentBindings(BindingTable& table)
@@ -785,10 +796,15 @@ namespace Strada::ScriptGlue
 		AddFieldBindings<&AudioSourceComponent::Spatial, "AudioSourceComponent", "Spatial">(table);
 		AddFieldBindings<&AudioSourceComponent::MinDistance, "AudioSourceComponent", "MinDistance">(table);
 		AddFieldBindings<&AudioSourceComponent::MaxDistance, "AudioSourceComponent", "MaxDistance">(table);
+		table.Add("AudioSourceComponent_GetBus", &GetText<AudioSourceComponent, &AudioSourceComponent::Bus>);
+		table.Add("AudioSourceComponent_SetBus", &SetText<AudioSourceComponent, &AudioSourceComponent::Bus>);
+		AddFieldBindings<&AudioSourceComponent::Priority, "AudioSourceComponent", "Priority">(table);
+		AddFieldBindings<&AudioSourceComponent::MaxVoices, "AudioSourceComponent", "MaxVoices">(table);
 		table.Add("AudioSourceComponent_Play", &AudioSourceComponent_Play);
 		table.Add("AudioSourceComponent_Pause", &AudioSourceComponent_Pause);
 		table.Add("AudioSourceComponent_Stop", &AudioSourceComponent_Stop);
 		table.Add("AudioSourceComponent_IsPlaying", &AudioSourceComponent_IsPlaying);
+		table.Add("AudioSourceComponent_PlayOneShot", &AudioSourceComponent_PlayOneShot);
 
 		AddFieldBindings<&AudioListenerComponent::Active, "AudioListenerComponent", "Active">(table);
 

@@ -25,6 +25,7 @@ internal static class DataAssets
 	{
 		Epoch++;
 		CurveCache.Clear();
+		MixerCache.Clear();
 		PhysicsMaterialCache.Clear();
 		AssetTypes.Reset();
 	}
@@ -154,6 +155,158 @@ internal sealed class PhysicsMaterialValues
 	internal AudioClip? ImpactSound { get; }
 	internal Prefab? ImpactParticles { get; }
 }
+
+// The runtime's copies of mixer assets, one per asset, shared by every reference (Strada.Mixer).
+internal static unsafe class MixerCache
+{
+	private static readonly Dictionary<ulong, Entry> s_Entries = [];
+	// A mixer that loads has at most this many buses (the engine's MaxMixerBuses).
+	private const int MaxBuses = 32;
+	// Room for the buses a read copies, grown when an asset has more.
+	private static NativeMixerBus[] s_Buses = new NativeMixerBus[MaxBuses];
+
+	internal static int EntryCount => s_Entries.Count;
+
+	internal static Entry Find(AssetHandle handle)
+	{
+		if (!s_Entries.TryGetValue(handle.ID, out Entry? entry))
+		{
+			entry = new Entry(handle);
+			s_Entries.Add(handle.ID, entry);
+		}
+		return entry;
+	}
+
+	internal static void Clear()
+	{
+		s_Entries.Clear();
+		s_Buses = new NativeMixerBus[MaxBuses];
+	}
+
+	// A mixer asset's buses as scripts read them, with the version they were read at.
+	internal sealed class Entry
+	{
+		// The data asset epoch at which the engine was last asked; 0: never.
+		private ulong m_Epoch;
+
+		internal Entry(AssetHandle handle)
+		{
+			Handle = handle;
+		}
+
+		internal AssetHandle Handle { get; }
+
+		// The asset's version the buses were read at; 0 for none (not read, or the read failed).
+		internal ulong Version { get; private set; }
+
+		internal MixerValues Values { get; private set; } = MixerValues.Default;
+
+		// The buses as of the current epoch: the engine is asked first when data assets may have changed since it last was.
+		internal MixerValues GetValues()
+		{
+			if (m_Epoch != DataAssets.Epoch)
+			{
+				Refresh();
+			}
+			return Values;
+		}
+
+		private void Refresh()
+		{
+			m_Epoch = DataAssets.Epoch;
+			NativeMixerHeader header = default;
+			MixerReadStatus status = Read(&header);
+			if (status == MixerReadStatus.TooSmall)
+			{
+				s_Buses = new NativeMixerBus[header.BusCount];
+				status = Read(&header);
+			}
+			switch (status)
+			{
+				case MixerReadStatus.Unchanged:
+					break;
+				case MixerReadStatus.Read:
+					Values = new MixerValues(s_Buses.AsSpan(0, header.BusCount));
+					Version = header.Version;
+					break;
+				default:
+					// The engine logged why; the mixer reads as a new one until data assets change again.
+					Values = MixerValues.Default;
+					Version = 0;
+					break;
+			}
+		}
+
+		private MixerReadStatus Read(NativeMixerHeader* header)
+		{
+			fixed (NativeMixerBus* buses = s_Buses)
+			{
+				return (MixerReadStatus)InternalCalls.Mixer_Read(Handle.ID, Version, header, buses, s_Buses.Length);
+			}
+		}
+	}
+}
+
+// One version of a mixer's buses, made when the engine copies them, so that reading a member allocates nothing.
+internal sealed class MixerValues
+{
+	// A new mixer's buses (Mixer.h's default): what a mixer that cannot be loaded reads as.
+	internal static readonly MixerValues Default = new(new[] { new MixerBusValues("Master", string.Empty, 0.0f, false) });
+
+	private MixerValues(MixerBusValues[] buses)
+	{
+		Buses = buses;
+	}
+
+	internal unsafe MixerValues(ReadOnlySpan<NativeMixerBus> buses)
+	{
+		Buses = new MixerBusValues[buses.Length];
+		for (int index = 0; index < buses.Length; index++)
+		{
+			NativeMixerBus bus = buses[index];
+			Buses[index] = new MixerBusValues(NativeString.FromUtf8(bus.Name, bus.NameLength), NativeString.FromUtf8(bus.Parent, bus.ParentLength),
+				bus.VolumeDb, bus.Muted != 0);
+		}
+	}
+
+	internal MixerBusValues[] Buses { get; }
+
+	// The bus of that name, its ASCII letters matched in any case as the engine matches them (MakeMixerBusKey), the empty
+	// name being Master's; null for none.
+	internal MixerBusValues? Find(string name)
+	{
+		ReadOnlySpan<char> wanted = name.Length > 0 ? name : "Master";
+		foreach (MixerBusValues bus in Buses)
+		{
+			if (IsSameBusName(bus.Name, wanted))
+			{
+				return bus;
+			}
+		}
+		return null;
+	}
+
+	private static bool IsSameBusName(ReadOnlySpan<char> first, ReadOnlySpan<char> second)
+	{
+		if (first.Length != second.Length)
+		{
+			return false;
+		}
+		for (int index = 0; index < first.Length; index++)
+		{
+			if (ToAsciiLower(first[index]) != ToAsciiLower(second[index]))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static char ToAsciiLower(char character) => character is >= 'A' and <= 'Z' ? (char)(character + ('a' - 'A')) : character;
+}
+
+// One bus of a mixer as scripts read it.
+internal sealed record MixerBusValues(string Name, string Parent, float VolumeDb, bool Muted);
 
 // The runtime's copies of curve assets, one per asset, shared by every reference (Strada.Curve).
 internal static unsafe class CurveCache

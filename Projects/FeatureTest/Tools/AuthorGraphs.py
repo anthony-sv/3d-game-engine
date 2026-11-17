@@ -203,6 +203,8 @@ RESPONSE_CURVE = "15883878375939594718"
 RUBBER_MATERIAL = "11281368738810150711"
 BEEP_SOUND = "9906031496213900225"
 CRATE_PREFAB = "17000004240335447843"
+# The handle of Assets/Audio/FeatureTest.smixer, the project's mixer (AssetRegistry.sreg).
+FEATURE_MIXER = "15018235737354920508"
 
 FEATURES_DESCRIPTION = (
     "The feature test's visual script. Event.Create runs a check of every built-in node kind but the contact and click "
@@ -214,7 +216,8 @@ FEATURES_DESCRIPTION = (
     "MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes "
     "its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it "
     "before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, "
-    "box and capsule casts onto the physics material probe name the material they hit.")
+    "box and capsule casts onto the physics material probe name the material they hit. A source it makes plays one-shots, "
+    "the scene a clip at a point, and it reads the project's mixer and sets the game's values of its Voices bus.")
 
 
 def build_features(references):
@@ -867,6 +870,60 @@ def build_features(references):
                                     g.all_of(*conditions),
                                     g.format("the casts touched after {D0}, {D1} and {D2} m", **distances)))
     groups.append(casts[0][0])
+
+    # Sound: a source made here (Beep.wav) is set on the Voices bus with its voice fields and plays one-shots of its clip and
+    # of a clip given, the scene plays the clip at a point, the project's mixer is read (as a literal and loaded by path),
+    # and the game's values of the master volume and of Voices are set and read back, then put back. The test run mixes into
+    # the null output in real time, so only what the main thread knows at the calls is checked.
+    mixer = g.literal("Strada.Mixer", FEATURE_MIXER)
+    mixer_loaded = (g.node("Call:Strada.Assets.Load<T>(string)", {"TypeArguments": ["Strada.Mixer"]},
+                           {"Path": "Audio/FeatureTest.smixer"}), "Result")
+    beep = g.literal("Strada.AudioClip", BEEP_SOUND)
+    made = g.node("Call:Strada.Entity.Create(string)", None, {"Name": "Graph Speaker"})
+    speaker = (made, "Result")
+    sound_nodes = [
+        g.node("Call:Strada.Entity.AddComponent<T>()", {"TypeArguments": ["Strada.AudioSourceComponent"]}, Target=speaker),
+        g.node("Set:Strada.AudioSourceComponent.Clip", Target=speaker, Value=beep),
+        g.node("Set:Strada.AudioSourceComponent.Bus", None, {"Value": "Voices"}, Target=speaker),
+        g.node("Set:Strada.AudioSourceComponent.Priority", None, {"Value": 200}, Target=speaker),
+        g.node("Set:Strada.AudioSourceComponent.MaxVoices", None, {"Value": 3}, Target=speaker),
+    ]
+    own_shot = g.node("Call:Strada.AudioSourceComponent.PlayOneShot(float)", None, {"Volume": 0.5}, Target=speaker)
+    given_shot = g.node("Call:Strada.AudioSourceComponent.PlayOneShot(Strada.AudioClip,float)", None, {"Volume": 0.25},
+                        Target=speaker, Clip=beep)
+    at_point = g.node("Call:Strada.Audio.PlayClipAtPoint(Strada.AudioClip,Strada.Vector3,float,string)", None,
+                      {"Position": [2.0, 1.0, -3.0], "Volume": 0.5, "Bus": "Voices"}, Clip=beep)
+    sound_nodes += [own_shot, given_shot, at_point,
+                    g.node("Set:Strada.Audio.MasterVolume", None, {"Value": 0.9}),
+                    g.node("Call:Strada.Audio.SetBusVolume(string,float)", None, {"Bus": "voices", "Decibels": -9.0}),
+                    g.node("Call:Strada.Audio.SetBusMuted(string,bool)", None, {"Bus": "VOICES", "Muted": True})]
+    g.chain(made, *sound_nodes)
+    source_fields = {name: (g.node(f"Get:Strada.AudioSourceComponent.{name}", Target=speaker), "Value")
+                     for name in ["Bus", "Priority", "MaxVoices"]}
+    voices = (g.node("Get:Strada.Audio.ActiveVoiceCount"), "Value")
+    master = (g.node("Get:Strada.Audio.MasterVolume"), "Value")
+    game_volume = (g.node("Call:Strada.Audio.GetBusVolume(string)", None, {"Bus": "Voices"}), "Result")
+    game_muted = (g.node("Call:Strada.Audio.IsBusMuted(string)", None, {"Bus": "Voices"}), "Result")
+    mixer_reads = {
+        "Buses": ((g.node("Get:Strada.Mixer.BusCount", Target=mixer), "Value"), 4),
+        "Last": ((g.node("Call:Strada.Mixer.GetBusName(int)", None, {"Index": 3}, Target=mixer), "Result"), "Voices"),
+        "Parent": ((g.node("Call:Strada.Mixer.GetBusParent(string)", None, {"Bus": "voices"}, Target=mixer), "Result"), "Effects"),
+        "Volume": ((g.node("Call:Strada.Mixer.GetBusVolume(string)", None, {"Bus": "Voices"}, Target=mixer), "Result"), 3.0),
+    }
+    passed = g.all_of((own_shot, "Result"), (given_shot, "Result"), (at_point, "Result"), g.op("Greater", voices, B=2),
+                      g.equal(source_fields["Bus"], "Voices"), g.equal(source_fields["Priority"], 200),
+                      g.equal(source_fields["MaxVoices"], 3), g.equal(master, 0.9), g.equal(game_volume, -9.0), game_muted,
+                      g.op("Equal", mixer, mixer_loaded), *[g.equal(read, value) for read, value in mixer_reads.values()],
+                      (g.node("Call:Strada.Mixer.HasBus(string)", None, {"Bus": "MUSIC"}, Target=mixer), "Result"),
+                      (g.node("Call:Strada.Mixer.IsBusMuted(string)", None, {"Bus": "Effects"}, Target=mixer), "Result"))
+    checked = call_check("a source plays one-shots, the scene a clip at a point, and the game sets its values of the mixer's buses",
+                         passed, g.format("{Voices} voices; Voices at {Volume} dB, {Buses} buses", Voices=voices,
+                                          Volume=game_volume, Buses=mixer_reads["Buses"][0]))
+    g.chain(sound_nodes[-1], checked,
+            g.node("Set:Strada.Audio.MasterVolume", None, {"Value": 1.0}),
+            g.node("Call:Strada.Audio.SetBusVolume(string,float)", None, {"Bus": "Voices", "Decibels": 0.0}),
+            g.node("Call:Strada.Audio.SetBusMuted(string,bool)", None, {"Bus": "Voices", "Muted": False}))
+    groups.append(made)
 
     # By now the scene has updated and stepped physics.
     frames_now = g.get(frames)
