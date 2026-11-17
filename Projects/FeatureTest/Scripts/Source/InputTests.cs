@@ -140,6 +140,9 @@ public sealed class InputTests : FeatureTestScript
 			RebindResult move = Input.Rebind("Move", 0, "Key/Up", 0);
 			Assert.AreEqual("Key/Up Key/S Key/A Key/D", move.Controls);
 			Assert.AreEqual("Throttle", string.Join(",", move.Conflicts));
+			RebindResult unbound = Input.Rebind("Jump", 1, "");
+			Assert.AreEqual(RebindStatus.Done, unbound.Status);
+			Assert.AreEqual(string.Empty, Input.GetBindingControls("Jump", 1));
 			RebindResult refused = Input.Rebind("Jump", 5, "Key/K");
 			Assert.AreEqual(RebindStatus.Refused, refused.Status);
 			Assert.IsTrue(refused.Message.Length > 0);

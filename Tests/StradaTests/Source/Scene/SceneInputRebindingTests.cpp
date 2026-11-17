@@ -264,6 +264,8 @@ TEST_CASE("SceneInputRebinding: a rebind reaches the evaluation at the next fram
 	{
 		Scene idle("Idle");
 		CHECK(idle.RebindInput("Jump", 0, "Key/C").Status == InputRebindStatus::Refused);
+		CHECK(idle.GetInputRebindAnswer().Status == InputRebindStatus::Refused);
+		CHECK(idle.GetInputRebindAnswer().Message == "the scene does not run");
 		CHECK(idle.StartInputRebind("Jump", 0).Status == InputRebindStatus::Refused);
 		CHECK_FALSE(idle.GetInputBindingControls("Jump", 0).IsOk());
 		CHECK(InputRebinding::Rebind(AssetHandle(), "Jump", 0, "Key/C", -1).Message == "the project names no input actions");
@@ -305,6 +307,32 @@ TEST_CASE("SceneInputRebinding: a capture binds the next control at the frame it
 		RunFrame(scene);
 		CHECK(scene.GetInputActions().IsReleased(jump));
 		Input::SetKeyState(KeyCode::J, true);
+		RunFrame(scene);
+		CHECK(scene.GetInputActions().IsPressed(jump));
+	}
+	SUBCASE("binding the control the binding already reads presses nothing either, held or tapped")
+	{
+		REQUIRE(scene.StartInputRebind("Jump", 0).Status == InputRebindStatus::Listening);
+		uint64_t const version = InputRebinding::GetVersion();
+		Input::SetKeyState(KeyCode::Space, true);
+		RunFrame(scene);
+		CHECK(scene.GetInputRebind().Status == InputRebindStatus::Done);
+		CHECK(scene.GetInputRebind().Controls == "Key/Space");
+		CHECK(InputRebinding::GetVersion() == version);
+		CHECK(scene.GetInputActions().IsDown(jump));
+		CHECK_FALSE(scene.GetInputActions().IsPressed(jump));
+		Input::SetKeyState(KeyCode::Space, false);
+		RunFrame(scene);
+		CHECK(scene.GetInputActions().IsReleased(jump));
+
+		REQUIRE(scene.StartInputRebind("Jump", 0).Status == InputRebindStatus::Listening);
+		Input::SetKeyState(KeyCode::Space, true);
+		Input::SetKeyState(KeyCode::Space, false);
+		RunFrame(scene);
+		CHECK(scene.GetInputRebind().Status == InputRebindStatus::Done);
+		CHECK_FALSE(scene.GetInputActions().IsPressed(jump));
+		CHECK_FALSE(scene.GetInputActions().IsReleased(jump));
+		Input::SetKeyState(KeyCode::Space, true);
 		RunFrame(scene);
 		CHECK(scene.GetInputActions().IsPressed(jump));
 	}

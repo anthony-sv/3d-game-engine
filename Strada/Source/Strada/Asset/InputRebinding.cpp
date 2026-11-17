@@ -25,6 +25,13 @@ namespace Strada
 			std::optional<std::filesystem::path> Folder;
 			InputBindingProfile Profile;
 			uint64_t Version = 1;
+			// The asset's map with the table applied, as GetBindingControls last made it, and what it was made from (the
+			// registry's epoch moves with every edit of the asset, the version with every change of the table): a settings
+			// screen asks for bindings every frame.
+			std::optional<InputActionMap> Effective;
+			AssetHandle EffectiveActions;
+			uint64_t EffectiveEpoch = 0;
+			uint64_t EffectiveVersion = 0;
 		};
 
 		RebindingData s_Data;
@@ -86,6 +93,26 @@ namespace Strada
 			size_t Binding = 0;
 		};
 
+		// The indices of the action and binding in a map; the refusal's message otherwise.
+		Result<std::pair<size_t, size_t>> Locate(InputActionMap const& map, std::string_view action, int32_t binding)
+		{
+			auto const found = std::ranges::find_if(map.Actions,
+			                                        [action](InputAction const& candidate)
+			                                        {
+														return candidate.Name == action;
+													});
+			if (found == map.Actions.end())
+			{
+				return MakeError("the input actions have no action named '{}'", action);
+			}
+			size_t const count = found->Bindings.size();
+			if (binding < 0 || static_cast<size_t>(binding) >= count)
+			{
+				return MakeError("'{}' has {} binding{}, so no binding {}", action, count, count == 1 ? "" : "s", binding);
+			}
+			return std::pair(static_cast<size_t>(found - map.Actions.begin()), static_cast<size_t>(binding));
+		}
+
 		Result<Address> FindBinding(AssetHandle actions, std::string_view action, int32_t binding)
 		{
 			Result<InputActionMap> map = FindMap(actions);
@@ -97,22 +124,13 @@ namespace Strada
 			Address address;
 			address.Map = map.TakeValue();
 			address.Effective = InputRebinding::Apply(actions, address.Map);
-			auto const found = std::ranges::find_if(address.Effective.Actions,
-			                                        [action](InputAction const& candidate)
-			                                        {
-														return candidate.Name == action;
-													});
-			if (found == address.Effective.Actions.end())
+			Result<std::pair<size_t, size_t>> const located = Locate(address.Effective, action, binding);
+			if (!located)
 			{
-				return MakeError("the input actions have no action named '{}'", action);
+				return Error{located.GetError()};
 			}
-			address.Action = static_cast<size_t>(found - address.Effective.Actions.begin());
-			size_t const count = found->Bindings.size();
-			if (binding < 0 || static_cast<size_t>(binding) >= count)
-			{
-				return MakeError("'{}' has {} binding{}, so no binding {}", action, count, count == 1 ? "" : "s", binding);
-			}
-			address.Binding = static_cast<size_t>(binding);
+			address.Action = located.GetValue().first;
+			address.Binding = located.GetValue().second;
 			return address;
 		}
 
@@ -213,6 +231,7 @@ namespace Strada
 		s_Data.Folder.reset();
 		s_Data.Profile = {};
 		s_Data.Version++;
+		s_Data.Effective.reset();
 	}
 
 	uint64_t InputRebinding::GetVersion()
@@ -350,12 +369,33 @@ namespace Strada
 
 	Result<std::string> InputRebinding::GetBindingControls(AssetHandle actions, std::string_view action, int32_t binding)
 	{
-		Result<Address> found = FindBinding(actions, action, binding);
-		if (!found)
+		if (!actions.IsValid())
 		{
-			return Error{found.GetError()};
+			return Error{"the project names no input actions"};
 		}
-		return found.GetValue().Effective.Actions[found.GetValue().Action].Bindings[found.GetValue().Binding].Controls;
+		Load(actions);
+		bool const current = s_Data.Effective && s_Data.EffectiveActions == actions &&
+		                     s_Data.EffectiveEpoch == DataAssetRegistry::GetEpoch() && s_Data.EffectiveVersion == s_Data.Version;
+		if (!current)
+		{
+			Result<InputActionMap> const map = FindMap(actions);
+			if (!map)
+			{
+				s_Data.Effective.reset();
+				return Error{map.GetError()};
+			}
+			s_Data.Effective = Apply(actions, map.GetValue());
+			s_Data.EffectiveActions = actions;
+			// Taken after the asset loaded (a load moves the epoch too).
+			s_Data.EffectiveEpoch = DataAssetRegistry::GetEpoch();
+			s_Data.EffectiveVersion = s_Data.Version;
+		}
+		Result<std::pair<size_t, size_t>> const located = Locate(*s_Data.Effective, action, binding);
+		if (!located)
+		{
+			return Error{located.GetError()};
+		}
+		return s_Data.Effective->Actions[located.GetValue().first].Bindings[located.GetValue().second].Controls;
 	}
 
 	Result<InputCapturePlan> InputRebinding::PlanCapture(AssetHandle actions, std::string_view action, int32_t binding, int32_t part)

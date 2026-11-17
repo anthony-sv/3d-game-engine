@@ -67,7 +67,9 @@ namespace Strada
 		// Every binding back to the asset's: the table emptied and, when it held entries, the profile written without them.
 		// Done (Binding -1), or Refused without actions.
 		[[nodiscard]] static InputRebindResult ResetBindings(AssetHandle actions);
-		// The binding's controls now (with the table applied); an error naming what is missing otherwise.
+		// The binding's controls now (with the table applied); an error naming what is missing otherwise. The map it reads is
+		// kept until the asset (the data asset registry's epoch) or the table (the version) changes, since a settings
+		// screen's graph asks every frame.
 		[[nodiscard]] static Result<std::string> GetBindingControls(AssetHandle actions, std::string_view action, int32_t binding);
 		// What a capture of the binding listens for, by the action's type and the part (InputCaptureTarget), with the
 		// binding's gamepad and controls now; refused as Rebind refuses (a part needs a composite).

@@ -234,6 +234,11 @@ namespace Strada
 		Ref<InputActionSet const> const& GetActions() const { return m_Actions; }
 		// Drops the set and every action's state, and the unknown names already logged.
 		void Clear();
+		// Makes what the action's digital controls did since the last evaluation no edge (their counts become the baseline)
+		// and, when its reading now holds it down, puts it down without a press: what a capture calls once it bound the
+		// control a player pressed, also when the binding already read that control (no new set comes then). An action that
+		// is down stays down. Its override's counts are left alone. Nothing for an index the set lacks.
+		void Settle(uint32_t action);
 
 		// The frame's evaluation (Docs/Architecture.md §7.4): every action's value is the reading of the binding with the
 		// largest magnitude, then of its override (Input::FindActionOverride) under the same rule (the first in that order

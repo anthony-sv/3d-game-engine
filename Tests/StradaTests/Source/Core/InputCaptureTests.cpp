@@ -94,6 +94,17 @@ TEST_CASE("InputCapture: a key, a mouse button and a gamepad button pressed afte
 		CHECK(capture.Update(Frame) == InputCaptureOutcome::Captured);
 		CHECK(FormatInputControl(capture.GetControl()) == "Gamepad/Y");
 	}
+	SUBCASE("a mouse press while the pointer is over the game's UI is no control, then or later")
+	{
+		capture.Start(InputCaptureTarget::Control, AnyGamepad);
+		Input::SetMouseButtonState(MouseButton::Left, true);
+		CHECK(capture.Update(Frame, false) == InputCaptureOutcome::Waiting);
+		CHECK(capture.Update(Frame) == InputCaptureOutcome::Waiting);
+		Input::SetMouseButtonState(MouseButton::Left, false);
+		Input::SetMouseButtonState(MouseButton::Left, true);
+		CHECK(capture.Update(Frame) == InputCaptureOutcome::Captured);
+		CHECK(FormatInputControl(capture.GetControl()) == "Mouse/Left");
+	}
 	SUBCASE("keys come before mouse buttons and gamepad buttons in one update, keys by code")
 	{
 		capture.Start(InputCaptureTarget::Control, AnyGamepad);

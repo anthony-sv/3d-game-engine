@@ -61,7 +61,7 @@ namespace Strada
 		}
 	}
 
-	InputCaptureOutcome InputControlCapture::Update(float seconds)
+	InputCaptureOutcome InputControlCapture::Update(float seconds, bool takesMouse)
 	{
 		if (!m_Listening)
 		{
@@ -98,7 +98,12 @@ namespace Strada
 			}
 			for (uint8_t button = 0; button < MouseButtonCount; button++)
 			{
-				if (WasPressed(Input::GetMouseButtonCounts(static_cast<MouseButton>(button)).Presses, m_MousePresses[button]))
+				uint32_t const presses = Input::GetMouseButtonCounts(static_cast<MouseButton>(button)).Presses;
+				if (!takesMouse)
+				{
+					m_MousePresses[button] = presses;
+				}
+				else if (WasPressed(presses, m_MousePresses[button]))
 				{
 					return capture(InputControl{InputControlKind::Mouse, button});
 				}

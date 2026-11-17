@@ -183,7 +183,7 @@ namespace Strada
 		{
 			return;
 		}
-		switch (m_InputCapture.Update(frameSeconds))
+		switch (m_InputCapture.Update(frameSeconds, !m_UIPointerOver))
 		{
 			case InputCaptureOutcome::Waiting:
 				return;
@@ -196,9 +196,18 @@ namespace Strada
 				m_InputRebind.Message = fmt::format("no control came within {} seconds", InputControlCapture::Timeout);
 				return;
 			case InputCaptureOutcome::Captured:
+			{
 				m_InputRebind = InputRebinding::Rebind(m_RuntimeSettings.InputActions, m_InputRebind.Action, m_InputRebind.Binding,
 				                                       FormatInputControl(m_InputCapture.GetControl()), m_InputRebind.Part);
+				// The press that bound the control is no press of the action, whether or not a new set comes: binding the
+				// control the binding already read compiles nothing again.
+				Ref<InputActionSet const> const& actions = m_InputActions.GetActions();
+				if (std::optional<uint32_t> const rebound = actions ? actions->Find(m_InputRebind.Action) : std::nullopt)
+				{
+					m_InputActions.Settle(*rebound);
+				}
 				return;
+			}
 		}
 	}
 
@@ -207,7 +216,8 @@ namespace Strada
 		CancelInputRebind();
 		if (!m_IsRunning)
 		{
-			return RefuseOutsideRuntime(action, binding, part);
+			m_InputRebindAnswer = RefuseOutsideRuntime(action, binding, part);
+			return m_InputRebindAnswer;
 		}
 		InputRebindResult result;
 		result.Action = std::string(action);
@@ -245,7 +255,8 @@ namespace Strada
 	{
 		if (!m_IsRunning)
 		{
-			return RefuseOutsideRuntime(action, binding, part);
+			m_InputRebindAnswer = RefuseOutsideRuntime(action, binding, part);
+			return m_InputRebindAnswer;
 		}
 		m_InputRebindAnswer = InputRebinding::Rebind(m_RuntimeSettings.InputActions, action, binding, controls, part);
 		return m_InputRebindAnswer;
@@ -255,7 +266,8 @@ namespace Strada
 	{
 		if (!m_IsRunning)
 		{
-			return RefuseOutsideRuntime({}, -1, -1);
+			m_InputRebindAnswer = RefuseOutsideRuntime({}, -1, -1);
+			return m_InputRebindAnswer;
 		}
 		m_InputRebindAnswer = InputRebinding::ResetBindings(m_RuntimeSettings.InputActions);
 		return m_InputRebindAnswer;

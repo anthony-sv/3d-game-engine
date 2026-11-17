@@ -697,6 +697,48 @@ namespace Strada
 		m_CheckOverrides = true;
 	}
 
+	void InputActionState::Settle(uint32_t action)
+	{
+		if (!m_Actions || action >= m_States.size())
+		{
+			return;
+		}
+		InputActionSpecification const& specification = m_Actions->GetActions()[action];
+		ActionState& state = m_States[action];
+		for (DigitalControl& control : state.Controls)
+		{
+			Input::ButtonCounts const counts =
+				ReadCounts(specification.Bindings[control.Binding].Controls.Controls[control.Part], control.Gamepad);
+			control.Presses = counts.Presses;
+			control.Releases = counts.Releases;
+		}
+		if (state.Down)
+		{
+			return;
+		}
+		glm::vec2 best(0.0f);
+		float bestMagnitude = 0.0f;
+		for (InputBindingSpecification const& binding : specification.Bindings)
+		{
+			glm::vec2 const value = InputProcessing::ProcessBinding(binding, ReadBinding(binding));
+			float const magnitude = GetMagnitude(specification.Type, value);
+			if (magnitude > bestMagnitude)
+			{
+				best = value;
+				bestMagnitude = magnitude;
+			}
+		}
+		if (bestMagnitude < specification.PressThreshold)
+		{
+			return;
+		}
+		state.Magnitude = bestMagnitude;
+		state.Value = specification.Type == InputActionType::Button ? glm::vec2(bestMagnitude, 0.0f)
+		              : specification.Type == InputActionType::Axis ? glm::vec2(best.x, 0.0f)
+		                                                            : best;
+		state.Down = true;
+	}
+
 	void InputActionState::TakeBaselines(uint32_t action)
 	{
 		InputActionSpecification const& specification = m_Actions->GetActions()[action];

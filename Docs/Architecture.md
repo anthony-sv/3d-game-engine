@@ -2032,19 +2032,23 @@ Jump"), the game keeps them for the next run, and the actions asset is never wri
   counts once released and pressed again), or a gamepad axis that reaches 0.5 after reading below it, read as actions read
   it (up positive; a trigger 0 at rest, also on a pad whose mapping lacks it). A whole Button or Axis binding takes any of
   these (an axis either way, as itself), a whole Vector2 binding only a stick, a part a key, a button or an axis in its
-  positive direction (a part reads the positive half of its control). Gamepads count only those the binding reads. In one
-  update Escape comes first (it cancels), then keys by code, mouse buttons, gamepad buttons by pad then button, axes by
+  positive direction (a part reads the positive half of its control). Gamepads count only those the binding reads. A mouse
+  press while the pointer is over the game's UI (`Scene::IsPointerOverUI`, as the last UI update found it) is no control,
+  then or later: the click is for the button under it (a settings screen's Cancel, whose `OnClick` calls
+  `Input.CancelRebind`). In one update Escape comes first (it cancels), then keys by code, mouse buttons, gamepad buttons by pad then button, axes by
   pad then axis. `Escape` and 10 seconds (`InputControlCapture::Timeout`) of the frames' **unscaled** time cancel it, so a
   game paused by a time scale of 0 still times out; so do `CancelInputRebind` (`Input.CancelRebind`), another start and
   the scene's stop. `Scene::GetInputRebind` (`Input.CurrentRebind`) answers `Listening`, then how it ended. A capture
   belongs to the scene that started it; the table it writes is the process's. It hides nothing from the actions: a control
   pressed to bind also presses whatever other action reads it (a conflict the answer lists), and the game reads the
   status.
-- **The control pressed to bind does not press.** When a set is replaced, an action kept by name whose bindings now read
-  other controls (a rebind, or an edited asset) takes its current reading if that holds it down, without a press; one that
-  was down keeps its level, so its next evaluation reports the release when nothing holds it any more
-  (`InputActionState::SetActions`). Its new controls' counts are taken as baselines, so the press that bound a key is no
-  edge, and the next press is.
+- **The control pressed to bind does not press.** When a capture binds a control, the scene settles the action
+  (`InputActionState::Settle`): what its digital controls did since the last evaluation becomes the baseline, and a
+  reading that holds it down puts it down without a press; this covers a binding that already read that control, for
+  which no new set comes. When a set is replaced, an action kept by name whose bindings now read other controls (a
+  rebind, or an edited asset) does the same (`InputActionState::SetActions`): its new controls' counts are baselines, and
+  its current reading puts it down without a press. One that was down keeps its level, so its next evaluation reports the
+  release when nothing holds it any more. The next press of the control is an edge.
 - **The profile** (`InputBindingProfile`, format in §7.3) is the table on disk: `<game data>/Input/<the asset's file
   name>.json` (`Moto.sinput.json`), below the folder the `GameData` service names (§13.1): the exported game's own folder,
   `<project>/.strada/PlayData` for play mode and `StradaRuntime --project`, a temporary folder for test runs.

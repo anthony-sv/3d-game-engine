@@ -100,8 +100,10 @@ namespace Strada
 		// Advances the capture by `seconds` (at least 0; the frame's unscaled time) and looks at what came since the last
 		// update, in this order: Escape pressed (Escaped); keys by code, mouse buttons, gamepad buttons by slot then button,
 		// gamepad axes (or sticks) by slot then axis (Captured, the first that fits); then the time (TimedOut). Waiting while
-		// none of them happened, and whenever the capture is not listening.
-		InputCaptureOutcome Update(float seconds);
+		// none of them happened, and whenever the capture is not listening. Without `takesMouse` (the pointer is over the
+		// game's UI, whose buttons the click is for: a settings screen's Cancel), mouse presses are no control, and those
+		// since the last update are passed over for good.
+		InputCaptureOutcome Update(float seconds, bool takesMouse = true);
 		// The control of the last Captured outcome.
 		InputControl GetControl() const { return m_Control; }
 
