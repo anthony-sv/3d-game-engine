@@ -2472,8 +2472,13 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   a clip that exists only in memory has no file to stream from and cannot play beyond the limit. A clip that stops
   decoding part way keeps what decoded, as a damaged clip always played what could be decoded.
 - **What decoding costs.** A clip decodes on the main thread when it is first needed, which is a pause at a scene's
-  start for a long clip; MX1 measures the milliseconds per second of audio of each format and writes them here. Long
-  clips (music, ambience) stream, and their main voice needs no decoded buffer.
+  start for a long clip. Measured by the benchmark case of §9.9 (`AudioBenchmark: decoding a loaded clip ...`, Release,
+  the reference machine, the median of five decodes each, 2026-11-17, provisional while another lane ran its tests):
+  a 16-bit mono 48 kHz WAV 0.19 ms per second of audio, a mono FLAC (the tests' encoder, verbatim subframes, so a fast
+  case) 0.72 ms, a silent 128 kbit/s MP3 0.68 ms (a lower bound: music decodes slower), and miniaudio's 35 s stereo
+  48 kHz Ogg Vorbis test file 2.24 ms. So a 10 s Ogg effect decodes in about 22 ms, a frame and a half at 60 Hz: what
+  `PreloadClip` at a scene's start is for. Long clips (music, ambience) stream, and their main voice needs no decoded
+  buffer.
 
 ### 9.5 Buses, the scenes' groups, and the `Mixer` asset
 
@@ -2681,10 +2686,22 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   `Shutdown`; the queue and the return list between two threads. The null-output cases count the mixer's blocks
   (`AudioEngine::GetBlockCount`), never time.
 - **The budget**: 32 voices on 6 buses with a filter each, one reverb and one compressor in at most 1 ms of mixing per
-  10 ms of audio, measured in Release by a StradaTests case behind `STRADA_AUDIO_BENCHMARK=1` that mixes through manual
-  output, with the figures in the tracks' reports. The same case reports the median and 99th percentile at 64 voices
-  with one voice stolen and fading every frame, the figure later tracks plan with (two bikes of 16 engine layers each
-  reach 32 alone).
+  10 ms of audio, measured in Release by a StradaTests case behind `STRADA_AUDIO_BENCHMARK=1`
+  (`Audio/AudioBenchmarkTests.cpp`) that mixes through manual output at 48 kHz in stereo: Master (a low shelf, then a
+  compressor), Music (a low-pass), Effects (a high-pass), Engine (a peaking filter), Ambience (a high shelf) and Reverb
+  (a low-pass, then a reverb without its dry signal); 4 music voices that are not spatial, 10 spatial effects of
+  44.1 kHz clips at pitches of 0.8 to 1.25, 10 engine layers whose pitch moves every simulated frame, 4 of ambience and 4
+  on the reverb's bus, every spatial source moving. Every 800 frames (60 Hz) a frame's commands are sent and
+  `AudioEngine::Update` runs; reads of 480 frames (10 ms) are timed over 20 s of audio, three rounds, and the profiler's
+  `Audio.Mix` median is printed beside them. It asserts structure only (32 voices mixed, no allocation on the mixing
+  thread, sound reaching the output). The same case reports 64 voices, the engine's limit, with one stolen and fading
+  every frame (a pool of 2 whose each new one-shot steals the one before), the figure later tracks plan with (two bikes
+  of 16 engine layers each reach 32 alone). MX1's sitting (2026-11-17, Release, the reference machine, another lane's
+  editor tests running; the gauge, the 10,000-instance benchmark's Submit + Prepare with every object static and entity
+  IDs off, read 1.21 and 1.31 ms, in band, its other scenarios 1.36 to 2.15 ms): 32 voices a median of 0.24 ms and a 99th
+  percentile of 0.34 to 0.36 ms per 10 ms of audio, met in band; 64 voices with a steal every frame a median of 0.44 to
+  0.70 ms and a 99th percentile of 0.52 to 0.75 ms. A track's figures are provisional; the slice's gate measures again
+  with every lane idle.
 
 ## 10. Scripting (C# / .NET 10)
 
