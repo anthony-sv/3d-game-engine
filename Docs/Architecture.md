@@ -3002,12 +3002,14 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
     ignoring letter case; a name the mixer lacks is logged once per name and mixer and changes nothing) makes the
     snapshot current and sends what differs between the values last sent and the mixer's own values with the
     snapshot's in their place (`ApplyMixerSnapshot`): one `SetBusMixValues` per bus whose volume or mute differs and
-    one `SetEffectParameter` per effect parameter that differs, each carrying the transition's seconds. Every command
-    of a transition is pushed in one call, so they reach the mixing thread in one block unless the ring is full (a
-    snapshot sets at most 128 values, and a transition sends at most what two snapshots set), and each value then moves
-    on its own from where it is to its target. This replaces the design's first text, a table handed over by a
-    `BeginTransition` command: the commands that exist for edits already carry a value and a time, a table would be one
-    more object to hand back, and a transition needs no state of its own on the mixing thread.
+    one `SetEffectParameter` per effect parameter that differs, each carrying the transition's seconds, and each value
+    then moves on its own from where it is to its target. The commands of one transition are pushed in one call, but a
+    device's thread may take the ring between two pushes, so they can start a block apart (5.3 ms at 48 kHz, inaudible
+    in a fade of a tenth of a second or more); a burst that fills the ring (a snapshot sets at most 128 values, and a
+    transition sends at most what two snapshots set) waits in order like any other. This replaces the design's first
+    text, a table handed over by a `BeginTransition` command: the commands that exist for edits already carry a value and
+    a time, a table would be one more object to hand back, and a transition needs no state of its own on the mixing
+    thread.
   - **Scales.** A bus's volume moves linearly in decibels over the transition: its amplitude is multiplied by one factor
     each frame (from -80 dB when it starts from silence, and silence at the last frame when it ends there), so no power
     is computed per frame (`AudioBusMixGain`). A mute moves linearly in amplitude between 1 and 0 over the same frames.
@@ -3023,14 +3025,18 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   - **Edits.** The engine keeps the mixer's own values (`GetMixer`) apart from what it sent (`AudioBusState::Values`,
     the mixer with the current snapshot's values in place). An edit of the mixer (`SetMixer`: the inspector,
     `mixer.set`, an undo) is applied under the current snapshot, so a value the snapshot sets stays at the snapshot's and
-    a transition under way goes on for the values the edit leaves alone; an edit that removes the current snapshot
-    returns the mix to the mixer's own values (over an edit's ramp) and is logged once. Chains made again (a bus's
-    effects changed in kind, `ClearEffectState`) are made from the values sent.
+    a transition under way goes on for the values the edit leaves alone (a bus's volume and mute ramp apart: a command
+    that changes one leaves the other's ramp as it is); an edit that removes the current snapshot returns the mix to
+    the mixer's own values (over an edit's ramp) and is logged once. Chains made again (a bus's effects changed in kind,
+    `ClearEffectState`) are made from the values sent.
   - **The current snapshot** (`AudioEngine::GetCurrentSnapshot`) names the target as the mixer names it; the empty
     name is the mixer's own values. `ResetGameValues`, which `SceneRunner` calls when a game starts and when it stops,
-    returns the mix to them, so a game that stops while paused does not leave its pause snapshot on the editor.
+    returns the mix to them, so a game that stops while paused does not leave its pause snapshot on the editor. A scene
+    that a game's script loads in place of another keeps the snapshot, as it keeps the game's bus values: the mixer is
+    the game's, not a scene's, and the game moves its mix on as it moves its scenes.
 - **Ducking**: `MixerBus` has `DuckedBy` (a bus), `DuckAmountDb` (-80 to 0), `DuckThresholdDb` (-80 to 0),
-  `DuckAttackSeconds` and `DuckReleaseSeconds`. The law, per bus and frame: while the RMS of the ducking bus's output
+  `DuckAttackSeconds` and `DuckReleaseSeconds` (the threshold is this track's addition: the law needs the level at which
+  the duck is full). The law, per bus and frame: while the RMS of the ducking bus's output
   over the block before (its level after every gain of its own, so a muted bus ducks nothing) is at or above the
   threshold, the duck's gain heads for `DuckAmountDb`; below it, for 0 dB; it moves linearly in decibels at
   `|DuckAmountDb|` per `DuckAttackSeconds` going down and per `DuckReleaseSeconds` coming back (one factor a frame, so
@@ -3045,7 +3051,8 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   by its parent, or two buses ducking each other). The main thread sends ducking (`SetBusDucking`: the ducking bus's
   node and the four values) after every bus of an edit exists, since the ducking bus may be made after the one it
   ducks, and before any `RemoveBus`; `RemoveBus` ends any ducking by the removed bus on the mixing thread, as it moves
-  the bus's groups.
+  the bus's groups. A bus whose ducking ends (its `DuckedBy` emptied, or the ducking bus removed) comes back up over its
+  own release, never at once: the command carries the bus's values with the null node.
 - **Doppler, computed by the engine.** Positions are relative to the listener, so miniaudio's own doppler has nothing to
   read (the engine sets its factor to 0). Each frame the main thread takes each spatial voice's closing speed `v` from
   its source's and its listener's world positions of this update and the transform cache's previous matrices
@@ -3095,6 +3102,19 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
     paused and one ended, and expects both counts to stay 0. C library allocations of other code are
     not counted: none runs on the mixing thread (decoding moved to the main thread; libvorbis runs only on the main and
     streaming threads).
+- **Snapshots, ducking and meters** are tested from manual output against their closed forms
+  (`Audio/AudioMixControlTests.cpp`): a transition's volume at three frames within 0.02 dB of linear in decibels and its
+  mute within 2e-4 of linear in amplitude; a peaking filter's gain in decibels and a low-pass's frequency in log2 halfway
+  (3 dB down where hertz would give 0.3); a transition interrupted by another starting where the first had taken the
+  value; an unknown snapshot changing nothing, logged once; edits under a snapshot and in the middle of a transition (an
+  edit of a bus's volume leaving its mute's ramp alone); a transition that runs while its scene is paused; NaN,
+  negative and overlong seconds; the return to the mixer's own values at a game's end (and through `SceneRunner`);
+  ducking's attack and release at three frames each within 0.05 dB of the law, a muted ducking bus ducking nothing,
+  and a duck that ends coming back over its release; each bus's peak and RMS against a constant level and a sine of
+  whole cycles. The `.smixer` validation and round trip with the new fields are `Asset/MixerAssetTests.cpp`'s, the
+  registry-wide fuzz damages the FeatureTest mixer, which sets every new field, and `audio.meters` has
+  `StradaEditorTests`' `AudioCommands:` cases and a sure request in the automation fuzz. The allocation case and the
+  null-output threading case below mix transitions and ducking too.
 - **ThreadSanitizer** runs the audio cases by their prefixes (`AudioEngine:`, `AudioQueue:`, `AudioScene:`): a null
   output mixing while the main thread plays one-shots on a moving source, changes, steals and stops voices and ends a
   scene; a device taken over and started again; the mixing-thread hook asked from another thread across `Init` and

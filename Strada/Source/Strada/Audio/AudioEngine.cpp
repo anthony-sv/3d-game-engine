@@ -40,8 +40,11 @@ namespace Strada
 			// The parent's key; empty for Master.
 			std::string ParentKey;
 			// The ducking last sent (SetBusDucking): the node that ducks the bus and the amount, threshold, attack and release.
+			// A new bus is not ducked, so the values matter only once a SetBusDucking is sent: they start as MixerBus's own, so
+			// that a bus that never names a ducking bus sends none.
 			AudioBusNode* DuckTrigger = nullptr;
-			std::array<float, 4> DuckValues = {};
+			std::array<float, 4> DuckValues = {MixerBus{}.DuckAmountDb, MixerBus{}.DuckThresholdDb, MixerBus{}.DuckAttackSeconds,
+			                                   MixerBus{}.DuckReleaseSeconds};
 		};
 
 		// The game's value of a bus (§9.5), kept by key.
@@ -431,10 +434,8 @@ namespace Strada
 				}
 				AudioBusState& state = found->second;
 				AudioBusNode* const trigger = bus.DuckedBy.empty() ? nullptr : FindBusNode(data, MakeMixerBusKey(bus.DuckedBy));
-				std::array<float, 4> const values =
-					trigger == nullptr
-						? std::array<float, 4>{}
-						: std::array<float, 4>{bus.DuckAmountDb, bus.DuckThresholdDb, bus.DuckAttackSeconds, bus.DuckReleaseSeconds};
+				// The bus's own values travel with a null trigger too: a duck that ends comes back up over the bus's release.
+				std::array<float, 4> const values = {bus.DuckAmountDb, bus.DuckThresholdDb, bus.DuckAttackSeconds, bus.DuckReleaseSeconds};
 				if (trigger == state.DuckTrigger && values == state.DuckValues)
 				{
 					continue;

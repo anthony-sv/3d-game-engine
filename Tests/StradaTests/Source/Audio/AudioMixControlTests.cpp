@@ -335,6 +335,18 @@ TEST_CASE(
 	CHECK(CountLogged(logStart, "The mixer has no snapshot 'Quiet' any more") == 1);
 	Skip(0.02f);
 	CHECK(std::abs(ToDecibels(ReadLevels(0.02f).Left / level) - -3.0) < 0.01);
+
+	// An edit of the bus's own volume in the middle of a transition of its mute leaves the mute's ramp alone: halfway
+	// through the second, the mute's gain is 0.5 and the volume the edit's.
+	mixer.Snapshots = {MixerSnapshot{.Name = "Silent", .Values = {SetMuted("Music")}}};
+	AudioEngine::SetMixer(mixer);
+	REQUIRE(AudioEngine::TransitionTo("Silent", 1.0f));
+	Skip(0.25f);
+	mixer.Buses[1].VolumeDb = -9.0f;
+	AudioEngine::SetMixer(mixer);
+	std::vector<float> const muting = ReadSamples(0.25f);
+	double const expected = level * std::pow(10.0, -9.0 / 20.0) * 0.5;
+	CHECK(std::abs(Left(muting, muting.size() / 2 - 1) - expected) < 2.0e-4);
 }
 
 TEST_CASE(
@@ -433,6 +445,8 @@ TEST_CASE("AudioMixer: a ducked bus goes down by its amount over its attack whil
 		Skip(0.3f);
 		CHECK(ReadLevels(0.02f).Left == doctest::Approx(musicLevel).epsilon(1e-6));
 	}
+	// A duck that ends because the bus is ducked no more comes back over its release from the first frame after the edit,
+	// never at once: halfway up after half the release.
 	SUBCASE("a bus no longer ducked comes back over its release")
 	{
 		audio->Play(SourceId(1));
@@ -440,7 +454,9 @@ TEST_CASE("AudioMixer: a ducked bus goes down by its amount over its attack whil
 		CHECK(ReadLevels(0.02f).Left < musicLevel * 0.3f + voiceLevel);
 		mixer.Buses[1].DuckedBy.clear();
 		AudioEngine::SetMixer(mixer);
-		Skip(0.5f);
+		std::vector<float> const releasing = ReadSamples(0.4f);
+		CHECK(std::abs(duckDb(releasing, 9600, voiceLevel) - -6.0) < 0.05);
+		Skip(0.1f);
 		CHECK(ReadLevels(0.02f).Left == doctest::Approx(musicLevel + voiceLevel).epsilon(1e-5));
 	}
 	SUBCASE("a bus ducked by one that goes is not ducked any more")
@@ -450,8 +466,10 @@ TEST_CASE("AudioMixer: a ducked bus goes down by its amount over its attack whil
 		mixer.Buses[1].DuckedBy.clear();
 		mixer.Buses.pop_back();
 		AudioEngine::SetMixer(mixer);
-		Skip(0.5f);
-		// The voices play on Master now, at their level.
+		// The voices move to Master with a 10 ms dip, at their level again long before the half of the release.
+		std::vector<float> const releasing = ReadSamples(0.4f);
+		CHECK(std::abs(duckDb(releasing, 9600, voiceLevel) - -6.0) < 0.05);
+		Skip(0.1f);
 		CHECK(ReadLevels(0.02f).Left == doctest::Approx(musicLevel + voiceLevel).epsilon(1e-5));
 	}
 }

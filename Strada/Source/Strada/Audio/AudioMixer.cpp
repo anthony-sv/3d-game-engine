@@ -44,8 +44,19 @@ namespace Strada
 
 	void AudioBusMixGain::SetTarget(float volumeDb, bool muted, uint32_t frames, bool inDecibels)
 	{
-		Mute.SetTarget(muted ? 0.0f : 1.0f, frames);
-		VolumeTarget = ToVolumeGain(volumeDb);
+		// A value whose target does not change keeps its ramp: an edit of a bus's mute during a transition of its volume
+		// leaves the transition alone, and the other way round.
+		float const muteTarget = muted ? 0.0f : 1.0f;
+		if (frames == 0 || muteTarget != Mute.Target)
+		{
+			Mute.SetTarget(muteTarget, frames);
+		}
+		double const volumeTarget = ToVolumeGain(volumeDb);
+		if (frames != 0 && volumeTarget == VolumeTarget)
+		{
+			return;
+		}
+		VolumeTarget = volumeTarget;
 		InDecibels = inDecibels;
 		if (frames == 0 || Volume == VolumeTarget)
 		{

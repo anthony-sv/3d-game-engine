@@ -128,7 +128,7 @@ namespace Strada
 		AudioSmoothedGain Mute;
 
 		// The targets: volumeDb (MinMixerVolumeDb and below are silence) and muted, reached over frames (at once with 0),
-		// the volume in decibels when inDecibels is set.
+		// the volume in decibels when inDecibels is set. A value whose target is the one it has keeps its ramp.
 		void SetTarget(float volumeDb, bool muted, uint32_t frames, bool inDecibels);
 		// The gain of the next frame.
 		float Next();

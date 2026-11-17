@@ -113,9 +113,10 @@ namespace Strada
 		// A new target for parameter Parameter of effect Slot of the bus (Values[0]), reached on the parameter's scale (§9.6)
 		// over AudioParameterSmoothingSeconds, or over Values[1] seconds when that is longer (a snapshot's transition).
 		SetEffectParameter,
-		// The bus's ducking (§9.8): Other is the AudioBusNode whose level lowers it (null: not ducked); Values[0] the amount
-		// and Values[1] the threshold in dB, Values[2] the attack and Values[3] the release in seconds. A RemoveBus of Other
-		// ends the ducking by it on the mixing thread.
+		// The bus's ducking (§9.8): Other is the AudioBusNode whose level lowers it (null: not ducked, and a duck under way
+		// comes back up over the release); Values[0] the amount and Values[1] the threshold in dB, Values[2] the attack and
+		// Values[3] the release in seconds. A RemoveBus of Other ends the ducking by it on the mixing thread, keeping the
+		// follower's release.
 		SetBusDucking,
 
 		// The engine's master volume (Values[0], linear), applied to the mix after Master, ramped over
