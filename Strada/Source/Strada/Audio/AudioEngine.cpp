@@ -2,6 +2,7 @@
 #include "Strada/Audio/AudioEngine.h"
 
 #include "Strada/Asset/AudioClipAsset.h"
+#include "Strada/Asset/MixerAsset.h"
 #include "Strada/Audio/AudioMixer.h"
 #include "Strada/Audio/AudioQueue.h"
 #include "Strada/Audio/AudioStream.h"
@@ -10,17 +11,41 @@
 #include "Strada/Core/Profiler.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
+#include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace Strada
 {
 	namespace
 	{
 		using SteadyClock = std::chrono::steady_clock;
+
+		// A bus of the mixer, as the main thread last made and sent it.
+		struct AudioBusState
+		{
+			Scope<AudioBusNode> Node;
+			// The chain last sent (null for a bus without effects).
+			Scope<AudioEffectChain> Chain;
+			MixerBus Values;
+			// The parent's key; empty for Master.
+			std::string ParentKey;
+		};
+
+		// The game's value of a bus (§9.5), kept by key.
+		struct AudioGameBusValues
+		{
+			float VolumeDb = 0.0f;
+			bool Muted = false;
+		};
 
 		struct AudioEngineData
 		{
@@ -41,7 +66,14 @@ namespace Strada
 			Scope<AudioVoiceManager> Voices;
 			AudioSampleCache Samples;
 			float MasterVolume = 1.0f;
+
+			// The mixer (§9.5): what was last applied, its buses by key, the game's values by key, and the names logged as
+			// missing since the mixer's buses last changed.
+			Strada::Mixer CurrentMixer;
+			std::unordered_map<std::string, AudioBusState> Buses;
+			std::unordered_map<std::string, AudioGameBusValues> GameValues;
 			std::unordered_set<std::string> MissingBuses;
+			std::unordered_set<std::string> UnknownGameBuses;
 
 			// A device that stopped: the main thread holds the mixer until the device runs again.
 			bool TakenOver = false;
@@ -170,6 +202,280 @@ namespace Strada
 		{
 			data.Voices->TakeReturns(data.Returns);
 			data.Voices->Refresh();
+		}
+
+		// A bus's volume and mute as a linear gain: MinMixerVolumeDb and below, and a mute, are silence, exactly.
+		float ToBusGain(float decibels, bool muted)
+		{
+			return muted || decibels <= MinMixerVolumeDb ? 0.0f : static_cast<float>(std::pow(10.0, static_cast<double>(decibels) / 20.0));
+		}
+
+		void SendBusCommand(AudioEngineData& data, AudioCommandType type, AudioMixerObject* object, AudioMixerObject* other,
+		                    std::array<float, 4> const& values = {})
+		{
+			AudioCommand command;
+			command.Type = type;
+			command.Object = object;
+			command.Other = other;
+			command.Values = values;
+			data.Queue->Push(command);
+		}
+
+		AudioBusNode* FindBusNode(AudioEngineData const& data, std::string const& key)
+		{
+			auto const found = data.Buses.find(key);
+			return found != data.Buses.end() ? found->second.Node.get() : nullptr;
+		}
+
+		// The SetEffectParameter commands that take effect slot of the bus from one effect's values to another's.
+		void SendEffectChanges(AudioEngineData& data, AudioBusNode& bus, uint8_t slot, MixerEffect const& from, MixerEffect const& to)
+		{
+			for (uint32_t index = 0; index < MixerEffectParameterCount; index++)
+			{
+				MixerEffectParameter const parameter = static_cast<MixerEffectParameter>(index);
+				float const value = GetMixerEffectParameter(to, parameter);
+				if (GetMixerEffectParameter(from, parameter) == value)
+				{
+					continue;
+				}
+				AudioCommand command;
+				command.Type = AudioCommandType::SetEffectParameter;
+				command.Object = &bus;
+				command.Slot = slot;
+				command.Parameter = parameter;
+				command.Values[0] = value;
+				data.Queue->Push(command);
+			}
+		}
+
+		// A chain of new effects for the values (null for none).
+		Scope<AudioEffectChain> MakeEffectChain(std::vector<MixerEffect> const& effects)
+		{
+			if (effects.empty())
+			{
+				return nullptr;
+			}
+			std::vector<Ref<AudioEffect>> objects;
+			objects.reserve(effects.size());
+			for (MixerEffect const& effect : effects)
+			{
+				objects.push_back(AudioEffect::Create(effect, AudioEngine::GetSampleRate(), AudioEngine::GetChannelCount()));
+			}
+			return CreateScope<AudioEffectChain>(std::move(objects));
+		}
+
+		// Takes the bus's effects to effects (§9.5): parameter changes only, ramped, while the kinds stay the same in the
+		// same order; otherwise a new chain, swapped in under a dip, that carries on each effect whose kind keeps its rank
+		// among that kind's effects (the bus's first Reverb stays its first Reverb). With fresh, every effect is new (their
+		// state cleared).
+		void UpdateBusEffects(AudioEngineData& data, AudioBusState& state, std::vector<MixerEffect> const& effects, bool fresh)
+		{
+			std::vector<MixerEffect> const& previous = state.Values.Effects;
+			bool const sameKinds = !fresh && previous.size() == effects.size() &&
+			                       std::equal(previous.begin(), previous.end(), effects.begin(),
+			                                  [](MixerEffect const& first, MixerEffect const& second)
+			                                  {
+												  return first.Kind == second.Kind;
+											  });
+			if (sameKinds)
+			{
+				for (size_t slot = 0; slot < effects.size(); slot++)
+				{
+					SendEffectChanges(data, *state.Node, static_cast<uint8_t>(slot), previous[slot], effects[slot]);
+				}
+				return;
+			}
+			std::vector<Ref<AudioEffect>> objects;
+			objects.reserve(effects.size());
+			// The effects carried on: their slot in the new chain and their index in the previous one.
+			std::vector<std::pair<size_t, size_t>> carried;
+			for (size_t slot = 0; slot < effects.size(); slot++)
+			{
+				MixerEffectKind const kind = effects[slot].Kind;
+				auto const isKind = [kind](MixerEffect const& candidate)
+				{
+					return candidate.Kind == kind;
+				};
+				size_t const rank =
+					static_cast<size_t>(std::count_if(effects.begin(), effects.begin() + static_cast<ptrdiff_t>(slot), isKind));
+				size_t found = previous.size();
+				for (size_t index = 0, seen = 0; index < previous.size(); index++)
+				{
+					if (isKind(previous[index]) && seen++ == rank)
+					{
+						found = index;
+						break;
+					}
+				}
+				if (!fresh && state.Chain && found < state.Chain->GetOwnedEffects().size())
+				{
+					objects.push_back(state.Chain->GetOwnedEffects()[found]);
+					carried.emplace_back(slot, found);
+				}
+				else
+				{
+					objects.push_back(AudioEffect::Create(effects[slot], AudioEngine::GetSampleRate(), AudioEngine::GetChannelCount()));
+				}
+			}
+			Scope<AudioEffectChain> chain = objects.empty() ? nullptr : CreateScope<AudioEffectChain>(std::move(objects));
+			SendBusCommand(data, AudioCommandType::SetBusEffects, state.Node.get(), chain.get());
+			// The chain it replaces comes back once swapped out; the effects carried on live on in the new one.
+			data.Voices->ReturnLater(std::move(state.Chain));
+			state.Chain = std::move(chain);
+			for (auto const& [slot, index] : carried)
+			{
+				SendEffectChanges(data, *state.Node, static_cast<uint8_t>(slot), previous[index], effects[slot]);
+			}
+		}
+
+		// The main thread's estimate of each bus's gain in amplitude, from the gains of the buses down to Master (§9.3).
+		void UpdateChainGains(AudioEngineData& data)
+		{
+			for (auto& entry : data.Buses)
+			{
+				AudioBusState& state = entry.second;
+				float gain = 1.0f;
+				AudioBusState const* current = &state;
+				// The tree has at most MaxMixerBuses levels.
+				for (uint32_t level = 0; current != nullptr && level <= MaxMixerBuses; level++)
+				{
+					auto const game = data.GameValues.find(MakeMixerBusKey(current->Values.Name));
+					gain *= ToBusGain(current->Values.VolumeDb, current->Values.Muted);
+					if (game != data.GameValues.end())
+					{
+						gain *= ToBusGain(game->second.VolumeDb, game->second.Muted);
+					}
+					auto const parent = current->ParentKey.empty() ? data.Buses.end() : data.Buses.find(current->ParentKey);
+					current = parent != data.Buses.end() ? &parent->second : nullptr;
+				}
+				state.Node->SetChainGain(gain);
+			}
+		}
+
+		// The depth of each bus below Master (Master 0), so that parents are made and moved before their children.
+		std::vector<size_t> OrderParentsFirst(Mixer const& mixer)
+		{
+			std::unordered_map<std::string, size_t> indices;
+			for (size_t index = 0; index < mixer.Buses.size(); index++)
+			{
+				indices.emplace(MakeMixerBusKey(mixer.Buses[index].Name), index);
+			}
+			std::vector<uint32_t> depths(mixer.Buses.size(), 0);
+			for (size_t index = 0; index < mixer.Buses.size(); index++)
+			{
+				// Validated: the parents reach Master within as many steps as there are buses.
+				size_t current = index;
+				for (uint32_t steps = 0; mixer.Buses[current].Name != MasterBusName && steps < mixer.Buses.size(); steps++)
+				{
+					auto const parent = indices.find(MakeMixerBusKey(mixer.Buses[current].Parent));
+					if (parent == indices.end())
+					{
+						break;
+					}
+					current = parent->second;
+					depths[index]++;
+				}
+			}
+			std::vector<size_t> order(mixer.Buses.size());
+			for (size_t index = 0; index < order.size(); index++)
+			{
+				order[index] = index;
+			}
+			std::stable_sort(order.begin(), order.end(),
+			                 [&depths](size_t first, size_t second)
+			                 {
+								 return depths[first] < depths[second];
+							 });
+			return order;
+		}
+
+		// Sends the mixing thread what takes the mix from data.CurrentMixer to mixer (§9.5), which ValidateMixer passed.
+		void ApplyMixer(AudioEngineData& data, Mixer const& mixer)
+		{
+			std::unordered_set<std::string> keys;
+			bool structureChanged = false;
+			for (size_t const index : OrderParentsFirst(mixer))
+			{
+				MixerBus const& bus = mixer.Buses[index];
+				std::string key = MakeMixerBusKey(bus.Name);
+				keys.insert(key);
+				std::string parentKey = bus.Name == MasterBusName ? std::string() : MakeMixerBusKey(bus.Parent);
+				AudioBusNode* parent = parentKey.empty() ? nullptr : FindBusNode(data, parentKey);
+				if (!parentKey.empty() && parent == nullptr)
+				{
+					// Its parent could not be made: it feeds Master.
+					parent = FindBusNode(data, MakeMixerBusKey(MasterBusName));
+				}
+				if (auto const found = data.Buses.find(key); found != data.Buses.end())
+				{
+					AudioBusState& state = found->second;
+					if (state.ParentKey != parentKey)
+					{
+						SendBusCommand(data, AudioCommandType::SetBusParent, state.Node.get(), parent);
+						state.ParentKey = std::move(parentKey);
+						structureChanged = true;
+					}
+					if (state.Values.VolumeDb != bus.VolumeDb || state.Values.Muted != bus.Muted)
+					{
+						SendBusCommand(data, AudioCommandType::SetBusMixValues, state.Node.get(), nullptr,
+						               {bus.VolumeDb, bus.Muted ? 1.0f : 0.0f, 0.0f, 0.0f});
+					}
+					UpdateBusEffects(data, state, bus.Effects, false);
+					state.Values = bus;
+					continue;
+				}
+				Result<Scope<AudioBusNode>> node = AudioBusNode::Create(bus.Name, AudioEngine::GetChannelCount());
+				if (!node)
+				{
+					ST_CORE_ERROR("The mixer's bus '{}' cannot play: {}; its sounds play on {}", bus.Name, node.GetError(), MasterBusName);
+					continue;
+				}
+				AudioBusState state;
+				state.Node = node.TakeValue();
+				state.Chain = MakeEffectChain(bus.Effects);
+				state.Values = bus;
+				state.ParentKey = std::move(parentKey);
+				auto const game = data.GameValues.find(key);
+				state.Node->SetInitialValues(ToBusGain(bus.VolumeDb, bus.Muted),
+				                             game != data.GameValues.end() ? ToBusGain(game->second.VolumeDb, game->second.Muted) : 1.0f,
+				                             state.Chain.get());
+				SendBusCommand(data, AudioCommandType::AddBus, state.Node.get(), parent);
+				data.Buses.emplace(std::move(key), std::move(state));
+				structureChanged = true;
+			}
+
+			// Removed buses leave the table first, so that the groups are pointed at the buses that remain.
+			std::vector<AudioBusState> removed;
+			for (auto bus = data.Buses.begin(); bus != data.Buses.end();)
+			{
+				if (keys.contains(bus->first))
+				{
+					++bus;
+					continue;
+				}
+				removed.push_back(std::move(bus->second));
+				bus = data.Buses.erase(bus);
+				structureChanged = true;
+			}
+			if (structureChanged)
+			{
+				// Each name a source asks for and the mixer lacks is logged once per mixer.
+				data.MissingBuses.clear();
+				data.UnknownGameBuses.clear();
+			}
+			data.CurrentMixer = mixer;
+			for (AudioSceneGroup* const group : data.Voices->GetGroups())
+			{
+				group->PointAt(Miniaudio::FindBus(group->GetBusKey()));
+			}
+			// What still plays into a removed bus is moved to Master by the mixing thread, which then hands the bus back.
+			for (AudioBusState& state : removed)
+			{
+				SendBusCommand(data, AudioCommandType::RemoveBus, state.Node.get(), nullptr);
+				data.Voices->ReturnLater(std::move(state.Node));
+				data.Voices->ReturnLater(std::move(state.Chain));
+			}
+			UpdateChainGains(data);
 		}
 
 		// Device and null output: the device stopped (it said so, or a playback device mixed nothing for
@@ -332,6 +638,9 @@ namespace Strada
 		data->Voices = CreateScope<AudioVoiceManager>(*data->Queue);
 		data->LastBlockTime = SteadyClock::now();
 		s_Data = std::move(data);
+		// Master alone, whose node every scene's groups play into: at 0 dB without effects it is the identity, so the
+		// engine mixes as it did before buses until a mixer is set. Queued before the device starts.
+		ApplyMixer(*s_Data, Mixer{});
 		if (device != nullptr)
 		{
 			s_Mixer.store(s_Data->Mixer.get(), std::memory_order_release);
@@ -358,6 +667,8 @@ namespace Strada
 		s_Mixer.store(nullptr, std::memory_order_release);
 		s_Data->Voices->TakeReturns(s_Data->Returns);
 		s_Data->Voices->DestroyReturning();
+		// The buses and their effects, once nothing that played into them is left; each node detaches what still feeds it.
+		s_Data->Buses.clear();
 		s_Data->Voices.reset();
 		s_Data->Mixer.reset();
 		s_Data->Queue.reset();
@@ -444,6 +755,154 @@ namespace Strada
 		command.Type = AudioCommandType::SetMasterVolume;
 		command.Values[0] = volume;
 		s_Data->Queue->Push(command);
+	}
+
+	void AudioEngine::SetMixer(Mixer const& mixer)
+	{
+		if (s_Data == nullptr)
+		{
+			return;
+		}
+		// Numbers outside their fields' ranges, which no file holds, are brought within them (a mixer made in code).
+		Mixer fitted = mixer;
+		for (MixerBus& bus : fitted.Buses)
+		{
+			FitToFieldRanges<StructTraits<MixerBus>>(bus);
+			for (MixerEffect& effect : bus.Effects)
+			{
+				FitToFieldRanges<StructTraits<MixerEffect>>(effect);
+			}
+		}
+		if (Result<void> valid = ValidateMixer(fitted); !valid)
+		{
+			ST_CORE_WARN("The mixer cannot be mixed through and is not applied: {}", valid.GetError());
+			return;
+		}
+		if (fitted == s_Data->CurrentMixer)
+		{
+			return;
+		}
+		ApplyMixer(*s_Data, fitted);
+	}
+
+	Mixer const& AudioEngine::GetMixer()
+	{
+		static Mixer const s_Default;
+		return s_Data != nullptr ? s_Data->CurrentMixer : s_Default;
+	}
+
+	namespace
+	{
+		// The bus of a name scripts gave, or null when the mixer lacks it (logged once per name and mixer).
+		AudioBusState* FindGameBus(AudioEngineData& data, std::string_view bus)
+		{
+			std::string key = MakeMixerBusKey(bus);
+			if (auto const found = data.Buses.find(key); found != data.Buses.end())
+			{
+				return &found->second;
+			}
+			if (data.UnknownGameBuses.insert(std::move(key)).second)
+			{
+				ST_CORE_WARN("The mixer has no bus named '{}': its game volume reads 0 dB and is not set", bus);
+			}
+			return nullptr;
+		}
+
+		void SetGameValues(AudioEngineData& data, AudioBusState& state, AudioGameBusValues const& values)
+		{
+			AudioGameBusValues& kept = data.GameValues[MakeMixerBusKey(state.Values.Name)];
+			if (kept.VolumeDb == values.VolumeDb && kept.Muted == values.Muted)
+			{
+				return;
+			}
+			kept = values;
+			SendBusCommand(data, AudioCommandType::SetBusGameValues, state.Node.get(), nullptr,
+			               {values.VolumeDb, values.Muted ? 1.0f : 0.0f, 0.0f, 0.0f});
+			UpdateChainGains(data);
+		}
+	}
+
+	float AudioEngine::GetBusVolume(std::string_view bus)
+	{
+		if (s_Data == nullptr)
+		{
+			return 0.0f;
+		}
+		AudioBusState const* const state = FindGameBus(*s_Data, bus);
+		if (state == nullptr)
+		{
+			return 0.0f;
+		}
+		auto const values = s_Data->GameValues.find(MakeMixerBusKey(bus));
+		return values != s_Data->GameValues.end() ? values->second.VolumeDb : 0.0f;
+	}
+
+	void AudioEngine::SetBusVolume(std::string_view bus, float decibels)
+	{
+		if (s_Data == nullptr || std::isnan(decibels))
+		{
+			return;
+		}
+		if (AudioBusState* const state = FindGameBus(*s_Data, bus))
+		{
+			AudioGameBusValues values = s_Data->GameValues[MakeMixerBusKey(bus)];
+			values.VolumeDb = std::clamp(decibels, MinMixerVolumeDb, MaxMixerVolumeDb);
+			SetGameValues(*s_Data, *state, values);
+		}
+	}
+
+	bool AudioEngine::IsBusMuted(std::string_view bus)
+	{
+		if (s_Data == nullptr || FindGameBus(*s_Data, bus) == nullptr)
+		{
+			return false;
+		}
+		auto const values = s_Data->GameValues.find(MakeMixerBusKey(bus));
+		return values != s_Data->GameValues.end() && values->second.Muted;
+	}
+
+	void AudioEngine::SetBusMuted(std::string_view bus, bool muted)
+	{
+		if (s_Data == nullptr)
+		{
+			return;
+		}
+		if (AudioBusState* const state = FindGameBus(*s_Data, bus))
+		{
+			AudioGameBusValues values = s_Data->GameValues[MakeMixerBusKey(bus)];
+			values.Muted = muted;
+			SetGameValues(*s_Data, *state, values);
+		}
+	}
+
+	void AudioEngine::ResetGameValues()
+	{
+		if (s_Data == nullptr)
+		{
+			return;
+		}
+		SetMasterVolume(1.0f);
+		for (auto& entry : s_Data->Buses)
+		{
+			SetGameValues(*s_Data, entry.second, AudioGameBusValues{});
+		}
+		s_Data->GameValues.clear();
+		UpdateChainGains(*s_Data);
+	}
+
+	void AudioEngine::ClearEffectState()
+	{
+		if (s_Data == nullptr)
+		{
+			return;
+		}
+		for (auto& entry : s_Data->Buses)
+		{
+			if (!entry.second.Values.Effects.empty())
+			{
+				UpdateBusEffects(*s_Data, entry.second, entry.second.Values.Effects, true);
+			}
+		}
 	}
 
 	uint32_t AudioEngine::GetActiveVoiceCount()
@@ -593,15 +1052,25 @@ namespace Strada
 		return s_Data->Samples;
 	}
 
+	ma_allocation_callbacks const& Miniaudio::GetAllocationCallbacks()
+	{
+		return AllocationCallbacks;
+	}
+
 	AudioBusNode* Miniaudio::FindBus(std::string_view busKey)
 	{
 		ST_CORE_ASSERT(s_Data, "AudioEngine is not initialized");
-		// Until the mixer has buses there is Master alone, the engine's endpoint.
-		if (busKey != "master" && s_Data->MissingBuses.emplace(busKey).second)
+		std::string const key(busKey);
+		if (AudioBusNode* const bus = FindBusNode(*s_Data, key))
 		{
-			ST_CORE_WARN("The mixer has no bus named '{}': its sounds play on {}", busKey, MasterBusName);
+			return bus;
 		}
-		return nullptr;
+		std::string const masterKey = MakeMixerBusKey(MasterBusName);
+		if (key != masterKey && s_Data->MissingBuses.emplace(key).second)
+		{
+			ST_CORE_WARN("The mixer has no bus named '{}': its sounds play on {}", key, MasterBusName);
+		}
+		return FindBusNode(*s_Data, masterKey);
 	}
 
 	Miniaudio::MixingScope::MixingScope()

@@ -279,9 +279,8 @@ namespace Strada
 		bool Spatial = true;
 		float MinDistance = 1.0f;
 		float MaxDistance = 100.0f;
-		// The mixer's bus the source plays on: a bus name, empty for Master. A name the project's mixer lacks plays on
-		// Master and is logged once. Not yet in the field table, so neither saved nor read by the scene: it joins them with
-		// the mixer's buses (Docs/Architecture.md §9.5).
+		// The mixer's bus the source plays on: a bus name (any letter case), empty for Master. A name the project's mixer
+		// lacks plays on Master and is logged once (Docs/Architecture.md §9.5).
 		std::string Bus;
 		// The voice model (Docs/Architecture.md §9.3). 0 to MaxAudioPriority: when more voices would play than the engine
 		// mixes (MaxMixedAudioVoices), lower priorities are stolen first.

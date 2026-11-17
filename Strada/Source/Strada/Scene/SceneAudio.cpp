@@ -187,6 +187,7 @@ namespace Strada
 		desc.Spatial = component.Spatial;
 		desc.MinDistance = component.MinDistance;
 		desc.MaxDistance = component.MaxDistance;
+		desc.Bus = component.Bus;
 		desc.Priority = component.Priority;
 		desc.MaxVoices = component.MaxVoices;
 		desc.Position = GetTranslation(GetWorldTransform(entity));
@@ -224,6 +225,10 @@ namespace Strada
 		if (component.MinDistance != applied.MinDistance || component.MaxDistance != applied.MaxDistance)
 		{
 			m_Audio->SetDistances(state.Entity, component.MinDistance, component.MaxDistance);
+		}
+		if (component.Bus != applied.Bus)
+		{
+			m_Audio->SetBus(state.Entity, component.Bus);
 		}
 		if (component.Priority != applied.Priority)
 		{

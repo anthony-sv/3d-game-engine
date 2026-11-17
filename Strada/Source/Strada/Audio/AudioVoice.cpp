@@ -534,6 +534,14 @@ namespace Strada
 		Keep(Scope<AudioMixerObject>(std::move(group)), held);
 	}
 
+	void AudioVoiceManager::ReturnLater(Scope<AudioMixerObject> object)
+	{
+		if (object)
+		{
+			Keep(std::move(object), true);
+		}
+	}
+
 	void AudioVoiceManager::Keep(Scope<AudioMixerObject> object, bool held)
 	{
 		if (held)
@@ -596,6 +604,16 @@ namespace Strada
 		std::erase(m_Owners, &owner);
 	}
 
+	void AudioVoiceManager::AddGroup(AudioSceneGroup& group)
+	{
+		m_Groups.push_back(&group);
+	}
+
+	void AudioVoiceManager::RemoveGroup(AudioSceneGroup& group)
+	{
+		std::erase(m_Groups, &group);
+	}
+
 	void AudioVoiceManager::Refresh()
 	{
 		for (AudioVoiceOwner* owner : m_Owners)
@@ -622,7 +640,9 @@ namespace Strada
 			float const distance = std::clamp(glm::length(voice.m_RelativePosition), voice.m_MinDistance, voice.m_MaxDistance);
 			attenuation = voice.m_MinDistance / distance;
 		}
-		return voice.m_Volume * attenuation;
+		// The mixer's and the game's gains of its bus and the buses above it.
+		AudioBusNode const* const bus = voice.m_Group != nullptr ? voice.m_Group->GetBusNode() : nullptr;
+		return voice.m_Volume * attenuation * (bus != nullptr ? bus->GetChainGain() : 1.0f);
 	}
 
 	void AudioVoiceManager::StartMixing(AudioVoice& voice)

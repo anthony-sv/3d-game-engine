@@ -5,6 +5,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <span>
+#include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -49,6 +52,9 @@ namespace Strada
 			group->m_Paused = true;
 			group->m_MixPaused = true;
 		}
+		group->m_BusNode = Miniaudio::FindBus(group->m_BusKey);
+		Miniaudio::GetVoiceManager().AddGroup(*group);
+		group->m_Registered = true;
 		return group;
 	}
 
@@ -59,6 +65,10 @@ namespace Strada
 
 	AudioSceneGroup::~AudioSceneGroup()
 	{
+		if (m_Registered)
+		{
+			Miniaudio::GetVoiceManager().RemoveGroup(*this);
+		}
 		if (m_HasGroup)
 		{
 			ma_sound_group_uninit(&m_Group);
@@ -75,8 +85,25 @@ namespace Strada
 		AudioCommand command;
 		command.Type = AudioCommandType::AttachGroup;
 		command.Object = this;
-		command.Other = Miniaudio::FindBus(m_BusKey);
+		command.Other = m_BusNode;
 		Miniaudio::GetVoiceManager().Submit(command);
+	}
+
+	void AudioSceneGroup::PointAt(AudioBusNode* bus)
+	{
+		if (bus == m_BusNode)
+		{
+			return;
+		}
+		m_BusNode = bus;
+		if (m_HeldByMixer)
+		{
+			AudioCommand command;
+			command.Type = AudioCommandType::MoveGroup;
+			command.Object = this;
+			command.Other = bus;
+			Miniaudio::GetVoiceManager().Submit(command);
+		}
 	}
 
 	void AudioSceneGroup::SetPaused(bool paused)
@@ -110,6 +137,11 @@ namespace Strada
 
 	void AudioSceneGroup::Retire()
 	{
+		if (m_Registered)
+		{
+			Miniaudio::GetVoiceManager().RemoveGroup(*this);
+			m_Registered = false;
+		}
 		if (m_HeldByMixer)
 		{
 			AudioCommand command;
@@ -117,6 +149,133 @@ namespace Strada
 			command.Object = this;
 			Miniaudio::GetVoiceManager().Submit(command);
 		}
+	}
+
+	AudioEffectChain::AudioEffectChain(std::vector<Ref<AudioEffect>> effects)
+		: m_Owned(std::move(effects))
+	{
+		if (m_Owned.size() > MaxBusEffects)
+		{
+			m_Owned.resize(MaxBusEffects);
+		}
+		for (Ref<AudioEffect> const& effect : m_Owned)
+		{
+			m_Effects[m_Count++] = effect.get();
+		}
+	}
+
+	Result<Scope<AudioBusNode>> AudioBusNode::Create(std::string name, uint32_t channelCount)
+	{
+		// The bus node's kind for miniaudio: one input, into which miniaudio sums what feeds the bus, and one output. It
+		// processes in every block, also without input, so that tails, ramps and meters move on (Docs/Architecture.md
+		// §9.5); miniaudio then passes it silence. Not MA_NODE_FLAG_ALLOW_NULL_INPUT: after a block processed without
+		// input miniaudio leaves that block's frames counted as cached input (the null-input path skips the counters,
+		// miniaudio.h:75361-75392), so the next block reads its input from the cache instead of the graph, and a sound
+		// that starts on a silent bus would be heard a block late.
+		static ma_node_vtable const s_Vtable = {
+			.onProcess = &AudioBusNode::OnProcess,
+			.onGetRequiredInputFrameCount = nullptr,
+			.inputBusCount = 1,
+			.outputBusCount = 1,
+			.flags = MA_NODE_FLAG_CONTINUOUS_PROCESSING,
+		};
+		ma_engine& engine = Miniaudio::GetEngine();
+		Scope<AudioBusNode> bus = CreateScope<AudioBusNode>(PrivateTag{}, std::move(name), channelCount);
+		ma_uint32 const channels[1] = {channelCount};
+		ma_node_config config = ma_node_config_init();
+		config.vtable = &s_Vtable;
+		config.pInputChannels = channels;
+		config.pOutputChannels = channels;
+		bus->m_Node.Owner = bus.get();
+		if (ma_result const result =
+		        ma_node_init(ma_engine_get_node_graph(&engine), &config, &Miniaudio::GetAllocationCallbacks(), &bus->m_Node.Base);
+		    result != MA_SUCCESS)
+		{
+			return MakeError("the mixer's bus '{}' cannot be created: {}", bus->m_Name, ma_result_description(result));
+		}
+		bus->m_HasNode = true;
+		return bus;
+	}
+
+	AudioBusNode::AudioBusNode(PrivateTag, std::string name, uint32_t channelCount)
+		: m_Name(std::move(name)),
+		  m_ChannelCount(channelCount)
+	{
+	}
+
+	AudioBusNode::~AudioBusNode()
+	{
+		if (m_HasNode)
+		{
+			// Detaches its output and whatever still feeds it (ma_node_detach_full), waiting for no reader: no thread mixes.
+			ma_node_uninit(&m_Node.Base, &Miniaudio::GetAllocationCallbacks());
+		}
+	}
+
+	void AudioBusNode::SetInitialValues(float mixGain, float gameGain, AudioEffectChain* chain)
+	{
+		m_MixGain.SetTarget(mixGain, 0);
+		m_GameGain.SetTarget(gameGain, 0);
+		m_Chain = chain;
+	}
+
+	void AudioBusNode::OnProcess(ma_node* node, float const** framesIn, ma_uint32* frameCountIn, float** framesOut,
+	                             ma_uint32* frameCountOut)
+	{
+		AudioBusNode& bus = *static_cast<Node*>(node)->Owner;
+		// miniaudio passes silence without input; a null input is taken for silence too, consuming nothing.
+		float const* const input = framesIn != nullptr ? framesIn[0] : nullptr;
+		uint32_t const inputFrames = input != nullptr ? std::min(*frameCountIn, *frameCountOut) : 0;
+		uint32_t const frames = input != nullptr ? inputFrames : *frameCountOut;
+		bus.Process(input, inputFrames, framesOut[0], frames);
+		if (input != nullptr)
+		{
+			*frameCountIn = inputFrames;
+		}
+		*frameCountOut = frames;
+	}
+
+	void AudioBusNode::Process(float const* input, uint32_t inputFrames, float* output, uint32_t frameCount)
+	{
+		size_t const sampleCount = static_cast<size_t>(frameCount) * m_ChannelCount;
+		size_t const inputSamples = static_cast<size_t>(inputFrames) * m_ChannelCount;
+		if (input != nullptr && input != output)
+		{
+			std::copy_n(input, inputSamples, output);
+		}
+		std::fill(output + (input != nullptr ? inputSamples : 0), output + sampleCount, 0.0f);
+		std::span<float> const samples(output, sampleCount);
+		if (m_Chain != nullptr)
+		{
+			for (AudioEffect* const effect : m_Chain->GetEffects())
+			{
+				effect->Process(samples);
+			}
+		}
+		// The mixer's gain, the game's and the dip, ramped per frame. At 0 dB with nothing moving the bus is the identity.
+		bool const steady = m_MixGain.IsSteady() && m_GameGain.IsSteady() && m_Dip.IsSteady();
+		if (!steady || m_MixGain.Current * m_GameGain.Current * m_Dip.Current != 1.0f)
+		{
+			for (uint32_t frame = 0; frame < frameCount; frame++)
+			{
+				float const gain = m_MixGain.Next() * m_GameGain.Next() * m_Dip.Next();
+				float* const frameSamples = output + static_cast<size_t>(frame) * m_ChannelCount;
+				for (uint32_t channel = 0; channel < m_ChannelCount; channel++)
+				{
+					frameSamples[channel] *= gain;
+				}
+			}
+		}
+		float peak = 0.0f;
+		double squares = 0.0;
+		for (float const sample : samples)
+		{
+			peak = std::max(peak, std::abs(sample));
+			squares += static_cast<double>(sample) * sample;
+		}
+		m_Peak.store(peak, std::memory_order_relaxed);
+		m_Rms.store(sampleCount > 0 ? static_cast<float>(std::sqrt(squares / static_cast<double>(sampleCount))) : 0.0f,
+		            std::memory_order_relaxed);
 	}
 
 	AudioMixer::AudioMixer(ma_engine& engine, AudioCommandQueue& queue, AudioReturnList& returns)
@@ -183,11 +342,20 @@ namespace Strada
 			{
 				Apply(command);
 			});
-		// Nothing renders while a lost device is replaced: every fade is over at once.
+		// Nothing renders while a lost device is replaced: every fade, move and dip is over at once.
 		while (AudioVoice* voice = m_Fading.GetFirst())
 		{
 			FinishFade(*voice);
 		}
+		for (AudioSceneGroup* group = m_Groups.GetFirst(); group != nullptr; group = m_Groups.GetNext(*group))
+		{
+			group->m_MixMoveEnd = 0;
+		}
+		for (AudioBusNode* bus = m_Buses.GetFirst(); bus != nullptr; bus = m_Buses.GetNext(*bus))
+		{
+			bus->m_DipEnd = 0;
+		}
+		FinishBuses();
 	}
 
 	bool AudioMixer::IsHeard(AudioVoice const& voice) const
@@ -342,11 +510,8 @@ namespace Strada
 			case AudioCommandType::AttachGroup:
 			{
 				AudioSceneGroup& group = *static_cast<AudioSceneGroup*>(command.Object);
-				group.m_Bus = static_cast<AudioBusNode*>(command.Other);
-				ma_node* const output =
-					group.m_Bus != nullptr ? static_cast<ma_node*>(&group.m_Bus->m_Node) : ma_engine_get_endpoint(&m_Engine);
-				ma_node_attach_output_bus(&group.m_Group, 0, output, 0);
-				group.m_MixAttached = true;
+				m_Groups.Add(group);
+				ConnectGroup(group, static_cast<AudioBusNode*>(command.Other));
 				break;
 			}
 			case AudioCommandType::SetGroupPaused:
@@ -376,12 +541,301 @@ namespace Strada
 			case AudioCommandType::SetMasterVolume:
 				m_MasterVolume.SetTarget(command.Values[0], SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate));
 				break;
-			default:
-				// The buses' commands (MoveGroup, AddBus, SetBusParent, RemoveBus, the bus and effect values) are sent only
-				// once the mixer has buses; nothing sends them before.
-				ST_CORE_ASSERT(false, "An audio command the mixer does not apply");
+			case AudioCommandType::MoveGroup:
+			case AudioCommandType::AddBus:
+			case AudioCommandType::SetBusParent:
+			case AudioCommandType::RemoveBus:
+			case AudioCommandType::SetBusMixValues:
+			case AudioCommandType::SetBusGameValues:
+			case AudioCommandType::SetBusEffects:
+			case AudioCommandType::SetEffectParameter:
+				ApplyBusCommand(command);
+				break;
+			case AudioCommandType::None:
+				ST_CORE_ASSERT(false, "An audio command without a type");
 				break;
 		}
+	}
+
+	ma_node* AudioMixer::GetInputNode(AudioBusNode* bus)
+	{
+		return bus != nullptr ? static_cast<ma_node*>(&bus->m_Node.Base) : ma_engine_get_endpoint(&m_Engine);
+	}
+
+	void AudioMixer::ConnectGroup(AudioSceneGroup& group, AudioBusNode* bus)
+	{
+		DisconnectGroup(group);
+		ma_node_attach_output_bus(&group.m_Group, 0, GetInputNode(bus), 0);
+		group.m_Bus = bus;
+		group.m_MixAttached = true;
+		if (bus != nullptr)
+		{
+			bus->m_MixInputCount++;
+		}
+	}
+
+	void AudioMixer::DisconnectGroup(AudioSceneGroup& group)
+	{
+		if (!group.m_MixAttached)
+		{
+			return;
+		}
+		ma_node_detach_output_bus(&group.m_Group, 0);
+		group.m_MixAttached = false;
+		if (group.m_Bus != nullptr)
+		{
+			group.m_Bus->m_MixInputCount--;
+		}
+		group.m_Bus = nullptr;
+	}
+
+	void AudioMixer::ConnectBus(AudioBusNode& bus, AudioBusNode* parent)
+	{
+		DisconnectBus(bus);
+		ma_node_attach_output_bus(&bus.m_Node.Base, 0, GetInputNode(parent), 0);
+		bus.m_Parent = parent;
+		if (parent != nullptr)
+		{
+			parent->m_MixInputCount++;
+		}
+	}
+
+	void AudioMixer::DisconnectBus(AudioBusNode& bus)
+	{
+		if (bus.m_Parent != nullptr)
+		{
+			bus.m_Parent->m_MixInputCount--;
+		}
+		ma_node_detach_output_bus(&bus.m_Node.Base, 0);
+		bus.m_Parent = nullptr;
+	}
+
+	void AudioMixer::BeginDip(AudioBusNode& bus)
+	{
+		if (bus.m_Dipping)
+		{
+			return;
+		}
+		uint32_t const frames = SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate);
+		bus.m_Dip.SetTarget(0.0f, frames);
+		bus.m_Dipping = true;
+		bus.m_DipEnd = m_Time + frames;
+	}
+
+	void AudioMixer::SetBusParent(AudioBusNode& bus, AudioBusNode* parent)
+	{
+		if (parent == (bus.m_HasPendingParent ? bus.m_PendingParent : bus.m_Parent))
+		{
+			return;
+		}
+		if (parent == bus.m_Parent)
+		{
+			// Back to where it is: the move is called off (a dip under way still swaps a pending chain).
+			bus.m_HasPendingParent = false;
+			bus.m_PendingParent = nullptr;
+			return;
+		}
+		bus.m_PendingParent = parent;
+		bus.m_HasPendingParent = true;
+		BeginDip(bus);
+	}
+
+	void AudioMixer::MoveGroup(AudioSceneGroup& group, AudioBusNode* bus)
+	{
+		uint32_t const frames = SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate);
+		if (group.m_MixMoving)
+		{
+			group.m_MixMoveTarget = bus;
+			if (bus == group.m_Bus)
+			{
+				// Back to the bus it was leaving: it fades back in where it is.
+				group.m_MixMoving = false;
+				ma_sound_group_set_fade_in_pcm_frames(&group.m_Group, -1.0f, 1.0f, frames);
+			}
+			return;
+		}
+		if (bus == group.m_Bus || !group.m_MixAttached)
+		{
+			return;
+		}
+		if (group.m_MixPaused)
+		{
+			// Nothing of it is heard: moved at once.
+			ConnectGroup(group, bus);
+			return;
+		}
+		group.m_MixMoveTarget = bus;
+		group.m_MixMoving = true;
+		group.m_MixMoveEnd = m_Time + frames;
+		ma_sound_group_set_fade_in_pcm_frames(&group.m_Group, -1.0f, 0.0f, frames);
+	}
+
+	void AudioMixer::ApplyBusCommand(AudioCommand const& command)
+	{
+		switch (command.Type)
+		{
+			case AudioCommandType::MoveGroup:
+				MoveGroup(*static_cast<AudioSceneGroup*>(command.Object), static_cast<AudioBusNode*>(command.Other));
+				break;
+			case AudioCommandType::AddBus:
+			{
+				AudioBusNode& bus = *static_cast<AudioBusNode*>(command.Object);
+				AudioBusNode* const parent = static_cast<AudioBusNode*>(command.Other);
+				m_Buses.Add(bus);
+				if (parent == nullptr && m_Master == nullptr)
+				{
+					m_Master = &bus;
+				}
+				ConnectBus(bus, parent);
+				break;
+			}
+			case AudioCommandType::SetBusParent:
+				SetBusParent(*static_cast<AudioBusNode*>(command.Object), static_cast<AudioBusNode*>(command.Other));
+				break;
+			case AudioCommandType::RemoveBus:
+			{
+				AudioBusNode& removed = *static_cast<AudioBusNode*>(command.Object);
+				removed.m_MixRemoving = true;
+				// What still plays into it goes to Master: the groups of retired scenes whose voices still fade out (the main
+				// thread names them no more), and anything the main thread did not move first.
+				for (AudioSceneGroup* group = m_Groups.GetFirst(); group != nullptr; group = m_Groups.GetNext(*group))
+				{
+					if (group->m_MixMoving && group->m_MixMoveTarget == &removed)
+					{
+						group->m_MixMoveTarget = m_Master;
+					}
+					else if (!group->m_MixMoving && group->m_Bus == &removed)
+					{
+						MoveGroup(*group, m_Master);
+					}
+				}
+				for (AudioBusNode* bus = m_Buses.GetFirst(); bus != nullptr; bus = m_Buses.GetNext(*bus))
+				{
+					if (bus->m_HasPendingParent && bus->m_PendingParent == &removed)
+					{
+						bus->m_PendingParent = m_Master;
+					}
+					else if (!bus->m_HasPendingParent && bus->m_Parent == &removed)
+					{
+						SetBusParent(*bus, m_Master);
+					}
+				}
+				break;
+			}
+			case AudioCommandType::SetBusMixValues:
+			case AudioCommandType::SetBusGameValues:
+			{
+				AudioBusNode& bus = *static_cast<AudioBusNode*>(command.Object);
+				float const gain = command.Values[1] != 0.0f || command.Values[0] <= MinMixerVolumeDb
+				                       ? 0.0f
+				                       : static_cast<float>(std::pow(10.0, static_cast<double>(command.Values[0]) / 20.0));
+				uint32_t const frames = SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate);
+				(command.Type == AudioCommandType::SetBusMixValues ? bus.m_MixGain : bus.m_GameGain).SetTarget(gain, frames);
+				break;
+			}
+			case AudioCommandType::SetBusEffects:
+			{
+				AudioBusNode& bus = *static_cast<AudioBusNode*>(command.Object);
+				if (bus.m_HasPendingChain && bus.m_PendingChain != nullptr)
+				{
+					// Replaced before it ever ran.
+					m_Returns.Push(*bus.m_PendingChain);
+				}
+				bus.m_PendingChain = static_cast<AudioEffectChain*>(command.Other);
+				bus.m_HasPendingChain = true;
+				BeginDip(bus);
+				break;
+			}
+			case AudioCommandType::SetEffectParameter:
+			{
+				AudioBusNode const& bus = *static_cast<AudioBusNode*>(command.Object);
+				// The main thread's chain is the newest it sent.
+				AudioEffectChain const* const chain = bus.m_HasPendingChain ? bus.m_PendingChain : bus.m_Chain;
+				if (chain != nullptr && command.Slot < chain->GetEffects().size())
+				{
+					chain->GetEffects()[command.Slot]->SetParameter(command.Parameter, command.Values[0]);
+				}
+				break;
+			}
+			default:
+				break;
+		}
+	}
+
+	void AudioMixer::FinishBuses()
+	{
+		uint32_t const frames = SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate);
+		for (AudioSceneGroup* group = m_Groups.GetFirst(); group != nullptr;)
+		{
+			AudioSceneGroup* const next = m_Groups.GetNext(*group);
+			if (group->m_MixMoving && m_Time >= group->m_MixMoveEnd)
+			{
+				group->m_MixMoving = false;
+				ConnectGroup(*group, group->m_MixMoveTarget);
+				ma_sound_group_set_fade_in_pcm_frames(&group->m_Group, -1.0f, 1.0f, frames);
+			}
+			group = next;
+		}
+		for (AudioBusNode* bus = m_Buses.GetFirst(); bus != nullptr;)
+		{
+			AudioBusNode* const next = m_Buses.GetNext(*bus);
+			if (bus->m_Dipping && m_Time >= bus->m_DipEnd)
+			{
+				if (bus->m_HasPendingParent)
+				{
+					ConnectBus(*bus, bus->m_PendingParent);
+					bus->m_HasPendingParent = false;
+					bus->m_PendingParent = nullptr;
+				}
+				if (bus->m_HasPendingChain)
+				{
+					if (bus->m_Chain != nullptr)
+					{
+						m_Returns.Push(*bus->m_Chain);
+					}
+					bus->m_Chain = bus->m_PendingChain;
+					bus->m_HasPendingChain = false;
+					bus->m_PendingChain = nullptr;
+				}
+				bus->m_Dipping = false;
+				bus->m_Dip.SetTarget(1.0f, frames);
+			}
+			bus = next;
+		}
+		// Removed buses come back once nothing feeds them (their children reach their new parents only at their dips'
+		// bottoms, so a removal can wait a block for them).
+		for (AudioBusNode* bus = m_Buses.GetFirst(); bus != nullptr;)
+		{
+			AudioBusNode* const next = m_Buses.GetNext(*bus);
+			if (bus->m_MixRemoving && bus->m_MixInputCount == 0)
+			{
+				ReturnBus(*bus);
+			}
+			bus = next;
+		}
+	}
+
+	void AudioMixer::ReturnBus(AudioBusNode& bus)
+	{
+		DisconnectBus(bus);
+		m_Buses.Remove(bus);
+		if (m_Master == &bus)
+		{
+			m_Master = nullptr;
+		}
+		// Its chains come back with it: the main thread named them for the last time with the bus.
+		if (bus.m_HasPendingChain && bus.m_PendingChain != nullptr)
+		{
+			m_Returns.Push(*bus.m_PendingChain);
+		}
+		if (bus.m_Chain != nullptr)
+		{
+			m_Returns.Push(*bus.m_Chain);
+		}
+		bus.m_Chain = nullptr;
+		bus.m_PendingChain = nullptr;
+		bus.m_HasPendingChain = false;
+		m_Returns.Push(bus);
 	}
 
 	void AudioMixer::ApplyStart(AudioVoice& voice, AudioCommand const& command)
@@ -510,6 +964,7 @@ namespace Strada
 			}
 			voice = next;
 		}
+		FinishBuses();
 		m_MixedVoices.store(m_Playing.GetCount(), std::memory_order_relaxed);
 	}
 
@@ -632,11 +1087,9 @@ namespace Strada
 
 	void AudioMixer::ReturnGroup(AudioSceneGroup& group)
 	{
-		if (group.m_MixAttached)
-		{
-			ma_node_detach_output_bus(&group.m_Group, 0);
-			group.m_MixAttached = false;
-		}
+		DisconnectGroup(group);
+		group.m_MixMoving = false;
+		m_Groups.Remove(group);
 		m_Returns.Push(group);
 	}
 

@@ -2474,13 +2474,16 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
 
 - **The graph.** A voice plays into its scene's group of its bus (`AudioSceneGroup`, an `ma_sound_group` made with
   `MA_SOUND_FLAG_NO_PITCH` and `MA_SOUND_FLAG_NO_SPATIALIZATION`, which only sums), the group into its bus's node
-  (`AudioBusNode`), each bus's node into its parent's, and Master's into the engine's endpoint. Until the mixer has
-  buses, Master is the endpoint itself. A bus node is a custom node of miniaudio's graph with one input, into which
-  miniaudio sums the bus's groups and child buses, and one output, made with `MA_NODE_FLAG_CONTINUOUS_PROCESSING` and
-  `MA_NODE_FLAG_ALLOW_NULL_INPUT`: miniaudio otherwise skips a node whose input reads nothing (`:75293-75325`), which
-  would cut a reverb's or a delay's tail when the bus's last voice ends or its scene pauses, freeze the dynamics and
-  the ramps, and leave the meters at their last value. So every bus processes in every block, and the budget counts
-  it. Its process function runs, in order: the bus's effects (§9.6), the mixer's gain (the asset's volume and mute,
+  (`AudioBusNode`), each bus's node into its parent's, and Master's into the engine's endpoint. Master's node exists
+  from `Init` on (the mixer every engine starts with is Master alone), so there is one path whatever the project names.
+  A bus node is a custom node of miniaudio's graph with one input, into which miniaudio sums the bus's groups and child
+  buses, and one output, made with `MA_NODE_FLAG_CONTINUOUS_PROCESSING`: miniaudio otherwise skips a node whose input
+  reads nothing (`:75293-75325`), which would cut a reverb's or a delay's tail when the bus's last voice ends or its
+  scene pauses, freeze the dynamics and the ramps, and leave the meters at their last value. So every bus processes in
+  every block, and the budget counts it. Without input it is given silence. It is not made with
+  `MA_NODE_FLAG_ALLOW_NULL_INPUT`, which would pass it no input at all: after such a block miniaudio leaves the block's
+  frames counted as cached input (the null-input path skips its counters, `:75361-75392`), so the next block would read
+  stale silence instead of the graph, and a sound starting on a silent bus would be heard a block late. Its process function runs, in order: the bus's effects (§9.6), the mixer's gain (the asset's volume and mute,
   blended by MX2's snapshots), the game's gain, MX2's ducking and the dip of a move or a swap, each ramped; then it
   measures the block's peak and RMS, silence included. The master volume is applied by the mixer to the rendered
   block, after Master.
@@ -2498,16 +2501,21 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   `DataAssetRegistry::AddEngineTypes` registers it, which gives the inspector, the content browser's New item, the
   registry-wide fuzz case, `mixer.create`, `mixer.get` and `mixer.set` (an undo step, as every data asset's set) and the
   MCP tools `mixer_create`, `mixer_get` and `mixer_set`. A new mixer is Master alone.
-- **The project's mixer.** `ProjectSettings::Audio` holds `Mixer`, the handle of the project's `.smixer` (a compatible
-  field of the project format: `"Audio": { "Mixer": "<handle>" }`, settable through `project.settings`; 0 for none).
+- **The project's mixer.** `ProjectSettings::Mixer` is the handle of the project's `.smixer` (a compatible field of the
+  project format: `"Mixer": "<handle>"`, beside the project's `InputActions`; settable through `project.settings` and
+  the Project Settings panel; 0 for none). `MakeSceneRuntimeSettings` hands it on as `SceneRuntimeSettings::Mixer`.
   `Game.sgame` carries it as it carries every project setting, and an export copies `Assets/` whole, so an exported game
   mixes through its project's mixer. A project without one mixes through Master alone, which sounds exactly as the
   engine did before buses: Master at 0 dB without effects is the identity.
 - **Applying it.** `SceneRunner` (the player, the editor's play mode and test runs) applies the project's mixer when a
-  game starts and in every frame after it, paused or not, whenever the asset's version changed, and calls
-  `AudioEngine::ResetGameValues` when a game starts and stops. When the last running game stops, every effect's state
-  is cleared under a dip (the chains are swapped for fresh ones of the same effects), so a long delay or reverb tail
-  never rings on into editing or the next play. `AudioEngine::SetMixer` compares the new mixer with the one it has and
+  game with sound starts, logging `Mixer: <n> buses from <reference> (<names>)`, and in every update after it, paused or
+  not, whenever the data asset registry's epoch moved and the asset's version changed (an edit through the inspector or
+  `mixer.set`, its undo). A game without a mixer, or whose mixer does not load as a `Mixer` asset (logged once, at its
+  start), mixes through Master alone; a mixer that stops loading later leaves the mix as it was. It calls
+  `AudioEngine::ResetGameValues` when a game starts and stops, and when its game stops `AudioEngine::ClearEffectState`
+  clears every effect's state under a dip (the chains are swapped for fresh ones of the same effects), so a long delay
+  or reverb tail never rings on into editing or the next play. The mixer itself stays until the next game applies its
+  own. `AudioEngine::SetMixer` compares the new mixer with the one it has and
   sends only the difference:
   - a changed volume, mute or effect parameter is a command, ramped;
   - a new bus gets a node, attached to its parent (`AddBus`); a bus with a new parent moves (`SetBusParent`); a
@@ -2542,9 +2550,12 @@ Parameters move over `AudioParameterSmoothingSeconds` (20 ms): frequencies and Q
 decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sample rate when they run.
 
 - **LowPass, HighPass, Peaking, LowShelf, HighShelf**: biquads with the coefficients of Robert Bristow-Johnson's Audio
-  EQ Cookbook (the Q form for the shelves), computed in double and run in float in transposed direct form II, one pair
-  of registers per channel. While a parameter moves, the coefficients are computed again every `AudioEffectStepFrames`
-  (32). `ComputeBiquadCoefficients` and `EvaluateBiquadGain` (the response's closed form, `|H(e^jw)|`) are what the
+  EQ Cookbook (the Q form for the shelves), computed in double and run in float in direct form I, the last two inputs
+  and outputs of each channel as its registers. While a parameter moves, the coefficients are computed again every
+  `AudioEffectStepFrames` (32). Direct form I holds only the signal's history, so new coefficients change no internal
+  state; the transposed form II mixes the coefficients into its registers, and each update under a running signal
+  leaves a step in the waveform's slope (a 300 Hz sine through a 20 ms sweep from 8 kHz to 400 Hz: a second difference
+  about 40 times the sine's, against twice in direct form I). `ComputeBiquadCoefficients` and `EvaluateBiquadGain` (the response's closed form, `|H(e^jw)|`) are what the
   tests compare measured gains with.
 - **Delay**: a feedback delay line (Schroeder's comb filter: the line holds the input plus `Feedback` times what it
   held `DelaySeconds` before), mixed as `DryDb` times the input plus `WetDb` times the line. Its line is allocated for

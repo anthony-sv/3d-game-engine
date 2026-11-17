@@ -39,7 +39,11 @@ namespace Strada
 	// Runs scenes for the editor's play mode and the game player. It starts a scene's runtime and acts on what its scripts
 	// ask of the application (the ScriptHost while running): SceneManager.LoadScene replaces the scene after the frame,
 	// Application.Quit is recorded for the owner to act on, and test results and unhandled script exceptions are
-	// collected across scene loads. Main thread only; one runner runs at a time.
+	// collected across scene loads. While a game plays with sound, the audio engine mixes through the project's mixer
+	// (SceneRuntimeSettings::Mixer, Docs/Architecture.md §9.5): applied when the game starts and again in every update
+	// after its asset changed (an edit, paused or not), Master alone when none is named or it does not load; the game's
+	// bus values start and end at their defaults, and the effects' tails end with the game. Main thread only; one runner
+	// runs at a time.
 	class SceneRunner final : public ScriptHost
 	{
 	public:
@@ -82,6 +86,8 @@ namespace Strada
 
 	private:
 		void LoadRequestedScene();
+		// Mixes through the project's mixer when it changed since it was last applied (or when starting).
+		void SyncMixer(bool starting);
 
 		SceneRunnerSettings m_Settings;
 		Ref<Scene> m_Scene;
@@ -89,5 +95,9 @@ namespace Strada
 		AssetHandle m_RequestedScene;
 		bool m_QuitRequested = false;
 		TestRunReport m_TestReport;
+		// The project's mixer as last applied: the data asset registry's epoch it was compared at and the asset's version
+		// (0: Master alone).
+		uint64_t m_MixerEpoch = 0;
+		uint64_t m_MixerVersion = 0;
 	};
 }

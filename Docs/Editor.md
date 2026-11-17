@@ -616,6 +616,7 @@ The "+" button and the context menus create, in the displayed folder:
 | Visual Script | `New Visual Script.sgraph` with an `Event.Create` and an `Event.Update` node |
 | Visual Script Library | `New Visual Script Library.sgraph`: functions other visual scripts call; it runs on no entity |
 | Curve | `New Curve.scurve`, a curve without keys ([Curves](#curves)) |
+| Mixer | `New Mixer.smixer`, Master alone ([Mixers](#mixers)) |
 | Physics Material | `New Physics Material.sphysmat`, a material that behaves like a collider without one ([Physics materials](#physics-materials)) |
 | C# Script... | The New Script dialog ([Creating C# scripts](#creating-c-scripts)) |
 
@@ -687,6 +688,7 @@ The asset directory registers these file types:
 | Font | `.ttf`, `.otf` | Importing |
 | Visual script | `.sgraph` | "+" > Visual Script, Create Visual Script |
 | Curve | `.scurve` | "+" > Curve |
+| Mixer | `.smixer` | "+" > Mixer |
 | Physics material | `.sphysmat` | "+" > Physics Material |
 
 Built-in assets need no files: the meshes Cube, Sphere, Plane, Cylinder, Capsule, Cone and Quad, the DefaultMaterial,
@@ -834,6 +836,24 @@ read every field of a material (`Strada.PhysicsMaterial`), and a raycast names t
 tells a script whether a wheel is on asphalt or gravel ([Scripting](Scripting.md#physics-materials),
 [Visual scripting](VisualScripting.md#physics-materials)).
 
+### Mixers
+
+A mixer (`.smixer`) is the set of buses the game's sounds play on. Each bus has a `Name`, the bus it feeds (`Parent`;
+empty for Master), a `VolumeDb` (-80 dB is silence, up to +24 dB), `Muted` and `Effects`, which its sound runs through in
+list order: `LowPass`, `HighPass`, `Peaking`, `LowShelf` and `HighShelf` filters (`Frequency`, `Q`, `GainDb`), a `Delay`
+(echoes `DelaySeconds` apart, each `Feedback` times the one before), a `Reverb` (`RoomSize`, `Damping`, `Width`), each of
+those two mixed by `WetDb` and `DryDb`, a `Compressor` (`ThresholdDb`, `Ratio`, `KneeDb`, `AttackSeconds`,
+`ReleaseSeconds`, `MakeupDb`) and a `Limiter` (no sample above `CeilingDb`). The inspector shows the parameters of each
+effect's kind. Every mixer has exactly one bus named `Master`, which every other bus feeds through its parents; at most
+32 buses and 8 effects a bus. A new mixer is Master alone, which mixes as a project without a mixer does.
+
+Name the game's mixer in Project Settings (`Mixer`), and a bus in an Audio Source's `Bus` (any letter case; empty is
+Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer in the Inspector, or agents with
+`mixer.set` ([Automation](Automation.md)); while the game plays, the mix takes the edit before its next sound: volumes
+glide over 5 ms, and a bus added, removed or moved, or whose effects change in kind or order, fades out and back in over
+10 ms, so nothing clicks. An effect that keeps its kind and its place among that kind's effects keeps its sound, so a
+reverb's tail rings on when a filter is inserted before it. When the game stops, the effects' tails stop with it.
+
 ## Scene Settings
 
 The Scene Settings panel edits the open scene's Name and its settings, which are saved with the scene. Every change is
@@ -888,6 +908,7 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | `Physics.MaxStepsPerFrame` | Physics steps a frame runs at most (1 to 64, default 8); slower frames slow the game down instead of falling further behind |
 | `Physics.CollisionSteps` | Collision steps each physics step is divided into (1 to 4, default 1); more resolve fast or stiff bodies better, at their cost |
 | `Physics.Layers` | Names of the physics layers (1 to 16); a RigidBody's `Layer` indexes them |
+| `Mixer` | The mixer (`.smixer`) the game's sounds play through: its buses, their volumes and effects. None plays every sound on Master alone |
 
 Under Layer Collisions, a matrix of check boxes says which layers collide: clear the box of two layers so that their
 bodies pass through each other. Layers are numbers: a RigidBody's `Layer` and the matrix's pairs hold the layer's index,

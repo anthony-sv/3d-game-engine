@@ -78,6 +78,10 @@ namespace Strada
 		// The fixed step after which the scene records its physics state hash (Scene::GetRecordedPhysicsHash); 0 records
 		// none.
 		uint64_t PhysicsHashStep = 0;
+		// The project's mixer (a Mixer asset, ProjectSettings::Mixer), which SceneRunner mixes the game's sounds through
+		// (Docs/Architecture.md §9.5); none, or an asset that does not load, mixes through Master alone. A scene does not
+		// read it.
+		AssetHandle Mixer;
 		// The scene's scripts and sounds run with it; the editor's Simulate mode runs physics only.
 		bool RunScripts = true;
 		bool PlayAudio = true;

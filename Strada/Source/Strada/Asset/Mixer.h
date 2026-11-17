@@ -8,9 +8,8 @@
 #include <vector>
 
 // The mixer (Docs/Architecture.md §9.5 and §9.6): the buses sounds play on, in a tree under Master, each with a volume, a
-// mute flag and a chain of effects. The data of a .smixer asset (its field table and registration join the data asset
-// registry with the mixer's implementation); the project names its mixer and the audio engine mixes through it
-// (AudioEngine::SetMixer). Plain data, any thread.
+// mute flag and a chain of effects. The data of a .smixer asset (Strada/Asset/MixerAsset.h); the project names its mixer
+// (ProjectSettings::Mixer) and the audio engine mixes through it (AudioEngine::SetMixer). Plain data, any thread.
 namespace Strada
 {
 	// The root bus: every mixer has one bus of this name, with no parent. Sources whose bus is empty, or names a bus the
@@ -71,6 +70,7 @@ namespace Strada
 		MakeupDb,
 		CeilingDb
 	};
+	inline constexpr uint32_t MixerEffectParameterCount = static_cast<uint32_t>(MixerEffectParameter::CeilingDb) + 1;
 
 	// One effect of a bus's chain: the kind first, then the parameters of every kind (the editor shows those the kind uses).
 	// Values outside a parameter's range are refused when read; frequencies above 0.45 times the engine's sample rate are
@@ -140,6 +140,14 @@ namespace Strada
 	};
 
 	// Whether the mixer can be mixed through: the rules on Mixer::Buses and MixerBus (names, parents, no cycle, the counts).
-	// The error names the first bus at fault. Ranges are the field table's to check. Any thread.
+	// Master is the bus named exactly MasterBusName; parents match names ignoring letter case. The error names the first bus
+	// at fault. Ranges are the field table's to check. Any thread.
 	[[nodiscard]] Result<void> ValidateMixer(Mixer const& mixer);
+
+	// The value of one of the effect's parameters (an effect holds every kind's; its kind reads only its own). Any thread.
+	[[nodiscard]] float GetMixerEffectParameter(MixerEffect const& effect, MixerEffectParameter parameter);
+
+	// The key a bus name is matched by: its ASCII letters in lower case, the empty name being Master's ("master"). Any
+	// thread.
+	[[nodiscard]] std::string MakeMixerBusKey(std::string_view name);
 }

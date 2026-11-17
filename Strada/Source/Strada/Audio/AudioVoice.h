@@ -359,6 +359,9 @@ namespace Strada
 		void StealOneShot(Scope<AudioVoice> voice);
 		// The group's scene ended: RetireGroup is its last command, and it comes back once its voices have.
 		void RetireGroup(Scope<AudioSceneGroup> group);
+		// An object the mixing thread holds (a bus, an effect chain) leaves its owner, which has sent the last command that
+		// names it: destroyed once it comes back.
+		void ReturnLater(Scope<AudioMixerObject> object);
 		// Destroys what came back on the return list.
 		void TakeReturns(AudioReturnList& returns);
 		// Objects lent to the mixing thread and not yet back.
@@ -370,6 +373,11 @@ namespace Strada
 		void RemoveVoice(AudioVoice& voice);
 		void AddOwner(AudioVoiceOwner& owner);
 		void RemoveOwner(AudioVoiceOwner& owner);
+		// The scenes' groups from their creation until they are retired, in creation order (a mixer edit points them at
+		// their buses again, AudioEngine::SetMixer).
+		void AddGroup(AudioSceneGroup& group);
+		void RemoveGroup(AudioSceneGroup& group);
+		std::vector<AudioSceneGroup*> const& GetGroups() const { return m_Groups; }
 
 		// Reads what the mixing thread reported: owners retire their ended one-shots, and every voice records whether it
 		// ended (AudioVoice::WasEndedAtRefresh).
@@ -405,6 +413,7 @@ namespace Strada
 		AudioCommandQueue& m_Queue;
 		std::vector<AudioVoice*> m_Voices;
 		std::vector<AudioVoiceOwner*> m_Owners;
+		std::vector<AudioSceneGroup*> m_Groups;
 		std::unordered_map<AudioMixerObject*, Scope<AudioMixerObject>> m_Returning;
 		uint64_t m_Serials = 0;
 		uint64_t m_StartSequences = 0;

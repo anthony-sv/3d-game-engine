@@ -1,6 +1,7 @@
 #include "Audio/AudioTestUtilities.h"
 #include "Core/ProfilerTestUtilities.h"
 
+#include "Strada/Asset/Mixer.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/AudioScene.h"
 #include "Strada/Core/Profiler.h"
@@ -254,6 +255,95 @@ TEST_CASE("AudioEngine: null output mixes while the main thread starts, changes 
 	CHECK(AudioEngine::GetStolenVoiceCount() > 0);
 
 	// The scene ends: everything it lent comes back once the device's thread has finished with it.
+	audio.reset();
+	CHECK(UpdateUntil(
+		[]
+		{
+			return AudioEngine::GetReturningObjectCount() == 0;
+		},
+		std::chrono::seconds(30)));
+	AudioEngine::Shutdown();
+}
+
+TEST_CASE("AudioEngine: null output mixes through buses and effects while the main thread edits the mixer")
+{
+	// The device's thread runs the buses' nodes and effects while this thread changes their values, swaps their chains,
+	// adds, re-parents and removes buses under playing scenes, sets game values, and ends a scene whose bus goes before
+	// its voices have faded: buses, chains and groups cross between the threads only through the queue and the return list.
+	InitNullOutput();
+	auto const makeMixer = [](uint32_t step)
+	{
+		MixerEffect filter;
+		filter.Kind = step % 2 == 0 ? MixerEffectKind::LowPass : MixerEffectKind::Peaking;
+		filter.Frequency = 200.0f + 100.0f * static_cast<float>(step % 10);
+		MixerEffect reverb;
+		reverb.Kind = MixerEffectKind::Reverb;
+		MixerEffect limiter;
+		limiter.Kind = MixerEffectKind::Limiter;
+		Mixer made;
+		made.Buses.resize(3);
+		made.Buses[0].Name = "Master";
+		made.Buses[0].Effects = {limiter};
+		made.Buses[1].Name = "Music";
+		made.Buses[1].VolumeDb = -static_cast<float>(step % 12);
+		made.Buses[1].Effects = {filter, reverb};
+		made.Buses[2].Name = "Effects";
+		made.Buses[2].Parent = step % 3 == 0 ? "Music" : "Master";
+		made.Buses[2].Muted = step % 5 == 4;
+		if (step % 4 != 3)
+		{
+			MixerBus voices;
+			voices.Name = "Voices";
+			voices.Parent = "Effects";
+			made.Buses.push_back(voices);
+		}
+		return made;
+	};
+	AudioEngine::SetMixer(makeMixer(0));
+	Ref<AudioClipAsset> const loop = Testing::MakeWavClip({{0.05f, 0.2f}});
+	auto const makeScene = [&loop]
+	{
+		Scope<AudioScene> scene = AudioScene::Create().TakeValue();
+		uint64_t index = 0;
+		for (char const* bus : {"Music", "Effects", "Voices", ""})
+		{
+			AudioSourceDesc desc;
+			desc.Entity = UUID(300 + index++);
+			desc.Clip = loop;
+			desc.Loop = true;
+			desc.Bus = bus;
+			REQUIRE(scene->AddSource(desc).IsOk());
+			scene->Play(desc.Entity);
+		}
+		return scene;
+	};
+	Scope<AudioScene> audio = makeScene();
+	Scope<AudioScene> ending = makeScene();
+
+	uint64_t const startBlocks = AudioEngine::GetBlockCount();
+	uint32_t step = 0;
+	bool const mixed = UpdateUntil(
+		[&]
+		{
+			AudioEngine::SetMixer(makeMixer(step));
+			AudioEngine::SetBusVolume("Music", -static_cast<float>(step % 6));
+			AudioEngine::SetBusMuted("Effects", step % 7 == 0);
+			audio->SetBus(UUID(300), step % 2 == 0 ? "Music" : "Voices");
+			if (step % 30 == 15)
+			{
+				AudioEngine::ClearEffectState();
+			}
+			if (step == 40)
+			{
+				// The scene ends while it is heard, and Voices goes with the next edit.
+				ending.reset();
+			}
+			step++;
+			return step > 40 && AudioEngine::GetBlockCount() - startBlocks >= 200;
+		},
+		std::chrono::seconds(30));
+	CHECK(mixed);
+
 	audio.reset();
 	CHECK(UpdateUntil(
 		[]

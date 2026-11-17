@@ -25,13 +25,7 @@ namespace Strada
 		// The key of a bus name: names match ignoring letter case, and the empty name is Master.
 		std::string MakeBusKey(std::string_view bus)
 		{
-			std::string key(bus.empty() ? MasterBusName : bus);
-			std::transform(key.begin(), key.end(), key.begin(),
-			               [](char character)
-			               {
-							   return character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character;
-						   });
-			return key;
+			return MakeMixerBusKey(bus);
 		}
 
 		std::string const EmptyBus;

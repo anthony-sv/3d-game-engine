@@ -190,6 +190,46 @@ TEST_CASE("Project: the identity is optional, round trips through the project fi
 	CHECK(reread.GetValue().Identity == ProjectIdentity{"Acme Games", "Moto Racer"});
 }
 
+TEST_CASE("Project: the mixer is optional, round trips through the project file and the game's, and reaches the scenes' runtime")
+{
+	// Project files from before the mixer name none: the game mixes through Master alone.
+	Result<ProjectSettings> const older = Read(Json::object({{"Name", "Moto"}}));
+	REQUIRE(older.IsOk());
+	CHECK_FALSE(older.GetValue().Mixer.IsValid());
+	CHECK_FALSE(MakeSceneRuntimeSettings(older.GetValue()).Mixer.IsValid());
+	CHECK(ReadError(Json::object({{"Mixer", Json::array()}})).starts_with("Project.Mixer:"));
+	CHECK(ReadError(Json::object({{"Mixer", "loud"}})).starts_with("Project.Mixer:"));
+
+	AssetManagerScope assets;
+	Testing::TemporaryDirectory temporary;
+	Result<Ref<Project>> created = Project::Create(temporary.GetPath() / "Game", "Moto", *MakeStartScene());
+	REQUIRE(created.IsOk());
+	Ref<Project> const project = created.GetValue();
+	REQUIRE(project->ApplySettings(Json::object({{"Mixer", "8263"}})).IsOk());
+	CHECK(project->GetSettings().Mixer == AssetHandle(UUID(8263)));
+	CHECK(MakeSceneRuntimeSettings(project->GetSettings()).Mixer == AssetHandle(UUID(8263)));
+	REQUIRE(project->Save().IsOk());
+
+	Result<std::string> const text = FileSystem::ReadTextFile(project->GetFilePath());
+	REQUIRE(text.IsOk());
+	Json const file = Json::parse(text.GetValue());
+	CHECK(file["Project"]["Mixer"] == "8263");
+	// The format stays version 1: the mixer is a compatible field.
+	CHECK(file["Strada"]["Version"] == 1);
+
+	AssetManager::CloseAssetDirectory();
+	std::vector<std::string> warnings;
+	Result<Ref<Project>> opened = Project::Open(project->GetFilePath(), &warnings);
+	REQUIRE(opened.IsOk());
+	CHECK(opened.GetValue()->GetSettings().Mixer == AssetHandle(UUID(8263)));
+	// A game's configuration carries it, as it carries every setting.
+	Json const game = Project::Serialize(opened.GetValue()->GetSettings(), ProjectFileKind::Game);
+	CHECK(game["Game"]["Mixer"] == "8263");
+	Result<ProjectSettings> const reread = Project::Deserialize(game, DeserializationContext{}, ProjectFileKind::Game);
+	REQUIRE(reread.IsOk());
+	CHECK(reread.GetValue().Mixer == AssetHandle(UUID(8263)));
+}
+
 TEST_CASE("Project: invalid settings are rejected and change nothing")
 {
 	CHECK(Read(Json::object()).IsOk());

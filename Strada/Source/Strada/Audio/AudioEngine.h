@@ -105,7 +105,8 @@ namespace Strada
 		static void SetMasterVolume(float volume);
 
 		// The mixer every scene's voices play through (§9.5); without one set, Master alone, which mixes exactly as the
-		// engine did before buses. A mixer that ValidateMixer refuses is logged and the current one kept. Value edits reach
+		// engine did before buses. Numbers outside their fields' ranges are brought within them; a mixer that ValidateMixer
+		// refuses is logged and the current one kept. Value edits reach
 		// the mix at the next block, ramped; added, removed or re-parented buses and changed effect lists reach it with a
 		// dip of twice AudioGainSmoothingSeconds on the buses they change, never a click. Effects whose bus and kind carry
 		// on keep their state (a reverb's tail).
@@ -124,6 +125,9 @@ namespace Strada
 		// The master volume back to 1 and every bus's game value back to 0 dB, not muted: what a game starts and ends with
 		// (SceneRunner calls it).
 		static void ResetGameValues();
+		// Swaps every bus's effects for new ones of the same values, under the dip of a swap, so that no delay or reverb
+		// tail of a game rings on into editing or the next game (SceneRunner calls it when its game stops).
+		static void ClearEffectState();
 
 		// The voices the engine mixes, across every scene: voices playing in scenes that are not paused, not virtual (beyond
 		// the limit) and not stolen, as the main thread knows them. It is exact right after a start or a steal, and the

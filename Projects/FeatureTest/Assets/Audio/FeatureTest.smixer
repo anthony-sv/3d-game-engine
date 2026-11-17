@@ -1,0 +1,222 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Mixer"
+	},
+	"Mixer": {
+		"Buses": [
+			{
+				"Name": "Master",
+				"Parent": "",
+				"VolumeDb": -1.0,
+				"Muted": false,
+				"Effects": [
+					{
+						"Kind": "Limiter",
+						"Frequency": 1000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.20000000298023224,
+						"MakeupDb": 0.0,
+						"CeilingDb": -2.0
+					}
+				]
+			},
+			{
+				"Name": "Music",
+				"Parent": "Master",
+				"VolumeDb": -6.0,
+				"Muted": false,
+				"Effects": [
+					{
+						"Kind": "LowShelf",
+						"Frequency": 200.0,
+						"Q": 0.8999999761581421,
+						"GainDb": -3.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					},
+					{
+						"Kind": "Reverb",
+						"Frequency": 1000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.699999988079071,
+						"Damping": 0.30000001192092896,
+						"Width": 0.800000011920929,
+						"WetDb": -9.0,
+						"DryDb": -1.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					}
+				]
+			},
+			{
+				"Name": "Effects",
+				"Parent": "Master",
+				"VolumeDb": 0.0,
+				"Muted": true,
+				"Effects": [
+					{
+						"Kind": "HighPass",
+						"Frequency": 120.0,
+						"Q": 1.2000000476837158,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					},
+					{
+						"Kind": "Delay",
+						"Frequency": 1000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.30000001192092896,
+						"Feedback": 0.4000000059604645,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -12.0,
+						"DryDb": -0.5,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					},
+					{
+						"Kind": "Compressor",
+						"Frequency": 1000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -18.0,
+						"Ratio": 3.0,
+						"KneeDb": 4.0,
+						"AttackSeconds": 0.009999999776482582,
+						"ReleaseSeconds": 0.15000000596046448,
+						"MakeupDb": 2.0,
+						"CeilingDb": -1.0
+					}
+				]
+			},
+			{
+				"Name": "Voices",
+				"Parent": "Effects",
+				"VolumeDb": 3.0,
+				"Muted": false,
+				"Effects": [
+					{
+						"Kind": "Peaking",
+						"Frequency": 2500.0,
+						"Q": 1.5,
+						"GainDb": -4.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					},
+					{
+						"Kind": "HighShelf",
+						"Frequency": 6000.0,
+						"Q": 0.800000011920929,
+						"GainDb": 2.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					},
+					{
+						"Kind": "LowPass",
+						"Frequency": 9000.0,
+						"Q": 0.6000000238418579,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					}
+				]
+			}
+		]
+	}
+}

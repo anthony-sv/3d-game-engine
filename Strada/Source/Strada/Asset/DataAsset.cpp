@@ -249,6 +249,7 @@ namespace Strada
 	{
 		// The engine's data asset types, one line each, sorted by name (it merges as a union).
 		AddEngineType<Curve>(CurveAssetSpecification);
+		AddEngineType<Mixer>(MixerAssetSpecification);
 		AddEngineType<PhysicsMaterial>(PhysicsMaterialAssetSpecification);
 		return true;
 	}

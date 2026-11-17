@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/Mixer.h"
 #include "Strada/Serialization/JsonSerialization.h"
+#include "Strada/Serialization/StructDocument.h"
 #include "Strada/Serialization/StructSerialization.h"
 
 #include <array>
@@ -9,9 +11,9 @@
 #include <tuple>
 #include <utility>
 
-// The Mixer data asset type's format (.smixer, Docs/Architecture.md §9.5 and §7.3): the engine's Mixer
-// (Strada/Asset/Mixer.h) as field tables. The registration (DataAssetRegistry::AddEngineTypes, with ValidateMixer and
-// the migrations) joins them with the mixer's implementation; until then nothing reads or writes the format.
+// The Mixer data asset type (.smixer, Docs/Architecture.md §9.5 and §7.3): the engine's Mixer (Strada/Asset/Mixer.h) as
+// field tables, and its registration's specification (DataAssetRegistry::AddEngineTypes). C++ readers of a mixer asset
+// include this header; code that only mixes includes Mixer.h.
 namespace Strada
 {
 	template<>
@@ -131,7 +133,14 @@ namespace Strada
 		                        .Doc("The buses (at most 32): Master, the root, and the buses below it, each naming its parent."));
 	};
 
-	// The data asset registry takes only types with an editor and a schema for every value: no custom value and no array
-	// directly of arrays (a bus's effects are an array inside each element of the buses, which is allowed).
-	static_assert(Detail::IsDescribedFieldType<Mixer>(), "The Mixer must be a data asset type (Docs/Architecture.md §6.4)");
+	inline constexpr std::array<DocumentMigration, 0> MixerMigrations = {};
+
+	inline constexpr DataAssetTypeSpecification<Mixer> MixerAssetSpecification = {
+		.Name = "Mixer",
+		.Extension = ".smixer",
+		.FormatVersion = 1,
+		.Description = "The buses sounds play on, in a tree under Master, each with a volume in decibels, a mute and a chain of effects.",
+		.Migrations = MixerMigrations,
+		.Validate = &ValidateMixer,
+	};
 }

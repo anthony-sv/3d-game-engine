@@ -2,6 +2,7 @@
 #include "Audio/MixAllocationHook.h"
 #include "TestUtilities.h"
 
+#include "Strada/Asset/Mixer.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/AudioScene.h"
 #include "Strada/Audio/AudioTypes.h"
@@ -12,6 +13,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -395,7 +397,7 @@ TEST_CASE("AudioScene: a source moved to another bus dips without a click, its o
 	Skip(0.05f);
 	CHECK(audio->GetBus(SourceId(0)).empty());
 
-	// Until the mixer has buses every name plays on Master: the move is heard only as its 10 ms dip, out and back in.
+	// The mixer has no bus named Music, so it plays on Master too: the move is heard only as its 10 ms dip, out and back in.
 	audio->SetBus(SourceId(0), "Music");
 	CHECK(audio->GetBus(SourceId(0)) == "Music");
 	std::vector<float> const samples = ReadSamples(0.03f);
@@ -652,9 +654,49 @@ TEST_CASE("AudioEngine: the active voice count is the main thread's, exact right
 	CHECK(AudioEngine::GetMixedVoiceCount() == 0);
 }
 
+namespace
+{
+	// Buses with every kind of effect, for the allocation case: volume is the Music bus's, wide says whether the Effects
+	// bus has its compressor (a change of kinds swaps its chain), and withVoices whether the Voices bus exists.
+	Mixer MakeBusyMixer(float volume, bool wide, bool withVoices)
+	{
+		auto const effect = [](MixerEffectKind kind)
+		{
+			MixerEffect made;
+			made.Kind = kind;
+			return made;
+		};
+		auto const bus = [](char const* name, char const* parent, std::vector<MixerEffect> effects)
+		{
+			MixerBus made;
+			made.Name = name;
+			made.Parent = parent;
+			made.Effects = std::move(effects);
+			return made;
+		};
+		Mixer mixer;
+		mixer.Buses = {bus("Master", "", {effect(MixerEffectKind::LowShelf), effect(MixerEffectKind::Limiter)}),
+		               bus("Music", "Master", {effect(MixerEffectKind::LowPass), effect(MixerEffectKind::Reverb)}),
+		               bus("Effects", "Master", {effect(MixerEffectKind::HighPass), effect(MixerEffectKind::Delay)})};
+		mixer.Buses[1].VolumeDb = volume;
+		mixer.Buses[1].Effects[0].Frequency = 500.0f + 100.0f * volume;
+		if (wide)
+		{
+			mixer.Buses[2].Effects.push_back(effect(MixerEffectKind::Compressor));
+		}
+		if (withVoices)
+		{
+			mixer.Buses.push_back(bus("Voices", "Effects", {effect(MixerEffectKind::Peaking), effect(MixerEffectKind::HighShelf)}));
+		}
+		return mixer;
+	}
+}
+
 TEST_CASE("AudioEngine: mixing starts, steals, one-shots and changes allocates nothing on the mixing thread")
 {
 	Testing::AudioEngineScope engine;
+	// Buses with every effect, whose values, chains and tree change below.
+	AudioEngine::SetMixer(MakeBusyMixer(0.0f, false, true));
 	Scope<AudioScene> audio = CreateAudioScene();
 	Scope<AudioScene> other = CreateAudioScene();
 	std::vector<Ref<AudioClipAsset>> const clips = {MakeLevelClip(0.001f, 0.5f), MakeLevelClip(0.002f, 0.03f),
@@ -669,6 +711,7 @@ TEST_CASE("AudioEngine: mixing starts, steals, one-shots and changes allocates n
 		desc.Position = {static_cast<float>(index % 7), 0.0f, -2.0f};
 		desc.Priority = static_cast<uint32_t>(index * 3 % 256);
 		desc.MaxVoices = 1 + static_cast<uint32_t>(index % 5);
+		desc.Bus = std::array<char const*, 5>{"", "Music", "Effects", "Voices", "Missing"}[index % 5];
 		REQUIRE((index < 40 ? audio : other)->AddSource(desc).IsOk());
 	}
 	uint64_t const miniaudioBefore = AudioEngine::GetMixAllocationCount();
@@ -714,9 +757,18 @@ TEST_CASE("AudioEngine: mixing starts, steals, one-shots and changes allocates n
 		{
 			other->SetPaused(false);
 		}
+		if (frame % 20 == 10)
+		{
+			// Values ramp; a change of kinds swaps a chain under a dip; a bus removed and added again moves its groups.
+			AudioEngine::SetMixer(MakeBusyMixer(-static_cast<float>(frame % 7), frame % 60 == 30, frame % 80 != 50));
+			AudioEngine::SetBusVolume("Effects", -static_cast<float>(frame % 5));
+			AudioEngine::SetBusMuted("Music", frame % 40 == 10);
+			audio->SetBus(SourceId(frame % 40), frame % 3 == 0 ? "Voices" : "Music");
+		}
 		if (frame == 150)
 		{
 			other.reset();
+			AudioEngine::ClearEffectState();
 		}
 		REQUIRE(AudioEngine::ReadFrames(block) == block.size() / 2);
 		AudioEngine::Update();

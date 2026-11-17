@@ -45,6 +45,7 @@ time):
 | `asset` | 12 | Listing, importing (also as a drop from the file manager), moving and deleting assets and folders, and the content browser |
 | `material` | 3 | Creating, reading and setting materials |
 | `curve` | 3 | Creating, reading and setting curve assets (`.scurve`), a data asset type the engine registers: every data asset type gets these three commands from its registration |
+| `mixer` | 3 | Creating, reading and setting mixers (`.smixer`): the buses sounds play on, with their volumes and effects |
 | `physics-material` | 3 | Creating, reading and setting physics materials (`.sphysmat`): the surfaces colliders reference |
 | `graph` | 16 | Visual scripts: creating, reading, checking and editing them, arranging, copying, the node library and types, finding, and the graph windows |
 | `graph` (debugging) | 11 | Breakpoints, targets, stops, continue, step, break, wait, traces, values, instances and live edits |
