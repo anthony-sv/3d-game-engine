@@ -495,7 +495,7 @@ namespace Strada
 			}
 		}
 
-		Ref<InputActionSet> set(new InputActionSet());
+		Ref<InputActionSet> set = CreateRef<InputActionSet>(PrivateTag{});
 		set->m_Actions = std::move(actions);
 		set->m_SortedIndices.resize(set->m_Actions.size());
 		for (uint32_t index = 0; index < set->m_SortedIndices.size(); index++)

@@ -162,6 +162,10 @@ namespace Strada
 	// The actions of one map, compiled and immutable: shared by the states that evaluate it. Main thread.
 	class InputActionSet final
 	{
+		struct PrivateTag
+		{
+		};
+
 	public:
 		// Refuses what an InputActions asset's validation refuses (names empty, too long or repeated in any letter case,
 		// thresholds out of order, bindings whose controls do not fit their action, limits). The specifications are taken
@@ -174,9 +178,10 @@ namespace Strada
 		// A number no other set of this process has: states tell a rebuilt set from the one they evaluated.
 		uint64_t GetVersion() const { return m_Version; }
 
-	private:
-		InputActionSet() = default;
+		// For Create alone (the tag is private).
+		explicit InputActionSet(PrivateTag) {}
 
+	private:
 		std::vector<InputActionSpecification> m_Actions;
 		// The action indices in ordinal order of their names, for Find.
 		std::vector<uint32_t> m_SortedIndices;
