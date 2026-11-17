@@ -157,6 +157,72 @@ TEST_CASE("Scene: streamed audio sources read their clip's file without loading 
 	scene.OnRuntimeStop();
 }
 
+TEST_CASE("Scene: a streamed source's one-shots play its clip loaded, and a source without a clip plays the clips it is given")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory directory;
+	REQUIRE(FileSystem::WriteBinaryFile(directory.GetPath() / "Music.wav", Testing::MakeWav(Testing::MakeSamples({{0.5f, 1.0f}})).GetSpan())
+	            .IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const music = AssetManager::FindByPath("Music.wav");
+	REQUIRE(music.IsValid());
+	AssetHandle const step = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.25f, 1.0f}}), "Step");
+	AssetHandle const tone = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
+
+	Scene scene("One-shots");
+	Entity streamed = AddSource(scene, "Music", music, false);
+	streamed.GetComponent<AudioSourceComponent>().Stream = true;
+	Entity feet = AddSource(scene, "Feet", AssetHandle(), false);
+	scene.OnRuntimeStart();
+	AudioScene* audio = scene.GetAudioScene();
+	REQUIRE(audio != nullptr);
+	REQUIRE(audio->IsStreaming(streamed.GetUUID()));
+	CHECK_FALSE(AssetManager::IsLoaded(music));
+
+	// The streamed source's own one-shot plays its clip, loaded for it.
+	CHECK(scene.PlayAudioOneShot(streamed, AssetHandle(), 1.0f));
+	CHECK(AssetManager::IsLoaded(music));
+	CHECK_FALSE(scene.IsAudioSourcePlaying(streamed));
+	Testing::Skip(0.01f);
+	CHECK(Testing::ReadLevels(0.05f).Left == doctest::Approx(0.5f).epsilon(0.01));
+	scene.StopAudioSource(streamed);
+	Testing::Skip(0.02f);
+
+	// A source without a clip has no sound of its own until a one-shot names a clip: it is then a pool of one-shots
+	// alone, which follows its component.
+	CHECK_FALSE(scene.PlayAudioOneShot(feet, AssetHandle(), 1.0f));
+	CHECK_FALSE(audio->HasSource(feet.GetUUID()));
+	CHECK(scene.PlayAudioOneShot(feet, step, 1.0f));
+	REQUIRE(audio->HasSource(feet.GetUUID()));
+	CHECK_FALSE(scene.IsAudioSourcePlaying(feet));
+	CHECK(audio->GetVoiceCount(feet.GetUUID()) == 1);
+	Testing::Skip(0.01f);
+	CHECK(Testing::ReadLevels(0.05f).Left == doctest::Approx(0.25f).epsilon(0.01));
+	AudioSourceComponent& source = feet.GetComponent<AudioSourceComponent>();
+	source.Volume = 0.5f;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(audio->GetVolume(feet.GetUUID()) == doctest::Approx(0.5f));
+	Testing::Skip(0.01f);
+	CHECK(Testing::ReadLevels(0.05f).Left == doctest::Approx(0.125f).epsilon(0.01));
+	scene.PlayAudioSource(feet);
+	CHECK_FALSE(scene.IsAudioSourcePlaying(feet));
+	scene.StopAudioSource(feet);
+	Testing::Skip(0.02f);
+	CHECK(Testing::ReadLevels(0.02f).Left == 0.0f);
+
+	// Given a clip, it is a source like any other, stopped until played; without the component it has no sound.
+	source.Clip = tone;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	REQUIRE(audio->HasSource(feet.GetUUID()));
+	CHECK_FALSE(scene.IsAudioSourcePlaying(feet));
+	CHECK(scene.PlayAudioOneShot(feet, AssetHandle(), 1.0f));
+	feet.RemoveComponent<AudioSourceComponent>();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK_FALSE(audio->HasSource(feet.GetUUID()));
+	scene.OnRuntimeStop();
+}
+
 TEST_CASE("Scene: audio is heard from the active listener or the primary camera")
 {
 	Testing::AudioEngineScope engine;

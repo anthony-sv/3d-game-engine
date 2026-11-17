@@ -56,9 +56,17 @@ namespace Strada
 	public:
 		// Main thread: the effect for a mix of channelCount channels at sampleRate, with the effect's values as its first
 		// values (taken at once, not smoothed). A Reverb runs on the first two channels and passes any others unchanged,
-		// and passes everything unchanged at a sample rate its library refuses (below 22,050 Hz or above 176,400 Hz,
-		// verblib.h:422-430), which is logged once.
+		// and passes everything unchanged at a sample rate its library refuses (IsReverbSampleRateSupported), which
+		// AudioEngine logs once per Init. Logs nothing.
 		[[nodiscard]] static Ref<AudioEffect> Create(MixerEffect const& effect, uint32_t sampleRate, uint32_t channelCount);
+
+		// The sample rates a Reverb runs at, verblib's (verblib.h:422-430): 22,050 Hz up to 4 times 44,100 Hz.
+		static constexpr uint32_t MinReverbSampleRate = 22050;
+		static constexpr uint32_t MaxReverbSampleRate = 176400;
+		static constexpr bool IsReverbSampleRateSupported(uint32_t sampleRate)
+		{
+			return sampleRate >= MinReverbSampleRate && sampleRate <= MaxReverbSampleRate;
+		}
 
 		virtual ~AudioEffect() = default;
 

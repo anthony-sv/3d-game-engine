@@ -373,9 +373,8 @@ namespace Strada
 			SmoothedParameter m_DryDb;
 		};
 
-		// The rates verblib accepts (verblib.h:422-430): 22,050 Hz up to verblib_max_sample_rate_multiplier times 44,100.
-		constexpr uint32_t MinReverbSampleRate = 22050;
-		constexpr uint32_t MaxReverbSampleRate = 44100 * verblib_max_sample_rate_multiplier;
+		static_assert(AudioEffect::MaxReverbSampleRate == 44100 * verblib_max_sample_rate_multiplier,
+		              "The highest rate a Reverb runs at is verblib's (verblib.h:422-430)");
 
 		// Reverb: verblib (Freeverb) on the first two channels, run for its tail alone (its own wet at full scale, dry at
 		// none: verblib_set_wet scales by verblib_scalewet, verblib.h:621-624, so 1 / 3 is unity), mixed with the input by
@@ -394,10 +393,9 @@ namespace Strada
 				m_Width.Reset(effect.Width);
 				m_WetDb.Reset(effect.WetDb);
 				m_DryDb.Reset(effect.DryDb);
-				if (sampleRate < MinReverbSampleRate || sampleRate > MaxReverbSampleRate)
+				// Logged by AudioEngine, once: effects are made again at every chain change.
+				if (!IsReverbSampleRateSupported(sampleRate))
 				{
-					ST_CORE_WARN("The mixer's Reverb passes its bus through unchanged: it runs at {} to {} Hz, not {} Hz",
-					             MinReverbSampleRate, MaxReverbSampleRate, sampleRate);
 					return;
 				}
 				// About 400 KB of combs and allpasses sized for the highest rate it takes, held inside the structure.

@@ -28,7 +28,7 @@ namespace Strada
 			return MakeMixerBusKey(bus);
 		}
 
-		std::string const EmptyBus;
+		std::string const s_EmptyBus;
 	}
 
 	struct AudioScene::Data final : AudioVoiceOwner
@@ -44,9 +44,10 @@ namespace Strada
 		struct Source
 		{
 			UUID Entity = UUID::Invalid();
-			// The clip one-shots play when they name none (null for a streamed source).
+			// The clip one-shots play when they name none (null for a streamed source and for a pool alone).
 			Ref<AudioClipAsset> Clip;
 			Ref<AudioStream> Stream;
+			// Null for a pool alone (AddVoicePool): the source then plays one-shots only.
 			Scope<AudioVoice> Main;
 			// Oldest first: a full pool steals from the front.
 			std::vector<OneShot> OneShots;
@@ -118,7 +119,7 @@ namespace Strada
 			{
 				return found->second.get();
 			}
-			Result<Scope<AudioSceneGroup>> group = AudioSceneGroup::Create(key, Paused);
+			Result<Scope<AudioSceneGroup>> group = AudioSceneGroup::Create(std::string(bus), Paused);
 			if (!group)
 			{
 				return Error{group.GetError()};
@@ -126,6 +127,33 @@ namespace Strada
 			AudioSceneGroup* const created = group.GetValue().get();
 			Groups.emplace(std::move(key), group.TakeValue());
 			return created;
+		}
+
+		// What a source shares with its voices, as a description gives it.
+		static void TakeSettings(Source& source, AudioSourceDesc const& desc)
+		{
+			source.Entity = desc.Entity;
+			// Also replaces NaN, which a script can set before the source exists.
+			source.Volume = desc.Volume > 0.0f ? desc.Volume : 0.0f;
+			source.Pitch = desc.Pitch >= MinAudioPitch ? desc.Pitch : MinAudioPitch;
+			source.Spatial = desc.Spatial;
+			source.MinDistance = desc.MinDistance;
+			source.MaxDistance = desc.MaxDistance;
+			source.Position = IsFinite(desc.Position) ? desc.Position : glm::vec3(0.0f);
+			source.Bus = desc.Bus;
+			source.Priority = std::min(desc.Priority, MaxAudioPriority);
+			source.MaxVoices = std::clamp(desc.MaxVoices, 1u, MaxAudioSourceVoices);
+		}
+
+		// The entity's sound from now on; the one it replaces retires its voices.
+		void Replace(Scope<Source> source)
+		{
+			UUID const entity = source->Entity;
+			if (Source* const existing = Find(entity))
+			{
+				RetireVoices(*existing);
+			}
+			Sources.insert_or_assign(entity, std::move(source));
 		}
 
 		// Whether the source's main voice takes a place in its pool: while it plays or is paused.
@@ -193,29 +221,34 @@ namespace Strada
 
 		void RetireEndedVoices() override
 		{
+			// Retired first, then the emptied places removed: erase_if's predicate must not change what it tests.
 			AudioVoiceManager& voices = Miniaudio::GetVoiceManager();
 			for (auto& [entity, source] : Sources)
 			{
+				for (OneShot& oneShot : source->OneShots)
+				{
+					if (oneShot.Voice->HasEnded())
+					{
+						voices.RetireVoice(std::move(oneShot.Voice));
+					}
+				}
 				std::erase_if(source->OneShots,
-				              [&voices](OneShot& oneShot)
+				              [](OneShot const& oneShot)
 				              {
-								  if (!oneShot.Voice->HasEnded())
-								  {
-									  return false;
-								  }
-								  voices.RetireVoice(std::move(oneShot.Voice));
-								  return true;
+								  return !oneShot.Voice;
 							  });
 			}
+			for (PointVoice& point : PointVoices)
+			{
+				if (point.Voice->HasEnded())
+				{
+					voices.RetireVoice(std::move(point.Voice));
+				}
+			}
 			std::erase_if(PointVoices,
-			              [&voices](PointVoice& point)
+			              [](PointVoice const& point)
 			              {
-							  if (!point.Voice->HasEnded())
-							  {
-								  return false;
-							  }
-							  voices.RetireVoice(std::move(point.Voice));
-							  return true;
+							  return !point.Voice;
 						  });
 		}
 
@@ -243,7 +276,10 @@ namespace Strada
 		void UpdatePositions(Source& source) const
 		{
 			glm::vec3 const relative = ToRelative(source.Position);
-			source.Main->SetRelativePosition(relative);
+			if (source.Main)
+			{
+				source.Main->SetRelativePosition(relative);
+			}
 			for (OneShot const& oneShot : source.OneShots)
 			{
 				oneShot.Voice->SetRelativePosition(relative);
@@ -319,7 +355,7 @@ namespace Strada
 		}
 		Scope<Data> data = CreateScope<Data>();
 		// Master's group now, so that a scene that cannot make one fails here as it always did.
-		if (Result<AudioSceneGroup*> group = data->GetGroup(EmptyBus); !group)
+		if (Result<AudioSceneGroup*> group = data->GetGroup(s_EmptyBus); !group)
 		{
 			return Error{group.GetError()};
 		}
@@ -371,18 +407,7 @@ namespace Strada
 			voiceDesc.Samples = samples.TakeValue();
 		}
 
-		source->Entity = desc.Entity;
-		// Also replaces NaN, which a script can set before the source exists.
-		source->Volume = desc.Volume > 0.0f ? desc.Volume : 0.0f;
-		source->Pitch = desc.Pitch >= MinAudioPitch ? desc.Pitch : MinAudioPitch;
-		source->Spatial = desc.Spatial;
-		source->MinDistance = desc.MinDistance;
-		source->MaxDistance = desc.MaxDistance;
-		source->Position = IsFinite(desc.Position) ? desc.Position : glm::vec3(0.0f);
-		source->Bus = desc.Bus;
-		source->Priority = std::min(desc.Priority, MaxAudioPriority);
-		source->MaxVoices = std::clamp(desc.MaxVoices, 1u, MaxAudioSourceVoices);
-
+		Data::TakeSettings(*source, desc);
 		Result<AudioSceneGroup*> group = m_Data->GetGroup(source->Bus);
 		if (!group)
 		{
@@ -408,12 +433,20 @@ namespace Strada
 			streamer->Add(source->Stream);
 		}
 
-		// Replacing a source retires the old one's voices.
-		if (Data::Source* const existing = m_Data->Find(desc.Entity))
+		m_Data->Replace(std::move(source));
+		return {};
+	}
+
+	Result<void> AudioScene::AddVoicePool(AudioSourceDesc const& desc)
+	{
+		Scope<Data::Source> source = CreateScope<Data::Source>();
+		Data::TakeSettings(*source, desc);
+		// The group is made now, so that a pool that could never play fails here and keeps the current sound.
+		if (Result<AudioSceneGroup*> group = m_Data->GetGroup(source->Bus); !group)
 		{
-			m_Data->RetireVoices(*existing);
+			return Error{group.GetError()};
 		}
-		m_Data->Sources.insert_or_assign(desc.Entity, std::move(source));
+		m_Data->Replace(std::move(source));
 		return {};
 	}
 
@@ -445,7 +478,7 @@ namespace Strada
 	void AudioScene::Play(UUID entity)
 	{
 		Data::Source* const source = m_Data->Find(entity);
-		if (source == nullptr || source->Main->IsPlaying())
+		if (source == nullptr || !source->Main || source->Main->IsPlaying())
 		{
 			return;
 		}
@@ -460,7 +493,8 @@ namespace Strada
 
 	void AudioScene::Pause(UUID entity)
 	{
-		if (Data::Source* const source = m_Data->Find(entity))
+		Data::Source* const source = m_Data->Find(entity);
+		if (source != nullptr && source->Main)
 		{
 			source->Main->Pause();
 		}
@@ -473,7 +507,10 @@ namespace Strada
 		{
 			return;
 		}
-		source->Main->Stop();
+		if (source->Main)
+		{
+			source->Main->Stop();
+		}
 		if (source->Stream)
 		{
 			// The streaming thread reads the start again while the sound is stopped.
@@ -486,7 +523,7 @@ namespace Strada
 	bool AudioScene::IsPlaying(UUID entity) const
 	{
 		Data::Source const* source = m_Data->Find(entity);
-		return source != nullptr && source->Main->IsPlaying();
+		return source != nullptr && source->Main && source->Main->IsPlaying();
 	}
 
 	float AudioScene::GetVolume(UUID entity) const
@@ -503,7 +540,10 @@ namespace Strada
 			return;
 		}
 		source->Volume = volume > 0.0f ? volume : 0.0f;
-		source->Main->SetVolume(source->Volume);
+		if (source->Main)
+		{
+			source->Main->SetVolume(source->Volume);
+		}
 		for (Data::OneShot const& oneShot : source->OneShots)
 		{
 			oneShot.Voice->SetVolume(source->Volume * oneShot.Volume);
@@ -525,7 +565,10 @@ namespace Strada
 		}
 		// Also replaces NaN.
 		source->Pitch = pitch >= MinAudioPitch ? pitch : MinAudioPitch;
-		source->Main->SetPitch(source->Pitch);
+		if (source->Main)
+		{
+			source->Main->SetPitch(source->Pitch);
+		}
 		for (Data::OneShot const& oneShot : source->OneShots)
 		{
 			oneShot.Voice->SetPitch(source->Pitch);
@@ -535,14 +578,15 @@ namespace Strada
 	bool AudioScene::IsLooping(UUID entity) const
 	{
 		Data::Source const* source = m_Data->Find(entity);
-		return source != nullptr && source->Main->IsLooping();
+		return source != nullptr && source->Main && source->Main->IsLooping();
 	}
 
 	void AudioScene::SetLooping(UUID entity, bool loop)
 	{
-		if (Data::Source* const source = m_Data->Find(entity))
+		// One-shots never loop.
+		Data::Source* const source = m_Data->Find(entity);
+		if (source != nullptr && source->Main)
 		{
-			// One-shots never loop.
 			source->Main->SetLooping(loop);
 		}
 	}
@@ -561,7 +605,10 @@ namespace Strada
 			return;
 		}
 		source->Spatial = spatial;
-		source->Main->SetSpatial(spatial);
+		if (source->Main)
+		{
+			source->Main->SetSpatial(spatial);
+		}
 		for (Data::OneShot const& oneShot : source->OneShots)
 		{
 			oneShot.Voice->SetSpatial(spatial);
@@ -577,7 +624,10 @@ namespace Strada
 		}
 		source->MinDistance = minDistance;
 		source->MaxDistance = maxDistance;
-		source->Main->SetDistances(minDistance, maxDistance);
+		if (source->Main)
+		{
+			source->Main->SetDistances(minDistance, maxDistance);
+		}
 		for (Data::OneShot const& oneShot : source->OneShots)
 		{
 			oneShot.Voice->SetDistances(minDistance, maxDistance);
@@ -618,7 +668,10 @@ namespace Strada
 			return;
 		}
 		source->Bus = bus;
-		source->Main->MoveTo(*group.GetValue());
+		if (source->Main)
+		{
+			source->Main->MoveTo(*group.GetValue());
+		}
 		for (Data::OneShot const& oneShot : source->OneShots)
 		{
 			oneShot.Voice->MoveTo(*group.GetValue());
@@ -628,7 +681,7 @@ namespace Strada
 	std::string const& AudioScene::GetBus(UUID entity) const
 	{
 		Data::Source const* source = m_Data->Find(entity);
-		return source != nullptr ? source->Bus : EmptyBus;
+		return source != nullptr ? source->Bus : s_EmptyBus;
 	}
 
 	void AudioScene::SetPriority(UUID entity, uint32_t priority)
@@ -639,7 +692,10 @@ namespace Strada
 			return;
 		}
 		source->Priority = std::min(priority, MaxAudioPriority);
-		source->Main->SetPriority(source->Priority);
+		if (source->Main)
+		{
+			source->Main->SetPriority(source->Priority);
+		}
 		for (Data::OneShot const& oneShot : source->OneShots)
 		{
 			oneShot.Voice->SetPriority(source->Priority);
@@ -684,7 +740,7 @@ namespace Strada
 		Ref<AudioClipAsset> const& played = clip ? clip : source->Clip;
 		if (!played)
 		{
-			ST_CORE_WARN("A one-shot of a streamed sound needs a clip to play");
+			ST_CORE_WARN("A one-shot of a sound with no loaded clip (a streamed sound, or a pool alone) needs a clip to play");
 			return false;
 		}
 		Ref<AudioSampleBuffer> samples = Data::GetSamples(played);
@@ -729,7 +785,7 @@ namespace Strada
 		{
 			return 0;
 		}
-		uint32_t count = source->Main->IsPlaying() ? 1 : 0;
+		uint32_t count = source->Main && source->Main->IsPlaying() ? 1 : 0;
 		for (Data::OneShot const& oneShot : source->OneShots)
 		{
 			count += oneShot.Voice->IsPlaying() ? 1 : 0;

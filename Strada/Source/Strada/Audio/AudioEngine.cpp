@@ -74,6 +74,9 @@ namespace Strada
 			std::unordered_map<std::string, AudioGameBusValues> GameValues;
 			std::unordered_set<std::string> MissingBuses;
 			std::unordered_set<std::string> UnknownGameBuses;
+			// Whether a Reverb that passes its bus through, at a rate its library refuses, has been logged (once per Init:
+			// effects are made again at every chain change and at every game's end).
+			bool ReverbRateLogged = false;
 
 			// A device that stopped: the main thread holds the mixer until the device runs again.
 			bool TakenOver = false;
@@ -248,8 +251,21 @@ namespace Strada
 			}
 		}
 
+		// A new effect for the engine's mix.
+		Ref<AudioEffect> CreateEffect(AudioEngineData& data, MixerEffect const& effect)
+		{
+			uint32_t const sampleRate = AudioEngine::GetSampleRate();
+			if (effect.Kind == MixerEffectKind::Reverb && !AudioEffect::IsReverbSampleRateSupported(sampleRate) && !data.ReverbRateLogged)
+			{
+				data.ReverbRateLogged = true;
+				ST_CORE_WARN("The mixer's Reverb passes its bus through unchanged: it runs at {} to {} Hz, not {} Hz",
+				             AudioEffect::MinReverbSampleRate, AudioEffect::MaxReverbSampleRate, sampleRate);
+			}
+			return AudioEffect::Create(effect, sampleRate, AudioEngine::GetChannelCount());
+		}
+
 		// A chain of new effects for the values (null for none).
-		Scope<AudioEffectChain> MakeEffectChain(std::vector<MixerEffect> const& effects)
+		Scope<AudioEffectChain> MakeEffectChain(AudioEngineData& data, std::vector<MixerEffect> const& effects)
 		{
 			if (effects.empty())
 			{
@@ -259,7 +275,7 @@ namespace Strada
 			objects.reserve(effects.size());
 			for (MixerEffect const& effect : effects)
 			{
-				objects.push_back(AudioEffect::Create(effect, AudioEngine::GetSampleRate(), AudioEngine::GetChannelCount()));
+				objects.push_back(CreateEffect(data, effect));
 			}
 			return CreateScope<AudioEffectChain>(std::move(objects));
 		}
@@ -314,7 +330,7 @@ namespace Strada
 				}
 				else
 				{
-					objects.push_back(AudioEffect::Create(effects[slot], AudioEngine::GetSampleRate(), AudioEngine::GetChannelCount()));
+					objects.push_back(CreateEffect(data, effects[slot]));
 				}
 			}
 			Scope<AudioEffectChain> chain = objects.empty() ? nullptr : CreateScope<AudioEffectChain>(std::move(objects));
@@ -432,7 +448,7 @@ namespace Strada
 				}
 				AudioBusState state;
 				state.Node = node.TakeValue();
-				state.Chain = MakeEffectChain(bus.Effects);
+				state.Chain = MakeEffectChain(data, bus.Effects);
 				state.Values = bus;
 				state.ParentKey = std::move(parentKey);
 				auto const game = data.GameValues.find(key);
@@ -466,7 +482,7 @@ namespace Strada
 			data.CurrentMixer = mixer;
 			for (AudioSceneGroup* const group : data.Voices->GetGroups())
 			{
-				group->PointAt(Miniaudio::FindBus(group->GetBusKey()));
+				group->PointAt(Miniaudio::FindBus(group->GetBusKey(), group->GetBusName()));
 			}
 			// What still plays into a removed bus is moved to Master by the mixing thread, which then hands the bus back.
 			for (AudioBusState& state : removed)
@@ -1057,7 +1073,7 @@ namespace Strada
 		return AllocationCallbacks;
 	}
 
-	AudioBusNode* Miniaudio::FindBus(std::string_view busKey)
+	AudioBusNode* Miniaudio::FindBus(std::string_view busKey, std::string_view busName)
 	{
 		ST_CORE_ASSERT(s_Data, "AudioEngine is not initialized");
 		std::string const key(busKey);
@@ -1068,7 +1084,7 @@ namespace Strada
 		std::string const masterKey = MakeMixerBusKey(MasterBusName);
 		if (key != masterKey && s_Data->MissingBuses.emplace(key).second)
 		{
-			ST_CORE_WARN("The mixer has no bus named '{}': its sounds play on {}", key, MasterBusName);
+			ST_CORE_WARN("The mixer has no bus named '{}': its sounds play on {}", busName, MasterBusName);
 		}
 		return FindBusNode(*s_Data, masterKey);
 	}

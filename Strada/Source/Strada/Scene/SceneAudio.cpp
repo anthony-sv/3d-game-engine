@@ -15,6 +15,24 @@ namespace Strada
 		{
 			return glm::vec3(transform[3]);
 		}
+
+		// The settings of an entity's sound, as its component gives them (not its clip).
+		AudioSourceDesc DescribeAudioSource(UUID entity, AudioSourceComponent const& component, glm::vec3 const& position)
+		{
+			AudioSourceDesc desc;
+			desc.Entity = entity;
+			desc.Volume = component.Volume;
+			desc.Pitch = component.Pitch;
+			desc.Loop = component.Loop;
+			desc.Spatial = component.Spatial;
+			desc.MinDistance = component.MinDistance;
+			desc.MaxDistance = component.MaxDistance;
+			desc.Bus = component.Bus;
+			desc.Priority = component.Priority;
+			desc.MaxVoices = component.MaxVoices;
+			desc.Position = position;
+			return desc;
+		}
 	}
 
 	void Scene::StartAudio()
@@ -144,15 +162,32 @@ namespace Strada
 
 	bool Scene::PlayAudioOneShot(Entity entity, AssetHandle clip, float volume)
 	{
-		std::optional<UUID> const sound = PrepareAudioSource(entity);
-		if (!sound)
+		if (!m_Audio || !entity || entity.GetScene() != this)
 		{
 			return false;
 		}
-		Ref<AudioClipAsset> clipAsset;
-		if (clip.IsValid())
+		AudioSourceComponent const* const component = m_Registry.try_get<AudioSourceComponent>(entity.GetHandle());
+		if (component == nullptr)
 		{
-			Result<Ref<AudioClipAsset>> loaded = AssetManager::TryGetAsset<AudioClipAsset>(clip);
+			return false;
+		}
+		bool const hasSound = SyncAudioSource(entity.GetHandle(), *component);
+		// A component that names a clip plays one-shots only with a sound of its own; one that names none, of clips given.
+		if (!hasSound && (component->Clip.IsValid() || !clip.IsValid()))
+		{
+			return false;
+		}
+		// A streamed source's sound reads its file and has no loaded clip: its own one-shots load the clip.
+		AssetHandle const played = !clip.IsValid() && component->Stream ? component->Clip : clip;
+		Ref<AudioClipAsset> clipAsset;
+		if (played.IsValid())
+		{
+			if (!AssetManager::IsInitialized())
+			{
+				ST_CORE_WARN("Entity '{}' plays no one-shot: the asset manager is not initialized", entity.GetName());
+				return false;
+			}
+			Result<Ref<AudioClipAsset>> loaded = AssetManager::TryGetAsset<AudioClipAsset>(played);
 			if (!loaded)
 			{
 				ST_CORE_WARN("Entity '{}' plays no one-shot: {}", entity.GetName(), loaded.GetError());
@@ -160,7 +195,18 @@ namespace Strada
 			}
 			clipAsset = loaded.TakeValue();
 		}
-		return m_Audio->PlayOneShot(*sound, clipAsset, volume);
+		AudioSourceState& state = m_AudioSources.at(entity.GetHandle());
+		if (!hasSound)
+		{
+			AudioSourceDesc const desc = DescribeAudioSource(state.Entity, *component, GetTranslation(GetWorldTransform(entity)));
+			if (Result<void> added = m_Audio->AddVoicePool(desc); !added)
+			{
+				ST_CORE_WARN("Entity '{}' plays no one-shot: {}", entity.GetName(), added.GetError());
+				return false;
+			}
+			state.HasSound = true;
+		}
+		return m_Audio->PlayOneShot(state.Entity, clipAsset, volume);
 	}
 
 	bool Scene::PlayAudioClipAtPoint(AssetHandle clip, glm::vec3 const& position, float volume, std::string_view bus)
@@ -199,8 +245,7 @@ namespace Strada
 			return;
 		}
 
-		AudioSourceDesc desc;
-		desc.Entity = state.Entity;
+		AudioSourceDesc desc = DescribeAudioSource(state.Entity, component, GetTranslation(GetWorldTransform(entity)));
 		if (component.Stream)
 		{
 			// The sound reads the clip's file itself: the clip is not loaded.
@@ -222,16 +267,6 @@ namespace Strada
 			}
 			desc.Clip = clip.TakeValue();
 		}
-		desc.Volume = component.Volume;
-		desc.Pitch = component.Pitch;
-		desc.Loop = component.Loop;
-		desc.Spatial = component.Spatial;
-		desc.MinDistance = component.MinDistance;
-		desc.MaxDistance = component.MaxDistance;
-		desc.Bus = component.Bus;
-		desc.Priority = component.Priority;
-		desc.MaxVoices = component.MaxVoices;
-		desc.Position = GetTranslation(GetWorldTransform(entity));
 		if (Result<void> added = m_Audio->AddSource(desc); !added)
 		{
 			ST_CORE_WARN("Entity '{}' plays no sound: {}", entity.GetName(), added.GetError());

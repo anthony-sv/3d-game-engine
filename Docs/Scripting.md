@@ -502,7 +502,8 @@ their scripts get `OnDestroy` while they are intact.
 shot, a footstep), and `PlayOneShot(clip, volume)` plays another clip that way; a one-shot never loops, follows its
 source, and fades out with `Stop()`. A source plays at most `MaxVoices` sounds at once (1 to 64, 4 by default: its clip
 and its one-shots), and a one-shot past it stops the source's oldest one-shot. Both answer whether the sound started:
-the source needs a clip that plays, and a streamed source's one-shots name their clip. `Priority` (0 to 255, 128 by
+a source whose clip does not play plays no one-shot, a streamed source loads its clip for them, and a source with no
+clip of its own plays the clips it is given (footsteps, impacts). `Priority` (0 to 255, 128 by
 default) says which sounds go silent first when more play than the engine mixes at once (64), and `Bus` names the bus
 of the project's mixer the source plays on (empty for Master).
 `Audio.PlayClipAtPoint(clip, position, volume, bus)` plays a clip once at a point on a voice of the scene, so the sound

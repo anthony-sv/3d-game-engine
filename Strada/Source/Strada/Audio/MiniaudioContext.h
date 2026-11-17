@@ -30,10 +30,10 @@ namespace Strada
 		AudioVoiceManager& GetVoiceManager();
 		// The decoded samples of loaded clips.
 		AudioSampleCache& GetSampleCache();
-		// The bus node a group of the bus named busKey (MakeMixerBusKey) plays into: the mixer's bus of that key, or Master's
-		// when the mixer lacks it, which is logged once per key and mixer (null only when Master's node could not be made:
-		// the engine's endpoint).
-		AudioBusNode* FindBus(std::string_view busKey);
+		// The bus node a group of the bus keyed busKey (MakeMixerBusKey) plays into: the mixer's bus of that key, or Master's
+		// when the mixer lacks it, which is logged once per key and mixer with busName, the name as a source gave it (null
+		// only when Master's node could not be made: the engine's endpoint).
+		AudioBusNode* FindBus(std::string_view busKey, std::string_view busName);
 
 		// The mixing thread's identity for the length of one block (AudioEngine::IsMixingOnThisThread). Constructed by the
 		// thread that mixes; touches only an atomic in static storage.

@@ -249,7 +249,7 @@ TEST_CASE("AudioMixer: a bus the mixer lacks plays on Master and is logged once 
 	// Master's new volume ramps over the first 5 ms.
 	Skip(0.01f);
 	CHECK(std::abs(ToDecibels(ReadLevels(0.05f).Left / (2.0f * Quantize(0.25f))) - -6.0) < 0.1);
-	CHECK(CountLogged(logStart, "The mixer has no bus named 'nowhere'") == 1);
+	CHECK(CountLogged(logStart, "The mixer has no bus named 'Nowhere'") == 1);
 	CHECK(CountLogged(logStart, "has no bus named") == 1);
 
 	// Once the mixer gains the bus its sounds' group moves to it: out over 5 ms, moved, back in over 5 ms, never stepping
@@ -756,6 +756,22 @@ TEST_CASE("AudioMixer: a reverb passes what its library cannot take unchanged")
 	}
 	CHECK(othersUnchanged);
 	CHECK(firstChanged);
+}
+
+TEST_CASE("AudioMixer: a reverb at a rate its library refuses is logged once, however often its effects are made again")
+{
+	Testing::AudioEngineScope engine({}, 16000);
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	MixerEffect reverb;
+	reverb.Kind = MixerEffectKind::Reverb;
+	AudioEngine::SetMixer(MakeMixer({MakeBus("Master", "", 0.0f, {reverb})}));
+	CHECK(CountLogged(logStart, "Reverb passes its bus through unchanged") == 1);
+	// Each game's end makes every effect again, and so does a filter put in front of the reverb.
+	AudioEngine::ClearEffectState();
+	AudioEngine::ClearEffectState();
+	AudioEngine::SetMixer(MakeMixer({MakeBus("Master", "", 0.0f, {MakeFilter(MixerEffectKind::LowPass, 1000.0f), reverb})}));
+	AudioEngine::ClearEffectState();
+	CHECK(CountLogged(logStart, "Reverb passes its bus through unchanged") == 1);
 }
 
 namespace

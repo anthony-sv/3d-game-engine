@@ -198,7 +198,8 @@ def run_player(player, project, out, frames, timestep=None):
     for attempt in range(1, ATTEMPTS + 1):
         root = tempfile.mkdtemp(prefix="moto-user-")
         try:
-            environment = dict(os.environ)
+            # The window's sound goes to no device: a tool's capture plays nothing through the speakers.
+            environment = dict(os.environ, STRADA_AUDIO_OUTPUT="null")
             for variable, folder in (("APPDATA", "Roaming"), ("LOCALAPPDATA", "Local"), ("HOME", "Home"), ("XDG_DATA_HOME", "Data")):
                 environment[variable] = os.path.join(root, folder)
                 os.makedirs(environment[variable])

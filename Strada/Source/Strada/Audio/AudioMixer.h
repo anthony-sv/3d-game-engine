@@ -122,16 +122,19 @@ namespace Strada
 		};
 
 	public:
-		// Main thread: the group, unattached, holding its voices when paused, for the bus its key names (Master when the
-		// mixer lacks it, which is logged once). Its node is allocated through the engine's allocation callbacks.
-		[[nodiscard]] static Result<Scope<AudioSceneGroup>> Create(std::string busKey, bool paused);
+		// Main thread: the group, unattached, holding its voices when paused, for the bus of that name (matched by its key,
+		// MakeMixerBusKey; Master when the mixer lacks it, which is logged once with the name as given). Its node is
+		// allocated through the engine's allocation callbacks.
+		[[nodiscard]] static Result<Scope<AudioSceneGroup>> Create(std::string busName, bool paused);
 
-		AudioSceneGroup(PrivateTag, std::string busKey);
+		AudioSceneGroup(PrivateTag, std::string busName);
 		// Main thread, only while the mixing thread does not hold the group.
 		~AudioSceneGroup() override;
 
 		// Main thread.
 		std::string const& GetBusKey() const { return m_BusKey; }
+		// The bus's name as the source that made the group gave it (another spelling of the key may share the group).
+		std::string const& GetBusName() const { return m_BusName; }
 		bool IsPaused() const { return m_Paused; }
 		bool IsHeldByMixer() const { return m_HeldByMixer; }
 		// The bus it plays into, as the main thread last pointed it (null: the engine's endpoint).
@@ -150,6 +153,7 @@ namespace Strada
 		ma_sound_group m_Group{};
 		bool m_HasGroup = false;
 		std::string m_BusKey;
+		std::string m_BusName;
 		// Main thread.
 		bool m_Paused = false;
 		bool m_HeldByMixer = false;
@@ -358,7 +362,8 @@ namespace Strada
 
 		// Any thread: blocks rendered since the mixer was made (the main thread's stall check reads it).
 		uint64_t GetBlockCount() const { return m_BlockCount.load(std::memory_order_acquire); }
-		// Any thread: voices playing in the mix at the end of the last block (stolen ones still fading out included).
+		// Any thread: voices playing in the mix at the end of the last block (stolen ones still fading out included; a paused
+		// scene's voices, which its stopped group does not pull, and virtual voices left out).
 		uint32_t GetMixedVoiceCount() const { return m_MixedVoices.load(std::memory_order_relaxed); }
 
 	private:

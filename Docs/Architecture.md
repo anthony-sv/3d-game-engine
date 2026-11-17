@@ -2391,7 +2391,9 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   pool whose voices are all its main voice (`MaxVoices` 1) refuses the one-shot. A pool made smaller steals its oldest
   one-shots down to it. A one-shot that ended frees its place before the next one starts: every start first retires
   the one-shots whose end was reported, without waiting for a frame. A streamed source has no loaded clip: its
-  one-shots name one.
+  one-shots name one, and `Scene::PlayAudioOneShot` loads the component's clip for one that names none. A source whose
+  component names no clip has no sound until its first one-shot of a clip given, which makes it a pool with no main
+  voice (`AudioScene::AddVoicePool`) that follows the component like any sound.
 - **The scene's voices.** `PlayClipAtPoint(clip, position, volume, bus)` plays on a voice of the scene rather than of
   an entity: spatial, at a fixed position, with the default distances and priority, never looping. It is held while
   the scene is paused, fades out with the scene's end, and outlives the entity that played it, which is what a sound
@@ -2413,8 +2415,11 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   virtual voices exist, and at every start, the ranking runs again: a virtual voice that ranks within the limit is
   heard again where its time has taken it, faded in over `AudioStealFadeSeconds`, and the one it displaces becomes
   virtual or is returned. A virtual voice ranks as if it were a third quieter (it comes back only when clearly louder
-  than what mixes), so two voices of nearly one loudness do not trade places at every update. So engine layers at
-  volume 0 in a crossfade are virtual, cost nothing, and are heard as soon as their volume rises. A streamed main voice
+  than what mixes), so two voices of nearly one loudness do not trade places at every update. Only the limit makes a
+  voice virtual: engine layers at volume 0 in a crossfade are mixed, and count in the budget, while the voices number
+  at most `MaxMixedAudioVoices`; beyond it, being the quietest, they are the ones made virtual, cost nothing, and are
+  heard as soon as their volume rises above what mixes. A pitch set for a virtual voice counts from then on: the time
+  it spent at its earlier pitch moves its cursor first. A streamed main voice
   holds its place while virtual (its file is read ahead from where it stopped). A virtual voice in a scene that pauses
   stops its time there and waits for the scene like its other voices.
 - **One authority.** The main thread decides every start and every steal, from its shadow; the mixing thread decides
@@ -2580,8 +2585,9 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   node wrapper in the same folder), because a miniaudio node of its own would stand outside the bus's chain and its
   order. An instance holds about 400 KB (its buffers are sized for 4 times 44.1 kHz). verblib takes one or two channels
   and 22,050 to 176,400 Hz (`:422-430`): the reverb runs on the first two channels of the mix and passes any others
-  unchanged, and at a rate outside that range passes everything unchanged and is logged once. `ThirdPartyNotices.md`
-  names verblib beside miniaudio.
+  unchanged, and at a rate outside that range passes everything unchanged and is logged once per engine `Init`
+  (effects are made again at each chain change and at each game's end, `ClearEffectState`, and log nothing
+  themselves). `ThirdPartyNotices.md` names verblib beside miniaudio.
 - **Compressor**: Giannoulis, Massberg and Reiss, "Digital Dynamic Range Compressor Design: A Tutorial and Analysis"
   (J. Audio Eng. Soc. 60(6), 2012): feed-forward, in the log domain, the static curve of their eq. 4 with a quadratic
   soft knee of `KneeDb` (`ComputeCompressorOutputDb`), and their smooth decoupled peak detector with one-pole attack and
@@ -2614,14 +2620,16 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   node, with a recipe where its defaults do not run it (a one-shot needs a source with a clip; `PlayClipAtPoint` a
   clip). What scripts set is run-time state of the mix (the game's values, §9.5), never written to the asset. The calls
   reach the scene through `Scene::PlayAudioOneShot` and `Scene::PlayAudioClipAtPoint`, which bring the source up to date
-  with its component first (a clip, bus or pool size set this frame applies) and load the clip asset; a source needs a
-  sound of its own (a clip that plays) for its one-shots, and numbers that are not finite are script errors naming the
+  with its component first (a clip, bus or pool size set this frame applies) and load the clip asset (a streamed
+  source's own clip included); a source whose component names a clip needs it to play, one that names none plays the
+  clips it is given (§9.3), and numbers that are not finite are script errors naming the
   member. The managed `Mixer` reads the asset's own buses (names, parents, volumes, mutes) for a settings menu; the game's
   values are `Audio`'s. A test run mixes into the null device in real time, so FeatureTest's checks assert what the main
   thread knows at a call (a voice started, a count right after a start), never that a sound ended.
 - **The editor and the agents.** The `.smixer` inspector is the generic data asset editor; `mixer.*` are the generated
   commands. The rows of a list of buses are titled by their `Name`; an effect's row, which has no string field, by its
-  first two numbers (`FieldEditor::DescribeElement`). MX2 adds the Mixer panel.
+  kind and the first parameter that kind shows (`0: Reverb, Room Size 0.5`; `FieldEditor::DescribeElement`). MX2 adds
+  the Mixer panel.
 
 ### 9.8 What MX2 adds, on this design
 
@@ -3506,8 +3514,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   plain values (numbers, strings, assets, ...) is a row of widgets per element with `-`, then `+`. An array of reflected
   structs is a header row that folds away (its count, `2 of at most 16 elements`), then a folding row per element,
   `<index>: <title>` (the title is the element's first string field, such as its name, when it is not empty; for a
-  struct without a string field, its first two numbers with their names, as a curve's keys show `0: Time 0.4, Value
-  1.1`; `Element <index>` otherwise), starting folded, with a menu button (Move Up, Move Down, Duplicate, Insert Above, Remove;
+  struct without a string field, its first two numbers or choices that the element shows, a number with its name and
+  a choice by its value, as a curve's keys show `0: Time 0.4, Value 1.1` and a mixer's effects `1: Low Pass, Frequency
+  1000`, a field its visibility condition hides for the element being skipped; `Element <index>` otherwise), starting folded, with a menu button (Move Up, Move Down, Duplicate, Insert Above, Remove;
   also on a right click of the row) and, unfolded, the element's fields as nested rows, where visibility conditions and
   switches are those of the element's own struct; Add Element after the last appends a default element (each field's
   default). A list edit carries each element row's fold state to where it moves the element (ImGui keeps the states by

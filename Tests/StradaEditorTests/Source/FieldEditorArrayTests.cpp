@@ -1308,6 +1308,17 @@ TEST_CASE("Inspector: a mixer's buses and their effects unfold, each effect show
 	CHECK_FALSE(driver.Find(ImHashStr("##value", 0, driver.GetFieldId("Frequency", first)), driver.GetValueX()));
 	CHECK(driver.Find(ImHashStr("##value", 0, driver.GetFieldId("Frequency", second)), driver.GetValueX()));
 	CHECK_FALSE(driver.Find(ImHashStr("##value", 0, driver.GetFieldId("RoomSize", second)), driver.GetValueX()));
+	// Each row is titled by its kind and the first parameter that kind shows, never by a parameter it hides.
+	std::vector<FieldDescriptor> const busFields = GetFieldDescriptors<StructTraits<MixerBus>, MixerBus>();
+	auto const effectList = std::find_if(busFields.begin(), busFields.end(),
+	                                     [](FieldDescriptor const& field)
+	                                     {
+											 return field.Name == "Effects";
+										 });
+	REQUIRE(effectList != busFields.end());
+	CHECK(FieldEditor::DescribeElement(*effectList, SerializeFields<StructTraits<MixerEffect>>(reverb), 0) == "0: Reverb, Room Size 0.5");
+	CHECK(FieldEditor::DescribeElement(*effectList, SerializeFields<StructTraits<MixerEffect>>(MixerEffect{}), 1) ==
+	      "1: Low Pass, Frequency 1000");
 
 	// An edit of a nested effect (a number takes typing after a double click) is one step named after the type, and undoes.
 	std::optional<ImVec2> const room = driver.Find(ImHashStr("##value", 0, driver.GetFieldId("RoomSize", first)), driver.GetValueX());

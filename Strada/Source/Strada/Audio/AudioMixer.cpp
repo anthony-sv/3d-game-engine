@@ -33,10 +33,10 @@ namespace Strada
 		FramesLeft = frames;
 	}
 
-	Result<Scope<AudioSceneGroup>> AudioSceneGroup::Create(std::string busKey, bool paused)
+	Result<Scope<AudioSceneGroup>> AudioSceneGroup::Create(std::string busName, bool paused)
 	{
 		ma_engine& engine = Miniaudio::GetEngine();
-		Scope<AudioSceneGroup> group = CreateScope<AudioSceneGroup>(PrivateTag{}, std::move(busKey));
+		Scope<AudioSceneGroup> group = CreateScope<AudioSceneGroup>(PrivateTag{}, std::move(busName));
 		ma_sound_group_config config = ma_sound_group_config_init_2(&engine);
 		// The group only mixes: without pitch and spatialization it adds no resampling delay and no second panning.
 		config.flags = MA_SOUND_FLAG_NO_PITCH | MA_SOUND_FLAG_NO_SPATIALIZATION | MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT;
@@ -52,14 +52,15 @@ namespace Strada
 			group->m_Paused = true;
 			group->m_MixPaused = true;
 		}
-		group->m_BusNode = Miniaudio::FindBus(group->m_BusKey);
+		group->m_BusNode = Miniaudio::FindBus(group->m_BusKey, group->m_BusName);
 		Miniaudio::GetVoiceManager().AddGroup(*group);
 		group->m_Registered = true;
 		return group;
 	}
 
-	AudioSceneGroup::AudioSceneGroup(PrivateTag, std::string busKey)
-		: m_BusKey(std::move(busKey))
+	AudioSceneGroup::AudioSceneGroup(PrivateTag, std::string busName)
+		: m_BusKey(MakeMixerBusKey(busName)),
+		  m_BusName(std::move(busName))
 	{
 	}
 
@@ -438,6 +439,12 @@ namespace Strada
 			case AudioCommandType::SetVoicePitch:
 			{
 				AudioVoice& voice = *static_cast<AudioVoice*>(command.Object);
+				if (m_Virtual.Contains(voice))
+				{
+					// Virtual time so far passed at the pitch it had: the cursor moves through it (ending the play when it
+					// reached its end) before the new pitch counts.
+					CatchUpVirtual(voice);
+				}
 				voice.m_MixPitchTarget = command.Values[0];
 				uint32_t const frames = SecondsToFrames(AudioParameterSmoothingSeconds, m_SampleRate);
 				if (IsHeard(voice) && frames > 0 && voice.m_MixPitch != voice.m_MixPitchTarget)
@@ -965,7 +972,13 @@ namespace Strada
 			voice = next;
 		}
 		FinishBuses();
-		m_MixedVoices.store(m_Playing.GetCount(), std::memory_order_relaxed);
+		// A paused scene's voices stay playing but are not pulled by its stopped group: they are not mixed.
+		uint32_t mixed = 0;
+		for (AudioVoice const* voice = m_Playing.GetFirst(); voice != nullptr; voice = m_Playing.GetNext(*voice))
+		{
+			mixed += IsHeard(*voice) ? 1 : 0;
+		}
+		m_MixedVoices.store(mixed, std::memory_order_relaxed);
 	}
 
 	void AudioMixer::BeginFade(AudioVoice& voice, AudioVoice::Fade fade, uint64_t frames)
@@ -1105,6 +1118,13 @@ namespace Strada
 	{
 		ma_sound_stop(&voice.m_Sound);
 		m_Playing.Remove(voice);
+		// Pitch ramps step only for playing voices: one under way ends here, so that virtual time runs at the pitch asked.
+		if (voice.m_MixPitchFramesLeft > 0)
+		{
+			voice.m_MixPitch = voice.m_MixPitchTarget;
+			voice.m_MixPitchFramesLeft = 0;
+			ma_sound_set_pitch(&voice.m_Sound, voice.m_MixPitch);
+		}
 		voice.m_MixVirtualSince = m_Time;
 		m_Virtual.Add(voice);
 	}

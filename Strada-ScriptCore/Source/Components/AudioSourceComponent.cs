@@ -134,8 +134,9 @@ public sealed unsafe class AudioSourceComponent : Component
 	/// <summary>Plays the source's clip once more on a voice of its own, over whatever the source plays already (a shot, a
 	/// footstep): it never loops, follows the source as it moves and changes, and fades out with <see cref="Stop"/>. When the
 	/// source already plays <see cref="MaxVoices"/> sounds, its oldest one-shot stops; with <see cref="MaxVoices"/> 1 and the
-	/// clip playing, nothing more plays. Returns whether it started; false when the source has no sound (no clip that
-	/// plays, or a clip that streams: give it the clip to play) or nothing runs with sound.</summary>
+	/// clip playing, nothing more plays. A source whose clip streams loads it for its one-shots. Returns whether it
+	/// started; false when the source has no clip that plays (or none at all: give it the clip to play) or nothing runs
+	/// with sound.</summary>
 	/// <param name="volume">Its linear gain, times the source's <see cref="Volume"/>.</param>
 	public bool PlayOneShot(float volume = 1.0f)
 	{
@@ -144,8 +145,9 @@ public sealed unsafe class AudioSourceComponent : Component
 
 	/// <summary>Plays another clip once on a voice of the source, over whatever the source plays already, as
 	/// <see cref="PlayOneShot(float)"/> plays the source's own: it never loops, follows the source and fades out with
-	/// <see cref="Stop"/>. The source needs a sound of its own (a clip that plays). Returns whether it started; false as
-	/// <see cref="PlayOneShot(float)"/>, and for a clip that does not load (logged).</summary>
+	/// <see cref="Stop"/>. A source with no clip of its own plays the clips it is given this way (footsteps, impacts).
+	/// Returns whether it started; false when the source's own clip does not play, when nothing runs with sound, and for
+	/// a clip that does not load (logged).</summary>
 	/// <param name="clip">The clip to play.</param>
 	/// <param name="volume">Its linear gain, times the source's <see cref="Volume"/>.</param>
 	public bool PlayOneShot(AudioClip clip, float volume = 1.0f)

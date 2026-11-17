@@ -654,6 +654,59 @@ TEST_CASE("AudioEngine: the active voice count is the main thread's, exact right
 	CHECK(AudioEngine::GetMixedVoiceCount() == 0);
 }
 
+TEST_CASE("AudioEngine: the voices of a paused scene are not counted as mixed")
+{
+	Testing::AudioEngineScope engine;
+	Scope<AudioScene> paused = CreateAudioScene();
+	Scope<AudioScene> playing = CreateAudioScene();
+	for (uint64_t index = 0; index < 2; index++)
+	{
+		REQUIRE(paused->AddSource(MakeSource(SourceId(index), MakeLevelClip(0.1f, 1.0f), true)).IsOk());
+		paused->Play(SourceId(index));
+	}
+	Skip(0.01f);
+	CHECK(AudioEngine::GetMixedVoiceCount() == 2);
+
+	// Its group stops pulling them: one block later none of them counts, while another scene's voice does.
+	paused->SetPaused(true);
+	REQUIRE(playing->AddSource(MakeSource(SourceId(10), MakeLevelClip(0.1f, 1.0f), true)).IsOk());
+	playing->Play(SourceId(10));
+	Skip(0.01f);
+	CHECK(AudioEngine::GetMixedVoiceCount() == 1);
+	CHECK(ReadLevels(0.05f).Left == doctest::Approx(0.1f).epsilon(0.01));
+	paused->SetPaused(false);
+	Skip(0.01f);
+	CHECK(AudioEngine::GetMixedVoiceCount() == 3);
+}
+
+TEST_CASE("AudioEngine: a virtual voice's time runs at each pitch it had, so a new pitch moves its end only from then on")
+{
+	Testing::AudioEngineScope engine;
+	Scope<AudioScene> audio = CreateAudioScene();
+	Ref<AudioClipAsset> const quiet = MakeLevelClip(0.001f, 1.0f);
+	for (uint64_t index = 0; index < MaxMixedAudioVoices; index++)
+	{
+		REQUIRE(audio->AddSource(MakeSource(SourceId(index), quiet, true)).IsOk());
+		audio->Play(SourceId(index));
+	}
+	// A clip of 0.4 s that ranks lowest: virtual from its start.
+	AudioSourceDesc low = MakeSource(SourceId(100), MakeLevelClip(0.2f, 0.4f));
+	low.Priority = 0;
+	REQUIRE(audio->AddSource(low).IsOk());
+	audio->Play(SourceId(100));
+	CHECK(audio->IsPlaying(SourceId(100)));
+	Skip(0.02f);
+	CHECK(ReadLevels(0.08f).Left == doctest::Approx(0.064f).epsilon(0.02));
+
+	// 0.1 s in at pitch 1, then twice as fast: 0.3 s of clip left take 0.15 s, so it ends 0.25 s after its start (all
+	// of its time at the new pitch would have ended it at 0.2 s).
+	audio->SetPitch(SourceId(100), 2.0f);
+	Skip(0.12f);
+	CHECK(audio->IsPlaying(SourceId(100)));
+	Skip(0.06f);
+	CHECK_FALSE(audio->IsPlaying(SourceId(100)));
+}
+
 namespace
 {
 	// Buses with every kind of effect, for the allocation case: volume is the Music bus's, wide says whether the Effects

@@ -1223,7 +1223,7 @@ TEST_CASE("Runtime: an exported game mixes through its project's mixer, which ar
 	CAPTURE(control.Output);
 	CHECK(control.ExitCode == 0);
 	CHECK_FALSE(Contains(control.Output, "Mixer: "));
-	CHECK(Contains(control.Output, "The mixer has no bus named 'music'"));
+	CHECK(Contains(control.Output, "The mixer has no bus named 'Music'"));
 }
 
 TEST_CASE("Runtime: players tell once at startup what is wrong with the engine marker beside them, and still run")

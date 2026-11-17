@@ -134,8 +134,8 @@ namespace Strada
 		// end of a play counts from the next AudioEngine::Update or ReadFrames that reads it, so the count never depends on
 		// when the mixing thread runs. At most MaxMixedAudioVoices.
 		static uint32_t GetActiveVoiceCount();
-		// The voices the mixing thread mixed at its last block (stolen ones still fading out included; MX2's meters). Any
-		// thread.
+		// The voices the mixing thread mixed at its last block (stolen ones still fading out included; a paused scene's
+		// voices left out, since its stopped group does not pull them; MX2's meters). Any thread.
 		static uint32_t GetMixedVoiceCount();
 		// Voices stolen since Init: by a full pool (a one-shot), by the engine's limit (a one-shot is returned, a main voice
 		// made virtual), the one-shots refused because they would have ranked lowest included. Any thread.

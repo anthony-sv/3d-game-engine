@@ -83,6 +83,12 @@ namespace Strada
 		// within MaxAudioStreamHeaderBytes, and loaded clips past MaxDecodedClipBytes), or for a stream when the streaming
 		// thread is not running (the current sound is then kept). A loaded clip is decoded here, once per clip asset object.
 		[[nodiscard]] Result<void> AddSource(AudioSourceDesc const& desc);
+		// Creates an entity's sound without a main voice, replacing its current one: a pool for the one-shots of clips given
+		// to PlayOneShot, with desc's settings (its Clip, StreamFile and Loop are not used). Play, Pause and SetLooping then
+		// do nothing, IsPlaying and IsLooping read false, and Stop fades its one-shots out. For an entity whose component
+		// names no clip (Scene makes one at its first one-shot). Fails only when the bus's group cannot be made (the current
+		// sound is then kept).
+		[[nodiscard]] Result<void> AddVoicePool(AudioSourceDesc const& desc);
 		// The source's voices, its one-shots included, fade out over AudioGainSmoothingSeconds and are gone (a destroyed
 		// entity's sounds end with it; PlayClipAtPoint plays a sound that outlives its entity).
 		void RemoveSource(UUID entity);
@@ -134,8 +140,9 @@ namespace Strada
 		// fades out with the source's Stop, its removal or its scene's end. A full pool (MaxVoices, its main voice counted
 		// while it plays or is paused) steals its oldest one-shot; a pool full of its main voice alone refuses the
 		// one-shot. At the engine's limit the voice may itself be the one refused. A one-shot that ended frees its place
-		// before the next one starts, without a frame of the main thread waiting for it. A streamed source has no loaded
-		// clip: its one-shots need one. Returns whether the voice started (or waits for its paused scene); a clip that
+		// before the next one starts, without a frame of the main thread waiting for it. A streamed source and a pool alone
+		// (AddVoicePool) have no loaded clip: their one-shots need one (Scene::PlayAudioOneShot gives a streamed source's
+		// one-shot the component's clip, loaded). Returns whether the voice started (or waits for its paused scene); a clip that
 		// cannot be decoded, or decodes to more than MaxDecodedClipBytes, is logged once and plays nothing.
 		bool PlayOneShot(UUID entity, Ref<AudioClipAsset> const& clip, float volume);
 		// Voices of the source playing now (its main voice and its one-shots), as the main thread last knew them.

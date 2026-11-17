@@ -306,7 +306,8 @@ is "Ice", lower the player's speed.
 
 - **Play One Shot** (`Call:Strada.AudioSourceComponent.PlayOneShot(float)`, and `...PlayOneShot(Strada.AudioClip,float)`
   with a `Clip`) plays the source's clip, or another, once more on a voice of its own over what the source plays, at
-  `Volume` times the source's; `Result` says whether it started (the source needs a clip that plays). The source's
+  `Volume` times the source's; `Result` says whether it started (a source with no clip of its own plays only the clips
+  it is given). The source's
   `MaxVoices` (its clip and its one-shots at once), `Priority` and `Bus` are getters and setters.
 - **Play Clip At Point** (`Call:Strada.Audio.PlayClipAtPoint(...)`) plays a `Clip` once at a `Position` on a `Bus`, on a
   voice of the scene: it outlives the entity that played it.
