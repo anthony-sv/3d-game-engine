@@ -874,7 +874,8 @@ def build_features(references):
     # Sound: a source made here (Beep.wav) is set on the Voices bus with its voice fields and plays one-shots of its clip and
     # of a clip given, the scene plays the clip at a point, the project's mixer is read (as a literal and loaded by path),
     # and the game's values of the master volume and of Voices are set and read back, then put back. The test run mixes into
-    # the null output in real time, so only what the main thread knows at the calls is checked.
+    # the null output in real time and Beep.wav lasts 0.2 s, so only what the main thread knows at the calls is checked: the
+    # voice just started counts, an earlier one may have ended.
     mixer = g.literal("Strada.Mixer", FEATURE_MIXER)
     mixer_loaded = (g.node("Call:Strada.Assets.Load<T>(string)", {"TypeArguments": ["Strada.Mixer"]},
                            {"Path": "Audio/FeatureTest.smixer"}), "Result")
@@ -910,7 +911,7 @@ def build_features(references):
         "Parent": ((g.node("Call:Strada.Mixer.GetBusParent(string)", None, {"Bus": "voices"}, Target=mixer), "Result"), "Effects"),
         "Volume": ((g.node("Call:Strada.Mixer.GetBusVolume(string)", None, {"Bus": "Voices"}, Target=mixer), "Result"), 3.0),
     }
-    passed = g.all_of((own_shot, "Result"), (given_shot, "Result"), (at_point, "Result"), g.op("Greater", voices, B=2),
+    passed = g.all_of((own_shot, "Result"), (given_shot, "Result"), (at_point, "Result"), g.op("Greater", voices, B=0),
                       g.equal(source_fields["Bus"], "Voices"), g.equal(source_fields["Priority"], 200),
                       g.equal(source_fields["MaxVoices"], 3), g.equal(master, 0.9), g.equal(game_volume, -9.0), game_muted,
                       g.op("Equal", mixer, mixer_loaded), *[g.equal(read, value) for read, value in mixer_reads.values()],

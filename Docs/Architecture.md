@@ -2697,10 +2697,10 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   thread, sound reaching the output). The same case reports 64 voices, the engine's limit, with one stolen and fading
   every frame (a pool of 2 whose each new one-shot steals the one before), the figure later tracks plan with (two bikes
   of 16 engine layers each reach 32 alone). MX1's sitting (2026-11-17, Release, the reference machine, another lane's
-  editor tests running; the gauge, the 10,000-instance benchmark's Submit + Prepare with every object static and entity
-  IDs off, read 1.21 and 1.31 ms, in band, its other scenarios 1.36 to 2.15 ms): 32 voices a median of 0.24 ms and a 99th
-  percentile of 0.34 to 0.36 ms per 10 ms of audio, met in band; 64 voices with a steal every frame a median of 0.44 to
-  0.70 ms and a 99th percentile of 0.52 to 0.75 ms. A track's figures are provisional; the slice's gate measures again
+  editor tests running; the gauge, the 10,000-instance benchmark's Submit + Prepare over its 12 medians, read 1.21 to
+  2.15 ms, out of the 1.4 ms band): 32 voices a median of 0.24 ms and a 99th percentile of 0.34 to 0.36 ms per 10 ms of
+  audio, met out of band; 64 voices with a steal every frame a median of 0.44 to 0.70 ms and a 99th percentile of 0.52 to
+  0.75 ms. A track's figures are provisional; the slice's gate measures again
   with every lane idle.
 
 ## 10. Scripting (C# / .NET 10)
