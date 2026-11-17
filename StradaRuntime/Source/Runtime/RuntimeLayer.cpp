@@ -8,6 +8,7 @@
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Profiler.h"
 #include "Strada/Core/Window.h"
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/SceneRendering.h"
@@ -261,6 +262,7 @@ namespace Strada
 		{
 			return;
 		}
+		ST_PROFILE_SCOPE("Audio.Capture");
 		// Streamed sounds read ahead first, so that what the capture holds never depends on when their thread ran.
 		AudioEngine::WaitForStreams();
 		m_AudioSamples.resize(static_cast<size_t>(frames) * AudioEngine::GetChannelCount());

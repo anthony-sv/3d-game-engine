@@ -224,7 +224,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     `AudioEngine::ReadFrames` (manual output, on the calling thread), around the mixer's blocks (§9.1);
     `Audio.Stream` around each pass of the streaming thread (`Audio Streaming`), never its waits; `Audio.Update` around
     the audio engine's frame work on the main thread (the return list, the one-shots that ended, the virtual voices, the
-    deferred commands, a device that stopped);
+    deferred commands, a device that stopped); `Audio.Capture` around the player's frame of `--audio-capture` (the wait
+    for streamed sounds, the mix it reads, which `Audio.Mix` times inside it, and the file's write, §9.8);
   - `Renderer.RenderScene`, with `Scene.UpdateTransforms` (the world-transform cache's refresh before anything is
     submitted, once per view, §7.1), `Renderer.Submit` (the scene's draws, lights and UI) and `Renderer.EndScene`,
     which holds `Renderer.Cull`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings, and within it

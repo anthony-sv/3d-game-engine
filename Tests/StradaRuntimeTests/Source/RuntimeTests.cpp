@@ -39,6 +39,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -1091,6 +1092,30 @@ TEST_CASE("Runtime: --audio-capture writes the mix as 16-bit PCM, the same bytes
 	CHECK(Contains(test.Output, "the scripts did not finish testing in 4 frames"));
 	CHECK(Contains(test.Output, "Saved the audio capture of 3000 frames"));
 	CHECK(FileSystem::GetFileSize(second).value_or(0) == 44 + 3000 * 4);
+
+	// A file that cannot be opened for writing (read-only) stops the run at its start with exit code 1.
+	std::filesystem::path const locked = game.GetDirectory() / "Locked.wav";
+	REQUIRE(FileSystem::WriteTextFile(locked, "kept").IsOk());
+	std::error_code permissionError;
+	std::filesystem::permissions(
+		locked, std::filesystem::perms::owner_read | std::filesystem::perms::group_read | std::filesystem::perms::others_read,
+		permissionError);
+	REQUIRE_FALSE(permissionError);
+	if (std::ofstream(locked, std::ios::binary | std::ios::app))
+	{
+		// A user the system lets write anything (root) cannot make the file unwritable.
+		MESSAGE("a read-only file can be written here: the capture's failure is not checked");
+	}
+	else
+	{
+		ProcessResult const refused = RunPlayer({"--game", file, "--headless", "--frames", "5", "--audio-capture", Native(locked)});
+		CAPTURE(refused.Output);
+		CHECK(refused.ExitCode == 1);
+		CHECK(Contains(refused.Output, "The run stops: the audio capture"));
+		CHECK_FALSE(Contains(refused.Output, "Saved the audio capture"));
+		CHECK(ReadText(locked) == "kept");
+	}
+	std::filesystem::permissions(locked, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, permissionError);
 
 	// A capture to a folder that does not exist, or to a folder, is a wrong command line.
 	CHECK(RunPlayer({"--game", file, "--headless", "--frames", "2", "--audio-capture", Native(game.GetDirectory() / "Missing" / "Mix.wav")})
