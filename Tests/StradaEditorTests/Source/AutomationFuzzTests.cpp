@@ -613,7 +613,8 @@ namespace
 		// load is reported, not refused), then the references of the state's script's first variable; graph.set the state's
 		// script's own document; graph.create, every data asset type's create and profiler.capture a file of a name not given
 		// before (the drawn names exist after their first success), a data asset with its type's defaults; project.copy-example
-		// the available example into a fresh directory, unopened; graph.palette, whose goals are refusals, the two below. A request that
+		// the available example into a fresh directory, unopened; graph.palette, whose goals are refusals, the two below;
+		// input.set an override of the project's first action, then a gamepad's button. A request that
 		// still fails (the state can be a few rounds old, the profiler can hold no frames yet) is followed by another at the command's next
 		// round, so reaching every goal needs only a round or two of its command, whatever the other draws and the commands registered.
 		// Nothing is drawn here, so every other request stays as the stream made it.
@@ -644,6 +645,15 @@ namespace
 				{
 					return Json::object({{"graph", m_State.OpenGraphs.front()}});
 				}
+			}
+			// input.set's two device kinds of this track: an override of the project's first action, then a gamepad's button.
+			if (command == "input.set" && !m_State.ActionNames.empty() && !m_Reached.contains("input.set actions"))
+			{
+				return Json::object({{"actions", Json::object({{m_State.ActionNames.front(), true}})}});
+			}
+			if (command == "input.set" && !m_Reached.contains("input.set gamepads"))
+			{
+				return Json::object({{"gamepads", Json::object({{"0", Json::object({{"buttons", Json::object({{"A", true}})}})}})}});
 			}
 			if (m_Reached.contains(command))
 			{
@@ -1722,12 +1732,7 @@ namespace
 			}
 			Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}, {"fields", {{"Roughness", 0.25}}}}));
 			ReseedDataAssets(EditorState());
-			// The project's input actions, one of each type, so that input.set's actions reach their work.
-			Ok("input-actions.create", Json::object({{"path", "Input/Fuzz.sinput"}, {"fields", Json::parse(R"({ "Actions": [
-				{ "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" }, { "Controls": "Gamepad/A" } ] },
-				{ "Name": "Steer", "Type": "Axis", "Bindings": [ { "Controls": "Key/A Key/D" } ] },
-				{ "Name": "Move", "Type": "Vector2", "Bindings": [ { "Controls": "Gamepad/LeftStick" } ] } ] })")}}));
-			Ok("project.settings", Json::object({{"settings", Json::object({{"InputActions", "asset://Input/Fuzz.sinput"}})}}));
+			ReseedInputActions();
 			// The VisualScript component was created without a graph: it gets one.
 			REQUIRE_FALSE(visualScript.empty());
 			std::string const graph = Ok("graph.create", Json::object({{"path", SeedGraphPath}}))["asset"].get<std::string>();
@@ -1851,6 +1856,24 @@ namespace
 					                                                                          {"fields", type->GetDefaultFields()}})));
 				}
 			}
+		}
+
+		// Names input actions of each type in the project again when it names none that load (as Replenish puts entities
+		// back): Input/Fuzz.sinput written, or its fields set again, and named by the project's settings, so that input.set's
+		// actions reach their work.
+		void ReseedInputActions()
+		{
+			Json const fields = Json::parse(R"({ "Actions": [
+				{ "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" }, { "Controls": "Gamepad/A" } ] },
+				{ "Name": "Steer", "Type": "Axis", "Bindings": [ { "Controls": "Key/A Key/D" } ] },
+				{ "Name": "Move", "Type": "Vector2", "Bindings": [ { "Controls": "Gamepad/LeftStick" } ] } ] })");
+			if (Run("input-actions.create", Json::object({{"path", "Input/Fuzz.sinput"}, {"fields", fields}})).IsError())
+			{
+				static_cast<void>(
+					Run("input-actions.set", Json::object({{"inputActions", "asset://Input/Fuzz.sinput"}, {"fields", fields}})));
+			}
+			static_cast<void>(
+				Run("project.settings", Json::object({{"settings", Json::object({{"InputActions", "asset://Input/Fuzz.sinput"}})}})));
 		}
 
 		// Opens a visual script's window again when none is open (as Replenish puts entities back), so the palette has a window
@@ -2212,6 +2235,8 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	// Command name -> how often it succeeded and failed; graph.find's by query and by references, and graph.palette's errors.
 	std::map<std::string, std::pair<int, int>> outcomes;
 	std::map<std::string, int> findSuccesses;
+	// input.set's successes that set an action override, and that injected a gamepad.
+	std::map<std::string, int> inputSuccesses;
 	std::map<AutomationErrorCode, int> paletteErrors;
 	// The debug commands' errors: without the scripting runtime they reach their parameter checks, and are otherwise refused
 	// for the state (Unavailable, InvalidOperation).
@@ -2242,6 +2267,11 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 				fixture.ReopenGraphWindow(state);
 				state = fixture.ReadState();
 			}
+			if (state.ActionNames.empty())
+			{
+				fixture.ReseedInputActions();
+				state = fixture.ReadState();
+			}
 			if (std::ranges::any_of(DataAssetRegistry::GetTypes(),
 			                        [&state](DataAssetType const* dataType)
 			                        {
@@ -2256,6 +2286,16 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		Json const params = generator.Generate(command.Name, command.Parameters);
 		std::string const request = command.Name + " " + params.dump();
 		std::string const findKind = params.is_object() && params.contains("references") ? "references" : "query";
+		// input.set's device kinds the request names (an override, an injected gamepad), for its goals.
+		std::vector<std::string> inputKinds;
+		for (char const* const kind : {"actions", "gamepads"})
+		{
+			if (command.Name == "input.set" && params.is_object() && params.contains(kind) && params[kind].is_object() &&
+			    !params[kind].empty())
+			{
+				inputKinds.emplace_back(kind);
+			}
+		}
 		CAPTURE(round);
 		CAPTURE(request);
 		// project.copy-example refuses before it copies (a bad directory, an unknown or unavailable example), and then writes
@@ -2266,8 +2306,8 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 		std::optional<int> refusedRound;
 		unanswered.insert(round);
 		fixture.Registry.Execute(command.Name, params,
-		                         [&unanswered, &outcomes, &findSuccesses, &generator, &paletteErrors, &debugErrors, &recent, &refusedRound,
-		                          name = command.Name, round, request, findKind](CommandResult result)
+		                         [&unanswered, &outcomes, &findSuccesses, &inputSuccesses, &generator, &paletteErrors, &debugErrors,
+		                          &recent, &refusedRound, name = command.Name, round, request, findKind, inputKinds](CommandResult result)
 		                         {
 									 CHECK_MESSAGE(unanswered.erase(round) == 1, "answered twice: " << request);
 									 recent.push_back(request + (result.IsOk() ? " -> ok" : " -> " + result.GetError().Message));
@@ -2283,6 +2323,11 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 										 {
 											 findSuccesses[findKind]++;
 											 generator.SetReached(name + " " + findKind);
+										 }
+										 for (std::string const& kind : inputKinds)
+										 {
+											 inputSuccesses[kind]++;
+											 generator.SetReached(name + " " + kind);
 										 }
 										 // Graph edits say what the running game took: without the scripting runtime, nothing.
 										 if (name == "graph.edit" || name == "graph.set")
@@ -2395,6 +2440,9 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	}
 	CHECK(findSuccesses["query"] > 0);
 	CHECK(findSuccesses["references"] > 0);
+	// input.set reaches its work for the project's input actions and for injected gamepads.
+	CHECK(inputSuccesses["actions"] > 0);
+	CHECK(inputSuccesses["gamepads"] > 0);
 	// The debug commands that need no game work; the others are refused, for their parameters or for the state.
 	for (std::string const debugCommand : {"graph.breakpoints", "graph.target", "graph.debug", "graph.debug-panel", "graph.live"})
 	{

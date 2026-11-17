@@ -261,8 +261,12 @@ namespace Strada
 				});
 			if (records + newNames > Input::MaxActionOverrides)
 			{
+				// A cleared override keeps its record (Input::ActionOverride), and records last until the input is reset: the
+				// editor's start.
 				return MakeCommandError(AutomationErrorCode::InvalidOperation,
-				                        "more than {} actions would have overrides (input.release clears them)", Input::MaxActionOverrides);
+				                        "{} action names have had overrides already, the most the input keeps until the editor starts "
+				                        "again; names that had one can still be set",
+				                        Input::MaxActionOverrides);
 			}
 			return std::nullopt;
 		}

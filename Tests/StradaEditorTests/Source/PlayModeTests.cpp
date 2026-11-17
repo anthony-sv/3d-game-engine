@@ -1526,6 +1526,59 @@ TEST_CASE("PlayCommands: input.set holds the project's action overrides and inje
 	      Json::object({{"Jump", Json::array({1.0f, 0.0f})}}));
 }
 
+TEST_CASE("PlayCommands: input.set refuses an override of a new name once the input keeps the most names it can, and still sets "
+          "the names that had one")
+{
+	InputScope input;
+	ProjectPlayFixture fixture;
+	CommandRegistry registry;
+	REQUIRE(RegisterPlayCommands(registry, fixture.Play, fixture.Context,
+	                             []
+	                             {
+									 return glm::uvec2(640, 480);
+								 })
+	            .IsOk());
+	auto const run = [&registry](Json params)
+	{
+		std::optional<CommandResult> result;
+		registry.Execute("input.set", std::move(params),
+		                 [&result](CommandResult value)
+		                 {
+							 result.emplace(std::move(value));
+						 });
+		REQUIRE(result.has_value());
+		return std::move(*result);
+	};
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions =
+		fixture.Operations.CreateDataAsset(type->GetAssetType(), "Input/Game.sinput",
+	                                       Json::parse(R"({ "Actions": [ { "Name": "Jump" }, { "Name": "Steer", "Type": "Axis" } ] })"));
+	REQUIRE(actions.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+
+	// Jump has a record; the names scripts overrode fill the rest, cleared or not (a cleared override keeps its record).
+	REQUIRE(run(Json::object({{"actions", Json::object({{"Jump", true}})}})).IsOk());
+	for (size_t index = 1; index < Input::MaxActionOverrides; index++)
+	{
+		REQUIRE(Input::SetActionOverride("Script" + std::to_string(index), glm::vec2(1.0f, 0.0f)));
+		Input::ClearActionOverride("Script" + std::to_string(index));
+	}
+
+	// A new name is refused before anything of the request changes; Jump, and a clear of a name without one, are not.
+	uint64_t const version = Input::GetActionOverridesVersion();
+	CommandResult const full = run(Json::object({{"actions", Json::object({{"Jump", 0.5}, {"Steer", 1.0}})}}));
+	REQUIRE(full.IsError());
+	CHECK(full.GetError().Code == AutomationErrorCode::InvalidOperation);
+	CHECK(full.GetError().Message.find("names that had one can still be set") != std::string::npos);
+	CHECK(Input::GetActionOverridesVersion() == version);
+	CHECK(Input::FindActionOverride("Steer") == nullptr);
+	CHECK(Input::FindActionOverride("Jump")->Value == glm::vec2(1.0f, 0.0f));
+	CommandResult const kept = run(Json::object({{"actions", Json::object({{"Jump", 0.5}, {"Steer", Json()}})}}));
+	REQUIRE(kept.IsOk());
+	CHECK(kept.GetValue()["actions"] == Json::object({{"Jump", Json::array({0.5f, 0.0f})}}));
+}
+
 TEST_CASE("PlayMode: frames refused at a stop keep the game's input for the first frame that runs, and Start and Stop begin a "
           "clean input frame")
 {
