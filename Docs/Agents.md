@@ -459,7 +459,7 @@ open. Without an argument it runs strada from the repository (`dotnet run`); pas
 
 | Script | What it builds |
 |--------|----------------|
-| `python Projects/PrismBreak/Tools/Author.py` | Prism Break, a brick breaker of 13 visual scripts and no C#: the project and its settings, the sounds, mesh and textures that `Tools/GenerateAssets.py` makes, the materials, then the graphs (the Arcade and Checks function libraries first), the prefabs, the main and test scenes, checks of every graph, the test run, the title's attract mode played for 600 frames, and an exported game's smoke test |
+| `python Projects/PrismBreak/Tools/Author.py` | Prism Break, a brick breaker of 13 visual scripts and no C#: the project and its settings, its input actions, the sounds, mesh and textures that `Tools/GenerateAssets.py` makes, the materials, then the graphs (the Arcade and Checks function libraries first), the prefabs, the main and test scenes, checks of every graph, the test run, the title's attract mode played for 600 frames, and an exported game's smoke test |
 | `python Projects/Showcase/Tools/Author.py` | The Showcase: Poly Haven assets (sky, ground, texture sets, props), the generated sounds, meshes and textures, the C# scripts, materials, prefabs, the main scene with its exhibits and the test scene; then the tests |
 | `python Projects/Showcase/Tools/Author.py --exhibit GraphGarden` | The Showcase's Graph Garden alone, in place: its entities in the main and test scenes, its graphs and materials (keeping their asset handles), then the tests |
 | `python Projects/Moto/Tools/Author.py` | Moto, a motorcycle time trial made of graphs alone: the project and its settings, the circuit's meshes, textures and sky that `Tools/GenerateAssets.py` makes from the layout in `Tools/Circuit.py`, the materials, the physics materials of its surfaces, the circuit's entities, the sun and the sky, the main camera and its tour (a graph whose timeline `Tools/Tour.py` keys), the 10,000 props `Tools/Props.py` places (each kind's group made in one request), the bike and its rider on the grid that `Tools/Bike.py` generates, then the test scene and its graphs; then the checks: spheres dropped on every kind of surface, every graph, the test run, the tour in play mode and a clean log |
@@ -473,7 +473,9 @@ What they show:
   its variables, custom events and functions), then writes one `graph_edit` batch per region: the region's nodes and
   links, arranged (scope `Created`, then `Nodes`) and framed by a titled comment box, and every batch must answer no
   error and no warning. Two runs give the same graphs. Its graphs call function libraries, send typed events and
-  broadcast to each other, read each other's variables guarded by `RunsGraph`, and its 29 test checks are graphs too.
+  broadcast to each other, read each other's variables guarded by `RunsGraph`, read input actions (a keyboard and a
+  gamepad play it alike, and its title rebinds Launch), and its 33 test checks are graphs too, the last four driving
+  the game through action overrides.
 - **The Showcase** builds a large scene exhibit by exhibit from Poly Haven models, texture sets and a sky, with C#
   scripts, prefabs, particles, sound, post-processing and a HUD. Its Graph Garden (`Tools/GraphGarden.py`) is six
   visual scripts authored with the same rules as Prism Break's.
