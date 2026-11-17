@@ -98,6 +98,9 @@ set(STRADA_ASSET_SOURCES
     Source/Strada/Asset/MeshProcessing.h
     Source/Strada/Asset/MeshSource.cpp
     Source/Strada/Asset/MeshSource.h
+    Source/Strada/Asset/Mixer.cpp
+    Source/Strada/Asset/Mixer.h
+    Source/Strada/Asset/MixerAsset.h
     Source/Strada/Asset/PhysicsMaterial.h
     Source/Strada/Asset/PhysicsMaterialAsset.h
     Source/Strada/Asset/PrefabAsset.cpp
@@ -130,14 +133,23 @@ set(STRADA_MATH_SOURCES
 set(STRADA_AUDIO_SOURCES
     Source/Strada/Audio/AudioDecoder.cpp
     Source/Strada/Audio/AudioDecoder.h
+    Source/Strada/Audio/AudioEffects.cpp
+    Source/Strada/Audio/AudioEffects.h
     Source/Strada/Audio/AudioEngine.cpp
     Source/Strada/Audio/AudioEngine.h
+    Source/Strada/Audio/AudioMixer.cpp
+    Source/Strada/Audio/AudioMixer.h
+    Source/Strada/Audio/AudioQueue.cpp
+    Source/Strada/Audio/AudioQueue.h
     Source/Strada/Audio/AudioScene.cpp
     Source/Strada/Audio/AudioScene.h
     Source/Strada/Audio/AudioStream.cpp
     Source/Strada/Audio/AudioStream.h
     Source/Strada/Audio/AudioStreamFile.cpp
     Source/Strada/Audio/AudioStreamFile.h
+    Source/Strada/Audio/AudioTypes.h
+    Source/Strada/Audio/AudioVoice.cpp
+    Source/Strada/Audio/AudioVoice.h
     Source/Strada/Audio/AudioWaveform.cpp
     Source/Strada/Audio/AudioWaveform.h
     Source/Strada/Audio/MiniaudioContext.h
@@ -371,9 +383,10 @@ elseif(UNIX)
 endif()
 strada_configure_third_party_target(StradaVorbis)
 
-# miniaudio, with Ogg Vorbis through its libvorbis decoding backend (third-party code, warnings disabled). The feature
-# switches change struct layouts, so they are public: every translation unit including miniaudio.h agrees on them.
-add_library(StradaMiniaudio STATIC ThirdParty/MiniaudioImplementation.c
+# miniaudio, with Ogg Vorbis through its libvorbis decoding backend, and verblib, the reverb of its extras, which the
+# mixer's Reverb effect runs (third-party code, warnings disabled). The feature switches change struct layouts, so they
+# are public: every translation unit including miniaudio.h agrees on them.
+add_library(StradaMiniaudio STATIC ThirdParty/MiniaudioImplementation.c ThirdParty/VerblibImplementation.c
     "${miniaudio_SOURCE_DIR}/extras/decoders/libvorbis/miniaudio_libvorbis.c")
 target_include_directories(StradaMiniaudio SYSTEM PUBLIC "${miniaudio_SOURCE_DIR}")
 target_link_libraries(StradaMiniaudio PRIVATE StradaVorbis)

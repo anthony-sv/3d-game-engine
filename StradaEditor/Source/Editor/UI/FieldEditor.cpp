@@ -1160,7 +1160,9 @@ namespace Strada
 			}
 			return fmt::format("Element {}", index);
 		}
-		// Without a name to show, the first two numbers tell elements apart (a curve's keys by their time and value).
+		// Without a name to show, the first two numbers or choices the element shows tell elements apart (a curve's keys by
+		// their time and value, a mixer's effects by their kind and first parameter); a field its visibility condition hides
+		// for this element says nothing of it.
 		std::string numbers;
 		size_t described = 0;
 		for (FieldDescriptor const& field : array.Fields)
@@ -1170,12 +1172,19 @@ namespace Strada
 				break;
 			}
 			std::string const key(field.Name);
-			if (field.Hints.HiddenInEditors || !element.contains(key))
+			if (field.Hints.HiddenInEditors || !element.contains(key) || !IsVisible(field, array.Fields, element, {}))
 			{
 				continue;
 			}
 			Json const& value = element[key];
 			std::string text;
+			if (field.Kind == FieldKind::Enum && !field.IsFlags && value.is_string() && !value.get_ref<std::string const&>().empty())
+			{
+				// A choice is its value's name alone ("Low Pass").
+				numbers += fmt::format("{}{}", described == 0 ? "" : ", ", UI::FormatDisplayName(value.get_ref<std::string const&>()));
+				described++;
+				continue;
+			}
 			if (field.Kind == FieldKind::Float && value.is_number())
 			{
 				text = fmt::format("{}", static_cast<float>(value.get<double>()));

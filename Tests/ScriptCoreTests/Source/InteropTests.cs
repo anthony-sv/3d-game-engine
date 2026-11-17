@@ -161,6 +161,12 @@ public sealed class InteropTests
 		Assert.Equal(20, Unsafe.SizeOf<NativeCurveKey>());
 		Assert.Equal(8, (int)Marshal.OffsetOf<NativeCurveKey>(nameof(NativeCurveKey.In)));
 		Assert.Equal(16, (int)Marshal.OffsetOf<NativeCurveKey>(nameof(NativeCurveKey.Interpolation)));
+		Assert.Equal(16, Unsafe.SizeOf<NativeMixerHeader>());
+		Assert.Equal(8, (int)Marshal.OffsetOf<NativeMixerHeader>(nameof(NativeMixerHeader.BusCount)));
+		Assert.Equal(32, Unsafe.SizeOf<NativeMixerBus>());
+		Assert.Equal(16, (int)Marshal.OffsetOf<NativeMixerBus>(nameof(NativeMixerBus.NameLength)));
+		Assert.Equal(24, (int)Marshal.OffsetOf<NativeMixerBus>(nameof(NativeMixerBus.VolumeDb)));
+		Assert.Equal(28, (int)Marshal.OffsetOf<NativeMixerBus>(nameof(NativeMixerBus.Muted)));
 		Assert.Equal(16, Unsafe.SizeOf<NativeRebindAnswer>());
 		Assert.Equal(12, (int)Marshal.OffsetOf<NativeRebindAnswer>(nameof(NativeRebindAnswer.ConflictCount)));
 		// InputRebindStatus's values (static_asserted beside the engine's layout), and what no scene answers.
@@ -179,7 +185,8 @@ public sealed class InteropTests
 			(typeof(Texture), "Texture", NativeAssetType.Texture), (typeof(EnvironmentMap), "Environment", NativeAssetType.Environment),
 			(typeof(AudioClip), "AudioClip", NativeAssetType.AudioClip), (typeof(Font), "Font", NativeAssetType.Font),
 			(typeof(VisualScript), "VisualScript", NativeAssetType.VisualScript), (typeof(Curve), "Curve", NativeAssetType.None),
-			(typeof(InputActions), "InputActions", NativeAssetType.None), (typeof(PhysicsMaterial), "PhysicsMaterial", NativeAssetType.None)];
+			(typeof(InputActions), "InputActions", NativeAssetType.None), (typeof(Mixer), "Mixer", NativeAssetType.None),
+			(typeof(PhysicsMaterial), "PhysicsMaterial", NativeAssetType.None)];
 		foreach ((System.Type assetClass, string name, NativeAssetType builtIn) in classes)
 		{
 			Assert.Equal(name, AssetTypes.GetTypeName(assetClass));
@@ -254,6 +261,8 @@ public sealed class InteropTests
 		Assert.Equal(new Curve(new AssetHandle(6)), ScriptFieldCodec.FromStored(new AssetHandle(6), typeof(Curve), out error));
 		Assert.Equal("InputActions", ScriptFieldCodec.GetAssetType(typeof(InputActions)));
 		Assert.Equal(new InputActions(new AssetHandle(8)), ScriptFieldCodec.FromStored(new AssetHandle(8), typeof(InputActions), out error));
+		Assert.Equal("Mixer", ScriptFieldCodec.GetAssetType(typeof(Mixer)));
+		Assert.Equal(new Mixer(new AssetHandle(8)), ScriptFieldCodec.FromStored(new AssetHandle(8), typeof(Mixer), out error));
 		Assert.Equal("PhysicsMaterial", ScriptFieldCodec.GetAssetType(typeof(PhysicsMaterial)));
 		Assert.Equal(new PhysicsMaterial(new AssetHandle(7)), ScriptFieldCodec.FromStored(new AssetHandle(7), typeof(PhysicsMaterial), out error));
 		Assert.Null(ScriptFieldCodec.GetAssetType(typeof(Prefab)));

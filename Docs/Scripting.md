@@ -67,7 +67,7 @@ Public fields, and private ones marked `[SerializeField]`, are saved with the sc
 shows them by name. Their values are set before `OnCreate`. Supported types: `bool`, `int`, `uint`, `long`, `ulong`,
 `float`, `double`, `string`, `Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Color`, enums, `Entity` (an entity of the
 scene; drag one from the hierarchy), and assets: `Prefab`, `Material`, `Mesh`, `Texture`, `AudioClip`, `Font`,
-`EnvironmentMap`, `Curve`, `InputActions`, `PhysicsMaterial` (pick one, or drag it from the content browser).
+`EnvironmentMap`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial` (pick one, or drag it from the content browser).
 
 ```csharp
 public class Turret : Script
@@ -562,6 +562,22 @@ their scripts get `OnDestroy` while they are intact.
 `Clip` can be set); sources are positioned in 3D relative to the entity with the `AudioListenerComponent`. Set
 `Stream` on music and long ambience: the clip is then read from its file while it plays instead of being loaded whole
 (changing it, like changing `Clip`, stops the sound until the next `Play()`).
+`PlayOneShot(volume)` plays the source's clip once more on a voice of its own, over what the source plays already (a
+shot, a footstep), and `PlayOneShot(clip, volume)` plays another clip that way; a one-shot never loops, follows its
+source, and fades out with `Stop()`. A source plays at most `MaxVoices` sounds at once (1 to 64, 4 by default: its clip
+and its one-shots), and a one-shot past it stops the source's oldest one-shot. Both answer whether the sound started:
+a source whose clip does not play plays no one-shot, a streamed source loads its clip for them, and a source with no
+clip of its own plays the clips it is given (footsteps, impacts). `Priority` (0 to 255, 128 by
+default) says which sounds go silent first when more play than the engine mixes at once (64), and `Bus` names the bus
+of the project's mixer the source plays on (empty for Master).
+`Audio.PlayClipAtPoint(clip, position, volume, bus)` plays a clip once at a point on a voice of the scene, so the sound
+outlives the entity that asked for it (a break, a pickup taken). `Audio.SetBusVolume(bus, decibels)` and
+`Audio.SetBusMuted(bus, muted)` set the game's own values of a bus (`GetBusVolume` and `IsBusMuted` read them), a stage
+after the mixer's own: what a settings menu sets, never written to the mixer asset, and back at 0 dB and not muted when
+the next game starts. `Audio.MasterVolume` scales the whole mix (1 leaves it unchanged), and `Audio.ActiveVoiceCount`
+counts the voices mixed now. Bus names match in any letter case. A `Mixer` (the `.smixer` asset the project names:
+[Mixers](Editor.md#mixers)) reads its buses: `BusCount`, `GetBusName(index)`, `HasBus`, `GetBusParent`, and the mixer's
+own `GetBusVolume` and `IsBusMuted`, for a settings menu that lists them.
 `TextComponent` draws text in the world or, with `ScreenSpace`, over the image: set `Text` for scores and messages.
 Materials of the project are shared by every scene, so scripts change copies: `Material.Clone()` (or
 `Material.Create()`) makes one the running scene owns, which `MeshComponent.SetMaterial` gives to a mesh.
@@ -576,7 +592,7 @@ public class Scoreboard : Script
 	{
 		score += points;
 		Label!.GetComponent<TextComponent>()!.Text = $"Score: {score}";
-		GetComponent<AudioSourceComponent>()?.Play();
+		GetComponent<AudioSourceComponent>()?.PlayOneShot(0.8f);
 	}
 }
 ```

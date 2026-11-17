@@ -18,7 +18,8 @@
 			"Height": 720,
 			"Fullscreen": false,
 			"VSync": true,
-			"Resizable": true
+			"Resizable": true,
+			"Icon": "0"
 		},
 		"Physics": {
 			"FixedTimestep": 0.01666666753590107,
@@ -36,6 +37,7 @@
 				}
 			]
 		},
-		"InputActions": "4801022313538216779"
+		"InputActions": "4801022313538216779",
+		"Mixer": "15018235737354920508"
 	}
 }

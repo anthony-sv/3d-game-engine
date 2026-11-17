@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/Script/ScriptGlue.h"
 
+#include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/InputActions.h"
 #include "Strada/Core/InputCapture.h"
@@ -663,6 +664,63 @@ namespace Strada::ScriptGlue
 			return static_cast<int32_t>(count);
 		}
 
+		// --- Audio (the game's values of the mix, Docs/Architecture.md section 9.5; without an audio engine reads are
+		// neutral and writes do nothing, silently, as a game without sound runs) ---
+
+		float Audio_GetMasterVolume()
+		{
+			return AudioEngine::IsInitialized() ? AudioEngine::GetMasterVolume() : 1.0f;
+		}
+
+		void Audio_SetMasterVolume(float volume)
+		{
+			if (CheckFinite("Audio.MasterVolume", volume))
+			{
+				AudioEngine::SetMasterVolume(volume);
+			}
+		}
+
+		float Audio_GetBusVolume(char const* bus, int32_t length)
+		{
+			return AudioEngine::GetBusVolume(ToStringView(bus, length));
+		}
+
+		void Audio_SetBusVolume(char const* bus, int32_t length, float decibels)
+		{
+			if (CheckFinite("Audio.SetBusVolume", decibels))
+			{
+				AudioEngine::SetBusVolume(ToStringView(bus, length), decibels);
+			}
+		}
+
+		uint8_t Audio_IsBusMuted(char const* bus, int32_t length)
+		{
+			return AudioEngine::IsBusMuted(ToStringView(bus, length)) ? 1 : 0;
+		}
+
+		void Audio_SetBusMuted(char const* bus, int32_t length, uint8_t muted)
+		{
+			AudioEngine::SetBusMuted(ToStringView(bus, length), muted != 0);
+		}
+
+		uint8_t Audio_PlayClipAtPoint(uint64_t clip, Vector3 const* position, float volume, char const* bus, int32_t length)
+		{
+			if (!CheckFinite("Audio.PlayClipAtPoint", *position, volume))
+			{
+				return 0;
+			}
+			Scene* const scene = GetScene("Audio.PlayClipAtPoint");
+			return scene != nullptr &&
+			               scene->PlayAudioClipAtPoint(AssetHandle(UUID(clip)), FromScript(*position), volume, ToStringView(bus, length))
+			           ? 1
+			           : 0;
+		}
+
+		int32_t Audio_GetActiveVoiceCount()
+		{
+			return static_cast<int32_t>(AudioEngine::GetActiveVoiceCount());
+		}
+
 		// --- Collision ---
 
 		// The contact event whose handlers run (ScriptEngine::GetHandledContactEvent), seen from the handling entity; 0 and
@@ -743,5 +801,14 @@ namespace Strada::ScriptGlue
 		table.Add("Physics_Overlap", &Physics_Overlap);
 
 		table.Add("Collision_Read", &Collision_Read);
+
+		table.Add("Audio_GetMasterVolume", &Audio_GetMasterVolume);
+		table.Add("Audio_SetMasterVolume", &Audio_SetMasterVolume);
+		table.Add("Audio_GetBusVolume", &Audio_GetBusVolume);
+		table.Add("Audio_SetBusVolume", &Audio_SetBusVolume);
+		table.Add("Audio_IsBusMuted", &Audio_IsBusMuted);
+		table.Add("Audio_SetBusMuted", &Audio_SetBusMuted);
+		table.Add("Audio_PlayClipAtPoint", &Audio_PlayClipAtPoint);
+		table.Add("Audio_GetActiveVoiceCount", &Audio_GetActiveVoiceCount);
 	}
 }

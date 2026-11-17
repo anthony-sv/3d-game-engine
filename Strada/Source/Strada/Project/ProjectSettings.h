@@ -141,6 +141,9 @@ namespace Strada
 		// The game's input actions (an InputActions asset, .sinput; Docs/Architecture.md §7.4); none reads every action as
 		// zero.
 		AssetHandle InputActions;
+		// The buses the game's sounds play on (a Mixer asset, .smixer; Docs/Architecture.md §9.5); none mixes through Master
+		// alone, as an engine without buses did.
+		AssetHandle Mixer;
 
 		bool operator==(ProjectSettings const& other) const = default;
 	};
@@ -157,7 +160,10 @@ namespace Strada
 			Field("Window", &ProjectSettings::Window), Field("Physics", &ProjectSettings::Physics),
 			Field("InputActions", &ProjectSettings::InputActions)
 				.References("InputActions")
-				.Doc("The game's input actions: what scripts and graphs read by name instead of keys, buttons and sticks."));
+				.Doc("The game's input actions: what scripts and graphs read by name instead of keys, buttons and sticks."),
+			Field("Mixer", &ProjectSettings::Mixer)
+				.References("Mixer")
+				.Doc("The buses the game's sounds play on, with their volumes and effects; none plays every sound on Master alone."));
 	};
 
 	// Checks what field ranges cannot express: a non-empty name, relative paths inside the project, 1 to 16 unique,
@@ -165,7 +171,7 @@ namespace Strada
 	[[nodiscard]] Result<void> ValidateProjectSettings(ProjectSettings const& settings);
 
 	// What a scene's runtime takes from the project: the physics step, steps per frame and collision steps, layers and
-	// ignored layer pairs, and the input actions.
+	// ignored layer pairs, the input actions and the mixer.
 	SceneRuntimeSettings MakeSceneRuntimeSettings(ProjectSettings const& settings);
 
 	// The game's identity: the company as set, the product as set or else the project's name.

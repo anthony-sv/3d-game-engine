@@ -14,7 +14,7 @@ scripting startup, so every scripting test fails with the list of names.
 
 - Pick the file by area: `ScriptBindingsEntity.cpp` (entities, logging), `ScriptBindingsComponents.cpp` (component
   classes), `ScriptBindingsUI.cpp` (the UI components, `Input.IsPointerOverUI`), `ScriptBindingsRuntime.cpp` (Time,
-  Input, Physics), `ScriptBindingsAssets.cpp` (Assets, Material), `ScriptBindingsApplication.cpp` (Application,
+  Input, Physics, Audio), `ScriptBindingsAssets.cpp` (Assets, Material), `ScriptBindingsApplication.cpp` (Application,
   SceneManager, Debug, Strada.Testing). Functions live in an anonymous
   namespace and are added in the file's `Register*Bindings` function. A new file gets its own `Register*Bindings`
   (declared in `ScriptGlue.h`, called from `ScriptBindings.cpp`) and is listed in `Strada/CMakeLists.txt`.

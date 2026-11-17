@@ -36,6 +36,8 @@
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Physics/PhysicsScene.h"
+#include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Scene/Components.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 #include "Strada/Serialization/ProfilerCaptureSerializer.h"
@@ -1641,6 +1643,13 @@ namespace
 		EditorProfiler ProfilerSession;
 		CommandRegistry Registry;
 		bool QuitRequested = false;
+		// The entities of the running scene that held a character controller, and those that held a dynamic body, when a
+		// frame began (Tick), by UUID: the simulation moved them, so their poses are not the history's. The running scene
+		// they belong to is the one GetScene returned at that scene version (playing starting or stopping, or the game
+		// loading another scene, gives it a new version, and the records start over).
+		std::set<std::string> SimulatedCharacters;
+		std::set<std::string> SimulatedBodies;
+		std::optional<uint64_t> SimulatedSceneVersion;
 
 		FuzzFixture()
 		{
@@ -1901,6 +1910,7 @@ namespace
 				}
 			}
 			Scripts.Update();
+			RecordSimulatedEntities();
 			Play.Update(Timestep(1.0f / 60.0f));
 			DebugSession.EndFrame();
 			DebugSession.BeginFrame();
@@ -1912,6 +1922,35 @@ namespace
 			Profiler::BeginFrame();
 		}
 
+		// Records the running scene's entities that the frame about to run simulates (SimulatedCharacters, SimulatedBodies);
+		// forgets them when no game plays, or when GetScene returns another scene than the one they were recorded in.
+		void RecordSimulatedEntities()
+		{
+			std::optional<uint64_t> const version = Play.IsPlaying() ? std::optional<uint64_t>(Context.GetSceneVersion()) : std::nullopt;
+			if (version != SimulatedSceneVersion)
+			{
+				SimulatedCharacters.clear();
+				SimulatedBodies.clear();
+				SimulatedSceneVersion = version;
+			}
+			if (!version)
+			{
+				return;
+			}
+			Scene& scene = Context.GetScene();
+			for (entt::entity const handle : scene.GetAllEntitiesWith<IDComponent, CharacterControllerComponent>())
+			{
+				SimulatedCharacters.insert(scene.GetRegistry().get<IDComponent>(handle).ID.ToString());
+			}
+			for (entt::entity const handle : scene.GetAllEntitiesWith<IDComponent, RigidBodyComponent>())
+			{
+				if (scene.GetRegistry().get<RigidBodyComponent>(handle).Type == RigidBodyType::Dynamic)
+				{
+					SimulatedBodies.insert(scene.GetRegistry().get<IDComponent>(handle).ID.ToString());
+				}
+			}
+		}
+
 		// The edited scene (or the running copy) saves and loads again.
 		void CheckSceneLoads()
 		{
@@ -1921,14 +1960,18 @@ namespace
 		}
 
 		// While playing, the simulation moves characters and turns and moves dynamic bodies between commands: where they are
-		// is not part of the history (redoing an entity's creation places it where it was created). It changes nothing else
-		// of their transforms, which the history still covers: the scale of both, the rotation of characters.
+		// is not part of the history (redoing an entity's creation places it where it was created). That holds for an entity
+		// that held a controller or a dynamic body earlier in this running scene too: it keeps the pose the simulation gave it
+		// when the component leaves it (an undo, a removal, a body made static), and no step of the history ever held that
+		// pose. It changes nothing else of their transforms, which the history still covers: the scale of both, the rotation
+		// of characters.
 		Json WithoutSimulatedPoses(Json scene) const
 		{
 			if (!Play.IsPlaying())
 			{
 				return scene;
 			}
+			bool const recorded = SimulatedSceneVersion == Context.GetSceneVersion();
 			for (Json& entity : scene["Entities"])
 			{
 				Json& components = entity["Components"];
@@ -1936,12 +1979,14 @@ namespace
 				{
 					continue;
 				}
+				std::string const id = entity.value("ID", std::string());
 				Json& transform = components["Transform"];
-				if (components.contains("CharacterController"))
+				if (components.contains("CharacterController") || (recorded && SimulatedCharacters.contains(id)))
 				{
 					transform.erase("Translation");
 				}
-				else if (components.contains("RigidBody") && components["RigidBody"].value("Type", "") == "Dynamic")
+				else if ((components.contains("RigidBody") && components["RigidBody"].value("Type", "") == "Dynamic") ||
+				         (recorded && SimulatedBodies.contains(id)))
 				{
 					transform.erase("Translation");
 					transform.erase("Rotation");
@@ -2590,4 +2635,57 @@ TEST_CASE("Automation: physics.query answers any parameters while the scene play
 	CHECK(stopped.GetError().Code == AutomationErrorCode::Unavailable);
 	fixture.CheckSceneLoads();
 	fixture.CheckHistory();
+}
+
+TEST_CASE("Automation: the history check leaves out the pose the simulation gave an entity whose controller or body left it")
+{
+	// What the fuzz reached at ten times its rounds, made by hand so that it stays covered whatever the random stream
+	// reaches: while playing, the simulation moves an entity, then an undo takes its character controller or its dynamic
+	// body away. The entity keeps the pose the simulation gave it, which no step of the history holds, so undoing and
+	// redoing everything gives back the pose it was created with.
+	FuzzFixture fixture;
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	auto const translationOf = [&fixture](std::string const& entity)
+	{
+		Json const transform = fixture.Ok("component.get", Json::object({{"entity", entity}, {"component", "Transform"}}));
+		return transform["fields"]["Translation"].get<std::vector<double>>();
+	};
+	auto const create = [&fixture](std::string const& name, Json components)
+	{
+		return fixture.Ok("entity.create", Json::object({{"name", name}, {"components", std::move(components)}}))["id"].get<std::string>();
+	};
+
+	SUBCASE("a character held at the edge of the physics world")
+	{
+		double const beyond = static_cast<double>(MaxPhysicsCoordinate) * 1.0e3;
+		std::string const distant = create("Far", {{"Transform", Json::object({{"Translation", {0.0, 0.0, beyond}}})}});
+		fixture.Ok("component.add", Json::object({{"entity", distant}, {"component", "CharacterController"}}));
+		// Physics holds the character at the edge of its world, and the entity takes the clamped translation once the
+		// character's pose comes back to it.
+		for (int frame = 0; frame < 120 && translationOf(distant).at(2) >= beyond; frame++)
+		{
+			fixture.Tick();
+		}
+		REQUIRE(translationOf(distant).at(2) < beyond);
+		fixture.Ok("editor.undo");
+	}
+	SUBCASE("a dynamic body that fell")
+	{
+		std::string const faller =
+			create("Faller", {{"Transform", Json::object({{"Translation", {100.0, 10.0, 0.0}}})}, {"SphereCollider", Json::object()}});
+		fixture.Ok("component.add",
+		           Json::object({{"entity", faller}, {"component", "RigidBody"}, {"fields", Json::object({{"Type", "Dynamic"}})}}));
+		for (int frame = 0; frame < 120 && translationOf(faller).at(1) > 9.0; frame++)
+		{
+			fixture.Tick();
+		}
+		REQUIRE(translationOf(faller).at(1) <= 9.0);
+		fixture.Ok("editor.undo");
+	}
+
+	// An edit after the undo leaves nothing to redo, as the fuzz's later commands did: the history no longer holds the
+	// component, only the entity's creation.
+	fixture.Ok("entity.create", Json::object({{"name", "After"}}));
+	REQUIRE(fixture.Play.IsPlaying());
+	CHECK(fixture.CheckHistory());
 }

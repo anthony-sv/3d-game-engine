@@ -6,6 +6,7 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 
 #include <array>
@@ -82,6 +83,47 @@ namespace Strada::ScriptGlue
 			// The header and every key are written.
 			Read = 2,
 			// The header is written, but the keys do not fit in the capacity given: call again with KeyCount at least.
+			TooSmall = 3
+		};
+
+		// Strada.Interop.NativeMixerHeader: what Mixer_Read tells of a mixer asset besides its buses.
+		struct MixerHeader
+		{
+			// The asset's version (DataAsset::GetVersion), never 0.
+			uint64_t Version;
+			int32_t BusCount;
+			int32_t Reserved;
+		};
+
+		static_assert(sizeof(MixerHeader) == 16 && offsetof(MixerHeader, BusCount) == 8);
+
+		// Strada.Interop.NativeMixerBus: a MixerBus as Mixer_Read copies it, its effects apart. The texts point into the asset's
+		// data, which the caller copies at once.
+		struct MixerBusValues
+		{
+			char const* Name;
+			char const* Parent;
+			// The lengths in bytes of the UTF-8 texts.
+			int32_t NameLength;
+			int32_t ParentLength;
+			float VolumeDb;
+			uint8_t Muted;
+			uint8_t Reserved[3];
+		};
+
+		static_assert(sizeof(MixerBusValues) == 32 && offsetof(MixerBusValues, NameLength) == 16 &&
+		              offsetof(MixerBusValues, VolumeDb) == 24 && offsetof(MixerBusValues, Muted) == 28);
+
+		// Mixer_Read's answers (Strada.Interop.MixerReadStatus).
+		enum class MixerReadStatus : int32_t
+		{
+			// Logged; the header and the buses are left as they were.
+			Failed = 0,
+			// The asset's version is the one held: only the header's Version is written.
+			Unchanged = 1,
+			// The header and every bus are written.
+			Read = 2,
+			// The header is written, but the buses do not fit in the capacity given: call again with BusCount at least.
 			TooSmall = 3
 		};
 
@@ -219,6 +261,7 @@ namespace Strada::ScriptGlue
 			{
 				return static_cast<AssetType>(type) == TypedDataAsset<Curve>::GetStaticType() ||
 				       static_cast<AssetType>(type) == TypedDataAsset<InputActionMap>::GetStaticType() ||
+				       static_cast<AssetType>(type) == TypedDataAsset<Mixer>::GetStaticType() ||
 				       static_cast<AssetType>(type) == TypedDataAsset<PhysicsMaterial>::GetStaticType();
 			}
 			switch (static_cast<AssetType>(type))
@@ -368,6 +411,50 @@ namespace Strada::ScriptGlue
 			values->SurfaceLength = static_cast<int32_t>(data.Surface.size());
 			*surface = data.Surface.data();
 			return static_cast<int32_t>(PhysicsMaterialReadStatus::Read);
+		}
+
+		// Copies a mixer asset's buses (their names, parents, volumes and mutes; not their effects) for the scripting runtime's
+		// copy of it (Strada.Mixer), loading the asset on first use; nothing but the version when the runtime holds the asset's
+		// current version already (heldVersion; 0 for none). The texts point into the asset's data, which the caller copies at
+		// once.
+		int32_t Mixer_Read(uint64_t mixer, uint64_t heldVersion, MixerHeader* header, MixerBusValues* buses, int32_t capacity)
+		{
+			if (!AssetManager::IsInitialized())
+			{
+				Log::GetScriptLogger().error("Mixer: assets are unavailable");
+				return static_cast<int32_t>(MixerReadStatus::Failed);
+			}
+			Result<Ref<TypedDataAsset<Mixer>>> asset = AssetManager::TryGetAsset<TypedDataAsset<Mixer>>(ToHandle(mixer));
+			if (!asset)
+			{
+				Log::GetScriptLogger().error("Mixer: {}", asset.GetError());
+				return static_cast<int32_t>(MixerReadStatus::Failed);
+			}
+			TypedDataAsset<Mixer> const& mixerAsset = *asset.GetValue();
+			header->Version = mixerAsset.GetVersion();
+			if (header->Version == heldVersion)
+			{
+				return static_cast<int32_t>(MixerReadStatus::Unchanged);
+			}
+			Mixer const& data = mixerAsset.GetData();
+			header->BusCount = static_cast<int32_t>(data.Buses.size());
+			header->Reserved = 0;
+			if (capacity < header->BusCount)
+			{
+				return static_cast<int32_t>(MixerReadStatus::TooSmall);
+			}
+			for (size_t index = 0; index < data.Buses.size(); index++)
+			{
+				MixerBus const& bus = data.Buses[index];
+				buses[index] = {bus.Name.data(),
+				                bus.Parent.data(),
+				                static_cast<int32_t>(bus.Name.size()),
+				                static_cast<int32_t>(bus.Parent.size()),
+				                bus.VolumeDb,
+				                static_cast<uint8_t>(bus.Muted ? 1 : 0),
+				                {0, 0, 0}};
+			}
+			return static_cast<int32_t>(MixerReadStatus::Read);
 		}
 
 		// The InputActions asset of the handle, loaded on first use; null (logged as a script error) when it does not load.
@@ -559,6 +646,7 @@ namespace Strada::ScriptGlue
 		table.Add("Material_GetValues", &Material_GetValues);
 		table.Add("Material_SetValues", &Material_SetValues);
 		table.Add("Material_IsRuntime", &Material_IsRuntime);
+		table.Add("Mixer_Read", &Mixer_Read);
 		table.Add("PhysicsMaterial_Read", &PhysicsMaterial_Read);
 	}
 }

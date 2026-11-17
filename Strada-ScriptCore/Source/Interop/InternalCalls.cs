@@ -262,6 +262,14 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, void> AudioSourceComponent_Pause;
 	internal static delegate* unmanaged<ulong, void> AudioSourceComponent_Stop;
 	internal static delegate* unmanaged<ulong, byte> AudioSourceComponent_IsPlaying;
+	// clip 0 plays the source's own clip; 1 when a voice started.
+	internal static delegate* unmanaged<ulong, ulong, float, byte> AudioSourceComponent_PlayOneShot;
+	internal static delegate* unmanaged<ulong, int*, byte*> AudioSourceComponent_GetBus;
+	internal static delegate* unmanaged<ulong, byte*, int, void> AudioSourceComponent_SetBus;
+	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_GetPriority;
+	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_SetPriority;
+	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_GetMaxVoices;
+	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_SetMaxVoices;
 
 	internal static delegate* unmanaged<ulong, byte*, void> AudioListenerComponent_GetActive;
 	internal static delegate* unmanaged<ulong, byte*, void> AudioListenerComponent_SetActive;
@@ -533,6 +541,16 @@ internal static unsafe class InternalCalls
 	// 0 outside a contact handler; points (null, or room for NativeContactPoint.MaxCount) receives the event's points.
 	internal static delegate* unmanaged<NativeCollision*, NativeContactPoint*, byte> Collision_Read;
 
+	internal static delegate* unmanaged<float> Audio_GetMasterVolume;
+	internal static delegate* unmanaged<float, void> Audio_SetMasterVolume;
+	internal static delegate* unmanaged<byte*, int, float> Audio_GetBusVolume;
+	internal static delegate* unmanaged<byte*, int, float, void> Audio_SetBusVolume;
+	internal static delegate* unmanaged<byte*, int, byte> Audio_IsBusMuted;
+	internal static delegate* unmanaged<byte*, int, byte, void> Audio_SetBusMuted;
+	// 1 when a voice started.
+	internal static delegate* unmanaged<ulong, Vector3*, float, byte*, int, byte> Audio_PlayClipAtPoint;
+	internal static delegate* unmanaged<int> Audio_GetActiveVoiceCount;
+
 	internal static delegate* unmanaged<byte*, int, int> Assets_FindType;
 	internal static delegate* unmanaged<int, int*, byte*> Assets_GetTypeName;
 	internal static delegate* unmanaged<byte*, int, int, ulong> Assets_Load;
@@ -546,6 +564,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, NativeMaterialValues*, void> Material_GetValues;
 	internal static delegate* unmanaged<ulong, NativeMaterialValues*, byte*, int, void> Material_SetValues;
 	internal static delegate* unmanaged<ulong, byte> Material_IsRuntime;
+	internal static delegate* unmanaged<ulong, ulong, NativeMixerHeader*, NativeMixerBus*, int, int> Mixer_Read;
 	internal static delegate* unmanaged<ulong, ulong, NativePhysicsMaterial*, byte**, int> PhysicsMaterial_Read;
 
 	internal static delegate* unmanaged<byte> Application_IsEditor;

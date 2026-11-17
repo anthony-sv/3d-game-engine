@@ -1,3 +1,4 @@
+using System;
 using Strada.Interop;
 
 namespace Strada;
@@ -81,6 +82,34 @@ public sealed unsafe class AudioSourceComponent : Component
 		set => NativeField.Set<float>(InternalCalls.AudioSourceComponent_SetMaxDistance, Entity.ID, value);
 	}
 
+	/// <summary>The bus of the project's mixer the source's sounds play on, by name in any letter case: empty for Master, and
+	/// a name the mixer lacks plays on Master (logged once). Changing it moves the sounds playing, without a click.</summary>
+	public string Bus
+	{
+		get => NativeField.GetString(InternalCalls.AudioSourceComponent_GetBus, Entity.ID);
+		set
+		{
+			ArgumentNullException.ThrowIfNull(value);
+			NativeField.SetString(InternalCalls.AudioSourceComponent_SetBus, Entity.ID, value);
+		}
+	}
+
+	/// <summary>From 0 to 255 (higher values play as 255), 128 by default: when more sounds play than the engine mixes at
+	/// once, those of lower priority go silent first. A one-shot playing takes a new priority too.</summary>
+	public uint Priority
+	{
+		get => NativeField.Get<uint>(InternalCalls.AudioSourceComponent_GetPriority, Entity.ID);
+		set => NativeField.Set<uint>(InternalCalls.AudioSourceComponent_SetPriority, Entity.ID, value);
+	}
+
+	/// <summary>How many sounds of the source play at once, its clip and its one-shots together: from 1 to 64 (values beyond
+	/// play as the nearest), 4 by default. A one-shot past it stops the source's oldest one-shot.</summary>
+	public uint MaxVoices
+	{
+		get => NativeField.Get<uint>(InternalCalls.AudioSourceComponent_GetMaxVoices, Entity.ID);
+		set => NativeField.Set<uint>(InternalCalls.AudioSourceComponent_SetMaxVoices, Entity.ID, value);
+	}
+
 	/// <summary>Whether the sound is playing (held sounds of a paused scene count as playing).</summary>
 	public bool IsPlaying => InternalCalls.AudioSourceComponent_IsPlaying(Entity.ID) != 0;
 
@@ -100,5 +129,30 @@ public sealed unsafe class AudioSourceComponent : Component
 	public void Stop()
 	{
 		InternalCalls.AudioSourceComponent_Stop(Entity.ID);
+	}
+
+	/// <summary>Plays the source's clip once more on a voice of its own, over whatever the source plays already (a shot, a
+	/// footstep): it never loops, follows the source as it moves and changes, and fades out with <see cref="Stop"/>. When the
+	/// source already plays <see cref="MaxVoices"/> sounds, its oldest one-shot stops; with <see cref="MaxVoices"/> 1 and the
+	/// clip playing, nothing more plays. A source whose clip streams loads it for its one-shots. Returns whether it
+	/// started; false when the source has no clip that plays (or none at all: give it the clip to play) or nothing runs
+	/// with sound.</summary>
+	/// <param name="volume">Its linear gain, times the source's <see cref="Volume"/>.</param>
+	public bool PlayOneShot(float volume = 1.0f)
+	{
+		return InternalCalls.AudioSourceComponent_PlayOneShot(Entity.ID, 0, volume) != 0;
+	}
+
+	/// <summary>Plays another clip once on a voice of the source, over whatever the source plays already, as
+	/// <see cref="PlayOneShot(float)"/> plays the source's own: it never loops, follows the source and fades out with
+	/// <see cref="Stop"/>. A source with no clip of its own plays the clips it is given this way (footsteps, impacts).
+	/// Returns whether it started; false when the source's own clip does not play, when nothing runs with sound, and for
+	/// a clip that does not load (logged).</summary>
+	/// <param name="clip">The clip to play.</param>
+	/// <param name="volume">Its linear gain, times the source's <see cref="Volume"/>.</param>
+	public bool PlayOneShot(AudioClip clip, float volume = 1.0f)
+	{
+		ArgumentNullException.ThrowIfNull(clip);
+		return InternalCalls.AudioSourceComponent_PlayOneShot(Entity.ID, clip.Handle.ID, volume) != 0;
 	}
 }

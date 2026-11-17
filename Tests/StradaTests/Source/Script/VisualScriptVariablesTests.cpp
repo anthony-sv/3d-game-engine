@@ -1,5 +1,6 @@
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
@@ -179,6 +180,12 @@ TEST_CASE("VisualScriptVariables: the exposable types map to the script field ty
 	VisualScriptVariableDescription const curve = DescribeOne("Strada.Curve", nullptr);
 	REQUIRE(curve.Editable.Fields.size() == 1);
 	CHECK(curve.Editable.Fields[0].AcceptedAssetType == curveType);
+	AssetType const mixerType = TypedDataAsset<Mixer>::GetStaticType();
+	REQUIRE(DataAssetRegistry::IsDataAssetValue(mixerType));
+	CHECK(FindVisualScriptExposableType("Strada.Mixer") == std::optional<VisualScriptExposableType>({ScriptFieldType::Asset, mixerType}));
+	VisualScriptVariableDescription const mixer = DescribeOne("Strada.Mixer", nullptr);
+	REQUIRE(mixer.Editable.Fields.size() == 1);
+	CHECK(mixer.Editable.Fields[0].AcceptedAssetType == mixerType);
 	AssetType const physicsMaterialType = TypedDataAsset<PhysicsMaterial>::GetStaticType();
 	REQUIRE(DataAssetRegistry::IsDataAssetValue(physicsMaterialType));
 	CHECK(FindVisualScriptExposableType("Strada.PhysicsMaterial") ==

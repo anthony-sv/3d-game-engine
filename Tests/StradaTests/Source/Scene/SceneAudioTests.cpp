@@ -3,7 +3,10 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
+#include "Strada/Asset/Mixer.h"
+#include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Audio/AudioTypes.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -12,6 +15,8 @@
 
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
+
+#include <cmath>
 
 using namespace Strada;
 
@@ -152,6 +157,74 @@ TEST_CASE("Scene: streamed audio sources read their clip's file without loading 
 	scene.OnRuntimeStop();
 }
 
+TEST_CASE("Scene: a streamed source's one-shots play its clip loaded, and a source without a clip plays the clips it is given")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory directory;
+	REQUIRE(FileSystem::WriteBinaryFile(directory.GetPath() / "Music.wav", Testing::MakeWav(Testing::MakeSamples({{0.5f, 1.0f}})).GetSpan())
+	            .IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const music = AssetManager::FindByPath("Music.wav");
+	REQUIRE(music.IsValid());
+	AssetHandle const step = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.25f, 1.0f}}), "Step");
+	AssetHandle const tone = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
+
+	Scene scene("One-shots");
+	Entity streamed = AddSource(scene, "Music", music, false);
+	streamed.GetComponent<AudioSourceComponent>().Stream = true;
+	Entity feet = AddSource(scene, "Feet", AssetHandle(), false);
+	scene.OnRuntimeStart();
+	AudioScene* audio = scene.GetAudioScene();
+	REQUIRE(audio != nullptr);
+	REQUIRE(audio->IsStreaming(streamed.GetUUID()));
+	CHECK_FALSE(AssetManager::IsLoaded(music));
+
+	// The streamed source's own one-shot plays its clip, loaded for it.
+	CHECK(scene.PlayAudioOneShot(streamed, AssetHandle(), 1.0f));
+	CHECK(AssetManager::IsLoaded(music));
+	CHECK_FALSE(scene.IsAudioSourcePlaying(streamed));
+	Testing::Skip(0.01f);
+	CHECK(Testing::ReadLevels(0.05f).Left == doctest::Approx(0.5f).epsilon(0.01));
+	scene.StopAudioSource(streamed);
+	Testing::Skip(0.02f);
+
+	// A source without a clip has no sound of its own until a one-shot names a clip: it is then a pool of one-shots
+	// alone, which follows its component.
+	CHECK_FALSE(scene.PlayAudioOneShot(feet, AssetHandle(), 1.0f));
+	CHECK_FALSE(audio->HasSource(feet.GetUUID()));
+	CHECK(scene.PlayAudioOneShot(feet, step, 1.0f));
+	REQUIRE(audio->HasSource(feet.GetUUID()));
+	CHECK_FALSE(scene.IsAudioSourcePlaying(feet));
+	CHECK(audio->GetVoiceCount(feet.GetUUID()) == 1);
+	CHECK_FALSE(scene.PlayAudioOneShot(feet, AssetHandle(), 1.0f));
+	CHECK(audio->GetVoiceCount(feet.GetUUID()) == 1);
+	Testing::Skip(0.01f);
+	CHECK(Testing::ReadLevels(0.05f).Left == doctest::Approx(0.25f).epsilon(0.01));
+	AudioSourceComponent& source = feet.GetComponent<AudioSourceComponent>();
+	source.Volume = 0.5f;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(audio->GetVolume(feet.GetUUID()) == doctest::Approx(0.5f));
+	Testing::Skip(0.01f);
+	CHECK(Testing::ReadLevels(0.05f).Left == doctest::Approx(0.125f).epsilon(0.01));
+	scene.PlayAudioSource(feet);
+	CHECK_FALSE(scene.IsAudioSourcePlaying(feet));
+	scene.StopAudioSource(feet);
+	Testing::Skip(0.02f);
+	CHECK(Testing::ReadLevels(0.02f).Left == 0.0f);
+
+	// Given a clip, it is a source like any other, stopped until played; without the component it has no sound.
+	source.Clip = tone;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	REQUIRE(audio->HasSource(feet.GetUUID()));
+	CHECK_FALSE(scene.IsAudioSourcePlaying(feet));
+	CHECK(scene.PlayAudioOneShot(feet, AssetHandle(), 1.0f));
+	feet.RemoveComponent<AudioSourceComponent>();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK_FALSE(audio->HasSource(feet.GetUUID()));
+	scene.OnRuntimeStop();
+}
+
 TEST_CASE("Scene: audio is heard from the active listener or the primary camera")
 {
 	Testing::AudioEngineScope engine;
@@ -205,6 +278,84 @@ TEST_CASE("Scene: audio is heard from the active listener or the primary camera"
 	Testing::Skip(0.03f);
 	levels = Testing::ReadLevels(0.05f);
 	CHECK(levels.Left > 3.0f * levels.Right);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: audio sources follow their priority and their number of voices")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	AssetHandle const clip = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
+
+	Scene scene("Voices");
+	Entity speaker = AddSource(scene, "Speaker", clip, true);
+	AudioSourceComponent& source = speaker.GetComponent<AudioSourceComponent>();
+	CHECK(source.Priority == DefaultAudioPriority);
+	CHECK(source.MaxVoices == DefaultAudioSourceVoices);
+	source.Priority = 200;
+	source.MaxVoices = 2;
+	scene.OnRuntimeStart();
+	AudioScene* audio = scene.GetAudioScene();
+	REQUIRE(audio != nullptr);
+	CHECK(audio->GetPriority(speaker.GetUUID()) == 200);
+	CHECK(audio->GetMaxVoices(speaker.GetUUID()) == 2);
+
+	// The main voice and one one-shot fill a pool of two; a smaller pool steals the one-shot.
+	CHECK(audio->PlayOneShot(speaker.GetUUID(), nullptr, 1.0f));
+	CHECK(audio->GetVoiceCount(speaker.GetUUID()) == 2);
+	source.MaxVoices = 1;
+	source.Priority = 5;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(audio->GetMaxVoices(speaker.GetUUID()) == 1);
+	CHECK(audio->GetPriority(speaker.GetUUID()) == 5);
+	CHECK(audio->GetVoiceCount(speaker.GetUUID()) == 1);
+
+	// Values set from code past the fields' ranges are brought within them.
+	source.MaxVoices = 1000;
+	source.Priority = 1000;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(audio->GetMaxVoices(speaker.GetUUID()) == MaxAudioSourceVoices);
+	CHECK(audio->GetPriority(speaker.GetUUID()) == MaxAudioPriority);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: audio sources play on the bus they name, and follow it as it changes")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	AssetHandle const clip = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
+	Mixer mixer;
+	MixerBus quiet;
+	quiet.Name = "Quiet";
+	quiet.VolumeDb = -12.0f;
+	MixerBus silent;
+	silent.Name = "Silent";
+	silent.Muted = true;
+	mixer.Buses.push_back(quiet);
+	mixer.Buses.push_back(silent);
+	AudioEngine::SetMixer(mixer);
+
+	Scene scene("Buses");
+	Entity speaker = AddSource(scene, "Speaker", clip, true);
+	AudioSourceComponent& source = speaker.GetComponent<AudioSourceComponent>();
+	CHECK(source.Bus.empty());
+	source.Bus = "quiet";
+	scene.OnRuntimeStart();
+	AudioScene* audio = scene.GetAudioScene();
+	REQUIRE(audio != nullptr);
+	CHECK(audio->GetBus(speaker.GetUUID()) == "quiet");
+	float const level = Testing::ReadLevels(0.05f).Left;
+	CHECK(20.0f * std::log10(level / 0.5f) == doctest::Approx(-12.0f).epsilon(0.01));
+
+	source.Bus = "Silent";
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(audio->GetBus(speaker.GetUUID()) == "Silent");
+	Testing::Skip(0.02f);
+	CHECK(Testing::ReadLevels(0.05f).Left == 0.0f);
+	source.Bus = "";
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	Testing::Skip(0.02f);
+	CHECK(Testing::ReadLevels(0.05f).Left == doctest::Approx(0.5f).epsilon(0.001));
 	scene.OnRuntimeStop();
 }
 

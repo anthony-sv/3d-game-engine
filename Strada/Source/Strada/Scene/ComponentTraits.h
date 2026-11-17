@@ -631,7 +631,18 @@ namespace Strada
 			Field("MaxDistance", &AudioSourceComponent::MaxDistance)
 				.AtLeast(0.0)
 				.VisibleWhen("Spatial", "true")
-				.Doc("Distance in meters beyond which the sound gets no quieter."));
+				.Doc("Distance in meters beyond which the sound gets no quieter."),
+			Field("Bus", &AudioSourceComponent::Bus)
+				.Doc("The bus of the project's mixer the sound plays on, by name (any letter case); empty plays on Master, and so "
+		             "does a name the mixer lacks."),
+			Field("Priority", &AudioSourceComponent::Priority)
+				.Range(0.0, static_cast<double>(MaxAudioPriority))
+				.Doc("When more sounds play than the engine mixes at once, those of lower priority go silent first (higher is "
+		             "kept)."),
+			Field("MaxVoices", &AudioSourceComponent::MaxVoices)
+				.Range(1.0, static_cast<double>(MaxAudioSourceVoices))
+				.Doc("Sounds of this source that play at once: its clip and its one-shots. A one-shot beyond it stops the "
+		             "source's oldest one-shot."));
 	};
 
 	template<>
