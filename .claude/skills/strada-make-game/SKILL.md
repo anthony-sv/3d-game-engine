@@ -508,7 +508,10 @@ rules, plays the game through its public methods and clicks its buttons.
 `Projects/PrismBreak` is a game made of 13 visual scripts and no C#, a neon brick breaker, built entirely through
 `graph_edit` by its `Tools/Author.py` (declare first, then one batch per region): its graphs read well by the rules of
 section 6, call two function libraries, send typed events and broadcast to each other, read each other's variables
-guarded by `RunsGraph`, and its test scene's 29 checks are graphs too. Read it for every feature of the language in use.
+guarded by `RunsGraph`, reads input actions (`Event.ActionPressed`, `Input.GetAction`) so that a keyboard and a gamepad
+play it alike, rebinds Launch at its title (`Input.StartRebind`, polled through `Input.CurrentRebind`), and its test
+scene's 33 checks are graphs too, the last four driving the game through action overrides. Read it for every feature of
+the language in use.
 
 ## Rules
 

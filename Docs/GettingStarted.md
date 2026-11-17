@@ -201,8 +201,9 @@ The Showcase opens with a camera tour; any key or click skips it. Then the camer
 The HUD's hint line shows the keys of the way the camera moves, and its buttons put the exhibits back, set them off,
 switch day and night and switch between flying and walking.
 
-Prism Break: Space or a click starts a game and launches the ball; the mouse, A and D or the arrow keys move the paddle;
-Escape pauses. Blocks: Left and Right (or A and D) move a piece, Up, W or X turns it clockwise and Z counter-clockwise,
+Prism Break plays on the keyboard or a gamepad, through its input actions: Space (the pad's A) or a click starts a game
+and launches the ball; the mouse, A and D, the arrow keys or the left stick (the pad's left and right) move the paddle;
+Escape (the pad's Start) pauses; R at the title rebinds Launch to the next key pressed, kept for the next run. Blocks: Left and Right (or A and D) move a piece, Up, W or X turns it clockwise and Z counter-clockwise,
 Down or S drops it faster and Space at once, C or Shift holds it, Escape or P pauses and R starts again.
 
 ### What each sample shows
@@ -210,7 +211,7 @@ Down or S drops it faster and Space at once, C or Shift holds it, Escape or P pa
 | Project | What it shows |
 |---------|---------------|
 | `Projects/Showcase` | Every engine feature in exhibits around a fountain in a forest clearing: physically based materials, glass and cutouts, colored lights and shadows in a post-process evening zone, rigid bodies and joints (a wrecking ball, dominoes placed as prefabs), triggers, particles and 3D sound, a yard to walk and climb in with a character controller, day and night, a camera tour, a HUD with buttons, and a garden of chimes played by six visual scripts. Its test scene has 68 checks |
-| `Projects/PrismBreak` | A neon brick breaker made of 13 visual scripts and no C#: function libraries, typed events between graphs, remote variables, timelines and formulas. Its test scene's 29 checks are graphs too. Open `Scripts/Game.sgraph` while it plays to watch it run |
+| `Projects/PrismBreak` | A neon brick breaker made of 13 visual scripts and no C#: function libraries, typed events between graphs, remote variables, timelines and formulas, played on input actions with a keyboard or a gamepad, with a key of the player's choice for Launch. Its test scene's 33 checks are graphs too. Open `Scripts/Game.sgraph` while it plays to watch it run |
 | `Projects/Moto` | A motorcycle time trial in the making, made of graphs alone: so far a generated 2.6 km circuit with kerbs, gravel traps, walls, a start gantry, sector gates and a footbridge, lined with 10,000 props (tyre stacks, fences, advertising boards, grandstands, trees and more, drawn as instances), whose asphalt, kerbs, gravel and grass have physics materials of their own, a generated superbike with its rider on the grid, and a camera tour, a graph whose Timeline flies the camera once round the lap and home. Its test scene's 18 checks are graphs too |
 | `Projects/Blocks` | A falling-blocks game in C#: game rules in plain classes, an AI that plays the title screen's demo, hold and preview queues, debris and sparks from prefabs, sounds, and a HUD and menus on a UI canvas. Its test scene has 57 checks |
 | `Projects/FeatureTest` | Scenes and scripts that use every component and the entire scripting API, and graphs that use every built-in node kind; CI plays it and fails on any failed check |

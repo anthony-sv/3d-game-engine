@@ -55,6 +55,11 @@
 			"Path": "Audio/Wall.wav"
 		},
 		{
+			"Handle": "125485640058170917",
+			"Type": "InputActions",
+			"Path": "Input/PrismBreak.sinput"
+		},
+		{
 			"Handle": "13335414687148832308",
 			"Type": "Material",
 			"Path": "Materials/Ball.smat"

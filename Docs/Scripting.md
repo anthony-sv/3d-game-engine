@@ -1017,7 +1017,8 @@ the scripting API they run on, also without C# scripts. Players of games with C#
   that the graph `Scripts/Hover.sgraph` calls to float the spark's gem; `Hud` and `CameraRig` follow the run and the
   orb; `OrbRunTests` makes 14 checks through `Strada.Testing`, each waiting in seconds of the game.
 - `Projects/PrismBreak`: a neon brick breaker made of 13 visual scripts and no C#, authored through the agent tools by
-  its `Tools/Author.py`, with a test scene whose 29 checks are graphs too
+  its `Tools/Author.py`, played on input actions (Move, Launch and Pause, a rebinding of Launch at the title), with a
+  test scene whose 33 checks are graphs too
   ([A complete game: Prism Break](VisualScripting.md#a-complete-game-prism-break)).
 - The Showcase's Graph Garden, south of the plaza, is made of six visual scripts in `Scripts/GraphGarden`:
   - `Music.sgraph` is a function library: `PitchOf` turns semitones into an audio pitch (`pow(2, semitone / 12.0)`), and

@@ -5242,10 +5242,14 @@ that each platform's names are tested on every platform:
 - `Projects/PrismBreak`: a game made of visual scripts alone (13 graphs, no C#), a neon brick breaker, built by
   `Tools/Author.py` through `strada mcp`: one batch per graph declares its variables, events and functions first, then
   one batch per region adds its nodes, arranges them and frames them in a titled comment box, each answering no error
-  and no warning. Its test scene's 29 checks are graphs too (`Tests.sgraph`, a latent function per check called in
-  order from a Sequence, reporting through the `Checks` library); `StradaRuntimeTests` runs them through the player
-  ("Tests passed: 29 checks"), plays the title and runs the exported game, refusing any line from a visual script;
-  `PlayModeTests` plays it through `input.set`, and the fuzz test of damaged graphs includes its `Game.sgraph`.
+  and no warning. It reads input actions (`Input/PrismBreak.sinput`: Move, Launch, Pause, each on the keyboard and a
+  gamepad; the cheat keys stay `Event.KeyPressed`), and at its title R rebinds Launch to the next key (§7.4,
+  "Rebinding"). Its test scene's 33 checks are graphs too (`Tests.sgraph`, a latent function per check called in
+  order from a Sequence, reporting through the `Checks` library; the last four drive it through action overrides and
+  `Input.Rebind`); `StradaRuntimeTests` runs them through the player ("Tests passed: 33 checks"), plays the title and
+  runs the exported game, refusing any line from a visual script; `PlayModeTests` plays it through `input.set` (keys,
+  the mouse and an injected gamepad, and a rebinding kept for the next play), and the fuzz test of damaged graphs
+  includes its `Game.sgraph`.
 - `Projects/Moto`: the circuit of a motorcycle time trial that is to be made of visual scripts alone (no C#, no
   `Scripts` folder). `Tools/Circuit.py` is the layout and its one source: a closed polygon of ten corners, each rounded
   by an arc of its radius, raced clockwise from the start and finish line (lap distance 0) for 2,638.6 m; the lap
