@@ -7,6 +7,26 @@
 #include <cstdlib>
 #include <new>
 
+// A sanitizer's runtime (AddressSanitizer and ThreadSanitizer: the STRADA_ENABLE_SANITIZERS and
+// STRADA_ENABLE_THREAD_SANITIZER builds, which define ST_SANITIZER_BUILD) defines every global allocation function itself,
+// to watch the memory they hand out. Clang on Linux links that runtime statically, so a second definition here fails the
+// link ("multiple definition of operator new"); the other compilers' runtimes define them as well. In every sanitizer
+// build the hook steps aside and leaves them to the runtime: nothing is counted, and the cases that would compare the
+// count say they skip it.
+#if defined(ST_SANITIZER_BUILD)
+
+bool Strada::Testing::IsMixingThreadAllocationCounted()
+{
+	return false;
+}
+
+uint64_t Strada::Testing::GetMixingThreadAllocationCount()
+{
+	return 0;
+}
+
+#else
+
 // The global allocation functions of the test program, replaced so that a test can count what the mixing thread
 // allocates or frees while it mixes (Docs/Architecture.md §9.9). They allocate as the default ones do (malloc and free, the
 // aligned forms through the platform's aligned allocation), so memory one form allocates any form of the same family
@@ -57,6 +77,11 @@ namespace
 		std::free(memory);
 #endif
 	}
+}
+
+bool Strada::Testing::IsMixingThreadAllocationCounted()
+{
+	return true;
 }
 
 uint64_t Strada::Testing::GetMixingThreadAllocationCount()
@@ -179,3 +204,5 @@ void operator delete[](void* memory, std::align_val_t, std::nothrow_t const&) no
 {
 	FreeAligned(memory);
 }
+
+#endif

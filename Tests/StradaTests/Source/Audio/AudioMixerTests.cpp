@@ -843,16 +843,29 @@ TEST_CASE("AudioMixer: every kind of effect takes a new parameter without a clic
 		std::vector<float> const before = ProcessSine(*effect, frame, 0.1f);
 		effect->SetParameter(move.Parameter, move.Value);
 		std::vector<float> const after = ProcessSine(*effect, frame, 0.1f);
+		// The turns after the change are measured from the last two frames before it on: a value that jumps at once turns
+		// the waveform at the change itself.
+		std::vector<float> across(after.size() + 4);
+		std::copy(before.end() - 4, before.end(), across.begin());
+		std::copy(after.begin(), after.end(), across.begin() + 4);
 		// A sine of amplitude A turns its slope by at most A (2 pi 300 / 48000)^2 from one sample to the next; a click turns
 		// it at once by many times that. A value on its way to its target only scales and shifts the waveform, so the
 		// sharpest turn after the change stays within twice what the output's own level makes of the steady turn (or of a
 		// sine's, for outputs smoother than the effect's steady state).
+		// What makes that hold on every platform: not the effects' exact output, which differs between them (verblib sizes
+		// its delay lines in long double, verblib.h:406-416, the x87's 80-bit format on Linux on x86-64 and double
+		// elsewhere: at 48 kHz its left channel's eighth comb and second allpass are 1759 and 479 frames there against 1760
+		// and 480, and the tone's period is 160 frames, so that comb holds a whole number of periods on one platform and not
+		// on the other). It holds because no parameter reaches the output in steps: gains move frame by frame, a filter's
+		// coefficients glide frame by frame, a delay's read crossfades, a compressor's curve acts through its detector's
+		// smoothing, and a reverb's room and damping change what its combs hold. A gain moved a step at a time would turn
+		// the waveform at each step by that step times the signal it scales, a size each platform's output sets.
 		float const omega = 2.0f * glm::pi<float>() * 300.0f / static_cast<float>(Testing::AudioSampleRate);
 		float const steadyLevel = LargestMagnitude(before);
 		float const movingLevel = LargestMagnitude(after);
 		REQUIRE(steadyLevel > 0.0f);
 		float const steady = LargestBend(before) * movingLevel / steadyLevel;
-		float const moving = LargestBend(after);
+		float const moving = LargestBend(across);
 		CAPTURE(steady);
 		CAPTURE(moving);
 		CHECK(moving <= 2.0f * std::max(steady, movingLevel * omega * omega));

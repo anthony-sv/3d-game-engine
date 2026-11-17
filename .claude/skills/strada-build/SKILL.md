@@ -186,3 +186,8 @@ source of StradaTests, StradaEditorTests or StradaRuntimeTests must also land in
   assert). The workflow runs on a schedule, by hand and on a push to a `tsan/**` branch,
   which is how to try a change to it, and it never gates a merge. A threading case added to a suite gets a filter in its
   step.
+- **Global allocation functions under a sanitizer**: a sanitizer's runtime defines every `operator new` and
+  `operator delete` itself, and Clang on Linux links it statically, so a source that replaces them fails to link there
+  ("multiple definition"). Both sanitizer options define `ST_SANITIZER_BUILD` for Strada's targets: such a source
+  compiles its replacements only without it (as StradaTests' `Audio/MixAllocationHook.cpp` does), and a case that
+  relies on them says it skips that check there.

@@ -2918,7 +2918,17 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   and 22,050 to 176,400 Hz (`:422-430`): the reverb runs on the first two channels of the mix and passes any others
   unchanged, and at a rate outside that range passes everything unchanged and is logged once per engine `Init`
   (effects are made again at each chain change and at each game's end, `ClearEffectState`, and do not log the
-  rate themselves). `ThirdPartyNotices.md` names verblib beside miniaudio.
+  rate themselves). `ThirdPartyNotices.md` names verblib beside miniaudio. verblib runs for its two tails alone (its
+  wet at unity, its dry at none, its width at 1); the effect mixes them with the input by `WetDb` and `DryDb`. `RoomSize`
+  and `Damping` reach verblib once a step: they set its combs' feedback and damping, which change what the combs hold,
+  not what leaves them at once. `Width` is verblib's mix of the two tails (`:360-361`), a pair of gains, so the effect
+  mixes the tails itself at a width ramped frame by frame, as it ramps `WetDb` and `DryDb`; given to verblib once a
+  step, a moving width moved the output at each step by the step times the tails' difference. The tails are not the
+  same on every platform: verblib sizes its delay lines in `long double` (`:406-416`), which is the x87's 80-bit format
+  on Linux on x86-64 and `double` on Windows and on macOS on arm64, and where the exact length is a whole number of
+  frames the two round to either side of it: at 48 kHz the left channel's eighth comb and second allpass are 1,759 and
+  479 frames on Linux against 1,760 and 480 elsewhere (3,519 and 959 against 3,520 and 960 at 96 kHz). A test of an
+  effect's output therefore bounds what holds whatever the tails are, never their exact values.
 - **Compressor**: Giannoulis, Massberg and Reiss, "Digital Dynamic Range Compressor Design: A Tutorial and Analysis"
   (J. Audio Eng. Soc. 60(6), 2012): feed-forward, in the log domain, the static curve of their eq. 4 with a quadratic
   soft knee of `KneeDb` (`ComputeCompressorOutputDb`), and their smooth decoupled peak detector with one-pole attack and
@@ -3014,7 +3024,10 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
     that `Init` resets.
   - StradaTests replaces the global allocation functions (every form of `operator new` and `operator delete`) in one
     source of its own (`Audio/MixAllocationHook.cpp`), counting those called on the mixing thread while it mixes; the
-    engine's own code allocates only through them.
+    engine's own code allocates only through them. A sanitizer's runtime defines those functions itself, so in a build
+    with `STRADA_ENABLE_SANITIZERS` or `STRADA_ENABLE_THREAD_SANITIZER` (which define `ST_SANITIZER_BUILD` for Strada's
+    targets) the source leaves them to it: nothing is counted there, and the cases that compare this count say they
+    skip that check (`Testing::IsMixingThreadAllocationCounted`) and make their other checks.
   - The case mixes starts, steals at the pools and at the limit, one-shots, voices of the scene, value changes, a scene
     paused and one ended, and expects both counts to stay 0. C library allocations of other code are
     not counted: none runs on the mixing thread (decoding moved to the main thread; libvorbis runs only on the main and
