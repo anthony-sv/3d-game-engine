@@ -15,6 +15,7 @@ add_executable(StradaTests
     Source/Asset/MeshImporterFuzzTests.cpp
     Source/Asset/MeshImporterTests.cpp
     Source/Asset/MeshSourceTests.cpp
+    Source/Asset/MixerAssetTests.cpp
     Source/Asset/PhysicsMaterialAssetTests.cpp
     Source/Asset/TestDataAsset.h
     Source/Asset/TrueTypeSanitizerTests.cpp
@@ -23,10 +24,16 @@ add_executable(StradaTests
     Source/Asset/VisualScriptReferencesTests.cpp
     Source/Asset/VisualScriptRoundTrip.h
     Source/Asset/VisualScriptSerializerTests.cpp
+    Source/Audio/AudioBenchmarkTests.cpp
     Source/Audio/AudioEngineTests.cpp
+    Source/Audio/AudioMixerTests.cpp
+    Source/Audio/AudioQueueTests.cpp
     Source/Audio/AudioSceneTests.cpp
     Source/Audio/AudioTestUtilities.h
+    Source/Audio/AudioVoiceTests.cpp
     Source/Audio/AudioWaveformTests.cpp
+    Source/Audio/MixAllocationHook.cpp
+    Source/Audio/MixAllocationHook.h
     Source/Core/ApplicationTests.cpp
     Source/Core/Base64Tests.cpp
     Source/Core/BufferTests.cpp

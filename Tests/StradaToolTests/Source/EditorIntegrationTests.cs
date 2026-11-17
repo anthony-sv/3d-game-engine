@@ -64,8 +64,9 @@ public sealed class EditorIntegrationTests
 			}
 			// The playing scene's physics queries.
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "physics_query");
-			// The engine's data asset types' tools, generated from their registrations: curves, input actions and physics materials.
-			foreach (string dataTool in new[] { "curve_create", "curve_get", "curve_set", "input_actions_create", "input_actions_get", "input_actions_set", "physics_material_create", "physics_material_get", "physics_material_set" })
+			// The engine's data asset types' tools, generated from their registrations: curves, input actions, mixers and physics
+			// materials.
+			foreach (string dataTool in new[] { "curve_create", "curve_get", "curve_set", "input_actions_create", "input_actions_get", "input_actions_set", "mixer_create", "mixer_get", "mixer_set", "physics_material_create", "physics_material_get", "physics_material_set" })
 			{
 				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == dataTool);
 			}

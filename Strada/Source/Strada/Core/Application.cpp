@@ -128,8 +128,9 @@ namespace Strada
 		AssetManager::Init();
 		PhysicsSystem::Init();
 		AudioEngineSettings audio;
-		// Headless runs (tests, CI, servers) make no sound and need no audio device.
-		audio.Output = m_Specification.Headless ? AudioOutput::Null : AudioOutput::Device;
+		// Headless runs (tests, CI, servers) make no sound and need no audio device; STRADA_AUDIO_OUTPUT=null silences a
+		// windowed one (a capture, a session a tool starts).
+		audio.Output = AudioEngine::ResolveOutput(m_Specification.Headless, Platform::ReadEnvironmentVariable(AudioOutputVariable));
 		AudioEngine::Init(audio);
 		// Without .NET (or Strada.ScriptCore) the application still runs; scenes run without scripts.
 		if (m_Specification.EnableScripting)
@@ -372,6 +373,9 @@ namespace Strada
 					m_BackBufferAvailable = false;
 				}
 			}
+
+			// What the audio mixer handed back, the one-shots that ended and the commands that wait, even while minimized.
+			AudioEngine::Update();
 
 			if (GraphicsDevice::IsInitialized())
 			{

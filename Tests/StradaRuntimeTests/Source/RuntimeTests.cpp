@@ -1,3 +1,4 @@
+#include "Audio/AudioTestUtilities.h"
 #include "Core/UserDataTestUtilities.h"
 #include "GpuTestUtilities.h"
 #include "Runtime/ResolutionRequest.h"
@@ -10,8 +11,10 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/InputActionMap.h"
 #include "Strada/Asset/InputActionsAsset.h"
+#include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/Buffer.h"
 #include "Strada/Core/EngineLayout.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/GameData.h"
@@ -36,6 +39,7 @@
 #include <initializer_list>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -1217,6 +1221,83 @@ TEST_CASE("Runtime: an exported game reads its project's input actions, which ar
 	CHECK_FALSE(Contains(run.Output, "does not load as an InputActions asset"));
 	CHECK(Contains(run.Output, "Test passed: the override pressed Jump"));
 	CHECK(Contains(run.Output, "Tests passed: 1 check in 1 frame"));
+}
+
+TEST_CASE("Runtime: an exported game mixes through its project's mixer, which arrives with its assets and is named by its game file")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path player;
+	std::filesystem::path projectFile;
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> created = Project::Create(directory.GetPath() / "Project", "Mixer Test", *MakeScene("Main", std::nullopt));
+		REQUIRE(created.IsOk());
+		Ref<Project> const project = created.GetValue();
+		projectFile = project->GetFilePath();
+
+		// A tone, and a mixer with a Music bus below Master.
+		std::filesystem::path const toneFile = project->GetAssetDirectory() / "Audio" / "Tone.wav";
+		REQUIRE(FileSystem::CreateDirectories(toneFile.parent_path()).IsOk());
+		std::vector<float> const samples(4800, 0.25f);
+		Buffer const wav = Testing::MakeWav(samples);
+		REQUIRE(FileSystem::WriteBinaryFile(toneFile, std::span<uint8_t const>(wav.GetData(), wav.GetSize())).IsOk());
+		Result<AssetHandle> const tone = AssetManager::ImportFile(toneFile);
+		REQUIRE(tone.IsOk());
+		Mixer mixer;
+		MixerBus music;
+		music.Name = "Music";
+		music.VolumeDb = -6.0f;
+		mixer.Buses.push_back(music);
+		TypedDataAssetType<Mixer> const* type = DataAssetRegistry::Find<Mixer>();
+		REQUIRE(type != nullptr);
+		Ref<TypedDataAsset<Mixer>> const asset = std::static_pointer_cast<TypedDataAsset<Mixer>>(type->CreateAsset());
+		REQUIRE(asset->SetData(mixer).IsOk());
+		std::filesystem::path const mixerFile = project->GetAssetDirectory() / "Audio" / "Game.smixer";
+		REQUIRE(DataAssetSerializer::SaveToFile(*asset, mixerFile).IsOk());
+		Result<AssetHandle> const imported = AssetManager::ImportFile(mixerFile);
+		REQUIRE(imported.IsOk());
+		REQUIRE(AssetManager::SaveRegistry().IsOk());
+		REQUIRE(project->ApplySettings(Json::object({{"Mixer", imported.GetValue().ToString()}})).IsOk());
+		REQUIRE(project->Save().IsOk());
+
+		// The start scene plays the tone on Music.
+		Ref<Scene> const main = MakeScene("Main", std::nullopt);
+		Entity radio = main->CreateEntity("Radio");
+		AudioSourceComponent& source = radio.AddComponent<AudioSourceComponent>();
+		source.Clip = tone.GetValue();
+		source.Bus = "Music";
+		source.Loop = true;
+		source.PlayOnStart = true;
+		REQUIRE(SceneSerializer::SaveToFile(*main, project->GetAssetDirectory() / "Scenes" / "Main.sscene").IsOk());
+
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*project, directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		if (player.extension() == ".app")
+		{
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+
+		// The project, without its mixer from here on, is the control: its source's bus is missing.
+		REQUIRE(project->ApplySettings(Json::object({{"Mixer", "0"}})).IsOk());
+		REQUIRE(project->Save().IsOk());
+	}
+
+	Testing::IsolatedUserRoot const userRoot;
+	ProcessResult const game = RunProgram(player, {"--headless", "--frames", "3"}, userRoot);
+	CAPTURE(game.Output);
+	CHECK(game.ExitCode == 0);
+	CHECK(Contains(game.Output, "Mixer: 2 buses from asset://Audio/Game.smixer (Master, Music)"));
+	CHECK_FALSE(Contains(game.Output, "has no bus named"));
+
+	ProcessResult const control = RunPlayer({"--project", Native(projectFile), "--headless", "--frames", "3"}, userRoot);
+	CAPTURE(control.Output);
+	CHECK(control.ExitCode == 0);
+	CHECK_FALSE(Contains(control.Output, "Mixer: "));
+	CHECK(Contains(control.Output, "The mixer has no bus named 'Music'"));
 }
 
 TEST_CASE("Runtime: players tell once at startup what is wrong with the engine marker beside them, and still run")

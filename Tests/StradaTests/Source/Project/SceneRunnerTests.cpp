@@ -1,12 +1,17 @@
+#include "Audio/AudioTestUtilities.h"
 #include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/KeyCodes.h"
+#include "Strada/Core/Log.h"
 #include "Strada/Project/SceneRunner.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -15,6 +20,8 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -264,4 +271,73 @@ TEST_CASE("SceneRunner: ApplyRequests loads the scene a script asked for between
 	runner.ApplyRequests();
 	CHECK(runner.GetSceneVersion() == loaded);
 	runner.Stop();
+}
+
+TEST_CASE("SceneRunner: a game mixes through its project's mixer, follows its edits, and ends with the mix's game values reset")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	MixerBus music;
+	music.Name = "Music";
+	music.VolumeDb = -6.0f;
+	Mixer mixer;
+	mixer.Buses.push_back(music);
+	TypedDataAssetType<Mixer> const* type = DataAssetRegistry::Find<Mixer>();
+	REQUIRE(type != nullptr);
+	auto const asset = std::static_pointer_cast<TypedDataAsset<Mixer>>(type->CreateAsset());
+	REQUIRE(asset->SetData(mixer).IsOk());
+	AssetHandle const handle = AssetManager::AddMemoryAsset(asset, "Game mixer");
+
+	SceneRunnerSettings settings;
+	settings.Runtime.RunScripts = false;
+	settings.Runtime.Mixer = handle;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	{
+		SceneRunner runner(settings);
+		// What an earlier game left is not this one's.
+		AudioEngine::SetMixer(mixer);
+		AudioEngine::SetBusVolume("Music", -20.0f);
+		REQUIRE(AudioEngine::GetBusVolume("Music") == -20.0f);
+		runner.Start(CreateRef<Scene>("Mixed"));
+		CHECK(AudioEngine::GetMixer() == mixer);
+		CHECK(AudioEngine::GetBusVolume("Music") == 0.0f);
+		CHECK(Testing::WasLogged(logStart, "Mixer: 2 buses from"));
+		CHECK(Testing::WasLogged(logStart, "(Master, Music)"));
+
+		// An edit of the asset (the inspector's, mixer.set's) is mixed from the next update on.
+		mixer.Buses[1].VolumeDb = -9.0f;
+		REQUIRE(asset->SetData(mixer).IsOk());
+		runner.Update(Timestep(1.0f / 60.0f));
+		CHECK(AudioEngine::GetMixer().Buses[1].VolumeDb == -9.0f);
+		AudioEngine::SetBusMuted("Music", true);
+		runner.Update(Timestep(1.0f / 60.0f));
+		CHECK(AudioEngine::IsBusMuted("Music"));
+	}
+	// The game ended: its values are gone, the mixer stays until the next game applies its own.
+	CHECK_FALSE(AudioEngine::IsBusMuted("Music"));
+	CHECK(AudioEngine::GetMixer() == mixer);
+
+	// A game without a mixer mixes through Master alone; one whose mixer does not load does too, and says so once.
+	settings.Runtime.Mixer = AssetHandle();
+	{
+		SceneRunner runner(settings);
+		runner.Start(CreateRef<Scene>("Unmixed"));
+		CHECK(AudioEngine::GetMixer() == Mixer{});
+	}
+	AudioEngine::SetMixer(mixer);
+	settings.Runtime.Mixer = AssetHandle(UUID(12345));
+	uint64_t const missingStart = Log::GetNextEntryIndex();
+	{
+		SceneRunner runner(settings);
+		runner.Start(CreateRef<Scene>("Missing"));
+		CHECK(AudioEngine::GetMixer() == Mixer{});
+		runner.Update(Timestep(1.0f / 60.0f));
+		runner.Update(Timestep(1.0f / 60.0f));
+	}
+	std::vector<LogEntry> const entries = Log::GetEntries(missingStart);
+	CHECK(std::count_if(entries.begin(), entries.end(),
+	                    [](LogEntry const& entry)
+	                    {
+							return entry.Message.find("does not load as a Mixer asset") != std::string::npos;
+						}) == 1);
 }

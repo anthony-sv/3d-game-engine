@@ -23,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -83,6 +84,10 @@ namespace Strada
 		// per frame for its scripts (Docs/Architecture.md §7.4); none, or an asset that does not load, reads every action as
 		// zero.
 		AssetHandle InputActions;
+		// The project's mixer (a Mixer asset, ProjectSettings::Mixer), which SceneRunner mixes the game's sounds through
+		// (Docs/Architecture.md §9.5); none, or an asset that does not load, mixes through Master alone. A scene does not
+		// read it.
+		AssetHandle Mixer;
 		// The scene's scripts and sounds run with it; the editor's Simulate mode runs physics only.
 		bool RunScripts = true;
 		bool PlayAudio = true;
@@ -435,6 +440,17 @@ namespace Strada
 		void PauseAudioSource(Entity entity);
 		void StopAudioSource(Entity entity);
 		bool IsAudioSourcePlaying(Entity entity);
+		// Plays a clip once more on a new voice of the entity's AudioSource (AudioScene::PlayOneShot): the source's own clip
+		// when clip is invalid (a streamed source's clip is loaded for it), at volume (linear) times the source's. The source
+		// is brought up to date with the component first. A component that names no clip plays the clips given: its first
+		// one-shot makes it a pool of voices with no main voice (AudioScene::AddVoicePool), which follows the component like
+		// any sound. Returns whether the voice started; false without a running audio scene, with a clip the component names
+		// that does not play, or with no clip that loads (logged).
+		bool PlayAudioOneShot(Entity entity, AssetHandle clip, float volume);
+		// Plays a clip once at a world position on a voice of the scene, outliving whatever entity asked for it
+		// (AudioScene::PlayClipAtPoint): spatial, at volume (linear), on the mixer's bus of that name (empty for Master).
+		// Returns whether the voice started; false without a running audio scene or a clip that loads (logged).
+		bool PlayAudioClipAtPoint(AssetHandle clip, glm::vec3 const& position, float volume, std::string_view bus);
 		// While the scene runs scripts: the values the fields of the entity's script hold now, which also become the stored
 		// values of its Script component (Fields), so that the component shows them and edits start from them. Fails when
 		// the entity runs no script.
@@ -877,7 +893,8 @@ namespace Strada
 		{
 			UUID Entity = UUID::Invalid();
 			AudioSourceComponent Applied;
-			// False when there is no clip or it cannot be played; retried when the clip changes.
+			// False when there is no clip or it cannot be played; retried when the clip changes. True for a component with no
+			// clip once a one-shot has made its pool of voices.
 			bool HasSound = false;
 		};
 

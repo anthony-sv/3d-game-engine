@@ -473,7 +473,7 @@ the border between the columns to give the names more room.
 | Flags | A drop-down list of check boxes |
 | Text | A text field; some fields have several lines |
 | List | One row per element with "-" to remove it, "+" (or Add Element while empty) to add one |
-| List of groups | A row per element (titled by its name when it has one, or by its first two numbers when it has no name field, as a curve's keys are by their time and value) that unfolds into the element's fields; its "..." menu (or a right click) moves the element up or down, duplicates it, inserts a new one above it or removes it, and Add Element adds one at the end. A list with a size limit stops adding there |
+| List of groups | A row per element (titled by its name when it has one, or by its first two numbers or choices when it has no name field, as a curve's keys are by their time and value and a mixer's effects by their kind and first setting) that unfolds into the element's fields; its "..." menu (or a right click) moves the element up or down, duplicates it, inserts a new one above it or removes it, and Add Element adds one at the end. A list with a size limit stops adding there |
 | Group | A tree node with the group's fields under it |
 | Asset | A box with the asset, "..." and "x" ([below](#asset-fields)) |
 | Entity | A button with the entity's name ([below](#entity-fields)) |
@@ -617,6 +617,7 @@ The "+" button and the context menus create, in the displayed folder:
 | Visual Script Library | `New Visual Script Library.sgraph`: functions other visual scripts call; it runs on no entity |
 | Curve | `New Curve.scurve`, a curve without keys ([Curves](#curves)) |
 | Input Actions | `New Input Actions.sinput`, input actions without an action ([Input actions](#input-actions)) |
+| Mixer | `New Mixer.smixer`, Master alone ([Mixers](#mixers)) |
 | Physics Material | `New Physics Material.sphysmat`, a material that behaves like a collider without one ([Physics materials](#physics-materials)) |
 | C# Script... | The New Script dialog ([Creating C# scripts](#creating-c-scripts)) |
 
@@ -689,6 +690,7 @@ The asset directory registers these file types:
 | Visual script | `.sgraph` | "+" > Visual Script, Create Visual Script |
 | Curve | `.scurve` | "+" > Curve |
 | Input actions | `.sinput` | "+" > Input Actions |
+| Mixer | `.smixer` | "+" > Mixer |
 | Physics material | `.sphysmat` | "+" > Physics Material |
 
 Built-in assets need no files: the meshes Cube, Sphere, Plane, Cylinder, Capsule, Cone and Quad, the DefaultMaterial,
@@ -747,6 +749,11 @@ section of a mesh's slot. Edits are written to the file at once and show in the 
 Audio clips play through AudioSource components. A clip is loaded whole before it plays unless the source's `Stream`
 field is on: then it is read from its file while it plays, which suits music and long ambience. The Content Browser
 shows a clip's waveform and length, and its tooltip the sample rate and channels.
+
+An Audio Source also has `Bus`, the bus of the project's mixer it plays on ([Mixers](#mixers); empty is Master),
+`Priority` (0 to 255, 128 by default: when more sounds play than the engine mixes at once, 64, those of lower priority
+go silent first and come back when there is room) and `MaxVoices` (1 to 64, 4 by default: how many of its sounds play at
+once, its clip and the one-shots scripts and graphs play on it; a one-shot past it stops the source's oldest one-shot).
 
 ### Fonts
 
@@ -864,6 +871,29 @@ read every field of a material (`Strada.PhysicsMaterial`), and a raycast names t
 tells a script whether a wheel is on asphalt or gravel ([Scripting](Scripting.md#physics-materials),
 [Visual scripting](VisualScripting.md#physics-materials)).
 
+### Mixers
+
+A mixer (`.smixer`) is the set of buses the game's sounds play on. Each bus has a `Name`, the bus it feeds (`Parent`;
+empty for Master), a `VolumeDb` (-80 dB is silence, up to +24 dB), `Muted` and `Effects`, which its sound runs through in
+list order: `LowPass`, `HighPass`, `Peaking`, `LowShelf` and `HighShelf` filters (`Frequency`, `Q`, `GainDb`), a `Delay`
+(echoes `DelaySeconds` apart, each `Feedback` times the one before), a `Reverb` (`RoomSize`, `Damping`, `Width`), each of
+those two mixed by `WetDb` and `DryDb`, a `Compressor` (`ThresholdDb`, `Ratio`, `KneeDb`, `AttackSeconds`,
+`ReleaseSeconds`, `MakeupDb`) and a `Limiter` (no sample above `CeilingDb`). The inspector shows the parameters of each
+effect's kind. Every mixer has exactly one bus named `Master`, which every other bus feeds through its parents; at most
+32 buses and 8 effects a bus. A new mixer is Master alone, which mixes as a project without a mixer does.
+
+Name the game's mixer in Project Settings (`Mixer`), and a bus in an Audio Source's `Bus` (any letter case; empty is
+Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer in the Inspector, or agents with
+`mixer.set` ([Automation](Automation.md)); while the game plays, the mix takes the edit before its next sound: volumes
+glide over 5 ms, and a bus added, removed or moved, or whose effects change in kind or order, fades out and back in over
+10 ms, so nothing clicks. An effect that keeps its kind and its place among that kind's effects keeps its sound, so a
+reverb's tail rings on when a filter is inserted before it. When the game stops, the effects' tails stop with it.
+
+A game sets its own volume and mute of each bus on top of the mixer's (`Audio.SetBusVolume` and `Audio.SetBusMuted` in
+[scripts](Scripting.md#sound-text-and-materials) and graphs), as a settings menu does: they are never written to the
+mixer, and each game starts with them at 0 dB and not muted, so editing the mixer while a game plays and the game's own
+values never overwrite each other.
+
 ## Scene Settings
 
 The Scene Settings panel edits the open scene's Name and its settings, which are saved with the scene. Every change is
@@ -919,6 +949,7 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | `Physics.CollisionSteps` | Collision steps each physics step is divided into (1 to 4, default 1); more resolve fast or stiff bodies better, at their cost |
 | `Physics.Layers` | Names of the physics layers (1 to 16); a RigidBody's `Layer` indexes them |
 | `InputActions` | The game's input actions, an asset of that type ([Input actions](#input-actions)); none means scripts and graphs read every action as 0. Play mode, the player and exported games evaluate them each frame |
+| `Mixer` | The mixer (`.smixer`) the game's sounds play through: its buses, their volumes and effects. None plays every sound on Master alone |
 
 Under Layer Collisions, a matrix of check boxes says which layers collide: clear the box of two layers so that their
 bodies pass through each other. Layers are numbers: a RigidBody's `Layer` and the matrix's pairs hold the layer's index,

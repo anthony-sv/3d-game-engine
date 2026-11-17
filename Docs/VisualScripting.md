@@ -330,6 +330,25 @@ nothing and an edit while the game plays reaches the graph on its next frame.
 **Try it:** cast a ray down from the player in `FixedUpdate`, and when its `Hit`'s `Material` is valid and its `Surface`
 is "Ice", lower the player's speed.
 
+### Sound and the mixer
+
+- **Play One Shot** (`Call:Strada.AudioSourceComponent.PlayOneShot(float)`, and `...PlayOneShot(Strada.AudioClip,float)`
+  with a `Clip`) plays the source's clip, or another, once more on a voice of its own over what the source plays, at
+  `Volume` times the source's; `Result` says whether it started (a source with no clip of its own plays only the clips
+  it is given). The source's
+  `MaxVoices` (its clip and its one-shots at once), `Priority` and `Bus` are getters and setters.
+- **Play Clip At Point** (`Call:Strada.Audio.PlayClipAtPoint(...)`) plays a `Clip` once at a `Position` on a `Bus`, on a
+  voice of the scene: it outlives the entity that played it.
+- **Set Bus Volume** and **Set Bus Muted** (`Strada.Audio`) set the game's own values of a bus by name (any letter case;
+  empty is Master), after the mixer's, never written to the mixer asset; **Get Bus Volume** and **Is Bus Muted** are
+  pure reads of them. `MasterVolume` scales the whole mix, and `ActiveVoiceCount` is a pure getter of the voices mixed now.
+- A **Mixer** (`.smixer`: [Mixers](Editor.md#mixers)), a variable or Literal of type Mixer or **Load** by path, reads its
+  buses with pure nodes: `BusCount`, `GetBusName(Index)`, `HasBus`, `GetBusParent`, and the mixer's own `GetBusVolume`
+  and `IsBusMuted`.
+
+**Try it:** give a breakable crate's graph a Play Clip At Point of its break sound at its position before it destroys
+itself, so the sound plays on after the crate is gone.
+
 ### Contacts
 
 `Event.CollisionEnter` gives, after `Other`, where and how hard the collision began: `Point` and `Normal` (unit length,

@@ -1,4 +1,5 @@
 #include "Asset/TestDataAsset.h"
+#include "Audio/AudioTestUtilities.h"
 #include "EditorLocationsTestUtilities.h"
 #include "Physics/PhysicsTestUtilities.h"
 #include "TestUtilities.h"
@@ -11,7 +12,9 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
+#include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
@@ -586,4 +589,133 @@ TEST_CASE("DataAssetCommands: physics-material.set while a scene plays reaches i
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
 	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit PhysicsMaterial");
 	CHECK(fixture.ReadFile("Surfaces/Ice.sphysmat") == before);
+}
+
+TEST_CASE("DataAssetCommands: the engine's Mixer has mixer.create, get and set, an undo step, refusing a mixer that does not validate")
+{
+	DataAssetCommandFixture fixture;
+	CommandDefinition const* create = fixture.Registry.Find("mixer.create");
+	REQUIRE(create != nullptr);
+	CHECK(create->Description.find(".smixer") != std::string::npos);
+	REQUIRE(fixture.Registry.Find("mixer.set") != nullptr);
+	CHECK(fixture.Registry.Find("mixer.get")->Parameters["required"] == Json::array({"mixer"}));
+	// The schema of fields describes the list of buses (its elements' fields are Docs/Automation.md's to tell).
+	std::string const busesSchema = create->Parameters["properties"]["fields"]["properties"]["Buses"].dump();
+	CHECK(busesSchema.find("MixerBus[], at most 32 elements") != std::string::npos);
+	Result<std::string> const reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
+	REQUIRE(reference.IsOk());
+	for (char const* name : {"mixer.create", "mixer.get", "mixer.set"})
+	{
+		CAPTURE(name);
+		CHECK(reference.GetValue().find(std::string("`") + name + "`") != std::string::npos);
+	}
+
+	// A new mixer is Master alone.
+	Json const created = fixture.Ok("mixer.create", Json::object({{"path", "Audio/Game.smixer"}}));
+	CHECK(created["mixer"]["type"] == "Mixer");
+	CHECK(created["fields"]["Buses"].size() == 1);
+	CHECK(created["fields"]["Buses"][0]["Name"] == "Master");
+	std::string const id = created["mixer"]["id"].get<std::string>();
+	Ref<TypedDataAsset<Mixer>> const mixer = AssetManager::GetAsset<TypedDataAsset<Mixer>>(AssetManager::FindByPath("Audio/Game.smixer"));
+	REQUIRE(mixer != nullptr);
+
+	// Buses replace the list whole: one step, undone and redone.
+	Json const buses = Json::parse(R"([
+		{ "Name": "Master", "Effects": [ { "Kind": "Limiter", "CeilingDb": -1 } ] },
+		{ "Name": "Music", "Parent": "Master", "VolumeDb": -6, "Effects": [ { "Kind": "LowPass", "Frequency": 2000 } ] }
+	])");
+	fixture.Ok("mixer.set", Json::object({{"mixer", id}, {"fields", {{"Buses", buses}}}}));
+	CHECK(fixture.Ok("editor.status")["undo"] == "Edit Mixer");
+	REQUIRE(mixer->GetData().Buses.size() == 2);
+	CHECK(mixer->GetData().Buses[1].VolumeDb == -6.0f);
+	CHECK(fixture.Ok("mixer.get",
+	                 Json::object({{"mixer", "asset://Audio/Game.smixer"}}))["fields"]["Buses"][1]["Effects"][0]["Frequency"] == 2000.0);
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Mixer");
+	CHECK(mixer->GetData() == Mixer{});
+	CHECK(fixture.Ok("editor.redo")["redone"] == "Edit Mixer");
+	CHECK(mixer->GetData().Buses.size() == 2);
+
+	// A cycle, a missing Master and a ninth effect are refused, naming what is at fault; nothing is written.
+	std::string const edited = fixture.ReadFile("Audio/Game.smixer");
+	CommandError const cycle = fixture.Fails(
+		"mixer.set",
+		Json::object(
+			{{"mixer", id},
+	         {"fields",
+	          {{"Buses", Json::parse(R"([ { "Name": "Master" }, { "Name": "A", "Parent": "B" }, { "Name": "B", "Parent": "A" } ])")}}}}));
+	CHECK(cycle.Code == AutomationErrorCode::InvalidParams);
+	CHECK(cycle.Message.find("'A' feeds itself through its parents") != std::string::npos);
+	CommandError const rootless =
+		fixture.Fails("mixer.set", Json::object({{"mixer", id}, {"fields", {{"Buses", Json::parse(R"([ { "Name": "Music" } ])")}}}}));
+	CHECK(rootless.Message.find("a bus named Master") != std::string::npos);
+	Json crowded = Json::array();
+	for (uint32_t index = 0; index <= MaxBusEffects; index++)
+	{
+		crowded.push_back(Json::object({{"Kind", "Peaking"}}));
+	}
+	CHECK(fixture
+	          .Fails("mixer.set",
+	                 Json::object({{"mixer", id}, {"fields", {{"Buses", Json::array({{{"Name", "Master"}, {"Effects", crowded}}})}}}}))
+	          .Code == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.ReadFile("Audio/Game.smixer") == edited);
+
+	// The project names it by its reference, and an audio source names a bus.
+	Json const settings = fixture.Ok("project.settings", Json::object({{"settings", {{"Mixer", "asset://Audio/Game.smixer"}}}}));
+	CHECK(settings["settings"]["Mixer"] == id);
+	CHECK(fixture.Context.GetProject()->GetSettings().Mixer == AssetManager::FindByPath("Audio/Game.smixer"));
+	std::string const entity = fixture.Ok("entity.create", Json::object({{"name", "Radio"}}))["id"].get<std::string>();
+	CHECK(fixture.Ok("component.add",
+	                 Json::object({{"entity", entity}, {"component", "AudioSource"}, {"fields", {{"Bus", "Music"}}}}))["fields"]["Bus"] ==
+	      "Music");
+}
+
+TEST_CASE("DataAssetCommands: mixer.set while the game plays is mixed from the next frame, and undo gives the old buses back")
+{
+	Testing::AudioEngineScope engine;
+	DataAssetCommandFixture fixture;
+	EditorScripts scripts{fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+	PlayMode play{fixture.Context, scripts};
+	std::string const id =
+		fixture
+			.Ok("mixer.create", Json::object({{"path", "Audio/Game.smixer"}, {"fields", {{"Buses", Json::parse(R"([ { "Name": "Master" },
+	                                                               { "Name": "Music", "VolumeDb": -6 } ])")}}}}))["mixer"]["id"]
+			.get<std::string>();
+	fixture.Ok("project.settings", Json::object({{"settings", {{"Mixer", id}}}}));
+	// A tone on Music, playing from the start.
+	AssetHandle const tone = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
+	EntityCreateInfo info;
+	info.Name = "Radio";
+	info.Components = Json::object(
+		{{"AudioSource", {{"Clip", tone.ToString()}, {"Bus", "Music"}, {"Loop", true}, {"PlayOnStart", true}, {"Spatial", false}}}});
+	REQUIRE(fixture.Operations.CreateEntity(info).IsOk());
+
+	auto const levelDb = []
+	{
+		Testing::Skip(0.02f);
+		return 20.0f * std::log10(Testing::ReadLevels(0.05f).Left / 0.5f);
+	};
+	REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	REQUIRE(play.Advance(1, Timestep(1.0f / 60.0f)) == 1);
+	CHECK(AudioEngine::GetMixer().Buses.size() == 2);
+	CHECK(std::abs(levelDb() - -6.0f) < 0.1f);
+
+	fixture.Ok("mixer.set",
+	           Json::object({{"mixer", id},
+	                         {"fields", {{"Buses", Json::parse(R"([ { "Name": "Master" }, { "Name": "Music", "VolumeDb": -18 } ])")}}}}));
+	REQUIRE(play.Advance(1, Timestep(1.0f / 60.0f)) == 1);
+	CHECK(std::abs(levelDb() - -18.0f) < 0.1f);
+
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Mixer");
+	REQUIRE(play.Advance(1, Timestep(1.0f / 60.0f)) == 1);
+	CHECK(std::abs(levelDb() - -6.0f) < 0.1f);
+
+	// Paused, the game runs no frame, and an edit still reaches the mix with the next editor frame.
+	REQUIRE(play.SetPaused(true));
+	fixture.Ok("mixer.set",
+	           Json::object({{"mixer", id},
+	                         {"fields", {{"Buses", Json::parse(R"([ { "Name": "Master" }, { "Name": "Music", "VolumeDb": -12 } ])")}}}}));
+	play.Update(Timestep(1.0f / 60.0f));
+	REQUIRE(AudioEngine::GetMixer().Buses.size() == 2);
+	CHECK(AudioEngine::GetMixer().Buses[1].VolumeDb == -12.0f);
+	play.Stop();
 }

@@ -10,7 +10,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 the few whose summary says graphs have none.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-92 types in 2 namespaces, with 788 members and enum values in all.
+94 types in 2 namespaces, with 806 members and enum values in all.
 
 ## Strada
 
@@ -20,6 +20,7 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [Asset](#asset) | abstract class | Base class of references to the project's assets. References compare equal when their handles do. |
 | [AssetHandle](#assethandle) | struct | Identifies an asset of the project; the default value refers to no asset. |
 | [Assets](#assets) | static class | Access to the project's assets. |
+| [Audio](#audio) | static class | The game's side of the mix: the master volume, the game's volume and mute of each bus of the project's mixer, sounds played at a point, and how many voices play. The values set here are the game's, a gain stage after the mixer's own (the `Mixer` asset's), so that a settings menu and the mix never overwrite each other; they are never written to the asset, and every game starts with them at their defaults (a master volume of 1, every bus at 0 dB and not muted). Bus names match ignoring letter case; the empty name is Master's. Without sound (no audio engine) reads give the defaults and writes do nothing. |
 | [AudioClip](#audioclip) | class | An audio clip asset (WAV, FLAC, MP3 or Ogg Vorbis). |
 | [AudioListenerComponent](#audiolistenercomponent) | class | The ears of the scene: the first active listener hears it. |
 | [AudioSourceComponent](#audiosourcecomponent) | class | Plays an audio clip, optionally positioned in 3D. |
@@ -55,6 +56,7 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [Mesh](#mesh) | class | A mesh asset (imported model or built-in shape). |
 | [MeshColliderComponent](#meshcollidercomponent) | class | A collision shape from a mesh: its convex hull, or its triangles (static and kinematic bodies). |
 | [MeshComponent](#meshcomponent) | class | Renders a mesh asset with its materials. |
+| [Mixer](#mixer) | class | A mixer asset (`.smixer`): the buses sounds play on, in a tree under Master, each with its volume, its mute and its effects. The project names the mixer its games play through; a sound source names its bus (`AudioSourceComponent.Bus`). Edit it in the editor; scripts read its buses, for example to list the volumes a settings menu offers, and set the game's own values of a bus through `Audio`, which never change the asset. Bus names match ignoring letter case, and the empty name is Master's. An edit made while the game plays shows on the next frame. A mixer that cannot be loaded reads as a new one, Master alone (logged). |
 | [MouseButton](#mousebutton) | enum | Mouse buttons. |
 | [ParticleBlendMode](#particleblendmode) | enum | How particles combine with what is behind them. |
 | [ParticleEmitterShape](#particleemittershape) | enum | Where a particle system's particles start. |
@@ -166,6 +168,24 @@ Access to the project's assets.
 |---|---|
 | `static T? Load<T>(string path)` | Loads an asset by its path in the project's asset directory ("Prefabs/Enemy.sprefab") or by reference ("builtin://Cube"). Returns null (logged) when there is no such asset of type `T` or it cannot be loaded. |
 
+### Audio
+
+```csharp
+public static class Audio
+```
+
+The game's side of the mix: the master volume, the game's volume and mute of each bus of the project's mixer, sounds played at a point, and how many voices play. The values set here are the game's, a gain stage after the mixer's own (the `Mixer` asset's), so that a settings menu and the mix never overwrite each other; they are never written to the asset, and every game starts with them at their defaults (a master volume of 1, every bus at 0 dB and not muted). Bus names match ignoring letter case; the empty name is Master's. Without sound (no audio engine) reads give the defaults and writes do nothing.
+
+| Member | Summary |
+|---|---|
+| `static float MasterVolume { get; set; }` | The gain applied to the whole mix, after Master's effects and volume: 1 leaves it unchanged, 0 is silence (values below 0 are 0), above 1 louder. It moves without a click. |
+| `static int ActiveVoiceCount { get; }` | The voices mixed now across every running scene: those playing, in scenes that are not paused, within the engine's limit of voices mixed at once (beyond it, the lowest priority, then the quietest, then the oldest go silent). It counts a voice from the call that starts it, and a voice that ended from the next frame. |
+| `static float GetBusVolume(string bus)` | The game's volume of a bus, in decibels (0 leaves the bus as the mixer sets it); 0 for a bus the project's mixer lacks (logged once). |
+| `static void SetBusVolume(string bus, float decibels)` | Sets the game's volume of a bus, in decibels: added to the mixer's own volume of the bus, from -80 (silence) to +24 (values beyond are brought within). It moves without a click. A bus the project's mixer lacks is logged once, and nothing changes. |
+| `static bool IsBusMuted(string bus)` | Whether the game has muted a bus (the mixer's own mute is the `Mixer` asset's); false for a bus the project's mixer lacks (logged once). |
+| `static void SetBusMuted(string bus, bool muted)` | Mutes or unmutes a bus for the game: a muted bus, and every bus below it, is silent whatever the mixer sets. It moves without a click. A bus the project's mixer lacks is logged once, and nothing changes. |
+| `static bool PlayClipAtPoint(AudioClip clip, Vector3 position, float volume = 1, string bus = "")` | Plays a clip once at a point of the world, on a voice of the running scene rather than of an entity: it outlives whatever played it (a break, a pickup taken), is held while the scene is paused and ends with the scene. It is spatial, full within 1 m and falling with distance to 100 m, never loops, and at the engine's limit of voices it may be the one refused. Returns whether it started; false without a running scene with sound, or for a clip that does not load (logged). |
+
 ### AudioClip
 
 ```csharp
@@ -206,10 +226,15 @@ Plays an audio clip, optionally positioned in 3D.
 | `bool Spatial { get; set; }` | Whether the sound is positioned in 3D (otherwise it plays at a constant level). |
 | `float MinDistance { get; set; }` | Distance in meters within which the sound plays at full volume. |
 | `float MaxDistance { get; set; }` | Distance in meters beyond which the sound gets no quieter. |
+| `string Bus { get; set; }` | The bus of the project's mixer the source's sounds play on, by name in any letter case: empty for Master, and a name the mixer lacks plays on Master (logged once). Changing it moves the sounds playing, without a click. |
+| `uint Priority { get; set; }` | From 0 to 255 (higher values play as 255), 128 by default: when more sounds play than the engine mixes at once, those of lower priority go silent first. A one-shot playing takes a new priority too. |
+| `uint MaxVoices { get; set; }` | How many sounds of the source play at once, its clip and its one-shots together: from 1 to 64 (values beyond play as the nearest), 4 by default. A one-shot past it stops the source's oldest one-shot. |
 | `bool IsPlaying { get; }` | Whether the sound is playing (held sounds of a paused scene count as playing). |
 | `void Play()` | Plays the clip from the start, or from where `AudioSourceComponent.Pause` left it. |
 | `void Pause()` | Pauses the sound, keeping its position. |
 | `void Stop()` | Stops the sound and rewinds it. |
+| `bool PlayOneShot(float volume = 1)` | Plays the source's clip once more on a voice of its own, over whatever the source plays already (a shot, a footstep): it never loops, follows the source as it moves and changes, and fades out with `AudioSourceComponent.Stop`. When the source already plays `AudioSourceComponent.MaxVoices` sounds, its oldest one-shot stops; with `AudioSourceComponent.MaxVoices` 1 and the clip playing, nothing more plays. A source whose clip streams loads it for its one-shots. Returns whether it started; false when the source has no clip that plays (or none at all: give it the clip to play) or nothing runs with sound. |
+| `bool PlayOneShot(AudioClip clip, float volume = 1)` | Plays another clip once on a voice of the source, over whatever the source plays already, as `AudioSourceComponent.PlayOneShot` plays the source's own: it never loops, follows the source and fades out with `AudioSourceComponent.Stop`. A source with no clip of its own plays the clips it is given this way (footsteps, impacts). Returns whether it started; false when the source's own clip does not play, when nothing runs with sound, and for a clip that does not load (logged). |
 
 ### BoxColliderComponent
 
@@ -769,6 +794,23 @@ Renders a mesh asset with its materials.
 | `int MaterialCount { get; }` | The number of material overrides (submeshes without one use the mesh's own material). |
 | `Material? GetMaterial(int index)` | The material override of a submesh, or null when it uses the mesh's own material. |
 | `void SetMaterial(int index, Material? material)` | Overrides the material of a submesh; null restores the mesh's own material. |
+
+### Mixer
+
+```csharp
+public sealed class Mixer : Asset
+```
+
+A mixer asset (`.smixer`): the buses sounds play on, in a tree under Master, each with its volume, its mute and its effects. The project names the mixer its games play through; a sound source names its bus (`AudioSourceComponent.Bus`). Edit it in the editor; scripts read its buses, for example to list the volumes a settings menu offers, and set the game's own values of a bus through `Audio`, which never change the asset. Bus names match ignoring letter case, and the empty name is Master's. An edit made while the game plays shows on the next frame. A mixer that cannot be loaded reads as a new one, Master alone (logged).
+
+| Member | Summary |
+|---|---|
+| `int BusCount { get; }` | How many buses the mixer has, Master included (at least 1, at most 32). |
+| `string GetBusName(int index)` | The name of a bus by its place in the mixer's list (Master is the one without a parent); empty for an index outside the list. |
+| `bool HasBus(string bus)` | Whether the mixer has a bus of that name. |
+| `string GetBusParent(string bus)` | The name of the bus a bus feeds; empty for Master, and for a bus the mixer lacks. |
+| `float GetBusVolume(string bus)` | The mixer's own volume of a bus, in decibels (-80 is silence); 0 for a bus the mixer lacks. The game's volume comes after it (`Audio.GetBusVolume`). |
+| `bool IsBusMuted(string bus)` | Whether the mixer mutes a bus; false for a bus the mixer lacks. The game's mute is `Audio.IsBusMuted`. |
 
 ### MouseButton
 

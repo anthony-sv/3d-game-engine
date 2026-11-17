@@ -192,7 +192,9 @@ namespace Strada
 		static float GetNameColumnShare(std::span<FieldDescriptor const> fields, float tableWidth);
 		// The title of an element's row in an array of reflected structs (array is the array's descriptor, element its value):
 		// "<index>: <first string field>" ("2: Gravel") when the struct has a string field and it is not empty; for a struct
-		// without one, "<index>: <its first two number fields>" ("0: Time 0.4, Value 1.1"); otherwise "Element <index>".
+		// without one, "<index>: <its first two number or choice fields that it shows>" ("0: Time 0.4, Value 1.1", "1: Low
+		// Pass, Frequency 1000": a choice by its value's name, and a field its VisibleWhen hides for the element skipped);
+		// otherwise "Element <index>".
 		[[nodiscard]] static std::string DescribeElement(FieldDescriptor const& array, Json const& element, size_t index);
 
 		// An asset reference as asset fields show it, as wide as the next item: a box with the asset's image (with

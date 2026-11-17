@@ -1869,7 +1869,9 @@ def take_thumbnail(player, folder, rig_home=None):
         if rig_home is not None:
             place_thumbnail_rig(copy, rig_home)
         shot = os.path.join(work, "capture.png")
-        subprocess.run([player, "--project", project_file, "--frames", "150", "--screenshot", shot], check=True)
+        # The window's sound goes to no device: a tool's capture plays nothing through the speakers.
+        environment = dict(os.environ, STRADA_AUDIO_OUTPUT="null")
+        subprocess.run([player, "--project", project_file, "--frames", "150", "--screenshot", shot], check=True, env=environment)
         write_scaled_png(shot, os.path.join(folder, THUMBNAIL), THUMBNAIL_SIZE)
     finally:
         shutil.rmtree(work, ignore_errors=True)

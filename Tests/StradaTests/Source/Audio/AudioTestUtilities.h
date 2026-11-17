@@ -20,15 +20,15 @@ namespace Strada::Testing
 
 	// Initializes the AudioEngine with manual stereo output for as long as it lives: the mix advances only when a test
 	// reads it, so playback is deterministic. Streamed sounds open their files with the opener (the file system's when
-	// empty).
+	// empty). The mix runs at sampleRate, AudioSampleRate unless a test needs another.
 	class AudioEngineScope
 	{
 	public:
-		explicit AudioEngineScope(AudioStreamFileOpener streamFileOpener = {})
+		explicit AudioEngineScope(AudioStreamFileOpener streamFileOpener = {}, uint32_t sampleRate = AudioSampleRate)
 		{
 			AudioEngineSettings settings;
 			settings.Output = AudioOutput::Manual;
-			settings.SampleRate = AudioSampleRate;
+			settings.SampleRate = sampleRate;
 			settings.ChannelCount = 2;
 			settings.StreamFileOpener = std::move(streamFileOpener);
 			AudioEngine::Init(settings);

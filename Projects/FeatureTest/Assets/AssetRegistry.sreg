@@ -10,6 +10,11 @@
 			"Path": "Audio/Beep.wav"
 		},
 		{
+			"Handle": "15018235737354920508",
+			"Type": "Mixer",
+			"Path": "Audio/FeatureTest.smixer"
+		},
+		{
 			"Handle": "15883878375939594718",
 			"Type": "Curve",
 			"Path": "Curves/Response.scurve"
