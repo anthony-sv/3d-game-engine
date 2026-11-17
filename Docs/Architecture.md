@@ -2586,8 +2586,8 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   order. An instance holds about 400 KB (its buffers are sized for 4 times 44.1 kHz). verblib takes one or two channels
   and 22,050 to 176,400 Hz (`:422-430`): the reverb runs on the first two channels of the mix and passes any others
   unchanged, and at a rate outside that range passes everything unchanged and is logged once per engine `Init`
-  (effects are made again at each chain change and at each game's end, `ClearEffectState`, and log nothing
-  themselves). `ThirdPartyNotices.md` names verblib beside miniaudio.
+  (effects are made again at each chain change and at each game's end, `ClearEffectState`, and do not log the
+  rate themselves). `ThirdPartyNotices.md` names verblib beside miniaudio.
 - **Compressor**: Giannoulis, Massberg and Reiss, "Digital Dynamic Range Compressor Design: A Tutorial and Analysis"
   (J. Audio Eng. Soc. 60(6), 2012): feed-forward, in the log domain, the static curve of their eq. 4 with a quadratic
   soft knee of `KneeDb` (`ComputeCompressorOutputDb`), and their smooth decoupled peak detector with one-pole attack and

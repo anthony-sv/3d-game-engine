@@ -197,6 +197,8 @@ TEST_CASE("Scene: a streamed source's one-shots play its clip loaded, and a sour
 	REQUIRE(audio->HasSource(feet.GetUUID()));
 	CHECK_FALSE(scene.IsAudioSourcePlaying(feet));
 	CHECK(audio->GetVoiceCount(feet.GetUUID()) == 1);
+	CHECK_FALSE(scene.PlayAudioOneShot(feet, AssetHandle(), 1.0f));
+	CHECK(audio->GetVoiceCount(feet.GetUUID()) == 1);
 	Testing::Skip(0.01f);
 	CHECK(Testing::ReadLevels(0.05f).Left == doctest::Approx(0.25f).epsilon(0.01));
 	AudioSourceComponent& source = feet.GetComponent<AudioSourceComponent>();

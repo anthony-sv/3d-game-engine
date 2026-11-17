@@ -172,8 +172,9 @@ namespace Strada
 			return false;
 		}
 		bool const hasSound = SyncAudioSource(entity.GetHandle(), *component);
-		// A component that names a clip plays one-shots only with a sound of its own; one that names none, of clips given.
-		if (!hasSound && (component->Clip.IsValid() || !clip.IsValid()))
+		// A component that names a clip plays one-shots only with a sound of its own; one that names none, only of clips
+		// given (asked for its own, it has none to play: nothing to log).
+		if ((!hasSound && component->Clip.IsValid()) || (!clip.IsValid() && !component->Clip.IsValid()))
 		{
 			return false;
 		}
