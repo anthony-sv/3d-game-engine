@@ -642,7 +642,12 @@ namespace Strada
 			Field("MaxVoices", &AudioSourceComponent::MaxVoices)
 				.Range(1.0, static_cast<double>(MaxAudioSourceVoices))
 				.Doc("Sounds of this source that play at once: its clip and its one-shots. A one-shot beyond it stops the "
-		             "source's oldest one-shot."));
+		             "source's oldest one-shot."),
+			Field("DopplerLevel", &AudioSourceComponent::DopplerLevel)
+				.Range(0.0, static_cast<double>(MaxAudioDopplerLevel))
+				.VisibleWhen("Spatial", "true")
+				.Doc("How much the pitch rises as the sound and the listener come closer, and falls as they part (doppler): 0 "
+		             "turns it off, 1 is physical, more exaggerates it."));
 	};
 
 	template<>

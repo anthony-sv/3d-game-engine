@@ -1362,7 +1362,7 @@ category), and script interop component lookups.
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Material`, `Materials` (`.sphysmat`[], one per submesh of a triangle mesh, at most 31; 0 or missing = `Material`), `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
 | `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
-| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance`, `Bus` (the mixer's bus by name, any letter case; empty, or a name the mixer lacks, is Master), `Priority` (0 to 255; lower goes silent first at the engine's limit), `MaxVoices` (1 to 64; its main voice and its one-shots) |
+| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance`, `Bus` (the mixer's bus by name, any letter case; empty, or a name the mixer lacks, is Master), `Priority` (0 to 255; lower goes silent first at the engine's limit), `MaxVoices` (1 to 64; its main voice and its one-shots), `DopplerLevel` (0 to 5; how much of the doppler effect a spatial source takes, §9.8) |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
 | `VisualScript` | `VisualScriptComponent` | `Graph` asset (a visual script, `.sgraph`; 0 = none), `Variables` (public variable name → typed value, as `Script.Fields`; values under a former name of a variable apply to it) |
@@ -1563,7 +1563,7 @@ Mixer (`.smixer`, the data asset type `Mixer`, version 1, §9.5, §9.6 and §9.8
 "Parent", "VolumeDb", "Muted", "Effects": [ { "Kind", "Frequency", "Q", "GainDb", "DelaySeconds", "Feedback",
 "RoomSize", "Damping", "Width", "WetDb", "DryDb", "ThresholdDb", "Ratio", "KneeDb", "AttackSeconds", "ReleaseSeconds",
 "MakeupDb", "CeilingDb" } ], "DuckedBy", "DuckAmountDb", "DuckThresholdDb", "DuckAttackSeconds", "DuckReleaseSeconds" } ],
-"Snapshots": [ { "Name", "Values": [ { "Bus", "Target", "Effect", "Parameter", "Value" } ] } ] }`. At most 32 buses
+"Snapshots": [ { "Name", "Values": [ { "Bus", "Target", "Effect", "Parameter", "Value" } ] } ], "SpeedOfSound" }`. At most 32 buses
 and 8 effects a bus; exactly one bus is `Master`, with an empty `Parent`; names are unique ignoring letter case, not
 empty, at most 64 bytes; every other `Parent` names a bus of the list (empty is Master) and following parents reaches
 Master. `Kind` is `LowPass`, `HighPass`, `Peaking`, `LowShelf`, `HighShelf`, `Delay`, `Reverb`, `Compressor` or
@@ -1572,9 +1572,9 @@ bus's `DuckedBy` is empty or another bus whose level does not depend on this bus
 most 128 values; snapshot names are unique ignoring letter case, not empty, at most 64 bytes; a value's `Target` is
 `Volume`, `Muted` (a `Value` of 1 or 0) or `Effect` (`Effect`, the index of an effect of `Bus`, and `Parameter`, one that
 effect's kind uses, both stored with every value), its `Value` within that target's range, and no two values of a
-snapshot set the same thing. A new mixer (`{}`) is Master alone without snapshots. The ducking and snapshot fields joined
-version 1 with defaults within slice 3, before any `.smixer` existed outside it, so no migration reads an older file; MX2's
-speed of sound and impact settings join it the same way.
+snapshot set the same thing. `SpeedOfSound` is 1 to 10,000 m/s (343 by default). A new mixer (`{}`) is Master alone
+without snapshots. The ducking and snapshot fields and the speed of sound joined version 1 with defaults within slice 3,
+before any `.smixer` existed outside it, so no migration reads an older file; MX2's impact settings join it the same way.
 
 ```json
 {
@@ -2969,7 +2969,8 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   holds the scene's voices.
 - **`AudioSourceComponent`** has `Priority` (0 to 255, default 128; higher is kept) and `MaxVoices` (1 to 64, default
   4), compatible fields of the scene format that the scene sends to its sources as they change; `Bus` (a bus name; empty
-  is Master) joins them with the mixer's buses (MX2 adds `DopplerLevel`).
+  is Master) joins them with the mixer's buses; `DopplerLevel` (0 to 5, default 1) says how much of the doppler effect a
+  spatial source takes (§9.8).
 - **Scripting.** A static `Strada.Audio`: `MasterVolume` (linear; its getter is a pure node), `GetBusVolume(bus)` (dB)
   and `IsBusMuted(bus)` (`[PureNode]`), `SetBusVolume(bus, decibels)`, `SetBusMuted(bus, muted)`,
   `PlayClipAtPoint(clip, position, volume, bus)` and `ActiveVoiceCount` (a pure getter); and on `AudioSourceComponent`,
@@ -3054,12 +3055,30 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   the bus's groups. A bus whose ducking ends (its `DuckedBy` emptied, or the ducking bus removed) comes back up over its
   own release, never at once: the command carries the bus's values with the null node.
 - **Doppler, computed by the engine.** Positions are relative to the listener, so miniaudio's own doppler has nothing to
-  read (the engine sets its factor to 0). Each frame the main thread takes each spatial voice's closing speed `v` from
-  its source's and its listener's world positions of this update and the transform cache's previous matrices
-  (`CachedWorldTransform::Previous`, §7.1) over the frame's game time, and sends the factor `c / (c - v * DopplerLevel)`,
-  clamped to 0.5 to 2 (`SetVoiceDoppler`), which multiplies the voice's pitch and moves with it; `c` is
-  `Mixer::SpeedOfSound` (343 m/s). A voice's first update, and an update in which the source or the listener moved
-  faster than `c / 2` (a teleport), contribute none.
+  read (the engine sets its factor to 0). At each update of a running scene (`Scene::UpdateAudio`, after scripts and
+  physics) the scene takes the listener's and every spatial source's velocity from its world position at this update
+  and at the last, over the game time between them (the frame's time times the scene's time scale):
+  `ComputeAudioVelocity`. The positions are the scene's own record of its last update, not the transform cache's
+  previous matrices (`CachedWorldTransform::Previous`, §7.1), which the design first named: the cache is refreshed only
+  by the views that draw a frame, after the update, so at the update its previous matrix is the last drawn frame's, and
+  a scene that is never drawn (a headless run, a test, the player's audio capture) has none. The AudioScene then gives
+  each voice the factor `c / (c - v * DopplerLevel)` (`ComputeDopplerFactor`, `AudioScene::UpdateDoppler`), `v` being the
+  speed at which source and listener close in along the line between them and `c` `Mixer::SpeedOfSound` (343 m/s, 1 to
+  10,000), kept within 0.5 and 2 (`MinAudioDopplerFactor`, `MaxAudioDopplerFactor`; also when `v * DopplerLevel`
+  reaches `c`). The factor multiplies the pitch the voice plays at: it travels as the voice's `SetVoicePitch` (the pitch
+  times the factor), ramped over 20 ms on a log2 scale as any pitch is, while `GetPitch` and the scripts read the pitch
+  as it was set; this replaces the design's first `SetVoiceDoppler`, since the pitch's command already carries one value
+  to one voice with the ramp the factor needs. A source's voices share its factor, a one-shot started later starting at
+  it; a voice of the scene (`PlayClipAtPoint`) stands still and takes the listener's motion alone. **None** (a factor of
+  1) is given for a source's first update (made, its sound made again, or made spatial since the last), for an update
+  in which the source or the listener moved faster than `c / 2` (a teleport: a respawn, a cut, which no speed explains),
+  for a listener that is a different entity than at the last update (a cut between cameras a few meters apart would
+  otherwise pass for a speed), for an update without game time (the first, a scene whose time scale is 0), for the
+  first update after the scene resumes from a pause (what an edit moved meanwhile did not move in game time), for a
+  source that is not spatial or whose `DopplerLevel` is 0, and when source and listener are less than a millimeter
+  apart. A source moved only in fixed steps without interpolation moves in some frames and not in others when frames
+  outnumber steps, so its pitch warbles: interpolated bodies (the default, §8) and kinematic motion set per frame do
+  not.
 - **`ReverbZone`**: each frame the main thread computes each spatial voice's send to each zone's bus (inside the shape 1,
   falling to 0 across `FadeDistance`, times the zone's level; the largest per bus) and keeps the two largest. A voice
   that sends for the first time gets a send node (a Strada node made on the main thread: one input, three outputs, the
@@ -3073,8 +3092,16 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   (read-only, not an undo step) answers them, linear and in dBFS (silence, and anything below -80 dB, reads -80; a
   level that is not a finite number reads null), with the current snapshot and the active, mixed and stolen voice
   counts; without an audio engine it answers `initialized: false` and nothing else.
-- **`--audio-capture <file.wav>`** on the player: manual output, each frame reading the frames its game time covers (the
-  fraction carried), written as 16-bit PCM.
+- **`--audio-capture <file.wav>`** on the player (Docs/GettingStarted.md): the application mixes through manual output
+  (`ApplicationSpecification::ManualAudio`, whatever `--headless` or `STRADA_AUDIO_OUTPUT` say), so nothing reaches a
+  speaker. After each frame's update the runtime layer waits for streamed sounds to read ahead
+  (`AudioEngine::WaitForStreams`, so the file never depends on when the streaming thread ran), reads the frames of audio
+  the frame's time covers (`AudioCaptureClock`: the frame's step at the mix's rate, the fraction carried into the next
+  frame; a paused game and its time scale do not hold it) with `AudioEngine::ReadFrames` on the main thread, and appends
+  them to the file as 16-bit PCM (`WaveFileWriter`: the header first, its sizes written when the run ends, samples
+  clamped to -1 to 1, scaled by 32767 and rounded). With `--timestep` and `--frames` a run is a pure function of the game
+  and two runs write the same bytes. A file that cannot be made or written stops the run with exit code 1; a path whose
+  folder does not exist is a wrong command line (exit code 2). It runs headless, windowed and with `--test`.
 - **Impact sounds**: a collision that begins plays each side's `ImpactSound` once through the scene's
   `PlayClipAtPoint`, on the bus and at the volume `Mixer::Impacts` gives.
 
@@ -3115,6 +3142,16 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   registry-wide fuzz damages the FeatureTest mixer, which sets every new field, and `audio.meters` has
   `StradaEditorTests`' `AudioCommands:` cases and a sure request in the automation fuzz. The allocation case and the
   null-output threading case below mix transitions and ducking too.
+- **Doppler** (`Audio/AudioDopplerTests.cpp`) is measured in the mix of running scenes that are never drawn: a 1 kHz
+  tone's frequency, read from the left channel's rising zero crossings, within 1 % of `c / (c - v)` for a source passing
+  through the listener at 30 m/s (approaching and receding), a listener walking away at 30 m/s, a sound played at a
+  point while the listener walks toward it, and a source's one-shot at a pitch of its own; the clip's own frequency
+  within 0.2 % at level 0; no doppler at a source's first update, at a teleport, for a listener that changes entity, at
+  a time scale of 0, after a pause and for a sound that is not spatial; the mixer's speed of sound and twice the level;
+  and the factor and the velocity's closed forms with their limits. **The player's capture** (`StradaRuntimeTests`): the
+  `AudioCaptureClock`'s counts, and runs of a game with a spatial tone and streamed music whose files hold the header,
+  the length the frames' steps give (with and without a fraction of a frame) and sound on both channels, the same bytes
+  in two runs; `WaveFileWriter`'s header and conversion are `Audio/WaveFileWriterTests.cpp`'s.
 - **ThreadSanitizer** runs the audio cases by their prefixes (`AudioEngine:`, `AudioQueue:`, `AudioScene:`): a null
   output mixing while the main thread plays one-shots on a moving source, changes, steals and stops voices and ends a
   scene; a device taken over and started again; the mixing-thread hook asked from another thread across `Init` and

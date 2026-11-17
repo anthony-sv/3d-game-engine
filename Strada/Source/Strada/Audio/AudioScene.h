@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -46,7 +47,27 @@ namespace Strada
 		uint32_t Priority = DefaultAudioPriority;
 		// Voices of the source that play at once, its main voice included: 1 to MaxAudioSourceVoices.
 		uint32_t MaxVoices = DefaultAudioSourceVoices;
+		// How much of the doppler effect the source's voices take while spatial (Docs/Architecture.md §9.8): 0 none, 1
+		// physical, up to MaxAudioDopplerLevel exaggerated.
+		float DopplerLevel = DefaultAudioDopplerLevel;
 	};
+
+	// Doppler (Docs/Architecture.md §9.8). Positions are heard relative to the listener, so miniaudio's doppler has nothing
+	// to read; the scene computes velocities from where things were at its last update and where they are now, over the
+	// game time between, and the AudioScene turns them into a factor each voice's pitch is multiplied by.
+	//
+	// The velocity of something that moved from `from` to `to` in `seconds` of game time, in meters per second: none when
+	// the time is not positive and finite, a position is not finite, or the move is faster than half the speed of sound (a
+	// teleport, which no speed explains, so it gives no doppler rather than a jump of an octave). Any thread.
+	[[nodiscard]] std::optional<glm::vec3> ComputeAudioVelocity(glm::vec3 const& from, glm::vec3 const& to, float seconds,
+	                                                            float speedOfSound);
+	// The factor c / (c - v * level), v being the speed at which source and listener close in along the line between them
+	// (positive as they come closer), c the speed of sound; within MinAudioDopplerFactor and MaxAudioDopplerFactor (also
+	// when v * level reaches c). 1 when level is not positive, when source and listener are less than a millimeter apart
+	// (no line between them), and when anything is not finite. Any thread.
+	[[nodiscard]] float ComputeDopplerFactor(glm::vec3 const& sourcePosition, glm::vec3 const& sourceVelocity,
+	                                         glm::vec3 const& listenerPosition, glm::vec3 const& listenerVelocity, float level,
+	                                         float speedOfSound);
 
 	// A loaded clip whose samples would take more than this once decoded (4 bytes a sample, in the clip's own channels and
 	// sample rate) is refused: it must stream (AudioSourceDesc::StreamFile, AudioSourceComponent::Stream). 32 MiB is about
@@ -133,6 +154,23 @@ namespace Strada
 		// one-shots down to it.
 		void SetMaxVoices(UUID entity, uint32_t maxVoices);
 		uint32_t GetMaxVoices(UUID entity) const;
+		// Kept within 0 and MaxAudioDopplerLevel (NaN is 0); applies from the next UpdateDoppler.
+		void SetDopplerLevel(UUID entity, float level);
+		float GetDopplerLevel(UUID entity) const;
+		// The source's velocity in meters per second of game time (ComputeAudioVelocity), for doppler from the next
+		// UpdateDoppler on; none (its first update, a teleport, no game time) gives its voices no doppler. A source made, or
+		// made not spatial, has none until it is set.
+		void SetVelocity(UUID entity, std::optional<glm::vec3> const& velocity);
+		// The listener's velocity, as SetVelocity's; none gives every voice no doppler.
+		void SetListenerVelocity(std::optional<glm::vec3> const& velocity);
+		// Once an update, after the listener's and the sources' positions and velocities: gives every voice its doppler
+		// factor (ComputeDopplerFactor with the mixer's SpeedOfSound), which multiplies its pitch, ramped as a pitch is
+		// (AudioParameterSmoothingSeconds). A source's voices share its factor, one-shots started later included; a source
+		// that is not spatial, of level 0, or whose velocity or the listener's is unknown takes 1. The scene's own voices
+		// (PlayClipAtPoint) stand still and take the listener's motion alone.
+		void UpdateDoppler();
+		// The factor the source's voices play at, as UpdateDoppler last gave it (1 for none, or without a source).
+		float GetDoppler(UUID entity) const;
 
 		// Plays clip once more on a new voice of the source's pool (the source's own clip when clip is null), beside its
 		// main voice and its other one-shots, at this volume (a linear gain times the source's). A one-shot never loops;

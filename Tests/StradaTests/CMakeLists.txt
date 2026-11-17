@@ -25,6 +25,7 @@ add_executable(StradaTests
     Source/Asset/VisualScriptRoundTrip.h
     Source/Asset/VisualScriptSerializerTests.cpp
     Source/Audio/AudioBenchmarkTests.cpp
+    Source/Audio/AudioDopplerTests.cpp
     Source/Audio/AudioEngineTests.cpp
     Source/Audio/AudioMixControlTests.cpp
     Source/Audio/AudioMixerTests.cpp
@@ -35,6 +36,7 @@ add_executable(StradaTests
     Source/Audio/AudioWaveformTests.cpp
     Source/Audio/MixAllocationHook.cpp
     Source/Audio/MixAllocationHook.h
+    Source/Audio/WaveFileWriterTests.cpp
     Source/Core/ApplicationTests.cpp
     Source/Core/Base64Tests.cpp
     Source/Core/BufferTests.cpp

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -60,6 +61,10 @@ namespace Strada
 			std::string Bus;
 			uint32_t Priority = DefaultAudioPriority;
 			uint32_t MaxVoices = DefaultAudioSourceVoices;
+			float DopplerLevel = DefaultAudioDopplerLevel;
+			// Doppler (§9.8): the velocity the scene last gave (none until it gives one) and the factor its voices play at.
+			std::optional<glm::vec3> Velocity;
+			float Doppler = 1.0f;
 		};
 
 		struct PointVoice
@@ -75,6 +80,7 @@ namespace Strada
 		glm::vec3 ListenerPosition = glm::vec3(0.0f);
 		// Columns: the listener's right, up and back directions (it faces -Z of its basis, like miniaudio's listener).
 		glm::mat3 ListenerBasis = glm::mat3(1.0f);
+		std::optional<glm::vec3> ListenerVelocity;
 		bool Paused = false;
 
 		Data() { Miniaudio::GetVoiceManager().AddOwner(*this); }
@@ -143,6 +149,33 @@ namespace Strada
 			source.Bus = desc.Bus;
 			source.Priority = std::min(desc.Priority, MaxAudioPriority);
 			source.MaxVoices = std::clamp(desc.MaxVoices, 1u, MaxAudioSourceVoices);
+			source.DopplerLevel = ClampDopplerLevel(desc.DopplerLevel);
+		}
+
+		static float ClampDopplerLevel(float level) { return std::isnan(level) ? 0.0f : std::clamp(level, 0.0f, MaxAudioDopplerLevel); }
+
+		// The factor of a voice of the scene, which stands still at its position.
+		float ComputePointDoppler(glm::vec3 const& position) const
+		{
+			if (!ListenerVelocity)
+			{
+				return 1.0f;
+			}
+			return ComputeDopplerFactor(position, glm::vec3(0.0f), ListenerPosition, *ListenerVelocity, 1.0f,
+			                            AudioEngine::GetMixer().SpeedOfSound);
+		}
+
+		// The source's voices, its one-shots included, play at its factor.
+		static void ApplyDoppler(Source& source)
+		{
+			if (source.Main)
+			{
+				source.Main->SetDoppler(source.Doppler);
+			}
+			for (OneShot const& oneShot : source.OneShots)
+			{
+				oneShot.Voice->SetDoppler(source.Doppler);
+			}
 		}
 
 		// The entity's sound from now on; the one it replaces retires its voices.
@@ -346,6 +379,48 @@ namespace Strada
 			return samples.TakeValue();
 		}
 	};
+
+	std::optional<glm::vec3> ComputeAudioVelocity(glm::vec3 const& from, glm::vec3 const& to, float seconds, float speedOfSound)
+	{
+		if (!(seconds > 0.0f) || !std::isfinite(seconds) || !IsFinite(from) || !IsFinite(to))
+		{
+			return std::nullopt;
+		}
+		glm::vec3 const velocity = (to - from) / seconds;
+		float const speed = glm::length(velocity);
+		// A move faster than half the speed of sound is a teleport (and NaN or infinite speeds are no speed at all).
+		if (!std::isfinite(speed) || !(speed <= 0.5f * speedOfSound))
+		{
+			return std::nullopt;
+		}
+		return velocity;
+	}
+
+	float ComputeDopplerFactor(glm::vec3 const& sourcePosition, glm::vec3 const& sourceVelocity, glm::vec3 const& listenerPosition,
+	                           glm::vec3 const& listenerVelocity, float level, float speedOfSound)
+	{
+		constexpr float MinSeparation = 0.001f;
+		if (!(level > 0.0f) || !std::isfinite(level) || !(speedOfSound > 0.0f) || !std::isfinite(speedOfSound) ||
+		    !IsFinite(sourcePosition) || !IsFinite(sourceVelocity) || !IsFinite(listenerPosition) || !IsFinite(listenerVelocity))
+		{
+			return 1.0f;
+		}
+		glm::vec3 const towardListener = listenerPosition - sourcePosition;
+		float const distance = glm::length(towardListener);
+		if (!(distance >= MinSeparation) || !std::isfinite(distance))
+		{
+			return 1.0f;
+		}
+		// Positive as they come closer: the source moving toward the listener, or the listener toward the source.
+		float const closing = glm::dot(sourceVelocity - listenerVelocity, towardListener / distance) * level;
+		float const remaining = speedOfSound - closing;
+		// c / (c - v) reaches the highest factor at c - v = c / MaxAudioDopplerFactor, and never divides by zero beyond it.
+		if (!(remaining > speedOfSound / MaxAudioDopplerFactor))
+		{
+			return std::isfinite(remaining) ? MaxAudioDopplerFactor : 1.0f;
+		}
+		return std::clamp(speedOfSound / remaining, MinAudioDopplerFactor, MaxAudioDopplerFactor);
+	}
 
 	Result<Scope<AudioScene>> AudioScene::Create()
 	{
@@ -613,6 +688,13 @@ namespace Strada
 		{
 			oneShot.Voice->SetSpatial(spatial);
 		}
+		if (!spatial)
+		{
+			// A sound that is not positioned has no motion to hear.
+			source->Velocity.reset();
+			source->Doppler = 1.0f;
+			Data::ApplyDoppler(*source);
+		}
 	}
 
 	void AudioScene::SetDistances(UUID entity, float minDistance, float maxDistance)
@@ -730,6 +812,57 @@ namespace Strada
 		return source != nullptr ? source->MaxVoices : DefaultAudioSourceVoices;
 	}
 
+	void AudioScene::SetDopplerLevel(UUID entity, float level)
+	{
+		if (Data::Source* const source = m_Data->Find(entity))
+		{
+			source->DopplerLevel = Data::ClampDopplerLevel(level);
+		}
+	}
+
+	float AudioScene::GetDopplerLevel(UUID entity) const
+	{
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr ? source->DopplerLevel : DefaultAudioDopplerLevel;
+	}
+
+	void AudioScene::SetVelocity(UUID entity, std::optional<glm::vec3> const& velocity)
+	{
+		if (Data::Source* const source = m_Data->Find(entity))
+		{
+			source->Velocity = velocity && IsFinite(*velocity) ? velocity : std::nullopt;
+		}
+	}
+
+	void AudioScene::SetListenerVelocity(std::optional<glm::vec3> const& velocity)
+	{
+		m_Data->ListenerVelocity = velocity && IsFinite(*velocity) ? velocity : std::nullopt;
+	}
+
+	void AudioScene::UpdateDoppler()
+	{
+		float const speedOfSound = AudioEngine::GetMixer().SpeedOfSound;
+		std::optional<glm::vec3> const& listenerVelocity = m_Data->ListenerVelocity;
+		for (auto const& [entity, source] : m_Data->Sources)
+		{
+			bool const moving = source->Spatial && source->DopplerLevel > 0.0f && source->Velocity && listenerVelocity;
+			source->Doppler = moving ? ComputeDopplerFactor(source->Position, *source->Velocity, m_Data->ListenerPosition,
+			                                                *listenerVelocity, source->DopplerLevel, speedOfSound)
+			                         : 1.0f;
+			Data::ApplyDoppler(*source);
+		}
+		for (Data::PointVoice const& point : m_Data->PointVoices)
+		{
+			point.Voice->SetDoppler(m_Data->ComputePointDoppler(point.Position));
+		}
+	}
+
+	float AudioScene::GetDoppler(UUID entity) const
+	{
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr ? source->Doppler : 1.0f;
+	}
+
 	bool AudioScene::PlayOneShot(UUID entity, Ref<AudioClipAsset> const& clip, float volume)
 	{
 		Data::Source* const source = m_Data->Find(entity);
@@ -768,6 +901,7 @@ namespace Strada
 		desc.Samples = std::move(samples);
 		desc.Volume = source->Volume * oneShotVolume;
 		desc.Pitch = source->Pitch;
+		desc.Doppler = source->Doppler;
 		desc.Loop = false;
 		desc.Spatial = source->Spatial;
 		desc.MinDistance = source->MinDistance;
@@ -809,6 +943,7 @@ namespace Strada
 		desc.Samples = std::move(samples);
 		desc.Volume = volume > 0.0f ? volume : 0.0f;
 		desc.Spatial = true;
+		desc.Doppler = m_Data->ComputePointDoppler(position);
 		desc.RelativePosition = m_Data->ToRelative(position);
 		desc.OneShot = true;
 		return m_Data->StartVoice(desc, bus, nullptr, desc.Volume, position);

@@ -287,6 +287,10 @@ namespace Strada
 		uint32_t Priority = DefaultAudioPriority;
 		// Voices of the source that play at once, its main voice and its one-shots together: 1 to MaxAudioSourceVoices.
 		uint32_t MaxVoices = DefaultAudioSourceVoices;
+		// How much of the doppler effect a spatial source's voices take (Docs/Architecture.md §9.8): their pitch is multiplied
+		// by c / (c - v * DopplerLevel), v being how fast source and listener close in. 0 turns it off, 1 is physical, up to
+		// MaxAudioDopplerLevel exaggerates it. Sources that are not spatial take none.
+		float DopplerLevel = DefaultAudioDopplerLevel;
 	};
 
 	struct AudioListenerComponent

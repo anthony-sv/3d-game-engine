@@ -109,6 +109,8 @@ namespace Strada
 		Ref<AudioStream> Stream;
 		float Volume = 1.0f;
 		float Pitch = 1.0f;
+		// The doppler factor the pitch is multiplied by (MinAudioDopplerFactor to MaxAudioDopplerFactor; 1 for none).
+		float Doppler = 1.0f;
 		bool Loop = false;
 		bool Spatial = true;
 		float MinDistance = 1.0f;
@@ -183,6 +185,9 @@ namespace Strada
 		// Main thread: the shadow. These are the values last set, whether or not a block has applied them yet.
 		float GetVolume() const { return m_Volume; }
 		float GetPitch() const { return m_Pitch; }
+		float GetDoppler() const { return m_Doppler; }
+		// What the voice plays at: its pitch times its doppler factor, at least MinAudioPitch.
+		float GetPlaybackPitch() const;
 		bool IsLooping() const { return m_Loop; }
 		bool IsSpatial() const { return m_Spatial; }
 		float GetMinDistance() const { return m_MinDistance; }
@@ -223,6 +228,9 @@ namespace Strada
 		void Hold();
 		void SetVolume(float volume);
 		void SetPitch(float pitch);
+		// The doppler factor (§9.8), kept within MinAudioDopplerFactor and MaxAudioDopplerFactor (NaN is 1): it multiplies
+		// the pitch the mixing thread plays (a SetVoicePitch, ramped as a pitch is) and leaves GetPitch as it was set.
+		void SetDoppler(float factor);
 		void SetLooping(bool loop);
 		void SetSpatial(bool spatial);
 		void SetDistances(float minDistance, float maxDistance);
@@ -257,6 +265,8 @@ namespace Strada
 		// Main thread (AudioVoiceManager): hands the voice to the mixing thread or starts it again, as flags
 		// (AudioStartFlags) says, with the serial of the current play.
 		void SendStart(uint8_t flags);
+		// Main thread: the playback pitch (GetPlaybackPitch) to miniaudio before the hand-over, as a command after it.
+		void SendPlaybackPitch();
 
 		// What it plays. Held here, on the main thread's side, so that the last reference is never dropped on the mixing
 		// thread.
@@ -270,6 +280,7 @@ namespace Strada
 		// The shadow (main thread).
 		float m_Volume = 1.0f;
 		float m_Pitch = 1.0f;
+		float m_Doppler = 1.0f;
 		bool m_Loop = false;
 		bool m_Spatial = true;
 		float m_MinDistance = 1.0f;
@@ -318,7 +329,7 @@ namespace Strada
 		uint64_t m_MixFadeEnd = 0;
 		// The engine's time when the voice became virtual.
 		uint64_t m_MixVirtualSince = 0;
-		// Pitch on its way to its target, stepped once a block on a log2 scale.
+		// The playback pitch (doppler included) on its way to its target, stepped once a block on a log2 scale.
 		float m_MixPitch = 1.0f;
 		float m_MixPitchTarget = 1.0f;
 		float m_MixPitchStep = 0.0f;

@@ -125,6 +125,7 @@ namespace
 		                       .Value = 800.0f},
 		};
 		mixer.Snapshots = {paused, MixerSnapshot{.Name = "Quiet", .Values = {}}};
+		mixer.SpeedOfSound = 1480.0f;
 		return mixer;
 	}
 
@@ -157,11 +158,13 @@ TEST_CASE("MixerAsset: the engine registers Mixer, its .smixer files and its com
 	CHECK(std::string_view(AssetTypeToString(type.GetAssetType())) == "Mixer");
 	CHECK(type.GetCommandDomain() == "mixer");
 	CHECK(type.GetCommandParameter() == "mixer");
-	REQUIRE(type.GetFields().size() == 2);
+	REQUIRE(type.GetFields().size() == 3);
 	CHECK(type.GetFields()[0].Name == "Buses");
 	CHECK(type.GetFields()[1].Name == "Snapshots");
+	CHECK(type.GetFields()[2].Name == "SpeedOfSound");
 	CHECK_FALSE(type.GetFields()[0].Hints.Description.empty());
 	CHECK_FALSE(type.GetFields()[1].Hints.Description.empty());
+	CHECK_FALSE(type.GetFields()[2].Hints.Description.empty());
 	// A new mixer is Master alone, at 0 dB without effects or ducking, and has no snapshot.
 	Json const defaults = type.GetDefaultFields();
 	REQUIRE(defaults["Buses"].size() == 1);
@@ -174,6 +177,7 @@ TEST_CASE("MixerAsset: the engine registers Mixer, its .smixer files and its com
 	CHECK(master["DuckedBy"] == "");
 	CHECK(master["DuckAmountDb"] == -12.0);
 	CHECK(defaults["Snapshots"] == Json::array());
+	CHECK(defaults["SpeedOfSound"] == 343.0);
 }
 
 TEST_CASE("MixerAsset: files round trip, buses read from a file replace the default Master, and missing fields keep defaults")
@@ -215,6 +219,7 @@ TEST_CASE("MixerAsset: files round trip, buses read from a file replace the defa
 	highPass.Kind = MixerEffectKind::HighPass;
 	CHECK(read.Buses[1].Effects[0] == highPass);
 	CHECK(read.Snapshots.empty());
+	CHECK(read.SpeedOfSound == DefaultSpeedOfSound);
 	// A snapshot value's missing fields take theirs too: Master's volume at 0 dB.
 	Result<Ref<DataAsset>> sparseSnapshot = DataAssetSerializer::Deserialize(
 		GetMixerType(),
@@ -227,6 +232,9 @@ TEST_CASE("MixerAsset: files round trip, buses read from a file replace the defa
 	CHECK(readSnapshot.Snapshots[0].Values == std::vector<MixerSnapshotValue>{SetVolume("Master", 0.0f)});
 
 	// Values outside their ranges are refused when read.
+	CHECK(DataAssetSerializer::Deserialize(
+			  GetMixerType(), MakeMixerDocument(Json::parse(R"({ "Buses": [ { "Name": "Master" } ], "SpeedOfSound": 0 })")), {})
+	          .IsError());
 	CHECK(DataAssetSerializer::Deserialize(GetMixerType(),
 	                                       MakeMixerDocument(Json::parse(R"({ "Buses": [ { "Name": "Master", "VolumeDb": 30 } ] })")), {})
 	          .IsError());

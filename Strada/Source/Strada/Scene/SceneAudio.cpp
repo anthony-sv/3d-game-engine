@@ -30,6 +30,7 @@ namespace Strada
 			desc.Bus = component.Bus;
 			desc.Priority = component.Priority;
 			desc.MaxVoices = component.MaxVoices;
+			desc.DopplerLevel = component.DopplerLevel;
 			desc.Position = position;
 			return desc;
 		}
@@ -49,16 +50,28 @@ namespace Strada
 			return;
 		}
 		m_Audio = audio.TakeValue();
-		UpdateAudio();
+		// No game time has passed: the first update places the sounds and gives them no doppler.
+		UpdateAudio(0.0f);
 	}
 
 	void Scene::StopAudio()
 	{
 		m_AudioSources.clear();
+		ForgetAudioMotion();
 		m_Audio.reset();
 	}
 
-	void Scene::UpdateAudio()
+	void Scene::ForgetAudioMotion()
+	{
+		m_AudioListenerLastPosition.reset();
+		m_AudioListenerLastEntity = UUID::Invalid();
+		for (auto& [handle, state] : m_AudioSources)
+		{
+			state.LastPosition.reset();
+		}
+	}
+
+	void Scene::UpdateAudio(float deltaTime)
 	{
 		if (!m_Audio)
 		{
@@ -85,16 +98,39 @@ namespace Strada
 			SyncAudioSource(handle, source);
 		}
 
+		// Doppler's velocities are the moves since the last update over the game time between (Docs/Architecture.md §9.8),
+		// from the world transforms this update reads: the transform cache's previous matrices are the last drawn frame's,
+		// and a scene that is not drawn (headless runs, tests, the player's audio capture) refreshes none.
+		float const speedOfSound = AudioEngine::GetMixer().SpeedOfSound;
 		Entity const listener = FindAudioListener();
+		UUID const listenerId = listener ? listener.GetUUID() : UUID::Invalid();
 		glm::mat4 const listenerTransform = listener ? GetWorldTransform(listener) : glm::mat4(1.0f);
-		m_Audio->SetListener(GetTranslation(listenerTransform), -glm::vec3(listenerTransform[2]), glm::vec3(listenerTransform[1]));
-		for (auto const& [handle, state] : m_AudioSources)
+		glm::vec3 const listenerPosition = GetTranslation(listenerTransform);
+		// A listener that moved to another entity (a camera cut) did not travel the distance between them.
+		std::optional<glm::vec3> listenerVelocity;
+		if (m_AudioListenerLastPosition && listenerId == m_AudioListenerLastEntity)
 		{
-			if (state.HasSound && state.Applied.Spatial)
-			{
-				m_Audio->SetPosition(state.Entity, GetTranslation(GetWorldTransform(Entity(handle, this))));
-			}
+			listenerVelocity = ComputeAudioVelocity(*m_AudioListenerLastPosition, listenerPosition, deltaTime, speedOfSound);
 		}
+		m_AudioListenerLastPosition = listenerPosition;
+		m_AudioListenerLastEntity = listenerId;
+		m_Audio->SetListener(listenerPosition, -glm::vec3(listenerTransform[2]), glm::vec3(listenerTransform[1]));
+		m_Audio->SetListenerVelocity(listenerVelocity);
+		for (auto& [handle, state] : m_AudioSources)
+		{
+			if (!state.HasSound || !state.Applied.Spatial)
+			{
+				state.LastPosition.reset();
+				continue;
+			}
+			glm::vec3 const position = GetTranslation(GetWorldTransform(Entity(handle, this)));
+			m_Audio->SetPosition(state.Entity, position);
+			m_Audio->SetVelocity(state.Entity, state.LastPosition
+			                                       ? ComputeAudioVelocity(*state.LastPosition, position, deltaTime, speedOfSound)
+			                                       : std::nullopt);
+			state.LastPosition = position;
+		}
+		m_Audio->UpdateDoppler();
 	}
 
 	bool Scene::SyncAudioSource(entt::entity handle, AudioSourceComponent const& component)
@@ -206,6 +242,7 @@ namespace Strada
 				return false;
 			}
 			state.HasSound = true;
+			state.LastPosition.reset();
 		}
 		return m_Audio->PlayOneShot(state.Entity, clipAsset, volume);
 	}
@@ -234,6 +271,7 @@ namespace Strada
 	{
 		m_Audio->RemoveSource(state.Entity);
 		state.HasSound = false;
+		state.LastPosition.reset();
 		if (!component.Clip.IsValid())
 		{
 			return;
@@ -314,6 +352,10 @@ namespace Strada
 		if (component.MaxVoices != applied.MaxVoices)
 		{
 			m_Audio->SetMaxVoices(state.Entity, component.MaxVoices);
+		}
+		if (component.DopplerLevel != applied.DopplerLevel)
+		{
+			m_Audio->SetDopplerLevel(state.Entity, component.DopplerLevel);
 		}
 	}
 

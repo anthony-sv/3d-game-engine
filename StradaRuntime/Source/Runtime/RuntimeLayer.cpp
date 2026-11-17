@@ -2,6 +2,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/TextureAsset.h"
+#include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/Application.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
@@ -62,6 +63,10 @@ namespace Strada
 		UpdateViewportSize();
 		UpdateMousePosition();
 		m_StartScene->OnViewportResize(m_ViewportWidth, m_ViewportHeight);
+		if (!m_Specification.AudioCapturePath.empty() && !StartAudioCapture())
+		{
+			return;
+		}
 		m_Runner.Start(std::move(m_StartScene));
 		ST_INFO("Started scene '{}' of {}", m_Runner.GetScene()->GetName(), m_Game->GetSettings().Name);
 	}
@@ -110,6 +115,7 @@ namespace Strada
 		}
 		// The application has served or cancelled every capture before its layers detach.
 		ReportMissingScreenshot();
+		FinishAudioCapture();
 		if (m_Specification.Test && m_Runner.IsRunning())
 		{
 			// Closed before the run ended (--frames): it did not finish.
@@ -130,8 +136,16 @@ namespace Strada
 		UpdateViewportSize();
 		UpdateMousePosition();
 		m_Runner.GetScene()->OnViewportResize(m_ViewportWidth, m_ViewportHeight);
-		m_Runner.Update(m_Specification.FixedTimestep > 0.0f ? Timestep(m_Specification.FixedTimestep) : timestep);
+		Timestep const step = m_Specification.FixedTimestep > 0.0f ? Timestep(m_Specification.FixedTimestep) : timestep;
+		m_Runner.Update(step);
 		m_Frames++;
+		// The frame's sound, the last frame of a test run's included. A capture that failed has closed the player: a test run
+		// it cut short is reported as unfinished.
+		CaptureAudio(step.GetSeconds());
+		if (m_AudioCaptureFailed)
+		{
+			return;
+		}
 
 		if (m_Specification.Test)
 		{
@@ -213,6 +227,84 @@ namespace Strada
 		{
 			Application::Get().SetExitCode(1);
 		}
+	}
+
+	bool RuntimeLayer::StartAudioCapture()
+	{
+		if (!AudioEngine::IsInitialized() || AudioEngine::GetOutput() != AudioOutput::Manual)
+		{
+			FailAudioCapture("the audio engine did not start");
+			return false;
+		}
+		Result<Scope<WaveFileWriter>> writer =
+			WaveFileWriter::Create(m_Specification.AudioCapturePath, AudioEngine::GetSampleRate(), AudioEngine::GetChannelCount());
+		if (!writer)
+		{
+			FailAudioCapture(writer.GetError());
+			return false;
+		}
+		m_AudioCapture = writer.TakeValue();
+		m_AudioClock.emplace(AudioEngine::GetSampleRate());
+		ST_INFO("Recording the mix into '{}' ({} Hz, {} channels, 16-bit)", FileSystem::PathToUtf8(m_Specification.AudioCapturePath),
+		        AudioEngine::GetSampleRate(), AudioEngine::GetChannelCount());
+		return true;
+	}
+
+	void RuntimeLayer::CaptureAudio(float seconds)
+	{
+		if (!m_AudioCapture)
+		{
+			return;
+		}
+		uint64_t const frames = m_AudioClock->Advance(static_cast<double>(seconds));
+		if (frames == 0)
+		{
+			return;
+		}
+		// Streamed sounds read ahead first, so that what the capture holds never depends on when their thread ran.
+		AudioEngine::WaitForStreams();
+		m_AudioSamples.resize(static_cast<size_t>(frames) * AudioEngine::GetChannelCount());
+		uint64_t const read = AudioEngine::ReadFrames(m_AudioSamples);
+		if (read != frames)
+		{
+			FailAudioCapture(fmt::format("the mix gave {} of {} frames", read, frames));
+			return;
+		}
+		if (Result<void> written = m_AudioCapture->Write(m_AudioSamples); !written)
+		{
+			FailAudioCapture(written.GetError());
+		}
+	}
+
+	void RuntimeLayer::FinishAudioCapture()
+	{
+		if (!m_AudioCapture)
+		{
+			return;
+		}
+		uint64_t const frames = m_AudioCapture->GetFrameCount();
+		Result<void> const finished = m_AudioCapture->Finish();
+		m_AudioCapture.reset();
+		if (!finished)
+		{
+			FailAudioCapture(finished.GetError());
+			return;
+		}
+		ST_INFO("Saved the audio capture of {} frames ({:.3f} s) to '{}'", frames,
+		        static_cast<double>(frames) / static_cast<double>(AudioEngine::GetSampleRate()),
+		        FileSystem::PathToUtf8(m_Specification.AudioCapturePath));
+	}
+
+	void RuntimeLayer::FailAudioCapture(std::string const& failure)
+	{
+		ST_ERROR("The run stops: the audio capture '{}' failed: {}", FileSystem::PathToUtf8(m_Specification.AudioCapturePath), failure);
+		m_AudioCapture.reset();
+		m_AudioCaptureFailed = true;
+		if (Application::Get().GetExitCode() == 0)
+		{
+			Application::Get().SetExitCode(1);
+		}
+		Application::Get().Close();
 	}
 
 	void RuntimeLayer::UpdateViewportSize()

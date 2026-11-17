@@ -30,6 +30,10 @@ namespace Strada
 	inline constexpr uint32_t MaxMixerSnapshots = 32;
 	inline constexpr uint32_t MaxMixerSnapshotValues = 128;
 	inline constexpr uint32_t MaxMixerSnapshotNameBytes = 64;
+	// The speed of sound doppler is computed with (Mixer::SpeedOfSound), in meters per second: air's at 20 °C by default.
+	inline constexpr float DefaultSpeedOfSound = 343.0f;
+	inline constexpr float MinSpeedOfSound = 1.0f;
+	inline constexpr float MaxSpeedOfSound = 10000.0f;
 
 	// What an effect does to its bus's signal (§9.6 names the published method of each). The order is the format's: files
 	// store the names.
@@ -201,6 +205,9 @@ namespace Strada
 		std::vector<MixerBus> Buses = {MakeMasterBus()};
 		// At most MaxMixerSnapshots.
 		std::vector<MixerSnapshot> Snapshots;
+		// Meters per second (MinSpeedOfSound to MaxSpeedOfSound): the c of the doppler factor c / (c - v) that the scenes give
+		// their spatial voices (§9.8). Read on the main thread at each scene update, so an edit applies from the next one.
+		float SpeedOfSound = DefaultSpeedOfSound;
 
 		bool operator==(Mixer const&) const = default;
 	};

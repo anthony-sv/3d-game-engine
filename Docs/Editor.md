@@ -754,6 +754,10 @@ An Audio Source also has `Bus`, the bus of the project's mixer it plays on ([Mix
 `Priority` (0 to 255, 128 by default: when more sounds play than the engine mixes at once, 64, those of lower priority
 go silent first and come back when there is room) and `MaxVoices` (1 to 64, 4 by default: how many of its sounds play at
 once, its clip and the one-shots scripts and graphs play on it; a one-shot past it stops the source's oldest one-shot).
+A spatial source's `DopplerLevel` (0 to 5, 1 by default) says how much its pitch rises as it and the listener come
+closer and falls as they part, at the speed of sound the project's mixer sets (`SpeedOfSound`, 343 m/s): 0 turns it off,
+1 is physical. The engine computes it from where the source and the listener were at the last frame of the game, so a
+jump faster than half the speed of sound (a respawn) and a switch to another listener give none.
 
 ### Fonts
 
@@ -889,7 +893,8 @@ a bus it ducks. A mixer's `Snapshots` are named sets of values that a game blend
 muffles everything for example: each value sets one bus's `Volume`, its `Muted` (1 or 0), or a parameter of one of its
 effects (by the effect's index in its list) in place of the mixer's own, and everything a snapshot does not set keeps
 the mixer's values. While a game blends to a snapshot, edits of the mixer apply under it; when the game stops, the mix is
-back at the mixer's own values.
+back at the mixer's own values. `SpeedOfSound` (1 to 10,000 m/s, 343 by default) is the speed the doppler of moving
+sounds is computed with: lower it to hear more of it.
 
 Name the game's mixer in Project Settings (`Mixer`), and a bus in an Audio Source's `Bus` (any letter case; empty is
 Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer in the Inspector, or agents with

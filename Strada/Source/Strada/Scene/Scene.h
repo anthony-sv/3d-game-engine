@@ -615,7 +615,11 @@ namespace Strada
 		struct AudioSourceState;
 		void StartAudio();
 		void StopAudio();
-		void UpdateAudio();
+		// The listener and the sources follow their entities; deltaTime is the game time since the last update, over which
+		// their moves give doppler its velocities (none when it is 0: the update at the start, a scene whose time stands still).
+		void UpdateAudio(float deltaTime);
+		// The next update gives no doppler: where the listener and the sources were is forgotten.
+		void ForgetAudioMotion();
 		// Brings an entity's sound up to date with its component; false when it has no sound.
 		bool SyncAudioSource(entt::entity handle, AudioSourceComponent const& component);
 		void CreateAudioSource(entt::entity handle, AudioSourceState& state, AudioSourceComponent const& component, bool playOnStart);
@@ -896,9 +900,16 @@ namespace Strada
 			// False when there is no clip or it cannot be played; retried when the clip changes. True for a component with no
 			// clip once a one-shot has made its pool of voices.
 			bool HasSound = false;
+			// Where its sound was at the last update, for doppler (Docs/Architecture.md §9.8); none for a sound made or made
+			// spatial since.
+			std::optional<glm::vec3> LastPosition;
 		};
 
 		Scope<AudioScene> m_Audio;
+		// Where the listener was heard from at the last update, and which entity it was (none: the origin), for doppler: a
+		// listener that moved to another entity has no velocity at its first update there.
+		std::optional<glm::vec3> m_AudioListenerLastPosition;
+		UUID m_AudioListenerLastEntity = UUID::Invalid();
 		std::unordered_map<entt::entity, AudioSourceState> m_AudioSources;
 
 		// The class an entity's script instance was made from; HasInstance is false when it could not be made (unknown

@@ -194,6 +194,7 @@ namespace Strada
 		// The volume reaches miniaudio with the voice's first start, so that its first value is taken at once however often
 		// it changed before (miniaudio's gainer smooths every value after the first, miniaudio.h:51010-51016).
 		voice->m_Volume = desc.Volume > 0.0f ? desc.Volume : 0.0f;
+		voice->SetDoppler(desc.Doppler);
 		voice->SetPitch(desc.Pitch);
 		voice->SetLooping(desc.Loop && !desc.OneShot);
 		voice->SetDistances(desc.MinDistance, desc.MaxDistance);
@@ -307,7 +308,7 @@ namespace Strada
 		command.Flags = flags;
 		command.Object = this;
 		command.Other = m_Group;
-		command.Values = {m_Volume, m_Pitch, 0.0f, 0.0f};
+		command.Values = {m_Volume, GetPlaybackPitch(), 0.0f, 0.0f};
 		command.Serial = m_PlaySerial;
 		Miniaudio::GetVoiceManager().Submit(command);
 	}
@@ -380,6 +381,12 @@ namespace Strada
 		}
 	}
 
+	float AudioVoice::GetPlaybackPitch() const
+	{
+		float const pitch = m_Pitch * m_Doppler;
+		return pitch >= MinAudioPitch ? pitch : MinAudioPitch;
+	}
+
 	void AudioVoice::SetPitch(float pitch)
 	{
 		// Also replaces NaN.
@@ -389,6 +396,24 @@ namespace Strada
 			return;
 		}
 		m_Pitch = pitch;
+		SendPlaybackPitch();
+	}
+
+	void AudioVoice::SetDoppler(float factor)
+	{
+		// Also replaces NaN, with no doppler.
+		factor = std::isnan(factor) ? 1.0f : std::clamp(factor, MinAudioDopplerFactor, MaxAudioDopplerFactor);
+		if (factor == m_Doppler && m_HeldByMixer)
+		{
+			return;
+		}
+		m_Doppler = factor;
+		SendPlaybackPitch();
+	}
+
+	void AudioVoice::SendPlaybackPitch()
+	{
+		float const pitch = GetPlaybackPitch();
 		if (m_HeldByMixer)
 		{
 			Send(AudioCommandType::SetVoicePitch, {pitch, 0.0f, 0.0f, 0.0f});

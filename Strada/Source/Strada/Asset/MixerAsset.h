@@ -216,7 +216,11 @@ namespace Strada
 				.Doc("The buses (at most 32): Master, the root, and the buses below it, each naming its parent."),
 			Field("Snapshots", &Mixer::Snapshots)
 				.MaxCount(MaxMixerSnapshots)
-				.Doc("Named sets of bus values the mix blends to while a game plays (a pause that muffles everything; at most 32)."));
+				.Doc("Named sets of bus values the mix blends to while a game plays (a pause that muffles everything; at most 32)."),
+			Field("SpeedOfSound", &Mixer::SpeedOfSound)
+				.Range(static_cast<double>(MinSpeedOfSound), static_cast<double>(MaxSpeedOfSound))
+				.Doc("Meters per second (343 in air): how much moving sounds rise in pitch as they come closer and fall as they "
+		             "go away (doppler)."));
 	};
 
 	inline constexpr std::array<DocumentMigration, 0> MixerMigrations = {};

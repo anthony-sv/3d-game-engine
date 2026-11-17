@@ -2,8 +2,8 @@
 
 #include <cstdint>
 
-// The limits of the audio engine's voices (Docs/Architecture.md §9.3), shared by the audio engine and the components that
-// name them.
+// The limits of the audio engine's voices (Docs/Architecture.md §9.3) and of its doppler (§9.8), shared by the audio engine
+// and the components that name them.
 namespace Strada
 {
 	// A voice is one playing instance of a clip. A source's voices are its main voice (Play, Pause, Stop) and its
@@ -19,4 +19,12 @@ namespace Strada
 	inline constexpr uint32_t MaxAudioPriority = 255;
 	// Seconds a stolen voice takes to fade out; it is still heard, and still mixed, until then.
 	inline constexpr float AudioStealFadeSeconds = 0.01f;
+	// How much of the doppler effect a spatial source takes (AudioSourceComponent::DopplerLevel): 0 none, 1 physical, up to
+	// MaxAudioDopplerLevel exaggerated.
+	inline constexpr float DefaultAudioDopplerLevel = 1.0f;
+	inline constexpr float MaxAudioDopplerLevel = 5.0f;
+	// The doppler factor a voice's pitch is multiplied by stays within these (Docs/Architecture.md §9.8): an octave down
+	// and up, which a closing speed of half the speed of sound reaches at level 1.
+	inline constexpr float MinAudioDopplerFactor = 0.5f;
+	inline constexpr float MaxAudioDopplerFactor = 2.0f;
 }
