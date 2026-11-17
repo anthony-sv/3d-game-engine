@@ -137,19 +137,31 @@ public sealed class AnalysisDiagnosticsTests
 				$$"""{ "Kind": "Library", "Functions": [ { "ID": 1, "Name": "Step", "Pure": false, "Graph": { "Nodes": [ { "ID": 2, "Type": "Function.Entry" }, { "ID": 3, "Type": "Function.Call", "Settings": { "Function": 1, "Graph": "{{TestRuntime.Graph}}" } } ] } } ] }"""))),
 	};
 
-	// The Warning codes (spec section 6.2 and spec-slice3 section 4.8).
+	// The codes about the project's input actions (spec section 6 of IA2): each document with the bundle that tells the actions.
+	private static readonly Dictionary<DiagnosticCode, (string Document, string References)> s_ActionCases = new()
+	{
+		[DiagnosticCode.UnknownAction] = (VisualScriptTesting.Document("""{ "ID": 1, "Type": "Event.ActionPressed", "Settings": { "Action": "Jmp" } }"""),
+			"""{ "InputActions": { "Names": ["Jump"] } }"""),
+		[DiagnosticCode.NoInputActions] = (VisualScriptTesting.Document("""{ "ID": 1, "Type": "Event.ActionPressed", "Settings": { "Action": "Jump" } }"""),
+			"""{ "InputActions": { "Missing": "the project names no input actions" } }"""),
+	};
+
+	// The Warning codes (spec section 6.2, spec-slice3 section 4.8, and IA2's section 6).
 	private static bool IsWarning(DiagnosticCode code) => code is DiagnosticCode.NodeUpdated or DiagnosticCode.UnusedInput or DiagnosticCode.ZeroQuaternion or
 		DiagnosticCode.UnknownSetting or DiagnosticCode.DisabledIgnored or DiagnosticCode.UnusedSplit or DiagnosticCode.UncheckedGraph or
-		DiagnosticCode.UnknownEvent or DiagnosticCode.EventSignatureMismatch or DiagnosticCode.DisabledTarget or DiagnosticCode.TargetIsSelf;
+		DiagnosticCode.UnknownEvent or DiagnosticCode.EventSignatureMismatch or DiagnosticCode.DisabledTarget or DiagnosticCode.TargetIsSelf or
+		DiagnosticCode.UnknownAction or DiagnosticCode.NoInputActions;
 
-	public static TheoryData<string> Codes => [.. s_Cases.Keys.Concat(s_ReferenceCases.Keys).Select(static code => code.ToString())];
+	public static TheoryData<string> Codes =>
+		[.. s_Cases.Keys.Concat(s_ReferenceCases.Keys).Concat(s_ActionCases.Keys).Select(static code => code.ToString())];
 
 	[Theory]
 	[MemberData(nameof(Codes))]
 	public void EachCodeIsReported(string name)
 	{
 		DiagnosticCode code = Enum.Parse<DiagnosticCode>(name);
-		AnalyzedDocument document = s_ReferenceCases.TryGetValue(code, out (string Document, string References) referenceCase)
+		AnalyzedDocument document = s_ReferenceCases.TryGetValue(code, out (string Document, string References) referenceCase) ||
+			s_ActionCases.TryGetValue(code, out referenceCase)
 			? GraphAnalyzer.Analyze(VisualScriptTesting.Library, Encoding.UTF8.GetBytes(referenceCase.Document),
 				GraphReferences.Parse(Encoding.UTF8.GetBytes(referenceCase.References)), new LibraryAnalyses())
 			: VisualScriptTesting.Analyze(s_Cases[code]);
@@ -172,7 +184,7 @@ public sealed class AnalysisDiagnosticsTests
 	[Fact]
 	public void EveryCodeHasACase()
 	{
-		Assert.Equal(Enum.GetValues<DiagnosticCode>().Order(), s_Cases.Keys.Concat(s_ReferenceCases.Keys).Order());
+		Assert.Equal(Enum.GetValues<DiagnosticCode>().Order(), s_Cases.Keys.Concat(s_ReferenceCases.Keys).Concat(s_ActionCases.Keys).Order());
 	}
 
 	[Fact]

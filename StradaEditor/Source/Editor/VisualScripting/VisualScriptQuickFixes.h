@@ -84,7 +84,10 @@ namespace Strada
 		// Removes the diagnostic's variable with the nodes that read or write it (a library's variable).
 		DeleteVariable,
 		// Navigates: opens the Timeline drawer on the Flow.Timeline node (Target) whose Timeline setting the diagnostic is about.
-		OpenTimeline
+		OpenTimeline,
+		// Names an input action of the project (Argument) where the node names one the project lacks: in the setting, or the
+		// literal of the input, that the diagnostic names (Replaces: the setting's name or the input's key).
+		UseAction
 	};
 
 	struct VisualScriptQuickFix
@@ -92,7 +95,8 @@ namespace Strada
 		// What the button says: "Use Value", "Keep the First Link", "Make AddScore Impure".
 		std::string Label;
 		VisualScriptFixKind Kind = VisualScriptFixKind::ChangeNodeType;
-		// The new value: a node type, pin, setting or type name, an element's ID in decimal, a setting to show, a split path.
+		// The new value: a node type, pin, setting or type name, an element's ID in decimal, a setting to show, a split path, an
+		// input action's name.
 		std::string Argument;
 		// The node, variable or function the fix acts on or goes to; 0 when none.
 		uint32_t Target = 0;

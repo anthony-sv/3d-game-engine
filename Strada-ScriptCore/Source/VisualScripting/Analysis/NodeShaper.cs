@@ -197,8 +197,8 @@ internal sealed class NodeShaper
 		node.Binding = new InputEventBinding(decoded.Value!);
 	}
 
-	// The action events name their action by text: any non-empty name (the project's actions are the engine's to know, and a
-	// name they lack never starts the node).
+	// The action events name their action by text: any non-empty name, checked against the project's actions when the analysis
+	// is told them (a name they lack never starts the node: a Warning, UnknownAction).
 	private void ActionEvent(AnalyzedNode node, NodeDefinition definition)
 	{
 		AddTemplatePins(node, definition);
@@ -213,6 +213,7 @@ internal sealed class NodeShaper
 			return;
 		}
 		node.Binding = new ActionEventBinding(action);
+		m_Context.CheckInputAction(node, action, "Action", null);
 	}
 
 	// Event.Custom outputs its parameters; Event.Send and Event.Broadcast take them as inputs, Send to its Target entity's

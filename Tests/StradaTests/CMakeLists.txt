@@ -11,6 +11,7 @@ add_executable(StradaTests
     Source/Asset/DataAssetTests.cpp
     Source/Asset/GltfTestBuilder.h
     Source/Asset/InputActionsAssetTests.cpp
+    Source/Asset/InputBindingProfileTests.cpp
     Source/Asset/MeshFactoryTests.cpp
     Source/Asset/MeshImporterFuzzTests.cpp
     Source/Asset/MeshImporterTests.cpp
@@ -48,6 +49,7 @@ add_executable(StradaTests
     Source/Core/HashTests.cpp
     Source/Core/ImageTests.cpp
     Source/Core/InputActionsTests.cpp
+    Source/Core/InputCaptureTests.cpp
     Source/Core/InputTests.cpp
     Source/Core/KeyCodeTests.cpp
     Source/Core/LayerStackTests.cpp
@@ -120,6 +122,7 @@ add_executable(StradaTests
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFuzzTests.cpp
     Source/Scene/SceneInputActionsTests.cpp
+    Source/Scene/SceneInputRebindingTests.cpp
     Source/Scene/SceneInterpolationTests.cpp
     Source/Scene/ScenePhysicsMaterialTests.cpp
     Source/Scene/ScenePhysicsQueryTests.cpp
@@ -143,6 +146,7 @@ add_executable(StradaTests
     Source/Script/VisualScriptDebuggerTests.cpp
     Source/Script/VisualScriptEngineTests.cpp
     Source/Script/VisualScriptGridGraph.h
+    Source/Script/VisualScriptInputActionsAnalysisTests.cpp
     Source/Script/VisualScriptLiteralsTests.cpp
     Source/Script/VisualScriptNodeCoverageTests.cpp
     Source/Script/VisualScriptTestGraphs.h

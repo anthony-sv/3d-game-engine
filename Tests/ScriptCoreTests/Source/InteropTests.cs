@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -166,6 +167,12 @@ public sealed class InteropTests
 		Assert.Equal(16, (int)Marshal.OffsetOf<NativeMixerBus>(nameof(NativeMixerBus.NameLength)));
 		Assert.Equal(24, (int)Marshal.OffsetOf<NativeMixerBus>(nameof(NativeMixerBus.VolumeDb)));
 		Assert.Equal(28, (int)Marshal.OffsetOf<NativeMixerBus>(nameof(NativeMixerBus.Muted)));
+		Assert.Equal(16, Unsafe.SizeOf<NativeRebindAnswer>());
+		Assert.Equal(12, (int)Marshal.OffsetOf<NativeRebindAnswer>(nameof(NativeRebindAnswer.ConflictCount)));
+		// InputRebindStatus's values (static_asserted beside the engine's layout), and what no scene answers.
+		RebindStatus[] statuses = [RebindStatus.None, RebindStatus.Listening, RebindStatus.Done, RebindStatus.Cancelled, RebindStatus.Refused];
+		Assert.Equal([0, 1, 2, 3, 4], statuses.Select(static status => (int)status));
+		Assert.Equal(-1, NativeRebindAnswer.NoScene);
 	}
 
 	[Fact]

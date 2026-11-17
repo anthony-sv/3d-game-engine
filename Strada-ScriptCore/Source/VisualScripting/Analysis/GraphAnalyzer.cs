@@ -34,7 +34,11 @@ internal static class GraphAnalyzer
 		}
 		// Only libraries of the bundle read the analyzed document's text (to cache what they read of it).
 		ReferenceScope scope = new(library, references, libraries, name, document, references.Count > 0 ? utf8.ToArray() : []);
-		AnalysisContext context = new(library, document, diagnostics, scope, references.Self, name) { Timings = timings };
+		AnalysisContext context = new(library, document, diagnostics, scope, references.Self, name)
+		{
+			Timings = timings,
+			InputActions = references.InputActions,
+		};
 		return new RootAnalysis(Analyze(context), context);
 	}
 
@@ -768,6 +772,40 @@ internal static class GraphAnalyzer
 					: LiteralCodec.DefaultOf(pin.Type);
 			}
 		}
+		if (context.InputActions != null)
+		{
+			CheckInputActions(context, node);
+		}
+	}
+
+	// The unlinked inputs naming an input action, by the value they take (spec section 6 of IA2): a stored literal, or the
+	// empty name when none is stored. One whose stored value is no string was reported as InvalidValue already.
+	private static void CheckInputActions(AnalysisContext context, AnalyzedNode node)
+	{
+		foreach (AnalyzedPin pin in node.GetShownPins())
+		{
+			if (!pin.IsInput || !pin.Description.NamesInputAction || pin.IsConnected || (!pin.HasLiteral && Stores(node, pin.Name)))
+			{
+				continue;
+			}
+			if (pin.Value is string action)
+			{
+				context.CheckInputAction(node, action, null, pin.Name);
+			}
+		}
+	}
+
+	// Whether the node stores a value for the input (under its name, or a former one).
+	private static bool Stores(AnalyzedNode node, string pin)
+	{
+		foreach (KeyValuePair<string, JsonElement> input in node.Source.Inputs.Members)
+		{
+			if (node.Rename(PinDirection.In, input.Key) == pin)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 }
 

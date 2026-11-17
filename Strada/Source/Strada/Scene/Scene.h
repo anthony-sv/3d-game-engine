@@ -3,6 +3,7 @@
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/InputActions.h"
+#include "Strada/Core/InputCapture.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Core/UUID.h"
@@ -405,6 +406,29 @@ namespace Strada
 		// action zero) while the scene does not run or the runtime settings name no actions that load.
 		InputActionState& GetInputActions() { return m_InputActions; }
 		InputActionState const& GetInputActions() const { return m_InputActions; }
+		// Rebinding the running scene's actions while it runs (Docs/Architecture.md §7.4, "Rebinding"; SceneInputActions.cpp).
+		// The bindings are the process's (InputRebinding, for the runtime settings' InputActions asset), so a change reaches
+		// every running scene at its next frame and outlives scene loads; a capture belongs to the scene that started it.
+		// Starts listening for the control that binding `binding` of the action takes (`part` -1 the whole binding, else one
+		// control of a composite), from this frame's input on: the first fitting control given (InputControlCapture), checked
+		// before each of this scene's evaluations, is bound as RebindInput binds it; Escape, or InputControlCapture::Timeout
+		// seconds of frames (unscaled: a game paused by a time scale of 0 still counts them), cancel it. The control that ends
+		// it (Escape, or the control bound) presses no action in that frame, whichever reads it (InputActionState::SettleControl).
+		// Ends a capture already listening (Cancelled); the scene's stop forgets it (None). Answers Listening (the binding's
+		// controls now), or Refused as RebindInput refuses, also when the scene does not run.
+		InputRebindResult StartInputRebind(std::string_view action, int32_t binding, int32_t part = -1);
+		// Ends a listening capture (Cancelled); nothing otherwise.
+		void CancelInputRebind();
+		// The latest capture's state: Listening while it listens, then how it ended (Done with the conflicts, Cancelled,
+		// Refused); None before any since the scene started, and once the scene stopped.
+		InputRebindResult const& GetInputRebind() const { return m_InputRebind; }
+		// InputRebinding::Rebind, ResetBindings and GetBindingControls for the runtime settings' actions.
+		InputRebindResult RebindInput(std::string_view action, int32_t binding, std::string_view controls, int32_t part = -1);
+		InputRebindResult ResetInputBindings();
+		// What the latest StartInputRebind, RebindInput or ResetInputBindings of this scene answered (what scripts read their
+		// answers' text from); None before any since the scene started.
+		InputRebindResult const& GetInputRebindAnswer() const { return m_InputRebindAnswer; }
+		[[nodiscard]] Result<std::string> GetInputBindingControls(std::string_view action, int32_t binding) const;
 		// The running scene's physics queries (PhysicsScene's, Architecture.md section 8 "Queries"). Physics changes not applied
 		// yet are applied first (ApplyPhysicsChanges), so a body made or rebuilt since the last step is found where its entity
 		// is; every other body is found where the last step left it, which is where OnFixedUpdate reads it (an entity moved
@@ -678,10 +702,14 @@ namespace Strada
 		// Input actions (SceneInputActions.cpp; Docs/Architecture.md §7.4). The frame's one named call of input actions,
 		// which OnUpdateRuntime makes before UpdateUI and the scripts, in frames that run (a paused scene's do not): makes the
 		// set again when what it was made from changed (the runtime settings' InputActions asset or a response curve it
-		// names; the actions' state kept by name), then evaluates it from Input (InputActionState::Evaluate) and dispatches
-		// the evaluation's edges to the scripts (DispatchInputActionEvents). Returns at once when the settings name no
-		// actions. Zone Scene.InputActions.
-		void UpdateInputActions();
+		// names, or the process's rebound bindings: InputRebinding's version; the actions' state kept by name), then evaluates
+		// it from Input (InputActionState::Evaluate) and dispatches the evaluation's edges to the scripts
+		// (DispatchInputActionEvents). Before that, a listening capture looks at the input (UpdateInputRebind), so a control
+		// it binds is read by this very evaluation. `frameSeconds` is the frame's unscaled time, which the capture's time limit
+		// counts. Returns at once when the settings name no actions. Zone Scene.InputActions.
+		void UpdateInputActions(float frameSeconds);
+		// Advances a listening capture (InputControlCapture::Update) and binds what it captured (InputRebinding::Rebind).
+		void UpdateInputRebind(float frameSeconds);
 		// Each edge of the latest evaluation, in its order (InputActionState::GetEdges), to every C# script instance
 		// (OnActionPressed or OnActionReleased), then to every graph instance (Event.ActionPressed or Event.ActionReleased),
 		// inside a ScriptEngine::InputActionEventScope that names the action. Nothing when no scripts run.
@@ -887,6 +915,12 @@ namespace Strada
 		uint64_t m_InputActionsEpoch = 0;
 		uint64_t m_InputActionsAssetVersion = 0;
 		std::vector<std::pair<AssetHandle, uint64_t>> m_InputActionCurves;
+		// InputRebinding's version the set was made with.
+		uint64_t m_InputRebindingVersion = 0;
+		// The capture this scene started, and its latest result.
+		InputControlCapture m_InputCapture;
+		InputRebindResult m_InputRebind;
+		InputRebindResult m_InputRebindAnswer;
 
 		// The component settings an entity's sound was last updated with (to apply changes made while running).
 		struct AudioSourceState

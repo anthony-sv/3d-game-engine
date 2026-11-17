@@ -8,6 +8,7 @@
 #include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/InputActions.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <algorithm>
@@ -1243,6 +1244,35 @@ namespace Strada
 					return VisualScriptEditing::SetNodeEnabled(document, std::span<uint32_t const>(&node, 1),
 					                                           VisualScriptNodeEnabled::Enabled);
 				}
+				case VisualScriptFixKind::UseAction:
+				{
+					if (Result<void> found = requireNode(); !found)
+					{
+						return found;
+					}
+					if (!VisualScriptSerializer::IsValidText(fix.Argument, MaxInputActionNameLength))
+					{
+						return MakeError("an input action's name is 1 to {} bytes of text", MaxInputActionNameLength);
+					}
+					// The setting the diagnostic names, or the input's literal (which an input that stores none takes now).
+					bool const setting = !diagnostic.Setting.empty();
+					Json& values = setting ? place.NodeOf->Settings : place.NodeOf->Inputs;
+					if (fix.Replaces.empty() || (setting && fix.Replaces != diagnostic.Setting))
+					{
+						return MakeError("the fix names no {} of node {}", setting ? "setting" : "input", place.NodeOf->ID);
+					}
+					if (!values.is_object())
+					{
+						values = Json::object();
+					}
+					auto const stored = values.find(fix.Replaces);
+					if (stored != values.end() && stored->is_string() && stored->get_ref<std::string const&>() == fix.Argument)
+					{
+						return MakeError("node {} names {} already", place.NodeOf->ID, fix.Argument);
+					}
+					values[fix.Replaces] = fix.Argument;
+					return {};
+				}
 				case VisualScriptFixKind::ReplaceInFormula:
 				{
 					if (Result<void> found = requireNode(); !found)
@@ -1526,6 +1556,32 @@ namespace Strada
 				{
 					fixes.push_back(MakeFix(fmt::format("Use {}", name), VisualScriptFixKind::UseElement, nodeID, std::to_string(*id)));
 				}
+			}
+		}
+		else if (code == "UnknownAction")
+		{
+			if (node == nullptr)
+			{
+				return fixes;
+			}
+			// The setting (Event.ActionPressed's Action) or the input (Input.GetAction's Action) naming the action: each nearest
+			// action of the project names it instead.
+			std::string const replaces =
+				!diagnostic.Setting.empty() ? diagnostic.Setting
+				: diagnostic.Direction == VisualScriptPinDirection::In
+					? VisualScriptEditing::ToStoredVisualScriptPin(analyzed, VisualScriptPinDirection::In, diagnostic.Pin)
+					: std::string();
+			if (replaces.empty())
+			{
+				return fixes;
+			}
+			for (std::string const& suggestion : diagnostic.Suggestions)
+			{
+				fixes.push_back(MakeFix(fmt::format("Use {}", suggestion), VisualScriptFixKind::UseAction, nodeID, suggestion, replaces));
+			}
+			if (!diagnostic.Setting.empty())
+			{
+				fixes.push_back(MakeFix("Edit in Details", VisualScriptFixKind::EditSetting, nodeID, diagnostic.Setting));
 			}
 		}
 		else if (code == "UnknownGraph" || code == "NotALibrary")

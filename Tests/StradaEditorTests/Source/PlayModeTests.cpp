@@ -10,6 +10,10 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/InputActionMap.h"
+#include "Strada/Asset/InputActionsAsset.h"
+#include "Strada/Asset/InputBindingProfile.h"
+#include "Strada/Asset/InputRebinding.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -18,6 +22,7 @@
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/InputActions.h"
+#include "Strada/Core/InputCapture.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Components.h"
@@ -25,6 +30,7 @@
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 #include "Strada/Script/VisualScriptEngine.h"
+#include "Strada/Serialization/JsonSerialization.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
@@ -1197,6 +1203,46 @@ TEST_CASE("PlayCommands: a paused game keeps what input.set gave it for its next
 	CHECK_FALSE(Input::IsKeyPressed(KeyCode::A));
 	CHECK(Input::IsKeyDown(KeyCode::A));
 	CHECK(Input::GetScrollDelta() == glm::vec2(0.0f));
+}
+
+TEST_CASE("PlayMode: a binding the game changes is kept below the project's play data, the next play reads it, and stopping "
+          "forgets it")
+{
+	Testing::PhysicsSystemScope physics;
+	InputScope input;
+	ProjectPlayFixture fixture;
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions = fixture.Operations.CreateDataAsset(
+		type->GetAssetType(), "Input/Game.sinput",
+		Json::parse(R"({ "Actions": [ { "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" } ] } ] })"));
+	REQUIRE(actions.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+	std::filesystem::path const profile = fixture.Context.GetProject()->GetPlayDataDirectory() / "Input" / "Game.sinput.json";
+
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	CHECK(fixture.Context.GetScene().RebindInput("Jump", 0, "Key/J").Status == InputRebindStatus::Done);
+	Result<std::string> const text = FileSystem::ReadTextFile(profile);
+	REQUIRE(text.IsOk());
+	Result<Json> const document = ParseJson(text.GetValue());
+	REQUIRE(document.IsOk());
+	Result<InputBindingProfile> const written = ReadInputBindingProfile(document.GetValue());
+	REQUIRE(written.IsOk());
+	CHECK(written.GetValue().Bindings == std::vector<InputBindingProfileEntry>{{"Jump", 0, "Key/J", "Key/Space"}});
+	fixture.Play.Stop();
+	CHECK_FALSE(InputRebinding::GetActions().IsValid());
+	CHECK(InputRebinding::GetProfile().Bindings.empty());
+
+	// The next play reads the profile as its actions load; the asset is as it was.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	Result<std::string> const bound = fixture.Context.GetScene().GetInputBindingControls("Jump", 0);
+	REQUIRE(bound.IsOk());
+	CHECK(bound.GetValue() == "Key/J");
+	Ref<TypedDataAsset<InputActionMap>> const asset = AssetManager::GetAsset<TypedDataAsset<InputActionMap>>(actions.GetValue());
+	REQUIRE(asset != nullptr);
+	CHECK(asset->GetData().Actions[0].Bindings[0].Controls == "Key/Space");
+	fixture.Play.Stop();
+	CHECK_FALSE(InputRebinding::GetActions().IsValid());
 }
 
 TEST_CASE("PlayCommands: the project's input actions are evaluated in the game's input frame, and a paused game keeps their taps")

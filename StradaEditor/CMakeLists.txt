@@ -102,6 +102,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/GameInputRouter.h
     Source/Editor/HierarchyEditing.cpp
     Source/Editor/HierarchyEditing.h
+    Source/Editor/InputBindingCapture.cpp
+    Source/Editor/InputBindingCapture.h
     Source/Editor/MaterialSlots.cpp
     Source/Editor/MaterialSlots.h
     Source/Editor/Panels/AgentSetupDialog.cpp
@@ -114,6 +116,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/ContentBrowserPanel.h
     Source/Editor/Panels/GameViewPanel.cpp
     Source/Editor/Panels/GameViewPanel.h
+    Source/Editor/Panels/InputActionsPanel.cpp
+    Source/Editor/Panels/InputActionsPanel.h
     Source/Editor/Panels/InspectorPanel.cpp
     Source/Editor/Panels/InspectorPanel.h
     Source/Editor/Panels/ProfilerPanel.cpp

@@ -1,5 +1,6 @@
 #include "Editor/PlayMode.h"
 
+#include "Strada/Asset/InputRebinding.h"
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
@@ -146,6 +147,8 @@ namespace Strada
 		Input::ReleaseKeysAndMouseButtons();
 		Input::ReleaseInjectedInput();
 		Input::DropReleasedActionOverrides();
+		// The bindings the game changed are in its profile (when it plays with a project); the next play reads them again.
+		InputRebinding::Clear();
 		Input::SetCursorMode(CursorMode::Normal);
 		Input::SetFrameOwned(false);
 		Input::EndFrame();

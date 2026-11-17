@@ -127,6 +127,12 @@ public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testi
   so only side-effect-free queries may be pure. A query added to the API (`Input.IsKeyDown`, `Entity.FindByName`, ...)
   gets `[PureNode]` in the same change, and `NodeLibraryTests.ExactlyTheListedQueriesAreMarkedPure` (ScriptCoreTests)
   lists the marked methods.
+- Input action names: a `string` parameter that names an input action of the project (`Input.GetAction`'s `action`)
+  gets `[InputActionName]` (the internal attribute in `Strada-ScriptCore/Source/VisualScripting/InputActionNameAttribute.cs`)
+  in the same change: its pin becomes `InputAction` in the library, the editor's analysis checks its literal against the
+  project's actions (`UnknownAction`) and Details offers them. Such members belong to `Strada.Input` (the engine finds the
+  scripts to check by that prefix); `InputActionAnalysisTests` (ScriptCoreTests) lists the marked pins and fails on a
+  parameter named `action` without the attribute.
 - Renaming or re-signing a member that graphs use (its name, declaring type or parameter types) changes its node's type
   string: add a `NodeRedirect(OldType, NewType, PinRenames)` entry to `NodeRedirects.Current`
   (`Strada-ScriptCore/Source/VisualScripting/Library/NodeRedirect.cs`), with a `PinRename(Direction, From, To)` for each
@@ -144,7 +150,10 @@ public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testi
   `WithHeldKeys`, `WithHeldMouseButtons`, `WithHeldGamepadButtons`, `WithHeldActions`, `WithFrames`, `WithRanFrom`,
   `WithAlone`, `WithExpectedError` or `WithExpectedLog`), a `MemberTypeRecipes` entry for what every member of its type needs, or a
   checked exclusion naming a graph the FeatureTest scenes run (or a shared fixture document) that holds an enabled node of
-  that type linked into flow. The test fails naming the node and its first error until one of them covers it. A new
+  that type linked into flow. A class the API gives only as a result (no public constructor, no literal: `RebindResult`)
+  gets a `ResultProducers` entry naming the pure node that answers one (`Get:Strada.Input.CurrentRebind`): its getters'
+  `Target` and inputs of the class are linked from it, which no recipe can do. The test fails naming the node and its
+  first error until one of them covers it. A new
   built-in node kind (or a `[VisualNode]` member of the FeatureTest scripts) also fails "the feature-test graphs use
   every built-in node kind ..." until `build_features` in `Projects/FeatureTest/Tools/AuthorGraphs.py` uses it: run that
   tool and update `FeaturesChecks` in `Projects/FeatureTest/Scripts/Source/VisualScriptTests.cs`.

@@ -342,6 +342,7 @@ namespace Strada
 			pin.Label = reader.ReadString("Label", Presence::Optional);
 			pin.Default = reader.ReadValue("Default");
 			pin.DefaultsToSelf = reader.ReadBool("DefaultsToSelf", Presence::Optional);
+			pin.NamesInputAction = reader.ReadBool("InputAction", Presence::Optional);
 			pin.Role = reader.ReadEnum("Role", RoleNames, Presence::Optional, VisualScriptPinRole::None);
 			pin.Constraint = reader.ReadEnum("Constraint", ConstraintNames, Presence::Optional, VisualScriptPinConstraint::None);
 			pin.Group = reader.ReadString("Group", Presence::Optional);
@@ -390,6 +391,7 @@ namespace Strada
 			setting.Constraint = reader.ReadString("Constraint", Presence::Optional);
 			setting.Type = reader.ReadString("Type", Presence::Optional);
 			setting.Choices = reader.ReadStrings("Choices", Presence::Optional);
+			setting.NamesInputAction = reader.ReadBool("InputAction", Presence::Optional);
 			if (Result<void> finished = reader.Finish(); !finished)
 			{
 				return Error{finished.GetError()};

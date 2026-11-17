@@ -15,6 +15,20 @@ namespace Strada
 			case EventType::KeyPressed:
 			{
 				auto const& press = static_cast<KeyPressedEvent const&>(event);
+				size_t const index = static_cast<size_t>(press.GetKeyCode());
+				bool const tracked = index < m_CapturedKeys.size();
+				if (press.IsRepeat() && tracked && m_CapturedKeys.test(index))
+				{
+					return false;
+				}
+				if (m_CaptureFilter && m_CaptureFilter(event, context))
+				{
+					if (tracked && !press.IsRepeat())
+					{
+						m_CapturedKeys.set(index);
+					}
+					return false;
+				}
 				return RouteKeyPress(press.GetKeyCode(), press.IsRepeat(), context);
 			}
 			case EventType::KeyReleased:
@@ -23,14 +37,23 @@ namespace Strada
 				if (size_t const index = static_cast<size_t>(key); index < m_GameKeys.size())
 				{
 					m_GameKeys.reset(index);
+					m_CapturedKeys.reset(index);
 				}
 				Input::SetKeyState(key, false);
 				return true;
 			}
 			case EventType::KeyTyped:
+				if (m_CaptureFilter && m_CaptureFilter(event, context))
+				{
+					return false;
+				}
 				// Games read keys, not text: typing reaches the editor while it has the input and nobody otherwise.
 				return !m_HasInput;
 			case EventType::MouseButtonPressed:
+				if (m_CaptureFilter && m_CaptureFilter(event, context))
+				{
+					return false;
+				}
 				return RouteButtonPress(static_cast<MouseButtonPressedEvent const&>(event).GetMouseButton(), context);
 			case EventType::MouseButtonReleased:
 				Input::SetMouseButtonState(static_cast<MouseButtonReleasedEvent const&>(event).GetMouseButton(), false);

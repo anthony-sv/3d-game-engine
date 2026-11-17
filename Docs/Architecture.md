@@ -120,12 +120,12 @@ executable with Project's reader before logging starts (§13.1).
 
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
-| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4), the per-user folders and the game data service (§13.1), input actions' runtime (§7.4) | `Application`, `Layer`, `Window`, `Input`, `InputActionSet`, `InputActionState`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler`, `UserDataLocations`, `GameData` |
+| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4), the per-user folders and the game data service (§13.1), input actions' runtime and the capture that rebinds them (§7.4) | `Application`, `Layer`, `Window`, `Input`, `InputActionSet`, `InputActionState`, `InputControlCapture`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler`, `UserDataLocations`, `GameData` |
 | Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums, curves (§6.5) | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum`, `Curve`, `EvaluateCurveKeys` |
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; versioned documents of one struct, with migrations; profiler captures (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `StructDocumentFormat`, `ProfilerCaptureSerializer` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
-| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer`, `PhysicsMaterial`, `InputActionMap` |
+| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout, the player's rebound input bindings and their profile (§7.4) | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer`, `PhysicsMaterial`, `InputActionMap`, `InputRebinding`, `InputBindingProfile` |
 | Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
@@ -1581,6 +1581,31 @@ and impact settings join version 1 as fields with defaults.
 }
 ```
 
+Binding profile (`<game data>/Input/<the actions asset's file name>.json`, `Moto.sinput.json`; `InputBindingProfile` in
+`Strada/Asset/InputBindingProfile.h`, version 1, §7.4 "Rebinding"; a struct document, not a data asset):
+`"InputBindingProfile": { "Bindings": [ { "Action", "Binding", "Controls", "Replaced" } ] }`, the bindings a player
+changed while the game ran, only those that differ from the asset's, in the order they were set: `Action` the action's
+name (with its letter case), `Binding` its index in the action (0 to 15), `Controls` the binding's text now (a
+binding's text as in `.sinput`; empty unbinds it) and `Replaced` the asset's text it replaced. At most 4,096 entries.
+Reading refuses another type, a newer version, a value of the wrong kind or out of range and a list too long, and warns
+about unknown fields; it checks nothing against the actions. When the actions load, an entry applies only while its
+action exists, its index is below the action's count, the asset's binding still reads the controls of `Replaced`
+(compared as controls, in any letter case), its `Controls` fit the action's type and differ from the asset's, and no
+earlier entry names the same binding; the others are dropped with one log line. The game writes the file atomically
+(`FileSystem::WriteTextFile`), creating `Input/`, whenever what differs changes; a reset writes it without entries.
+
+```json
+{
+	"Strada": { "Version": 1, "Type": "InputBindingProfile" },
+	"InputBindingProfile": {
+		"Bindings": [
+			{ "Action": "Jump", "Binding": 0, "Controls": "Key/J", "Replaced": "Key/Space" },
+			{ "Action": "Lean", "Binding": 0, "Controls": "Key/Left Key/D", "Replaced": "Key/A Key/D" }
+		]
+	}
+}
+```
+
 Project template (`Templates/<id>/template.json`, `ProjectTemplate` in `Strada/Project/ProjectTemplate.h`):
 `{ "Strada": { "Version": 1, "Type": "ProjectTemplate" }, "Template": { "Id", "Name", "Order", "Description",
 "Requires": { "Sdk" }, "Tags", "Thumbnail", "ProjectFile" } }`. `Id` (lowercase letters and digits joined by single
@@ -1784,8 +1809,8 @@ damaged and in-memory documents) and `Validate` to the old round trip, which the
 An **input action** is a named value a game reads instead of a device: `Throttle`, `Lean`, `Jump`, `Move`. Its
 **bindings** give it that value from keys, mouse buttons, gamepad buttons, axes and sticks, so a game written against
 actions is played on the keyboard and on a gamepad alike, and a binding changes without a change to the game. A project
-names one map of actions (`ProjectSettings::InputActions`); several maps at once, map stacks, rebinding while the game
-runs and the player's binding profiles are not part of this design (rebinding and profiles come next, on the same data).
+names one map of actions (`ProjectSettings::InputActions`); a player rebinds them while the game runs, kept in a binding
+profile in the game's data folder ("Rebinding", below); several maps at once and map stacks are not part of this design.
 `Event.KeyPressed` and the key, button and axis queries keep working beside actions, unchanged.
 
 **Three layers, by the module layering (§4).**
@@ -1812,7 +1837,7 @@ and `Scale`.
   array whose elements are arrays (`Detail::IsDescribedFieldType` in `StructSerialization.h`; `InputActionsAsset.h`
   asserts the map passes), not an array of structs that hold an array, so an action can hold its bindings. Then no
   binding can name an action that does not exist, renaming an action is one edit, a binding's index is its place in its
-  action (what rebinding and the player's profiles will address, by action name and index), and the generic editor shows
+  action (what rebinding and the player's profiles address, by action name and index), and the generic editor shows
   each action's bindings under it, each a list of its own with per-element undo.
 - **A binding's controls are text**: one control name, or two (an axis composite: negative, then positive) or four (a
   vector composite: up, down, left, right), separated by spaces. Rows of a list are titled by their struct's first text
@@ -1982,7 +2007,9 @@ unlike a key's: a press given while stopped is read by the resumed code and agai
 each a pure node (`[PureNode]`). They read the state of the scene that runs scripts (inside a step, that step's edges;
 outside, the view of the code that asks, above), and read zero outside a running scene. A name the set lacks reads zero and is logged once per name until
 the set changes; without a set (a project that names no actions, or an asset that does not load) every name does, and
-the message says the project names no input actions.
+the message says the project names no input actions. The editor's analysis of a graph finds such names before it runs
+(§10.6, "The project's input actions in analyses"): a Warning with the nearest actions as fixes, and the names offered as a
+list in Details.
 
 **Overrides** put a value on an action as one more device would: `Input.SetActionOverride(name, value)`,
 `Input.SetActionVectorOverride(name, vector)` and `Input.ClearActionOverride(name)` in scripts and graphs, `input.set`'s
@@ -2005,14 +2032,87 @@ names only when the overrides' version or their set moved, so a frame allocates 
 drives a game (an autopilot, an attract mode) and how a test scene presses a button; logic that must act on each fixed
 step sets its targets there instead.
 
-**What rebinding will change** (the next track's, recorded so that this design leaves it a place). A rebind is a
-process-wide replacement of one binding's controls, or of one part of a composite (the token's position in
-`Controls`), addressed by action name, binding index and part; the player's profile stores each with the `Controls`
-text it replaced, and an entry whose binding no longer holds that text (the asset was edited, bindings reordered or one
-inserted) is dropped with a log line rather than applied to another binding. Compilation then takes the map and those
-replacements, and their version joins the stamp the scene compares (the asset's handle and version, the registry's
-epoch) in `Scene::UpdateInputActions`: nothing else of the evaluation changes. This design ships no table for it: no
-code would use one.
+**Rebinding** while the game runs: a player gives an action other controls (a settings screen's "press a key for
+Jump"), the game keeps them for the next run, and the actions asset is never written.
+
+- **The table.** `InputRebinding` (`Strada/Asset/InputRebinding.h`) holds, for the process, the bindings that differ from
+  the project's `InputActions` asset: each by action name and binding index, with the controls it reads now and the
+  asset's controls it replaced (an `InputBindingProfile`). A scene compiles its set from the asset with the table applied
+  (`InputRebinding::Apply`), and the table's version joins the stamp `UpdateInputActions` compares (beside the registry's
+  epoch, the asset's version and the response curves'), so a rebind reaches every running scene at its next frame, keeps
+  reaching the scenes loaded later, and makes no edge (the state keeps its actions by name). Main thread.
+- **Addressing.** A rebind names an action (its exact name), a binding (its index in the action) and a part: -1 for the
+  whole binding, or the index of one control of a composite (`Key/A Key/D`: 0 is A, 1 is D), which is what rebinding one
+  direction of an axis or a vector needs. A part takes one control that is not a stick; the binding's new text must fit
+  the action's type (`CheckInputBindingControls`). The profile stores whole bindings, so a part's rebind stores the
+  binding's new text. Nothing adds or removes a binding: an empty text leaves one unbound.
+- **Direct rebinding.** `Scene::RebindInput` (`Input.Rebind` in scripts) sets the binding and answers an
+  `InputRebindResult` (`Strada/Core/InputCapture.h`): `Done` with the binding's new controls and its **conflicts**, the
+  other actions with a binding that reads one of the same controls (the same control, or a stick and one of its own axes;
+  gamepad controls only on a pad both bindings read: either reads any pad, or both the same slot), in the order of the
+  actions in the map, each once. The engine applies the binding whatever it conflicts with and reports; the game decides
+  (warn, swap, set it back). `Refused`, changing nothing, names the reason: no actions run (the scene does not run, the
+  project names none, the asset does not load), an unknown action, a binding or part out of range, controls that do not
+  parse or fit, a part below -1. A binding set back to the asset's controls leaves the profile. `Scene::ResetInputBindings`
+  (`Input.ResetBindings`) returns every binding to the asset's. Refusals are answers, not logged errors.
+- **Capture.** `Scene::StartInputRebind` (`Input.StartRebind`) answers `Listening` and starts an `InputControlCapture`
+  (Core) that the scene advances at the start of each `UpdateInputActions`, before it compiles and evaluates, so a
+  captured control is bound in the frame it comes and read by that frame's evaluation. It takes the first control given
+  after the start that fits: a key, a mouse button or a gamepad button whose press count moved (one held at the start
+  counts once released and pressed again), or a gamepad axis that reaches 0.5 after reading below it, read as actions read
+  it (up positive; a trigger 0 at rest, also on a pad whose mapping lacks it). A whole Button or Axis binding takes any of
+  these (an axis either way, as itself), a whole Vector2 binding only a stick, a part a key, a button or an axis in its
+  positive direction (a part reads the positive half of its control). Gamepads count only those the binding reads. A mouse
+  press while the pointer is over the game's UI (`Scene::IsPointerOverUI`, as the last UI update found it) is no control,
+  then or later: the click is for the button under it (a settings screen's Cancel, whose `OnClick` calls
+  `Input.CancelRebind`). In one update Escape comes first (it cancels), then keys by code, mouse buttons, gamepad buttons by pad then button, axes by
+  pad then axis. `Escape` and 10 seconds (`InputControlCapture::Timeout`) of the frames' **unscaled** time cancel it, so a
+  game paused by a time scale of 0 still times out; so do `CancelInputRebind` (`Input.CancelRebind`) and another start.
+  The scene's stop ends it and forgets it: `Scene::GetInputRebind` (`Input.CurrentRebind`) answers `None` then, and
+  otherwise `Listening`, then how it ended. A capture belongs to the scene that started it; the table it writes is the
+  process's. While it listens it hides nothing from the actions: a control the capture does not take (a key while a
+  Vector2 binding waits for a stick, a click over the game's UI) presses the actions that read it, so a settings screen
+  pauses its own handling while the status reads `Listening`.
+- **The control that ends a capture does not press.** The status reads how the capture ended before that frame's
+  actions are evaluated and their events run, so no handler could tell the press that ended it from a press of its own.
+  When a capture binds a control, the scene settles the action (`InputActionState::Settle`): what its digital controls
+  did since the last evaluation becomes the baseline, and a reading that holds it down puts it down without a press;
+  this covers a binding that already read that control, for which no new set comes. It settles every other action that
+  reads the control the same way (`InputActionState::SettleControl`: the same control or a stick and one of its axes, on
+  any gamepad), so a conflicting action is not pressed by it either; and when Escape cancels, it settles every action
+  that reads Escape (a `Pause` action is not pressed by the Escape that cancelled a capture). Raw key queries
+  (`Input.IsKeyPressed`, `Event.KeyPressed`) still see the press. When a set is replaced, an action kept by name whose bindings now read other controls (a
+  rebind, or an edited asset) does the same (`InputActionState::SetActions`): its new controls' counts are baselines, and
+  its current reading puts it down without a press. One that was down keeps its level, so its next evaluation reports the
+  release when nothing holds it any more. The next press of the control is an edge.
+- **The profile** (`InputBindingProfile`, format in §7.3) is the table on disk: `<game data>/Input/<the asset's file
+  name>.json` (`Moto.sinput.json`), below the folder the `GameData` service names (§13.1): the exported game's own folder,
+  `<project>/.strada/PlayData` for play mode and `StradaRuntime --project`, a temporary folder for test runs.
+  - **Read when the actions load**: `RebuildInputActions` at a scene's start calls `InputRebinding::Load`, which reads the
+    profile when the table holds another asset or was read with another game data folder, and keeps the table otherwise
+    (a scene loaded after another keeps the player's bindings). Entries that no longer apply to the asset (§7.3's rules:
+    the action or index is gone, the asset's binding no longer reads what the entry replaced, the controls no longer fit,
+    a name longer than an action's or a text longer than `MaxInputBindingProfileTextLength`) are dropped with one log line
+    naming the first eight and why, and counting the rest; the file keeps them until the next write. An entry that stops
+    applying while the game runs (the asset edited in play mode) is dropped the same way when the set is compiled. A
+    profile that cannot be read (damaged, of a newer version) is logged once and the bindings are the asset's; the next
+    change writes the file again.
+  - **Written atomically when a binding changes**: every `Done` that changes what differs from the asset, and a reset that
+    had entries, writes the whole profile (`FileSystem::WriteTextFile`: a temporary file, then a rename), creating
+    `Input/`. A rebind to the controls the binding reads already is `Done` and writes, moves and logs nothing, so a
+    settings screen may apply the player's bindings every frame; a binding changed again keeps its entry's place. A write
+    that fails is logged and said in the answer's `Message` ("kept for this run only: ..."); the binding holds for the run.
+  - **No game data folder** (the editor while editing, tools, tests without a `GameDataScope`) means nothing is read or
+    written: rebinds hold in memory for as long as the table lives. An asset that is no file (a memory or built-in asset)
+    has no profile either.
+  - **Who empties the table**: the editor at the end of play mode and when a project closes or opens (so the next play
+    reads the profile again); tests through `InputRebinding::Clear`. The player keeps it for the process: one game per
+    process.
+- **Scripting.** `Strada.Input` gains `StartRebind(action, binding, part = -1)`, `Rebind(action, binding, controls, part
+  = -1)`, `CancelRebind()`, `ResetBindings()`, the property `CurrentRebind` and `GetBindingControls(action, binding)` (a
+  pure node: what a settings screen shows); the answers are `RebindResult` objects (`Status`, a `RebindStatus`; `Action`,
+  `Binding`, `Part`, `Controls`, `Conflicts`, `Message`), whose getters are pure nodes, so a graph polls
+  `CurrentRebind.Status` in its Update flow (a status is no edge: latent continuations may read it). No path is exposed.
 
 **Events.** C# scripts override `OnActionPressed(string action)` and `OnActionReleased(string action)`; graphs have
 `Event.ActionPressed` and `Event.ActionReleased`, each with a required `Action` setting (the action's name, text) and an
@@ -3167,7 +3267,10 @@ editor's Simulate mode runs neither kind.
 - `Input`: `IsKeyDown/Pressed/Released(KeyCode)`, `IsMouseButtonDown/Pressed/Released(MouseButton)`,
   `MousePosition`, `MouseDelta`, `MouseScrollDelta`, `CursorMode`, `IsPointerOverUI`, gamepad (`IsGamepadConnected`,
   `GetGamepadAxis`, `IsGamepadButtonDown/Pressed`), input actions (§7.4: `GetAction`, `GetActionVector`,
-  `IsActionDown/Pressed/Released(string)`, `SetActionOverride`, `SetActionVectorOverride`, `ClearActionOverride`).
+  `IsActionDown/Pressed/Released(string)`, `SetActionOverride`, `SetActionVectorOverride`, `ClearActionOverride`), and
+  rebinding them (§7.4 "Rebinding": `StartRebind`, `Rebind`, `CancelRebind`, `ResetBindings`, `CurrentRebind`,
+  `GetBindingControls`; the answers are `RebindResult`s with a `RebindStatus`, read from the running scene through
+  `Input_ReadRebindText` and the `NativeRebindAnswer` layout).
 - `Time`: `DeltaTime`, `FixedDeltaTime`, `Elapsed`, `FrameCount`, `TimeScale`.
 - `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`; `RaycastHit` (`Entity`,
   `Point`, `Normal`, `Distance`, `Material`: the `PhysicsMaterial` of the surface hit, null for none, one shared
@@ -3392,8 +3495,12 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   visual script. `VisualScriptAnalyze` and `VisualScriptLoad` take, beside the document, the **reference bundle**:
   `{ "Self": "<handle>", "Graphs": [{ "Graph", "Name", "Document": { "Form": "Full" or "Interface", ... } or "Error" }] }`,
   every library a document's calls reach sent in full (its own calls' libraries included) and the other referenced
-  graphs as their interfaces (kind, variables, events). The runtime accepts any bytes there (a malformed bundle counts
-  as empty). Each library is analyzed as its own document, callees first, without nesting, and kept in the runtime's
+  graphs as their interfaces (kind, variables, events), and for an analysis of a document that names input actions
+  `"InputActions": { "Names": [...] }` (the open project's actions) or `{ "Missing": "<why there are none>" }`, which
+  the analysis checks the document's action names against (`UnknownAction`, `NoInputActions`, both Warnings: an unknown
+  name reads zero at run time); the libraries a call links are analyzed without them, and a bundle without them checks
+  nothing. The runtime accepts any bytes there (a malformed bundle counts as empty, a malformed `InputActions` as
+  absent). Each library is analyzed as its own document, callees first, without nesting, and kept in the runtime's
   cache (keyed by its text, its name, the node library and what it read); cycles are found from the raw settings before
   any library is analyzed (`LibraryCycle`). A program compiles the functions of every library it links into itself,
   keyed by (graph, function ID), so each graph that calls a library runs its own copy, and live edit resolves frames by
@@ -3690,6 +3797,18 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   its Failure (no working program) is a script exception (`ScriptHost::OnScriptException`), as is a Failure of `Invoke`,
   and an `Invoke` answered NotFound forgets the instance. `Analyze` sends a document for analysis and keeps nothing.
   Programs stay with the runtime until `Shutdown`: `VisualScriptUnload` is resolved but has no caller.
+- **The project's input actions in analyses** (IA2): `VisualScriptEngine::SetInputActionsSource(owner, source)` gives
+  the engine the host's function answering the open project's `InputActions` setting (nothing while no project is open);
+  `EditorContext` sets it for its life and the player sets none, so a game's loads never check action names.
+  `GetInputActions()` reads the asset's names (or why there are none) when the source answers another asset or the
+  registry's version or the data assets' epoch moved, and returns the same object while the names stay the same.
+  `Analyze` asks for them only for a document with an action event or a `Strada.Input` call whose library entry has an
+  `InputAction` pin (a prefix test per node, then one library lookup per such call), writes them into the bundle and
+  records them (`VisualScriptAnalysis::NamesInputActions`, `InputActions`); every other document is analyzed as before,
+  with the same bundle and cost. A keeper of an analysis that asked compares the pointer with `GetInputActions()` (the
+  graph window's model at each sync, `graph.edit`'s stored analyses) and analyzes again when it differs: a renamed or
+  removed action, an asset gone, another project. The library marks the names: `InputAction` on the `Action` setting of
+  the two events and on the parameters marked `[InputActionName]` (internal to the scripting API).
 - **Graphs that use other graphs**: every send and `Analyze(document, self)` pass the reference bundle.
   `CollectVisualScriptReferences` (`Asset/VisualScriptReferences.h`) lists the graphs a document's six cross-graph kinds
   name (disabled nodes included), each with its strongest use (`Verification` for typed sends, `Interface` for remote
@@ -3782,7 +3901,7 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 ## 11. Editor (`StradaEditor`)
 
 - ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Scene View, Game View,
-  Renderer Info, Console, Scene Settings, Project Settings; a menu bar and a toolbar with the play controls (Play/Stop,
+  Renderer Info, Console, Scene Settings, Project Settings, Input Actions; a menu bar and a toolbar with the play controls (Play/Stop,
   Pause, Step and Simulate buttons with drawn icons). The menu bar is `EditorTitleBar`: ImGui's main menu bar, and on
   Windows, where the editor's window leaves its title bar to the application (§6.1), also that title bar: higher, with the
   Strada icon before the menus and the window's title, the status and drawn minimize, maximize or restore and close
@@ -3981,6 +4100,24 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   the scene view's and the game view's renderers drew in their last frames side by side (GPU time, draw calls, mesh
   batches and instances, the shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows,
   sprite, text and UI quads).
+- Input Actions (`InputActionsPanel`, docked below the scene view with the content browser; Docs/Editor.md "Input
+  Actions panel"): an InputActions asset (§7.4) as a table, the project's (`ProjectSettings::InputActions`) unless its
+  asset field or the content browser's Open chose another. A row per action (name, type, add binding, remove, and the
+  running scene's value while the editor plays that asset: `InputActionSet::Find` by name on
+  `Scene::GetInputActions()`, never `Resolve`, which logs) and below it a row per binding (controls as text, capture
+  buttons for the whole binding and each part of a composite, the actions it conflicts with by
+  `FindInputBindingConflicts`, worked out again only when the map changes, remove); the selected action's fields
+  below in the field editor. Every edit is one `SetDataAssetCommand` step of the whole `Actions` array: text fields
+  commit once (left or Enter; Escape keeps the asset's), and discrete edits (text, type, buttons, captures) take keys
+  of their own (`INAD` plus a counter) while field editor interactions merge under the panel's `EditSession`
+  (`INAC`). The editor never writes the binding table of §7.4's "Rebinding" (the player's), only the asset. A capture
+  (`InputBindingCapture`, free of ImGui) takes the next control: keys and mouse buttons from the windows' events,
+  which `GameInputRouter::SetCaptureFilter` hands it before ImGui and the game (the physical key; a press it takes,
+  and that key's repeats, reach neither), a mouse button only over the prompt it draws (a press elsewhere ends the
+  capture and goes on), and gamepads (and what automation injects into `Input`) through `InputControlCapture` with
+  the binding's gamepad; Escape and `InputControlCapture::Timeout` of frame time end it. It listens only while the
+  panel draws: the layer calls `OnHidden` when it does not, and the filter lets every event go once a frame passed
+  without a draw.
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
   (create presets at the scene view's focal point: Create Empty, then the submenus 3D Object (the primitives and 3D
@@ -4081,7 +4218,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   `PlayMode::SetUIPointerEnabled` follows `GameInputRouter::HasInput` from the frame the input changes hands, before the
   scene updates) and the editor works as usual. Automation's `input.set` and `input.release` act on the game's input
   directly (keys, the mouse, input action overrides and injected gamepads, which the window's polls leave alone: §7.4),
-  and `ui.layout` tells where the UI's elements and buttons are in the game view.
+  and `ui.layout` tells where the UI's elements and buttons are in the game view. Before any of this, a capture filter
+  (`SetCaptureFilter`: the Input Actions panel's binding capture) sees key presses, typed characters and mouse button
+  presses, and what it takes reaches neither side, nor do the repeats of a key it took.
 - The start screen (`Editor/StartScreen/`): `StartScreenPanel` draws `StartScreenModel` over the main viewport's work
   area (under the menu bar) while the model is visible: at start without a project in an editor with a window (unless
   `--no-start-screen`, `EditorLayerSpecification::StartScreen`, which `strada mcp` passes), after File > Close Project,
@@ -4828,8 +4967,8 @@ game's data folder (§13.1), and compile out asserts and script debug lines.
 
 Every Strada program shares one per-user folder, the engine's (`FileSystem::GetUserDataDirectory`: the editor's state,
 its automation instances, the logs and crash reports), except an exported game. A game made with Strada has a folder of
-its own beside it, one per game and per user, named by the game's identity: its log, its crash reports, and the input
-bindings, saves and player's settings to come go there.
+its own beside it, one per game and per user, named by the game's identity: its log, its crash reports, the player's
+input bindings (`Input/`, §7.4), and the saves and player's settings to come go there.
 
 **The identity.** `ProjectSettings::Identity` holds `Company` and `Product`, both optional strings, compatible fields of
 project format 1: an engine from before them warns about the unknown key and drops it on its next save. `Game.sgame`
@@ -4918,7 +5057,10 @@ that each platform's names are tested on every platform:
   folder exists from its first run: the service still creates nothing, the entry point is that folder's first writer.
   A crash of an exported game reports into `<game data>/Crashes` from then on (CrashHandlerTests run a program on the
   entry point that aborts, copied beside a game file).
-- Scripts have no API for the folder yet: input bindings (`<game data>/Input/`) and saves bring theirs with their nodes.
+- Scripts have no API for the folder: the player's input bindings (`<game data>/Input/<the actions asset's file
+  name>.json`, §7.4 "Rebinding") are its first user beside the log and the crash reports, read when the actions load and
+  written by the engine when `Input.Rebind`, a capture or `Input.ResetBindings` changes one, with no path exposed. Saves
+  bring theirs with their nodes.
 
 ## 14. Build configurations
 

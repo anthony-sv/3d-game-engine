@@ -88,4 +88,8 @@ internal sealed class SettingDescription
 
 	// Choice settings.
 	internal IReadOnlyList<string> Choices { get; init; } = [];
+
+	// A String setting that names an input action of the project (Event.ActionPressed's Action): the analysis checks it against
+	// the project's actions when it is told them, and the library writes it as "InputAction".
+	internal bool NamesInputAction { get; init; }
 }

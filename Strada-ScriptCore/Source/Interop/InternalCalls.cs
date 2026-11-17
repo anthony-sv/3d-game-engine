@@ -519,6 +519,16 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<byte*, int, void> Input_ClearActionOverride;
 	// The action whose edge the running handlers were called for (its UTF-8 and length); null outside one.
 	internal static delegate* unmanaged<int*, byte*> Input_GetHandledAction;
+	// Rebinding: the answers' numbers (NativeRebindAnswer), their text read from the running scene (source 0 the latest
+	// answer, 1 the capture; field 0 the action, 1 the controls, 2 the message, 3 a conflict by index), and a binding's
+	// controls copied into a buffer (their length, or -1).
+	internal static delegate* unmanaged<byte*, int, int, int, NativeRebindAnswer*, void> Input_StartRebind;
+	internal static delegate* unmanaged<byte*, int, int, byte*, int, int, NativeRebindAnswer*, void> Input_Rebind;
+	internal static delegate* unmanaged<NativeRebindAnswer*, void> Input_ResetBindings;
+	internal static delegate* unmanaged<void> Input_CancelRebind;
+	internal static delegate* unmanaged<NativeRebindAnswer*, void> Input_GetCurrentRebind;
+	internal static delegate* unmanaged<int, int, int, int*, byte*> Input_ReadRebindText;
+	internal static delegate* unmanaged<byte*, int, int, byte*, int, int> Input_GetBindingControls;
 
 	internal static delegate* unmanaged<Vector3*, void> Physics_GetGravity;
 	internal static delegate* unmanaged<Vector3*, void> Physics_SetGravity;

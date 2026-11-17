@@ -33,6 +33,7 @@ add_executable(StradaEditorTests
     Source/HeadlessImGui.h
     Source/HeadlessImGuiTests.cpp
     Source/HierarchyOperationsTests.cpp
+    Source/InputActionsPanelTests.cpp
     Source/JsonRpcTests.cpp
     Source/JsonSchemaTests.cpp
     Source/Main.cpp

@@ -312,6 +312,15 @@ graphs.
   **Clear Action Override** put a value on an action as one more device would, from the next frame on: a graph that
   drives the game (an autopilot) or a test scene that presses a button.
 - `Get:Strada.InputActions.ActionNames` lists an asset's action names (a variable of type InputActions, or **Load**).
+- **The editor checks the names against the project's actions** (the asset Project Settings' Input Actions names): the
+  `Action` setting of the two events and the `Action` input, unlinked, of every node above and of the rebinding nodes
+  (Start Rebind, Rebind, Get Binding Controls). A name the project lacks is a warning, `UnknownAction` (the node reads
+  nothing, as it would while playing), with a fix "Use <name>" for each of the nearest actions, one undo step each; an
+  input that holds no name is empty and names none. A project that names no actions, or whose asset does not load, gets
+  one warning per script, `NoInputActions`, and nothing is checked. Details draws the setting and the input as a list of
+  the project's actions (showing a stored name the project lacks as it is); without actions they are text fields. A
+  script is checked again when an action is renamed or removed, or the project names other actions; scripts that name
+  no action are not analyzed again for it. Games never check: an unknown name reads zero there.
 
 **Try it:** with a project whose input actions have `Jump` on Space, give a graph `Event.ActionPressed` with `Action`
 Jump that logs "jump", press Play and press Space.

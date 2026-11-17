@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -43,6 +44,11 @@ namespace Strada
 		double Diagnostics = 0.0;
 	};
 
+	// What a host answers when analyses ask for the project's input actions (VisualScriptEngine::SetInputActionsSource): the
+	// asset the open project's settings name for them (an invalid handle when they name none), or nothing while no project
+	// is open.
+	using VisualScriptInputActionsSource = std::function<std::optional<AssetHandle>()>;
+
 	// The visual scripts of the scripting runtime: its node library, its analysis of documents, the programs it compiles
 	// from graph assets and the graph instances of the running scene, which Scene drives like C# script instances. It works
 	// while ScriptEngine::IsInitialized(), and its state goes with ScriptEngine::Shutdown. Main thread only.
@@ -67,7 +73,11 @@ namespace Strada
 		// document's own graph (none when it has no asset): a node whose Graph setting names it refers to this document, never
 		// to the stored asset. The other graphs the document's nodes refer to are read from the assets as they are now (the
 		// libraries among them with the graphs they refer to), and the analysis lists them with the documents read
-		// (VisualScriptAnalysis::Graphs). Fails only without the runtime, or when the runtime fails (logged).
+		// (VisualScriptAnalysis::Graphs). A document with a node of an action event or of Strada.Input is analyzed with the
+		// project's input actions (GetInputActions), which the analysis records (VisualScriptAnalysis::InputActions): the
+		// action names it gives are checked against them (UnknownAction, NoInputActions). Other documents are analyzed with
+		// the same bundle as before, finding that out costing a comparison per node. Fails only without the runtime, or when
+		// the runtime fails (logged).
 		// The analysis is shared and never changes: the engine keeps the most recent ones (MaxKeptAnalyses, by self) to read the
 		// next analysis of the same graph with (VisualScriptAnalysis::Parse with a previous analysis), so an edit parses only
 		// the nodes and diagnostics it changed.
@@ -80,6 +90,23 @@ namespace Strada
 		static constexpr size_t MaxReferencedGraphs = 256;
 		// How many analyses the engine keeps to read later ones with, one per graph: the least recently analyzed is dropped.
 		static constexpr size_t MaxKeptAnalyses = 8;
+
+		// --- The project's input actions (IA2's spec section 6) ---
+
+		// Where analyses learn the project's input actions: the host's function, which Analyze and GetInputActions call. It is
+		// kept apart from the runtime (a restart of the runtime keeps it) until ClearInputActionsSource with the same owner or
+		// another SetInputActionsSource. The editor's EditorContext sets it for its life; the player sets none, its loads
+		// never checking action names. Without a source, no project is known and no action name is checked.
+		static void SetInputActionsSource(void const* owner, VisualScriptInputActionsSource source);
+		// Removes the source if owner set it; nothing otherwise.
+		static void ClearInputActionsSource(void const* owner);
+		// The project's input actions as the source answers now: null without a source or while it answers no project; else
+		// the names of the asset's actions, or why there are none (the project names none, or the asset does not load as an
+		// InputActions asset). The same object while they stay the same (an edit of the asset that keeps the names, a
+		// refresh), so a keeper of an analysis knows by a pointer comparison whether it is out of date. The asset is read
+		// again only when the source answers another asset or the asset registry or a data asset changed since the last
+		// read. Works without the runtime.
+		static Ref<VisualScriptInputActions const> GetInputActions();
 
 		// --- Programs ---
 

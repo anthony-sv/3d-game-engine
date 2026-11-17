@@ -1,7 +1,9 @@
 #include "Editor/EditorContext.h"
 
 #include "Strada/Core/Assert.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -10,6 +12,20 @@ namespace Strada
 	EditorContext::EditorContext()
 		: m_Scene(CreateRef<Scene>("Untitled"))
 	{
+		VisualScriptEngine::SetInputActionsSource(this,
+		                                          [this]() -> std::optional<AssetHandle>
+		                                          {
+													  if (m_Project == nullptr)
+													  {
+														  return std::nullopt;
+													  }
+													  return m_Project->GetSettings().InputActions;
+												  });
+	}
+
+	EditorContext::~EditorContext()
+	{
+		VisualScriptEngine::ClearInputActionsSource(this);
 	}
 
 	void EditorContext::SetScene(Ref<Scene> scene, std::filesystem::path path, bool keepAssetSteps)

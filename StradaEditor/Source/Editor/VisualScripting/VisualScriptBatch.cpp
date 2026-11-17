@@ -4702,6 +4702,7 @@ namespace Strada
 				case VisualScriptFixKind::RemoveSplit:
 				case VisualScriptFixKind::EnableNode:
 				case VisualScriptFixKind::ReplaceInFormula:
+				case VisualScriptFixKind::UseAction:
 					return {};
 			}
 			return {};

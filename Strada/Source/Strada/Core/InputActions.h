@@ -98,10 +98,16 @@ namespace Strada
 	// a name ParseInputControl does not read; it does not check the controls against an action type
 	// (CheckInputBindingControls does). Any thread.
 	[[nodiscard]] Result<InputControlList> ParseInputControls(std::string_view text);
+	// A binding's canonical text: each control's name as FormatInputControl writes it, separated by single spaces (empty for
+	// an unbound list). ParseInputControls reads it back as the same list. Any thread.
+	[[nodiscard]] std::string FormatInputControls(InputControlList const& controls);
 	// Whether the controls fit an action of the type: Button and Axis take one control that is not a stick, or two that
 	// are not (an axis composite); Vector2 takes one stick, or four controls that are not sticks (a vector composite). An
 	// unbound list fits every type. Any thread.
 	[[nodiscard]] Result<void> CheckInputBindingControls(InputActionType type, InputControlList const& controls);
+	// Whether two controls meet: they are the same control, or a stick and one of its own axes. Which gamepad each reads is
+	// not compared (the caller does, where it knows). Any thread.
+	[[nodiscard]] bool DoInputControlsMeet(InputControl first, InputControl second);
 
 	// A response curve: maps a binding's magnitude after its dead zone (0 to 1) to the magnitude it gives. Empty is the
 	// identity. The Asset module makes one from a Curve asset; it must be callable from the main thread for the set's
@@ -222,7 +228,10 @@ namespace Strada
 	public:
 		// Evaluates this set from the next Evaluate on. Actions of the same name in the old set keep their state (their
 		// value, whether they are down, the edges latched for the next fixed step and those steps took), so a set rebuilt
-		// while a game runs (an edited asset) makes no edge. New actions start at their current reading and level, without
+		// while a game runs (an edited asset, a rebind) makes no edge. A kept action whose bindings read other controls now
+		// goes down without a press when its current reading holds it down (the control pressed to bind it does not press
+		// it), and one that was down stays down until an evaluation finds nothing holding it (its release is reported
+		// then). New actions start at their current reading and level, without
 		// an edge (a control held as the set arrives holds the action down, as a key held when play starts is down but not
 		// pressed), with the controls' and the override's current press and release counts as their baseline. Calls each
 		// binding's response once per digital control (which controls can press their action). Forgets the names logged
@@ -231,6 +240,15 @@ namespace Strada
 		Ref<InputActionSet const> const& GetActions() const { return m_Actions; }
 		// Drops the set and every action's state, and the unknown names already logged.
 		void Clear();
+		// Makes what the action's digital controls did since the last evaluation no edge (their counts become the baseline)
+		// and, when its reading now holds it down, puts it down without a press: what a capture calls once it bound the
+		// control a player pressed, also when the binding already read that control (no new set comes then). An action that
+		// is down stays down. Its override's counts are left alone. Nothing for an index the set lacks.
+		void Settle(uint32_t action);
+		// Settle for every action with a binding that reads a control meeting `control` (DoInputControlsMeet), on any
+		// gamepad: what a capture calls for the control that ended it (Escape, or the control it bound), so that this press
+		// is no press of any action in the frame the capture ends.
+		void SettleControl(InputControl control);
 
 		// The frame's evaluation (Docs/Architecture.md §7.4): every action's value is the reading of the binding with the
 		// largest magnitude, then of its override (Input::FindActionOverride) under the same rule (the first in that order

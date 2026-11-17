@@ -68,6 +68,13 @@ namespace Strada
 		constexpr int RenameFocusFrames = 3;
 		constexpr char const* DeletePopup = "Delete###ContentBrowserDelete";
 
+		// Whether assets of the type open in the Input Actions panel.
+		bool IsInputActionsType(AssetType type)
+		{
+			DataAssetType const* const actions = DataAssetRegistry::FindByName("InputActions");
+			return actions != nullptr && actions->GetAssetType() == type;
+		}
+
 		struct TypeStyle
 		{
 			char const* Label;
@@ -1557,7 +1564,9 @@ namespace Strada
 		{
 			Open(operations, item);
 		}
-		bool const opens = item.IsFolder() || item.Type == AssetType::Scene || (item.Type == AssetType::VisualScript && m_OpenVisualScript);
+		bool const opens = item.IsFolder() || item.Type == AssetType::Scene ||
+		                   (item.Type == AssetType::VisualScript && m_OpenVisualScript) ||
+		                   (item.Kind == ItemKind::Asset && m_OpenInputActions && IsInputActionsType(item.Type));
 		if (opens && ImGui::MenuItem("Open"))
 		{
 			Open(operations, item);
@@ -1987,6 +1996,10 @@ namespace Strada
 				else if (item.Type == AssetType::VisualScript && m_OpenVisualScript)
 				{
 					m_OpenVisualScript(item.Asset);
+				}
+				else if (m_OpenInputActions && IsInputActionsType(item.Type))
+				{
+					m_OpenInputActions(item.Asset);
 				}
 				return;
 			case ItemKind::Script:
