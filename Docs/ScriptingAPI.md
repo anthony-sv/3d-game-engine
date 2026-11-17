@@ -10,7 +10,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 the few whose summary says graphs have none.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-92 types in 2 namespaces, with 788 members and enum values in all.
+94 types in 2 namespaces, with 806 members and enum values in all.
 
 ## Strada
 
@@ -71,6 +71,8 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [RangeAttribute](#rangeattribute) | attribute | Limits the value the inspector lets a numeric field take. |
 | [Ray](#ray) | struct | A half-line from an origin along a direction. |
 | [RaycastHit](#raycasthit) | struct | What a raycast hit. |
+| [RebindResult](#rebindresult) | class | The answer of a rebind of an input action's binding: how it ended, the binding's controls and the other actions that now read one of them. The engine applies a binding whatever it conflicts with and reports the conflicts; the game decides what to do about them (warn, swap, or undo with another `Input.Rebind`). |
+| [RebindStatus](#rebindstatus) | enum | How a rebind of an input action's binding ended (`Input.Rebind`, `Input.ResetBindings`), or that a capture listens for a control (`Input.StartRebind`). |
 | [RigidBodyComponent](#rigidbodycomponent) | class | Makes the entity a physics body; its colliders give it shape. While the scene runs, velocities, forces and sleep act on the simulated body. |
 | [RigidBodyInterpolation](#rigidbodyinterpolation) | enum | How `RigidBodyComponent.Interpolation` draws a moving body between physics steps. |
 | [RigidBodyType](#rigidbodytype) | enum | How a rigid body moves. |
@@ -522,6 +524,7 @@ Keyboard, mouse and gamepad state of the current frame, and the project's input 
 | `static Vector2 MouseScrollDelta { get; }` | How far the mouse wheel scrolled this frame (Y is the usual wheel). |
 | `static bool IsPointerOverUI { get; }` | Whether the mouse is over the screen-space UI: an image or a button of a canvas is under the cursor (as of this frame's UI update, before `OnUpdate`), so a click there goes to the UI. Scripts that act on mouse clicks in the world skip those, so clicking a HUD or menu button does not also shoot, place or select in the game. False while the cursor is locked. |
 | `static CursorMode CursorMode { get; set; }` | Whether the cursor is visible, hidden or locked. |
+| `static RebindResult CurrentRebind { get; }` | The latest capture of the running scene (`Input.StartRebind`): `RebindStatus.Listening` while it waits, then how it ended, with the conflicts when `RebindStatus.Done`; `RebindStatus.None` before any. |
 | `static bool IsKeyDown(KeyCode key)` | Whether the key is held down. |
 | `static bool IsKeyPressed(KeyCode key)` | Whether the key went down this frame. |
 | `static bool IsKeyReleased(KeyCode key)` | Whether the key went up this frame. |
@@ -541,6 +544,11 @@ Keyboard, mouse and gamepad state of the current frame, and the project's input 
 | `static void SetActionOverride(string action, float value)` | Puts a value on an input action as one more device would (on a Vector2 action, the vector (value, 0)): the action takes it when it is larger than what its bindings read, and it presses and releases the action as a button does (a press when the value leaves 0, a release when it returns to 0 or is cleared). It is read from the next frame's evaluation on and held, across scene loads, until `Input.ClearActionOverride`: how a graph drives a game (an autopilot, an attract mode) and how a test scene presses a button. A value set and cleared before the next frame still reaches it as a press and a release. |
 | `static void SetActionVectorOverride(string action, Vector2 value)` | Puts a vector on an input action as `Input.SetActionOverride` does, for a Vector2 action (+Y up); a Button or Axis action reads its X. |
 | `static void ClearActionOverride(string action)` | Ends the override of an input action (`Input.SetActionOverride`): from the next frame's evaluation on the action reads its bindings alone, released if only the override held it down. Nothing for an action without one. |
+| `static RebindResult StartRebind(string action, int binding, int part = -1)` | Listens for the next key, mouse button, gamepad button or axis the player gives, and binds it to binding `binding` (its index in the action) of the action: the whole binding with `part` -1, or one control of a composite ("Key/A Key/D": part 0 is A, 1 is D). A key or button counts when it is pressed after this call, an axis when it moves past half way (a Vector2 action takes a stick; a part takes an axis in its positive direction); gamepads count only those the binding reads. Escape, or 10 seconds of frames (counted also while `Time.TimeScale` is 0), cancel it, as does `Input.CancelRebind` or another StartRebind. Answers `RebindStatus.Listening`, or `RebindStatus.Refused` as `Input.Rebind` refuses; read how it ends from `Input.CurrentRebind`. The control that was pressed to bind does not press the action. |
+| `static RebindResult Rebind(string action, int binding, string controls, int part = -1)` | Binds controls to binding `binding` of an input action while the game runs: with `part` -1 the binding's controls as text ("Key/J", "Key/A Key/D", "Gamepad/LeftStick", or "" to leave it unbound), else the one control that replaces that part of a composite. The new binding is read from the next frame on, by every running scene and the scenes loaded later, and kept for the next run in the player's profile in the game's data folder; the actions asset is never changed. The answer lists the other actions that now read one of the same controls (the engine does not unbind them). Refused, changing nothing, for an unknown action, a binding or part it lacks, or controls that do not fit the action's type. |
+| `static void CancelRebind()` | Ends the capture `Input.StartRebind` started, if one still listens: `Input.CurrentRebind` then reads `RebindStatus.Cancelled`. |
+| `static RebindResult ResetBindings()` | Every binding back to the actions asset's, and the player's profile emptied: `RebindStatus.Done`, or `RebindStatus.Refused` when the project names no input actions. |
+| `static string GetBindingControls(string action, int binding)` | The controls binding `binding` of an input action reads now, as text ("Key/Space", "Key/A Key/D"), the player's rebinding included: what a settings screen shows. Empty for an action or binding the project's actions lack. |
 
 ### InputActions
 
@@ -1057,6 +1065,34 @@ What a raycast hit.
 | `Vector3 Normal { get; }` | The surface normal at the point. |
 | `float Distance { get; }` | Distance from the ray's origin to the point. |
 | `PhysicsMaterial? Material { get; }` | The physics material of the surface hit: the collider's Material, or for a triangle of a mesh collider its submesh's entry in the collider's Materials (the collider's Material when that entry is empty); null when the surface has none and its collider's own Friction and Restitution apply. Hits on one material share one reference. |
+
+### RebindResult
+
+```csharp
+public sealed class RebindResult
+```
+
+The answer of a rebind of an input action's binding: how it ended, the binding's controls and the other actions that now read one of them. The engine applies a binding whatever it conflicts with and reports the conflicts; the game decides what to do about them (warn, swap, or undo with another `Input.Rebind`).
+
+| Member | Summary |
+|---|---|
+| `RebindStatus Status { get; }` | How the rebind ended, or `RebindStatus.Listening` while a capture waits. |
+| `string Action { get; }` | The action asked for (empty for a reset). |
+| `int Binding { get; }` | The binding's index in its action (-1 for a reset). |
+| `int Part { get; }` | The control of a composite binding that was asked for (0 to 3), or -1 for the whole binding. |
+| `string Controls { get; }` | The binding's controls as text ("Key/J", "Key/A Key/D", "Gamepad/LeftStick"): the new ones when `RebindStatus.Done`, those it reads while a capture listens or after it was cancelled; empty when refused. |
+| `string[] Conflicts { get; }` | When `RebindStatus.Done`, the other actions with a binding that reads one of the binding's controls (on a gamepad both read), in the order of the actions in the asset; empty otherwise. |
+| `string Message { get; }` | Why the rebind was refused or cancelled, or that a binding that was done could not be saved; empty otherwise. |
+
+### RebindStatus
+
+```csharp
+public enum RebindStatus
+```
+
+How a rebind of an input action's binding ended (`Input.Rebind`, `Input.ResetBindings`), or that a capture listens for a control (`Input.StartRebind`).
+
+Values: `None`, `Listening`, `Done`, `Cancelled`, `Refused`.
 
 ### RigidBodyComponent
 

@@ -178,6 +178,16 @@ namespace Strada
 			return InputProcessing::CombineControls(binding.Controls, std::span<glm::vec2 const>(readings.data(), controls.size()));
 		}
 
+		// Whether two specifications of an action read the same controls on the same gamepads, binding by binding.
+		bool ReadsSameControls(InputActionSpecification const& first, InputActionSpecification const& second)
+		{
+			return std::ranges::equal(first.Bindings, second.Bindings,
+			                          [](InputBindingSpecification const& one, InputBindingSpecification const& other)
+			                          {
+										  return one.Controls == other.Controls && one.Gamepad == other.Gamepad;
+									  });
+		}
+
 		std::string DescribeBinding(InputActionSpecification const& action, size_t binding)
 		{
 			return fmt::format("action '{}', binding {}", action.Name, binding);
@@ -623,15 +633,25 @@ namespace Strada
 			}
 		}
 
-		// New actions take their current reading and level without an edge.
+		// New actions take their current reading and level without an edge. So does an action kept by name whose bindings
+		// read other controls now (a rebind, an edited asset) when that reading holds it down, without a press: the control
+		// a player just pressed to bind it does not press it. One that was down keeps its level, so its next evaluation
+		// reports the release when nothing holds it any more.
 		for (uint32_t index = 0; index < specifications.size(); index++)
 		{
-			if (previous && previous->Find(specifications[index].Name))
+			std::optional<uint32_t> const kept = previous ? previous->Find(specifications[index].Name) : std::nullopt;
+			bool const changed =
+				kept && *kept < previousStates.size() && !ReadsSameControls(previous->GetActions()[*kept], specifications[index]);
+			if (kept && !changed)
 			{
 				continue;
 			}
 			InputActionSpecification const& action = specifications[index];
 			ActionState& state = m_States[index];
+			if (changed && state.Down)
+			{
+				continue;
+			}
 			glm::vec2 best(0.0f);
 			float bestMagnitude = 0.0f;
 			for (InputBindingSpecification const& binding : action.Bindings)
@@ -653,6 +673,10 @@ namespace Strada
 					best = value;
 					bestMagnitude = magnitude;
 				}
+			}
+			if (changed && bestMagnitude < action.PressThreshold)
+			{
+				continue;
 			}
 			state.Magnitude = bestMagnitude;
 			state.Value = action.Type == InputActionType::Button ? glm::vec2(bestMagnitude, 0.0f)

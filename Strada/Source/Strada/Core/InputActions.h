@@ -222,7 +222,10 @@ namespace Strada
 	public:
 		// Evaluates this set from the next Evaluate on. Actions of the same name in the old set keep their state (their
 		// value, whether they are down, the edges latched for the next fixed step and those steps took), so a set rebuilt
-		// while a game runs (an edited asset) makes no edge. New actions start at their current reading and level, without
+		// while a game runs (an edited asset, a rebind) makes no edge. A kept action whose bindings read other controls now
+		// goes down without a press when its current reading holds it down (the control pressed to bind it does not press
+		// it), and one that was down stays down until an evaluation finds nothing holding it (its release is reported
+		// then). New actions start at their current reading and level, without
 		// an edge (a control held as the set arrives holds the action down, as a key held when play starts is down but not
 		// pressed), with the controls' and the override's current press and release counts as their baseline. Calls each
 		// binding's response once per digital control (which controls can press their action). Forgets the names logged

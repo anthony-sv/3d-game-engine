@@ -650,7 +650,7 @@ namespace Strada
 		// Lines drawn last frame were rendered; this frame's scripts draw new ones.
 		AgeDebugLines(deltaTime);
 		// Actions are evaluated before anything of the frame reads them: the UI's clicks, the scripts, the fixed steps.
-		UpdateInputActions();
+		UpdateInputActions(timestep.GetSeconds());
 		// Clicks reach the scripts before their update, which sees WasClicked.
 		{
 			ST_PROFILE_SCOPE("Scene.UpdateUI");

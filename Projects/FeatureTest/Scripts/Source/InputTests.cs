@@ -5,7 +5,8 @@ namespace FeatureTest;
 
 /// <summary>Input queries. Test runs have no keyboard, mouse or gamepad: nothing is held, moved or connected, and the
 /// cursor mode is what the scripts set. The project's input actions (Input/FeatureTest.sinput) are driven by overrides: Jump
-/// and Move here, Throttle by the Features graph.</summary>
+/// and Move here, Throttle by the Features graph. Rebinding starts and ends with every binding the asset's, so a run in the
+/// editor leaves its profile (.strada/PlayData/Input/FeatureTest.sinput.json) without entries.</summary>
 public sealed class InputTests : FeatureTestScript
 {
 	private const int MaxFrames = 600;
@@ -122,6 +123,40 @@ public sealed class InputTests : FeatureTestScript
 			Assert.IsFalse(Input.IsGamepadButtonDown(GamepadButton.A));
 			Assert.IsFalse(Input.IsGamepadButtonPressed(GamepadButton.Start, 0));
 			Assert.IsFalse(Input.IsGamepadButtonReleased(GamepadButton.DPadUp));
+		});
+		Check("a binding changes while the game runs, answering its conflicts, and goes back to the asset's", () =>
+		{
+			Assert.AreEqual(RebindStatus.Done, Input.ResetBindings().Status);
+			Assert.AreEqual("Key/Space", Input.GetBindingControls("Jump", 0));
+			RebindResult jump = Input.Rebind("Jump", 0, "Key/J");
+			Assert.AreEqual(RebindStatus.Done, jump.Status);
+			Assert.AreEqual("Jump", jump.Action);
+			Assert.AreEqual(0, jump.Binding);
+			Assert.AreEqual(-1, jump.Part);
+			Assert.AreEqual("Key/J", jump.Controls);
+			Assert.AreEqual(0, jump.Conflicts.Length);
+			Assert.AreEqual("Key/J", Input.GetBindingControls("Jump", 0));
+			// The W of Move's WASD becomes Up; its S still reads what Throttle's composite reads.
+			RebindResult move = Input.Rebind("Move", 0, "Key/Up", 0);
+			Assert.AreEqual("Key/Up Key/S Key/A Key/D", move.Controls);
+			Assert.AreEqual("Throttle", string.Join(",", move.Conflicts));
+			RebindResult refused = Input.Rebind("Jump", 5, "Key/K");
+			Assert.AreEqual(RebindStatus.Refused, refused.Status);
+			Assert.IsTrue(refused.Message.Length > 0);
+			Assert.AreEqual(RebindStatus.Done, Input.ResetBindings().Status);
+			Assert.AreEqual("Key/Space", Input.GetBindingControls("Jump", 0));
+			Assert.AreEqual("Key/W Key/S Key/A Key/D", Input.GetBindingControls("Move", 0));
+		});
+		Check("a capture listens for the player's next control until it is cancelled", () =>
+		{
+			Assert.AreEqual(RebindStatus.None, Input.CurrentRebind.Status);
+			RebindResult listening = Input.StartRebind("Jump", 1);
+			Assert.AreEqual(RebindStatus.Listening, listening.Status);
+			Assert.AreEqual("Gamepad/A", listening.Controls);
+			Assert.AreEqual(RebindStatus.Listening, Input.CurrentRebind.Status);
+			Input.CancelRebind();
+			Assert.AreEqual(RebindStatus.Cancelled, Input.CurrentRebind.Status);
+			Assert.AreEqual("Gamepad/A", Input.GetBindingControls("Jump", 1));
 		});
 		Check("the cursor mode is kept", () =>
 		{

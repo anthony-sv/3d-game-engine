@@ -34,6 +34,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Input.h
     Source/Strada/Core/InputActions.cpp
     Source/Strada/Core/InputActions.h
+    Source/Strada/Core/InputCapture.cpp
+    Source/Strada/Core/InputCapture.h
     Source/Strada/Core/KeyCodes.cpp
     Source/Strada/Core/KeyCodes.h
     Source/Strada/Core/Layer.h
@@ -82,6 +84,10 @@ set(STRADA_ASSET_SOURCES
     Source/Strada/Asset/InputActionMap.h
     Source/Strada/Asset/InputActionsAsset.cpp
     Source/Strada/Asset/InputActionsAsset.h
+    Source/Strada/Asset/InputBindingProfile.cpp
+    Source/Strada/Asset/InputBindingProfile.h
+    Source/Strada/Asset/InputRebinding.cpp
+    Source/Strada/Asset/InputRebinding.h
     Source/Strada/Asset/MaterialAsset.cpp
     Source/Strada/Asset/MaterialAsset.h
     Source/Strada/Asset/MeshFactory.cpp

@@ -8,6 +8,7 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/InputActionMap.h"
 #include "Strada/Asset/InputActionsAsset.h"
+#include "Strada/Asset/InputRebinding.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
@@ -186,6 +187,15 @@ namespace
 			.WithInputs(R"({"Action": "Coverage"})")
 			.WithHeldActions(CoverageAction)
 			.WithAlone(),
+		// Rebinding names a binding the scene's actions have; the bindings are the process's, so the members that change them
+		// run alone.
+		Recipe("Call:Strada.Input.StartRebind(string,int,int)").WithInputs(R"({"Action": "Coverage"})").WithHeldActions(CoverageAction),
+		Recipe("Call:Strada.Input.Rebind(string,int,string,int)")
+			.WithInputs(R"({"Action": "Coverage", "Controls": "Key/F13"})")
+			.WithHeldActions(CoverageAction)
+			.WithAlone(),
+		Recipe("Call:Strada.Input.ResetBindings()").WithHeldActions(CoverageAction).WithAlone(),
+		Recipe("Call:Strada.Input.GetBindingControls(string,int)").WithInputs(R"({"Action": "Coverage"})").WithHeldActions(CoverageAction),
 		// Neutral values for members with global effects, which run alone: the defaults would stop the case's own scene.
 		Recipe("Set:Strada.Time.TimeScale").WithInputs(R"({"Value": 1.0})"),
 		Recipe("Set:Strada.Physics.Gravity").WithInputs(R"({"Value": [0.0, -9.81, 0.0]})"),
@@ -259,6 +269,19 @@ namespace
 		{"Event.Destroy", "it runs when the scene stops, after Ran is read", "Scripts/Features.sgraph", NodeCaseRunner::FeatureTestRun},
 	});
 
+	// Classes the API gives only as results (no constructor, no literal), each with the pure node that answers one: what a
+	// member's Target or an input of the class is linked from, whatever default the pin has.
+	struct ResultProducer
+	{
+		std::string_view Type;
+		std::string_view Node;
+		std::string_view Output;
+	};
+
+	constexpr auto ResultProducers = std::to_array<ResultProducer>({
+		{"Strada.RebindResult", "Get:Strada.Input.CurrentRebind", "Value"},
+	});
+
 	// Types whose members change what every case of a scene sees (time, gravity, the application, the scene): their cases
 	// run alone, as static setters do (Input's among them).
 	constexpr std::array<std::string_view, 4> GlobalEffectTypes = {"Strada.Application", "Strada.Physics", "Strada.SceneManager",
@@ -295,12 +318,20 @@ namespace
 		uint32_t Finishes = 0;
 	};
 
-	// Input is global: every scene of cases starts and ends with none.
+	// Input is global: every scene of cases starts and ends with none, and with no binding rebound.
 	class InputScope
 	{
 	public:
-		InputScope() { Input::Reset(); }
-		~InputScope() { Input::Reset(); }
+		InputScope()
+		{
+			Input::Reset();
+			InputRebinding::Clear();
+		}
+		~InputScope()
+		{
+			InputRebinding::Clear();
+			Input::Reset();
+		}
 
 		InputScope(InputScope const&) = delete;
 		InputScope& operator=(InputScope const&) = delete;
@@ -899,6 +930,12 @@ namespace
 				{
 					continue;
 				}
+				if (ResultProducer const* const producer = FindByType<ResultProducer>(ResultProducers, pin.Type))
+				{
+					uint32_t const produced = AddNode(m_Document.Graph, MakeNodeOf(std::string(producer->Node)));
+					Link(produced, std::string(producer->Output), nodeID, pin.Name);
+					continue;
+				}
 				if (pin.DefaultsToSelf || !pin.Default.is_null())
 				{
 					continue;
@@ -1265,7 +1302,8 @@ namespace
 			return names;
 		}
 
-		// An InputActions memory asset of Button actions without bindings, one per name; invalid for none.
+		// An InputActions memory asset of Button actions with one unbound binding each (which rebinding cases rebind), one per
+		// name; invalid for none.
 		static AssetHandle AddHeldActions(std::vector<std::string> const& names)
 		{
 			if (names.empty())
@@ -1278,6 +1316,7 @@ namespace
 				InputAction action;
 				action.Name = name;
 				action.Type = InputActionType::Button;
+				action.Bindings.emplace_back();
 				map.Actions.push_back(std::move(action));
 			}
 			TypedDataAssetType<InputActionMap> const* type = DataAssetRegistry::Find<InputActionMap>();

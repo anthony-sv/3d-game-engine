@@ -271,7 +271,7 @@ public sealed class NodeLibraryTests
 		[
 			"Assets.Load", "CameraComponent.ScreenToWorldRay", "CameraComponent.WorldToScreenPoint", "Curve.Evaluate", "Entity.As",
 			"Entity.FindByID", "Entity.FindByName", "Entity.GetComponent", "Entity.HasComponent", "Input.GetAction",
-			"Input.GetActionVector", "Input.GetGamepadAxis", "Input.IsActionDown", "Input.IsActionPressed", "Input.IsActionReleased",
+			"Input.GetActionVector", "Input.GetBindingControls", "Input.GetGamepadAxis", "Input.IsActionDown", "Input.IsActionPressed", "Input.IsActionReleased",
 			"Input.IsGamepadButtonDown", "Input.IsGamepadButtonPressed", "Input.IsGamepadButtonReleased", "Input.IsGamepadConnected",
 			"Input.IsKeyDown", "Input.IsKeyPressed", "Input.IsKeyReleased", "Input.IsMouseButtonDown", "Input.IsMouseButtonPressed",
 			"Input.IsMouseButtonReleased", "MeshComponent.GetMaterial", "Ray.GetPoint",

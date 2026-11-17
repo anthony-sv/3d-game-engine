@@ -1148,7 +1148,9 @@ spaces, a name in another script) is the game's `Name`, or `Game` when that has 
 The game logs to `Logs/<Name>.log` there (named after its executable) and leaves crash reports in `Crashes/`. It does
 so as soon as its `Game.sgame` names the game, also when other settings in the file keep it from starting, and the log
 says why. Only a game whose `Game.sgame` is missing, or so damaged that its name or identity cannot be read, logs in the
-engine's user data folder instead, where it says why it cannot start.
+engine's user data folder instead, where it says why it cannot start. The bindings a player changes while the game runs
+(`Input.Rebind`, `Input.StartRebind`; see [Scripting](Scripting.md#input-actions)) are kept in
+`Input/<the actions asset's file name>.json` there and read when the game's actions load.
 
 While you work on the game it never touches that folder: playing in the editor and `StradaRuntime --project` give the
 game the project's `.strada/PlayData` folder (left out of version control and of project copies), and test runs
