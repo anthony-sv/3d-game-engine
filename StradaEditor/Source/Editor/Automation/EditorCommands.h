@@ -111,9 +111,9 @@ namespace Strada
 	};
 
 	// Registers the editor, project (with the agent kit's, RegisterAgentCommands), scene, entity, component, asset, material, graph
-	// (visual script), prefab, inspector, log and viewport commands. Entity parameters are UUIDs written as decimal strings. The registry,
-	// the operations (and their context) and the environment callbacks must outlive every registered command. Documented in
-	// Docs/Automation.md.
+	// (visual script), prefab, inspector, log, viewport and audio (RegisterAudioCommands) commands. Entity parameters are UUIDs written as
+	// decimal strings. The registry, the operations (and their context) and the environment callbacks must outlive every registered
+	// command. Documented in Docs/Automation.md.
 	[[nodiscard]] Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations,
 	                                                  EditorCommandEnvironment environment);
 

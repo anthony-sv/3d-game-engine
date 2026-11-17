@@ -26,6 +26,7 @@ add_executable(StradaTests
     Source/Asset/VisualScriptSerializerTests.cpp
     Source/Audio/AudioBenchmarkTests.cpp
     Source/Audio/AudioEngineTests.cpp
+    Source/Audio/AudioMixControlTests.cpp
     Source/Audio/AudioMixerTests.cpp
     Source/Audio/AudioQueueTests.cpp
     Source/Audio/AudioSceneTests.cpp

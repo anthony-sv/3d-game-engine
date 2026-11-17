@@ -268,8 +268,9 @@ TEST_CASE("AudioEngine: null output mixes while the main thread starts, changes 
 TEST_CASE("AudioEngine: null output mixes through buses and effects while the main thread edits the mixer")
 {
 	// The device's thread runs the buses' nodes and effects while this thread changes their values, swaps their chains,
-	// adds, re-parents and removes buses under playing scenes, sets game values, and ends a scene whose bus goes before
-	// its voices have faded: buses, chains and groups cross between the threads only through the queue and the return list.
+	// adds, re-parents and removes buses under playing scenes, sets game values, blends to a snapshot and back, ducks a bus
+	// by one that goes in some edits, and ends a scene whose bus goes before its voices have faded: buses, chains and groups
+	// cross between the threads only through the queue and the return list.
 	InitNullOutput();
 	auto const makeMixer = [](uint32_t step)
 	{
@@ -296,7 +297,23 @@ TEST_CASE("AudioEngine: null output mixes through buses and effects while the ma
 			voices.Name = "Voices";
 			voices.Parent = "Effects";
 			made.Buses.push_back(voices);
+			made.Buses[1].DuckedBy = "Voices";
+			made.Buses[1].DuckAttackSeconds = 0.01f;
+			made.Buses[1].DuckReleaseSeconds = 0.02f;
 		}
+		made.Snapshots = {MixerSnapshot{
+			.Name = "Muffled",
+			.Values = {MixerSnapshotValue{.Bus = "Music",
+		                                  .Target = MixerSnapshotTarget::Volume,
+		                                  .Effect = 0,
+		                                  .Parameter = MixerEffectParameter::Frequency,
+		                                  .Value = -20.0f},
+		               MixerSnapshotValue{.Bus = "Music",
+		                                  .Target = MixerSnapshotTarget::Effect,
+		                                  .Effect = 0,
+		                                  .Parameter = MixerEffectParameter::Frequency,
+		                                  .Value = 300.0f}},
+		}};
 		return made;
 	};
 	AudioEngine::SetMixer(makeMixer(0));
@@ -332,6 +349,10 @@ TEST_CASE("AudioEngine: null output mixes through buses and effects while the ma
 			if (step % 30 == 15)
 			{
 				AudioEngine::ClearEffectState();
+			}
+			if (step % 10 == 5)
+			{
+				CHECK(AudioEngine::TransitionTo(step % 20 == 5 ? "Muffled" : "", 0.05f));
 			}
 			if (step == 40)
 			{

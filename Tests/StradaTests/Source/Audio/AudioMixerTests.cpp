@@ -841,7 +841,7 @@ TEST_CASE("AudioMixer: every kind of effect takes a new parameter without a clic
 		// Long enough for echoes, tails and envelopes to settle; then the steady output's sharpest turn is the measure.
 		ProcessSine(*effect, frame, 2.0f);
 		std::vector<float> const before = ProcessSine(*effect, frame, 0.1f);
-		effect->SetParameter(move.Parameter, move.Value);
+		effect->SetParameter(move.Parameter, move.Value, AudioFrames(AudioParameterSmoothingSeconds));
 		std::vector<float> const after = ProcessSine(*effect, frame, 0.1f);
 		// The turns after the change are measured from the last two frames before it on: a value that jumps at once turns
 		// the waveform at the change itself.

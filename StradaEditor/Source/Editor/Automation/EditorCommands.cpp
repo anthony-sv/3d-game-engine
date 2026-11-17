@@ -1,6 +1,7 @@
 #include "Editor/Automation/EditorCommands.h"
 
 #include "Editor/Automation/AgentCommands.h"
+#include "Editor/Automation/AudioCommands.h"
 #include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/JsonSchema.h"
 #include "Editor/Commands/SetDataAssetCommand.h"
@@ -6496,7 +6497,9 @@ namespace Strada
 		EngineLayout layout = environment.Locations.Layout;
 		AgentToolLookup findTool = environment.FindToolOnPath;
 		Result<void> registered = CreateRef<CommandSet>(registry, operations, std::move(environment))->RegisterAll();
-		return registered ? RegisterAgentCommands(registry, operations.GetContext(), std::move(layout), std::move(findTool)) : registered;
+		registered =
+			registered ? RegisterAgentCommands(registry, operations.GetContext(), std::move(layout), std::move(findTool)) : registered;
+		return registered ? RegisterAudioCommands(registry) : registered;
 	}
 
 	Json DescribeEditorProject(EditorContext const& context)

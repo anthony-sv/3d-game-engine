@@ -33,6 +33,55 @@ namespace Strada
 		FramesLeft = frames;
 	}
 
+	namespace
+	{
+		// A bus volume as an amplitude: MinMixerVolumeDb and below are silence, exactly.
+		double ToVolumeGain(float decibels)
+		{
+			return decibels <= MinMixerVolumeDb ? 0.0 : std::pow(10.0, static_cast<double>(decibels) / 20.0);
+		}
+	}
+
+	void AudioBusMixGain::SetTarget(float volumeDb, bool muted, uint32_t frames, bool inDecibels)
+	{
+		Mute.SetTarget(muted ? 0.0f : 1.0f, frames);
+		VolumeTarget = ToVolumeGain(volumeDb);
+		InDecibels = inDecibels;
+		if (frames == 0 || Volume == VolumeTarget)
+		{
+			Volume = VolumeTarget;
+			VolumeStep = 0.0;
+			FramesLeft = 0;
+			return;
+		}
+		FramesLeft = frames;
+		if (!inDecibels)
+		{
+			VolumeStep = (VolumeTarget - Volume) / static_cast<double>(frames);
+			return;
+		}
+		// From silence, a move in decibels starts at the floor; towards silence it heads for the floor and is silence at its
+		// last frame.
+		Volume = std::max(Volume, DecibelFloor);
+		VolumeStep = std::pow(std::max(VolumeTarget, DecibelFloor) / Volume, 1.0 / static_cast<double>(frames));
+	}
+
+	float AudioBusMixGain::Next()
+	{
+		if (FramesLeft > 0)
+		{
+			if (--FramesLeft == 0)
+			{
+				Volume = VolumeTarget;
+			}
+			else
+			{
+				Volume = InDecibels ? Volume * VolumeStep : Volume + VolumeStep;
+			}
+		}
+		return static_cast<float>(Volume) * Mute.Next();
+	}
+
 	Result<Scope<AudioSceneGroup>> AudioSceneGroup::Create(std::string busName, bool paused)
 	{
 		ma_engine& engine = Miniaudio::GetEngine();
@@ -213,9 +262,9 @@ namespace Strada
 		}
 	}
 
-	void AudioBusNode::SetInitialValues(float mixGain, float gameGain, AudioEffectChain* chain)
+	void AudioBusNode::SetInitialValues(float volumeDb, bool muted, float gameGain, AudioEffectChain* chain)
 	{
-		m_MixGain.SetTarget(mixGain, 0);
+		m_MixGain.SetTarget(volumeDb, muted, 0, false);
 		m_GameGain.SetTarget(gameGain, 0);
 		m_Chain = chain;
 	}
@@ -253,13 +302,19 @@ namespace Strada
 				effect->Process(samples);
 			}
 		}
-		// The mixer's gain, the game's and the dip, ramped per frame. At 0 dB with nothing moving the bus is the identity.
-		bool const steady = m_MixGain.IsSteady() && m_GameGain.IsSteady() && m_Dip.IsSteady();
-		if (!steady || m_MixGain.Current * m_GameGain.Current * m_Dip.Current != 1.0f)
+		// Ducking: the duck's gain heads for its target while the other bus's level of the block before is at or above the
+		// threshold, and back for 1 below it.
+		double const duckTarget =
+			m_DuckTrigger != nullptr && m_DuckTrigger->m_PreviousRms >= m_DuckThreshold ? static_cast<double>(m_DuckTarget) : 1.0;
+		// The mixer's gain, the game's, the duck's and the dip, ramped per frame. At 0 dB with nothing moving the bus is the
+		// identity.
+		bool const steady = m_MixGain.IsSteady() && m_GameGain.IsSteady() && m_Dip.IsSteady() && m_DuckGain == duckTarget;
+		if (!steady || m_MixGain.GetCurrent() * m_GameGain.Current * m_Dip.Current * static_cast<float>(m_DuckGain) != 1.0f)
 		{
 			for (uint32_t frame = 0; frame < frameCount; frame++)
 			{
-				float const gain = m_MixGain.Next() * m_GameGain.Next() * m_Dip.Next();
+				StepDuck(duckTarget);
+				float const gain = m_MixGain.Next() * m_GameGain.Next() * m_Dip.Next() * static_cast<float>(m_DuckGain);
 				float* const frameSamples = output + static_cast<size_t>(frame) * m_ChannelCount;
 				for (uint32_t channel = 0; channel < m_ChannelCount; channel++)
 				{
@@ -274,9 +329,50 @@ namespace Strada
 			peak = std::max(peak, std::abs(sample));
 			squares += static_cast<double>(sample) * sample;
 		}
+		m_BlockRms = sampleCount > 0 ? static_cast<float>(std::sqrt(squares / static_cast<double>(sampleCount))) : 0.0f;
 		m_Peak.store(peak, std::memory_order_relaxed);
-		m_Rms.store(sampleCount > 0 ? static_cast<float>(std::sqrt(squares / static_cast<double>(sampleCount))) : 0.0f,
-		            std::memory_order_relaxed);
+		m_Rms.store(m_BlockRms, std::memory_order_relaxed);
+	}
+
+	void AudioBusNode::StepDuck(double target)
+	{
+		if (m_DuckGain == target)
+		{
+			return;
+		}
+		// Linear in decibels: one factor a frame, from the floor when it starts from silence, and the target itself once
+		// reached (silence when the amount is MinMixerVolumeDb).
+		double const reach = std::max(target, AudioBusMixGain::DecibelFloor);
+		if (m_DuckGain > target)
+		{
+			m_DuckGain *= m_DuckAttackFactor;
+			if (m_DuckGain <= reach)
+			{
+				m_DuckGain = target;
+			}
+			return;
+		}
+		m_DuckGain = std::max(m_DuckGain, AudioBusMixGain::DecibelFloor) * m_DuckReleaseFactor;
+		if (m_DuckGain >= target)
+		{
+			m_DuckGain = target;
+		}
+	}
+
+	void AudioBusNode::SetDucking(AudioBusNode* trigger, float amountDb, float thresholdDb, float attackSeconds, float releaseSeconds,
+	                              uint32_t sampleRate)
+	{
+		m_DuckTrigger = trigger;
+		m_DuckTarget = static_cast<float>(ToVolumeGain(amountDb));
+		m_DuckThreshold = static_cast<float>(std::pow(10.0, static_cast<double>(thresholdDb) / 20.0));
+		// The whole amount (to the floor for silence) in the attack's and the release's frames. A duck already deeper than
+		// the new amount (an edit while it is down) comes back up from where it is within the release.
+		double const depthDb = -std::max(amountDb, MinMixerVolumeDb);
+		double const currentDepthDb = -20.0 * std::log10(std::max(m_DuckGain, AudioBusMixGain::DecibelFloor));
+		double const releaseDepthDb = std::max(depthDb, currentDepthDb);
+		double const rate = static_cast<double>(sampleRate);
+		m_DuckAttackFactor = std::pow(10.0, -depthDb / (std::max(static_cast<double>(attackSeconds), 1.0e-6) * rate) / 20.0);
+		m_DuckReleaseFactor = std::pow(10.0, releaseDepthDb / (std::max(static_cast<double>(releaseSeconds), 1.0e-6) * rate) / 20.0);
 	}
 
 	AudioMixer::AudioMixer(ma_engine& engine, AudioCommandQueue& queue, AudioReturnList& returns)
@@ -556,6 +652,7 @@ namespace Strada
 			case AudioCommandType::SetBusGameValues:
 			case AudioCommandType::SetBusEffects:
 			case AudioCommandType::SetEffectParameter:
+			case AudioCommandType::SetBusDucking:
 				ApplyBusCommand(command);
 				break;
 			case AudioCommandType::None:
@@ -726,20 +823,38 @@ namespace Strada
 					{
 						SetBusParent(*bus, m_Master);
 					}
+					// The removed bus ducks nothing any more (the main thread names it in no command after this one).
+					if (bus->m_DuckTrigger == &removed)
+					{
+						bus->m_DuckTrigger = nullptr;
+					}
 				}
 				break;
 			}
 			case AudioCommandType::SetBusMixValues:
+			{
+				AudioBusNode& bus = *static_cast<AudioBusNode*>(command.Object);
+				// A transition longer than an edit's ramp moves in decibels over its own length (a snapshot's, §9.8).
+				uint32_t const edit = SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate);
+				uint32_t const transition = SecondsToFrames(command.Values[2], m_SampleRate);
+				bool const inDecibels = transition > edit;
+				bus.m_MixGain.SetTarget(command.Values[0], command.Values[1] != 0.0f, inDecibels ? transition : edit, inDecibels);
+				break;
+			}
 			case AudioCommandType::SetBusGameValues:
 			{
 				AudioBusNode& bus = *static_cast<AudioBusNode*>(command.Object);
 				float const gain = command.Values[1] != 0.0f || command.Values[0] <= MinMixerVolumeDb
 				                       ? 0.0f
 				                       : static_cast<float>(std::pow(10.0, static_cast<double>(command.Values[0]) / 20.0));
-				uint32_t const frames = SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate);
-				(command.Type == AudioCommandType::SetBusMixValues ? bus.m_MixGain : bus.m_GameGain).SetTarget(gain, frames);
+				bus.m_GameGain.SetTarget(gain, SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate));
 				break;
 			}
+			case AudioCommandType::SetBusDucking:
+				static_cast<AudioBusNode*>(command.Object)
+					->SetDucking(static_cast<AudioBusNode*>(command.Other), command.Values[0], command.Values[1], command.Values[2],
+				                 command.Values[3], m_SampleRate);
+				break;
 			case AudioCommandType::SetBusEffects:
 			{
 				AudioBusNode& bus = *static_cast<AudioBusNode*>(command.Object);
@@ -760,7 +875,9 @@ namespace Strada
 				AudioEffectChain const* const chain = bus.m_HasPendingChain ? bus.m_PendingChain : bus.m_Chain;
 				if (chain != nullptr && command.Slot < chain->GetEffects().size())
 				{
-					chain->GetEffects()[command.Slot]->SetParameter(command.Parameter, command.Values[0]);
+					uint32_t const frames = std::max(SecondsToFrames(AudioParameterSmoothingSeconds, m_SampleRate),
+					                                 SecondsToFrames(command.Values[1], m_SampleRate));
+					chain->GetEffects()[command.Slot]->SetParameter(command.Parameter, command.Values[0], frames);
 				}
 				break;
 			}
@@ -972,6 +1089,12 @@ namespace Strada
 			voice = next;
 		}
 		FinishBuses();
+		// Every bus has processed this block: its level is what ducking reads in the next, whatever order the graph pulled
+		// the buses in.
+		for (AudioBusNode* bus = m_Buses.GetFirst(); bus != nullptr; bus = m_Buses.GetNext(*bus))
+		{
+			bus->m_PreviousRms = bus->m_BlockRms;
+		}
 		// A paused scene's voices stay playing but are not pulled by its stopped group: they are not mixed.
 		uint32_t mixed = 0;
 		for (AudioVoice const* voice = m_Playing.GetFirst(); voice != nullptr; voice = m_Playing.GetNext(*voice))

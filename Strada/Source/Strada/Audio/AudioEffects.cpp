@@ -180,9 +180,8 @@ namespace Strada
 				}
 			}
 
-			void SetParameter(MixerEffectParameter parameter, float value) override
+			void SetParameter(MixerEffectParameter parameter, float value, uint32_t frames) override
 			{
-				uint32_t const frames = SecondsToFrames(AudioParameterSmoothingSeconds, m_SampleRate);
 				switch (parameter)
 				{
 					case MixerEffectParameter::Frequency:
@@ -321,9 +320,8 @@ namespace Strada
 							});
 			}
 
-			void SetParameter(MixerEffectParameter parameter, float value) override
+			void SetParameter(MixerEffectParameter parameter, float value, uint32_t frames) override
 			{
-				uint32_t const frames = SecondsToFrames(AudioParameterSmoothingSeconds, m_SampleRate);
 				switch (parameter)
 				{
 					case MixerEffectParameter::DelaySeconds:
@@ -389,7 +387,6 @@ namespace Strada
 		public:
 			ReverbEffect(MixerEffect const& effect, uint32_t sampleRate, uint32_t channelCount)
 				: AudioEffect(effect.Kind),
-				  m_SampleRate(sampleRate),
 				  m_ChannelCount(channelCount),
 				  m_ReverbChannels(std::min(channelCount, 2u))
 			{
@@ -472,9 +469,8 @@ namespace Strada
 							});
 			}
 
-			void SetParameter(MixerEffectParameter parameter, float value) override
+			void SetParameter(MixerEffectParameter parameter, float value, uint32_t frames) override
 			{
-				uint32_t const frames = SecondsToFrames(AudioParameterSmoothingSeconds, m_SampleRate);
 				switch (parameter)
 				{
 					case MixerEffectParameter::RoomSize:
@@ -504,7 +500,6 @@ namespace Strada
 				verblib_set_damping(m_Reverb.get(), static_cast<float>(m_Damping.Get()));
 			}
 
-			uint32_t m_SampleRate = 0;
 			uint32_t m_ChannelCount = 0;
 			uint32_t m_ReverbChannels = 0;
 			Scope<verblib> m_Reverb;
@@ -600,9 +595,8 @@ namespace Strada
 							});
 			}
 
-			void SetParameter(MixerEffectParameter parameter, float value) override
+			void SetParameter(MixerEffectParameter parameter, float value, uint32_t frames) override
 			{
-				uint32_t const frames = SecondsToFrames(AudioParameterSmoothingSeconds, m_SampleRate);
 				switch (parameter)
 				{
 					case MixerEffectParameter::ThresholdDb:
@@ -716,9 +710,8 @@ namespace Strada
 							});
 			}
 
-			void SetParameter(MixerEffectParameter parameter, float value) override
+			void SetParameter(MixerEffectParameter parameter, float value, uint32_t frames) override
 			{
-				uint32_t const frames = SecondsToFrames(AudioParameterSmoothingSeconds, m_SampleRate);
 				switch (parameter)
 				{
 					case MixerEffectParameter::CeilingDb:

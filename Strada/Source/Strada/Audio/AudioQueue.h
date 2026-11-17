@@ -100,17 +100,23 @@ namespace Strada
 		// it did not move first) moves to Master with a dip, and once nothing feeds it the bus is detached and returned
 		// with its chains.
 		RemoveBus,
-		// The mixer's own value of the bus (the asset's, later blended by snapshots): VolumeDb in Values[0] and the mute in
-		// Values[1] (1 muted), reached over AudioGainSmoothingSeconds.
+		// The mixer's value of the bus (the asset's, or a snapshot's in its place): VolumeDb in Values[0] and the mute in
+		// Values[1] (1 muted), reached over AudioGainSmoothingSeconds, linearly in amplitude, when Values[2] (seconds) is at
+		// most that; over Values[2] seconds otherwise, a snapshot's transition: the volume linearly in decibels, the mute
+		// linearly in amplitude (§9.8).
 		SetBusMixValues,
-		// The game's value of the bus (scripts), the same way.
+		// The game's value of the bus (scripts): VolumeDb and mute as above, reached over AudioGainSmoothingSeconds.
 		SetBusGameValues,
 		// Replaces the bus's effect chain with Other, an AudioEffectChain (faded out, swapped, faded in); the old chain is
 		// returned.
 		SetBusEffects,
-		// A new target for parameter Parameter of effect Slot of the bus (Values[0]), reached over
-		// AudioParameterSmoothingSeconds on the parameter's scale (§9.6).
+		// A new target for parameter Parameter of effect Slot of the bus (Values[0]), reached on the parameter's scale (§9.6)
+		// over AudioParameterSmoothingSeconds, or over Values[1] seconds when that is longer (a snapshot's transition).
 		SetEffectParameter,
+		// The bus's ducking (§9.8): Other is the AudioBusNode whose level lowers it (null: not ducked); Values[0] the amount
+		// and Values[1] the threshold in dB, Values[2] the attack and Values[3] the release in seconds. A RemoveBus of Other
+		// ends the ducking by it on the mixing thread.
+		SetBusDucking,
 
 		// The engine's master volume (Values[0], linear), applied to the mix after Master, ramped over
 		// AudioGainSmoothingSeconds.

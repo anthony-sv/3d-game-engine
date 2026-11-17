@@ -471,6 +471,9 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
   material); `raycastAll` every entity along the ray; `shapeCast` with `shape` (`sphere`, `box`, `capsule`) the first
   hit of the swept shape; `overlap` the entities a shape overlaps at `origin`. `mask` picks layers, `triggers` counts
   trigger colliders. A cast that starts inside a body hits that body.
+- `audio_meters` reads the mix while the game plays: each bus of the project's mixer with its `peak` and `rms` (linear)
+  and `peakDb` and `rmsDb` over the last block mixed, the `snapshot` the mix is at, and the voice counts. A bus that
+  reads -80 dB is silent: check the source's `Bus`, the mixer's mutes and what ducks it.
 - Verify behavior with test scripts: `Strada.Testing` (`TestReporter.Run(name, check)`, `Assert`,
   `TestReporter.Finish()`) in a scene, run by `test_run` with `scene` and `timeout`, which returns every check's
   result. The engine repository's `Projects/FeatureTest` shows the pattern.

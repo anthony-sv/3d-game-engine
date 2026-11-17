@@ -45,7 +45,7 @@ time):
 | `asset` | 12 | Listing, importing (also as a drop from the file manager), moving and deleting assets and folders, and the content browser |
 | `material` | 3 | Creating, reading and setting materials |
 | `curve` | 3 | Creating, reading and setting curve assets (`.scurve`), a data asset type the engine registers: every data asset type gets these three commands from its registration |
-| `mixer` | 3 | Creating, reading and setting mixers (`.smixer`): the buses sounds play on, with their volumes and effects |
+| `mixer` | 3 | Creating, reading and setting mixers (`.smixer`): the buses sounds play on, with their volumes, effects and ducking, and the snapshots the mix blends to |
 | `physics-material` | 3 | Creating, reading and setting physics materials (`.sphysmat`): the surfaces colliders reference |
 | `graph` | 16 | Visual scripts: creating, reading, checking and editing them, arranging, copying, the node library and types, finding, and the graph windows |
 | `graph` (debugging) | 11 | Breakpoints, targets, stops, continue, step, break, wait, traces, values, instances and live edits |
@@ -53,6 +53,7 @@ time):
 | `script` | 4 | The C# scripts' status and classes, creating and building scripts |
 | `play`, `input`, `ui`, `test` | 10 | Play mode with exact frame steps, keys and mouse buttons, where the UI is on screen, and test runs |
 | `physics` | 1 | What a ray, a shape cast or an overlap meets in the playing scene's physics world |
+| `audio` | 1 | The mix's meters: each bus's peak and RMS, the snapshot the mix is at, and the voice counts |
 | `log`, `viewport` | 6 | The log, screenshots of the editor or one of its windows, the scene view's camera, overlays and statistics |
 | `profiler` | 5 | Recording where each frame's time goes (CPU zones of every thread, GPU passes), medians, and captures written and opened |
 

@@ -535,7 +535,11 @@ TEST_CASE("Scene: scripts play one-shots and clips at points, and set the voices
 	Testing::ScriptEngineScope scripting;
 	InputScope input;
 	Mixer mixer;
-	mixer.Buses.push_back(MixerBus{"Music", "Master", -3.0f, false, {}});
+	MixerBus music;
+	music.Name = "Music";
+	music.Parent = "Master";
+	music.VolumeDb = -3.0f;
+	mixer.Buses.push_back(music);
 	AudioEngine::SetMixer(mixer);
 	AssetHandle const clip = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
 	Scene scene("Audio");

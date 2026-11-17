@@ -13,6 +13,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/AssetThumbnails.h
     Source/Editor/Automation/AgentCommands.cpp
     Source/Editor/Automation/AgentCommands.h
+    Source/Editor/Automation/AudioCommands.cpp
+    Source/Editor/Automation/AudioCommands.h
     Source/Editor/Automation/AutomationInstance.cpp
     Source/Editor/Automation/AutomationInstance.h
     Source/Editor/Automation/AutomationInstanceFile.cpp

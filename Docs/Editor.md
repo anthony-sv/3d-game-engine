@@ -882,6 +882,15 @@ those two mixed by `WetDb` and `DryDb`, a `Compressor` (`ThresholdDb`, `Ratio`, 
 effect's kind. Every mixer has exactly one bus named `Master`, which every other bus feeds through its parents; at most
 32 buses and 8 effects a bus. A new mixer is Master alone, which mixes as a project without a mixer does.
 
+A bus can be ducked by another: name it in `DuckedBy` (voices ducking music), and while that bus's level is at or above
+`DuckThresholdDb` the bus goes down by `DuckAmountDb` over `DuckAttackSeconds`, and back over `DuckReleaseSeconds` once
+the level falls below, evenly in decibels. A bus cannot be ducked by itself, by a bus it feeds, or through other ducking by
+a bus it ducks. A mixer's `Snapshots` are named sets of values that a game blends the mix to, a pause that lowers and
+muffles everything for example: each value sets one bus's `Volume`, its `Muted` (1 or 0), or a parameter of one of its
+effects (by the effect's index in its list) in place of the mixer's own, and everything a snapshot does not set keeps
+the mixer's values. While a game blends to a snapshot, edits of the mixer apply under it; when the game stops, the mix is
+back at the mixer's own values.
+
 Name the game's mixer in Project Settings (`Mixer`), and a bus in an Audio Source's `Bus` (any letter case; empty is
 Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer in the Inspector, or agents with
 `mixer.set` ([Automation](Automation.md)); while the game plays, the mix takes the edit before its next sound: volumes
@@ -949,7 +958,7 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | `Physics.CollisionSteps` | Collision steps each physics step is divided into (1 to 4, default 1); more resolve fast or stiff bodies better, at their cost |
 | `Physics.Layers` | Names of the physics layers (1 to 16); a RigidBody's `Layer` indexes them |
 | `InputActions` | The game's input actions, an asset of that type ([Input actions](#input-actions)); none means scripts and graphs read every action as 0. Play mode, the player and exported games evaluate them each frame |
-| `Mixer` | The mixer (`.smixer`) the game's sounds play through: its buses, their volumes and effects. None plays every sound on Master alone |
+| `Mixer` | The mixer (`.smixer`) the game's sounds play through: its buses, their volumes, effects and ducking, and its snapshots. None plays every sound on Master alone |
 
 Under Layer Collisions, a matrix of check boxes says which layers collide: clear the box of two layers so that their
 bodies pass through each other. Layers are numbers: a RigidBody's `Layer` and the matrix's pairs hold the layer's index,

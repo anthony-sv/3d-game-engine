@@ -1559,15 +1559,22 @@ none). A new map (`{}`) has no actions.
 }
 ```
 
-Mixer (`.smixer`, the data asset type `Mixer`, version 1, §9.5 and §9.6): `"Mixer": { "Buses": [ { "Name",
+Mixer (`.smixer`, the data asset type `Mixer`, version 1, §9.5, §9.6 and §9.8): `"Mixer": { "Buses": [ { "Name",
 "Parent", "VolumeDb", "Muted", "Effects": [ { "Kind", "Frequency", "Q", "GainDb", "DelaySeconds", "Feedback",
 "RoomSize", "Damping", "Width", "WetDb", "DryDb", "ThresholdDb", "Ratio", "KneeDb", "AttackSeconds", "ReleaseSeconds",
-"MakeupDb", "CeilingDb" } ] } ] }`. At most 32 buses and 8 effects a bus; exactly one bus is `Master`, with an empty
-`Parent`; names are unique ignoring letter case, not empty, at most 64 bytes; every other `Parent` names a bus of the list
-(empty is Master) and following parents reaches Master. `Kind` is `LowPass`, `HighPass`, `Peaking`, `LowShelf`,
-`HighShelf`, `Delay`, `Reverb`, `Compressor` or `Limiter`; an effect stores every parameter and reads those of its kind.
-Volumes run from -80 dB (silence) to +24 dB. A new mixer (`{}`) is Master alone. MX2's snapshots, ducking, speed of sound
-and impact settings join version 1 as fields with defaults.
+"MakeupDb", "CeilingDb" } ], "DuckedBy", "DuckAmountDb", "DuckThresholdDb", "DuckAttackSeconds", "DuckReleaseSeconds" } ],
+"Snapshots": [ { "Name", "Values": [ { "Bus", "Target", "Effect", "Parameter", "Value" } ] } ] }`. At most 32 buses
+and 8 effects a bus; exactly one bus is `Master`, with an empty `Parent`; names are unique ignoring letter case, not
+empty, at most 64 bytes; every other `Parent` names a bus of the list (empty is Master) and following parents reaches
+Master. `Kind` is `LowPass`, `HighPass`, `Peaking`, `LowShelf`, `HighShelf`, `Delay`, `Reverb`, `Compressor` or
+`Limiter`; an effect stores every parameter and reads those of its kind. Volumes run from -80 dB (silence) to +24 dB. A
+bus's `DuckedBy` is empty or another bus whose level does not depend on this bus's output. At most 32 snapshots of at
+most 128 values; snapshot names are unique ignoring letter case, not empty, at most 64 bytes; a value's `Target` is
+`Volume`, `Muted` (a `Value` of 1 or 0) or `Effect` (`Effect`, the index of an effect of `Bus`, and `Parameter`, one that
+effect's kind uses, both stored with every value), its `Value` within that target's range, and no two values of a
+snapshot set the same thing. A new mixer (`{}`) is Master alone without snapshots. The ducking and snapshot fields joined
+version 1 with defaults within slice 3, before any `.smixer` existed outside it, so no migration reads an older file; MX2's
+speed of sound and impact settings join it the same way.
 
 ```json
 {
@@ -1575,7 +1582,15 @@ and impact settings join version 1 as fields with defaults.
 	"Mixer": {
 		"Buses": [
 			{ "Name": "Master", "Parent": "", "VolumeDb": 0.0, "Muted": false, "Effects": [ { "Kind": "Limiter", "CeilingDb": -1.0 } ] },
-			{ "Name": "Engine", "Parent": "Master", "VolumeDb": -3.0, "Muted": false, "Effects": [ { "Kind": "LowPass", "Frequency": 8000.0, "Q": 0.7071 } ] }
+			{ "Name": "Engine", "Parent": "Master", "VolumeDb": -3.0, "Muted": false, "Effects": [ { "Kind": "LowPass", "Frequency": 8000.0, "Q": 0.7071 } ],
+			  "DuckedBy": "Interface", "DuckAmountDb": -6.0, "DuckThresholdDb": -40.0, "DuckAttackSeconds": 0.05, "DuckReleaseSeconds": 0.5 },
+			{ "Name": "Interface", "Parent": "Master", "VolumeDb": 0.0, "Muted": false, "Effects": [] }
+		],
+		"Snapshots": [
+			{ "Name": "Paused", "Values": [
+				{ "Bus": "Engine", "Target": "Volume", "Value": -12.0 },
+				{ "Bus": "Engine", "Target": "Effect", "Effect": 0, "Parameter": "Frequency", "Value": 800.0 }
+			] }
 		]
 	}
 }
@@ -2671,7 +2686,8 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   virtual, or resumed from virtual, `AudioStartFlags`), paused, stopped, stolen, retired or moved to another group; its
   volume, pitch, looping, spatialization, distances and position; a group paused, moved to another bus or retired; a bus
   added, removed or re-parented; a bus's values (the mixer's and the game's) and its effects; an effect's parameter;
-  the master volume; and, with MX2, a snapshot transition, a voice's doppler and sends, and ducking. A command is 48
+  the master volume; and, with MX2, a bus's ducking, a voice's doppler and its sends (a snapshot transition is the
+  bus and effect values it changes, each carrying the transition's time). A command is 48
   bytes of plain data (the type, flags, an effect's index and parameter, two object pointers, four values and a
   serial).
 - **The ring** (`AudioCommandQueue`) is a single-producer, single-consumer ring of 4,096 commands (192 KiB) from the
@@ -2737,8 +2753,8 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   those that rank beyond the limit are stolen: a one-shot fades out and is returned, a main voice becomes virtual. The
   new voice itself is stolen when it ranks lowest: a one-shot is refused (`PlayOneShot` answers false), a main voice
   starts virtual. How loud a voice is, is the main thread's estimate: its volume, times its distance attenuation (the
-  same inverse law), times the mixer's and the game's gains of its bus and the buses above it, in amplitude; effects, a
-  snapshot in progress and ducking are left out.
+  same inverse law), times the mixer's and the game's gains of its bus and the buses above it, in amplitude (a snapshot's
+  values counted as soon as a transition to it starts); effects and ducking are left out.
 - **Virtual voices.** A main voice stolen by the limit, or started beyond it, keeps its play state (`IsPlaying` stays
   true, as for a script it still plays) and its place in time: the mixing thread stops it and counts its time on in
   its own clock, moving its cursor by the frames played at its pitch and the clip's rate when it is heard again (a
@@ -2974,20 +2990,62 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
 
 ### 9.8 What MX2 adds, on this design
 
-- **Snapshots** (`Mixer::Snapshots`): a name and the values it sets (a bus, a target: its volume, its mute, or an
-  effect's parameter by the effect's index, and the value), differing from the mixer's own values only where they say
-  so. They and every other MX2 field join `.smixer` version 1 as fields with defaults: no `.smixer` exists outside the
-  slice before MX2, and a file without them reads them as their defaults (§7.3). `Audio.TransitionTo(name, seconds)`
-  resolves the snapshot on the main thread into a table of every value's target (the mixer's own where the snapshot
-  sets nothing), made there and handed over (`BeginTransition`); the mixing thread moves each value from where it is
-  to its target, linearly in time over the seconds, on a scale that sounds linear: volumes and gains in decibels (a
-  mute as a gain of 0 or 1 in amplitude), frequencies and Q in log2, the rest linearly. A transition that starts while
-  another runs starts from where the values are. `Audio.CurrentSnapshot` names the target; the empty name is the
-  mixer's own values, to which a scene that stops returns the mix.
-- **Ducking**: `MixerBus` gains `DuckedBy` (a bus), `DuckAmountDb`, `DuckAttackSeconds` and `DuckReleaseSeconds`. The
-  follower's node reads the other bus's RMS of the previous block (miniaudio's graph pulls buses in an order of its own,
-  so the level is a block late, 5.3 ms at most) and moves a duck gain towards `DuckAmountDb` as that level rises, with
-  the attack and release. `ValidateMixer` refuses a cycle of ducking.
+- **Snapshots** (`Mixer::Snapshots`, `MixerSnapshot`): a name and the values it sets (`MixerSnapshotValue`: a bus, a
+  target, its volume, its mute or an effect's parameter by the effect's index, and the value), differing from the
+  mixer's own values only where they say so. They and every other MX2 field joined `.smixer` version 1 as fields with
+  defaults within the slice, before any `.smixer` existed outside it, so a file without them reads them as their
+  defaults and no migration exists (§7.3). `ValidateMixer` refuses a value that names a bus, an effect or a parameter
+  the mixer lacks (a parameter the effect's kind does not use included: the kinds and ranges are read from
+  `MixerEffect`'s field table), one out of its target's range (a volume -80 to +24 dB, a mute 1 or 0, a parameter its
+  field's range), and two values of a snapshot that set the same thing.
+  - **The main thread decides, the mixing thread moves.** `AudioEngine::TransitionTo(name, seconds)` (names matched
+    ignoring letter case; a name the mixer lacks is logged once per name and mixer and changes nothing) makes the
+    snapshot current and sends what differs between the values last sent and the mixer's own values with the
+    snapshot's in their place (`ApplyMixerSnapshot`): one `SetBusMixValues` per bus whose volume or mute differs and
+    one `SetEffectParameter` per effect parameter that differs, each carrying the transition's seconds. Every command
+    of a transition is pushed in one call, so they reach the mixing thread in one block unless the ring is full (a
+    snapshot sets at most 128 values, and a transition sends at most what two snapshots set), and each value then moves
+    on its own from where it is to its target. This replaces the design's first text, a table handed over by a
+    `BeginTransition` command: the commands that exist for edits already carry a value and a time, a table would be one
+    more object to hand back, and a transition needs no state of its own on the mixing thread.
+  - **Scales.** A bus's volume moves linearly in decibels over the transition: its amplitude is multiplied by one factor
+    each frame (from -80 dB when it starts from silence, and silence at the last frame when it ends there), so no power
+    is computed per frame (`AudioBusMixGain`). A mute moves linearly in amplitude between 1 and 0 over the same frames.
+    Effect parameters move on their own scales (§9.6: frequencies and Q in log2, decibels in decibels, the rest
+    linearly) over the transition's frames (`AudioEffect::SetParameter` takes them); a Delay's `DelaySeconds`
+    crossfades at once over 5 ms, as for an edit. Seconds not above the values' own smoothing (5 ms for gains, 20 ms
+    for effect parameters), NaN and negative ones included, are that smoothing, linear in amplitude as an edit is, so
+    that no existing ramp changes; seconds above `MaxSnapshotTransitionSeconds` (300) are that.
+  - **Time.** A transition moves with the mixer's blocks: buses process in every block whatever their scenes do, so a
+    paused scene's buses move on (the pause snapshot muffles the mix while the game is paused), and with manual output
+    a transition moves only as the mix is read. A transition that starts while another runs carries every value on from
+    where it is.
+  - **Edits.** The engine keeps the mixer's own values (`GetMixer`) apart from what it sent (`AudioBusState::Values`,
+    the mixer with the current snapshot's values in place). An edit of the mixer (`SetMixer`: the inspector,
+    `mixer.set`, an undo) is applied under the current snapshot, so a value the snapshot sets stays at the snapshot's and
+    a transition under way goes on for the values the edit leaves alone; an edit that removes the current snapshot
+    returns the mix to the mixer's own values (over an edit's ramp) and is logged once. Chains made again (a bus's
+    effects changed in kind, `ClearEffectState`) are made from the values sent.
+  - **The current snapshot** (`AudioEngine::GetCurrentSnapshot`) names the target as the mixer names it; the empty
+    name is the mixer's own values. `ResetGameValues`, which `SceneRunner` calls when a game starts and when it stops,
+    returns the mix to them, so a game that stops while paused does not leave its pause snapshot on the editor.
+- **Ducking**: `MixerBus` has `DuckedBy` (a bus), `DuckAmountDb` (-80 to 0), `DuckThresholdDb` (-80 to 0),
+  `DuckAttackSeconds` and `DuckReleaseSeconds`. The law, per bus and frame: while the RMS of the ducking bus's output
+  over the block before (its level after every gain of its own, so a muted bus ducks nothing) is at or above the
+  threshold, the duck's gain heads for `DuckAmountDb`; below it, for 0 dB; it moves linearly in decibels at
+  `|DuckAmountDb|` per `DuckAttackSeconds` going down and per `DuckReleaseSeconds` coming back (one factor a frame, so
+  the times do not depend on how long blocks are; a duck deeper than a new amount comes back from where it is within
+  the release). It is a gate with a ramp, not a compressor: a voice bus lowers music by the amount whatever its loudness
+  above the threshold. The level read is that of the previous block, which the mixer copies for every bus at the end of
+  each block (`AudioBusNode::m_PreviousRms`), because miniaudio's graph pulls buses in an order of its own; so ducking
+  reacts a block after the other bus starts or stops (5.3 ms at 48 kHz) whatever that order is. The duck's gain comes
+  after the game's and before the dip of a move or a swap. `ValidateMixer` refuses a bus ducked by one the mixer lacks,
+  by itself, or by a bus whose level depends on its output: a level depends on what feeds the bus (its child buses) and
+  on what ducks it, and a cycle of those dependencies would feed a bus's output back into its own gain (a bus ducked
+  by its parent, or two buses ducking each other). The main thread sends ducking (`SetBusDucking`: the ducking bus's
+  node and the four values) after every bus of an edit exists, since the ducking bus may be made after the one it
+  ducks, and before any `RemoveBus`; `RemoveBus` ends any ducking by the removed bus on the mixing thread, as it moves
+  the bus's groups.
 - **Doppler, computed by the engine.** Positions are relative to the listener, so miniaudio's own doppler has nothing to
   read (the engine sets its factor to 0). Each frame the main thread takes each spatial voice's closing speed `v` from
   its source's and its listener's world positions of this update and the transform cache's previous matrices
@@ -3001,8 +3059,13 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   dry one and two sends, each a ramped gain) that the mixing thread puts between its sound and its group; the sends
   feed the scene's groups of the zones' buses, after the voice's volume, attenuation and panning. A voice with sends
   costs a copy per output per block.
-- **Meters**: each bus node's peak and RMS of the last block (`AudioBusNode::GetPeak`, `GetRms`), which `audio.meters`
-  returns with the active, mixed and stolen voice counts.
+- **Meters**: each bus node's peak and RMS of its output over the last block it processed, after its effects and every
+  gain, across all its channels, written by the mixing thread as relaxed atomics and read by any thread
+  (`AudioBusNode::GetPeak`, `GetRms`). `AudioEngine::GetBusMeters` lists them in the mixer's order, `GetBusPeak(bus)`
+  and `GetBusRms(bus)` read one (a name the mixer lacks reads 0 and is logged once per name and mixer). `audio.meters`
+  (read-only, not an undo step) answers them, linear and in dBFS (silence, and anything below -80 dB, reads -80; a
+  level that is not a finite number reads null), with the current snapshot and the active, mixed and stolen voice
+  counts; without an audio engine it answers `initialized: false` and nothing else.
 - **`--audio-capture <file.wav>`** on the player: manual output, each frame reading the frames its game time covers (the
   fraction carried), written as 16-bit PCM.
 - **Impact sounds**: a collision that begins plays each side's `ImpactSound` once through the scene's

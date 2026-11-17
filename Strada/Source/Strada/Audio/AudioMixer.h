@@ -109,6 +109,33 @@ namespace Strada
 		bool IsSteady() const { return FramesLeft == 0; }
 	};
 
+	// The mixer's gain of a bus (its volume and mute, the asset's or a snapshot's), on the mixing thread (§9.8). An edit
+	// ramps both linearly in amplitude over AudioGainSmoothingSeconds, as every gain does; a snapshot's transition moves the
+	// volume linearly in decibels (the amplitude multiplied by one factor each frame, so no power is computed per frame) and
+	// the mute linearly in amplitude, over the transition's frames, from wherever they are.
+	struct AudioBusMixGain
+	{
+		// The quietest amplitude a move in decibels starts from or heads for: MinMixerVolumeDb, which is silence once
+		// reached.
+		static constexpr double DecibelFloor = 1.0e-4;
+
+		double Volume = 1.0;
+		double VolumeTarget = 1.0;
+		// Per frame: added (in amplitude) or multiplied (in decibels).
+		double VolumeStep = 0.0;
+		bool InDecibels = false;
+		uint32_t FramesLeft = 0;
+		AudioSmoothedGain Mute;
+
+		// The targets: volumeDb (MinMixerVolumeDb and below are silence) and muted, reached over frames (at once with 0),
+		// the volume in decibels when inDecibels is set.
+		void SetTarget(float volumeDb, bool muted, uint32_t frames, bool inDecibels);
+		// The gain of the next frame.
+		float Next();
+		float GetCurrent() const { return static_cast<float>(Volume) * Mute.Current; }
+		bool IsSteady() const { return FramesLeft == 0 && Mute.IsSteady(); }
+	};
+
 	// One scene's group of one bus: every voice of that scene on that bus plays through it, and stopping it holds them
 	// (a paused scene). An ma_sound_group made with MA_SOUND_FLAG_NO_PITCH and MA_SOUND_FLAG_NO_SPATIALIZATION (it only
 	// sums) and MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT (the mixing thread attaches it). Made by its AudioScene on the main
@@ -220,15 +247,17 @@ namespace Strada
 
 		std::string const& GetName() const { return m_Name; }
 
-		// Main thread, before AddBus hands the node over: its first gains (linear) and effects, taken at once.
-		void SetInitialValues(float mixGain, float gameGain, AudioEffectChain* chain);
+		// Main thread, before AddBus hands the node over: its first values (the mixer's volume in dB and mute, the game's
+		// gain, linear) and effects, taken at once.
+		void SetInitialValues(float volumeDb, bool muted, float gameGain, AudioEffectChain* chain);
 		// Main thread: the product of the mixer's and the game's gains of this bus and every bus above it, in amplitude, as
 		// the main thread last set them (AudioVoiceManager's estimate of a voice's loudness, §9.3).
 		float GetChainGain() const { return m_ChainGain; }
 		void SetChainGain(float gain) { m_ChainGain = gain; }
 
-		// Any thread: the linear peak and RMS of the bus's output over the last block the mixing thread finished (MX2's
-		// meters; MX2's ducking reads them a block late, since miniaudio's graph pulls buses in an order of its own).
+		// Any thread: the linear peak and RMS of the bus's output (after its effects and every gain) over the last block the
+		// mixing thread finished: the meters (§9.8). Ducking reads the RMS of the block before the one it mixes, whatever
+		// order miniaudio's graph pulls the buses in.
 		float GetPeak() const { return m_Peak.load(std::memory_order_relaxed); }
 		float GetRms() const { return m_Rms.load(std::memory_order_relaxed); }
 
@@ -246,6 +275,12 @@ namespace Strada
 		// bus), the effects in order, the gains, then the meters.
 		static void OnProcess(ma_node* node, float const** framesIn, ma_uint32* frameCountIn, float** framesOut, ma_uint32* frameCountOut);
 		void Process(float const* input, uint32_t inputFrames, float* output, uint32_t frameCount);
+		// Mixing thread: moves the duck's gain one frame towards target, linearly in decibels.
+		void StepDuck(double target);
+		// Mixing thread (SetBusDucking): ducked by trigger (null: not ducked) by amountDb while its level is at or above
+		// thresholdDb, going down over attackSeconds and back up over releaseSeconds.
+		void SetDucking(AudioBusNode* trigger, float amountDb, float thresholdDb, float attackSeconds, float releaseSeconds,
+		                uint32_t sampleRate);
 
 		Node m_Node{};
 		bool m_HasNode = false;
@@ -263,8 +298,21 @@ namespace Strada
 		bool m_HasPendingParent = false;
 		// The bus it feeds (null: the engine's endpoint, Master's place).
 		AudioBusNode* m_Parent = nullptr;
-		AudioSmoothedGain m_MixGain;
+		AudioBusMixGain m_MixGain;
 		AudioSmoothedGain m_GameGain;
+		// Ducking (§9.8): the bus whose level of the block before lowers this one (null: not ducked), the amplitude of its
+		// threshold, the gain the duck heads for while that level is at or above it, the factors the duck's gain is
+		// multiplied by each frame going down and coming back up, and the duck's gain.
+		AudioBusNode* m_DuckTrigger = nullptr;
+		float m_DuckThreshold = 0.0f;
+		float m_DuckTarget = 1.0f;
+		double m_DuckAttackFactor = 1.0;
+		double m_DuckReleaseFactor = 1.0;
+		double m_DuckGain = 1.0;
+		// The RMS of the bus's output over the block it last processed, and over the block before it (what ducking reads,
+		// moved on by the mixer once every bus has processed a block).
+		float m_BlockRms = 0.0f;
+		float m_PreviousRms = 0.0f;
 		// The dip of a move or a swap: down to 0 until m_DipEnd on the mixer's clock, the change, back to 1.
 		AudioSmoothedGain m_Dip;
 		bool m_Dipping = false;
