@@ -1,7 +1,12 @@
+#include "GpuTestUtilities.h"
+
+#include "Strada/Core/Base.h"
 #include "Strada/Core/Events/KeyEvent.h"
 #include "Strada/Core/Events/MouseEvent.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Result.h"
+#include "Strada/Core/Window.h"
 
 #include <doctest/doctest.h>
 
@@ -434,4 +439,35 @@ TEST_CASE_FIXTURE(InputFixture, "Input: action overrides count presses and relea
 	Input::Reset();
 	CHECK(Input::GetActionOverridesVersion() > before);
 	CHECK_FALSE(Input::HasActionOverrides());
+}
+
+TEST_CASE_FIXTURE(InputFixture, "Input: an injected gamepad holds across a window's polls of every gamepad slot")
+{
+	ST_REQUIRE_DISPLAY();
+	WindowSpecification specification;
+	specification.Title = "Strada Injected Gamepad Test";
+	specification.Width = 200;
+	specification.Height = 150;
+	specification.Visible = false;
+	Result<Scope<Window>> created = Window::Create(specification);
+	REQUIRE_MESSAGE(created.IsOk(), (created ? std::string() : created.GetError()));
+	Scope<Window> const window = created.TakeValue();
+
+	// The last slot: no test machine has sixteen gamepads plugged in.
+	constexpr uint32_t Slot = MaxGamepads - 1;
+	Input::GamepadState pad = Input::GetRestingGamepadState();
+	pad.Buttons[static_cast<size_t>(GamepadButton::A)] = true;
+	Input::InjectGamepadState(Slot, pad);
+	for (int poll = 0; poll < 5; poll++)
+	{
+		Window::PollEvents();
+	}
+	CHECK(Input::IsGamepadInjected(Slot));
+	CHECK(Input::IsGamepadConnected(Slot));
+	CHECK(Input::IsGamepadButtonDown(Slot, GamepadButton::A));
+	// Released, the slot is the device's again: nothing is plugged into it.
+	Input::ReleaseInjectedGamepad(Slot);
+	Window::PollEvents();
+	CHECK_FALSE(Input::IsGamepadConnected(Slot));
+	CHECK(Input::GetGamepadButtonCounts(Slot, GamepadButton::A) == Input::ButtonCounts{1, 1});
 }

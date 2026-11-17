@@ -329,7 +329,9 @@ TEST_CASE("InputActions: the dead zone, the response, inversion and scale follow
 	glm::vec2 const bent = ApplyResponse(glm::vec2(0.0f, -0.5f), square);
 	CHECK(bent.x == doctest::Approx(0.0f));
 	CHECK(bent.y == doctest::Approx(-0.25f));
-	CHECK(ApplyResponse(glm::vec2(0.3f, 0.4f), square) == glm::vec2(0.3f, 0.4f) * 0.5f);
+	glm::vec2 const halved = ApplyResponse(glm::vec2(0.3f, 0.4f), square);
+	CHECK(halved.x == doctest::Approx(0.15f));
+	CHECK(halved.y == doctest::Approx(0.2f));
 	CHECK(ApplyResponse(glm::vec2(0.0f),
 	                    [](float)
 	                    {

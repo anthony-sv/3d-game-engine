@@ -770,11 +770,14 @@ namespace Strada
 					  })
 				: result;
 
-		result = result ? Add(registry, "input.release", "Releases every key and mouse button (they report released for one frame).",
+		result = result ? Add(registry, "input.release",
+		                      "Releases every key and mouse button (they report released for one frame), every injected gamepad and "
+		                      "every input action override.",
 		                      Json(), false,
 		                      [](Json const&) -> CommandResult
 		                      {
 								  Input::ReleaseKeysAndMouseButtons();
+								  Input::ReleaseInjectedInput();
 								  return DescribeInput();
 							  })
 		                : result;

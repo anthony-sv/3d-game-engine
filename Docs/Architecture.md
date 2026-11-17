@@ -1821,7 +1821,7 @@ and `Scale`.
    One-dimensional values are -1 to 1 already. So what the dead zone and the curve take is always 0 to 1.
    - **A trigger at rest.** A trigger reads `(raw + 1) / 2`, except that a trigger that has read nothing but exactly 0
      since its pad connected reads 0 (`Input::HasGamepadAxisMoved`): a pad whose mapping lacks the trigger reads 0 there
-     forever (`glfwGetGamepadState` clears the state and fills only mapped axes, `input.c:1395`), which the remap would
+     forever (`glfwGetGamepadState` clears the state and fills only mapped axes, `input.c:1396`), which the remap would
      make 0.5, as much as the default `PressThreshold`. A real trigger at rest reads -1 from its first poll, and an
      injected pad starts at -1 (§"Injected and polled gamepads").
 2. **The dead zone**, radial on the magnitude m (the absolute value, or the vector's length): m <= d reads 0, otherwise

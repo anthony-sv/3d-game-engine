@@ -270,4 +270,10 @@ TEST_CASE("InputActionsAsset: the asset manager loads the FeatureTest project's 
 	CHECK(anyThresholds);
 	CHECK(anyBindingField);
 	CHECK(CompileInputActions(map).IsOk());
+	// Saved again, the seed is the same bytes: an editor save of it changes nothing.
+	std::filesystem::path const resaved = directory.GetPath() / "Resaved.sinput";
+	REQUIRE(DataAssetSerializer::SaveToFile(*asset, resaved).IsOk());
+	Result<std::string> const written = FileSystem::ReadTextFile(resaved);
+	REQUIRE(written.IsOk());
+	CHECK(written.GetValue() == seed.GetValue());
 }
