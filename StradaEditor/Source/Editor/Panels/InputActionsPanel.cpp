@@ -39,17 +39,15 @@ namespace Strada
 		constexpr std::array<char const*, 2> AxisPartLabels = {"-", "+"};
 		constexpr std::array<char const*, 4> VectorPartLabels = {"Up", "Down", "Left", "Right"};
 
-		enum Column : int
-		{
-			ActionColumn = 0,
-			TypeColumn,
-			ControlsColumn,
-			BindColumn,
-			ConflictsColumn,
-			ValueColumn,
-			RemoveColumn,
-			ColumnCount
-		};
+		// The table's columns, by index.
+		constexpr int ActionColumn = 0;
+		constexpr int TypeColumn = 1;
+		constexpr int ControlsColumn = 2;
+		constexpr int BindColumn = 3;
+		constexpr int ConflictsColumn = 4;
+		constexpr int ValueColumn = 5;
+		constexpr int RemoveColumn = 6;
+		constexpr int ColumnCount = 7;
 
 		InputActionsPanel::DrawRecord::Point GetItemCenter()
 		{
@@ -166,12 +164,12 @@ namespace Strada
 
 	bool InputActionsPanel::TakeCaptureEvent(Event const& event, ImGuiLayer::InputContext const& context)
 	{
-		if (!m_Capture.IsListening())
+		if (!m_Capture.IsTakingInput())
 		{
 			return false;
 		}
 		// A capture listens only while its panel draws: one left behind (the panel closed or hidden without OnHidden) ends.
-		if (ImGui::GetCurrentContext() == nullptr || m_DrawnFrame < ImGui::GetFrameCount() - 1)
+		if (m_Capture.IsListening() && (ImGui::GetCurrentContext() == nullptr || m_DrawnFrame < ImGui::GetFrameCount() - 1))
 		{
 			m_Capture.Cancel();
 			return false;
@@ -379,6 +377,7 @@ namespace Strada
 		capture.Part = part;
 		capture.Kind = GetInputBindingCaptureKind(target.Type, part);
 		capture.Gamepad = target.Bindings[binding].Gamepad;
+		capture.Controls = target.Bindings[binding].Controls;
 		m_CaptureMessage.clear();
 		m_Error.clear();
 		m_Capture.Start(std::move(capture));
@@ -388,8 +387,10 @@ namespace Strada
 	{
 		InputBindingCaptureTarget const target = m_Capture.GetTarget();
 		std::optional<uint32_t> const action = FindAction(map, target.Action);
-		// What the capture binds must still be there as it was: the asset shown, the action, the binding, the part.
+		// What the capture binds must still be there as it was: the asset shown, the action, the binding with its controls, the
+		// part.
 		bool const present = target.Asset == m_Shown && action && target.Binding < map.Actions[*action].Bindings.size() &&
+		                     map.Actions[*action].Bindings[target.Binding].Controls == target.Controls &&
 		                     (target.Part < 0 ||
 		                      static_cast<uint32_t>(target.Part) < GetPartCount(map.Actions[*action].Bindings[target.Binding].Controls)) &&
 		                     GetInputBindingCaptureKind(map.Actions[*action].Type, target.Part) == target.Kind;

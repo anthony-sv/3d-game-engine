@@ -107,7 +107,8 @@ namespace Strada
 		AssetHandle GetOpenedAsset() const { return m_Opened; }
 
 		// The game input router's capture filter (GameInputRouter::SetCaptureFilter): takes a window's key and mouse presses
-		// while a binding is being captured. A capture whose panel was not drawn in the last frame is cancelled instead.
+		// while a binding is being captured (InputBindingCapture::TakeEvent). A capture whose panel was not drawn in the last frame is
+		// cancelled instead.
 		bool TakeCaptureEvent(Event const& event, ImGuiLayer::InputContext const& context);
 		InputBindingCapture const& GetCapture() const { return m_Capture; }
 

@@ -950,7 +950,8 @@ Content Browser; the field's `x` goes back to the project's. A project that name
 **Binding by pressing.** Press Bind (or a part's button), then the control: a key, a gamepad button, a stick axis or
 trigger moved past half way, or a mouse button pressed over the highlighted box. A Vector2 binding taken whole takes a
 stick; bind keys to its four parts instead. The key is the one in that place on the keyboard, as games read it, and
-it does nothing else: it reaches neither the editor's shortcuts nor a playing game. Escape, a click anywhere else,
+it does nothing else: it reaches neither the editor's shortcuts nor a playing game. A gamepad's press does reach a
+playing game, which reads gamepads whoever has the keyboard. Escape, a click anywhere else,
 pressing the button again or 10 seconds without a control end it with nothing bound. Only gamepads the binding reads
 count (its `Gamepad`). The panel says when nothing was bound.
 

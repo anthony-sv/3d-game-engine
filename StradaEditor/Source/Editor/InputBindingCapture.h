@@ -32,6 +32,9 @@ namespace Strada
 		uint32_t Binding = 0;
 		// -1: the whole binding; 0 to 3: one control of a composite.
 		int32_t Part = -1;
+		// The binding's controls when the capture started: a binding that reads others since (moved, edited elsewhere) is
+		// no longer the one asked for.
+		std::string Controls;
 		// What fits: a control, a stick (a whole Vector2 binding) or one part (InputCaptureTarget).
 		InputCaptureTarget Kind = InputCaptureTarget::Control;
 		// The gamepad the binding reads (AnyGamepad or a slot): the capture listens to those gamepads only.
@@ -64,15 +67,18 @@ namespace Strada
 		// Stops listening without a control; Update reports Cancelled once when it was listening.
 		void Cancel();
 		bool IsListening() const { return m_Listening; }
+		// Listening, or the character a captured key types is still to come (TakeEvent takes it, until the next Update).
+		bool IsTakingInput() const { return m_Listening || m_TakesTyped; }
 		InputBindingCaptureTarget const& GetTarget() const { return m_Target; }
 
 		// Where a mouse press binds a mouse button: a rectangle in ImGui's coordinates, in the ImGui viewport given
 		// (ImGuiLayer::InputContext). The panel gives it every frame it draws the prompt.
 		void SetPrompt(glm::vec2 min, glm::vec2 max, uint32_t viewport);
 
-		// A window's input event before ImGui and the game see it. While listening, takes every key press (repeats included)
-		// and every mouse button press over the prompt, and returns true; a mouse press elsewhere cancels and returns false.
-		// Returns false for everything else, and whenever it is not listening.
+		// A window's input event before ImGui and the game see it. While listening, takes every key press (repeats included),
+		// typed character and mouse button press over the prompt, and returns true; a mouse press elsewhere cancels and
+		// returns false. After a key ended the capture, also takes the characters that key types until the next Update.
+		// Returns false for everything else.
 		bool TakeEvent(Event const& event, ImGuiLayer::InputContext const& context);
 		// Advances the capture by the frame's seconds (unscaled, at least 0): reports what TakeEvent decided since the last
 		// update, else looks at Input (Escape, keys and gamepads given since Start; mouse buttons are the windows' alone), else
@@ -96,6 +102,7 @@ namespace Strada
 		InputControl m_Control;
 		std::string m_Note;
 		bool m_ClickedAway = false;
+		bool m_TakesTyped = false;
 		glm::vec2 m_PromptMin = glm::vec2(0.0f);
 		glm::vec2 m_PromptMax = glm::vec2(0.0f);
 		uint32_t m_PromptViewport = 0;

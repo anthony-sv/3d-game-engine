@@ -28,6 +28,7 @@ namespace Strada
 		m_Pending = InputBindingCaptureOutcome::Waiting;
 		m_Note.clear();
 		m_ClickedAway = false;
+		m_TakesTyped = false;
 		m_HasPrompt = false;
 		m_Devices.Start(m_Target.Kind, m_Target.Gamepad);
 	}
@@ -52,7 +53,8 @@ namespace Strada
 	{
 		if (!m_Listening)
 		{
-			return false;
+			// The window reports a key's character after its press: the key that ended the capture types nothing either.
+			return m_TakesTyped && event.GetEventType() == EventType::KeyTyped;
 		}
 		bool const takesButtons = m_Target.Kind != InputCaptureTarget::Stick;
 		switch (event.GetEventType())
@@ -65,6 +67,7 @@ namespace Strada
 					return true;
 				}
 				KeyCode const key = press.GetKeyCode();
+				m_TakesTyped = true;
 				if (key == KeyCode::Escape)
 				{
 					Finish(InputBindingCaptureOutcome::Cancelled);
@@ -112,6 +115,7 @@ namespace Strada
 
 	InputBindingCaptureOutcome InputBindingCapture::Update(float seconds)
 	{
+		m_TakesTyped = false;
 		if (m_Pending != InputBindingCaptureOutcome::Waiting)
 		{
 			return std::exchange(m_Pending, InputBindingCaptureOutcome::Waiting);

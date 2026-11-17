@@ -36,6 +36,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -315,7 +316,9 @@ TEST_CASE("InputActionsPanel: a key pressed while a binding listens binds it as 
 	CHECK_FALSE(fixture.GetRecord().Prompt.empty());
 	CHECK(fixture.GetUndoCount() == undo);
 
-	// The physical key, taken before ImGui and the game; its repeats too, until it is released.
+	// The physical key, taken before ImGui and a game that has the input; its repeats too, until it is released.
+	fixture.Router.Grant();
+	REQUIRE(fixture.Router.HasInput());
 	CHECK_FALSE(fixture.PressKey(KeyCode::J));
 	CHECK_FALSE(Input::IsKeyDown(KeyCode::J));
 	CHECK_FALSE(fixture.Router.Route(KeyPressedEvent(KeyCode::J, true), InputActionsPanelFixture::At({0.0f, 0.0f})));
@@ -326,6 +329,12 @@ TEST_CASE("InputActionsPanel: a key pressed while a binding listens binds it as 
 	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Bind Jump to Key/J on Game");
 	CHECK_FALSE(fixture.Router.Route(KeyPressedEvent(KeyCode::J, true), InputActionsPanelFixture::At({0.0f, 0.0f})));
 	CHECK(fixture.ReleaseKey(KeyCode::J));
+	// Once the capture has ended, the game has its keys again.
+	CHECK_FALSE(fixture.PressKey(KeyCode::K));
+	CHECK(Input::IsKeyDown(KeyCode::K));
+	CHECK(fixture.ReleaseKey(KeyCode::K));
+	fixture.Router.Release();
+	fixture.Router.BeginFrame();
 	CHECK(fixture.Router.Route(KeyPressedEvent(KeyCode::J, true), InputActionsPanelFixture::At({0.0f, 0.0f})));
 	CHECK(fixture.PressKey(KeyCode::K));
 	CHECK(fixture.ReleaseKey(KeyCode::K));
@@ -488,12 +497,30 @@ TEST_CASE("InputActionsPanel: a capture ends when its binding changes elsewhere 
 	Json patch = Json::object();
 	patch["Actions"] = JsonTraits<std::vector<InputAction>>::ToJson(changed.Actions);
 	REQUIRE(fixture.Operations.SetDataAssetFields(fixture.Asset, patch).IsOk());
-	size_t const undo = fixture.GetUndoCount();
+	size_t const removed = fixture.GetUndoCount();
 	fixture.Frames(1);
 	CHECK_FALSE(fixture.Panel.GetCapture().IsListening());
 	CHECK(fixture.GetRecord().Status.find("changed elsewhere") != std::string::npos);
+	CHECK(fixture.GetUndoCount() == removed);
 	CHECK(fixture.PressKey(KeyCode::J));
 	fixture.ReleaseKey(KeyCode::J);
+
+	// A binding that reads other controls since the capture started (edited elsewhere) is not the one asked for.
+	fixture.Frames(40);
+	fixture.Click(fixture.GetAction("Jump").Bindings[0].Bind);
+	REQUIRE(fixture.Panel.GetCapture().IsListening());
+	changed = fixture.ReadMap();
+	changed.Actions[0].Bindings[0].Controls = "Key/Enter";
+	patch["Actions"] = JsonTraits<std::vector<InputAction>>::ToJson(changed.Actions);
+	REQUIRE(fixture.Operations.SetDataAssetFields(fixture.Asset, patch).IsOk());
+	size_t const edited = fixture.GetUndoCount();
+	fixture.Frames(1);
+	CHECK_FALSE(fixture.Panel.GetCapture().IsListening());
+	CHECK(fixture.PressKey(KeyCode::J));
+	fixture.ReleaseKey(KeyCode::J);
+	fixture.Frames(1);
+	CHECK(fixture.ReadMap().Actions[0].Bindings[0].Controls == "Key/Enter");
+	CHECK(fixture.GetUndoCount() == edited);
 
 	// The layer hides the panel.
 	fixture.Frames(40);
@@ -515,8 +542,8 @@ TEST_CASE("InputActionsPanel: a capture ends when its binding changes elsewhere 
 	CHECK_FALSE(fixture.Panel.GetCapture().IsListening());
 	fixture.Draw = true;
 	fixture.Frames(2);
-	CHECK(fixture.ReadMap().Actions[0].Bindings[0].Controls == "Key/Space");
-	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.ReadMap().Actions[0].Bindings[0].Controls == "Key/Enter");
+	CHECK(fixture.GetUndoCount() == edited);
 }
 
 TEST_CASE("InputActionsPanel: names and controls typed into the table are one step each when committed, and a refusal says why")
@@ -745,6 +772,13 @@ TEST_CASE("InputBindingCapture: a part's control replaces that part, and a captu
 	CHECK_FALSE(capture.TakeEvent(MouseButtonPressedEvent(MouseButton::Left), context));
 	CHECK(capture.Update(0.0f) == InputBindingCaptureOutcome::Cancelled);
 	CHECK(capture.Update(0.0f) == InputBindingCaptureOutcome::Waiting);
+	// The character of the key that ends a capture types nothing either, until the next update.
+	capture.Start(InputBindingCaptureTarget{});
+	CHECK(capture.TakeEvent(KeyPressedEvent(KeyCode::A, false), context));
+	CHECK_FALSE(capture.IsListening());
+	CHECK(capture.TakeEvent(KeyTypedEvent('a'), context));
+	CHECK(capture.Update(0.0f) == InputBindingCaptureOutcome::Captured);
+	CHECK_FALSE(capture.TakeEvent(KeyTypedEvent('a'), context));
 	// A key injected into Input (automation's input.set) is captured too.
 	capture.Start(InputBindingCaptureTarget{});
 	Input::SetKeyState(KeyCode::Q, true);
