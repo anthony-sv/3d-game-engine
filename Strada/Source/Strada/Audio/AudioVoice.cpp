@@ -193,7 +193,7 @@ namespace Strada
 		voice->m_Owner = &owner;
 		// The volume reaches miniaudio with the voice's first start, so that its first value is taken at once however often
 		// it changed before (miniaudio's gainer smooths every value after the first, miniaudio.h:51010-51016).
-		voice->m_Volume = std::max(desc.Volume, 0.0f);
+		voice->m_Volume = desc.Volume > 0.0f ? desc.Volume : 0.0f;
 		voice->SetPitch(desc.Pitch);
 		voice->SetLooping(desc.Loop && !desc.OneShot);
 		voice->SetDistances(desc.MinDistance, desc.MaxDistance);
@@ -367,7 +367,8 @@ namespace Strada
 
 	void AudioVoice::SetVolume(float volume)
 	{
-		volume = std::max(volume, 0.0f);
+		// Also replaces NaN: the engine's ranking compares volumes.
+		volume = volume > 0.0f ? volume : 0.0f;
 		if (volume == m_Volume)
 		{
 			return;

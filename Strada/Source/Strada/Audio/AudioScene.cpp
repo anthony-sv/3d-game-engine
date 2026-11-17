@@ -378,7 +378,8 @@ namespace Strada
 		}
 
 		source->Entity = desc.Entity;
-		source->Volume = std::max(desc.Volume, 0.0f);
+		// Also replaces NaN, which a script can set before the source exists.
+		source->Volume = desc.Volume > 0.0f ? desc.Volume : 0.0f;
 		source->Pitch = desc.Pitch >= MinAudioPitch ? desc.Pitch : MinAudioPitch;
 		source->Spatial = desc.Spatial;
 		source->MinDistance = desc.MinDistance;

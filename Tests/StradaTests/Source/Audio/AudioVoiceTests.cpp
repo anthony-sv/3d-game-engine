@@ -291,27 +291,45 @@ TEST_CASE("AudioScene: a one-shot that ended frees its place before the next sta
 	CHECK(ReadLevels(0.02f).Left == doctest::Approx(0.2f).epsilon(0.01));
 }
 
-TEST_CASE("AudioScene: a one-shot stolen as its clip ends comes back once")
+TEST_CASE("AudioScene: a one-shot stolen in the block its clip ends comes back once")
 {
 	Testing::AudioEngineScope engine;
 	Scope<AudioScene> audio = CreateAudioScene();
 	AudioSourceDesc desc = MakeSource(SourceId(0), MakeLevelClip(0.1f, 1.0f));
 	desc.MaxVoices = 2;
 	REQUIRE(audio->AddSource(desc).IsOk());
-	Ref<AudioClipAsset> const shortClip = MakeLevelClip(0.2f, 0.1f);
-	CHECK(audio->PlayOneShot(SourceId(0), shortClip, 1.0f));
+	// A clip of 100 frames, shorter than a block, then a long one fill the pool; a third steals the short one before any
+	// block. The next block starts both, steals the short one and renders past its end: its fade and its end meet.
+	std::vector<float> const shortSamples(100, 0.2f);
+	REQUIRE(Testing::AudioFrames(0.1f) > AudioBlockFrames);
+	CHECK(audio->PlayOneShot(SourceId(0), Testing::MakeClip(Testing::MakeWav(shortSamples)), 1.0f));
 	CHECK(audio->PlayOneShot(SourceId(0), nullptr, 1.0f));
-
-	// The short clip has 100 frames left when the next one-shot steals it: its fade and its end meet in the next block, or
-	// its end was reported first and the pool had room; either way it comes back once.
-	std::vector<float> samples(static_cast<size_t>(AudioFrames(0.1f) - 100) * 2);
-	REQUIRE(AudioEngine::ReadFrames(samples) == samples.size() / 2);
+	uint64_t const stolen = AudioEngine::GetStolenVoiceCount();
 	CHECK(audio->PlayOneShot(SourceId(0), nullptr, 1.0f));
-	samples.assign(static_cast<size_t>(AudioBlockFrames) * 2, 0.0f);
+	CHECK(AudioEngine::GetStolenVoiceCount() == stolen + 1);
+	std::vector<float> samples(static_cast<size_t>(AudioBlockFrames) * 2);
 	REQUIRE(AudioEngine::ReadFrames(samples) == AudioBlockFrames);
+	CHECK(AudioEngine::GetReturningObjectCount() == 0);
 	Skip(0.05f);
 	CHECK(AudioEngine::GetReturningObjectCount() == 0);
 	CHECK(ReadLevels(0.05f).Left == doctest::Approx(0.2f).epsilon(0.01));
+}
+
+TEST_CASE("AudioScene: a volume that is not a number plays as silence")
+{
+	Testing::AudioEngineScope engine;
+	Scope<AudioScene> audio = CreateAudioScene();
+	AudioSourceDesc desc = MakeSource(SourceId(0), MakeLevelClip(0.5f, 1.0f), true);
+	desc.Volume = std::nanf("");
+	REQUIRE(audio->AddSource(desc).IsOk());
+	CHECK(audio->GetVolume(SourceId(0)) == 0.0f);
+	audio->Play(SourceId(0));
+	audio->SetVolume(SourceId(0), std::nanf(""));
+	CHECK(audio->GetVolume(SourceId(0)) == 0.0f);
+	// A one-shot at such a volume plays, silent.
+	CHECK(audio->PlayOneShot(SourceId(0), nullptr, std::nanf("")));
+	Skip(0.02f);
+	CHECK(ReadLevels(0.05f).Left == 0.0f);
 }
 
 TEST_CASE("AudioScene: a scene that ends while its stolen one-shot fades out gives every object back, other scenes play on")
