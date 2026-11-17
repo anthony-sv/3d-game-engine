@@ -376,9 +376,14 @@ namespace Strada
 		static_assert(AudioEffect::MaxReverbSampleRate == 44100 * verblib_max_sample_rate_multiplier,
 		              "The highest rate a Reverb runs at is verblib's (verblib.h:422-430)");
 
-		// Reverb: verblib (Freeverb) on the first two channels, run for its tail alone (its own wet at full scale, dry at
-		// none: verblib_set_wet scales by verblib_scalewet, verblib.h:621-624, so 1 / 3 is unity), mixed with the input by
-		// WetDb and DryDb here, ramped per frame. RoomSize, Damping and Width reach verblib once a step.
+		// Reverb: verblib (Freeverb) on the first two channels, run for its two tails alone (its own wet at full scale, dry
+		// at none: verblib_set_wet scales by verblib_scalewet, verblib.h:621-624, so 1 / 3 is unity; its width at 1, so each
+		// tail comes out unmixed, verblib.h:360-361), mixed with the input by WetDb and DryDb here, ramped per frame.
+		// RoomSize and Damping reach verblib once a step: they set its combs' feedback and damping, which change what the
+		// combs hold, not what leaves them at once. Width is verblib's mix of the two tails, a pair of gains, so it is mixed
+		// here and ramped per frame as well: given to verblib once a step, it moved the output at each step by the step times
+		// the tails' difference, a zipper as large as the tails differ, and they differ by platform (verblib sizes its delay
+		// lines in long double, verblib.h:406-416). A mono tail has no width.
 		class ReverbEffect final : public AudioEffect
 		{
 		public:
@@ -409,6 +414,7 @@ namespace Strada
 				}
 				verblib_set_wet(m_Reverb.get(), 1.0f / verblib_scalewet);
 				verblib_set_dry(m_Reverb.get(), 0.0f);
+				verblib_set_width(m_Reverb.get(), 1.0f);
 				ApplyShape();
 			}
 
@@ -423,15 +429,17 @@ namespace Strada
 				            {
 								bool const roomMoved = m_RoomSize.Advance(frames);
 								bool const dampingMoved = m_Damping.Advance(frames);
-								bool const widthMoved = m_Width.Advance(frames);
-								if (roomMoved || dampingMoved || widthMoved)
+								if (roomMoved || dampingMoved)
 								{
 									ApplyShape();
 								}
+								float const widthStart = static_cast<float>(m_Width.Get());
 								float const wetStart = DecibelsToGain(m_WetDb.Get());
 								float const dryStart = DecibelsToGain(m_DryDb.Get());
+								m_Width.Advance(frames);
 								m_WetDb.Advance(frames);
 								m_DryDb.Advance(frames);
+								GainRamp const width(widthStart, static_cast<float>(m_Width.Get()), frames);
 								GainRamp const wet(wetStart, DecibelsToGain(m_WetDb.Get()), frames);
 								GainRamp const dry(dryStart, DecibelsToGain(m_DryDb.Get()), frames);
 								float* const block = samples.data() + offset * m_ChannelCount;
@@ -445,11 +453,21 @@ namespace Strada
 								verblib_process(m_Reverb.get(), m_Input.data(), m_Tail.data(), frames);
 								for (uint32_t frame = 0; frame < frames; frame++)
 								{
-									for (uint32_t channel = 0; channel < m_ReverbChannels; channel++)
+									float* const output = block + frame * m_ChannelCount;
+									float const* const tail = m_Tail.data() + frame * m_ReverbChannels;
+									if (m_ReverbChannels == 1)
 									{
-										float& sample = block[frame * m_ChannelCount + channel];
-										sample = dry.At(frame) * sample + wet.At(frame) * m_Tail[frame * m_ReverbChannels + channel];
+										output[0] = dry.At(frame) * output[0] + wet.At(frame) * tail[0];
+										continue;
 									}
+									// verblib's own mix of its two tails at this frame's width (verblib.h:360-361 and 588-589).
+									float const frameWidth = width.At(frame);
+									float const direct = frameWidth / 2.0f + 0.5f;
+									float const cross = (1.0f - frameWidth) / 2.0f;
+									float const left = tail[0] * direct + tail[1] * cross;
+									float const right = tail[1] * direct + tail[0] * cross;
+									output[0] = dry.At(frame) * output[0] + wet.At(frame) * left;
+									output[1] = dry.At(frame) * output[1] + wet.At(frame) * right;
 								}
 							});
 			}
@@ -484,8 +502,6 @@ namespace Strada
 			{
 				verblib_set_room_size(m_Reverb.get(), static_cast<float>(m_RoomSize.Get()));
 				verblib_set_damping(m_Reverb.get(), static_cast<float>(m_Damping.Get()));
-				// A mono tail has no width: verblib scales its one channel by (width / 2 + 0.5), verblib.h:356.
-				verblib_set_width(m_Reverb.get(), m_ReverbChannels == 1 ? 1.0f : static_cast<float>(m_Width.Get()));
 			}
 
 			uint32_t m_SampleRate = 0;
