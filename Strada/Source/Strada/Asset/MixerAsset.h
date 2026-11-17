@@ -207,6 +207,24 @@ namespace Strada
 	};
 
 	template<>
+	struct StructTraits<MixerImpacts>
+	{
+		static constexpr std::string_view Name = "MixerImpacts";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Bus", &MixerImpacts::Bus).Doc("The bus impact sounds play on (letter case ignored); empty plays none."),
+			Field("MinImpulse", &MixerImpacts::MinImpulse)
+				.Range(0.0, static_cast<double>(MaxImpactImpulse))
+				.Doc("Newton-seconds: a collision whose strongest point's impulse is below it plays nothing."),
+			Field("FullImpulse", &MixerImpacts::FullImpulse)
+				.Range(0.001, static_cast<double>(MaxImpactImpulse))
+				.Doc("Newton-seconds: the impulse at which an impact sound plays at full volume; weaker ones play softer, in "
+		             "proportion."),
+			Field("MaxPerFrame", &MixerImpacts::MaxPerFrame)
+				.Range(1.0, static_cast<double>(MaxImpactSoundsPerFrame))
+				.Doc("Impact sounds a frame plays at most, those of the strongest impulses."));
+	};
+
+	template<>
 	struct StructTraits<Mixer>
 	{
 		static constexpr std::string_view Name = "Mixer";
@@ -220,7 +238,10 @@ namespace Strada
 			Field("SpeedOfSound", &Mixer::SpeedOfSound)
 				.Range(static_cast<double>(MinSpeedOfSound), static_cast<double>(MaxSpeedOfSound))
 				.Doc("Meters per second (343 in air): how much moving sounds rise in pitch as they come closer and fall as they "
-		             "go away (doppler)."));
+		             "go away (doppler)."),
+			Field("Impacts", &Mixer::Impacts)
+				.Doc("How collisions sound: the ImpactSound of each side's physics material, played where a collision begins, "
+		             "on this bus, louder for stronger impacts."));
 	};
 
 	inline constexpr std::array<DocumentMigration, 0> MixerMigrations = {};

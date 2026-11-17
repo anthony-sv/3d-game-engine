@@ -34,6 +34,10 @@ namespace Strada
 	inline constexpr float DefaultSpeedOfSound = 343.0f;
 	inline constexpr float MinSpeedOfSound = 1.0f;
 	inline constexpr float MaxSpeedOfSound = 10000.0f;
+	// Impact sounds (Mixer::Impacts): impulses in newton-seconds stay within MaxImpactImpulse, and a frame plays at most
+	// MaxImpactSoundsPerFrame.
+	inline constexpr float MaxImpactImpulse = 1000000.0f;
+	inline constexpr uint32_t MaxImpactSoundsPerFrame = 64;
 
 	// What an effect does to its bus's signal (§9.6 names the published method of each). The order is the format's: files
 	// store the names.
@@ -197,6 +201,22 @@ namespace Strada
 		return master;
 	}
 
+	// How collisions sound (Docs/Architecture.md §9.8): when a collision begins with contact points, the scene plays the
+	// ImpactSound of each side's physics material once at its strongest point, on Bus, at a volume of the point's impulse
+	// over FullImpulse (at most 1); impulses below MinImpulse play nothing, and a frame plays at most MaxPerFrame impact
+	// sounds, those of the strongest impulses. An empty Bus plays none, which a new mixer has.
+	struct MixerImpacts
+	{
+		// The bus impact sounds play on: empty for none, else a bus of the mixer (letter case ignored).
+		std::string Bus;
+		// Newton-seconds (ContactPoint::Impulse).
+		float MinImpulse = 1.0f;
+		float FullImpulse = 20.0f;
+		uint32_t MaxPerFrame = 8;
+
+		bool operator==(MixerImpacts const&) const = default;
+	};
+
 	struct Mixer
 	{
 		// At most MaxMixerBuses. Exactly one is named Master, with no parent; every other bus's parent is a bus of the list,
@@ -208,6 +228,8 @@ namespace Strada
 		// Meters per second (MinSpeedOfSound to MaxSpeedOfSound): the c of the doppler factor c / (c - v) that the scenes give
 		// their spatial voices (§9.8). Read on the main thread at each scene update, so an edit applies from the next one.
 		float SpeedOfSound = DefaultSpeedOfSound;
+		// Impact sounds; none while Impacts.Bus is empty.
+		MixerImpacts Impacts;
 
 		bool operator==(Mixer const&) const = default;
 	};
@@ -216,8 +238,9 @@ namespace Strada
 	// on ducking (DuckedBy names another bus whose level does not depend on this bus's output: not itself, not a bus it
 	// feeds, and no chain of ducking that comes back to it) and on Mixer::Snapshots (names unique and not empty; each value
 	// names a bus of the mixer, an effect it has and a parameter that effect's kind uses, holds a value in its target's
-	// range, and sets what no other value of its snapshot sets). Master is the bus named exactly MasterBusName; parents,
-	// DuckedBy and a snapshot value's Bus match names ignoring letter case. The error names the first element at fault.
+	// range, and sets what no other value of its snapshot sets) and on Impacts (a Bus that is empty or names a bus of the
+	// mixer). Master is the bus named exactly MasterBusName; parents, DuckedBy, a snapshot value's Bus and Impacts.Bus match
+	// names ignoring letter case. The error names the first element at fault.
 	// The fields' own ranges are the field table's to check. Any thread.
 	[[nodiscard]] Result<void> ValidateMixer(Mixer const& mixer);
 

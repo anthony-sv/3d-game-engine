@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Strada/Asset/AssetHandle.h"
+#include "Strada/Audio/AudioScene.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/InputActions.h"
 #include "Strada/Core/Result.h"
@@ -30,6 +31,7 @@
 
 namespace Strada
 {
+	class AudioClipAsset;
 	class AudioScene;
 	class Entity;
 
@@ -627,6 +629,15 @@ namespace Strada
 		// The ID of the entity's sound after syncing it, if it has one.
 		std::optional<UUID> PrepareAudioSource(Entity entity);
 		Entity FindAudioListener();
+		// The reverb zones of the scene's entities, to the AudioScene (Docs/Architecture.md §9.8).
+		void UpdateReverbZones();
+		// The impact sounds of the frame's collisions (Mixer::Impacts, Docs/Architecture.md §9.8).
+		void PlayImpactSounds();
+		// The clip of an impact sound, loaded and decoded once while the scene runs; null when it does not load (logged once).
+		Ref<AudioClipAsset> GetImpactClip(AssetHandle clip);
+		// When the mixer plays impact sounds: the impact sounds of the materials the scene's colliders name, loaded and
+		// decoded at the start, so that no first impact decodes in the middle of the game.
+		void PreloadImpactSounds();
 
 		// Particle runtime (SceneParticles.cpp).
 		struct ParticleSystemState;
@@ -911,6 +922,11 @@ namespace Strada
 		std::optional<glm::vec3> m_AudioListenerLastPosition;
 		UUID m_AudioListenerLastEntity = UUID::Invalid();
 		std::unordered_map<entt::entity, AudioSourceState> m_AudioSources;
+		// The reverb zones of the last update (kept to reuse its memory).
+		std::vector<AudioReverbZoneDesc> m_AudioZones;
+		// Impact sounds' clips by handle while the scene runs, and those that do not load (logged once).
+		std::unordered_map<AssetHandle, Ref<AudioClipAsset>> m_ImpactClips;
+		std::unordered_set<AssetHandle> m_FailedImpactClips;
 
 		// The class an entity's script instance was made from; HasInstance is false when it could not be made (unknown
 		// class, throwing constructor) until the class name changes.

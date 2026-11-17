@@ -82,6 +82,15 @@ namespace Strada
 	};
 
 	template<>
+	struct EnumTraits<ReverbZoneShape>
+	{
+		static constexpr std::array<std::pair<ReverbZoneShape, std::string_view>, 2> Values = {{
+			{ReverbZoneShape::Sphere, "Sphere"},
+			{ReverbZoneShape::Box, "Box"},
+		}};
+	};
+
+	template<>
 	struct EnumTraits<ParticleBlendMode>
 	{
 		static constexpr std::array<std::pair<ParticleBlendMode, std::string_view>, 2> Values = {{
@@ -662,6 +671,38 @@ namespace Strada
 	};
 
 	template<>
+	struct ComponentTraits<ReverbZoneComponent>
+	{
+		static constexpr std::string_view Name = "ReverbZone";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Audio;
+		static constexpr std::string_view Description =
+			"A sphere or a box round the entity inside which spatial sounds send part of themselves to a bus with a reverb "
+			"(an echo under a bridge, a tunnel, a hall), fading out round it.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Shape", &ReverbZoneComponent::Shape)
+				.Doc("A Sphere of Radius or a Box of HalfExtents, placed and turned by the entity and sized times its scale."),
+			Field("Radius", &ReverbZoneComponent::Radius)
+				.Range(0.0, static_cast<double>(MaxReverbZoneSize))
+				.VisibleWhen("Shape", "Sphere")
+				.Doc("Meters: the sphere's radius (times the entity's largest scale)."),
+			Field("HalfExtents", &ReverbZoneComponent::HalfExtents)
+				.Range(0.0, static_cast<double>(MaxReverbZoneSize))
+				.VisibleWhen("Shape", "Box")
+				.Doc("Meters from the box's center to each face (times the entity's scale)."),
+			Field("FadeDistance", &ReverbZoneComponent::FadeDistance)
+				.Range(0.0, static_cast<double>(MaxReverbZoneSize))
+				.Doc("Meters outside the shape across which the send falls to nothing; 0 stops it at the surface."),
+			Field("Bus", &ReverbZoneComponent::Bus)
+				.Doc("The mixer's bus the zone sends to, one that carries a reverb (letter case ignored); empty, or a bus the "
+		             "mixer lacks, sends nothing."),
+			Field("SendLevel", &ReverbZoneComponent::SendLevel)
+				.Range(0.0, 1.0)
+				.Doc("How much of a spatial sound inside the zone reaches the bus (linear); of several zones of one bus the "
+		             "largest send counts."));
+	};
+
+	template<>
 	struct ComponentTraits<ScriptComponent>
 	{
 		static constexpr std::string_view Name = "Script";
@@ -1017,5 +1058,5 @@ namespace Strada
 	                  BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, JointComponent,
 	                  CharacterControllerComponent, AudioSourceComponent, AudioListenerComponent, ScriptComponent, VisualScriptComponent,
 	                  TextComponent, SpriteRendererComponent, ParticleSystemComponent, PostProcessComponent, UICanvasComponent,
-	                  UIRectComponent, UIImageComponent, UITextComponent, UIButtonComponent, PrefabComponent>;
+	                  UIRectComponent, UIImageComponent, UITextComponent, UIButtonComponent, ReverbZoneComponent, PrefabComponent>;
 }

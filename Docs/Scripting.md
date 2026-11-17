@@ -609,8 +609,10 @@ surface that colliders name in their `Material`. `PhysicsMaterial` reads its fie
 how a contact combines them with the other side's (`FrictionCombine`, `RestitutionCombine`: a `PhysicsMaterialCombine`),
 `RollingResistance`, `Surface` (a name to compare, such as `"Gravel"`; empty for none), `ImpactSound` (an `AudioClip`)
 and `ImpactParticles` (a `Prefab`), the last two null when unset. The engine applies the friction, the restitution and
-their combine modes where colliders touch; the rolling resistance, the sound and the particles are for scripts to use,
-since contacts neither slow rolling bodies by it nor play or spawn anything. A `PhysicsMaterial` field picks one in the
+their combine modes where colliders touch, and plays the `ImpactSound` of each side where a collision begins when the
+project's mixer names a bus for impact sounds (its `Impacts`, [Mixers](Editor.md#mixers); louder for a stronger impact,
+none below its least impulse; a new mixer plays none); the rolling resistance and the particles are for scripts to use,
+since contacts neither slow rolling bodies by it nor spawn anything. A `PhysicsMaterial` field picks one in the
 inspector, `Assets.Load<PhysicsMaterial>("Surfaces/Gravel.sphysmat")` loads one by path, and a raycast names the one it
 hit in `RaycastHit.Material`: the collider's `Material`, or for a triangle of a mesh collider its submesh's entry of
 `Materials`; null when the surface has none and the collider's own `Friction` and `Restitution` apply. Reading a member

@@ -77,12 +77,22 @@ namespace Strada
 		// The voice moves to Other, another AudioSceneGroup of its scene (its bus changed): faded out over
 		// AudioGainSmoothingSeconds, moved and faded in when it is heard, moved at once when it is not.
 		MoveVoice,
+		// Hands Other, the voice's AudioSendNode, to the mixing thread (§9.8, reverb zones): it goes between the voice's
+		// sound and its group, its dry output to the group and each send to the group of the scene the main thread set it to
+		// before this command. It comes back with its voice.
+		AddVoiceSends,
+		// A new target for send Slot of the voice's send node: Other, an AudioSceneGroup of the voice's scene, at the linear
+		// level Values[0], reached over AudioGainSmoothingSeconds while the voice is heard, at once otherwise. A send that
+		// changes group while it is heard fades out first, then moves and fades in.
+		SetVoiceSend,
 
 		// The scenes' groups (Object: the AudioSceneGroup). Hands the group over and attaches it to Other, its AudioBusNode
 		// (null only when Master's node could not be made: the engine's endpoint).
 		AttachGroup,
-		// Values[0] is 1 to hold the group's voices (a paused scene), 0 to let them continue.
-		SetGroupPaused,
+		// Holds (Values[0] 1, a paused scene) or lets continue (0) the voices of every group the mixing thread holds of the
+		// scene Serial names (AudioSceneGroup::GetScene), all in the same block: a voice's sends play into other groups of
+		// its scene, which must stop and start together with its own.
+		SetScenePaused,
 		// The group feeds Other from now on (null: the endpoint), faded out, moved and faded in: a bus added, removed or
 		// restored under the name the group's sources ask for (§9.5).
 		MoveGroup,
@@ -139,7 +149,7 @@ namespace Strada
 	struct AudioCommand
 	{
 		AudioCommandType Type = AudioCommandType::None;
-		// The effect's index on its bus (SetEffectParameter).
+		// The effect's index on its bus (SetEffectParameter), or the send's on its voice (SetVoiceSend).
 		uint8_t Slot = 0;
 		MixerEffectParameter Parameter = MixerEffectParameter::Frequency;
 		// What the type reads from it (StartVoice: AudioStartFlags).

@@ -274,6 +274,19 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, byte*, void> AudioListenerComponent_GetActive;
 	internal static delegate* unmanaged<ulong, byte*, void> AudioListenerComponent_SetActive;
 
+	internal static delegate* unmanaged<ulong, int*, void> ReverbZoneComponent_GetShape;
+	internal static delegate* unmanaged<ulong, int*, void> ReverbZoneComponent_SetShape;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_GetRadius;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_SetRadius;
+	internal static delegate* unmanaged<ulong, Vector3*, void> ReverbZoneComponent_GetHalfExtents;
+	internal static delegate* unmanaged<ulong, Vector3*, void> ReverbZoneComponent_SetHalfExtents;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_GetFadeDistance;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_SetFadeDistance;
+	internal static delegate* unmanaged<ulong, int*, byte*> ReverbZoneComponent_GetBus;
+	internal static delegate* unmanaged<ulong, byte*, int, void> ReverbZoneComponent_SetBus;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_GetSendLevel;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_SetSendLevel;
+
 	internal static delegate* unmanaged<ulong, int*, byte*> TextComponent_GetText;
 	internal static delegate* unmanaged<ulong, byte*, int, void> TextComponent_SetText;
 	internal static delegate* unmanaged<ulong, ulong*, void> TextComponent_GetFont;

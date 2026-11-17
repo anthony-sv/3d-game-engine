@@ -266,6 +266,12 @@
 				]
 			}
 		],
-		"SpeedOfSound": 340.0
+		"SpeedOfSound": 340.0,
+		"Impacts": {
+			"Bus": "Effects",
+			"MinImpulse": 0.5,
+			"FullImpulse": 15.0,
+			"MaxPerFrame": 6
+		}
 	}
 }

@@ -30,6 +30,7 @@ add_executable(StradaTests
     Source/Audio/AudioMixControlTests.cpp
     Source/Audio/AudioMixerTests.cpp
     Source/Audio/AudioQueueTests.cpp
+    Source/Audio/AudioReverbZoneTests.cpp
     Source/Audio/AudioSceneTests.cpp
     Source/Audio/AudioTestUtilities.h
     Source/Audio/AudioVoiceTests.cpp
@@ -122,12 +123,14 @@ add_executable(StradaTests
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFuzzTests.cpp
+    Source/Scene/SceneImpactSoundTests.cpp
     Source/Scene/SceneInputActionsTests.cpp
     Source/Scene/SceneInterpolationTests.cpp
     Source/Scene/ScenePhysicsMaterialTests.cpp
     Source/Scene/ScenePhysicsQueryTests.cpp
     Source/Scene/ScenePhysicsStateTests.cpp
     Source/Scene/SceneProfilingTests.cpp
+    Source/Scene/SceneReverbZoneTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneScriptingApiTests.cpp
     Source/Scene/SceneScriptingGuideTests.cpp

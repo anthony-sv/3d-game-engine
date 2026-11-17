@@ -374,7 +374,7 @@ selected, and each creation is one undo step.
 | Rendering | Camera, Directional Light, Point Light, Spot Light, Sky Light (with the default sky), Post Process Volume |
 | Effects | Particle System, Fire, Smoke, Sparks |
 | Physics | Character Controller (an entity named "Character" with a capsule mesh and a character controller) |
-| Audio | Audio Source, Audio Listener |
+| Audio | Audio Source, Audio Listener, Reverb Zone |
 | UI | Canvas, Panel, Image, Text, Button |
 
 Directional and spot lights are tilted toward the ground, particle effects point up, and the Post Process Volume is
@@ -759,6 +759,15 @@ closer and falls as they part, at the speed of sound the project's mixer sets (`
 1 is physical. The engine computes it from where the source and the listener were at the last frame of the game, so a
 jump faster than half the speed of sound (a respawn) and a switch to another listener give none.
 
+A Reverb Zone (Entity > Audio > Reverb Zone, or the ReverbZone component) makes spatial sounds inside it echo: a `Box`
+of `HalfExtents` or a `Sphere` of `Radius` round its entity (moved and turned with it, sized times its scale; a sphere
+by its largest axis), inside which every spatial sound sends `SendLevel` (0 to 1) of itself to `Bus`, a bus of the
+project's mixer that carries a `Reverb` with its `DryDb` at -80 ([Mixers](#mixers)). Across `FadeDistance` meters outside
+the shape the send falls to nothing, so sounds glide in and out of the echo. It follows the sound, not the listener: a
+car in a tunnel echoes for a camera outside it. Of several zones of one bus the largest send counts, and a sound sends to
+the two buses it sends most to; sounds that are not spatial send nothing, and a zone whose bus is empty or not in the
+mixer sends nothing (logged once). The new entity's zone is a 10 m box that sends to a bus named `Reverb`.
+
 ### Fonts
 
 Fonts with TrueType outlines (`.ttf`, `.otf`; the first font of a collection) are used by Text and UI Text
@@ -854,8 +863,10 @@ it on the next frame, and actions held stay down without a new press.
 
 A physics material (`.sphysmat`) is a surface: how it slides (`Friction`), bounces (`Restitution`) and rolls
 (`RollingResistance`), the name scripts tell it by (`Surface`: Asphalt, Gravel, Ice) and the sound and particles of an
-impact on it (`ImpactSound`, `ImpactParticles`, which scripts and graphs play and spawn; contacts do neither by
-themselves, and rigid bodies roll without the rolling resistance, which is for scripts and graphs, later the vehicle). Pick one in a
+impact on it (`ImpactSound`, `ImpactParticles`). A collision that begins plays each side's `ImpactSound` where it
+begins when the project's mixer names a bus for impact sounds ([Mixers](#mixers), `Impacts`; a new mixer names none);
+contacts spawn no particles themselves, which scripts and graphs do, and rigid bodies roll without the rolling
+resistance, which is for scripts and graphs, later the vehicle). Pick one in a
 collider's `Material` field: its values then replace the collider's own `Friction` and `Restitution`, and the inspector
 says so, showing "Set by Material" in place of those two fields while `Material` names a physics material of the project.
 A reference to anything else (an asset of another type, a file that is gone) counts as no material: the two fields show
@@ -895,6 +906,12 @@ effects (by the effect's index in its list) in place of the mixer's own, and eve
 the mixer's values. While a game blends to a snapshot, edits of the mixer apply under it; when the game stops, the mix is
 back at the mixer's own values. `SpeedOfSound` (1 to 10,000 m/s, 343 by default) is the speed the doppler of moving
 sounds is computed with: lower it to hear more of it.
+
+`Impacts` makes collisions sound: with a bus named in its `Bus`, a collision that begins plays the `ImpactSound` of each
+side's physics material ([Physics materials](#physics-materials); the same sound on both sides plays once) where it
+begins, on that bus, at a volume of the impact's impulse over `FullImpulse` (at most full); impacts weaker than
+`MinImpulse` play nothing, and a frame plays at most `MaxPerFrame` impact sounds, those of the strongest impacts. Its
+`Bus` is empty in a new mixer, which plays no impact sound.
 
 Name the game's mixer in Project Settings (`Mixer`), and a bus in an Audio Source's `Bus` (any letter case; empty is
 Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer in the Inspector, or agents with

@@ -10,7 +10,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 the few whose summary says graphs have none.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-94 types in 2 namespaces, with 806 members and enum values in all.
+96 types in 2 namespaces, with 814 members and enum values in all.
 
 ## Strada
 
@@ -73,6 +73,8 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [RangeAttribute](#rangeattribute) | attribute | Limits the value the inspector lets a numeric field take. |
 | [Ray](#ray) | struct | A half-line from an origin along a direction. |
 | [RaycastHit](#raycasthit) | struct | What a raycast hit. |
+| [ReverbZoneComponent](#reverbzonecomponent) | class | A reverb zone: a sphere or a box round the entity inside which spatial sounds send part of themselves to a bus of the project's mixer that carries a reverb (an echo under a bridge, a tunnel, a hall). It follows the sound, not the listener: a sound inside the zone echoes for a listener outside it. The shape is placed and turned by the entity and sized in meters times its scale (a sphere by its largest axis). A sound sends `ReverbZoneComponent.SendLevel` of itself inside the shape, less and less across `ReverbZoneComponent.FadeDistance` outside it; of several zones of one bus the largest send counts, and a sound sends to the two buses it sends most to. Sounds that are not spatial send nothing. A change applies from the next frame. |
+| [ReverbZoneShape](#reverbzoneshape) | enum | The shape of a reverb zone. |
 | [RigidBodyComponent](#rigidbodycomponent) | class | Makes the entity a physics body; its colliders give it shape. While the scene runs, velocities, forces and sleep act on the simulated body. |
 | [RigidBodyInterpolation](#rigidbodyinterpolation) | enum | How `RigidBodyComponent.Interpolation` draws a moving body between physics steps. |
 | [RigidBodyType](#rigidbodytype) | enum | How a rigid body moves. |
@@ -917,7 +919,7 @@ A physics material asset (`.sphysmat`): how a surface slides, bounces and rolls,
 | `PhysicsMaterialCombine RestitutionCombine { get; }` | How a contact combines the restitutions of its two sides (a collider without a material says `PhysicsMaterialCombine.Maximum`); when the sides differ, the mode later in `PhysicsMaterialCombine` wins. |
 | `float RollingResistance { get; }` | The force opposing a wheel that rolls on the surface, per newton of load (about 0.01 for a tyre on asphalt), for scripts and graphs to apply; rigid bodies roll without it. |
 | `string Surface { get; }` | The surface's name (such as Asphalt, Gravel or Ice), which scripts and graphs compare to tell surfaces apart; empty for none. |
-| `AudioClip? ImpactSound { get; }` | A sound for impacts on the surface, or null; contacts play nothing by themselves. |
+| `AudioClip? ImpactSound { get; }` | A sound for impacts on the surface, or null. A collision that begins plays it where it begins when the project's mixer names a bus for impact sounds (its Impacts), louder for a stronger impact; scripts can play it too. |
 | `Prefab? ImpactParticles { get; }` | A prefab (usually a particle system) for impacts on the surface, or null; contacts spawn nothing by themselves. |
 
 ### PhysicsMaterialCombine
@@ -1099,6 +1101,33 @@ What a raycast hit.
 | `Vector3 Normal { get; }` | The surface normal at the point. |
 | `float Distance { get; }` | Distance from the ray's origin to the point. |
 | `PhysicsMaterial? Material { get; }` | The physics material of the surface hit: the collider's Material, or for a triangle of a mesh collider its submesh's entry in the collider's Materials (the collider's Material when that entry is empty); null when the surface has none and its collider's own Friction and Restitution apply. Hits on one material share one reference. |
+
+### ReverbZoneComponent
+
+```csharp
+public sealed class ReverbZoneComponent : Component
+```
+
+A reverb zone: a sphere or a box round the entity inside which spatial sounds send part of themselves to a bus of the project's mixer that carries a reverb (an echo under a bridge, a tunnel, a hall). It follows the sound, not the listener: a sound inside the zone echoes for a listener outside it. The shape is placed and turned by the entity and sized in meters times its scale (a sphere by its largest axis). A sound sends `ReverbZoneComponent.SendLevel` of itself inside the shape, less and less across `ReverbZoneComponent.FadeDistance` outside it; of several zones of one bus the largest send counts, and a sound sends to the two buses it sends most to. Sounds that are not spatial send nothing. A change applies from the next frame.
+
+| Member | Summary |
+|---|---|
+| `ReverbZoneShape Shape { get; set; }` | A sphere of `ReverbZoneComponent.Radius` or a box of `ReverbZoneComponent.HalfExtents`. |
+| `float Radius { get; set; }` | The sphere's radius in meters (times the entity's largest scale), from 0 to 100,000. |
+| `Vector3 HalfExtents { get; set; }` | Meters from the box's center to each face (times the entity's scale), each from 0 to 100,000. |
+| `float FadeDistance { get; set; }` | Meters outside the shape across which the send falls to nothing, from 0 (it stops at the surface) to 100,000. |
+| `string Bus { get; set; }` | The bus of the project's mixer the zone sends to, by name in any letter case: one that carries a reverb. Empty, or a name the mixer lacks (logged once), sends nothing. |
+| `float SendLevel { get; set; }` | How much of a spatial sound inside the zone reaches the bus, from 0 to 1 (linear). |
+
+### ReverbZoneShape
+
+```csharp
+public enum ReverbZoneShape
+```
+
+The shape of a reverb zone.
+
+Values: `Sphere`, `Box`.
 
 ### RigidBodyComponent
 

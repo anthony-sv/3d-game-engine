@@ -456,6 +456,10 @@ namespace Strada
 		{
 			return ducking;
 		}
+		if (!mixer.Impacts.Bus.empty() && !indices.contains(MakeMixerBusKey(mixer.Impacts.Bus)))
+		{
+			return MakeError("Impacts.Bus: '{}' is not a bus of the mixer", mixer.Impacts.Bus);
+		}
 		return ValidateSnapshots(mixer, indices);
 	}
 }

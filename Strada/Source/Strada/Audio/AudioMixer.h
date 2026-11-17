@@ -149,15 +149,17 @@ namespace Strada
 		};
 
 	public:
-		// Main thread: the group, unattached, holding its voices when paused, for the bus of that name (matched by its key,
-		// MakeMixerBusKey; Master when the mixer lacks it, which is logged once with the name as given). Its node is
-		// allocated through the engine's allocation callbacks.
-		[[nodiscard]] static Result<Scope<AudioSceneGroup>> Create(std::string busName, bool paused);
+		// Main thread: the group of the scene numbered scene (AudioVoiceManager::NextSceneSerial), unattached, holding its
+		// voices when paused, for the bus of that name (matched by its key, MakeMixerBusKey; Master when the mixer lacks it,
+		// which is logged once with the name as given). Its node is allocated through the engine's allocation callbacks.
+		[[nodiscard]] static Result<Scope<AudioSceneGroup>> Create(std::string busName, bool paused, uint64_t scene);
 
-		AudioSceneGroup(PrivateTag, std::string busName);
+		AudioSceneGroup(PrivateTag, std::string busName, uint64_t scene);
 		// Main thread, only while the mixing thread does not hold the group.
 		~AudioSceneGroup() override;
 
+		// Any thread: the scene the group belongs to (fixed when it is made).
+		uint64_t GetScene() const { return m_Scene; }
 		// Main thread.
 		std::string const& GetBusKey() const { return m_BusKey; }
 		// The bus's name as the source that made the group gave it (another spelling of the key may share the group).
@@ -166,9 +168,13 @@ namespace Strada
 		bool IsHeldByMixer() const { return m_HeldByMixer; }
 		// The bus it plays into, as the main thread last pointed it (null: the engine's endpoint).
 		AudioBusNode* GetBusNode() const { return m_BusNode; }
-		// Hands the group to the mixing thread (before the first start of a voice in it); nothing when it already holds it.
+		// Hands the group to the mixing thread (before the first start of a voice in it, or the first send into it); nothing
+		// when it already holds it.
 		void Attach();
-		void SetPaused(bool paused);
+		// The group holds its voices (a paused scene) or lets them continue: at once while the main thread still holds it.
+		// Once the mixing thread does, its scene sends one SetScenePaused for all its groups, so that they stop and start in
+		// the same block. Returns whether the mixing thread holds the group (and so needs that command).
+		bool SetPaused(bool paused);
 		// The group plays into bus from now on: moved with a dip (MoveGroup) once the mixing thread holds it.
 		void PointAt(AudioBusNode* bus);
 		// The last command that names the group: it comes back once its voices have. The engine forgets it.
@@ -181,16 +187,19 @@ namespace Strada
 		bool m_HasGroup = false;
 		std::string m_BusKey;
 		std::string m_BusName;
+		uint64_t m_Scene = 0;
 		// Main thread.
 		bool m_Paused = false;
 		bool m_HeldByMixer = false;
 		bool m_Registered = false;
 		AudioBusNode* m_BusNode = nullptr;
-		// Mixing thread only: whether it is attached, held, retiring, and how many voices it holds attached.
+		// Mixing thread only: whether it is attached, held, retiring, how many voices it holds attached and how many sends
+		// of voices play into it (it comes back once neither is left).
 		bool m_MixAttached = false;
 		bool m_MixPaused = false;
 		bool m_MixRetiring = false;
 		uint32_t m_MixVoiceCount = 0;
+		uint32_t m_MixSendCount = 0;
 		// The bus it is attached to (null: the endpoint), and a move under way: faded out until m_MixMoveEnd on the mixer's
 		// clock, then attached to m_MixMoveTarget and faded back in.
 		AudioBusNode* m_Bus = nullptr;
@@ -327,6 +336,72 @@ namespace Strada
 		std::atomic<float> m_Rms{0.0f};
 	};
 
+	// The sends of one voice to the buses of reverb zones (§9.8): a custom node of miniaudio's graph between the voice's sound
+	// and its group, with one input and an output for the dry signal and one for each send. The dry output passes the voice
+	// on unchanged to its group; each send gives the voice times a gain, ramped per frame, to a group of the voice's scene
+	// (the scene's group of the zone's bus). Made by the main thread the first time the voice sends (AudioVoice::EnableSends)
+	// and owned by its voice: handed to the mixing thread with AddVoiceSends, it comes back with the voice.
+	//
+	// Every output is attached to a group of the voice's scene at all times (a send that has no zone plays silence into the
+	// scene's Master group). miniaudio processes a node of several outputs once a period, when an output that has been read
+	// since the last processing is read again, and serves the period's other outputs from its cache (miniaudio.h:75245-75260,
+	// :75417): an output left unread for a period would be served a period late from then on. Each group of a scene is
+	// read once a period, and a scene's groups stop and start together (SetScenePaused), so the node's outputs are read in
+	// every period or in none. It processes continuously (MA_NODE_FLAG_CONTINUOUS_PROCESSING), with silence while its voice
+	// gives nothing, so each output has the whole length of the period (a shorter read would make the group read it again
+	// within the period).
+	class AudioSendNode final : public AudioMixerObject
+	{
+		struct PrivateTag
+		{
+		};
+
+	public:
+		// The dry output, then one per send.
+		static constexpr uint32_t OutputCount = 1 + MaxAudioVoiceSends;
+
+		// Main thread: the node, unattached, for a mix of channelCount channels, every send at level 0 into idle (the
+		// group sends play into while they have no zone). Its node is allocated through the engine's allocation callbacks.
+		[[nodiscard]] static Result<Scope<AudioSendNode>> Create(uint32_t channelCount, AudioSceneGroup& idle);
+
+		AudioSendNode(PrivateTag, uint32_t channelCount);
+		// Main thread, only while the mixing thread does not hold the node (with its voice).
+		~AudioSendNode() override;
+
+	private:
+		friend class AudioMixer;
+		friend class AudioVoice;
+
+		struct Node
+		{
+			ma_node_base Base;
+			AudioSendNode* Owner = nullptr;
+		};
+
+		// One send. The main thread sets it up until the hand-over; the mixing thread alone touches it after.
+		struct Send
+		{
+			// The group it plays into (attached once Connected).
+			AudioSceneGroup* Group = nullptr;
+			AudioSmoothedGain Gain;
+			bool Connected = false;
+			// A change of group while the voice is heard: the send fades out, then plays into PendingGroup and fades in to
+			// PendingLevel.
+			bool Moving = false;
+			AudioSceneGroup* PendingGroup = nullptr;
+			float PendingLevel = 0.0f;
+		};
+
+		// ma_node_vtable::onProcess (miniaudio.h:10680), on the mixing thread.
+		static void OnProcess(ma_node* node, float const** framesIn, ma_uint32* frameCountIn, float** framesOut, ma_uint32* frameCountOut);
+		void Process(float const* input, uint32_t inputFrames, float** outputs, uint32_t frameCount);
+
+		Node m_Node{};
+		bool m_HasNode = false;
+		uint32_t m_ChannelCount = 0;
+		std::array<Send, MaxAudioVoiceSends> m_Sends;
+	};
+
 	// An intrusive list of voices through one of their links (AudioVoice::m_PlayingLink, m_FadingLink, m_VirtualLink), so
 	// that the mixing thread keeps its lists without allocating.
 	template<AudioVoiceLink AudioVoice::* TLink>
@@ -442,6 +517,21 @@ namespace Strada
 
 		void AttachVoice(AudioVoice& voice, AudioSceneGroup& group);
 		void DetachVoice(AudioVoice& voice);
+		// What feeds the voice's group: its send node once it has one, its sound before.
+		static ma_node* GetVoiceOutput(AudioVoice& voice);
+
+		// Reverb zones' sends (§9.8): the send node goes between the voice's sound and its group, every output attached.
+		void InsertSends(AudioVoice& voice, AudioSendNode& sends);
+		// A new group and level for one send (SetVoiceSend).
+		void SetVoiceSend(AudioVoice& voice, uint32_t slot, AudioSceneGroup& group, float level);
+		// Attaches the send's output to group (detaching it from the one it fed).
+		void ConnectSend(AudioSendNode& sends, uint32_t slot, AudioSceneGroup& group);
+		// Detaches every send of a voice that comes back.
+		void DisconnectSends(AudioSendNode& sends);
+		// Sends that faded out to change group move and fade in (at once with immediate: the mixer was taken over).
+		void FinishSends(bool immediate);
+		// A retiring group comes back once no voice and no send plays into it.
+		void ReturnGroupIfDone(AudioSceneGroup& group);
 		// The last touch of a voice or a group: the main thread may destroy it as soon as it is on the return list.
 		void ReturnVoice(AudioVoice& voice);
 		void ReturnGroup(AudioSceneGroup& group);

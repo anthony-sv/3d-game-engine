@@ -126,6 +126,7 @@ namespace
 		};
 		mixer.Snapshots = {paused, MixerSnapshot{.Name = "Quiet", .Values = {}}};
 		mixer.SpeedOfSound = 1480.0f;
+		mixer.Impacts = MixerImpacts{.Bus = "Effects", .MinImpulse = 0.25f, .FullImpulse = 12.0f, .MaxPerFrame = 5};
 		return mixer;
 	}
 
@@ -158,13 +159,15 @@ TEST_CASE("MixerAsset: the engine registers Mixer, its .smixer files and its com
 	CHECK(std::string_view(AssetTypeToString(type.GetAssetType())) == "Mixer");
 	CHECK(type.GetCommandDomain() == "mixer");
 	CHECK(type.GetCommandParameter() == "mixer");
-	REQUIRE(type.GetFields().size() == 3);
+	REQUIRE(type.GetFields().size() == 4);
 	CHECK(type.GetFields()[0].Name == "Buses");
 	CHECK(type.GetFields()[1].Name == "Snapshots");
 	CHECK(type.GetFields()[2].Name == "SpeedOfSound");
+	CHECK(type.GetFields()[3].Name == "Impacts");
 	CHECK_FALSE(type.GetFields()[0].Hints.Description.empty());
 	CHECK_FALSE(type.GetFields()[1].Hints.Description.empty());
 	CHECK_FALSE(type.GetFields()[2].Hints.Description.empty());
+	CHECK_FALSE(type.GetFields()[3].Hints.Description.empty());
 	// A new mixer is Master alone, at 0 dB without effects or ducking, and has no snapshot.
 	Json const defaults = type.GetDefaultFields();
 	REQUIRE(defaults["Buses"].size() == 1);
@@ -178,6 +181,8 @@ TEST_CASE("MixerAsset: the engine registers Mixer, its .smixer files and its com
 	CHECK(master["DuckAmountDb"] == -12.0);
 	CHECK(defaults["Snapshots"] == Json::array());
 	CHECK(defaults["SpeedOfSound"] == 343.0);
+	// Impact sounds play on no bus: none.
+	CHECK(defaults["Impacts"] == Json::parse(R"({ "Bus": "", "MinImpulse": 1.0, "FullImpulse": 20.0, "MaxPerFrame": 8 })"));
 }
 
 TEST_CASE("MixerAsset: files round trip, buses read from a file replace the default Master, and missing fields keep defaults")
@@ -193,6 +198,8 @@ TEST_CASE("MixerAsset: files round trip, buses read from a file replace the defa
 	CHECK(document["Mixer"]["Buses"][1]["DuckedBy"] == "Voices");
 	CHECK(document["Mixer"]["Snapshots"][0]["Values"][1]["Target"] == "Muted");
 	CHECK(document["Mixer"]["Snapshots"][0]["Values"][2]["Parameter"] == "Frequency");
+	CHECK(document["Mixer"]["Impacts"]["Bus"] == "Effects");
+	CHECK(document["Mixer"]["Impacts"]["MaxPerFrame"] == 5);
 
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path const path = directory.GetPath() / "Game.smixer";
@@ -220,6 +227,7 @@ TEST_CASE("MixerAsset: files round trip, buses read from a file replace the defa
 	CHECK(read.Buses[1].Effects[0] == highPass);
 	CHECK(read.Snapshots.empty());
 	CHECK(read.SpeedOfSound == DefaultSpeedOfSound);
+	CHECK(read.Impacts == MixerImpacts{});
 	// A snapshot value's missing fields take theirs too: Master's volume at 0 dB.
 	Result<Ref<DataAsset>> sparseSnapshot = DataAssetSerializer::Deserialize(
 		GetMixerType(),
@@ -351,6 +359,33 @@ TEST_CASE("MixerAsset: validation refuses ducking by a bus the mixer lacks, by t
 	CHECK(DataAssetSerializer::Deserialize(
 			  GetMixerType(), MakeMixerDocument(Json::parse(R"({ "Buses": [ { "Name": "Master", "DuckAttackSeconds": 0 } ] })")), {})
 	          .IsError());
+}
+
+TEST_CASE("MixerAsset: validation refuses an Impacts bus the mixer lacks, and the field table impulses and limits out of range")
+{
+	Mixer mixer = MakeMixer({MakeBus("Master", ""), MakeBus("Effects", "Master")});
+	CHECK(ValidateMixer(mixer).IsOk());
+	mixer.Impacts.Bus = "EFFECTS";
+	CHECK(ValidateMixer(mixer).IsOk());
+	mixer.Impacts.Bus = "master";
+	CHECK(ValidateMixer(mixer).IsOk());
+	mixer.Impacts.Bus = "Crashes";
+	CHECK(ValidationError(mixer) == "Impacts.Bus: 'Crashes' is not a bus of the mixer");
+
+	for (char const* impacts :
+	     {R"({ "FullImpulse": 0 })", R"({ "MinImpulse": -1 })", R"({ "MaxPerFrame": 0 })", R"({ "MaxPerFrame": 65 })"})
+	{
+		CAPTURE(impacts);
+		Json document = Json::parse(R"({ "Buses": [ { "Name": "Master" } ] })");
+		document["Impacts"] = Json::parse(impacts);
+		CHECK(DataAssetSerializer::Deserialize(GetMixerType(), MakeMixerDocument(document), {}).IsError());
+	}
+	// Missing fields keep their defaults.
+	Result<Ref<DataAsset>> sparse = DataAssetSerializer::Deserialize(
+		GetMixerType(), MakeMixerDocument(Json::parse(R"({ "Buses": [ { "Name": "Master" } ], "Impacts": { "Bus": "Master" } })")), {});
+	REQUIRE_MESSAGE(sparse.IsOk(), (sparse ? std::string() : sparse.GetError()));
+	MixerImpacts const read = std::static_pointer_cast<TypedDataAsset<Mixer>>(sparse.GetValue())->GetData().Impacts;
+	CHECK(read == MixerImpacts{.Bus = "Master", .MinImpulse = 1.0f, .FullImpulse = 20.0f, .MaxPerFrame = 8});
 }
 
 TEST_CASE("MixerAsset: validation refuses snapshots with names, buses, effects, parameters or values at fault")

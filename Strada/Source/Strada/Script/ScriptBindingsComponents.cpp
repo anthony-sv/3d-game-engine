@@ -808,6 +808,14 @@ namespace Strada::ScriptGlue
 
 		AddFieldBindings<&AudioListenerComponent::Active, "AudioListenerComponent", "Active">(table);
 
+		AddFieldBindings<&ReverbZoneComponent::Shape, "ReverbZoneComponent", "Shape">(table);
+		AddFieldBindings<&ReverbZoneComponent::Radius, "ReverbZoneComponent", "Radius">(table);
+		AddFieldBindings<&ReverbZoneComponent::HalfExtents, "ReverbZoneComponent", "HalfExtents">(table);
+		AddFieldBindings<&ReverbZoneComponent::FadeDistance, "ReverbZoneComponent", "FadeDistance">(table);
+		table.Add("ReverbZoneComponent_GetBus", &GetText<ReverbZoneComponent, &ReverbZoneComponent::Bus>);
+		table.Add("ReverbZoneComponent_SetBus", &SetText<ReverbZoneComponent, &ReverbZoneComponent::Bus>);
+		AddFieldBindings<&ReverbZoneComponent::SendLevel, "ReverbZoneComponent", "SendLevel">(table);
+
 		table.Add("TextComponent_GetText", &GetText<TextComponent, &TextComponent::Text>);
 		table.Add("TextComponent_SetText", &SetText<TextComponent, &TextComponent::Text>);
 		AddFieldBindings<&TextComponent::Font, "TextComponent", "Font">(table);

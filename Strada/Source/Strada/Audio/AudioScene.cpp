@@ -2,16 +2,21 @@
 #include "Strada/Audio/AudioScene.h"
 
 #include "Strada/Asset/AudioClipAsset.h"
+#include "Strada/Asset/Mixer.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/AudioMixer.h"
+#include "Strada/Audio/AudioQueue.h"
 #include "Strada/Audio/AudioStream.h"
 #include "Strada/Audio/AudioVoice.h"
 #include "Strada/Audio/MiniaudioContext.h"
+#include "Strada/Core/Profiler.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Strada
@@ -34,6 +39,25 @@ namespace Strada
 
 	struct AudioScene::Data final : AudioVoiceOwner
 	{
+		// One send of a voice: a group of the scene (of a zone's bus) and its level.
+		struct VoiceSend
+		{
+			AudioSceneGroup* Group = nullptr;
+			float Level = 0.0f;
+		};
+		// The sends of a voice, the largest first (at most MaxAudioVoiceSends; the first Count hold one).
+		struct VoiceSends
+		{
+			std::array<VoiceSend, MaxAudioVoiceSends> Sends = {};
+			uint32_t Count = 0;
+		};
+		// A zone of the last update whose bus the mixer has, with the scene's group of that bus.
+		struct ResolvedZone
+		{
+			AudioReverbZoneDesc Desc;
+			AudioSceneGroup* Group = nullptr;
+		};
+
 		struct OneShot
 		{
 			Scope<AudioVoice> Voice;
@@ -65,6 +89,8 @@ namespace Strada
 			// Doppler (§9.8): the velocity the scene last gave (none until it gives one) and the factor its voices play at.
 			std::optional<glm::vec3> Velocity;
 			float Doppler = 1.0f;
+			// Reverb zones (§9.8): what its voices send, as the last update found it.
+			VoiceSends Sends;
 		};
 
 		struct PointVoice
@@ -82,8 +108,18 @@ namespace Strada
 		glm::mat3 ListenerBasis = glm::mat3(1.0f);
 		std::optional<glm::vec3> ListenerVelocity;
 		bool Paused = false;
+		// The scene's number, which its groups carry (one SetScenePaused names them all).
+		uint64_t Serial = 0;
+		// The zones of the last update that send, and the keys of the buses zones named that the mixer lacks (logged once).
+		std::vector<ResolvedZone> Zones;
+		std::unordered_set<std::string> MissingZoneBuses;
+		bool SendsFailed = false;
 
-		Data() { Miniaudio::GetVoiceManager().AddOwner(*this); }
+		Data()
+			: Serial(Miniaudio::GetVoiceManager().NextSceneSerial())
+		{
+			Miniaudio::GetVoiceManager().AddOwner(*this);
+		}
 
 		~Data() override
 		{
@@ -125,7 +161,7 @@ namespace Strada
 			{
 				return found->second.get();
 			}
-			Result<Scope<AudioSceneGroup>> group = AudioSceneGroup::Create(std::string(bus), Paused);
+			Result<Scope<AudioSceneGroup>> group = AudioSceneGroup::Create(std::string(bus), Paused, Serial);
 			if (!group)
 			{
 				return Error{group.GetError()};
@@ -319,7 +355,125 @@ namespace Strada
 			}
 		}
 
-		// The voice of a one-shot or of the scene, started (or refused at the engine's limit). Returns whether it plays.
+		// The larger send first; of two equal ones, the bus whose key sorts first.
+		static bool IsSendBefore(VoiceSend const& left, VoiceSend const& right)
+		{
+			if (left.Level != right.Level)
+			{
+				return left.Level > right.Level;
+			}
+			return left.Group->GetBusKey() < right.Group->GetBusKey();
+		}
+
+		// What a spatial sound at position sends to the zones of the last update: per bus the largest send, and the
+		// MaxAudioVoiceSends largest of those (ties to the bus whose key sorts first, so that it never depends on the zones'
+		// order).
+		VoiceSends ComputeSends(glm::vec3 const& position) const
+		{
+			VoiceSends result;
+			for (ResolvedZone const& zone : Zones)
+			{
+				float const level = ComputeReverbZoneSend(zone.Desc, position);
+				if (!(level > 0.0f))
+				{
+					continue;
+				}
+				auto const first = result.Sends.begin();
+				auto const last = first + result.Count;
+				auto const same = std::find_if(first, last,
+				                               [&zone](VoiceSend const& send)
+				                               {
+												   return send.Group == zone.Group;
+											   });
+				VoiceSend const candidate = {zone.Group, level};
+				if (same != last)
+				{
+					same->Level = std::max(same->Level, level);
+				}
+				else if (result.Count < MaxAudioVoiceSends)
+				{
+					result.Sends[result.Count++] = candidate;
+				}
+				else
+				{
+					// Full: the new bus takes the place of the smallest send when it ranks before it.
+					auto const smallest = std::max_element(first, last, &IsSendBefore);
+					if (IsSendBefore(candidate, *smallest))
+					{
+						*smallest = candidate;
+					}
+				}
+			}
+			std::sort(result.Sends.begin(), result.Sends.begin() + result.Count, &IsSendBefore);
+			return result;
+		}
+
+		// The scene's group of Master, made with the scene: where the sends of a voice without a zone play silence.
+		AudioSceneGroup& GetMasterGroup() const { return *Groups.at(MakeBusKey(s_EmptyBus)); }
+
+		// Gives the voice its sends: a bus it already sends to keeps its slot (no fade out and in), a new bus takes a slot the
+		// voice no longer needs, the quietest first, and slots left over go silent where they are.
+		void ApplySends(AudioVoice& voice, VoiceSends const& sends)
+		{
+			if (!voice.HasSends())
+			{
+				if (sends.Count == 0)
+				{
+					return;
+				}
+				if (Result<void> enabled = voice.EnableSends(GetMasterGroup()); !enabled)
+				{
+					if (!SendsFailed)
+					{
+						ST_CORE_WARN("A sound cannot send to reverb zones: {}", enabled.GetError());
+						SendsFailed = true;
+					}
+					return;
+				}
+			}
+			std::array<bool, MaxAudioVoiceSends> slotTaken = {};
+			std::array<bool, MaxAudioVoiceSends> sendPlaced = {};
+			for (uint32_t index = 0; index < sends.Count; index++)
+			{
+				for (uint32_t slot = 0; slot < MaxAudioVoiceSends; slot++)
+				{
+					if (!slotTaken[slot] && voice.GetSendGroup(slot) == sends.Sends[index].Group)
+					{
+						voice.SetSend(slot, *sends.Sends[index].Group, sends.Sends[index].Level);
+						slotTaken[slot] = true;
+						sendPlaced[index] = true;
+						break;
+					}
+				}
+			}
+			for (uint32_t index = 0; index < sends.Count; index++)
+			{
+				if (sendPlaced[index])
+				{
+					continue;
+				}
+				uint32_t chosen = MaxAudioVoiceSends;
+				for (uint32_t slot = 0; slot < MaxAudioVoiceSends; slot++)
+				{
+					if (!slotTaken[slot] && (chosen == MaxAudioVoiceSends || voice.GetSendLevel(slot) < voice.GetSendLevel(chosen)))
+					{
+						chosen = slot;
+					}
+				}
+				voice.SetSend(chosen, *sends.Sends[index].Group, sends.Sends[index].Level);
+				slotTaken[chosen] = true;
+			}
+			for (uint32_t slot = 0; slot < MaxAudioVoiceSends; slot++)
+			{
+				if (!slotTaken[slot])
+				{
+					voice.SetSend(slot, *voice.GetSendGroup(slot), 0.0f);
+				}
+			}
+		}
+
+		// The voice of a one-shot or of the scene, started (or refused at the engine's limit), with the sends of its sound
+		// set before it is handed over. Returns whether it plays.
 		bool StartVoice(AudioVoiceDesc const& desc, std::string_view bus, Source* source, float oneShotVolume, glm::vec3 const& position)
 		{
 			Result<AudioSceneGroup*> group = GetGroup(bus);
@@ -336,6 +490,10 @@ namespace Strada
 			}
 			Scope<AudioVoice> voice = created.TakeValue();
 			AudioVoice* const started = voice.get();
+			if (desc.Spatial)
+			{
+				ApplySends(*started, source != nullptr ? source->Sends : ComputeSends(position));
+			}
 			started->Play();
 			if (source != nullptr)
 			{
@@ -420,6 +578,41 @@ namespace Strada
 			return std::isfinite(remaining) ? MaxAudioDopplerFactor : 1.0f;
 		}
 		return std::clamp(speedOfSound / remaining, MinAudioDopplerFactor, MaxAudioDopplerFactor);
+	}
+
+	float ComputeReverbZoneSend(AudioReverbZoneDesc const& zone, glm::vec3 const& position)
+	{
+		if (!(zone.Level > 0.0f) || !std::isfinite(zone.Level) || !IsFinite(position) || !IsFinite(zone.Position) ||
+		    std::isnan(zone.FadeDistance))
+		{
+			return 0.0f;
+		}
+		// How far the position lies outside the shape (0 inside it).
+		float distance = 0.0f;
+		if (zone.Shape == ReverbZoneShape::Box)
+		{
+			// In the box's own axes: the columns of Rotation are its axes in world space.
+			glm::vec3 const local = glm::transpose(zone.Rotation) * (position - zone.Position);
+			glm::vec3 const outside = glm::max(glm::abs(local) - glm::max(zone.HalfExtents, glm::vec3(0.0f)), glm::vec3(0.0f));
+			distance = glm::length(outside);
+		}
+		else
+		{
+			distance = std::max(glm::length(position - zone.Position) - std::max(zone.Radius, 0.0f), 0.0f);
+		}
+		if (std::isnan(distance))
+		{
+			return 0.0f;
+		}
+		if (distance <= 0.0f)
+		{
+			return zone.Level;
+		}
+		if (!(zone.FadeDistance > 0.0f) || distance >= zone.FadeDistance)
+		{
+			return 0.0f;
+		}
+		return zone.Level * (1.0f - distance / zone.FadeDistance);
 	}
 
 	Result<Scope<AudioScene>> AudioScene::Create()
@@ -690,10 +883,19 @@ namespace Strada
 		}
 		if (!spatial)
 		{
-			// A sound that is not positioned has no motion to hear.
+			// A sound that is not positioned has no motion to hear, and is in no zone.
 			source->Velocity.reset();
 			source->Doppler = 1.0f;
 			Data::ApplyDoppler(*source);
+			source->Sends = {};
+			if (source->Main)
+			{
+				m_Data->ApplySends(*source->Main, source->Sends);
+			}
+			for (Data::OneShot const& oneShot : source->OneShots)
+			{
+				m_Data->ApplySends(*oneShot.Voice, source->Sends);
+			}
 		}
 	}
 
@@ -863,6 +1065,81 @@ namespace Strada
 		return source != nullptr ? source->Doppler : 1.0f;
 	}
 
+	void AudioScene::UpdateReverbZones(std::span<AudioReverbZoneDesc const> zones)
+	{
+		ST_PROFILE_SCOPE("Audio.ReverbZones");
+		// The zones that send, each with the scene's group of its bus.
+		m_Data->Zones.clear();
+		Mixer const& mixer = AudioEngine::GetMixer();
+		for (AudioReverbZoneDesc const& zone : zones)
+		{
+			if (zone.Bus.empty() || !(zone.Level > 0.0f))
+			{
+				continue;
+			}
+			std::string key = MakeBusKey(zone.Bus);
+			bool const hasBus = std::any_of(mixer.Buses.begin(), mixer.Buses.end(),
+			                                [&key](MixerBus const& bus)
+			                                {
+												return MakeBusKey(bus.Name) == key;
+											});
+			if (!hasBus)
+			{
+				// A group of a bus the mixer lacks plays on Master, where a send would only double the sound.
+				if (m_Data->MissingZoneBuses.insert(std::move(key)).second)
+				{
+					ST_CORE_WARN("A reverb zone sends to bus '{}', which the project's mixer lacks: it sends nothing", zone.Bus);
+				}
+				continue;
+			}
+			Result<AudioSceneGroup*> group = m_Data->GetGroup(zone.Bus);
+			if (!group)
+			{
+				if (m_Data->MissingZoneBuses.insert(std::move(key)).second)
+				{
+					ST_CORE_WARN("A reverb zone cannot send to bus '{}': {}", zone.Bus, group.GetError());
+				}
+				continue;
+			}
+			m_Data->Zones.push_back({zone, group.GetValue()});
+		}
+
+		for (auto const& [entity, source] : m_Data->Sources)
+		{
+			source->Sends = source->Spatial ? m_Data->ComputeSends(source->Position) : Data::VoiceSends{};
+			if (source->Main)
+			{
+				m_Data->ApplySends(*source->Main, source->Sends);
+			}
+			for (Data::OneShot const& oneShot : source->OneShots)
+			{
+				m_Data->ApplySends(*oneShot.Voice, source->Sends);
+			}
+		}
+		for (Data::PointVoice const& point : m_Data->PointVoices)
+		{
+			m_Data->ApplySends(*point.Voice, m_Data->ComputeSends(point.Position));
+		}
+	}
+
+	float AudioScene::GetReverbSend(UUID entity, std::string_view bus) const
+	{
+		Data::Source const* source = m_Data->Find(entity);
+		if (source == nullptr)
+		{
+			return 0.0f;
+		}
+		std::string const key = MakeBusKey(bus);
+		for (uint32_t index = 0; index < source->Sends.Count; index++)
+		{
+			if (source->Sends.Sends[index].Group->GetBusKey() == key)
+			{
+				return source->Sends.Sends[index].Level;
+			}
+		}
+		return 0.0f;
+	}
+
 	bool AudioScene::PlayOneShot(UUID entity, Ref<AudioClipAsset> const& clip, float volume)
 	{
 		Data::Source* const source = m_Data->Find(entity);
@@ -992,10 +1269,20 @@ namespace Strada
 			return;
 		}
 		m_Data->Paused = paused;
-		// A stopped group does not pull from its voices, so they keep their positions.
+		// A stopped group does not pull from its voices, so they keep their positions. The groups the mixing thread holds
+		// stop and start in one command, in the same block.
+		bool held = false;
 		for (auto const& [key, group] : m_Data->Groups)
 		{
-			group->SetPaused(paused);
+			held = group->SetPaused(paused) || held;
+		}
+		if (held)
+		{
+			AudioCommand command;
+			command.Type = AudioCommandType::SetScenePaused;
+			command.Serial = m_Data->Serial;
+			command.Values[0] = paused ? 1.0f : 0.0f;
+			Miniaudio::GetVoiceManager().Submit(command);
 		}
 		if (paused)
 		{

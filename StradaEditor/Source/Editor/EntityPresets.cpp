@@ -210,6 +210,12 @@ namespace Strada
 		     {
 				 return Json::object({{"AudioListener", Json::object()}});
 			 }},
+			// A 10 m box that sends to a bus named Reverb, the name a mixer's reverb bus usually has.
+			{"Audio", "Reverb Zone", "Reverb Zone",
+		     []
+		     {
+				 return Json::object({{"ReverbZone", Json::object({{"Bus", "Reverb"}})}});
+			 }},
 			{"UI", "Canvas", "Canvas", &CanvasComponents},
 			// A dark, translucent panel with rounded corners (linear colors).
 			{"UI", "Panel", "Panel",

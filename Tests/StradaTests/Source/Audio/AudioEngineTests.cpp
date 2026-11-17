@@ -4,6 +4,7 @@
 #include "Strada/Asset/Mixer.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Audio/AudioTypes.h"
 #include "Strada/Core/Profiler.h"
 
 #include <doctest/doctest.h>
@@ -269,8 +270,9 @@ TEST_CASE("AudioEngine: null output mixes through buses and effects while the ma
 {
 	// The device's thread runs the buses' nodes and effects while this thread changes their values, swaps their chains,
 	// adds, re-parents and removes buses under playing scenes, sets game values, blends to a snapshot and back, ducks a bus
-	// by one that goes in some edits, and ends a scene whose bus goes before its voices have faded: buses, chains and groups
-	// cross between the threads only through the queue and the return list.
+	// by one that goes in some edits, sends spatial voices to reverb zones' buses that move, pauses and resumes a scene that
+	// sends, and ends a scene whose bus goes before its voices have faded: buses, chains, groups and send nodes cross
+	// between the threads only through the queue and the return list.
 	InitNullOutput();
 	auto const makeMixer = [](uint32_t step)
 	{
@@ -329,10 +331,25 @@ TEST_CASE("AudioEngine: null output mixes through buses and effects while the ma
 			desc.Clip = loop;
 			desc.Loop = true;
 			desc.Bus = bus;
+			desc.Spatial = index % 2 == 0;
+			desc.Position = {0.0f, 0.0f, -1.0f};
 			REQUIRE(scene->AddSource(desc).IsOk());
 			scene->Play(desc.Entity);
 		}
 		return scene;
+	};
+	auto const makeZones = [](uint32_t step)
+	{
+		std::vector<AudioReverbZoneDesc> zones(2);
+		zones[0].Position = {0.0f, 0.0f, -1.0f - static_cast<float>(step % 4)};
+		zones[0].Radius = 1.5f;
+		zones[0].Bus = step % 6 < 3 ? "Music" : "Voices";
+		zones[0].Level = 0.5f;
+		zones[1].Shape = ReverbZoneShape::Box;
+		zones[1].Position = {0.0f, 0.0f, -1.0f};
+		zones[1].Bus = "Effects";
+		zones[1].Level = 0.1f * static_cast<float>(step % 8);
+		return zones;
 	};
 	Scope<AudioScene> audio = makeScene();
 	Scope<AudioScene> ending = makeScene();
@@ -346,6 +363,20 @@ TEST_CASE("AudioEngine: null output mixes through buses and effects while the ma
 			AudioEngine::SetBusVolume("Music", -static_cast<float>(step % 6));
 			AudioEngine::SetBusMuted("Effects", step % 7 == 0);
 			audio->SetBus(UUID(300), step % 2 == 0 ? "Music" : "Voices");
+			std::vector<AudioReverbZoneDesc> const zones = makeZones(step);
+			audio->UpdateReverbZones(zones);
+			if (ending)
+			{
+				ending->UpdateReverbZones(zones);
+			}
+			if (step % 9 == 4)
+			{
+				audio->SetPaused(true);
+			}
+			else if (step % 9 == 6)
+			{
+				audio->SetPaused(false);
+			}
 			if (step % 30 == 15)
 			{
 				AudioEngine::ClearEffectState();

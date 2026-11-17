@@ -93,10 +93,10 @@ namespace Strada
 		return static_cast<float>(Volume) * Mute.Next();
 	}
 
-	Result<Scope<AudioSceneGroup>> AudioSceneGroup::Create(std::string busName, bool paused)
+	Result<Scope<AudioSceneGroup>> AudioSceneGroup::Create(std::string busName, bool paused, uint64_t scene)
 	{
 		ma_engine& engine = Miniaudio::GetEngine();
-		Scope<AudioSceneGroup> group = CreateScope<AudioSceneGroup>(PrivateTag{}, std::move(busName));
+		Scope<AudioSceneGroup> group = CreateScope<AudioSceneGroup>(PrivateTag{}, std::move(busName), scene);
 		ma_sound_group_config config = ma_sound_group_config_init_2(&engine);
 		// The group only mixes: without pitch and spatialization it adds no resampling delay and no second panning.
 		config.flags = MA_SOUND_FLAG_NO_PITCH | MA_SOUND_FLAG_NO_SPATIALIZATION | MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT;
@@ -118,9 +118,10 @@ namespace Strada
 		return group;
 	}
 
-	AudioSceneGroup::AudioSceneGroup(PrivateTag, std::string busName)
+	AudioSceneGroup::AudioSceneGroup(PrivateTag, std::string busName, uint64_t scene)
 		: m_BusKey(MakeMixerBusKey(busName)),
-		  m_BusName(std::move(busName))
+		  m_BusName(std::move(busName)),
+		  m_Scene(scene)
 	{
 	}
 
@@ -167,33 +168,23 @@ namespace Strada
 		}
 	}
 
-	void AudioSceneGroup::SetPaused(bool paused)
+	bool AudioSceneGroup::SetPaused(bool paused)
 	{
-		if (paused == m_Paused)
-		{
-			return;
-		}
 		m_Paused = paused;
 		if (m_HeldByMixer)
 		{
-			AudioCommand command;
-			command.Type = AudioCommandType::SetGroupPaused;
-			command.Object = this;
-			command.Values[0] = paused ? 1.0f : 0.0f;
-			Miniaudio::GetVoiceManager().Submit(command);
+			return true;
+		}
+		m_MixPaused = paused;
+		if (paused)
+		{
+			ma_sound_group_stop(&m_Group);
 		}
 		else
 		{
-			m_MixPaused = paused;
-			if (paused)
-			{
-				ma_sound_group_stop(&m_Group);
-			}
-			else
-			{
-				ma_sound_group_start(&m_Group);
-			}
+			ma_sound_group_start(&m_Group);
 		}
+		return false;
 	}
 
 	void AudioSceneGroup::Retire()
@@ -386,6 +377,105 @@ namespace Strada
 		m_DuckReleaseFactor = std::pow(10.0, releaseDepthDb / (std::max(static_cast<double>(releaseSeconds), 1.0e-6) * rate) / 20.0);
 	}
 
+	Result<Scope<AudioSendNode>> AudioSendNode::Create(uint32_t channelCount, AudioSceneGroup& idle)
+	{
+		// One input and an output for the dry signal and each send, processed in every period its outputs are read in, with
+		// silence when the voice gives nothing (AudioMixer.h). Not MA_NODE_FLAG_ALLOW_NULL_INPUT, for the reason the bus
+		// nodes give (AudioBusNode::Create).
+		static ma_node_vtable const s_Vtable = {
+			.onProcess = &AudioSendNode::OnProcess,
+			.onGetRequiredInputFrameCount = nullptr,
+			.inputBusCount = 1,
+			.outputBusCount = OutputCount,
+			.flags = MA_NODE_FLAG_CONTINUOUS_PROCESSING,
+		};
+		ma_engine& engine = Miniaudio::GetEngine();
+		Scope<AudioSendNode> sends = CreateScope<AudioSendNode>(PrivateTag{}, channelCount);
+		ma_uint32 const inputChannels[1] = {channelCount};
+		std::array<ma_uint32, OutputCount> outputChannels = {};
+		outputChannels.fill(channelCount);
+		ma_node_config config = ma_node_config_init();
+		config.vtable = &s_Vtable;
+		config.pInputChannels = inputChannels;
+		config.pOutputChannels = outputChannels.data();
+		sends->m_Node.Owner = sends.get();
+		// More buses than a node keeps inline (MA_MAX_NODE_LOCAL_BUS_COUNT): miniaudio allocates them here, on the main thread.
+		if (ma_result const result =
+		        ma_node_init(ma_engine_get_node_graph(&engine), &config, &Miniaudio::GetAllocationCallbacks(), &sends->m_Node.Base);
+		    result != MA_SUCCESS)
+		{
+			return MakeError("the sound's sends cannot be created: {}", ma_result_description(result));
+		}
+		sends->m_HasNode = true;
+		for (Send& send : sends->m_Sends)
+		{
+			send.Group = &idle;
+			send.Gain.SetTarget(0.0f, 0);
+		}
+		return sends;
+	}
+
+	AudioSendNode::AudioSendNode(PrivateTag, uint32_t channelCount)
+		: m_ChannelCount(channelCount)
+	{
+	}
+
+	AudioSendNode::~AudioSendNode()
+	{
+		if (m_HasNode)
+		{
+			// Detached by the mixing thread when its voice came back (or never attached); no thread reads it.
+			ma_node_uninit(&m_Node.Base, &Miniaudio::GetAllocationCallbacks());
+		}
+	}
+
+	void AudioSendNode::OnProcess(ma_node* node, float const** framesIn, ma_uint32* frameCountIn, float** framesOut,
+	                              ma_uint32* frameCountOut)
+	{
+		AudioSendNode& sends = *static_cast<Node*>(node)->Owner;
+		float const* const input = framesIn != nullptr ? framesIn[0] : nullptr;
+		uint32_t const inputFrames = input != nullptr ? std::min(*frameCountIn, *frameCountOut) : 0;
+		uint32_t const frames = input != nullptr ? inputFrames : *frameCountOut;
+		sends.Process(input, inputFrames, framesOut, frames);
+		if (input != nullptr)
+		{
+			*frameCountIn = inputFrames;
+		}
+		*frameCountOut = frames;
+	}
+
+	void AudioSendNode::Process(float const* input, uint32_t inputFrames, float** outputs, uint32_t frameCount)
+	{
+		size_t const sampleCount = static_cast<size_t>(frameCount) * m_ChannelCount;
+		size_t const inputSamples = static_cast<size_t>(input != nullptr ? inputFrames : 0) * m_ChannelCount;
+		float* const dry = outputs[0];
+		if (input != nullptr && input != dry)
+		{
+			std::copy_n(input, inputSamples, dry);
+		}
+		std::fill(dry + inputSamples, dry + sampleCount, 0.0f);
+		for (uint32_t slot = 0; slot < MaxAudioVoiceSends; slot++)
+		{
+			Send& send = m_Sends[slot];
+			float* const output = outputs[1 + slot];
+			if (send.Gain.IsSteady() && send.Gain.Current == 0.0f)
+			{
+				std::fill(output, output + sampleCount, 0.0f);
+				continue;
+			}
+			// Ramped per frame, so that a send that changes never steps (the rule for every gain, FR-R30.3).
+			for (uint32_t frame = 0; frame < frameCount; frame++)
+			{
+				float const gain = send.Gain.Next();
+				size_t const first = static_cast<size_t>(frame) * m_ChannelCount;
+				for (uint32_t channel = 0; channel < m_ChannelCount; channel++)
+				{
+					output[first + channel] = dry[first + channel] * gain;
+				}
+			}
+		}
+	}
+
 	AudioMixer::AudioMixer(ma_engine& engine, AudioCommandQueue& queue, AudioReturnList& returns)
 		: m_Engine(engine),
 		  m_Queue(queue),
@@ -464,6 +554,7 @@ namespace Strada
 			bus->m_DipEnd = 0;
 		}
 		FinishBuses();
+		FinishSends(true);
 	}
 
 	bool AudioMixer::IsHeard(AudioVoice const& voice) const
@@ -628,17 +719,32 @@ namespace Strada
 				ConnectGroup(group, static_cast<AudioBusNode*>(command.Other));
 				break;
 			}
-			case AudioCommandType::SetGroupPaused:
+			case AudioCommandType::AddVoiceSends:
+				InsertSends(*static_cast<AudioVoice*>(command.Object), *static_cast<AudioSendNode*>(command.Other));
+				break;
+			case AudioCommandType::SetVoiceSend:
+				SetVoiceSend(*static_cast<AudioVoice*>(command.Object), command.Slot, *static_cast<AudioSceneGroup*>(command.Other),
+				             command.Values[0]);
+				break;
+			case AudioCommandType::SetScenePaused:
 			{
-				AudioSceneGroup& group = *static_cast<AudioSceneGroup*>(command.Object);
-				group.m_MixPaused = command.Values[0] != 0.0f;
-				if (group.m_MixPaused)
+				// Every group of the scene in the same block: a voice's sends play into other groups of its scene.
+				bool const paused = command.Values[0] != 0.0f;
+				for (AudioSceneGroup* group = m_Groups.GetFirst(); group != nullptr; group = m_Groups.GetNext(*group))
 				{
-					ma_sound_group_stop(&group.m_Group);
-				}
-				else
-				{
-					ma_sound_group_start(&group.m_Group);
+					if (group->m_Scene != command.Serial || group->m_MixPaused == paused)
+					{
+						continue;
+					}
+					group->m_MixPaused = paused;
+					if (paused)
+					{
+						ma_sound_group_stop(&group->m_Group);
+					}
+					else
+					{
+						ma_sound_group_start(&group->m_Group);
+					}
 				}
 				break;
 			}
@@ -646,10 +752,7 @@ namespace Strada
 			{
 				AudioSceneGroup& group = *static_cast<AudioSceneGroup*>(command.Object);
 				group.m_MixRetiring = true;
-				if (group.m_MixVoiceCount == 0)
-				{
-					ReturnGroup(group);
-				}
+				ReturnGroupIfDone(group);
 				break;
 			}
 			case AudioCommandType::SetMasterVolume:
@@ -1099,6 +1202,7 @@ namespace Strada
 			}
 			voice = next;
 		}
+		FinishSends(false);
 		FinishBuses();
 		// Every bus has processed this block: its level is what ducking reads in the next, whatever order the graph pulled
 		// the buses in.
@@ -1196,9 +1300,18 @@ namespace Strada
 		}
 	}
 
+	ma_node* AudioMixer::GetVoiceOutput(AudioVoice& voice)
+	{
+		if (voice.m_MixSends != nullptr)
+		{
+			return &voice.m_MixSends->m_Node.Base;
+		}
+		return &voice.m_Sound;
+	}
+
 	void AudioMixer::AttachVoice(AudioVoice& voice, AudioSceneGroup& group)
 	{
-		ma_node_attach_output_bus(&voice.m_Sound, 0, &group.m_Group, 0);
+		ma_node_attach_output_bus(GetVoiceOutput(voice), 0, &group.m_Group, 0);
 		voice.m_MixAttached = true;
 		voice.m_MixGroup = &group;
 		group.m_MixVoiceCount++;
@@ -1210,14 +1323,136 @@ namespace Strada
 		{
 			return;
 		}
-		ma_node_detach_output_bus(&voice.m_Sound, 0);
+		ma_node_detach_output_bus(GetVoiceOutput(voice), 0);
 		AudioSceneGroup& group = *voice.m_MixGroup;
 		voice.m_MixAttached = false;
 		voice.m_MixGroup = nullptr;
 		group.m_MixVoiceCount--;
-		if (group.m_MixRetiring && group.m_MixVoiceCount == 0)
+		ReturnGroupIfDone(group);
+	}
+
+	void AudioMixer::ReturnGroupIfDone(AudioSceneGroup& group)
+	{
+		if (group.m_MixRetiring && group.m_MixVoiceCount == 0 && group.m_MixSendCount == 0)
 		{
 			ReturnGroup(group);
+		}
+	}
+
+	void AudioMixer::InsertSends(AudioVoice& voice, AudioSendNode& sends)
+	{
+		// The sound feeds the node from now on (attaching its output detaches it from its group), and the node feeds the
+		// group and the sends' groups, all between two blocks.
+		voice.m_MixSends = &sends;
+		ma_node_attach_output_bus(&voice.m_Sound, 0, &sends.m_Node.Base, 0);
+		if (voice.m_MixAttached)
+		{
+			ma_node_attach_output_bus(&sends.m_Node.Base, 0, &voice.m_MixGroup->m_Group, 0);
+		}
+		for (uint32_t slot = 0; slot < MaxAudioVoiceSends; slot++)
+		{
+			ConnectSend(sends, slot, *sends.m_Sends[slot].Group);
+		}
+	}
+
+	void AudioMixer::ConnectSend(AudioSendNode& sends, uint32_t slot, AudioSceneGroup& group)
+	{
+		AudioSendNode::Send& send = sends.m_Sends[slot];
+		AudioSceneGroup* const previous = send.Connected ? send.Group : nullptr;
+		// Attaching moves the output from the group it fed.
+		ma_node_attach_output_bus(&sends.m_Node.Base, 1 + slot, &group.m_Group, 0);
+		send.Group = &group;
+		send.Connected = true;
+		group.m_MixSendCount++;
+		if (previous != nullptr)
+		{
+			previous->m_MixSendCount--;
+			ReturnGroupIfDone(*previous);
+		}
+	}
+
+	void AudioMixer::DisconnectSends(AudioSendNode& sends)
+	{
+		for (uint32_t slot = 0; slot < MaxAudioVoiceSends; slot++)
+		{
+			AudioSendNode::Send& send = sends.m_Sends[slot];
+			if (!send.Connected)
+			{
+				continue;
+			}
+			ma_node_detach_output_bus(&sends.m_Node.Base, 1 + slot);
+			send.Connected = false;
+			send.Moving = false;
+			send.Group->m_MixSendCount--;
+			ReturnGroupIfDone(*send.Group);
+		}
+	}
+
+	void AudioMixer::SetVoiceSend(AudioVoice& voice, uint32_t slot, AudioSceneGroup& group, float level)
+	{
+		if (voice.m_MixSends == nullptr || slot >= MaxAudioVoiceSends)
+		{
+			return;
+		}
+		AudioSendNode::Send& send = voice.m_MixSends->m_Sends[slot];
+		uint32_t const ramp = SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate);
+		bool const heard = IsHeard(voice);
+		if (send.Moving)
+		{
+			if (&group == send.Group)
+			{
+				// Back to the group it was leaving: it heads for the new level from where its fade has taken it.
+				send.Moving = false;
+				send.Gain.SetTarget(level, heard ? ramp : 0);
+			}
+			else
+			{
+				send.PendingGroup = &group;
+				send.PendingLevel = level;
+			}
+			return;
+		}
+		if (&group == send.Group)
+		{
+			send.Gain.SetTarget(level, heard ? ramp : 0);
+			return;
+		}
+		if (!heard || (send.Gain.IsSteady() && send.Gain.Current == 0.0f))
+		{
+			// Nothing of the send is heard: it moves now and fades in (at once when the voice is not heard).
+			send.Gain.SetTarget(0.0f, 0);
+			ConnectSend(*voice.m_MixSends, slot, group);
+			send.Gain.SetTarget(level, heard ? ramp : 0);
+			return;
+		}
+		send.Moving = true;
+		send.PendingGroup = &group;
+		send.PendingLevel = level;
+		send.Gain.SetTarget(0.0f, ramp);
+	}
+
+	void AudioMixer::FinishSends(bool immediate)
+	{
+		uint32_t const ramp = SecondsToFrames(AudioGainSmoothingSeconds, m_SampleRate);
+		for (AudioVoice* voice = m_Playing.GetFirst(); voice != nullptr; voice = m_Playing.GetNext(*voice))
+		{
+			if (voice->m_MixSends == nullptr)
+			{
+				continue;
+			}
+			for (uint32_t slot = 0; slot < MaxAudioVoiceSends; slot++)
+			{
+				AudioSendNode::Send& send = voice->m_MixSends->m_Sends[slot];
+				if (!send.Moving || (!immediate && !send.Gain.IsSteady()))
+				{
+					continue;
+				}
+				// Faded out: it moves, and fades in where it plays now.
+				send.Moving = false;
+				send.Gain.SetTarget(0.0f, 0);
+				ConnectSend(*voice->m_MixSends, slot, *send.PendingGroup);
+				send.Gain.SetTarget(send.PendingLevel, !immediate && IsHeard(*voice) ? ramp : 0);
+			}
 		}
 	}
 
@@ -1228,6 +1463,12 @@ namespace Strada
 		m_Virtual.Remove(voice);
 		ma_sound_stop(&voice.m_Sound);
 		DetachVoice(voice);
+		if (voice.m_MixSends != nullptr)
+		{
+			// The node comes back with the voice, nothing attached to it either way.
+			DisconnectSends(*voice.m_MixSends);
+			ma_node_detach_output_bus(&voice.m_Sound, 0);
+		}
 		// The last touch: the main thread may destroy the voice as soon as it is on the list.
 		m_Returns.Push(voice);
 	}

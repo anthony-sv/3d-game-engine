@@ -27,4 +27,17 @@ namespace Strada
 	// and up, which a closing speed of half the speed of sound reaches at level 1.
 	inline constexpr float MinAudioDopplerFactor = 0.5f;
 	inline constexpr float MaxAudioDopplerFactor = 2.0f;
+
+	// The shape of a reverb zone (ReverbZoneComponent, Docs/Architecture.md §9.8): a sphere of a radius, or a box of half
+	// extents turned with its entity.
+	enum class ReverbZoneShape : uint8_t
+	{
+		Sphere = 0,
+		Box
+	};
+	// The buses a spatial voice sends to at once: of the reverb zones its sound is in, those of the buses with the two
+	// largest sends.
+	inline constexpr uint32_t MaxAudioVoiceSends = 2;
+	// A zone's sizes and fade distance stay within this many meters.
+	inline constexpr float MaxReverbZoneSize = 100000.0f;
 }

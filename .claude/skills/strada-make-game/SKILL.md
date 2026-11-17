@@ -119,6 +119,9 @@ component and the whole scripting API.
   bodies at the next physics step while the game plays). Set a collider's `Material` with `component_set` (a triangle
   mesh collider also takes one per submesh in `Materials`). Scripts and graphs read its fields (`Strada.PhysicsMaterial`)
   and the material a raycast hit (`RaycastHit.Material`, `Get:Strada.RaycastHit.Material`), and compare its `Surface`.
+  Collisions play each side's `ImpactSound` by themselves once the project's mixer names a bus in its `Impacts`
+  (`mixer_set`); a `ReverbZone` component (a box or sphere, a `Bus` with a reverb, a `SendLevel`) makes the spatial
+  sounds inside it echo.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
   view, and `viewport_screenshot` returns an image of the editor. `viewport_overlays` sets what the scene view draws
   over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), `contacts` shows

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -68,6 +69,29 @@ namespace Strada
 	[[nodiscard]] float ComputeDopplerFactor(glm::vec3 const& sourcePosition, glm::vec3 const& sourceVelocity,
 	                                         glm::vec3 const& listenerPosition, glm::vec3 const& listenerVelocity, float level,
 	                                         float speedOfSound);
+
+	// A reverb zone of a scene (ReverbZoneComponent, Docs/Architecture.md §9.8), in world space: a sphere or a box round
+	// Position, inside which a spatial voice sends Level of itself to Bus, falling to nothing across FadeDistance outside.
+	struct AudioReverbZoneDesc
+	{
+		ReverbZoneShape Shape = ReverbZoneShape::Sphere;
+		glm::vec3 Position = glm::vec3(0.0f);
+		// Columns: the zone's own axes in world space, of unit length (how its box is turned).
+		glm::mat3 Rotation = glm::mat3(1.0f);
+		// Meters (the entity's scale applied).
+		float Radius = 5.0f;
+		glm::vec3 HalfExtents = glm::vec3(5.0f);
+		float FadeDistance = 2.0f;
+		// The mixer's bus the zone sends to (names match ignoring letter case): one that carries a reverb.
+		std::string Bus;
+		// Linear: how much of a voice inside the zone reaches its bus.
+		float Level = 1.0f;
+	};
+
+	// How much of a sound at position the zone sends to its bus: its Level inside the shape (its surface included), falling
+	// linearly with the distance from the shape to nothing at FadeDistance (at once with a FadeDistance of 0), and nothing
+	// beyond; nothing for a position or a zone that is not finite. Any thread.
+	[[nodiscard]] float ComputeReverbZoneSend(AudioReverbZoneDesc const& zone, glm::vec3 const& position);
 
 	// A loaded clip whose samples would take more than this once decoded (4 bytes a sample, in the clip's own channels and
 	// sample rate) is refused: it must stream (AudioSourceDesc::StreamFile, AudioSourceComponent::Stream). 32 MiB is about
@@ -171,6 +195,17 @@ namespace Strada
 		void UpdateDoppler();
 		// The factor the source's voices play at, as UpdateDoppler last gave it (1 for none, or without a source).
 		float GetDoppler(UUID entity) const;
+
+		// Once an update, after the listener's and the sources' positions: every spatial voice sends itself to the buses of
+		// the zones its sound is in (ComputeReverbZoneSend at its source's position, or at its own for the scene's voices),
+		// the largest send among zones of one bus, the buses of the MaxAudioVoiceSends largest sends; each send ramped,
+		// after the voice's volume, attenuation and panning (§9.8). It follows the sound, not the listener. A zone whose Bus
+		// is empty sends nothing; one whose bus the mixer lacks sends nothing and is logged once per name. Voices that are not
+		// spatial send nothing. Voices started later take their sends from the zones of the last update.
+		void UpdateReverbZones(std::span<AudioReverbZoneDesc const> zones);
+		// The level the source's voices send to bus (names match ignoring letter case), as UpdateReverbZones last gave it;
+		// 0 for none, or without a source.
+		float GetReverbSend(UUID entity, std::string_view bus) const;
 
 		// Plays clip once more on a new voice of the source's pool (the source's own clip when clip is null), beside its
 		// main voice and its other one-shots, at this volume (a linear gain times the source's). A one-shot never loops;

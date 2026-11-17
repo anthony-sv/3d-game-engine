@@ -3,9 +3,22 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AudioClipAsset.h"
+#include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/Mixer.h"
+#include "Strada/Asset/PhysicsMaterial.h"
+#include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Core/Profiler.h"
+#include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Scene/Entity.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -34,6 +47,20 @@ namespace Strada
 			desc.Position = position;
 			return desc;
 		}
+
+		// The impact sound of a physics material: its ImpactSound when the handle names a registered physics material that
+		// loads, else none (a collider without a material, or with one that does not load, makes no sound).
+		AssetHandle FindImpactSound(AssetHandle material)
+		{
+			AssetType const type = TypedDataAsset<PhysicsMaterial>::GetStaticType();
+			if (!material.IsValid() || !AssetManager::IsInitialized() || type == AssetType::None ||
+			    AssetManager::GetAssetType(material) != type)
+			{
+				return AssetHandle();
+			}
+			Ref<TypedDataAsset<PhysicsMaterial>> const asset = AssetManager::GetAsset<TypedDataAsset<PhysicsMaterial>>(material);
+			return asset ? asset->GetData().ImpactSound : AssetHandle();
+		}
 	}
 
 	void Scene::StartAudio()
@@ -50,6 +77,7 @@ namespace Strada
 			return;
 		}
 		m_Audio = audio.TakeValue();
+		PreloadImpactSounds();
 		// No game time has passed: the first update places the sounds and gives them no doppler.
 		UpdateAudio(0.0f);
 	}
@@ -58,6 +86,9 @@ namespace Strada
 	{
 		m_AudioSources.clear();
 		ForgetAudioMotion();
+		m_AudioZones.clear();
+		m_ImpactClips.clear();
+		m_FailedImpactClips.clear();
 		m_Audio.reset();
 	}
 
@@ -131,6 +162,161 @@ namespace Strada
 			state.LastPosition = position;
 		}
 		m_Audio->UpdateDoppler();
+		UpdateReverbZones();
+		// After the zones, so that an impact inside one sends to it from its first frame.
+		PlayImpactSounds();
+	}
+
+	void Scene::UpdateReverbZones()
+	{
+		// Each zone placed and turned by its entity's world transform, sized times its scale. The vector keeps its memory,
+		// and each element its bus name's, from one update to the next.
+		size_t count = 0;
+		for (auto const [handle, zone] : m_Registry.view<ReverbZoneComponent>().each())
+		{
+			if (count == m_AudioZones.size())
+			{
+				m_AudioZones.emplace_back();
+			}
+			AudioReverbZoneDesc& desc = m_AudioZones[count++];
+			glm::mat4 const transform = GetWorldTransform(Entity(handle, this));
+			glm::vec3 scale(0.0f);
+			for (glm::length_t axis = 0; axis < 3; axis++)
+			{
+				glm::vec3 const column(transform[axis]);
+				float const length = glm::length(column);
+				scale[axis] = length;
+				glm::vec3 unit(0.0f);
+				unit[axis] = 1.0f;
+				desc.Rotation[axis] = length > 1e-6f ? column / length : unit;
+			}
+			// Scripts set fields without their ranges: the zone takes them within.
+			ReverbZoneComponent fitted = zone;
+			ClampToFieldRanges<ComponentTraits<ReverbZoneComponent>>(fitted);
+			desc.Shape = fitted.Shape;
+			desc.Position = GetTranslation(transform);
+			desc.Radius = fitted.Radius * std::max({scale.x, scale.y, scale.z});
+			desc.HalfExtents = fitted.HalfExtents * scale;
+			desc.FadeDistance = fitted.FadeDistance;
+			desc.Bus = std::move(fitted.Bus);
+			desc.Level = fitted.SendLevel;
+		}
+		m_AudioZones.resize(count);
+		m_Audio->UpdateReverbZones(m_AudioZones);
+	}
+
+	void Scene::PlayImpactSounds()
+	{
+		MixerImpacts const& impacts = AudioEngine::GetMixer().Impacts;
+		if (impacts.Bus.empty() || m_ContactEvents.empty())
+		{
+			return;
+		}
+		ST_PROFILE_SCOPE("Scene.ImpactSounds");
+		// The collisions that began in the frame's steps with contact points, the strongest first (ties in the order the
+		// events came: by step, then by their bodies' UUIDs), so that the limit keeps the same ones on every run.
+		std::vector<ContactEvent const*> collisions;
+		for (ContactEvent const& event : m_ContactEvents)
+		{
+			if (event.Type == ContactEventType::CollisionEnter && event.PointCount > 0 && event.Points[0].Impulse >= impacts.MinImpulse)
+			{
+				collisions.push_back(&event);
+			}
+		}
+		std::stable_sort(collisions.begin(), collisions.end(),
+		                 [](ContactEvent const* left, ContactEvent const* right)
+		                 {
+							 return left->Points[0].Impulse > right->Points[0].Impulse;
+						 });
+		uint32_t played = 0;
+		for (ContactEvent const* collision : collisions)
+		{
+			// The strongest point, where each side's material sounds once; the same sound on both sides plays once.
+			ContactPoint const& point = collision->Points[0];
+			float const volume = std::min(point.Impulse / impacts.FullImpulse, 1.0f);
+			std::array<AssetHandle, 2> const sounds = {FindImpactSound(point.Material), FindImpactSound(point.OtherMaterial)};
+			for (size_t side = 0; side < sounds.size(); side++)
+			{
+				AssetHandle const sound = sounds[side];
+				if (!sound.IsValid() || (side == 1 && sound == sounds[0]))
+				{
+					continue;
+				}
+				if (played >= impacts.MaxPerFrame)
+				{
+					return;
+				}
+				if (Ref<AudioClipAsset> const clip = GetImpactClip(sound))
+				{
+					m_Audio->PlayClipAtPoint(clip, point.Point, volume, impacts.Bus);
+					played++;
+				}
+			}
+		}
+	}
+
+	Ref<AudioClipAsset> Scene::GetImpactClip(AssetHandle clip)
+	{
+		if (auto const found = m_ImpactClips.find(clip); found != m_ImpactClips.end())
+		{
+			return found->second;
+		}
+		if (m_FailedImpactClips.contains(clip) || !AssetManager::IsInitialized())
+		{
+			return nullptr;
+		}
+		Result<Ref<AudioClipAsset>> loaded = AssetManager::TryGetAsset<AudioClipAsset>(clip);
+		if (!loaded)
+		{
+			m_FailedImpactClips.insert(clip);
+			ST_CORE_WARN("Scene '{}' plays no impact sound {}: {}", m_Name, AssetManager::GetReference(clip), loaded.GetError());
+			return nullptr;
+		}
+		// Decoded now, once, rather than at its first play.
+		if (Result<void> decoded = AudioEngine::PreloadClip(loaded.GetValue()); !decoded)
+		{
+			m_FailedImpactClips.insert(clip);
+			ST_CORE_WARN("Scene '{}' plays no impact sound {}: {}", m_Name, AssetManager::GetReference(clip), decoded.GetError());
+			return nullptr;
+		}
+		Ref<AudioClipAsset> const asset = loaded.TakeValue();
+		m_ImpactClips.emplace(clip, asset);
+		return asset;
+	}
+
+	void Scene::PreloadImpactSounds()
+	{
+		if (AudioEngine::GetMixer().Impacts.Bus.empty() || !AssetManager::IsInitialized())
+		{
+			return;
+		}
+		auto const preload = [this](AssetHandle materialHandle)
+		{
+			if (AssetHandle const sound = FindImpactSound(materialHandle); sound.IsValid())
+			{
+				GetImpactClip(sound);
+			}
+		};
+		for (auto const [handle, collider] : m_Registry.view<BoxColliderComponent>().each())
+		{
+			preload(collider.Material);
+		}
+		for (auto const [handle, collider] : m_Registry.view<SphereColliderComponent>().each())
+		{
+			preload(collider.Material);
+		}
+		for (auto const [handle, collider] : m_Registry.view<CapsuleColliderComponent>().each())
+		{
+			preload(collider.Material);
+		}
+		for (auto const [handle, collider] : m_Registry.view<MeshColliderComponent>().each())
+		{
+			preload(collider.Material);
+			for (AssetHandle const material : collider.Materials)
+			{
+				preload(material);
+			}
+		}
 	}
 
 	bool Scene::SyncAudioSource(entt::entity handle, AudioSourceComponent const& component)
