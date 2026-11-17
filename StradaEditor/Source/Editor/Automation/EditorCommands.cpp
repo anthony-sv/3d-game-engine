@@ -3864,8 +3864,11 @@ namespace Strada
 				{
 					return nullptr;
 				}
+				// An analysis that checked action names holds the project's input actions it read: others now make it out of date.
+				VisualScriptAnalysis const& analysis = *found->second.Analysis;
 				if (library == nullptr || found->second.Document.lock() != document || found->second.Library.lock() != library ||
-				    document == nullptr || !ReadsCurrentGraphs(*found->second.Analysis, *document))
+				    document == nullptr || !ReadsCurrentGraphs(analysis, *document) ||
+				    (analysis.NamesInputActions && m_Semantics.GetInputActions() != analysis.InputActions))
 				{
 					m_StoredGraphAnalyses.erase(found);
 					return nullptr;

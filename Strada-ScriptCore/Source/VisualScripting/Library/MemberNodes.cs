@@ -585,9 +585,12 @@ internal static class MemberNodes
 	// graphs never hold one (spec sections 2.1 and 2.2), so its pin keeps the type default, the identity.
 	private static PinDescription ParameterPin(string name, PinDirection direction, VisualType type, ParameterInfo parameter)
 	{
+		// A string input naming an input action (Input.GetAction's action, InputActionNameAttribute).
+		bool namesAction = direction == PinDirection.In && parameter.ParameterType == typeof(string) &&
+			parameter.IsDefined(typeof(InputActionNameAttribute), false);
 		if (type.IsWildcard || direction == PinDirection.Out || !parameter.HasDefaultValue || !LiteralCodec.HasLiteralForm(type.ClrType!))
 		{
-			return TypedPin(name, direction, type);
+			return namesAction ? new PinDescription(name, direction, type) { NamesInputAction = true } : TypedPin(name, direction, type);
 		}
 		Type clrType = type.ClrType!;
 		object? raw = parameter.DefaultValue;
@@ -602,7 +605,7 @@ internal static class MemberNodes
 			_ when clrType.IsEnum => Enum.ToObject(clrType, raw),
 			_ => raw,
 		};
-		return new PinDescription(name, direction, type) { HasDefault = true, Default = value };
+		return new PinDescription(name, direction, type) { HasDefault = true, Default = value, NamesInputAction = namesAction };
 	}
 
 	// out parameters become outputs; ref, in and params parameters have no pin form.

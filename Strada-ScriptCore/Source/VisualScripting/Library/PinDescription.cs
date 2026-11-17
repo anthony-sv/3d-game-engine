@@ -59,6 +59,10 @@ internal sealed class PinDescription
 	// An unconnected Target input means the entity running the graph; it takes no stored value.
 	internal bool DefaultsToSelf { get; init; }
 
+	// A string input that names an input action of the project (a parameter marked [InputActionName]): the analysis checks its
+	// literal against the project's actions when it is told them, and the library writes it as "InputAction".
+	internal bool NamesInputAction { get; init; }
+
 	internal PinRole Role { get; init; }
 
 	internal PinConstraint Constraint { get; init; }

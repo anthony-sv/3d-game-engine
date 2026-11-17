@@ -595,7 +595,7 @@ internal static class BuiltinNodes
 	private static void ActionEvent(List<BuiltinNodeDefinition> nodes, BuiltinNode node, string title, string description, string keyword)
 	{
 		Event(nodes, node, title, description, ["input", "action", keyword, "binding", "gamepad", "keyboard"], [ExecOut()],
-			[new SettingDescription("Action", SettingKind.String) { Required = true }]);
+			[new SettingDescription("Action", SettingKind.String) { Required = true, NamesInputAction = true }]);
 	}
 
 	private static void FlowNode(List<BuiltinNodeDefinition> nodes, BuiltinNode node, string title, string description, string[] keywords,

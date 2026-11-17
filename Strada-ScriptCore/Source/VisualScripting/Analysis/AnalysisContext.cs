@@ -25,6 +25,7 @@ internal sealed class AnalysisContext
 	private readonly Dictionary<ulong, LinkedLibrary> m_Links = [];
 	private GraphTarget? m_SelfTarget;
 	private int m_SuggestionSearches;
+	private bool m_ReportedMissingActions;
 
 	// self is the document's handle (0 when unknown) and name its asset path (null when unknown): the graph its Graph
 	// settings may name to mean itself.
@@ -53,6 +54,11 @@ internal sealed class AnalysisContext
 	// Where the analysis adds the time of each phase (spec-slice4 section 9.0); null when nobody measures it. The libraries the
 	// document calls are analyzed without it, inside the phase that needs them.
 	internal AnalysisTimings? Timings { get; init; }
+
+	// The project's input actions the action names of the document are checked against (spec section 6 of IA2): the bundle's,
+	// for the analyzed document only (the libraries a call links are analyzed without them, their findings being theirs);
+	// null when nobody told them, and nothing is checked.
+	internal ProjectInputActions? InputActions { get; init; }
 
 	// What the analysis read of each other graph (its fingerprint when read), and the libraries its calls link: a cached
 	// analysis of a library is reused only while both are what they were (spec-slice3 section 4.4.3).
@@ -244,6 +250,48 @@ internal sealed class AnalysisContext
 			}
 		}
 		return null;
+	}
+
+	// Checks the name of an input action that a node names, in its setting (Event.ActionPressed's Action) or in an unlinked
+	// input (Input.GetAction's Action), against the project's actions: UnknownAction for a name they lack, with the nearest
+	// ones (an action renamed is often far from its former name, and a project has few: they are suggested however far);
+	// NoInputActions once per document when the project has none. Nothing when nobody told the actions.
+	internal void CheckInputAction(AnalyzedNode node, string name, string? setting, string? pin)
+	{
+		if (InputActions is not { } actions)
+		{
+			return;
+		}
+		string label = setting ?? pin ?? string.Empty;
+		if (actions.Missing is { } missing)
+		{
+			if (!m_ReportedMissingActions)
+			{
+				m_ReportedMissingActions = true;
+				ReportInputAction(DiagnosticCode.NoInputActions, node, setting, pin, $"{missing}: action names are not checked", []);
+			}
+			return;
+		}
+		if (actions.Contains(name))
+		{
+			return;
+		}
+		string message = name.Length == 0
+			? $"{label} is empty: it names none of the project's input actions"
+			: $"{label}: the project has no input action {JsonText.Quote(name)}";
+		ReportInputAction(DiagnosticCode.UnknownAction, node, setting, pin, message, Suggest(name, actions.Names, false));
+	}
+
+	private void ReportInputAction(DiagnosticCode code, AnalyzedNode node, string? setting, string? pin, string message, IReadOnlyList<string> suggestions)
+	{
+		if (setting != null)
+		{
+			ReportSetting(code, node, setting, string.Empty, null, message, suggestions);
+		}
+		else
+		{
+			ReportPin(code, node, pin ?? string.Empty, PinDirection.In, message, null, suggestions);
+		}
 	}
 
 	// The nearest candidates for an unknown name (none once the analysis made MaxSuggestionSearches searches).

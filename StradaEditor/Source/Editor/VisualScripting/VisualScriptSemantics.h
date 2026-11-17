@@ -27,6 +27,11 @@ namespace Strada
 		// Where the last Analyze spent its time (VisualScriptEngine::GetLastAnalysisTimings); all zero for semantics that do not
 		// measure.
 		virtual VisualScriptAnalysisTimings GetLastAnalysisTimings() const { return {}; }
+		// The project's input actions an analysis made now would check action names against
+		// (VisualScriptEngine::GetInputActions): the same object while they stay the same, so an analysis that asked for them
+		// (VisualScriptAnalysis::NamesInputActions) is out of date when this gives another than it holds. Null when no project
+		// is known; semantics that know of none give null.
+		virtual Ref<VisualScriptInputActions const> GetInputActions() { return nullptr; }
 	};
 
 	// The scripting runtime's library and analysis (VisualScriptEngine) while the runtime runs; a null library and an error
@@ -37,5 +42,6 @@ namespace Strada
 		Ref<VisualScriptLibrary const> GetLibrary() override;
 		[[nodiscard]] Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self) override;
 		VisualScriptAnalysisTimings GetLastAnalysisTimings() const override;
+		Ref<VisualScriptInputActions const> GetInputActions() override;
 	};
 }

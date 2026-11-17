@@ -4174,6 +4174,107 @@ TEST_CASE("GraphCommands: graph.edit's diagnostics carry their quick fixes as Fi
 	}
 }
 
+TEST_CASE("GraphCommands: graph.check and graph.edit check the input actions a graph names against the project's, and their fixes "
+          "name one in a step")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	VisualScriptDocument document;
+	document.Graph.Nodes.push_back(MakeNode(10, "Event.ActionPressed", Json::object({{"Action", "Jmp"}})));
+	document.Graph.Nodes.push_back(MakeNode(11, "Event.ActionReleased", Json::object({{"Action", "Jump"}})));
+	VisualScriptNode read = MakeNode(12, "Call:Strada.Input.GetAction(string)");
+	read.Inputs = Json::object({{"Action", "Steer"}});
+	document.Graph.Nodes.push_back(read);
+	std::string const graph = fixture.CreateGraph("Scripts/Actions.sgraph", document);
+	Json const serialized = VisualScriptSerializer::SerializeDocument(document);
+	auto const check = [&fixture, &serialized, &graph]()
+	{
+		return fixture.Ok("graph.check", Json::object({{"document", serialized}, {"graph", graph}}));
+	};
+
+	// A project that names no actions: one warning, on the first node naming one.
+	std::vector<Json> none = FindDiagnostics(check(), "NoInputActions");
+	REQUIRE(none.size() == 1);
+	CHECK(none[0]["Severity"] == "Warning");
+	CHECK(none[0]["Node"] == 10);
+	CHECK(none[0]["Message"] == "the project names no input actions (Project Settings, Input Actions): action names are not checked");
+	CHECK(FindDiagnostics(check(), "UnknownAction").empty());
+
+	// With actions: the names they lack, with the nearest as fixes.
+	std::string const actions =
+		fixture
+			.Ok("input-actions.create",
+	            Json::object(
+					{{"path", "Input/Game.sinput"},
+	                 {"fields",
+	                  Json::parse(R"({ "Actions": [ { "Name": "Jump" }, { "Name": "Steer", "Type": "Axis" } ] })")}}))["inputActions"]["id"]
+			.get<std::string>();
+	fixture.Ok("project.settings", Json::object({{"settings", Json::object({{"InputActions", actions}})}}));
+	Json const checked = check();
+	CHECK(checked["valid"] == true);
+	CHECK(FindDiagnostics(checked, "NoInputActions").empty());
+	std::vector<Json> const unknown = FindDiagnostics(checked, "UnknownAction");
+	REQUIRE(unknown.size() == 1);
+	CHECK(unknown[0]["Severity"] == "Warning");
+	CHECK(unknown[0]["Node"] == 10);
+	CHECK(unknown[0]["Setting"] == "Action");
+	CHECK(unknown[0]["Message"] == "Action: the project has no input action \"Jmp\"");
+	CHECK(unknown[0]["Suggestions"] == Json::array({"Jump", "Steer"}));
+
+	// graph.edit answers the same, with each fix ready as an operation; one applied is one undo step, undone byte for byte.
+	auto const edit = [&graph](Json operations)
+	{
+		return Json::object({{"graph", graph}, {"operations", std::move(operations)}});
+	};
+	Json const current = fixture.Ok("graph.edit", edit(Json::array()));
+	std::vector<Json> const offered = FindDiagnostics(current, "UnknownAction");
+	REQUIRE(offered.size() == 1);
+	std::vector<std::string> labels;
+	Json useJump;
+	for (Json const& fix : offered[0]["Fixes"])
+	{
+		labels.push_back(fix["label"].get<std::string>());
+		useJump = fix["label"] == "Use Jump" ? fix["operation"] : useJump;
+	}
+	// Edit in Details only navigates: it is no operation.
+	CHECK(labels == std::vector<std::string>{"Use Jump", "Use Steer"});
+	REQUIRE(useJump.is_object());
+	std::string const before = fixture.ReadFile("Scripts/Actions.sgraph");
+	size_t const undo = fixture.Context.GetHistory().GetUndoCount();
+	Json const fixed = fixture.Ok("graph.edit", edit(Json::array({useJump})));
+	CHECK(fixed["changed"] == true);
+	CHECK(fixed["results"][0] == Json::object({{"fix", "Use Jump"}}));
+	CHECK(FindDiagnostics(fixed, "UnknownAction").empty());
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == undo + 1);
+	CHECK(fixture.GetDocument(graph).Graph.Nodes[0].Settings == Json::object({{"Action", "Jump"}}));
+	fixture.Ok("editor.undo");
+	CHECK(fixture.ReadFile("Scripts/Actions.sgraph") == before);
+	fixture.Ok("editor.redo");
+	CHECK(fixture.GetDocument(graph).Graph.Nodes[0].Settings == Json::object({{"Action", "Jump"}}));
+	// Applied again it refuses and writes nothing.
+	CHECK(fixture.Run("graph.edit", edit(Json::array({useJump}))).IsError());
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == undo + 1);
+
+	// An action renamed in the asset: the next answers flag the graphs that named it, whatever graph.edit kept.
+	fixture.Ok("input-actions.set",
+	           Json::object({{"inputActions", actions},
+	                         {"fields", Json::parse(R"({ "Actions": [ { "Name": "Leap" }, { "Name": "Steer", "Type": "Axis" } ] })")}}));
+	Json const renamed = fixture.Ok("graph.edit", edit(Json::array()));
+	std::vector<std::string> nodes;
+	for (Json const& diagnostic : FindDiagnostics(renamed, "UnknownAction"))
+	{
+		nodes.push_back(fmt::format("{} {}", diagnostic["Node"].get<uint32_t>(), diagnostic["Suggestions"][0].get<std::string>()));
+	}
+	CHECK(nodes == std::vector<std::string>{"10 Leap", "11 Leap"});
+
+	// The asset gone: one warning again, naming it.
+	REQUIRE(FileSystem::Remove(fixture.GetFile("Input/Game.sinput")).IsOk());
+	fixture.Ok("asset.refresh");
+	std::vector<Json> const gone = FindDiagnostics(fixture.Ok("graph.edit", edit(Json::array())), "NoInputActions");
+	REQUIRE(gone.size() == 1);
+	CHECK(gone[0]["Message"].get<std::string>().starts_with("the project's input actions, "));
+}
+
 TEST_CASE("GraphCommands: graph.edit's hints name nodes left without flow or readers, and its warnings the canonical types it stored")
 {
 	Testing::ScriptRuntimeScope runtime;

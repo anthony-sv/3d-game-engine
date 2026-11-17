@@ -177,6 +177,12 @@ namespace Strada
 		// its curve, "Edit" opening the drawer on it, and remove) and "+ Add Track"; above them the setting's first finding in the
 		// Error colour. focus: a FocusSetting on the Timeline (spec-slice4 §16.4) gives Length the keyboard.
 		void DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title, bool focus);
+		// A setting or an input literal that names an input action (Event.ActionPressed's Action, Input.GetAction's Action): a
+		// combo of the project's actions the analysis checked the node against, with the stored name as its preview whether the
+		// project has it or not ("None" when empty); choosing another is one step, made by makeEdit. Without actions (no
+		// project, or one without actions) the caller draws its text field instead.
+		void DrawInputActionChoice(Frame& frame, std::string_view label, VisualScriptInputActions const& actions,
+		                           std::string const& current, std::function<std::optional<Edit>(std::string)> const& makeEdit);
 		void DrawCases(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawChoice(Frame& frame, VisualScriptNode const& node, std::string const& title, VisualScriptSetting const& setting);
 		void DrawInputs(Frame& frame, VisualScriptNode const& node, std::string const& title);

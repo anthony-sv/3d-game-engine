@@ -1979,7 +1979,9 @@ unlike a key's: a press given while stopped is read by the resumed code and agai
 each a pure node (`[PureNode]`). They read the state of the scene that runs scripts (inside a step, that step's edges;
 outside, the view of the code that asks, above), and read zero outside a running scene. A name the set lacks reads zero and is logged once per name until
 the set changes; without a set (a project that names no actions, or an asset that does not load) every name does, and
-the message says the project names no input actions.
+the message says the project names no input actions. The editor's analysis of a graph finds such names before it runs
+(§10.6, "The project's input actions in analyses"): a Warning with the nearest actions as fixes, and the names offered as a
+list in Details.
 
 **Overrides** put a value on an action as one more device would: `Input.SetActionOverride(name, value)`,
 `Input.SetActionVectorOverride(name, vector)` and `Input.ClearActionOverride(name)` in scripts and graphs, `input.set`'s
@@ -3002,8 +3004,12 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   visual script. `VisualScriptAnalyze` and `VisualScriptLoad` take, beside the document, the **reference bundle**:
   `{ "Self": "<handle>", "Graphs": [{ "Graph", "Name", "Document": { "Form": "Full" or "Interface", ... } or "Error" }] }`,
   every library a document's calls reach sent in full (its own calls' libraries included) and the other referenced
-  graphs as their interfaces (kind, variables, events). The runtime accepts any bytes there (a malformed bundle counts
-  as empty). Each library is analyzed as its own document, callees first, without nesting, and kept in the runtime's
+  graphs as their interfaces (kind, variables, events), and for an analysis of a document that names input actions
+  `"InputActions": { "Names": [...] }` (the open project's actions) or `{ "Missing": "<why there are none>" }`, which
+  the analysis checks the document's action names against (`UnknownAction`, `NoInputActions`, both Warnings: an unknown
+  name reads zero at run time); the libraries a call links are analyzed without them, and a bundle without them checks
+  nothing. The runtime accepts any bytes there (a malformed bundle counts as empty, a malformed `InputActions` as
+  absent). Each library is analyzed as its own document, callees first, without nesting, and kept in the runtime's
   cache (keyed by its text, its name, the node library and what it read); cycles are found from the raw settings before
   any library is analyzed (`LibraryCycle`). A program compiles the functions of every library it links into itself,
   keyed by (graph, function ID), so each graph that calls a library runs its own copy, and live edit resolves frames by
@@ -3300,6 +3306,18 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   its Failure (no working program) is a script exception (`ScriptHost::OnScriptException`), as is a Failure of `Invoke`,
   and an `Invoke` answered NotFound forgets the instance. `Analyze` sends a document for analysis and keeps nothing.
   Programs stay with the runtime until `Shutdown`: `VisualScriptUnload` is resolved but has no caller.
+- **The project's input actions in analyses** (IA2): `VisualScriptEngine::SetInputActionsSource(owner, source)` gives
+  the engine the host's function answering the open project's `InputActions` setting (nothing while no project is open);
+  `EditorContext` sets it for its life and the player sets none, so a game's loads never check action names.
+  `GetInputActions()` reads the asset's names (or why there are none) when the source answers another asset or the
+  registry's version or the data assets' epoch moved, and returns the same object while the names stay the same.
+  `Analyze` asks for them only for a document with an action event or a `Strada.Input` call whose library entry has an
+  `InputAction` pin (a prefix test per node, then one library lookup per such call), writes them into the bundle and
+  records them (`VisualScriptAnalysis::NamesInputActions`, `InputActions`); every other document is analyzed as before,
+  with the same bundle and cost. A keeper of an analysis that asked compares the pointer with `GetInputActions()` (the
+  graph window's model at each sync, `graph.edit`'s stored analyses) and analyzes again when it differs: a renamed or
+  removed action, an asset gone, another project. The library marks the names: `InputAction` on the `Action` setting of
+  the two events and on the parameters marked `[InputActionName]` (internal to the scripting API).
 - **Graphs that use other graphs**: every send and `Analyze(document, self)` pass the reference bundle.
   `CollectVisualScriptReferences` (`Asset/VisualScriptReferences.h`) lists the graphs a document's six cross-graph kinds
   name (disabled nodes included), each with its strongest use (`Verification` for typed sends, `Interface` for remote

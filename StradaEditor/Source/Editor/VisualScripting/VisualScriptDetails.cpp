@@ -391,6 +391,21 @@ namespace Strada
 				ImGui::SameLine();
 			}
 		}
+
+		// Whether the analyzed node's input of that name names an input action (Input.GetAction's Action).
+		bool NamesInputAction(VisualScriptAnalyzedNode const* analyzed, std::string_view pin)
+		{
+			VisualScriptPin const* const found = analyzed != nullptr ? analyzed->FindPin(pin, VisualScriptPinDirection::In) : nullptr;
+			return found != nullptr && found->NamesInputAction;
+		}
+
+		// The project's input actions the analysis checked the document's action names against; null when it was told none (no
+		// project is open, or it has no actions to offer).
+		VisualScriptInputActions const* FindCheckedInputActions(VisualScriptAnalysis const* analysis)
+		{
+			VisualScriptInputActions const* const actions = analysis != nullptr ? analysis->InputActions.get() : nullptr;
+			return actions != nullptr && actions->Missing.empty() ? actions : nullptr;
+		}
 	}
 
 	std::optional<double> EvaluateVisualScriptEasing(std::string_view easing, double t)
@@ -1536,6 +1551,12 @@ namespace Strada
 		{
 			DrawGraphSetting(frame, node, title, setting);
 		}
+		else if (VisualScriptInputActions const* const actions =
+		             setting.NamesInputAction ? FindCheckedInputActions(frame.Analysis) : nullptr;
+		         setting.Kind == "String" && actions != nullptr)
+		{
+			DrawInputActionChoice(frame, label, *actions, value.is_string() ? value.get<std::string>() : std::string(), setSetting);
+		}
 		else if (setting.Kind == "String")
 		{
 			bool const format = node.Type == "FormatString" && setting.Name == "Format";
@@ -2654,6 +2675,21 @@ namespace Strada
 									 return edit;
 								 });
 			}
+			else if (VisualScriptInputActions const* const actions =
+			             NamesInputAction(analyzed, name) ? FindCheckedInputActions(frame.Analysis) : nullptr;
+			         actions != nullptr)
+			{
+				DrawInputActionChoice(frame, label, *actions, literal.is_string() ? literal.get<std::string>() : std::string(),
+				                      [&](std::string chosen) -> std::optional<Edit>
+				                      {
+										  Edit edit{frame.Document, fmt::format("Set {} on {}", label, title)};
+										  if (!VisualScriptEditing::SetInput(edit.Document, node.ID, stored, Json(std::move(chosen))))
+										  {
+											  return std::nullopt;
+										  }
+										  return edit;
+									  });
+			}
 			else if (VisualScriptLiteralEditor::CanEdit(pin.Type, frame.Library))
 			{
 				std::optional<VisualScriptPin> const libraryPin =
@@ -2712,6 +2748,33 @@ namespace Strada
 			ImGui::PopID();
 		}
 		ImGui::PopID();
+	}
+
+	void VisualScriptDetails::DrawInputActionChoice(Frame& frame, std::string_view label, VisualScriptInputActions const& actions,
+	                                                std::string const& current,
+	                                                std::function<std::optional<Edit>(std::string)> const& makeEdit)
+	{
+		Track(frame, label,
+		      [&]() -> std::optional<Edit>
+		      {
+				  std::optional<Edit> edit;
+				  if (ImGui::BeginCombo("##value", current.empty() ? "None" : current.c_str()))
+				  {
+					  for (size_t index = 0; index < actions.Names.size(); index++)
+					  {
+						  std::string const& name = actions.Names[index];
+						  ImGui::PushID(static_cast<int>(index));
+						  if (ImGui::Selectable(name.c_str(), name == current) && name != current)
+						  {
+							  edit = makeEdit(name);
+						  }
+						  EndRow(fmt::format("{}/{}", label, name));
+						  ImGui::PopID();
+					  }
+					  ImGui::EndCombo();
+				  }
+				  return edit;
+			  });
 	}
 
 	void VisualScriptDetails::DrawNodeProblems(Frame& frame, VisualScriptNode const& node)

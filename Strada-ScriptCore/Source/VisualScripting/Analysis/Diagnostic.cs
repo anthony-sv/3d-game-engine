@@ -16,6 +16,8 @@ internal enum DiagnosticSeverity
 // names no pin of its direction, a pin whose type cannot split, or a field pin of an entry that did not split).
 // InvalidExpression (slice 3): a formula of an Expression node that does not lex, parse or type-check. The codes after it
 // are slice 3's findings about other graphs (spec-slice3 section 4.8) and about function libraries (section 4.4.1).
+// UnknownAction and NoInputActions (Warnings) are about the project's input actions (spec section 6 of IA2): a name a node
+// gives that they lack (it reads nothing), and a project with none to check names against.
 internal enum DiagnosticCode
 {
 	InvalidDocument,
@@ -74,6 +76,8 @@ internal enum DiagnosticCode
 	LibraryEventGraph,
 	PrivateVariable,
 	UnlinkedTarget,
+	UnknownAction,
+	NoInputActions,
 }
 
 // A finding of the analysis. Function is 0 for the event graph and document variables, else the function's ID; the other
@@ -126,7 +130,8 @@ internal sealed class Diagnostic
 	{
 		DiagnosticCode.NodeUpdated or DiagnosticCode.UnusedInput or DiagnosticCode.ZeroQuaternion or DiagnosticCode.UnknownSetting or
 			DiagnosticCode.DisabledIgnored or DiagnosticCode.UnusedSplit or DiagnosticCode.UncheckedGraph or DiagnosticCode.UnknownEvent or
-			DiagnosticCode.EventSignatureMismatch or DiagnosticCode.DisabledTarget or DiagnosticCode.TargetIsSelf => DiagnosticSeverity.Warning,
+			DiagnosticCode.EventSignatureMismatch or DiagnosticCode.DisabledTarget or DiagnosticCode.TargetIsSelf or DiagnosticCode.UnknownAction or
+			DiagnosticCode.NoInputActions => DiagnosticSeverity.Warning,
 		_ => DiagnosticSeverity.Error,
 	};
 

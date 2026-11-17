@@ -1135,6 +1135,9 @@ namespace Strada
 		bool m_AnalysisStale = false;
 		// Another graph the analysis read no longer holds what it read (SetProjectGraphs): the next analysis runs anew.
 		bool m_OtherGraphsChanged = false;
+		// The project's input actions the analysis checked its action names against are not the ones it would get now
+		// (VisualScriptSemantics::GetInputActions): the next analysis runs anew.
+		bool m_InputActionsChanged = false;
 		bool m_AnalysisPending = true;
 		double m_LastAnalysisTime = -1.0e30;
 		bool m_HasAnalyzed = false;

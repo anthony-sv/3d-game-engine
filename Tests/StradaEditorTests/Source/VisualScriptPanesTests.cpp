@@ -22,6 +22,7 @@
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/FileSystem.h"
@@ -4155,6 +4156,106 @@ TEST_CASE("VisualScriptEditor: Details' Graph picker lists the graphs its settin
 	fixture.SelectElements({22});
 	fixture.Frames(1);
 	CHECK(fixture.Details.GetRowText("Graph") == std::optional<std::string>("Motion \xC2\xB7 Scripts/Motion.sgraph"));
+}
+
+TEST_CASE("VisualScriptEditor: Details offers the project's input actions for an Action setting and an action input, one step each")
+{
+	Testing::ScriptRuntimeScope runtime;
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Event.ActionPressed", glm::vec2(0.0f), Json::object({{"Action", "Jmp"}})),
+	                        MakeNode(2, "Call:Strada.Input.GetAction(string)", glm::vec2(0.0f, 240.0f))};
+	PaneFixture fixture(document, {FixturePane::Details});
+	EngineVisualScriptSemantics engine;
+	fixture.ActiveSemantics = &engine;
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions =
+		fixture.Operations.CreateDataAsset(type->GetAssetType(), "Input/Game.sinput",
+	                                       Json::parse(R"({ "Actions": [ { "Name": "Jump" }, { "Name": "Steer", "Type": "Axis" } ] })"));
+	REQUIRE(actions.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+	fixture.CheckDrawingChangesNothing();
+	auto const codes = [&fixture]()
+	{
+		std::vector<std::string> found;
+		REQUIRE(fixture.Model->GetAnalysis() != nullptr);
+		for (VisualScriptDiagnostic const& diagnostic : fixture.Model->GetAnalysis()->Diagnostics)
+		{
+			found.push_back(fmt::format("{} {}", diagnostic.Code, diagnostic.Node.value_or(0)));
+		}
+		return found;
+	};
+	CHECK(codes() == std::vector<std::string>{"UnknownAction 1", "UnknownAction 2"});
+
+	// The setting: the project's actions, the stored name shown whether the project has it or not.
+	fixture.SelectElements({1});
+	fixture.ImGui.Click(fixture.DetailsRow("Action"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.Details.FindRow("Action/Jump"));
+	CHECK(fixture.Details.FindRow("Action/Steer"));
+	CHECK_FALSE(fixture.Details.FindRow("Action/Jmp"));
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	size_t const undo = fixture.GetUndoCount();
+	PickDetailsItem(fixture, "Action", "Jump");
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Action on Action Pressed in Graph");
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 1)->Settings == Json::object({{"Action", "Jump"}}));
+	// The action already named: choosing it again is no step.
+	PickDetailsItem(fixture, "Action", "Jump");
+	CHECK(fixture.GetUndoCount() == undo + 1);
+
+	// The input of a query, unlinked: the same choice, stored as its literal.
+	fixture.SelectElements({2});
+	PickDetailsItem(fixture, "Action", "Steer");
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 2)->Inputs == Json::object({{"Action", "Steer"}}));
+	fixture.Frames(2);
+	CHECK(codes().empty());
+
+	// Jump renamed in the asset: the window's analysis reads the actions again and flags the old name.
+	REQUIRE(fixture.Operations
+	            .SetDataAssetFields(actions.GetValue(),
+	                                Json::parse(R"({ "Actions": [ { "Name": "Leap" }, { "Name": "Steer", "Type": "Axis" } ] })"))
+	            .IsOk());
+	fixture.Frames(2);
+	CHECK(codes() == std::vector<std::string>{"UnknownAction 1"});
+	CHECK(fixture.Model->GetAnalysis()->Diagnostics[0].Suggestions.front() == "Leap");
+
+	// A project without actions: one warning, and the setting is a text field again.
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", "0"}})).IsOk());
+	fixture.Frames(2);
+	CHECK(codes() == std::vector<std::string>{"NoInputActions 1"});
+	fixture.SelectElements({1});
+	fixture.ImGui.Click(fixture.DetailsRow("Action"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Details.FindRow("Action/Leap"));
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+}
+
+TEST_CASE("VisualScriptEditor: a window whose script names no action is not analyzed again when the project's actions change")
+{
+	Testing::ScriptRuntimeScope runtime;
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Event.Update", glm::vec2(0.0f))};
+	PaneFixture fixture(document, {FixturePane::Details});
+	EngineVisualScriptSemantics engine;
+	fixture.ActiveSemantics = &engine;
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions = fixture.Operations.CreateDataAsset(type->GetAssetType(), "Input/Game.sinput",
+	                                                                       Json::parse(R"({ "Actions": [ { "Name": "Jump" } ] })"));
+	REQUIRE(actions.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+	fixture.Frames(3);
+	REQUIRE(fixture.Model->GetAnalysis() != nullptr);
+	CHECK_FALSE(fixture.Model->GetAnalysis()->NamesInputActions);
+	uint64_t const analyses = fixture.Model->GetAnalysisCount();
+	REQUIRE(fixture.Operations.SetDataAssetFields(actions.GetValue(), Json::parse(R"({ "Actions": [ { "Name": "Leap" } ] })")).IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", "0"}})).IsOk());
+	fixture.Frames(3);
+	CHECK(fixture.Model->GetAnalysisCount() == analyses);
 }
 
 TEST_CASE("VisualScriptEditor: Details' Variable and Function of a node naming another graph list that graph's elements")

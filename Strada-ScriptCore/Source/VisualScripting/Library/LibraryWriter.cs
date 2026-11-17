@@ -189,6 +189,10 @@ internal static class LibraryWriter
 		{
 			writer.WriteBoolean("DefaultsToSelf", true);
 		}
+		if (pin.NamesInputAction)
+		{
+			writer.WriteBoolean("InputAction", true);
+		}
 		if (pin.Role != PinRole.None)
 		{
 			writer.WriteString("Role", pin.Role.ToString());
@@ -261,6 +265,10 @@ internal static class LibraryWriter
 				writer.WriteStringValue(choice);
 			}
 			writer.WriteEndArray();
+		}
+		if (setting.NamesInputAction)
+		{
+			writer.WriteBoolean("InputAction", true);
 		}
 		writer.WriteEndObject();
 	}

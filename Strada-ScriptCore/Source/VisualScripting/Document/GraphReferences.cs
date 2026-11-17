@@ -80,9 +80,34 @@ internal sealed class ReferencedGraph
 	}
 }
 
+// The project's input actions as a references bundle tells them (spec section 6 of IA2): their names, with their letter
+// case, or why the project has none to check names against (Missing: "the project names no input actions"). A bundle
+// without them tells nothing of a project, and action names are then not checked.
+internal sealed class ProjectInputActions
+{
+	private readonly HashSet<string> m_Names;
+
+	internal ProjectInputActions(IReadOnlyList<string> names, string? missing)
+	{
+		Names = names;
+		Missing = missing;
+		m_Names = new HashSet<string>(names, StringComparer.Ordinal);
+	}
+
+	// In the asset's order; empty when Missing says why there are none.
+	internal IReadOnlyList<string> Names { get; }
+
+	internal string? Missing { get; }
+
+	// Names match with their letter case, as the engine's actions find them.
+	internal bool Contains(string name) => m_Names.Contains(name);
+}
+
 // The references bundle of an analysis or a load (spec-slice3 section 2.4): the handle of the document itself (Self, 0 when
-// unknown) and the other graphs its nodes refer to, by handle. The VM accepts any bytes: a bundle that is not of this form
-// holds no graph, and an entry that is not of it is left out, so every Graph setting naming it finds no visual script.
+// unknown), the other graphs its nodes refer to, by handle, and the project's input actions when the host tells them (an
+// analysis of a document with action nodes, never a load). The VM accepts any bytes: a bundle that is not of this form
+// holds no graph, an entry that is not of it is left out, so every Graph setting naming it finds no visual script, and
+// InputActions that are not of their form tell nothing.
 internal sealed class GraphReferences
 {
 	// The bundle holds documents in its Graphs entries: three levels below its root.
@@ -90,15 +115,20 @@ internal sealed class GraphReferences
 
 	private readonly Dictionary<ulong, ReferencedGraph> m_Graphs;
 
-	private GraphReferences(ulong self, Dictionary<ulong, ReferencedGraph> graphs)
+	private GraphReferences(ulong self, Dictionary<ulong, ReferencedGraph> graphs, ProjectInputActions? inputActions)
 	{
 		Self = self;
 		m_Graphs = graphs;
+		InputActions = inputActions;
 	}
 
-	internal static GraphReferences Empty { get; } = new(0, []);
+	internal static GraphReferences Empty { get; } = new(0, [], null);
 
 	internal ulong Self { get; }
+
+	// What the bundle's InputActions member tells of the project's actions: { "Names": [<name>, ...] }, or { "Missing":
+	// "<why there are none>" }; null without the member or for one not of that form.
+	internal ProjectInputActions? InputActions { get; }
 
 	internal int Count => m_Graphs.Count;
 
@@ -147,7 +177,34 @@ internal sealed class GraphReferences
 				}
 			}
 		}
-		return new GraphReferences(self, graphs);
+		ProjectInputActions? inputActions = root.TryGetProperty("InputActions", out JsonElement actions) ? ReadInputActions(actions) : null;
+		return new GraphReferences(self, graphs, inputActions);
+	}
+
+	private static ProjectInputActions? ReadInputActions(JsonElement element)
+	{
+		if (element.ValueKind != JsonValueKind.Object || !JsonText.HasTextNames(element))
+		{
+			return null;
+		}
+		if (element.TryGetProperty("Missing", out JsonElement missingValue))
+		{
+			return JsonText.TryGetString(missingValue, out string? missing) && missing.Length > 0 ? new ProjectInputActions([], missing) : null;
+		}
+		if (!element.TryGetProperty("Names", out JsonElement list) || list.ValueKind != JsonValueKind.Array)
+		{
+			return null;
+		}
+		List<string> names = [];
+		foreach (JsonElement entry in list.EnumerateArray())
+		{
+			if (!JsonText.TryGetString(entry, out string? name))
+			{
+				return null;
+			}
+			names.Add(name);
+		}
+		return new ProjectInputActions(names, null);
 	}
 
 	// A handle: a JSON string holding a decimal number from 1 to 2^64 - 1 (spec section 2.1's literal of

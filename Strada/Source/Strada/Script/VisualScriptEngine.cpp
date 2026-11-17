@@ -2,6 +2,8 @@
 #include "Strada/Script/VisualScriptEngine.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Platform.h"
@@ -86,6 +88,102 @@ namespace Strada
 				return MakeError("asset {} is a {}, not a VisualScript", graph, AssetTypeToString(type));
 			}
 			return AssetManager::TryGetAsset<VisualScriptAsset>(graph);
+		}
+
+		// --- The project's input actions, as analyses check action names against them ---
+
+		// The host's source (VisualScriptEngine::SetInputActionsSource) and what GetInputActions read last: the asset it
+		// answered, the registry's version and the data assets' epoch then, and the actions made of them. A host's fact, not
+		// the runtime's: it outlives ScriptEngine::Shutdown.
+		struct InputActionsSourceState
+		{
+			void const* Owner = nullptr;
+			VisualScriptInputActionsSource Source;
+			std::optional<AssetHandle> Asset;
+			uint64_t AssetVersion = 0;
+			uint64_t DataEpoch = 0;
+			Ref<VisualScriptInputActions const> Actions;
+		};
+
+		InputActionsSourceState& GetInputActionsSourceState()
+		{
+			static InputActionsSourceState s_State;
+			return s_State;
+		}
+
+		// The names of the actions of the asset a project's settings name for them, or why there are none.
+		VisualScriptInputActions ReadInputActions(AssetHandle asset)
+		{
+			VisualScriptInputActions actions;
+			if (!asset.IsValid())
+			{
+				actions.Missing = "the project names no input actions (Project Settings, Input Actions)";
+				return actions;
+			}
+			AssetType const type = TypedDataAsset<InputActionMap>::GetStaticType();
+			Ref<TypedDataAsset<InputActionMap>> const map =
+				AssetManager::IsInitialized() && type != AssetType::None && AssetManager::GetAssetType(asset) == type
+					? AssetManager::GetAsset<TypedDataAsset<InputActionMap>>(asset)
+					: nullptr;
+			if (map == nullptr)
+			{
+				std::optional<AssetMetadata> const metadata =
+					AssetManager::IsInitialized() ? AssetManager::GetMetadata(asset) : std::nullopt;
+				std::string const name = metadata && metadata->IsFileAsset() ? metadata->Path : asset.ToString();
+				actions.Missing = fmt::format("the project's input actions, {}, do not load as an InputActions asset", name);
+				return actions;
+			}
+			actions.Names.reserve(map->GetData().Actions.size());
+			for (InputAction const& action : map->GetData().Actions)
+			{
+				actions.Names.push_back(action.Name);
+			}
+			return actions;
+		}
+
+		// Whether a node may name an input action, so that its document is analyzed with the project's actions: an action
+		// event, or a call of a Strada.Input member with an input that names one (the scripting API's action parameters are
+		// all Input's: a ScriptCoreTests case pins it), which the library says (read when such a call is first met, as
+		// VisualScriptEngine::GetLibrary reads it). A type the library does not hold as it is stored (no signature, a
+		// redirect) may resolve to such a member. A prefix test first, so the nodes of other kinds cost a comparison.
+		bool MayNameInputAction(VisualScriptNode const& node, Ref<VisualScriptLibrary const>& library)
+		{
+			if (node.Type == "Event.ActionPressed" || node.Type == "Event.ActionReleased")
+			{
+				return true;
+			}
+			if (!node.Type.starts_with("Call:Strada.Input."))
+			{
+				return false;
+			}
+			if (library == nullptr)
+			{
+				library = VisualScriptEngine::GetLibrary();
+			}
+			VisualScriptNodeTemplate const* const kind = library != nullptr ? library->FindNode(node.Type) : nullptr;
+			return kind == nullptr || std::any_of(kind->Pins.begin(), kind->Pins.end(),
+			                                      [](VisualScriptPin const& pin)
+			                                      {
+													  return pin.NamesInputAction;
+												  });
+		}
+
+		bool MayNameInputActions(VisualScriptDocument const& document)
+		{
+			Ref<VisualScriptLibrary const> library;
+			auto const graphNames = [&library](VisualScriptGraph const& graph)
+			{
+				return std::any_of(graph.Nodes.begin(), graph.Nodes.end(),
+				                   [&library](VisualScriptNode const& node)
+				                   {
+									   return MayNameInputAction(node, library);
+								   });
+			};
+			return graphNames(document.Graph) || std::any_of(document.Functions.begin(), document.Functions.end(),
+			                                                 [&graphNames](VisualScriptFunction const& function)
+			                                                 {
+																 return graphNames(function.Graph);
+															 });
 		}
 
 		// --- References: the other graphs a document's nodes refer to, as the runtime receives them ---
@@ -289,10 +387,12 @@ namespace Strada
 
 		// The references the runtime receives beside a document (spec-slice3 section 2.4), compact:
 		// {"Self":"<handle>","Graphs":[{"Graph":"<handle>","Name":"<path>","Form":"Full"|"Interface","Document":{...}}, or
-		// {"Graph":"<handle>","Name":"<path>","Error":"<why it is absent>"}, ...]}. The documents are the content form that
-		// VisualScriptSerializer::WriteContentText writes, kept per handle; the rest is written around them.
+		// {"Graph":"<handle>","Name":"<path>","Error":"<why it is absent>"}, ...]}, and for an analysis told the project's input
+		// actions "InputActions":{"Names":["<name>",...]} or {"Missing":"<why there are none>"} after Graphs. The documents are
+		// the content form that VisualScriptSerializer::WriteContentText writes, kept per handle; the rest is written around
+		// them.
 		std::string WriteReferences(ScriptEngineData& data, std::vector<SentReference> const& references, AssetHandle self,
-		                            bool disableDevelopmentNodes)
+		                            bool disableDevelopmentNodes, VisualScriptInputActions const* inputActions = nullptr)
 		{
 			std::string text = R"({"Self":")" + self.ToString() + R"(","Graphs":[)";
 			for (size_t index = 0; index < references.size(); index++)
@@ -315,7 +415,30 @@ namespace Strada
 				}
 				text += '}';
 			}
-			text += "]}";
+			text += ']';
+			if (inputActions != nullptr)
+			{
+				if (!inputActions->Missing.empty())
+				{
+					text += R"(,"InputActions":{"Missing":)";
+					text += ToJsonString(inputActions->Missing);
+					text += '}';
+				}
+				else
+				{
+					text += R"(,"InputActions":{"Names":[)";
+					for (size_t index = 0; index < inputActions->Names.size(); index++)
+					{
+						if (index > 0)
+						{
+							text += ',';
+						}
+						text += ToJsonString(inputActions->Names[index]);
+					}
+					text += "]}";
+				}
+			}
+			text += '}';
 			return text;
 		}
 
@@ -764,8 +887,12 @@ namespace Strada
 		timer.Reset();
 		// The editor is a development host: analyses read every document as it is.
 		std::vector<SentReference> const references = CollectReferencedGraphs(document, self);
-		std::string const referencesText =
-			SendsReferences(document, references) ? WriteReferences(*data, references, self, false) : std::string();
+		// Only a document that may name an action reads the project's actions, and is checked against them.
+		bool const namesInputActions = MayNameInputActions(document);
+		Ref<VisualScriptInputActions const> const inputActions = namesInputActions ? GetInputActions() : nullptr;
+		std::string const referencesText = SendsReferences(document, references) || inputActions != nullptr
+		                                       ? WriteReferences(*data, references, self, false, inputActions.get())
+		                                       : std::string();
 		timings.References = timer.GetElapsedMilliseconds();
 		timer.Reset();
 		std::string answer;
@@ -799,6 +926,8 @@ namespace Strada
 				graphs.emplace_back(reference.Graph, reference.Document);
 			}
 		}
+		analysis.GetValue().NamesInputActions = namesInputActions;
+		analysis.GetValue().InputActions = inputActions;
 		Ref<VisualScriptAnalysis const> made = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
 		// The newest last: the entry of self moves there, and the least recently analyzed graph goes past the limit.
 		if (previous != kept.end())
@@ -817,6 +946,52 @@ namespace Strada
 	{
 		ScriptEngineData const* const data = GetData();
 		return data != nullptr ? data->LastAnalysisTimings : VisualScriptAnalysisTimings{};
+	}
+
+	void VisualScriptEngine::SetInputActionsSource(void const* owner, VisualScriptInputActionsSource source)
+	{
+		InputActionsSourceState& state = GetInputActionsSourceState();
+		state = InputActionsSourceState{};
+		if (source)
+		{
+			state.Owner = owner;
+			state.Source = std::move(source);
+		}
+	}
+
+	void VisualScriptEngine::ClearInputActionsSource(void const* owner)
+	{
+		InputActionsSourceState& state = GetInputActionsSourceState();
+		if (state.Source && state.Owner == owner)
+		{
+			state = InputActionsSourceState{};
+		}
+	}
+
+	Ref<VisualScriptInputActions const> VisualScriptEngine::GetInputActions()
+	{
+		InputActionsSourceState& state = GetInputActionsSourceState();
+		std::optional<AssetHandle> const asset = state.Source ? state.Source() : std::nullopt;
+		if (!asset)
+		{
+			return nullptr;
+		}
+		uint64_t const assetVersion = AssetManager::IsInitialized() ? AssetManager::GetVersion() : 0;
+		uint64_t const dataEpoch = DataAssetRegistry::GetEpoch();
+		if (state.Actions != nullptr && state.Asset == asset && state.AssetVersion == assetVersion && state.DataEpoch == dataEpoch)
+		{
+			return state.Actions;
+		}
+		VisualScriptInputActions read = ReadInputActions(*asset);
+		state.Asset = asset;
+		state.AssetVersion = assetVersion;
+		state.DataEpoch = dataEpoch;
+		// The same object while the names stay the same: keepers of analyses compare pointers.
+		if (state.Actions == nullptr || !(*state.Actions == read))
+		{
+			state.Actions = CreateRef<VisualScriptInputActions const>(std::move(read));
+		}
+		return state.Actions;
 	}
 
 	VisualScriptLoadTimings VisualScriptEngine::TakeLoadTimings()
