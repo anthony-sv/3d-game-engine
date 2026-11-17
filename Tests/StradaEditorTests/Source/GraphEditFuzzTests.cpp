@@ -15,6 +15,7 @@
 #include "Strada/Scene/Scene.h"
 
 #include <doctest/doctest.h>
+#include <glm/glm.hpp>
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
@@ -34,7 +35,8 @@ using namespace Strada;
 
 namespace
 {
-	// A project open in an editor model with the editor's commands, as the editor layer sets them up.
+	// A project open in an editor model with the editor's commands, as the editor layer sets them up. It names input actions
+	// (Jump and Steer), so that a script naming others gets UnknownAction and its "Use <name>" fixes (MakeActionsSeed).
 	struct EditFuzzFixture
 	{
 		Testing::AssetManagerScope Assets;
@@ -47,6 +49,11 @@ namespace
 		{
 			REQUIRE(RegisterEditorCommands(Registry, Operations, EditorCommandEnvironment()).IsOk());
 			REQUIRE(Operations.CreateProject(Directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+			Json const actions = Ok(
+				"input-actions.create",
+				Json::object({{"path", "Input/Fuzz.sinput"},
+			                  {"fields", Json::parse(R"({ "Actions": [ { "Name": "Jump" }, { "Name": "Steer", "Type": "Axis" } ] })")}}));
+			Ok("project.settings", Json::object({{"settings", Json::object({{"InputActions", actions["inputActions"]["id"]}})}}));
 		}
 
 		CommandResult Run(std::string_view name, Json params)
@@ -75,6 +82,32 @@ namespace
 			return std::string(bytes.GetValue().As<char>(), static_cast<size_t>(bytes.GetValue().GetSize()));
 		}
 	};
+
+	// A script naming input actions the fixture's project lacks, in an event's setting and in a query's input: its analysis
+	// offers UnknownAction with a "Use <name>" fix for each of the project's actions (VisualScriptFixKind::UseAction), which
+	// the batches' Fix operations draw from like every other quick fix.
+	Json MakeActionsSeed()
+	{
+		VisualScriptDocument document;
+		VisualScriptNode pressed;
+		pressed.ID = 1;
+		pressed.Type = "Event.ActionPressed";
+		pressed.Position = glm::vec2(0.0f, 0.0f);
+		pressed.Settings = Json::object({{"Action", "Jupm"}});
+		VisualScriptNode log;
+		log.ID = 2;
+		log.Type = "Call:Strada.Log.Info(string)";
+		log.Position = glm::vec2(320.0f, 0.0f);
+		log.Inputs = Json::object({{"Message", "Pressed"}});
+		VisualScriptNode read;
+		read.ID = 3;
+		read.Type = "Call:Strada.Input.GetAction(string)";
+		read.Position = glm::vec2(0.0f, 200.0f);
+		read.Inputs = Json::object({{"Action", "Ster"}});
+		document.Graph.Nodes = {pressed, log, read};
+		document.Graph.Links.push_back({{1, "Then"}, {2, "Execute"}});
+		return VisualScriptSerializer::SerializeDocument(document);
+	}
 
 	// Builds graph.edit batches from what a document holds: its sub-graphs' nodes, links and comment boxes, the pins its
 	// analysis gives each node, its variables, locals and functions, the quick fixes of its diagnostics and a clipboard text,
@@ -806,8 +839,8 @@ TEST_CASE("VisualScriptBatch: random batches either fail naming an operation and
 	REQUIRE(editor.IsOk());
 	Result<Json> editorDocument = ParseJson(editor.GetValue());
 	REQUIRE(editorDocument.IsOk());
-	std::array<Json, 2> const seeds = {Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph")["VisualScript"],
-	                                   editorDocument.TakeValue()};
+	std::array<Json, 3> const seeds = {Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph")["VisualScript"],
+	                                   editorDocument.TakeValue(), MakeActionsSeed()};
 
 	Testing::FuzzRandom random(10800);
 	std::map<std::string, size_t> kinds;
@@ -933,8 +966,8 @@ TEST_CASE("VisualScriptBatch: a batch of operations without labels writes the do
 	REQUIRE(editor.IsOk());
 	Result<Json> editorDocument = ParseJson(editor.GetValue());
 	REQUIRE(editorDocument.IsOk());
-	std::array<Json, 2> const seeds = {Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph")["VisualScript"],
-	                                   editorDocument.TakeValue()};
+	std::array<Json, 3> const seeds = {Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph")["VisualScript"],
+	                                   editorDocument.TakeValue(), MakeActionsSeed()};
 
 	Testing::FuzzRandom random(11200);
 	std::map<std::string, size_t> kinds;
