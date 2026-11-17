@@ -302,7 +302,12 @@ graphs.
   exactly one physics step**, the first at or after its frame. Code that a step started and that continues later (after
   a `Flow.Delay`, a `Flow.WaitUntil`'s recheck, a Tween's or Timeline's tick) reads no edge, and code the debugger stopped
   in a step reads that step's when it resumes, so no edge is ever seen twice.
-- `Event.ActionPressed` and `Event.ActionReleased` (setting `Action`) run once per edge.
+- `Event.ActionPressed` and `Event.ActionReleased` (setting `Action`, the action's name with its letter case) run once
+  per edge, in the frame the action went down or up again: before the frame's clicks and `Event.Update`, after every C#
+  script's `OnActionPressed` or `OnActionReleased`, and never in a fixed step or on a debugger resume. A tap within one
+  frame runs the press, then the release; a release and press again between two frames runs the release first. Two
+  enabled nodes of one kind for one action in a graph are a duplicate event, as two of one key are. They fire however
+  the action got its value: a key, a gamepad, an override (Set Action Override, an agent's `input.set`).
 - **Set Action Override** (`Call:Strada.Input.SetActionOverride(string,float)`), **Set Action Vector Override** and
   **Clear Action Override** put a value on an action as one more device would, from the next frame on: a graph that
   drives the game (an autopilot) or a test scene that presses a button.

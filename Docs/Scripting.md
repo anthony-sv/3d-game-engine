@@ -220,6 +220,19 @@ of that frame: a key pressed before a frame is the action's value in that frame.
   or a graph drives the game (an autopilot, an attract mode) and how a test scene presses a button.
 - Names match with their letter case. A name the asset lacks, and every name in a project that names no actions, reads
   zero (the log says so once per name).
+
+Who sees an edge (`IsActionPressed`, `IsActionReleased`), with a 60 Hz physics step: values (`GetAction`,
+`GetActionVector`) and `IsActionDown` are always the frame's latest evaluation.
+
+| Code that asks | Sees an edge | So at 30 frames per second (two steps a frame) | And at 144 (a step every 2 or 3 frames) |
+|---|---|---|---|
+| `OnUpdate`, `OnActionPressed` and `OnActionReleased`, clicks, contact events, `OnDestroy`, and whatever they call | In the frame it happened in, once | Each frame's edges, in that frame | Each frame's edges, in that frame |
+| `OnFixedUpdate`, and whatever it calls or sends an event to (a graph, `SendEvent`) | In exactly one physics step: the first at or after its frame | Only the first of the frame's two steps | Carried over the frames without a step, to the next step |
+| Code a step started that goes on later outside a step (a graph's `Flow.Delay`, `Flow.WaitUntil`, a Tween or Timeline tick) | Never | — | — |
+| Code a step started that the debugger stopped and resumes | The edges of the step it stopped in | — | — |
+
+A press and a release within one frame reach a step as both edges with the action up; two presses before one step
+reach it as one. An override set in `OnUpdate` is read from the next frame on.
 - `InputActions.ActionNames` lists an asset's actions (`Assets.Load<InputActions>("Input/Game.sinput")`, or a field of
   type `InputActions`), for a settings screen.
 

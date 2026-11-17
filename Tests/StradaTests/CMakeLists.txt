@@ -106,6 +106,7 @@ add_executable(StradaTests
     Source/Renderer/UIRenderingTests.cpp
     Source/Scene/ComponentReferenceTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
+    Source/Scene/InputActionsBenchmarkTests.cpp
     Source/Scene/ParticleEmitterTests.cpp
     Source/Scene/PostProcessVolumeTests.cpp
     Source/Scene/SceneAudioTests.cpp

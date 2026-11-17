@@ -896,6 +896,93 @@ TEST_CASE("VisualScriptDebug: input given while an execution is stopped is read 
 	CHECK(Input::IsKeyDown(KeyCode::Space));
 }
 
+TEST_CASE("VisualScriptDebug: an action input.set gives while an execution is stopped is not read by the resumed code, and the next "
+          "frame reads it once, while an injected gamepad's button is read by both, as keys are")
+{
+	struct InputGuard
+	{
+		InputGuard() { Input::Reset(); }
+		~InputGuard() { Input::Reset(); }
+		InputGuard(InputGuard const&) = delete;
+		InputGuard& operator=(InputGuard const&) = delete;
+	} const inputGuard;
+	DebugFixture fixture;
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions = fixture.Operations.CreateDataAsset(
+		type->GetAssetType(), "Input/Game.sinput",
+		Json::parse(R"({ "Actions": [ { "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" } ] } ] })"));
+	REQUIRE(actions.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+	// On every update: Ticks += 1 at node 11; PadSaw += 1 at node 44 when gamepad 0's A was pressed (the Branch at node
+	// 40, its condition read by node 41); then Saw += 1 at node 14 when Jump was pressed (the Branch at node 20, its
+	// condition read by node 21). Event.ActionPressed (node 30) adds one to Events at node 31.
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Ticks", "int", 0));
+	document.Variables.push_back(MakeVariable(2, "Saw", "int", 0));
+	document.Variables.push_back(MakeVariable(3, "Events", "int", 0));
+	document.Variables.push_back(MakeVariable(4, "PadSaw", "int", 0));
+	document.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	AddIncrement(document.Graph, 11, 1);
+	document.Graph.Nodes.push_back(MakeNode(40, "Flow.Branch"));
+	document.Graph.Nodes.push_back(MakeNode(41, "Call:Strada.Input.IsGamepadButtonPressed(Strada.GamepadButton,int)", Json::object(),
+	                                        Json::object({{"Button", "A"}, {"Gamepad", 0}})));
+	AddIncrement(document.Graph, 44, 4);
+	document.Graph.Nodes.push_back(MakeNode(20, "Flow.Branch"));
+	document.Graph.Nodes.push_back(
+		MakeNode(21, "Call:Strada.Input.IsActionPressed(string)", Json::object(), Json::object({{"Action", "Jump"}})));
+	AddIncrement(document.Graph, 14, 2);
+	document.Graph.Nodes.push_back(MakeNode(30, "Event.ActionPressed", Json::object({{"Action", "Jump"}})));
+	AddIncrement(document.Graph, 31, 3);
+	document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	document.Graph.Links.push_back(MakeLink(11, "Then", 40, "Execute"));
+	document.Graph.Links.push_back(MakeLink(41, "Result", 40, "Condition"));
+	document.Graph.Links.push_back(MakeLink(40, "True", 44, "Execute"));
+	document.Graph.Links.push_back(MakeLink(40, "False", 20, "Execute"));
+	document.Graph.Links.push_back(MakeLink(44, "Then", 20, "Execute"));
+	document.Graph.Links.push_back(MakeLink(21, "Result", 20, "Condition"));
+	document.Graph.Links.push_back(MakeLink(20, "True", 14, "Execute"));
+	document.Graph.Links.push_back(MakeLink(30, "Then", 31, "Execute"));
+	std::string const graph = fixture.CreateGraph("Scripts/Actions.sgraph", document);
+	std::string const runner = fixture.CreateRunner("Actions", graph);
+	auto const counts = [&fixture, &runner]
+	{
+		return Json::array({fixture.Variable(runner, "Ticks"), fixture.Variable(runner, "Saw"), fixture.Variable(runner, "Events"),
+		                    fixture.Variable(runner, "PadSaw")});
+	};
+
+	// The first frame stops before Ticks is counted.
+	fixture.Start(true);
+	fixture.Breakpoint(graph, Json::object({{"node", 11}}));
+	REQUIRE(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["stopped"] == true);
+
+	// Jump is set while the execution is stopped, as an override and through its key, and gamepad 0's A is pressed: actions
+	// are evaluated by game frames alone, so the resumed code reads the frame's evaluation, which had no press, while the
+	// pad's own query reads the press of that moment, as a key's does.
+	fixture.Ok("input.set", Json::object({{"actions", Json::object({{"Jump", true}})},
+	                                      {"keys", Json::object({{"Space", true}})},
+	                                      {"gamepads", Json::object({{"0", Json::object({{"buttons", Json::object({{"A", true}})}})}})}}));
+	for (int frame = 0; frame < 3; frame++)
+	{
+		fixture.EditorFrame();
+		Input::EndApplicationFrame();
+	}
+	fixture.Ok("graph.breakpoints", Json::object({{"graph", graph}, {"clear", true}}));
+	Json const continued = fixture.Ok("graph.continue");
+	CHECK(continued["outcome"] == "Ended");
+	CHECK(counts() == Json::array({1, 0, 0, 1}));
+
+	// The next frame evaluates the action's press, once: its query and its event; the pad's press is seen again, since the
+	// input frame ends only after a game frame.
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+	CHECK(counts() == Json::array({2, 1, 1, 2}));
+	fixture.EditorFrame();
+	Input::EndApplicationFrame();
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+	CHECK(counts() == Json::array({3, 1, 1, 2}));
+	CHECK(fixture.Context.GetScene().GetInputActions().IsDown(0));
+}
+
 TEST_CASE("VisualScriptDebug: a fixed step's code stopped in the first step of a frame reads that step's action edges when it resumes, "
           "once")
 {

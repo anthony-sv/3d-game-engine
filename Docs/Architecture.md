@@ -1892,7 +1892,11 @@ OnUpdateRuntime: BeginTransformFrame → UpdateInputActions (evaluate; the edges
   (the script engine's scene context).
 - The evaluation allocates nothing (the state is sized when it takes a set) and is timed by `Input.EvaluateActions`
   inside `Scene.InputActions`. Its target on the reference machine: 64 actions of three bindings each in at most
-  0.05 ms a frame.
+  0.05 ms a frame, judged on `Scene.InputActions`, the frame's whole call. StradaTests' case "SceneInputActions: 64
+  actions of three bindings each, benchmark" measures it in a Release build when `STRADA_INPUT_ACTIONS_BENCHMARK=1`
+  (it skips otherwise): 48 Button and Axis actions (a key; a gamepad button or trigger of any pad with a dead zone and
+  a cubic response curve; an axis of two keys) and 16 Vector2 actions (a stick of any pad with a dead zone and the
+  curve; a vector of four keys; a stick of pad 0), with 16 injected pads, the input changed before every evaluation.
 
 **The fixed-step rule** (the effort's rule for actions):
 
@@ -2015,15 +2019,24 @@ keeps, per slot, the device's state and an optional injected state:
 
 - `actions`: action name to a number, a bool (1 or 0), `[x, y]` (for `Vector2` actions) or null (clears the override):
   the same overrides as scripts', held until `input.release`, a null or the end of play mode. Names are checked against
-  the open project's actions (the asset `ProjectSettings::InputActions` names), and an unknown name, a value of the
-  wrong shape for the action's type or a non-finite one is refused, changing nothing, as keys are. A project that names
-  no actions refuses every name, saying so.
-- `gamepads`: slot `"0"` to `"15"` to `{ "buttons": { <GamepadButton name>: bool }, "axes": { <GamepadAxis name>:
-  number } }`, or null (releases the injection). The first injection of a slot starts it connected and at rest (buttons
-  up, sticks 0, triggers -1: `Input`'s own convention, which `Input.GetGamepadAxis` reads; actions read the trigger as 0);
-  later ones change only what they name. Axis values are -1 to 1.
+  the open project's actions (the asset `ProjectSettings::InputActions` names, read from the asset manager as the scene
+  reads it), and an unknown name (with its letter case), a value of the wrong shape for the action's type or one that is
+  not finite as a float is refused (InvalidParams, the message listing the actions), changing nothing, as keys are. A
+  project that names no actions, or names an asset that does not load as one, refuses every name, saying so
+  (InvalidOperation); an empty `actions` asks for nothing. A request that would take the overrides past
+  `Input::MaxActionOverrides` names is refused before it changes anything.
+- `gamepads`: slot `"0"` to `"15"` (decimal, no sign, space or leading zero) to `{ "buttons": { <GamepadButton name>:
+  bool }, "axes": { <GamepadAxis name>: number } }`, or null (releases the injection). The first injection of a slot
+  starts it connected and at rest (buttons up, sticks 0, triggers -1: `Input`'s own convention, which
+  `Input.GetGamepadAxis` reads; actions read the trigger as 0); later ones change only what they name. Axis values are
+  -1 to 1 (not a number is refused).
+- Every entry of both, and of the keys and mouse buttons, is checked before anything changes.
 - While a game is paused, both are held and the next game frame's evaluation reads them, once, as keys given to a paused
-  game reach its next frame. The answer reports the overrides held and the injected slots beside the keys.
+  game reach its next frame. Code a debugger resume runs reads actions as its frame evaluated them, so an action set
+  while an execution is stopped reaches the next frame alone; an injected pad's own queries (`IsGamepadButtonPressed`)
+  are read by the resumed code and the next frame, as keys are. The answer reports, beside the keys, `actions` (every
+  override held, scripts' too, as `[x, y]`) and `gamepads` (every injected slot: `connected`, the `buttons` down and all
+  six `axes`).
 
 **The project and exported games.** `ProjectSettings::InputActions` (an asset reference to an `InputActions` asset; a
 compatible field of project format 1, edited in the Project Settings panel and through `project.settings`) names the
@@ -3571,7 +3584,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   meanwhile and its toolbar says how to release it; without the input the game gets nothing (its UI follows no cursor:
   `PlayMode::SetUIPointerEnabled` follows `GameInputRouter::HasInput` from the frame the input changes hands, before the
   scene updates) and the editor works as usual. Automation's `input.set` and `input.release` act on the game's input
-  directly, and `ui.layout` tells where the UI's elements and buttons are in the game view.
+  directly (keys, the mouse, input action overrides and injected gamepads, which the window's polls leave alone: §7.4),
+  and `ui.layout` tells where the UI's elements and buttons are in the game view.
 - The start screen (`Editor/StartScreen/`): `StartScreenPanel` draws `StartScreenModel` over the main viewport's work
   area (under the menu bar) while the model is visible: at start without a project in an editor with a window (unless
   `--no-start-screen`, `EditorLayerSpecification::StartScreen`, which `strada mcp` passes), after File > Close Project,

@@ -264,6 +264,8 @@ namespace
 		std::vector<std::string> OpenGraphs;
 		Json ProjectSettings = Json::object();
 		Json SceneSettings = Json::object();
+		// The names of the actions the project's InputActions asset holds (input.set's actions).
+		std::vector<std::string> ActionNames;
 	};
 
 	// Values for a string parameter: ones that name what exists or would be accepted, and edge cases to be refused.
@@ -337,6 +339,10 @@ namespace
 			if (depth > 0 && m_Random.Pick(10) == 0)
 			{
 				return InvalidValue();
+			}
+			if (property == "actions" && !schema.contains("type"))
+			{
+				return ActionValue();
 			}
 			std::string const type = PickType(schema);
 			if (type == "object")
@@ -474,6 +480,12 @@ namespace
 				std::array<double, 7> const coordinates = {
 					0.0, 120.5, -2400.0, 9.0e6, 1.0e8, std::numeric_limits<double>::quiet_NaN(), -std::numeric_limits<double>::infinity()};
 				return coordinates[m_Random.Pick(coordinates.size())];
+			}
+			// Gamepad axes: the range input.set takes, and not a number, which no schema bound refuses.
+			if (property == "axes")
+			{
+				std::array<double, 6> const positions = {-1.0, -0.25, 0.0, 0.5, 1.0, std::numeric_limits<double>::quiet_NaN()};
+				return positions[m_Random.Pick(positions.size())];
 			}
 			double minimum = schema.value("minimum", -1.0e30);
 			double maximum = schema.value("maximum", 1.0e30);
@@ -924,6 +936,26 @@ namespace
 			return PickFrom(choices);
 		}
 
+		// An input action's value for input.set: each shape an action type takes (Button and Axis actions a number or a bool,
+		// Vector2 actions [x, y]), null (clears), and values no action takes (too large for a float, not finite, the wrong
+		// shape).
+		Json ActionValue()
+		{
+			std::array<Json, 12> const values = {Json(true),
+			                                     Json(false),
+			                                     Json(1.0),
+			                                     Json(-0.5),
+			                                     Json(0.0),
+			                                     Json::array({0.6, -0.8}),
+			                                     Json::array({0.0, 0.0}),
+			                                     Json(),
+			                                     Json(1.0e308),
+			                                     Json(std::numeric_limits<double>::quiet_NaN()),
+			                                     Json::array({1.0}),
+			                                     Json("up")};
+			return values[m_Random.Pick(values.size())];
+		}
+
 		// A value of any kind, which the schema most likely rejects.
 		Json InvalidValue()
 		{
@@ -1295,6 +1327,22 @@ namespace
 			{
 				return PickFrom(MouseButtonNames);
 			}
+			if (property == "actions")
+			{
+				return !m_State.ActionNames.empty() && m_Random.Pick(4) != 0 ? PickFrom(m_State.ActionNames) : PickFrom(BadActionNames);
+			}
+			if (property == "gamepads")
+			{
+				return m_Random.Pick(5) != 0 ? PickFrom(GamepadSlots) : PickFrom(BadGamepadSlots);
+			}
+			if (property == "buttons")
+			{
+				return PickFrom(GamepadButtonNames);
+			}
+			if (property == "axes")
+			{
+				return PickFrom(GamepadAxisNames);
+			}
 			return m_Random.Pick(2) == 0 ? PickFrom(m_State.Components) : PickFrom(GenericStrings);
 		}
 
@@ -1509,6 +1557,13 @@ namespace
 			"", "x", "Fuzz", "  ", "名前", std::string(300, 'a'), std::string("nul\0inside", 10), "18446744073709551615", "../.."};
 		static inline std::vector<std::string> const KeyNames = {"A", "Space", "Escape", "Left", "F12", "NotAKey", ""};
 		static inline std::vector<std::string> const MouseButtonNames = {"Left", "Right", "Middle", "Button8", ""};
+		// input.set's actions and gamepads: names the project lacks or spells otherwise, and slots, buttons and axes that are
+		// not.
+		static inline std::vector<std::string> const BadActionNames = {"", "Missing", "jump", "Jump ", std::string(70, 'a')};
+		static inline std::vector<std::string> const GamepadSlots = {"0", "1", "7", "15"};
+		static inline std::vector<std::string> const BadGamepadSlots = {"16", "01", "-1", " 1", "x", ""};
+		static inline std::vector<std::string> const GamepadButtonNames = {"A", "B", "Start", "DPadUp", "RightBumper", "Nope", ""};
+		static inline std::vector<std::string> const GamepadAxisNames = {"LeftX", "LeftY", "RightTrigger", "LeftTrigger", "Nope"};
 
 		Testing::FuzzRandom m_Random;
 		Testing::DocumentMutator m_Mutator;
@@ -1667,6 +1722,12 @@ namespace
 			}
 			Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}, {"fields", {{"Roughness", 0.25}}}}));
 			ReseedDataAssets(EditorState());
+			// The project's input actions, one of each type, so that input.set's actions reach their work.
+			Ok("input-actions.create", Json::object({{"path", "Input/Fuzz.sinput"}, {"fields", Json::parse(R"({ "Actions": [
+				{ "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" }, { "Controls": "Gamepad/A" } ] },
+				{ "Name": "Steer", "Type": "Axis", "Bindings": [ { "Controls": "Key/A Key/D" } ] },
+				{ "Name": "Move", "Type": "Vector2", "Bindings": [ { "Controls": "Gamepad/LeftStick" } ] } ] })")}}));
+			Ok("project.settings", Json::object({{"settings", Json::object({{"InputActions", "asset://Input/Fuzz.sinput"}})}}));
 			// The VisualScript component was created without a graph: it gets one.
 			REQUIRE_FALSE(visualScript.empty());
 			std::string const graph = Ok("graph.create", Json::object({{"path", SeedGraphPath}}))["asset"].get<std::string>();
@@ -2105,6 +2166,22 @@ namespace
 			}
 			state.ProjectSettings = Ok("project.info")["settings"];
 			state.SceneSettings = Ok("scene.settings")["settings"];
+			// The project's actions as input.set checks names against them (the fuzz may have renamed or removed them).
+			if (Json const named = state.ProjectSettings.value("InputActions", Json());
+			    named.is_string() && !named.get<std::string>().empty())
+			{
+				CommandResult actions = Run("input-actions.get", Json::object({{"inputActions", named}}));
+				if (actions.IsOk() && actions.GetValue()["fields"].value("Actions", Json()).is_array())
+				{
+					for (Json const& action : actions.GetValue()["fields"]["Actions"])
+					{
+						if (action.value("Name", Json()).is_string())
+						{
+							state.ActionNames.push_back(action["Name"].get<std::string>());
+						}
+					}
+				}
+			}
 			return state;
 		}
 	};
