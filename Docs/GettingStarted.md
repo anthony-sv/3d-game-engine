@@ -203,7 +203,7 @@ switch day and night and switch between flying and walking.
 
 Prism Break plays on the keyboard or a gamepad, through its input actions: Space (the pad's A) or a click starts a game
 and launches the ball; the mouse, A and D, the arrow keys or the left stick (the pad's left and right) move the paddle;
-Escape (the pad's Start) pauses; R at the title rebinds Launch to the next key pressed, kept for the next run. Blocks: Left and Right (or A and D) move a piece, Up, W or X turns it clockwise and Z counter-clockwise,
+Escape (the pad's Start) pauses; R at the title rebinds Launch to the next key pressed (any key but R), kept for the next run. Blocks: Left and Right (or A and D) move a piece, Up, W or X turns it clockwise and Z counter-clockwise,
 Down or S drops it faster and Space at once, C or Shift holds it, Escape or P pauses and R starts again.
 
 ### What each sample shows

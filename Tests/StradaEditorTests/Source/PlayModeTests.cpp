@@ -2161,7 +2161,7 @@ TEST_CASE("PlayCommands: input.set's gamepads play the Prism Break sample throug
 }
 
 TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the player presses next, names it and its conflict on "
-          "the screen, and the next play keeps it")
+          "the screen, refuses R and a gamepad's controls, and the next play keeps it")
 {
 	PrismBreakPlay sample;
 	sample.Start();
@@ -2220,13 +2220,58 @@ TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the playe
 	sample.Press("A");
 	CHECK(sample.GetText("Binding Text") == "LAUNCH: A   ALSO BOUND TO MOVE      R REBINDS IT");
 	CHECK(sample.GetState() == "Title");
+	sample.Stop();
 
-	// R answered with R binds R: the key that ended the capture opens no other.
+	// The conflict comes from the bindings, not from the capture's answer: the next play names it too.
+	sample.Start();
+	sample.PointAt(320.0f);
+	sample.Advance(60);
+	REQUIRE(sample.GetState() == "Title");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: A   ALSO BOUND TO MOVE      R REBINDS IT");
+
+	// R answered with R is refused: bound to R, Launch would start a game before R could open a capture. Launch keeps A,
+	// the screen says why and listens again, and the R that answered opens no other capture.
+	std::string const asksAgain = "PRESS A KEY FOR LAUNCH      ESC CANCELS";
 	sample.Press("R");
 	sample.Press("R");
-	CHECK(sample.GetText("Binding Text") == "LAUNCH: R      R REBINDS IT");
+	CHECK(sample.GetText("Binding Text") == "R IS THE REBIND KEY      " + asksAgain);
 	sample.Advance(5);
-	CHECK(sample.GetText("Binding Text") == "LAUNCH: R      R REBINDS IT");
+	CHECK(sample.GetText("Binding Text") == "R IS THE REBIND KEY      " + asksAgain);
+	CHECK(sample.GetState() == "Title");
+
+	// The keyboard's binding takes keys alone: a pad button and a stick are refused as well, and start nothing.
+	sample.PressPad("B");
+	CHECK(sample.GetText("Binding Text") == "PAD B IS NOT A KEY      " + asksAgain);
+	sample.TiltPad("LeftX", 0.9f);
+	sample.Advance(1);
+	CHECK(sample.GetText("Binding Text") == "PAD LEFTX IS NOT A KEY      " + asksAgain);
+	sample.TiltPad("LeftX", 0.0f);
+	sample.Advance(5);
+	CHECK(sample.GetText("Binding Text") == "PAD LEFTX IS NOT A KEY      " + asksAgain);
+	CHECK(sample.GetState() == "Title");
+
+	// Escape ends the capture with Launch on A, as it was before it.
+	sample.Press("Escape");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: A   ALSO BOUND TO MOVE      R REBINDS IT");
+	CHECK(sample.GetText("Title Prompt") == "PRESS A OR CLICK TO PLAY");
+	CHECK(sample.GetState() == "Title");
+
+	// R still opens a capture at the title, and starts no game.
+	sample.Press("R");
+	CHECK(sample.GetText("Binding Text") == asksAgain);
+	CHECK(sample.GetState() == "Title");
+	sample.Press("Escape");
+	sample.Stop();
+
+	// What the refusals gave back is what the next play reads: A, never R or a pad's control.
+	sample.Start();
+	sample.PointAt(320.0f);
+	sample.Advance(60);
+	REQUIRE(sample.GetState() == "Title");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: A   ALSO BOUND TO MOVE      R REBINDS IT");
+	sample.Press("R");
+	CHECK(sample.GetText("Binding Text") == asksAgain);
+	CHECK(sample.GetState() == "Title");
 	sample.Stop();
 }
 

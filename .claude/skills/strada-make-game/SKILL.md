@@ -509,9 +509,10 @@ rules, plays the game through its public methods and clicks its buttons.
 `graph_edit` by its `Tools/Author.py` (declare first, then one batch per region): its graphs read well by the rules of
 section 6, call two function libraries, send typed events and broadcast to each other, read each other's variables
 guarded by `RunsGraph`, reads input actions (`Event.ActionPressed`, `Input.GetAction`) so that a keyboard and a gamepad
-play it alike, rebinds Launch at its title (`Input.StartRebind`, polled through `Input.CurrentRebind`), and its test
-scene's 33 checks are graphs too, the last four driving the game through action overrides. Read it for every feature of
-the language in use.
+play it alike, rebinds Launch at its title (`Input.StartRebind`, its answer read from `Input.CurrentRebind` while the
+capture listens, the screen's line made from `Input.GetBindingControls` only when it can change), and its test scene's
+33 checks are graphs too, the last four driving the game through action overrides. Read it for every feature of the
+language in use.
 
 ## Rules
 

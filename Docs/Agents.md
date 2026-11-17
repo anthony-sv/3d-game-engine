@@ -472,7 +472,8 @@ What they show:
 - **Prism Break** is the reference for graphs made by an agent. Its script declares first (one batch per graph adds
   its variables, custom events and functions), then writes one `graph_edit` batch per region: the region's nodes and
   links, arranged (scope `Created`, then `Nodes`) and framed by a titled comment box, and every batch must answer no
-  error and no warning. Two runs give the same graphs. Its graphs call function libraries, send typed events and
+  error and no warning. The rebuild keeps the asset handles and entity IDs the project had, so two runs write the same
+  files. Its graphs call function libraries, send typed events and
   broadcast to each other, read each other's variables guarded by `RunsGraph`, read input actions (a keyboard and a
   gamepad play it alike, and its title rebinds Launch), and its 33 test checks are graphs too, the last four driving
   the game through action overrides.
@@ -484,7 +485,9 @@ What they show:
   buttons.
 
 The full scripts rebuild their project from scratch: everything but the `Tools` folder (and, for Blocks and the
-Showcase, the scripts' sources in `Scripts/Source`; for the Showcase also its `.gitignore`) is replaced. A full
+Showcase, the scripts' sources in `Scripts/Source`; for the Showcase also its `.gitignore`) is replaced. Prism Break's
+then gives every asset the handle its path had and every entity of a scene or a prefab the ID its name path had, with
+the editor closed, and checks the files as they stay in a second editor. A full
 Showcase rebuild imports the Poly Haven assets again with new handles and rewrites the materials made from them, so
 rebuild the Graph Garden with `--exhibit GraphGarden` instead. That run compares every file under `Assets` before and
 after, and fails, naming the files, when anything outside the exhibit's own files changed. Moto's `--part` runs

@@ -59,7 +59,10 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				},
 				"VisualScript": {
 					"Graph": "5099310569931107932",

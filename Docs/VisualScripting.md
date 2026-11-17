@@ -888,8 +888,10 @@ The title shows PRISM BREAK over an arena that plays itself. The game reads inpu
 which the project names), so the keyboard and a gamepad play it alike: Launch (Space, or the pad's A) or a click starts a
 game; the ball rests on the paddle until Launch or a click sends it; the mouse or Move (A and D, the arrow keys, the left
 stick or the pad's left and right) moves the paddle, and Pause (Escape, or the pad's Start) pauses. At the title, R
-rebinds Launch: the screen asks for a key, binds the next one pressed (Escape cancels), names the key on its prompts
-and any action the key also presses, and the player's choice is kept for the next run in the game's data folder. The
+rebinds Launch: the screen asks for a key and binds the next one pressed (Escape cancels). It takes keys alone, and
+never R: a pad button, a stick, a click or R itself gives Launch its key back, and the screen says why and asks again.
+It names the key on its prompts and any other action whose bindings read it, and the player's choice is kept for the
+next run in the game's data folder. The
 ball breaks prisms of 1 to 4 hits, which glow cyan, magenta, gold and white by the hits they have left: each hit chimes a
 semitone higher for every prism of a combo, the prism flashes, the six lights pulse in its colour and the camera kicks,
 and a broken prism bursts into shards. A capsule sometimes falls from it: W widens the paddle for 8 seconds and S slows
@@ -926,10 +928,14 @@ Attract), a cleared level keeps the title on screen. A player who presses Launch
 while it waits to serve again or to build its next level, gets a game of their own: every wait of the demo checks Attract
 again before it goes on. The demo's points never count towards BEST. Move steers a target that never passes the
 walls, so the paddle turns round at once. The game handles its actions in `Event.ActionPressed` nodes (Launch, Pause)
-and reads Move's value with `Input.GetAction`; its rebinding flow is two of the Hud's regions: `Event.KeyPressed` R at the
-title calls `Input.StartRebind`, and an Update region polls `Input.CurrentRebind` and `Input.GetBindingControls` and
-writes the screen's lines only when they read otherwise. While the capture listens, the Game takes no press for a start
-(a press is the player's answer), and the key that answers presses no action. Its development-only nodes are cheat keys
+and reads Move's value with `Input.GetAction`; its rebinding flow is the Hud's: `Event.KeyPressed` R at the title keeps
+Launch's controls and calls `Input.StartRebind`, and `ShowBindings` reads `Input.CurrentRebind` when the capture ends,
+gives an answer Launch cannot take back with `Input.Rebind` and listens again, and makes the line from the bindings
+themselves (`Input.GetBindingControls`: a conflict is any other action's binding that reads the key, in this run or the
+next). The Update calls it only while the line can read otherwise (at the start, while a capture listens, and after a
+graph that rebinds broadcasts `BindingsChanged`, as the checks do), so no other frame polls the bindings. While the
+capture listens, the Game takes no press for a start (a press is the player's answer), and the key that answers presses
+no action. Its development-only nodes are cheat keys
 (1 and 2 drop a W or an S capsule, N clears the level), which stay `Event.KeyPressed` beside the actions, run in the
 editor and are left out of the exported game.
 
@@ -960,12 +966,14 @@ it expects comes true or its time limit passes, and reports through the Checks l
 Physical checks never depend on the ball's path: they teleport the ball in front of a prism they find by its row and
 column. Two self-sent events watch the level banner and the camera from the moment the level is cleared. The last four
 drive the game through action overrides (`Input.SetActionOverride`: Move steers the paddle both ways, Launch sends the
-ball) and rebind Launch with `Input.Rebind`, reading the binding back, the screen's line and a conflict, then reset it.
+ball) and rebind Launch with `Input.Rebind`, reading the binding back and the screen's whole line, with the conflict it
+names, then reset it.
 Run it with `StradaRuntime --project Projects/PrismBreak/PrismBreak.sproj --scene Scenes/Tests.sscene --test` ("Tests
 passed: 33 checks"). The player also runs the title and the exported game. The editor's play mode is driven through
 `input.set`: the title plays itself, Space starts and serves, the mouse steers, Escape pauses, and a lost ball costs a
 life; an injected gamepad (`gamepads`) starts, steers past the stick's dead zone, launches and pauses; R at the title
-rebinds Launch to the next key, which the next play reads from the profile in `.strada/PlayData`; play mode
+rebinds Launch to the next key, which the next play reads from the profile in `.strada/PlayData` with its conflict, and
+R, a pad button and a stick are refused while the capture asks again; play mode
 also starts games while the title clears a level and right after it lost its ball, and checks that the player keeps
 their game, that BEST stays 0 and that A turns the paddle at the right wall at once. The fuzz test of damaged graphs
 includes the match graph, Game.sgraph.

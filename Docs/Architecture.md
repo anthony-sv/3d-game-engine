@@ -5243,7 +5243,7 @@ that each platform's names are tested on every platform:
   `Tools/Author.py` through `strada mcp`: one batch per graph declares its variables, events and functions first, then
   one batch per region adds its nodes, arranges them and frames them in a titled comment box, each answering no error
   and no warning. It reads input actions (`Input/PrismBreak.sinput`: Move, Launch, Pause, each on the keyboard and a
-  gamepad; the cheat keys stay `Event.KeyPressed`), and at its title R rebinds Launch to the next key (§7.4,
+  gamepad; the cheat keys stay `Event.KeyPressed`), and at its title R rebinds Launch to the next key but R (§7.4,
   "Rebinding"). Its test scene's 33 checks are graphs too (`Tests.sgraph`, a latent function per check called in
   order from a Sequence, reporting through the `Checks` library; the last four drive it through action overrides and
   `Input.Rebind`); `StradaRuntimeTests` runs them through the player ("Tests passed: 33 checks"), plays the title and
