@@ -179,8 +179,9 @@ without C# scripts; they need no C# project, only the scripting runtime (.NET 10
   across the document, `Position` left out. Check it first with `graph_check` (`document`, and `graph` to find renamed
   variables against the stored one and to check nodes that name the graph itself) until `valid` is true and only
   Warnings remain.
-- `graph_arrange` lays out a graph (or `nodes`) as the window's Arrange does, with node sizes as a window draws them;
-  its `bounds` is where a comment box framing them goes. `graph_copy` returns the clipboard text of `elements`, which a
+- `graph_arrange` lays out a graph (or `nodes`) as the window's Arrange does, with node sizes as a window draws them
+  and each pure node (a get, a literal, a pure call) in the column right before the node that reads it; its `bounds` is
+  where a comment box framing them goes. `graph_copy` returns the clipboard text of `elements`, which a
   `Paste` operation (`clipboard`, `at`, `labels`) takes into any graph, binding variables and functions by name.
 - Attach a script, never a library: `component_add` with `component` `VisualScript` and `fields` `{"Graph": "<asset>",
   "Variables": {"Speed": {"Type": "Float", "Value": 180}}}`: the values of public variables, per entity, in the format of

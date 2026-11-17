@@ -991,7 +991,11 @@ one you choose. Ctrl+drag a linked pin to move its links, Alt+click a pin or a w
 across wires to cut them, and double-click a wire to add a reroute point. Select with a click or by dragging a rectangle
 (Shift adds; Ctrl toggles a clicked node and removes what a rectangle covers), move the selection by dragging (it snaps to the grid; hold Alt to place it freely), nudge it
 with the arrow keys, and tidy it with the toolbar's Arrange or the align keys (Shift+W, A, S, D) and Q, which
-straightens a flow. Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+D copy, cut, paste and duplicate, also between scripts. Delete
+straightens a flow. Arrange lays the selection (two nodes or more) or the whole graph out in columns that the wires
+cross from left to right: a node that runs stands in the column after the longest chain of wires leading to it, and a
+pure node (a Get, a value, an operator, a pure call) stands in the column right before the node that reads it rather
+than at the far left. One that several nodes read stands before the first of them, and
+a chain of pure nodes ends beside the node it feeds, each one column before the next. Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+D copy, cut, paste and duplicate, also between scripts. Delete
 removes the selection and keeps the flow going through what it removed (a node between two others no longer breaks the
 chain); Shift+Delete removes it without that. F1, or `?` in the toolbar, lists every key and mouse gesture.
 

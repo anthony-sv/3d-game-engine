@@ -16,6 +16,7 @@
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
+#include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptHeadlessCanvas.h"
 #include "Editor/VisualScripting/VisualScriptPalette.h"
@@ -2424,7 +2425,7 @@ TEST_CASE("GraphCommands: graph.arrange lays out a sub-graph as the Arrange butt
 	VisualScriptDocument expected = stacked;
 	VisualScriptHeadlessCanvas canvas;
 	canvas.Sync(stacked, 0, nullptr, nullptr, nullptr, {});
-	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetExtents()).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetArrangeMeasures()).IsOk());
 
 	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));
 	CHECK(arranged["asset"] == graph);
@@ -2502,12 +2503,7 @@ TEST_CASE("GraphCommands: graph.arrange arranges the nodes given with either ext
 	// Some nodes: the others stay; Uniform sizes every node 256 x 128, as PlaceUnplacedNodes pitches them.
 	std::vector<uint32_t> const some = {12, 13, 14};
 	VisualScriptDocument uniform = stacked;
-	REQUIRE(VisualScriptEditing::ArrangeNodes(uniform, 0, some,
-	                                          [](uint32_t node)
-	                                          {
-												  return VisualScriptEditing::GetDefaultVisualScriptNodeExtents(node);
-											  })
-	            .IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(uniform, 0, some, VisualScriptEditing::GetUniformVisualScriptArrangeMeasures()).IsOk());
 	Json const partial =
 		fixture.Ok("graph.arrange", Json::object({{"graph", graph}, {"nodes", Json::array({12, 13, 14, 13})}, {"extents", "Uniform"}}));
 	CHECK(partial["arranged"] == 3);
@@ -2617,7 +2613,7 @@ TEST_CASE("GraphCommands: graph.arrange measures nodes from the runtime's analys
 	VisualScriptHeadlessCanvas canvas;
 	canvas.Sync(stored, 0, analysis.GetValue().get(), &stored, library.get(), {});
 	VisualScriptDocument expected = stored;
-	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetExtents()).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetArrangeMeasures()).IsOk());
 	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));
 	CHECK(arranged["changed"] == true);
 	CHECK(fixture.GetDocument(graph) == expected);
@@ -2628,6 +2624,86 @@ TEST_CASE("GraphCommands: graph.arrange measures nodes from the runtime's analys
 	CHECK(nothing["changed"] == false);
 	CHECK(nothing["arranged"] == 0);
 	CHECK(nothing["bounds"].is_null());
+}
+
+TEST_CASE("GraphCommands: graph.arrange and graph.edit's Arrange stand a pure input beside its reader, and Uniform does not")
+{
+	// Update sets A, then B, then logs what Get A reads: the Get is pure, so arranging measured puts it in the column right
+	// before the log (that of Set B), where Uniform extents put it in the first column, as graph.set places nodes.
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "A", "string", "a", false));
+	document.Variables.push_back(MakeVariable(2, "B", "string", "b", false));
+	document.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	document.Graph.Nodes.push_back(MakeNode(11, "Variable.Set", Json::object({{"Variable", 1}})));
+	document.Graph.Nodes.push_back(MakeNode(12, "Variable.Set", Json::object({{"Variable", 2}})));
+	document.Graph.Nodes.push_back(MakeNode(13, "Call:Strada.Log.Info(string)"));
+	document.Graph.Nodes.push_back(MakeNode(14, "Variable.Get", Json::object({{"Variable", 1}})));
+	document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	document.Graph.Links.push_back(MakeLink(11, "Then", 12, "Execute"));
+	document.Graph.Links.push_back(MakeLink(12, "Then", 13, "Execute"));
+	document.Graph.Links.push_back(MakeLink(14, "Value", 13, "Message"));
+	std::string const graph = fixture.CreateGraph("Scripts/Late.sgraph", document);
+	VisualScriptDocument const stored = fixture.GetDocument(graph);
+
+	// The canvas a window draws knows which nodes are pure.
+	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
+	REQUIRE(library != nullptr);
+	Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(stored);
+	REQUIRE(analysis.IsOk());
+	VisualScriptHeadlessCanvas canvas;
+	canvas.Sync(stored, 0, analysis.GetValue().get(), &stored, library.get(), {});
+	VisualScriptNodePurity const purity = canvas.GetPurity();
+	CHECK(purity(14));
+	CHECK_FALSE(purity(10));
+	CHECK_FALSE(purity(12));
+	CHECK_FALSE(purity(99));
+	// A canvas without the library infers pins from the document alone and knows no pure node.
+	VisualScriptHeadlessCanvas degraded;
+	degraded.Sync(stored, 0, nullptr, nullptr, nullptr, {});
+	CHECK_FALSE(degraded.GetPurity()(14));
+
+	VisualScriptDocument expected = stored;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetArrangeMeasures()).IsOk());
+	Json const dryRun = fixture.Ok("graph.arrange", Json::object({{"graph", graph}, {"dryRun", true}}));
+	CHECK(dryRun["changed"] == true);
+	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));
+	CHECK(arranged["changed"] == true);
+	VisualScriptDocument const measured = fixture.GetDocument(graph);
+	CHECK(measured == expected);
+	std::optional<glm::vec2> const get = FindPosition(measured.Graph, 14);
+	REQUIRE(get.has_value());
+	CHECK(get->x == FindPosition(measured.Graph, 12)->x);
+	CHECK(get->x > FindPosition(measured.Graph, 11)->x);
+	CHECK(get->x < FindPosition(measured.Graph, 13)->x);
+	CHECK(get->y > FindPosition(measured.Graph, 12)->y);
+	// Arranged already: nothing changes the second time.
+	CHECK(fixture.Ok("graph.arrange", Json::object({{"graph", graph}}))["changed"] == false);
+
+	// graph.edit's Arrange lays the graph out alike.
+	std::string const twin = fixture.CreateGraph("Scripts/LateTwin.sgraph", document);
+	fixture.Ok("graph.edit", Json::object({{"graph", twin}, {"operations", Json::array({Json::object({{"op", "Arrange"}})})}}));
+	VisualScriptDocument const edited = fixture.GetDocument(twin);
+	for (VisualScriptNode const& node : measured.Graph.Nodes)
+	{
+		CAPTURE(node.ID);
+		CHECK(FindPosition(edited.Graph, node.ID) == node.Position);
+	}
+
+	// Uniform extents: the Get stands in the first column, where its longest chain of links puts it.
+	fixture.Ok("graph.arrange", Json::object({{"graph", graph}, {"extents", "Uniform"}}));
+	VisualScriptDocument const uniform = fixture.GetDocument(graph);
+	CHECK(FindPosition(uniform.Graph, 14)->x == FindPosition(uniform.Graph, 10)->x);
+	std::string const third = fixture.CreateGraph("Scripts/LateUniform.sgraph", document);
+	fixture.Ok("graph.edit",
+	           Json::object({{"graph", third}, {"operations", Json::array({Json::object({{"op", "Arrange"}, {"extents", "Uniform"}})})}}));
+	VisualScriptDocument const editedUniform = fixture.GetDocument(third);
+	for (VisualScriptNode const& node : uniform.Graph.Nodes)
+	{
+		CAPTURE(node.ID);
+		CHECK(FindPosition(editedUniform.Graph, node.ID) == node.Position);
+	}
 }
 
 TEST_CASE("GraphCommands: graph.copy writes the clipboard text of elements as the window's Copy does")
@@ -5237,7 +5313,7 @@ TEST_CASE("GraphCommands: without the runtime graph.arrange sizes a node naming 
 	CHECK(unresolved.GetExtents()(10) != canvas.GetExtents()(10));
 
 	VisualScriptDocument expected = stored;
-	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetExtents()).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetArrangeMeasures()).IsOk());
 	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));
 	CHECK(arranged["changed"] == true);
 	CHECK(fixture.GetDocument(graph) == expected);

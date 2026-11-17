@@ -96,7 +96,31 @@ namespace
 		return crossings;
 	}
 
-	VisualScriptNodeExtents const DefaultExtents = VisualScriptEditing::GetDefaultVisualScriptNodeExtents;
+	// Sizes without a pure node: every node stands in the column of its longest chain of links.
+	VisualScriptArrangeMeasures WithoutPureNodes(VisualScriptNodeExtents const& extents)
+	{
+		return {extents, {}};
+	}
+
+	// Sizes with every third ID a pure node, for the fuzz cases.
+	VisualScriptArrangeMeasures WithSomePureNodes(VisualScriptNodeExtents const& extents)
+	{
+		return {extents, [](uint32_t node)
+		        {
+					return node % 3 == 0;
+				}};
+	}
+
+	// Uniform sizes, with the given nodes pure.
+	VisualScriptArrangeMeasures WithPureNodes(std::set<uint32_t> pure)
+	{
+		return {VisualScriptEditing::GetDefaultVisualScriptNodeExtents, [pureNodes = std::move(pure)](uint32_t node)
+		        {
+					return pureNodes.contains(node);
+				}};
+	}
+
+	VisualScriptArrangeMeasures const DefaultExtents = VisualScriptEditing::GetUniformVisualScriptArrangeMeasures();
 }
 
 TEST_CASE("VisualScriptArrange: default extents lay out a graph without crossings as placing its unplaced nodes does")
@@ -227,7 +251,7 @@ TEST_CASE("VisualScriptArrange: columns and rows follow the measured sizes on th
 				return glm::vec2(200.0f, 70.0f);
 		}
 	};
-	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, extents).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, WithoutPureNodes(extents)).IsOk());
 	std::map<uint32_t, glm::vec2> const positions = GetPositions(document.Graph);
 	// Column 1 starts after the widest node of column 0 (300) and 64, rounded up to 16 (368). Node 2 stands below node 1
 	// (100) with 32 between them (144, on the grid); node 4 below node 3 (40 + 32 = 72, rounded up to 80).
@@ -314,9 +338,9 @@ TEST_CASE("VisualScriptArrange: arranging twice changes nothing the second time,
 	};
 
 	VisualScriptDocument once = document;
-	REQUIRE(VisualScriptEditing::ArrangeNodes(once, 0, {}, extents).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(once, 0, {}, WithoutPureNodes(extents)).IsOk());
 	VisualScriptDocument twice = once;
-	REQUIRE(VisualScriptEditing::ArrangeNodes(twice, 0, {}, extents).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(twice, 0, {}, WithoutPureNodes(extents)).IsOk());
 	CHECK(twice == once);
 
 	// The same graph with its nodes and links in another order, and the nodes elsewhere around the same corner.
@@ -331,7 +355,7 @@ TEST_CASE("VisualScriptArrange: arranging twice changes nothing the second time,
 		}
 	}
 	REQUIRE(GetCorner(shuffled.Graph) == GetCorner(document.Graph));
-	REQUIRE(VisualScriptEditing::ArrangeNodes(shuffled, 0, {}, extents).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(shuffled, 0, {}, WithoutPureNodes(extents)).IsOk());
 	CHECK(GetPositions(shuffled.Graph) == GetPositions(once.Graph));
 }
 
@@ -399,19 +423,21 @@ TEST_CASE("VisualScriptArrange: a function's graph is arranged, and bad argument
 	CHECK(VisualScriptEditing::ArrangeNodes(document, 30, otherGraph, DefaultExtents).IsError());
 	result = VisualScriptEditing::ArrangeNodes(document, 7, {}, DefaultExtents);
 	CHECK(result.GetError() == "the document has no function 7");
-	result = VisualScriptEditing::ArrangeNodes(document, 30, {}, VisualScriptNodeExtents());
+	result = VisualScriptEditing::ArrangeNodes(document, 30, {}, WithoutPureNodes(VisualScriptNodeExtents()));
 	CHECK(result.GetError() == "the size of node 31 is not known");
 	result = VisualScriptEditing::ArrangeNodes(document, 30, {},
-	                                           [](uint32_t node)
-	                                           {
-												   return node == 32 ? glm::vec2(std::nanf(""), 10.0f) : glm::vec2(100.0f);
-											   });
+	                                           WithoutPureNodes(
+												   [](uint32_t node)
+												   {
+													   return node == 32 ? glm::vec2(std::nanf(""), 10.0f) : glm::vec2(100.0f);
+												   }));
 	CHECK(result.GetError() == "the size of node 32 is not a size");
 	result = VisualScriptEditing::ArrangeNodes(document, 30, {},
-	                                           [](uint32_t)
-	                                           {
-												   return glm::vec2(-1.0f, 10.0f);
-											   });
+	                                           WithoutPureNodes(
+												   [](uint32_t)
+												   {
+													   return glm::vec2(-1.0f, 10.0f);
+												   }));
 	CHECK(result.IsError());
 	CHECK(document == before);
 
@@ -518,7 +544,7 @@ TEST_CASE("VisualScriptArrange: anchors stand before the arranged block, which s
 		{
 			return node == 2 ? glm::vec2(500.0f, 100.0f) : glm::vec2(256.0f, 128.0f);
 		};
-		REQUIRE(VisualScriptEditing::ArrangeNodes(wide, 0, arranged, extents, std::nullopt, anchors).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(wide, 0, arranged, WithoutPureNodes(extents), std::nullopt, anchors).IsOk());
 		CHECK(GetPositions(wide.Graph).at(11) == glm::vec2(576.0f, 0.0f));
 	}
 }
@@ -592,13 +618,14 @@ TEST_CASE("VisualScriptArrange: anchors must be placed nodes of the graph that a
 	std::vector<uint32_t> const anchor = {1};
 	CHECK(VisualScriptEditing::ArrangeNodes(document, 0, {}, DefaultExtents, std::nullopt, anchor).GetError() ==
 	      "node 1 is arranged: an anchor keeps its place");
-	Result<void> const unmeasured = VisualScriptEditing::ArrangeNodes(
-		document, 0, arranged,
-		[](uint32_t node)
-		{
-			return node == 1 ? glm::vec2(std::nanf(""), 10.0f) : glm::vec2(100.0f);
-		},
-		std::nullopt, anchor);
+	Result<void> const unmeasured =
+		VisualScriptEditing::ArrangeNodes(document, 0, arranged,
+	                                      WithoutPureNodes(
+											  [](uint32_t node)
+											  {
+												  return node == 1 ? glm::vec2(std::nanf(""), 10.0f) : glm::vec2(100.0f);
+											  }),
+	                                      std::nullopt, anchor);
 	CHECK(unmeasured.GetError() == "the size of node 1 is not a size");
 	CHECK(document == before);
 
@@ -699,12 +726,12 @@ namespace
 	// Each region stands as arranging its nodes alone at their top-left corner lays them out (the sample graphs' readability
 	// test, spec-slice4 §18.6).
 	void CheckRegionsArranged(VisualScriptDocument const& document, std::vector<std::vector<uint32_t>> const& regions,
-	                          VisualScriptNodeExtents const& extents)
+	                          VisualScriptArrangeMeasures const& measures)
 	{
 		for (std::vector<uint32_t> const& region : regions)
 		{
 			VisualScriptDocument alone = document;
-			REQUIRE(VisualScriptEditing::ArrangeNodes(alone, 0, region, extents, GetNodesCorner(document.Graph, region)).IsOk());
+			REQUIRE(VisualScriptEditing::ArrangeNodes(alone, 0, region, measures, GetNodesCorner(document.Graph, region)).IsOk());
 			CHECK(alone == document);
 		}
 	}
@@ -745,26 +772,28 @@ TEST_CASE("VisualScriptArrange: arranging Beacon moves each comment box's nodes 
 
 	// As the demonstration built it: the first region arranged and framed, then the second placed below its box (by the
 	// frame's reach and the gap between nodes, as Arrange's Created scope keeps it) and framed.
-	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, glow, extents, glm::vec2(0.0f)).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, glow, WithoutPureNodes(extents), glm::vec2(0.0f)).IsOk());
 	REQUIRE(VisualScriptEditing::AddComment(document, 0, "Glow and swell", glow, extents, glm::vec2(0.0f), color).IsOk());
 	VisualScriptComment const& first = document.Graph.Comments[0];
 	float const below =
 		first.Position.y + first.Size.y + 32.0f + VisualScriptEditing::CommentFrameMargin + VisualScriptEditing::CommentFrameTitleSpace;
-	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, peak, extents, glm::vec2(0.0f, std::ceil(below / 16.0f) * 16.0f)).IsOk());
+	REQUIRE(
+		VisualScriptEditing::ArrangeNodes(document, 0, peak, WithoutPureNodes(extents), glm::vec2(0.0f, std::ceil(below / 16.0f) * 16.0f))
+			.IsOk());
 	REQUIRE(VisualScriptEditing::AddComment(document, 0, "At the peak", peak, extents, glm::vec2(0.0f), color).IsOk());
 	CheckRegions(document.Graph, {glow, peak}, extents);
 	glm::vec2 const corner = GetNodesCorner(document.Graph, glow);
 
-	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, extents).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, WithoutPureNodes(extents)).IsOk());
 	CheckRegions(document.Graph, {glow, peak}, extents);
-	CheckRegionsArranged(document, {glow, peak}, extents);
+	CheckRegionsArranged(document, {glow, peak}, WithoutPureNodes(extents));
 	// The nodes' corner stays; the peak region, which the timeline's Peak continues, stands right of the timeline's box.
 	CHECK(GetNodesCorner(document.Graph, glow) == corner);
 	VisualScriptComment const& timeline = document.Graph.Comments[0];
 	CHECK(document.Graph.Comments[1].Position.x >= timeline.Position.x + timeline.Size.x + 64.0f);
 	// Arranging again changes nothing.
 	VisualScriptDocument again = document;
-	REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, extents).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, WithoutPureNodes(extents)).IsOk());
 	CHECK(again == document);
 	Testing::ExpectStrictRoundTrip(document);
 }
@@ -817,6 +846,8 @@ TEST_CASE("VisualScriptArrange: arranging random framed graphs keeps their boxes
 		{
 			return sizes.at(node);
 		};
+		// Every other round, every third ID is a pure node (drawing nothing from the random stream).
+		VisualScriptArrangeMeasures const measures = round % 2 == 0 ? WithoutPureNodes(extents) : WithSomePureNodes(extents);
 
 		// Each region arranged and framed below the boxes before it, some boxes then enlarged, and the loose nodes placed
 		// below everything or left without a position.
@@ -824,7 +855,7 @@ TEST_CASE("VisualScriptArrange: arranging random framed graphs keeps their boxes
 		for (std::vector<uint32_t> const& region : regions)
 		{
 			glm::vec2 const at(static_cast<float>(random.Pick(7)) * 150.0f - 450.0f, top);
-			REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, region, extents, at).IsOk());
+			REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, region, measures, at).IsOk());
 			REQUIRE(VisualScriptEditing::AddComment(document, 0, "Region", region, extents, glm::vec2(0.0f), glm::vec4(0.5f)).IsOk());
 			VisualScriptComment& box = document.Graph.Comments.back();
 			if (random.Pick(3) == 0)
@@ -846,15 +877,15 @@ TEST_CASE("VisualScriptArrange: arranging random framed graphs keeps their boxes
 		}
 		CheckRegions(document.Graph, regions, extents);
 
-		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, extents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, measures).IsOk());
 		for (VisualScriptNode const& node : document.Graph.Nodes)
 		{
 			REQUIRE(node.Position.has_value());
 		}
 		CheckRegions(document.Graph, regions, extents);
-		CheckRegionsArranged(document, regions, extents);
+		CheckRegionsArranged(document, regions, measures);
 		VisualScriptDocument again = document;
-		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, extents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, measures).IsOk());
 		CHECK(again == document);
 		Testing::ExpectStrictRoundTrip(document);
 	}
@@ -990,7 +1021,7 @@ TEST_CASE("VisualScriptArrange: a box holding another box and a box holding noth
 
 	SUBCASE("The outer box is fitted around the inner one, which keeps its nodes")
 	{
-		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, extents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, WithoutPureNodes(extents)).IsOk());
 		CheckNestedBoxes(document.Graph, boxes, extents);
 		// The nodes' corner stays, and O frames A as a new box framing A would.
 		CHECK(GetNodesCorner(document.Graph, {1, 2, 3, 4}) == glm::vec2(100.0f, 150.0f));
@@ -1001,7 +1032,7 @@ TEST_CASE("VisualScriptArrange: a box holding another box and a box holding noth
 		                VisualScriptEditing::CommentFrameMargin + VisualScriptEditing::CommentFrameTitleSpace));
 		CHECK(outer.Position + outer.Size == inner.Position + inner.Size + glm::vec2(VisualScriptEditing::CommentFrameMargin));
 		VisualScriptDocument again = document;
-		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, extents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, WithoutPureNodes(extents)).IsOk());
 		CHECK(again == document);
 		Testing::ExpectStrictRoundTrip(document);
 	}
@@ -1017,14 +1048,14 @@ TEST_CASE("VisualScriptArrange: a box holding another box and a box holding noth
 		CheckNestedBoxes(document.Graph, boxes, extents);
 
 		VisualScriptDocument some = document;
-		REQUIRE(VisualScriptEditing::ArrangeNodes(some, 0, std::vector<uint32_t>{3, 4}, extents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(some, 0, std::vector<uint32_t>{3, 4}, WithoutPureNodes(extents)).IsOk());
 		CHECK(some.Graph.Comments[3] == document.Graph.Comments[3]);
 
-		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, extents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, WithoutPureNodes(extents)).IsOk());
 		CheckNestedBoxes(document.Graph, boxes, extents);
 		CHECK(document.Graph.Comments[3].Size == glm::vec2(500.0f, 200.0f));
 		VisualScriptDocument again = document;
-		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, extents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, WithoutPureNodes(extents)).IsOk());
 		CHECK(again == document);
 	}
 	SUBCASE("A box holding nothing inside a box that moves moves with it")
@@ -1032,7 +1063,7 @@ TEST_CASE("VisualScriptArrange: a box holding another box and a box holding noth
 		AddBox(document, 13, glm::vec2(600.0f, 300.0f), glm::vec2(200.0f, 100.0f));
 		boxes.push_back({3, 0, {}});
 		CheckNestedBoxes(document.Graph, boxes, extents);
-		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, std::vector<uint32_t>{1, 2}, extents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, std::vector<uint32_t>{1, 2}, WithoutPureNodes(extents)).IsOk());
 		CheckNestedBoxes(document.Graph, boxes, extents);
 		CHECK(document.Graph.Comments[3].Size == glm::vec2(200.0f, 100.0f));
 	}
@@ -1168,7 +1199,9 @@ TEST_CASE("VisualScriptArrange: arranging random graphs of nested boxes keeps th
 		}
 		CheckNestedBoxes(document.Graph, boxes, extents);
 
-		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, extents).IsOk());
+		// Every other round, every third ID is a pure node (drawing nothing from the random stream).
+		VisualScriptArrangeMeasures const measures = round % 2 == 0 ? WithoutPureNodes(extents) : WithSomePureNodes(extents);
+		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, measures).IsOk());
 		for (VisualScriptNode const& node : document.Graph.Nodes)
 		{
 			REQUIRE(node.Position.has_value());
@@ -1180,13 +1213,202 @@ TEST_CASE("VisualScriptArrange: arranging random graphs of nested boxes keeps th
 			if (!box.Parent && !box.Nodes.empty())
 			{
 				VisualScriptDocument alone = document;
-				REQUIRE(VisualScriptEditing::ArrangeNodes(alone, 0, box.Nodes, extents, GetNodesCorner(document.Graph, box.Nodes)).IsOk());
+				REQUIRE(VisualScriptEditing::ArrangeNodes(alone, 0, box.Nodes, measures, GetNodesCorner(document.Graph, box.Nodes)).IsOk());
 				CHECK(alone == document);
 			}
 		}
 		VisualScriptDocument again = document;
-		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, extents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, measures).IsOk());
 		CHECK(again == document);
 		Testing::ExpectStrictRoundTrip(document);
 	}
+}
+
+namespace
+{
+	// A flow 1 → 2 → 3 → 4 whose last node reads the pure node 5.
+	VisualScriptDocument MakeReadLateDocument()
+	{
+		VisualScriptDocument document;
+		for (uint32_t id = 1; id <= 5; id++)
+		{
+			document.Graph.Nodes.push_back(MakeNode(id));
+		}
+		document.Graph.Links = {MakeLink(1, 2), MakeLink(2, 3), MakeLink(3, 4), {{5, "Value"}, {4, "A"}}};
+		return document;
+	}
+
+	// Every link of the graph runs from a column to a later one.
+	void CheckLinksRunRight(VisualScriptGraph const& graph)
+	{
+		std::map<uint32_t, glm::vec2> const positions = GetPositions(graph);
+		for (VisualScriptLink const& link : graph.Links)
+		{
+			CAPTURE(link.From.Node);
+			CAPTURE(link.To.Node);
+			CHECK(positions.at(link.From.Node).x < positions.at(link.To.Node).x);
+		}
+	}
+}
+
+TEST_CASE("VisualScriptArrange: a pure input stands in the column before the node that reads it, not in the first column")
+{
+	VisualScriptDocument const unplaced = MakeReadLateDocument();
+	std::set<uint32_t> const pure = {5};
+
+	// Without purity the input stands where its longest chain puts it, as PlaceUnplacedNodes puts it: the first column.
+	VisualScriptDocument unknown = unplaced;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(unknown, 0, {}, DefaultExtents).IsOk());
+	VisualScriptDocument placed = unplaced;
+	PlaceUnplacedNodes(placed);
+	CHECK(GetPositions(unknown.Graph) == GetPositions(placed.Graph));
+	CHECK(GetPositions(unknown.Graph).at(5) == glm::vec2(0.0f, 160.0f));
+
+	VisualScriptDocument document = unplaced;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, WithPureNodes(pure)).IsOk());
+	std::map<uint32_t, glm::vec2> const positions = GetPositions(document.Graph);
+	// The flow keeps its columns; the input stands in the column of 3, right before 4, below 3.
+	CHECK(positions.at(1) == glm::vec2(0.0f, 0.0f));
+	CHECK(positions.at(2) == glm::vec2(320.0f, 0.0f));
+	CHECK(positions.at(3) == glm::vec2(640.0f, 0.0f));
+	CHECK(positions.at(4) == glm::vec2(960.0f, 0.0f));
+	CHECK(positions.at(5) == glm::vec2(640.0f, 160.0f));
+	CheckLinksRunRight(document.Graph);
+	Testing::ExpectStrictRoundTrip(document);
+
+	VisualScriptDocument again = document;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, WithPureNodes(pure)).IsOk());
+	CHECK(again == document);
+
+	SUBCASE("a pure input whose reader is not arranged keeps its column")
+	{
+		VisualScriptDocument some = unplaced;
+		PlaceUnplacedNodes(some);
+		std::vector<uint32_t> const selection = {1, 2, 3, 5};
+		REQUIRE(VisualScriptEditing::ArrangeNodes(some, 0, selection, WithPureNodes(pure)).IsOk());
+		// Linked to none of the arranged nodes, it is a group of its own, in the first column below the flow.
+		CHECK(GetPositions(some.Graph).at(5) == glm::vec2(0.0f, 240.0f));
+	}
+	SUBCASE("beside anchors, the input stands before its reader too")
+	{
+		VisualScriptDocument created = unplaced;
+		created.Graph.Nodes[0].Position = glm::vec2(0.0f, 0.0f);
+		std::vector<uint32_t> const arranged = {2, 3, 4, 5};
+		std::vector<uint32_t> const anchors = {1};
+		REQUIRE(VisualScriptEditing::ArrangeNodes(created, 0, arranged, WithPureNodes(pure), std::nullopt, anchors).IsOk());
+		std::map<uint32_t, glm::vec2> const besideAnchor = GetPositions(created.Graph);
+		CHECK(besideAnchor.at(2) == glm::vec2(320.0f, 0.0f));
+		CHECK(besideAnchor.at(3) == glm::vec2(640.0f, 0.0f));
+		CHECK(besideAnchor.at(4) == glm::vec2(960.0f, 0.0f));
+		CHECK(besideAnchor.at(5) == glm::vec2(640.0f, 160.0f));
+	}
+	SUBCASE("inside a comment box that moves with its nodes")
+	{
+		VisualScriptDocument framed = unplaced;
+		PlaceUnplacedNodes(framed);
+		std::vector<uint32_t> const all = {1, 2, 3, 4, 5};
+		REQUIRE(VisualScriptEditing::AddComment(framed, 0, "Region", all, DefaultExtents.Extents, glm::vec2(0.0f), glm::vec4(0.5f)).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(framed, 0, {}, WithPureNodes(pure)).IsOk());
+		CHECK(GetPositions(framed.Graph) == positions);
+		// Fitted around the nodes: (0, 0) to (960 + 256, 160 + 128), with 32 on each side and 40 more above.
+		VisualScriptComment const& box = framed.Graph.Comments.front();
+		CHECK(box.Position == glm::vec2(-32.0f, -72.0f));
+		CHECK(box.Size == glm::vec2(1280.0f, 392.0f));
+	}
+}
+
+TEST_CASE("VisualScriptArrange: a pure input that several nodes read stands before the first of them")
+{
+	// The flow 1 → 2 → 3 → 4 → 5; 3 and 5 read the pure node 6.
+	VisualScriptDocument document;
+	for (uint32_t id = 1; id <= 6; id++)
+	{
+		document.Graph.Nodes.push_back(MakeNode(id));
+	}
+	document.Graph.Links = {MakeLink(1, 2), MakeLink(2, 3),           MakeLink(3, 4),
+	                        MakeLink(4, 5), {{6, "Value"}, {3, "A"}}, {{6, "Value"}, {5, "A"}}};
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, WithPureNodes({6})).IsOk());
+	std::map<uint32_t, glm::vec2> const positions = GetPositions(document.Graph);
+	CHECK(positions.at(3) == glm::vec2(640.0f, 0.0f));
+	CHECK(positions.at(5) == glm::vec2(1280.0f, 0.0f));
+	// In the column of 2, before 3: both of its wires run to the right, the one to 5 past two columns.
+	CHECK(positions.at(6) == glm::vec2(320.0f, 160.0f));
+	CHECK(document.Graph.Nodes.size() == 6);
+	CheckLinksRunRight(document.Graph);
+}
+
+TEST_CASE("VisualScriptArrange: a chain of pure nodes ends in the column before its reader, each node one column before the next")
+{
+	SUBCASE("the chain moves up to its reader")
+	{
+		// The flow 1 → 2 → 3 → 4 → 5; 5 reads 8, which reads 7, which reads 6 and 9.
+		VisualScriptDocument document;
+		for (uint32_t id = 1; id <= 9; id++)
+		{
+			document.Graph.Nodes.push_back(MakeNode(id));
+		}
+		document.Graph.Links = {MakeLink(1, 2),
+		                        MakeLink(2, 3),
+		                        MakeLink(3, 4),
+		                        MakeLink(4, 5),
+		                        {{8, "Result"}, {5, "A"}},
+		                        {{7, "Result"}, {8, "A"}},
+		                        {{6, "Value"}, {7, "A"}},
+		                        {{9, "Value"}, {7, "B"}}};
+		VisualScriptDocument unknown = document;
+		REQUIRE(VisualScriptEditing::ArrangeNodes(unknown, 0, {}, DefaultExtents).IsOk());
+		CHECK(GetPositions(unknown.Graph).at(6).x == 0.0f);
+		CHECK(GetPositions(unknown.Graph).at(8).x == 640.0f);
+
+		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, WithPureNodes({6, 7, 8, 9})).IsOk());
+		std::map<uint32_t, glm::vec2> const positions = GetPositions(document.Graph);
+		CHECK(positions.at(1) == glm::vec2(0.0f, 0.0f));
+		CHECK(positions.at(2) == glm::vec2(320.0f, 0.0f));
+		CHECK(positions.at(6) == glm::vec2(320.0f, 160.0f));
+		CHECK(positions.at(9) == glm::vec2(320.0f, 320.0f));
+		CHECK(positions.at(3) == glm::vec2(640.0f, 0.0f));
+		CHECK(positions.at(7) == glm::vec2(640.0f, 160.0f));
+		CHECK(positions.at(4) == glm::vec2(960.0f, 0.0f));
+		CHECK(positions.at(8) == glm::vec2(960.0f, 160.0f));
+		CHECK(positions.at(5) == glm::vec2(1280.0f, 0.0f));
+		CheckLinksRunRight(document.Graph);
+	}
+	SUBCASE("a chain as long as the flow before its reader moves nothing, and no column empties")
+	{
+		// 1 → 2; 2 reads 5, which reads 4, which reads 3: the chain sets 2's column, and the flow's first node keeps the
+		// first column.
+		VisualScriptDocument document;
+		for (uint32_t id = 1; id <= 5; id++)
+		{
+			document.Graph.Nodes.push_back(MakeNode(id));
+		}
+		document.Graph.Links = {MakeLink(1, 2), {{5, "Result"}, {2, "A"}}, {{4, "Result"}, {5, "A"}}, {{3, "Value"}, {4, "A"}}};
+		VisualScriptDocument unknown = document;
+		REQUIRE(VisualScriptEditing::ArrangeNodes(unknown, 0, {}, DefaultExtents).IsOk());
+		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, WithPureNodes({3, 4, 5})).IsOk());
+		std::map<uint32_t, glm::vec2> const positions = GetPositions(document.Graph);
+		CHECK(positions == GetPositions(unknown.Graph));
+		CHECK(positions.at(1) == glm::vec2(0.0f, 0.0f));
+		CHECK(positions.at(3) == glm::vec2(0.0f, 160.0f));
+		CHECK(positions.at(4) == glm::vec2(320.0f, 0.0f));
+		CHECK(positions.at(5) == glm::vec2(640.0f, 0.0f));
+		CHECK(positions.at(2) == glm::vec2(960.0f, 0.0f));
+	}
+}
+
+TEST_CASE("VisualScriptArrange: a pure node that no arranged node reads, or reads only through a link closing a cycle, keeps its column")
+{
+	// 1 → 2; 3 reads 2 and nothing reads 3; 4 reads 2 and 2 reads 4, a cycle the search closes at 4 → 2.
+	VisualScriptDocument document;
+	for (uint32_t id = 1; id <= 4; id++)
+	{
+		document.Graph.Nodes.push_back(MakeNode(id));
+	}
+	document.Graph.Links = {MakeLink(1, 2), {{2, "Value"}, {3, "A"}}, {{2, "Value"}, {4, "A"}}, {{4, "Result"}, {2, "B"}}};
+	VisualScriptDocument unknown = document;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(unknown, 0, {}, DefaultExtents).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, WithPureNodes({3, 4})).IsOk());
+	CHECK(GetPositions(document.Graph) == GetPositions(unknown.Graph));
+	CHECK(GetPositions(document.Graph).at(3).x == 640.0f);
+	CHECK(GetPositions(document.Graph).at(4).x == 640.0f);
 }

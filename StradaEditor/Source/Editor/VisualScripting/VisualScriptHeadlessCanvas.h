@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptArrange.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasPins.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
@@ -44,6 +45,10 @@ namespace Strada
 
 		// The size of each node as a window draws it (VisualScriptCanvasModel::GetExtents). Valid until the next Sync.
 		[[nodiscard]] VisualScriptNodeExtents GetExtents() const;
+		// Which nodes are pure as a window draws them (VisualScriptCanvasModel::IsPure). Valid until the next Sync.
+		[[nodiscard]] VisualScriptNodePurity GetPurity() const;
+		// What Arrange reads of the nodes (VisualScriptArrangeMeasures): GetExtents and GetPurity. Valid until the next Sync.
+		[[nodiscard]] VisualScriptArrangeMeasures GetArrangeMeasures() const;
 		// The nodes' pins as the editing operations take them (MakeVisualScriptCanvasNodePins), anchors included. Valid until
 		// the next Sync; the new node's pins must outlive it too.
 		[[nodiscard]] VisualScriptNodePins GetPins(std::optional<VisualScriptNewNodePins> newNode = std::nullopt) const;

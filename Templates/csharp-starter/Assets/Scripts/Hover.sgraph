@@ -51,7 +51,7 @@
 					"ID": 5,
 					"Type": "Expression",
 					"Position": [
-						240.0,
+						192.0,
 						0.0
 					],
 					"Settings": {
@@ -62,7 +62,7 @@
 					"ID": 6,
 					"Type": "Variable.Set",
 					"Position": [
-						512.0,
+						432.0,
 						0.0
 					],
 					"Settings": {
@@ -73,16 +73,16 @@
 					"ID": 7,
 					"Type": "Get:Strada.Entity.Children",
 					"Position": [
-						0.0,
-						192.0
+						192.0,
+						144.0
 					]
 				},
 				{
 					"ID": 8,
 					"Type": "Array.Get",
 					"Position": [
-						240.0,
-						288.0
+						432.0,
+						128.0
 					],
 					"Inputs": {
 						"Index": 0
@@ -92,8 +92,8 @@
 					"ID": 9,
 					"Type": "Call:Game.Spark.Hover(float)",
 					"Position": [
-						240.0,
-						144.0
+						432.0,
+						272.0
 					],
 					"Comment": "Spark.Hover in Scripts/Source/Spark.cs, a [VisualNode] member"
 				},
@@ -109,8 +109,8 @@
 					"ID": 11,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						320.0
+						432.0,
+						416.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -120,8 +120,8 @@
 					"ID": 12,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						432.0
+						704.0,
+						176.0
 					],
 					"Settings": {
 						"Formula": "vec3(0, (clock * spin) % 360, 0)"
@@ -288,7 +288,7 @@
 					],
 					"Size": [
 						1080.0,
-						642.0
+						548.0
 					],
 					"Color": [
 						0.6200000047683716,

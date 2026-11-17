@@ -221,8 +221,8 @@
 							"ID": 25,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								672.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 9
@@ -403,7 +403,7 @@
 							],
 							"Size": [
 								1480.0,
-								372.0
+								388.0
 							],
 							"Color": [
 								0.25,
@@ -423,7 +423,7 @@
 					"Type": "Event.Update",
 					"Position": [
 						0.0,
-						784.0
+						720.0
 					]
 				},
 				{
@@ -475,7 +475,7 @@
 					"Type": "Expression",
 					"Position": [
 						288.0,
-						208.0
+						464.0
 					],
 					"Settings": {
 						"Formula": "(d || right ? 1 : 0) - (a || left ? 1 : 0)"
@@ -485,32 +485,32 @@
 					"ID": 35,
 					"Type": "Get:Strada.Input.MouseDelta",
 					"Position": [
-						0.0,
-						1168.0
+						288.0,
+						208.0
 					]
 				},
 				{
 					"ID": 36,
 					"Type": "Get:Strada.Input.MousePosition",
 					"Position": [
-						0.0,
-						1296.0
+						288.0,
+						336.0
 					]
 				},
 				{
 					"ID": 37,
 					"Type": "Get:Strada.Application.WindowWidth",
 					"Position": [
-						0.0,
-						1424.0
+						288.0,
+						656.0
 					]
 				},
 				{
 					"ID": 38,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1552.0
+						288.0,
+						784.0
 					],
 					"Settings": {
 						"Variable": 7
@@ -520,8 +520,8 @@
 					"ID": 39,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1616.0
+						288.0,
+						848.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -531,8 +531,8 @@
 					"ID": 40,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1680.0
+						288.0,
+						912.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -542,8 +542,8 @@
 					"ID": 41,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1744.0
+						288.0,
+						976.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -553,8 +553,8 @@
 					"ID": 42,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1808.0
+						288.0,
+						1040.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -565,7 +565,7 @@
 					"Type": "Expression",
 					"Position": [
 						512.0,
-						208.0
+						464.0
 					],
 					"Settings": {
 						"Formula": "clamp(length(delta) > 0 ? (mouse.x / screen - 0.5) * span : target + direction * speed * dt, -limit + width * 0.5, limit - width * 0.5)"
@@ -576,7 +576,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						720.0
+						848.0
 					],
 					"Settings": {
 						"Variable": 8
@@ -587,7 +587,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						288.0,
-						400.0
+						1104.0
 					]
 				},
 				{
@@ -595,7 +595,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						736.0,
-						208.0
+						432.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -606,8 +606,8 @@
 					"ID": 47,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						912.0
+						512.0,
+						208.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -617,8 +617,8 @@
 					"ID": 48,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						976.0
+						512.0,
+						272.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -628,8 +628,8 @@
 					"ID": 49,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1040.0
+						512.0,
+						336.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -639,8 +639,8 @@
 					"ID": 50,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1104.0
+						512.0,
+						400.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -650,8 +650,8 @@
 					"ID": 51,
 					"Type": "Expression",
 					"Position": [
-						288.0,
-						528.0
+						736.0,
+						208.0
 					],
 					"Settings": {
 						"Formula": "clamp(lerp(x, target, 1 - exp(-25 * dt)), -limit + width * 0.5, limit - width * 0.5)"
@@ -661,7 +661,7 @@
 					"ID": 52,
 					"Type": "Variable.Set",
 					"Position": [
-						928.0,
+						944.0,
 						208.0
 					],
 					"Settings": {
@@ -673,7 +673,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						512.0,
-						544.0
+						800.0
 					],
 					"Settings": {
 						"Function": 13
@@ -684,7 +684,7 @@
 					"Type": "Event.FixedUpdate",
 					"Position": [
 						0.0,
-						1984.0
+						1344.0
 					]
 				},
 				{
@@ -692,7 +692,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						2112.0
+						1472.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -703,7 +703,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						2176.0
+						1536.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -714,7 +714,7 @@
 					"Type": "Expression",
 					"Position": [
 						192.0,
-						1984.0
+						1344.0
 					],
 					"Settings": {
 						"Formula": "vec3(x, 0.5, z)"
@@ -725,7 +725,7 @@
 					"Type": "Call:Strada.RigidBodyComponent.MoveKinematic(Strada.Vector3,Strada.Quaternion)",
 					"Position": [
 						384.0,
-						1984.0
+						1344.0
 					],
 					"Inputs": {
 						"Rotation": [
@@ -741,7 +741,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						2352.0
+						1712.0
 					],
 					"Settings": {
 						"Name": "Widen",
@@ -758,7 +758,7 @@
 					"Type": "Flow.Timeline",
 					"Position": [
 						400.0,
-						2352.0
+						1712.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -805,7 +805,7 @@
 					"Type": "Expression",
 					"Position": [
 						192.0,
-						2352.0
+						1712.0
 					],
 					"Settings": {
 						"Formula": "8 / seconds"
@@ -816,7 +816,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						704.0,
-						2352.0
+						1712.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -826,8 +826,8 @@
 					"ID": 65,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2480.0
+						400.0,
+						1984.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -837,8 +837,8 @@
 					"ID": 66,
 					"Type": "Expression",
 					"Position": [
-						192.0,
-						2480.0
+						704.0,
+						1840.0
 					],
 					"Settings": {
 						"Formula": "vec3(width, 0.4, 0.5)"
@@ -848,16 +848,16 @@
 					"ID": 67,
 					"Type": "Set:Strada.TransformComponent.Scale",
 					"Position": [
-						896.0,
-						2352.0
+						912.0,
+						1712.0
 					]
 				},
 				{
 					"ID": 68,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2544.0
+						704.0,
+						1968.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -867,8 +867,8 @@
 					"ID": 69,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2608.0
+						704.0,
+						2032.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -878,8 +878,8 @@
 					"ID": 70,
 					"Type": "Expression",
 					"Position": [
-						192.0,
-						2608.0
+						912.0,
+						1888.0
 					],
 					"Settings": {
 						"Formula": "abs(width - collider) > 0.05"
@@ -889,16 +889,16 @@
 					"ID": 71,
 					"Type": "Flow.Branch",
 					"Position": [
-						1104.0,
-						2352.0
+						1120.0,
+						1712.0
 					]
 				},
 				{
 					"ID": 72,
 					"Type": "Set:Strada.BoxColliderComponent.HalfExtents",
 					"Position": [
-						1328.0,
-						2352.0
+						1344.0,
+						1712.0
 					],
 					"Inputs": {
 						"Value": [
@@ -913,8 +913,8 @@
 					"ID": 73,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2672.0
+						1344.0,
+						1888.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -924,8 +924,8 @@
 					"ID": 74,
 					"Type": "Variable.Set",
 					"Position": [
-						1632.0,
-						2352.0
+						1648.0,
+						1712.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -936,7 +936,7 @@
 					"Type": "Event.CollisionEnter",
 					"Position": [
 						0.0,
-						2864.0
+						2208.0
 					]
 				},
 				{
@@ -944,7 +944,7 @@
 					"Type": "RunsGraph",
 					"Position": [
 						192.0,
-						2864.0
+						2208.0
 					],
 					"Settings": {
 						"Graph": "16219410850394416192"
@@ -955,7 +955,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						400.0,
-						2864.0
+						2208.0
 					]
 				},
 				{
@@ -963,7 +963,7 @@
 					"Type": "Call:Strada.AudioSourceComponent.Play()",
 					"Position": [
 						624.0,
-						2864.0
+						2208.0
 					]
 				},
 				{
@@ -971,7 +971,7 @@
 					"Type": "Flow.Tween",
 					"Position": [
 						832.0,
-						2864.0
+						2208.0
 					],
 					"Settings": {
 						"Easing": "Linear"
@@ -984,8 +984,8 @@
 					"ID": 81,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						3088.0
+						832.0,
+						2368.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -996,7 +996,7 @@
 					"Type": "Expression",
 					"Position": [
 						1136.0,
-						2864.0
+						2208.0
 					],
 					"Settings": {
 						"Formula": "vec3(width, 0.4 * (1 - 0.35 * sin(alpha * pi)), 0.5 * (1 + 0.2 * sin(alpha * pi)))"
@@ -1007,7 +1007,7 @@
 					"Type": "Set:Strada.TransformComponent.Scale",
 					"Position": [
 						1344.0,
-						2864.0
+						2208.0
 					]
 				}
 			],
@@ -1572,8 +1572,8 @@
 						136.0
 					],
 					"Size": [
-						1117.572509765625,
-						1732.0
+						1133.572509765625,
+						1090.0
 					],
 					"Color": [
 						0.20000000298023224,
@@ -1587,7 +1587,7 @@
 					"Text": "Move the body: each physics step carries the paddle to X",
 					"Position": [
 						-32.0,
-						1912.0
+						1272.0
 					],
 					"Size": [
 						694.7850341796875,
@@ -1605,11 +1605,11 @@
 					"Text": "Widen: a capsule widens the paddle, which settles back",
 					"Position": [
 						-32.0,
-						2280.0
+						1640.0
 					],
 					"Size": [
-						1821.572509765625,
-						466.0
+						1837.572509765625,
+						452.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -1623,11 +1623,11 @@
 					"Text": "Squash on a hit: the paddle gives and springs back",
 					"Position": [
 						-32.0,
-						2792.0
+						2136.0
 					],
 					"Size": [
 						1539.13623046875,
-						356.0
+						292.0
 					],
 					"Color": [
 						0.6200000047683716,

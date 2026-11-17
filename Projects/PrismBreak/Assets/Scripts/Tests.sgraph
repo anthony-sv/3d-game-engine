@@ -237,7 +237,7 @@
 							"ID": 36,
 							"Type": "Function.Return",
 							"Position": [
-								1632.0,
+								1616.0,
 								0.0
 							]
 						},
@@ -272,7 +272,7 @@
 							"ID": 134,
 							"Type": "Expression",
 							"Position": [
-								672.0,
+								608.0,
 								0.0
 							],
 							"Settings": {
@@ -283,7 +283,7 @@
 							"ID": 135,
 							"Type": "Flow.Branch",
 							"Position": [
-								880.0,
+								816.0,
 								0.0
 							]
 						},
@@ -291,7 +291,7 @@
 							"ID": 136,
 							"Type": "Get:Strada.Entity.Children",
 							"Position": [
-								192.0,
+								608.0,
 								128.0
 							]
 						},
@@ -299,7 +299,7 @@
 							"ID": 137,
 							"Type": "Array.Get",
 							"Position": [
-								400.0,
+								816.0,
 								128.0
 							],
 							"Inputs": {
@@ -310,7 +310,7 @@
 							"ID": 138,
 							"Type": "Call:Strada.RigidBodyComponent.Teleport(Strada.Vector3,Strada.Quaternion)",
 							"Position": [
-								1104.0,
+								1088.0,
 								0.0
 							],
 							"Inputs": {
@@ -326,7 +326,7 @@
 							"ID": 139,
 							"Type": "Set:Strada.RigidBodyComponent.LinearVelocity",
 							"Position": [
-								1424.0,
+								1408.0,
 								0.0
 							]
 						}
@@ -492,7 +492,7 @@
 								-72.0
 							],
 							"Size": [
-								1816.0,
+								1800.0,
 								338.0
 							],
 							"Color": [
@@ -539,7 +539,7 @@
 							"ID": 141,
 							"Type": "Expression",
 							"Position": [
-								192.0,
+								400.0,
 								0.0
 							],
 							"Settings": {
@@ -562,7 +562,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								128.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 33,
@@ -574,7 +574,7 @@
 							"Type": "Expression",
 							"Position": [
 								400.0,
-								0.0
+								128.0
 							],
 							"Settings": {
 								"Formula": "vec3(0, 0, -speed)"
@@ -728,7 +728,7 @@
 							"Type": "Function.Return",
 							"Position": [
 								640.0,
-								0.0
+								128.0
 							]
 						},
 						{
@@ -762,8 +762,8 @@
 							"ID": 150,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								224.0
+								192.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -773,8 +773,8 @@
 							"ID": 151,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								128.0
+								400.0,
+								176.0
 							],
 							"Settings": {
 								"Variable": 17,
@@ -785,8 +785,8 @@
 							"ID": 152,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								256.0
+								400.0,
+								304.0
 							],
 							"Settings": {
 								"Variable": 18,
@@ -797,8 +797,8 @@
 							"ID": 153,
 							"Type": "Expression",
 							"Position": [
-								400.0,
-								176.0
+								640.0,
+								256.0
 							],
 							"Settings": {
 								"Formula": "origin + vec3(column * spacing.x, 0, row * spacing.y)"
@@ -809,7 +809,7 @@
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
 								640.0,
-								128.0
+								0.0
 							]
 						},
 						{
@@ -850,8 +850,8 @@
 							"ID": 158,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								288.0
+								400.0,
+								432.0
 							],
 							"Settings": {
 								"Variable": 43
@@ -1060,7 +1060,7 @@
 							],
 							"Size": [
 								1549.572509765625,
-								442.0
+								564.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -1093,7 +1093,7 @@
 							"ID": 46,
 							"Type": "Function.Return",
 							"Position": [
-								1392.0,
+								1456.0,
 								0.0
 							]
 						},
@@ -1112,7 +1112,7 @@
 							"ID": 161,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
+								400.0,
 								0.0
 							],
 							"Settings": {
@@ -1125,7 +1125,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								128.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 27,
@@ -1137,7 +1137,7 @@
 							"Type": "Operator.Equal",
 							"Position": [
 								400.0,
-								256.0
+								128.0
 							],
 							"Inputs": {
 								"B": "Serve"
@@ -1147,8 +1147,8 @@
 							"ID": 164,
 							"Type": "FormatString",
 							"Position": [
-								400.0,
-								128.0
+								944.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Left} prisms once the state is {State}"
@@ -1158,7 +1158,7 @@
 							"ID": 165,
 							"Type": "Operator.Equal",
 							"Position": [
-								400.0,
+								688.0,
 								0.0
 							],
 							"Inputs": {
@@ -1169,8 +1169,8 @@
 							"ID": 166,
 							"Type": "Operator.And",
 							"Position": [
-								688.0,
-								0.0
+								944.0,
+								128.0
 							]
 						},
 						{
@@ -1186,7 +1186,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
-								256.0
+								128.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -1196,8 +1196,8 @@
 							"ID": 169,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								400.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -1208,7 +1208,7 @@
 							"Type": "Expression",
 							"Position": [
 								688.0,
-								80.0
+								128.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 5"
@@ -1218,15 +1218,15 @@
 							"ID": 171,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								880.0,
-								0.0
+								944.0,
+								208.0
 							]
 						},
 						{
 							"ID": 172,
 							"Type": "Function.Call",
 							"Position": [
-								1120.0,
+								1184.0,
 								0.0
 							],
 							"Settings": {
@@ -1439,8 +1439,8 @@
 								-72.0
 							],
 							"Size": [
-								1576.0,
-								450.0
+								1640.0,
+								402.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -1473,7 +1473,7 @@
 							"ID": 49,
 							"Type": "Function.Return",
 							"Position": [
-								1520.0,
+								1472.0,
 								0.0
 							]
 						},
@@ -1508,8 +1508,8 @@
 							"ID": 177,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								192.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -1519,8 +1519,8 @@
 							"ID": 178,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								256.0
+								400.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 32,
@@ -1539,8 +1539,8 @@
 							"ID": 180,
 							"Type": "FormatString",
 							"Position": [
-								608.0,
-								80.0
+								960.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Children} children for {Left} prisms"
@@ -1559,7 +1559,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
-								128.0
+								192.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -1569,8 +1569,8 @@
 							"ID": 183,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								608.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -1580,7 +1580,7 @@
 							"ID": 184,
 							"Type": "Expression",
 							"Position": [
-								816.0,
+								768.0,
 								0.0
 							],
 							"Settings": {
@@ -1591,15 +1591,15 @@
 							"ID": 185,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1008.0,
-								0.0
+								960.0,
+								128.0
 							]
 						},
 						{
 							"ID": 186,
 							"Type": "Function.Call",
 							"Position": [
-								1248.0,
+								1200.0,
 								0.0
 							],
 							"Settings": {
@@ -1802,8 +1802,8 @@
 								-72.0
 							],
 							"Size": [
-								1704.0,
-								500.0
+								1656.0,
+								386.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -1829,14 +1829,14 @@
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
-								0.0
+								64.0
 							]
 						},
 						{
 							"ID": 52,
 							"Type": "Function.Return",
 							"Position": [
-								1808.0,
+								1840.0,
 								0.0
 							]
 						},
@@ -1845,7 +1845,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								112.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 17
@@ -1855,8 +1855,8 @@
 							"ID": 189,
 							"Type": "Variable.Get",
 							"Position": [
-								256.0,
-								160.0
+								464.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 1,
@@ -1867,8 +1867,8 @@
 							"ID": 190,
 							"Type": "Call:Strada.MeshComponent.GetMaterial(int)",
 							"Position": [
-								256.0,
-								288.0
+								192.0,
+								0.0
 							],
 							"Inputs": {
 								"Index": 0
@@ -1878,16 +1878,16 @@
 							"ID": 191,
 							"Type": "Get:Strada.Material.Emissive",
 							"Position": [
-								528.0,
-								256.0
+								464.0,
+								128.0
 							]
 						},
 						{
 							"ID": 192,
 							"Type": "Operator.Equal",
 							"Position": [
-								528.0,
-								128.0
+								720.0,
+								0.0
 							],
 							"Inputs": {
 								"B": 3
@@ -1897,8 +1897,8 @@
 							"ID": 193,
 							"Type": "Function.Call",
 							"Position": [
-								0.0,
-								176.0
+								464.0,
+								256.0
 							],
 							"Settings": {
 								"Graph": "11260502822282376115",
@@ -1912,7 +1912,7 @@
 							"ID": 194,
 							"Type": "Operator.Equal",
 							"Position": [
-								784.0,
+								720.0,
 								128.0
 							]
 						},
@@ -1928,8 +1928,8 @@
 							"ID": 196,
 							"Type": "Function.Call",
 							"Position": [
-								256.0,
-								0.0
+								192.0,
+								144.0
 							],
 							"Settings": {
 								"Function": 40
@@ -1943,8 +1943,8 @@
 							"ID": 197,
 							"Type": "Variable.Set",
 							"Position": [
-								528.0,
-								0.0
+								464.0,
+								384.0
 							],
 							"Settings": {
 								"Variable": 17
@@ -1954,8 +1954,8 @@
 							"ID": 198,
 							"Type": "FormatString",
 							"Position": [
-								784.0,
-								208.0
+								1328.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Hits} hits, glowing {Glow}"
@@ -1965,16 +1965,16 @@
 							"ID": 199,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								304.0
+								464.0,
+								512.0
 							]
 						},
 						{
 							"ID": 200,
 							"Type": "Variable.Set",
 							"Position": [
-								784.0,
-								0.0
+								720.0,
+								208.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -1984,8 +1984,8 @@
 							"ID": 201,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								976.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -1995,7 +1995,7 @@
 							"ID": 202,
 							"Type": "Expression",
 							"Position": [
-								1104.0,
+								1136.0,
 								0.0
 							],
 							"Settings": {
@@ -2006,15 +2006,15 @@
 							"ID": 203,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1296.0,
-								0.0
+								1328.0,
+								128.0
 							]
 						},
 						{
 							"ID": 204,
 							"Type": "Function.Call",
 							"Position": [
-								1536.0,
+								1568.0,
 								0.0
 							],
 							"Settings": {
@@ -2277,8 +2277,8 @@
 								-72.0
 							],
 							"Size": [
-								1992.0,
-								564.0
+								2024.0,
+								698.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -2347,8 +2347,8 @@
 							"ID": 208,
 							"Type": "FormatString",
 							"Position": [
-								272.0,
-								128.0
+								720.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "ScoreFor(50, 3, 2) is {Score}"
@@ -2367,7 +2367,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								272.0,
-								240.0
+								192.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -2377,8 +2377,8 @@
 							"ID": 211,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								416.0
+								272.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -2400,7 +2400,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								720.0,
-								0.0
+								112.0
 							]
 						},
 						{
@@ -2561,7 +2561,7 @@
 							],
 							"Size": [
 								1416.0,
-								548.0
+								474.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -2594,7 +2594,7 @@
 							"ID": 58,
 							"Type": "Function.Return",
 							"Position": [
-								1408.0,
+								1440.0,
 								0.0
 							]
 						},
@@ -2649,7 +2649,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								288.0,
-								304.0
+								176.0
 							],
 							"Settings": {
 								"Graph": "4502668094646346558",
@@ -2672,8 +2672,8 @@
 							"ID": 221,
 							"Type": "FormatString",
 							"Position": [
-								288.0,
-								176.0
+								928.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Octave} and {Fifth}"
@@ -2692,7 +2692,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								288.0,
-								480.0
+								352.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -2702,8 +2702,8 @@
 							"ID": 224,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								576.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -2713,7 +2713,7 @@
 							"ID": 225,
 							"Type": "Expression",
 							"Position": [
-								704.0,
+								736.0,
 								0.0
 							],
 							"Settings": {
@@ -2724,15 +2724,15 @@
 							"ID": 226,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								896.0,
-								0.0
+								928.0,
+								128.0
 							]
 						},
 						{
 							"ID": 227,
 							"Type": "Function.Call",
 							"Position": [
-								1136.0,
+								1168.0,
 								0.0
 							],
 							"Settings": {
@@ -2925,8 +2925,8 @@
 								-72.0
 							],
 							"Size": [
-								1592.0,
-								674.0
+								1624.0,
+								554.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -2997,7 +2997,7 @@
 							"ID": 231,
 							"Type": "Function.Call",
 							"Position": [
-								736.0,
+								704.0,
 								0.0
 							],
 							"Settings": {
@@ -3012,8 +3012,8 @@
 							"ID": 232,
 							"Type": "Operator.Equal",
 							"Position": [
-								448.0,
-								144.0
+								704.0,
+								272.0
 							],
 							"Inputs": {
 								"B": "1 234 567"
@@ -3023,7 +3023,7 @@
 							"ID": 233,
 							"Type": "Operator.Equal",
 							"Position": [
-								736.0,
+								704.0,
 								144.0
 							],
 							"Inputs": {
@@ -3034,15 +3034,15 @@
 							"ID": 234,
 							"Type": "Operator.And",
 							"Position": [
-								1024.0,
-								416.0
+								992.0,
+								128.0
 							]
 						},
 						{
 							"ID": 235,
 							"Type": "Operator.Equal",
 							"Position": [
-								1024.0,
+								992.0,
 								0.0
 							],
 							"Inputs": {
@@ -3053,7 +3053,7 @@
 							"ID": 236,
 							"Type": "Operator.And",
 							"Position": [
-								1312.0,
+								1280.0,
 								0.0
 							]
 						},
@@ -3061,8 +3061,8 @@
 							"ID": 237,
 							"Type": "FormatString",
 							"Position": [
-								1024.0,
-								128.0
+								1632.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "'{Large}', '{Negative}' and '{Zero}'"
@@ -3072,16 +3072,16 @@
 							"ID": 238,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								112.0
+								704.0,
+								400.0
 							]
 						},
 						{
 							"ID": 239,
 							"Type": "Variable.Set",
 							"Position": [
-								1024.0,
-								288.0
+								992.0,
+								208.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -3091,8 +3091,8 @@
 							"ID": 240,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								1280.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -3114,7 +3114,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1632.0,
-								0.0
+								160.0
 							]
 						},
 						{
@@ -3385,7 +3385,7 @@
 							],
 							"Size": [
 								2328.0,
-								568.0
+								586.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -3418,7 +3418,7 @@
 							"ID": 64,
 							"Type": "Function.Return",
 							"Position": [
-								1760.0,
+								1792.0,
 								0.0
 							]
 						},
@@ -3460,8 +3460,8 @@
 							"ID": 247,
 							"Type": "Literal",
 							"Position": [
-								0.0,
-								240.0
+								192.0,
+								192.0
 							],
 							"Settings": {
 								"Type": "int[]",
@@ -3475,7 +3475,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								464.0,
-								0.0
+								256.0
 							],
 							"Settings": {
 								"Graph": "11260502822282376115",
@@ -3490,8 +3490,8 @@
 							"ID": 249,
 							"Type": "Literal",
 							"Position": [
-								0.0,
-								368.0
+								464.0,
+								0.0
 							],
 							"Settings": {
 								"Type": "int[]",
@@ -3508,8 +3508,8 @@
 							"ID": 250,
 							"Type": "Function.Call",
 							"Position": [
-								464.0,
-								192.0
+								736.0,
+								0.0
 							],
 							"Settings": {
 								"Graph": "4502668094646346558",
@@ -3520,8 +3520,8 @@
 							"ID": 251,
 							"Type": "Literal",
 							"Position": [
-								0.0,
-								496.0
+								464.0,
+								128.0
 							],
 							"Settings": {
 								"Type": "int[]",
@@ -3535,7 +3535,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								736.0,
-								0.0
+								144.0
 							],
 							"Settings": {
 								"Graph": "4502668094646346558",
@@ -3554,8 +3554,8 @@
 							"ID": 254,
 							"Type": "FormatString",
 							"Position": [
-								736.0,
-								144.0
+								1280.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Full} and {Short}"
@@ -3565,8 +3565,8 @@
 							"ID": 255,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								624.0
+								464.0,
+								448.0
 							]
 						},
 						{
@@ -3574,7 +3574,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								736.0,
-								272.0
+								288.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -3584,8 +3584,8 @@
 							"ID": 257,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								752.0
+								928.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -3595,7 +3595,7 @@
 							"ID": 258,
 							"Type": "Expression",
 							"Position": [
-								1056.0,
+								1088.0,
 								0.0
 							],
 							"Settings": {
@@ -3606,15 +3606,15 @@
 							"ID": 259,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1248.0,
-								0.0
+								1280.0,
+								128.0
 							]
 						},
 						{
 							"ID": 260,
 							"Type": "Function.Call",
 							"Position": [
-								1488.0,
+								1520.0,
 								0.0
 							],
 							"Settings": {
@@ -3867,8 +3867,8 @@
 								-72.0
 							],
 							"Size": [
-								1944.0,
-								884.0
+								1976.0,
+								634.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -3965,8 +3965,8 @@
 							"ID": 267,
 							"Type": "FormatString",
 							"Position": [
-								464.0,
-								128.0
+								944.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "the score text reads '{Text}'"
@@ -3976,8 +3976,8 @@
 							"ID": 268,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								240.0
+								192.0,
+								304.0
 							]
 						},
 						{
@@ -3985,7 +3985,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								464.0,
-								240.0
+								192.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -3995,8 +3995,8 @@
 							"ID": 270,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								464.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -4018,7 +4018,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								944.0,
-								0.0
+								112.0
 							]
 						},
 						{
@@ -4209,7 +4209,7 @@
 							],
 							"Size": [
 								1640.0,
-								500.0
+								490.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -4235,14 +4235,14 @@
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
-								128.0
+								64.0
 							]
 						},
 						{
 							"ID": 70,
 							"Type": "Function.Return",
 							"Position": [
-								2016.0,
+								2032.0,
 								0.0
 							]
 						},
@@ -4250,7 +4250,7 @@
 							"ID": 275,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
+								192.0,
 								0.0
 							],
 							"Settings": {
@@ -4261,7 +4261,7 @@
 							"ID": 276,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								192.0,
+								400.0,
 								0.0
 							]
 						},
@@ -4269,7 +4269,7 @@
 							"ID": 277,
 							"Type": "Expression",
 							"Position": [
-								400.0,
+								672.0,
 								0.0
 							],
 							"Settings": {
@@ -4281,7 +4281,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								64.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 5
@@ -4292,7 +4292,7 @@
 							"Type": "Get:Strada.Entity.Children",
 							"Position": [
 								192.0,
-								128.0
+								64.0
 							]
 						},
 						{
@@ -4310,16 +4310,16 @@
 							"ID": 281,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								688.0,
-								0.0
+								672.0,
+								128.0
 							]
 						},
 						{
 							"ID": 282,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								400.0,
+								272.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -4329,8 +4329,8 @@
 							"ID": 283,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								384.0
+								672.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 27,
@@ -4341,8 +4341,8 @@
 							"ID": 284,
 							"Type": "Operator.Equal",
 							"Position": [
-								400.0,
-								272.0
+								880.0,
+								176.0
 							],
 							"Inputs": {
 								"B": "Serve"
@@ -4352,7 +4352,7 @@
 							"ID": 285,
 							"Type": "Function.Call",
 							"Position": [
-								896.0,
+								880.0,
 								0.0
 							],
 							"Settings": {
@@ -4367,7 +4367,7 @@
 							"ID": 286,
 							"Type": "Operator.And",
 							"Position": [
-								1184.0,
+								1168.0,
 								0.0
 							]
 						},
@@ -4375,8 +4375,8 @@
 							"ID": 287,
 							"Type": "FormatString",
 							"Position": [
-								896.0,
-								176.0
+								1520.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "the ball at {Ball}, its serve point {Point}"
@@ -4387,7 +4387,7 @@
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
-								240.0
+								176.0
 							]
 						},
 						{
@@ -4395,7 +4395,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
-								256.0
+								192.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -4405,8 +4405,8 @@
 							"ID": 290,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								1168.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -4416,7 +4416,7 @@
 							"ID": 291,
 							"Type": "Expression",
 							"Position": [
-								1312.0,
+								1328.0,
 								0.0
 							],
 							"Settings": {
@@ -4427,15 +4427,15 @@
 							"ID": 292,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1504.0,
-								0.0
+								1520.0,
+								128.0
 							]
 						},
 						{
 							"ID": 293,
 							"Type": "Function.Call",
 							"Position": [
-								1744.0,
+								1760.0,
 								0.0
 							],
 							"Settings": {
@@ -4698,8 +4698,8 @@
 								-72.0
 							],
 							"Size": [
-								2200.0,
-								570.0
+								2216.0,
+								442.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -4732,7 +4732,7 @@
 							"ID": 73,
 							"Type": "Function.Return",
 							"Position": [
-								2096.0,
+								2112.0,
 								0.0
 							]
 						},
@@ -4800,8 +4800,8 @@
 							"ID": 301,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								272.0
+								912.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 33,
@@ -4836,7 +4836,7 @@
 							"ID": 304,
 							"Type": "Function.Call",
 							"Position": [
-								1104.0,
+								1120.0,
 								0.0
 							],
 							"Settings": {
@@ -4851,8 +4851,8 @@
 							"ID": 305,
 							"Type": "FormatString",
 							"Position": [
-								1104.0,
-								176.0
+								1600.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Speed} m/s of {Expected}"
@@ -4862,8 +4862,8 @@
 							"ID": 306,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								240.0
+								400.0,
+								272.0
 							]
 						},
 						{
@@ -4881,8 +4881,8 @@
 							"ID": 308,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								1120.0,
+								176.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -4892,7 +4892,7 @@
 							"ID": 309,
 							"Type": "Expression",
 							"Position": [
-								1392.0,
+								1408.0,
 								0.0
 							],
 							"Settings": {
@@ -4903,15 +4903,15 @@
 							"ID": 310,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1584.0,
-								0.0
+								1600.0,
+								128.0
 							]
 						},
 						{
 							"ID": 311,
 							"Type": "Function.Call",
 							"Position": [
-								1824.0,
+								1840.0,
 								0.0
 							],
 							"Settings": {
@@ -5164,8 +5164,8 @@
 								-72.0
 							],
 							"Size": [
-								2280.0,
-								500.0
+								2296.0,
+								458.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -5191,7 +5191,7 @@
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
-								128.0
+								64.0
 							]
 						},
 						{
@@ -5244,8 +5244,8 @@
 							"ID": 317,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								64.0
+								400.0,
+								144.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -5255,8 +5255,8 @@
 							"ID": 318,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								128.0
+								672.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 33,
@@ -5280,7 +5280,7 @@
 							"Type": "Expression",
 							"Position": [
 								912.0,
-								128.0
+								0.0
 							],
 							"Settings": {
 								"Formula": "abs(length(v) - speed) <= 0.05 && abs(v.z) / length(v) >= minZ - 0.001"
@@ -5291,7 +5291,7 @@
 							"Type": "Literal",
 							"Position": [
 								0.0,
-								240.0
+								176.0
 							],
 							"Settings": {
 								"Type": "Strada.Vector3",
@@ -5307,7 +5307,7 @@
 							"Type": "Literal",
 							"Position": [
 								0.0,
-								368.0
+								304.0
 							],
 							"Settings": {
 								"Type": "Strada.Vector3",
@@ -5323,7 +5323,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
-								256.0
+								128.0
 							],
 							"Settings": {
 								"Function": 34
@@ -5333,8 +5333,8 @@
 							"ID": 324,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								496.0
+								192.0,
+								288.0
 							]
 						},
 						{
@@ -5342,7 +5342,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								400.0,
-								144.0
+								208.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -5352,8 +5352,8 @@
 							"ID": 326,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								624.0
+								192.0,
+								416.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -5363,8 +5363,8 @@
 							"ID": 327,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								416.0
+								400.0,
+								336.0
 							],
 							"Settings": {
 								"Formula": "now - start > 2"
@@ -5375,14 +5375,14 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								672.0,
-								256.0
+								384.0
 							]
 						},
 						{
 							"ID": 329,
 							"Type": "FormatString",
 							"Position": [
-								912.0,
+								1312.0,
 								0.0
 							],
 							"Settings": {
@@ -5393,8 +5393,8 @@
 							"ID": 330,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								688.0
+								672.0,
+								512.0
 							]
 						},
 						{
@@ -5402,7 +5402,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								912.0,
-								304.0
+								176.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -5424,7 +5424,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1312.0,
-								0.0
+								128.0
 							]
 						},
 						{
@@ -5755,7 +5755,7 @@
 							],
 							"Size": [
 								2008.0,
-								874.0
+								698.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -5788,7 +5788,7 @@
 							"ID": 79,
 							"Type": "Function.Return",
 							"Position": [
-								3152.0,
+								3200.0,
 								0.0
 							]
 						},
@@ -5796,8 +5796,8 @@
 							"ID": 336,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								112.0
+								192.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -5807,8 +5807,8 @@
 							"ID": 337,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								160.0
+								464.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 32,
@@ -5819,8 +5819,8 @@
 							"ID": 338,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								1344.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 19
@@ -5830,8 +5830,8 @@
 							"ID": 339,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								1344.0,
+								64.0
 							],
 							"Settings": {
 								"Variable": 18
@@ -5841,24 +5841,24 @@
 							"ID": 340,
 							"Type": "Get:Strada.Entity.IsValid",
 							"Position": [
-								192.0,
-								800.0
+								1616.0,
+								128.0
 							]
 						},
 						{
 							"ID": 341,
 							"Type": "Operator.Not",
 							"Position": [
-								464.0,
-								336.0
+								1824.0,
+								80.0
 							]
 						},
 						{
 							"ID": 342,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								672.0
+								1616.0,
+								0.0
 							],
 							"Settings": {
 								"Formula": "before - 1"
@@ -5868,23 +5868,23 @@
 							"ID": 343,
 							"Type": "Operator.Equal",
 							"Position": [
-								464.0,
-								256.0
+								1824.0,
+								0.0
 							]
 						},
 						{
 							"ID": 344,
 							"Type": "Operator.And",
 							"Position": [
-								672.0,
-								128.0
+								2032.0,
+								0.0
 							]
 						},
 						{
 							"ID": 345,
 							"Type": "Variable.Set",
 							"Position": [
-								1056.0,
+								1072.0,
 								0.0
 							],
 							"Settings": {
@@ -5901,7 +5901,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
-								0.0
+								64.0
 							],
 							"Settings": {
 								"Function": 40
@@ -5916,7 +5916,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								464.0,
-								0.0
+								128.0
 							],
 							"Settings": {
 								"Variable": 18
@@ -5937,8 +5937,8 @@
 							"ID": 349,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								288.0
+								672.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 28,
@@ -5949,7 +5949,7 @@
 							"ID": 350,
 							"Type": "Variable.Set",
 							"Position": [
-								864.0,
+								880.0,
 								0.0
 							],
 							"Settings": {
@@ -5960,8 +5960,8 @@
 							"ID": 351,
 							"Type": "Variable.Set",
 							"Position": [
-								1328.0,
-								0.0
+								1344.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 30,
@@ -5975,8 +5975,8 @@
 							"ID": 352,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								416.0
+								1344.0,
+								304.0
 							],
 							"Settings": {
 								"Variable": 31,
@@ -5987,8 +5987,8 @@
 							"ID": 353,
 							"Type": "Variable.Set",
 							"Position": [
-								1600.0,
-								0.0
+								1616.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 21
@@ -5998,8 +5998,8 @@
 							"ID": 354,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								544.0
+								1616.0,
+								384.0
 							],
 							"Settings": {
 								"Variable": 30,
@@ -6010,8 +6010,8 @@
 							"ID": 355,
 							"Type": "Variable.Set",
 							"Position": [
-								1792.0,
-								0.0
+								1824.0,
+								192.0
 							],
 							"Settings": {
 								"Variable": 22
@@ -6021,16 +6021,16 @@
 							"ID": 356,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								192.0,
-								928.0
+								1824.0,
+								320.0
 							]
 						},
 						{
 							"ID": 357,
 							"Type": "Function.Call",
 							"Position": [
-								1984.0,
-								0.0
+								2032.0,
+								272.0
 							],
 							"Settings": {
 								"Function": 37
@@ -6040,8 +6040,8 @@
 							"ID": 358,
 							"Type": "FormatString",
 							"Position": [
-								464.0,
-								128.0
+								2416.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Left} prisms left of {Before}"
@@ -6051,16 +6051,16 @@
 							"ID": 359,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								304.0
+								2032.0,
+								144.0
 							]
 						},
 						{
 							"ID": 360,
 							"Type": "Variable.Set",
 							"Position": [
-								2176.0,
-								0.0
+								2224.0,
+								176.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -6070,8 +6070,8 @@
 							"ID": 361,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								2032.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -6081,8 +6081,8 @@
 							"ID": 362,
 							"Type": "Expression",
 							"Position": [
-								864.0,
-								128.0
+								2224.0,
+								0.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 2"
@@ -6092,15 +6092,15 @@
 							"ID": 363,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								2368.0,
-								0.0
+								2416.0,
+								128.0
 							]
 						},
 						{
 							"ID": 364,
 							"Type": "Function.Call",
 							"Position": [
-								2608.0,
+								2656.0,
 								0.0
 							],
 							"Settings": {
@@ -6115,7 +6115,7 @@
 							"ID": 365,
 							"Type": "Variable.Set",
 							"Position": [
-								2880.0,
+								2928.0,
 								0.0
 							],
 							"Settings": {
@@ -6579,8 +6579,8 @@
 								-72.0
 							],
 							"Size": [
-								3336.0,
-								1114.0
+								3384.0,
+								570.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -6606,14 +6606,14 @@
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
-								192.0
+								128.0
 							]
 						},
 						{
 							"ID": 82,
 							"Type": "Function.Return",
 							"Position": [
-								1504.0,
+								1552.0,
 								0.0
 							]
 						},
@@ -6643,8 +6643,8 @@
 							"ID": 369,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								192.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 20
@@ -6655,7 +6655,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
-								0.0
+								64.0
 							],
 							"Settings": {
 								"Graph": "11260502822282376115",
@@ -6669,8 +6669,8 @@
 							"ID": 371,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								128.0
+								192.0,
+								240.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -6680,8 +6680,8 @@
 							"ID": 372,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								320.0
+								464.0,
+								144.0
 							],
 							"Settings": {
 								"Variable": 28,
@@ -6711,8 +6711,8 @@
 							"ID": 375,
 							"Type": "FormatString",
 							"Position": [
-								464.0,
-								144.0
+								1040.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Score} after {Before}, with a combo of {Combo} on level {Level}"
@@ -6722,8 +6722,8 @@
 							"ID": 376,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								176.0
+								832.0,
+								0.0
 							],
 							"Settings": {
 								"Formula": "combo > 0 && level > 1"
@@ -6733,8 +6733,8 @@
 							"ID": 377,
 							"Type": "Operator.And",
 							"Position": [
-								800.0,
-								0.0
+								1040.0,
+								176.0
 							]
 						},
 						{
@@ -6742,7 +6742,7 @@
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
-								368.0
+								240.0
 							]
 						},
 						{
@@ -6750,7 +6750,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
-								448.0
+								304.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -6760,8 +6760,8 @@
 							"ID": 380,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								672.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -6771,8 +6771,8 @@
 							"ID": 381,
 							"Type": "Expression",
 							"Position": [
-								800.0,
-								80.0
+								832.0,
+								144.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 1"
@@ -6782,15 +6782,15 @@
 							"ID": 382,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								992.0,
-								0.0
+								1040.0,
+								256.0
 							]
 						},
 						{
 							"ID": 383,
 							"Type": "Function.Call",
 							"Position": [
-								1232.0,
+								1280.0,
 								0.0
 							],
 							"Settings": {
@@ -7073,8 +7073,8 @@
 								-72.0
 							],
 							"Size": [
-								1688.0,
-								642.0
+								1736.0,
+								498.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -7107,7 +7107,7 @@
 							"ID": 85,
 							"Type": "Function.Return",
 							"Position": [
-								2928.0,
+								3040.0,
 								0.0
 							]
 						},
@@ -7115,8 +7115,8 @@
 							"ID": 385,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								112.0
+								1120.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 17
@@ -7126,8 +7126,8 @@
 							"ID": 386,
 							"Type": "Variable.Get",
 							"Position": [
-								256.0,
-								160.0
+								1632.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 1,
@@ -7138,8 +7138,8 @@
 							"ID": 387,
 							"Type": "Call:Strada.MeshComponent.GetMaterial(int)",
 							"Position": [
-								256.0,
-								288.0
+								1360.0,
+								0.0
 							],
 							"Inputs": {
 								"Index": 0
@@ -7149,16 +7149,16 @@
 							"ID": 388,
 							"Type": "Get:Strada.Material.Emissive",
 							"Position": [
-								528.0,
-								256.0
+								1632.0,
+								128.0
 							]
 						},
 						{
 							"ID": 389,
 							"Type": "Operator.Equal",
 							"Position": [
-								528.0,
-								128.0
+								1888.0,
+								0.0
 							],
 							"Inputs": {
 								"B": 2
@@ -7168,8 +7168,8 @@
 							"ID": 390,
 							"Type": "Function.Call",
 							"Position": [
-								0.0,
-								176.0
+								1632.0,
+								256.0
 							],
 							"Settings": {
 								"Graph": "11260502822282376115",
@@ -7183,7 +7183,7 @@
 							"ID": 391,
 							"Type": "Operator.Equal",
 							"Position": [
-								784.0,
+								1888.0,
 								128.0
 							]
 						},
@@ -7191,15 +7191,15 @@
 							"ID": 392,
 							"Type": "Operator.And",
 							"Position": [
-								976.0,
-								128.0
+								2144.0,
+								0.0
 							]
 						},
 						{
 							"ID": 393,
 							"Type": "Function.Call",
 							"Position": [
-								256.0,
+								192.0,
 								0.0
 							],
 							"Settings": {
@@ -7214,7 +7214,7 @@
 							"ID": 394,
 							"Type": "Variable.Set",
 							"Position": [
-								528.0,
+								464.0,
 								0.0
 							],
 							"Settings": {
@@ -7225,8 +7225,8 @@
 							"ID": 395,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								192.0,
+								160.0
 							],
 							"Settings": {
 								"Variable": 18
@@ -7236,15 +7236,15 @@
 							"ID": 396,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								256.0,
-								560.0
+								464.0,
+								128.0
 							]
 						},
 						{
 							"ID": 397,
 							"Type": "Function.Call",
 							"Position": [
-								784.0,
+								672.0,
 								0.0
 							],
 							"Settings": {
@@ -7255,8 +7255,8 @@
 							"ID": 398,
 							"Type": "Variable.Get",
 							"Position": [
-								256.0,
-								688.0
+								464.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 1,
@@ -7267,8 +7267,8 @@
 							"ID": 399,
 							"Type": "Operator.Equal",
 							"Position": [
-								528.0,
-								384.0
+								672.0,
+								256.0
 							],
 							"Inputs": {
 								"B": 1
@@ -7278,15 +7278,15 @@
 							"ID": 400,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								368.0
+								672.0,
+								128.0
 							]
 						},
 						{
 							"ID": 401,
 							"Type": "Variable.Set",
 							"Position": [
-								976.0,
+								928.0,
 								0.0
 							],
 							"Settings": {
@@ -7297,8 +7297,8 @@
 							"ID": 402,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								672.0,
+								384.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -7308,8 +7308,8 @@
 							"ID": 403,
 							"Type": "Expression",
 							"Position": [
-								784.0,
-								336.0
+								928.0,
+								128.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 2"
@@ -7319,16 +7319,16 @@
 							"ID": 404,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1168.0,
-								0.0
+								1120.0,
+								64.0
 							]
 						},
 						{
 							"ID": 405,
 							"Type": "Function.Call",
 							"Position": [
-								1408.0,
-								0.0
+								1360.0,
+								144.0
 							],
 							"Settings": {
 								"Function": 37
@@ -7338,32 +7338,32 @@
 							"ID": 406,
 							"Type": "Get:Strada.Entity.IsValid",
 							"Position": [
-								256.0,
-								816.0
+								1120.0,
+								192.0
 							]
 						},
 						{
 							"ID": 407,
 							"Type": "Operator.Not",
 							"Position": [
-								528.0,
-								512.0
+								1360.0,
+								400.0
 							]
 						},
 						{
 							"ID": 408,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								560.0
+								1360.0,
+								272.0
 							]
 						},
 						{
 							"ID": 409,
 							"Type": "Variable.Set",
 							"Position": [
-								1600.0,
-								0.0
+								1632.0,
+								384.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -7373,7 +7373,7 @@
 							"ID": 410,
 							"Type": "Expression",
 							"Position": [
-								784.0,
+								1632.0,
 								512.0
 							],
 							"Settings": {
@@ -7384,24 +7384,24 @@
 							"ID": 411,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1792.0,
-								0.0
+								1888.0,
+								336.0
 							]
 						},
 						{
 							"ID": 412,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								256.0,
-								432.0
+								1888.0,
+								208.0
 							]
 						},
 						{
 							"ID": 413,
 							"Type": "Function.Call",
 							"Position": [
-								2032.0,
-								0.0
+								2144.0,
+								208.0
 							],
 							"Settings": {
 								"Function": 37
@@ -7411,8 +7411,8 @@
 							"ID": 414,
 							"Type": "FormatString",
 							"Position": [
-								784.0,
-								208.0
+								2528.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Hits} hits, glowing {Glow}"
@@ -7422,16 +7422,16 @@
 							"ID": 415,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								688.0
+								2144.0,
+								80.0
 							]
 						},
 						{
 							"ID": 416,
 							"Type": "Variable.Set",
 							"Position": [
-								2224.0,
-								0.0
+								2336.0,
+								176.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -7441,8 +7441,8 @@
 							"ID": 417,
 							"Type": "Expression",
 							"Position": [
-								1168.0,
-								128.0
+								2336.0,
+								0.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 2"
@@ -7452,15 +7452,15 @@
 							"ID": 418,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								2416.0,
-								0.0
+								2528.0,
+								128.0
 							]
 						},
 						{
 							"ID": 419,
 							"Type": "Function.Call",
 							"Position": [
-								2656.0,
+								2768.0,
 								0.0
 							],
 							"Settings": {
@@ -7983,8 +7983,8 @@
 								-72.0
 							],
 							"Size": [
-								3112.0,
-								1002.0
+								3224.0,
+								746.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -8010,14 +8010,14 @@
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
-								0.0
+								64.0
 							]
 						},
 						{
 							"ID": 88,
 							"Type": "Function.Return",
 							"Position": [
-								2448.0,
+								2464.0,
 								0.0
 							]
 						},
@@ -8026,7 +8026,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								112.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 6
@@ -8037,7 +8037,7 @@
 							"Type": "Get:Strada.Entity.Children",
 							"Position": [
 								192.0,
-								160.0
+								0.0
 							]
 						},
 						{
@@ -8045,15 +8045,15 @@
 							"Type": "Array.Length",
 							"Position": [
 								464.0,
-								128.0
+								0.0
 							]
 						},
 						{
 							"ID": 424,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								1504.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 24
@@ -8063,8 +8063,8 @@
 							"ID": 425,
 							"Type": "Operator.Equal",
 							"Position": [
-								672.0,
-								128.0
+								1504.0,
+								320.0
 							],
 							"Inputs": {
 								"B": 0
@@ -8075,7 +8075,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
-								0.0
+								128.0
 							],
 							"Settings": {
 								"Function": 40
@@ -8090,7 +8090,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								464.0,
-								0.0
+								256.0
 							],
 							"Settings": {
 								"Variable": 18
@@ -8100,8 +8100,8 @@
 							"ID": 428,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								192.0,
+								288.0
 							],
 							"Settings": {
 								"Variable": 18
@@ -8111,8 +8111,8 @@
 							"ID": 429,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								192.0,
-								416.0
+								464.0,
+								384.0
 							]
 						},
 						{
@@ -8120,7 +8120,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								672.0,
-								0.0
+								240.0
 							],
 							"Settings": {
 								"Function": 37
@@ -8130,16 +8130,16 @@
 							"ID": 431,
 							"Type": "Get:Strada.Entity.IsValid",
 							"Position": [
-								192.0,
-								544.0
+								464.0,
+								128.0
 							]
 						},
 						{
 							"ID": 432,
 							"Type": "Operator.Not",
 							"Position": [
-								464.0,
-								256.0
+								672.0,
+								128.0
 							]
 						},
 						{
@@ -8147,7 +8147,7 @@
 							"Type": "Expression",
 							"Position": [
 								672.0,
-								256.0
+								0.0
 							],
 							"Settings": {
 								"Formula": "count > 0"
@@ -8157,24 +8157,24 @@
 							"ID": 434,
 							"Type": "Operator.And",
 							"Position": [
-								928.0,
-								384.0
+								880.0,
+								0.0
 							]
 						},
 						{
 							"ID": 435,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								304.0
+								672.0,
+								368.0
 							]
 						},
 						{
 							"ID": 436,
 							"Type": "Variable.Set",
 							"Position": [
-								928.0,
-								0.0
+								880.0,
+								144.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -8184,8 +8184,8 @@
 							"ID": 437,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								880.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -8195,7 +8195,7 @@
 							"ID": 438,
 							"Type": "Expression",
 							"Position": [
-								1120.0,
+								1072.0,
 								0.0
 							],
 							"Settings": {
@@ -8206,7 +8206,7 @@
 							"ID": 439,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1312.0,
+								1264.0,
 								0.0
 							]
 						},
@@ -8214,8 +8214,8 @@
 							"ID": 440,
 							"Type": "Variable.Set",
 							"Position": [
-								1552.0,
-								0.0
+								1504.0,
+								64.0
 							],
 							"Settings": {
 								"Variable": 24
@@ -8225,8 +8225,8 @@
 							"ID": 441,
 							"Type": "FormatString",
 							"Position": [
-								672.0,
-								384.0
+								1952.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Had} shards after the break, {Left} 2.5 s later"
@@ -8236,8 +8236,8 @@
 							"ID": 442,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								288.0
+								1760.0,
+								0.0
 							],
 							"Settings": {
 								"Formula": "had > 0"
@@ -8247,7 +8247,7 @@
 							"ID": 443,
 							"Type": "Operator.And",
 							"Position": [
-								928.0,
+								1952.0,
 								128.0
 							]
 						},
@@ -8255,16 +8255,16 @@
 							"ID": 444,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								496.0
+								1504.0,
+								192.0
 							]
 						},
 						{
 							"ID": 445,
 							"Type": "Variable.Set",
 							"Position": [
-								1744.0,
-								0.0
+								1760.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -8274,8 +8274,8 @@
 							"ID": 446,
 							"Type": "Expression",
 							"Position": [
-								928.0,
-								208.0
+								1760.0,
+								256.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 2.5"
@@ -8285,15 +8285,15 @@
 							"ID": 447,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1936.0,
-								0.0
+								1952.0,
+								208.0
 							]
 						},
 						{
 							"ID": 448,
 							"Type": "Function.Call",
 							"Position": [
-								2176.0,
+								2192.0,
 								0.0
 							],
 							"Settings": {
@@ -8706,8 +8706,8 @@
 								-72.0
 							],
 							"Size": [
-								2632.0,
-								730.0
+								2648.0,
+								570.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -8740,7 +8740,7 @@
 							"ID": 91,
 							"Type": "Function.Return",
 							"Position": [
-								4592.0,
+								4704.0,
 								0.0
 							]
 						},
@@ -8759,8 +8759,8 @@
 							"ID": 451,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								0.0
+								400.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 31,
@@ -8771,8 +8771,8 @@
 							"ID": 452,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								3744.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 24
@@ -8782,8 +8782,8 @@
 							"ID": 453,
 							"Type": "Operator.Equal",
 							"Position": [
-								448.0,
-								0.0
+								608.0,
+								288.0
 							],
 							"Inputs": {
 								"B": 0
@@ -8794,7 +8794,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								240.0
+								176.0
 							],
 							"Settings": {
 								"Variable": 2
@@ -8805,15 +8805,15 @@
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
 								192.0,
-								384.0
+								128.0
 							]
 						},
 						{
 							"ID": 456,
 							"Type": "Expression",
 							"Position": [
-								448.0,
-								512.0
+								400.0,
+								128.0
 							],
 							"Settings": {
 								"Formula": "vec3(p.x, 0.5, p.z - 1.0)"
@@ -8824,7 +8824,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								128.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 33,
@@ -8835,8 +8835,8 @@
 							"ID": 458,
 							"Type": "Expression",
 							"Position": [
-								448.0,
-								384.0
+								400.0,
+								0.0
 							],
 							"Settings": {
 								"Formula": "vec3(0, 0, speed)"
@@ -8846,8 +8846,8 @@
 							"ID": 459,
 							"Type": "Function.Call",
 							"Position": [
-								704.0,
-								512.0
+								608.0,
+								0.0
 							],
 							"Settings": {
 								"Function": 34
@@ -8857,16 +8857,16 @@
 							"ID": 460,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								304.0
+								608.0,
+								160.0
 							]
 						},
 						{
 							"ID": 461,
 							"Type": "Variable.Set",
 							"Position": [
-								896.0,
-								176.0
+								864.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -8876,8 +8876,8 @@
 							"ID": 462,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								608.0,
+								416.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -8887,8 +8887,8 @@
 							"ID": 463,
 							"Type": "Expression",
 							"Position": [
-								704.0,
-								0.0
+								864.0,
+								128.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 1"
@@ -8898,7 +8898,7 @@
 							"ID": 464,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1088.0,
+								1056.0,
 								0.0
 							]
 						},
@@ -8906,7 +8906,7 @@
 							"ID": 465,
 							"Type": "Function.Call",
 							"Position": [
-								1328.0,
+								1296.0,
 								0.0
 							],
 							"Settings": {
@@ -8921,7 +8921,7 @@
 							"ID": 466,
 							"Type": "Variable.Set",
 							"Position": [
-								1600.0,
+								1568.0,
 								0.0
 							],
 							"Settings": {
@@ -8932,8 +8932,8 @@
 							"ID": 467,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								1296.0,
+								160.0
 							],
 							"Settings": {
 								"Variable": 18
@@ -8943,15 +8943,15 @@
 							"ID": 468,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								192.0,
-								512.0
+								1568.0,
+								128.0
 							]
 						},
 						{
 							"ID": 469,
 							"Type": "Function.Call",
 							"Position": [
-								1792.0,
+								1776.0,
 								0.0
 							],
 							"Settings": {
@@ -8962,31 +8962,31 @@
 							"ID": 470,
 							"Type": "Get:Strada.Entity.IsValid",
 							"Position": [
-								192.0,
-								640.0
+								1568.0,
+								256.0
 							]
 						},
 						{
 							"ID": 471,
 							"Type": "Operator.Not",
 							"Position": [
-								448.0,
-								640.0
+								1776.0,
+								256.0
 							]
 						},
 						{
 							"ID": 472,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								560.0
+								1776.0,
+								128.0
 							]
 						},
 						{
 							"ID": 473,
 							"Type": "Variable.Set",
 							"Position": [
-								1984.0,
+								1968.0,
 								0.0
 							],
 							"Settings": {
@@ -8997,8 +8997,8 @@
 							"ID": 474,
 							"Type": "Expression",
 							"Position": [
-								704.0,
-								672.0
+								1968.0,
+								128.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 2"
@@ -9008,7 +9008,7 @@
 							"ID": 475,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								2176.0,
+								2160.0,
 								0.0
 							]
 						},
@@ -9016,7 +9016,7 @@
 							"ID": 476,
 							"Type": "Function.Call",
 							"Position": [
-								2416.0,
+								2400.0,
 								0.0
 							],
 							"Settings": {
@@ -9031,7 +9031,7 @@
 							"ID": 477,
 							"Type": "Variable.Set",
 							"Position": [
-								2688.0,
+								2672.0,
 								0.0
 							],
 							"Settings": {
@@ -9042,7 +9042,7 @@
 							"ID": 478,
 							"Type": "Function.Call",
 							"Position": [
-								2880.0,
+								2928.0,
 								0.0
 							],
 							"Settings": {
@@ -9053,7 +9053,7 @@
 							"ID": 479,
 							"Type": "Operator.Equal",
 							"Position": [
-								448.0,
+								2672.0,
 								128.0
 							],
 							"Inputs": {
@@ -9064,23 +9064,23 @@
 							"ID": 480,
 							"Type": "Operator.And",
 							"Position": [
-								704.0,
-								432.0
+								2928.0,
+								256.0
 							]
 						},
 						{
 							"ID": 481,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								688.0
+								2928.0,
+								128.0
 							]
 						},
 						{
 							"ID": 482,
 							"Type": "Variable.Set",
 							"Position": [
-								3072.0,
+								3120.0,
 								0.0
 							],
 							"Settings": {
@@ -9091,8 +9091,8 @@
 							"ID": 483,
 							"Type": "Expression",
 							"Position": [
-								896.0,
-								0.0
+								3120.0,
+								128.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 2"
@@ -9102,7 +9102,7 @@
 							"ID": 484,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								3264.0,
+								3312.0,
 								0.0
 							]
 						},
@@ -9110,7 +9110,7 @@
 							"ID": 485,
 							"Type": "Variable.Set",
 							"Position": [
-								3504.0,
+								3552.0,
 								0.0
 							],
 							"Settings": {
@@ -9121,8 +9121,8 @@
 							"ID": 486,
 							"Type": "Function.Call",
 							"Position": [
-								3696.0,
-								0.0
+								3744.0,
+								64.0
 							],
 							"Settings": {
 								"Function": 34
@@ -9132,8 +9132,8 @@
 							"ID": 487,
 							"Type": "FormatString",
 							"Position": [
-								448.0,
-								256.0
+								4192.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Reached} after two breaks, {Combo} after the paddle"
@@ -9143,8 +9143,8 @@
 							"ID": 488,
 							"Type": "Operator.Equal",
 							"Position": [
-								192.0,
-								256.0
+								3936.0,
+								0.0
 							],
 							"Inputs": {
 								"B": 2
@@ -9154,24 +9154,24 @@
 							"ID": 489,
 							"Type": "Operator.And",
 							"Position": [
-								704.0,
-								176.0
+								4192.0,
+								128.0
 							]
 						},
 						{
 							"ID": 490,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								816.0
+								3744.0,
+								224.0
 							]
 						},
 						{
 							"ID": 491,
 							"Type": "Variable.Set",
 							"Position": [
-								3888.0,
-								0.0
+								3936.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -9181,7 +9181,7 @@
 							"ID": 492,
 							"Type": "Expression",
 							"Position": [
-								704.0,
+								3936.0,
 								256.0
 							],
 							"Settings": {
@@ -9192,15 +9192,15 @@
 							"ID": 493,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								4080.0,
-								0.0
+								4192.0,
+								208.0
 							]
 						},
 						{
 							"ID": 494,
 							"Type": "Function.Call",
 							"Position": [
-								4320.0,
+								4432.0,
 								0.0
 							],
 							"Settings": {
@@ -9893,8 +9893,8 @@
 								-72.0
 							],
 							"Size": [
-								4776.0,
-								1002.0
+								4888.0,
+								548.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -9920,7 +9920,7 @@
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
-								128.0
+								64.0
 							]
 						},
 						{
@@ -9935,8 +9935,8 @@
 							"ID": 496,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								0.0
+								192.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 2
@@ -9946,7 +9946,7 @@
 							"ID": 497,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								192.0,
+								672.0,
 								0.0
 							]
 						},
@@ -9955,7 +9955,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								64.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 5
@@ -9966,7 +9966,7 @@
 							"Type": "Get:Strada.Entity.Children",
 							"Position": [
 								192.0,
-								128.0
+								0.0
 							]
 						},
 						{
@@ -9985,7 +9985,7 @@
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
 								672.0,
-								0.0
+								128.0
 							]
 						},
 						{
@@ -10004,7 +10004,7 @@
 							"Type": "Literal",
 							"Position": [
 								0.0,
-								240.0
+								176.0
 							],
 							"Settings": {
 								"Type": "Strada.Vector3",
@@ -10020,7 +10020,7 @@
 							"Type": "Literal",
 							"Position": [
 								0.0,
-								368.0
+								304.0
 							],
 							"Settings": {
 								"Type": "Strada.Vector3",
@@ -10036,7 +10036,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
-								256.0
+								192.0
 							],
 							"Settings": {
 								"Function": 34
@@ -10062,8 +10062,8 @@
 							"ID": 507,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								496.0
+								400.0,
+								320.0
 							]
 						},
 						{
@@ -10071,7 +10071,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								672.0,
-								128.0
+								256.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -10081,8 +10081,8 @@
 							"ID": 509,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								624.0
+								400.0,
+								448.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -10092,8 +10092,8 @@
 							"ID": 510,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								416.0
+								672.0,
+								384.0
 							],
 							"Settings": {
 								"Formula": "now - start > 0.5"
@@ -10104,7 +10104,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								880.0,
-								144.0
+								272.0
 							]
 						},
 						{
@@ -10122,8 +10122,8 @@
 							"ID": 513,
 							"Type": "FormatString",
 							"Position": [
-								1120.0,
-								128.0
+								1504.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Off} m between the paddle and the ball"
@@ -10133,8 +10133,8 @@
 							"ID": 514,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								688.0
+								880.0,
+								144.0
 							]
 						},
 						{
@@ -10142,7 +10142,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								1120.0,
-								240.0
+								128.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -10164,7 +10164,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1504.0,
-								0.0
+								112.0
 							]
 						},
 						{
@@ -10530,7 +10530,7 @@
 							],
 							"Size": [
 								2424.0,
-								874.0
+								594.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -10583,7 +10583,7 @@
 							"Type": "Get:Strada.Entity.Scale",
 							"Position": [
 								192.0,
-								0.0
+								128.0
 							]
 						},
 						{
@@ -10591,7 +10591,7 @@
 							"Type": "Expression",
 							"Position": [
 								400.0,
-								0.0
+								192.0
 							],
 							"Settings": {
 								"Formula": "scale.x"
@@ -10601,8 +10601,8 @@
 							"ID": 524,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								400.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -10613,7 +10613,7 @@
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
 								192.0,
-								128.0
+								0.0
 							]
 						},
 						{
@@ -10621,7 +10621,7 @@
 							"Type": "Expression",
 							"Position": [
 								400.0,
-								128.0
+								64.0
 							],
 							"Settings": {
 								"Formula": "p + vec3(0, 0, -0.2)"
@@ -10632,7 +10632,7 @@
 							"Type": "Event.Send",
 							"Position": [
 								592.0,
-								240.0
+								0.0
 							],
 							"Settings": {
 								"Name": "SpawnPowerUp",
@@ -10657,7 +10657,7 @@
 							"Type": "Expression",
 							"Position": [
 								592.0,
-								0.0
+								320.0
 							],
 							"Settings": {
 								"Formula": "width > 4.5"
@@ -10667,8 +10667,8 @@
 							"ID": 529,
 							"Type": "FormatString",
 							"Position": [
-								592.0,
-								128.0
+								1040.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "the paddle is {Width} m wide"
@@ -10678,8 +10678,8 @@
 							"ID": 530,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								240.0
+								592.0,
+								192.0
 							]
 						},
 						{
@@ -10687,7 +10687,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								848.0,
-								176.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -10697,8 +10697,8 @@
 							"ID": 532,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								592.0,
+								448.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -10709,7 +10709,7 @@
 							"Type": "Expression",
 							"Position": [
 								848.0,
-								0.0
+								128.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 0.6"
@@ -10720,7 +10720,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1040.0,
-								0.0
+								112.0
 							]
 						},
 						{
@@ -10951,7 +10951,7 @@
 							],
 							"Size": [
 								1736.0,
-								500.0
+								580.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -11038,8 +11038,8 @@
 							"ID": 541,
 							"Type": "FormatString",
 							"Position": [
-								592.0,
-								176.0
+								1072.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "the paddle is {Width} m wide"
@@ -11068,8 +11068,8 @@
 							"ID": 544,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								592.0,
+								176.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -11091,7 +11091,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1072.0,
-								0.0
+								112.0
 							]
 						},
 						{
@@ -11272,7 +11272,7 @@
 							],
 							"Size": [
 								1768.0,
-								436.0
+								362.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -11336,8 +11336,8 @@
 							"ID": 551,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								1024.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 25
@@ -11347,8 +11347,8 @@
 							"ID": 552,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								1264.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 26
@@ -11358,8 +11358,8 @@
 							"ID": 553,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								128.0
+								1264.0,
+								64.0
 							],
 							"Settings": {
 								"Formula": "base * 0.55"
@@ -11369,8 +11369,8 @@
 							"ID": 554,
 							"Type": "Function.Call",
 							"Position": [
-								400.0,
-								464.0
+								1456.0,
+								0.0
 							],
 							"Settings": {
 								"Graph": "4502668094646346558",
@@ -11384,8 +11384,8 @@
 							"ID": 555,
 							"Type": "Function.Call",
 							"Position": [
-								400.0,
-								128.0
+								1456.0,
+								176.0
 							],
 							"Settings": {
 								"Graph": "4502668094646346558",
@@ -11399,8 +11399,8 @@
 							"ID": 556,
 							"Type": "Operator.And",
 							"Position": [
-								688.0,
-								176.0
+								1744.0,
+								0.0
 							]
 						},
 						{
@@ -11418,7 +11418,7 @@
 							"ID": 558,
 							"Type": "Event.Send",
 							"Position": [
-								688.0,
+								592.0,
 								0.0
 							],
 							"Settings": {
@@ -11439,15 +11439,15 @@
 							"ID": 559,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								240.0
+								592.0,
+								176.0
 							]
 						},
 						{
 							"ID": 560,
 							"Type": "Variable.Set",
 							"Position": [
-								928.0,
+								832.0,
 								0.0
 							],
 							"Settings": {
@@ -11458,8 +11458,8 @@
 							"ID": 561,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								592.0,
+								304.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -11469,8 +11469,8 @@
 							"ID": 562,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								256.0
+								832.0,
+								128.0
 							],
 							"Settings": {
 								"Formula": "now - start > 0.4"
@@ -11480,16 +11480,16 @@
 							"ID": 563,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1120.0,
-								0.0
+								1024.0,
+								64.0
 							]
 						},
 						{
 							"ID": 564,
 							"Type": "Variable.Set",
 							"Position": [
-								1360.0,
-								0.0
+								1264.0,
+								192.0
 							],
 							"Settings": {
 								"Variable": 26
@@ -11499,16 +11499,16 @@
 							"ID": 565,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								496.0
+								1264.0,
+								320.0
 							]
 						},
 						{
 							"ID": 566,
 							"Type": "Variable.Set",
 							"Position": [
-								1552.0,
-								0.0
+								1456.0,
+								352.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -11518,8 +11518,8 @@
 							"ID": 567,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								400.0
+								1456.0,
+								480.0
 							],
 							"Settings": {
 								"Formula": "now - start > 1.4"
@@ -11530,15 +11530,15 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1744.0,
-								0.0
+								208.0
 							]
 						},
 						{
 							"ID": 569,
 							"Type": "FormatString",
 							"Position": [
-								400.0,
-								304.0
+								2176.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Slowed} m/s slowed, {Speed} after, of {Base}"
@@ -11548,8 +11548,8 @@
 							"ID": 570,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								624.0
+								1744.0,
+								80.0
 							]
 						},
 						{
@@ -11557,7 +11557,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								1984.0,
-								0.0
+								176.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -11567,8 +11567,8 @@
 							"ID": 572,
 							"Type": "Expression",
 							"Position": [
-								928.0,
-								128.0
+								1984.0,
+								0.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 0.1"
@@ -11579,7 +11579,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								2176.0,
-								0.0
+								160.0
 							]
 						},
 						{
@@ -12010,7 +12010,7 @@
 							],
 							"Size": [
 								2872.0,
-								810.0
+								690.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -12052,7 +12052,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								112.0
+								176.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -12063,7 +12063,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								128.0
+								256.0
 							],
 							"Settings": {
 								"Variable": 29,
@@ -12075,7 +12075,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								176.0
+								112.0
 							],
 							"Settings": {
 								"Variable": 23
@@ -12086,7 +12086,7 @@
 							"Type": "Expression",
 							"Position": [
 								192.0,
-								384.0
+								128.0
 							],
 							"Settings": {
 								"Formula": "before - 1"
@@ -12097,7 +12097,7 @@
 							"Type": "Operator.Equal",
 							"Position": [
 								400.0,
-								544.0
+								128.0
 							]
 						},
 						{
@@ -12105,7 +12105,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								256.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 27,
@@ -12117,7 +12117,7 @@
 							"Type": "Operator.Equal",
 							"Position": [
 								400.0,
-								416.0
+								0.0
 							],
 							"Inputs": {
 								"B": "Serve"
@@ -12128,7 +12128,7 @@
 							"Type": "Operator.And",
 							"Position": [
 								688.0,
-								160.0
+								0.0
 							]
 						},
 						{
@@ -12136,7 +12136,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								400.0,
-								128.0
+								208.0
 							],
 							"Settings": {
 								"Variable": 23
@@ -12146,8 +12146,8 @@
 							"ID": 585,
 							"Type": "Literal",
 							"Position": [
-								0.0,
-								240.0
+								400.0,
+								464.0
 							],
 							"Settings": {
 								"Type": "Strada.Vector3",
@@ -12163,7 +12163,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								0.0
+								384.0
 							],
 							"Settings": {
 								"Variable": 33,
@@ -12175,7 +12175,7 @@
 							"Type": "Expression",
 							"Position": [
 								400.0,
-								0.0
+								336.0
 							],
 							"Settings": {
 								"Formula": "vec3(0, 0, speed)"
@@ -12186,7 +12186,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								688.0,
-								0.0
+								272.0
 							],
 							"Settings": {
 								"Function": 34
@@ -12196,8 +12196,8 @@
 							"ID": 589,
 							"Type": "FormatString",
 							"Position": [
-								400.0,
-								256.0
+								1072.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Lives} lives of {Before}, state {State}"
@@ -12207,8 +12207,8 @@
 							"ID": 590,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								368.0
+								688.0,
+								144.0
 							]
 						},
 						{
@@ -12216,7 +12216,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								880.0,
-								0.0
+								176.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -12226,8 +12226,8 @@
 							"ID": 592,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								688.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -12238,7 +12238,7 @@
 							"Type": "Expression",
 							"Position": [
 								880.0,
-								128.0
+								0.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 1.5"
@@ -12249,7 +12249,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1072.0,
-								0.0
+								160.0
 							]
 						},
 						{
@@ -12570,7 +12570,7 @@
 							],
 							"Size": [
 								1768.0,
-								696.0
+								650.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -12603,7 +12603,7 @@
 							"ID": 109,
 							"Type": "Function.Return",
 							"Position": [
-								1504.0,
+								1472.0,
 								0.0
 							]
 						},
@@ -12717,8 +12717,8 @@
 							"ID": 608,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								560.0
+								192.0,
+								640.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -12728,8 +12728,8 @@
 							"ID": 609,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								768.0
+								400.0,
+								224.0
 							],
 							"Settings": {
 								"Variable": 29,
@@ -12740,7 +12740,7 @@
 							"ID": 610,
 							"Type": "Operator.Equal",
 							"Position": [
-								592.0,
+								608.0,
 								0.0
 							]
 						},
@@ -12748,8 +12748,8 @@
 							"ID": 611,
 							"Type": "FormatString",
 							"Position": [
-								592.0,
-								80.0
+								960.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "{Shown} icons for {Lives} lives"
@@ -12768,7 +12768,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
-								640.0
+								704.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -12778,8 +12778,8 @@
 							"ID": 614,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								624.0
+								608.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -12789,7 +12789,7 @@
 							"ID": 615,
 							"Type": "Expression",
 							"Position": [
-								800.0,
+								768.0,
 								0.0
 							],
 							"Settings": {
@@ -12800,15 +12800,15 @@
 							"ID": 616,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								992.0,
-								0.0
+								960.0,
+								128.0
 							]
 						},
 						{
 							"ID": 617,
 							"Type": "Function.Call",
 							"Position": [
-								1232.0,
+								1200.0,
 								0.0
 							],
 							"Settings": {
@@ -13091,8 +13091,8 @@
 								-72.0
 							],
 							"Size": [
-								1688.0,
-								954.0
+								1656.0,
+								898.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -13125,7 +13125,7 @@
 							"ID": 112,
 							"Type": "Function.Return",
 							"Position": [
-								2272.0,
+								2288.0,
 								0.0
 							]
 						},
@@ -13133,8 +13133,8 @@
 							"ID": 619,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								112.0
+								864.0,
+								192.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -13144,7 +13144,7 @@
 							"ID": 620,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
+								1088.0,
 								128.0
 							],
 							"Settings": {
@@ -13170,7 +13170,7 @@
 							"ID": 622,
 							"Type": "Variable.Set",
 							"Position": [
-								432.0,
+								416.0,
 								0.0
 							],
 							"Settings": {
@@ -13184,7 +13184,7 @@
 							"ID": 623,
 							"Type": "Variable.Set",
 							"Position": [
-								688.0,
+								640.0,
 								0.0
 							],
 							"Settings": {
@@ -13198,15 +13198,15 @@
 							"ID": 624,
 							"Type": "Self",
 							"Position": [
-								0.0,
-								176.0
+								640.0,
+								128.0
 							]
 						},
 						{
 							"ID": 625,
 							"Type": "Event.Send",
 							"Position": [
-								912.0,
+								864.0,
 								0.0
 							],
 							"Settings": {
@@ -13219,15 +13219,15 @@
 							"ID": 626,
 							"Type": "Self",
 							"Position": [
-								0.0,
-								240.0
+								864.0,
+								128.0
 							]
 						},
 						{
 							"ID": 627,
 							"Type": "Event.Send",
 							"Position": [
-								1136.0,
+								1088.0,
 								0.0
 							],
 							"Settings": {
@@ -13239,7 +13239,7 @@
 							"ID": 628,
 							"Type": "Event.Send",
 							"Position": [
-								1376.0,
+								1328.0,
 								0.0
 							],
 							"Settings": {
@@ -13252,8 +13252,8 @@
 							"ID": 629,
 							"Type": "Operator.Equal",
 							"Position": [
-								432.0,
-								128.0
+								1328.0,
+								272.0
 							],
 							"Inputs": {
 								"B": 8
@@ -13263,8 +13263,8 @@
 							"ID": 630,
 							"Type": "FormatString",
 							"Position": [
-								432.0,
-								256.0
+								1776.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "it reached {Count} graphs"
@@ -13274,15 +13274,15 @@
 							"ID": 631,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								304.0
+								1328.0,
+								144.0
 							]
 						},
 						{
 							"ID": 632,
 							"Type": "Variable.Set",
 							"Position": [
-								1568.0,
+								1584.0,
 								0.0
 							],
 							"Settings": {
@@ -13293,8 +13293,8 @@
 							"ID": 633,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								1328.0,
+								400.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -13304,7 +13304,7 @@
 							"ID": 634,
 							"Type": "Expression",
 							"Position": [
-								688.0,
+								1584.0,
 								128.0
 							],
 							"Settings": {
@@ -13315,15 +13315,15 @@
 							"ID": 635,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1760.0,
-								0.0
+								1776.0,
+								112.0
 							]
 						},
 						{
 							"ID": 636,
 							"Type": "Function.Call",
 							"Position": [
-								2000.0,
+								2016.0,
 								0.0
 							],
 							"Settings": {
@@ -13576,8 +13576,8 @@
 								-72.0
 							],
 							"Size": [
-								2456.0,
-								564.0
+								2472.0,
+								532.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -13610,7 +13610,7 @@
 							"ID": 115,
 							"Type": "Function.Return",
 							"Position": [
-								1648.0,
+								1808.0,
 								0.0
 							]
 						},
@@ -13675,7 +13675,7 @@
 							"ID": 643,
 							"Type": "Operator.And",
 							"Position": [
-								688.0,
+								656.0,
 								0.0
 							]
 						},
@@ -13683,7 +13683,7 @@
 							"ID": 644,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
+								400.0,
 								256.0
 							],
 							"Settings": {
@@ -13695,8 +13695,8 @@
 							"ID": 645,
 							"Type": "Operator.Equal",
 							"Position": [
-								400.0,
-								416.0
+								656.0,
+								80.0
 							],
 							"Inputs": {
 								"B": "Serve"
@@ -13706,7 +13706,7 @@
 							"ID": 646,
 							"Type": "Operator.And",
 							"Position": [
-								816.0,
+								944.0,
 								0.0
 							]
 						},
@@ -13714,8 +13714,8 @@
 							"ID": 647,
 							"Type": "FormatString",
 							"Position": [
-								400.0,
-								256.0
+								1296.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "level {Level}, {Left} prisms, state {State}"
@@ -13734,7 +13734,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
-								384.0
+								256.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -13744,8 +13744,8 @@
 							"ID": 650,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								944.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -13755,7 +13755,7 @@
 							"ID": 651,
 							"Type": "Expression",
 							"Position": [
-								944.0,
+								1104.0,
 								0.0
 							],
 							"Settings": {
@@ -13766,15 +13766,15 @@
 							"ID": 652,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1136.0,
-								0.0
+								1296.0,
+								160.0
 							]
 						},
 						{
 							"ID": 653,
 							"Type": "Function.Call",
 							"Position": [
-								1376.0,
+								1536.0,
 								0.0
 							],
 							"Settings": {
@@ -14037,8 +14037,8 @@
 								-72.0
 							],
 							"Size": [
-								1832.0,
-								610.0
+								1992.0,
+								450.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -14102,7 +14102,7 @@
 							"Type": "Expression",
 							"Position": [
 								192.0,
-								0.0
+								64.0
 							],
 							"Settings": {
 								"Formula": "gone - peak"
@@ -14112,8 +14112,8 @@
 							"ID": 658,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								192.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 29
@@ -14165,7 +14165,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
-								144.0
+								208.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -14187,7 +14187,7 @@
 							"Type": "Expression",
 							"Position": [
 								192.0,
-								272.0
+								336.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 3"
@@ -14409,7 +14409,7 @@
 							],
 							"Size": [
 								1080.0,
-								628.0
+								570.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -14503,8 +14503,8 @@
 							"ID": 674,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								816.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 31
@@ -14514,8 +14514,8 @@
 							"ID": 675,
 							"Type": "FormatString",
 							"Position": [
-								608.0,
-								128.0
+								1008.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "shaken: {Shaken}; {Offset} m from home now"
@@ -14525,8 +14525,8 @@
 							"ID": 676,
 							"Type": "Operator.And",
 							"Position": [
-								816.0,
-								0.0
+								1008.0,
+								128.0
 							]
 						},
 						{
@@ -14534,7 +14534,7 @@
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
-								240.0
+								176.0
 							]
 						},
 						{
@@ -14552,8 +14552,8 @@
 							"ID": 679,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								608.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -14564,7 +14564,7 @@
 							"Type": "Expression",
 							"Position": [
 								816.0,
-								80.0
+								64.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 2"
@@ -14575,7 +14575,7 @@
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1008.0,
-								0.0
+								208.0
 							]
 						},
 						{
@@ -14806,7 +14806,7 @@
 							],
 							"Size": [
 								1704.0,
-								500.0
+								450.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -14832,14 +14832,14 @@
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
-								0.0
+								64.0
 							]
 						},
 						{
 							"ID": 124,
 							"Type": "Function.Return",
 							"Position": [
-								3840.0,
+								3920.0,
 								0.0
 							]
 						},
@@ -14848,7 +14848,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								112.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -14858,8 +14858,8 @@
 							"ID": 685,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								272.0
+								2496.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 34,
@@ -14870,8 +14870,8 @@
 							"ID": 686,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								1120.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 18
@@ -14881,8 +14881,8 @@
 							"ID": 687,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								400.0
+								2496.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 1,
@@ -14893,8 +14893,8 @@
 							"ID": 688,
 							"Type": "Operator.Equal",
 							"Position": [
-								400.0,
-								512.0
+								2768.0,
+								128.0
 							],
 							"Inputs": {
 								"B": 1
@@ -14904,8 +14904,8 @@
 							"ID": 689,
 							"Type": "Operator.Equal",
 							"Position": [
-								400.0,
-								256.0
+								2768.0,
+								0.0
 							],
 							"Inputs": {
 								"B": 6
@@ -14915,15 +14915,15 @@
 							"ID": 690,
 							"Type": "Operator.And",
 							"Position": [
-								688.0,
-								176.0
+								3024.0,
+								0.0
 							]
 						},
 						{
 							"ID": 691,
 							"Type": "Variable.Set",
 							"Position": [
-								2208.0,
+								2224.0,
 								0.0
 							],
 							"Settings": {
@@ -14940,7 +14940,7 @@
 							"Type": "Event.Send",
 							"Position": [
 								192.0,
-								0.0
+								128.0
 							],
 							"Settings": {
 								"Name": "Launch",
@@ -14953,7 +14953,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								144.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 27,
@@ -14965,7 +14965,7 @@
 							"Type": "Operator.Equal",
 							"Position": [
 								400.0,
-								128.0
+								0.0
 							],
 							"Inputs": {
 								"B": "Play"
@@ -14975,8 +14975,8 @@
 							"ID": 695,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								176.0
+								192.0,
+								272.0
 							]
 						},
 						{
@@ -14984,7 +14984,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								400.0,
-								0.0
+								192.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -14994,8 +14994,8 @@
 							"ID": 697,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								400.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -15025,7 +15025,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								1120.0,
-								0.0
+								64.0
 							],
 							"Settings": {
 								"Function": 40
@@ -15040,7 +15040,7 @@
 							"Type": "Variable.Set",
 							"Position": [
 								1392.0,
-								0.0
+								128.0
 							],
 							"Settings": {
 								"Variable": 18
@@ -15050,15 +15050,15 @@
 							"ID": 702,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								192.0,
-								528.0
+								1392.0,
+								0.0
 							]
 						},
 						{
 							"ID": 703,
 							"Type": "Function.Call",
 							"Position": [
-								1584.0,
+								1600.0,
 								0.0
 							],
 							"Settings": {
@@ -15069,31 +15069,31 @@
 							"ID": 704,
 							"Type": "Get:Strada.Entity.IsValid",
 							"Position": [
-								192.0,
-								656.0
+								1392.0,
+								256.0
 							]
 						},
 						{
 							"ID": 705,
 							"Type": "Operator.Not",
 							"Position": [
-								400.0,
-								640.0
+								1600.0,
+								256.0
 							]
 						},
 						{
 							"ID": 706,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								432.0
+								1600.0,
+								128.0
 							]
 						},
 						{
 							"ID": 707,
 							"Type": "Variable.Set",
 							"Position": [
-								1776.0,
+								1792.0,
 								0.0
 							],
 							"Settings": {
@@ -15104,8 +15104,8 @@
 							"ID": 708,
 							"Type": "Expression",
 							"Position": [
-								688.0,
-								256.0
+								1792.0,
+								128.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 2"
@@ -15115,7 +15115,7 @@
 							"ID": 709,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1968.0,
+								1984.0,
 								0.0
 							]
 						},
@@ -15123,8 +15123,8 @@
 							"ID": 710,
 							"Type": "Function.Call",
 							"Position": [
-								2480.0,
-								0.0
+								2496.0,
+								256.0
 							],
 							"Settings": {
 								"Function": 40
@@ -15138,8 +15138,8 @@
 							"ID": 711,
 							"Type": "Variable.Set",
 							"Position": [
-								2752.0,
-								0.0
+								2768.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 18
@@ -15149,8 +15149,8 @@
 							"ID": 712,
 							"Type": "Function.Call",
 							"Position": [
-								2944.0,
-								0.0
+								3024.0,
+								208.0
 							],
 							"Settings": {
 								"Function": 37
@@ -15160,8 +15160,8 @@
 							"ID": 713,
 							"Type": "FormatString",
 							"Position": [
-								400.0,
-								384.0
+								3408.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "it pulsed {Count} lights, and the prism has {Hits} hits left"
@@ -15171,16 +15171,16 @@
 							"ID": 714,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								560.0
+								3024.0,
+								80.0
 							]
 						},
 						{
 							"ID": 715,
 							"Type": "Variable.Set",
 							"Position": [
-								3136.0,
-								0.0
+								3216.0,
+								176.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -15190,8 +15190,8 @@
 							"ID": 716,
 							"Type": "Expression",
 							"Position": [
-								880.0,
-								128.0
+								3216.0,
+								0.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 2"
@@ -15201,15 +15201,15 @@
 							"ID": 717,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								3328.0,
-								0.0
+								3408.0,
+								128.0
 							]
 						},
 						{
 							"ID": 718,
 							"Type": "Function.Call",
 							"Position": [
-								3568.0,
+								3648.0,
 								0.0
 							],
 							"Settings": {
@@ -15752,8 +15752,8 @@
 								-72.0
 							],
 							"Size": [
-								4024.0,
-								842.0
+								4104.0,
+								474.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -15786,7 +15786,7 @@
 							"ID": 127,
 							"Type": "Function.Return",
 							"Position": [
-								2720.0,
+								2816.0,
 								0.0
 							]
 						},
@@ -15805,8 +15805,8 @@
 							"ID": 721,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								176.0
+								1152.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 28,
@@ -15817,7 +15817,7 @@
 							"ID": 722,
 							"Type": "Function.Call",
 							"Position": [
-								1488.0,
+								1392.0,
 								0.0
 							],
 							"Settings": {
@@ -15829,8 +15829,8 @@
 							"ID": 723,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								960.0,
+								304.0
 							],
 							"Settings": {
 								"Variable": 8
@@ -15840,16 +15840,16 @@
 							"ID": 724,
 							"Type": "Get:Strada.UITextComponent.Text",
 							"Position": [
-								192.0,
-								560.0
+								1152.0,
+								256.0
 							]
 						},
 						{
 							"ID": 725,
 							"Type": "String.Split",
 							"Position": [
-								464.0,
-								256.0
+								1392.0,
+								144.0
 							],
 							"Inputs": {
 								"Separator": "\n"
@@ -15859,8 +15859,8 @@
 							"ID": 726,
 							"Type": "Array.Get",
 							"Position": [
-								784.0,
-								336.0
+								1712.0,
+								112.0
 							],
 							"Inputs": {
 								"Index": 0
@@ -15870,7 +15870,7 @@
 							"ID": 727,
 							"Type": "FormatString",
 							"Position": [
-								1680.0,
+								1712.0,
 								0.0
 							],
 							"Settings": {
@@ -15881,7 +15881,7 @@
 							"ID": 728,
 							"Type": "Operator.Equal",
 							"Position": [
-								1888.0,
+								1984.0,
 								0.0
 							]
 						},
@@ -15889,8 +15889,8 @@
 							"ID": 729,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								304.0
+								464.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 27,
@@ -15901,8 +15901,8 @@
 							"ID": 730,
 							"Type": "Operator.Equal",
 							"Position": [
-								464.0,
-								0.0
+								672.0,
+								288.0
 							],
 							"Inputs": {
 								"B": "Over"
@@ -15927,8 +15927,8 @@
 							"ID": 732,
 							"Type": "Literal",
 							"Position": [
-								0.0,
-								240.0
+								464.0,
+								0.0
 							],
 							"Settings": {
 								"Type": "Strada.Vector3",
@@ -15944,7 +15944,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								432.0
+								176.0
 							],
 							"Settings": {
 								"Variable": 33,
@@ -15966,8 +15966,8 @@
 							"ID": 735,
 							"Type": "Function.Call",
 							"Position": [
-								784.0,
-								176.0
+								672.0,
+								0.0
 							],
 							"Settings": {
 								"Function": 34
@@ -15977,15 +15977,15 @@
 							"ID": 736,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								368.0
+								672.0,
+								160.0
 							]
 						},
 						{
 							"ID": 737,
 							"Type": "Variable.Set",
 							"Position": [
-								1056.0,
+								960.0,
 								0.0
 							],
 							"Settings": {
@@ -15996,8 +15996,8 @@
 							"ID": 738,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								672.0,
+								416.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -16007,8 +16007,8 @@
 							"ID": 739,
 							"Type": "Expression",
 							"Position": [
-								784.0,
-								0.0
+								960.0,
+								128.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 3"
@@ -16018,16 +16018,16 @@
 							"ID": 740,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1248.0,
-								0.0
+								1152.0,
+								128.0
 							]
 						},
 						{
 							"ID": 741,
 							"Type": "FormatString",
 							"Position": [
-								1056.0,
-								128.0
+								2304.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "state {State}, the first row '{Row}'"
@@ -16037,24 +16037,24 @@
 							"ID": 742,
 							"Type": "Operator.And",
 							"Position": [
-								2016.0,
-								0.0
+								2304.0,
+								256.0
 							]
 						},
 						{
 							"ID": 743,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								560.0
+								1392.0,
+								320.0
 							]
 						},
 						{
 							"ID": 744,
 							"Type": "Variable.Set",
 							"Position": [
-								1680.0,
-								112.0
+								1712.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -16064,8 +16064,8 @@
 							"ID": 745,
 							"Type": "Expression",
 							"Position": [
-								2016.0,
-								80.0
+								2112.0,
+								0.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 1"
@@ -16075,15 +16075,15 @@
 							"ID": 746,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								2208.0,
-								0.0
+								2304.0,
+								128.0
 							]
 						},
 						{
 							"ID": 747,
 							"Type": "Function.Call",
 							"Position": [
-								2448.0,
+								2544.0,
 								0.0
 							],
 							"Settings": {
@@ -16506,8 +16506,8 @@
 								-72.0
 							],
 							"Size": [
-								2904.0,
-								746.0
+								3000.0,
+								548.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -16540,7 +16540,7 @@
 							"ID": 130,
 							"Type": "Function.Return",
 							"Position": [
-								1520.0,
+								1600.0,
 								0.0
 							]
 						},
@@ -16560,7 +16560,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								144.0
+								336.0
 							],
 							"Settings": {
 								"Variable": 28,
@@ -16572,7 +16572,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								272.0
+								464.0
 							],
 							"Settings": {
 								"Variable": 29,
@@ -16584,7 +16584,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								400.0
+								592.0
 							],
 							"Settings": {
 								"Variable": 30,
@@ -16596,7 +16596,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								528.0
+								720.0
 							],
 							"Settings": {
 								"Variable": 32,
@@ -16608,7 +16608,7 @@
 							"Type": "Expression",
 							"Position": [
 								400.0,
-								128.0
+								240.0
 							],
 							"Settings": {
 								"Formula": "score == 0 && lives == 3 && level == 1 && left == 33"
@@ -16619,7 +16619,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								656.0
+								848.0
 							],
 							"Settings": {
 								"Variable": 27,
@@ -16631,7 +16631,7 @@
 							"Type": "Operator.Equal",
 							"Position": [
 								400.0,
-								496.0
+								432.0
 							],
 							"Inputs": {
 								"B": "Serve"
@@ -16642,15 +16642,15 @@
 							"Type": "Operator.And",
 							"Position": [
 								688.0,
-								0.0
+								224.0
 							]
 						},
 						{
 							"ID": 758,
 							"Type": "RunsGraph",
 							"Position": [
-								192.0,
-								784.0
+								688.0,
+								0.0
 							],
 							"Settings": {
 								"Graph": "17547337789174679122"
@@ -16660,8 +16660,8 @@
 							"ID": 759,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								192.0,
+								272.0
 							],
 							"Settings": {
 								"Variable": 2
@@ -16671,8 +16671,8 @@
 							"ID": 760,
 							"Type": "RunsGraph",
 							"Position": [
-								192.0,
-								896.0
+								400.0,
+								128.0
 							],
 							"Settings": {
 								"Graph": "17547337789174679122"
@@ -16682,16 +16682,16 @@
 							"ID": 761,
 							"Type": "Operator.Not",
 							"Position": [
-								400.0,
-								624.0
+								688.0,
+								112.0
 							]
 						},
 						{
 							"ID": 762,
 							"Type": "Operator.And",
 							"Position": [
-								688.0,
-								80.0
+								896.0,
+								0.0
 							]
 						},
 						{
@@ -16711,8 +16711,8 @@
 							"ID": 764,
 							"Type": "FormatString",
 							"Position": [
-								400.0,
-								320.0
+								1088.0,
+								0.0
 							],
 							"Settings": {
 								"Format": "score {Score}, {Lives} lives, level {Level}, {Left} prisms"
@@ -16722,7 +16722,7 @@
 							"ID": 765,
 							"Type": "Operator.And",
 							"Position": [
-								816.0,
+								1088.0,
 								176.0
 							]
 						},
@@ -16730,8 +16730,8 @@
 							"ID": 766,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
-								0.0,
-								240.0
+								192.0,
+								144.0
 							]
 						},
 						{
@@ -16749,8 +16749,8 @@
 							"ID": 768,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								688.0,
+								304.0
 							],
 							"Settings": {
 								"Variable": 16
@@ -16760,8 +16760,8 @@
 							"ID": 769,
 							"Type": "Expression",
 							"Position": [
-								816.0,
-								0.0
+								896.0,
+								80.0
 							],
 							"Settings": {
 								"Formula": "done || now - start > 3"
@@ -16771,15 +16771,15 @@
 							"ID": 770,
 							"Type": "Flow.WaitUntil",
 							"Position": [
-								1008.0,
-								0.0
+								1088.0,
+								256.0
 							]
 						},
 						{
 							"ID": 771,
 							"Type": "Function.Call",
 							"Position": [
-								1248.0,
+								1328.0,
 								0.0
 							],
 							"Settings": {
@@ -17162,8 +17162,8 @@
 								-72.0
 							],
 							"Size": [
-								1704.0,
-								1066.0
+								1784.0,
+								1034.0
 							],
 							"Color": [
 								0.44999998807907104,
@@ -17582,7 +17582,7 @@
 					"ID": 811,
 					"Type": "Flow.WaitUntil",
 					"Position": [
-						704.0,
+						624.0,
 						3904.0
 					]
 				},
@@ -17590,15 +17590,15 @@
 					"ID": 812,
 					"Type": "Get:Strada.Time.Elapsed",
 					"Position": [
-						0.0,
-						4080.0
+						624.0,
+						4032.0
 					]
 				},
 				{
 					"ID": 813,
 					"Type": "Variable.Set",
 					"Position": [
-						944.0,
+						864.0,
 						3904.0
 					],
 					"Settings": {
@@ -17609,8 +17609,8 @@
 					"ID": 814,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						4208.0
+						416.0,
+						4032.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -17620,7 +17620,7 @@
 					"ID": 815,
 					"Type": "Get:Strada.UITextComponent.Text",
 					"Position": [
-						208.0,
+						624.0,
 						4160.0
 					]
 				},
@@ -17628,8 +17628,8 @@
 					"ID": 816,
 					"Type": "Operator.Equal",
 					"Position": [
-						416.0,
-						4176.0
+						864.0,
+						4032.0
 					],
 					"Inputs": {
 						"B": "LEVEL 2"
@@ -17639,7 +17639,7 @@
 					"ID": 817,
 					"Type": "Flow.WaitUntil",
 					"Position": [
-						1136.0,
+						1152.0,
 						3904.0
 					]
 				},
@@ -17647,7 +17647,7 @@
 					"ID": 818,
 					"Type": "Variable.Set",
 					"Position": [
-						1376.0,
+						1392.0,
 						3904.0
 					],
 					"Settings": {
@@ -17661,7 +17661,7 @@
 					"ID": 819,
 					"Type": "Get:Strada.UIRectComponent.Visible",
 					"Position": [
-						208.0,
+						1152.0,
 						4032.0
 					]
 				},
@@ -17669,7 +17669,7 @@
 					"ID": 820,
 					"Type": "Expression",
 					"Position": [
-						416.0,
+						1392.0,
 						4032.0
 					],
 					"Settings": {
@@ -17680,7 +17680,7 @@
 					"ID": 821,
 					"Type": "Flow.WaitUntil",
 					"Position": [
-						1600.0,
+						1616.0,
 						3904.0
 					]
 				},
@@ -17688,15 +17688,15 @@
 					"ID": 822,
 					"Type": "Get:Strada.Time.Elapsed",
 					"Position": [
-						0.0,
-						4272.0
+						1616.0,
+						4032.0
 					]
 				},
 				{
 					"ID": 823,
 					"Type": "Variable.Set",
 					"Position": [
-						1840.0,
+						1856.0,
 						3904.0
 					],
 					"Settings": {
@@ -17707,7 +17707,7 @@
 					"ID": 824,
 					"Type": "Variable.Set",
 					"Position": [
-						2032.0,
+						2048.0,
 						3904.0
 					],
 					"Settings": {
@@ -17722,7 +17722,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						4496.0
+						4384.0
 					],
 					"Settings": {
 						"Name": "WatchTheCamera",
@@ -17734,7 +17734,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						4608.0
+						4496.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -17745,7 +17745,7 @@
 					"Type": "Get:Strada.Entity.Translation",
 					"Position": [
 						224.0,
-						4496.0
+						4384.0
 					]
 				},
 				{
@@ -17753,7 +17753,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						224.0,
-						4624.0
+						4512.0
 					],
 					"Settings": {
 						"Variable": 1,
@@ -17765,7 +17765,7 @@
 					"Type": "Expression",
 					"Position": [
 						432.0,
-						4496.0
+						4384.0
 					],
 					"Settings": {
 						"Formula": "distance(p, home) > 0.05"
@@ -17776,7 +17776,7 @@
 					"Type": "Flow.WaitUntil",
 					"Position": [
 						640.0,
-						4496.0
+						4384.0
 					]
 				},
 				{
@@ -17784,7 +17784,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						880.0,
-						4496.0
+						4384.0
 					],
 					"Settings": {
 						"Variable": 31
@@ -18403,8 +18403,8 @@
 						3832.0
 					],
 					"Size": [
-						2246.572509765625,
-						554.0
+						2262.572509765625,
+						442.0
 					],
 					"Color": [
 						0.44999998807907104,
@@ -18418,7 +18418,7 @@
 					"Text": "Watch the camera: the clear moves it off its home",
 					"Position": [
 						-32.0,
-						4424.0
+						4312.0
 					],
 					"Size": [
 						1094.572509765625,

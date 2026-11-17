@@ -4575,7 +4575,17 @@ inspector's primary entity as the context entity; without an asset directory the
   position beside the placed nodes they continue: the anchors stand as a fixed column, each arranged group's first
   column is ordered against the anchors' rows by the links from the anchors into that group, and the block starts 64
   right of the anchors' right edge, at their top, on the 16 grid. The Arrange button and `graph.arrange` lay out alike
-  (`ArrangeNodes` with the window's or the headless canvas's extents). A sub-graph's headless canvas is laid out again
+  (`ArrangeNodes` with the window's or the headless canvas's `VisualScriptArrangeMeasures`: each node's size, and
+  whether it is pure, from the node's `Pure` flag as the canvas draws it). A node that is not pure stands in the column
+  of the longest chain of links leading to it; a pure node (a get, a literal, an operator, a pure call) that a later
+  column reads moves right, into the column just before the leftmost node reading it, so a region's inputs stand beside
+  their consumers instead of in its first columns with long wires. A pure input several nodes read stands before the
+  first of them, a chain of pure nodes closes up behind the node it feeds (pure nodes move deepest column first, so
+  the nodes a pure node feeds already stand where they end), and only links that run to a later column count, so links closing a cycle move
+  nothing. Moves go right only, so every wire still runs left to right, and the node ending each longest chain keeps
+  its column, so no column empties. Rows still fill each column in the order the crossing sweeps choose. A canvas
+  without the node library knows no pure node, and `Uniform` extents take none for pure: both give the columns of
+  `PlaceUnplacedNodes`. A sub-graph's headless canvas is laid out again
   only when what an operation reads may have changed: operations that read pin rows (Connect, Relink, Splice, deletions
   that bridge, splits) reuse a canvas across link, value and layout changes, and those that read node sizes or anchors
   (Arrange, Align, Distribute, Straighten, Promote to Variable, comment framing, Paste's corner) reuse it across moves;

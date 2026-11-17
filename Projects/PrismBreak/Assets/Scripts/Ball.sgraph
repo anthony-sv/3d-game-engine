@@ -59,7 +59,7 @@
 					"ID": 6,
 					"Type": "RunsGraph",
 					"Position": [
-						240.0,
+						192.0,
 						0.0
 					],
 					"Settings": {
@@ -70,7 +70,7 @@
 					"ID": 7,
 					"Type": "Flow.Branch",
 					"Position": [
-						448.0,
+						432.0,
 						0.0
 					]
 				},
@@ -78,16 +78,16 @@
 					"ID": 8,
 					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
 					"Position": [
-						0.0,
-						192.0
+						192.0,
+						112.0
 					]
 				},
 				{
 					"ID": 9,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						112.0
+						432.0,
+						128.0
 					],
 					"Settings": {
 						"Formula": "length(v) > 0.5"
@@ -97,7 +97,7 @@
 					"ID": 10,
 					"Type": "Flow.Branch",
 					"Position": [
-						672.0,
+						656.0,
 						0.0
 					]
 				},
@@ -105,16 +105,16 @@
 					"ID": 11,
 					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
 					"Position": [
-						0.0,
-						320.0
+						192.0,
+						240.0
 					]
 				},
 				{
 					"ID": 12,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						240.0
+						432.0,
+						256.0
 					],
 					"Settings": {
 						"Formula": "normalize(vec3(v.x, 0, v.z))"
@@ -124,8 +124,8 @@
 					"ID": 13,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						448.0
+						432.0,
+						384.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -135,8 +135,8 @@
 					"ID": 14,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						512.0
+						192.0,
+						368.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -146,8 +146,8 @@
 					"ID": 15,
 					"Type": "Variable.Get",
 					"Position": [
-						240.0,
-						368.0
+						432.0,
+						448.0
 					],
 					"Settings": {
 						"Variable": 33,
@@ -158,7 +158,7 @@
 					"ID": 16,
 					"Type": "Expression",
 					"Position": [
-						448.0,
+						656.0,
 						128.0
 					],
 					"Settings": {
@@ -169,7 +169,7 @@
 					"ID": 17,
 					"Type": "Set:Strada.RigidBodyComponent.LinearVelocity",
 					"Position": [
-						896.0,
+						880.0,
 						0.0
 					]
 				},
@@ -178,7 +178,7 @@
 					"Type": "Event.CollisionEnter",
 					"Position": [
 						0.0,
-						688.0
+						672.0
 					]
 				},
 				{
@@ -186,7 +186,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						912.0
+						896.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -196,24 +196,24 @@
 					"ID": 21,
 					"Type": "Operator.Equal",
 					"Position": [
-						240.0,
-						688.0
+						192.0,
+						672.0
 					]
 				},
 				{
 					"ID": 22,
 					"Type": "Flow.Branch",
 					"Position": [
-						448.0,
-						688.0
+						432.0,
+						672.0
 					]
 				},
 				{
 					"ID": 23,
 					"Type": "Get:Strada.Entity.Translation",
 					"Position": [
-						0.0,
-						976.0
+						192.0,
+						752.0
 					]
 				},
 				{
@@ -221,7 +221,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1104.0
+						960.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -231,8 +231,8 @@
 					"ID": 25,
 					"Type": "Get:Strada.Entity.Translation",
 					"Position": [
-						240.0,
-						768.0
+						192.0,
+						880.0
 					]
 				},
 				{
@@ -240,7 +240,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1168.0
+						1024.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -250,8 +250,8 @@
 					"ID": 27,
 					"Type": "Variable.Get",
 					"Position": [
-						240.0,
-						896.0
+						192.0,
+						1008.0
 					],
 					"Settings": {
 						"Variable": 3,
@@ -263,7 +263,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1232.0
+						1088.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -273,8 +273,8 @@
 					"ID": 29,
 					"Type": "Variable.Get",
 					"Position": [
-						240.0,
-						1024.0
+						192.0,
+						1136.0
 					],
 					"Settings": {
 						"Variable": 33,
@@ -285,8 +285,8 @@
 					"ID": 30,
 					"Type": "Expression",
 					"Position": [
-						448.0,
-						816.0
+						432.0,
+						800.0
 					],
 					"Settings": {
 						"Formula": "normalize(vec3(clamp((p.x - q.x) / (w * 0.5), -1, 1) * 1.2, 0, -1)) * speed"
@@ -296,16 +296,16 @@
 					"ID": 31,
 					"Type": "Set:Strada.RigidBodyComponent.LinearVelocity",
 					"Position": [
-						672.0,
-						688.0
+						656.0,
+						672.0
 					]
 				},
 				{
 					"ID": 32,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1296.0
+						656.0,
+						848.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -315,8 +315,8 @@
 					"ID": 33,
 					"Type": "Event.Send",
 					"Position": [
-						880.0,
-						688.0
+						864.0,
+						672.0
 					],
 					"Settings": {
 						"Name": "PaddleHit",
@@ -329,7 +329,7 @@
 					"Type": "Event.CollisionExit",
 					"Position": [
 						0.0,
-						1472.0
+						1360.0
 					]
 				},
 				{
@@ -337,7 +337,7 @@
 					"Type": "RunsGraph",
 					"Position": [
 						192.0,
-						1472.0
+						1360.0
 					],
 					"Settings": {
 						"Graph": "406140568513313708"
@@ -348,15 +348,15 @@
 					"Type": "Operator.Not",
 					"Position": [
 						400.0,
-						1472.0
+						1360.0
 					]
 				},
 				{
 					"ID": 38,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1600.0
+						192.0,
+						1472.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -366,8 +366,8 @@
 					"ID": 39,
 					"Type": "Operator.NotEqual",
 					"Position": [
-						192.0,
-						1584.0
+						400.0,
+						1472.0
 					]
 				},
 				{
@@ -375,7 +375,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						592.0,
-						1472.0
+						1360.0
 					]
 				},
 				{
@@ -383,7 +383,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						720.0,
-						1472.0
+						1360.0
 					]
 				},
 				{
@@ -391,7 +391,7 @@
 					"Type": "Call:Strada.AudioSourceComponent.Play()",
 					"Position": [
 						944.0,
-						1472.0
+						1360.0
 					]
 				}
 			],
@@ -776,8 +776,8 @@
 						-72.0
 					],
 					"Size": [
-						1093.5875244140625,
-						644.0
+						1077.5875244140625,
+						634.0
 					],
 					"Color": [
 						0.949999988079071,
@@ -791,11 +791,11 @@
 					"Text": "Bounce off the paddle: where it hits aims the ball",
 					"Position": [
 						-32.0,
-						616.0
+						600.0
 					],
 					"Size": [
-						1064.0,
-						740.0
+						1048.0,
+						650.0
 					],
 					"Color": [
 						0.949999988079071,
@@ -809,7 +809,7 @@
 					"Text": "Sounds: walls tick as the ball leaves them",
 					"Position": [
 						-32.0,
-						1400.0
+						1288.0
 					],
 					"Size": [
 						1139.13623046875,

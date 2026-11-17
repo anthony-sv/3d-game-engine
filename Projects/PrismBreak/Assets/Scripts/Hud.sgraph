@@ -212,7 +212,7 @@
 							"ID": 36,
 							"Type": "Function.Return",
 							"Position": [
-								1776.0,
+								1808.0,
 								0.0
 							]
 						},
@@ -250,8 +250,8 @@
 							"ID": 43,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								192.0,
+								112.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -261,8 +261,8 @@
 							"ID": 44,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								112.0
+								400.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 28,
@@ -284,8 +284,8 @@
 							"ID": 46,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								624.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 22
@@ -307,8 +307,8 @@
 							"ID": 48,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								816.0,
+								144.0
 							],
 							"Settings": {
 								"Variable": 3
@@ -318,7 +318,7 @@
 							"ID": 49,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
-								1008.0,
+								1024.0,
 								0.0
 							]
 						},
@@ -326,8 +326,8 @@
 							"ID": 50,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								624.0,
+								192.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -337,8 +337,8 @@
 							"ID": 51,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								240.0
+								816.0,
+								208.0
 							],
 							"Settings": {
 								"Variable": 36,
@@ -349,8 +349,8 @@
 							"ID": 52,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								816.0,
+								336.0
 							],
 							"Settings": {
 								"Variable": 25
@@ -360,8 +360,8 @@
 							"ID": 53,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								816.0,
+								400.0
 							],
 							"Settings": {
 								"Variable": 22
@@ -371,8 +371,8 @@
 							"ID": 54,
 							"Type": "Expression",
 							"Position": [
-								400.0,
-								128.0
+								1024.0,
+								176.0
 							],
 							"Settings": {
 								"Formula": "demo ? best : max(best, score)"
@@ -382,7 +382,7 @@
 							"ID": 55,
 							"Type": "Variable.Set",
 							"Position": [
-								1200.0,
+								1232.0,
 								0.0
 							],
 							"Settings": {
@@ -394,8 +394,8 @@
 							"ID": 56,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								560.0
+								1232.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 25
@@ -405,7 +405,7 @@
 							"ID": 57,
 							"Type": "Function.Call",
 							"Position": [
-								1392.0,
+								1424.0,
 								0.0
 							],
 							"Settings": {
@@ -417,8 +417,8 @@
 							"ID": 58,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								624.0
+								1424.0,
+								144.0
 							],
 							"Settings": {
 								"Variable": 4
@@ -428,7 +428,7 @@
 							"ID": 59,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
-								1584.0,
+								1616.0,
 								0.0
 							]
 						}
@@ -684,8 +684,8 @@
 								-72.0
 							],
 							"Size": [
-								1960.0,
-								756.0
+								1992.0,
+								532.0
 							],
 							"Color": [
 								0.949999988079071,
@@ -756,8 +756,8 @@
 							"ID": 64,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								192.0,
+								112.0
 							],
 							"Settings": {
 								"Variable": 8
@@ -767,8 +767,8 @@
 							"ID": 65,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								192.0,
+								176.0
 							],
 							"Settings": {
 								"Variable": 9
@@ -778,8 +778,8 @@
 							"ID": 66,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								192.0,
+								240.0
 							],
 							"Settings": {
 								"Variable": 10
@@ -789,8 +789,8 @@
 							"ID": 67,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								192.0,
+								304.0
 							],
 							"Settings": {
 								"Variable": 11
@@ -800,8 +800,8 @@
 							"ID": 68,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								192.0,
+								368.0
 							],
 							"Settings": {
 								"Variable": 12
@@ -811,8 +811,8 @@
 							"ID": 69,
 							"Type": "Array.Make",
 							"Position": [
-								192.0,
-								112.0
+								400.0,
+								128.0
 							],
 							"Settings": {
 								"Type": "Strada.Entity",
@@ -831,8 +831,8 @@
 							"ID": 71,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								400.0,
+								352.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -842,8 +842,8 @@
 							"ID": 72,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								336.0
+								624.0,
+								176.0
 							],
 							"Settings": {
 								"Variable": 29,
@@ -1062,7 +1062,7 @@
 							],
 							"Size": [
 								1240.0,
-								628.0
+								500.0
 							],
 							"Color": [
 								0.949999988079071,
@@ -1142,8 +1142,8 @@
 					"ID": 82,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1664.0
+						192.0,
+						1648.0
 					],
 					"Settings": {
 						"Variable": 22
@@ -1169,8 +1169,8 @@
 					"ID": 85,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1728.0
+						400.0,
+						1616.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1180,8 +1180,8 @@
 					"ID": 86,
 					"Type": "Variable.Get",
 					"Position": [
-						192.0,
-						1648.0
+						624.0,
+						1536.0
 					],
 					"Settings": {
 						"Variable": 30,
@@ -1192,8 +1192,8 @@
 					"ID": 87,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1792.0
+						624.0,
+						1664.0
 					],
 					"Settings": {
 						"Variable": 23
@@ -1203,8 +1203,8 @@
 					"ID": 88,
 					"Type": "Operator.NotEqual",
 					"Position": [
-						400.0,
-						1616.0
+						848.0,
+						1520.0
 					]
 				},
 				{
@@ -1219,8 +1219,8 @@
 					"ID": 90,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1856.0
+						848.0,
+						1600.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1230,8 +1230,8 @@
 					"ID": 91,
 					"Type": "Variable.Get",
 					"Position": [
-						192.0,
-						1776.0
+						1040.0,
+						1536.0
 					],
 					"Settings": {
 						"Variable": 30,
@@ -1253,8 +1253,8 @@
 					"ID": 93,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1920.0
+						1040.0,
+						1664.0
 					],
 					"Settings": {
 						"Variable": 23
@@ -1264,8 +1264,8 @@
 					"ID": 94,
 					"Type": "FormatString",
 					"Position": [
-						192.0,
-						1904.0
+						1264.0,
+						1536.0
 					],
 					"Settings": {
 						"Format": "LEVEL {Level}"
@@ -1275,8 +1275,8 @@
 					"ID": 95,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1984.0
+						1264.0,
+						1648.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -1286,7 +1286,7 @@
 					"ID": 96,
 					"Type": "Set:Strada.UITextComponent.Text",
 					"Position": [
-						1456.0,
+						1472.0,
 						1408.0
 					]
 				},
@@ -1294,8 +1294,8 @@
 					"ID": 97,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2048.0
+						1040.0,
+						1728.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1305,8 +1305,8 @@
 					"ID": 98,
 					"Type": "Variable.Get",
 					"Position": [
-						192.0,
-						2016.0
+						1264.0,
+						1712.0
 					],
 					"Settings": {
 						"Variable": 31,
@@ -1317,8 +1317,8 @@
 					"ID": 99,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2112.0
+						1264.0,
+						1840.0
 					],
 					"Settings": {
 						"Variable": 24
@@ -1328,15 +1328,15 @@
 					"ID": 100,
 					"Type": "Operator.NotEqual",
 					"Position": [
-						400.0,
-						1696.0
+						1472.0,
+						1584.0
 					]
 				},
 				{
 					"ID": 101,
 					"Type": "Flow.Branch",
 					"Position": [
-						1648.0,
+						1664.0,
 						1408.0
 					]
 				},
@@ -1344,8 +1344,8 @@
 					"ID": 102,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2176.0
+						1472.0,
+						1664.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1355,8 +1355,8 @@
 					"ID": 103,
 					"Type": "Variable.Get",
 					"Position": [
-						192.0,
-						2144.0
+						1664.0,
+						1536.0
 					],
 					"Settings": {
 						"Variable": 31,
@@ -1367,7 +1367,7 @@
 					"ID": 104,
 					"Type": "Variable.Set",
 					"Position": [
-						1872.0,
+						1888.0,
 						1408.0
 					],
 					"Settings": {
@@ -1378,16 +1378,16 @@
 					"ID": 105,
 					"Type": "Self",
 					"Position": [
-						0.0,
-						2240.0
+						1888.0,
+						1536.0
 					]
 				},
 				{
 					"ID": 106,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2304.0
+						1888.0,
+						1600.0
 					],
 					"Settings": {
 						"Variable": 24
@@ -1397,7 +1397,7 @@
 					"ID": 107,
 					"Type": "Event.Send",
 					"Position": [
-						2064.0,
+						2080.0,
 						1408.0
 					],
 					"Settings": {
@@ -1427,7 +1427,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						2480.0
+						2016.0
 					],
 					"Settings": {
 						"Name": "ComboChanged",
@@ -1444,7 +1444,7 @@
 					"Type": "Expression",
 					"Position": [
 						208.0,
-						2480.0
+						2016.0
 					],
 					"Settings": {
 						"Formula": "combo >= 2"
@@ -1455,15 +1455,15 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						416.0,
-						2480.0
+						2192.0
 					]
 				},
 				{
 					"ID": 113,
 					"Type": "FormatString",
 					"Position": [
-						208.0,
-						2608.0
+						416.0,
+						2016.0
 					],
 					"Settings": {
 						"Format": "×{Combo}"
@@ -1473,8 +1473,8 @@
 					"ID": 114,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2608.0
+						416.0,
+						2128.0
 					],
 					"Settings": {
 						"Variable": 7
@@ -1485,15 +1485,15 @@
 					"Type": "Set:Strada.UITextComponent.Text",
 					"Position": [
 						640.0,
-						2480.0
+						2016.0
 					]
 				},
 				{
 					"ID": 116,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2672.0
+						640.0,
+						2192.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -1504,7 +1504,7 @@
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
 						832.0,
-						2480.0
+						2016.0
 					],
 					"Inputs": {
 						"Value": true
@@ -1515,7 +1515,7 @@
 					"Type": "Flow.Timeline",
 					"Position": [
 						1024.0,
-						2480.0
+						2016.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -1556,8 +1556,8 @@
 					"ID": 119,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2736.0
+						1328.0,
+						2016.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -1568,7 +1568,7 @@
 					"Type": "Expression",
 					"Position": [
 						1328.0,
-						2480.0
+						2080.0
 					],
 					"Settings": {
 						"Formula": "vec2(200 * s, 92 * s)"
@@ -1579,15 +1579,15 @@
 					"Type": "Set:Strada.UIRectComponent.Size",
 					"Position": [
 						1520.0,
-						2480.0
+						2016.0
 					]
 				},
 				{
 					"ID": 122,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2800.0
+						1520.0,
+						2192.0
 					],
 					"Settings": {
 						"Variable": 7
@@ -1597,8 +1597,8 @@
 					"ID": 123,
 					"Type": "Expression",
 					"Position": [
-						1328.0,
-						2608.0
+						1520.0,
+						2256.0
 					],
 					"Settings": {
 						"Formula": "60 * s"
@@ -1609,15 +1609,15 @@
 					"Type": "Set:Strada.UITextComponent.FontSize",
 					"Position": [
 						1712.0,
-						2480.0
+						2016.0
 					]
 				},
 				{
 					"ID": 125,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2864.0
+						416.0,
+						2320.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -1628,7 +1628,7 @@
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
 						640.0,
-						2656.0
+						2256.0
 					],
 					"Inputs": {
 						"Value": false
@@ -1639,7 +1639,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						3040.0
+						2528.0
 					],
 					"Settings": {
 						"Name": "LifeLost",
@@ -1656,7 +1656,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						192.0,
-						3040.0
+						2528.0
 					],
 					"Settings": {
 						"Function": 37
@@ -1667,7 +1667,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						3280.0
+						2768.0
 					],
 					"Settings": {
 						"Name": "StateChanged",
@@ -1684,7 +1684,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						192.0,
-						3280.0
+						2768.0
 					],
 					"Inputs": {
 						"B": "Title"
@@ -1694,8 +1694,8 @@
 					"ID": 133,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						3408.0
+						192.0,
+						2896.0
 					],
 					"Settings": {
 						"Variable": 14
@@ -1706,15 +1706,15 @@
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
 						480.0,
-						3280.0
+						2768.0
 					]
 				},
 				{
 					"ID": 135,
 					"Type": "Operator.NotEqual",
 					"Position": [
-						192.0,
-						3408.0
+						480.0,
+						2944.0
 					],
 					"Inputs": {
 						"B": "Title"
@@ -1724,8 +1724,8 @@
 					"ID": 136,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						3472.0
+						480.0,
+						3072.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -1735,16 +1735,16 @@
 					"ID": 137,
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
-						672.0,
-						3280.0
+						768.0,
+						2768.0
 					]
 				},
 				{
 					"ID": 138,
 					"Type": "Operator.Equal",
 					"Position": [
-						192.0,
-						3536.0
+						768.0,
+						2944.0
 					],
 					"Inputs": {
 						"B": "Serve"
@@ -1754,8 +1754,8 @@
 					"ID": 139,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						3536.0
+						768.0,
+						3072.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -1765,16 +1765,16 @@
 					"ID": 140,
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
-						864.0,
-						3280.0
+						1056.0,
+						2768.0
 					]
 				},
 				{
 					"ID": 141,
 					"Type": "Operator.Equal",
 					"Position": [
-						192.0,
-						3664.0
+						1056.0,
+						2944.0
 					],
 					"Inputs": {
 						"B": "Over"
@@ -1784,8 +1784,8 @@
 					"ID": 142,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						3600.0
+						1056.0,
+						3072.0
 					],
 					"Settings": {
 						"Variable": 19
@@ -1795,16 +1795,16 @@
 					"ID": 143,
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
-						1056.0,
-						3280.0
+						1344.0,
+						2768.0
 					]
 				},
 				{
 					"ID": 144,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						3664.0
+						1344.0,
+						2944.0
 					],
 					"Settings": {
 						"Variable": 18
@@ -1814,8 +1814,8 @@
 					"ID": 145,
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
-						1248.0,
-						3280.0
+						1536.0,
+						2768.0
 					],
 					"Inputs": {
 						"Value": false
@@ -1825,8 +1825,8 @@
 					"ID": 146,
 					"Type": "Function.Call",
 					"Position": [
-						1440.0,
-						3280.0
+						1728.0,
+						2768.0
 					],
 					"Settings": {
 						"Function": 37
@@ -1836,8 +1836,8 @@
 					"ID": 147,
 					"Type": "Function.Call",
 					"Position": [
-						1632.0,
-						3280.0
+						1920.0,
+						2768.0
 					],
 					"Settings": {
 						"Function": 34
@@ -1848,7 +1848,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						3904.0
+						3248.0
 					],
 					"Settings": {
 						"Name": "LevelCleared",
@@ -1864,8 +1864,8 @@
 					"ID": 150,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						4032.0
+						192.0,
+						3248.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1875,8 +1875,8 @@
 					"ID": 151,
 					"Type": "RunsGraph",
 					"Position": [
-						192.0,
-						4032.0
+						400.0,
+						3248.0
 					],
 					"Settings": {
 						"Graph": "17547337789174679122"
@@ -1887,7 +1887,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						4096.0
+						3376.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1898,7 +1898,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						192.0,
-						4144.0
+						3312.0
 					],
 					"Settings": {
 						"Variable": 36,
@@ -1910,23 +1910,23 @@
 					"Type": "Operator.Not",
 					"Position": [
 						400.0,
-						3904.0
+						3360.0
 					]
 				},
 				{
 					"ID": 155,
 					"Type": "Operator.And",
 					"Position": [
-						592.0,
-						3904.0
+						608.0,
+						3248.0
 					]
 				},
 				{
 					"ID": 156,
 					"Type": "Flow.Branch",
 					"Position": [
-						720.0,
-						3904.0
+						736.0,
+						3248.0
 					],
 					"Comment": "The title stays clear of the banner while it plays itself"
 				},
@@ -1934,8 +1934,8 @@
 					"ID": 157,
 					"Type": "Expression",
 					"Position": [
-						192.0,
-						3904.0
+						736.0,
+						3376.0
 					],
 					"Settings": {
 						"Formula": "level + 1"
@@ -1945,8 +1945,8 @@
 					"ID": 158,
 					"Type": "Variable.Set",
 					"Position": [
-						944.0,
-						3904.0
+						960.0,
+						3248.0
 					],
 					"Settings": {
 						"Variable": 26
@@ -1956,8 +1956,8 @@
 					"ID": 159,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						4160.0
+						960.0,
+						3376.0
 					],
 					"Settings": {
 						"Variable": 17
@@ -1967,8 +1967,8 @@
 					"ID": 160,
 					"Type": "Set:Strada.UITextComponent.Text",
 					"Position": [
-						1136.0,
-						3904.0
+						1152.0,
+						3248.0
 					],
 					"Inputs": {
 						"Value": "LEVEL CLEAR"
@@ -1978,8 +1978,8 @@
 					"ID": 161,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						4224.0
+						1152.0,
+						3424.0
 					],
 					"Settings": {
 						"Variable": 16
@@ -1989,8 +1989,8 @@
 					"ID": 162,
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
-						1392.0,
-						3904.0
+						1408.0,
+						3248.0
 					],
 					"Inputs": {
 						"Value": true
@@ -2000,8 +2000,8 @@
 					"ID": 163,
 					"Type": "Flow.Timeline",
 					"Position": [
-						1584.0,
-						3904.0
+						1600.0,
+						3312.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -2051,8 +2051,8 @@
 					"ID": 164,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						4288.0
+						1600.0,
+						3248.0
 					],
 					"Settings": {
 						"Variable": 16
@@ -2062,16 +2062,16 @@
 					"ID": 165,
 					"Type": "Set:Strada.UIRectComponent.Opacity",
 					"Position": [
-						1888.0,
-						3904.0
+						1904.0,
+						3248.0
 					]
 				},
 				{
 					"ID": 166,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						4352.0
+						1408.0,
+						3424.0
 					],
 					"Settings": {
 						"Variable": 26
@@ -2081,8 +2081,8 @@
 					"ID": 167,
 					"Type": "FormatString",
 					"Position": [
-						192.0,
-						4272.0
+						1600.0,
+						3584.0
 					],
 					"Settings": {
 						"Format": "LEVEL {Level}"
@@ -2092,8 +2092,8 @@
 					"ID": 168,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						4416.0
+						1600.0,
+						3696.0
 					],
 					"Settings": {
 						"Variable": 17
@@ -2103,16 +2103,16 @@
 					"ID": 169,
 					"Type": "Set:Strada.UITextComponent.Text",
 					"Position": [
-						1888.0,
-						4080.0
+						1904.0,
+						3424.0
 					]
 				},
 				{
 					"ID": 170,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						4480.0
+						1600.0,
+						3760.0
 					],
 					"Settings": {
 						"Variable": 16
@@ -2122,8 +2122,8 @@
 					"ID": 171,
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
-						1888.0,
-						4256.0
+						1904.0,
+						3600.0
 					],
 					"Inputs": {
 						"Value": false
@@ -2134,7 +2134,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						4656.0
+						3936.0
 					],
 					"Settings": {
 						"Name": "GameEnded",
@@ -2155,7 +2155,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						192.0,
-						4656.0
+						3936.0
 					],
 					"Settings": {
 						"Graph": "11260502822282376115",
@@ -2166,8 +2166,8 @@
 					"ID": 175,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						4816.0
+						192.0,
+						4080.0
 					],
 					"Settings": {
 						"Variable": 20
@@ -2177,16 +2177,16 @@
 					"ID": 176,
 					"Type": "Set:Strada.UITextComponent.Text",
 					"Position": [
-						512.0,
-						4656.0
+						384.0,
+						3936.0
 					]
 				},
 				{
 					"ID": 177,
 					"Type": "Literal",
 					"Position": [
-						0.0,
-						4880.0
+						384.0,
+						4112.0
 					],
 					"Settings": {
 						"Type": "string[]",
@@ -2197,8 +2197,8 @@
 					"ID": 178,
 					"Type": "Variable.Set",
 					"Position": [
-						704.0,
-						4656.0
+						576.0,
+						3936.0
 					],
 					"Settings": {
 						"Variable": 27
@@ -2208,16 +2208,16 @@
 					"ID": 179,
 					"Type": "Flow.ForEach",
 					"Position": [
-						896.0,
-						4656.0
+						768.0,
+						3936.0
 					]
 				},
 				{
 					"ID": 180,
 					"Type": "Function.Call",
 					"Position": [
-						1136.0,
-						4656.0
+						1088.0,
+						3936.0
 					],
 					"Settings": {
 						"Graph": "11260502822282376115",
@@ -2228,8 +2228,8 @@
 					"ID": 181,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						5008.0
+						1280.0,
+						3936.0
 					],
 					"Settings": {
 						"Variable": 27
@@ -2239,8 +2239,8 @@
 					"ID": 182,
 					"Type": "Expression",
 					"Position": [
-						1136.0,
-						4800.0
+						1088.0,
+						4080.0
 					],
 					"Settings": {
 						"Formula": "index + 1"
@@ -2250,8 +2250,8 @@
 					"ID": 183,
 					"Type": "FormatString",
 					"Position": [
-						1328.0,
-						4656.0
+						1280.0,
+						4000.0
 					],
 					"Settings": {
 						"Format": "{Rank}.   {Points}"
@@ -2261,16 +2261,16 @@
 					"ID": 184,
 					"Type": "Array.Add",
 					"Position": [
-						1536.0,
-						4656.0
+						1488.0,
+						3936.0
 					]
 				},
 				{
 					"ID": 185,
 					"Type": "Variable.Set",
 					"Position": [
-						1744.0,
-						4656.0
+						1696.0,
+						3936.0
 					],
 					"Settings": {
 						"Variable": 27
@@ -2280,8 +2280,8 @@
 					"ID": 186,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						5072.0
+						576.0,
+						4064.0
 					],
 					"Settings": {
 						"Variable": 27
@@ -2291,8 +2291,8 @@
 					"ID": 187,
 					"Type": "String.Join",
 					"Position": [
-						192.0,
-						4800.0
+						768.0,
+						4112.0
 					],
 					"Inputs": {
 						"Separator": "\n"
@@ -2302,8 +2302,8 @@
 					"ID": 188,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						5136.0
+						768.0,
+						4256.0
 					],
 					"Settings": {
 						"Variable": 21
@@ -2313,8 +2313,8 @@
 					"ID": 189,
 					"Type": "Set:Strada.UITextComponent.Text",
 					"Position": [
-						1136.0,
-						4928.0
+						1088.0,
+						4208.0
 					]
 				},
 				{
@@ -2322,7 +2322,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						5312.0
+						4480.0
 					],
 					"Settings": {
 						"Name": "Paused",
@@ -2339,7 +2339,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						5440.0
+						4608.0
 					],
 					"Settings": {
 						"Variable": 18
@@ -2350,7 +2350,7 @@
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
 						192.0,
-						5312.0
+						4480.0
 					]
 				},
 				{
@@ -2358,7 +2358,7 @@
 					"Type": "Event.Create",
 					"Position": [
 						0.0,
-						5616.0
+						4784.0
 					]
 				},
 				{
@@ -2366,7 +2366,7 @@
 					"Type": "Flow.Timeline",
 					"Position": [
 						192.0,
-						5616.0
+						4784.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -2402,8 +2402,8 @@
 					"ID": 197,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						5728.0
+						192.0,
+						5056.0
 					],
 					"Settings": {
 						"Variable": 15
@@ -2414,15 +2414,15 @@
 					"Type": "Set:Strada.UIRectComponent.Opacity",
 					"Position": [
 						496.0,
-						5616.0
+						4784.0
 					]
 				},
 				{
 					"ID": 199,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						5792.0
+						496.0,
+						4960.0
 					],
 					"Settings": {
 						"Variable": 13
@@ -2433,7 +2433,7 @@
 					"Type": "Set:Strada.UIRectComponent.Opacity",
 					"Position": [
 						688.0,
-						5616.0
+						4784.0
 					]
 				}
 			],
@@ -3758,8 +3758,8 @@
 						1336.0
 					],
 					"Size": [
-						2279.137451171875,
-						1028.0
+						2295.137451171875,
+						564.0
 					],
 					"Color": [
 						0.20000000298023224,
@@ -3773,11 +3773,11 @@
 					"Text": "Combo pop: the badge pops at every prism, hides at the paddle",
 					"Position": [
 						-32.0,
-						2408.0
+						1944.0
 					],
 					"Size": [
 						1896.0,
-						516.0
+						474.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -3791,7 +3791,7 @@
 					"Text": "Lives: a lost life takes an icon away",
 					"Position": [
 						-32.0,
-						2968.0
+						2456.0
 					],
 					"Size": [
 						376.0,
@@ -3809,11 +3809,11 @@
 					"Text": "Panels: each state of the game shows its screen",
 					"Position": [
 						-32.0,
-						3208.0
+						2696.0
 					],
 					"Size": [
-						1816.0,
-						578.0
+						2104.0,
+						436.0
 					],
 					"Color": [
 						0.20000000298023224,
@@ -3827,11 +3827,11 @@
 					"Text": "Level banner: LEVEL CLEAR, then the next level's number",
 					"Position": [
 						-32.0,
-						3832.0
+						3176.0
 					],
 					"Size": [
-						2072.0,
-						708.0
+						2088.0,
+						644.0
 					],
 					"Color": [
 						0.25,
@@ -3845,11 +3845,11 @@
 					"Text": "Game over: the final score and the top five",
 					"Position": [
 						-32.0,
-						4584.0
+						3864.0
 					],
 					"Size": [
-						1933.572509765625,
-						612.0
+						1885.572509765625,
+						506.0
 					],
 					"Color": [
 						0.949999988079071,
@@ -3863,7 +3863,7 @@
 					"Text": "Pause: the pause screen follows the game",
 					"Position": [
 						-32.0,
-						5240.0
+						4408.0
 					],
 					"Size": [
 						376.0,
@@ -3881,11 +3881,11 @@
 					"Text": "Prompt blink: the prompts breathe",
 					"Position": [
 						-32.0,
-						5544.0
+						4712.0
 					],
 					"Size": [
 						872.0,
-						338.0
+						404.0
 					],
 					"Color": [
 						0.25,

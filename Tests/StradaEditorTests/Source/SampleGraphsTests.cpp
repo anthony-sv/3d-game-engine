@@ -234,7 +234,8 @@ namespace
 				corner = glm::min(corner, *node->Position);
 			}
 			VisualScriptDocument arranged = graph.Document;
-			Result<void> const done = VisualScriptEditing::ArrangeNodes(arranged, function, framed[box], extents, corner);
+			Result<void> const done =
+				VisualScriptEditing::ArrangeNodes(arranged, function, framed[box], canvas.GetArrangeMeasures(), corner);
 			REQUIRE_MESSAGE(done.IsOk(), (done ? std::string() : done.GetError()));
 			VisualScriptGraph const& result = GetSubGraph(arranged, function);
 			REQUIRE(result.Nodes.size() == subGraph.Nodes.size());

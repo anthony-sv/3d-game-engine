@@ -2142,7 +2142,7 @@ TEST_CASE("VisualScriptBatch: without the runtime a measured Arrange sizes a rem
 		ExpectApplied(document, Json::array({Json::object({{"op", "Arrange"}, {"extents", "Measured"}})}), fixture.Context);
 	VisualScriptDocument expected = document;
 	std::vector<uint32_t> const ids = {40, 41};
-	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, ids, canvas.GetExtents()).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, ids, canvas.GetArrangeMeasures()).IsOk());
 	CHECK(*FindNode(result.Document, 41)->Position == *FindNode(expected, 41)->Position);
 	CHECK(*FindNode(result.Document, 40)->Position == *FindNode(expected, 40)->Position);
 }
