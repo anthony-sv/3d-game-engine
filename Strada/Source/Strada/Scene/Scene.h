@@ -660,12 +660,17 @@ namespace Strada
 		std::string GetScriptProfileName(UUID id) const;
 
 		// Input actions (SceneInputActions.cpp; Docs/Architecture.md §7.4). The frame's one named call of input actions,
-		// which OnUpdateRuntime makes before UpdateUI and the scripts, in frames that run (a paused scene's do not): takes the
-		// set made from the runtime settings' InputActions asset (made again when that asset or a curve it names changed,
-		// the actions' state kept by name), evaluates it from Input (InputActionState::Evaluate), then, while the scene runs
-		// scripts, dispatches each edge in order to every C# script (OnActionPressed or OnActionReleased) and then every
-		// graph (Event.ActionPressed or Event.ActionReleased of that action). Zone Scene.InputActions.
+		// which OnUpdateRuntime makes before UpdateUI and the scripts, in frames that run (a paused scene's do not): makes the
+		// set again when what it was made from changed (the runtime settings' InputActions asset or a response curve it
+		// names; the actions' state kept by name), then evaluates it from Input (InputActionState::Evaluate). Returns at
+		// once when the settings name no actions. Zone Scene.InputActions.
 		void UpdateInputActions();
+		// At runtime start: the set made from the settings' asset, taken without an edge, logged with its action count.
+		void StartInputActions();
+		void StopInputActions();
+		// Compares what the set was made from with the assets now and, when it changed (or `starting`), compiles again; an
+		// asset that does not load or compile is logged and leaves the previous set in place.
+		void RebuildInputActions(bool starting);
 
 		// UI runtime (SceneUI.cpp).
 		void ResetUI();
@@ -855,10 +860,12 @@ namespace Strada
 		std::vector<ContactEvent> m_ContactEvents;
 
 		// While running: the actions' state, set at runtime start (no edge for what is already held) and cleared at stop,
-		// and the version of the asset and the data asset registry's epoch its set was made from.
+		// and what its set was made from (Docs/Architecture.md §7.4): the data asset registry's epoch it was last compared
+		// at, the asset's version (0: it did not load) and the response curves' versions, the stamp a rebuild compares.
 		InputActionState m_InputActions;
-		uint64_t m_InputActionsAssetVersion = 0;
 		uint64_t m_InputActionsEpoch = 0;
+		uint64_t m_InputActionsAssetVersion = 0;
+		std::vector<std::pair<AssetHandle, uint64_t>> m_InputActionCurves;
 
 		// The component settings an entity's sound was last updated with (to apply changes made while running).
 		struct AudioSourceState

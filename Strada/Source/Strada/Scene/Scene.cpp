@@ -592,6 +592,7 @@ namespace Strada
 		// Systems start over with the run (their bursts come with its first update).
 		ResetParticles();
 		ResetUI();
+		StartInputActions();
 		StartPhysics();
 		if (settings.PlayAudio)
 		{
@@ -619,6 +620,7 @@ namespace Strada
 		m_DebugLinesDropped = false;
 		ResetParticles();
 		ResetUI();
+		StopInputActions();
 		ReleaseRuntimeAssets();
 	}
 
@@ -647,6 +649,8 @@ namespace Strada
 		m_RuntimeTime += deltaTime;
 		// Lines drawn last frame were rendered; this frame's scripts draw new ones.
 		AgeDebugLines(deltaTime);
+		// Actions are evaluated before anything of the frame reads them: the UI's clicks, the scripts, the fixed steps.
+		UpdateInputActions();
 		// Clicks reach the scripts before their update, which sees WasClicked.
 		{
 			ST_PROFILE_SCOPE("Scene.UpdateUI");

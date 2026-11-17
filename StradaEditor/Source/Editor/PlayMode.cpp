@@ -141,8 +141,10 @@ namespace Strada
 		m_GameData.reset();
 		m_Context.EndPlay();
 		// Keys held and a cursor the game locked must not carry over into editing, whose input frame is the application's again
-		// and begins clean.
+		// and begins clean. What automation or the game put in place of devices (injected gamepads, action overrides) ends
+		// with the game.
 		Input::ReleaseKeysAndMouseButtons();
+		Input::ReleaseInjectedInput();
 		Input::SetCursorMode(CursorMode::Normal);
 		Input::SetFrameOwned(false);
 		Input::EndFrame();

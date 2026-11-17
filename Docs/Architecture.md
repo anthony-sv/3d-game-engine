@@ -1814,9 +1814,16 @@ and `Scale`.
 **Reading a binding**, in this order (`InputProcessing` exposes each step for the tests):
 
 1. **The controls' value** (`ReadControls`): a single control's reading from the table, 0 for a gamepad that is not
-   connected; an axis composite's positive part minus its negative part; a vector composite's (right - left, up - down),
-   its length limited to 1 (a diagonal of two keys reads 0.707 each). A composite's part reads `max(reading, 0)`, so
-   triggers and half axes can be parts.
+   connected; an axis composite's positive part minus its negative part; a vector composite's (right - left, up - down).
+   A composite's part reads `max(reading, 0)`, so triggers and half axes can be parts. **Every two-dimensional value is
+   limited to length 1** here, a stick's as a vector composite's: GLFW clamps each axis on its own
+   (`glfw-src/src/input.c:1455`), so a stick's diagonal reads up to 1.41, and a diagonal of two keys reads 0.707 each.
+   One-dimensional values are -1 to 1 already. So what the dead zone and the curve take is always 0 to 1.
+   - **A trigger at rest.** A trigger reads `(raw + 1) / 2`, except that a trigger that has read nothing but exactly 0
+     since its pad connected reads 0 (`Input::HasGamepadAxisMoved`): a pad whose mapping lacks the trigger reads 0 there
+     forever (`glfwGetGamepadState` clears the state and fills only mapped axes, `input.c:1395`), which the remap would
+     make 0.5, as much as the default `PressThreshold`. A real trigger at rest reads -1 from its first poll, and an
+     injected pad starts at -1 (§"Injected and polled gamepads").
 2. **The dead zone**, radial on the magnitude m (the absolute value, or the vector's length): m <= d reads 0, otherwise
    the direction times (m - d) / (1 - d), so the reading still reaches 1.
 3. **The response curve** on the magnitude after the dead zone, the direction (or sign) kept.
@@ -1824,27 +1831,39 @@ and `Scale`.
 5. **Scale** multiplies.
 
 **An action's value** is the reading of its binding with the largest magnitude; then its override, if any (below), under
-the same rule; the first in that order wins a tie. Its **level** follows the magnitude with hysteresis: an action that
-is up goes down when the magnitude reaches `PressThreshold`, and goes up again when it falls below `ReleaseThreshold`.
-Every type has a level, so an axis pushed past its threshold is pressed too.
+the same rule; the first in that order wins a tie. A `Button` action's value is that reading's **magnitude** (0 up: an
+axis composite or a stick axis bound to a button presses it either way, and `Invert` changes nothing of a button); an
+`Axis` action's is the signed reading, a `Vector2` action's the vector. Its **level** follows the magnitude with
+hysteresis: an action that is up goes down when the magnitude reaches `PressThreshold`, and goes up again when it falls
+below `ReleaseThreshold`. Every type has a level, so an axis pushed past its threshold is pressed too.
 
 **Edges.** `Input` counts every button's presses and releases (`Input::ButtonCounts`), counts the input frame never
-clears, and the state keeps each digital control's counts as its last evaluation read them. An evaluation compares the
-action's previous level P with its new one D, and asks whether one of its digital controls was pressed since (its press
-count moved, on a binding whose reading with that control down reaches `PressThreshold`):
+clears, and the state keeps each digital control's counts as its last evaluation read them. An override is one more
+digital control of its action (below): it counts a press when its value leaves 0 and a release when it returns to 0 or is
+cleared. A control **can press** its action when its binding, read with that control down and the binding's other
+controls up, reaches `PressThreshold` (worked out once, when the state takes its set: 1 through the binding's
+processing); an override can when the largest magnitude it held since its latest press reaches it. An evaluation
+compares the action's previous level P with its new one D:
 
-| P | D | A digital control pressed since | Edges, in this order |
+| P | D | Between the two evaluations | Edges, in this order |
 |---|---|---|---|
-| up | down | either | pressed |
-| down | up | either | released |
-| up | up | yes (it went down and up between two evaluations) | pressed, released |
-| up | up | no | none |
-| down | down | either | none: a held action whose key was let go and pressed again between two evaluations reports neither, since another binding may have held it |
+| up | down | anything | pressed |
+| down | up | anything | released |
+| up | up | a control that can press was pressed and released (both its counts moved) | pressed, released |
+| up | up | nothing of that | none |
+| down | down | a control that can press was released and pressed again (both its counts moved), and the action without that control (its other bindings with that control up, and its override) is below `ReleaseThreshold` | released, pressed |
+| down | down | nothing of that | none: another binding or control held the action meanwhile |
 
-So an action has at most one press and one release per evaluation. Flags alone (`IsKeyPressed`) would lose a press of
-a scene that did not read them in the input frame they lasted (a paused scene in the player, whose application ends
-the input frame every frame); levels alone would lose a press and release within one frame. Overrides have no counts:
-their edges come from the values evaluations read.
+So an action has at most one press and one release per evaluation, a tap within one evaluation reports both, and a
+release and press again (a double tap at 30 frames per second, an agent's release then press between two
+`play.advance` calls) reports both too. Flags alone (`IsKeyPressed`) would lose a press of a scene that did not read them
+in the input frame they lasted (a paused scene in the player, whose application ends the input frame every frame);
+levels alone would lose a press and release within one frame.
+
+**Counts never rewind for a running state.** `Input::Reset` (application start and shutdown, tests' input scopes) clears
+every count; it also moves `Input::GetResetGeneration`, and a state that sees the generation moved takes every count as
+its new baseline without an edge (the levels fall as they will, with the releases that make). The overrides' version
+(`Input::GetActionOverridesVersion`) is moved by every change and never goes back, across `Reset` too.
 
 **Where in the frame.** `Scene::OnUpdateRuntime`'s order is the runtime lane's; input actions enter it through one named
 call, `UpdateInputActions`, right after `BeginTransformFrame` and before `UpdateUI`:
@@ -1861,11 +1880,14 @@ OnUpdateRuntime: BeginTransformFrame → UpdateInputActions (evaluate; the edges
   call, and `Input`'s levels and counts keep what came meanwhile, which the next frame that runs (`play.step`,
   `play.advance`, the end of the pause) reports, once.
 - At `OnRuntimeStart` (play, the player, a scene load) the state takes its set with no edge for what is already held,
-  as a key held when play starts is down but not pressed. Each frame, before evaluating, the call compares the asset's
-  version and the data asset registry's epoch with those its set was made from, and compiles again when either moved (an
-  edited `.sinput` or response curve reaches a running game); the state keeps its actions' levels and latched edges by
-  name, so a rebuild makes no edge. An asset that does not compile is logged once per version and leaves the previous
-  set in place.
+  as a key held when play starts is down but not pressed, and the scene logs once how many actions it took from which
+  asset. Each frame, before evaluating, the call compares one stamp of what its set was made from (the asset's handle
+  and version and the data asset registry's epoch) with the current one, and compiles again when it moved (an edited
+  `.sinput` or response curve reaches a running game at the next frame); the state keeps its actions' levels and latched
+  edges by name, so a rebuild makes no edge. An asset that does not compile, or does not load, is logged once per stamp
+  and leaves the previous set in place.
+- A scene whose settings name no actions does nothing more in the call than find that out: no zone, no lookup, no walk
+  of the overrides.
 - Every running scene evaluates its own state from the one `Input`; scripts read the state of the scene that runs them
   (the script engine's scene context).
 - The evaluation allocates nothing (the state is sized when it takes a set) and is timed by `Input.EvaluateActions`
@@ -1877,15 +1899,27 @@ OnUpdateRuntime: BeginTransformFrame → UpdateInputActions (evaluate; the edges
 - In `OnUpdate`, and in everything else that runs outside the fixed steps (the action events, clicks, contact events,
   `OnDestroy`), `IsActionPressed` and `IsActionReleased` are the frame's edges.
 - Every edge also increments a latch of its action. `FixedUpdateScripts` brackets each fixed step with
-  `InputActionState::FixedStepScope`: the step's view takes the latch and the latch starts empty. The step's view stays
-  the latest step's until the next step begins.
-- Each query says which view it reads (`InputActionView`), from the code it runs for: C# code inside `OnFixedUpdate`
-  and a graph execution that `Event.FixedUpdate` started (also when a debugger resumes it, or a latent node continues
-  it) read the step's view; everything else reads the frame's. The managed side knows which: the script registry marks
-  its `FixedUpdate` dispatch, and the graph runtime marks the executions that event starts. Since a frame's steps
-  run after its evaluation, each edge is seen by **exactly one** `OnFixedUpdate`, the first at or after its frame: a
-  frame of eight steps shows it to the first alone, and frames that run no step (a frame shorter than a step, a time
-  scale of 0) carry it to the next step.
+  `InputActionState::FixedStepScope` (also when the scene runs no scripts, so that steps take the latch all the same):
+  the step gets the next **step number** (`GetFixedStepNumber`, counted from 1 for the state's life), records that
+  number on each action whose latch it takes, and empties the latch.
+- **While a step runs, every query reads that step's edges**, whatever started the code that asks: C# `OnFixedUpdate`,
+  a graph's `Event.FixedUpdate`, a graph that one of them sent an event to or called (`SendEvent`, `Event.Send`,
+  `Event.Broadcast`), a C# member a graph calls, a Timeline a step started. The state knows (`IsInFixedStep`), so no
+  caller can get it wrong. Since a frame's steps run after its evaluation, each edge is seen by **exactly one** step, the
+  first at or after its frame: a frame of eight steps shows it to the first alone, and frames that run no step (a frame
+  shorter than a step, a time scale of 0) carry it to the next step.
+- **Outside every step**, the caller says which edges (`InputActionView`), from where its code came from:
+  - `Frame`: code of `OnUpdate`, an event, a click, a contact, `OnDestroy`, and everything a frame started.
+  - `FixedStep` with the step's number: code that a step started and that a **debugger resume** runs between frames
+    (`graph.continue`, `graph.step`, `play.pause` with `paused: false`). It reads exactly the edges of the step it
+    stopped in, whichever of the frame's steps that was.
+  - `NoEdges`: code that a step started and that runs later outside a step for any other reason (a latent node
+    continued by the Update pass after `Delay`, a `WaitUntil` recheck, a Timeline's tick). It reads no edge: the step
+    that started it saw that step's edges, and the next step sees the next ones, so reading either here would show an
+    edge twice. Values and `IsActionDown` are the latest evaluation's in every view.
+  - The managed side records the view and the step number on an execution when it starts (from the code it starts
+    under: inside a step, the step's number; otherwise the parent execution's view), in a field of its own that a
+    continuation keeps (`Continue` rewrites the execution's start as a resume, so the start cannot hold it).
 - In a fixed step, values and `IsActionDown` are the frame's (the latest evaluation's). A press and release within one
   frame reach the step as both edges with the action up. Two presses before one step reach it as one press: the queries
   are booleans.
@@ -1895,30 +1929,46 @@ OnUpdateRuntime: BeginTransformFrame → UpdateInputActions (evaluate; the edges
 **What a debugger resume sees.** While an execution is stopped the editor refuses game frames
 (`PlayMode::GetFrameStepRefusal`), so no evaluation runs between frames. Code that a resume runs (`graph.continue`,
 `graph.step`, `play.pause` with `paused: false`) reads the latest evaluation through its own view: code of
-`OnUpdate` or an event reads the frame's edges, which its frame already showed it; code of `OnFixedUpdate` reads the
-latest step's edges, which are the edges of the step it stopped in when that was the frame's last step, and otherwise
-those of a later step of the same frame, which took no edge the earlier one had (so a resumed step may miss an edge it
-saw before it stopped, but never reads one another step sees). Input given meanwhile (keys, `input.set`'s actions and
-gamepads) reaches actions at the next frame's evaluation only, and the action events are dispatched by the frame's call
-alone, so a resume never fires one. So no action edge is seen twice, unlike a key's: a press given while stopped is read
-by the resumed code and again by the next frame (`GraphDebugCommandsTests` pins that for keys, and it stays).
+`OnUpdate` or an event reads the frame's edges, which its frame already showed it; code a step started reads the edges
+of exactly that step, by its number, whichever of the frame's steps it stopped in (an action's step number is
+overwritten only by a later step that takes a new edge of it, and no step runs while an execution is stopped). Input
+given meanwhile (keys, `input.set`'s actions and gamepads) reaches actions at the next frame's evaluation only, and the
+action events are dispatched by the frame's call alone, so a resume never fires one. So no action edge is seen twice,
+unlike a key's: a press given while stopped is read by the resumed code and again by the next frame
+(`GraphDebugCommandsTests` pins that for keys, and it stays).
 
 **Queries.** `Strada.Input` gains `GetAction(name)` (a float: a `Vector2` action's length), `GetActionVector(name)` (a
 `Button` or `Axis` action gives (value, 0)), `IsActionDown(name)`, `IsActionPressed(name)` and `IsActionReleased(name)`,
-each a pure node (`[PureNode]`). They read the state of the scene that runs scripts, in the view of the code that asks
-(frame or step), and read zero outside a running scene. A name the set lacks reads zero and is logged once per name until
+each a pure node (`[PureNode]`). They read the state of the scene that runs scripts (inside a step, that step's edges;
+outside, the view of the code that asks, above), and read zero outside a running scene. A name the set lacks reads zero and is logged once per name until
 the set changes; without a set (a project that names no actions, or an asset that does not load) every name does, and
 the message says the project names no input actions.
 
 **Overrides** put a value on an action as one more device would: `Input.SetActionOverride(name, value)`,
 `Input.SetActionVectorOverride(name, vector)` and `Input.ClearActionOverride(name)` in scripts and graphs, `input.set`'s
 `actions` in automation, `Input::SetActionOverride` in C++. They are global (`Input` holds them, so they need no running
-scene), join the largest-magnitude rule after the bindings, make edges by the values evaluations read (a value set and
-cleared between two evaluations is not seen), and take effect at the next evaluation (one set in `OnUpdate` is read from
-the next frame on). They are held across scene loads and cleared by `ClearActionOverride`, `Input::ReleaseInjectedInput`
-(`input.release`, and the end of play mode) and `Input::Reset`. An override naming no action of the set is ignored and
-logged once per name. They are how a graph drives a game (an autopilot, an attract mode) and how a test scene presses a
-button; logic that must act on each fixed step sets its targets there instead.
+scene), join the largest-magnitude rule after the bindings, and take effect at the next evaluation (one set in
+`OnUpdate` is read from the next frame on). **They make edges as a button would**: `Input` keeps, per name, the value,
+press and release counts (a press when the value leaves 0, a release when it returns to 0 or is cleared) and the largest
+magnitude since the latest press (`Input::ActionOverride`), so a value set and cleared between two evaluations reaches
+the next one as a tap when that magnitude reaches the action's `PressThreshold`, as keys given to a paused game do. A
+cleared override keeps its record (value 0, not held) so that states which have not evaluated since still see its
+counts; records are dropped only by `Input::Reset`, and at most `Input::MaxActionOverrides` (1,024) names have one: a
+new name beyond that is refused and logged. They are held across scene loads and cleared by `ClearActionOverride`,
+`Input::ReleaseInjectedInput` (`input.release`, and the end of play mode; each held one counts its release) and
+`Input::Reset`. An override naming no action of the set is ignored and logged once per name; states look for such
+names only when the overrides' version or their set moved, so a frame allocates nothing for them. They are how a graph
+drives a game (an autopilot, an attract mode) and how a test scene presses a button; logic that must act on each fixed
+step sets its targets there instead.
+
+**What rebinding will change** (the next track's, recorded so that this design leaves it a place). A rebind is a
+process-wide replacement of one binding's controls, or of one part of a composite (the token's position in
+`Controls`), addressed by action name, binding index and part; the player's profile stores each with the `Controls`
+text it replaced, and an entry whose binding no longer holds that text (the asset was edited, bindings reordered or one
+inserted) is dropped with a log line rather than applied to another binding. Compilation then takes the map and those
+replacements, and their version joins the stamp the scene compares (the asset's handle and version, the registry's
+epoch) in `Scene::UpdateInputActions`: nothing else of the evaluation changes. This design ships no table for it: no
+code would use one.
 
 **Events.** C# scripts override `OnActionPressed(string action)` and `OnActionReleased(string action)`; graphs have
 `Event.ActionPressed` and `Event.ActionReleased`, each with a required `Action` setting (the action's name, text) and an
@@ -1953,6 +2003,8 @@ keeps, per slot, the device's state and an optional injected state:
   the injected state.
 - `Input::ReleaseInjectedGamepad` (or `ReleaseInjectedGamepads`) returns the slot to the device: its last polled state
   takes effect at once, with the edges that make.
+- A slot's effective state changing from not connected to connected (a pad plugged in, a first injection) starts its
+  axes as not moved (`HasGamepadAxisMoved`), which the trigger rule above reads.
 - `Input::ReleaseInjectedInput` (automation's `input.release`, the end of play mode) releases every injection and clears
   every override; the window losing the focus does not (it releases keys and mouse buttons, which were the window's);
   `Input::Reset` clears everything.

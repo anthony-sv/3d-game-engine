@@ -29,6 +29,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
@@ -600,10 +601,10 @@ namespace
 		// load is reported, not refused), then the references of the state's script's first variable; graph.set the state's
 		// script's own document; graph.create, every data asset type's create and profiler.capture a file of a name not given
 		// before (the drawn names exist after their first success), a data asset with its type's defaults; project.copy-example
-		// the available example into a fresh directory, unopened. A request that still fails (the state can be a few rounds old,
-		// the profiler can hold no frames yet) is followed by another at the command's next round, so reaching every goal needs
-		// only a round or two of its command, whatever the other draws and the commands registered. Nothing is drawn here, so
-		// every other request stays as the stream made it.
+		// the available example into a fresh directory, unopened; graph.palette, whose goals are refusals, the two below. A request that
+		// still fails (the state can be a few rounds old, the profiler can hold no frames yet) is followed by another at the command's next
+		// round, so reaching every goal needs only a round or two of its command, whatever the other draws and the commands registered.
+		// Nothing is drawn here, so every other request stays as the stream made it.
 		std::optional<Json> SureRequest()
 		{
 			std::string const command(m_Command);
@@ -617,6 +618,20 @@ namespace
 				return Json::object(
 					{{"references",
 				      Json::object({{"kind", "Variable"}, {"graph", m_State.Graph}, {"id", m_State.GraphVariables.front()}})}});
+			}
+			// graph.palette opens nowhere headless, so its goals are its two refusals: an at beyond the canvas (its own
+			// parameter check), then a request its checks pass, which the missing runtime refuses.
+			if (command == "graph.palette" && !m_State.OpenGraphs.empty())
+			{
+				if (!m_Reached.contains("graph.palette InvalidParams"))
+				{
+					return Json::object(
+						{{"graph", m_State.OpenGraphs.front()}, {"at", Json::array({VisualScriptSerializer::MaxCoordinate * 2.0, 0.0})}});
+				}
+				if (!m_Reached.contains("graph.palette Unavailable"))
+				{
+					return Json::object({{"graph", m_State.OpenGraphs.front()}});
+				}
 			}
 			if (m_Reached.contains(command))
 			{
@@ -2205,6 +2220,14 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 									 if (name == "graph.palette")
 									 {
 										 paletteErrors[result.GetError().Code]++;
+										 if (result.GetError().Code == AutomationErrorCode::InvalidParams)
+										 {
+											 generator.SetReached("graph.palette InvalidParams");
+										 }
+										 if (result.GetError().Code == AutomationErrorCode::Unavailable)
+										 {
+											 generator.SetReached("graph.palette Unavailable");
+										 }
 									 }
 									 debugErrors[name].insert(result.GetError().Code);
 									 // InternalError means a handler threw: it relied on something it did not check.

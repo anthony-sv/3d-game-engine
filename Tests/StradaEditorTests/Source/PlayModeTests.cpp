@@ -9,6 +9,7 @@
 #include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -16,6 +17,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/InputActions.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Components.h"
@@ -35,6 +37,7 @@
 #include <filesystem>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -1194,6 +1197,108 @@ TEST_CASE("PlayCommands: a paused game keeps what input.set gave it for its next
 	CHECK_FALSE(Input::IsKeyPressed(KeyCode::A));
 	CHECK(Input::IsKeyDown(KeyCode::A));
 	CHECK(Input::GetScrollDelta() == glm::vec2(0.0f));
+}
+
+TEST_CASE("PlayCommands: the project's input actions are evaluated in the game's input frame, and a paused game keeps their taps")
+{
+	Testing::PhysicsSystemScope physics;
+	InputScope input;
+	ProjectPlayFixture fixture;
+	CommandRegistry registry;
+	REQUIRE(RegisterPlayCommands(registry, fixture.Play, fixture.Context,
+	                             []
+	                             {
+									 return glm::uvec2(640, 480);
+								 })
+	            .IsOk());
+	auto const ok = [&registry](std::string_view name, Json params = Json::object())
+	{
+		std::optional<CommandResult> result;
+		registry.Execute(name, std::move(params),
+		                 [&result](CommandResult value)
+		                 {
+							 result.emplace(std::move(value));
+						 });
+		REQUIRE(result.has_value());
+		REQUIRE_MESSAGE(result->IsOk(), (result->IsError() ? result->GetError().Message : std::string()));
+		return result->TakeValue();
+	};
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions = fixture.Operations.CreateDataAsset(
+		type->GetAssetType(), "Input/Game.sinput",
+		Json::parse(R"({ "Actions": [ { "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" }, { "Controls": "Gamepad/A" } ] } ] })"));
+	REQUIRE(actions.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+
+	constexpr float Frame = 1.0f / 60.0f;
+	auto const editorFrames = [&fixture](int count)
+	{
+		for (int frame = 0; frame < count; frame++)
+		{
+			fixture.Play.Update(Timestep(Frame));
+			Input::EndApplicationFrame();
+		}
+	};
+	auto const advance = [&ok]
+	{
+		CHECK(ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+	};
+	auto const edges = [&fixture]
+	{
+		std::span<InputActionEdge const> const listed = fixture.Context.GetScene().GetInputActions().GetEdges();
+		return std::vector<InputActionEdge>(listed.begin(), listed.end());
+	};
+
+	REQUIRE(ok("play.start", Json::object({{"paused", true}}))["paused"] == true);
+	InputActionState const& state = fixture.Context.GetScene().GetInputActions();
+	REQUIRE(state.GetActions() != nullptr);
+	editorFrames(2);
+
+	// A key given before a frame is the action's value in that frame.
+	ok("input.set", Json::object({{"keys", Json::object({{"Space", true}})}}));
+	editorFrames(3);
+	advance();
+	CHECK(fixture.Context.GetScene().GetInputActions().GetValue(0) == 1.0f);
+	CHECK(edges() == std::vector<InputActionEdge>{{0, true}});
+	advance();
+	CHECK(edges().empty());
+
+	// Released and pressed again while paused, with editor frames between: the next frame reports both, once.
+	ok("input.set", Json::object({{"keys", Json::object({{"Space", false}})}}));
+	editorFrames(2);
+	ok("input.set", Json::object({{"keys", Json::object({{"Space", true}})}}));
+	editorFrames(2);
+	advance();
+	CHECK(edges() == std::vector<InputActionEdge>{{0, false}, {0, true}});
+	ok("input.set", Json::object({{"keys", Json::object({{"Space", false}})}}));
+	advance();
+	CHECK(edges() == std::vector<InputActionEdge>{{0, false}});
+
+	// A tap of an injected gamepad's button, and an override set and cleared, given while paused: play.step's frame
+	// reports each as a tap.
+	Input::GamepadState pad = Input::GetRestingGamepadState();
+	pad.Buttons[static_cast<size_t>(GamepadButton::A)] = true;
+	Input::InjectGamepadState(0, pad);
+	editorFrames(2);
+	pad.Buttons[static_cast<size_t>(GamepadButton::A)] = false;
+	Input::InjectGamepadState(0, pad);
+	editorFrames(1);
+	ok("play.step");
+	editorFrames(2);
+	CHECK(edges() == std::vector<InputActionEdge>{{0, true}, {0, false}});
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(1.0f, 0.0f)));
+	editorFrames(2);
+	Input::ClearActionOverride("Jump");
+	advance();
+	CHECK(edges() == std::vector<InputActionEdge>{{0, true}, {0, false}});
+
+	// Stopping ends what was put in place of devices.
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(1.0f, 0.0f)));
+	CHECK(ok("play.stop")["state"] == "edit");
+	CHECK(Input::GetActionOverrides().empty());
+	CHECK_FALSE(Input::IsGamepadInjected(0));
+	CHECK(fixture.Context.GetScene().GetInputActions().GetActions() == nullptr);
 }
 
 TEST_CASE("PlayMode: frames refused at a stop keep the game's input for the first frame that runs, and Start and Stop begin a "

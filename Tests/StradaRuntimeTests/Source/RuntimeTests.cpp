@@ -7,6 +7,9 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/InputActionMap.h"
+#include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/EngineLayout.h"
@@ -29,7 +32,9 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <initializer_list>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -1141,6 +1146,60 @@ TEST_CASE("Runtime: exported games run from their own directory")
 	CAPTURE(failed.Output);
 	CHECK(failed.ExitCode == 1);
 	CHECK(Contains(failed.Output, "Tests failed: 1 of 2 checks failed"));
+}
+
+TEST_CASE("Runtime: an exported game reads its project's input actions, which arrive with its assets and are named by its game file")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path player;
+	std::string handle;
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> created = Project::Create(directory.GetPath() / "Project", "Actions Test", *MakeScene("Main", std::nullopt));
+		REQUIRE(created.IsOk());
+		Ref<Project> const project = created.GetValue();
+		InputActionMap map;
+		InputAction jump;
+		jump.Name = "Jump";
+		jump.Bindings.emplace_back().Controls = "Key/Space";
+		InputAction move;
+		move.Name = "Move";
+		move.Type = InputActionType::Vector2;
+		move.Bindings.emplace_back().Controls = "Gamepad/LeftStick";
+		map.Actions = {jump, move};
+		TypedDataAssetType<InputActionMap> const* type = DataAssetRegistry::Find<InputActionMap>();
+		REQUIRE(type != nullptr);
+		Ref<TypedDataAsset<InputActionMap>> const asset = std::static_pointer_cast<TypedDataAsset<InputActionMap>>(type->CreateAsset());
+		REQUIRE(asset->SetData(map).IsOk());
+		std::filesystem::path const file = project->GetAssetDirectory() / "Input" / "Game.sinput";
+		REQUIRE(FileSystem::CreateDirectories(file.parent_path()).IsOk());
+		REQUIRE(DataAssetSerializer::SaveToFile(*asset, file).IsOk());
+		Result<AssetHandle> const imported = AssetManager::ImportFile(file);
+		REQUIRE(imported.IsOk());
+		REQUIRE(AssetManager::SaveRegistry().IsOk());
+		handle = imported.GetValue().ToString();
+		REQUIRE(project->ApplySettings(Json::object({{"InputActions", handle}})).IsOk());
+
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*project, directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		if (player.extension() == ".app")
+		{
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+	}
+	// Nothing is left of the project: the game's file names the actions, and its assets carry them.
+	REQUIRE(FileSystem::RemoveAll(directory.GetPath() / "Project").IsOk());
+
+	Testing::IsolatedUserRoot const userRoot;
+	ProcessResult const run = RunProgram(player, {"--headless", "--frames", "3"}, userRoot);
+	CAPTURE(run.Output);
+	CHECK(run.ExitCode == 0);
+	CHECK(Contains(run.Output, "Input actions: 2 actions from asset://Input/Game.sinput"));
+	CHECK_FALSE(Contains(run.Output, "does not load as an InputActions asset"));
 }
 
 TEST_CASE("Runtime: players tell once at startup what is wrong with the engine marker beside them, and still run")

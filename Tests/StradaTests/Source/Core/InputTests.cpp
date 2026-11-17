@@ -1,8 +1,20 @@
 #include "Strada/Core/Events/KeyEvent.h"
 #include "Strada/Core/Events/MouseEvent.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/Log.h"
 
 #include <doctest/doctest.h>
+
+#include <glm/glm.hpp>
+
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 using namespace Strada;
 
@@ -274,4 +286,152 @@ TEST_CASE_FIXTURE(InputFixture, "Input: cursor mode changes are forwarded to the
 	Input::SetCursorMode(CursorMode::Hidden);
 	CHECK(Input::GetCursorMode() == CursorMode::Hidden);
 	CHECK(received == CursorMode::Locked);
+}
+
+TEST_CASE_FIXTURE(InputFixture, "Input: press and release counts outlive the input frame, and Reset moves the generation")
+{
+	CHECK(Input::GetKeyCounts(KeyCode::A) == Input::ButtonCounts{});
+	Input::SetKeyState(KeyCode::A, true);
+	Input::SetKeyState(KeyCode::A, true);
+	Input::EndFrame();
+	Input::SetKeyState(KeyCode::A, false);
+	Input::EndFrame();
+	CHECK(Input::GetKeyCounts(KeyCode::A) == Input::ButtonCounts{1, 1});
+	Input::SetMouseButtonState(MouseButton::Left, true);
+	Input::ReleaseKeysAndMouseButtons();
+	CHECK(Input::GetMouseButtonCounts(MouseButton::Left) == Input::ButtonCounts{1, 1});
+	CHECK(Input::GetKeyCounts(static_cast<KeyCode>(KeyCodeCount + 5)) == Input::ButtonCounts{});
+
+	uint64_t const generation = Input::GetResetGeneration();
+	Input::Reset();
+	CHECK(Input::GetResetGeneration() != generation);
+	CHECK(Input::GetKeyCounts(KeyCode::A) == Input::ButtonCounts{});
+}
+
+TEST_CASE_FIXTURE(InputFixture, "Input: an injected gamepad holds across polls, and returns to its device with the edges that makes")
+{
+	Input::GamepadState device;
+	device.Connected = true;
+	device.Buttons[static_cast<size_t>(GamepadButton::B)] = true;
+	Input::SetGamepadState(3, device);
+	CHECK(Input::IsGamepadButtonDown(3, GamepadButton::B));
+	CHECK_FALSE(Input::IsGamepadInjected(3));
+
+	Input::GamepadState injected = Input::GetRestingGamepadState();
+	CHECK(injected.Connected);
+	CHECK(injected.Axes[static_cast<size_t>(GamepadAxis::LeftTrigger)] == -1.0f);
+	injected.Buttons[static_cast<size_t>(GamepadButton::A)] = true;
+	injected.Axes[static_cast<size_t>(GamepadAxis::LeftX)] = 0.5f;
+	Input::InjectGamepadState(3, injected);
+	CHECK(Input::IsGamepadInjected(3));
+	CHECK(Input::GetInjectedGamepadState(3).has_value());
+	CHECK(Input::IsGamepadButtonPressed(3, GamepadButton::A));
+	CHECK(Input::IsGamepadButtonReleased(3, GamepadButton::B));
+	CHECK(Input::GetGamepadButtonCounts(3, GamepadButton::B) == Input::ButtonCounts{1, 1});
+
+	// Polls write every slot every frame; the injection holds.
+	Input::EndFrame();
+	for (int poll = 0; poll < 3; poll++)
+	{
+		Input::SetGamepadState(3, Input::GamepadState{});
+	}
+	CHECK(Input::IsGamepadConnected(3));
+	CHECK(Input::IsGamepadButtonDown(3, GamepadButton::A));
+	CHECK(Input::GetGamepadAxis(3, GamepadAxis::LeftX) == 0.5f);
+	CHECK_FALSE(Input::IsGamepadButtonReleased(3, GamepadButton::A));
+
+	// The window losing the focus leaves it; releasing it returns the slot to what the device last gave (disconnected).
+	Input::ReleaseKeysAndMouseButtons();
+	CHECK(Input::IsGamepadButtonDown(3, GamepadButton::A));
+	Input::ReleaseInjectedGamepad(3);
+	CHECK_FALSE(Input::IsGamepadInjected(3));
+	CHECK_FALSE(Input::IsGamepadConnected(3));
+	CHECK(Input::GetGamepadButtonCounts(3, GamepadButton::A) == Input::ButtonCounts{1, 1});
+	CHECK_FALSE(Input::GetInjectedGamepadState(3).has_value());
+	CHECK(Input::GetGamepadButtonCounts(16, GamepadButton::A) == Input::ButtonCounts{});
+	Input::InjectGamepadState(16, injected);
+	CHECK_FALSE(Input::IsGamepadInjected(16));
+
+	// ReleaseInjectedInput ends injections and overrides alike; Reset clears everything.
+	Input::InjectGamepadState(1, injected);
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(1.0f, 0.0f)));
+	Input::ReleaseInjectedInput();
+	CHECK_FALSE(Input::IsGamepadInjected(1));
+	CHECK(Input::GetActionOverrides().empty());
+	Input::InjectGamepadState(1, injected);
+	Input::Reset();
+	CHECK_FALSE(Input::IsGamepadInjected(1));
+	CHECK_FALSE(Input::IsGamepadConnected(1));
+}
+
+TEST_CASE_FIXTURE(InputFixture, "Input: an axis has moved once it read anything but 0 since its pad connected")
+{
+	Input::GamepadState pad;
+	pad.Connected = true;
+	Input::SetGamepadState(0, pad);
+	CHECK_FALSE(Input::HasGamepadAxisMoved(0, GamepadAxis::RightTrigger));
+	pad.Axes[static_cast<size_t>(GamepadAxis::RightTrigger)] = -1.0f;
+	Input::SetGamepadState(0, pad);
+	CHECK(Input::HasGamepadAxisMoved(0, GamepadAxis::RightTrigger));
+	pad.Axes[static_cast<size_t>(GamepadAxis::RightTrigger)] = 0.0f;
+	Input::SetGamepadState(0, pad);
+	CHECK(Input::HasGamepadAxisMoved(0, GamepadAxis::RightTrigger));
+	CHECK_FALSE(Input::HasGamepadAxisMoved(0, GamepadAxis::LeftTrigger));
+	// Unplugged and plugged in again: not moved until it reads something else.
+	Input::SetGamepadState(0, Input::GamepadState{});
+	CHECK_FALSE(Input::HasGamepadAxisMoved(0, GamepadAxis::RightTrigger));
+	Input::SetGamepadState(0, pad);
+	CHECK_FALSE(Input::HasGamepadAxisMoved(0, GamepadAxis::RightTrigger));
+}
+
+TEST_CASE_FIXTURE(InputFixture, "Input: action overrides count presses and releases as a button, and keep their record when cleared")
+{
+	CHECK_FALSE(Input::HasActionOverrides());
+	CHECK(Input::FindActionOverride("Jump") == nullptr);
+	uint64_t const version = Input::GetActionOverridesVersion();
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(0.5f, 0.0f)));
+	CHECK(Input::GetActionOverridesVersion() != version);
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(-0.75f, 0.25f)));
+	Input::ActionOverride const* record = Input::FindActionOverride("Jump");
+	REQUIRE(record != nullptr);
+	CHECK(record->Held);
+	CHECK(record->Value == glm::vec2(-0.75f, 0.25f));
+	CHECK(record->Presses == 1);
+	CHECK(record->Releases == 0);
+	CHECK(record->PeakX == 0.75f);
+	CHECK(record->PeakLength == doctest::Approx(std::sqrt(0.625f)));
+
+	Input::ClearActionOverride("Jump");
+	record = Input::FindActionOverride("Jump");
+	REQUIRE(record != nullptr);
+	CHECK_FALSE(record->Held);
+	CHECK(record->Value == glm::vec2(0.0f));
+	CHECK(record->Releases == 1);
+	CHECK(Input::GetActionOverrides().empty());
+	// Setting (0, 0) holds the override at rest: no press.
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(0.0f)));
+	CHECK(Input::FindActionOverride("Jump")->Presses == 1);
+	CHECK(Input::GetActionOverrides() == std::vector<std::pair<std::string, glm::vec2>>{{"Jump", glm::vec2(0.0f)}});
+
+	CHECK_FALSE(Input::SetActionOverride("", glm::vec2(1.0f)));
+	CHECK_FALSE(Input::SetActionOverride("Jump", glm::vec2(std::numeric_limits<float>::infinity(), 0.0f)));
+	CHECK_FALSE(Input::SetActionOverride("Jump", glm::vec2(0.0f, std::nanf(""))));
+	for (size_t index = 1; index < Input::MaxActionOverrides; index++)
+	{
+		REQUIRE(Input::SetActionOverride(fmt::format("Action{}", index), glm::vec2(1.0f)));
+	}
+	CHECK_FALSE(Input::SetActionOverride("OneTooMany", glm::vec2(1.0f)));
+	CHECK(Input::SetActionOverride("Jump", glm::vec2(1.0f)));
+	size_t records = 0;
+	Input::ForEachActionOverride(
+		[&records](std::string_view, Input::ActionOverride const&)
+		{
+			records++;
+		});
+	CHECK(records == Input::MaxActionOverrides);
+
+	uint64_t const before = Input::GetActionOverridesVersion();
+	Input::Reset();
+	CHECK(Input::GetActionOverridesVersion() > before);
+	CHECK_FALSE(Input::HasActionOverrides());
 }

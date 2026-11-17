@@ -207,4 +207,11 @@ namespace Strada
 
 	char const* MouseButtonToString(MouseButton button);
 	std::optional<MouseButton> MouseButtonFromString(std::string_view name);
+
+	// Enumerator names of gamepad buttons ("A", "LeftBumper", "DPadUp") and axes ("LeftX", "RightTrigger"), or "Unknown";
+	// the parsers are case-insensitive. Button and axis names are disjoint.
+	char const* GamepadButtonToString(GamepadButton button);
+	std::optional<GamepadButton> GamepadButtonFromString(std::string_view name);
+	char const* GamepadAxisToString(GamepadAxis axis);
+	std::optional<GamepadAxis> GamepadAxisFromString(std::string_view name);
 }

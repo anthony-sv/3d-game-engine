@@ -10,6 +10,7 @@ add_executable(StradaTests
     Source/Asset/DataAssetFuzzTests.cpp
     Source/Asset/DataAssetTests.cpp
     Source/Asset/GltfTestBuilder.h
+    Source/Asset/InputActionsAssetTests.cpp
     Source/Asset/MeshFactoryTests.cpp
     Source/Asset/MeshImporterFuzzTests.cpp
     Source/Asset/MeshImporterTests.cpp
@@ -39,6 +40,7 @@ add_executable(StradaTests
     Source/Core/GameDataTests.cpp
     Source/Core/HashTests.cpp
     Source/Core/ImageTests.cpp
+    Source/Core/InputActionsTests.cpp
     Source/Core/InputTests.cpp
     Source/Core/KeyCodeTests.cpp
     Source/Core/LayerStackTests.cpp
@@ -109,6 +111,7 @@ add_executable(StradaTests
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFuzzTests.cpp
+    Source/Scene/SceneInputActionsTests.cpp
     Source/Scene/SceneInterpolationTests.cpp
     Source/Scene/ScenePhysicsMaterialTests.cpp
     Source/Scene/ScenePhysicsQueryTests.cpp

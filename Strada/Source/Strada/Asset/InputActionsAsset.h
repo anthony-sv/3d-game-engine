@@ -99,8 +99,22 @@ namespace Strada
 		.Validate = &ValidateInputActionMap,
 	};
 
+	// A response curve a compiled set resolved, with the version its asset had then (0: it did not load).
+	struct InputResponseCurveUse
+	{
+		AssetHandle Curve;
+		uint64_t Version = 0;
+
+		bool operator==(InputResponseCurveUse const& other) const = default;
+	};
+
 	// The runtime's set made from a map: controls parsed, response curves resolved from their Curve assets as they are now
-	// (a curve that does not load is the straight line, logged once per call). Refuses what ValidateInputActionMap
-	// refuses. Main thread (it reads the asset manager).
-	[[nodiscard]] Result<Ref<InputActionSet const>> CompileInputActions(InputActionMap const& map);
+	// (each evaluates a copy of the curve's keys exactly; a curve that does not load is the straight line, logged once per
+	// call and curve). With `curves`, also the distinct curves it resolved, in handle order, so that the caller can tell
+	// when one changed (GetInputResponseCurveVersion). Refuses what ValidateInputActionMap refuses. Main thread (it reads
+	// the asset manager).
+	[[nodiscard]] Result<Ref<InputActionSet const>> CompileInputActions(InputActionMap const& map,
+	                                                                    std::vector<InputResponseCurveUse>* curves = nullptr);
+	// The version of the Curve asset as CompileInputActions would record it now (0: it does not load). Main thread.
+	[[nodiscard]] uint64_t GetInputResponseCurveVersion(AssetHandle curve);
 }

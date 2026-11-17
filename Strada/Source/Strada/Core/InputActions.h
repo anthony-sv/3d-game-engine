@@ -11,11 +11,10 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 // Input actions (Docs/Architecture.md §7.4): named values a game reads instead of keys, buttons and axes, each from the
@@ -30,7 +29,8 @@ namespace Strada
 	// release thresholds turn into "down" with hysteresis, so every action has edges.
 	enum class InputActionType : uint8_t
 	{
-		// A value from 0 (released) up, with digital bindings at 1; read as a press.
+		// The magnitude of its winning binding's reading, from 0 (released) up, with digital bindings at 1; read as a press.
+		// An axis bound to a button presses it either way, and Invert changes nothing of it.
 		Button = 0,
 		// A signed value, typically -1 to 1 (steering, throttle).
 		Axis,
@@ -48,7 +48,9 @@ namespace Strada
 		// A gamepad button (Code: a GamepadButton): 1 while down.
 		PadButton,
 		// A gamepad axis (Code: a GamepadAxis). Sticks read -1 to 1 with up positive (the reverse of
-		// Input::GetGamepadAxis, which keeps GLFW's sign); triggers read 0 released to 1 pressed (GLFW gives -1 to 1).
+		// Input::GetGamepadAxis, which keeps GLFW's sign); triggers read 0 released to 1 pressed (GLFW gives -1 to 1), and 0
+		// while they have read nothing but exactly 0 since their pad connected (Input::HasGamepadAxisMoved: a mapping that
+		// lacks the trigger).
 		PadAxis,
 		// A gamepad stick as one two-dimensional control (Code: 0 the left stick, 1 the right), +Y up.
 		PadStick
@@ -138,11 +140,17 @@ namespace Strada
 	// ReadControls (and so ProcessBinding's caller) reads Input on the main thread; the other steps are pure, any thread.
 	namespace InputProcessing
 	{
-		// The value a binding's controls read before processing: a single control's value (Kind's reading, 0 for a gamepad
-		// that is not connected); an axis composite's positive part minus its negative part; a vector composite's
-		// (right - left, up - down) with its length limited to 1. A composite's part reads max(value, 0). One-dimensional
-		// values are in x, with y 0.
+		// The reading of one control alone: Kind's reading, 0 for a gamepad that is not connected; with AnyGamepad, the
+		// reading of the largest magnitude among the connected gamepads (the first on a tie). A stick's vector is limited to
+		// length 1. One-dimensional values are in x, with y 0.
+		[[nodiscard]] glm::vec2 ReadControl(InputControl control, int32_t gamepad);
+		// The value a binding's controls read before processing: a single control's reading (ReadControl); an axis
+		// composite's positive part minus its negative part; a vector composite's (right - left, up - down) with its length
+		// limited to 1. A composite's part reads max(x, 0) of its reading. One-dimensional values are in x, with y 0.
 		[[nodiscard]] glm::vec2 ReadControls(InputControlList const& controls, int32_t gamepad);
+		// What a binding's controls read when the given readings are theirs (ReadControls' arithmetic without the devices):
+		// readings[i] is the reading of controls[i]. Pure.
+		[[nodiscard]] glm::vec2 CombineControls(InputControlList const& controls, std::span<glm::vec2 const> readings);
 		// Radial dead zone: magnitude m <= deadZone gives 0, otherwise the direction times (m - deadZone) / (1 - deadZone).
 		[[nodiscard]] glm::vec2 ApplyDeadZone(glm::vec2 value, float deadZone);
 		// The response applied to the magnitude, keeping the direction (or the sign).
@@ -161,7 +169,7 @@ namespace Strada
 		[[nodiscard]] static Result<Ref<InputActionSet const>> Create(std::vector<InputActionSpecification> actions);
 
 		std::span<InputActionSpecification const> GetActions() const { return m_Actions; }
-		// The index of the action of exactly that name (names are matched with their letter case).
+		// The index of the action of exactly that name (names are matched with their letter case). Allocates nothing.
 		[[nodiscard]] std::optional<uint32_t> Find(std::string_view name) const;
 		// A number no other set of this process has: states tell a rebuilt set from the one they evaluated.
 		uint64_t GetVersion() const { return m_Version; }
@@ -170,7 +178,8 @@ namespace Strada
 		InputActionSet() = default;
 
 		std::vector<InputActionSpecification> m_Actions;
-		std::unordered_map<std::string, uint32_t> m_Indices;
+		// The action indices in ordinal order of their names, for Find.
+		std::vector<uint32_t> m_SortedIndices;
 		uint64_t m_Version = 0;
 	};
 
@@ -185,13 +194,19 @@ namespace Strada
 		bool operator==(InputActionEdge const& other) const = default;
 	};
 
-	// Which edges a query reads: the frame's (OnUpdate and everything outside the fixed steps) or a fixed step's
-	// (OnFixedUpdate). The caller says which, from the code it runs for: a graph execution that OnFixedUpdate started keeps
-	// asking for the step's view when a debugger resumes it between frames.
+	// Which edges a query made outside every fixed step reads (Docs/Architecture.md §7.4, "The fixed-step rule"). Inside a
+	// step every query reads that step's edges whatever it passes: the state knows (InputActionState::IsInFixedStep). The
+	// caller chooses from where the code that asks came from, recorded when that code started.
 	enum class InputActionView : uint8_t
 	{
+		// The latest evaluation's edges: OnUpdate, events, clicks, contacts, OnDestroy, and whatever a frame started.
 		Frame = 0,
-		FixedStep
+		// The edges of one fixed step, by its number (InputActionState::GetFixedStepNumber when the code started): code a
+		// step started that a debugger resume runs between frames.
+		FixedStep,
+		// None: code a step started that runs later outside a step for another reason (a latent node's continuation, a
+		// WaitUntil recheck, a Timeline's tick), where either the frame's or a step's edges would show an edge twice.
+		NoEdges
 	};
 
 	// The actions of one consumer, evaluated once per frame from Input and its action overrides: a running scene owns one
@@ -201,32 +216,39 @@ namespace Strada
 	{
 	public:
 		// Evaluates this set from the next Evaluate on. Actions of the same name in the old set keep their state (their
-		// level, whether they are down, the edges latched for the next fixed step), so a set rebuilt while a game runs (an
-		// edited asset) makes no edge. New actions start at their current reading and level, without an edge (a control
-		// held as the set arrives holds the action down, as a key held when play starts is down but not pressed), with the
-		// controls' current press and release counts as their baseline. Null evaluates nothing, and every query reads zero.
+		// value, whether they are down, the edges latched for the next fixed step and those steps took), so a set rebuilt
+		// while a game runs (an edited asset) makes no edge. New actions start at their current reading and level, without
+		// an edge (a control held as the set arrives holds the action down, as a key held when play starts is down but not
+		// pressed), with the controls' and the override's current press and release counts as their baseline. Calls each
+		// binding's response once per digital control (which controls can press their action). Forgets the names logged
+		// as unknown. Null evaluates nothing, and every query reads zero.
 		void SetActions(Ref<InputActionSet const> actions);
 		Ref<InputActionSet const> const& GetActions() const { return m_Actions; }
 		// Drops the set and every action's state, and the unknown names already logged.
 		void Clear();
 
-		// The frame's evaluation: every action's value is the reading of the binding with the largest magnitude, then of its
-		// override (Input::FindActionOverride) under the same rule (the first in that order wins a tie); its level follows
-		// the thresholds with hysteresis; its edges come from the level and from the press and release counts of its digital
-		// controls since the last evaluation (a press and release in between reports both); each edge is latched for the
-		// next fixed step. Replaces the previous evaluation's edges (GetEdges). An override naming no action of the set is
-		// ignored and logged once per name. Profiler zone Input.EvaluateActions.
+		// The frame's evaluation (Docs/Architecture.md §7.4): every action's value is the reading of the binding with the
+		// largest magnitude, then of its override (Input::FindActionOverride) under the same rule (the first in that order
+		// wins a tie; a Button's value is the magnitude); its level follows the thresholds with hysteresis; its edges come
+		// from the level and from the press and release counts of its digital controls and its override since the last
+		// evaluation (the table of "Edges"); each edge is latched for the next fixed step. Replaces the previous evaluation's
+		// edges (GetEdges). Counts are taken again as baselines, without an edge, when Input::Reset ran since. An override
+		// naming no action of the set is logged once per name, looked for only when the overrides or the set changed.
+		// Allocates nothing but those log lines. Profiler zone Input.EvaluateActions.
 		void Evaluate();
-		// The edges of the latest evaluation, in dispatch order.
+		// The edges of the latest evaluation, in dispatch order: by action index, each action's in the order they happened
+		// (a tap's press first, a release and press again's release first).
 		std::span<InputActionEdge const> GetEdges() const { return m_Edges; }
 
-		// Brackets one fixed step (the scene's FixedUpdateScripts): Begin makes the step's view the edges latched since the
-		// previous step began, and empties the latch. The step's view stays the latest step's until the next Begin, so code
-		// that a debugger resumes between frames reads the step it ran in (or a later one of that frame), never an edge a
-		// later step will see. The next evaluation does not change it. Nested calls are a programmer error.
+		// Brackets one fixed step (the scene's FixedUpdateScripts, whether or not it runs scripts): Begin gives the step the
+		// next step number and makes it take every action's latch (the edges since the previous step began), which empties
+		// it. Until End, every query reads that step's edges. Nested calls are a programmer error.
 		void BeginFixedStep();
 		void EndFixedStep();
 		bool IsInFixedStep() const { return m_InFixedStep; }
+		// The number of the step running, or of the latest one: 1 for the state's first step, 0 before any. What code a step
+		// starts records, so that a debugger resume reads that step's edges (InputActionView::FixedStep).
+		uint64_t GetFixedStepNumber() const { return m_StepNumber; }
 
 		// RAII for BeginFixedStep and EndFixedStep.
 		class FixedStepScope final
@@ -242,48 +264,73 @@ namespace Strada
 		};
 
 		// Queries by index into the set (an index the set lacks reads zero). The value and level are the latest
-		// evaluation's in either view; Pressed and Released are the latest evaluation's edges in the Frame view, and the
-		// latest fixed step's in the FixedStep view.
+		// evaluation's in every view. GetValue is a Button's or Axis's value and a Vector2's length; GetVector is a Vector2's
+		// vector and (value, 0) for the others.
 		[[nodiscard]] float GetValue(uint32_t action) const;
 		[[nodiscard]] glm::vec2 GetVector(uint32_t action) const;
 		[[nodiscard]] bool IsDown(uint32_t action) const;
-		[[nodiscard]] bool IsPressed(uint32_t action, InputActionView view) const;
-		[[nodiscard]] bool IsReleased(uint32_t action, InputActionView view) const;
+		// The edges: inside a fixed step, the running step's whatever view and step are given; outside, the latest
+		// evaluation's (Frame), those step `step` took (FixedStep: what its number was when the asking code started), or
+		// none (NoEdges).
+		[[nodiscard]] bool IsPressed(uint32_t action, InputActionView view = InputActionView::Frame, uint64_t step = 0) const;
+		[[nodiscard]] bool IsReleased(uint32_t action, InputActionView view = InputActionView::Frame, uint64_t step = 0) const;
 
 		// The index of the named action. A name the set lacks (or every name, without a set) is logged once per name until
-		// the set changes or Clear, and reads as zero through the queries: callers pass the result on as it is.
+		// the set changes or Clear, and reads as zero through the queries: callers pass the result on as it is. Allocates
+		// only to remember a name it logs.
 		[[nodiscard]] std::optional<uint32_t> Resolve(std::string_view name);
 
 	private:
-		// A digital control's press and release counts (Input::ButtonCounts) as the last evaluation read them.
-		struct ControlBaseline
+		// A digital control of an action's binding (a key, a mouse button, a gamepad button) with its press and release
+		// counts as the last evaluation read them.
+		struct DigitalControl
 		{
+			uint32_t Binding = 0;
+			uint32_t Part = 0;
+			// Whether the binding, read with this control down and its other controls up, reaches the press threshold.
+			bool CanPress = false;
 			uint32_t Presses = 0;
 			uint32_t Releases = 0;
 		};
 
 		struct ActionState
 		{
-			// The latest evaluation's value: Button and Axis in x, y 0.
+			// The latest evaluation's value (Button and Axis in x, y 0) and its magnitude.
 			glm::vec2 Value = glm::vec2(0.0f);
+			float Magnitude = 0.0f;
 			bool Down = false;
-			// The latest evaluation's edges.
+			// The latest evaluation's edges, and which came first when it has both.
 			bool Pressed = false;
 			bool Released = false;
+			bool ReleasedFirst = false;
 			// Edges since the last fixed step began, for the next one.
 			uint32_t PendingPresses = 0;
 			uint32_t PendingReleases = 0;
-			// The latest fixed step's edges (kept after the step, until the next one begins).
-			bool StepPressed = false;
-			bool StepReleased = false;
-			// One per digital control of the action's bindings, in binding and control order.
-			std::vector<ControlBaseline> Baselines;
+			// The number of the latest step that took a press, and a release, of the action (0: none).
+			uint64_t StepPressed = 0;
+			uint64_t StepReleased = 0;
+			// In binding and control order.
+			std::vector<DigitalControl> Controls;
+			// The action's override's counts as the last evaluation read them.
+			uint32_t OverridePresses = 0;
+			uint32_t OverrideReleases = 0;
 		};
+
+		// Takes every count as the action's baseline (no edge).
+		void TakeBaselines(uint32_t action);
+		void LogUnknownOverrides();
+		bool HasStepEdge(uint64_t stepOfEdge, InputActionView view, uint64_t step) const;
 
 		Ref<InputActionSet const> m_Actions;
 		std::vector<ActionState> m_States;
 		std::vector<InputActionEdge> m_Edges;
-		std::unordered_set<std::string> m_LoggedNames;
+		std::set<std::string, std::less<>> m_LoggedNames;
+		std::set<std::string, std::less<>> m_LoggedOverrides;
 		bool m_InFixedStep = false;
+		uint64_t m_StepNumber = 0;
+		// Input's reset generation and overrides' version as the last evaluation read them.
+		uint64_t m_ResetGeneration = 0;
+		uint64_t m_OverridesVersion = 0;
+		bool m_CheckOverrides = true;
 	};
 }

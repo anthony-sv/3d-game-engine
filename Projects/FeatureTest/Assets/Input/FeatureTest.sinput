@@ -1,0 +1,88 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "InputActions"
+	},
+	"InputActions": {
+		"Actions": [
+			{
+				"Name": "Jump",
+				"Type": "Button",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/Space",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/A",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
+			},
+			{
+				"Name": "Throttle",
+				"Type": "Axis",
+				"PressThreshold": 0.75,
+				"ReleaseThreshold": 0.25,
+				"Bindings": [
+					{
+						"Controls": "Key/S Key/W",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/RightTrigger",
+						"Gamepad": 0,
+						"DeadZone": 0.125,
+						"ResponseCurve": "15883878375939594718",
+						"Invert": true,
+						"InvertY": true,
+						"Scale": 0.5
+					}
+				]
+			},
+			{
+				"Name": "Move",
+				"Type": "Vector2",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/W Key/S Key/A Key/D",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/LeftStick",
+						"Gamepad": -1,
+						"DeadZone": 0.25,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": true,
+						"Scale": 1.0
+					}
+				]
+			}
+		]
+	}
+}
