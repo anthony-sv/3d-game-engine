@@ -21,6 +21,7 @@
 #include "Editor/Panels/ConsolePanel.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/GameViewPanel.h"
+#include "Editor/Panels/InputActionsPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProfilerPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
@@ -261,6 +262,8 @@ namespace Strada
 		SceneSettingsPanel m_SceneSettingsPanel;
 		ProjectSettingsPanel m_ProjectSettingsPanel;
 		ContentBrowserPanel m_ContentBrowserPanel;
+		// Its capture of a binding takes key and mouse presses before the game input router passes them on.
+		InputActionsPanel m_InputActionsPanel;
 		// Declared before the game view and the debug controls, which use it.
 		GameInputRouter m_GameInput;
 		// The toolbar's debugger buttons, Pause and Step while an execution is stopped, the debug keys and the game's input at
@@ -282,9 +285,12 @@ namespace Strada
 		bool m_ShowContentBrowser = true;
 		bool m_ShowConsole = true;
 		bool m_ShowRendererInfo = true;
+		bool m_ShowInputActions = true;
 		// Closed until asked for: the profiler records while the panel is open.
 		bool m_ShowProfiler = false;
 		bool m_ShowImGuiDemo = false;
+		// Brings the Input Actions panel to the front once it is drawn (an asset opened from the content browser).
+		bool m_FocusInputActions = false;
 		bool m_ResetLayout = false;
 		// Frames until the tabs of m_TabsToFocus come to the front, focused in order (0: nothing to do): the default layout's
 		// content browser, inspector and scene view, or the tabs that were in front when the start screen covered the panels

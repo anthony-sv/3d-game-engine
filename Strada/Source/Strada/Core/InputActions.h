@@ -98,6 +98,9 @@ namespace Strada
 	// a name ParseInputControl does not read; it does not check the controls against an action type
 	// (CheckInputBindingControls does). Any thread.
 	[[nodiscard]] Result<InputControlList> ParseInputControls(std::string_view text);
+	// A binding's canonical text: each control's name as FormatInputControl writes it, separated by single spaces (empty for
+	// an unbound list). ParseInputControls reads it back as the same list. Any thread.
+	[[nodiscard]] std::string FormatInputControls(InputControlList const& controls);
 	// Whether the controls fit an action of the type: Button and Axis take one control that is not a stick, or two that
 	// are not (an axis composite); Vector2 takes one stick, or four controls that are not sticks (a vector composite). An
 	// unbound list fits every type. Any thread.

@@ -185,6 +185,11 @@ TEST_CASE("InputActions: a binding names none, one, two or four controls, and ea
 	CHECK(ParseInputControls("Key/A Key/B Key/C").GetError().find("not 3") != std::string::npos);
 	CHECK(ParseInputControls("Key/A Key/B Key/C Key/D Key/E").GetError().find("not 5") != std::string::npos);
 	CHECK(ParseInputControls("Key/A Key/Nope").GetError().find("'Key/Nope' names no control") != std::string::npos);
+	// The canonical text reads back as the same controls: names in the enumerators' letter case, single spaces.
+	CHECK(FormatInputControls(Controls("")).empty());
+	CHECK(FormatInputControls(Controls("  key/a   GAMEPAD/lefttrigger ")) == "Key/A Gamepad/LeftTrigger");
+	CHECK(FormatInputControls(vector) == "Key/W Key/S Key/A Key/D");
+	CHECK(Controls(FormatInputControls(vector)) == vector);
 
 	auto const fits = [](InputActionType type, std::string_view text)
 	{

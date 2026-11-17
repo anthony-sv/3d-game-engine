@@ -99,6 +99,12 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   the play shortcuts and no clicks over the game view: global shortcuts need no play-mode checks, and a new shortcut that
   must work while the game has the input goes into `GameInputRouter::RouteKeyPress` too. While the game also locks the
   cursor, ImGui receives no mouse movement and changes no cursor (`GameViewPanel::UpdateWindowCursors`).
+- A widget that must take the next key or mouse press before ImGui and the game do (the Input Actions panel's binding
+  capture, `InputBindingCapture`) goes through `GameInputRouter::SetCaptureFilter`: it sees the physical key as the
+  window reports it, and a press it takes (and that key's repeats) reaches nobody else. It listens only while its panel
+  draws (the layer calls the panel's `OnHidden` otherwise). Test it by routing `KeyPressedEvent`s and
+  `MouseButtonPressedEvent`s through a real `GameInputRouter` whose filter is the panel's, with the ImGui press in the
+  same frame as the routed one (`InputActionsPanelTests.cpp`'s `ClickThroughRouter`).
 - The create menus (the Entity menu, the hierarchy's create button and Create Child) all draw
   `UI::DrawEntityPresetMenuItems` over `EntityPresets` (categories, presets and what they create, unit tested without
   UI): new kinds of entities are presets there. Menus that agents open (`editor.entity-menu`,

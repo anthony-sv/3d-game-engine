@@ -55,6 +55,9 @@ namespace Strada
 
 		// Whether something the editor shows covers the game view at a position (a window or popup over it, a modal dialog).
 		using CoverageTest = std::function<bool(glm::vec2 position)>;
+		// Sees key presses (repeats included), typed characters and mouse button presses before anyone else, and returns
+		// whether it takes the event (the Input Actions panel's capture of a binding, InputBindingCapture::TakeEvent).
+		using CaptureFilter = std::function<bool(Event const& event, ImGuiLayer::InputContext const& context)>;
 
 		// Decides where one window input event goes: passes the game's share to Input and returns whether the editor's
 		// interface (ImGui) receives the event. Fits ImGuiLayer::InputFilter.
@@ -64,6 +67,9 @@ namespace Strada
 		// hidden or lost the focus.
 		void SetView(View const& view);
 		void SetCoverageTest(CoverageTest test) { m_CoverageTest = std::move(test); }
+		// An event the filter takes reaches neither the editor's interface nor the game, and neither do the repeats of a key
+		// whose press it took (until that key's release, which reaches both sides as every release does). Empty: none.
+		void SetCaptureFilter(CaptureFilter filter) { m_CaptureFilter = std::move(filter); }
 		// Whether play shortcuts use Super (Cmd) rather than Control, as ImGui's do on macOS (io.ConfigMacOSXBehaviors).
 		void SetShortcutsUseSuper(bool useSuper) { m_ShortcutsUseSuper = useSuper; }
 
@@ -101,6 +107,7 @@ namespace Strada
 
 		View m_View;
 		CoverageTest m_CoverageTest;
+		CaptureFilter m_CaptureFilter;
 		bool m_ShortcutsUseSuper = false;
 		bool m_HasInput = false;
 		bool m_ReleasePending = false;
@@ -111,5 +118,7 @@ namespace Strada
 		bool m_HasCursor = false;
 		// Keys whose press went to the game: their repeats do too.
 		std::bitset<KeyCodeCount> m_GameKeys;
+		// Keys whose press the capture filter took: their repeats reach nobody.
+		std::bitset<KeyCodeCount> m_CapturedKeys;
 	};
 }

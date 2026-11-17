@@ -43,7 +43,8 @@ namespace Strada
 		Debugger,
 		// A graph window: the one of the screenshot's graph.
 		Graph,
-		Profiler
+		Profiler,
+		InputActions
 	};
 
 	// viewport.screenshot's name of a window ("SceneView"), and the window of a name; nothing for other names.

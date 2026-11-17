@@ -73,17 +73,6 @@ namespace Strada
 			             total, source, DescribeDropped(dropped));
 		}
 
-		// The canonical text of controls: each control's name as FormatInputControl writes it, separated by spaces.
-		std::string FormatControls(InputControlList const& controls)
-		{
-			std::string text;
-			for (InputControl const& control : controls.Get())
-			{
-				text += text.empty() ? FormatInputControl(control) : " " + FormatInputControl(control);
-			}
-			return text;
-		}
-
 		// The action and binding addressed, in a map with the table applied; the refusal's message otherwise.
 		struct Address
 		{
@@ -315,7 +304,7 @@ namespace Strada
 			return Refuse(action, binding, part, fits.GetError());
 		}
 
-		std::string const text = FormatControls(replacement);
+		std::string const text = FormatInputControls(replacement);
 		std::string const& assetControls = address.Map.Actions[address.Action].Bindings[address.Binding].Controls;
 		InputBindingProfile profile = s_Data.Profile;
 		std::erase_if(profile.Bindings,

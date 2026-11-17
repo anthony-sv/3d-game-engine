@@ -210,12 +210,13 @@ visual-script debugging buttons while the game plays, and Simulate. [Play mode](
 | Project Settings | The project's name, start scene, game window, physics settings and input actions |
 | Content Browser | The project's assets and C# scripts as folders and tiles |
 | Console | The log: info, warnings and errors of the engine, the editor and your scripts |
+| Input Actions | The game's actions and their bindings as a table: bindings captured by pressing them, conflicts, each action's value while the game plays ([Input Actions](#input-actions-panel)) |
 | Visual Script Debugger | Where visual scripts are stopped at breakpoints, their call stacks and values |
 | Graph windows | One window per open visual script ([VisualScripting.md](VisualScripting.md#editing-visual-scripts)) |
 
 The default layout puts the Scene Hierarchy on the left, the Inspector, Scene Settings and Project Settings as tabs on
-the right, the Scene View, Game View and Renderer Info as tabs in the middle, and the Content Browser, Console and
-Visual Script Debugger as tabs below the middle. The Scene View, the Inspector and the Content Browser are the tabs in
+the right, the Scene View, Game View and Renderer Info as tabs in the middle, and the Content Browser, Console, Input
+Actions and Visual Script Debugger as tabs below the middle. The Scene View, the Inspector and the Content Browser are the tabs in
 front. Graph windows open as tabs beside the Scene View. The Profiler is closed until you open it from the View menu,
 because the profiler records while it is open; it opens as a tab beside the Console.
 
@@ -597,10 +598,11 @@ clicking the empty space after the tiles clears the selection. Double-click to o
 | Folder | Shows the folder |
 | Scene | Opens the scene, asking to save changes first |
 | Visual script | Opens it in its graph window |
+| Input actions | Opens them in the [Input Actions panel](#input-actions-panel) |
 | C# script | Opens it in the desktop's application for `.cs` files |
 | A file that is not an asset | Opens it in the desktop's application for it |
 
-A tile's context menu has Open (folders, scenes and visual scripts), Open in Editor (C# scripts), Open with Default App
+A tile's context menu has Open (folders, scenes, visual scripts and input actions), Open in Editor (C# scripts), Open with Default App
 (other files), Rename (F2), Delete (Delete), Copy Reference (assets: `asset://<path>`), Copy Path (the absolute path)
 and Show in File Manager. The context menu of the empty space has New Folder, New Material, New Visual Script, New
 Visual Script Library, New C# Script..., Import..., Refresh and Show in File Manager.
@@ -818,7 +820,8 @@ keys and gamepads (`Throttle`, `Steer`, `Jump`, `Move`), each with the bindings 
 ([Scripting](Scripting.md#input-actions), [Visual scripting](VisualScripting.md#input-actions)). A project uses the one
 its Project Settings name in `InputActions` ([Project Settings](#project-settings)).
 
-Select it in the Content Browser to edit it in the Inspector. `Actions` is a list whose rows are titled by their names
+Double-click it in the Content Browser to edit it in the [Input Actions panel](#input-actions-panel), where a binding
+is captured by pressing it; select it to edit it in the Inspector. `Actions` is a list whose rows are titled by their names
 ("0: Throttle"); open a row for its fields:
 
 - `Name` (unique in any letter case, at most 64 bytes; scripts, graphs and agents name the action by it, with its letter
@@ -926,6 +929,44 @@ not its name. Removing a layer therefore keeps every body and pair on its index 
 index, which no longer exists; removing a layer before the last moves the names after it down onto the lower indices,
 so remove the last layer, or rename the layers, unless that is what you want. "+" adds a layer named `Layer <n>`
 (rename it in its field), up to 16 layers.
+
+## Input Actions panel
+
+The Input Actions panel (View > Input Actions) shows an input actions asset ([Input actions](#input-actions)) as a
+table: a row for each action, and below it a row for each of its bindings. It shows the asset named by Project Settings'
+`InputActions`, marked "(the project's)", until you choose another in its `Actions` field or double-click one in the
+Content Browser; the field's `x` goes back to the project's. A project that names none says so.
+
+| Column | Action row | Binding row |
+|--------|------------|-------------|
+| Action | The name: type a new one and press Enter or leave the field (Escape keeps the old one) | `Binding <n>`, its index in the action |
+| Type | `Button`, `Axis` or `Vector2` | |
+| Controls | How many bindings the action has | The controls as text (`Key/A Key/D`), committed like the name |
+| Bind | Add Binding | Bind, and for a composite one button per part (`-` and `+` for an axis; Up, Down, Left and Right for a vector) |
+| Conflicts | | The other actions that read a control this binding reads too (the same key or button, or a stick and one of its axes, on a gamepad both read) |
+| Value | The action's value while the game plays | |
+| `x` | Removes the action | Removes the binding |
+
+**Binding by pressing.** Press Bind (or a part's button), then the control: a key, a gamepad button, a stick axis or
+trigger moved past half way, or a mouse button pressed over the highlighted box. A Vector2 binding taken whole takes a
+stick; bind keys to its four parts instead. The key is the one in that place on the keyboard, as games read it, and
+it does nothing else: it reaches neither the editor's shortcuts nor a playing game. Escape, a click anywhere else,
+pressing the button again or 10 seconds without a control end it with nothing bound. Only gamepads the binding reads
+count (its `Gamepad`). The panel says when nothing was bound.
+
+**Details.** Click an action's row to select it: below the table its fields show as in the Inspector (thresholds,
+and each binding's gamepad, dead zone, response curve, inversion and scale).
+
+Each edit is one undo step written to the file: a name or controls committed, a type chosen, a binding captured, an
+action or a binding added or removed, one interaction with a field below the table. An edit the asset's validation
+refuses (controls that name nothing or do not fit the type, a name used twice) changes nothing, and the panel says why
+above the table until your next edit. An asset that is read-only, or has no file of its own, is shown disabled.
+
+While the game plays the actions shown (the project's), the Value column shows each action's value in the running
+game, as scripts read it (`0.00` to `1.00` for a button, `-1.00` to `1.00` for an axis, `x, y` for a vector), green
+while the action is down. The bindings a player changes while the game runs are the game's own (kept in its data
+folder, [Where an exported game keeps its data](#where-an-exported-game-keeps-its-data)): the panel shows and edits the
+asset.
 
 ## Play mode
 

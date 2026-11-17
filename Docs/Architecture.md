@@ -3392,7 +3392,7 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 ## 11. Editor (`StradaEditor`)
 
 - ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Scene View, Game View,
-  Renderer Info, Console, Scene Settings, Project Settings; a menu bar and a toolbar with the play controls (Play/Stop,
+  Renderer Info, Console, Scene Settings, Project Settings, Input Actions; a menu bar and a toolbar with the play controls (Play/Stop,
   Pause, Step and Simulate buttons with drawn icons). The menu bar is `EditorTitleBar`: ImGui's main menu bar, and on
   Windows, where the editor's window leaves its title bar to the application (§6.1), also that title bar: higher, with the
   Strada icon before the menus and the window's title, the status and drawn minimize, maximize or restore and close
@@ -3590,6 +3590,24 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   the scene view's and the game view's renderers drew in their last frames side by side (GPU time, draw calls, mesh
   batches and instances, the shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows,
   sprite, text and UI quads).
+- Input Actions (`InputActionsPanel`, docked below the scene view with the content browser; Docs/Editor.md "Input
+  Actions panel"): an InputActions asset (§7.4) as a table, the project's (`ProjectSettings::InputActions`) unless its
+  asset field or the content browser's Open chose another. A row per action (name, type, add binding, remove, and the
+  running scene's value while the editor plays that asset: `InputActionSet::Find` by name on
+  `Scene::GetInputActions()`, never `Resolve`, which logs) and below it a row per binding (controls as text, capture
+  buttons for the whole binding and each part of a composite, the actions it conflicts with by
+  `FindInputBindingConflicts`, worked out again only when the map changes, remove); the selected action's fields
+  below in the field editor. Every edit is one `SetDataAssetCommand` step of the whole `Actions` array: text fields
+  commit once (left or Enter; Escape keeps the asset's), and discrete edits (text, type, buttons, captures) take keys
+  of their own (`INAD` plus a counter) while field editor interactions merge under the panel's `EditSession`
+  (`INAC`). The editor never writes the binding table of §7.4's "Rebinding" (the player's), only the asset. A capture
+  (`InputBindingCapture`, free of ImGui) takes the next control: keys and mouse buttons from the windows' events,
+  which `GameInputRouter::SetCaptureFilter` hands it before ImGui and the game (the physical key; a press it takes,
+  and that key's repeats, reach neither), a mouse button only over the prompt it draws (a press elsewhere ends the
+  capture and goes on), and gamepads (and what automation injects into `Input`) through `InputControlCapture` with
+  the binding's gamepad; Escape and `InputControlCapture::Timeout` of frame time end it. It listens only while the
+  panel draws: the layer calls `OnHidden` when it does not, and the filter lets every event go once a frame passed
+  without a draw.
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
   (create presets at the scene view's focal point: Create Empty, then the submenus 3D Object (the primitives and 3D
@@ -3690,7 +3708,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   `PlayMode::SetUIPointerEnabled` follows `GameInputRouter::HasInput` from the frame the input changes hands, before the
   scene updates) and the editor works as usual. Automation's `input.set` and `input.release` act on the game's input
   directly (keys, the mouse, input action overrides and injected gamepads, which the window's polls leave alone: §7.4),
-  and `ui.layout` tells where the UI's elements and buttons are in the game view.
+  and `ui.layout` tells where the UI's elements and buttons are in the game view. Before any of this, a capture filter
+  (`SetCaptureFilter`: the Input Actions panel's binding capture) sees key presses, typed characters and mouse button
+  presses, and what it takes reaches neither side, nor do the repeats of a key it took.
 - The start screen (`Editor/StartScreen/`): `StartScreenPanel` draws `StartScreenModel` over the main viewport's work
   area (under the menu bar) while the model is visible: at start without a project in an editor with a window (unless
   `--no-start-screen`, `EditorLayerSpecification::StartScreen`, which `strada mcp` passes), after File > Close Project,

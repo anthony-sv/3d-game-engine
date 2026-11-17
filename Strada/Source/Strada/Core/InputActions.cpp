@@ -257,6 +257,20 @@ namespace Strada
 		return "Unknown";
 	}
 
+	std::string FormatInputControls(InputControlList const& controls)
+	{
+		std::string text;
+		for (InputControl const& control : controls.Get())
+		{
+			if (!text.empty())
+			{
+				text += ' ';
+			}
+			text += FormatInputControl(control);
+		}
+		return text;
+	}
+
 	Result<InputControlList> ParseInputControls(std::string_view text)
 	{
 		InputControlList list;
