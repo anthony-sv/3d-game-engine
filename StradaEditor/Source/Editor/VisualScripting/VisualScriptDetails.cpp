@@ -399,12 +399,12 @@ namespace Strada
 			return found != nullptr && found->NamesInputAction;
 		}
 
-		// The project's input actions the analysis checked the document's action names against; null when it was told none (no
-		// project is open, or it has no actions to offer).
+		// The project's input actions the analysis checked the document's action names against; null when there are none to
+		// offer (no project is open, it names no actions, or its asset holds none), and the name is typed in a text field.
 		VisualScriptInputActions const* FindCheckedInputActions(VisualScriptAnalysis const* analysis)
 		{
 			VisualScriptInputActions const* const actions = analysis != nullptr ? analysis->InputActions.get() : nullptr;
-			return actions != nullptr && actions->Missing.empty() ? actions : nullptr;
+			return actions != nullptr && actions->Missing.empty() && !actions->Names.empty() ? actions : nullptr;
 		}
 	}
 

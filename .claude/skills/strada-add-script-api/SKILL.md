@@ -127,6 +127,12 @@ public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testi
   so only side-effect-free queries may be pure. A query added to the API (`Input.IsKeyDown`, `Entity.FindByName`, ...)
   gets `[PureNode]` in the same change, and `NodeLibraryTests.ExactlyTheListedQueriesAreMarkedPure` (ScriptCoreTests)
   lists the marked methods.
+- Input action names: a `string` parameter that names an input action of the project (`Input.GetAction`'s `action`)
+  gets `[InputActionName]` (the internal attribute in `Strada-ScriptCore/Source/VisualScripting/InputActionNameAttribute.cs`)
+  in the same change: its pin becomes `InputAction` in the library, the editor's analysis checks its literal against the
+  project's actions (`UnknownAction`) and Details offers them. Such members belong to `Strada.Input` (the engine finds the
+  scripts to check by that prefix); `InputActionAnalysisTests` (ScriptCoreTests) lists the marked pins and fails on a
+  parameter named `action` without the attribute.
 - Renaming or re-signing a member that graphs use (its name, declaring type or parameter types) changes its node's type
   string: add a `NodeRedirect(OldType, NewType, PinRenames)` entry to `NodeRedirects.Current`
   (`Strada-ScriptCore/Source/VisualScripting/Library/NodeRedirect.cs`), with a `PinRename(Direction, From, To)` for each

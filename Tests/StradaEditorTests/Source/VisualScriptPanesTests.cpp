@@ -4222,7 +4222,19 @@ TEST_CASE("VisualScriptEditor: Details offers the project's input actions for an
 	CHECK(codes() == std::vector<std::string>{"UnknownAction 1"});
 	CHECK(fixture.Model->GetAnalysis()->Diagnostics[0].Suggestions.front() == "Leap");
 
-	// A project without actions: one warning, and the setting is a text field again.
+	// An asset that holds no action: every name is unknown, nothing is suggested, and the setting is a text field.
+	REQUIRE(fixture.Operations.SetDataAssetFields(actions.GetValue(), Json::parse(R"({ "Actions": [] })")).IsOk());
+	fixture.Frames(2);
+	CHECK(codes() == std::vector<std::string>{"UnknownAction 1", "UnknownAction 2"});
+	CHECK(fixture.Model->GetAnalysis()->Diagnostics[0].Suggestions.empty());
+	fixture.SelectElements({1});
+	fixture.ImGui.Click(fixture.DetailsRow("Action"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Details.FindRow("Action/Steer"));
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+
+	// A project without actions: one warning, and the setting is a text field too.
 	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", "0"}})).IsOk());
 	fixture.Frames(2);
 	CHECK(codes() == std::vector<std::string>{"NoInputActions 1"});

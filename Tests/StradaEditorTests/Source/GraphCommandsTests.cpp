@@ -4255,6 +4255,59 @@ TEST_CASE("GraphCommands: graph.check and graph.edit check the input actions a g
 	CHECK(fixture.Run("graph.edit", edit(Json::array({useJump}))).IsError());
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == undo + 1);
 
+	// The inputs of queries: a misspelled name and one that stores none, each fixed by its literal in a step of its own.
+	VisualScriptDocument reads;
+	VisualScriptNode misspelled = MakeNode(20, "Call:Strada.Input.GetAction(string)");
+	misspelled.Inputs = Json::object({{"Action", "Steeer"}});
+	reads.Graph.Nodes.push_back(misspelled);
+	reads.Graph.Nodes.push_back(MakeNode(21, "Call:Strada.Input.IsActionDown(string)"));
+	std::string const readsGraph = fixture.CreateGraph("Scripts/Reads.sgraph", reads);
+	auto const editReads = [&readsGraph](Json operations)
+	{
+		return Json::object({{"graph", readsGraph}, {"operations", std::move(operations)}});
+	};
+	Json const inputs = fixture.Ok("graph.edit", editReads(Json::array()));
+	std::vector<Json> const unknownInputs = FindDiagnostics(inputs, "UnknownAction");
+	REQUIRE(unknownInputs.size() == 2);
+	auto const findFix = [&unknownInputs](uint32_t node, std::string_view label)
+	{
+		for (Json const& diagnostic : unknownInputs)
+		{
+			if (diagnostic["Node"] != node)
+			{
+				continue;
+			}
+			CHECK(diagnostic["Pin"] == "Action");
+			CHECK(diagnostic["Direction"] == "In");
+			for (Json const& fix : diagnostic["Fixes"])
+			{
+				if (fix["label"] == std::string(label))
+				{
+					return fix["operation"];
+				}
+			}
+		}
+		return Json();
+	};
+	Json const useSteer = findFix(20, "Use Steer");
+	Json const useJumpInput = findFix(21, "Use Jump");
+	REQUIRE(useSteer.is_object());
+	REQUIRE(useJumpInput.is_object());
+	CHECK(useSteer["pin"] == "Action");
+	CHECK(useSteer["direction"] == "In");
+	std::string const readsBefore = fixture.ReadFile("Scripts/Reads.sgraph");
+	size_t const readsUndo = fixture.Context.GetHistory().GetUndoCount();
+	fixture.Ok("graph.edit", editReads(Json::array({useSteer})));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == readsUndo + 1);
+	CHECK(fixture.GetDocument(readsGraph).Graph.Nodes[0].Inputs == Json::object({{"Action", "Steer"}}));
+	fixture.Ok("editor.undo");
+	CHECK(fixture.ReadFile("Scripts/Reads.sgraph") == readsBefore);
+	Json const filled = fixture.Ok("graph.edit", editReads(Json::array({useJumpInput})));
+	CHECK(fixture.GetDocument(readsGraph).Graph.Nodes[1].Inputs == Json::object({{"Action", "Jump"}}));
+	std::vector<Json> const left = FindDiagnostics(filled, "UnknownAction");
+	REQUIRE(left.size() == 1);
+	CHECK(left[0]["Node"] == 20);
+
 	// An action renamed in the asset: the next answers flag the graphs that named it, whatever graph.edit kept.
 	fixture.Ok("input-actions.set",
 	           Json::object({{"inputActions", actions},
