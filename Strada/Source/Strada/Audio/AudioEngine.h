@@ -3,13 +3,20 @@
 #include "Strada/Asset/Mixer.h"
 #include "Strada/Audio/AudioStreamFile.h"
 
+#include "Strada/Core/Base.h"
+#include "Strada/Core/Result.h"
+
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace Strada
 {
+	class AudioClipAsset;
+
 	enum class AudioOutput : uint8_t
 	{
 		// The default playback device; the null device when none is available.
@@ -38,8 +45,16 @@ namespace Strada
 	// Pitch and effect parameters reach a new value over this, on their scales: pitch on a log2 scale, stepped once a block;
 	// effect parameters as the effects say (Docs/Architecture.md §9.6).
 	inline constexpr float AudioParameterSmoothingSeconds = 0.02f;
-	// When a device or null output has mixed no block for this long, the main thread takes the mixer over (§9.1).
-	inline constexpr float AudioMixerStallSeconds = 0.5f;
+	// A playback device (never the null device) that has mixed no block for this long, without telling that it stopped,
+	// is taken for lost: the main thread takes the mixer over (§9.1). Long beside any scheduling delay of a busy machine.
+	inline constexpr float AudioMixerStallSeconds = 5.0f;
+	// While the main thread holds the mixer of a lost device, it tries to start the device again this often.
+	inline constexpr float AudioDeviceRetrySeconds = 1.0f;
+
+	// The environment variable that chooses a windowed application's output: "device" (the default) or "null", so that a
+	// capture or a session started by a tool plays nothing through the machine's speakers. Headless applications use the
+	// null device whatever it says (AudioEngine::ResolveOutput).
+	inline constexpr char const* AudioOutputVariable = "STRADA_AUDIO_OUTPUT";
 
 	struct AudioEngineSettings
 	{
@@ -59,6 +74,11 @@ namespace Strada
 	class AudioEngine
 	{
 	public:
+		// The output an application uses (Application calls it with the value of AudioOutputVariable): the null device when
+		// headless, whatever the value; otherwise "device" or "null" in any letter case, unset or empty meaning "device". An
+		// unknown value is logged and the device kept. Pure: it opens nothing. Any thread.
+		static AudioOutput ResolveOutput(bool headless, std::optional<std::string> const& variable);
+
 		// When the output cannot be opened the failure is logged and the engine stays uninitialized (no audio).
 		static void Init(AudioEngineSettings const& settings = {});
 		// Stops the device first, so that no block runs any more, then destroys every object the mixer held or was
@@ -66,9 +86,10 @@ namespace Strada
 		static void Shutdown();
 		static bool IsInitialized();
 
-		// Once a frame (Application calls it; zone Audio.Update): destroys what the mixer handed back, moves deferred commands
-		// into the queue, and takes the mixer over while a device or null output has mixed nothing for
-		// AudioMixerStallSeconds (§9.1).
+		// Once a frame (Application calls it; zone Audio.Update): destroys what the mixer handed back, retires the one-shots
+		// that ended, starts virtual voices again while there is room, moves deferred commands into the queue, and takes
+		// the mixer over from a device that stopped (§9.1): one that said so, or a playback device that has mixed nothing for
+		// AudioMixerStallSeconds.
 		static void Update();
 
 		// Null while uninitialized.
@@ -93,7 +114,9 @@ namespace Strada
 
 		// The game's value of a bus (§9.5): a gain stage after the mixer's own (the asset's value, blended by snapshots), so
 		// that a settings menu and the mix design never overwrite each other. Volumes in decibels (MinMixerVolumeDb is
-		// silence). An unknown name reads 0 dB, not muted, and setting it does nothing; each unknown name is logged once.
+		// silence). Names match ignoring letter case, as the mixer's names are unique. The values are kept by bus name on
+		// the main thread, so a bus removed and restored (an undo) gets its game value back. An unknown name reads 0 dB,
+		// not muted, and setting it does nothing; each unknown name is logged once.
 		static float GetBusVolume(std::string_view bus);
 		static void SetBusVolume(std::string_view bus, float decibels);
 		static bool IsBusMuted(std::string_view bus);
@@ -102,31 +125,56 @@ namespace Strada
 		// (SceneRunner calls it).
 		static void ResetGameValues();
 
-		// The voices mixed at the last block, across every scene (at most MaxMixedAudioVoices, plus the stolen ones still
-		// fading out). Any thread.
+		// The voices the engine mixes, across every scene: voices playing in scenes that are not paused, not virtual (beyond
+		// the limit) and not stolen, as the main thread knows them. It is exact right after a start or a steal, and the
+		// end of a play counts from the next AudioEngine::Update or ReadFrames that reads it, so the count never depends on
+		// when the mixing thread runs. At most MaxMixedAudioVoices.
 		static uint32_t GetActiveVoiceCount();
-		// Voices stolen since Init: by a full pool (a one-shot) or by the engine's limit, the voices that lost before they
-		// played included. Any thread.
+		// The voices the mixing thread mixed at its last block (stolen ones still fading out included; MX2's meters). Any
+		// thread.
+		static uint32_t GetMixedVoiceCount();
+		// Voices stolen since Init: by a full pool (a one-shot), by the engine's limit (a one-shot is returned, a main voice
+		// made virtual), the one-shots refused because they would have ranked lowest included. Any thread.
 		static uint64_t GetStolenVoiceCount();
 		// Commands waiting on the main thread's side of the queue (AudioCommandQueue): 0 unless a burst filled the ring.
 		static size_t GetDeferredCommandCount();
 
-		// Diagnostics for tests (§9.9). Whether the calling thread is mixing right now (inside a device callback's or
-		// ReadFrames' render). It reads only an atomic thread identity in static storage (beside the mixer's profiler
-		// state), never the engine's data, so a replaced operator new may call it from any thread at any time, during Init
-		// and Shutdown and while uninitialized included; it takes no lock and reaches no thread-local storage
-		// (std::this_thread::get_id asks the system). Any thread.
+		// Decodes a loaded clip now, so that its first play later decodes nothing (§9.4): what a scene or a system calls at
+		// a scene's start for clips it will play as one-shots. The samples stay while the clip asset object lives. Fails as
+		// decoding fails (a clip past MaxDecodedClipBytes must stream).
+		[[nodiscard]] static Result<void> PreloadClip(Ref<AudioClipAsset> const& clip);
+
+		// Diagnostics for tests (§9.9).
+		// Clips decoded since Init (a clip decodes once however often it plays).
+		static uint64_t GetDecodedClipCount();
+		// Objects the mixing thread holds that the main thread waits to get back (retired voices and groups).
+		static size_t GetReturningObjectCount();
+		// Blocks the mixer has rendered since Init (at most AudioBlockFrames frames each), on any output: what a test of
+		// device or null output counts instead of time. Any thread while the engine is initialized.
+		static uint64_t GetBlockCount();
+		// Whether the calling thread is mixing right now (inside a block of a device callback's or ReadFrames' render). It
+		// reads only an atomic thread identity in static storage (beside the mixer's profiler state), never the engine's
+		// data, so a replaced operator new may call it from any thread at any time, during Init and Shutdown and while
+		// uninitialized included; it takes no lock and reaches no thread-local storage (std::this_thread::get_id asks the
+		// system). Any thread.
 		static bool IsMixingOnThisThread();
 		// The allocations miniaudio made through the engine's allocation callbacks on the thread that was mixing, while it
 		// mixed: a counter in static storage, reset by Init. Every miniaudio object of the Audio module is made with those
 		// callbacks. Any thread.
 		static uint64_t GetMixAllocationCount();
+		// Device and null output: stops the device the way a lost device stops (the engine did not ask for it), so that the
+		// next Update takes the mixer over as it would for a device unplugged.
+		static void SimulateDeviceLoss();
+		// Whether the main thread holds the mixer because the device stopped; it tries to start the device again every
+		// AudioDeviceRetrySeconds and hands the mixer back once it runs.
+		static bool IsMixerTakenOver();
 
 		// Manual output only: mixes the next frames into interleaved samples (GetChannelCount() per frame; a partial frame
-		// at the end is left untouched) and returns the number of frames written. On the calling thread, through the same
-		// mixer a device's callback runs, in blocks of at most AudioBlockFrames: deferred commands are flushed before each
-		// block and what the mixer hands back is destroyed after the last. Never waits for streamed sounds: one whose file
-		// has not been read far enough is silent until it has.
+		// at the end is left untouched) and returns the number of frames written. On the calling thread, which must be the
+		// main thread, through the same mixer a device's callback runs, in blocks of at most AudioBlockFrames: deferred
+		// commands are flushed before each block, and after the last what the mixer handed back is destroyed and the
+		// one-shots that ended are retired. Never waits for streamed sounds: one whose file has not been read far enough is
+		// silent until it has.
 		static uint64_t ReadFrames(std::span<float> samples);
 		// Waits until every streamed sound has read and decoded as far ahead as it can (AudioStreamBufferSeconds, or to a
 		// file that cannot be read further) and has carried out its seeks. With manual output the next ReadFrames, up to

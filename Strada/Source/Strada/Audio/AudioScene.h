@@ -39,8 +39,8 @@ namespace Strada
 		float MaxDistance = 100.0f;
 		// World-space position.
 		glm::vec3 Position = glm::vec3(0.0f);
-		// The mixer's bus the source's voices play on: empty for Master; a name the mixer lacks plays on Master and is
-		// logged once.
+		// The mixer's bus the source's voices play on: empty for Master; names match ignoring letter case; a name the mixer
+		// lacks plays on Master and is logged once.
 		std::string Bus;
 		// 0 to MaxAudioPriority: at the engine's limit (MaxMixedAudioVoices) lower priorities are stolen first.
 		uint32_t Priority = DefaultAudioPriority;
@@ -80,23 +80,28 @@ namespace Strada
 
 		// Creates the stopped sound of an entity, replacing its current one. Fails without a clip or stream file, when a
 		// stream's file cannot be opened, when the clip or file cannot be decoded (including files whose audio does not start
-		// within MaxAudioStreamHeaderBytes), or for a stream when the streaming thread is not running (the current sound is
-		// then kept).
+		// within MaxAudioStreamHeaderBytes, and loaded clips past MaxDecodedClipBytes), or for a stream when the streaming
+		// thread is not running (the current sound is then kept). A loaded clip is decoded here, once per clip asset object.
 		[[nodiscard]] Result<void> AddSource(AudioSourceDesc const& desc);
+		// The source's voices, its one-shots included, fade out over AudioGainSmoothingSeconds and are gone (a destroyed
+		// entity's sounds end with it; PlayClipAtPoint plays a sound that outlives its entity).
 		void RemoveSource(UUID entity);
 		bool HasSource(UUID entity) const;
 		// Whether the entity's sound streams from its file.
 		bool IsStreaming(UUID entity) const;
 		size_t GetSourceCount() const;
 
-		// Plays from the start, or from where Pause left it; a sound that played to its end starts over. A streamed sound is
-		// silent until the streaming thread has decoded what it plays (moments after it was created or stopped).
+		// Plays the main voice from the start, or from where Pause left it; a sound that played to its end starts over. A
+		// streamed sound is silent until the streaming thread has decoded what it plays (moments after it was created or
+		// stopped). At the engine's limit the main voice may become virtual: it plays on in time without being heard and is
+		// heard again where its time has taken it once it ranks within the limit (§9.3).
 		void Play(UUID entity);
-		// Stops, keeping the position.
+		// Stops the main voice, keeping the position; one-shots play on.
 		void Pause(UUID entity);
-		// Stops and rewinds to the start.
+		// Stops the main voice and rewinds it to the start; the source's one-shots fade out over AudioGainSmoothingSeconds.
 		void Stop(UUID entity);
-		// Started and not yet at its end (looping sounds never end). Held sounds of a paused scene count as playing.
+		// The main voice started and not yet at its end (looping sounds never end). Held sounds of a paused scene and
+		// virtual voices count as playing.
 		bool IsPlaying(UUID entity) const;
 
 		float GetVolume(UUID entity) const;
@@ -112,8 +117,10 @@ namespace Strada
 		// Non-finite positions are ignored.
 		void SetPosition(UUID entity, glm::vec3 const& position);
 		// The bus the source's voices play on from now on, playing ones included (each moved with a dip, never a click).
+		// Names match ignoring letter case; empty is Master.
 		void SetBus(UUID entity, std::string_view bus);
 		std::string const& GetBus(UUID entity) const;
+		// Lowered to MaxAudioPriority; one-shots playing take it too.
 		void SetPriority(UUID entity, uint32_t priority);
 		uint32_t GetPriority(UUID entity) const;
 		// Raised to 1 and lowered to MaxAudioSourceVoices. A pool made smaller than the voices it plays steals its oldest
@@ -121,19 +128,23 @@ namespace Strada
 		void SetMaxVoices(UUID entity, uint32_t maxVoices);
 		uint32_t GetMaxVoices(UUID entity) const;
 
-		// Plays clip once more on a new voice of the source's pool (the source's own clip when clip is null), with the
-		// source's position, bus, priority and settings and this volume (a linear gain times the source's), beside its main
-		// voice and its other one-shots. A full pool steals its oldest one-shot; a pool full of its main voice alone refuses
-		// the one-shot. At the engine's limit the voice may itself be the one stolen. The voice ends when the clip does and
-		// is freed without the main thread waiting for it. A streamed source's one-shots play its clip loaded. Returns
-		// whether the voice started; a clip that cannot be decoded, or decodes to more than MaxDecodedClipBytes, is logged.
+		// Plays clip once more on a new voice of the source's pool (the source's own clip when clip is null), beside its
+		// main voice and its other one-shots, at this volume (a linear gain times the source's). A one-shot never loops;
+		// it follows its source's position, volume, pitch, spatialization, distances, bus and priority as they change, and
+		// fades out with the source's Stop, its removal or its scene's end. A full pool (MaxVoices, its main voice counted
+		// while it plays or is paused) steals its oldest one-shot; a pool full of its main voice alone refuses the
+		// one-shot. At the engine's limit the voice may itself be the one refused. A one-shot that ended frees its place
+		// before the next one starts, without a frame of the main thread waiting for it. A streamed source has no loaded
+		// clip: its one-shots need one. Returns whether the voice started (or waits for its paused scene); a clip that
+		// cannot be decoded, or decodes to more than MaxDecodedClipBytes, is logged once and plays nothing.
 		bool PlayOneShot(UUID entity, Ref<AudioClipAsset> const& clip, float volume);
 		// Voices of the source playing now (its main voice and its one-shots), as the main thread last knew them.
 		uint32_t GetVoiceCount(UUID entity) const;
 
 		// Plays clip once at a world position, on a voice of the scene rather than of an entity: spatial, with the default
-		// distances (1 and 100 m), the default priority, at volume (linear), on bus (empty for Master). It is held while the
-		// scene is paused and retired with the scene. Returns whether the voice started.
+		// distances (1 and 100 m), the default priority, at volume (linear), on bus (empty for Master), never looping. It is
+		// held while the scene is paused, fades out with the scene's end, and outlives whatever entity played it. Returns
+		// whether the voice started (or waits for its paused scene).
 		bool PlayClipAtPoint(Ref<AudioClipAsset> const& clip, glm::vec3 const& position, float volume, std::string_view bus);
 
 		// Where the scene is heard from and which way the listener faces; the vectors need not be normalized or

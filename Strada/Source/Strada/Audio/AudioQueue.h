@@ -15,6 +15,11 @@
 // a command the mixing thread applies at the start of a block; objects travel by pointer in commands and come back on the
 // return list, so that the main thread creates and destroys everything and the mixing thread never allocates, locks or
 // waits.
+//
+// The rule of the last command: the mixing thread returns an object only in answer to the last command the main thread
+// sends that names it (a RetireVoice, a StealVoice of a one-shot, a RetireGroup, a RemoveBus, or the SetBusEffects that
+// replaces a chain), and the main thread names an object in no command after that one. So no command in the ring or in
+// the deferred commands can name an object that has come back, whatever the order in which the two threads run.
 namespace Strada
 {
 	// Everything the mixing thread can hold: voices, the scenes' groups, buses and effect chains. The main thread creates
@@ -42,19 +47,24 @@ namespace Strada
 
 		// Voices (Object: the AudioVoice). A voice's first StartVoice hands it over and attaches it to Other, the
 		// AudioSceneGroup of its scene and bus; Serial is the play's serial, which the voice reports when that play ends.
-		// A voice that ended starts again from its beginning; a paused one continues.
+		// Flags says how it starts (AudioStartFlags): a voice that ended starts again from its beginning, a paused one
+		// continues, a virtual one continues where its time has taken it, faded in.
 		StartVoice,
-		// Stops the voice where it is (Pause).
+		// Stops the voice where it is (Pause). A virtual voice stops where its time had taken it.
 		PauseVoice,
-		// Stops the voice and rewinds a loaded clip to its start (a stream is rewound by the main thread, §9.4).
+		// Stops the voice and rewinds a loaded clip to its start (a stream is rewound by the main thread, §9.3).
 		StopVoice,
-		// Fades the voice out over AudioStealFadeSeconds, then stops it; a one-shot is then detached and returned.
+		// Fades the voice out over AudioStealFadeSeconds. A one-shot is then detached and returned (the main thread names it
+		// no more); a main voice becomes virtual where the fade ended.
 		StealVoice,
-		// Stops and detaches the voice and returns it.
+		// Fades the voice out over AudioGainSmoothingSeconds when it is heard, then detaches and returns it (at once when
+		// it is not heard: stopped, ended, virtual or in a paused group).
 		RetireVoice,
-		// A new target for the voice's linear volume (Values[0]), reached over AudioGainSmoothingSeconds while it plays.
+		// A new target for the voice's linear volume (Values[0]), reached over AudioGainSmoothingSeconds while it plays and
+		// taken at once while it does not.
 		SetVoiceVolume,
-		// A new target for the voice's pitch (Values[0]), reached over AudioParameterSmoothingSeconds while it plays.
+		// A new target for the voice's pitch (Values[0]), reached over AudioParameterSmoothingSeconds while it plays and
+		// taken at once while it does not.
 		SetVoicePitch,
 		// Values[0] is 1 for looping, 0 for not.
 		SetVoiceLooping,
@@ -64,14 +74,20 @@ namespace Strada
 		SetVoiceDistances,
 		// The voice's position relative to its scene's listener (Values[0..2]), in the listener's basis.
 		SetVoicePosition,
-		// The voice moves to Other, another AudioSceneGroup of its scene (its bus changed): faded out, moved, faded in.
+		// The voice moves to Other, another AudioSceneGroup of its scene (its bus changed): faded out over
+		// AudioGainSmoothingSeconds, moved and faded in when it is heard, moved at once when it is not.
 		MoveVoice,
 
-		// The scenes' groups (Object: the AudioSceneGroup). Hands the group over and attaches it to Other, its AudioBusNode.
+		// The scenes' groups (Object: the AudioSceneGroup). Hands the group over and attaches it to Other, its AudioBusNode
+		// (null: the engine's endpoint, where Master plays until the mixer has buses).
 		AttachGroup,
 		// Values[0] is 1 to hold the group's voices (a paused scene), 0 to let them continue.
 		SetGroupPaused,
-		// Detaches the group and returns it; its voices were retired before it.
+		// The group feeds Other from now on (null: the endpoint), faded out, moved and faded in: a bus added, removed or
+		// restored under the name the group's sources ask for (§9.5).
+		MoveGroup,
+		// Detaches the group and returns it once no voice the mixing thread holds is attached to it (stolen and retired
+		// voices that are still fading out come back first).
 		RetireGroup,
 
 		// Buses (Object: the AudioBusNode). Hands a new bus over and attaches it to Other, its parent bus (null for Master,
@@ -79,7 +95,7 @@ namespace Strada
 		AddBus,
 		// The bus feeds Other from now on (faded out, moved, faded in).
 		SetBusParent,
-		// Moves the bus's groups and child buses to Other (Master), then detaches the bus and returns it.
+		// Detaches the bus and returns it; the main thread moved its groups and child buses to other buses before.
 		RemoveBus,
 		// The mixer's own value of the bus (the asset's, later blended by snapshots): VolumeDb in Values[0] and the mute in
 		// Values[1] (1 muted), reached over AudioGainSmoothingSeconds.
@@ -93,9 +109,21 @@ namespace Strada
 		// AudioParameterSmoothingSeconds on the parameter's scale (§9.6).
 		SetEffectParameter,
 
-		// The engine's master volume (Values[0], linear), applied after Master's chain and volume.
+		// The engine's master volume (Values[0], linear), applied to the mix after Master, ramped over
+		// AudioGainSmoothingSeconds.
 		SetMasterVolume,
 	};
+
+	// How a StartVoice starts its voice (AudioCommand::Flags).
+	namespace AudioStartFlags
+	{
+		// Plays it: from its start after a stop or an end, from where it is after a pause.
+		inline constexpr uint8_t Play = 0;
+		// Starts it as a virtual voice (§9.3): silent and not mixed, while its time runs from where it is, as if it played.
+		inline constexpr uint8_t Virtual = 1;
+		// A virtual voice is heard again: it continues where its time has taken it, faded in over AudioStealFadeSeconds.
+		inline constexpr uint8_t Resume = 2;
+	}
 
 	// One change for the mixing thread. Plain data: copied into the ring and out of it.
 	struct AudioCommand
@@ -104,6 +132,8 @@ namespace Strada
 		// The effect's index on its bus (SetEffectParameter).
 		uint8_t Slot = 0;
 		MixerEffectParameter Parameter = MixerEffectParameter::Frequency;
+		// What the type reads from it (StartVoice: AudioStartFlags).
+		uint8_t Flags = 0;
 		// The object the command is about, and a second one where its type names one. The type says which classes they
 		// are; the mixing thread holds them from the command that hands them over until it returns them.
 		AudioMixerObject* Object = nullptr;
@@ -138,7 +168,9 @@ namespace Strada
 		// Main thread: moves deferred commands into the ring while it has room. Returns how many still wait.
 		size_t Flush();
 		// Main thread: commands waiting on the main thread's side.
-		size_t GetDeferredCount() const;
+		size_t GetDeferredCount() const { return m_Deferred.size(); }
+		// Main thread: commands pushed since the queue began, the deferred ones included.
+		uint64_t GetPushedCount() const { return m_Pushed; }
 
 		// Mixing thread: calls apply(AudioCommand const&) for every command the ring held when it was called, in order,
 		// and frees their places. Returns how many it applied.
@@ -146,6 +178,12 @@ namespace Strada
 		uint32_t Consume(TApply&& apply);
 
 	private:
+		static constexpr uint64_t IndexMask = Capacity - 1;
+		static_assert((Capacity & IndexMask) == 0, "The ring's capacity is a power of two");
+
+		// Main thread: whether the ring has room for one more command.
+		bool HasRoom() const;
+
 		std::array<AudioCommand, Capacity> m_Commands = {};
 		// Commands written and read since the queue began (the ring's index is the count modulo Capacity). Written is
 		// published by the main thread with release, Read by the mixing thread with release.
@@ -153,7 +191,22 @@ namespace Strada
 		std::atomic<uint64_t> m_Read{0};
 		// Main thread only.
 		std::deque<AudioCommand> m_Deferred;
+		uint64_t m_Pushed = 0;
 	};
+
+	template<typename TApply>
+	uint32_t AudioCommandQueue::Consume(TApply&& apply)
+	{
+		// The main thread publishes Written after writing the commands below it, and reads Read before reusing a place.
+		uint64_t const read = m_Read.load(std::memory_order_relaxed);
+		uint64_t const written = m_Written.load(std::memory_order_acquire);
+		for (uint64_t index = read; index != written; index++)
+		{
+			apply(m_Commands[index & IndexMask]);
+		}
+		m_Read.store(written, std::memory_order_release);
+		return static_cast<uint32_t>(written - read);
+	}
 
 	// The objects the mixing thread hands back to the main thread: an intrusive, lock-free list (a stack the main thread
 	// takes whole), so that handing back never allocates and never fills up.
@@ -165,7 +218,7 @@ namespace Strada
 		AudioReturnList(AudioReturnList const&) = delete;
 		AudioReturnList& operator=(AudioReturnList const&) = delete;
 
-		// Mixing thread: the object is the main thread's again once taken.
+		// The thread that mixes (one at a time): the object is the main thread's again once taken.
 		void Push(AudioMixerObject& object);
 		// Main thread: calls take(AudioMixerObject&) for every object pushed since the last call, oldest first.
 		template<typename TTake>
@@ -174,4 +227,27 @@ namespace Strada
 	private:
 		std::atomic<AudioMixerObject*> m_Head{nullptr};
 	};
+
+	template<typename TTake>
+	void AudioReturnList::TakeAll(TTake&& take)
+	{
+		// The whole list at once: the pusher only ever adds at the head, so nothing taken here can be pushed again until
+		// the main thread hands it over once more.
+		AudioMixerObject* newest = m_Head.exchange(nullptr, std::memory_order_acquire);
+		AudioMixerObject* oldest = nullptr;
+		while (newest != nullptr)
+		{
+			AudioMixerObject* const next = newest->m_NextReturned;
+			newest->m_NextReturned = oldest;
+			oldest = newest;
+			newest = next;
+		}
+		while (oldest != nullptr)
+		{
+			AudioMixerObject* const next = oldest->m_NextReturned;
+			oldest->m_NextReturned = nullptr;
+			take(*oldest);
+			oldest = next;
+		}
+	}
 }

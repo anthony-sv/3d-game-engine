@@ -2,14 +2,16 @@
 #include "Strada/Audio/AudioScene.h"
 
 #include "Strada/Asset/AudioClipAsset.h"
-#include "Strada/Audio/AudioDecoder.h"
 #include "Strada/Audio/AudioEngine.h"
+#include "Strada/Audio/AudioMixer.h"
 #include "Strada/Audio/AudioStream.h"
+#include "Strada/Audio/AudioVoice.h"
 #include "Strada/Audio/MiniaudioContext.h"
 
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
+#include <vector>
 
 namespace Strada
 {
@@ -20,77 +22,298 @@ namespace Strada
 			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 		}
 
-		// A loaded clip plays through its own decoder of the clip's data, so every sound has its own read position; a streamed
-		// sound plays its stream.
-		struct Sound
+		// The key of a bus name: names match ignoring letter case, and the empty name is Master.
+		std::string MakeBusKey(std::string_view bus)
 		{
-			Ref<AudioClipAsset> Clip;
-			Scope<AudioMemoryFile> ClipData;
-			Scope<AudioDecoder> Decoder;
-			Ref<AudioStream> Stream;
-			ma_sound Handle{};
-			bool HasHandle = false;
-			bool Spatial = true;
-			glm::vec3 Position = glm::vec3(0.0f);
+			std::string key(bus.empty() ? MasterBusName : bus);
+			std::transform(key.begin(), key.end(), key.begin(),
+			               [](char character)
+			               {
+							   return character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character;
+						   });
+			return key;
+		}
 
-			Sound() = default;
-			~Sound()
-			{
-				// The mixer reads the decoder or the stream until the sound is uninitialized; then the stream can leave the
-				// streaming thread, and the decoder and the clip's data go with the sound.
-				if (HasHandle)
-				{
-					ma_sound_uninit(&Handle);
-				}
-				if (Stream)
-				{
-					if (AudioStreamer* streamer = Miniaudio::GetStreamer())
-					{
-						streamer->Remove(*Stream);
-					}
-				}
-			}
-
-			Sound(Sound const&) = delete;
-			Sound& operator=(Sound const&) = delete;
-		};
+		std::string const EmptyBus;
 	}
 
-	struct AudioScene::Data
+	struct AudioScene::Data final : AudioVoiceOwner
 	{
-		// Every sound of the scene plays through this group, which pauses them together.
-		ma_sound_group Group{};
-		bool HasGroup = false;
-		std::unordered_map<UUID, Scope<Sound>> Sounds;
+		struct OneShot
+		{
+			Scope<AudioVoice> Voice;
+			// The one-shot's own gain, times the source's volume.
+			float Volume = 1.0f;
+		};
+
+		// An entity's sound: its main voice and its one-shots, with the settings they share.
+		struct Source
+		{
+			UUID Entity = UUID::Invalid();
+			// The clip one-shots play when they name none (null for a streamed source).
+			Ref<AudioClipAsset> Clip;
+			Ref<AudioStream> Stream;
+			Scope<AudioVoice> Main;
+			// Oldest first: a full pool steals from the front.
+			std::vector<OneShot> OneShots;
+			float Volume = 1.0f;
+			float Pitch = 1.0f;
+			bool Spatial = true;
+			float MinDistance = 1.0f;
+			float MaxDistance = 100.0f;
+			glm::vec3 Position = glm::vec3(0.0f);
+			std::string Bus;
+			uint32_t Priority = DefaultAudioPriority;
+			uint32_t MaxVoices = DefaultAudioSourceVoices;
+		};
+
+		struct PointVoice
+		{
+			Scope<AudioVoice> Voice;
+			glm::vec3 Position = glm::vec3(0.0f);
+		};
+
+		std::unordered_map<UUID, Scope<Source>> Sources;
+		std::vector<PointVoice> PointVoices;
+		// By bus key.
+		std::unordered_map<std::string, Scope<AudioSceneGroup>> Groups;
 		glm::vec3 ListenerPosition = glm::vec3(0.0f);
 		// Columns: the listener's right, up and back directions (it faces -Z of its basis, like miniaudio's listener).
 		glm::mat3 ListenerBasis = glm::mat3(1.0f);
 		bool Paused = false;
 
-		Data() = default;
-		~Data()
+		Data() { Miniaudio::GetVoiceManager().AddOwner(*this); }
+
+		~Data() override
 		{
-			Sounds.clear();
-			if (HasGroup)
+			// The scene's voices fade out and come back after the scene; its groups come back after their voices.
+			AudioVoiceManager& voices = Miniaudio::GetVoiceManager();
+			for (auto& [entity, source] : Sources)
 			{
-				ma_sound_group_uninit(&Group);
+				RetireVoices(*source);
 			}
+			Sources.clear();
+			for (PointVoice& point : PointVoices)
+			{
+				voices.RetireVoice(std::move(point.Voice));
+			}
+			PointVoices.clear();
+			for (auto& [key, group] : Groups)
+			{
+				voices.RetireGroup(std::move(group));
+			}
+			Groups.clear();
+			voices.RemoveOwner(*this);
 		}
 
 		Data(Data const&) = delete;
 		Data& operator=(Data const&) = delete;
 
-		Sound* Find(UUID entity) const
+		Source* Find(UUID entity) const
 		{
-			auto const it = Sounds.find(entity);
-			return it != Sounds.end() ? it->second.get() : nullptr;
+			auto const it = Sources.find(entity);
+			return it != Sources.end() ? it->second.get() : nullptr;
 		}
 
-		// Sounds are positioned relative to the scene's listener, so scenes never move each other's listener.
-		void UpdatePosition(Sound& sound) const
+		glm::vec3 ToRelative(glm::vec3 const& position) const { return glm::transpose(ListenerBasis) * (position - ListenerPosition); }
+
+		Result<AudioSceneGroup*> GetGroup(std::string_view bus)
 		{
-			glm::vec3 const relative = glm::transpose(ListenerBasis) * (sound.Position - ListenerPosition);
-			ma_sound_set_position(&sound.Handle, relative.x, relative.y, relative.z);
+			std::string key = MakeBusKey(bus);
+			if (auto const found = Groups.find(key); found != Groups.end())
+			{
+				return found->second.get();
+			}
+			Result<Scope<AudioSceneGroup>> group = AudioSceneGroup::Create(key, Paused);
+			if (!group)
+			{
+				return Error{group.GetError()};
+			}
+			AudioSceneGroup* const created = group.GetValue().get();
+			Groups.emplace(std::move(key), group.TakeValue());
+			return created;
+		}
+
+		// Whether the source's main voice takes a place in its pool: while it plays or is paused.
+		static bool IsMainVoiceInPool(Source const& source)
+		{
+			return source.Main && (source.Main->IsPlaying() || source.Main->GetState() == AudioVoice::State::Paused);
+		}
+
+		void RetireVoices(Source& source)
+		{
+			AudioVoiceManager& voices = Miniaudio::GetVoiceManager();
+			if (source.Main)
+			{
+				voices.RetireVoice(std::move(source.Main));
+			}
+			RetireOneShots(source);
+		}
+
+		void RetireOneShots(Source& source)
+		{
+			AudioVoiceManager& voices = Miniaudio::GetVoiceManager();
+			for (OneShot& oneShot : source.OneShots)
+			{
+				voices.RetireVoice(std::move(oneShot.Voice));
+			}
+			source.OneShots.clear();
+		}
+
+		// The pool's oldest one-shot is stolen (its StealVoice is the last command that names it).
+		void StealOldestOneShot(Source& source)
+		{
+			Scope<AudioVoice> stolen = std::move(source.OneShots.front().Voice);
+			source.OneShots.erase(source.OneShots.begin());
+			Miniaudio::GetVoiceManager().StealOneShot(std::move(stolen));
+		}
+
+		void ReleaseVoice(AudioVoice& voice) override
+		{
+			AudioVoiceManager& voices = Miniaudio::GetVoiceManager();
+			for (auto& [entity, source] : Sources)
+			{
+				for (auto it = source->OneShots.begin(); it != source->OneShots.end(); ++it)
+				{
+					if (it->Voice.get() == &voice)
+					{
+						Scope<AudioVoice> released = std::move(it->Voice);
+						source->OneShots.erase(it);
+						voices.KeepUntilReturned(std::move(released));
+						return;
+					}
+				}
+			}
+			for (auto it = PointVoices.begin(); it != PointVoices.end(); ++it)
+			{
+				if (it->Voice.get() == &voice)
+				{
+					Scope<AudioVoice> released = std::move(it->Voice);
+					PointVoices.erase(it);
+					voices.KeepUntilReturned(std::move(released));
+					return;
+				}
+			}
+			ST_CORE_ASSERT(false, "A scene was asked to release a voice it does not own");
+		}
+
+		void RetireEndedVoices() override
+		{
+			AudioVoiceManager& voices = Miniaudio::GetVoiceManager();
+			for (auto& [entity, source] : Sources)
+			{
+				std::erase_if(source->OneShots,
+				              [&voices](OneShot& oneShot)
+				              {
+								  if (!oneShot.Voice->HasEnded())
+								  {
+									  return false;
+								  }
+								  voices.RetireVoice(std::move(oneShot.Voice));
+								  return true;
+							  });
+			}
+			std::erase_if(PointVoices,
+			              [&voices](PointVoice& point)
+			              {
+							  if (!point.Voice->HasEnded())
+							  {
+								  return false;
+							  }
+							  voices.RetireVoice(std::move(point.Voice));
+							  return true;
+						  });
+		}
+
+		// Every voice of the scene, main voices, one-shots and the scene's own.
+		template<typename TFunction>
+		void ForEachVoice(TFunction&& function)
+		{
+			for (auto& [entity, source] : Sources)
+			{
+				if (source->Main)
+				{
+					function(*source->Main);
+				}
+				for (OneShot const& oneShot : source->OneShots)
+				{
+					function(*oneShot.Voice);
+				}
+			}
+			for (PointVoice const& point : PointVoices)
+			{
+				function(*point.Voice);
+			}
+		}
+
+		void UpdatePositions(Source& source) const
+		{
+			glm::vec3 const relative = ToRelative(source.Position);
+			source.Main->SetRelativePosition(relative);
+			for (OneShot const& oneShot : source.OneShots)
+			{
+				oneShot.Voice->SetRelativePosition(relative);
+			}
+		}
+
+		// The voice of a one-shot or of the scene, started (or refused at the engine's limit). Returns whether it plays.
+		bool StartVoice(AudioVoiceDesc const& desc, std::string_view bus, Source* source, float oneShotVolume, glm::vec3 const& position)
+		{
+			Result<AudioSceneGroup*> group = GetGroup(bus);
+			if (!group)
+			{
+				ST_CORE_WARN("A sound cannot play: {}", group.GetError());
+				return false;
+			}
+			Result<Scope<AudioVoice>> created = AudioVoice::Create(desc, *group.GetValue(), *this);
+			if (!created)
+			{
+				ST_CORE_WARN("A sound cannot play: {}", created.GetError());
+				return false;
+			}
+			Scope<AudioVoice> voice = created.TakeValue();
+			AudioVoice* const started = voice.get();
+			started->Play();
+			if (source != nullptr)
+			{
+				source->OneShots.push_back({std::move(voice), oneShotVolume});
+			}
+			else
+			{
+				PointVoices.push_back({std::move(voice), position});
+			}
+			Miniaudio::GetVoiceManager().Balance();
+			// The limit may have refused it (and released it at once): then the scene no longer holds it.
+			if (source != nullptr)
+			{
+				return std::any_of(source->OneShots.begin(), source->OneShots.end(),
+				                   [started](OneShot const& oneShot)
+				                   {
+									   return oneShot.Voice.get() == started;
+								   });
+			}
+			return std::any_of(PointVoices.begin(), PointVoices.end(),
+			                   [started](PointVoice const& point)
+			                   {
+								   return point.Voice.get() == started;
+							   });
+		}
+
+		// A clip's samples for a one-shot, logged once per clip when it cannot be decoded.
+		static Ref<AudioSampleBuffer> GetSamples(Ref<AudioClipAsset> const& clip)
+		{
+			AudioSampleCache& cache = Miniaudio::GetSampleCache();
+			uint64_t const decodes = cache.GetDecodeCount();
+			Result<Ref<AudioSampleBuffer>> samples = cache.Get(clip);
+			if (!samples)
+			{
+				if (cache.GetDecodeCount() != decodes)
+				{
+					ST_CORE_WARN("A sound cannot play: {}", samples.GetError());
+				}
+				return nullptr;
+			}
+			return samples.TakeValue();
 		}
 	};
 
@@ -101,13 +324,11 @@ namespace Strada
 			return Error{"the audio engine is not initialized"};
 		}
 		Scope<Data> data = CreateScope<Data>();
-		// The group only mixes: without pitch and spatialization it adds no resampling delay and no second panning.
-		ma_uint32 const groupFlags = MA_SOUND_FLAG_NO_PITCH | MA_SOUND_FLAG_NO_SPATIALIZATION;
-		if (ma_result const result = ma_sound_group_init(&Miniaudio::GetEngine(), groupFlags, nullptr, &data->Group); result != MA_SUCCESS)
+		// Master's group now, so that a scene that cannot make one fails here as it always did.
+		if (Result<AudioSceneGroup*> group = data->GetGroup(EmptyBus); !group)
 		{
-			return MakeError("the scene's sound group cannot be created: {}", ma_result_description(result));
+			return Error{group.GetError()};
 		}
-		data->HasGroup = true;
 		return CreateScope<AudioScene>(PrivateTag{}, std::move(data));
 	}
 
@@ -128,8 +349,8 @@ namespace Strada
 			return Error{"the audio source has no clip"};
 		}
 
-		Scope<Sound> sound = CreateScope<Sound>();
-		ma_data_source* dataSource = nullptr;
+		Scope<Data::Source> source = CreateScope<Data::Source>();
+		AudioVoiceDesc voiceDesc;
 		AudioStreamer* const streamer = Miniaudio::GetStreamer();
 		if (!desc.StreamFile.empty())
 		{
@@ -142,206 +363,404 @@ namespace Strada
 			{
 				return Error{stream.GetError()};
 			}
-			sound->Stream = stream.TakeValue();
-			dataSource = sound->Stream->GetDataSource();
+			source->Stream = stream.TakeValue();
+			voiceDesc.Stream = source->Stream;
 		}
 		else
 		{
-			sound->Clip = desc.Clip;
-			sound->ClipData = CreateScope<AudioMemoryFile>(sound->Clip->GetData());
-			Result<Scope<AudioDecoder>> decoder = AudioDecoder::Create(sound->Clip->GetFormat(), *sound->ClipData);
-			if (!decoder)
+			Result<Ref<AudioSampleBuffer>> samples = Miniaudio::GetSampleCache().Get(desc.Clip);
+			if (!samples)
 			{
-				return MakeError("the {} clip cannot be decoded: {}", AudioFormatToString(sound->Clip->GetFormat()), decoder.GetError());
+				return Error{samples.GetError()};
 			}
-			sound->Decoder = decoder.TakeValue();
-			dataSource = sound->Decoder->GetDataSource();
+			source->Clip = desc.Clip;
+			voiceDesc.Samples = samples.TakeValue();
 		}
-		if (ma_result const result = ma_sound_init_from_data_source(&Miniaudio::GetEngine(), dataSource, 0, &m_Data->Group, &sound->Handle);
-		    result != MA_SUCCESS)
+
+		source->Entity = desc.Entity;
+		source->Volume = std::max(desc.Volume, 0.0f);
+		source->Pitch = desc.Pitch >= MinAudioPitch ? desc.Pitch : MinAudioPitch;
+		source->Spatial = desc.Spatial;
+		source->MinDistance = desc.MinDistance;
+		source->MaxDistance = desc.MaxDistance;
+		source->Position = IsFinite(desc.Position) ? desc.Position : glm::vec3(0.0f);
+		source->Bus = desc.Bus;
+		source->Priority = std::min(desc.Priority, MaxAudioPriority);
+		source->MaxVoices = std::clamp(desc.MaxVoices, 1u, MaxAudioSourceVoices);
+
+		Result<AudioSceneGroup*> group = m_Data->GetGroup(source->Bus);
+		if (!group)
 		{
-			return MakeError("the sound cannot be created: {}", ma_result_description(result));
+			return Error{group.GetError()};
 		}
-		sound->HasHandle = true;
-		if (sound->Stream)
+		voiceDesc.Volume = source->Volume;
+		voiceDesc.Pitch = source->Pitch;
+		voiceDesc.Loop = desc.Loop;
+		voiceDesc.Spatial = source->Spatial;
+		voiceDesc.MinDistance = source->MinDistance;
+		voiceDesc.MaxDistance = source->MaxDistance;
+		voiceDesc.RelativePosition = m_Data->ToRelative(source->Position);
+		voiceDesc.Priority = source->Priority;
+		Result<Scope<AudioVoice>> voice = AudioVoice::Create(voiceDesc, *group.GetValue(), *m_Data);
+		if (!voice)
+		{
+			return Error{voice.GetError()};
+		}
+		source->Main = voice.TakeValue();
+		if (source->Stream)
 		{
 			// Decoding starts now, so a sound played right away is heard within moments.
-			streamer->Add(sound->Stream);
+			streamer->Add(source->Stream);
 		}
 
-		ma_sound_set_positioning(&sound->Handle, ma_positioning_relative);
-		ma_sound_set_attenuation_model(&sound->Handle, ma_attenuation_model_inverse);
-		// Sources and the listener have no velocities.
-		ma_sound_set_doppler_factor(&sound->Handle, 0.0f);
-
-		UUID const entity = desc.Entity;
-		m_Data->Sounds.insert_or_assign(entity, std::move(sound));
-		SetVolume(entity, desc.Volume);
-		SetPitch(entity, desc.Pitch);
-		SetLooping(entity, desc.Loop);
-		SetDistances(entity, desc.MinDistance, desc.MaxDistance);
-		SetSpatial(entity, desc.Spatial);
-		SetPosition(entity, desc.Position);
+		// Replacing a source retires the old one's voices.
+		if (Data::Source* const existing = m_Data->Find(desc.Entity))
+		{
+			m_Data->RetireVoices(*existing);
+		}
+		m_Data->Sources.insert_or_assign(desc.Entity, std::move(source));
 		return {};
 	}
 
 	void AudioScene::RemoveSource(UUID entity)
 	{
-		m_Data->Sounds.erase(entity);
+		if (Data::Source* const source = m_Data->Find(entity))
+		{
+			m_Data->RetireVoices(*source);
+			m_Data->Sources.erase(entity);
+		}
 	}
 
 	bool AudioScene::HasSource(UUID entity) const
 	{
-		return m_Data->Sounds.contains(entity);
+		return m_Data->Sources.contains(entity);
 	}
 
 	bool AudioScene::IsStreaming(UUID entity) const
 	{
-		Sound const* sound = m_Data->Find(entity);
-		return sound != nullptr && sound->Stream != nullptr;
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr && source->Stream != nullptr;
 	}
 
 	size_t AudioScene::GetSourceCount() const
 	{
-		return m_Data->Sounds.size();
+		return m_Data->Sources.size();
 	}
 
 	void AudioScene::Play(UUID entity)
 	{
-		if (Sound* sound = m_Data->Find(entity))
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr || source->Main->IsPlaying())
 		{
-			// A sound that reached its end stays started until the mixer next visits it, and starting a started sound
-			// does nothing: stop it first so it starts over now instead of being stopped by the mixer.
-			if (ma_sound_at_end(&sound->Handle))
-			{
-				ma_sound_stop(&sound->Handle);
-			}
-			ma_sound_start(&sound->Handle);
-			if (sound->Stream)
-			{
-				// Starting over at the end seeks the stream: usually to samples it holds, otherwise it reads them now.
-				Miniaudio::GetStreamer()->Wake();
-			}
+			return;
+		}
+		source->Main->Play();
+		Miniaudio::GetVoiceManager().Balance();
+		if (source->Stream)
+		{
+			// Starting over at the end seeks the stream: usually to samples it holds, otherwise it reads them now.
+			Miniaudio::GetStreamer()->Wake();
 		}
 	}
 
 	void AudioScene::Pause(UUID entity)
 	{
-		if (Sound* sound = m_Data->Find(entity))
+		if (Data::Source* const source = m_Data->Find(entity))
 		{
-			ma_sound_stop(&sound->Handle);
+			source->Main->Pause();
 		}
 	}
 
 	void AudioScene::Stop(UUID entity)
 	{
-		if (Sound* sound = m_Data->Find(entity))
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr)
 		{
-			ma_sound_stop(&sound->Handle);
-			if (sound->Stream)
-			{
-				// The streaming thread reads the start again while the sound is stopped.
-				sound->Stream->Seek(0);
-				Miniaudio::GetStreamer()->Wake();
-			}
-			else
-			{
-				// Applied by the mixer when the sound plays again.
-				ma_sound_seek_to_pcm_frame(&sound->Handle, 0);
-			}
+			return;
 		}
+		source->Main->Stop();
+		if (source->Stream)
+		{
+			// The streaming thread reads the start again while the sound is stopped.
+			source->Stream->Seek(0);
+			Miniaudio::GetStreamer()->Wake();
+		}
+		m_Data->RetireOneShots(*source);
 	}
 
 	bool AudioScene::IsPlaying(UUID entity) const
 	{
-		Sound const* sound = m_Data->Find(entity);
-		return sound != nullptr && ma_sound_is_playing(&sound->Handle) && !ma_sound_at_end(&sound->Handle);
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr && source->Main->IsPlaying();
 	}
 
 	float AudioScene::GetVolume(UUID entity) const
 	{
-		Sound const* sound = m_Data->Find(entity);
-		return sound != nullptr ? ma_sound_get_volume(&sound->Handle) : 0.0f;
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr ? source->Volume : 0.0f;
 	}
 
 	void AudioScene::SetVolume(UUID entity, float volume)
 	{
-		if (Sound* sound = m_Data->Find(entity))
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr)
 		{
-			ma_sound_set_volume(&sound->Handle, std::max(volume, 0.0f));
+			return;
+		}
+		source->Volume = volume > 0.0f ? volume : 0.0f;
+		source->Main->SetVolume(source->Volume);
+		for (Data::OneShot const& oneShot : source->OneShots)
+		{
+			oneShot.Voice->SetVolume(source->Volume * oneShot.Volume);
 		}
 	}
 
 	float AudioScene::GetPitch(UUID entity) const
 	{
-		Sound const* sound = m_Data->Find(entity);
-		return sound != nullptr ? ma_sound_get_pitch(&sound->Handle) : 0.0f;
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr ? source->Pitch : 0.0f;
 	}
 
 	void AudioScene::SetPitch(UUID entity, float pitch)
 	{
-		if (Sound* sound = m_Data->Find(entity))
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr)
 		{
-			// Also replaces NaN.
-			ma_sound_set_pitch(&sound->Handle, pitch >= MinAudioPitch ? pitch : MinAudioPitch);
+			return;
+		}
+		// Also replaces NaN.
+		source->Pitch = pitch >= MinAudioPitch ? pitch : MinAudioPitch;
+		source->Main->SetPitch(source->Pitch);
+		for (Data::OneShot const& oneShot : source->OneShots)
+		{
+			oneShot.Voice->SetPitch(source->Pitch);
 		}
 	}
 
 	bool AudioScene::IsLooping(UUID entity) const
 	{
-		Sound const* sound = m_Data->Find(entity);
-		return sound != nullptr && ma_sound_is_looping(&sound->Handle);
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr && source->Main->IsLooping();
 	}
 
 	void AudioScene::SetLooping(UUID entity, bool loop)
 	{
-		if (Sound* sound = m_Data->Find(entity))
+		if (Data::Source* const source = m_Data->Find(entity))
 		{
-			ma_sound_set_looping(&sound->Handle, loop ? MA_TRUE : MA_FALSE);
+			// One-shots never loop.
+			source->Main->SetLooping(loop);
 		}
 	}
 
 	bool AudioScene::IsSpatial(UUID entity) const
 	{
-		Sound const* sound = m_Data->Find(entity);
-		return sound != nullptr && sound->Spatial;
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr && source->Spatial;
 	}
 
 	void AudioScene::SetSpatial(UUID entity, bool spatial)
 	{
-		if (Sound* sound = m_Data->Find(entity))
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr)
 		{
-			sound->Spatial = spatial;
-			ma_sound_set_spatialization_enabled(&sound->Handle, spatial ? MA_TRUE : MA_FALSE);
+			return;
+		}
+		source->Spatial = spatial;
+		source->Main->SetSpatial(spatial);
+		for (Data::OneShot const& oneShot : source->OneShots)
+		{
+			oneShot.Voice->SetSpatial(spatial);
 		}
 	}
 
 	void AudioScene::SetDistances(UUID entity, float minDistance, float maxDistance)
 	{
-		if (Sound* sound = m_Data->Find(entity))
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr)
 		{
-			// A zero minimum distance would divide zero by zero next to the listener.
-			float const nearest = minDistance >= MinAudioDistance ? minDistance : MinAudioDistance;
-			float const farthest = maxDistance >= nearest ? maxDistance : nearest;
-			ma_sound_set_min_distance(&sound->Handle, nearest);
-			ma_sound_set_max_distance(&sound->Handle, farthest);
+			return;
+		}
+		source->MinDistance = minDistance;
+		source->MaxDistance = maxDistance;
+		source->Main->SetDistances(minDistance, maxDistance);
+		for (Data::OneShot const& oneShot : source->OneShots)
+		{
+			oneShot.Voice->SetDistances(minDistance, maxDistance);
 		}
 	}
 
 	glm::vec3 AudioScene::GetPosition(UUID entity) const
 	{
-		Sound const* sound = m_Data->Find(entity);
-		return sound != nullptr ? sound->Position : glm::vec3(0.0f);
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr ? source->Position : glm::vec3(0.0f);
 	}
 
 	void AudioScene::SetPosition(UUID entity, glm::vec3 const& position)
 	{
-		Sound* sound = m_Data->Find(entity);
-		if (sound != nullptr && IsFinite(position))
+		Data::Source* const source = m_Data->Find(entity);
+		if (source != nullptr && IsFinite(position))
 		{
-			sound->Position = position;
-			m_Data->UpdatePosition(*sound);
+			source->Position = position;
+			m_Data->UpdatePositions(*source);
 		}
+	}
+
+	void AudioScene::SetBus(UUID entity, std::string_view bus)
+	{
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr || MakeBusKey(bus) == MakeBusKey(source->Bus))
+		{
+			if (source != nullptr)
+			{
+				source->Bus = bus;
+			}
+			return;
+		}
+		Result<AudioSceneGroup*> group = m_Data->GetGroup(bus);
+		if (!group)
+		{
+			ST_CORE_WARN("A sound cannot move to bus '{}': {}", bus, group.GetError());
+			return;
+		}
+		source->Bus = bus;
+		source->Main->MoveTo(*group.GetValue());
+		for (Data::OneShot const& oneShot : source->OneShots)
+		{
+			oneShot.Voice->MoveTo(*group.GetValue());
+		}
+	}
+
+	std::string const& AudioScene::GetBus(UUID entity) const
+	{
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr ? source->Bus : EmptyBus;
+	}
+
+	void AudioScene::SetPriority(UUID entity, uint32_t priority)
+	{
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr)
+		{
+			return;
+		}
+		source->Priority = std::min(priority, MaxAudioPriority);
+		source->Main->SetPriority(source->Priority);
+		for (Data::OneShot const& oneShot : source->OneShots)
+		{
+			oneShot.Voice->SetPriority(source->Priority);
+		}
+	}
+
+	uint32_t AudioScene::GetPriority(UUID entity) const
+	{
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr ? source->Priority : DefaultAudioPriority;
+	}
+
+	void AudioScene::SetMaxVoices(UUID entity, uint32_t maxVoices)
+	{
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr)
+		{
+			return;
+		}
+		source->MaxVoices = std::clamp(maxVoices, 1u, MaxAudioSourceVoices);
+		m_Data->RetireEndedVoices();
+		uint32_t const mainVoice = Data::IsMainVoiceInPool(*source) ? 1 : 0;
+		while (!source->OneShots.empty() && mainVoice + source->OneShots.size() > source->MaxVoices)
+		{
+			m_Data->StealOldestOneShot(*source);
+		}
+	}
+
+	uint32_t AudioScene::GetMaxVoices(UUID entity) const
+	{
+		Data::Source const* source = m_Data->Find(entity);
+		return source != nullptr ? source->MaxVoices : DefaultAudioSourceVoices;
+	}
+
+	bool AudioScene::PlayOneShot(UUID entity, Ref<AudioClipAsset> const& clip, float volume)
+	{
+		Data::Source* const source = m_Data->Find(entity);
+		if (source == nullptr)
+		{
+			return false;
+		}
+		Ref<AudioClipAsset> const& played = clip ? clip : source->Clip;
+		if (!played)
+		{
+			ST_CORE_WARN("A one-shot of a streamed sound needs a clip to play");
+			return false;
+		}
+		Ref<AudioSampleBuffer> samples = Data::GetSamples(played);
+		if (!samples)
+		{
+			return false;
+		}
+
+		// One-shots that ended free their places at once, without waiting for a frame.
+		m_Data->RetireEndedVoices();
+		uint32_t const mainVoice = Data::IsMainVoiceInPool(*source) ? 1 : 0;
+		if (mainVoice + source->OneShots.size() >= source->MaxVoices)
+		{
+			if (source->OneShots.empty())
+			{
+				// The pool holds its main voice alone, which one-shots never steal.
+				Miniaudio::GetVoiceManager().CountStolen();
+				return false;
+			}
+			m_Data->StealOldestOneShot(*source);
+		}
+
+		float const oneShotVolume = volume > 0.0f ? volume : 0.0f;
+		AudioVoiceDesc desc;
+		desc.Samples = std::move(samples);
+		desc.Volume = source->Volume * oneShotVolume;
+		desc.Pitch = source->Pitch;
+		desc.Loop = false;
+		desc.Spatial = source->Spatial;
+		desc.MinDistance = source->MinDistance;
+		desc.MaxDistance = source->MaxDistance;
+		desc.RelativePosition = m_Data->ToRelative(source->Position);
+		desc.Priority = source->Priority;
+		desc.OneShot = true;
+		return m_Data->StartVoice(desc, source->Bus, source, oneShotVolume, source->Position);
+	}
+
+	uint32_t AudioScene::GetVoiceCount(UUID entity) const
+	{
+		Data::Source const* source = m_Data->Find(entity);
+		if (source == nullptr)
+		{
+			return 0;
+		}
+		uint32_t count = source->Main->IsPlaying() ? 1 : 0;
+		for (Data::OneShot const& oneShot : source->OneShots)
+		{
+			count += oneShot.Voice->IsPlaying() ? 1 : 0;
+		}
+		return count;
+	}
+
+	bool AudioScene::PlayClipAtPoint(Ref<AudioClipAsset> const& clip, glm::vec3 const& position, float volume, std::string_view bus)
+	{
+		if (!clip || !IsFinite(position))
+		{
+			return false;
+		}
+		Ref<AudioSampleBuffer> samples = Data::GetSamples(clip);
+		if (!samples)
+		{
+			return false;
+		}
+		m_Data->RetireEndedVoices();
+		AudioVoiceDesc desc;
+		desc.Samples = std::move(samples);
+		desc.Volume = volume > 0.0f ? volume : 0.0f;
+		desc.Spatial = true;
+		desc.RelativePosition = m_Data->ToRelative(position);
+		desc.OneShot = true;
+		return m_Data->StartVoice(desc, bus, nullptr, desc.Volume, position);
 	}
 
 	void AudioScene::SetListener(glm::vec3 const& position, glm::vec3 const& forward, glm::vec3 const& up)
@@ -365,9 +784,13 @@ namespace Strada
 
 		m_Data->ListenerPosition = position;
 		m_Data->ListenerBasis = glm::mat3(right, glm::cross(right, front), -front);
-		for (auto const& [entity, sound] : m_Data->Sounds)
+		for (auto const& [entity, source] : m_Data->Sources)
 		{
-			m_Data->UpdatePosition(*sound);
+			m_Data->UpdatePositions(*source);
+		}
+		for (Data::PointVoice const& point : m_Data->PointVoices)
+		{
+			point.Voice->SetRelativePosition(m_Data->ToRelative(point.Position));
 		}
 	}
 
@@ -383,15 +806,21 @@ namespace Strada
 			return;
 		}
 		m_Data->Paused = paused;
-		// A stopped group does not pull from its sounds, so they keep their positions.
+		// A stopped group does not pull from its voices, so they keep their positions.
+		for (auto const& [key, group] : m_Data->Groups)
+		{
+			group->SetPaused(paused);
+		}
 		if (paused)
 		{
-			ma_sound_group_stop(&m_Data->Group);
+			m_Data->ForEachVoice(
+				[](AudioVoice& voice)
+				{
+					voice.Hold();
+				});
 		}
-		else
-		{
-			ma_sound_group_start(&m_Data->Group);
-		}
+		// Pausing makes room at the engine's limit; resuming may need some.
+		Miniaudio::GetVoiceManager().Balance();
 	}
 
 	bool AudioScene::IsPaused() const

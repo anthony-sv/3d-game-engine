@@ -145,13 +145,15 @@ jobs:
           source "${RUNNER_TEMP}/run-cases.sh"
           run_cases StradaTests "-tc=Application:*,UUID: generation is thread-safe*"
 
-      # The mix with manual output, beside the streaming thread that reads ahead for streamed sources.
+      # The mix with manual output, beside the streaming thread that reads ahead for streamed sources; the null device
+      # mixing on its own thread while the main thread changes the mix; the audio queue and the return list between two
+      # threads.
       - name: Audio with manual output
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         shell: bash
         run: |
           source "${RUNNER_TEMP}/run-cases.sh"
-          run_cases StradaTests "-tc=AudioEngine:*,AudioScene:*"
+          run_cases StradaTests "-tc=AudioEngine:*,AudioQueue:*,AudioScene:*"
 
       # The work that loads and writes files on worker threads: the editor's texture and waveform thumbnails, and the copy
       # of an example project. The engine's own asset loads all run on the main thread.

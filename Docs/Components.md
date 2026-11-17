@@ -7,7 +7,7 @@ Every component you can add to an entity, with every field: its type, its defaul
 it does. The inspector, scene files, the automation command `component.types` and the scripting API all read the same
 registry, so this page matches the engine: the engine's tests fail when it does not.
 
-28 components in 6 categories, with 207 fields in all. Vectors are written `(x, y, z)`, colors are
+28 components in 6 categories, with 209 fields in all. Vectors are written `(x, y, z)`, colors are
 linear RGB or RGBA from 0 to 1, distances are in meters and angles in degrees. Fields that only matter for some
 settings say when the inspector shows them. Scripts reach the same fields through the component classes of
 [ScriptingAPI.md](ScriptingAPI.md), and agents through `component.get` and `component.set`
@@ -357,6 +357,8 @@ Plays an audio clip, optionally positioned in 3D.
 | `Spatial` | bool | `true` |  | Positions the sound in 3D; otherwise it plays at a constant level. |
 | `MinDistance` | float | `1` | at least 0 | Distance in meters within which the sound plays at full volume. Shown when `Spatial` is on. |
 | `MaxDistance` | float | `100` | at least 0 | Distance in meters beyond which the sound gets no quieter. Shown when `Spatial` is on. |
+| `Priority` | uint | `128` | 0 to 255 | When more sounds play than the engine mixes at once, those of lower priority go silent first (higher is kept). |
+| `MaxVoices` | uint | `4` | 1 to 64 | Sounds of this source that play at once: its clip and its one-shots. A one-shot beyond it stops the source's oldest one-shot. |
 
 ### AudioListener
 

@@ -222,7 +222,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     and records on the engine's `ProfilerThreadState` named `Audio Mixer` (see "Who writes" below), and in
     `AudioEngine::ReadFrames` (manual output, on the calling thread), around the mixer's blocks (§9.1);
     `Audio.Stream` around each pass of the streaming thread (`Audio Streaming`), never its waits; `Audio.Update` around
-    the audio engine's frame work on the main thread (the return list, the deferred commands, the stall check);
+    the audio engine's frame work on the main thread (the return list, the one-shots that ended, the virtual voices, the
+    deferred commands, a device that stopped);
   - `Renderer.RenderScene`, with `Scene.UpdateTransforms` (the world-transform cache's refresh before anything is
     submitted, once per view, §7.1), `Renderer.Submit` (the scene's draws, lights and UI) and `Renderer.EndScene`,
     which holds `Renderer.Cull`, `Renderer.Prepare` (resources, uploads, shadow views, frame bindings, and within it
@@ -401,7 +402,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
 - **ThreadSanitizer.** `.github/workflows/tsan.yml` runs on a schedule (which GitHub fires only on the default branch),
   on manual dispatch and on a push to a `tsan/**` branch, on Linux with Clang in Debug (the `linux-clang-tsan` preset,
   which sets `STRADA_ENABLE_THREAD_SANITIZER`). It runs the suites' threading cases, one step per area: the profiler,
-  the main-thread queue, audio with manual output, the editor's worker-thread loads (thumbnails, the example copy; the
+  the main-thread queue, audio (manual output beside the streaming thread, the null device mixing while the main thread
+  changes the mix, the audio queue between two threads), the editor's worker-thread loads (thumbnails, the example copy; the
   engine's own asset loads run on the main thread), Jolt's workers, the automation server's network thread, and, in a
   step of its own, a profiled scene that hosts the .NET runtime. Every target the build compiles is instrumented,
   third-party ones included: synchronization in code the sanitizer cannot see makes it report races that are none, and
@@ -1359,7 +1361,7 @@ category), and script interop component lookups.
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Material`, `Materials` (`.sphysmat`[], one per submesh of a triangle mesh, at most 31; 0 or missing = `Material`), `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
 | `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
-| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
+| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance`, `Priority` (0 to 255; lower goes silent first at the engine's limit), `MaxVoices` (1 to 64; its main voice and its one-shots) |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
 | `VisualScript` | `VisualScriptComponent` | `Graph` asset (a visual script, `.sgraph`; 0 = none), `Variables` (public variable name → typed value, as `Script.Fields`; values under a former name of a variable apply to it) |
@@ -2266,15 +2268,20 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   the mix is made of: voices (an `ma_sound` each), the scenes' groups (an `ma_sound_group` each), the buses' nodes and
   their effects. Each is made unattached (`MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT`, `miniaudio.h:11130`, for sounds and
   groups) and through the engine's allocation callbacks (`ma_engine_config::allocationCallbacks`, which every sound
-  init inherits, `:78433`; the bus nodes pass them to `ma_node_init`).
+  init inherits, `:78433`; the bus nodes pass them to `ma_node_init`). Its side of the mix is `AudioVoiceManager`
+  (`AudioVoice.h`): the commands it sends, the table of every voice of every scene, and the objects it lent.
 - **The mixing thread** is miniaudio's device thread for device and null output (the engine's data callback,
-  `MixIntoDevice`) and the caller of `AudioEngine::ReadFrames` for manual output. Both run the same code,
+  `MixIntoDevice`, which the engine starts only once the mixer exists: `ma_engine_config::noAutoStart`) and the caller
+  of `AudioEngine::ReadFrames` for manual output, which is the main thread. Both run the same code,
   `AudioMixer::Render`, so a test hears exactly what a device would. It renders in blocks of at most `AudioBlockFrames`
-  (256 frames, 5.3 ms at 48 kHz); each block it (1) applies every command the queue holds (§9.2), (2) renders the block
-  with `ma_engine_read_pcm_frames`, (3) finishes the voices whose play ended there (miniaudio's end callback,
-  `ma_sound_end_proc`, `:11209` and `:11228`) or whose fade is over, (4) writes the block's counts and meters, and
-  (5) pushes what it lets go onto the return list. It never allocates (§9.9 counts it), never locks, never waits and
-  never logs.
+  (256 frames, 5.3 ms at 48 kHz); each block it (1) applies every command the queue holds (§9.2), (2) steps the
+  pitches that move, (3) renders the block with `ma_engine_read_pcm_frames` and applies the master volume, (4) reports
+  the plays that reached their end (it checks `ma_sound_at_end` after the block: miniaudio's own end callback comes only
+  at the sound's next pass, `:76878`), finishes the fades that are over and moves on the virtual voices' time, (5) writes
+  the block's counts, and pushes what it lets go onto the return list. It never allocates (§9.9 counts it), never locks,
+  never waits and never logs. Its clock is its own count of the frames it rendered, which fades and virtual voices use:
+  miniaudio's graph time stands still while nothing is attached to it. On a device the graph renders in the device's
+  period (`:77620`), so a command reaches the mix within a period rather than a block.
 - **The audio streaming thread** and the editor's waveform worker are unchanged: the streaming thread fills streamed
   sounds' rings, which the mixing thread only copies from (§9.4).
 - **One owner at a time.** An object becomes the mixing thread's with the command that hands it over (a voice's first
@@ -2283,38 +2290,53 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   detaches nodes, between blocks. miniaudio's graph reads without locking (`:74198-74202`); attaching and detaching take
   two spinlocks (`:74017`, `:74086`) and wait for readers of the bus to leave (`:74051-74059`). With one thread doing
   both, the locks are never contended and the waits end at once, which is what lets the mixing thread call them.
+- **The rule of the last command.** The mixing thread returns an object only in answer to the last command the main
+  thread sends that names it, and the main thread names it in no command after that one, so no command waiting in the
+  ring or in the deferred commands ever names an object that came back. The last command of a voice is a
+  `RetireVoice` (its source or scene went, or the main thread read that its one-shot ended) or the `StealVoice` of a
+  one-shot; that of a group is `RetireGroup`. A one-shot that ends is therefore not returned by the mixing thread on its
+  own: it reports the end (an atomic of the voice), stays attached and silent, and comes back once the main thread has
+  read the end and retired it. A group comes back only once no voice the mixing thread holds is attached to it: the
+  stolen and retired voices still fading out in it come back first. The main thread keeps every lent object in one
+  table (`AudioVoiceManager`), so whatever comes back has one owner to go to; it is destroyed there.
 - **References.** The mixing thread holds raw pointers only. Every reference (`Ref`) that keeps something alive (a
   voice's samples and stream, a chain's effects) is held on the main thread's side of the object, so the last
   reference is never dropped, and nothing freed, on the mixing thread.
 - **Who frees what, and when.** An `AudioScene` owns its sources' voices, its own voices and its groups; `AudioEngine`
   owns the bus nodes, the effect chains and the table of objects being returned. Destroying something the mixer holds
-  is a retire command plus a move of its `Scope` into that table; it is destroyed when it comes back.
-  - A scene that ends while others play retires its voices, then its groups (`RetireVoice`, `RetireGroup`). Voices it
-    never handed over are destroyed at once. Other scenes' voices and groups are untouched.
-  - The main thread takes the return list at the start of each `AudioScene` call that starts a voice, in
-    `AudioEngine::Update` (once a frame, zone `Audio.Update`) and at the end of every `ReadFrames`. With manual output
-    and no read after a scene ends, its objects wait in the table until the next read, `Update` or `Shutdown`.
+  is its last command plus a move of its `Scope` into that table; it is destroyed when it comes back.
+  - A scene that ends while others play retires its voices, then its groups. Heard voices fade out first (§9.3), so a
+    scene's voices and groups come back a few milliseconds after the scene; voices it never handed over are destroyed
+    at once. Other scenes' voices and groups are untouched.
+  - The main thread takes the return list and reads the ends the mixing thread reported (retiring the ended one-shots)
+    in `AudioEngine::Update` (once a frame, zone `Audio.Update`), at the end of every `ReadFrames`, and before a start
+    finds a place in a pool. With manual output and no read after a scene ends, its objects wait in the table until the
+    next read, `Update` or `Shutdown`.
   - `Shutdown` stops the device first (`ma_device_stop`, `:44339`, waits for the device's thread on synchronous backends,
     `:44398`, and Core Audio's stop waits for its callback, `:36463-36464`); with no mixing thread
-    left, it destroys the table's objects and everything else (each sound and node detaches itself, waiting for
-    nobody), then uninitializes the engine.
-  - **A device that stops calling back** (lost or unplugged) would hold everything it was lent and fill the queue.
-    `Update` reads the mixer's block count; when a device or null output has mixed no block for
-    `AudioMixerStallSeconds` (0.5 s), the engine stops the device (`ma_device_stop` waits for a callback in progress),
-    logs once, and takes the mixer over: each frame the main thread applies the queue and finishes and returns objects
-    itself, rendering nothing, and once a second it tries to start the device again, handing the mixer back when
-    blocks run again.
+    left, it destroys the table's objects and everything else (each sound and node detaches itself and its inputs,
+    `ma_node_detach_full`, `:74790-74828`, waiting for nobody), then uninitializes the engine.
+  - **A device that stops** (lost or unplugged) would hold everything it was lent and let the queue grow. The engine
+    passes miniaudio a notification callback (`ma_engine_config::notificationCallback`, `:11291`); a `stopped`
+    notification (`:6779`, sent from the device's thread, `:20220`) that the engine did not cause marks the device lost.
+    Since a backend whose stop fails on an unplug sends none (`:42843`), a playback device (never the null device) that
+    has mixed no block for `AudioMixerStallSeconds` (5 s) counts as lost too. `Update` then stops the device (which
+    waits for a callback in progress), logs once, and takes the mixer over: each frame the main thread applies the queue
+    and finishes every fade at once (`AudioMixer::Drain`), rendering nothing, and every `AudioDeviceRetrySeconds` (1 s)
+    it tries to start the device again, handing the mixer back once it starts. `AudioEngine::SimulateDeviceLoss` stops
+    the device as a loss would, which is how a test drives the same path.
 - **Profiling.** `Audio.Mix` around each render (on the device's thread through the engine's own
-  `ProfilerThreadState`, §4.4; on the caller's thread with manual output); `Audio.Update` around the main thread's
-  frame work. The render opens no zone of its own.
+  `ProfilerThreadState`, §4.4; on the caller's thread with manual output, once per `ReadFrames`); `Audio.Update` around
+  the main thread's frame work. The render opens no zone of its own.
 
 ### 9.2 The audio queue
 
-- **Every change to what is mixed is a command** (`AudioCommand`, `AudioQueue.h`): a voice started, paused, stopped,
-  stolen, retired or moved to another bus; its volume, pitch, looping, spatialization, distances and position; a scene
-  paused; a bus added, removed or re-parented; a bus's values (the mixer's and the game's) and its effects; an effect's
-  parameter; the master volume; and, with MX2, a snapshot transition, a voice's doppler and sends, and ducking. A
-  command is 48 bytes of plain data (the type, an effect's index and parameter, two object pointers, four values and a
+- **Every change to what is mixed is a command** (`AudioCommand`, `AudioQueue.h`): a voice started (played, started
+  virtual, or resumed from virtual, `AudioStartFlags`), paused, stopped, stolen, retired or moved to another group; its
+  volume, pitch, looping, spatialization, distances and position; a group paused, moved to another bus or retired; a bus
+  added, removed or re-parented; a bus's values (the mixer's and the game's) and its effects; an effect's parameter;
+  the master volume; and, with MX2, a snapshot transition, a voice's doppler and sends, and ducking. A command is 48
+  bytes of plain data (the type, flags, an effect's index and parameter, two object pointers, four values and a
   serial).
 - **The ring** (`AudioCommandQueue`) is a single-producer, single-consumer ring of 4,096 commands (192 KiB) from the
   main thread to the mixing thread. The mixing thread applies every command the ring holds at the start of each block,
@@ -2325,24 +2347,27 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   every push flushes first, `Update` flushes once a frame, and `ReadFrames` flushes before each block, so a burst
   reaches the mix in order over the blocks that follow. `GetDeferredCommandCount` says how many wait.
 - **Objects travel by pointer** in the commands that hand them over, and come back on the return list
-  (`AudioReturnList`): an intrusive, lock-free stack the main thread takes whole. Each object carries its own link, so
-  handing back never allocates and the list never fills.
+  (`AudioReturnList`): an intrusive, lock-free stack the main thread takes whole, oldest first. Each object carries its
+  own link, so handing back never allocates and the list never fills.
 - **What is smoothed, and over what.** Gains ramp linearly in amplitude over `AudioGainSmoothingSeconds` (5 ms): a
-  voice's volume (miniaudio's volume smoothing, `ma_sound_config::volumeSmoothTimeInPCMFrames`, `:11222`, whose first
-  value is taken at once, `:51010-51016`), a bus's volumes and mutes, the master volume, the dips of moves and swaps
-  (§9.5), and MX2's sends. Pitch moves over `AudioParameterSmoothingSeconds` (20 ms) on a log2 scale, stepped once a
-  block: miniaudio does not smooth pitch, and its resampler changes ratio at the block's edge without breaking the
-  waveform. Effect parameters move over the same 20 ms on their scales, the filters' coefficients every 32 frames
-  (§9.6). A value set before a voice's first block is taken at once, so a voice starts at its own values. Spatial gains
-  keep miniaudio's own smoothing (8 ms, `:77699-77706`). Pause, Stop and a paused scene still cut at the block's edge,
-  as they always did (the tests pin exact silence after a pause); stealing and moves fade instead. 5 ms keeps every
-  existing test's assertion: a volume halved before a 0.1 s read adds 0.6 % of the step to the read's mean, inside
-  their tolerance (doctest's `Approx` allows `epsilon * (1 + value)`, `doctest.h:6555-6556`).
+  voice's volume (miniaudio's volume smoothing, `ma_sound_config::volumeSmoothTimeInPCMFrames`, `:11222`), a bus's
+  volumes and mutes, the master volume, the fade of a retired voice, the fades of moves and swaps (§9.5), and MX2's
+  sends. A voice's first volume reaches miniaudio with its first start, which miniaudio's gainer takes at once (it
+  smooths every value after the first, `:51010-51016`), so a voice starts at its own value however often it changed
+  before. Pitch moves over `AudioParameterSmoothingSeconds` (20 ms) on a log2 scale, stepped once a block to the value
+  of the block's end: miniaudio does not smooth pitch, and its resampler changes ratio at the block's edge without
+  breaking the waveform. A pitch set while the voice is not heard is taken at once. Effect parameters move over the
+  same 20 ms on their scales, the filters' coefficients every 32 frames (§9.6). Spatial gains keep miniaudio's own
+  smoothing (8 ms, `:77699-77706`). Pause, Stop and a paused scene still cut at the block's edge, as they always did
+  (the tests pin exact silence after a pause); stealing, retiring and moves fade instead. 5 ms keeps every existing
+  test's assertion: a volume halved before a 0.1 s read adds 0.6 % of the step to the read's mean, and a source removed
+  at 0.5 before a 0.2 s read of silence adds 0.006, inside their tolerance (doctest's `Approx` allows
+  `epsilon * (1 + value)`, `doctest.h:6555-6556`).
 - **Read-backs need no block.** The main thread keeps a shadow of every value it sets (a voice's volume, pitch, looping
   and play state, a bus's game values, the master volume) and answers getters from it at once, as the tests ask
   (`Play` then `IsPlaying`, `SetVolume` then `GetVolume`, with no read in between). The mixing thread reports back only
-  through atomics: a play's end (the serial of the play that ended), the voices mixed at the last block, and the
-  meters.
+  through atomics: a play's end (the serial of the play that ended), the voices mixed at the last block, the blocks
+  rendered, and the meters.
 
 ### 9.3 Voices
 
@@ -2351,37 +2376,57 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   attenuation and its panning. Sounds are positioned relative to their scene's own listener, as before: spatial
   voices are attenuated by inverse distance (full volume within `MinDistance`, `MinDistance / distance` up to
   `MaxDistance`, constant beyond) and panned by miniaudio's model (its stereo speakers face left and right, so a sound
-  in front reaches each at half gain).
+  in front reaches each at half gain). A voice sends a position only when it changed.
 - **A source's pool.** An `AudioSourceComponent` owns at most `MaxVoices` voices at once (default 4, 1 to 64), its main
   voice among them while it plays or is paused. Its main voice is made with the source and keeps today's meaning:
   `Play` starts it, resumes it, or starts it over after its end; `Pause` holds it; `Stop` rewinds it. `PlayOneShot`
-  (the source's clip or another, with a volume) starts another voice with the source's settings, position (it follows
-  the entity), bus and priority. A full pool steals its oldest one-shot; a pool whose voices are all its main voice
-  (`MaxVoices` 1) refuses the one-shot. A pool made smaller steals its oldest one-shots down to it.
+  (the source's clip or another, with a volume) starts another voice that never loops and follows the source as it
+  changes: its position, its volume (times the one-shot's own), pitch, spatialization, distances, bus and priority.
+  `Stop` fades the source's one-shots out; `Pause` holds only the main voice. A full pool steals its oldest one-shot; a
+  pool whose voices are all its main voice (`MaxVoices` 1) refuses the one-shot. A pool made smaller steals its oldest
+  one-shots down to it. A one-shot that ended frees its place before the next one starts: every start first retires
+  the one-shots whose end was reported, without waiting for a frame. A streamed source has no loaded clip: its
+  one-shots name one.
 - **The scene's voices.** `PlayClipAtPoint(clip, position, volume, bus)` plays on a voice of the scene rather than of
-  an entity: spatial, at a fixed position, with the default distances and priority. It is held while the scene is
-  paused and retired with the scene.
+  an entity: spatial, at a fixed position, with the default distances and priority, never looping. It is held while
+  the scene is paused, fades out with the scene's end, and outlives the entity that played it, which is what a sound
+  that must outlive its entity (a break, a death) uses: a source removed, or an entity destroyed, fades its voices out
+  with it.
 - **The engine's limit.** At most `MaxMixedAudioVoices` (64) voices are mixed at once across every scene: those
-  playing, not paused, in a scene that is not paused. The budget (§9.9) is stated for 32. When a start (a `Play`, a
-  one-shot, a scene unpaused) would pass the limit, the voices that would then mix are ranked by priority (lowest
-  first), then by how loud they are at their listener (quietest first), then by age (oldest first), and the one that
-  ranks lowest is stolen; that is the new voice itself when it ranks lowest, and then it never starts. How loud a voice
-  is, is the main thread's estimate: its volume, times its distance attenuation (the same inverse law), times the
-  mixer's and the game's gains of its bus and the buses above it, in amplitude; effects, a snapshot in progress and
-  ducking are left out.
+  playing, not paused, in a scene that is not paused. The budget (§9.9) is stated for 32 and also measured at 64. When
+  a start (a `Play`, a one-shot, a scene unpaused) would pass the limit, the voices that would then mix are ranked by
+  priority (highest kept), then by how loud they are at their listener (loudest kept), then by age (newest kept), and
+  those that rank beyond the limit are stolen: a one-shot fades out and is returned, a main voice becomes virtual. The
+  new voice itself is stolen when it ranks lowest: a one-shot is refused (`PlayOneShot` answers false), a main voice
+  starts virtual. How loud a voice is, is the main thread's estimate: its volume, times its distance attenuation (the
+  same inverse law), times the mixer's and the game's gains of its bus and the buses above it, in amplitude; effects, a
+  snapshot in progress and ducking are left out.
+- **Virtual voices.** A main voice stolen by the limit, or started beyond it, keeps its play state (`IsPlaying` stays
+  true, as for a script it still plays) and its place in time: the mixing thread stops it and counts its time on in
+  its own clock, moving its cursor by the frames played at its pitch and the clip's rate when it is heard again (a
+  looping clip wraps; a clip that does not loop reports its end when its time passes it). At each `Update` while
+  virtual voices exist, and at every start, the ranking runs again: a virtual voice that ranks within the limit is
+  heard again where its time has taken it, faded in over `AudioStealFadeSeconds`, and the one it displaces becomes
+  virtual or is returned. A virtual voice ranks as if it were a third quieter (it comes back only when clearly louder
+  than what mixes), so two voices of nearly one loudness do not trade places at every update. So engine layers at
+  volume 0 in a crossfade are virtual, cost nothing, and are heard as soon as their volume rises. A streamed main voice
+  holds its place while virtual (its file is read ahead from where it stopped). A virtual voice in a scene that pauses
+  stops its time there and waits for the scene like its other voices.
 - **One authority.** The main thread decides every start and every steal, from its shadow; the mixing thread decides
-  only that a play reached its clip's end, and reports it. So the counts are exact: `GetStolenVoiceCount` counts every
-  steal (by a pool or by the limit, a voice that lost before it played included), and `GetActiveVoiceCount` is the
-  mixing thread's count of the voices it mixed in the last block.
-- **Stealing fades.** A stolen voice fades out over `AudioStealFadeSeconds` (10 ms, `ma_sound_stop_with_fade_in_pcm_frames`,
-  `:11402`); a one-shot is then returned, and a main voice is stopped and rewound. It is mixed while it fades, so for
-  those 10 ms up to as many voices as were stolen sound beyond the limit.
-- **A finished one-shot** is detached by the mixing thread at the end of the block in which its clip ended, and pushed
-  onto the return list. Its pool counts it free as soon as the mixing thread has reported the end (an atomic the main
-  thread reads), so no frame of the main thread waits for it; the object is destroyed at the next take of the return
-  list.
+  only that a play reached its clip's end (or that a virtual voice's time passed it), and reports it. So the counts are
+  exact: `GetStolenVoiceCount` counts every steal (by a pool or by the limit, a one-shot refused and a main voice made
+  virtual included); `GetActiveVoiceCount` is the main thread's count of the voices mixing in scenes that are not
+  paused (not virtual, not stolen), exact right after a start, which counts an ended play out at the next `Update` or
+  `ReadFrames` that reads it, so it never depends on when the mixing thread ran; `GetMixedVoiceCount` is the mixing
+  thread's count of the voices it mixed in its last block (MX2's meters).
+- **Stealing fades.** A stolen voice fades out over `AudioStealFadeSeconds` (10 ms, miniaudio's fader,
+  `ma_sound_set_fade_in_pcm_frames` from its current volume, ended on the mixer's clock); a one-shot is then returned,
+  and a main voice becomes virtual where the fade ended. It is mixed while it fades, so for those 10 ms up to as many
+  voices as were stolen sound beyond the limit. A retired voice that is heard fades out over
+  `AudioGainSmoothingSeconds` (5 ms) and is returned; one that is not heard (stopped, ended, virtual, or in a paused
+  group) is returned at once. A steal or a retire that meets the play's end in the same block returns the voice once.
 - **Moves.** A source whose `Bus` changes moves its voices to its scene's group of the new bus (`MoveVoice`): faded out,
-  moved and faded in over 5 ms each.
+  moved and faded in over 5 ms each when heard, moved at once when not.
 - **Streamed sources.** A streamed source's main voice plays its `AudioStream` as before. The stream opens the clip's
   file when the source is created, on the main thread, reading only its format and headers (at most
   `MaxAudioStreamHeaderBytes`: damaged files whose audio would start later are refused); the streaming thread
@@ -2390,31 +2435,37 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   moment, and it continues where it was). The streaming thread decodes on past the end of the file from its start and
   marks where the file ended, where the mixer decides whether the voice loops, so loops are seamless and a voice played
   again after its end starts at once; `Stop` seeks the stream from the main thread (`AudioStream::Seek` is safe from
-  any thread), which empties its buffer and decodes the start again. Its one-shots play the clip loaded (§9.4).
-  Files that are missing or not audio are refused when the source is created; damaged ones play what can be decoded.
-  `AudioEngineSettings::StreamFileOpener` opens the files and `AudioEngine::WaitForStreams` lets manual output hear
-  streams without gaps, as before.
+  any thread), which empties its buffer and decodes the start again. Files that are missing or not audio are refused
+  when the source is created; damaged ones play what can be decoded. `AudioEngineSettings::StreamFileOpener` opens the
+  files and `AudioEngine::WaitForStreams` lets manual output hear streams without gaps, as before.
 
 ### 9.4 Clips: how samples reach voices, and what they cost
 
-- **A loaded clip is decoded once**, on the main thread, the first time a source or a voice needs it, into an
-  `AudioSampleBuffer`: 32-bit float frames in the clip's own channels and sample rate, immutable, shared by every voice
-  of the clip in every scene. `AudioSampleCache` (the engine's) finds a clip's buffer by its asset object (a reloaded
-  clip is a new object and decodes again); the Asset module knows nothing of it.
+- **A loaded clip is decoded once per clip asset object**, on the main thread, the first time a source or a voice
+  needs it (or when `AudioEngine::PreloadClip` asks), into an `AudioSampleBuffer`: 32-bit float frames in the clip's
+  own channels and sample rate, immutable, shared by every voice of the clip in every scene. `AudioSampleCache` (the
+  engine's) holds a clip's buffer for as long as the clip asset object lives, keyed weakly on that object: a one-shot
+  played again after the last one ended decodes nothing, a reloaded clip is a new object and decodes again, and an
+  entry goes with its clip (the cache prunes at `Update`, and while it grows). A clip that cannot be decoded keeps its
+  error, so it is neither decoded again nor logged again at each play. The Asset module knows nothing of it.
+  `GetDecodedClipCount` counts the decodes, for tests. A system that plays clips as one-shots (MX2's impact sounds) calls
+  `PreloadClip` for them when its scene starts, so that no first play decodes in the middle of a game.
 - **Each voice reads the buffer from a cursor of its own** through a data source of Strada's that reports the clip's
   own sample rate. (`ma_audio_buffer_ref` reports a rate of 0, `:60065`, which an engine node takes for the engine's
   own, `:77111`, so a 44.1 kHz clip would play fast at 48 kHz.) Reading copies; no decoder runs on the mixing thread.
   Before the mixer, every sound decoded its clip on the mixing thread with a decoder of its own, and libvorbis
   allocates while it decodes.
-- **Memory**: a clip costs its frames times its channels times 4 bytes, once, however many voices play it (one second
-  of 48 kHz stereo is 375 KiB: twice a 16-bit WAV, and 10 to 20 times a compressed clip), beside the encoded file the
-  asset holds as before. A voice adds its `ma_sound` (a few KiB of node state) and nothing per sample. The largest
-  clip in the repository's samples, a 1.4 MB 16-bit WAV, decodes to about 2.8 MB.
+- **Memory**: a loaded clip costs its frames times its channels times 4 bytes, once, however many voices play it, for
+  as long as its asset is loaded (one second of 48 kHz stereo is 375 KiB: twice a 16-bit WAV, and 10 to 20 times a
+  compressed clip), beside the encoded file the asset holds as before. A voice adds its `ma_sound` (a few KiB of node
+  state) and nothing per sample. The largest clip in the repository's samples, a 1.4 MB 16-bit WAV, decodes to about
+  2.8 MB.
 - **The size above which a clip must stream** is `MaxDecodedClipBytes`, 32 MiB (87 s of 48 kHz stereo, 175 s of mono).
-  A clip whose length the decoder knows before decoding (WAV, FLAC, Ogg Vorbis) is refused before decoding; an MP3,
-  whose length shows only as it decodes, is refused when it passes the limit. The error says to stream the clip (set
-  `Stream`); a clip that exists only in memory has no file to stream from and cannot play beyond the limit. A clip that
-  stops decoding part way keeps what decoded, as a damaged clip always played what could be decoded.
+  A clip whose length the decoder reports (WAV, FLAC, Ogg Vorbis) is refused before decoding when that length passes
+  it; any clip is refused when its decoded samples pass it (an MP3's length shows only as it decodes). Nothing is sized
+  from a stated length, which a damaged file can state as anything. The error says to stream the clip (set `Stream`);
+  a clip that exists only in memory has no file to stream from and cannot play beyond the limit. A clip that stops
+  decoding part way keeps what decoded, as a damaged clip always played what could be decoded.
 - **What decoding costs.** A clip decodes on the main thread when it is first needed, which is a pause at a scene's
   start for a long clip; MX1 measures the milliseconds per second of audio of each format and writes them here. Long
   clips (music, ambience) stream, and their main voice needs no decoded buffer.
@@ -2423,13 +2474,20 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
 
 - **The graph.** A voice plays into its scene's group of its bus (`AudioSceneGroup`, an `ma_sound_group` made with
   `MA_SOUND_FLAG_NO_PITCH` and `MA_SOUND_FLAG_NO_SPATIALIZATION`, which only sums), the group into its bus's node
-  (`AudioBusNode`), each bus's node into its parent's, and Master's into the engine's endpoint. A bus node is a custom
-  node of miniaudio's graph with one input, into which miniaudio sums the bus's groups and child buses, and one output.
-  Its process function runs, in order: the bus's effects (§9.6), the mixer's gain (the asset's volume and mute,
-  blended by MX2's snapshots), the game's gain, MX2's ducking, on Master the master volume, and the dip of a move or a
-  swap, each ramped; then it measures the block's peak and RMS.
+  (`AudioBusNode`), each bus's node into its parent's, and Master's into the engine's endpoint. Until the mixer has
+  buses, Master is the endpoint itself. A bus node is a custom node of miniaudio's graph with one input, into which
+  miniaudio sums the bus's groups and child buses, and one output, made with `MA_NODE_FLAG_CONTINUOUS_PROCESSING` and
+  `MA_NODE_FLAG_ALLOW_NULL_INPUT`: miniaudio otherwise skips a node whose input reads nothing (`:75293-75325`), which
+  would cut a reverb's or a delay's tail when the bus's last voice ends or its scene pauses, freeze the dynamics and
+  the ramps, and leave the meters at their last value. So every bus processes in every block, and the budget counts
+  it. Its process function runs, in order: the bus's effects (§9.6), the mixer's gain (the asset's volume and mute,
+  blended by MX2's snapshots), the game's gain, MX2's ducking and the dip of a move or a swap, each ramped; then it
+  measures the block's peak and RMS, silence included. The master volume is applied by the mixer to the rendered
+  block, after Master.
 - **Buses are global, groups are per scene.** One node per bus name serves every scene. A running scene makes its group
-  of a bus when its first voice starts on that bus, and keeps it until it ends. A paused scene stops its groups
+  of a bus name when its first voice is made for it, hands it over with that voice's first start, and keeps it until it
+  ends. Groups are keyed by the name their sources ask for (letters folded: bus names match ignoring letter case, as
+  their uniqueness does), attached to that bus, or to Master while the mixer lacks it. A paused scene stops its groups
   (`SetGroupPaused`), which holds its own voices and no other scene's; any number of scenes play at once, four as
   easily as one. A paused scene's voices do not count against the limit; unpausing checks it.
 - **The `Mixer` asset** (`.smixer`, the data asset type `Mixer`, version 1, §6.4 and §7.3): `Buses`, at most 32, each
@@ -2447,26 +2505,33 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   engine did before buses: Master at 0 dB without effects is the identity.
 - **Applying it.** `SceneRunner` (the player, the editor's play mode and test runs) applies the project's mixer when a
   game starts and in every frame after it, paused or not, whenever the asset's version changed, and calls
-  `AudioEngine::ResetGameValues` when a game starts and stops. `AudioEngine::SetMixer` compares the new mixer with the
-  one it has and sends only the difference:
+  `AudioEngine::ResetGameValues` when a game starts and stops. When the last running game stops, every effect's state
+  is cleared under a dip (the chains are swapped for fresh ones of the same effects), so a long delay or reverb tail
+  never rings on into editing or the next play. `AudioEngine::SetMixer` compares the new mixer with the one it has and
+  sends only the difference:
   - a changed volume, mute or effect parameter is a command, ramped;
-  - a new bus gets a node, attached to its parent (`AddBus`); a removed bus sends its groups and child buses to Master,
-    then comes back (`RemoveBus`); a bus with a new parent moves (`SetBusParent`);
+  - a new bus gets a node, attached to its parent (`AddBus`); a bus with a new parent moves (`SetBusParent`); a
+    removed bus's groups and child buses move to Master first (`MoveGroup`, `SetBusParent`), then the bus is removed
+    (`RemoveBus`);
+  - after every change, each live group is pointed again by its name (`MoveGroup`): a bus added, or restored by an undo,
+    collects the groups that asked for its name and played on Master meanwhile, and a renamed bus (a removal and an
+    addition) loses the groups of its old name to Master;
   - a bus whose effects changed in kind, number or order gets a new `AudioEffectChain` (`SetBusEffects`), swapped at the
     bottom of a dip;
   - an effect object carries over into the new chain when its bus keeps an effect of the same kind at the same rank
     among that kind's effects (the bus's first Reverb stays its first Reverb), so inserting a filter in front of a
     reverb keeps the reverb's tail.
 
-  Moves and swaps fade the bus's output out over 5 ms, make the change, and fade it back in: a dip of 10 ms on the
-  buses they change, never a click. An edit through `mixer.set` therefore reaches the running mix at the next frame's
-  apply and the next block, ramped.
+  Moves and swaps fade the bus's or the group's output out over 5 ms, make the change, and fade it back in: a dip of
+  10 ms on what they change, never a click. An edit through `mixer.set` therefore reaches the running mix at the next
+  frame's apply and the next block, ramped.
 - **Bus names.** A source whose `Bus` is empty plays on Master; one that names a bus the mixer lacks plays on Master
   and is logged once per name and mixer. A bus removed while voices play on it sends them to Master.
 - **The game's values.** Scripts set a bus's game volume and mute (`Audio.SetBusVolume`, `Audio.SetBusMuted`): a second
   gain stage of the bus, after the mixer's own, 0 dB and not muted when a game starts. So a settings menu's volume and
   the mix design (the asset, its snapshots) never overwrite each other, and nothing a script sets is written to the
-  asset.
+  asset. The main thread keeps them by bus name and sends them to every node made for that name, so a bus removed and
+  restored by an undo gets its game value back.
 
 ### 9.6 Effects
 
@@ -2515,8 +2580,9 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   sources follow their entities' world positions (the transform cache, §7.1), and the listener follows the first active
   `AudioListenerComponent` in hierarchy order, else the primary camera, else the origin facing -Z. `Scene::SetPaused`
   holds the scene's voices.
-- **`AudioSourceComponent`** gains `Bus` (a bus name; empty is Master), `Priority` (0 to 255, default 128; higher is
-  kept) and `MaxVoices` (1 to 64, default 4), compatible fields of the scene format (MX2 adds `DopplerLevel`).
+- **`AudioSourceComponent`** has `Priority` (0 to 255, default 128; higher is kept) and `MaxVoices` (1 to 64, default
+  4), compatible fields of the scene format that the scene sends to its sources as they change; `Bus` (a bus name; empty
+  is Master) joins them with the mixer's buses (MX2 adds `DopplerLevel`).
 - **Scripting.** A static `Strada.Audio`: `MasterVolume` (linear; its getter is a pure node), `GetBusVolume(bus)` (dB)
   and `IsBusMuted(bus)` (`[PureNode]`), `SetBusVolume(bus, decibels)`, `SetBusMuted(bus, muted)`,
   `PlayClipAtPoint(clip, position, volume, bus)` and `ActiveVoiceCount` (a pure getter); and on `AudioSourceComponent`,
@@ -2557,7 +2623,7 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   feed the scene's groups of the zones' buses, after the voice's volume, attenuation and panning. A voice with sends
   costs a copy per output per block.
 - **Meters**: each bus node's peak and RMS of the last block (`AudioBusNode::GetPeak`, `GetRms`), which `audio.meters`
-  returns with the active and stolen voice counts.
+  returns with the active, mixed and stolen voice counts.
 - **`--audio-capture <file.wav>`** on the player: manual output, each frame reading the frames its game time covers (the
   fraction carried), written as 16-bit PCM.
 - **Impact sounds**: a collision that begins plays each side's `ImpactSound` once through the scene's
@@ -2568,24 +2634,32 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
 - **Sound is measured, never listened to**: levels, frequencies and decays read from manual output
   (`Testing::AudioEngineScope`), never from a device, never depending on wall-clock time or a thread's scheduling.
 - **Allocations on the mixing thread** are counted by two hooks, both keyed on `AudioEngine::IsMixingOnThisThread()`.
-  The mixer records its thread's identity (`std::thread::id`) for the length of each render in an atomic of static
-  storage in `AudioEngine.cpp`, beside the mixer's `ProfilerThreadState`, and the function reads nothing else: no lock,
-  no thread-local storage and none of the engine's data, so a hook may call it from any thread at any time, while `Init`
-  starts the streaming thread and while `Shutdown` frees the engine included. The hooks:
+  The mixer records its thread's identity (`std::thread::id`) for the length of each block (its apply, its render and
+  its finish, not what `ReadFrames` does between blocks on the main thread's behalf: flushing deferred commands,
+  destroying what came back) in an atomic of static storage in `AudioEngine.cpp`, beside the mixer's
+  `ProfilerThreadState`, and the function reads nothing else: no lock, no thread-local storage and none of the engine's
+  data, so a hook may call it from any thread at any time, while `Init` starts the streaming thread and while
+  `Shutdown` frees the engine included. The hooks:
   - `AudioEngine::GetMixAllocationCount()`: the engine's allocation callbacks, through which miniaudio allocates for
     every object of the module, count the calls made on the mixing thread while it mixes, in a counter of static storage
     that `Init` resets.
   - StradaTests replaces the global allocation functions (every form of `operator new` and `operator delete`) in one
-    source of its own, counting those called on the mixing thread while it mixes; the engine's own code allocates only
-    through them.
-  - The case mixes the benchmark's shape and expects both counts to stay 0. C library allocations of other code are
+    source of its own (`Audio/MixAllocationHook.cpp`), counting those called on the mixing thread while it mixes; the
+    engine's own code allocates only through them.
+  - The case mixes starts, steals at the pools and at the limit, one-shots, voices of the scene, value changes, a scene
+    paused and one ended, and expects both counts to stay 0. C library allocations of other code are
     not counted: none runs on the mixing thread (decoding moved to the main thread; libvorbis runs only on the main and
     streaming threads).
-- **ThreadSanitizer** runs the audio cases by their prefixes (`AudioEngine:`, `AudioScene:`): a null output mixing
-  while the main thread starts, changes and stops voices is among them.
+- **ThreadSanitizer** runs the audio cases by their prefixes (`AudioEngine:`, `AudioQueue:`, `AudioScene:`): a null
+  output mixing while the main thread plays one-shots on a moving source, changes, steals and stops voices and ends a
+  scene; a device taken over and started again; the mixing-thread hook asked from another thread across `Init` and
+  `Shutdown`; the queue and the return list between two threads. The null-output cases count the mixer's blocks
+  (`AudioEngine::GetBlockCount`), never time.
 - **The budget**: 32 voices on 6 buses with a filter each, one reverb and one compressor in at most 1 ms of mixing per
   10 ms of audio, measured in Release by a StradaTests case behind `STRADA_AUDIO_BENCHMARK=1` that mixes through manual
-  output, with the figures in the tracks' reports.
+  output, with the figures in the tracks' reports. The same case reports the median and 99th percentile at 64 voices
+  with one voice stolen and fading every frame, the figure later tracks plan with (two bikes of 16 engine layers each
+  reach 32 alone).
 
 ## 10. Scripting (C# / .NET 10)
 

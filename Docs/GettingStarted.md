@@ -140,6 +140,11 @@ Some of the editor's command-line options (`StradaEditor --help` lists them all)
 | `--no-start-screen` | Start without the start screen when no project opens |
 | `--automation-port <port>`, `--no-automation` | Fix the automation server's port on 127.0.0.1, or do not start it |
 
+A headless editor makes no sound. To keep a windowed one silent too (a recorded session, or one a tool or an agent
+starts), set the environment variable `STRADA_AUDIO_OUTPUT` to `null` before starting it: sounds then play on miniaudio's
+null device, mixed as usual but heard by nobody. `device`, the default, plays through the machine's playback device; any
+other value is ignored, and the log says so. The player reads the same variable.
+
 ### Open the samples
 
 Open a project with File > Open Project..., File > Recent Projects, or `--project` on the command line. The samples
@@ -242,6 +247,10 @@ them. Prism Break has no C# scripts and runs at once.
 | `--gpu <index>` | Use the GPU with this adapter index |
 | `--validation`, `--no-validation` | Enable or disable Vulkan and NVRHI validation |
 | `--no-vsync` | Present without waiting for vertical sync |
+
+A windowed run plays its sounds through the machine's playback device unless the environment variable
+`STRADA_AUDIO_OUTPUT` is `null` (the null device, which mixes but plays nothing: what a capture or a session started by a
+tool uses); a headless run or a test run plays nothing whatever it says.
 
 The player exits with 0 after a normal run, 1 when the game cannot start and 2 for wrong usage. Test runs exit with the
 number of failures (see [Test the game](#test-the-game)). It logs to `Logs/StradaRuntime.log` in the engine's user data

@@ -4,6 +4,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Audio/AudioTypes.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -205,6 +206,44 @@ TEST_CASE("Scene: audio is heard from the active listener or the primary camera"
 	Testing::Skip(0.03f);
 	levels = Testing::ReadLevels(0.05f);
 	CHECK(levels.Left > 3.0f * levels.Right);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: audio sources follow their priority and their number of voices")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	AssetHandle const clip = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
+
+	Scene scene("Voices");
+	Entity speaker = AddSource(scene, "Speaker", clip, true);
+	AudioSourceComponent& source = speaker.GetComponent<AudioSourceComponent>();
+	CHECK(source.Priority == DefaultAudioPriority);
+	CHECK(source.MaxVoices == DefaultAudioSourceVoices);
+	source.Priority = 200;
+	source.MaxVoices = 2;
+	scene.OnRuntimeStart();
+	AudioScene* audio = scene.GetAudioScene();
+	REQUIRE(audio != nullptr);
+	CHECK(audio->GetPriority(speaker.GetUUID()) == 200);
+	CHECK(audio->GetMaxVoices(speaker.GetUUID()) == 2);
+
+	// The main voice and one one-shot fill a pool of two; a smaller pool steals the one-shot.
+	CHECK(audio->PlayOneShot(speaker.GetUUID(), nullptr, 1.0f));
+	CHECK(audio->GetVoiceCount(speaker.GetUUID()) == 2);
+	source.MaxVoices = 1;
+	source.Priority = 5;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(audio->GetMaxVoices(speaker.GetUUID()) == 1);
+	CHECK(audio->GetPriority(speaker.GetUUID()) == 5);
+	CHECK(audio->GetVoiceCount(speaker.GetUUID()) == 1);
+
+	// Values set from code past the fields' ranges are brought within them.
+	source.MaxVoices = 1000;
+	source.Priority = 1000;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(audio->GetMaxVoices(speaker.GetUUID()) == MaxAudioSourceVoices);
+	CHECK(audio->GetPriority(speaker.GetUUID()) == MaxAudioPriority);
 	scene.OnRuntimeStop();
 }
 

@@ -124,7 +124,9 @@ set(STRADA_AUDIO_SOURCES
     Source/Strada/Audio/AudioEffects.h
     Source/Strada/Audio/AudioEngine.cpp
     Source/Strada/Audio/AudioEngine.h
+    Source/Strada/Audio/AudioMixer.cpp
     Source/Strada/Audio/AudioMixer.h
+    Source/Strada/Audio/AudioQueue.cpp
     Source/Strada/Audio/AudioQueue.h
     Source/Strada/Audio/AudioScene.cpp
     Source/Strada/Audio/AudioScene.h
@@ -133,6 +135,7 @@ set(STRADA_AUDIO_SOURCES
     Source/Strada/Audio/AudioStreamFile.cpp
     Source/Strada/Audio/AudioStreamFile.h
     Source/Strada/Audio/AudioTypes.h
+    Source/Strada/Audio/AudioVoice.cpp
     Source/Strada/Audio/AudioVoice.h
     Source/Strada/Audio/AudioWaveform.cpp
     Source/Strada/Audio/AudioWaveform.h
