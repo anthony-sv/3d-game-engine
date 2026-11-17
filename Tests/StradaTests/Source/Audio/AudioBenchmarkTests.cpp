@@ -235,6 +235,20 @@ namespace
 		}
 		CHECK(largest > 0.01f);
 	}
+
+	// The mixing thread called no global allocation function since the count read before; a build that leaves those
+	// functions to a sanitizer's runtime counts nothing, and says the check is skipped.
+	void CheckNoGlobalAllocations(uint64_t before)
+	{
+		if (Testing::IsMixingThreadAllocationCounted())
+		{
+			CHECK(Testing::GetMixingThreadAllocationCount() == before);
+		}
+		else
+		{
+			MESSAGE("Skipping the count of the global allocation functions: a sanitizer's runtime defines them in this build");
+		}
+	}
 }
 
 TEST_CASE("AudioBenchmark: 32 voices on 6 filtered buses with a reverb and a compressor, and 64 with a voice stolen every frame" *
@@ -268,7 +282,7 @@ TEST_CASE("AudioBenchmark: 32 voices on 6 filtered buses with a reverb and a com
 		}
 		CHECK(AudioEngine::GetActiveVoiceCount() == 32);
 		CHECK(AudioEngine::GetMixedVoiceCount() == 32);
-		CHECK(Testing::GetMixingThreadAllocationCount() == allocations);
+		CheckNoGlobalAllocations(allocations);
 		CHECK(AudioEngine::GetMixAllocationCount() == miniaudioAllocations);
 	}
 
@@ -295,7 +309,7 @@ TEST_CASE("AudioBenchmark: 32 voices on 6 filtered buses with a reverb and a com
 		}
 		CHECK(AudioEngine::GetStolenVoiceCount() - stolenBefore >= static_cast<uint64_t>(Rounds) * 1000);
 		CHECK(AudioEngine::GetActiveVoiceCount() == 64);
-		CHECK(Testing::GetMixingThreadAllocationCount() == allocations);
+		CheckNoGlobalAllocations(allocations);
 		CHECK(AudioEngine::GetMixAllocationCount() == miniaudioAllocations);
 	}
 }

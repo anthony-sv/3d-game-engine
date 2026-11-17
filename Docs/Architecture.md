@@ -3014,7 +3014,10 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
     that `Init` resets.
   - StradaTests replaces the global allocation functions (every form of `operator new` and `operator delete`) in one
     source of its own (`Audio/MixAllocationHook.cpp`), counting those called on the mixing thread while it mixes; the
-    engine's own code allocates only through them.
+    engine's own code allocates only through them. A sanitizer's runtime defines those functions itself, so in a build
+    with `STRADA_ENABLE_SANITIZERS` or `STRADA_ENABLE_THREAD_SANITIZER` (which define `ST_SANITIZER_BUILD` for Strada's
+    targets) the source leaves them to it: nothing is counted there, and the cases that compare this count say they
+    skip that check (`Testing::IsMixingThreadAllocationCounted`) and make their other checks.
   - The case mixes starts, steals at the pools and at the limit, one-shots, voices of the scene, value changes, a scene
     paused and one ended, and expects both counts to stay 0. C library allocations of other code are
     not counted: none runs on the mixing thread (decoding moved to the main thread; libvorbis runs only on the main and

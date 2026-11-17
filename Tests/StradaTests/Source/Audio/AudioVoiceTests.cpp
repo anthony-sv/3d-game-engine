@@ -828,5 +828,12 @@ TEST_CASE("AudioEngine: mixing starts, steals, one-shots and changes allocates n
 	}
 	CHECK(AudioEngine::GetStolenVoiceCount() > 0);
 	CHECK(AudioEngine::GetMixAllocationCount() == miniaudioBefore);
-	CHECK(Testing::GetMixingThreadAllocationCount() == globalBefore);
+	if (Testing::IsMixingThreadAllocationCounted())
+	{
+		CHECK(Testing::GetMixingThreadAllocationCount() == globalBefore);
+	}
+	else
+	{
+		MESSAGE("Skipping the count of the global allocation functions: a sanitizer's runtime defines them in this build");
+	}
 }

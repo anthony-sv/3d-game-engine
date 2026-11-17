@@ -73,6 +73,11 @@ function(strada_configure_target target)
         endif()
     endif()
     strada_add_thread_sanitizer(${target})
+    # Tells the sources that a sanitizer's runtime is linked in. Such a runtime defines the global allocation functions
+    # itself, so a source that would replace them (StradaTests' Audio/MixAllocationHook.cpp) leaves them to it.
+    if(STRADA_ENABLE_SANITIZERS OR STRADA_ENABLE_THREAD_SANITIZER)
+        target_compile_definitions(${target} PRIVATE ST_SANITIZER_BUILD)
+    endif()
 endfunction()
 
 # strada_add_thread_sanitizer(<target>)
