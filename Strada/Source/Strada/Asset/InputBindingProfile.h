@@ -46,6 +46,9 @@ namespace Strada
 
 	// At most one entry per binding of the largest map.
 	inline constexpr size_t MaxInputBindingProfileEntries = MaxInputActions * MaxInputBindingsPerAction;
+	// The longest Controls or Replaced text an entry may hold (four control names take far less; scripts read a binding's
+	// text into as many bytes). An entry beyond it, or naming an action longer than MaxInputActionNameLength, is dropped.
+	inline constexpr size_t MaxInputBindingProfileTextLength = 256;
 
 	template<>
 	struct StructTraits<InputBindingProfileEntry>
@@ -95,10 +98,11 @@ namespace Strada
 		std::vector<std::string> Dropped;
 	};
 
-	// Keeps the entries that apply to the map: the action exists (its exact name), the binding index is below its count, the
-	// asset's binding still reads the controls the entry replaced (compared as controls, in any letter case), the entry's
-	// controls are a binding's text that fits the action's type, they differ from the asset's, and no earlier entry names the
-	// same binding. Drops the others.
+	// Keeps the entries that apply to the map: the texts are within their limits (MaxInputActionNameLength,
+	// MaxInputBindingProfileTextLength), the action exists (its exact name), the binding index is below its count, the asset's
+	// binding still reads the controls the entry replaced (compared as controls, in any letter case), the entry's controls
+	// are a binding's text that fits the action's type, they differ from the asset's, and no earlier entry names the same
+	// binding. Drops the others; a description quotes an action's name of at most MaxInputActionNameLength bytes.
 	[[nodiscard]] InputBindingProfileFit FitInputBindingProfile(InputBindingProfile const& profile, InputActionMap const& map);
 	// The map with the entries' controls in place of the asset's, for entries that apply (those FitInputBindingProfile
 	// keeps); other entries change nothing.

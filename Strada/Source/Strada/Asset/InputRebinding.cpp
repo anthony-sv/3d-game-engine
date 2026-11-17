@@ -9,6 +9,8 @@
 #include "Strada/Core/Log.h"
 
 #include <algorithm>
+#include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -57,14 +59,33 @@ namespace Strada
 			return asset->GetData();
 		}
 
+		// The dropped entries a log line names; the rest are counted, so that a profile of thousands of stale entries makes
+		// one line of bounded length.
+		constexpr size_t MaxDescribedDropped = 8;
+
 		std::string DescribeDropped(std::vector<std::string> const& dropped)
 		{
 			std::string text;
-			for (std::string const& entry : dropped)
+			for (size_t index = 0; index < dropped.size() && index < MaxDescribedDropped; index++)
 			{
-				text += text.empty() ? entry : "; " + entry;
+				text += index == 0 ? dropped[index] : "; " + dropped[index];
+			}
+			if (dropped.size() > MaxDescribedDropped)
+			{
+				text += fmt::format("; and {} more", dropped.size() - MaxDescribedDropped);
 			}
 			return text;
+		}
+
+		// Why a part is no part of any binding: -1 is the whole binding, 0 to 3 one control of a composite (whether the
+		// binding has that part is looked at once it is found).
+		std::optional<std::string> CheckPart(int32_t part)
+		{
+			if (part >= -1)
+			{
+				return std::nullopt;
+			}
+			return fmt::format("part {}: -1 is the whole binding, 0 to {} a part of a composite", part, MaxInputControlsPerBinding - 1);
 		}
 
 		void LogDropped(std::vector<std::string> const& dropped, size_t total, std::string_view source)
@@ -257,6 +278,10 @@ namespace Strada
 	InputRebindResult InputRebinding::Rebind(AssetHandle actions, std::string_view action, int32_t binding, std::string_view controls,
 	                                         int32_t part)
 	{
+		if (std::optional<std::string> problem = CheckPart(part))
+		{
+			return Refuse(action, binding, part, std::move(*problem));
+		}
 		Result<Address> found = FindBinding(actions, action, binding);
 		if (!found)
 		{
@@ -304,34 +329,51 @@ namespace Strada
 			return Refuse(action, binding, part, fits.GetError());
 		}
 
-		std::string const text = FormatInputControls(replacement);
-		std::string const& assetControls = address.Map.Actions[address.Action].Bindings[address.Binding].Controls;
-		InputBindingProfile profile = s_Data.Profile;
-		std::erase_if(profile.Bindings,
-		              [&effective, &address](InputBindingProfileEntry const& entry)
-		              {
-						  return entry.Action == effective.Name && entry.Binding == address.Binding;
-					  });
-		Result<InputControlList> const asset = ParseInputControls(assetControls);
-		if (!asset || asset.GetValue() != replacement)
-		{
-			profile.Bindings.push_back(
-				InputBindingProfileEntry{effective.Name, static_cast<uint32_t>(address.Binding), text, assetControls});
-		}
-
 		InputRebindResult result;
 		result.Status = InputRebindStatus::Done;
 		result.Action = effective.Name;
 		result.Binding = binding;
 		result.Part = part;
-		result.Controls = text;
-		if (profile != s_Data.Profile)
+		result.Controls = FormatInputControls(replacement);
+		// Controls the binding reads already change nothing: no write, no version, no log (a settings screen may apply the
+		// player's bindings again every frame).
+		if (Result<InputControlList> const now = ParseInputControls(current); now && now.GetValue() == replacement)
 		{
-			s_Data.Profile = std::move(profile);
-			s_Data.Version++;
-			result.Message = SaveChange();
-			ST_CORE_INFO("Input bindings: binding {} of '{}' reads '{}' (it read '{}')", binding, effective.Name, text, current);
+			result.Conflicts = FindInputBindingConflicts(address.Effective, address.Action, address.Binding);
+			return result;
 		}
+
+		// The binding's entry is replaced where it stands, so the profile keeps the order bindings were first changed in.
+		std::string const& assetControls = address.Map.Actions[address.Action].Bindings[address.Binding].Controls;
+		Result<InputControlList> const asset = ParseInputControls(assetControls);
+		auto const entry = std::ranges::find_if(s_Data.Profile.Bindings,
+		                                        [&effective, &address](InputBindingProfileEntry const& candidate)
+		                                        {
+													return candidate.Action == effective.Name && candidate.Binding == address.Binding;
+												});
+		if (asset && asset.GetValue() == replacement)
+		{
+			if (entry != s_Data.Profile.Bindings.end())
+			{
+				s_Data.Profile.Bindings.erase(entry);
+			}
+		}
+		else
+		{
+			InputBindingProfileEntry changed{effective.Name, static_cast<uint32_t>(address.Binding), result.Controls,
+			                                 asset ? FormatInputControls(asset.GetValue()) : assetControls};
+			if (entry != s_Data.Profile.Bindings.end())
+			{
+				*entry = std::move(changed);
+			}
+			else
+			{
+				s_Data.Profile.Bindings.push_back(std::move(changed));
+			}
+		}
+		s_Data.Version++;
+		result.Message = SaveChange();
+		ST_CORE_INFO("Input bindings: binding {} of '{}' reads '{}' (it read '{}')", binding, effective.Name, result.Controls, current);
 		InputActionMap const after = ApplyInputBindingProfile(address.Map, s_Data.Profile);
 		result.Conflicts = FindInputBindingConflicts(after, address.Action, address.Binding);
 		return result;
@@ -389,6 +431,10 @@ namespace Strada
 
 	Result<InputCapturePlan> InputRebinding::PlanCapture(AssetHandle actions, std::string_view action, int32_t binding, int32_t part)
 	{
+		if (std::optional<std::string> problem = CheckPart(part))
+		{
+			return Error{std::move(*problem)};
+		}
 		Result<Address> found = FindBinding(actions, action, binding);
 		if (!found)
 		{

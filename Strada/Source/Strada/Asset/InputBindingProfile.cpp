@@ -22,18 +22,6 @@ namespace Strada
 			       control.Kind == InputControlKind::PadStick;
 		}
 
-		// Whether a stick (its index) and an axis are the stick and one of its own axes.
-		bool IsAxisOfStick(InputControl stick, InputControl axis)
-		{
-			if (stick.Kind != InputControlKind::PadStick || axis.Kind != InputControlKind::PadAxis)
-			{
-				return false;
-			}
-			GamepadAxis const value = static_cast<GamepadAxis>(axis.Code);
-			return stick.Code == 0 ? value == GamepadAxis::LeftX || value == GamepadAxis::LeftY
-			                       : value == GamepadAxis::RightX || value == GamepadAxis::RightY;
-		}
-
 		bool Meet(InputControl first, int32_t firstGamepad, InputControl second, int32_t secondGamepad)
 		{
 			if (IsGamepadControl(first) != IsGamepadControl(second))
@@ -44,7 +32,7 @@ namespace Strada
 			{
 				return false;
 			}
-			return first == second || IsAxisOfStick(first, second) || IsAxisOfStick(second, first);
+			return DoInputControlsMeet(first, second);
 		}
 
 		bool BindingsMeet(InputActionBinding const& first, InputActionBinding const& second)
@@ -78,9 +66,34 @@ namespace Strada
 			return found != map.Actions.end() ? &*found : nullptr;
 		}
 
+		// An action's name as a description quotes it: at most MaxInputActionNameLength bytes, cut before a UTF-8 sequence that
+		// would not fit, so that a profile's long names make no long log line.
+		std::string QuoteName(std::string_view name)
+		{
+			if (name.size() <= MaxInputActionNameLength)
+			{
+				return std::string(name);
+			}
+			size_t cut = MaxInputActionNameLength;
+			while (cut > 0 && (static_cast<unsigned char>(name[cut]) & 0xC0u) == 0x80u)
+			{
+				cut--;
+			}
+			return std::string(name.substr(0, cut)) + "...";
+		}
+
 		// Why an entry does not apply to the map; empty when it does.
 		std::string CheckEntry(InputBindingProfileEntry const& entry, InputActionMap const& map)
 		{
+			if (entry.Action.size() > MaxInputActionNameLength)
+			{
+				return fmt::format("an action's name has at most {} bytes, not {}", MaxInputActionNameLength, entry.Action.size());
+			}
+			if (entry.Controls.size() > MaxInputBindingProfileTextLength || entry.Replaced.size() > MaxInputBindingProfileTextLength)
+			{
+				return fmt::format("an entry's controls have at most {} bytes, not {}", MaxInputBindingProfileTextLength,
+				                   std::max(entry.Controls.size(), entry.Replaced.size()));
+			}
 			InputAction const* const action = FindAction(map, entry.Action);
 			if (action == nullptr)
 			{
@@ -148,7 +161,7 @@ namespace Strada
 			}
 			else
 			{
-				fit.Dropped.push_back(fmt::format("{} binding {}: {}", entry.Action, entry.Binding, problem));
+				fit.Dropped.push_back(fmt::format("{} binding {}: {}", QuoteName(entry.Action), entry.Binding, problem));
 			}
 		}
 		return fit;

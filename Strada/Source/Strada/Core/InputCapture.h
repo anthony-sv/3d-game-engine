@@ -17,14 +17,14 @@ namespace Strada
 	// How a rebind ended, or that one is listening.
 	enum class InputRebindStatus : uint8_t
 	{
-		// Nothing was asked yet.
+		// Nothing was asked yet, or the scene stopped since (a stopped scene forgets its capture, listening or not).
 		None = 0,
 		// A capture listens for the next control (Scene::StartInputRebind).
 		Listening,
 		// The binding reads the new controls from the next evaluation on.
 		Done,
-		// A capture ended without a control: Escape was pressed, its time ran out, another capture or a cancel replaced it,
-		// or its scene stopped.
+		// A capture ended without a control: Escape was pressed, its time ran out, or another capture or a cancel replaced
+		// it.
 		Cancelled,
 		// The request names no binding that can take the controls (an unknown action, a binding or part out of range,
 		// controls that do not fit the action), or no actions run; Message says which. Nothing changed.

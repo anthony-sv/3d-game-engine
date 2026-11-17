@@ -210,7 +210,8 @@ public static unsafe class Input
 	/// direction); gamepads count only those the binding reads. Escape, or 10 seconds of frames (counted also while
 	/// <see cref="Time.TimeScale"/> is 0), cancel it, as does <see cref="CancelRebind"/> or another StartRebind. Answers
 	/// <see cref="RebindStatus.Listening"/>, or <see cref="RebindStatus.Refused"/> as <see cref="Rebind"/> refuses; read how
-	/// it ends from <see cref="CurrentRebind"/>. The control that was pressed to bind does not press the action.</summary>
+	/// it ends from <see cref="CurrentRebind"/>. The control that ends the capture (the one bound, or Escape) presses no action
+	/// in that frame, whichever reads it.</summary>
 	public static RebindResult StartRebind([InputActionName] string action, int binding, int part = -1)
 	{
 		Span<byte> buffer = stackalloc byte[InputActionContext.StackNameBytes];

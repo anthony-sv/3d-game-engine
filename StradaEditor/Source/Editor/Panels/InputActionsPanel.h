@@ -121,7 +121,9 @@ namespace Strada
 		// Applies a new map as one step named `description`, under the merge key given (0: a new step of its own).
 		void Commit(EditorOperations& operations, InputActionMap const& map, std::string description, uint64_t mergeKey);
 		void UpdateCapture(EditorOperations& operations, InputActionMap const& map, float seconds);
-		void UpdateConflicts(InputActionMap const& map);
+		// Copies the asset's map and works out its bindings' facts when the asset shown or its version changed since the last
+		// copy; otherwise nothing (an idle panel copies, parses and compares nothing per frame).
+		void RefreshMap(AssetHandle asset, uint64_t version, InputActionMap const& data);
 		void DrawTable(EditorOperations& operations, InputActionMap const& map, bool editable);
 		void DrawBindingRow(EditorOperations& operations, InputActionMap const& map, uint32_t action, uint32_t binding, bool editable,
 		                    DrawRecord::ActionRow& row);
@@ -153,9 +155,20 @@ namespace Strada
 		uint64_t m_Steps = 0;
 		// The ImGui frame the panel's contents were last drawn in.
 		int m_DrawnFrame = -1;
-		// Conflicts per action and binding, worked out again when the map changes.
-		std::optional<InputActionMap> m_ConflictMap;
-		std::vector<std::vector<std::vector<std::string>>> m_Conflicts;
+		// What a binding row shows that only the map decides.
+		struct BindingFacts
+		{
+			std::vector<std::string> Conflicts;
+			// 2 or 4 for a composite, else 0.
+			uint32_t Parts = 0;
+		};
+		// The map drawn: the asset's data, copied when the asset shown or its version (drawn from the data asset registry's
+		// epoch, never repeated) changes. An edit made while drawing replaces the asset's data, so the frame draws this copy.
+		InputActionMap m_Map;
+		AssetHandle m_MapAsset;
+		uint64_t m_MapVersion = 0;
+		// Per action and binding of m_Map.
+		std::vector<std::vector<BindingFacts>> m_Facts;
 		std::vector<FieldDescriptor> m_ActionFields;
 	};
 }

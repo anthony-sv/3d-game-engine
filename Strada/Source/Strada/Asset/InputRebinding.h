@@ -57,11 +57,12 @@ namespace Strada
 		// replaces the binding's controls with `controls` (one control, or two or four as a composite; empty unbinds it);
 		// `part` 0 to 3 replaces that control of a composite with the one control `controls` names (not a stick). The new
 		// controls must fit the action's type. Done answers the binding's new controls and the actions it now conflicts
-		// with (FindInputBindingConflicts); the binding is applied whatever the conflicts. The profile is written when what
-		// differs from the asset changed (a binding set back to the asset's controls leaves the profile); a write that fails
-		// is logged and said in Message, and the binding holds for this run. Refused, changing nothing: no actions (an
-		// invalid handle, an asset that does not load), an unknown action, a binding or part out of range, controls that do
-		// not parse or fit.
+		// with (FindInputBindingConflicts); the binding is applied whatever the conflicts. Controls the binding reads already
+		// answer Done and change nothing (no write, no version, no log). Otherwise the profile is written (a binding set back
+		// to the asset's controls leaves it; a binding changed again keeps its entry's place), the version moves and one line
+		// is logged; a write that fails is logged and said in Message, and the binding holds for this run. Refused, changing
+		// nothing: no actions (an invalid handle, an asset that does not load), an unknown action, a binding out of range, a
+		// part below -1 or beyond the binding's, controls that do not parse or fit.
 		[[nodiscard]] static InputRebindResult Rebind(AssetHandle actions, std::string_view action, int32_t binding,
 		                                              std::string_view controls, int32_t part);
 		// Every binding back to the asset's: the table emptied and, when it held entries, the profile written without them.

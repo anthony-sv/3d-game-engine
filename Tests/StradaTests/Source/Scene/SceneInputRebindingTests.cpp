@@ -23,6 +23,7 @@
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <doctest/doctest.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -225,6 +226,8 @@ TEST_CASE("SceneInputRebinding: a rebind reaches the evaluation at the next fram
 				 Refusal{"Jump", 2, "Key/C", -1, "'Jump' has 2 bindings, so no binding 2"},
 				 Refusal{"Jump", -1, "Key/C", -1, "'Jump' has 2 bindings, so no binding -1"},
 				 Refusal{"Jump", 0, "Key/C", 0, "which has no parts"},
+				 Refusal{"Jump", 0, "Key/C", -2, "part -2: -1 is the whole binding, 0 to 3 a part of a composite"},
+				 Refusal{"Steer", 0, "Key/C", -5, "part -5: -1 is the whole binding, 0 to 3 a part of a composite"},
 				 Refusal{"Steer", 0, "Key/C", 2, "has 2 parts, so no part 2"},
 				 Refusal{"Move", 0, "Gamepad/RightStick", 0, "a part takes one control that is not a stick"},
 				 Refusal{"Move", 0, "Key/C Key/V", 3, "a part takes one control that is not a stick"},
@@ -244,6 +247,11 @@ TEST_CASE("SceneInputRebinding: a rebind reaches the evaluation at the next fram
 			CHECK(InputRebinding::GetVersion() == before);
 		}
 		CHECK(ControlsOf(scene, "Jump", 0) == "Key/A");
+		// A capture refuses a part below -1 the same way, and none listens.
+		InputRebindResult const capture = scene.StartInputRebind("Steer", 0, -3);
+		CHECK(capture.Status == InputRebindStatus::Refused);
+		CHECK(capture.Message == "part -3: -1 is the whole binding, 0 to 3 a part of a composite");
+		CHECK(scene.GetInputRebind().Status == InputRebindStatus::Refused);
 	}
 	SUBCASE("a binding left unbound, then every binding back to the asset's")
 	{
@@ -401,6 +409,86 @@ TEST_CASE("SceneInputRebinding: a capture binds the next control at the frame it
 	}
 }
 
+TEST_CASE("SceneInputRebinding: the control that ends a capture presses no action in that frame, whichever reads it")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	InputScope const input;
+	// Jump on Space, Fire on K, Pause on Escape, Move on any pad's left stick, Steer on its X axis.
+	InputActionMap map;
+	map.Actions.push_back(MakeAction("Jump", InputActionType::Button, {Bound("Key/Space")}));
+	map.Actions.push_back(MakeAction("Fire", InputActionType::Button, {Bound("Key/K")}));
+	map.Actions.push_back(MakeAction("Pause", InputActionType::Button, {Bound("Key/Escape")}));
+	map.Actions.push_back(MakeAction("Move", InputActionType::Vector2, {Bound("Gamepad/LeftStick")}));
+	map.Actions.push_back(MakeAction("Steer", InputActionType::Axis, {Bound("Gamepad/LeftX")}));
+	AssetHandle const actions = AssetManager::AddMemoryAsset(MakeAsset(map), "Actions.sinput");
+	Scene scene("Ending");
+	scene.OnRuntimeStart(Settings(actions));
+	RunFrame(scene);
+	InputActionState const& state = scene.GetInputActions();
+
+	SUBCASE("the Escape that cancels presses no action that reads Escape; its release and the next press are edges")
+	{
+		REQUIRE(scene.StartInputRebind("Jump", 0).Status == InputRebindStatus::Listening);
+		Input::SetKeyState(KeyCode::Escape, true);
+		RunFrame(scene);
+		CHECK(scene.GetInputRebind().Status == InputRebindStatus::Cancelled);
+		uint32_t const pause = Find(scene, "Pause");
+		CHECK(state.IsDown(pause));
+		CHECK_FALSE(state.IsPressed(pause));
+		// No edge, so no event of the frame: a handler of Pause never sees the Escape that ended the capture.
+		CHECK(state.GetEdges().empty());
+		Input::SetKeyState(KeyCode::Escape, false);
+		RunFrame(scene);
+		CHECK(state.IsReleased(pause));
+		Input::SetKeyState(KeyCode::Escape, true);
+		RunFrame(scene);
+		CHECK(state.IsPressed(pause));
+	}
+	SUBCASE("the key bound presses neither the action nor one it conflicts with, held or tapped")
+	{
+		REQUIRE(scene.StartInputRebind("Jump", 0).Status == InputRebindStatus::Listening);
+		Input::SetKeyState(KeyCode::K, true);
+		RunFrame(scene);
+		InputRebindResult const& done = scene.GetInputRebind();
+		CHECK(done.Status == InputRebindStatus::Done);
+		CHECK(done.Conflicts == std::vector<std::string>{"Fire"});
+		CHECK(state.IsDown(Find(scene, "Fire")));
+		CHECK_FALSE(state.IsPressed(Find(scene, "Fire")));
+		CHECK_FALSE(state.IsPressed(Find(scene, "Jump")));
+		CHECK(state.GetEdges().empty());
+		Input::SetKeyState(KeyCode::K, false);
+		RunFrame(scene);
+		CHECK(state.IsReleased(Find(scene, "Fire")));
+		Input::SetKeyState(KeyCode::K, true);
+		RunFrame(scene);
+		CHECK(state.IsPressed(Find(scene, "Fire")));
+		CHECK(state.IsPressed(Find(scene, "Jump")));
+		Input::SetKeyState(KeyCode::K, false);
+		RunFrame(scene);
+
+		REQUIRE(scene.StartInputRebind("Pause", 0).Status == InputRebindStatus::Listening);
+		Input::SetKeyState(KeyCode::K, true);
+		Input::SetKeyState(KeyCode::K, false);
+		RunFrame(scene);
+		CHECK(scene.GetInputRebind().Conflicts == std::vector<std::string>{"Jump", "Fire"});
+		CHECK(state.GetEdges().empty());
+	}
+	SUBCASE("a stick bound presses no action that reads one of its axes")
+	{
+		REQUIRE(scene.StartInputRebind("Move", 0).Status == InputRebindStatus::Listening);
+		Input::GamepadState pad = Input::GetRestingGamepadState();
+		pad.Axes[static_cast<size_t>(GamepadAxis::LeftX)] = 1.0f;
+		Input::InjectGamepadState(0, pad);
+		RunFrame(scene);
+		CHECK(scene.GetInputRebind().Status == InputRebindStatus::Done);
+		CHECK(scene.GetInputRebind().Controls == "Gamepad/LeftStick");
+		CHECK(state.IsDown(Find(scene, "Steer")));
+		CHECK_FALSE(state.IsPressed(Find(scene, "Steer")));
+		CHECK(state.GetEdges().empty());
+	}
+}
+
 TEST_CASE("SceneInputRebinding: the profile is written below the game data folder when a binding changes, read when the actions "
           "load, and stale entries are dropped with one line")
 {
@@ -449,6 +537,53 @@ TEST_CASE("SceneInputRebinding: the profile is written below the game data folde
 		REQUIRE(next.ResetInputBindings().Status == InputRebindStatus::Done);
 		CHECK(ReadProfile(profile).Bindings.empty());
 	}
+	SUBCASE("a binding set to the controls it reads already changes nothing, and one changed again keeps its entry's place")
+	{
+		Scene next("Next");
+		next.OnRuntimeStart(Settings(actions));
+		// A file nothing reads again while the table is kept: whether a rebind writes it shows.
+		REQUIRE(FileSystem::WriteTextFile(profile, "unchanged").IsOk());
+		uint64_t const version = InputRebinding::GetVersion();
+		uint64_t const first = Log::GetNextEntryIndex();
+		// Jump's entry is the first of two: re-applying it once moved it behind Move's and wrote the file.
+		InputRebindResult const again = next.RebindInput("Jump", 0, "key/j");
+		CHECK(again.Status == InputRebindStatus::Done);
+		CHECK(again.Controls == "Key/J");
+		CHECK(again.Message.empty());
+		CHECK(next.RebindInput("Move", 0, "Key/Up", 0).Status == InputRebindStatus::Done);
+		CHECK(InputRebinding::GetVersion() == version);
+		CHECK(CountLogged(first, "Input bindings: binding") == 0);
+		CHECK(FileSystem::ReadTextFile(profile).GetValue() == "unchanged");
+		CHECK(InputRebinding::GetProfile().Bindings[0].Action == "Jump");
+
+		REQUIRE(next.RebindInput("Jump", 0, "Key/H").Status == InputRebindStatus::Done);
+		CHECK(InputRebinding::GetVersion() != version);
+		CHECK(CountLogged(first, "Input bindings: binding 0 of 'Jump' reads 'Key/H' (it read 'Key/J')") == 1);
+		InputBindingProfile const written = ReadProfile(profile);
+		REQUIRE(written.Bindings.size() == 2);
+		CHECK(written.Bindings[0] == InputBindingProfileEntry{"Jump", 0, "Key/H", "Key/Space"});
+		CHECK(written.Bindings[1].Action == "Move");
+	}
+	SUBCASE("a profile that cannot be written keeps the binding for the run, says so in the answer and logs it once")
+	{
+		// A folder where the file goes: replacing it fails on every platform.
+		REQUIRE(FileSystem::Remove(profile).IsOk());
+		REQUIRE(FileSystem::CreateDirectories(profile).IsOk());
+		Scene next("Next");
+		next.OnRuntimeStart(Settings(actions));
+		uint64_t const first = Log::GetNextEntryIndex();
+		InputRebindResult const kept = next.RebindInput("Jump", 0, "Key/H");
+		CHECK(kept.Status == InputRebindStatus::Done);
+		CHECK(kept.Message.starts_with("kept for this run only: "));
+		CHECK(ControlsOf(next, "Jump", 0) == "Key/H");
+		CHECK(CountLogged(first, "Input bindings: the changed bindings cannot be saved") == 1);
+		// The frame that compiles the new binding, then a press of it.
+		RunFrame(next);
+		Input::SetKeyState(KeyCode::H, true);
+		RunFrame(next);
+		CHECK(next.GetInputActions().IsPressed(Find(next, "Jump")));
+		CHECK(std::filesystem::is_directory(profile));
+	}
 	SUBCASE("entries the asset no longer matches are dropped, all in one line, and the rest applies")
 	{
 		InputBindingProfile stale = ReadProfile(profile);
@@ -469,6 +604,39 @@ TEST_CASE("SceneInputRebinding: the profile is written below the game data folde
 		CHECK(ReadProfile(profile).Bindings.size() == 4);
 		REQUIRE(next.RebindInput("Jump", 1, "Gamepad/Y").Status == InputRebindStatus::Done);
 		CHECK(ReadProfile(profile).Bindings.size() == 3);
+	}
+	SUBCASE("many stale entries, and long names, make one line of bounded length")
+	{
+		InputBindingProfile stale = ReadProfile(profile);
+		stale.Bindings.push_back(InputBindingProfileEntry{std::string(100, 'x'), 0, "Key/C", "Key/Space"});
+		for (uint32_t index = 0; index < 20; index++)
+		{
+			stale.Bindings.push_back(InputBindingProfileEntry{fmt::format("Climb{}", index), 0, "Key/C", "Key/Space"});
+		}
+		REQUIRE(FileSystem::WriteTextFile(profile, DumpJson(WriteInputBindingProfile(stale))).IsOk());
+		InputRebinding::Clear();
+		uint64_t const first = Log::GetNextEntryIndex();
+		Scene next("Next");
+		next.OnRuntimeStart(Settings(actions));
+		std::vector<LogEntry> const entries = Log::GetEntries(first);
+		auto const line =
+			std::ranges::find_if(entries,
+		                         [](LogEntry const& entry)
+		                         {
+									 return entry.Message.find("Input bindings: 21 of 23 changed bindings of") != std::string::npos;
+								 });
+		REQUIRE(line != entries.end());
+		CHECK(line->Message.find(std::string(64, 'x') + "... binding 0: an action's name has at most 64 bytes, not 100") !=
+		      std::string::npos);
+		CHECK(line->Message.find(std::string(65, 'x')) == std::string::npos);
+		CHECK(line->Message.find("Climb6 binding 0") != std::string::npos);
+		CHECK(line->Message.find("Climb7 binding 0") == std::string::npos);
+		CHECK(line->Message.find("; and 13 more") != std::string::npos);
+		// The listing after the file's path, whose length is the machine's.
+		size_t const listing = line->Message.find("are dropped: ");
+		REQUIRE(listing != std::string::npos);
+		CHECK(line->Message.size() - listing < 1024);
+		CHECK(ControlsOf(next, "Jump", 0) == "Key/J");
 	}
 	SUBCASE("a damaged profile, or one of a newer version, is logged and the bindings are the asset's until one changes")
 	{

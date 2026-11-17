@@ -105,6 +105,9 @@ namespace Strada
 	// are not (an axis composite); Vector2 takes one stick, or four controls that are not sticks (a vector composite). An
 	// unbound list fits every type. Any thread.
 	[[nodiscard]] Result<void> CheckInputBindingControls(InputActionType type, InputControlList const& controls);
+	// Whether two controls meet: they are the same control, or a stick and one of its own axes. Which gamepad each reads is
+	// not compared (the caller does, where it knows). Any thread.
+	[[nodiscard]] bool DoInputControlsMeet(InputControl first, InputControl second);
 
 	// A response curve: maps a binding's magnitude after its dead zone (0 to 1) to the magnitude it gives. Empty is the
 	// identity. The Asset module makes one from a Curve asset; it must be callable from the main thread for the set's
@@ -242,6 +245,10 @@ namespace Strada
 		// control a player pressed, also when the binding already read that control (no new set comes then). An action that
 		// is down stays down. Its override's counts are left alone. Nothing for an index the set lacks.
 		void Settle(uint32_t action);
+		// Settle for every action with a binding that reads a control meeting `control` (DoInputControlsMeet), on any
+		// gamepad: what a capture calls for the control that ended it (Escape, or the control it bound), so that this press
+		// is no press of any action in the frame the capture ends.
+		void SettleControl(InputControl control);
 
 		// The frame's evaluation (Docs/Architecture.md §7.4): every action's value is the reading of the binding with the
 		// largest magnitude, then of its override (Input::FindActionOverride) under the same rule (the first in that order

@@ -131,6 +131,38 @@ TEST_CASE("InputBindingProfile: entries apply only to the bindings they were mad
 	CHECK(ValidateInputActionMap(applied).IsOk());
 }
 
+TEST_CASE("InputBindingProfile: entries whose texts pass their limits are dropped, and a description quotes a long name cut short")
+{
+	InputActionMap const map = MakeMap();
+	InputBindingProfile profile;
+	profile.Bindings.push_back(MakeEntry(std::string(MaxInputActionNameLength + 1, 'J'), 0, "Key/J", "Key/Space"));
+	// A name of two-byte characters is cut before a character that would not fit whole.
+	std::string wide = "J";
+	while (wide.size() <= MaxInputActionNameLength)
+	{
+		wide += "\xC3\xA9";
+	}
+	profile.Bindings.push_back(MakeEntry(wide, 0, "Key/J", "Key/Space"));
+	profile.Bindings.push_back(MakeEntry("Jump", 0, "Key/J" + std::string(MaxInputBindingProfileTextLength, ' '), "Key/Space"));
+	profile.Bindings.push_back(MakeEntry("Jump", 1, "Gamepad/B", std::string(MaxInputBindingProfileTextLength + 1, 'A')));
+	profile.Bindings.push_back(MakeEntry(std::string(MaxInputActionNameLength, 'J'), 0, "Key/J", "Key/Space"));
+
+	InputBindingProfileFit const fit = FitInputBindingProfile(profile, map);
+	CHECK(fit.Kept.Bindings.empty());
+	REQUIRE(fit.Dropped.size() == 5);
+	CHECK(fit.Dropped[0] == std::string(MaxInputActionNameLength, 'J') + "... binding 0: an action's name has at most 64 bytes, not 65");
+	// "J" and 31 whole two-byte characters fill 63 bytes; the 32nd would pass 64.
+	CHECK(fit.Dropped[1].starts_with(wide.substr(0, 63) + "... binding 0: an action's name has at most 64 bytes"));
+	CHECK(fit.Dropped[2] == "Jump binding 0: an entry's controls have at most 256 bytes, not 261");
+	CHECK(fit.Dropped[3] == "Jump binding 1: an entry's controls have at most 256 bytes, not 257");
+	// A name within the limit is quoted whole (the map has no such action).
+	CHECK(fit.Dropped[4] == std::string(MaxInputActionNameLength, 'J') + " binding 0: the map has no action of that name");
+	for (std::string const& dropped : fit.Dropped)
+	{
+		CHECK(dropped.size() < 200);
+	}
+}
+
 TEST_CASE("InputBindingProfile: a binding conflicts with the other actions that read one of its controls on a pad both read, in "
           "the map's order")
 {

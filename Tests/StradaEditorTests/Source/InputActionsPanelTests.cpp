@@ -344,12 +344,17 @@ TEST_CASE("InputActionsPanel: a key pressed while a binding listens binds it as 
 	CHECK(fixture.GetAction("Fire").Bindings[0].Conflicts.empty());
 	std::string const after = fixture.ReadFile();
 
+	// The table drawn follows the asset's undo and redo: what it shows is worked out again when the asset's version moves.
 	REQUIRE(fixture.Operations.Undo().IsOk());
 	fixture.Frames(1);
 	CHECK(fixture.ReadFile() == bytes);
+	CHECK(fixture.GetAction("Jump").Bindings[0].Controls == "Key/Space");
+	CHECK(fixture.GetAction("Jump").Bindings[0].Conflicts == std::vector<std::string>{"Fire"});
 	REQUIRE(fixture.Operations.Redo().IsOk());
 	fixture.Frames(1);
 	CHECK(fixture.ReadFile() == after);
+	CHECK(fixture.GetAction("Jump").Bindings[0].Controls == "Key/J");
+	CHECK(fixture.GetAction("Jump").Bindings[0].Conflicts.empty());
 	CHECK_FALSE(fixture.Context.IsDirty());
 
 	// The key the binding reads already: no step.

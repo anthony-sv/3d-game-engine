@@ -408,14 +408,15 @@ namespace Strada
 		// Starts listening for the control that binding `binding` of the action takes (`part` -1 the whole binding, else one
 		// control of a composite), from this frame's input on: the first fitting control given (InputControlCapture), checked
 		// before each of this scene's evaluations, is bound as RebindInput binds it; Escape, or InputControlCapture::Timeout
-		// seconds of frames (unscaled: a game paused by a time scale of 0 still counts them), cancel it. Ends a capture
-		// already listening (Cancelled). Answers Listening (the binding's controls now), or Refused as RebindInput refuses,
-		// also when the scene does not run.
+		// seconds of frames (unscaled: a game paused by a time scale of 0 still counts them), cancel it. The control that ends
+		// it (Escape, or the control bound) presses no action in that frame, whichever reads it (InputActionState::SettleControl).
+		// Ends a capture already listening (Cancelled); the scene's stop forgets it (None). Answers Listening (the binding's
+		// controls now), or Refused as RebindInput refuses, also when the scene does not run.
 		InputRebindResult StartInputRebind(std::string_view action, int32_t binding, int32_t part = -1);
 		// Ends a listening capture (Cancelled); nothing otherwise.
 		void CancelInputRebind();
 		// The latest capture's state: Listening while it listens, then how it ended (Done with the conflicts, Cancelled,
-		// Refused); None before any since the scene started.
+		// Refused); None before any since the scene started, and once the scene stopped.
 		InputRebindResult const& GetInputRebind() const { return m_InputRebind; }
 		// InputRebinding::Rebind, ResetBindings and GetBindingControls for the runtime settings' actions.
 		InputRebindResult RebindInput(std::string_view action, int32_t binding, std::string_view controls, int32_t part = -1);

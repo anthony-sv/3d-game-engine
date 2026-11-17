@@ -5,6 +5,8 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/InputRebinding.h"
+#include "Strada/Core/InputActions.h"
+#include "Strada/Core/KeyCodes.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptEngine.h"
@@ -183,6 +185,9 @@ namespace Strada
 		{
 			return;
 		}
+		// The control that ends a capture presses no action in this frame, whichever action reads it: its status already reads
+		// how the capture ended when this frame's events run, so a handler could not tell this press from a press of its own
+		// (Escape cancelling a capture is no press of a Pause action that reads Escape too).
 		switch (m_InputCapture.Update(frameSeconds, !m_UIPointerOver))
 		{
 			case InputCaptureOutcome::Waiting:
@@ -190,6 +195,7 @@ namespace Strada
 			case InputCaptureOutcome::Escaped:
 				m_InputRebind.Status = InputRebindStatus::Cancelled;
 				m_InputRebind.Message = "Escape cancelled the capture";
+				m_InputActions.SettleControl(InputControl{InputControlKind::Key, static_cast<uint16_t>(KeyCode::Escape)});
 				return;
 			case InputCaptureOutcome::TimedOut:
 				m_InputRebind.Status = InputRebindStatus::Cancelled;
@@ -197,15 +203,18 @@ namespace Strada
 				return;
 			case InputCaptureOutcome::Captured:
 			{
+				InputControl const captured = m_InputCapture.GetControl();
 				m_InputRebind = InputRebinding::Rebind(m_RuntimeSettings.InputActions, m_InputRebind.Action, m_InputRebind.Binding,
-				                                       FormatInputControl(m_InputCapture.GetControl()), m_InputRebind.Part);
-				// The press that bound the control is no press of the action, whether or not a new set comes: binding the
-				// control the binding already read compiles nothing again.
+				                                       FormatInputControl(captured), m_InputRebind.Part);
+				// The press that bound the control is no press of the action, whether or not a new set comes (binding the
+				// control the binding already read compiles nothing again), nor of the actions it conflicts with. Settled in
+				// the set evaluated so far: the set compiled next keeps their state by name.
 				Ref<InputActionSet const> const& actions = m_InputActions.GetActions();
 				if (std::optional<uint32_t> const rebound = actions ? actions->Find(m_InputRebind.Action) : std::nullopt)
 				{
 					m_InputActions.Settle(*rebound);
 				}
+				m_InputActions.SettleControl(captured);
 				return;
 			}
 		}

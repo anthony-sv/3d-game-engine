@@ -2025,7 +2025,7 @@ Jump"), the game keeps them for the next run, and the actions asset is never wri
   actions in the map, each once. The engine applies the binding whatever it conflicts with and reports; the game decides
   (warn, swap, set it back). `Refused`, changing nothing, names the reason: no actions run (the scene does not run, the
   project names none, the asset does not load), an unknown action, a binding or part out of range, controls that do not
-  parse or fit. A binding set back to the asset's controls leaves the profile. `Scene::ResetInputBindings`
+  parse or fit, a part below -1. A binding set back to the asset's controls leaves the profile. `Scene::ResetInputBindings`
   (`Input.ResetBindings`) returns every binding to the asset's. Refusals are answers, not logged errors.
 - **Capture.** `Scene::StartInputRebind` (`Input.StartRebind`) answers `Listening` and starts an `InputControlCapture`
   (Core) that the scene advances at the start of each `UpdateInputActions`, before it compiles and evaluates, so a
@@ -2039,15 +2039,21 @@ Jump"), the game keeps them for the next run, and the actions asset is never wri
   then or later: the click is for the button under it (a settings screen's Cancel, whose `OnClick` calls
   `Input.CancelRebind`). In one update Escape comes first (it cancels), then keys by code, mouse buttons, gamepad buttons by pad then button, axes by
   pad then axis. `Escape` and 10 seconds (`InputControlCapture::Timeout`) of the frames' **unscaled** time cancel it, so a
-  game paused by a time scale of 0 still times out; so do `CancelInputRebind` (`Input.CancelRebind`), another start and
-  the scene's stop. `Scene::GetInputRebind` (`Input.CurrentRebind`) answers `Listening`, then how it ended. A capture
-  belongs to the scene that started it; the table it writes is the process's. It hides nothing from the actions: a control
-  pressed to bind also presses whatever other action reads it (a conflict the answer lists), and the game reads the
-  status.
-- **The control pressed to bind does not press.** When a capture binds a control, the scene settles the action
-  (`InputActionState::Settle`): what its digital controls did since the last evaluation becomes the baseline, and a
-  reading that holds it down puts it down without a press; this covers a binding that already read that control, for
-  which no new set comes. When a set is replaced, an action kept by name whose bindings now read other controls (a
+  game paused by a time scale of 0 still times out; so do `CancelInputRebind` (`Input.CancelRebind`) and another start.
+  The scene's stop ends it and forgets it: `Scene::GetInputRebind` (`Input.CurrentRebind`) answers `None` then, and
+  otherwise `Listening`, then how it ended. A capture belongs to the scene that started it; the table it writes is the
+  process's. While it listens it hides nothing from the actions: a control the capture does not take (a key while a
+  Vector2 binding waits for a stick, a click over the game's UI) presses the actions that read it, so a settings screen
+  pauses its own handling while the status reads `Listening`.
+- **The control that ends a capture does not press.** The status reads how the capture ended before that frame's
+  actions are evaluated and their events run, so no handler could tell the press that ended it from a press of its own.
+  When a capture binds a control, the scene settles the action (`InputActionState::Settle`): what its digital controls
+  did since the last evaluation becomes the baseline, and a reading that holds it down puts it down without a press;
+  this covers a binding that already read that control, for which no new set comes. It settles every other action that
+  reads the control the same way (`InputActionState::SettleControl`: the same control or a stick and one of its axes, on
+  any gamepad), so a conflicting action is not pressed by it either; and when Escape cancels, it settles every action
+  that reads Escape (a `Pause` action is not pressed by the Escape that cancelled a capture). Raw key queries
+  (`Input.IsKeyPressed`, `Event.KeyPressed`) still see the press. When a set is replaced, an action kept by name whose bindings now read other controls (a
   rebind, or an edited asset) does the same (`InputActionState::SetActions`): its new controls' counts are baselines, and
   its current reading puts it down without a press. One that was down keeps its level, so its next evaluation reports the
   release when nothing holds it any more. The next press of the control is an edge.
@@ -2057,14 +2063,17 @@ Jump"), the game keeps them for the next run, and the actions asset is never wri
   - **Read when the actions load**: `RebuildInputActions` at a scene's start calls `InputRebinding::Load`, which reads the
     profile when the table holds another asset or was read with another game data folder, and keeps the table otherwise
     (a scene loaded after another keeps the player's bindings). Entries that no longer apply to the asset (§7.3's rules:
-    the action or index is gone, the asset's binding no longer reads what the entry replaced, the controls no longer fit)
-    are dropped with one log line naming each and why; the file keeps them until the next write. An entry that stops
+    the action or index is gone, the asset's binding no longer reads what the entry replaced, the controls no longer fit,
+    a name longer than an action's or a text longer than `MaxInputBindingProfileTextLength`) are dropped with one log line
+    naming the first eight and why, and counting the rest; the file keeps them until the next write. An entry that stops
     applying while the game runs (the asset edited in play mode) is dropped the same way when the set is compiled. A
     profile that cannot be read (damaged, of a newer version) is logged once and the bindings are the asset's; the next
     change writes the file again.
   - **Written atomically when a binding changes**: every `Done` that changes what differs from the asset, and a reset that
     had entries, writes the whole profile (`FileSystem::WriteTextFile`: a temporary file, then a rename), creating
-    `Input/`. A write that fails is logged and said in the answer's `Message`; the binding holds for the run.
+    `Input/`. A rebind to the controls the binding reads already is `Done` and writes, moves and logs nothing, so a
+    settings screen may apply the player's bindings every frame; a binding changed again keeps its entry's place. A write
+    that fails is logged and said in the answer's `Message` ("kept for this run only: ..."); the binding holds for the run.
   - **No game data folder** (the editor while editing, tools, tests without a `GameDataScope`) means nothing is read or
     written: rebinds hold in memory for as long as the table lives. An asset that is no file (a memory or built-in asset)
     has no profile either.

@@ -269,8 +269,8 @@ namespace Strada
 			ImGui::End();
 			return;
 		}
-		// A copy: an edit made while drawing replaces the asset's data.
-		InputActionMap const map = typed->GetData();
+		RefreshMap(asset, typed->GetVersion(), typed->GetData());
+		InputActionMap const& map = m_Map;
 		Result<void> const editable = SetDataAssetCommand::CheckEditable(asset);
 		m_Record.Editable = editable.IsOk();
 		if (!editable)
@@ -283,7 +283,6 @@ namespace Strada
 			m_Selected.reset();
 		}
 		UpdateCapture(operations, map, ImGui::GetIO().DeltaTime);
-		UpdateConflicts(map);
 
 		if (!editable)
 		{
@@ -443,21 +442,26 @@ namespace Strada
 		Commit(operations, changed, fmt::format("Bind {} to {} on {}", bound.Name, controls.GetValue(), GetAssetTitle(m_Shown)), 0);
 	}
 
-	void InputActionsPanel::UpdateConflicts(InputActionMap const& map)
+	void InputActionsPanel::RefreshMap(AssetHandle asset, uint64_t version, InputActionMap const& data)
 	{
-		if (m_ConflictMap && *m_ConflictMap == map)
+		if (m_MapAsset == asset && m_MapVersion == version)
 		{
 			return;
 		}
-		m_Conflicts.assign(map.Actions.size(), {});
-		for (size_t action = 0; action < map.Actions.size(); action++)
+		m_Map = data;
+		m_MapAsset = asset;
+		m_MapVersion = version;
+		m_Facts.assign(m_Map.Actions.size(), {});
+		for (size_t action = 0; action < m_Map.Actions.size(); action++)
 		{
-			for (size_t binding = 0; binding < map.Actions[action].Bindings.size(); binding++)
+			for (size_t binding = 0; binding < m_Map.Actions[action].Bindings.size(); binding++)
 			{
-				m_Conflicts[action].push_back(FindInputBindingConflicts(map, action, binding));
+				BindingFacts facts;
+				facts.Conflicts = FindInputBindingConflicts(m_Map, action, binding);
+				facts.Parts = GetPartCount(m_Map.Actions[action].Bindings[binding].Controls);
+				m_Facts[action].push_back(std::move(facts));
 			}
 		}
-		m_ConflictMap = map;
 	}
 
 	void InputActionsPanel::DrawTable(EditorOperations& operations, InputActionMap const& map, bool editable)
@@ -620,12 +624,13 @@ namespace Strada
 	{
 		InputAction const& owner = map.Actions[action];
 		InputActionBinding const& bound = owner.Bindings[binding];
-		std::string const title = GetAssetTitle(m_Shown);
 		DrawRecord::BindingRow record;
 		record.Controls = bound.Controls;
-		if (action < m_Conflicts.size() && binding < m_Conflicts[action].size())
+		uint32_t parts = 0;
+		if (action < m_Facts.size() && binding < m_Facts[action].size())
 		{
-			record.Conflicts = m_Conflicts[action][binding];
+			record.Conflicts = m_Facts[action][binding].Conflicts;
+			parts = m_Facts[action][binding].Parts;
 		}
 		InputBindingCaptureTarget const& target = m_Capture.GetTarget();
 		bool const listening =
@@ -675,7 +680,7 @@ namespace Strada
 			{
 				InputActionMap changed = map;
 				changed.Actions[action].Bindings[binding].Controls = *controls;
-				Commit(operations, changed, fmt::format("Set Controls of {} on {}", owner.Name, title), 0);
+				Commit(operations, changed, fmt::format("Set Controls of {} on {}", owner.Name, GetAssetTitle(m_Shown)), 0);
 			}
 			if (ImGui::IsItemActivated())
 			{
@@ -716,7 +721,6 @@ namespace Strada
 		};
 		record.Bind = captureButton("Bind", -1);
 		ImGui::SetItemTooltip("Press the control to bind (Esc cancels)");
-		uint32_t const parts = GetPartCount(bound.Controls);
 		for (uint32_t part = 0; part < parts; part++)
 		{
 			ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
@@ -741,7 +745,7 @@ namespace Strada
 		{
 			InputActionMap changed = map;
 			changed.Actions[action].Bindings.erase(changed.Actions[action].Bindings.begin() + binding);
-			Commit(operations, changed, fmt::format("Remove Binding {} of {} on {}", binding, owner.Name, title), 0);
+			Commit(operations, changed, fmt::format("Remove Binding {} of {} on {}", binding, owner.Name, GetAssetTitle(m_Shown)), 0);
 		}
 		ImGui::SetItemTooltip("Remove the binding");
 		record.Remove = GetItemCenter();

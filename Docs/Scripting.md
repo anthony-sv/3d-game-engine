@@ -243,7 +243,10 @@ run, and the actions asset is never written:
   it to binding 0 of Jump (a binding's index in its action; pass a part, `StartRebind("Steer", 0, 1)`, to rebind one
   control of a composite such as `Key/A Key/D`). Escape, or 10 seconds of frames (also counted while `Time.TimeScale` is
   0), cancel it, as does `Input.CancelRebind()`. Poll `Input.CurrentRebind.Status` in `OnUpdate`: `Listening`, then
-  `Done`, `Cancelled` or `Refused`. The key pressed to bind does not press the action.
+  `Done`, `Cancelled` or `Refused`. The control that ends a capture presses no action in that frame: the key pressed to
+  bind presses neither the action nor another that reads it, and the Escape that cancels presses no action that reads
+  Escape (a `Pause` action stays unpressed). While the status reads `Listening`, pause the screen's own handling: a
+  control the capture does not take (a key while a Vector2 binding waits for a stick) still presses its actions.
 - `Input.Rebind("Jump", 0, "Key/J")` sets a binding at once (`"Key/A Key/D"` for a composite, `""` to leave it
   unbound; with a part, the one control of that part).
 - Both answer a `RebindResult`: its `Status`, the binding's `Controls` as text, and its `Conflicts`, the other actions

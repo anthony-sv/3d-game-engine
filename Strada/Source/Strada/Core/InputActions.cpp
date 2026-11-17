@@ -347,6 +347,25 @@ namespace Strada
 		return Error{"a Button or Axis action takes one control, or two as an axis (negative, positive)"};
 	}
 
+	bool DoInputControlsMeet(InputControl first, InputControl second)
+	{
+		if (first == second)
+		{
+			return true;
+		}
+		auto const isAxisOfStick = [](InputControl stick, InputControl axis)
+		{
+			if (stick.Kind != InputControlKind::PadStick || axis.Kind != InputControlKind::PadAxis)
+			{
+				return false;
+			}
+			GamepadAxis const value = static_cast<GamepadAxis>(axis.Code);
+			return stick.Code == 0 ? value == GamepadAxis::LeftX || value == GamepadAxis::LeftY
+			                       : value == GamepadAxis::RightX || value == GamepadAxis::RightY;
+		};
+		return isAxisOfStick(first, second) || isAxisOfStick(second, first);
+	}
+
 	namespace InputProcessing
 	{
 		glm::vec2 ReadControl(InputControl control, int32_t gamepad)
@@ -751,6 +770,31 @@ namespace Strada
 		              : specification.Type == InputActionType::Axis ? glm::vec2(best.x, 0.0f)
 		                                                            : best;
 		state.Down = true;
+	}
+
+	void InputActionState::SettleControl(InputControl control)
+	{
+		if (!m_Actions)
+		{
+			return;
+		}
+		std::span<InputActionSpecification const> const specifications = m_Actions->GetActions();
+		for (uint32_t index = 0; index < specifications.size(); index++)
+		{
+			bool const reads = std::ranges::any_of(specifications[index].Bindings,
+			                                       [control](InputBindingSpecification const& binding)
+			                                       {
+													   return std::ranges::any_of(binding.Controls.Get(),
+				                                                                  [control](InputControl const& read)
+				                                                                  {
+																					  return DoInputControlsMeet(read, control);
+																				  });
+												   });
+			if (reads)
+			{
+				Settle(index);
+			}
+		}
 	}
 
 	void InputActionState::TakeBaselines(uint32_t action)
