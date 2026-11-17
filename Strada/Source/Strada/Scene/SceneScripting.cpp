@@ -276,6 +276,8 @@ namespace Strada
 
 	void Scene::FixedUpdateScripts(float fixedDeltaTime)
 	{
+		// Every step takes the actions' latched edges, whether or not scripts run: each edge reaches exactly one step.
+		InputActionState::FixedStepScope const inputActionsStep(m_InputActions);
 		if (!m_RunsScripts)
 		{
 			return;

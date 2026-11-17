@@ -10,6 +10,7 @@ add_executable(StradaTests
     Source/Asset/DataAssetFuzzTests.cpp
     Source/Asset/DataAssetTests.cpp
     Source/Asset/GltfTestBuilder.h
+    Source/Asset/InputActionsAssetTests.cpp
     Source/Asset/MeshFactoryTests.cpp
     Source/Asset/MeshImporterFuzzTests.cpp
     Source/Asset/MeshImporterTests.cpp
@@ -46,6 +47,7 @@ add_executable(StradaTests
     Source/Core/GameDataTests.cpp
     Source/Core/HashTests.cpp
     Source/Core/ImageTests.cpp
+    Source/Core/InputActionsTests.cpp
     Source/Core/InputTests.cpp
     Source/Core/KeyCodeTests.cpp
     Source/Core/LayerStackTests.cpp
@@ -111,11 +113,13 @@ add_executable(StradaTests
     Source/Renderer/UIRenderingTests.cpp
     Source/Scene/ComponentReferenceTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
+    Source/Scene/InputActionsBenchmarkTests.cpp
     Source/Scene/ParticleEmitterTests.cpp
     Source/Scene/PostProcessVolumeTests.cpp
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFuzzTests.cpp
+    Source/Scene/SceneInputActionsTests.cpp
     Source/Scene/SceneInterpolationTests.cpp
     Source/Scene/ScenePhysicsMaterialTests.cpp
     Source/Scene/ScenePhysicsQueryTests.cpp
@@ -125,6 +129,7 @@ add_executable(StradaTests
     Source/Scene/SceneScriptingApiTests.cpp
     Source/Scene/SceneScriptingGuideTests.cpp
     Source/Scene/SceneScriptingHostTests.cpp
+    Source/Scene/SceneScriptingInputActionsTests.cpp
     Source/Scene/SceneScriptingTests.cpp
     Source/Scene/SceneSerializerTests.cpp
     Source/Scene/SceneTests.cpp
@@ -202,12 +207,8 @@ set_target_properties(StradaGameCrashTester PROPERTIES FOLDER "Tests")
 add_dependencies(StradaTests StradaGameCrashTester)
 target_compile_definitions(StradaTests PRIVATE STRADA_GAME_CRASH_TESTER_PATH="$<TARGET_FILE:StradaGameCrashTester>")
 
-# Game scripts the scripting tests run, built against the engine's Strada.ScriptCore.dll like a game's.
-strada_add_dotnet_project(StradaTestScripts
-    PROJECT "${PROJECT_SOURCE_DIR}/Tests/TestScripts/Strada.TestScripts.csproj"
-    OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/TestScripts"
-    DEPENDS StradaScriptCore
-    PROPERTIES "StradaScriptCoreDirectory=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+# The game scripts the scripting tests run (StradaTestScripts, defined in the root CMakeLists.txt beside the projects'
+# scripts, since the editor and player suites use them too).
 add_dependencies(StradaTests StradaTestScripts)
 # The projects' scripts: the visual scripts of their scenes may use their classes as types (VisualScriptEngineTests).
 add_dependencies(StradaTests StradaFeatureTestScripts StradaBlocksScripts StradaShowcaseScripts)

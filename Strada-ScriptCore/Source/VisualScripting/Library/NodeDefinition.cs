@@ -39,6 +39,9 @@ internal enum BuiltinNode
 	EventMouseButtonReleased,
 	EventGamepadButtonPressed,
 	EventGamepadButtonReleased,
+	// The input action events close the input-event range; the engine dispatches them (they are not polled).
+	EventActionPressed,
+	EventActionReleased,
 	EventCustom,
 	EventSend,
 	// Slice 3's broadcast Send comes right after Send, outside the event range (IsEvent ends at EventCustom).

@@ -290,6 +290,12 @@ The [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill is t
 9. **Play and test.** `play_start`, then `play_pause` and `play_advance` with `frames` for exact steps; `input_set`
    presses keys and mouse buttons in the game; `play_stop` discards what the run changed. To click a UI button, read its
    `center` from `ui_layout`, set the `mousePosition` there with `input_set`, press and release `Left` a frame apart.
+   A game written against input actions (the project's `.sinput`, `input_actions_get`) is driven by them by name:
+   `input_set` with `actions` `{"Throttle": 0.8, "Jump": true, "Move": [0, 1]}` holds each value as one more device of
+   the action until a `null`, `input_release` or `play_stop`, and with `gamepads` `{"0": {"buttons": {"A": true},
+   "axes": {"LeftX": -0.5}}}` plays it on an injected gamepad (`null` gives the slot back). Actions are evaluated once a
+   game frame: a value set while paused reaches the next `play_advance` frame once, so set it, advance, then clear it
+   (setting and clearing between two frames is a tap); the answer lists the overrides held and the injected pads.
    `test_run` runs a test scene (`scene`, `timeout`) and returns every check's result. While the game plays,
    `physics_query` asks its physics world what scripts' queries would see: `kind` `raycast` or `raycastAll` from an
    `origin` along a `direction`, `shapeCast` (a `sphere`, `box` or `capsule` swept along it) or `overlap` (the

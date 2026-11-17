@@ -62,4 +62,12 @@ internal interface IVisualScriptEnvironment
 	bool IsGamepadButtonPressed(GamepadButton button, int gamepad);
 
 	bool IsGamepadButtonReleased(GamepadButton button, int gamepad);
+
+	// The name of the input action whose edge the engine dispatches now (Event.ActionPressed and Event.ActionReleased); ""
+	// outside one.
+	string GetHandledAction();
+
+	// The number of the fixed step the running scene's input actions are in, 0 outside every step: what an execution that
+	// starts records, so that a debugger resume reads that step's action edges (Docs/Architecture.md section 7.4).
+	ulong GetActionStep();
 }

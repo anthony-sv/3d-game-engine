@@ -54,6 +54,7 @@ Override the methods you need:
 | `OnCollisionEnter(Entity other)`, `OnCollisionExit(Entity other)` | When a collider of the entity starts or stops touching one of `other` (`Collision` tells where and how hard: [Contacts](#contacts)) |
 | `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)` | When a trigger collider of either entity starts or stops overlapping the other |
 | `OnClick(Entity button)` | When a UI button that is the entity or one of its descendants was clicked, before the frame's `OnUpdate` |
+| `OnActionPressed(string action)`, `OnActionReleased(string action)` | When an input action goes down or up again, once per edge, before the frame's clicks and `OnUpdate` ([Input actions](#input-actions)) |
 | `OnDestroy()` | When the entity is destroyed or the scene stops |
 
 Because every script exists before the first `OnCreate`, scripts can look each other up there. Exceptions thrown by
@@ -66,7 +67,7 @@ Public fields, and private ones marked `[SerializeField]`, are saved with the sc
 shows them by name. Their values are set before `OnCreate`. Supported types: `bool`, `int`, `uint`, `long`, `ulong`,
 `float`, `double`, `string`, `Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Color`, enums, `Entity` (an entity of the
 scene; drag one from the hierarchy), and assets: `Prefab`, `Material`, `Mesh`, `Texture`, `AudioClip`, `Font`,
-`EnvironmentMap`, `Curve`, `PhysicsMaterial` (pick one, or drag it from the content browser).
+`EnvironmentMap`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial` (pick one, or drag it from the content browser).
 
 ```csharp
 public class Turret : Script
@@ -194,6 +195,46 @@ on the view returns it to the game. `CursorMode` applies while the game has the 
 the Game View only, a locked one is locked until the input goes back to the editor. Gamepads reach the game whoever has
 the keyboard and mouse. `Application.WindowWidth` and `WindowHeight` are the size the game view renders at, which its
 resolution menu chooses.
+
+### Input actions
+
+An input action is a named value the game reads instead of a device: `Throttle`, `Steer`, `Jump`, `Move`. The project
+names one input actions asset (`.sinput`; Project Settings, Input Actions), whose actions each have bindings: a key, a
+mouse button, a gamepad button, axis or stick, or a composite of two keys (an axis) or four (a vector), each with a dead
+zone, a response curve, inversion and a scale. The game then plays on the keyboard and a gamepad alike, and a binding
+changes without a change to the scripts. The scene evaluates the actions once a frame, before `OnUpdate`, from the input
+of that frame: a key pressed before a frame is the action's value in that frame.
+
+- `Input.GetAction("Throttle")` is a float (a Button's 0 to 1, an Axis's signed value, a Vector2's length) and
+  `Input.GetActionVector("Move")` a `Vector2`, +Y up (a Button or Axis gives (value, 0)). The binding of the largest
+  magnitude wins.
+- `Input.IsActionDown("Jump")` holds while the action is down (its value reached its press threshold and has not fallen
+  below its release threshold since); `IsActionPressed` and `IsActionReleased` are its edges. In `OnUpdate` an edge
+  holds for the frame it happened in. **In `OnFixedUpdate` each edge is seen by exactly one physics step**, the first at
+  or after its frame (carried over frames that run none), so a jump read in `OnFixedUpdate` is never missed at 144
+  frames per second nor taken twice at 30.
+- `OnActionPressed(string action)` and `OnActionReleased(string action)` run once per edge, before the frame's clicks and
+  `OnUpdate`, on every script (then on every graph's `Event.ActionPressed` and `Event.ActionReleased`).
+- `Input.SetActionOverride("Throttle", 1.0f)` (and `SetActionVectorOverride` for a vector) puts a value on an action as
+  one more device would, with its presses and releases, from the next frame on, until `ClearActionOverride`: how a script
+  or a graph drives the game (an autopilot, an attract mode) and how a test scene presses a button.
+- Names match with their letter case. A name the asset lacks, and every name in a project that names no actions, reads
+  zero (the log says so once per name).
+
+Who sees an edge (`IsActionPressed`, `IsActionReleased`), with a 60 Hz physics step: values (`GetAction`,
+`GetActionVector`) and `IsActionDown` are always the frame's latest evaluation.
+
+| Code that asks | Sees an edge | So at 30 frames per second (two steps a frame) | And at 144 (a step every 2 or 3 frames) |
+|---|---|---|---|
+| `OnUpdate`, `OnActionPressed` and `OnActionReleased`, clicks, contact events, `OnDestroy`, and whatever they call | In the frame it happened in, once | Each frame's edges, in that frame | Each frame's edges, in that frame |
+| `OnFixedUpdate`, and whatever it calls or sends an event to (a graph, `SendEvent`) | In exactly one physics step: the first at or after its frame | Only the first of the frame's two steps | Carried over the frames without a step, to the next step |
+| Code a step started that goes on later outside a step (a graph's `Flow.Delay`, `Flow.WaitUntil`, a Tween or Timeline tick) | Never | — | — |
+| Code a step started that the debugger stopped and resumes | The edges of the step it stopped in | — | — |
+
+A press and a release within one frame reach a step as both edges with the action up; two presses before one step
+reach it as one. An override set in `OnUpdate` is read from the next frame on.
+- `InputActions.ActionNames` lists an asset's actions (`Assets.Load<InputActions>("Input/Game.sinput")`, or a field of
+  type `InputActions`), for a settings screen.
 
 ## Physics
 

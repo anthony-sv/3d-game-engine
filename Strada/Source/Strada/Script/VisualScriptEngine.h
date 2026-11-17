@@ -178,6 +178,10 @@ namespace Strada
 		static void InvokeContactEvent(UUID entity, UUID other, ContactEventType type);
 		// The entity is the clicked UI button or one of its ancestors.
 		static void InvokeOnClick(UUID entity, UUID button);
+		// Event.ActionPressed and Event.ActionReleased of the action ScriptEngine::InputActionEventScope names; nothing runs
+		// outside one.
+		static void InvokeOnActionPressed(UUID entity);
+		static void InvokeOnActionReleased(UUID entity);
 	};
 
 	// The document the runtime receives while development nodes do not run (VisualScriptEngine::SetDevelopmentNodesEnabled):

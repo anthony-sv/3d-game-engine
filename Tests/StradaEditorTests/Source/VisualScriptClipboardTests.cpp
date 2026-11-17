@@ -867,6 +867,29 @@ TEST_CASE("VisualScriptClipboard: events the graph has, events in functions and 
 		CHECK(kept.GetValue().NodeCount == 2);
 		CHECK(empty.Functions[0].Graph.Links.size() == 2);
 	}
+	SUBCASE("an input action's event is the graph's once per action, its letter case included")
+	{
+		VisualScriptDocument actions;
+		std::array<std::pair<char const*, char const*>, 3> const actionEvents = {
+			{{"Event.ActionPressed", "Jump"}, {"Event.ActionReleased", "Jump"}, {"Event.ActionPressed", "jump"}}};
+		for (uint32_t id = 1; id <= actionEvents.size(); id++)
+		{
+			VisualScriptNode node;
+			node.ID = id;
+			node.Type = actionEvents[id - 1].first;
+			node.Position = glm::vec2(0.0f, 200.0f * static_cast<float>(id));
+			node.Settings = {{"Action", actionEvents[id - 1].second}};
+			actions.Graph.Nodes.push_back(node);
+		}
+		VisualScriptDocument document = actions;
+		document.Graph.Nodes.resize(1);
+		Result<VisualScriptPasteResult> pasted =
+			PasteVisualScriptClipboard(document, Other, 0, Copy(actions, 0, {1, 2, 3}), glm::vec2(0.0f), nullptr);
+		REQUIRE(pasted.IsOk());
+		std::vector<std::string> const notes = {"left out 1 event the event graph has already"};
+		CHECK(pasted.GetValue().Notes == notes);
+		CHECK(pasted.GetValue().NodeCount == 2);
+	}
 	SUBCASE("a clipboard with an event twice keeps the first")
 	{
 		VisualScriptDocument twice;

@@ -120,12 +120,12 @@ executable with Project's reader before logging starts (§13.1).
 
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
-| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4), the per-user folders and the game data service (§13.1) | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler`, `UserDataLocations`, `GameData` |
+| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries (the user's Documents folder among them), the engine's layout (where its content lies), images, embedded resources, command line, the profiler's recorder (§4.4), the per-user folders and the game data service (§13.1), input actions' runtime (§7.4) | `Application`, `Layer`, `Window`, `Input`, `InputActionSet`, `InputActionState`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `EngineLayout`, `Image`, `Result<T>`, `Profiler`, `UserDataLocations`, `GameData` |
 | Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums, curves (§6.5) | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum`, `Curve`, `EvaluateCurveKeys` |
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings; versioned documents of one struct, with migrations; profiler captures (§7.3) | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext`, `StructDocumentFormat`, `ProfilerCaptureSerializer` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
-| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer`, `PhysicsMaterial` |
+| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, data asset types (one registration each, with their structs), model importers, built-in primitives, the visual script format and its layout | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter`, `DataAssetRegistry`, `DataAsset`, `TypedDataAsset<T>`, `DataAssetSerializer`, `PhysicsMaterial`, `InputActionMap` |
 | Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
@@ -203,7 +203,8 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     its clear), `Application.Update` (the layers), `Application.ImGui` and `Application.Present`; the waits are a
     subsystem of their own, `Wait.Gpu` (`GraphicsDevice::EndFrame`) and `Wait.FrameLimit`, so that `Application`'s
     figure is work;
-  - `Scene.Update` around `Scene::OnUpdateRuntime`'s phases, in their order: `Scene.UpdateUI`, `Scene.UpdateScripts`,
+  - `Scene.Update` around `Scene::OnUpdateRuntime`'s phases, in their order: `Scene.InputActions` (with
+    `Input.EvaluateActions` inside it, §7.4), `Scene.UpdateUI`, `Scene.UpdateScripts`,
     `Scene.UpdatePhysics`, `Scene.ContactEvents`, `Scene.UpdateAudio`, `Scene.UpdateParticles`, `Scene.Destroy`; in
     `Scene.UpdatePhysics`, `Scene.ReturnToSteps` before the frame's steps and `Scene.Interpolate` after them (§8); in
     each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`;
@@ -978,7 +979,7 @@ scripts reach data assets through the Script module's bindings.
 **Scripts: the managed pattern.** A data asset type that scripts use gets a sealed managed class of the same name in
 `Strada-ScriptCore`, deriving from `Asset` with an internal constructor, as `Material` does; no public member lands
 without a use in the FeatureTest scripts (ScriptCoreTests' coverage), so each type's track adds its class with its first
-user (CV's `Curve` is the first, PM's `PhysicsMaterial` the second, MX1's `Mixer` the third). Managed code identifies asset classes by name, never by a native number: `AssetTypes`
+user (CV's `Curve` is the first, PM's `PhysicsMaterial` the second, IA1's `InputActions` and MX1's `Mixer` the next two). Managed code identifies asset classes by name, never by a native number: `AssetTypes`
 maps each class to its type name (`"Material"`, `"Curve"`) without calling native code, and the visual script library's
 types, the script field codec, the library writer and the literal codec carry that name, as the JSON they write already
 does. So ScriptCoreTests build, write and check the node library, and run graphs, without a native engine, data asset
@@ -1474,9 +1475,11 @@ Project (`<Name>.sproj`, `ProjectSettings` with field tables, validated on every
 `Product`, both optional: the game's data folder and bundle identifier, §13.1), `AssetDirectory`
 (relative, inside the project), `ScriptModule` (the game assembly, relative), `StartScene` (scene asset reference),
 `Window` (`Title`, `Width`, `Height`, `Fullscreen`, `VSync`, `Resizable`, `Icon` texture; for exported games, whose
-player sets the icon on its window) and `Physics`
+player sets the icon on its window), `Physics`
 (`FixedTimestep`, `MaxStepsPerFrame`, `CollisionSteps` (§8), `Layers`: 1 to 16 unique names indexed by
-`RigidBody.Layer`, `IgnoredCollisions`: layer index pairs that do not collide). Opening a project opens its asset directory first so asset references resolve; settings from
+`RigidBody.Layer`, `IgnoredCollisions`: layer index pairs that do not collide), `InputActions` (an `InputActions`
+asset reference, the game's actions, §7.4; 0 for none; a compatible field) and `Mixer` (a `Mixer` asset reference, the
+buses the game's sounds play on, §9.5; 0 for none; a compatible field). Opening a project opens its asset directory first so asset references resolve; settings from
 newer versions are skipped with warnings. New projects (`Project::Create`) get the project file, `Assets/` and the
 start scene `Assets/Scenes/Main.sscene` in an empty or new directory.
 
@@ -1530,6 +1533,28 @@ friction 0.6 by the geometric mean, restitution 0 by the maximum.
 	"PhysicsMaterial": {
 		"Friction": 0.9, "Restitution": 0.1, "FrictionCombine": "Minimum", "RestitutionCombine": "Maximum",
 		"RollingResistance": 0.012, "Surface": "Gravel", "ImpactSound": "9906031496213900225", "ImpactParticles": "0"
+	}
+}
+```
+
+Input actions (`.sinput`, the data asset type `InputActions`, version 1, §7.4): `"InputActions": { "Actions": [ { "Name",
+"Type", "PressThreshold", "ReleaseThreshold", "Bindings": [ { "Controls", "Gamepad", "DeadZone", "ResponseCurve",
+"Invert", "InvertY", "Scale" } ] } ] }`. At most 256 actions of at most 16 bindings; `Name` non-empty, at most 64 bytes
+and unique in any letter case; `Type` is `Button`, `Axis` or `Vector2`; `0 < ReleaseThreshold <= PressThreshold <= 1`;
+`Controls` is empty or one, two or four control names separated by spaces that fit the action's type (§7.4's table);
+`Gamepad` is -1 (any) to 15, `DeadZone` 0 to 0.99, `Scale` at least 0; `ResponseCurve` references a `Curve` (0 for
+none). A new map (`{}`) has no actions.
+
+```json
+{
+	"Strada": { "Version": 1, "Type": "InputActions" },
+	"InputActions": {
+		"Actions": [
+			{ "Name": "Lean", "Type": "Axis", "PressThreshold": 0.5, "ReleaseThreshold": 0.4, "Bindings": [
+				{ "Controls": "Key/A Key/D", "Gamepad": -1, "DeadZone": 0.0, "ResponseCurve": "0", "Invert": false, "InvertY": false, "Scale": 1.0 },
+				{ "Controls": "Gamepad/LeftX", "Gamepad": -1, "DeadZone": 0.15, "ResponseCurve": "4815162342", "Invert": false, "InvertY": false, "Scale": 1.0 }
+			] }
+		]
 	}
 }
 ```
@@ -1753,6 +1778,311 @@ would replace it. Differential tests hold the writers to nlohmann (every fixture
 damaged and in-memory documents) and `Validate` to the old round trip, which the tests keep as their oracle (a fuzz case:
 `Validate` refuses exactly what does not load back as written). So a format change changes the loader, `Validate`,
 `WriteText` and the differential tests together.
+
+### 7.4 Input actions
+
+An **input action** is a named value a game reads instead of a device: `Throttle`, `Lean`, `Jump`, `Move`. Its
+**bindings** give it that value from keys, mouse buttons, gamepad buttons, axes and sticks, so a game written against
+actions is played on the keyboard and on a gamepad alike, and a binding changes without a change to the game. A project
+names one map of actions (`ProjectSettings::InputActions`); several maps at once, map stacks, rebinding while the game
+runs and the player's binding profiles are not part of this design (rebinding and profiles come next, on the same data).
+`Event.KeyPressed` and the key, button and axis queries keep working beside actions, unchanged.
+
+**Three layers, by the module layering (§4).**
+
+- **The runtime is in Core** (`Strada/Core/InputActions.h`), beside `Input`, which it reads alone: the controls a binding
+  names (`InputControl`, `ParseInputControl`, `ParseInputControls`), the compiled actions (`InputActionSet`: immutable,
+  shared, with a process-unique version) and the state one consumer evaluates once per frame (`InputActionState`). Core
+  can name neither an `AssetHandle` nor a `Curve` (both lie to its right), so the set it evaluates is a compiled form: the
+  controls parsed and each response curve an `InputResponse` callable.
+- **The asset is in Asset** (`Strada/Asset/InputActionMap.h`, the plain struct; `Strada/Asset/InputActionsAsset.h`, its
+  field table, validation and registration as the data asset type `InputActions`, §6.4). `CompileInputActions` makes
+  the runtime's set from a map: it parses the controls and resolves each binding's `ResponseCurve` from its Curve asset
+  into a callable that evaluates a copy of the curve's keys (a curve that does not load is the straight line, logged).
+  The curve is evaluated exactly, never sampled into a table, so a binding's reading is the curve's closed form.
+- **The scene evaluates** (`Scene::UpdateInputActions`, the frame's one named call of input actions): each running scene
+  owns an `InputActionState`, sets it at `OnRuntimeStart` from the runtime settings' asset (`SceneRuntimeSettings::
+  InputActions`) and clears it at `OnRuntimeStop`.
+
+**The asset** (`.sinput`, format in §7.3) holds `Actions`, each with a `Name`, a `Type`, a `PressThreshold` and a
+`ReleaseThreshold`, and its `Bindings`, each with `Controls`, `Gamepad`, `DeadZone`, `ResponseCurve`, `Invert`, `InvertY`
+and `Scale`.
+
+- **Bindings are nested in their actions**, not a flat list of bindings that name their action. Data assets refuse an
+  array whose elements are arrays (`Detail::IsDescribedFieldType` in `StructSerialization.h`; `InputActionsAsset.h`
+  asserts the map passes), not an array of structs that hold an array, so an action can hold its bindings. Then no
+  binding can name an action that does not exist, renaming an action is one edit, a binding's index is its place in its
+  action (what rebinding and the player's profiles will address, by action name and index), and the generic editor shows
+  each action's bindings under it, each a list of its own with per-element undo.
+- **A binding's controls are text**: one control name, or two (an axis composite: negative, then positive) or four (a
+  vector composite: up, down, left, right), separated by spaces. Rows of a list are titled by their struct's first text
+  field (`FieldEditor::DescribeElement`), so actions read "0: Throttle" and bindings "1: Key/A Key/D". Typed fields would
+  need one enumerated field per device for each of up to four parts (`KeyCode` alone has 349 slots and no field traits)
+  and would title every binding "Element n". Names are also what rebinding and profiles exchange, as engines name keys
+  by text elsewhere (Unreal's key names, Unity's control paths). Letter case is ignored on reading:
+
+| Control | Names | Reads |
+|---|---|---|
+| Key | `Key/<KeyCode name>`: `Key/Space`, `Key/A`, `Key/LeftShift` | 1 down, 0 up |
+| Mouse button | `Mouse/<MouseButton name>`: `Mouse/Left`, `Mouse/Button4` | 1 down, 0 up |
+| Gamepad button | `Gamepad/<GamepadButton name>`: `Gamepad/A`, `Gamepad/DPadUp` | 1 down, 0 up |
+| Gamepad stick axis | `Gamepad/LeftX`, `Gamepad/LeftY`, `Gamepad/RightX`, `Gamepad/RightY` | -1 to 1, **up positive** (GLFW, and so `Input.GetGamepadAxis`, gives up as -1: `win32_joystick.c` negates the thumb's Y) |
+| Gamepad trigger | `Gamepad/LeftTrigger`, `Gamepad/RightTrigger` | 0 released to 1 pressed (GLFW gives -1 to 1, so a released trigger would otherwise read the largest magnitude of all) |
+| Gamepad stick | `Gamepad/LeftStick`, `Gamepad/RightStick` | a vector, +Y up |
+
+- **What fits an action.** `Button` and `Axis` take one control that is not a stick, or two that are not (an axis
+  composite); `Vector2` takes one stick, or four controls that are not sticks (a vector composite). An empty `Controls` is
+  an unbound binding, which reads 0. `Gamepad` is -1 (any connected gamepad: the reading of the largest magnitude among
+  them, and each pad's press and release counts apart, so one pad's press is judged with the others' readings) or a slot
+  0 to 15; keys and mouse buttons ignore it.
+- **Limits and defaults.** At most 256 actions, 16 bindings each; names non-empty, at most 64 bytes, unique in any letter
+  case (queries match them with their case); `0 < ReleaseThreshold <= PressThreshold <= 1`, by default 0.5 and 0.4;
+  `DeadZone` 0 to 0.99, `Scale` at least 0 (inversion is `Invert`'s). Validation (`ValidateInputActionMap`) refuses the
+  rest, naming the action and the binding.
+
+**Reading a binding**, in this order (`InputProcessing` exposes each step for the tests):
+
+1. **The controls' value** (`ReadControls`): a single control's reading from the table, 0 for a gamepad that is not
+   connected; an axis composite's positive part minus its negative part; a vector composite's (right - left, up - down).
+   A composite's part reads `max(reading, 0)`, so triggers and half axes can be parts. **Every two-dimensional value is
+   limited to length 1** here, a stick's as a vector composite's: GLFW clamps each axis on its own
+   (`glfw-src/src/input.c:1455`), so a stick's diagonal reads up to 1.41, and a diagonal of two keys reads 0.707 each.
+   One-dimensional values are -1 to 1 already. So what the dead zone and the curve take is always 0 to 1.
+   - **A trigger at rest.** A trigger reads `(raw + 1) / 2`, except that a trigger that has read nothing but exactly 0
+     since its pad connected reads 0 (`Input::HasGamepadAxisMoved`): a pad whose mapping lacks the trigger reads 0 there
+     forever (`glfwGetGamepadState` clears the state and fills only mapped axes, `input.c:1396`), which the remap would
+     make 0.5, as much as the default `PressThreshold`. A real trigger at rest reads -1 from its first poll, and an
+     injected pad starts at -1 (§"Injected and polled gamepads").
+2. **The dead zone**, radial on the magnitude m (the absolute value, or the vector's length): m <= d reads 0, otherwise
+   the direction times (m - d) / (1 - d), so the reading still reaches 1.
+3. **The response curve** on the magnitude after the dead zone, the direction (or sign) kept.
+4. **Inversion**: `Invert` negates a one-dimensional value and a vector's X, `InvertY` a vector's Y.
+5. **Scale** multiplies.
+
+**An action's value** is the reading of its binding with the largest magnitude; then its override, if any (below), under
+the same rule; the first in that order wins a tie. A `Button` action's value is that reading's **magnitude** (0 up: an
+axis composite or a stick axis bound to a button presses it either way, and `Invert` changes nothing of a button); an
+`Axis` action's is the signed reading, a `Vector2` action's the vector. Its **level** follows the magnitude with
+hysteresis: an action that is up goes down when the magnitude reaches `PressThreshold`, and goes up again when it falls
+below `ReleaseThreshold`. Every type has a level, so an axis pushed past its threshold is pressed too.
+
+**Edges.** `Input` counts every button's presses and releases (`Input::ButtonCounts`), counts the input frame never
+clears, and the state keeps each digital control's counts as its last evaluation read them (a gamepad button of a
+binding that reads any gamepad is one control per pad). An override is one more digital control of its action (below):
+it counts a press when its value leaves 0 and a release when it returns to 0 or is cleared. A control **can press** its
+action when its binding, read with that control down and the binding's other controls up, reaches `PressThreshold`
+(worked out once, when the state takes its set: 1 through the binding's processing); an override can when the largest
+magnitude it held during its presses since the state's last evaluation reaches it. An evaluation compares the action's
+previous level P with its new one D:
+
+| P | D | Between the two evaluations | Edges, in this order |
+|---|---|---|---|
+| up | down | anything | pressed |
+| down | up | anything | released |
+| up | up | a control that can press was pressed and released (both its counts moved) | pressed, released |
+| up | up | nothing of that | none |
+| down | down | a control that can press was released and pressed again (both its counts moved, the control down now), and the action without that control (its binding with that control up, on that pad alone for a binding of any gamepad, its other bindings and its override) is below `ReleaseThreshold` | released, pressed |
+| down | down | a control was pressed and released (both its counts moved, the control up now), and the action with that control down (its binding with that control down, its other bindings and its override) is below `ReleaseThreshold`: a composite's part that cancels the part holding the action | released, pressed |
+| down | down | nothing of that | none: another binding, control or pad held the action meanwhile |
+
+So an action has at most one press and one release per evaluation, a tap within one evaluation reports both, and a
+release and press again (a double tap at 30 frames per second, an agent's release then press between two
+`play.advance` calls) reports both too. Flags alone (`IsKeyPressed`) would lose a press of a scene that did not read them
+in the input frame they lasted (a paused scene in the player, whose application ends the input frame every frame);
+levels alone would lose a press and release within one frame.
+
+**Counts never rewind for a running state.** `Input::Reset` (application start and shutdown, tests' input scopes) clears
+every count; it also moves `Input::GetResetGeneration`, and a state that sees the generation moved takes every count as
+its new baseline without an edge (the levels fall as they will, with the releases that make). The overrides' version
+(`Input::GetActionOverridesVersion`) is moved by every change and never goes back, across `Reset` too.
+
+**Where in the frame.** `Scene::OnUpdateRuntime`'s order is the runtime lane's; input actions enter it through one named
+call, `UpdateInputActions`, right after `BeginTransformFrame` and before `UpdateUI`:
+
+```
+OnUpdateRuntime: BeginTransformFrame → UpdateInputActions (evaluate; the edges' events) → UpdateUI (clicks)
+                 → UpdateScripts (OnUpdate) → UpdatePhysics (each fixed step: OnFixedUpdate, then physics) → ...
+```
+
+- It evaluates from the `Input` state the frame's scripts read: in the player, what the window polled at the start of
+  the application frame; in the editor's play mode, the game's input frame (§11). A key set before a frame is the
+  action's value in that frame: actions add no frame of latency.
+- A frame that does not run evaluates nothing and loses nothing: a paused scene without queued steps returns before the
+  call, and `Input`'s levels and counts keep what came meanwhile, which the next frame that runs (`play.step`,
+  `play.advance`, the end of the pause) reports, once.
+- At `OnRuntimeStart` (play, the player, a scene load) the state takes its set with no edge for what is already held,
+  as a key held when play starts is down but not pressed, and the scene logs once how many actions it took from which
+  asset. Each frame, before evaluating, the call compares one stamp of what its set was made from (the asset's handle
+  and version and the data asset registry's epoch) with the current one, and compiles again when it moved (an edited
+  `.sinput` or response curve reaches a running game at the next frame); the state keeps its actions' levels and latched
+  edges by name, so a rebuild makes no edge. An asset that does not compile, or does not load, is logged once per stamp
+  and leaves the previous set in place.
+- A scene whose settings name no actions does nothing more in the call than find that out: no zone, no lookup, no walk
+  of the overrides.
+- Every running scene evaluates its own state from the one `Input`; scripts read the state of the scene that runs them
+  (the script engine's scene context).
+- The evaluation allocates nothing (the state is sized when it takes a set) and is timed by `Input.EvaluateActions`
+  inside `Scene.InputActions`. Its target on the reference machine: 64 actions of three bindings each in at most
+  0.05 ms a frame, judged on `Scene.InputActions` in a scene that runs no scripts (the stamp's check and the
+  evaluation; such a scene dispatches no events). StradaTests' case "SceneInputActions: 64 actions of three bindings
+  each, benchmark" measures it in a Release build when `STRADA_INPUT_ACTIONS_BENCHMARK=1` (it skips otherwise): 48
+  Button and Axis actions (a key; a gamepad button or trigger of any pad with a dead zone and a cubic response curve; an
+  axis of two keys) and 16 Vector2 actions (a stick of any pad with a dead zone and the curve; a vector of four keys; a
+  stick of pad 0), with 16 injected pads, the input changed before every evaluation; it times the evaluation again with
+  an override held on every action. The events' cost, which grows with the edges times the script and graph instances
+  (each instance is called for each edge, whether or not it handles the action), is measured beside it by "... with
+  scripts running, benchmark": the same actions, 100 graph instances and 20 C# scripts, with every input changed each
+  frame and with one key a frame.
+
+**The fixed-step rule** (the effort's rule for actions):
+
+- In `OnUpdate`, and in everything else that runs outside the fixed steps (the action events, clicks, contact events,
+  `OnDestroy`), `IsActionPressed` and `IsActionReleased` are the frame's edges.
+- Every edge also increments a latch of its action. `FixedUpdateScripts` brackets each fixed step with
+  `InputActionState::FixedStepScope` (also when the scene runs no scripts, so that steps take the latch all the same):
+  the step gets the next **step number** (`GetFixedStepNumber`, counted from 1 for the state's life), records that
+  number on each action whose latch it takes, and empties the latch.
+- **While a step runs, every query reads that step's edges**, whatever started the code that asks: C# `OnFixedUpdate`,
+  a graph's `Event.FixedUpdate`, a graph that one of them sent an event to or called (`SendEvent`, `Event.Send`,
+  `Event.Broadcast`), a C# member a graph calls, a Timeline a step started. The state knows (`IsInFixedStep`), so no
+  caller can get it wrong. Since a frame's steps run after its evaluation, each edge is seen by **exactly one** step, the
+  first at or after its frame: a frame of eight steps shows it to the first alone, and frames that run no step (a frame
+  shorter than a step, a time scale of 0) carry it to the next step.
+- **Outside every step**, the caller says which edges (`InputActionView`), from where its code came from:
+  - `Frame`: code of `OnUpdate`, an event, a click, a contact, `OnDestroy`, and everything a frame started.
+  - `FixedStep` with the step's number: code that a step started and that a **debugger resume** runs between frames
+    (`graph.continue`, `graph.step`, `play.pause` with `paused: false`). It reads exactly the edges of the step it
+    stopped in, whichever of the frame's steps that was.
+  - `NoEdges`: code that a step started and that runs later outside a step for any other reason (a latent node
+    continued by the Update pass after `Delay`, a `WaitUntil` recheck, a Timeline's tick). It reads no edge: the step
+    that started it saw that step's edges, and the next step sees the next ones, so reading either here would show an
+    edge twice. Values and `IsActionDown` are the latest evaluation's in every view.
+  - The managed side records the view and the step number on an execution when it starts (from the code it starts
+    under: inside a step, the step's number; otherwise the parent execution's view), in a field of its own that a
+    continuation keeps (`Continue` rewrites the execution's start as a resume, so the start cannot hold it).
+- In a fixed step, values and `IsActionDown` are the frame's (the latest evaluation's). A press and release within one
+  frame reach the step as both edges with the action up. Two presses before one step reach it as one press: the queries
+  are booleans.
+- Which step sees an edge depends on the frame it arrived in, so action edges in `OnFixedUpdate` depend on the frame
+  rate, as all input does (§8, "Determinism per platform"); what is exact is the count: no edge is lost or seen twice.
+
+**What a debugger resume sees.** While an execution is stopped the editor refuses game frames
+(`PlayMode::GetFrameStepRefusal`), so no evaluation runs between frames. Code that a resume runs (`graph.continue`,
+`graph.step`, `play.pause` with `paused: false`) reads the latest evaluation through its own view: code of
+`OnUpdate` or an event reads the frame's edges, which its frame already showed it; code a step started reads the edges
+of exactly that step, by its number, whichever of the frame's steps it stopped in (an action's step number is
+overwritten only by a later step that takes a new edge of it, and no step runs while an execution is stopped). Input
+given meanwhile (keys, `input.set`'s actions and gamepads) reaches actions at the next frame's evaluation only, and the
+action events are dispatched by the frame's call alone, so a resume never fires one. So no action edge is seen twice,
+unlike a key's: a press given while stopped is read by the resumed code and again by the next frame
+(`GraphDebugCommandsTests` pins that for keys, and it stays).
+
+**Queries.** `Strada.Input` gains `GetAction(name)` (a float: a `Vector2` action's length), `GetActionVector(name)` (a
+`Button` or `Axis` action gives (value, 0)), `IsActionDown(name)`, `IsActionPressed(name)` and `IsActionReleased(name)`,
+each a pure node (`[PureNode]`). They read the state of the scene that runs scripts (inside a step, that step's edges;
+outside, the view of the code that asks, above), and read zero outside a running scene. A name the set lacks reads zero and is logged once per name until
+the set changes; without a set (a project that names no actions, or an asset that does not load) every name does, and
+the message says the project names no input actions.
+
+**Overrides** put a value on an action as one more device would: `Input.SetActionOverride(name, value)`,
+`Input.SetActionVectorOverride(name, vector)` and `Input.ClearActionOverride(name)` in scripts and graphs, `input.set`'s
+`actions` in automation, `Input::SetActionOverride` in C++. They are global (`Input` holds them, so they need no running
+scene), join the largest-magnitude rule after the bindings, and take effect at the next evaluation (one set in
+`OnUpdate` is read from the next frame on). **They make edges as a button would**: `Input` keeps, per name, the value,
+press and release counts (a press when the value leaves 0, a release when it returns to 0 or is cleared) and the largest
+magnitude held during each press (`Input::ActionOverride`, `Input::ActionOverridePeaks`: a press is kept while no later
+one held as much, at most 16 of them), so a value set and cleared between two evaluations reaches the next one as a tap
+when the largest magnitude of the presses since that state's last evaluation reaches the action's `PressThreshold`, as
+keys given to a paused game do; a strong press followed by a weak one before the next evaluation is still a press, and
+every state reads the presses since its own evaluation. A cleared override keeps its record (value 0, not held) so that
+states which have not evaluated since still see its counts. `Input::DropReleasedActionOverrides` drops the records not
+held when no state can need them: the editor does at the end of play mode (after its scene stopped) and when it closes
+or opens a project; `Input::Reset` drops every record. At most `Input::MaxActionOverrides` (1,024) names have a record at
+once: a new name beyond that is refused and logged. They are held across scene loads and cleared by `ClearActionOverride`,
+`Input::ReleaseInjectedInput` (`input.release`, and the end of play mode; each held one counts its release) and
+`Input::Reset`. An override naming no action of the set is ignored and logged once per name; states look for such
+names only when the overrides' version or their set moved, so a frame allocates nothing for them. They are how a graph
+drives a game (an autopilot, an attract mode) and how a test scene presses a button; logic that must act on each fixed
+step sets its targets there instead.
+
+**What rebinding will change** (the next track's, recorded so that this design leaves it a place). A rebind is a
+process-wide replacement of one binding's controls, or of one part of a composite (the token's position in
+`Controls`), addressed by action name, binding index and part; the player's profile stores each with the `Controls`
+text it replaced, and an entry whose binding no longer holds that text (the asset was edited, bindings reordered or one
+inserted) is dropped with a log line rather than applied to another binding. Compilation then takes the map and those
+replacements, and their version joins the stamp the scene compares (the asset's handle and version, the registry's
+epoch) in `Scene::UpdateInputActions`: nothing else of the evaluation changes. This design ships no table for it: no
+code would use one.
+
+**Events.** C# scripts override `OnActionPressed(string action)` and `OnActionReleased(string action)`; graphs have
+`Event.ActionPressed` and `Event.ActionReleased`, each with a required `Action` setting (the action's name, text) and an
+exec output only.
+
+- **Dispatch.** `UpdateInputActions` dispatches the evaluation's edges (`InputActionState::GetEdges`: by action index, a
+  press before a release of the same evaluation) right after evaluating, so they come before clicks and `OnUpdate`. For
+  each edge, every C# script instance (in the scripts' order) gets its callback, then every graph instance gets its
+  nodes of that kind and action: **C# first**, as every event reaches an entity's C# script before its graph (§10.3).
+  Each edge is dispatched **once**, in the frame that evaluated it; fixed steps dispatch nothing.
+- **The action's name crosses** as contacts' data does: `ScriptEngine::InputActionEventScope` holds the edge's action
+  while its handlers run, and the managed side reads the name through a binding (the managed callbacks get a string; the
+  `ScriptEvent` invoke itself still carries a time step and an entity).
+- **Both `ScriptEvent` sides** gain `ActionPressed = 9` and `ActionReleased = 10` (`ScriptEngineInternal.h`,
+  `ScriptRegistry.cs`); `ScriptEngine` and `VisualScriptEngine` gain `InvokeOnActionPressed` and
+  `InvokeOnActionReleased`; `VisualScriptRuntime.Invoke` accepts events up to `ActionReleased`.
+- **The two kinds** sit in `BuiltinNode` right after `EventGamepadButtonReleased` and before `EventCustom`, so
+  `IsInputEvent` (whose range now ends at `EventActionReleased`) and `IsEvent` (which ends at `EventCustom`) hold: they
+  are input events to the duplicate rule (two enabled nodes of one kind and one action are `DuplicateEvent`, as two of
+  one key are; that rule keys on `InputEventBinding`, which carries an enumerator, so the action kinds get a binding of
+  their own that carries the action's name, and `GraphRules` compares it), but they are not polled. Their `Action`
+  setting is a `String` setting (`SettingKind.String`). `ProgramCompiler` compiles them into a table of (kind,
+  action, node) beside the nine-slot event table, and `VisualScriptRuntime`'s `Update` keeps polling only the key,
+  mouse and gamepad kinds (`IsTriggered`). The built-in kinds go from 92 to 94.
+
+**Injected and polled gamepads.** The window writes all 16 gamepad slots on every poll (`Window::PollGamepads`, through
+`Input::SetGamepadState`), so an injected pad would be wiped by the next poll of a windowed editor. `Input` therefore
+keeps, per slot, the device's state and an optional injected state:
+
+- `Input::InjectGamepadState` gives a slot a state; while the injection holds it, `SetGamepadState` (the poll) records the
+  device's state aside without effect, and every reader (queries, the gamepad flags, the button counts, actions) sees
+  the injected state.
+- `Input::ReleaseInjectedGamepad` (or `ReleaseInjectedGamepads`) returns the slot to the device: its last polled state
+  takes effect at once, with the edges that make.
+- A slot's effective state changing from not connected to connected (a pad plugged in), or changing source (an
+  injection beginning or ending), starts its axes as not moved (`HasGamepadAxisMoved`), which the trigger rule above
+  reads: a device whose mapping lacks a trigger reads it as 0 after an injection of the slot ends, as before it began.
+- `Input::ReleaseInjectedInput` (automation's `input.release`, the end of play mode) releases every injection and clears
+  every override; the window losing the focus does not (it releases keys and mouse buttons, which were the window's);
+  `Input::Reset` clears everything.
+- The rule lives in `Input`, so a test holds an injected pad across `SetGamepadState` calls without a window, and a
+  windowed test across `Window::PollEvents`.
+
+**Automation.** `input.set` gains two parameters, both compatible (Docs/Automation.md documents them):
+
+- `actions`: action name to a number, a bool (1 or 0), `[x, y]` (for `Vector2` actions) or null (clears the override):
+  the same overrides as scripts', held until `input.release`, a null or the end of play mode. Names are checked against
+  the open project's actions (the asset `ProjectSettings::InputActions` names, read from the asset manager as the scene
+  reads it), and an unknown name (with its letter case), a value of the wrong shape for the action's type or one that is
+  not finite as a float is refused (InvalidParams, the message listing the actions), changing nothing, as keys are. A
+  project that names no actions, or names an asset that does not load as one, refuses every name, saying so
+  (InvalidOperation); an empty `actions` asks for nothing. A request that would take the overrides past
+  `Input::MaxActionOverrides` names is refused before it changes anything.
+- `gamepads`: slot `"0"` to `"15"` (decimal, no sign, space or leading zero) to `{ "buttons": { <GamepadButton name>:
+  bool }, "axes": { <GamepadAxis name>: number } }`, or null (releases the injection). The first injection of a slot
+  starts it connected and at rest (buttons up, sticks 0, triggers -1: `Input`'s own convention, which
+  `Input.GetGamepadAxis` reads; actions read the trigger as 0); later ones change only what they name. Axis values are
+  -1 to 1 (not a number is refused).
+- Every entry of both, and of the keys and mouse buttons, is checked before anything changes.
+- While a game is paused, both are held and the next game frame's evaluation reads them, once, as keys given to a paused
+  game reach its next frame. Code a debugger resume runs reads actions as its frame evaluated them, so an action set
+  while an execution is stopped reaches the next frame alone; an injected pad's own queries (`IsGamepadButtonPressed`)
+  are read by the resumed code and the next frame, as keys are. The answer reports, beside the keys, `actions` (every
+  override held, scripts' too, as `[x, y]`) and `gamepads` (every injected slot: `connected`, the `buttons` down and all
+  six `axes`).
+
+**The project and exported games.** `ProjectSettings::InputActions` (an asset reference to an `InputActions` asset; a
+compatible field of project format 1, edited in the Project Settings panel and through `project.settings`) names the
+map, and `MakeSceneRuntimeSettings` copies it into `SceneRuntimeSettings::InputActions`. `Game.sgame` carries every
+project setting and the exporter copies `Assets/` whole, so an exported game reads its project's actions.
 
 ## 8. Physics (Jolt)
 
@@ -2135,7 +2465,8 @@ reaches the simulation.
 It does not promise equality across platforms, compilers or configurations: Jolt is built without its
 `CROSS_PLATFORM_DETERMINISTIC` option (with MSVC's `/fp:fast`), engine code is compiled with each compiler's default
 floating-point contraction (arm64 fuses multiply-adds), and Debug and Release differ. Nor does it cover what happens per
-frame rather than per step: `OnUpdate`, input read in it, contact events (they reach scripts once per frame, after the
+frame rather than per step: `OnUpdate`, input read in it, input actions' edges in `OnFixedUpdate` (each reaches exactly
+one step, but which one depends on the frame it arrived in, §7.4), contact events (they reach scripts once per frame, after the
 frame's steps), destruction (deferred to the end of the frame), changes of the time scale, editor edits and scene loads.
 Two things read in `OnFixedUpdate` itself depend on the frame or the run: `Time.Elapsed` and `Time.FrameCount` count
 the frames' time and frames, not the steps', and `Strada.Random` starts from a different seed on every run. A game whose
@@ -2760,11 +3091,12 @@ boundary (`byte` for bool, UTF-8 `byte*` + length for strings). glm/C# layouts m
 Scripts derive from `Strada.Script` (which derives from `Entity`) and override any of: `OnCreate()`,
 `OnUpdate(float deltaTime)`, `OnFixedUpdate(float fixedDeltaTime)`, `OnDestroy()`, `OnCollisionEnter(Entity other)`,
 `OnCollisionExit(Entity other)`, `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)`,
-`OnClick(Entity button)` (a UI button that is the entity or one of its descendants was clicked).
+`OnClick(Entity button)` (a UI button that is the entity or one of its descendants was clicked),
+`OnActionPressed(string action)` and `OnActionReleased(string action)` (an input action's edge, §7.4).
 Public fields (and private fields marked `[SerializeField]`) of supported types are editable in the inspector and
 serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `string`, `Vector2`, `Vector3`,
 `Vector4`, `Quaternion`, `Color`, `Entity`, `Prefab`, `AssetHandle`, typed asset references (`Mesh`, `Material`,
-`Texture`, `AudioClip`, `Font`, `EnvironmentMap`, `VisualScript`, `Curve`, `Mixer`, `PhysicsMaterial`), and enums. Enums are stored as integers of their size (the class
+`Texture`, `AudioClip`, `Font`, `EnvironmentMap`, `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`), and enums. Enums are stored as integers of their size (the class
 metadata lists the enumerators in declaration order and marks `[Flags]` enums; stored values out of the enum's range
 are ignored) and typed references as asset handles (the metadata names the accepted asset type).
 
@@ -2774,7 +3106,8 @@ follows `ScriptComponent` changes (new components get instances and `OnCreate`; 
 component gets `OnDestroy`; unknown classes are logged once per class name), then calls `OnUpdate`; `OnFixedUpdate`
 runs before every fixed step, with or without physics; contacts reach the scripts of both entities, the other entity
 arriving as its script instance when it has one, and `Strada.Collision` reads the event as the handling entity sees it
-while its handlers run (§8, "Contacts in scripts and graphs"); clicks reach the scripts of the button and its ancestors before the
+while its handlers run (§8, "Contacts in scripts and graphs"); input actions' edges reach every script, once each and
+before the frame's clicks (§7.4); clicks reach the scripts of the button and its ancestors before the
 frame's `OnUpdate`. Destroyed entities get `OnDestroy` while still intact (children
 after their parent), and stopping or destroying the running scene calls `OnDestroy` on every script.
 While a scene runs, `Scene::ReadScriptFields` copies the values a script's fields hold
@@ -2820,7 +3153,8 @@ editor's Simulate mode runs neither kind.
   `AlphaCutoff`, `DoubleSided`, `UVTiling`, `UVOffset`.
 - `Input`: `IsKeyDown/Pressed/Released(KeyCode)`, `IsMouseButtonDown/Pressed/Released(MouseButton)`,
   `MousePosition`, `MouseDelta`, `MouseScrollDelta`, `CursorMode`, `IsPointerOverUI`, gamepad (`IsGamepadConnected`,
-  `GetGamepadAxis`, `IsGamepadButtonDown/Pressed`).
+  `GetGamepadAxis`, `IsGamepadButtonDown/Pressed`), input actions (§7.4: `GetAction`, `GetActionVector`,
+  `IsActionDown/Pressed/Released(string)`, `SetActionOverride`, `SetActionVectorOverride`, `ClearActionOverride`).
 - `Time`: `DeltaTime`, `FixedDeltaTime`, `Elapsed`, `FrameCount`, `TimeScale`.
 - `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`; `RaycastHit` (`Entity`,
   `Point`, `Normal`, `Distance`, `Material`: the `PhysicsMaterial` of the surface hit, null for none, one shared
@@ -2848,8 +3182,10 @@ editor's Simulate mode runs neither kind.
 - `Log`: `Trace/Info/Warn/Error`. `Debug`: `DrawLine(from, to, color, duration)`.
 - `SceneManager`: `LoadScene(path)`, `CurrentSceneName`. `Application`: `Quit()`, `WindowWidth/Height`, `IsEditor`.
 - `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`, `Font`, `EnvironmentMap`,
-  `VisualScript`, `Curve`, `Mixer`, `PhysicsMaterial`.
+  `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`.
 - `Curve` (a `.scurve` asset, §6.5): `Evaluate(time)`, a pure node, evaluated by the runtime's copy of the keys.
+- `InputActions` (a `.sinput` asset, §7.4): `ActionNames`, the names of its actions in its order (a new array on each
+  read, from the runtime's copy of the names, read again when the asset's version changes).
 - `Audio` (§9.5, §9.7): `MasterVolume`, `GetBusVolume(bus)`, `SetBusVolume(bus, decibels)`, `IsBusMuted(bus)`,
   `SetBusMuted(bus, muted)` (the game's values of the mix, by bus name in any letter case), `PlayClipAtPoint(clip,
   position, volume, bus)`, `ActiveVoiceCount`. Bindings `Audio_*` in `ScriptBindingsRuntime.cpp`; without an audio engine
@@ -2877,7 +3213,7 @@ without a simulated character the reads are a character at rest and `Move` and s
 lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
 entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
 `Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
-`Prefab`, `VisualScript`, `Curve`, `Mixer`, `PhysicsMaterial`). Calls without a running scene
+`Prefab`, `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the
@@ -3071,7 +3407,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 
   An instance holds the variables (their values, then the component's values for public ones), the persistent frame of
   the event graph (outputs of impure nodes; the state of DoOnce, DoN, FlipFlop, Gate and latent nodes) and its fibers.
-  `Invoke` dispatches the C# `ScriptEvent`s. Update sets `Time.DeltaTime`, runs the input events in node order and then
+  `Invoke` dispatches the C# `ScriptEvent`s (the two input action events, §7.4, start the nodes of their kind whose
+  `Action` is the event's action). Update sets `Time.DeltaTime`, runs the polled input events (keys, mouse and gamepad
+  buttons) in node order and then
   `Event.Update`, then makes one pass over the pending latent nodes. Destroy removes the instance before `Event.Destroy`
   runs.
 - **Execution**: each execution keeps its flow stack and call stack on the heap. The interpreter therefore never
@@ -3708,7 +4046,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   play mode plays: play mode then owns it (`Input::SetFrameOwned`) and ends it after each game frame that `Update` or
   `Advance` ran. So input given to a paused game, or while an execution is stopped, reaches the next game frame once;
   graph code that a resume of a stopped execution runs between frames reads the input of that moment, so it sees that
-  input as well. Play's start begins a clean input frame with held keys staying down; Stop releases them and begins one.
+  input as well. Input actions are the exception: they are evaluated only by game frames, so resumed code reads the
+  last frame's evaluation and the input reaches actions once, at the next frame (§7.4). Play's start begins a clean input frame with held keys staying down; Stop releases them and begins one.
 - Game input (`GameInputRouter`, the ImGui layer's input filter, like Unity's game view): Play gives the game the input
   and brings the game view to the front, and while playing a click on the view gives it back to the game (the click
   reaches the game too). While the game has the input, every key and mouse event goes to the game alone (Escape, Enter,
@@ -3728,7 +4067,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   meanwhile and its toolbar says how to release it; without the input the game gets nothing (its UI follows no cursor:
   `PlayMode::SetUIPointerEnabled` follows `GameInputRouter::HasInput` from the frame the input changes hands, before the
   scene updates) and the editor works as usual. Automation's `input.set` and `input.release` act on the game's input
-  directly, and `ui.layout` tells where the UI's elements and buttons are in the game view.
+  directly (keys, the mouse, input action overrides and injected gamepads, which the window's polls leave alone: §7.4),
+  and `ui.layout` tells where the UI's elements and buttons are in the game view.
 - The start screen (`Editor/StartScreen/`): `StartScreenPanel` draws `StartScreenModel` over the main viewport's work
   area (under the menu bar) while the model is visible: at start without a project in an editor with a window (unless
   `--no-start-screen`, `EditorLayerSpecification::StartScreen`, which `strada mcp` passes), after File > Close Project,
@@ -4885,3 +5225,7 @@ that each platform's names are tested on every platform:
   `GraphDebug.ReadValues` 0.82 to 0.98 ms. The remainders are runtime work (a cheaper Record mode, a
   binary value block, reading only the sources that changed, a document reader without a JSON document per member).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.
+  Windows MSVC Release is two jobs, which divide the test suites between them through the CMake cache variable
+  `STRADA_TEST_SUITES` (`StradaTests` and `ScriptCoreTests`; `StradaEditorTests`, `StradaRuntimeTests` and
+  `StradaToolTests`), so that each stays far from the job's time limit: each builds every target that is not a test
+  suite, and together they build every target and run every ctest entry once.

@@ -88,6 +88,7 @@ namespace Strada
 		{
 			runtime.IgnoredCollisions.emplace_back(pair.First, pair.Second);
 		}
+		runtime.InputActions = settings.InputActions;
 		runtime.Mixer = settings.Mixer;
 		return runtime;
 	}

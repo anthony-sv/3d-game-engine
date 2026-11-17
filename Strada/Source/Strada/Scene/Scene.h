@@ -2,6 +2,7 @@
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Base.h"
+#include "Strada/Core/InputActions.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Core/UUID.h"
@@ -79,6 +80,10 @@ namespace Strada
 		// The fixed step after which the scene records its physics state hash (Scene::GetRecordedPhysicsHash); 0 records
 		// none.
 		uint64_t PhysicsHashStep = 0;
+		// The project's input actions (an InputActions asset, ProjectSettings::InputActions), which the scene evaluates once
+		// per frame for its scripts (Docs/Architecture.md §7.4); none, or an asset that does not load, reads every action as
+		// zero.
+		AssetHandle InputActions;
 		// The project's mixer (a Mixer asset, ProjectSettings::Mixer), which SceneRunner mixes the game's sounds through
 		// (Docs/Architecture.md §9.5); none, or an asset that does not load, mixes through Master alone. A scene does not
 		// read it.
@@ -342,7 +347,8 @@ namespace Strada
 		void OnRuntimeStart(SceneRuntimeSettings const& settings = {});
 		// Calls OnDestroy on every script (the C# scripts, then the visual scripts), then stops the audio and physics.
 		void OnRuntimeStop();
-		// Advances the runtime: the UI (the mouse over buttons, clicks and OnClick), scripts' OnUpdate, fixed steps (scripts'
+		// Advances the runtime: input actions (evaluated once, then their edges' events: UpdateInputActions), the UI (the
+		// mouse over buttons, clicks and OnClick), scripts' OnUpdate, fixed steps (scripts'
 		// OnFixedUpdate, then physics: kinematic bodies follow their transforms, moved static and dynamic bodies and
 		// characters teleport, characters move, dynamic bodies and characters write their positions back), dynamic and
 		// kinematic bodies (unless their RigidBody's Interpolation is None) and characters drawn between their last two steps
@@ -394,6 +400,11 @@ namespace Strada
 		AudioScene* GetAudioScene() { return m_Audio.get(); }
 		// Collisions and trigger overlaps that began or ended during the last runtime update.
 		std::vector<ContactEvent> const& GetContactEvents() const { return m_ContactEvents; }
+		// The running scene's input actions as its latest frame evaluated them (Docs/Architecture.md §7.4): what scripts'
+		// and graphs' action queries read while the scene runs them (a fixed step's edges for OnFixedUpdate's code). Empty (every
+		// action zero) while the scene does not run or the runtime settings name no actions that load.
+		InputActionState& GetInputActions() { return m_InputActions; }
+		InputActionState const& GetInputActions() const { return m_InputActions; }
 		// The running scene's physics queries (PhysicsScene's, Architecture.md section 8 "Queries"). Physics changes not applied
 		// yet are applied first (ApplyPhysicsChanges), so a body made or rebuilt since the last step is found where its entity
 		// is; every other body is found where the last step left it, which is where OnFixedUpdate reads it (an entity moved
@@ -664,6 +675,24 @@ namespace Strada
 		// prefix keeps them out of the subsystem rule). Taken only while the profiler records.
 		std::string GetScriptProfileName(UUID id) const;
 
+		// Input actions (SceneInputActions.cpp; Docs/Architecture.md §7.4). The frame's one named call of input actions,
+		// which OnUpdateRuntime makes before UpdateUI and the scripts, in frames that run (a paused scene's do not): makes the
+		// set again when what it was made from changed (the runtime settings' InputActions asset or a response curve it
+		// names; the actions' state kept by name), then evaluates it from Input (InputActionState::Evaluate) and dispatches
+		// the evaluation's edges to the scripts (DispatchInputActionEvents). Returns at once when the settings name no
+		// actions. Zone Scene.InputActions.
+		void UpdateInputActions();
+		// Each edge of the latest evaluation, in its order (InputActionState::GetEdges), to every C# script instance
+		// (OnActionPressed or OnActionReleased), then to every graph instance (Event.ActionPressed or Event.ActionReleased),
+		// inside a ScriptEngine::InputActionEventScope that names the action. Nothing when no scripts run.
+		void DispatchInputActionEvents();
+		// At runtime start: the set made from the settings' asset, taken without an edge, logged with its action count.
+		void StartInputActions();
+		void StopInputActions();
+		// Compares what the set was made from with the assets now and, when it changed (or `starting`), compiles again; an
+		// asset that does not load or compile is logged and leaves the previous set in place.
+		void RebuildInputActions(bool starting);
+
 		// UI runtime (SceneUI.cpp).
 		void ResetUI();
 		// Follows the mouse over the UI and its buttons, then clicks the buttons it clicked and the ones scripts clicked, calling
@@ -850,6 +879,14 @@ namespace Strada
 		// Entities whose CharacterController changed while running; their characters are updated before the next step.
 		std::unordered_set<entt::entity> m_ChangedCharacters;
 		std::vector<ContactEvent> m_ContactEvents;
+
+		// While running: the actions' state, set at runtime start (no edge for what is already held) and cleared at stop,
+		// and what its set was made from (Docs/Architecture.md §7.4): the data asset registry's epoch it was last compared
+		// at, the asset's version (0: it did not load) and the response curves' versions, the stamp a rebuild compares.
+		InputActionState m_InputActions;
+		uint64_t m_InputActionsEpoch = 0;
+		uint64_t m_InputActionsAssetVersion = 0;
+		std::vector<std::pair<AssetHandle, uint64_t>> m_InputActionCurves;
 
 		// The component settings an entity's sound was last updated with (to apply changes made while running).
 		struct AudioSourceState

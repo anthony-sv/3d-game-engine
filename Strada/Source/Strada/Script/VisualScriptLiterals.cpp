@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -427,6 +428,11 @@ namespace Strada
 		{
 			static AssetType const s_CurveType = TypedDataAsset<Curve>::GetStaticType();
 			return VisualScriptExposableType{ScriptFieldType::Asset, s_CurveType};
+		}
+		if (typeId == "Strada.InputActions")
+		{
+			static AssetType const s_InputActionsType = TypedDataAsset<InputActionMap>::GetStaticType();
+			return VisualScriptExposableType{ScriptFieldType::Asset, s_InputActionsType};
 		}
 		if (typeId == "Strada.Mixer")
 		{

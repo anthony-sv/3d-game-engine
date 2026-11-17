@@ -67,4 +67,8 @@ internal sealed unsafe class EngineEnvironment : IVisualScriptEnvironment
 	public bool IsGamepadButtonPressed(GamepadButton button, int gamepad) => Input.IsGamepadButtonPressed(button, gamepad);
 
 	public bool IsGamepadButtonReleased(GamepadButton button, int gamepad) => Input.IsGamepadButtonReleased(button, gamepad);
+
+	public string GetHandledAction() => InputActionContext.GetHandledAction();
+
+	public ulong GetActionStep() => InternalCalls.Input_GetActionStep();
 }

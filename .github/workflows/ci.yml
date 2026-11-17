@@ -50,7 +50,15 @@ jobs:
           # GPU tests run on Mesa's lavapipe (software Vulkan) on Windows and Linux. macOS runners have no usable
           # Vulkan device, so GPU tests are skipped there.
           - { name: "Windows MSVC Debug", os: windows-2025, config: debug, allowNoGpu: "0" }
-          - { name: "Windows MSVC Release", os: windows-2025, config: release, allowNoGpu: "0" }
+          # Windows MSVC Release is two jobs, each configuring some of the test suites (STRADA_TEST_SUITES): as one job
+          # it took 44 minutes, 18 of them compiling the C++ test suites, too near the time limit. Each job builds
+          # every target that is not a test suite; together they build every target in Release with warnings as errors
+          # and run every ctest entry once, as the one job did. A test that starts a program (the editor, the player, a
+          # test script assembly) depends on its target, so each job builds what its own tests run.
+          - { name: "Windows MSVC Release (engine tests)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests;ScriptCoreTests" }
+          - { name: "Windows MSVC Release (editor and player tests)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaEditorTests;StradaRuntimeTests;StradaToolTests" }
           - { name: "Linux GCC Debug", os: ubuntu-24.04, config: debug, compiler: gcc, allowNoGpu: "0" }
           - { name: "Linux GCC Release", os: ubuntu-24.04, config: release, compiler: gcc, allowNoGpu: "0" }
           # Linux Clang Debug builds the editor core and the C++ tests without their precompiled header of third-party
@@ -120,7 +128,12 @@ jobs:
           if [ -n "${{ matrix.precompileThirdPartyHeaders }}" ]; then
             precompile_args=("--cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=${{ matrix.precompileThirdPartyHeaders }}")
           fi
-          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" "${precompile_args[@]}" --keep-going \
+          suite_args=()
+          if [ -n "${{ matrix.testSuites }}" ]; then
+            suite_args=("--cmake-arg=-DSTRADA_TEST_SUITES=${{ matrix.testSuites }}")
+          fi
+          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" "${precompile_args[@]}" "${suite_args[@]}" \
+            --keep-going \
             "--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=${STRADA_DEPENDENCY_CACHE_DIR}"
 
       - name: Test
@@ -132,5 +145,10 @@ jobs:
           if [ -n "${{ matrix.precompileThirdPartyHeaders }}" ]; then
             precompile_args=("--cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=${{ matrix.precompileThirdPartyHeaders }}")
           fi
-          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" "${precompile_args[@]}" --test \
+          suite_args=()
+          if [ -n "${{ matrix.testSuites }}" ]; then
+            suite_args=("--cmake-arg=-DSTRADA_TEST_SUITES=${{ matrix.testSuites }}")
+          fi
+          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" "${precompile_args[@]}" "${suite_args[@]}" \
+            --test \
             "--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=${STRADA_DEPENDENCY_CACHE_DIR}"

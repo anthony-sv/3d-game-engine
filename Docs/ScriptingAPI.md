@@ -10,7 +10,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 the few whose summary says graphs have none.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-93 types in 2 namespaces, with 795 members and enum values in all.
+94 types in 2 namespaces, with 806 members and enum values in all.
 
 ## Strada
 
@@ -43,7 +43,8 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [GamepadAxis](#gamepadaxis) | enum | Gamepad axes in the standard layout: sticks from -1 to 1 (up is -1), triggers from -1 (released) to 1. |
 | [GamepadButton](#gamepadbutton) | enum | Gamepad buttons in the standard (SDL_GameControllerDB) layout. |
 | [HideInInspectorAttribute](#hideininspectorattribute) | attribute | Keeps a serialized field out of the inspector; its value is still saved with the scene. |
-| [Input](#input) | static class | Keyboard, mouse and gamepad state of the current frame. "Pressed" and "released" are true only during the frame the button changed. |
+| [Input](#input) | static class | Keyboard, mouse and gamepad state of the current frame, and the project's input actions (named values such as Jump or Steer that bindings give from keys and gamepads alike). "Pressed" and "released" are true only during the frame the button changed. |
+| [InputActions](#inputactions) | class | An input actions asset (`.sinput`): the named actions a game reads instead of keys and gamepads (Throttle, Steer, Jump), each with its bindings. The project names the one its scenes evaluate (Project Settings, Input Actions); scripts read its actions by name through `Input.GetAction`, `Input.IsActionPressed` and the other action queries, and `Script.OnActionPressed` and `Script.OnActionReleased` report their edges. Edit it in the editor; an edit made while the game plays shows on the next frame. An asset that cannot be loaded has no actions (logged). |
 | [JointComponent](#jointcomponent) | class | Joins this entity's body to another entity's body, or to the world, while the scene runs: welded (`JointType.Fixed`), turning around an axis (`JointType.Hinge`, with limits and a motor), turning freely (`JointType.Ball`), kept within distances (`JointType.Distance`) or sliding along an axis (`JointType.Slider`). Both entities need a rigid body with a collider. Changing a property makes the joint again from where the bodies are. |
 | [JointType](#jointtype) | enum | How a `JointComponent` joins two bodies. |
 | [KeyCode](#keycode) | enum | Keyboard keys by their position on a US keyboard layout (GLFW's key codes). |
@@ -537,7 +538,7 @@ Keeps a serialized field out of the inspector; its value is still saved with the
 public static class Input
 ```
 
-Keyboard, mouse and gamepad state of the current frame. "Pressed" and "released" are true only during the frame the button changed.
+Keyboard, mouse and gamepad state of the current frame, and the project's input actions (named values such as Jump or Steer that bindings give from keys and gamepads alike). "Pressed" and "released" are true only during the frame the button changed.
 
 | Member | Summary |
 |---|---|
@@ -557,6 +558,26 @@ Keyboard, mouse and gamepad state of the current frame. "Pressed" and "released"
 | `static bool IsGamepadButtonDown(GamepadButton button, int gamepad = 0)` | Whether a gamepad button is held down. |
 | `static bool IsGamepadButtonPressed(GamepadButton button, int gamepad = 0)` | Whether a gamepad button went down this frame. |
 | `static bool IsGamepadButtonReleased(GamepadButton button, int gamepad = 0)` | Whether a gamepad button went up this frame. |
+| `static float GetAction(string action)` | The value of an input action of the project's `InputActions`: a Button action's from 0 (up) to 1 (more with a binding's scale), an Axis action's signed value (typically -1 to 1), a Vector2 action's length. It is the reading of the binding with the largest magnitude (after its dead zone, response curve, inversion and scale) or the action's override (`Input.SetActionOverride`), evaluated once per frame before `OnUpdate`. Names match with their letter case; an unknown name, and every name in a project that names no actions, reads 0 (logged once per name). |
+| `static Vector2 GetActionVector(string action)` | The value of an input action as a vector: a Vector2 action's, +Y up (a stick pushed forward, the W of a WASD composite); (value, 0) for a Button or Axis action. Reads as `Input.GetAction` does. |
+| `static bool IsActionDown(string action)` | Whether an input action is down: its value reached its press threshold and has not fallen below its release threshold since. Every action type has it, so an axis pushed far enough is down too. |
+| `static bool IsActionPressed(string action)` | Whether an input action went down: in `OnUpdate` and the frame's events, during the frame it went down; in `OnFixedUpdate`, during exactly one physics step, the first at or after that frame (carried across frames that run no step), so fixed steps never miss a press nor see one twice. A press and release within one frame reads pressed and released, and not down. |
+| `static bool IsActionReleased(string action)` | Whether an input action went up again, by the same frame and fixed-step rule as `Input.IsActionPressed`. |
+| `static void SetActionOverride(string action, float value)` | Puts a value on an input action as one more device would (on a Vector2 action, the vector (value, 0)): the action takes it when it is larger than what its bindings read, and it presses and releases the action as a button does (a press when the value leaves 0, a release when it returns to 0 or is cleared). It is read from the next frame's evaluation on and held, across scene loads, until `Input.ClearActionOverride`: how a graph drives a game (an autopilot, an attract mode) and how a test scene presses a button. A value set and cleared before the next frame still reaches it as a press and a release. |
+| `static void SetActionVectorOverride(string action, Vector2 value)` | Puts a vector on an input action as `Input.SetActionOverride` does, for a Vector2 action (+Y up); a Button or Axis action reads its X. |
+| `static void ClearActionOverride(string action)` | Ends the override of an input action (`Input.SetActionOverride`): from the next frame's evaluation on the action reads its bindings alone, released if only the override held it down. Nothing for an action without one. |
+
+### InputActions
+
+```csharp
+public sealed class InputActions : Asset
+```
+
+An input actions asset (`.sinput`): the named actions a game reads instead of keys and gamepads (Throttle, Steer, Jump), each with its bindings. The project names the one its scenes evaluate (Project Settings, Input Actions); scripts read its actions by name through `Input.GetAction`, `Input.IsActionPressed` and the other action queries, and `Script.OnActionPressed` and `Script.OnActionReleased` report their edges. Edit it in the editor; an edit made while the game plays shows on the next frame. An asset that cannot be loaded has no actions (logged).
+
+| Member | Summary |
+|---|---|
+| `string[] ActionNames { get; }` | The names of the asset's actions, in its order (the names `Input.GetAction` and the other action queries take, with their letter case): what a settings screen lists. A new array on each read. |
 
 ### JointComponent
 
@@ -1158,6 +1179,8 @@ Base class of entity behaviours. A Script component names a class deriving from 
 | `protected virtual void OnTriggerEnter(Entity other)` | Called when a trigger collider of either entity starts overlapping a collider of the other. |
 | `protected virtual void OnTriggerExit(Entity other)` | Called when the overlap between a trigger collider and `other` ends. |
 | `protected virtual void OnClick(Entity button)` | Called when a `UIButtonComponent` is clicked, before the frame's `Script.OnUpdate`: on the script of the button's entity, then on the scripts of its ancestors, nearest first (so a menu's script hears the clicks of every button in it). `button` is the clicked button's entity. |
+| `protected virtual void OnActionPressed(string action)` | Called when an input action of the project's `InputActions` goes down (its value reaches its press threshold), once per press, before the frame's `Script.OnUpdate` and its clicks: on every script, then on every graph's `Event.ActionPressed` of that action. `action` is the action's name; compare it with the names of the asset (they match with their letter case). A press and release within one frame calls this, then `Script.OnActionReleased`. |
+| `protected virtual void OnActionReleased(string action)` | Called when an input action of the project's `InputActions` goes up again (its value falls below its release threshold), once per release, before the frame's `Script.OnUpdate`: on every script, then on every graph's `Event.ActionReleased` of that action. `action` is the action's name. |
 
 ### ScriptComponent
 

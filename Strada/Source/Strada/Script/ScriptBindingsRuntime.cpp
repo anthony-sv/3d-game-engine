@@ -3,6 +3,7 @@
 
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/InputActions.h"
 #include "Strada/Physics/PhysicsScene.h"
 
 #include <algorithm>
@@ -220,6 +221,109 @@ namespace Strada::ScriptGlue
 		uint8_t Input_IsGamepadButtonReleased(uint32_t gamepad, int32_t button)
 		{
 			return IsGamepadButton(button) && Input::IsGamepadButtonReleased(gamepad, static_cast<GamepadButton>(button)) ? 1 : 0;
+		}
+
+		// --- Input actions (Docs/Architecture.md §7.4) ---
+
+		// The running scene's actions and the index of the named one; nothing outside a running scene (every query reads zero
+		// there, quietly) and for a name its set lacks (logged once per name by the state).
+		std::optional<uint32_t> ResolveAction(char const* name, int32_t length, InputActionState*& state)
+		{
+			Scene* const scene = ScriptEngine::GetSceneContext();
+			if (scene == nullptr)
+			{
+				state = nullptr;
+				return std::nullopt;
+			}
+			state = &scene->GetInputActions();
+			return state->Resolve(ToStringView(name, length));
+		}
+
+		float Input_GetAction(char const* name, int32_t length)
+		{
+			InputActionState* state = nullptr;
+			std::optional<uint32_t> const action = ResolveAction(name, length, state);
+			return action ? state->GetValue(*action) : 0.0f;
+		}
+
+		void Input_GetActionVector(char const* name, int32_t length, Vector2* value)
+		{
+			InputActionState* state = nullptr;
+			std::optional<uint32_t> const action = ResolveAction(name, length, state);
+			*value = ToScript(action ? state->GetVector(*action) : glm::vec2(0.0f));
+		}
+
+		uint8_t Input_IsActionDown(char const* name, int32_t length)
+		{
+			InputActionState* state = nullptr;
+			std::optional<uint32_t> const action = ResolveAction(name, length, state);
+			return action && state->IsDown(*action) ? 1 : 0;
+		}
+
+		// The edges of the view the asking code runs under (Strada.Interop.InputActionView, recorded by the managed side);
+		// inside a fixed step the state reads that step's whatever the view.
+		std::optional<InputActionView> ToActionView(int32_t view, std::string_view function)
+		{
+			if (view < static_cast<int32_t>(InputActionView::Frame) || view > static_cast<int32_t>(InputActionView::NoEdges))
+			{
+				Log::GetScriptLogger().error("{}: {} is not an input action view", function, view);
+				return std::nullopt;
+			}
+			return static_cast<InputActionView>(view);
+		}
+
+		uint8_t Input_IsActionPressed(char const* name, int32_t length, int32_t view, uint64_t step)
+		{
+			std::optional<InputActionView> const actionView = ToActionView(view, "Input.IsActionPressed");
+			InputActionState* state = nullptr;
+			std::optional<uint32_t> const action = actionView ? ResolveAction(name, length, state) : std::nullopt;
+			return action && state->IsPressed(*action, *actionView, step) ? 1 : 0;
+		}
+
+		uint8_t Input_IsActionReleased(char const* name, int32_t length, int32_t view, uint64_t step)
+		{
+			std::optional<InputActionView> const actionView = ToActionView(view, "Input.IsActionReleased");
+			InputActionState* state = nullptr;
+			std::optional<uint32_t> const action = actionView ? ResolveAction(name, length, state) : std::nullopt;
+			return action && state->IsReleased(*action, *actionView, step) ? 1 : 0;
+		}
+
+		// The number of the fixed step the running scene's actions are in (InputActionState::GetFixedStepNumber), 0 outside
+		// every step: what a graph execution records when it starts, for a debugger resume to read that step's edges.
+		uint64_t Input_GetActionStep()
+		{
+			Scene const* const scene = ScriptEngine::GetSceneContext();
+			InputActionState const* const state = scene != nullptr ? &scene->GetInputActions() : nullptr;
+			return state != nullptr && state->IsInFixedStep() ? state->GetFixedStepNumber() : 0;
+		}
+
+		// Overrides are global (Input holds them), so they need no running scene.
+		void Input_SetActionOverride(char const* name, int32_t length, Vector2 const* value)
+		{
+			std::string_view const action = ToStringView(name, length);
+			if (action.empty())
+			{
+				Log::GetScriptLogger().error("Input.SetActionOverride: an override needs the name of an action");
+				return;
+			}
+			if (CheckFinite("Input.SetActionOverride", *value))
+			{
+				static_cast<void>(Input::SetActionOverride(action, FromScript(*value)));
+			}
+		}
+
+		void Input_ClearActionOverride(char const* name, int32_t length)
+		{
+			Input::ClearActionOverride(ToStringView(name, length));
+		}
+
+		// The action whose edge the handlers running now were called for (ScriptEngine::GetHandledAction); null and 0 outside
+		// one. The text is the set's, valid while the handler runs.
+		char const* Input_GetHandledAction(int32_t* length)
+		{
+			std::optional<std::string_view> const action = ScriptEngine::GetHandledAction();
+			*length = action ? static_cast<int32_t>(action->size()) : 0;
+			return action ? action->data() : nullptr;
 		}
 
 		// --- Physics ---
@@ -525,6 +629,15 @@ namespace Strada::ScriptGlue
 		table.Add("Input_IsGamepadButtonDown", &Input_IsGamepadButtonDown);
 		table.Add("Input_IsGamepadButtonPressed", &Input_IsGamepadButtonPressed);
 		table.Add("Input_IsGamepadButtonReleased", &Input_IsGamepadButtonReleased);
+		table.Add("Input_GetAction", &Input_GetAction);
+		table.Add("Input_GetActionVector", &Input_GetActionVector);
+		table.Add("Input_IsActionDown", &Input_IsActionDown);
+		table.Add("Input_IsActionPressed", &Input_IsActionPressed);
+		table.Add("Input_IsActionReleased", &Input_IsActionReleased);
+		table.Add("Input_GetActionStep", &Input_GetActionStep);
+		table.Add("Input_SetActionOverride", &Input_SetActionOverride);
+		table.Add("Input_ClearActionOverride", &Input_ClearActionOverride);
+		table.Add("Input_GetHandledAction", &Input_GetHandledAction);
 
 		table.Add("Physics_GetGravity", &Physics_GetGravity);
 		table.Add("Physics_SetGravity", &Physics_SetGravity);

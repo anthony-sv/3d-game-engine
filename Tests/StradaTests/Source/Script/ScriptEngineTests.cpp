@@ -52,7 +52,8 @@ TEST_CASE("ScriptEngine: loads game scripts and describes their classes")
 	{
 		names.push_back(scriptClass.Name);
 	}
-	CHECK(names == std::vector<std::string>{"Strada.Tests.AssetProbe",
+	CHECK(names == std::vector<std::string>{"Strada.Tests.ActionProbe",
+	                                        "Strada.Tests.AssetProbe",
 	                                        "Strada.Tests.AudioProbe",
 	                                        "Strada.Tests.BaseBehaviour",
 	                                        "Strada.Tests.CameraProbe",
@@ -177,7 +178,7 @@ TEST_CASE("ScriptEngine: shuts down, starts again and replaces game assemblies")
 		CHECK(ScriptEngine::FindClass("Strada.Tests.Mover") != nullptr);
 		// Loading again replaces the assembly.
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
-		CHECK(ScriptEngine::GetClasses().size() == 37);
+		CHECK(ScriptEngine::GetClasses().size() == 38);
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath().parent_path() / "Missing.dll").IsError());
 	}
 	CHECK_FALSE(ScriptEngine::IsInitialized());

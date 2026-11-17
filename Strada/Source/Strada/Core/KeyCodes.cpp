@@ -142,6 +142,15 @@ namespace Strada
 			"Left", "Right", "Middle", "Button3", "Button4", "Button5", "Button6", "Button7",
 		};
 
+		constexpr std::array<char const*, GamepadButtonCount> s_GamepadButtonNames = {
+			"A",     "B",         "X",          "Y",      "LeftBumper", "RightBumper", "Back",     "Start",
+			"Guide", "LeftThumb", "RightThumb", "DPadUp", "DPadRight",  "DPadDown",    "DPadLeft",
+		};
+
+		constexpr std::array<char const*, GamepadAxisCount> s_GamepadAxisNames = {
+			"LeftX", "LeftY", "RightX", "RightY", "LeftTrigger", "RightTrigger",
+		};
+
 		bool EqualsIgnoreCase(std::string_view a, std::string_view b)
 		{
 			if (a.size() != b.size())
@@ -196,6 +205,42 @@ namespace Strada
 			if (EqualsIgnoreCase(s_MouseButtonNames[i], name))
 			{
 				return static_cast<MouseButton>(i);
+			}
+		}
+		return std::nullopt;
+	}
+
+	char const* GamepadButtonToString(GamepadButton button)
+	{
+		size_t const index = static_cast<size_t>(button);
+		return index < s_GamepadButtonNames.size() ? s_GamepadButtonNames[index] : "Unknown";
+	}
+
+	std::optional<GamepadButton> GamepadButtonFromString(std::string_view name)
+	{
+		for (size_t i = 0; i < s_GamepadButtonNames.size(); i++)
+		{
+			if (EqualsIgnoreCase(s_GamepadButtonNames[i], name))
+			{
+				return static_cast<GamepadButton>(i);
+			}
+		}
+		return std::nullopt;
+	}
+
+	char const* GamepadAxisToString(GamepadAxis axis)
+	{
+		size_t const index = static_cast<size_t>(axis);
+		return index < s_GamepadAxisNames.size() ? s_GamepadAxisNames[index] : "Unknown";
+	}
+
+	std::optional<GamepadAxis> GamepadAxisFromString(std::string_view name)
+	{
+		for (size_t i = 0; i < s_GamepadAxisNames.size(); i++)
+		{
+			if (EqualsIgnoreCase(s_GamepadAxisNames[i], name))
+			{
+				return static_cast<GamepadAxis>(i);
 			}
 		}
 		return std::nullopt;

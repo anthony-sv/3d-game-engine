@@ -1293,6 +1293,22 @@ namespace Strada
 		Invoke(entity, ScriptEvent::Click, 0.0f, button);
 	}
 
+	void VisualScriptEngine::InvokeOnActionPressed(UUID entity)
+	{
+		if (ScriptEngine::GetHandledAction())
+		{
+			Invoke(entity, ScriptEvent::ActionPressed, 0.0f, UUID::Invalid());
+		}
+	}
+
+	void VisualScriptEngine::InvokeOnActionReleased(UUID entity)
+	{
+		if (ScriptEngine::GetHandledAction())
+		{
+			Invoke(entity, ScriptEvent::ActionReleased, 0.0f, UUID::Invalid());
+		}
+	}
+
 	VisualScriptDocument DisableDevelopmentOnlyNodes(VisualScriptDocument document)
 	{
 		auto const disable = [](VisualScriptGraph& graph)

@@ -140,6 +140,23 @@ internal sealed class FakeEnvironment : IVisualScriptEnvironment
 
 	public bool IsGamepadButtonReleased(GamepadButton button, int gamepad) => ReleasedGamepadButtons.Contains((button, gamepad));
 
+	// The input action whose edge the fake engine dispatches now ("" outside one), and the fixed step its actions are in (0
+	// outside every step).
+	internal string HandledAction { get; set; } = string.Empty;
+
+	internal ulong ActionStep { get; set; }
+
+	// How often the runtime asked for the handled action's name.
+	internal int HandledActionReads { get; private set; }
+
+	public string GetHandledAction()
+	{
+		HandledActionReads++;
+		return HandledAction;
+	}
+
+	public ulong GetActionStep() => ActionStep;
+
 	internal sealed class FakeEntity
 	{
 		internal FakeEntity(string name, Script? instance)

@@ -4,11 +4,16 @@
 #include "Editor/Automation/JsonSchema.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/InputActionMap.h"
+#include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/InputActions.h"
 #include "Strada/Core/KeyCodes.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Project/Project.h"
 #include "Strada/Project/SceneRunner.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/UILayout.h"
@@ -16,12 +21,16 @@
 #include <glm/gtc/quaternion.hpp>
 #include <spdlog/fmt/fmt.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Strada
@@ -68,6 +77,9 @@ namespace Strada
 			return description;
 		}
 
+		// The input as input.set and input.release answer it: keys and mouse buttons down, the mouse position, the action
+		// overrides held (by scripts and graphs too) as [x, y] (Button and Axis actions read x), and each injected gamepad slot
+		// with its buttons down and every axis.
 		Json DescribeInput()
 		{
 			Json keys = Json::array();
@@ -86,9 +98,248 @@ namespace Strada
 					buttons.push_back(MouseButtonToString(static_cast<MouseButton>(button)));
 				}
 			}
+			Json actions = Json::object();
+			for (auto const& [name, value] : Input::GetActionOverrides())
+			{
+				actions[name] = Json::array({value.x, value.y});
+			}
+			Json gamepads = Json::object();
+			for (uint32_t slot = 0; slot < MaxGamepads; slot++)
+			{
+				std::optional<Input::GamepadState> const injected = Input::GetInjectedGamepadState(slot);
+				if (!injected)
+				{
+					continue;
+				}
+				Json padButtons = Json::array();
+				for (uint32_t button = 0; button < GamepadButtonCount; button++)
+				{
+					if (injected->Buttons[button])
+					{
+						padButtons.push_back(GamepadButtonToString(static_cast<GamepadButton>(button)));
+					}
+				}
+				Json axes = Json::object();
+				for (uint32_t axis = 0; axis < GamepadAxisCount; axis++)
+				{
+					axes[GamepadAxisToString(static_cast<GamepadAxis>(axis))] = injected->Axes[axis];
+				}
+				gamepads[std::to_string(slot)] =
+					Json::object({{"connected", injected->Connected}, {"buttons", std::move(padButtons)}, {"axes", std::move(axes)}});
+			}
 			glm::vec2 const position = Input::GetMousePosition();
-			return Json::object(
-				{{"keys", std::move(keys)}, {"mouseButtons", std::move(buttons)}, {"mousePosition", {position.x, position.y}}});
+			return Json::object({{"keys", std::move(keys)},
+			                     {"mouseButtons", std::move(buttons)},
+			                     {"mousePosition", {position.x, position.y}},
+			                     {"actions", std::move(actions)},
+			                     {"gamepads", std::move(gamepads)}});
+		}
+
+		// An entry of input.set's actions, checked: the override to put on the action, or none to clear it.
+		struct ActionRequest
+		{
+			std::string Name;
+			std::optional<glm::vec2> Value;
+		};
+
+		// An entry of input.set's gamepads, checked: the slot's whole injected state after the request, or none to release it.
+		struct GamepadRequest
+		{
+			uint32_t Slot = 0;
+			std::optional<Input::GamepadState> State;
+		};
+
+		// The open project's actions (the asset ProjectSettings::InputActions names), by name with its letter case: what
+		// input.set's actions are checked against. An error that says why there are none.
+		Result<std::vector<InputAction>> ReadProjectInputActions(EditorContext const& context)
+		{
+			Project const* const project = context.GetProject();
+			if (project == nullptr)
+			{
+				return MakeError("no project is open, so there are no input actions");
+			}
+			AssetHandle const handle = project->GetSettings().InputActions;
+			if (!handle.IsValid())
+			{
+				return MakeError("the project names no input actions (project.settings' InputActions)");
+			}
+			AssetType const type = TypedDataAsset<InputActionMap>::GetStaticType();
+			Ref<TypedDataAsset<InputActionMap>> const asset =
+				AssetManager::IsInitialized() && type != AssetType::None && AssetManager::GetAssetType(handle) == type
+					? AssetManager::GetAsset<TypedDataAsset<InputActionMap>>(handle)
+					: nullptr;
+			if (!asset)
+			{
+				return MakeError("the project's InputActions, {}, does not load as an InputActions asset",
+				                 AssetManager::IsInitialized() ? AssetManager::GetReference(handle) : handle.ToString());
+			}
+			return asset->GetData().Actions;
+		}
+
+		// Whether the number is finite and stays finite as a float (an override is a float).
+		bool IsFiniteFloat(double value)
+		{
+			return std::isfinite(value) && std::abs(value) <= static_cast<double>(std::numeric_limits<float>::max());
+		}
+
+		std::string ListActionNames(std::vector<InputAction> const& actions)
+		{
+			constexpr size_t Listed = 12;
+			std::string names;
+			for (size_t index = 0; index < actions.size() && index < Listed; index++)
+			{
+				names += (index == 0 ? "" : ", ") + actions[index].Name;
+			}
+			if (actions.size() > Listed)
+			{
+				names += fmt::format(" and {} more", actions.size() - Listed);
+			}
+			return names.empty() ? std::string("none") : names;
+		}
+
+		// input.set's actions, every entry checked before anything changes: a name of the project's actions, and a value of
+		// the shape its type takes (a number or a bool for Button and Axis, [x, y] for Vector2), finite as a float, or null.
+		std::optional<CommandError> ReadActionRequests(Json const& entries, EditorContext const& context,
+		                                               std::vector<ActionRequest>& requests)
+		{
+			if (entries.empty())
+			{
+				return std::nullopt;
+			}
+			Result<std::vector<InputAction>> const actions = ReadProjectInputActions(context);
+			if (!actions)
+			{
+				return MakeCommandError(AutomationErrorCode::InvalidOperation, "input actions cannot be set: {}", actions.GetError());
+			}
+			size_t newNames = 0;
+			for (auto const& [name, value] : entries.items())
+			{
+				auto const action = std::ranges::find(actions.GetValue(), name, &InputAction::Name);
+				if (action == actions.GetValue().end())
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidParams,
+					                        "'{}' is not an input action of the project (its actions, with their letter case: {})", name,
+					                        ListActionNames(actions.GetValue()));
+				}
+				ActionRequest request{name, std::nullopt};
+				if (!value.is_null())
+				{
+					bool const vector = action->Type == InputActionType::Vector2;
+					std::array<double, 2> components = {0.0, 0.0};
+					if (vector && value.is_array() && value.size() == 2 && value[0].is_number() && value[1].is_number())
+					{
+						components = {value[0].get<double>(), value[1].get<double>()};
+					}
+					else if (!vector && value.is_number())
+					{
+						components[0] = value.get<double>();
+					}
+					else if (!vector && value.is_boolean())
+					{
+						components[0] = value.get<bool>() ? 1.0 : 0.0;
+					}
+					else
+					{
+						return MakeCommandError(AutomationErrorCode::InvalidParams, "'{}' is a{} action: give it {}, or null to clear it",
+						                        name, vector ? " Vector2" : (action->Type == InputActionType::Axis ? "n Axis" : " Button"),
+						                        vector ? "[x, y]" : "a number or a bool");
+					}
+					if (!IsFiniteFloat(components[0]) || !IsFiniteFloat(components[1]))
+					{
+						return MakeCommandError(AutomationErrorCode::InvalidParams, "the value of '{}' is not a finite number", name);
+					}
+					request.Value = glm::vec2(static_cast<float>(components[0]), static_cast<float>(components[1]));
+					newNames += Input::FindActionOverride(name) == nullptr ? 1 : 0;
+				}
+				requests.push_back(std::move(request));
+			}
+			size_t records = 0;
+			Input::ForEachActionOverride(
+				[&records](std::string_view, Input::ActionOverride const&)
+				{
+					records++;
+				});
+			if (records + newNames > Input::MaxActionOverrides)
+			{
+				// A cleared override keeps its record (Input::ActionOverride) while a scene may still read its counts: records
+				// not held are dropped when play mode stops and when a project closes or opens.
+				return MakeCommandError(AutomationErrorCode::InvalidOperation,
+				                        "{} action names have override records already, the most the input keeps; the records of "
+				                        "overrides no longer held go when the game stops, and names that have one can still be set",
+				                        Input::MaxActionOverrides);
+			}
+			return std::nullopt;
+		}
+
+		// A gamepad slot as input.set names it: "0" to "15", decimal, without a sign, spaces or a leading zero.
+		std::optional<uint32_t> ParseGamepadSlot(std::string_view text)
+		{
+			if (text.empty() || text.size() > 2 || (text.size() == 2 && text[0] == '0') ||
+			    !std::ranges::all_of(text,
+			                         [](char character)
+			                         {
+										 return character >= '0' && character <= '9';
+									 }))
+			{
+				return std::nullopt;
+			}
+			uint32_t const slot = text.size() == 1 ? static_cast<uint32_t>(text[0] - '0')
+			                                       : static_cast<uint32_t>(text[0] - '0') * 10 + static_cast<uint32_t>(text[1] - '0');
+			return slot < MaxGamepads ? std::optional<uint32_t>(slot) : std::nullopt;
+		}
+
+		// input.set's gamepads, every entry checked before anything changes. A slot's first injection starts at rest
+		// (Input::GetRestingGamepadState); a later one changes only the buttons and axes it names.
+		std::optional<CommandError> ReadGamepadRequests(Json const& entries, std::vector<GamepadRequest>& requests)
+		{
+			for (auto const& [name, value] : entries.items())
+			{
+				std::optional<uint32_t> const slot = ParseGamepadSlot(name);
+				if (!slot)
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidParams, "'{}' is not a gamepad slot (\"0\" to \"15\")", name);
+				}
+				GamepadRequest request{*slot, std::nullopt};
+				if (!value.is_null())
+				{
+					Input::GamepadState state = Input::GetInjectedGamepadState(*slot).value_or(Input::GetRestingGamepadState());
+					if (auto const padButtons = value.find("buttons"); padButtons != value.end())
+					{
+						for (auto const& [buttonName, down] : padButtons->items())
+						{
+							std::optional<GamepadButton> const button = GamepadButtonFromString(buttonName);
+							if (!button)
+							{
+								return MakeCommandError(AutomationErrorCode::InvalidParams, "'{}' is not a gamepad button name",
+								                        buttonName);
+							}
+							state.Buttons[static_cast<size_t>(*button)] = down.get<bool>();
+						}
+					}
+					if (auto const axes = value.find("axes"); axes != value.end())
+					{
+						for (auto const& [axisName, position] : axes->items())
+						{
+							std::optional<GamepadAxis> const axis = GamepadAxisFromString(axisName);
+							if (!axis)
+							{
+								return MakeCommandError(AutomationErrorCode::InvalidParams, "'{}' is not a gamepad axis name", axisName);
+							}
+							// Not-a-number fails both comparisons: a request built in memory can hold one.
+							double const reading = position.get<double>();
+							if (!(reading >= -1.0 && reading <= 1.0))
+							{
+								return MakeCommandError(AutomationErrorCode::InvalidParams, "gamepad {}'s {} must be a number from -1 to 1",
+								                        *slot, axisName);
+							}
+							state.Axes[static_cast<size_t>(*axis)] = static_cast<float>(reading);
+						}
+					}
+					request.State = state;
+				}
+				requests.push_back(request);
+			}
+			return std::nullopt;
 		}
 
 		CommandError NotPlaying()
@@ -711,19 +962,54 @@ namespace Strada
 		              "(KeyCode and MouseButton names), the mouse position in pixels of the game view and scroll for one frame. "
 		              "Pressed and released last one frame. While playing that is the game's next frame: a paused game keeps the "
 		              "presses, releases, mouse movement and scroll until its next frame (play.step, play.advance), however many "
-		              "editor frames come between; graph code that resuming a stopped execution runs reads it too. Returns the "
-		              "keys and buttons down and the mouse position.",
+		              "editor frames come between; graph code that resuming a stopped execution runs reads it too. actions: the "
+		              "project's input actions by name -> a value held as one more device of the action (a number or a bool for "
+		              "Button and Axis actions, [x, y] for Vector2), or null to clear it; held until input.release, null or "
+		              "play.stop, and read by the game's next frame (never by a resumed execution). gamepads: slot \"0\" to "
+		              "\"15\" -> { buttons: name -> down, axes: name -> -1 to 1 } injected in place of the device (a first "
+		              "injection starts connected and at rest, triggers at -1; a later one changes what it names; window polls "
+		              "leave it alone), or null to give the slot back to its device. Everything is checked before anything "
+		              "changes. Returns the keys and buttons down, the mouse position, the action overrides held ([x, y]) and the "
+		              "injected gamepads.",
 		              SchemaBuilder::Object()
 		                  .Property("keys", SchemaBuilder::Object("Key name -> down").AdditionalProperties(SchemaBuilder::Boolean()))
 		                  .Property("mouseButtons",
 		                            SchemaBuilder::Object("Button name -> down").AdditionalProperties(SchemaBuilder::Boolean()))
 		                  .Property("mousePosition", Vector2Schema("Position in pixels from the game view's top-left corner"))
 		                  .Property("scroll", Vector2Schema("Scroll this frame (y is the usual wheel)"))
+		                  .Property("actions", SchemaBuilder::Object("Input action name -> a number, a bool, [x, y] (Vector2 actions) or "
+		                                                             "null (clears the override)")
+		                                           .AdditionalProperties(SchemaBuilder::Any()))
+		                  .Property("gamepads",
+		                            SchemaBuilder::Object("Gamepad slot \"0\" to \"15\" -> its buttons and axes, or null (releases it)")
+		                                .AdditionalProperties(
+		                                    SchemaBuilder::Object()
+		                                        .Property("buttons", SchemaBuilder::Object("GamepadButton name -> down")
+		                                                                 .AdditionalProperties(SchemaBuilder::Boolean()))
+		                                        .Property("axes", SchemaBuilder::Object("GamepadAxis name -> -1 to 1 (triggers rest at -1)")
+		                                                              .AdditionalProperties(SchemaBuilder::Number().Minimum(-1.0).Maximum(1.0)))
+		                                        .Nullable()))
 		                  .Build(),
 		              false,
-		              [](Json const& params) -> CommandResult
+		              [&context](Json const& params) -> CommandResult
 		              {
-						  // Every name is checked before anything changes.
+						  // Every name and value is checked before anything changes.
+						  std::vector<ActionRequest> actionRequests;
+						  if (auto const entries = params.find("actions"); entries != params.end())
+						  {
+							  if (std::optional<CommandError> refused = ReadActionRequests(*entries, context, actionRequests))
+							  {
+								  return std::move(*refused);
+							  }
+						  }
+						  std::vector<GamepadRequest> gamepadRequests;
+						  if (auto const entries = params.find("gamepads"); entries != params.end())
+						  {
+							  if (std::optional<CommandError> refused = ReadGamepadRequests(*entries, gamepadRequests))
+							  {
+								  return std::move(*refused);
+							  }
+						  }
 						  std::vector<std::pair<KeyCode, bool>> keys;
 						  if (auto const entries = params.find("keys"); entries != params.end())
 						  {
@@ -766,15 +1052,41 @@ namespace Strada
 						  {
 							  Input::AddScrollDelta({(*scroll)[0].get<float>(), (*scroll)[1].get<float>()});
 						  }
+						  for (ActionRequest const& request : actionRequests)
+						  {
+							  if (request.Value)
+							  {
+								  // Checked above: the name is the project's, the value finite and the overrides below their limit.
+								  static_cast<void>(Input::SetActionOverride(request.Name, *request.Value));
+							  }
+							  else
+							  {
+								  Input::ClearActionOverride(request.Name);
+							  }
+						  }
+						  for (GamepadRequest const& request : gamepadRequests)
+						  {
+							  if (request.State)
+							  {
+								  Input::InjectGamepadState(request.Slot, *request.State);
+							  }
+							  else
+							  {
+								  Input::ReleaseInjectedGamepad(request.Slot);
+							  }
+						  }
 						  return DescribeInput();
 					  })
 				: result;
 
-		result = result ? Add(registry, "input.release", "Releases every key and mouse button (they report released for one frame).",
+		result = result ? Add(registry, "input.release",
+		                      "Releases every key and mouse button (they report released for one frame), every injected gamepad and "
+		                      "every input action override.",
 		                      Json(), false,
 		                      [](Json const&) -> CommandResult
 		                      {
 								  Input::ReleaseKeysAndMouseButtons();
+								  Input::ReleaseInjectedInput();
 								  return DescribeInput();
 							  })
 		                : result;

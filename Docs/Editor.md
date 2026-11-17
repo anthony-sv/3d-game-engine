@@ -207,7 +207,7 @@ visual-script debugging buttons while the game plays, and Simulate. [Play mode](
 | Scene Hierarchy | The tree of the scene's entities: create, select, rename, parent, duplicate and delete them |
 | Inspector | The selected entities' components, or the asset selected in the content browser |
 | Scene Settings | The scene's name, gravity and renderer settings |
-| Project Settings | The project's name, start scene, game window and physics settings |
+| Project Settings | The project's name, start scene, game window, physics settings and input actions |
 | Content Browser | The project's assets and C# scripts as folders and tiles |
 | Console | The log: info, warnings and errors of the engine, the editor and your scripts |
 | Visual Script Debugger | Where visual scripts are stopped at breakpoints, their call stacks and values |
@@ -616,6 +616,7 @@ The "+" button and the context menus create, in the displayed folder:
 | Visual Script | `New Visual Script.sgraph` with an `Event.Create` and an `Event.Update` node |
 | Visual Script Library | `New Visual Script Library.sgraph`: functions other visual scripts call; it runs on no entity |
 | Curve | `New Curve.scurve`, a curve without keys ([Curves](#curves)) |
+| Input Actions | `New Input Actions.sinput`, input actions without an action ([Input actions](#input-actions)) |
 | Mixer | `New Mixer.smixer`, Master alone ([Mixers](#mixers)) |
 | Physics Material | `New Physics Material.sphysmat`, a material that behaves like a collider without one ([Physics materials](#physics-materials)) |
 | C# Script... | The New Script dialog ([Creating C# scripts](#creating-c-scripts)) |
@@ -688,6 +689,7 @@ The asset directory registers these file types:
 | Font | `.ttf`, `.otf` | Importing |
 | Visual script | `.sgraph` | "+" > Visual Script, Create Visual Script |
 | Curve | `.scurve` | "+" > Curve |
+| Input actions | `.sinput` | "+" > Input Actions |
 | Mixer | `.smixer` | "+" > Mixer |
 | Physics material | `.sphysmat` | "+" > Physics Material |
 
@@ -816,6 +818,34 @@ and the keys as a list (each key's `HasIn` and `HasOut` switch its set slopes on
 `curve.set` ([Automation](Automation.md)). While the game plays, an edit reaches the scripts that read the curve on the
 next frame.
 
+### Input actions
+
+An input actions asset (`.sinput`) holds the game's actions: the named values its scripts and graphs read instead of
+keys and gamepads (`Throttle`, `Steer`, `Jump`, `Move`), each with the bindings that give it its value
+([Scripting](Scripting.md#input-actions), [Visual scripting](VisualScripting.md#input-actions)). A project uses the one
+its Project Settings name in `InputActions` ([Project Settings](#project-settings)).
+
+Select it in the Content Browser to edit it in the Inspector. `Actions` is a list whose rows are titled by their names
+("0: Throttle"); open a row for its fields:
+
+- `Name` (unique in any letter case, at most 64 bytes; scripts, graphs and agents name the action by it, with its letter
+  case), `Type` (`Button`, `Axis` or `Vector2`), and `PressThreshold` and `ReleaseThreshold`: the magnitude at which the
+  action goes down, and the one below which it goes up again (0 < release <= press <= 1; 0.5 and 0.4 by default).
+- `Bindings`, a list of its own inside the action whose rows are titled by their controls ("1: Key/A Key/D"); the
+  binding of the largest magnitude gives the value, the first winning a tie. `Controls` is text: one control
+  (`Key/Space`, `Mouse/Left`, `Gamepad/A`, `Gamepad/LeftX`, `Gamepad/RightTrigger`, `Gamepad/LeftStick`; any letter
+  case), two separated by a space for an axis (negative, then positive: `Key/A Key/D`) or four for a vector (up, down,
+  left, right: `Key/W Key/S Key/A Key/D`); empty leaves the binding unbound. Button and Axis actions take one control
+  that is not a stick, or two; Vector2 actions a stick, or four. `Gamepad` is -1 for any gamepad or a slot 0 to 15;
+  `DeadZone` (0 to 0.99, radial) reads small magnitudes as 0; `ResponseCurve` is a curve asset applied to the magnitude
+  ([Curves](#curves)); `Invert` and `InvertY` negate the value (a vector's X, and its Y) and `Scale` multiplies it.
+
+Each edit, an element added, removed or moved in either list included, is one undo step written to the file. An edit
+the asset's validation refuses (controls that name nothing or do not fit the action's type, a name used twice, thresholds
+out of order) is not made, and the console says why, naming the action and the binding. Agents edit the same fields
+with `input-actions.set` ([Automation](Automation.md)). While the game plays, an edit (or one of a response curve) reaches
+it on the next frame, and actions held stay down without a new press.
+
 ### Physics materials
 
 A physics material (`.sphysmat`) is a surface: how it slides (`Friction`), bounces (`Restitution`) and rolls
@@ -918,6 +948,7 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | `Physics.MaxStepsPerFrame` | Physics steps a frame runs at most (1 to 64, default 8); slower frames slow the game down instead of falling further behind |
 | `Physics.CollisionSteps` | Collision steps each physics step is divided into (1 to 4, default 1); more resolve fast or stiff bodies better, at their cost |
 | `Physics.Layers` | Names of the physics layers (1 to 16); a RigidBody's `Layer` indexes them |
+| `InputActions` | The game's input actions, an asset of that type ([Input actions](#input-actions)); none means scripts and graphs read every action as 0. Play mode, the player and exported games evaluate them each frame |
 | `Mixer` | The mixer (`.smixer`) the game's sounds play through: its buses, their volumes and effects. None plays every sound on Master alone |
 
 Under Layer Collisions, a matrix of check boxes says which layers collide: clear the box of two layers so that their

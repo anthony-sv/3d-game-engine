@@ -234,18 +234,22 @@ internal sealed partial class VisualScriptRuntime
 		{
 			return VisualScriptStatus.NotFound;
 		}
-		if (scriptEvent is < ScriptEvent.Create or > ScriptEvent.Click)
+		if (scriptEvent is < ScriptEvent.Create or > ScriptEvent.ActionReleased)
 		{
 			return VisualScriptStatus.Failure;
 		}
 		GraphProgram program = instance.Program;
 		Enter(program);
+		// What the engine dispatches starts code of a frame (or, inside a fixed step, of that step), even when a graph's call
+		// into the engine raised it.
+		InputActionOrigin origin = InputActionContext.Enter(InputActionOrigin.Frame);
 		try
 		{
 			return Dispatch(instance, program, scriptEvent, timeStep, other) ? VisualScriptStatus.Failure : VisualScriptStatus.Success;
 		}
 		finally
 		{
+			InputActionContext.Restore(origin);
 			Leave(program);
 		}
 	}
@@ -288,6 +292,10 @@ internal sealed partial class VisualScriptRuntime
 				return Start(instance, program.Events[(int)ScriptEvent.Destroy], default);
 			case ScriptEvent.CollisionEnter:
 				return StartCollisionEnter(instance, program.Events[(int)ScriptEvent.CollisionEnter], other);
+			case ScriptEvent.ActionPressed:
+				return StartActionEvent(instance, program, true);
+			case ScriptEvent.ActionReleased:
+				return StartActionEvent(instance, program, false);
 			default:
 				// Contacts and clicks look the other entity up only for a graph that has a node for the event.
 				int eventNode = program.Events[(int)scriptEvent];
@@ -311,6 +319,26 @@ internal sealed partial class VisualScriptRuntime
 			Slot.FromString(surface),
 		];
 		return StartWith(instance, eventNode, values);
+	}
+
+	// The Event.ActionPressed (pressed) or Event.ActionReleased node of the action whose edge the engine dispatches, if the
+	// graph has one; the name is read only for a graph with a node of the kind.
+	private bool StartActionEvent(GraphInstance instance, GraphProgram program, bool pressed)
+	{
+		string? action = null;
+		foreach (ActionEvent actionEvent in program.ActionEvents)
+		{
+			if (actionEvent.Pressed != pressed)
+			{
+				continue;
+			}
+			action ??= m_Environment.GetHandledAction();
+			if (string.Equals(actionEvent.Action, action, StringComparison.Ordinal))
+			{
+				return Start(instance, actionEvent.Node, default);
+			}
+		}
+		return false;
 	}
 
 	// The Update dispatch (spec section 5.2): the frame time, the input events in Nodes order, Event.Update, then one pass
@@ -342,6 +370,7 @@ internal sealed partial class VisualScriptRuntime
 		return failed;
 	}
 
+	// The polled input events; the action events are no InputEvent (the engine dispatches them).
 	private bool IsTriggered(InputEvent input) => input.Kind switch
 	{
 		BuiltinNode.EventKeyPressed => m_Environment.IsKeyPressed((KeyCode)input.Value),
@@ -349,7 +378,8 @@ internal sealed partial class VisualScriptRuntime
 		BuiltinNode.EventMouseButtonPressed => m_Environment.IsMouseButtonPressed((MouseButton)input.Value),
 		BuiltinNode.EventMouseButtonReleased => m_Environment.IsMouseButtonReleased((MouseButton)input.Value),
 		BuiltinNode.EventGamepadButtonPressed => m_Environment.IsGamepadButtonPressed((GamepadButton)input.Value, input.Gamepad),
-		_ => m_Environment.IsGamepadButtonReleased((GamepadButton)input.Value, input.Gamepad),
+		BuiltinNode.EventGamepadButtonReleased => m_Environment.IsGamepadButtonReleased((GamepadButton)input.Value, input.Gamepad),
+		_ => false,
 	};
 
 	// Starts an execution at an event node of the instance (none runs without one), its first output set to value. True when
@@ -383,6 +413,8 @@ internal sealed partial class VisualScriptRuntime
 		fiber.Node = fiber.SuspendedAt;
 		fiber.Entry = entry;
 		fiber.SuspendedAt = -1;
+		// Code a step started reads no action edge when a latent node continues it: its step saw that step's.
+		fiber.ActionOrigin = fiber.ActionOrigin.Continued();
 		// Spec-slice4 section 5.1: a resumed fiber started at its latent node, after the start of the execution that suspended.
 		ExecutionStart start = fiber.Start;
 		if (start.Kind != StartKind.Resume && start.Node is { } origin)
@@ -456,6 +488,10 @@ internal sealed partial class VisualScriptRuntime
 		execution.Start = start;
 		execution.Parent = parent;
 		execution.RootSerial = parent?.RootSerial ?? execution.Serial;
+		// Inside a fixed step the execution is code of that step; otherwise of whatever started it (the execution running
+		// now, or what the engine dispatches: a frame).
+		ulong step = m_Environment.GetActionStep();
+		execution.ActionOrigin = step != 0 ? new InputActionOrigin(InputActionView.FixedStep, step) : InputActionContext.Current;
 		Trace(execution);
 		return execution;
 	}

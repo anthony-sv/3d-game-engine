@@ -14,6 +14,8 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/InputActionMap.h"
+#include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
@@ -30,6 +32,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
@@ -1214,6 +1217,125 @@ TEST_CASE("DataAssetEditor: a struct drawer's edit of an element is one undo ste
 	REQUIRE(operations.Undo().IsOk());
 	REQUIRE(operations.Undo().IsOk());
 	CHECK(asset->GetData().Entries.at(0).Weight == 1.0f);
+}
+
+TEST_CASE("Panels: the inspector edits the bindings inside an input action, one undo step each, as input-actions.set does")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	CommandRegistry registry;
+	EditorCommandEnvironment environment;
+	environment.Locations = Testing::MakeEditorLocations(temporary.GetPath());
+	REQUIRE(RegisterEditorCommands(registry, operations, std::move(environment)).IsOk());
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Json const fields = Json::parse(R"({ "Actions": [ { "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" } ] } ] })");
+	Result<AssetHandle> const created = operations.CreateDataAsset(type->GetAssetType(), "Input/Game.sinput", fields);
+	REQUIRE_MESSAGE(created.IsOk(), (created ? std::string() : created.GetError()));
+	AssetHandle const actions = created.GetValue();
+	std::filesystem::path const file = context.GetProject()->GetAssetDirectory() / "Input" / "Game.sinput";
+	auto const readFile = [](std::filesystem::path const& path)
+	{
+		Result<std::string> text = FileSystem::ReadTextFile(path);
+		REQUIRE(text.IsOk());
+		return text.TakeValue();
+	};
+	std::string const original = readFile(file);
+	Ref<TypedDataAsset<InputActionMap>> const asset = AssetManager::GetAsset<TypedDataAsset<InputActionMap>>(actions);
+	REQUIRE(asset != nullptr);
+	CommandHistory const& history = context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+	auto const controls = [&asset]
+	{
+		std::vector<std::string> result;
+		for (InputActionBinding const& binding : asset->GetData().Actions.at(0).Bindings)
+		{
+			result.push_back(binding.Controls);
+		}
+		return result;
+	};
+
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 1400.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	context.SelectAsset(actions);
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	FieldTableDriver const driver{imgui, draw,
+	                              []
+	                              {
+									  return ImGui::FindWindowByName("Inspector");
+								  },
+	                              []
+	                              {
+									  return ImHashStr("##fields", 0, ImHashStr("##asset", 0, ImGui::FindWindowByName("Inspector")->ID));
+								  }};
+	ImGuiID const actionList = driver.GetFieldId("Actions");
+	driver.OpenElement(actionList, 0);
+	ImGuiID const bindings = driver.GetFieldId("Bindings", driver.GetElementId(actionList, 0));
+
+	// A binding added inside the action, then its controls typed: two steps.
+	driver.Click(ImHashStr("Add Element", 0, bindings), driver.GetValueX());
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(controls() == std::vector<std::string>{"Key/Space", ""});
+	ImGuiID const typed = ImHashStr("##value", 0, driver.GetFieldId("Controls", driver.GetElementId(bindings, 1)));
+	driver.TypeInto(typed, "Gamepad/A");
+	CHECK(history.GetUndoCount() == steps + 2);
+	CHECK(controls() == std::vector<std::string>{"Key/Space", "Gamepad/A"});
+	CHECK(history.GetUndoDescription() == "Edit InputActions");
+	// Controls that name nothing are refused by the asset's validation: no step, nothing written.
+	std::string const beforeRefusal = readFile(file);
+	imgui.Frame(draw, 1.0f);
+	driver.TypeInto(typed, "Gamepad/Nope");
+	CHECK(history.GetUndoCount() == steps + 2);
+	CHECK(controls() == std::vector<std::string>{"Key/Space", "Gamepad/A"});
+	CHECK(readFile(file) == beforeRefusal);
+	// The first binding removed: a third step.
+	imgui.Frame(draw, 1.0f);
+	driver.PickFromMenu(bindings, 0, "Remove");
+	CHECK(history.GetUndoCount() == steps + 3);
+	CHECK(controls() == std::vector<std::string>{"Gamepad/A"});
+	std::string const edited = readFile(file);
+
+	// Undone one step at a time, down to the file as it was made; redone, the edited file byte for byte.
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(controls() == std::vector<std::string>{"Key/Space", "Gamepad/A"});
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(controls() == std::vector<std::string>{"Key/Space", ""});
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(controls() == std::vector<std::string>{"Key/Space"});
+	CHECK(readFile(file) == original);
+	for (int step = 0; step < 3; step++)
+	{
+		REQUIRE(operations.Redo().IsOk());
+	}
+	CHECK(readFile(file) == edited);
+
+	// input-actions.set with the same actions writes the same file.
+	REQUIRE(operations.CreateDataAsset(type->GetAssetType(), "Input/Copy.sinput").IsOk());
+	std::optional<CommandResult> result;
+	registry.Execute(
+		"input-actions.set",
+		Json::object({{"inputActions", "asset://Input/Copy.sinput"}, {"fields", {{"Actions", asset->SerializeFields()["Actions"]}}}}),
+		[&result](CommandResult value)
+		{
+			result.emplace(std::move(value));
+		});
+	REQUIRE(result);
+	REQUIRE_MESSAGE(result->IsOk(), (result->IsError() ? result->GetError().Message : std::string()));
+	CHECK(readFile(context.GetProject()->GetAssetDirectory() / "Input" / "Copy.sinput") == edited);
+	CHECK(open);
 }
 
 TEST_CASE("ProjectSettingsPanel: the mixer is a field of the panel, picked from the project's mixers and written to the project file")
