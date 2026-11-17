@@ -212,6 +212,11 @@ internal sealed class Execution
 
 	internal HandledContact? SavedContact { get; set; }
 
+	// Which action edges the execution's queries read outside a fixed step (Docs/Architecture.md section 7.4, "The fixed-step
+	// rule"): recorded when it starts (inside a step, that step; otherwise the code that started it, a frame's by default),
+	// kept by a debugger resume, and turned into NoEdges when a latent node continues code a step started.
+	internal InputActionOrigin ActionOrigin { get; set; }
+
 	// The first stop point of the run passes: every resume runs at least one instruction (spec-slice4 section 4.1).
 	internal bool SkipStop { get; set; }
 
@@ -378,6 +383,7 @@ internal sealed class Execution
 		SavedSteps = 0;
 		SavedDeltaTime = 0.0f;
 		SavedContact = null;
+		ActionOrigin = default;
 		SkipStop = false;
 		Start = default;
 		Delivery = null;

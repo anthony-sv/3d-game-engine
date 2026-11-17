@@ -141,8 +141,8 @@ public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testi
   `Tests/StradaTests/Source/Script/VisualScriptNodeCoverageTests.cpp`, so a new API member is a new case of it. When it
   does not run on its defaults (it needs a component, an input other than the default, a held key, a child to act on,
   ...), add a recipe there (`Recipe(type)` with `WithInputs`, `WithSettings`, `WithComponents`, `WithTargetsChild`,
-  `WithHeldKeys`, `WithHeldMouseButtons`, `WithHeldGamepadButtons`, `WithFrames`, `WithRanFrom`, `WithAlone`,
-  `WithExpectedError` or `WithExpectedLog`), a `MemberTypeRecipes` entry for what every member of its type needs, or a
+  `WithHeldKeys`, `WithHeldMouseButtons`, `WithHeldGamepadButtons`, `WithHeldActions`, `WithFrames`, `WithRanFrom`,
+  `WithAlone`, `WithExpectedError` or `WithExpectedLog`), a `MemberTypeRecipes` entry for what every member of its type needs, or a
   checked exclusion naming a graph the FeatureTest scenes run (or a shared fixture document) that holds an enabled node of
   that type linked into flow. The test fails naming the node and its first error until one of them covers it. A new
   built-in node kind (or a `[VisualNode]` member of the FeatureTest scripts) also fails "the feature-test graphs use

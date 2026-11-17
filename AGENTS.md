@@ -281,9 +281,9 @@ Rules for the other suites:
   Visual scripts too: every node of the node library must analyze and run in the generated test
   `Tests/StradaTests/Source/Script/VisualScriptNodeCoverageTests.cpp`. When a new API member or built-in node kind does
   not run on its defaults, add a recipe there (`Recipe(type)` with `WithInputs`, `WithSettings`, `WithComponents`,
-  `WithTargetsChild`, `WithHeldKeys`, `WithHeldMouseButtons`, `WithHeldGamepadButtons`, `WithFrames`, `WithRanFrom`,
-  `WithAlone`, `WithExpectedError` or `WithExpectedLog`), a `MemberTypeRecipes` entry for what every member
-  of a type needs, or a checked exclusion naming a graph the FeatureTest scenes run (or a shared fixture document) that
+  `WithTargetsChild`, `WithHeldKeys`, `WithHeldMouseButtons`, `WithHeldGamepadButtons`, `WithHeldActions`, `WithFrames`,
+  `WithRanFrom`, `WithAlone`, `WithExpectedError` or `WithExpectedLog`), a `MemberTypeRecipes` entry for what every
+  member of a type needs, or a checked exclusion naming a graph the FeatureTest scenes run (or a shared fixture document) that
   holds an enabled node of that type linked into flow. A new built-in node kind, or a new `[VisualNode]` member of the
   FeatureTest scripts, fails StradaTests ("the feature-test graphs use every built-in node kind ...") until
   `build_features` in `Projects/FeatureTest/Tools/AuthorGraphs.py` uses it: run that tool and update `FeaturesChecks` in

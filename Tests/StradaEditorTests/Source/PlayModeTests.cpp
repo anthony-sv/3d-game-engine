@@ -9,6 +9,7 @@
 #include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -16,6 +17,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/InputActions.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Components.h"
@@ -35,6 +37,7 @@
 #include <filesystem>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -1194,6 +1197,394 @@ TEST_CASE("PlayCommands: a paused game keeps what input.set gave it for its next
 	CHECK_FALSE(Input::IsKeyPressed(KeyCode::A));
 	CHECK(Input::IsKeyDown(KeyCode::A));
 	CHECK(Input::GetScrollDelta() == glm::vec2(0.0f));
+}
+
+TEST_CASE("PlayCommands: the project's input actions are evaluated in the game's input frame, and a paused game keeps their taps")
+{
+	Testing::PhysicsSystemScope physics;
+	InputScope input;
+	ProjectPlayFixture fixture;
+	CommandRegistry registry;
+	REQUIRE(RegisterPlayCommands(registry, fixture.Play, fixture.Context,
+	                             []
+	                             {
+									 return glm::uvec2(640, 480);
+								 })
+	            .IsOk());
+	auto const ok = [&registry](std::string_view name, Json params = Json::object())
+	{
+		std::optional<CommandResult> result;
+		registry.Execute(name, std::move(params),
+		                 [&result](CommandResult value)
+		                 {
+							 result.emplace(std::move(value));
+						 });
+		REQUIRE(result.has_value());
+		REQUIRE_MESSAGE(result->IsOk(), (result->IsError() ? result->GetError().Message : std::string()));
+		return result->TakeValue();
+	};
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions = fixture.Operations.CreateDataAsset(
+		type->GetAssetType(), "Input/Game.sinput",
+		Json::parse(R"({ "Actions": [ { "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" }, { "Controls": "Gamepad/A" } ] } ] })"));
+	REQUIRE(actions.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+
+	constexpr float Frame = 1.0f / 60.0f;
+	auto const editorFrames = [&fixture](int count)
+	{
+		for (int frame = 0; frame < count; frame++)
+		{
+			fixture.Play.Update(Timestep(Frame));
+			Input::EndApplicationFrame();
+		}
+	};
+	auto const advance = [&ok]
+	{
+		CHECK(ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+	};
+	auto const edges = [&fixture]
+	{
+		std::span<InputActionEdge const> const listed = fixture.Context.GetScene().GetInputActions().GetEdges();
+		return std::vector<InputActionEdge>(listed.begin(), listed.end());
+	};
+
+	REQUIRE(ok("play.start", Json::object({{"paused", true}}))["paused"] == true);
+	InputActionState const& state = fixture.Context.GetScene().GetInputActions();
+	REQUIRE(state.GetActions() != nullptr);
+	editorFrames(2);
+
+	// A key given before a frame is the action's value in that frame.
+	ok("input.set", Json::object({{"keys", Json::object({{"Space", true}})}}));
+	editorFrames(3);
+	advance();
+	CHECK(fixture.Context.GetScene().GetInputActions().GetValue(0) == 1.0f);
+	CHECK(edges() == std::vector<InputActionEdge>{{0, true}});
+	advance();
+	CHECK(edges().empty());
+
+	// Released and pressed again while paused, with editor frames between: the next frame reports both, once.
+	ok("input.set", Json::object({{"keys", Json::object({{"Space", false}})}}));
+	editorFrames(2);
+	ok("input.set", Json::object({{"keys", Json::object({{"Space", true}})}}));
+	editorFrames(2);
+	advance();
+	CHECK(edges() == std::vector<InputActionEdge>{{0, false}, {0, true}});
+	ok("input.set", Json::object({{"keys", Json::object({{"Space", false}})}}));
+	advance();
+	CHECK(edges() == std::vector<InputActionEdge>{{0, false}});
+
+	// A tap of an injected gamepad's button, and an override set and cleared, given while paused: play.step's frame
+	// reports each as a tap.
+	Input::GamepadState pad = Input::GetRestingGamepadState();
+	pad.Buttons[static_cast<size_t>(GamepadButton::A)] = true;
+	Input::InjectGamepadState(0, pad);
+	editorFrames(2);
+	pad.Buttons[static_cast<size_t>(GamepadButton::A)] = false;
+	Input::InjectGamepadState(0, pad);
+	editorFrames(1);
+	ok("play.step");
+	editorFrames(2);
+	CHECK(edges() == std::vector<InputActionEdge>{{0, true}, {0, false}});
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(1.0f, 0.0f)));
+	editorFrames(2);
+	Input::ClearActionOverride("Jump");
+	advance();
+	CHECK(edges() == std::vector<InputActionEdge>{{0, true}, {0, false}});
+
+	// Stopping ends what was put in place of devices.
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(1.0f, 0.0f)));
+	CHECK(ok("play.stop")["state"] == "edit");
+	CHECK(Input::GetActionOverrides().empty());
+	CHECK_FALSE(Input::IsGamepadInjected(0));
+	CHECK(fixture.Context.GetScene().GetInputActions().GetActions() == nullptr);
+}
+
+TEST_CASE("PlayCommands: input.set holds the project's action overrides and injected gamepads, checks every entry before it "
+          "changes anything, and input.release and play.stop end them")
+{
+	Testing::PhysicsSystemScope physics;
+	InputScope input;
+	ProjectPlayFixture fixture;
+	CommandRegistry registry;
+	REQUIRE(RegisterPlayCommands(registry, fixture.Play, fixture.Context,
+	                             []
+	                             {
+									 return glm::uvec2(640, 480);
+								 })
+	            .IsOk());
+	auto const run = [&registry](std::string_view name, Json params)
+	{
+		std::optional<CommandResult> result;
+		registry.Execute(name, std::move(params),
+		                 [&result](CommandResult value)
+		                 {
+							 result.emplace(std::move(value));
+						 });
+		REQUIRE(result.has_value());
+		return std::move(*result);
+	};
+	auto const ok = [&run](std::string_view name, Json params = Json::object())
+	{
+		CommandResult result = run(name, std::move(params));
+		REQUIRE_MESSAGE(result.IsOk(), (result.IsError() ? result.GetError().Message : std::string()));
+		return result.TakeValue();
+	};
+	// A refusal changes nothing: no key, override or injection.
+	auto const refused = [&run](Json params)
+	{
+		uint64_t const overridesBefore = Input::GetActionOverridesVersion();
+		std::vector<std::optional<Input::GamepadState>> padsBefore;
+		for (uint32_t slot = 0; slot < MaxGamepads; slot++)
+		{
+			padsBefore.push_back(Input::GetInjectedGamepadState(slot));
+		}
+		CommandResult const answer = run("input.set", std::move(params));
+		REQUIRE(answer.IsError());
+		CHECK(Input::GetActionOverridesVersion() == overridesBefore);
+		for (uint32_t slot = 0; slot < MaxGamepads; slot++)
+		{
+			std::optional<Input::GamepadState> const now = Input::GetInjectedGamepadState(slot);
+			REQUIRE(now.has_value() == padsBefore[slot].has_value());
+			if (now)
+			{
+				CHECK(now->Buttons == padsBefore[slot]->Buttons);
+				CHECK(now->Axes == padsBefore[slot]->Axes);
+			}
+		}
+		CHECK_FALSE(Input::IsKeyDown(KeyCode::A));
+		return answer.GetError();
+	};
+	constexpr float Frame = 1.0f / 60.0f;
+	auto const editorFrames = [&fixture](int count)
+	{
+		for (int frame = 0; frame < count; frame++)
+		{
+			fixture.Play.Update(Timestep(Frame));
+			Input::EndApplicationFrame();
+		}
+	};
+	auto const advance = [&ok, &fixture]
+	{
+		CHECK(ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
+		std::span<InputActionEdge const> const listed = fixture.Context.GetScene().GetInputActions().GetEdges();
+		return std::vector<InputActionEdge>(listed.begin(), listed.end());
+	};
+
+	// A project that names no actions refuses every name, saying so; an empty map asks for nothing.
+	CommandError const unnamed =
+		refused(Json::object({{"keys", Json::object({{"A", true}})}, {"actions", Json::object({{"Jump", true}})}}));
+	CHECK(unnamed.Code == AutomationErrorCode::InvalidOperation);
+	CHECK(unnamed.Message.find("the project names no input actions") != std::string::npos);
+	CHECK(ok("input.set", Json::object({{"actions", Json::object()}}))["actions"] == Json::object());
+
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions =
+		fixture.Operations.CreateDataAsset(type->GetAssetType(), "Input/Game.sinput", Json::parse(R"({ "Actions": [
+		{ "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" }, { "Controls": "Gamepad/A" } ] },
+		{ "Name": "Steer", "Type": "Axis", "Bindings": [ { "Controls": "Gamepad/LeftX" } ] },
+		{ "Name": "Move", "Type": "Vector2", "Bindings": [ { "Controls": "Gamepad/LeftStick", "Gamepad": 1 } ] } ] })"));
+	REQUIRE(actions.IsOk());
+	// A reference to an asset of another type is no actions either.
+	Result<AssetHandle> const material = fixture.Operations.CreateMaterial("Materials/Paint.smat");
+	REQUIRE(material.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", material.GetValue().ToString()}})).IsOk());
+	CHECK(refused(Json::object({{"actions", Json::object({{"Jump", true}})}})).Message.find("does not load as an InputActions asset") !=
+	      std::string::npos);
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+
+	// Overrides by name: a bool or a number for Button and Axis actions, [x, y] for Vector2; the answer lists those held.
+	Json const set =
+		ok("input.set", Json::object({{"actions", Json::object({{"Jump", true}, {"Steer", -0.5}, {"Move", Json::array({0.6, 0.8})}})}}));
+	CHECK(set["actions"] ==
+	      Json::object({{"Jump", Json::array({1.0f, 0.0f})}, {"Move", Json::array({0.6f, 0.8f})}, {"Steer", Json::array({-0.5f, 0.0f})}}));
+	REQUIRE(Input::FindActionOverride("Move") != nullptr);
+	CHECK(Input::FindActionOverride("Move")->Value == glm::vec2(0.6f, 0.8f));
+	CHECK(Input::FindActionOverride("Move")->Held);
+
+	// Each of these is refused, and nothing of the request changes, the valid entries beside it included.
+	for (Json const& actionEntries :
+	     {Json::object({{"Missing", 1}}), Json::object({{"jump", 1}}), Json::object({{"Jump", Json::array({1.0, 0.0})}}),
+	      Json::object({{"Move", 1}}), Json::object({{"Move", Json::array({1.0})}}), Json::object({{"Move", Json::array({1.0, "up"})}}),
+	      Json::object({{"Steer", "left"}}), Json::object({{"Steer", 1.0e308}}),
+	      Json::object({{"Move", Json::array({std::numeric_limits<double>::quiet_NaN(), 0.0})}}),
+	      Json::object({{"Jump", Json()}, {"Missing", 1}})})
+	{
+		CAPTURE(actionEntries.dump());
+		CHECK(refused(Json::object({{"keys", Json::object({{"A", true}})}, {"actions", actionEntries}})).Code ==
+		      AutomationErrorCode::InvalidParams);
+	}
+	CHECK(refused(Json::object({{"actions", Json::object({{"Missing", 1}})}})).Message.find("Jump, Steer, Move") != std::string::npos);
+	CHECK(Input::FindActionOverride("Jump")->Held);
+
+	// Null clears an override: the action's record stays, not held.
+	CHECK(ok("input.set", Json::object({{"actions", Json::object({{"Jump", Json()}, {"Steer", Json()}})}}))["actions"] ==
+	      Json::object({{"Move", Json::array({0.6f, 0.8f})}}));
+	CHECK_FALSE(Input::FindActionOverride("Jump")->Held);
+
+	// Gamepads by slot: names and values checked first, as actions are.
+	for (Json const& padEntries :
+	     {Json::object({{"16", Json::object()}}), Json::object({{"01", Json::object()}}), Json::object({{"-1", Json::object()}}),
+	      Json::object({{" 1", Json::object()}}), Json::object({{"one", Json::object()}}),
+	      Json::object({{"0", Json::object({{"buttons", Json::object({{"Nope", true}})}})}}),
+	      Json::object({{"0", Json::object({{"axes", Json::object({{"Nope", 0.0}})}})}}),
+	      Json::object({{"0", Json::object({{"axes", Json::object({{"LeftX", 2.0}})}})}}),
+	      Json::object({{"0", Json::object({{"axes", Json::object({{"LeftX", std::numeric_limits<double>::quiet_NaN()}})}})}}),
+	      Json::object({{"0", Json::object({{"buttons", Json::object({{"A", true}})}})},
+	                    {"1", Json::object({{"buttons", Json::object({{"B", 1}})}})}})})
+	{
+		CAPTURE(padEntries.dump());
+		CHECK(refused(Json::object({{"keys", Json::object({{"A", true}})}, {"gamepads", padEntries}})).Code ==
+		      AutomationErrorCode::InvalidParams);
+	}
+
+	// A slot's first injection starts connected and at rest, triggers at -1; a later one changes only what it names.
+	Json const injected =
+		ok("input.set", Json::object({{"gamepads", Json::object({{"0", Json::object({{"buttons", Json::object({{"A", true}})}})}})}}));
+	CHECK(injected["gamepads"]["0"] ==
+	      Json::object(
+			  {{"connected", true},
+	           {"buttons", Json::array({"A"})},
+	           {"axes",
+	            Json::object(
+					{{"LeftX", 0.0}, {"LeftY", 0.0}, {"RightX", 0.0}, {"RightY", 0.0}, {"LeftTrigger", -1.0}, {"RightTrigger", -1.0}})}}));
+	CHECK(injected["gamepads"].size() == 1);
+	ok("input.set",
+	   Json::object(
+		   {{"gamepads", Json::object({{"0", Json::object({{"axes", Json::object({{"LeftX", 0.5}, {"RightTrigger", 1.0}})}})}})}}));
+	CHECK(Input::IsGamepadButtonDown(0, GamepadButton::A));
+	CHECK(Input::GetGamepadAxis(0, GamepadAxis::LeftX) == 0.5f);
+	CHECK(Input::GetGamepadAxis(0, GamepadAxis::RightTrigger) == 1.0f);
+	CHECK(Input::GetGamepadAxis(0, GamepadAxis::LeftTrigger) == -1.0f);
+
+	// A window's poll writes every slot (Window::PollGamepads): the injected one keeps its state, the others take the device's.
+	for (uint32_t slot = 0; slot < MaxGamepads; slot++)
+	{
+		Input::SetGamepadState(slot, Input::GamepadState{});
+	}
+	CHECK(Input::IsGamepadConnected(0));
+	CHECK(Input::IsGamepadButtonDown(0, GamepadButton::A));
+	CHECK(Input::GetGamepadAxis(0, GamepadAxis::LeftX) == 0.5f);
+	CHECK_FALSE(Input::IsGamepadConnected(1));
+	// Null gives the slot back to its device: the state the poll gave it, a pad that is not connected.
+	CHECK(ok("input.set", Json::object({{"gamepads", Json::object({{"0", Json()}})}}))["gamepads"] == Json::object());
+	CHECK_FALSE(Input::IsGamepadInjected(0));
+	CHECK_FALSE(Input::IsGamepadConnected(0));
+	ok("input.set", Json::object({{"actions", Json::object({{"Move", Json()}})}}));
+
+	// While the game is paused, what input.set gives reaches the next frame that runs, once, whatever editor frames come
+	// between, and polls between them leave the injected pad alone.
+	REQUIRE(ok("play.start", Json::object({{"paused", true}}))["paused"] == true);
+	editorFrames(2);
+	ok("input.set", Json::object({{"actions", Json::object({{"Jump", true}})}}));
+	editorFrames(3);
+	CHECK(advance() == std::vector<InputActionEdge>{{0, true}});
+	CHECK(advance().empty());
+	ok("input.set", Json::object({{"actions", Json::object({{"Jump", Json()}})}}));
+	editorFrames(1);
+	CHECK(advance() == std::vector<InputActionEdge>{{0, false}});
+	// Pad 1's button A presses Jump, and its left stick moves Steer (bound on any pad's LeftX) and Move (pad 1's stick).
+	ok("input.set", Json::object({{"gamepads", Json::object({{"1", Json::object({{"buttons", Json::object({{"A", true}})},
+	                                                                             {"axes", Json::object({{"LeftX", 1.0}})}})}})}}));
+	for (int poll = 0; poll < 3; poll++)
+	{
+		for (uint32_t slot = 0; slot < MaxGamepads; slot++)
+		{
+			Input::SetGamepadState(slot, Input::GamepadState{});
+		}
+		editorFrames(1);
+	}
+	CHECK(advance() == std::vector<InputActionEdge>{{0, true}, {1, true}, {2, true}});
+	CHECK(fixture.Context.GetScene().GetInputActions().GetVector(2) == glm::vec2(1.0f, 0.0f));
+	// A tap given while paused, set and cleared between two frames, reaches the next frame as both edges.
+	ok("input.set", Json::object({{"gamepads", Json::object({{"1", Json()}})}}));
+	editorFrames(1);
+	CHECK(advance() == std::vector<InputActionEdge>{{0, false}, {1, false}, {2, false}});
+	ok("input.set", Json::object({{"actions", Json::object({{"Steer", 1.0}})}}));
+	editorFrames(1);
+	ok("input.set", Json::object({{"actions", Json::object({{"Steer", Json()}})}}));
+	editorFrames(1);
+	CHECK(advance() == std::vector<InputActionEdge>{{1, true}, {1, false}});
+
+	// input.release ends both; so does play.stop.
+	Json pad = Json::object({{"buttons", Json::object({{"Start", true}})}});
+	ok("input.set", Json::object({{"actions", Json::object({{"Jump", 1}})}, {"gamepads", Json::object({{"3", pad}})}}));
+	Json const released = ok("input.release");
+	CHECK(released["actions"] == Json::object());
+	CHECK(released["gamepads"] == Json::object());
+	CHECK_FALSE(Input::IsGamepadInjected(3));
+	CHECK(advance() == std::vector<InputActionEdge>{{0, true}, {0, false}});
+	ok("input.set", Json::object({{"actions", Json::object({{"Jump", 1}})}, {"gamepads", Json::object({{"3", pad}})}}));
+	CHECK(ok("play.stop")["state"] == "edit");
+	CHECK(Input::GetActionOverrides().empty());
+	CHECK_FALSE(Input::IsGamepadInjected(3));
+
+	// Overrides are global, so they are set without a game playing too (held until input.release, a null or play.stop).
+	CHECK(ok("input.set", Json::object({{"actions", Json::object({{"Jump", 1}})}}))["actions"] ==
+	      Json::object({{"Jump", Json::array({1.0f, 0.0f})}}));
+}
+
+TEST_CASE("PlayCommands: input.set refuses an override of a new name once the input keeps the most names it can, still sets the "
+          "names that have one, and has room again once the game stops")
+{
+	InputScope input;
+	ProjectPlayFixture fixture;
+	CommandRegistry registry;
+	REQUIRE(RegisterPlayCommands(registry, fixture.Play, fixture.Context,
+	                             []
+	                             {
+									 return glm::uvec2(640, 480);
+								 })
+	            .IsOk());
+	auto const run = [&registry](Json params)
+	{
+		std::optional<CommandResult> result;
+		registry.Execute("input.set", std::move(params),
+		                 [&result](CommandResult value)
+		                 {
+							 result.emplace(std::move(value));
+						 });
+		REQUIRE(result.has_value());
+		return std::move(*result);
+	};
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions =
+		fixture.Operations.CreateDataAsset(type->GetAssetType(), "Input/Game.sinput",
+	                                       Json::parse(R"({ "Actions": [ { "Name": "Jump" }, { "Name": "Steer", "Type": "Axis" } ] })"));
+	REQUIRE(actions.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+
+	// Jump has a record; the names scripts overrode fill the rest, cleared or not (a cleared override keeps its record).
+	REQUIRE(run(Json::object({{"actions", Json::object({{"Jump", true}})}})).IsOk());
+	for (size_t index = 1; index < Input::MaxActionOverrides; index++)
+	{
+		REQUIRE(Input::SetActionOverride("Script" + std::to_string(index), glm::vec2(1.0f, 0.0f)));
+		Input::ClearActionOverride("Script" + std::to_string(index));
+	}
+
+	// A new name is refused before anything of the request changes; Jump, and a clear of a name without one, are not.
+	uint64_t const version = Input::GetActionOverridesVersion();
+	CommandResult const full = run(Json::object({{"actions", Json::object({{"Jump", 0.5}, {"Steer", 1.0}})}}));
+	REQUIRE(full.IsError());
+	CHECK(full.GetError().Code == AutomationErrorCode::InvalidOperation);
+	CHECK(full.GetError().Message.find("names that have one can still be set") != std::string::npos);
+	CHECK(Input::GetActionOverridesVersion() == version);
+	CHECK(Input::FindActionOverride("Steer") == nullptr);
+	CHECK(Input::FindActionOverride("Jump")->Value == glm::vec2(1.0f, 0.0f));
+	CommandResult const kept = run(Json::object({{"actions", Json::object({{"Jump", 0.5}, {"Steer", Json()}})}}));
+	REQUIRE(kept.IsOk());
+	CHECK(kept.GetValue()["actions"] == Json::object({{"Jump", Json::array({0.5f, 0.0f})}}));
+
+	// The end of a game ends its overrides, and their records with them: a new name has room again.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Stop();
+	CHECK_FALSE(Input::HasActionOverrides());
+	CommandResult const room = run(Json::object({{"actions", Json::object({{"Steer", 1.0}})}}));
+	REQUIRE(room.IsOk());
+	CHECK(room.GetValue()["actions"] == Json::object({{"Steer", Json::array({1.0f, 0.0f})}}));
 }
 
 TEST_CASE("PlayMode: frames refused at a stop keep the game's input for the first frame that runs, and Start and Stop begin a "

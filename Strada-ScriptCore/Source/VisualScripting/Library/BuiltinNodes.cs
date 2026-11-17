@@ -71,6 +71,8 @@ internal static class BuiltinNodes
 		BuiltinNode.EventMouseButtonReleased => "Event.MouseButtonReleased",
 		BuiltinNode.EventGamepadButtonPressed => "Event.GamepadButtonPressed",
 		BuiltinNode.EventGamepadButtonReleased => "Event.GamepadButtonReleased",
+		BuiltinNode.EventActionPressed => "Event.ActionPressed",
+		BuiltinNode.EventActionReleased => "Event.ActionReleased",
 		BuiltinNode.EventCustom => "Event.Custom",
 		BuiltinNode.EventSend => "Event.Send",
 		BuiltinNode.EventBroadcast => "Event.Broadcast",
@@ -153,7 +155,11 @@ internal static class BuiltinNodes
 
 	internal static bool IsEvent(BuiltinNode node) => node <= BuiltinNode.EventCustom;
 
-	internal static bool IsInputEvent(BuiltinNode node) => node is >= BuiltinNode.EventKeyPressed and <= BuiltinNode.EventGamepadButtonReleased;
+	// The events of input: the key, mouse button and gamepad button kinds, which the Update dispatch polls, and the input action
+	// kinds, which the engine dispatches (IsActionEvent).
+	internal static bool IsInputEvent(BuiltinNode node) => node is >= BuiltinNode.EventKeyPressed and <= BuiltinNode.EventActionReleased;
+
+	internal static bool IsActionEvent(BuiltinNode node) => node is BuiltinNode.EventActionPressed or BuiltinNode.EventActionReleased;
 
 	// The latent built-in kinds (spec section 4.0); Function.Call is latent when its function is.
 	internal static bool IsLatent(BuiltinNode node) => node is >= BuiltinNode.FlowDelay and <= BuiltinNode.FlowTimeline;
@@ -219,6 +225,12 @@ internal static class BuiltinNodes
 			"Runs in the frame the button of the gamepad (0 to 15) goes down.", "Button", types.GamepadButton, true, types.Int);
 		InputEvent(nodes, BuiltinNode.EventGamepadButtonReleased, "Gamepad Button Released",
 			"Runs in the frame the button of the gamepad (0 to 15) goes up.", "Button", types.GamepadButton, true, types.Int);
+		ActionEvent(nodes, BuiltinNode.EventActionPressed, "Action Pressed",
+			"Runs once each time the input action goes down (its value reaches its press threshold), before the frame's clicks and Update; Action is its name in the project's input actions, matched with its letter case.",
+			"press");
+		ActionEvent(nodes, BuiltinNode.EventActionReleased, "Action Released",
+			"Runs once each time the input action goes up again (its value falls below its release threshold), before the frame's clicks and Update; Action is its name in the project's input actions.",
+			"release");
 		Event(nodes, BuiltinNode.EventCustom, "Custom Event",
 			"Runs when Event.Send or a C# script raises the event by its name; its outputs are the event's parameters.",
 			["custom", "message", "receive"], [ExecOut()], CustomEventSettings());
@@ -578,6 +590,12 @@ internal static class BuiltinNodes
 		PinDescription[] pins = gamepad ? [In("Gamepad", intType!, 0), ExecOut()] : [ExecOut()];
 		Event(nodes, node, title, description, ["input", "press", "release", gamepad ? "gamepad" : setting == "Key" ? "keyboard" : "mouse"], pins,
 			[new SettingDescription(setting, SettingKind.Enum) { Required = true, Type = enumType.Id }]);
+	}
+
+	private static void ActionEvent(List<BuiltinNodeDefinition> nodes, BuiltinNode node, string title, string description, string keyword)
+	{
+		Event(nodes, node, title, description, ["input", "action", keyword, "binding", "gamepad", "keyboard"], [ExecOut()],
+			[new SettingDescription("Action", SettingKind.String) { Required = true }]);
 	}
 
 	private static void FlowNode(List<BuiltinNodeDefinition> nodes, BuiltinNode node, string title, string description, string[] keywords,

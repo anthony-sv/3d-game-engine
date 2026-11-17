@@ -157,6 +157,8 @@ internal sealed partial class VisualScriptRuntime
 			return false;
 		}
 		Execution tick = Acquire(fiber.Instance, node.Index, Execution.TickEntry, new ExecutionStart(StartKind.Tick, node, node.TickExit, 0, 0));
+		// A tick continues the code that started the node.
+		tick.ActionOrigin = fiber.ActionOrigin.Continued();
 		return Finish(tick, Execute(tick, true));
 	}
 }

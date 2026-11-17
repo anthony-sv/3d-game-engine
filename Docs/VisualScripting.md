@@ -109,9 +109,10 @@ in the inspector.
 | `Event.CollisionEnter` (`Other`, `Point`, `Normal`, `Impulse`, `Surface`), `Event.CollisionExit`, `Event.TriggerEnter`, `Event.TriggerExit` (`Other`) | When the contacts of the C# methods of those names happen ([Contacts](#contacts)) |
 | `Event.Click` (`Button`) | When a UI button that is the entity or one of its descendants was clicked |
 | `Event.KeyPressed`, `Event.KeyReleased` (setting `Key`), `Event.MouseButtonPressed`, `Event.MouseButtonReleased`, `Event.GamepadButtonPressed`, `Event.GamepadButtonReleased` (setting `Button`) | When the key or button went down or up this frame, before `Event.Update` |
+| `Event.ActionPressed`, `Event.ActionReleased` (setting `Action`, the name of an input action) | Once each time the project's input action goes down or up again, before the frame's clicks and `Event.Update`, after the C# scripts' `OnActionPressed` and `OnActionReleased` ([Input actions](#input-actions)) |
 | `Event.Custom` (settings `Name` and `Parameters`, which become outputs) | When a graph's `Event.Send` or a C# script's `SendEvent` raises it |
 
-A graph has each event once (each key or button once, each custom event name once). An entity can run a C# script and a
+A graph has each event once (each key, button or action once, each custom event name once). An entity can run a C# script and a
 graph: each event reaches its C# script first, and as for scripts, every script and graph of the scene exists before the
 first `OnCreate` or `Event.Create`. `Flow.Delay`, `Flow.RetriggerableDelay`, `Flow.WaitFrames` and `Flow.WaitUntil` make
 the flow wait without holding up the game: it goes on at their `Completed` output in a later frame, its loops and
@@ -287,6 +288,33 @@ PingPong or Linear).
 
 **Try it:** make a curve that rises from 0 at 0 to 1 at 10 and holds after it, give a graph a public Curve variable set
 to it, and set a light's intensity to Evaluate of the time since the scene started in `Update`.
+
+### Input actions
+
+The project's input actions (`.sinput`: [Scripting.md, Input actions](Scripting.md#input-actions)) are named values a
+graph reads instead of keys and gamepads, so the game plays on both and its bindings change without a change to its
+graphs.
+
+- **Get Action** (`Call:Strada.Input.GetAction(string)`), **Get Action Vector**, **Is Action Down**, **Is Action
+  Pressed** and **Is Action Released** are pure nodes that take the action's `Action` name (matched with its letter
+  case; an unknown name reads zero and is logged once).
+- In `Event.Update` and the other events an edge holds for its frame; **in `Event.FixedUpdate` each edge is seen by
+  exactly one physics step**, the first at or after its frame. Code that a step started and that continues later (after
+  a `Flow.Delay`, a `Flow.WaitUntil`'s recheck, a Tween's or Timeline's tick) reads no edge, and code the debugger stopped
+  in a step reads that step's when it resumes, so no edge is ever seen twice.
+- `Event.ActionPressed` and `Event.ActionReleased` (setting `Action`, the action's name with its letter case) run once
+  per edge, in the frame the action went down or up again: before the frame's clicks and `Event.Update`, after every C#
+  script's `OnActionPressed` or `OnActionReleased`, and never in a fixed step or on a debugger resume. A tap within one
+  frame runs the press, then the release; a release and press again between two frames runs the release first. Two
+  enabled nodes of one kind for one action in a graph are a duplicate event, as two of one key are. They fire however
+  the action got its value: a key, a gamepad, an override (Set Action Override, an agent's `input.set`).
+- **Set Action Override** (`Call:Strada.Input.SetActionOverride(string,float)`), **Set Action Vector Override** and
+  **Clear Action Override** put a value on an action as one more device would, from the next frame on: a graph that
+  drives the game (an autopilot) or a test scene that presses a button.
+- `Get:Strada.InputActions.ActionNames` lists an asset's action names (a variable of type InputActions, or **Load**).
+
+**Try it:** with a project whose input actions have `Jump` on Space, give a graph `Event.ActionPressed` with `Action`
+Jump that logs "jump", press Play and press Space.
 
 ### Physics materials
 

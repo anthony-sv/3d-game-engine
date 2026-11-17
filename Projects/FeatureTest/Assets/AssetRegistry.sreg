@@ -15,6 +15,11 @@
 			"Path": "Curves/Response.scurve"
 		},
 		{
+			"Handle": "4801022313538216779",
+			"Type": "InputActions",
+			"Path": "Input/FeatureTest.sinput"
+		},
+		{
 			"Handle": "8637659314558365517",
 			"Type": "Material",
 			"Path": "Materials/Painted.smat"

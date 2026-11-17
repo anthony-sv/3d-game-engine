@@ -612,6 +612,10 @@ internal sealed class CompiledVariable
 // An input event of the event graph (spec section 4.1), polled during the Update dispatch.
 internal readonly record struct InputEvent(int Node, BuiltinNode Kind, int Value, int Gamepad);
 
+// An input action event of the event graph (Event.ActionPressed or Event.ActionReleased), which the engine's dispatch of an
+// action's edge starts.
+internal readonly record struct ActionEvent(int Node, bool Pressed, string Action);
+
 // A program: a compiled document, or a broken one that says why it cannot run (spec section 5.1). Programs never change
 // once compiled, except for the members' invokers and the plans, which nodes create the first time they need them, the
 // count of their activity and the debugger's caches.
@@ -631,7 +635,7 @@ internal sealed class GraphProgram
 	}
 
 	internal GraphProgram(NodeLibrary library, string name, CompiledVariable[] variables, CompiledFunction[] functions, CompiledGraph eventGraph,
-		int[] events, InputEvent[] inputEvents)
+		int[] events, InputEvent[] inputEvents, ActionEvent[] actionEvents)
 	{
 		Library = library;
 		Name = name;
@@ -639,6 +643,7 @@ internal sealed class GraphProgram
 		EventGraph = eventGraph;
 		Events = events;
 		InputEvents = inputEvents;
+		ActionEvents = actionEvents;
 		foreach (CompiledFunction function in functions)
 		{
 			m_Functions[(function.Graph, function.Id)] = function;
@@ -684,6 +689,9 @@ internal sealed class GraphProgram
 
 	// In Nodes order.
 	internal InputEvent[] InputEvents { get; } = [];
+
+	// In Nodes order; at most one enabled node per kind and action (GraphRules' DuplicateEvent).
+	internal ActionEvent[] ActionEvents { get; } = [];
 
 	// The Event.Custom node of a name, -1 when there is none.
 	internal int FindCustomEvent(string name) => m_CustomEvents.TryGetValue(name, out int node) ? node : -1;

@@ -512,7 +512,7 @@ TEST_CASE("DataAsset: commands' domains are kebab case and their parameters lowe
 	std::array<Case, 7> const cases = {{
 		{"TestData", "test-data", "testData"},
 		{"TyreCompound", "tyre-compound", "tyreCompound"},
-		{"InputActions", "input-actions", "inputActions"},
+		{"ControlScheme", "control-scheme", "controlScheme"},
 		{"UIStyle", "ui-style", "uiStyle"},
 		{"Curve2D", "curve2d", "curve2D"},
 		{"Gadget", "gadget", "gadget"},

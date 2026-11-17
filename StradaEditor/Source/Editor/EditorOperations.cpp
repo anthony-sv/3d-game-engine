@@ -17,6 +17,7 @@
 #include "Strada/Asset/MeshImporter.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Scene/SceneSerializer.h"
 
@@ -211,6 +212,8 @@ namespace Strada
 		m_Context.SetProject(nullptr);
 		m_Context.SelectAsset(AssetHandle());
 		ResetScene("Untitled", false);
+		// Nothing plays, so no scene can still read the counts of the action overrides no longer held.
+		Input::DropReleasedActionOverrides();
 		return {};
 	}
 
@@ -239,6 +242,8 @@ namespace Strada
 		ST_INFO("Opened project '{}'", FileSystem::PathToUtf8(project->GetFilePath()));
 		AssetHandle const startScene = project->GetSettings().StartScene;
 		m_Context.SetProject(std::move(project));
+		// Nothing plays while a project opens, so no scene can still read the counts of the action overrides no longer held.
+		Input::DropReleasedActionOverrides();
 
 		// The steps of asset files in the history name the assets of the project before.
 		std::vector<std::string> warnings;

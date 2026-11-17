@@ -1040,6 +1040,16 @@ TEST_CASE("EditorCommands: projects are created, configured, closed and opened")
 	REQUIRE(identified.IsOk());
 	CHECK(ParseJson(identified.GetValue()).GetValue()["Project"]["Identity"] ==
 	      Json::object({{"Company", "Acme"}, {"Product", "Moto Racer"}}));
+	// The input actions: none until named, then an InputActions asset by its reference (as StartScene, the reference is not
+	// checked against the type it names: a scene that runs logs an asset of another type as one that does not load).
+	CHECK(settings["settings"]["InputActions"] == "0");
+	Json const actions = fixture.Ok("input-actions.create", Json::object({{"path", "Input/Game.sinput"}}));
+	std::string const actionsHandle = actions["inputActions"]["id"].get<std::string>();
+	Json const named = fixture.Ok("project.settings", Json::object({{"settings", {{"InputActions", "asset://Input/Game.sinput"}}}}));
+	CHECK(named["settings"]["InputActions"] == actionsHandle);
+	Result<std::string> const withActions = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(projectFile));
+	REQUIRE(withActions.IsOk());
+	CHECK(ParseJson(withActions.GetValue()).GetValue()["Project"]["InputActions"] == actionsHandle);
 
 	fixture.Create("Unsaved");
 	CHECK(fixture.Fails("project.close") == AutomationErrorCode::UnsavedChanges);

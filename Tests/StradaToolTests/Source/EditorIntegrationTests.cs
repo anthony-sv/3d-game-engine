@@ -64,11 +64,15 @@ public sealed class EditorIntegrationTests
 			}
 			// The playing scene's physics queries.
 			Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "physics_query");
-			// The engine's data asset types' tools, generated from their registrations: curves and physics materials.
-			foreach (string dataTool in new[] { "curve_create", "curve_get", "curve_set", "physics_material_create", "physics_material_get", "physics_material_set" })
+			// The engine's data asset types' tools, generated from their registrations: curves, input actions and physics materials.
+			foreach (string dataTool in new[] { "curve_create", "curve_get", "curve_set", "input_actions_create", "input_actions_get", "input_actions_set", "physics_material_create", "physics_material_get", "physics_material_set" })
 			{
 				Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == dataTool);
 			}
+			// input_set's parameters: devices' keys, buttons, mouse and scroll, the project's input actions and injected gamepads.
+			JsonNode inputSet = Assert.Single(tools, tool => tool!["name"]!.GetValue<string>() == "input_set")!;
+			Assert.Equal(["actions", "gamepads", "keys", "mouseButtons", "mousePosition", "scroll"],
+				inputSet["inputSchema"]!["properties"]!.AsObject().Select(property => property.Key).Order(StringComparer.Ordinal));
 			// The session keeps the headless editor it started for the list.
 			EditorInstance instance = Assert.Single(EditorInstance.FindRunning(instances));
 			processId = instance.ProcessId;
@@ -187,6 +191,39 @@ public sealed class EditorIntegrationTests
 		await CallAsync("play_advance", new JsonObject { ["frames"] = 1 });
 		Assert.Equal(1, await CountPressesAsync());
 		Assert.Equal("edit", (await CallAsync("play_stop", new JsonObject()))["state"]!.GetValue<string>());
+
+		// The project's input actions, driven by overrides and an injected gamepad: [x, y] for a vector, null to clear.
+		await CallAsync("input_actions_create", new JsonObject
+		{
+			["path"] = "Input/Game.sinput",
+			["fields"] = new JsonObject
+			{
+				["Actions"] = new JsonArray
+				{
+					new JsonObject { ["Name"] = "Jump", ["Bindings"] = new JsonArray(new JsonObject { ["Controls"] = "Gamepad/A" }) },
+					new JsonObject { ["Name"] = "Move", ["Type"] = "Vector2" },
+				},
+			},
+		});
+		await CallAsync("project_settings", new JsonObject { ["settings"] = new JsonObject { ["InputActions"] = "asset://Input/Game.sinput" } });
+		JsonNode held = await CallAsync("input_set", new JsonObject
+		{
+			["actions"] = new JsonObject { ["Move"] = new JsonArray(0.5, -0.5) },
+			["gamepads"] = new JsonObject { ["2"] = new JsonObject { ["buttons"] = new JsonObject { ["A"] = true } } },
+		});
+		Assert.Equal([0.5, -0.5], held["actions"]!["Move"]!.AsArray().Select(value => value!.GetValue<double>()));
+		Assert.Equal(["A"], held["gamepads"]!["2"]!["buttons"]!.AsArray().Select(value => value!.GetValue<string>()));
+		Assert.Equal(-1.0, held["gamepads"]!["2"]!["axes"]!["LeftTrigger"]!.GetValue<double>());
+		JsonObject unknown = await client.CallToolAsync("input_set", new JsonObject { ["actions"] = new JsonObject { ["Fly"] = true } });
+		Assert.True(unknown["isError"]!.GetValue<bool>());
+		Assert.StartsWith("InvalidParams", McpTestClient.Text(unknown));
+		JsonNode cleared = await CallAsync("input_set", new JsonObject
+		{
+			["actions"] = new JsonObject { ["Move"] = null },
+			["gamepads"] = new JsonObject { ["2"] = null },
+		});
+		Assert.Empty(cleared["actions"]!.AsObject());
+		Assert.Empty(cleared["gamepads"]!.AsObject());
 	}
 
 	[Fact]

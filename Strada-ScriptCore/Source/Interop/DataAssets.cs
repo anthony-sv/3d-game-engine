@@ -25,8 +25,100 @@ internal static class DataAssets
 	{
 		Epoch++;
 		CurveCache.Clear();
+		InputActionsCache.Clear();
 		PhysicsMaterialCache.Clear();
 		AssetTypes.Reset();
+	}
+}
+
+// InputActions_Read's answers (ScriptBindingsAssets.cpp declares the same values).
+internal enum InputActionsReadStatus
+{
+	// The engine logged why; the count is as it was.
+	Failed = 0,
+	// The held version is the asset's: only the version is written.
+	Unchanged = 1,
+	// The version and the count are written.
+	Read = 2,
+}
+
+// The runtime's copies of input actions assets' action names, one per asset, shared by every reference (Strada.InputActions).
+internal static unsafe class InputActionsCache
+{
+	private static readonly Dictionary<ulong, Entry> s_Entries = [];
+
+	internal static int EntryCount => s_Entries.Count;
+
+	internal static Entry Find(AssetHandle handle)
+	{
+		if (!s_Entries.TryGetValue(handle.ID, out Entry? entry))
+		{
+			entry = new Entry(handle);
+			s_Entries.Add(handle.ID, entry);
+		}
+		return entry;
+	}
+
+	internal static void Clear()
+	{
+		s_Entries.Clear();
+	}
+
+	// An input actions asset's action names as scripts read them, with the version they were read at.
+	internal sealed class Entry
+	{
+		// The data asset epoch at which the engine was last asked; 0: never.
+		private ulong m_Epoch;
+
+		internal Entry(AssetHandle handle)
+		{
+			Handle = handle;
+		}
+
+		internal AssetHandle Handle { get; }
+
+		// The asset's version the names were read at; 0 for none (not read, or the read failed).
+		internal ulong Version { get; private set; }
+
+		internal string[] Names { get; private set; } = [];
+
+		// The names as of the current epoch: the engine is asked first when data assets may have changed since it last was.
+		internal string[] GetNames()
+		{
+			if (m_Epoch != DataAssets.Epoch)
+			{
+				Refresh();
+			}
+			return Names;
+		}
+
+		private void Refresh()
+		{
+			m_Epoch = DataAssets.Epoch;
+			ulong version = 0;
+			int count = 0;
+			switch ((InputActionsReadStatus)InternalCalls.InputActions_Read(Handle.ID, Version, &version, &count))
+			{
+				case InputActionsReadStatus.Unchanged:
+					break;
+				case InputActionsReadStatus.Read:
+					string[] names = new string[System.Math.Max(count, 0)];
+					for (int index = 0; index < names.Length; index++)
+					{
+						int length = 0;
+						byte* name = InternalCalls.InputActions_GetActionName(Handle.ID, index, &length);
+						names[index] = NativeString.FromUtf8(name, length);
+					}
+					Names = names;
+					Version = version;
+					break;
+				default:
+					// The engine logged why; the asset has no actions until data assets change again.
+					Names = [];
+					Version = 0;
+					break;
+			}
+		}
 	}
 }
 

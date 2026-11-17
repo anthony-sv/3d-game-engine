@@ -54,6 +54,22 @@ public abstract class Script : Entity
 	{
 	}
 
+	/// <summary>Called when an input action of the project's <see cref="InputActions"/> goes down (its value reaches its
+	/// press threshold), once per press, before the frame's <see cref="OnUpdate"/> and its clicks: on every script, then on
+	/// every graph's <c>Event.ActionPressed</c> of that action. <paramref name="action"/> is the action's name; compare it with
+	/// the names of the asset (they match with their letter case). A press and release within one frame calls this, then
+	/// <see cref="OnActionReleased"/>.</summary>
+	protected virtual void OnActionPressed(string action)
+	{
+	}
+
+	/// <summary>Called when an input action of the project's <see cref="InputActions"/> goes up again (its value falls below
+	/// its release threshold), once per release, before the frame's <see cref="OnUpdate"/>: on every script, then on every
+	/// graph's <c>Event.ActionReleased</c> of that action. <paramref name="action"/> is the action's name.</summary>
+	protected virtual void OnActionReleased(string action)
+	{
+	}
+
 	internal void InvokeOnCreate() => OnCreate();
 
 	internal void InvokeOnUpdate(float deltaTime) => OnUpdate(deltaTime);
@@ -71,4 +87,8 @@ public abstract class Script : Entity
 	internal void InvokeOnTriggerExit(Entity other) => OnTriggerExit(other);
 
 	internal void InvokeOnClick(Entity button) => OnClick(button);
+
+	internal void InvokeOnActionPressed(string action) => OnActionPressed(action);
+
+	internal void InvokeOnActionReleased(string action) => OnActionReleased(action);
 }

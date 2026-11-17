@@ -95,6 +95,10 @@ internal sealed class NodeShaper
 			case BuiltinNode.EventGamepadButtonReleased:
 				InputEvent(node, definition, "Button", Library.BuiltinTypes.GamepadButton);
 				break;
+			case BuiltinNode.EventActionPressed:
+			case BuiltinNode.EventActionReleased:
+				ActionEvent(node, definition);
+				break;
 			case BuiltinNode.EventCustom:
 			case BuiltinNode.EventSend:
 			case BuiltinNode.EventBroadcast:
@@ -191,6 +195,24 @@ internal sealed class NodeShaper
 			return;
 		}
 		node.Binding = new InputEventBinding(decoded.Value!);
+	}
+
+	// The action events name their action by text: any non-empty name (the project's actions are the engine's to know, and a
+	// name they lack never starts the node).
+	private void ActionEvent(AnalyzedNode node, NodeDefinition definition)
+	{
+		AddTemplatePins(node, definition);
+		if (!node.Source.Settings.TryGet("Action", out JsonElement value))
+		{
+			m_Context.ReportNode(DiagnosticCode.MissingSetting, node, $"{definition.Title} needs the setting Action: the name of an input action");
+			return;
+		}
+		if (value.ValueKind != JsonValueKind.String || value.GetString() is not { Length: > 0 } action)
+		{
+			m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, "Action: expected the name of an input action (a non-empty string)");
+			return;
+		}
+		node.Binding = new ActionEventBinding(action);
 	}
 
 	// Event.Custom outputs its parameters; Event.Send and Event.Broadcast take them as inputs, Send to its Target entity's

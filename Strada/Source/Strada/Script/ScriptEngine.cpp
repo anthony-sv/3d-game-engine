@@ -604,6 +604,49 @@ namespace Strada
 		Invoke(entity, ScriptEvent::Click, 0.0f, button);
 	}
 
+	void ScriptEngine::InvokeOnActionPressed(UUID entity)
+	{
+		if (GetHandledAction())
+		{
+			Invoke(entity, ScriptEvent::ActionPressed, 0.0f, UUID::Invalid());
+		}
+	}
+
+	void ScriptEngine::InvokeOnActionReleased(UUID entity)
+	{
+		if (GetHandledAction())
+		{
+			Invoke(entity, ScriptEvent::ActionReleased, 0.0f, UUID::Invalid());
+		}
+	}
+
+	std::optional<std::string_view> ScriptEngine::GetHandledAction()
+	{
+		if (s_Data == nullptr || s_Data->HandledAction == nullptr)
+		{
+			return std::nullopt;
+		}
+		return *s_Data->HandledAction;
+	}
+
+	ScriptEngine::InputActionEventScope::InputActionEventScope(std::string_view action)
+		: m_Action(action)
+	{
+		if (s_Data != nullptr)
+		{
+			m_Previous = std::exchange(s_Data->HandledAction, &m_Action);
+			m_IsActive = true;
+		}
+	}
+
+	ScriptEngine::InputActionEventScope::~InputActionEventScope()
+	{
+		if (m_IsActive && s_Data != nullptr)
+		{
+			s_Data->HandledAction = m_Previous;
+		}
+	}
+
 	HandledContactEvent const* ScriptEngine::GetHandledContactEvent()
 	{
 		return s_Data != nullptr ? s_Data->HandledContact : nullptr;

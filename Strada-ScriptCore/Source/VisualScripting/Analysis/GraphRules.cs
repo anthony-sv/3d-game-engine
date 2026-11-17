@@ -22,7 +22,7 @@ internal static class GraphRules
 		CheckPureRecursion(context, functions);
 	}
 
-	// Each standard event once per document, input events once per key or button, custom events once per name. A disabled
+	// Each standard event once per document, input events once per key, button or action, custom events once per name. A disabled
 	// event handles nothing, so it takes no event from an enabled one.
 	private static void CheckEvents(AnalysisContext context, AnalyzedGraph graph)
 	{
@@ -36,6 +36,9 @@ internal static class GraphRules
 			string? key = builtin switch
 			{
 				BuiltinNode.EventCustom => node.Binding is CustomEventBinding custom ? "Custom:" + custom.Name : null,
+				_ when BuiltinNodes.IsActionEvent(builtin) => node.Binding is ActionEventBinding action
+					? BuiltinNodes.TypeOf(builtin) + ":" + action.Action
+					: null,
 				_ when BuiltinNodes.IsInputEvent(builtin) => node.Binding is InputEventBinding input
 					? BuiltinNodes.TypeOf(builtin) + ":" + AnalysisContext.Format((long)LiteralCodec.ToBits(input.Value))
 					: null,

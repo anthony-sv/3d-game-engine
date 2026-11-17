@@ -454,6 +454,18 @@ graph_get {"graph":"asset://Scripts/Spinner.sgraph"}
   with `mouseButtons` `{"Left": true}`, advance a frame, then release `Left` and advance another; `ui_layout` also
   reports each button's `state`. Prefer a headless editor for this (a windowed editor's game view also follows the
   real mouse).
+- Drive a game written against input actions by its actions, not its keys: `input_set` with `actions`
+  (`{"Throttle": 0.8, "Jump": true, "Move": [0, 1]}`: a number or a bool for a Button or Axis action, `[x, y]` for a
+  Vector2 one, `null` to clear) holds each value as one more device of the action until a `null`, `input_release` or
+  `play_stop`; names are the project's actions (`project_settings`' `InputActions` names the `.sinput`,
+  `input_actions_get` lists them) with their letter case, and an unknown one is refused with the list. Actions are
+  evaluated once per game frame, so with `play_start {paused: true}` set the value, `play_advance` a frame (it sees the
+  press), and clear it before the frame that should see the release; set and cleared between two frames is a tap. A
+  graph stopped at a breakpoint and resumed reads its frame's actions, never what was set meanwhile.
+- Play on a gamepad with `input_set`'s `gamepads`: `{"0": {"buttons": {"A": true}, "axes": {"LeftX": -0.5,
+  "RightTrigger": 1}}}` (GamepadButton and GamepadAxis names; axes -1 to 1, triggers resting at -1). A slot's first
+  injection starts connected and at rest, later ones change what they name, `null` gives the slot back; the window's
+  own gamepad polling leaves an injected slot alone, so it works in a windowed editor too.
 - `physics_query` asks the playing game's physics world what its scripts' queries would see: `{"kind":"raycast",
   "origin":[0,2,0],"direction":[0,-1,0]}` gives the first solid hit (entity, point, normal, distance, physics
   material); `raycastAll` every entity along the ray; `shapeCast` with `shape` (`sphere`, `box`, `capsule`) the first

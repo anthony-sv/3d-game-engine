@@ -1,5 +1,5 @@
 {
-	"Description": "Every event node: the nine standard events, the input events and a custom event raised with Event.Send",
+	"Description": "Every event node: the nine standard events, the input events (keys, buttons and input actions) and a custom event raised with Event.Send",
 	"Variables": [
 		{
 			"ID": 1,
@@ -466,6 +466,50 @@
 					640.0,
 					2400.0
 				]
+			},
+			{
+				"ID": 64,
+				"Type": "Event.ActionPressed",
+				"Position": [
+					0.0,
+					2560.0
+				],
+				"Settings": {
+					"Action": "Jump"
+				}
+			},
+			{
+				"ID": 65,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					2560.0
+				],
+				"Inputs": {
+					"Message": "action Jump pressed"
+				}
+			},
+			{
+				"ID": 66,
+				"Type": "Event.ActionReleased",
+				"Position": [
+					0.0,
+					2720.0
+				],
+				"Settings": {
+					"Action": "Jump"
+				}
+			},
+			{
+				"ID": 67,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					2720.0
+				],
+				"Inputs": {
+					"Message": "action Jump released"
+				}
 			}
 		],
 		"Links": [
@@ -807,6 +851,26 @@
 				"To": [
 					51,
 					"Message"
+				]
+			},
+			{
+				"From": [
+					64,
+					"Then"
+				],
+				"To": [
+					65,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					66,
+					"Then"
+				],
+				"To": [
+					67,
+					"Execute"
 				]
 			}
 		],

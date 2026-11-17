@@ -212,8 +212,9 @@ FEATURES_DESCRIPTION = (
     "Amount to Score: the graph raises it with Event.Send, VisualScriptTests from C#. The custom event Retrigger enters a "
     "RetriggerableDelay, which the graph raises twice. It also checks the game's [VisualNode] members, the library "
     "MathLibrary.sgraph's functions and other graphs: it sends Ping to the falling box's Contacts.sgraph, reads and writes "
-    "its Pings, and broadcasts Ping to every Contacts graph. A Timeline plays beside the later checks, which wait for it "
-    "before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, "
+    "its Pings, and broadcasts Ping to every Contacts graph. An override of the input action Throttle presses and releases it, "
+    "which Event.ActionPressed and Event.ActionReleased count and the action queries read. A Timeline plays beside the later "
+    "checks, which wait for it before Done, and a curve asset and a physics material, as literals and loaded by path, after it; a raycast and sphere, "
     "box and capsule casts onto the physics material probe name the material they hit.")
 
 
@@ -246,6 +247,8 @@ def build_features(references):
     seen_pings = doc.variable("SeenPings", "int", 0)
     beats = doc.variable("Beats", "int", 0)
     timeline_done = doc.variable("TimelineDone", "bool", False)
+    throttle_presses = doc.variable("ThrottlePresses", "int", 0)
+    throttle_releases = doc.variable("ThrottleReleases", "int", 0)
 
     # Check(Name, Passed, Message): reports "Features: <Name>" as passed, and counts it, or as failed with the message.
     check, fg = doc.function("Check", False, [("Name", "string"), ("Passed", "bool"), ("Message", "string")])
@@ -310,6 +313,9 @@ def build_features(references):
                                    ("Event.GamepadButtonPressed", {"Button": "A"}, {"Gamepad": 0}),
                                    ("Event.GamepadButtonReleased", {"Button": "A"}, {"Gamepad": 0})]:
         g.flow(g.node(kind, settings, inputs), counted)
+    # The input action Throttle's events count its presses and releases (an override makes them, below).
+    g.flow(g.node("Event.ActionPressed", {"Action": "Throttle"}), g.increment(throttle_presses))
+    g.flow(g.node("Event.ActionReleased", {"Action": "Throttle"}), g.increment(throttle_releases))
 
     # Add(Amount): Score += Amount.
     added = g.node("Event.Custom", {"Name": "Add", "Parameters": [{"Name": "Amount", "Type": "int"}]})
@@ -743,6 +749,34 @@ def build_features(references):
     counted_frames, message = frames_waited()
     g.flow((waiting, "Completed"), call_check("WaitUntil waits for its condition", g.equal(counted_frames, 2), message))
     groups.append(marked)
+
+    # Input actions (Assets/Input/FeatureTest.sinput, which the project names): an override puts -1 on the axis Throttle,
+    # which presses it (by its magnitude) from the next frame's evaluation on; its event runs once, and the flow that waited
+    # for it reads that frame's value, vector, level and edge. Clearing the override releases it the same way.
+    def throttle_query(member):
+        return g.node(f"Call:Strada.Input.{member}(string)", None, {"Action": "Throttle"}), "Result"
+
+    pushed = g.node("Call:Strada.Input.SetActionOverride(string,float)", None, {"Action": "Throttle", "Value": -1.0})
+    pressed = g.node("Flow.WaitUntil", Condition=g.op("Greater", g.get(throttle_presses), B=0))
+    g.flow(pushed, pressed)
+    presses_now = g.get(throttle_presses)
+    value_now = throttle_query("GetAction")
+    vector_x = (g.node("Break", {"Type": "Strada.Vector2"}, Value=throttle_query("GetActionVector")), "X")
+    passed = g.all_of(g.equal(presses_now, 1), g.equal(value_now, -1.0), g.equal(vector_x, -1.0), throttle_query("IsActionDown"),
+                      throttle_query("IsActionPressed"))
+    g.flow((pressed, "Completed"), call_check("an action override presses the action from the next frame, once", passed,
+                                              g.format("{Presses} presses, value {Value}", Presses=presses_now, Value=value_now)))
+    groups.append(pushed)
+
+    cleared = g.node("Call:Strada.Input.ClearActionOverride(string)", None, {"Action": "Throttle"})
+    released = g.node("Flow.WaitUntil", Condition=g.op("Greater", g.get(throttle_releases), B=0))
+    g.flow(cleared, released)
+    releases_now = g.get(throttle_releases)
+    passed = g.all_of(g.equal(releases_now, 1), g.equal(g.get(throttle_presses), 1), throttle_query("IsActionReleased"),
+                      g.op("Not", throttle_query("IsActionDown")), g.equal(throttle_query("GetAction"), 0.0))
+    g.flow((released, "Completed"), call_check("clearing the override releases the action, once", passed,
+                                               g.format("{Releases} releases", Releases=releases_now)))
+    groups.append(cleared)
 
     # Tween with EaseOut: its first tick's Alpha is EaseOut (1 - (1 - t)^2) of the part of its duration gone by then, which
     # Linear would not give, and its last is 1.

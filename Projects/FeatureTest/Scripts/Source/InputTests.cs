@@ -4,11 +4,93 @@ using Strada.Testing;
 namespace FeatureTest;
 
 /// <summary>Input queries. Test runs have no keyboard, mouse or gamepad: nothing is held, moved or connected, and the
-/// cursor mode is what the scripts set.</summary>
+/// cursor mode is what the scripts set. The project's input actions (Input/FeatureTest.sinput) are driven by overrides: Jump
+/// and Move here, Throttle by the Features graph.</summary>
 public sealed class InputTests : FeatureTestScript
 {
+	private const int MaxFrames = 600;
+
+	// What the action events and the fixed steps saw of Jump.
+	private int m_JumpPresses;
+	private int m_JumpReleases;
+	private int m_StepPresses;
+	private int m_StepReleases;
+
+	protected override void OnActionPressed(string action) => m_JumpPresses += action == "Jump" ? 1 : 0;
+
+	protected override void OnActionReleased(string action) => m_JumpReleases += action == "Jump" ? 1 : 0;
+
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		m_StepPresses += Input.IsActionPressed("Jump") ? 1 : 0;
+		m_StepReleases += Input.IsActionReleased("Jump") ? 1 : 0;
+	}
+
+	// Frame 1 puts overrides on Jump and Move, which frame 2's evaluation takes (its press events come before its update),
+	// and clears them; frame 3 sees the releases. The fixed steps see each edge once, in the first step after it.
+	protected override bool Step(int frame, float deltaTime)
+	{
+		switch (frame)
+		{
+			case 1:
+				Check("actions read nothing before their overrides", () =>
+				{
+					Assert.AreEqual(0.0f, Input.GetAction("Jump"));
+					Assert.IsFalse(Input.IsActionDown("Jump"));
+					Assert.IsFalse(Input.IsActionPressed("Jump"));
+					Assert.IsFalse(Input.IsActionReleased("Jump"));
+					Assert.AreEqual(Vector2.Zero, Input.GetActionVector("Move"));
+				});
+				Input.SetActionOverride("Jump", 1.0f);
+				Input.SetActionVectorOverride("Move", new Vector2(0.0f, 1.0f));
+				return false;
+			case 2:
+				Check("an override presses an action from the next frame, with its event", () =>
+				{
+					Assert.AreEqual(1.0f, Input.GetAction("Jump"));
+					Assert.IsTrue(Input.IsActionDown("Jump"));
+					Assert.IsTrue(Input.IsActionPressed("Jump"));
+					Assert.AreEqual(1, m_JumpPresses);
+					Assert.AreEqual(new Vector2(0.0f, 1.0f), Input.GetActionVector("Move"));
+					Assert.AreEqual(1.0f, Input.GetAction("Move"));
+					Assert.IsTrue(Input.IsActionDown("Move"));
+				});
+				Input.ClearActionOverride("Jump");
+				Input.ClearActionOverride("Move");
+				return false;
+			case 3:
+				Check("clearing an override releases the action, with its event", () =>
+				{
+					Assert.AreEqual(0.0f, Input.GetAction("Jump"));
+					Assert.IsFalse(Input.IsActionDown("Jump"));
+					Assert.IsTrue(Input.IsActionReleased("Jump"));
+					Assert.AreEqual(1, m_JumpReleases);
+					Assert.AreEqual(Vector2.Zero, Input.GetActionVector("Move"));
+				});
+				return false;
+			default:
+				if (m_StepReleases == 0 && frame < MaxFrames)
+				{
+					return false;
+				}
+				Check("each edge of an action reaches one fixed step", () =>
+				{
+					Assert.AreEqual(1, m_StepPresses);
+					Assert.AreEqual(1, m_StepReleases);
+					Assert.AreEqual(1, m_JumpPresses);
+				});
+				return true;
+		}
+	}
+
 	protected override void Start()
 	{
+		Check("the project's input actions are listed by name", () =>
+		{
+			InputActions? actions = Assets.Load<InputActions>("Input/FeatureTest.sinput");
+			Assert.IsNotNull(actions);
+			Assert.AreEqual("Jump,Throttle,Move", string.Join(",", actions!.ActionNames));
+		});
 		Check("no key or button is held", () =>
 		{
 			foreach (KeyCode key in new[] { KeyCode.Space, KeyCode.A, KeyCode.Escape, KeyCode.LeftShift })

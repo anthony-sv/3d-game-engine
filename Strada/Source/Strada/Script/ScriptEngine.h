@@ -172,6 +172,13 @@ namespace Strada
 		static HandledContactEvent const* GetHandledContactEvent();
 		// OnClick(button) of the entity's instance: the entity is the clicked UI button or one of its ancestors.
 		static void InvokeOnClick(UUID entity, UUID button);
+		// OnActionPressed(action) and OnActionReleased(action) of the entity's instance, the action being the one an
+		// InputActionEventScope names (Docs/Architecture.md §7.4, "Events"); nothing runs outside one.
+		static void InvokeOnActionPressed(UUID entity);
+		static void InvokeOnActionReleased(UUID entity);
+		// The name of the input action whose edge is being dispatched, C# scripts' and graphs' alike, while an
+		// InputActionEventScope lives; nothing outside one.
+		static std::optional<std::string_view> GetHandledAction();
 
 		// Makes a contact event, seen from one of its entities, the one being handled (GetHandledContactEvent) for its
 		// lifetime: the scene keeps one around the InvokeContactEvent calls of that entity's C# script and graph. Scopes
@@ -188,6 +195,24 @@ namespace Strada
 		private:
 			HandledContactEvent m_Handled;
 			HandledContactEvent const* m_Previous = nullptr;
+			bool m_IsActive = false;
+		};
+
+		// Makes an input action the one whose edge is being dispatched (GetHandledAction) for its lifetime: the scene keeps
+		// one around the InvokeOnActionPressed or InvokeOnActionReleased calls of every script instance for one edge. Scopes
+		// nest, each restoring the one before; the name's characters must outlive the scope. Without an initialized engine
+		// it does nothing.
+		class InputActionEventScope
+		{
+		public:
+			explicit InputActionEventScope(std::string_view action);
+			~InputActionEventScope();
+			InputActionEventScope(InputActionEventScope const&) = delete;
+			InputActionEventScope& operator=(InputActionEventScope const&) = delete;
+
+		private:
+			std::string_view m_Action;
+			std::string_view const* m_Previous = nullptr;
 			bool m_IsActive = false;
 		};
 	};
