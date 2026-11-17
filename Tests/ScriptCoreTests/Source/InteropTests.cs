@@ -172,7 +172,7 @@ public sealed class InteropTests
 			(typeof(Texture), "Texture", NativeAssetType.Texture), (typeof(EnvironmentMap), "Environment", NativeAssetType.Environment),
 			(typeof(AudioClip), "AudioClip", NativeAssetType.AudioClip), (typeof(Font), "Font", NativeAssetType.Font),
 			(typeof(VisualScript), "VisualScript", NativeAssetType.VisualScript), (typeof(Curve), "Curve", NativeAssetType.None),
-			(typeof(PhysicsMaterial), "PhysicsMaterial", NativeAssetType.None)];
+			(typeof(InputActions), "InputActions", NativeAssetType.None), (typeof(PhysicsMaterial), "PhysicsMaterial", NativeAssetType.None)];
 		foreach ((System.Type assetClass, string name, NativeAssetType builtIn) in classes)
 		{
 			Assert.Equal(name, AssetTypes.GetTypeName(assetClass));
@@ -245,6 +245,8 @@ public sealed class InteropTests
 		Assert.Equal("Mesh", ScriptFieldCodec.GetAssetType(typeof(Mesh)));
 		Assert.Equal("Curve", ScriptFieldCodec.GetAssetType(typeof(Curve)));
 		Assert.Equal(new Curve(new AssetHandle(6)), ScriptFieldCodec.FromStored(new AssetHandle(6), typeof(Curve), out error));
+		Assert.Equal("InputActions", ScriptFieldCodec.GetAssetType(typeof(InputActions)));
+		Assert.Equal(new InputActions(new AssetHandle(8)), ScriptFieldCodec.FromStored(new AssetHandle(8), typeof(InputActions), out error));
 		Assert.Equal("PhysicsMaterial", ScriptFieldCodec.GetAssetType(typeof(PhysicsMaterial)));
 		Assert.Equal(new PhysicsMaterial(new AssetHandle(7)), ScriptFieldCodec.FromStored(new AssetHandle(7), typeof(PhysicsMaterial), out error));
 		Assert.Null(ScriptFieldCodec.GetAssetType(typeof(Prefab)));

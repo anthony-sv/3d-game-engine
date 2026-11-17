@@ -4,6 +4,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 
@@ -206,6 +207,7 @@ namespace Strada::ScriptGlue
 			if (DataAssetRegistry::IsDataAssetValue(static_cast<AssetType>(type)))
 			{
 				return static_cast<AssetType>(type) == TypedDataAsset<Curve>::GetStaticType() ||
+				       static_cast<AssetType>(type) == TypedDataAsset<InputActionMap>::GetStaticType() ||
 				       static_cast<AssetType>(type) == TypedDataAsset<PhysicsMaterial>::GetStaticType();
 			}
 			switch (static_cast<AssetType>(type))
@@ -357,6 +359,58 @@ namespace Strada::ScriptGlue
 			return static_cast<int32_t>(PhysicsMaterialReadStatus::Read);
 		}
 
+		// The InputActions asset of the handle, loaded on first use; null (logged as a script error) when it does not load.
+		Ref<TypedDataAsset<InputActionMap>> FindInputActions(uint64_t actions)
+		{
+			if (!AssetManager::IsInitialized())
+			{
+				Log::GetScriptLogger().error("InputActions: assets are unavailable");
+				return nullptr;
+			}
+			Result<Ref<TypedDataAsset<InputActionMap>>> asset =
+				AssetManager::TryGetAsset<TypedDataAsset<InputActionMap>>(ToHandle(actions));
+			if (!asset)
+			{
+				Log::GetScriptLogger().error("InputActions: {}", asset.GetError());
+				return nullptr;
+			}
+			return asset.GetValue();
+		}
+
+		// The version and action count of an InputActions asset for the scripting runtime's copy of it (Strada.InputActions),
+		// loading the asset on first use; the count is written only when the version differs from the one the runtime holds
+		// (heldVersion; 0 for none). Answers as PhysicsMaterial_Read does.
+		int32_t InputActions_Read(uint64_t actions, uint64_t heldVersion, uint64_t* version, int32_t* count)
+		{
+			Ref<TypedDataAsset<InputActionMap>> const asset = FindInputActions(actions);
+			if (!asset)
+			{
+				return static_cast<int32_t>(PhysicsMaterialReadStatus::Failed);
+			}
+			*version = asset->GetVersion();
+			if (*version == heldVersion)
+			{
+				return static_cast<int32_t>(PhysicsMaterialReadStatus::Unchanged);
+			}
+			*count = static_cast<int32_t>(asset->GetData().Actions.size());
+			return static_cast<int32_t>(PhysicsMaterialReadStatus::Read);
+		}
+
+		// The name of an InputActions asset's action at the index (below InputActions_Read's count), which the caller copies at
+		// once (it points into the asset's data); null and 0 when the asset does not load or has no such action.
+		char const* InputActions_GetActionName(uint64_t actions, int32_t index, int32_t* length)
+		{
+			*length = 0;
+			Ref<TypedDataAsset<InputActionMap>> const asset = FindInputActions(actions);
+			if (!asset || index < 0 || static_cast<size_t>(index) >= asset->GetData().Actions.size())
+			{
+				return nullptr;
+			}
+			std::string const& name = asset->GetData().Actions[static_cast<size_t>(index)].Name;
+			*length = static_cast<int32_t>(name.size());
+			return name.data();
+		}
+
 		Ref<MaterialAsset> FindMaterial(uint64_t material, std::string_view function)
 		{
 			if (!AssetManager::IsInitialized())
@@ -487,6 +541,8 @@ namespace Strada::ScriptGlue
 		table.Add("Assets_GetTypeName", &Assets_GetTypeName);
 		table.Add("Assets_Load", &Assets_Load);
 		table.Add("Curve_Read", &Curve_Read);
+		table.Add("InputActions_GetActionName", &InputActions_GetActionName);
+		table.Add("InputActions_Read", &InputActions_Read);
 		table.Add("Material_Create", &Material_Create);
 		table.Add("Material_Clone", &Material_Clone);
 		table.Add("Material_GetValues", &Material_GetValues);

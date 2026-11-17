@@ -1,10 +1,12 @@
+using System;
 using Strada.Interop;
 using Strada.VisualScripting;
 
 namespace Strada;
 
-/// <summary>Keyboard, mouse and gamepad state of the current frame. "Pressed" and "released" are true only during the
-/// frame the button changed.</summary>
+/// <summary>Keyboard, mouse and gamepad state of the current frame, and the project's input actions (named values such as
+/// Jump or Steer that bindings give from keys and gamepads alike). "Pressed" and "released" are true only during the frame
+/// the button changed.</summary>
 public static unsafe class Input
 {
 	/// <summary>Whether the key is held down.</summary>
@@ -100,4 +102,114 @@ public static unsafe class Input
 	[PureNode]
 	public static bool IsGamepadButtonReleased(GamepadButton button, int gamepad = 0) =>
 		gamepad >= 0 && InternalCalls.Input_IsGamepadButtonReleased((uint)gamepad, (int)button) != 0;
+
+	/// <summary>The value of an input action of the project's <see cref="InputActions"/>: a Button action's from 0 (up) to 1
+	/// (more with a binding's scale), an Axis action's signed value (typically -1 to 1), a Vector2 action's length. It is the
+	/// reading of the binding with the largest magnitude (after its dead zone, response curve, inversion and scale) or the
+	/// action's override (<see cref="SetActionOverride"/>), evaluated once per frame before <c>OnUpdate</c>. Names match with
+	/// their letter case; an unknown name, and every name in a project that names no actions, reads 0 (logged once per
+	/// name).</summary>
+	[PureNode]
+	public static float GetAction(string action)
+	{
+		Span<byte> buffer = stackalloc byte[InputActionContext.StackNameBytes];
+		ReadOnlySpan<byte> name = InputActionContext.Encode(action, buffer);
+		fixed (byte* text = name)
+		{
+			return InternalCalls.Input_GetAction(text, name.Length);
+		}
+	}
+
+	/// <summary>The value of an input action as a vector: a Vector2 action's, +Y up (a stick pushed forward, the W of a WASD
+	/// composite); (value, 0) for a Button or Axis action. Reads as <see cref="GetAction"/> does.</summary>
+	[PureNode]
+	public static Vector2 GetActionVector(string action)
+	{
+		Span<byte> buffer = stackalloc byte[InputActionContext.StackNameBytes];
+		ReadOnlySpan<byte> name = InputActionContext.Encode(action, buffer);
+		Vector2 value;
+		fixed (byte* text = name)
+		{
+			InternalCalls.Input_GetActionVector(text, name.Length, &value);
+		}
+		return value;
+	}
+
+	/// <summary>Whether an input action is down: its value reached its press threshold and has not fallen below its release
+	/// threshold since. Every action type has it, so an axis pushed far enough is down too.</summary>
+	[PureNode]
+	public static bool IsActionDown(string action)
+	{
+		Span<byte> buffer = stackalloc byte[InputActionContext.StackNameBytes];
+		ReadOnlySpan<byte> name = InputActionContext.Encode(action, buffer);
+		fixed (byte* text = name)
+		{
+			return InternalCalls.Input_IsActionDown(text, name.Length) != 0;
+		}
+	}
+
+	/// <summary>Whether an input action went down: in <c>OnUpdate</c> and the frame's events, during the frame it went down; in
+	/// <c>OnFixedUpdate</c>, during exactly one physics step, the first at or after that frame (carried across frames that run
+	/// no step), so fixed steps never miss a press nor see one twice. A press and release within one frame reads pressed and
+	/// released, and not down.</summary>
+	[PureNode]
+	public static bool IsActionPressed(string action)
+	{
+		Span<byte> buffer = stackalloc byte[InputActionContext.StackNameBytes];
+		ReadOnlySpan<byte> name = InputActionContext.Encode(action, buffer);
+		InputActionOrigin origin = InputActionContext.Current;
+		fixed (byte* text = name)
+		{
+			return InternalCalls.Input_IsActionPressed(text, name.Length, (int)origin.View, origin.Step) != 0;
+		}
+	}
+
+	/// <summary>Whether an input action went up again, by the same frame and fixed-step rule as
+	/// <see cref="IsActionPressed"/>.</summary>
+	[PureNode]
+	public static bool IsActionReleased(string action)
+	{
+		Span<byte> buffer = stackalloc byte[InputActionContext.StackNameBytes];
+		ReadOnlySpan<byte> name = InputActionContext.Encode(action, buffer);
+		InputActionOrigin origin = InputActionContext.Current;
+		fixed (byte* text = name)
+		{
+			return InternalCalls.Input_IsActionReleased(text, name.Length, (int)origin.View, origin.Step) != 0;
+		}
+	}
+
+	/// <summary>Puts a value on an input action as one more device would (on a Vector2 action, the vector (value, 0)): the
+	/// action takes it when it is larger than what its bindings read, and it presses and releases the action as a button does
+	/// (a press when the value leaves 0, a release when it returns to 0 or is cleared). It is read from the next frame's
+	/// evaluation on and held, across scene loads, until <see cref="ClearActionOverride"/>: how a graph drives a game (an
+	/// autopilot, an attract mode) and how a test scene presses a button. A value set and cleared before the next frame
+	/// still reaches it as a press and a release.</summary>
+	public static void SetActionOverride(string action, float value) => SetOverride(action, new Vector2(value, 0.0f));
+
+	/// <summary>Puts a vector on an input action as <see cref="SetActionOverride"/> does, for a Vector2 action (+Y up); a
+	/// Button or Axis action reads its X.</summary>
+	public static void SetActionVectorOverride(string action, Vector2 value) => SetOverride(action, value);
+
+	/// <summary>Ends the override of an input action (<see cref="SetActionOverride"/>): from the next frame's evaluation on
+	/// the action reads its bindings alone, released if only the override held it down. Nothing for an action without
+	/// one.</summary>
+	public static void ClearActionOverride(string action)
+	{
+		Span<byte> buffer = stackalloc byte[InputActionContext.StackNameBytes];
+		ReadOnlySpan<byte> name = InputActionContext.Encode(action, buffer);
+		fixed (byte* text = name)
+		{
+			InternalCalls.Input_ClearActionOverride(text, name.Length);
+		}
+	}
+
+	private static void SetOverride(string action, Vector2 value)
+	{
+		Span<byte> buffer = stackalloc byte[InputActionContext.StackNameBytes];
+		ReadOnlySpan<byte> name = InputActionContext.Encode(action, buffer);
+		fixed (byte* text = name)
+		{
+			InternalCalls.Input_SetActionOverride(text, name.Length, &value);
+		}
+	}
 }

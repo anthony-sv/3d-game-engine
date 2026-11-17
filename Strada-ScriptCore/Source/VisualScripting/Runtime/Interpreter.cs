@@ -33,6 +33,8 @@ internal sealed partial class VisualScriptRuntime
 			m_StepsRemaining = budget;
 		}
 		execution.IsRunning = true;
+		// The action queries of its nodes, and of the C# members they call, read its view.
+		InputActionOrigin origin = InputActionContext.Enter(execution.ActionOrigin);
 		// Spec-slice4 section 4.4: only an execution with no VM execution below it on the host stack can stop, and a receiver
 		// whose sender can: the sender then waits inside its Send.
 		execution.CanStop = execution.Parent is { } parent ? parent.CanStop : m_Depth == 0;
@@ -59,6 +61,7 @@ internal sealed partial class VisualScriptRuntime
 		}
 		finally
 		{
+			InputActionContext.Restore(origin);
 			m_Running.RemoveAt(m_Running.Count - 1);
 			execution.IsRunning = false;
 			// Spec-slice4 section 4.1: only the run a resume started passes its first stop point. A run that met no stop point

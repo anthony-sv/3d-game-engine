@@ -54,14 +54,16 @@ namespace Strada
 		constexpr std::array<std::string_view, 9> SingleEvents = {"Event.Create",       "Event.Update",         "Event.FixedUpdate",
 		                                                          "Event.Destroy",      "Event.CollisionEnter", "Event.CollisionExit",
 		                                                          "Event.TriggerEnter", "Event.TriggerExit",    "Event.Click"};
-		// The input events a script has at most one node of per value of their setting (a key or a button).
-		constexpr std::array<std::pair<std::string_view, char const*>, 6> InputEvents = {{
+		// The input events a script has at most one node of per value of their setting (a key, a button or an action's name).
+		constexpr std::array<std::pair<std::string_view, char const*>, 8> InputEvents = {{
 			{"Event.KeyPressed", "Key"},
 			{"Event.KeyReleased", "Key"},
 			{"Event.MouseButtonPressed", "Button"},
 			{"Event.MouseButtonReleased", "Button"},
 			{"Event.GamepadButtonPressed", "Button"},
 			{"Event.GamepadButtonReleased", "Button"},
+			{"Event.ActionPressed", "Action"},
+			{"Event.ActionReleased", "Action"},
 		}};
 
 		// The members of the clipboard's objects; anything else is refused.

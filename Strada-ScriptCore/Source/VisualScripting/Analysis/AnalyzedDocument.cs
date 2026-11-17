@@ -649,6 +649,9 @@ internal sealed record FunctionBinding(AnalyzedFunction Function, ulong Graph = 
 // The input events: the key, mouse button or gamepad button (an enum value).
 internal sealed record InputEventBinding(object Value) : NodeBinding;
 
+// Event.ActionPressed and Event.ActionReleased: the input action's name, as the project's input actions name it.
+internal sealed record ActionEventBinding(string Action) : NodeBinding;
+
 // Event.Custom, Event.Send and Event.Broadcast. Target: a typed Send's or Broadcast's graph (spec-slice3 sections 4.3 and
 // 4.6); null for one without Graph. IncludeSelf: a Broadcast reaches the instance that runs it too.
 internal sealed record CustomEventBinding(string Name, IReadOnlyList<AnalyzedParameter> Parameters, SendTarget? Target = null) : NodeBinding

@@ -14,6 +14,7 @@
 #include "Editor/VisualScripting/VisualScriptDebugSession.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
@@ -893,6 +894,73 @@ TEST_CASE("VisualScriptDebug: input given while an execution is stopped is read 
 	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 1}}))["framesRun"] == 1);
 	CHECK(counts() == Json::array({3, 2, 1}));
 	CHECK(Input::IsKeyDown(KeyCode::Space));
+}
+
+TEST_CASE("VisualScriptDebug: a fixed step's code stopped in the first step of a frame reads that step's action edges when it resumes, "
+          "once")
+{
+	struct InputGuard
+	{
+		InputGuard() { Input::Reset(); }
+		~InputGuard() { Input::Reset(); }
+		InputGuard(InputGuard const&) = delete;
+		InputGuard& operator=(InputGuard const&) = delete;
+	} const inputGuard;
+	DebugFixture fixture;
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions = fixture.Operations.CreateDataAsset(
+		type->GetAssetType(), "Input/Game.sinput",
+		Json::parse(R"({ "Actions": [ { "Name": "Jump", "Bindings": [ { "Controls": "Key/Space" } ] } ] })"));
+	REQUIRE(actions.IsOk());
+	REQUIRE(fixture.Operations.ApplyProjectSettings(Json::object({{"InputActions", actions.GetValue().ToString()}})).IsOk());
+	// On every fixed step: Steps += 1 at node 11; when IsActionPressed(Jump) (node 21, the Branch at node 20), Saw += 1 at
+	// node 14, where the breakpoint stops, then, when IsActionPressed(Jump) again (node 31, the Branch at node 30),
+	// Resumed += 1 at node 34.
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Steps", "int", 0));
+	document.Variables.push_back(MakeVariable(2, "Saw", "int", 0));
+	document.Variables.push_back(MakeVariable(3, "Resumed", "int", 0));
+	Json const jump = Json::object({{"Action", "Jump"}});
+	document.Graph.Nodes.push_back(MakeNode(10, "Event.FixedUpdate"));
+	AddIncrement(document.Graph, 11, 1);
+	AddIncrement(document.Graph, 14, 2);
+	AddIncrement(document.Graph, 34, 3);
+	for (uint32_t const branch : {20u, 30u})
+	{
+		document.Graph.Nodes.push_back(MakeNode(branch, "Flow.Branch"));
+		document.Graph.Nodes.push_back(MakeNode(branch + 1, "Call:Strada.Input.IsActionPressed(string)", Json::object(), jump));
+		document.Graph.Links.push_back(MakeLink(branch + 1, "Result", branch, "Condition"));
+	}
+	document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	document.Graph.Links.push_back(MakeLink(11, "Then", 20, "Execute"));
+	document.Graph.Links.push_back(MakeLink(20, "True", 14, "Execute"));
+	document.Graph.Links.push_back(MakeLink(14, "Then", 30, "Execute"));
+	document.Graph.Links.push_back(MakeLink(30, "True", 34, "Execute"));
+	std::string const graph = fixture.CreateGraph("Scripts/Steps.sgraph", document);
+	std::string const runner = fixture.CreateRunner("Steps", graph);
+	auto const counts = [&fixture, &runner]
+	{
+		return Json::array({fixture.Variable(runner, "Steps"), fixture.Variable(runner, "Saw"), fixture.Variable(runner, "Resumed")});
+	};
+
+	fixture.Start(true);
+	fixture.Breakpoint(graph, Json::object({{"node", 14}}));
+	// Jump goes down in a frame too short for a step: the press waits for the next step, so the next frame's own edges have
+	// none (a resume that read the frame's would miss it, one that read the frame's last step would too).
+	fixture.Ok("input.set", Json::object({{"keys", Json::object({{"Space", true}})}}));
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 1}, {"timestep", 0.001}}))["stopped"] == false);
+	CHECK(counts() == Json::array({0, 0, 0}));
+	// A frame of two steps: the first takes the press and stops at node 14; the second runs and sees no press.
+	REQUIRE(fixture.Ok("play.advance", Json::object({{"frames", 1}, {"timestep", 2.0 * FrameTime}}))["stopped"] == true);
+	CHECK(counts() == Json::array({2, 0, 0}));
+	fixture.Ok("graph.breakpoints", Json::object({{"graph", graph}, {"clear", true}}));
+	Json const continued = fixture.Ok("graph.continue");
+	CHECK(continued["outcome"] == "Ended");
+	CHECK(counts() == Json::array({2, 1, 1}));
+	// The press was seen by one step, and is not seen again.
+	CHECK(fixture.Ok("play.advance", Json::object({{"frames", 3}}))["framesRun"] == 3);
+	CHECK(counts() == Json::array({5, 1, 1}));
 }
 
 TEST_CASE("VisualScriptDebug: graph.step steps between frames, waits in a Delay with needsFrames, and arms after the execution ended")

@@ -662,9 +662,14 @@ namespace Strada
 		// Input actions (SceneInputActions.cpp; Docs/Architecture.md §7.4). The frame's one named call of input actions,
 		// which OnUpdateRuntime makes before UpdateUI and the scripts, in frames that run (a paused scene's do not): makes the
 		// set again when what it was made from changed (the runtime settings' InputActions asset or a response curve it
-		// names; the actions' state kept by name), then evaluates it from Input (InputActionState::Evaluate). Returns at
-		// once when the settings name no actions. Zone Scene.InputActions.
+		// names; the actions' state kept by name), then evaluates it from Input (InputActionState::Evaluate) and dispatches
+		// the evaluation's edges to the scripts (DispatchInputActionEvents). Returns at once when the settings name no
+		// actions. Zone Scene.InputActions.
 		void UpdateInputActions();
+		// Each edge of the latest evaluation, in its order (InputActionState::GetEdges), to every C# script instance
+		// (OnActionPressed or OnActionReleased), then to every graph instance (Event.ActionPressed or Event.ActionReleased),
+		// inside a ScriptEngine::InputActionEventScope that names the action. Nothing when no scripts run.
+		void DispatchInputActionEvents();
 		// At runtime start: the set made from the settings' asset, taken without an edge, logged with its action count.
 		void StartInputActions();
 		void StopInputActions();

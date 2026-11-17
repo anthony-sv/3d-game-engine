@@ -97,6 +97,7 @@ internal static class ProgramCompiler
 		int[] events = new int[s_ScriptEvents.Length];
 		Array.Fill(events, -1);
 		List<InputEvent> inputEvents = [];
+		List<ActionEvent> actionEvents = [];
 		foreach (AnalyzedNode node in document.EventGraph.Nodes)
 		{
 			// A disabled event starts no execution.
@@ -110,13 +111,17 @@ internal static class ProgramCompiler
 			{
 				events[scriptEvent] = index;
 			}
+			else if (BuiltinNodes.IsActionEvent(builtin) && node.Binding is ActionEventBinding action)
+			{
+				actionEvents.Add(new ActionEvent(index, builtin == BuiltinNode.EventActionPressed, action.Action));
+			}
 			else if (BuiltinNodes.IsInputEvent(builtin) && node.Binding is InputEventBinding input)
 			{
 				int gamepad = node.FindPin("Gamepad", PinDirection.In) is { Value: int value } ? value : 0;
 				inputEvents.Add(new InputEvent(index, builtin, unchecked((int)LiteralCodec.ToBits(input.Value)), gamepad));
 			}
 		}
-		return new GraphProgram(document.Library, name, variables, compiledFunctions, eventGraph, events, [.. inputEvents]);
+		return new GraphProgram(document.Library, name, variables, compiledFunctions, eventGraph, events, [.. inputEvents], [.. actionEvents]);
 	}
 
 	private sealed record Context(NodeLibrary Library, Dictionary<AnalyzedVariable, int> Variables, Dictionary<(ulong Graph, uint Id), CompiledFunction> Functions);

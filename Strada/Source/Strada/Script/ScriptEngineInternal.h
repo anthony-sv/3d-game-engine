@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -47,7 +48,10 @@ namespace Strada::ScriptEngineInternal
 		CollisionExit = 5,
 		TriggerEnter = 6,
 		TriggerExit = 7,
-		Click = 8
+		Click = 8,
+		// An input action's edge (ScriptEngine::InputActionEventScope names the action).
+		ActionPressed = 9,
+		ActionReleased = 10
 	};
 
 	// How entry points answer with text: receive(context, text, length), called synchronously while the entry point runs
@@ -190,6 +194,8 @@ namespace Strada::ScriptEngineInternal
 		std::unordered_set<UUID> Instances;
 		// The contact event being handled (ScriptEngine::ContactEventScope), or null.
 		HandledContactEvent const* HandledContact = nullptr;
+		// The name of the input action whose edge is being dispatched (ScriptEngine::InputActionEventScope), or null.
+		std::string_view const* HandledAction = nullptr;
 
 		// Visual scripts: the programs by graph handle, the entities with a graph instance, and the node library (read when
 		// first needed and dropped when the game assembly changes; IsLibraryUnavailable remembers a failure until then).

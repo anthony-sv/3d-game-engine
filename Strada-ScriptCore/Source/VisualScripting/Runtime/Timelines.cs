@@ -163,6 +163,8 @@ internal sealed partial class VisualScriptRuntime
 	{
 		Execution run = pending.Fiber;
 		GraphInstance instance = run.Instance;
+		// Ticks continue the code that played the timeline (taken first: Finished fires after the run is released).
+		InputActionOrigin origin = run.ActionOrigin.Continued();
 		Slot[] slots = run.TopFrame.Slots;
 		CompiledTimeline timeline = node.Timeline!;
 		TimelineState state = (TimelineState)slots[node.TimelineSlot].Object!;
@@ -188,20 +190,20 @@ internal sealed partial class VisualScriptRuntime
 				{
 					return failed;
 				}
-				failed |= TimelineTick(instance, node, timeline.EventExits[firings[index]]);
+				failed |= TimelineTick(instance, node, timeline.EventExits[firings[index]], origin);
 			}
 			if (!IsAdvancing(pending, instance, state, generation))
 			{
 				return failed;
 			}
-			failed |= TimelineTick(instance, node, timeline.UpdateExit);
+			failed |= TimelineTick(instance, node, timeline.UpdateExit, origin);
 			if (!sweep.Finished || !IsAdvancing(pending, instance, state, generation))
 			{
 				return failed;
 			}
 			Discard(run);
 			slots[timeline.PlayingSlot] = Slot.FromBool(false);
-			return failed | TimelineTick(instance, node, timeline.FinishedExit);
+			return failed | TimelineTick(instance, node, timeline.FinishedExit, origin);
 		}
 		finally
 		{
@@ -215,8 +217,8 @@ internal sealed partial class VisualScriptRuntime
 		instance.IsAlive && state.Generation == generation && IsWaiting(pending, instance);
 
 	// An exec output of the timeline fires: a new execution with a budget of its own leaves the node through it, in the event
-	// graph's frame. Nothing runs for an unlinked output.
-	private bool TimelineTick(GraphInstance instance, CompiledNode node, int exit)
+	// graph's frame, reading the action edges of origin. Nothing runs for an unlinked output.
+	private bool TimelineTick(GraphInstance instance, CompiledNode node, int exit, InputActionOrigin origin)
 	{
 		if (node.Exits[exit].Node < 0)
 		{
@@ -224,6 +226,7 @@ internal sealed partial class VisualScriptRuntime
 		}
 		Execution tick = Acquire(instance, node.Index, Execution.TickEntry, new ExecutionStart(StartKind.Timeline, node, exit, 0, 0));
 		tick.TickExit = exit;
+		tick.ActionOrigin = origin;
 		return Finish(tick, Execute(tick, true));
 	}
 

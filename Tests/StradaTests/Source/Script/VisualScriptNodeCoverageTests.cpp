@@ -5,6 +5,9 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/InputActionMap.h"
+#include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
@@ -21,6 +24,8 @@
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <doctest/doctest.h>
+
+#include <glm/glm.hpp>
 
 #include <algorithm>
 #include <array>
@@ -63,6 +68,10 @@ namespace
 		std::span<KeyCode const> HeldKeys;
 		std::span<MouseButton const> HeldMouseButtons;
 		std::span<GamepadButton const> HeldGamepadButtons;
+		// Input actions the case's scene has (Button actions without bindings), each pressed and released through an
+		// override once the scene has started, so that the first frame reports both edges (action events, and the queries'
+		// names). The InputScope restores the overrides too.
+		std::span<std::string_view const> HeldActions;
 		// The exec output the Ran chain starts from; empty: the pass-through exit.
 		std::string_view RanFrom;
 		int Frames = 30;
@@ -94,6 +103,10 @@ namespace
 		constexpr NodeCaseRecipe WithHeldGamepadButtons(std::span<GamepadButton const> value) const
 		{
 			return With(&NodeCaseRecipe::HeldGamepadButtons, value);
+		}
+		constexpr NodeCaseRecipe WithHeldActions(std::span<std::string_view const> value) const
+		{
+			return With(&NodeCaseRecipe::HeldActions, value);
 		}
 		constexpr NodeCaseRecipe WithRanFrom(std::string_view value) const { return With(&NodeCaseRecipe::RanFrom, value); }
 		constexpr NodeCaseRecipe WithFrames(int value) const { return With(&NodeCaseRecipe::Frames, value); }
@@ -133,6 +146,7 @@ namespace
 	constexpr std::array<KeyCode, 1> SpaceKey = {KeyCode::Space};
 	constexpr std::array<MouseButton, 1> LeftMouseButton = {MouseButton::Left};
 	constexpr std::array<GamepadButton, 1> GamepadButtonA = {GamepadButton::A};
+	constexpr std::array<std::string_view, 1> CoverageAction = {"Coverage"};
 
 	constexpr auto Recipes = std::to_array<NodeCaseRecipe>({
 		// Flow whose defaults never reach the exit the Ran chain starts from, or wait longer than a case runs.
@@ -151,6 +165,27 @@ namespace
 		Recipe("Event.MouseButtonReleased").WithSettings(R"({"Button": "Left"})").WithHeldMouseButtons(LeftMouseButton),
 		Recipe("Event.GamepadButtonPressed").WithSettings(R"({"Button": "A"})").WithHeldGamepadButtons(GamepadButtonA),
 		Recipe("Event.GamepadButtonReleased").WithSettings(R"({"Button": "A"})").WithHeldGamepadButtons(GamepadButtonA),
+		Recipe("Event.ActionPressed").WithSettings(R"({"Action": "Coverage"})").WithHeldActions(CoverageAction),
+		Recipe("Event.ActionReleased").WithSettings(R"({"Action": "Coverage"})").WithHeldActions(CoverageAction),
+		// Input action queries name an action the scene has (an unknown name is logged); overrides are global, so they run
+		// alone.
+		Recipe("Call:Strada.Input.GetAction(string)").WithInputs(R"({"Action": "Coverage"})").WithHeldActions(CoverageAction),
+		Recipe("Call:Strada.Input.GetActionVector(string)").WithInputs(R"({"Action": "Coverage"})").WithHeldActions(CoverageAction),
+		Recipe("Call:Strada.Input.IsActionDown(string)").WithInputs(R"({"Action": "Coverage"})").WithHeldActions(CoverageAction),
+		Recipe("Call:Strada.Input.IsActionPressed(string)").WithInputs(R"({"Action": "Coverage"})").WithHeldActions(CoverageAction),
+		Recipe("Call:Strada.Input.IsActionReleased(string)").WithInputs(R"({"Action": "Coverage"})").WithHeldActions(CoverageAction),
+		Recipe("Call:Strada.Input.SetActionOverride(string,float)")
+			.WithInputs(R"({"Action": "Coverage", "Value": 1.0})")
+			.WithHeldActions(CoverageAction)
+			.WithAlone(),
+		Recipe("Call:Strada.Input.SetActionVectorOverride(string,Strada.Vector2)")
+			.WithInputs(R"({"Action": "Coverage", "Value": [0.0, 1.0]})")
+			.WithHeldActions(CoverageAction)
+			.WithAlone(),
+		Recipe("Call:Strada.Input.ClearActionOverride(string)")
+			.WithInputs(R"({"Action": "Coverage"})")
+			.WithHeldActions(CoverageAction)
+			.WithAlone(),
 		// Neutral values for members with global effects, which run alone: the defaults would stop the case's own scene.
 		Recipe("Set:Strada.Time.TimeScale").WithInputs(R"({"Value": 1.0})"),
 		Recipe("Set:Strada.Physics.Gravity").WithInputs(R"({"Value": [0.0, -9.81, 0.0]})"),
@@ -1093,7 +1128,17 @@ namespace
 			// A viewport, as in the player and the editor: cameras map between the screen and the world.
 			scene.OnViewportResize(1280, 720);
 			uint64_t const logStart = Log::GetNextEntryIndex();
-			scene.OnRuntimeStart();
+			std::vector<std::string> const heldActions = CollectHeldActions(cases);
+			AssetHandle const actions = AddHeldActions(heldActions);
+			SceneRuntimeSettings settings;
+			settings.InputActions = actions;
+			scene.OnRuntimeStart(settings);
+			// The actions take their baselines as the scene starts: a press and release after it is the first frame's tap.
+			for (std::string const& action : heldActions)
+			{
+				REQUIRE(Input::SetActionOverride(action, glm::vec2(1.0f, 0.0f)));
+				Input::ClearActionOverride(action);
+			}
 			for (int frame = 0; frame < frames; frame++)
 			{
 				scene.OnUpdateRuntime(Timestep(FrameTime));
@@ -1110,6 +1155,10 @@ namespace
 			for (RunningCase const& runningCase : running)
 			{
 				AssetManager::RemoveMemoryAsset(runningCase.Graph);
+			}
+			if (actions.IsValid())
+			{
+				AssetManager::RemoveMemoryAsset(actions);
 			}
 
 			// What each case logged, and what named none.
@@ -1198,6 +1247,45 @@ namespace
 					component->Deserialize(scene.GetRegistry(), entity.GetHandle(), fields, AssetManager::CreateDeserializationContext());
 				REQUIRE_MESSAGE(added.IsOk(), (added ? std::string() : name + ": " + added.GetError()));
 			}
+		}
+
+		// The held actions of the cases' recipes, each once, sorted.
+		static std::vector<std::string> CollectHeldActions(std::span<NodeCase*> cases)
+		{
+			std::vector<std::string> names;
+			for (NodeCase const* nodeCase : cases)
+			{
+				if (nodeCase->Recipe != nullptr)
+				{
+					names.insert(names.end(), nodeCase->Recipe->HeldActions.begin(), nodeCase->Recipe->HeldActions.end());
+				}
+			}
+			std::sort(names.begin(), names.end());
+			names.erase(std::unique(names.begin(), names.end()), names.end());
+			return names;
+		}
+
+		// An InputActions memory asset of Button actions without bindings, one per name; invalid for none.
+		static AssetHandle AddHeldActions(std::vector<std::string> const& names)
+		{
+			if (names.empty())
+			{
+				return AssetHandle();
+			}
+			InputActionMap map;
+			for (std::string const& name : names)
+			{
+				InputAction action;
+				action.Name = name;
+				action.Type = InputActionType::Button;
+				map.Actions.push_back(std::move(action));
+			}
+			TypedDataAssetType<InputActionMap> const* type = DataAssetRegistry::Find<InputActionMap>();
+			REQUIRE(type != nullptr);
+			Ref<TypedDataAsset<InputActionMap>> const asset = std::static_pointer_cast<TypedDataAsset<InputActionMap>>(type->CreateAsset());
+			Result<void> const set = asset->SetData(std::move(map));
+			REQUIRE_MESSAGE(set.IsOk(), (set ? std::string() : set.GetError()));
+			return AssetManager::AddMemoryAsset(asset, "Coverage Actions.sinput");
 		}
 
 		static void PressAndRelease(NodeCaseRecipe const& recipe)

@@ -5,8 +5,11 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/InputActionsAsset.h"
 #include "Strada/Core/Profiler.h"
+#include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <algorithm>
+#include <vector>
 
 namespace Strada
 {
@@ -59,6 +62,46 @@ namespace Strada
 			RebuildInputActions(false);
 		}
 		m_InputActions.Evaluate();
+		DispatchInputActionEvents();
+	}
+
+	void Scene::DispatchInputActionEvents()
+	{
+		if (!m_RunsScripts || m_InputActions.GetEdges().empty())
+		{
+			return;
+		}
+		// Copies: handlers may start and stop instances, and the set stays alive for the names whatever they do.
+		Ref<InputActionSet const> const actions = m_InputActions.GetActions();
+		std::vector<InputActionEdge> const edges(m_InputActions.GetEdges().begin(), m_InputActions.GetEdges().end());
+		std::vector<UUID> const scripts = GetScriptInstanceIDs();
+		std::vector<UUID> const visualScripts = GetVisualScriptInstanceIDs();
+		for (InputActionEdge const& edge : edges)
+		{
+			ScriptEngine::InputActionEventScope const scope(actions->GetActions()[edge.Action].Name);
+			for (UUID const id : scripts)
+			{
+				if (edge.Pressed)
+				{
+					ScriptEngine::InvokeOnActionPressed(id);
+				}
+				else
+				{
+					ScriptEngine::InvokeOnActionReleased(id);
+				}
+			}
+			for (UUID const id : visualScripts)
+			{
+				if (edge.Pressed)
+				{
+					VisualScriptEngine::InvokeOnActionPressed(id);
+				}
+				else
+				{
+					VisualScriptEngine::InvokeOnActionReleased(id);
+				}
+			}
+		}
 	}
 
 	void Scene::RebuildInputActions(bool starting)

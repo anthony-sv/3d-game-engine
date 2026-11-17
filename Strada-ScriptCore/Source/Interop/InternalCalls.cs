@@ -498,6 +498,19 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<uint, int, byte> Input_IsGamepadButtonDown;
 	internal static delegate* unmanaged<uint, int, byte> Input_IsGamepadButtonPressed;
 	internal static delegate* unmanaged<uint, int, byte> Input_IsGamepadButtonReleased;
+	// Input actions by name (UTF-8 and its length); the edge queries take the asking code's view (InputActionView) and the
+	// step it recorded.
+	internal static delegate* unmanaged<byte*, int, float> Input_GetAction;
+	internal static delegate* unmanaged<byte*, int, Vector2*, void> Input_GetActionVector;
+	internal static delegate* unmanaged<byte*, int, byte> Input_IsActionDown;
+	internal static delegate* unmanaged<byte*, int, int, ulong, byte> Input_IsActionPressed;
+	internal static delegate* unmanaged<byte*, int, int, ulong, byte> Input_IsActionReleased;
+	// The number of the fixed step the running scene's actions are in; 0 outside every step.
+	internal static delegate* unmanaged<ulong> Input_GetActionStep;
+	internal static delegate* unmanaged<byte*, int, Vector2*, void> Input_SetActionOverride;
+	internal static delegate* unmanaged<byte*, int, void> Input_ClearActionOverride;
+	// The action whose edge the running handlers were called for (its UTF-8 and length); null outside one.
+	internal static delegate* unmanaged<int*, byte*> Input_GetHandledAction;
 
 	internal static delegate* unmanaged<Vector3*, void> Physics_GetGravity;
 	internal static delegate* unmanaged<Vector3*, void> Physics_SetGravity;
@@ -514,6 +527,10 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<int, int*, byte*> Assets_GetTypeName;
 	internal static delegate* unmanaged<byte*, int, int, ulong> Assets_Load;
 	internal static delegate* unmanaged<ulong, ulong, NativeCurveHeader*, NativeCurveKey*, int, int> Curve_Read;
+	// The name of the action at an index (its UTF-8 and length; null when there is none), and the asset's version and action
+	// count (a PhysicsMaterialReadStatus: the count only when the held version differs).
+	internal static delegate* unmanaged<ulong, int, int*, byte*> InputActions_GetActionName;
+	internal static delegate* unmanaged<ulong, ulong, ulong*, int*, int> InputActions_Read;
 	internal static delegate* unmanaged<ulong> Material_Create;
 	internal static delegate* unmanaged<ulong, ulong> Material_Clone;
 	internal static delegate* unmanaged<ulong, NativeMaterialValues*, void> Material_GetValues;

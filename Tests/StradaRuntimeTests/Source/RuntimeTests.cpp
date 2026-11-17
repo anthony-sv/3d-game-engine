@@ -1179,6 +1179,21 @@ TEST_CASE("Runtime: an exported game reads its project's input actions, which ar
 		REQUIRE(AssetManager::SaveRegistry().IsOk());
 		handle = imported.GetValue().ToString();
 		REQUIRE(project->ApplySettings(Json::object({{"InputActions", handle}})).IsOk());
+		// A graph that presses Jump through an override as it starts, and passes when its press event runs.
+		VisualScriptDocument document;
+		document.Graph.Nodes.push_back(MakeNode(1, "Event.Create"));
+		document.Graph.Nodes.push_back(
+			MakeNode(2, "Call:Strada.Input.SetActionOverride(string,float)", Json::object({{"Action", "Jump"}, {"Value", 1.0}})));
+		document.Graph.Nodes.push_back(MakeSetNode(3, "Event.ActionPressed", Json::object({{"Action", "Jump"}})));
+		document.Graph.Nodes.push_back(
+			MakeNode(4, "Call:Strada.Testing.TestReporter.Pass(string)", Json::object({{"Name", "the override pressed Jump"}})));
+		document.Graph.Nodes.push_back(MakeNode(5, "Call:Strada.Testing.TestReporter.Finish()"));
+		document.Graph.Links.push_back({{1, "Then"}, {2, "Execute"}});
+		document.Graph.Links.push_back({{3, "Then"}, {4, "Execute"}});
+		document.Graph.Links.push_back({{4, "Then"}, {5, "Execute"}});
+		Ref<Scene> const main = MakeScene("Main", std::nullopt);
+		main->CreateEntity("Rider").AddComponent<VisualScriptComponent>().Graph = AddGraphAsset(document, "Actions");
+		REQUIRE(SceneSerializer::SaveToFile(*main, project->GetAssetDirectory() / "Scenes" / "Main.sscene").IsOk());
 
 		Result<GameExportSettings> prepared = GameExporter::Prepare(*project, directory.GetPath() / "Export");
 		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
@@ -1195,11 +1210,13 @@ TEST_CASE("Runtime: an exported game reads its project's input actions, which ar
 	REQUIRE(FileSystem::RemoveAll(directory.GetPath() / "Project").IsOk());
 
 	Testing::IsolatedUserRoot const userRoot;
-	ProcessResult const run = RunProgram(player, {"--headless", "--frames", "3"}, userRoot);
+	ProcessResult const run = RunProgram(player, {"--test"}, userRoot);
 	CAPTURE(run.Output);
 	CHECK(run.ExitCode == 0);
 	CHECK(Contains(run.Output, "Input actions: 2 actions from asset://Input/Game.sinput"));
 	CHECK_FALSE(Contains(run.Output, "does not load as an InputActions asset"));
+	CHECK(Contains(run.Output, "Test passed: the override pressed Jump"));
+	CHECK(Contains(run.Output, "Tests passed: 1 check in 1 frame"));
 }
 
 TEST_CASE("Runtime: players tell once at startup what is wrong with the engine marker beside them, and still run")

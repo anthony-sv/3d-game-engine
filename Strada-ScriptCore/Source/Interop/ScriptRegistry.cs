@@ -23,6 +23,9 @@ internal enum ScriptEvent
 	TriggerEnter = 6,
 	TriggerExit = 7,
 	Click = 8,
+	// An input action's edge: the engine names the action while its handlers run (InputActionContext.GetHandledAction).
+	ActionPressed = 9,
+	ActionReleased = 10,
 }
 
 // The game's script classes and the instances of the running scene.
@@ -405,6 +408,9 @@ internal static class ScriptRegistry
 		{
 			return Host.NotFound;
 		}
+		// A callback the engine makes reads the frame's action edges (inside a fixed step the engine reads the step's), even
+		// when a graph's call into the engine runs it.
+		InputActionOrigin origin = InputActionContext.Enter(InputActionOrigin.Frame);
 		try
 		{
 			switch (scriptEvent)
@@ -438,6 +444,12 @@ internal static class ScriptRegistry
 				case ScriptEvent.Click:
 					instance.InvokeOnClick(GetEntity(other));
 					break;
+				case ScriptEvent.ActionPressed:
+					instance.InvokeOnActionPressed(InputActionContext.GetHandledAction());
+					break;
+				case ScriptEvent.ActionReleased:
+					instance.InvokeOnActionReleased(InputActionContext.GetHandledAction());
+					break;
 				default:
 					return Host.Failure;
 			}
@@ -447,6 +459,10 @@ internal static class ScriptRegistry
 		{
 			Log.Error($"{instance.GetType().FullName}.On{scriptEvent} (entity {entity}): {exception}");
 			return Host.Failure;
+		}
+		finally
+		{
+			InputActionContext.Restore(origin);
 		}
 	}
 
