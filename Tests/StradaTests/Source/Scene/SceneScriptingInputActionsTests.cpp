@@ -698,7 +698,7 @@ TEST_CASE("SceneInputActions: a graph that a fixed step's C# script or graph rai
 	Input::SetKeyState(KeyCode::Space, true);
 	RunFrame(scene, 8.0f * Step);
 	CHECK(ReadGraph(probe).at("SentSteps").GetInt32() == 9);
-	for (Entity const entity : {probe, graph})
+	for (Entity const& entity : {probe, graph})
 	{
 		CHECK(ReadGraph(entity).at("SentPresses").GetInt32() == 1);
 	}
@@ -715,7 +715,7 @@ TEST_CASE("SceneInputActions: a graph that a fixed step's C# script or graph rai
 	{
 		RunFrame(scene);
 	}
-	for (Entity const entity : {probe, graph})
+	for (Entity const& entity : {probe, graph})
 	{
 		CHECK(ReadGraph(entity).at("SentPresses").GetInt32() == 2);
 		CHECK(ReadGraph(entity).at("SentSteps").GetInt32() == 14);
@@ -769,7 +769,7 @@ TEST_CASE("SceneInputActions: a Delay's and a WaitUntil's continuation of fixed-
 		REQUIRE(waitRead.at("WaitRan").GetBool());
 		CHECK_FALSE(delayRead.at("DelaySaw").GetBool());
 		CHECK_FALSE(waitRead.at("WaitSaw").GetBool());
-		for (Entity const entity : {probe, sender})
+		for (Entity const& entity : {probe, sender})
 		{
 			ScriptFieldMap const sentRead = ReadGraph(entity);
 			REQUIRE(sentRead.at("SentLateRan").GetBool());

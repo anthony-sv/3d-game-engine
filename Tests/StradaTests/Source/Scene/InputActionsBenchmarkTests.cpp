@@ -294,14 +294,15 @@ TEST_CASE("SceneInputActions: 64 actions of three bindings each with scripts run
           doctest::skip(!Platform::ReadEnvironmentVariable("STRADA_INPUT_ACTIONS_BENCHMARK")))
 {
 	// A measurement, never asserted on timings: run with STRADA_INPUT_ACTIONS_BENCHMARK=1 in a Release build. What the events
-	// cost: every edge reaches every C# script and every graph instance, also those with no handler of it.
-	constexpr uint32_t ProfiledFrames = 600;
+	// cost: every edge reaches every C# script and every graph instance, also those with no handler of it. The same actions as
+	// the first case's, and the frames timed whole.
+	using Clock = std::chrono::steady_clock;
+	constexpr uint32_t TimedFrames = 600;
 	constexpr size_t GraphInstances = 100;
 	constexpr size_t ScriptInstances = 20;
 	Testing::AssetManagerScope const assets;
 	Testing::PhysicsSystemScope const physics;
 	Testing::ScriptEngineScope const scripting;
-	Testing::ProfilerScope const profiler;
 	BenchmarkInputScope const input;
 
 	std::vector<KeyCode> const keys = NamedKeys();
@@ -320,6 +321,7 @@ TEST_CASE("SceneInputActions: 64 actions of three bindings each with scripts run
 	presses.Name = "Presses";
 	presses.Type = "int";
 	presses.Value = 0;
+	presses.Public = true;
 	document.Variables.push_back(presses);
 	auto const node = [](uint32_t id, std::string nodeType, Json settings, Json inputs)
 	{
@@ -377,49 +379,54 @@ TEST_CASE("SceneInputActions: 64 actions of three bindings each with scripts run
 	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
 	Input::EndFrame();
 
-	// Two inputs: every frame changing (64 edges a frame, the worst case), and one key a frame (1 edge, as play gives).
+	// Three inputs, the frame's whole update timed without the profiler (each instance's events are zones, more than a
+	// recording keeps in the worst case): none changing (no edge: the frame's cost without events), one key a frame (as
+	// play gives), and every input changing (64 edges a frame, the worst case). What the events cost is the difference.
 	struct Phase
 	{
-		char const* Name;
-		bool Hard;
-		double Milliseconds = 0.0;
+		std::string Name;
+		int Kind = 0;
+		std::vector<double> Frames;
 		size_t Edges = 0;
 	};
-	std::array<Phase, 2> phases = {Phase{"every input changed", true}, Phase{"one key changed", false}};
+	std::array<Phase, 3> phases = {Phase{"no input changed", 0, {}, 0}, Phase{"one key changed", 1, {}, 0},
+	                               Phase{"every input changed", 2, {}, 0}};
 	uint32_t frameNumber = 0;
 	for (Phase& phase : phases)
 	{
-		REQUIRE(Profiler::Start().IsOk());
-		for (uint32_t frame = 0; frame < ProfiledFrames; frame++, frameNumber++)
+		phase.Frames.reserve(TimedFrames);
+		for (uint32_t frame = 0; frame < TimedFrames; frame++, frameNumber++)
 		{
-			if (phase.Hard)
+			if (phase.Kind == 2)
 			{
 				ChangeInput(keys, frameNumber);
 			}
-			else
+			else if (phase.Kind == 1)
 			{
 				Input::SetKeyState(keys[0], frame % 2 == 0);
 			}
-			Profiler::BeginFrame();
+			auto const start = Clock::now();
 			scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
-			Profiler::EndFrame();
+			auto const end = Clock::now();
+			phase.Frames.push_back(std::chrono::duration<double, std::milli>(end - start).count());
 			phase.Edges += scene.GetInputActions().GetEdges().size();
 			Input::EndFrame();
 		}
-		Profiler::Stop();
-		phase.Milliseconds = FindZone(ComputeProfilerMedians(Profiler::GetRecording()), "Scene.InputActions");
-		CHECK(Profiler::GetStatus().DroppedZones == 0);
 	}
+	CHECK(phases[0].Edges == 0);
+	CHECK(phases[2].Edges > phases[1].Edges);
 	Result<ScriptFieldMap> const counted = VisualScriptEngine::GetInstanceVariables(scene.FindEntityByName("Graph 0").GetUUID());
 	REQUIRE(counted.IsOk());
 	CHECK(counted.GetValue().at("Presses").GetInt32() > 0);
 	scene.OnRuntimeStop();
 
 	MESSAGE("One action query from C#: " << queryNanoseconds << " ns");
+	double const idle = Percentile(phases[0].Frames, 0.5);
 	for (Phase const& phase : phases)
 	{
+		double const median = Percentile(phase.Frames, 0.5);
 		MESSAGE("With " << GraphInstances << " graph instances and " << ScriptInstances << " C# scripts, " << phase.Name << " ("
-		                << phase.Edges << " edges in " << ProfiledFrames << " frames): Scene.InputActions " << phase.Milliseconds
-		                << " ms per frame");
+		                << phase.Edges << " edges in " << TimedFrames << " frames): frame median " << median << " ms, " << median - idle
+		                << " ms over the frame without edges");
 	}
 }
