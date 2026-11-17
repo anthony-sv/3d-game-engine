@@ -528,7 +528,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<byte*, int, int, ulong> Assets_Load;
 	internal static delegate* unmanaged<ulong, ulong, NativeCurveHeader*, NativeCurveKey*, int, int> Curve_Read;
 	// The name of the action at an index (its UTF-8 and length; null when there is none), and the asset's version and action
-	// count (a PhysicsMaterialReadStatus: the count only when the held version differs).
+	// count (an InputActionsReadStatus: the count only when the held version differs).
 	internal static delegate* unmanaged<ulong, int, int*, byte*> InputActions_GetActionName;
 	internal static delegate* unmanaged<ulong, ulong, ulong*, int*, int> InputActions_Read;
 	internal static delegate* unmanaged<ulong> Material_Create;

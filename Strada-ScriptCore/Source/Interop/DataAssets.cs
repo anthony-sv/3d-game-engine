@@ -31,6 +31,17 @@ internal static class DataAssets
 	}
 }
 
+// InputActions_Read's answers (ScriptBindingsAssets.cpp declares the same values).
+internal enum InputActionsReadStatus
+{
+	// The engine logged why; the count is as it was.
+	Failed = 0,
+	// The held version is the asset's: only the version is written.
+	Unchanged = 1,
+	// The version and the count are written.
+	Read = 2,
+}
+
 // The runtime's copies of input actions assets' action names, one per asset, shared by every reference (Strada.InputActions).
 internal static unsafe class InputActionsCache
 {
@@ -86,11 +97,11 @@ internal static unsafe class InputActionsCache
 			m_Epoch = DataAssets.Epoch;
 			ulong version = 0;
 			int count = 0;
-			switch ((PhysicsMaterialReadStatus)InternalCalls.InputActions_Read(Handle.ID, Version, &version, &count))
+			switch ((InputActionsReadStatus)InternalCalls.InputActions_Read(Handle.ID, Version, &version, &count))
 			{
-				case PhysicsMaterialReadStatus.Unchanged:
+				case InputActionsReadStatus.Unchanged:
 					break;
-				case PhysicsMaterialReadStatus.Read:
+				case InputActionsReadStatus.Read:
 					string[] names = new string[System.Math.Max(count, 0)];
 					for (int index = 0; index < names.Length; index++)
 					{

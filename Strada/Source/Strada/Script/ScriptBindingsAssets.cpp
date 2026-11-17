@@ -116,6 +116,17 @@ namespace Strada::ScriptGlue
 			Read = 2
 		};
 
+		// InputActions_Read's answers (Strada.Interop.InputActionsReadStatus).
+		enum class InputActionsReadStatus : int32_t
+		{
+			// Logged; the count is left as it was.
+			Failed = 0,
+			// The asset's version is the one held: only the version is written.
+			Unchanged = 1,
+			// The version and the count are written.
+			Read = 2
+		};
+
 		uint64_t ToScript(AssetHandle handle)
 		{
 			return handle.GetUUID().GetValue();
@@ -379,21 +390,21 @@ namespace Strada::ScriptGlue
 
 		// The version and action count of an InputActions asset for the scripting runtime's copy of it (Strada.InputActions),
 		// loading the asset on first use; the count is written only when the version differs from the one the runtime holds
-		// (heldVersion; 0 for none). Answers as PhysicsMaterial_Read does.
+		// (heldVersion; 0 for none).
 		int32_t InputActions_Read(uint64_t actions, uint64_t heldVersion, uint64_t* version, int32_t* count)
 		{
 			Ref<TypedDataAsset<InputActionMap>> const asset = FindInputActions(actions);
 			if (!asset)
 			{
-				return static_cast<int32_t>(PhysicsMaterialReadStatus::Failed);
+				return static_cast<int32_t>(InputActionsReadStatus::Failed);
 			}
 			*version = asset->GetVersion();
 			if (*version == heldVersion)
 			{
-				return static_cast<int32_t>(PhysicsMaterialReadStatus::Unchanged);
+				return static_cast<int32_t>(InputActionsReadStatus::Unchanged);
 			}
 			*count = static_cast<int32_t>(asset->GetData().Actions.size());
-			return static_cast<int32_t>(PhysicsMaterialReadStatus::Read);
+			return static_cast<int32_t>(InputActionsReadStatus::Read);
 		}
 
 		// The name of an InputActions asset's action at the index (below InputActions_Read's count), which the caller copies at

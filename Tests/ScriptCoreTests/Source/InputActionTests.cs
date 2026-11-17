@@ -125,23 +125,23 @@ public sealed unsafe class InputActionTests : IDisposable
 		s_Calls.Add($"Clear {Text(name, length)}");
 	}
 
-	// InputActions_Read as ScriptBindingsAssets.cpp answers (PhysicsMaterialReadStatus): the version always, the count only
-	// for a version the caller does not hold.
+	// InputActions_Read as ScriptBindingsAssets.cpp answers: the version always, the count only for a version the caller does
+	// not hold.
 	[UnmanagedCallersOnly]
 	private static int Read(ulong actions, ulong heldVersion, ulong* version, int* count)
 	{
 		s_Reads++;
 		if (s_ReadFails || actions != 5)
 		{
-			return (int)PhysicsMaterialReadStatus.Failed;
+			return (int)InputActionsReadStatus.Failed;
 		}
 		*version = s_Version;
 		if (s_Version == heldVersion)
 		{
-			return (int)PhysicsMaterialReadStatus.Unchanged;
+			return (int)InputActionsReadStatus.Unchanged;
 		}
 		*count = s_Names.Count;
-		return (int)PhysicsMaterialReadStatus.Read;
+		return (int)InputActionsReadStatus.Read;
 	}
 
 	// The names' UTF-8 as the engine keeps it, in native memory that lives until the test ends.
@@ -252,8 +252,9 @@ public sealed unsafe class InputActionTests : IDisposable
 		Assert.Equal(InputActionOrigin.Frame, InputActionContext.Current);
 	}
 
-	// A Delay, a WaitUntil and a Tween's ticks continue step code in a later Update dispatch: they read no edge there (the step
-	// saw its own, the next step sees the next). The same nodes started by Event.Update read the frame's.
+	// A Delay, a WaitUntil, a Tween's ticks and a Timeline's (its Finished fires after its run is released) continue step code
+	// in a later Update dispatch: they read no edge there (the step saw its own, the next step sees the next). The same nodes
+	// started by Event.Update read the frame's.
 	[Theory]
 	[InlineData("Event.FixedUpdate", 2)]
 	[InlineData("Event.Update", 0)]
@@ -264,10 +265,10 @@ public sealed unsafe class InputActionTests : IDisposable
 		// Each latent node in a custom event of its own, so that each waits in an execution of its own: a receiver that waits
 		// continues on its own, with the view of the execution that sent to it.
 		uint once = graph.Node("Flow.DoOnce");
-		uint sequence = graph.Node("Flow.Sequence", """{ "Count": 3 }""");
+		uint sequence = graph.Node("Flow.Sequence", """{ "Count": 4 }""");
 		graph.Flow(graph.Node(started), once);
 		graph.Flow(once, sequence, "Completed");
-		string[] events = ["Delaying", "Awaiting", "Tweening"];
+		string[] events = ["Delaying", "Awaiting", "Tweening", "Timing"];
 		for (int index = 0; index < events.Length; index++)
 		{
 			graph.Flow(sequence, graph.Node("Event.Send", $$"""{ "Name": "{{events[index]}}" }"""), FormattableString.Invariant($"Then{index}"));
@@ -281,6 +282,10 @@ public sealed unsafe class InputActionTests : IDisposable
 		uint tween = graph.Node("Flow.Tween", inputs: """{ "Duration": 1.0 }""");
 		graph.Flow(graph.Node("Event.Custom", """{ "Name": "Tweening" }"""), tween);
 		graph.Flow(tween, graph.Write(graph.Node(Pressed, inputs: """{ "Action": "Ticked" }"""), "Result"), "Update");
+		uint timeline = graph.Node("Flow.Timeline", """{ "Timeline": { "Length": 0.01 } }""");
+		graph.Flow(graph.Node("Event.Custom", """{ "Name": "Timing" }"""), timeline, "Then", "PlayFromStart");
+		graph.Flow(timeline, graph.Write(graph.Node(Pressed, inputs: """{ "Action": "Timed" }"""), "Result"), "Update");
+		graph.Flow(timeline, graph.Write(graph.Node(Pressed, inputs: """{ "Action": "Finished" }"""), "Result"), "Finished");
 		TestRuntime runtime = TestRuntime.Start(document);
 
 		// The engine is inside a step only while it runs one.
@@ -295,6 +300,8 @@ public sealed unsafe class InputActionTests : IDisposable
 		Assert.Contains($"Pressed Delayed {expected}", s_Calls);
 		Assert.Contains($"Pressed Awaited {expected}", s_Calls);
 		Assert.Contains($"Pressed Ticked {expected}", s_Calls);
+		Assert.Contains($"Pressed Timed {expected}", s_Calls);
+		Assert.Contains($"Pressed Finished {expected}", s_Calls);
 		Assert.All(s_Calls, call => Assert.EndsWith(expected, call));
 	}
 
