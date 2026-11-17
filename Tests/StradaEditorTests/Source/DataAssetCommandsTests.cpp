@@ -708,5 +708,14 @@ TEST_CASE("DataAssetCommands: mixer.set while the game plays is mixed from the n
 	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Mixer");
 	REQUIRE(play.Advance(1, Timestep(1.0f / 60.0f)) == 1);
 	CHECK(std::abs(levelDb() - -6.0f) < 0.1f);
+
+	// Paused, the game runs no frame, and an edit still reaches the mix with the next editor frame.
+	REQUIRE(play.SetPaused(true));
+	fixture.Ok("mixer.set",
+	           Json::object({{"mixer", id},
+	                         {"fields", {{"Buses", Json::parse(R"([ { "Name": "Master" }, { "Name": "Music", "VolumeDb": -12 } ])")}}}}));
+	play.Update(Timestep(1.0f / 60.0f));
+	REQUIRE(AudioEngine::GetMixer().Buses.size() == 2);
+	CHECK(AudioEngine::GetMixer().Buses[1].VolumeDb == -12.0f);
 	play.Stop();
 }

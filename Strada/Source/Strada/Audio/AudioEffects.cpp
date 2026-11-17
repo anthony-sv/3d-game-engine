@@ -154,7 +154,7 @@ namespace Strada
 				m_Frequency.Reset(effect.Frequency);
 				m_Q.Reset(effect.Q);
 				m_GainDb.Reset(effect.GainDb);
-				UpdateCoefficients();
+				m_Coefficients = ComputeCoefficients();
 			}
 
 			void Process(std::span<float> samples) override
@@ -165,11 +165,14 @@ namespace Strada
 								bool const frequencyMoved = m_Frequency.Advance(frames);
 								bool const qMoved = m_Q.Advance(frames);
 								bool const gainMoved = m_GainDb.Advance(frames);
+								// While a parameter moves, the coefficients of the step's end are computed and the step's
+					            // frames move to them one by one, so the response glides rather than stepping each step.
+								Coefficients const start = m_Coefficients;
 								if (frequencyMoved || qMoved || gainMoved)
 								{
-									UpdateCoefficients();
+									m_Coefficients = ComputeCoefficients();
 								}
-								Filter(samples.subspan(offset * m_ChannelCount, static_cast<size_t>(frames) * m_ChannelCount));
+								Filter(samples.subspan(offset * m_ChannelCount, static_cast<size_t>(frames) * m_ChannelCount), start);
 							});
 				for (float& value : m_Registers)
 				{
@@ -197,20 +200,22 @@ namespace Strada
 			}
 
 		private:
-			void UpdateCoefficients()
+			// B0, B1, B2, A1, A2, as BiquadCoefficients orders them, in the float the filter runs in.
+			using Coefficients = std::array<float, 5>;
+
+			Coefficients ComputeCoefficients() const
 			{
 				BiquadCoefficients const coefficients =
 					ComputeBiquadCoefficients(GetKind(), m_Frequency.Get(), m_Q.Get(), m_GainDb.Get(), static_cast<double>(m_SampleRate));
-				m_B0 = static_cast<float>(coefficients.B0);
-				m_B1 = static_cast<float>(coefficients.B1);
-				m_B2 = static_cast<float>(coefficients.B2);
-				m_A1 = static_cast<float>(coefficients.A1);
-				m_A2 = static_cast<float>(coefficients.A2);
+				return {static_cast<float>(coefficients.B0), static_cast<float>(coefficients.B1), static_cast<float>(coefficients.B2),
+				        static_cast<float>(coefficients.A1), static_cast<float>(coefficients.A2)};
 			}
 
-			void Filter(std::span<float> samples)
+			// Filters the frames with coefficients moving from start to m_Coefficients, reached at the last frame.
+			void Filter(std::span<float> samples, Coefficients const& start)
 			{
 				size_t const frameCount = samples.size() / m_ChannelCount;
+				bool const moving = start != m_Coefficients;
 				for (uint32_t channel = 0; channel < m_ChannelCount; channel++)
 				{
 					float* const registers = m_Registers.data() + static_cast<size_t>(channel) * 4;
@@ -218,11 +223,20 @@ namespace Strada
 					float x2 = registers[1];
 					float y1 = registers[2];
 					float y2 = registers[3];
+					Coefficients current = m_Coefficients;
 					for (size_t frame = 0; frame < frameCount; frame++)
 					{
+						if (moving)
+						{
+							float const along = static_cast<float>(frame + 1) / static_cast<float>(frameCount);
+							for (size_t index = 0; index < current.size(); index++)
+							{
+								current[index] = start[index] + (m_Coefficients[index] - start[index]) * along;
+							}
+						}
 						float& sample = samples[frame * m_ChannelCount + channel];
 						float const input = sample;
-						float const output = m_B0 * input + m_B1 * x1 + m_B2 * x2 - m_A1 * y1 - m_A2 * y2;
+						float const output = current[0] * input + current[1] * x1 + current[2] * x2 - current[3] * y1 - current[4] * y2;
 						x2 = x1;
 						x1 = input;
 						y2 = y1;
@@ -241,11 +255,7 @@ namespace Strada
 			SmoothedParameter m_Frequency;
 			SmoothedParameter m_Q;
 			SmoothedParameter m_GainDb;
-			float m_B0 = 1.0f;
-			float m_B1 = 0.0f;
-			float m_B2 = 0.0f;
-			float m_A1 = 0.0f;
-			float m_A2 = 0.0f;
+			Coefficients m_Coefficients = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 			std::vector<float> m_Registers;
 		};
 
@@ -535,6 +545,9 @@ namespace Strada
 				ForEachStep(samples, m_ChannelCount,
 				            [&](size_t offset, uint32_t frames)
 				            {
+								// The makeup is a gain on the output, so it glides frame by frame; the other values reach the
+					            // output through the detector's smoothing.
+								double const makeupStart = m_MakeupDb.Get();
 								m_ThresholdDb.Advance(frames);
 								m_Ratio.Advance(frames);
 								m_KneeDb.Advance(frames);
@@ -546,7 +559,7 @@ namespace Strada
 								double const knee = m_KneeDb.Get();
 								double const attack = SmoothingCoefficient(m_AttackSeconds.Get(), m_SampleRate);
 								double const release = SmoothingCoefficient(m_ReleaseSeconds.Get(), m_SampleRate);
-								double const makeup = m_MakeupDb.Get();
+								double const makeupStep = (m_MakeupDb.Get() - makeupStart) / static_cast<double>(frames);
 								float* const block = samples.data() + offset * m_ChannelCount;
 								for (uint32_t frame = 0; frame < frames; frame++)
 								{
@@ -555,6 +568,7 @@ namespace Strada
 									double const reduction = inputDb - ComputeCompressorOutputDb(inputDb, threshold, ratio, knee);
 									m_Release = std::max(reduction, release * m_Release + (1.0 - release) * reduction);
 									m_Envelope = attack * m_Envelope + (1.0 - attack) * m_Release;
+									double const makeup = makeupStart + makeupStep * static_cast<double>(frame + 1);
 									float const gain = static_cast<float>(std::pow(10.0, (makeup - m_Envelope) / 20.0));
 									for (uint32_t channel = 0; channel < m_ChannelCount; channel++)
 									{

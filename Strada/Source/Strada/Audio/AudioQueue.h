@@ -17,9 +17,9 @@
 // waits.
 //
 // The rule of the last command: the mixing thread returns an object only in answer to the last command the main thread
-// sends that names it (a RetireVoice, a StealVoice of a one-shot, a RetireGroup, a RemoveBus, or the SetBusEffects that
-// replaces a chain), and the main thread names an object in no command after that one. So no command in the ring or in
-// the deferred commands can name an object that has come back, whatever the order in which the two threads run.
+// sends that names it (a RetireVoice, a StealVoice of a one-shot, a RetireGroup, a RemoveBus, which also returns the bus's
+// chains, or the SetBusEffects that replaces a chain), and the main thread names an object in no command after that one. So no command in
+// the ring or in the deferred commands can name an object that has come back, whatever the order in which the two threads run.
 namespace Strada
 {
 	// Everything the mixing thread can hold: voices, the scenes' groups, buses and effect chains. The main thread creates
@@ -79,7 +79,7 @@ namespace Strada
 		MoveVoice,
 
 		// The scenes' groups (Object: the AudioSceneGroup). Hands the group over and attaches it to Other, its AudioBusNode
-		// (null: the engine's endpoint, where Master plays until the mixer has buses).
+		// (null only when Master's node could not be made: the engine's endpoint).
 		AttachGroup,
 		// Values[0] is 1 to hold the group's voices (a paused scene), 0 to let them continue.
 		SetGroupPaused,
@@ -90,12 +90,15 @@ namespace Strada
 		// voices that are still fading out come back first).
 		RetireGroup,
 
-		// Buses (Object: the AudioBusNode). Hands a new bus over and attaches it to Other, its parent bus (null for Master,
-		// which feeds the engine's endpoint).
+		// Buses (Object: the AudioBusNode). Hands a new bus over, with the gains and the first chain the main thread gave it
+		// (AudioBusNode::SetInitialValues), and attaches it to Other, its parent bus (null for Master, which feeds the
+		// engine's endpoint).
 		AddBus,
 		// The bus feeds Other from now on (faded out, moved, faded in).
 		SetBusParent,
-		// Detaches the bus and returns it; the main thread moved its groups and child buses to other buses before.
+		// The bus goes: what still feeds it (the groups of retired scenes, which the main thread names no more, and anything
+		// it did not move first) moves to Master with a dip, and once nothing feeds it the bus is detached and returned
+		// with its chains.
 		RemoveBus,
 		// The mixer's own value of the bus (the asset's, later blended by snapshots): VolumeDb in Values[0] and the mute in
 		// Values[1] (1 muted), reached over AudioGainSmoothingSeconds.

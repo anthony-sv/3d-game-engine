@@ -41,7 +41,8 @@ namespace Strada
 	// Application.Quit is recorded for the owner to act on, and test results and unhandled script exceptions are
 	// collected across scene loads. While a game plays with sound, the audio engine mixes through the project's mixer
 	// (SceneRuntimeSettings::Mixer, Docs/Architecture.md §9.5): applied when the game starts and again in every update
-	// after its asset changed (an edit, paused or not), Master alone when none is named or it does not load; the game's
+	// after its asset changed (an edit, paused or not; a debugger stop holds the updates, so an edit made then is applied
+	// when the game resumes), Master alone when none is named or it does not load; the game's
 	// bus values start and end at their defaults, and the effects' tails end with the game. Main thread only; one runner
 	// runs at a time.
 	class SceneRunner final : public ScriptHost

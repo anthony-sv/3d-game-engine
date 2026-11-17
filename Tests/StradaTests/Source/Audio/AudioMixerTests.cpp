@@ -252,9 +252,14 @@ TEST_CASE("AudioMixer: a bus the mixer lacks plays on Master and is logged once 
 	CHECK(CountLogged(logStart, "The mixer has no bus named 'nowhere'") == 1);
 	CHECK(CountLogged(logStart, "has no bus named") == 1);
 
-	// Once the mixer gains the bus its sounds move to it; the empty name is Master's and never missing.
+	// Once the mixer gains the bus its sounds' group moves to it: out over 5 ms, moved, back in over 5 ms, never stepping
+	// further than its ramps; the empty name is Master's and never missing.
+	float const before = 2.0f * Quantize(0.25f) * std::pow(10.0f, -6.0f / 20.0f);
 	AudioEngine::SetMixer(MakeMixer({MakeBus("Master", "", -6.0f), MakeBus("Nowhere", "Master", -6.0f)}));
-	Skip(0.05f);
+	std::vector<float> const moving = ReadSamples(0.05f);
+	CHECK(*std::min_element(moving.begin(), moving.end()) < 0.01f);
+	CHECK(LargestStep(moving) <= 1.05f * before / static_cast<float>(AudioFrames(AudioGainSmoothingSeconds)));
+	CHECK(moving.back() == doctest::Approx(before * std::pow(10.0f, -6.0f / 20.0f)).epsilon(1e-3));
 	CHECK(std::abs(ToDecibels(ReadLevels(0.05f).Left / (2.0f * Quantize(0.25f))) - -12.0) < 0.1);
 	audio->SetBus(SourceId(0), "");
 	Skip(0.05f);
@@ -751,4 +756,89 @@ TEST_CASE("AudioMixer: a reverb passes what its library cannot take unchanged")
 	}
 	CHECK(othersUnchanged);
 	CHECK(firstChanged);
+}
+
+namespace
+{
+	// Runs a 300 Hz sine of amplitude 0.25 through the effect for this long, in blocks as a bus would, from frame start on,
+	// and returns the stereo output.
+	std::vector<float> ProcessSine(AudioEffect& effect, uint64_t& start, float seconds)
+	{
+		uint32_t const frames = AudioFrames(seconds);
+		std::vector<float> samples(static_cast<size_t>(frames) * 2);
+		for (uint32_t frame = 0; frame < frames; frame++)
+		{
+			float const value = 0.25f * std::sin(2.0f * glm::pi<float>() * 300.0f * static_cast<float>(start + frame) /
+			                                     static_cast<float>(Testing::AudioSampleRate));
+			samples[frame * 2] = value;
+			samples[frame * 2 + 1] = value;
+		}
+		start += frames;
+		for (size_t offset = 0; offset < samples.size(); offset += static_cast<size_t>(AudioBlockFrames) * 2)
+		{
+			effect.Process(std::span<float>(samples).subspan(offset, std::min<size_t>(AudioBlockFrames * 2, samples.size() - offset)));
+		}
+		return samples;
+	}
+}
+
+TEST_CASE("AudioMixer: every kind of effect takes a new parameter without a click")
+{
+	struct MoveCase
+	{
+		char const* Name;
+		MixerEffect Effect;
+		MixerEffectParameter Parameter;
+		float Value;
+	};
+	MixerEffect delay;
+	delay.Kind = MixerEffectKind::Delay;
+	MixerEffect reverb;
+	reverb.Kind = MixerEffectKind::Reverb;
+	MixerEffect compressor;
+	compressor.Kind = MixerEffectKind::Compressor;
+	compressor.ThresholdDb = -6.0f;
+	MixerEffect limiter;
+	limiter.Kind = MixerEffectKind::Limiter;
+	std::vector<MoveCase> const cases = {
+		{"a delay's time (its read crossfades)", delay, MixerEffectParameter::DelaySeconds, 0.07f},
+		{"a delay's feedback", delay, MixerEffectParameter::Feedback, 0.9f},
+		{"a delay's wet level", delay, MixerEffectParameter::WetDb, 0.0f},
+		{"a delay's dry level", delay, MixerEffectParameter::DryDb, -20.0f},
+		{"a reverb's room (verblib's values set once a step)", reverb, MixerEffectParameter::RoomSize, 0.95f},
+		{"a reverb's damping", reverb, MixerEffectParameter::Damping, 0.0f},
+		{"a reverb's width", reverb, MixerEffectParameter::Width, 0.0f},
+		{"a reverb's wet level", reverb, MixerEffectParameter::WetDb, 0.0f},
+		{"a compressor's threshold", compressor, MixerEffectParameter::ThresholdDb, -30.0f},
+		{"a compressor's ratio", compressor, MixerEffectParameter::Ratio, 20.0f},
+		{"a compressor's makeup", compressor, MixerEffectParameter::MakeupDb, 12.0f},
+		{"a limiter's ceiling", limiter, MixerEffectParameter::CeilingDb, -24.0f},
+		{"a peaking filter's gain", MakeFilter(MixerEffectKind::Peaking, 300.0f, 1.0f, 0.0f), MixerEffectParameter::GainDb, 12.0f},
+		{"a high-pass filter's Q", MakeFilter(MixerEffectKind::HighPass, 250.0f, 0.7071f), MixerEffectParameter::Q, 8.0f},
+	};
+	for (MoveCase const& move : cases)
+	{
+		std::string const name = move.Name;
+		CAPTURE(name);
+		Ref<AudioEffect> const effect = AudioEffect::Create(move.Effect, Testing::AudioSampleRate, 2);
+		uint64_t frame = 0;
+		// Long enough for echoes, tails and envelopes to settle; then the steady output's sharpest turn is the measure.
+		ProcessSine(*effect, frame, 2.0f);
+		std::vector<float> const before = ProcessSine(*effect, frame, 0.1f);
+		effect->SetParameter(move.Parameter, move.Value);
+		std::vector<float> const after = ProcessSine(*effect, frame, 0.1f);
+		// A sine of amplitude A turns its slope by at most A (2 pi 300 / 48000)^2 from one sample to the next; a click turns
+		// it at once by many times that. A value on its way to its target only scales and shifts the waveform, so the
+		// sharpest turn after the change stays within twice what the output's own level makes of the steady turn (or of a
+		// sine's, for outputs smoother than the effect's steady state).
+		float const omega = 2.0f * glm::pi<float>() * 300.0f / static_cast<float>(Testing::AudioSampleRate);
+		float const steadyLevel = LargestMagnitude(before);
+		float const movingLevel = LargestMagnitude(after);
+		REQUIRE(steadyLevel > 0.0f);
+		float const steady = LargestBend(before) * movingLevel / steadyLevel;
+		float const moving = LargestBend(after);
+		CAPTURE(steady);
+		CAPTURE(moving);
+		CHECK(moving <= 2.0f * std::max(steady, movingLevel * omega * omega));
+	}
 }

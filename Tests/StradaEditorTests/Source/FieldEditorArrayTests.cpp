@@ -14,6 +14,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/CurveAsset.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Physics/PhysicsTypes.h"
@@ -1213,4 +1214,116 @@ TEST_CASE("DataAssetEditor: a struct drawer's edit of an element is one undo ste
 	REQUIRE(operations.Undo().IsOk());
 	REQUIRE(operations.Undo().IsOk());
 	CHECK(asset->GetData().Entries.at(0).Weight == 1.0f);
+}
+
+TEST_CASE("ProjectSettingsPanel: the mixer is a field of the panel, picked from the project's mixers and written to the project file")
+{
+	ProjectSettingsFixture fixture;
+	FieldTableDriver const& driver = fixture.Driver;
+	fixture.CreateProject(Json::object());
+	DataAssetType const* const type = DataAssetRegistry::FindByName("Mixer");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const created = fixture.Operations.CreateDataAsset(type->GetAssetType(), "Audio/Game.smixer");
+	REQUIRE(created.IsOk());
+	CHECK(Json::parse(fixture.ReadProjectFile())["Project"]["Mixer"] == "0");
+
+	// The picker lists the project's mixers; Enter takes the first that matches the search.
+	// An asset field's "..." stands left of its clear button.
+	float const pickX = driver.GetButtonX() - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemInnerSpacing.x;
+	driver.Click(ImHashStr("...", 0, driver.GetFieldId("Mixer")), pickX);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	fixture.Gui.Frame(fixture.Draw);
+	fixture.Gui.Type("Game");
+	fixture.Gui.Frame(fixture.Draw);
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Draw);
+	fixture.Gui.Frame(fixture.Draw);
+	fixture.Panel.Flush(fixture.Operations);
+	CHECK(fixture.Context.GetProject()->GetSettings().Mixer == created.GetValue());
+	CHECK(Json::parse(fixture.ReadProjectFile())["Project"]["Mixer"] == created.GetValue().ToString());
+	// Settings are not part of the undo history.
+	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
+	CHECK(fixture.Open);
+}
+
+TEST_CASE("Inspector: a mixer's buses and their effects unfold, each effect showing its kind's parameters, each edit one undo step")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	imgui.UseEditorStyle();
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	DataAssetType const* const type = DataAssetRegistry::FindByName("Mixer");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const created = operations.CreateDataAsset(type->GetAssetType(), "Audio/Game.smixer");
+	REQUIRE(created.IsOk());
+	Ref<TypedDataAsset<Mixer>> const asset = AssetManager::GetAsset<TypedDataAsset<Mixer>>(created.GetValue());
+	REQUIRE(asset != nullptr);
+	Mixer mixer;
+	MixerEffect reverb;
+	reverb.Kind = MixerEffectKind::Reverb;
+	mixer.Buses[0].Effects = {reverb, MixerEffect{}};
+	REQUIRE(operations.SetDataAssetFields(created.GetValue(), SerializeFields<StructTraits<Mixer>>(mixer)).IsOk());
+	CommandHistory const& history = context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+
+	context.SelectAsset(created.GetValue());
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 1000.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	FieldTableDriver const driver{imgui, draw,
+	                              []
+	                              {
+									  return ImGui::FindWindowByName("Inspector");
+								  },
+	                              []
+	                              {
+									  return ImHashStr("##fields", 0, ImHashStr("##asset", 0, ImGui::FindWindowByName("Inspector")->ID));
+								  }};
+
+	// Master's row, then its effects: the reverb shows its room and its mix, not a filter's frequency, and the low-pass
+	// below it its frequency, not a room.
+	ImGuiID const buses = driver.GetFieldId("Buses");
+	driver.OpenElement(buses, 0);
+	ImGuiID const master = driver.GetElementId(buses, 0);
+	ImGuiID const effects = driver.GetFieldId("Effects", master);
+	// The effects' rows are indented a level further than the buses'.
+	float const nestedNameX = GetColumnX(driver.Table(), 0, ImGui::GetFontSize() * 7.0f);
+	driver.Click(ImHashStr("##element", 0, driver.GetElementId(effects, 0)), nestedNameX);
+	driver.Click(ImHashStr("##element", 0, driver.GetElementId(effects, 1)), nestedNameX);
+	ImGuiID const first = driver.GetElementId(effects, 0);
+	ImGuiID const second = driver.GetElementId(effects, 1);
+	CHECK(driver.Find(ImHashStr("##value", 0, driver.GetFieldId("RoomSize", first)), driver.GetValueX()));
+	CHECK(driver.Find(ImHashStr("##value", 0, driver.GetFieldId("WetDb", first)), driver.GetValueX()));
+	CHECK_FALSE(driver.Find(ImHashStr("##value", 0, driver.GetFieldId("Frequency", first)), driver.GetValueX()));
+	CHECK(driver.Find(ImHashStr("##value", 0, driver.GetFieldId("Frequency", second)), driver.GetValueX()));
+	CHECK_FALSE(driver.Find(ImHashStr("##value", 0, driver.GetFieldId("RoomSize", second)), driver.GetValueX()));
+
+	// An edit of a nested effect (a number takes typing after a double click) is one step named after the type, and undoes.
+	std::optional<ImVec2> const room = driver.Find(ImHashStr("##value", 0, driver.GetFieldId("RoomSize", first)), driver.GetValueX());
+	REQUIRE(room);
+	imgui.Click(*room, draw, 2);
+	imgui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, draw);
+	imgui.Type("0.9");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	imgui.Frame(draw);
+	REQUIRE(history.GetUndoCount() == steps + 1);
+	CHECK(history.GetUndoDescription() == "Edit Mixer");
+	REQUIRE(asset->GetData().Buses.size() == 1);
+	REQUIRE(asset->GetData().Buses[0].Effects.size() == 2);
+	CHECK(asset->GetData().Buses[0].Effects[0].RoomSize == doctest::Approx(0.9f));
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(asset->GetData().Buses[0].Effects[0].RoomSize == 0.5f);
+	CHECK(open);
 }

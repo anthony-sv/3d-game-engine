@@ -1361,7 +1361,7 @@ category), and script interop component lookups.
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Material`, `Materials` (`.sphysmat`[], one per submesh of a triangle mesh, at most 31; 0 or missing = `Material`), `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
 | `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
-| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance`, `Priority` (0 to 255; lower goes silent first at the engine's limit), `MaxVoices` (1 to 64; its main voice and its one-shots) |
+| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance`, `Bus` (the mixer's bus by name, any letter case; empty, or a name the mixer lacks, is Master), `Priority` (0 to 255; lower goes silent first at the engine's limit), `MaxVoices` (1 to 64; its main voice and its one-shots) |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
 | `VisualScript` | `VisualScriptComponent` | `Graph` asset (a visual script, `.sgraph`; 0 = none), `Variables` (public variable name → typed value, as `Script.Fields`; values under a former name of a variable apply to it) |
@@ -2297,8 +2297,13 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   one-shot; that of a group is `RetireGroup`. A one-shot that ends is therefore not returned by the mixing thread on its
   own: it reports the end (an atomic of the voice), stays attached and silent, and comes back once the main thread has
   read the end and retired it. A group comes back only once no voice the mixing thread holds is attached to it: the
-  stolen and retired voices still fading out in it come back first. The main thread keeps every lent object in one
-  table (`AudioVoiceManager`), so whatever comes back has one owner to go to; it is destroyed there.
+  stolen and retired voices still fading out in it come back first. The last command of a bus is `RemoveBus`, which
+  is also that of the chains it holds (its current one and one sent but not yet swapped in; a bus's first chain travels
+  with its `AddBus`); a chain replaced by `SetBusEffects` comes back when it is swapped out, or at once when a newer one
+  replaces it before it ran. A removed bus comes back only once nothing feeds it: the mixing thread itself moves to
+  Master, with a dip, whatever still plays into it, the groups of retired scenes among them, since the main thread may
+  name those no more. The main thread keeps every lent object in one table (`AudioVoiceManager`), so whatever comes back
+  has one owner to go to; it is destroyed there.
 - **References.** The mixing thread holds raw pointers only. Every reference (`Ref`) that keeps something alive (a
   voice's samples and stream, a chain's effects) is held on the main thread's side of the object, so the last
   reference is never dropped, and nothing freed, on the mixing thread.
@@ -2509,7 +2514,8 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   engine did before buses: Master at 0 dB without effects is the identity.
 - **Applying it.** `SceneRunner` (the player, the editor's play mode and test runs) applies the project's mixer when a
   game with sound starts, logging `Mixer: <n> buses from <reference> (<names>)`, and in every update after it, paused or
-  not, whenever the data asset registry's epoch moved and the asset's version changed (an edit through the inspector or
+  not (the editor updates a paused game every frame; a debugger stop holds the updates, so an edit made then is mixed
+  when the game resumes), whenever the data asset registry's epoch moved and the asset's version changed (an edit through the inspector or
   `mixer.set`, its undo). A game without a mixer, or whose mixer does not load as a `Mixer` asset (logged once, at its
   start), mixes through Master alone; a mixer that stops loading later leaves the mix as it was. It calls
   `AudioEngine::ResetGameValues` when a game starts and stops, and when its game stops `AudioEngine::ClearEffectState`
@@ -2518,9 +2524,10 @@ the buses and the effects, and MX2 adds what §9.8 lists on the same structures.
   own. `AudioEngine::SetMixer` compares the new mixer with the one it has and
   sends only the difference:
   - a changed volume, mute or effect parameter is a command, ramped;
-  - a new bus gets a node, attached to its parent (`AddBus`); a bus with a new parent moves (`SetBusParent`); a
-    removed bus's groups and child buses move to Master first (`MoveGroup`, `SetBusParent`), then the bus is removed
-    (`RemoveBus`);
+  - a new bus gets a node, with its gains and first chain set before it is handed over, attached to its parent
+    (`AddBus`, parents first); a bus with a new parent moves (`SetBusParent`); a removed bus's live groups are pointed
+    at the buses that remain and its children move to their new parents first, then the bus is removed (`RemoveBus`),
+    and the mixing thread moves to Master whatever still feeds it before it hands the bus back;
   - after every change, each live group is pointed again by its name (`MoveGroup`): a bus added, or restored by an undo,
     collects the groups that asked for its name and played on Master meanwhile, and a renamed bus (a removal and an
     addition) loses the groups of its old name to Master;
@@ -2552,7 +2559,7 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
 - **LowPass, HighPass, Peaking, LowShelf, HighShelf**: biquads with the coefficients of Robert Bristow-Johnson's Audio
   EQ Cookbook (the Q form for the shelves), computed in double and run in float in direct form I, the last two inputs
   and outputs of each channel as its registers. While a parameter moves, the coefficients are computed again every
-  `AudioEffectStepFrames` (32). Direct form I holds only the signal's history, so new coefficients change no internal
+  `AudioEffectStepFrames` (32) for the step's end, and the step's frames move to them one by one. Direct form I holds only the signal's history, so new coefficients change no internal
   state; the transposed form II mixes the coefficients into its registers, and each update under a running signal
   leaves a step in the waveform's slope (a 300 Hz sine through a 20 ms sweep from 8 kHz to 400 Hz: a second difference
   about 40 times the sine's, against twice in direct form I). `ComputeBiquadCoefficients` and `EvaluateBiquadGain` (the response's closed form, `|H(e^jw)|`) are what the
@@ -2573,7 +2580,8 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
 - **Compressor**: Giannoulis, Massberg and Reiss, "Digital Dynamic Range Compressor Design: A Tutorial and Analysis"
   (J. Audio Eng. Soc. 60(6), 2012): feed-forward, in the log domain, the static curve of their eq. 4 with a quadratic
   soft knee of `KneeDb` (`ComputeCompressorOutputDb`), and their smooth decoupled peak detector with one-pole attack and
-  release (`exp(-1 / (time * rate))`), linked across channels by the largest magnitude; `MakeupDb` is added after.
+  release (`exp(-1 / (time * rate))`), linked across channels by the largest magnitude; `MakeupDb` is added after,
+  gliding frame by frame while it moves (the other parameters reach the output through the detector's smoothing).
 - **Limiter**: the same gain computer with an infinite ratio at `CeilingDb`, made exact by looking ahead
   `AudioLimiterLookaheadSeconds` (2 ms): each frame's needed gain (the ceiling over the frame's largest magnitude, at
   most 1), its minimum over the window (Lemire's streaming minimum, in a fixed ring), a release that lets the gain rise
