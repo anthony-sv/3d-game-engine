@@ -73,25 +73,52 @@ namespace Strada
 		static ButtonCounts GetMouseButtonCounts(MouseButton button);
 		// Of the gamepad's effective state (an injected one while an injection holds it); zero for a slot past MaxGamepads.
 		static ButtonCounts GetGamepadButtonCounts(uint32_t gamepad, GamepadButton button);
-		// Whether the axis of the gamepad's effective state has read a value other than exactly 0 since the slot connected
-		// (input actions read a trigger that has not as at rest: a mapping that lacks it reads 0 forever).
+		// Whether the axis of the gamepad's effective state has read a value other than exactly 0 since the slot connected or
+		// changed source (an injection beginning or ending): input actions read a trigger that has not as at rest, since a
+		// mapping that lacks it reads 0 forever.
 		static bool HasGamepadAxisMoved(uint32_t gamepad, GamepadAxis axis);
 		// Moved by every Reset and never repeated: consumers that keep counts take them as new baselines when it moved.
 		static uint64_t GetResetGeneration();
 
 		// --- Input actions' overrides (Docs/Architecture.md §7.4) ---
 
+		// The largest magnitude an override held during its presses, kept per press so that each consumer can ask for the
+		// largest since the press it last saw (consumers evaluate at different times, and none may consume it for another): a
+		// press is kept while no later press held as much (the later one then answers for both), oldest first, at most
+		// MaxPresses of them (beyond, the oldest kept is forgotten: only a consumer that missed more than MaxPresses presses of
+		// falling magnitude can read less than was held).
+		class ActionOverridePeaks final
+		{
+		public:
+			static constexpr size_t MaxPresses = 16;
+
+			// Records a magnitude held during the press numbered `press` (1 for the record's first; presses only grow).
+			void Record(uint32_t press, float magnitude);
+			// The largest magnitude held during a press numbered above `press`; 0 when there was none.
+			[[nodiscard]] float GetSince(uint32_t press) const;
+
+		private:
+			struct Peak
+			{
+				uint32_t Press = 0;
+				float Magnitude = 0.0f;
+			};
+
+			std::array<Peak, MaxPresses> m_Peaks = {};
+			uint32_t m_Count = 0;
+		};
+
 		// One name's override, as a button's state: the value held, press and release counts (a press when the value leaves
-		// (0, 0), a release when it returns to it or is cleared; never cleared but by Reset), and the largest magnitudes held
-		// since the latest press, of x (what Button and Axis actions read) and of the vector.
+		// (0, 0), a release when it returns to it or is cleared; never cleared while the record lives), and the largest
+		// magnitudes held during its presses, of x (what Button and Axis actions read) and of the vector.
 		struct ActionOverride
 		{
 			glm::vec2 Value = glm::vec2(0.0f);
 			bool Held = false;
 			uint32_t Presses = 0;
 			uint32_t Releases = 0;
-			float PeakX = 0.0f;
-			float PeakLength = 0.0f;
+			ActionOverridePeaks PeaksX;
+			ActionOverridePeaks PeaksLength;
 		};
 		// The names that can have an override record at once; a new name beyond is refused.
 		static constexpr size_t MaxActionOverrides = 1024;
@@ -103,11 +130,14 @@ namespace Strada
 		// scene loads; cleared by ClearActionOverride(s), ReleaseInjectedInput and Reset.
 		static bool SetActionOverride(std::string_view action, glm::vec2 value);
 		// Ends the override (a release when its value was not 0). Its record stays, not held, so that a consumer that has
-		// not evaluated since still sees a value set and cleared in between.
+		// not evaluated since still sees a value set and cleared in between, until DropReleasedActionOverrides or Reset.
 		static void ClearActionOverride(std::string_view action);
 		static void ClearActionOverrides();
-		// The name's record (held or cleared), null for a name never set since Reset. Valid until the next change of the
-		// overrides (any Set, Clear, ReleaseInjectedInput or Reset).
+		// Drops the record of every override that is not held, which frees its name's place under MaxActionOverrides: for
+		// when no consumer that could still need their counts runs (the editor's play mode stopped, its project closed).
+		static void DropReleasedActionOverrides();
+		// The name's record (held or cleared), null for a name without one. Valid until the next change of the overrides
+		// (any Set, Clear, DropReleasedActionOverrides, ReleaseInjectedInput or Reset).
 		[[nodiscard]] static ActionOverride const* FindActionOverride(std::string_view action);
 		// Whether a record exists for any name (consumers skip the lookups without one).
 		static bool HasActionOverrides();

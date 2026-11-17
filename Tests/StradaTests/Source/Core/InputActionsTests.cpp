@@ -604,6 +604,26 @@ TEST_CASE_FIXTURE(InputActionsFixture, "InputActions: edges follow the table: ta
 		state.Evaluate();
 		CHECK(Edges(state) == std::vector<InputActionEdge>{{1, false}});
 	}
+	SUBCASE("a part pressed and released while its other half holds the action reports a release, then a press")
+	{
+		Input::SetKeyState(KeyCode::D, true);
+		state.Evaluate();
+		CHECK(Edges(state) == std::vector<InputActionEdge>{{1, true}});
+		// A's press cancelled D (the axis read 0, the action up), and its release gave D the action back.
+		Input::SetKeyState(KeyCode::A, true);
+		Input::SetKeyState(KeyCode::A, false);
+		state.Evaluate();
+		CHECK(Edges(state) == std::vector<InputActionEdge>{{1, false}, {1, true}});
+		CHECK(state.IsDown(1));
+		// A tap of a key that does not take the action below its release threshold is nothing: Space taps nothing of Steer.
+		Input::SetKeyState(KeyCode::Space, true);
+		Input::SetKeyState(KeyCode::Space, false);
+		state.Evaluate();
+		CHECK(Edges(state) == std::vector<InputActionEdge>{{0, true}, {0, false}});
+		Input::SetKeyState(KeyCode::D, false);
+		state.Evaluate();
+		CHECK(Edges(state) == std::vector<InputActionEdge>{{1, false}});
+	}
 	SUBCASE("edges are listed by action, each action's in the order they happened")
 	{
 		Input::SetKeyState(KeyCode::D, true);
@@ -612,6 +632,69 @@ TEST_CASE_FIXTURE(InputActionsFixture, "InputActions: edges follow the table: ta
 		state.Evaluate();
 		CHECK(Edges(state) == std::vector<InputActionEdge>{{0, true}, {0, false}, {1, true}});
 	}
+}
+
+TEST_CASE_FIXTURE(InputActionsFixture, "InputActions: a binding of any gamepad judges each pad's presses apart, so one pad holding the "
+                                       "action hides another's taps")
+{
+	InputActionState state;
+	state.SetActions(MakeSet({Action("Jump", InputActionType::Button, {Binding("Gamepad/A")}),
+	                          Action("Fire", InputActionType::Button, {Binding("Gamepad/B", 1)})}));
+	Input::GamepadState const up = Pad();
+	Input::GamepadState held = Pad();
+	SetButton(held, GamepadButton::A, true);
+	Input::GamepadState heldB = Pad();
+	SetButton(heldB, GamepadButton::B, true);
+	Input::SetGamepadState(0, up);
+	Input::SetGamepadState(1, up);
+	state.Evaluate();
+	CHECK(state.GetEdges().empty());
+
+	// Pad 0 presses A: the action goes down.
+	Input::SetGamepadState(0, held);
+	state.Evaluate();
+	CHECK(Edges(state) == std::vector<InputActionEdge>{{0, true}});
+	// Pad 1 taps A, then presses and releases it again, while pad 0 holds it: the action never went up.
+	Input::SetGamepadState(1, held);
+	Input::SetGamepadState(1, up);
+	state.Evaluate();
+	CHECK(state.GetEdges().empty());
+	Input::SetGamepadState(1, held);
+	state.Evaluate();
+	Input::SetGamepadState(1, up);
+	Input::SetGamepadState(1, held);
+	state.Evaluate();
+	CHECK(state.GetEdges().empty());
+	// Pad 0 lets go and presses again while pad 1 holds: nothing either.
+	Input::SetGamepadState(0, up);
+	Input::SetGamepadState(0, held);
+	state.Evaluate();
+	CHECK(state.GetEdges().empty());
+	// With pad 1 gone, pad 0's release and press again is the action's: it reports both.
+	Input::SetGamepadState(1, up);
+	state.Evaluate();
+	CHECK(state.GetEdges().empty());
+	Input::SetGamepadState(0, up);
+	Input::SetGamepadState(0, held);
+	state.Evaluate();
+	CHECK(Edges(state) == std::vector<InputActionEdge>{{0, false}, {0, true}});
+	// A tap of pad 2 while nothing holds the action is a tap.
+	Input::SetGamepadState(0, up);
+	state.Evaluate();
+	CHECK(Edges(state) == std::vector<InputActionEdge>{{0, false}});
+	Input::SetGamepadState(2, held);
+	Input::SetGamepadState(2, up);
+	state.Evaluate();
+	CHECK(Edges(state) == std::vector<InputActionEdge>{{0, true}, {0, false}});
+	// Fire reads pad 1 alone: B of pad 0 is nothing, pad 1's B taps it.
+	Input::SetGamepadState(0, heldB);
+	Input::SetGamepadState(0, up);
+	state.Evaluate();
+	CHECK(state.GetEdges().empty());
+	Input::SetGamepadState(1, heldB);
+	Input::SetGamepadState(1, up);
+	state.Evaluate();
+	CHECK(Edges(state) == std::vector<InputActionEdge>{{1, true}, {1, false}});
 }
 
 TEST_CASE_FIXTURE(InputActionsFixture, "InputActions: a new set makes no edge for what is held, and a rebuilt one keeps state by name")
@@ -734,6 +817,93 @@ TEST_CASE_FIXTURE(InputActionsFixture, "InputActions: overrides are one more but
 	state.Evaluate();
 	CHECK(CountLogged(first, "the override of 'Dash' names no action") == 1);
 	CHECK(state.GetEdges().empty());
+}
+
+TEST_CASE_FIXTURE(InputActionsFixture, "InputActions: an override's presses between two evaluations are judged by the strongest, for "
+                                       "every state apart")
+{
+	InputActionState first;
+	InputActionState second;
+	Ref<InputActionSet const> const set = MakeSet({Action("Jump", InputActionType::Button, {Binding("Key/Space")}),
+	                                               Action("Move", InputActionType::Vector2, {Binding("Gamepad/LeftStick")})});
+	first.SetActions(set);
+	second.SetActions(set);
+	first.Evaluate();
+	second.Evaluate();
+
+	// A strong press, then a weak one still held: the strong press went through the action, which is up again now.
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(1.0f, 0.0f)));
+	Input::ClearActionOverride("Jump");
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(0.1f, 0.0f)));
+	first.Evaluate();
+	CHECK(Edges(first) == std::vector<InputActionEdge>{{0, true}, {0, false}});
+	CHECK_FALSE(first.IsDown(0));
+	// More weak presses after the strong one before the other state evaluates: it still sees the strong one.
+	Input::ClearActionOverride("Jump");
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(0.1f, 0.0f)));
+	Input::ClearActionOverride("Jump");
+	second.Evaluate();
+	CHECK(Edges(second) == std::vector<InputActionEdge>{{0, true}, {0, false}});
+	// The first state saw the strong press already: the weak ones since are nothing to it.
+	first.Evaluate();
+	CHECK(first.GetEdges().empty());
+	// Weak presses alone are nothing to either.
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(0.2f, 0.0f)));
+	Input::ClearActionOverride("Jump");
+	first.Evaluate();
+	second.Evaluate();
+	CHECK(first.GetEdges().empty());
+	CHECK(second.GetEdges().empty());
+
+	// Held, then cleared, set weak, set to rest and set strong again between two evaluations: a release and a press again,
+	// judged by the strong press.
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(1.0f, 0.0f)));
+	first.Evaluate();
+	CHECK(Edges(first) == std::vector<InputActionEdge>{{0, true}});
+	Input::ClearActionOverride("Jump");
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(0.1f, 0.0f)));
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(0.0f)));
+	REQUIRE(Input::SetActionOverride("Jump", glm::vec2(0.9f, 0.0f)));
+	first.Evaluate();
+	CHECK(Edges(first) == std::vector<InputActionEdge>{{0, false}, {0, true}});
+
+	// A vector override's presses are judged by their lengths.
+	REQUIRE(Input::SetActionOverride("Move", glm::vec2(0.6f, 0.8f)));
+	Input::ClearActionOverride("Move");
+	REQUIRE(Input::SetActionOverride("Move", glm::vec2(0.1f, 0.0f)));
+	second.Evaluate();
+	CHECK(Edges(second) == std::vector<InputActionEdge>{{0, true}, {1, true}, {1, false}});
+}
+
+TEST_CASE("InputActions: an override's peaks keep the strongest press since any press, oldest first")
+{
+	Input::ActionOverridePeaks peaks;
+	CHECK(peaks.GetSince(0) == 0.0f);
+	peaks.Record(1, 0.5f);
+	peaks.Record(1, 1.0f);
+	peaks.Record(2, 0.25f);
+	peaks.Record(3, 0.75f);
+	CHECK(peaks.GetSince(0) == 1.0f);
+	CHECK(peaks.GetSince(1) == 0.75f);
+	CHECK(peaks.GetSince(2) == 0.75f);
+	CHECK(peaks.GetSince(3) == 0.0f);
+	// Presses of falling magnitude: each is kept, up to MaxPresses, the oldest forgotten first.
+	Input::ActionOverridePeaks falling;
+	uint32_t const presses = static_cast<uint32_t>(Input::ActionOverridePeaks::MaxPresses) + 4;
+	for (uint32_t press = 1; press <= presses; press++)
+	{
+		falling.Record(press, 1.0f - static_cast<float>(press) * 0.01f);
+	}
+	CHECK(falling.GetSince(presses - 1) == doctest::Approx(1.0f - static_cast<float>(presses) * 0.01f));
+	CHECK(falling.GetSince(4) == doctest::Approx(0.95f));
+	CHECK(falling.GetSince(0) == doctest::Approx(0.95f));
+	// Press numbers wrap as counts do.
+	Input::ActionOverridePeaks wrapping;
+	wrapping.Record(0xFFFFFFFFu, 0.5f);
+	wrapping.Record(0u, 0.25f);
+	CHECK(wrapping.GetSince(0xFFFFFFFEu) == 0.5f);
+	CHECK(wrapping.GetSince(0xFFFFFFFFu) == 0.25f);
+	CHECK(wrapping.GetSince(0u) == 0.0f);
 }
 
 TEST_CASE_FIXTURE(InputActionsFixture, "InputActions: each edge reaches exactly one fixed step, the first at or after its evaluation")

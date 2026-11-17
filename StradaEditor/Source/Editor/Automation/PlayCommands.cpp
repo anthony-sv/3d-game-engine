@@ -261,11 +261,11 @@ namespace Strada
 				});
 			if (records + newNames > Input::MaxActionOverrides)
 			{
-				// A cleared override keeps its record (Input::ActionOverride), and records last until the input is reset: the
-				// editor's start.
+				// A cleared override keeps its record (Input::ActionOverride) while a scene may still read its counts: records
+				// not held are dropped when play mode stops and when a project closes or opens.
 				return MakeCommandError(AutomationErrorCode::InvalidOperation,
-				                        "{} action names have had overrides already, the most the input keeps until the editor starts "
-				                        "again; names that had one can still be set",
+				                        "{} action names have override records already, the most the input keeps; the records of "
+				                        "overrides no longer held go when the game stops, and names that have one can still be set",
 				                        Input::MaxActionOverrides);
 			}
 			return std::nullopt;

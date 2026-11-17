@@ -6,6 +6,7 @@
 #include "Strada/Core/Events/MouseEvent.h"
 #include "Strada/Core/Log.h"
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 
@@ -152,8 +153,6 @@ namespace Strada
 			if (active && !wasActive)
 			{
 				record.Presses++;
-				record.PeakX = 0.0f;
-				record.PeakLength = 0.0f;
 			}
 			else if (!active && wasActive)
 			{
@@ -161,13 +160,58 @@ namespace Strada
 			}
 			if (active)
 			{
-				record.PeakX = std::max(record.PeakX, std::abs(value.x));
-				record.PeakLength = std::max(record.PeakLength, glm::length(value));
+				record.PeaksX.Record(record.Presses, std::abs(value.x));
+				record.PeaksLength.Record(record.Presses, glm::length(value));
 			}
 			record.Value = held ? value : glm::vec2(0.0f);
 			record.Held = held;
 			s_ActionOverridesVersion++;
 		}
+	}
+
+	void Input::ActionOverridePeaks::Record(uint32_t press, float magnitude)
+	{
+		if (m_Count > 0 && m_Peaks[m_Count - 1].Press == press)
+		{
+			m_Peaks[m_Count - 1].Magnitude = std::max(m_Peaks[m_Count - 1].Magnitude, magnitude);
+		}
+		else
+		{
+			if (m_Count == m_Peaks.size())
+			{
+				std::move(m_Peaks.begin() + 1, m_Peaks.end(), m_Peaks.begin());
+				m_Count--;
+			}
+			m_Peaks[m_Count++] = Peak{press, magnitude};
+		}
+		// A press that held as much as an earlier one answers for it: the earlier one is dropped, so magnitudes fall from the
+		// oldest kept to the latest.
+		while (m_Count >= 2 && m_Peaks[m_Count - 2].Magnitude <= m_Peaks[m_Count - 1].Magnitude)
+		{
+			m_Peaks[m_Count - 2] = m_Peaks[m_Count - 1];
+			m_Count--;
+		}
+	}
+
+	float Input::ActionOverridePeaks::GetSince(uint32_t press) const
+	{
+		// The first kept press after `press` held the most of every press after it. Counts wrap, so presses compare by
+		// unsigned difference from the latest.
+		if (m_Count == 0)
+		{
+			return 0.0f;
+		}
+		uint32_t const latest = m_Peaks[m_Count - 1].Press;
+		uint32_t const since = latest - press;
+		for (uint32_t index = 0; index < m_Count; index++)
+		{
+			uint32_t const age = latest - m_Peaks[index].Press;
+			if (age < since)
+			{
+				return m_Peaks[index].Magnitude;
+			}
+		}
+		return 0.0f;
 	}
 
 	bool Input::IsKeyDown(KeyCode key)
@@ -338,6 +382,19 @@ namespace Strada
 		}
 	}
 
+	void Input::DropReleasedActionOverrides()
+	{
+		size_t const dropped = std::erase_if(s_Data.ActionOverrides,
+		                                     [](auto const& entry)
+		                                     {
+												 return !entry.second.Held;
+											 });
+		if (dropped > 0)
+		{
+			s_ActionOverridesVersion++;
+		}
+	}
+
 	Input::ActionOverride const* Input::FindActionOverride(std::string_view action)
 	{
 		auto const found = s_Data.ActionOverrides.find(action);
@@ -496,6 +553,12 @@ namespace Strada
 			return;
 		}
 		GamepadData& data = s_Data.Gamepads[gamepad];
+		if (!data.Injected)
+		{
+			// A change of source is a new connection for the axes: the device's axes that read exactly 0 (a trigger its
+			// mapping lacks) say nothing of the injected ones.
+			data.AxisMoved = {};
+		}
 		data.Injected = state;
 		ApplyGamepadState(data, state);
 	}
@@ -508,6 +571,8 @@ namespace Strada
 		}
 		GamepadData& data = s_Data.Gamepads[gamepad];
 		data.Injected.reset();
+		// Back to the device: the injected axes' movement says nothing of the device's (a trigger its mapping lacks reads 0).
+		data.AxisMoved = {};
 		ApplyGamepadState(data, data.Device);
 	}
 

@@ -1805,7 +1805,8 @@ and `Scale`.
 - **What fits an action.** `Button` and `Axis` take one control that is not a stick, or two that are not (an axis
   composite); `Vector2` takes one stick, or four controls that are not sticks (a vector composite). An empty `Controls` is
   an unbound binding, which reads 0. `Gamepad` is -1 (any connected gamepad: the reading of the largest magnitude among
-  them, and their press and release counts summed) or a slot 0 to 15; keys and mouse buttons ignore it.
+  them, and each pad's press and release counts apart, so one pad's press is judged with the others' readings) or a slot
+  0 to 15; keys and mouse buttons ignore it.
 - **Limits and defaults.** At most 256 actions, 16 bindings each; names non-empty, at most 64 bytes, unique in any letter
   case (queries match them with their case); `0 < ReleaseThreshold <= PressThreshold <= 1`, by default 0.5 and 0.4;
   `DeadZone` 0 to 0.99, `Scale` at least 0 (inversion is `Invert`'s). Validation (`ValidateInputActionMap`) refuses the
@@ -1838,12 +1839,13 @@ hysteresis: an action that is up goes down when the magnitude reaches `PressThre
 below `ReleaseThreshold`. Every type has a level, so an axis pushed past its threshold is pressed too.
 
 **Edges.** `Input` counts every button's presses and releases (`Input::ButtonCounts`), counts the input frame never
-clears, and the state keeps each digital control's counts as its last evaluation read them. An override is one more
-digital control of its action (below): it counts a press when its value leaves 0 and a release when it returns to 0 or is
-cleared. A control **can press** its action when its binding, read with that control down and the binding's other
-controls up, reaches `PressThreshold` (worked out once, when the state takes its set: 1 through the binding's
-processing); an override can when the largest magnitude it held since its latest press reaches it. An evaluation
-compares the action's previous level P with its new one D:
+clears, and the state keeps each digital control's counts as its last evaluation read them (a gamepad button of a
+binding that reads any gamepad is one control per pad). An override is one more digital control of its action (below):
+it counts a press when its value leaves 0 and a release when it returns to 0 or is cleared. A control **can press** its
+action when its binding, read with that control down and the binding's other controls up, reaches `PressThreshold`
+(worked out once, when the state takes its set: 1 through the binding's processing); an override can when the largest
+magnitude it held during its presses since the state's last evaluation reaches it. An evaluation compares the action's
+previous level P with its new one D:
 
 | P | D | Between the two evaluations | Edges, in this order |
 |---|---|---|---|
@@ -1851,8 +1853,9 @@ compares the action's previous level P with its new one D:
 | down | up | anything | released |
 | up | up | a control that can press was pressed and released (both its counts moved) | pressed, released |
 | up | up | nothing of that | none |
-| down | down | a control that can press was released and pressed again (both its counts moved), and the action without that control (its other bindings with that control up, and its override) is below `ReleaseThreshold` | released, pressed |
-| down | down | nothing of that | none: another binding or control held the action meanwhile |
+| down | down | a control that can press was released and pressed again (both its counts moved, the control down now), and the action without that control (its binding with that control up, on that pad alone for a binding of any gamepad, its other bindings and its override) is below `ReleaseThreshold` | released, pressed |
+| down | down | a control was pressed and released (both its counts moved, the control up now), and the action with that control down (its binding with that control down, its other bindings and its override) is below `ReleaseThreshold`: a composite's part that cancels the part holding the action | released, pressed |
+| down | down | nothing of that | none: another binding, control or pad held the action meanwhile |
 
 So an action has at most one press and one release per evaluation, a tap within one evaluation reports both, and a
 release and press again (a double tap at 30 frames per second, an agent's release then press between two
@@ -1892,11 +1895,16 @@ OnUpdateRuntime: BeginTransformFrame → UpdateInputActions (evaluate; the edges
   (the script engine's scene context).
 - The evaluation allocates nothing (the state is sized when it takes a set) and is timed by `Input.EvaluateActions`
   inside `Scene.InputActions`. Its target on the reference machine: 64 actions of three bindings each in at most
-  0.05 ms a frame, judged on `Scene.InputActions`, the frame's whole call. StradaTests' case "SceneInputActions: 64
-  actions of three bindings each, benchmark" measures it in a Release build when `STRADA_INPUT_ACTIONS_BENCHMARK=1`
-  (it skips otherwise): 48 Button and Axis actions (a key; a gamepad button or trigger of any pad with a dead zone and
-  a cubic response curve; an axis of two keys) and 16 Vector2 actions (a stick of any pad with a dead zone and the
-  curve; a vector of four keys; a stick of pad 0), with 16 injected pads, the input changed before every evaluation.
+  0.05 ms a frame, judged on `Scene.InputActions` in a scene that runs no scripts (the stamp's check and the
+  evaluation; such a scene dispatches no events). StradaTests' case "SceneInputActions: 64 actions of three bindings
+  each, benchmark" measures it in a Release build when `STRADA_INPUT_ACTIONS_BENCHMARK=1` (it skips otherwise): 48
+  Button and Axis actions (a key; a gamepad button or trigger of any pad with a dead zone and a cubic response curve; an
+  axis of two keys) and 16 Vector2 actions (a stick of any pad with a dead zone and the curve; a vector of four keys; a
+  stick of pad 0), with 16 injected pads, the input changed before every evaluation; it times the evaluation again with
+  an override held on every action. The events' cost, which grows with the edges times the script and graph instances
+  (each instance is called for each edge, whether or not it handles the action), is measured beside it by "... with
+  scripts running, benchmark": the same actions, 100 graph instances and 20 C# scripts, with every input changed each
+  frame and with one key a frame.
 
 **The fixed-step rule** (the effort's rule for actions):
 
@@ -1954,11 +1962,15 @@ the message says the project names no input actions.
 scene), join the largest-magnitude rule after the bindings, and take effect at the next evaluation (one set in
 `OnUpdate` is read from the next frame on). **They make edges as a button would**: `Input` keeps, per name, the value,
 press and release counts (a press when the value leaves 0, a release when it returns to 0 or is cleared) and the largest
-magnitude since the latest press (`Input::ActionOverride`), so a value set and cleared between two evaluations reaches
-the next one as a tap when that magnitude reaches the action's `PressThreshold`, as keys given to a paused game do. A
-cleared override keeps its record (value 0, not held) so that states which have not evaluated since still see its
-counts; records are dropped only by `Input::Reset`, and at most `Input::MaxActionOverrides` (1,024) names have one: a
-new name beyond that is refused and logged. They are held across scene loads and cleared by `ClearActionOverride`,
+magnitude held during each press (`Input::ActionOverride`, `Input::ActionOverridePeaks`: a press is kept while no later
+one held as much, at most 16 of them), so a value set and cleared between two evaluations reaches the next one as a tap
+when the largest magnitude of the presses since that state's last evaluation reaches the action's `PressThreshold`, as
+keys given to a paused game do; a strong press followed by a weak one before the next evaluation is still a press, and
+every state reads the presses since its own evaluation. A cleared override keeps its record (value 0, not held) so that
+states which have not evaluated since still see its counts. `Input::DropReleasedActionOverrides` drops the records not
+held when no state can need them: the editor does at the end of play mode (after its scene stopped) and when it closes
+or opens a project; `Input::Reset` drops every record. At most `Input::MaxActionOverrides` (1,024) names have a record at
+once: a new name beyond that is refused and logged. They are held across scene loads and cleared by `ClearActionOverride`,
 `Input::ReleaseInjectedInput` (`input.release`, and the end of play mode; each held one counts its release) and
 `Input::Reset`. An override naming no action of the set is ignored and logged once per name; states look for such
 names only when the overrides' version or their set moved, so a frame allocates nothing for them. They are how a graph
@@ -2007,8 +2019,9 @@ keeps, per slot, the device's state and an optional injected state:
   the injected state.
 - `Input::ReleaseInjectedGamepad` (or `ReleaseInjectedGamepads`) returns the slot to the device: its last polled state
   takes effect at once, with the edges that make.
-- A slot's effective state changing from not connected to connected (a pad plugged in, a first injection) starts its
-  axes as not moved (`HasGamepadAxisMoved`), which the trigger rule above reads.
+- A slot's effective state changing from not connected to connected (a pad plugged in), or changing source (an
+  injection beginning or ending), starts its axes as not moved (`HasGamepadAxisMoved`), which the trigger rule above
+  reads: a device whose mapping lacks a trigger reads it as 0 after an injection of the slot ends, as before it began.
 - `Input::ReleaseInjectedInput` (automation's `input.release`, the end of play mode) releases every injection and clears
   every override; the window losing the focus does not (it releases keys and mouse buttons, which were the window's);
   `Input::Reset` clears everything.

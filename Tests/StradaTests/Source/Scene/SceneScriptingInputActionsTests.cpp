@@ -3,9 +3,11 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/InputActionMap.h"
 #include "Strada/Asset/InputActionsAsset.h"
+#include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/InputActions.h"
@@ -13,6 +15,8 @@
 #include "Strada/Core/Timestep.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Script/ScriptBindings.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptEngine.h"
 
@@ -24,6 +28,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -262,6 +267,117 @@ namespace
 		Entity entity = scene.CreateEntity(name);
 		entity.AddComponent<VisualScriptComponent>().Graph = graph;
 		return entity;
+	}
+
+	// Event.Custom Step counts its runs (SentSteps) and those in which IsActionPressed(Jump) was true (SentPresses); with
+	// sendFromStep, Event.FixedUpdate raises Step on the graph itself (Event.Send).
+	VisualScriptDocument MakeStepReceiverDocument(bool sendFromStep)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "SentSteps", "int", 0));
+		document.Variables.push_back(MakeVariable(2, "SentPresses", "int", 0));
+		std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+		std::vector<VisualScriptLink>& links = document.Graph.Links;
+		nodes.push_back(MakeNode(10, "Event.Custom", Json::object({{"Name", "Step"}, {"Parameters", Json::array()}})));
+		AddIncrement(document, 10, "Then", 1, 11);
+		nodes.push_back(MakeNode(20, "Flow.Branch"));
+		nodes.push_back(MakeNode(21, "Call:Strada.Input.IsActionPressed(string)", Json::object(), Json::object({{"Action", "Jump"}})));
+		links.push_back(MakeLink(11, "Then", 20, "Execute"));
+		links.push_back(MakeLink(21, "Result", 20, "Condition"));
+		AddIncrement(document, 20, "True", 2, 22);
+		if (sendFromStep)
+		{
+			nodes.push_back(MakeNode(30, "Event.FixedUpdate"));
+			nodes.push_back(MakeNode(31, "Event.Send", Json::object({{"Name", "Step"}, {"Parameters", Json::array()}})));
+			links.push_back(MakeLink(30, "Then", 31, "Execute"));
+		}
+		return document;
+	}
+
+	// Event.FixedUpdate counts the steps (Steps) and those that see IsActionPressed(Jump) (StepPresses). With delay, the first
+	// step that sees no press starts a Delay of 0 s whose continuation keeps what IsActionPressed(Jump) reads (DelaySaw,
+	// DelayRan); otherwise it starts a WaitUntil of IsActionDown(Jump), whose continuation does (WaitSaw, WaitRan).
+	VisualScriptDocument MakeStepLatentDocument(bool delay)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Steps", "int", 0));
+		document.Variables.push_back(MakeVariable(2, "StepPresses", "int", 0));
+		document.Variables.push_back(MakeVariable(3, delay ? "DelaySaw" : "WaitSaw", "bool", false));
+		document.Variables.push_back(MakeVariable(4, delay ? "DelayRan" : "WaitRan", "bool", false));
+		Json const jump = Json::object({{"Action", "Jump"}});
+		std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+		std::vector<VisualScriptLink>& links = document.Graph.Links;
+		nodes.push_back(MakeNode(10, "Event.FixedUpdate"));
+		AddIncrement(document, 10, "Then", 1, 11);
+		nodes.push_back(MakeNode(20, "Flow.Branch"));
+		nodes.push_back(MakeNode(21, "Call:Strada.Input.IsActionPressed(string)", Json::object(), jump));
+		links.push_back(MakeLink(11, "Then", 20, "Execute"));
+		links.push_back(MakeLink(21, "Result", 20, "Condition"));
+		AddIncrement(document, 20, "True", 2, 22);
+		nodes.push_back(MakeNode(30, "Flow.DoOnce"));
+		links.push_back(MakeLink(20, "False", 30, "Execute"));
+		if (delay)
+		{
+			nodes.push_back(MakeNode(31, "Flow.Delay", Json::object(), Json::object({{"Duration", 0.0}})));
+		}
+		else
+		{
+			nodes.push_back(MakeNode(31, "Flow.WaitUntil"));
+			nodes.push_back(MakeNode(36, "Call:Strada.Input.IsActionDown(string)", Json::object(), jump));
+			links.push_back(MakeLink(36, "Result", 31, "Condition"));
+		}
+		links.push_back(MakeLink(30, "Completed", 31, "Execute"));
+		nodes.push_back(MakeNode(32, "Variable.Set", Json::object({{"Variable", 3}})));
+		nodes.push_back(MakeNode(33, "Call:Strada.Input.IsActionPressed(string)", Json::object(), jump));
+		nodes.push_back(MakeNode(34, "Variable.Set", Json::object({{"Variable", 4}}), Json::object({{"Value", true}})));
+		links.push_back(MakeLink(31, "Completed", 32, "Execute"));
+		links.push_back(MakeLink(33, "Result", 32, "Value"));
+		links.push_back(MakeLink(32, "Then", 34, "Execute"));
+		return document;
+	}
+
+	// Event.Custom Step, raised from fixed-step code (a C# OnFixedUpdate's SendEvent, or with sendFromStep the graph's own
+	// Event.FixedUpdate through Event.Send), starts once a Delay of 0 s whose continuation keeps what IsActionPressed(Jump)
+	// reads (SentLateSaw, SentLateRan).
+	VisualScriptDocument MakeSentLatentDocument(bool sendFromStep)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "SentLateSaw", "bool", false));
+		document.Variables.push_back(MakeVariable(2, "SentLateRan", "bool", false));
+		std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+		std::vector<VisualScriptLink>& links = document.Graph.Links;
+		nodes.push_back(MakeNode(10, "Event.Custom", Json::object({{"Name", "Step"}, {"Parameters", Json::array()}})));
+		nodes.push_back(MakeNode(11, "Flow.DoOnce"));
+		nodes.push_back(MakeNode(12, "Flow.Delay", Json::object(), Json::object({{"Duration", 0.0}})));
+		nodes.push_back(MakeNode(13, "Variable.Set", Json::object({{"Variable", 1}})));
+		nodes.push_back(MakeNode(14, "Call:Strada.Input.IsActionPressed(string)", Json::object(), Json::object({{"Action", "Jump"}})));
+		nodes.push_back(MakeNode(15, "Variable.Set", Json::object({{"Variable", 2}}), Json::object({{"Value", true}})));
+		links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		links.push_back(MakeLink(11, "Completed", 12, "Execute"));
+		links.push_back(MakeLink(12, "Completed", 13, "Execute"));
+		links.push_back(MakeLink(14, "Result", 13, "Value"));
+		links.push_back(MakeLink(13, "Then", 15, "Execute"));
+		if (sendFromStep)
+		{
+			nodes.push_back(MakeNode(30, "Event.FixedUpdate"));
+			nodes.push_back(MakeNode(31, "Event.Send", Json::object({{"Name", "Step"}, {"Parameters", Json::array()}})));
+			links.push_back(MakeLink(30, "Then", 31, "Execute"));
+		}
+		return document;
+	}
+
+	// A native function of the scripting API, by its binding name.
+	template<typename TFunction>
+	TFunction FindBinding(std::string_view name)
+	{
+		std::span<ScriptBinding const> const bindings = GetScriptBindings();
+		auto const binding = std::find_if(bindings.begin(), bindings.end(),
+		                                  [name](ScriptBinding const& candidate)
+		                                  {
+											  return std::string_view(candidate.Name, static_cast<size_t>(candidate.NameLength)) == name;
+										  });
+		REQUIRE(binding != bindings.end());
+		return reinterpret_cast<TFunction>(binding->Function);
 	}
 }
 
@@ -518,8 +634,8 @@ TEST_CASE("SceneInputActions: an unknown action reads zero and is logged once, a
 	{
 		Scene scene("Unknown");
 		Entity const probe = AddProbe(scene, "Probe", {{"Action", ScriptFieldValue::FromString("jump")}});
-		scene.OnRuntimeStart(Settings(actions));
 		uint64_t const logStart = Log::GetNextEntryIndex();
+		scene.OnRuntimeStart(Settings(actions));
 		Input::SetKeyState(KeyCode::Space, true);
 		for (int frame = 0; frame < 5; frame++)
 		{
@@ -556,4 +672,222 @@ TEST_CASE("SceneInputActions: an unknown action reads zero and is logged once, a
 		CHECK(CountLogged(logStart, "no input actions are loaded") == 1);
 		scene.OnRuntimeStop();
 	}
+}
+
+TEST_CASE("SceneInputActions: a graph that a fixed step's C# script or graph raises an event on reads that step's edges, once per "
+          "edge, in frames of eight steps and of none")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	Testing::ScriptEngineScope const scripting;
+	InputScope const input;
+	AssetHandle const actions = AddActions();
+	AssetHandle const receiver = AddGraph(MakeStepReceiverDocument(false), "Receiver");
+	AssetHandle const sender = AddGraph(MakeStepReceiverDocument(true), "Sender");
+	Scene scene("Sent");
+	// The C# script's OnFixedUpdate raises Step on its entity's graph; the other graph raises it on itself.
+	Entity probe = AddProbe(scene, "Probe", {{"SendEvent", ScriptFieldValue::FromString("Step")}});
+	probe.AddComponent<VisualScriptComponent>().Graph = receiver;
+	Entity const graph = AddGraphEntity(scene, "Sender", sender);
+	scene.OnRuntimeStart(Settings(actions));
+	RunFrame(scene);
+	CHECK(ReadGraph(probe).at("SentSteps").GetInt32() == 1);
+	CHECK(ReadGraph(graph).at("SentSteps").GetInt32() == 1);
+
+	// A frame of eight steps: the press reaches the first alone.
+	Input::SetKeyState(KeyCode::Space, true);
+	RunFrame(scene, 8.0f * Step);
+	CHECK(ReadGraph(probe).at("SentSteps").GetInt32() == 9);
+	for (Entity const entity : {probe, graph})
+	{
+		CHECK(ReadGraph(entity).at("SentPresses").GetInt32() == 1);
+	}
+	Input::SetKeyState(KeyCode::Space, false);
+	RunFrame(scene);
+	// Frames that run no step carry the press to the next step, which sees it once.
+	Input::SetKeyState(KeyCode::Space, true);
+	for (int frame = 0; frame < 3; frame++)
+	{
+		RunFrame(scene, 0.001f);
+	}
+	CHECK(ReadGraph(probe).at("SentSteps").GetInt32() == 10);
+	for (int frame = 0; frame < 4; frame++)
+	{
+		RunFrame(scene);
+	}
+	for (Entity const entity : {probe, graph})
+	{
+		CHECK(ReadGraph(entity).at("SentPresses").GetInt32() == 2);
+		CHECK(ReadGraph(entity).at("SentSteps").GetInt32() == 14);
+	}
+	CHECK(ReadProbe(probe).at("StepPresses").GetInt32() == 2);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("SceneInputActions: a Delay's and a WaitUntil's continuation of fixed-step code reads no edge at 30, 60 and 144 frames "
+          "per second")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	Testing::ScriptEngineScope const scripting;
+	InputScope const input;
+	AssetHandle const actions = AddActions();
+	AssetHandle const delayed = AddGraph(MakeStepLatentDocument(true), "Delayed");
+	AssetHandle const waiting = AddGraph(MakeStepLatentDocument(false), "Waiting");
+	AssetHandle const sentByScript = AddGraph(MakeSentLatentDocument(false), "Sent By Script");
+	AssetHandle const sentByGraph = AddGraph(MakeSentLatentDocument(true), "Sent By Graph");
+	for (float const framesPerSecond : {30.0f, 60.0f, 144.0f})
+	{
+		CAPTURE(framesPerSecond);
+		Input::Reset();
+		Scene scene("Latent");
+		Entity const delay = AddGraphEntity(scene, "Delay", delayed);
+		Entity const wait = AddGraphEntity(scene, "Wait", waiting);
+		// Graphs that code of a step raised an event on: a C# OnFixedUpdate's, and a graph's Event.FixedUpdate.
+		Entity probe = AddProbe(scene, "Probe", {{"SendEvent", ScriptFieldValue::FromString("Step")}});
+		probe.AddComponent<VisualScriptComponent>().Graph = sentByScript;
+		Entity const sender = AddGraphEntity(scene, "Sender", sentByGraph);
+		scene.OnRuntimeStart(Settings(actions));
+		float const frameTime = 1.0f / framesPerSecond;
+		// Until a step ran: it started the Delays and the WaitUntil, without a press.
+		int frames = 0;
+		while (ReadGraph(delay).at("Steps").GetInt32() == 0 && frames < 8)
+		{
+			RunFrame(scene, frameTime);
+			frames++;
+		}
+		REQUIRE(ReadGraph(delay).at("Steps").GetInt32() > 0);
+		CHECK_FALSE(ReadGraph(delay).at("DelayRan").GetBool());
+		CHECK_FALSE(ReadGraph(wait).at("WaitRan").GetBool());
+		CHECK_FALSE(ReadGraph(probe).at("SentLateRan").GetBool());
+		// The next frame presses Jump: every continuation runs in its Update dispatch, and reads no edge of it.
+		Input::SetKeyState(KeyCode::Space, true);
+		RunFrame(scene, frameTime);
+		ScriptFieldMap const delayRead = ReadGraph(delay);
+		ScriptFieldMap const waitRead = ReadGraph(wait);
+		REQUIRE(delayRead.at("DelayRan").GetBool());
+		REQUIRE(waitRead.at("WaitRan").GetBool());
+		CHECK_FALSE(delayRead.at("DelaySaw").GetBool());
+		CHECK_FALSE(waitRead.at("WaitSaw").GetBool());
+		for (Entity const entity : {probe, sender})
+		{
+			ScriptFieldMap const sentRead = ReadGraph(entity);
+			REQUIRE(sentRead.at("SentLateRan").GetBool());
+			CHECK_FALSE(sentRead.at("SentLateSaw").GetBool());
+		}
+		// A step sees the press once, whichever frame it falls in.
+		for (int frame = 0; frame < 8; frame++)
+		{
+			RunFrame(scene, frameTime);
+		}
+		CHECK(ReadGraph(delay).at("StepPresses").GetInt32() == 1);
+		CHECK(ReadGraph(wait).at("StepPresses").GetInt32() == 1);
+		scene.OnRuntimeStop();
+	}
+}
+
+TEST_CASE("SceneInputActions: an entity that a latent continuation of fixed-step code instantiates reads the frame's edges in its "
+          "Create events")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	Testing::ScriptEngineScope const scripting;
+	InputScope const input;
+	AssetHandle const actions = AddActions();
+	// The prefab: a C# probe (OnCreate keeps CreatedPressed) and a graph whose Event.Create keeps CreatedSaw.
+	VisualScriptDocument created;
+	created.Variables.push_back(MakeVariable(1, "CreatedSaw", "bool", false));
+	created.Graph.Nodes.push_back(MakeNode(10, "Event.Create"));
+	created.Graph.Nodes.push_back(MakeNode(11, "Variable.Set", Json::object({{"Variable", 1}})));
+	created.Graph.Nodes.push_back(
+		MakeNode(12, "Call:Strada.Input.IsActionPressed(string)", Json::object(), Json::object({{"Action", "Jump"}})));
+	created.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	created.Graph.Links.push_back(MakeLink(12, "Result", 11, "Value"));
+	AssetHandle const createdGraph = AddGraph(created, "Created");
+	Scene source("Source");
+	Entity member = AddProbe(source, "Member");
+	member.AddComponent<VisualScriptComponent>().Graph = createdGraph;
+	Result<Ref<PrefabAsset>> prefabAsset = PrefabAsset::Create(PrefabSerializer::Serialize(source, member));
+	REQUIRE(prefabAsset.IsOk());
+	AssetHandle const prefab = AssetManager::AddMemoryAsset(prefabAsset.GetValue(), "Member");
+
+	// The spawner: its first step starts a Delay of 0 s whose continuation instantiates the prefab, then keeps what
+	// IsActionPressed(Jump) reads itself (SpawnerSaw).
+	VisualScriptDocument spawner;
+	spawner.Variables.push_back(MakeVariable(1, "SpawnerSaw", "bool", true));
+	std::vector<VisualScriptNode>& nodes = spawner.Graph.Nodes;
+	std::vector<VisualScriptLink>& links = spawner.Graph.Links;
+	nodes.push_back(MakeNode(10, "Event.FixedUpdate"));
+	nodes.push_back(MakeNode(11, "Flow.DoOnce"));
+	nodes.push_back(MakeNode(12, "Flow.Delay", Json::object(), Json::object({{"Duration", 0.0}})));
+	nodes.push_back(MakeNode(13, "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)",
+	                         Json::object(), Json::object({{"Prefab", prefab.ToString()}})));
+	nodes.push_back(MakeNode(14, "Variable.Set", Json::object({{"Variable", 1}})));
+	nodes.push_back(MakeNode(15, "Call:Strada.Input.IsActionPressed(string)", Json::object(), Json::object({{"Action", "Jump"}})));
+	links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	links.push_back(MakeLink(11, "Completed", 12, "Execute"));
+	links.push_back(MakeLink(12, "Completed", 13, "Execute"));
+	links.push_back(MakeLink(13, "Then", 14, "Execute"));
+	links.push_back(MakeLink(15, "Result", 14, "Value"));
+	AssetHandle const spawnerGraph = AddGraph(spawner, "Spawner");
+
+	Scene scene("Spawning");
+	Entity const spawnerEntity = AddGraphEntity(scene, "Spawner", spawnerGraph);
+	scene.OnRuntimeStart(Settings(actions));
+	RunFrame(scene);
+	CHECK_FALSE(scene.FindEntityByName("Member"));
+	// The continuation runs in the frame that presses Jump: it reads no edge, and the entity it makes reads the frame's.
+	Input::SetKeyState(KeyCode::Space, true);
+	RunFrame(scene);
+	Entity const spawned = scene.FindEntityByName("Member");
+	REQUIRE(spawned);
+	CHECK_FALSE(ReadGraph(spawnerEntity).at("SpawnerSaw").GetBool());
+	CHECK(ReadGraph(spawned).at("CreatedSaw").GetBool());
+	CHECK(ReadProbe(spawned).at("CreatedPressed").GetBool());
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("SceneInputActions: a script's InputActions names its asset's actions, and none (logged) when the asset does not load")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	Testing::ScriptEngineScope const scripting;
+	InputScope const input;
+	AssetHandle const actions = AddActions();
+	AssetHandle const mesh = GetBuiltInHandle(BuiltInAsset::CubeMesh);
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Names");
+	Entity const named = AddProbe(scene, "Named", {{"Actions", ScriptFieldValue::FromAsset(actions)}});
+	Entity const unloaded = AddProbe(scene, "Unloaded", {{"Actions", ScriptFieldValue::FromAsset(mesh)}});
+	scene.OnRuntimeStart(Settings(actions));
+	RunFrame(scene);
+	CHECK(ReadProbe(named).at("ActionNameCount").GetInt32() == 3);
+	CHECK(ReadProbe(unloaded).at("ActionNameCount").GetInt32() == 0);
+	CHECK(CountLogged(logStart, "InputActions: ") == 1);
+	scene.OnRuntimeStop();
+
+	// The bindings themselves: a handle that names no InputActions asset reads as failed, with no name.
+	using ReadFunction = int32_t (*)(uint64_t, uint64_t, uint64_t*, int32_t*);
+	using NameFunction = char const* (*)(uint64_t, int32_t, int32_t*);
+	auto const read = FindBinding<ReadFunction>("InputActions_Read");
+	auto const name = FindBinding<NameFunction>("InputActions_GetActionName");
+	uint64_t version = 7;
+	int32_t count = 9;
+	uint64_t const meshID = mesh.GetUUID().GetValue();
+	uint64_t const actionsID = actions.GetUUID().GetValue();
+	CHECK(read(meshID, 0, &version, &count) == 0);
+	CHECK(version == 7);
+	CHECK(count == 9);
+	int32_t length = 5;
+	CHECK(name(meshID, 0, &length) == nullptr);
+	CHECK(length == 0);
+	// Read, then unchanged at the version held; a name past the count is none.
+	REQUIRE(read(actionsID, 0, &version, &count) == 2);
+	CHECK(count == 3);
+	CHECK(read(actionsID, version, &version, &count) == 1);
+	char const* const first = name(actionsID, 0, &length);
+	REQUIRE(first != nullptr);
+	CHECK(std::string_view(first, static_cast<size_t>(length)) == "Jump");
+	CHECK(name(actionsID, 3, &length) == nullptr);
+	CHECK(name(actionsID, -1, &length) == nullptr);
 }

@@ -282,11 +282,15 @@ namespace Strada
 
 	private:
 		// A digital control of an action's binding (a key, a mouse button, a gamepad button) with its press and release
-		// counts as the last evaluation read them.
+		// counts as the last evaluation read them. A gamepad button of a binding that reads any gamepad is one control per
+		// slot, so that one pad's press or tap is judged apart from another pad holding the same button.
 		struct DigitalControl
 		{
 			uint32_t Binding = 0;
 			uint32_t Part = 0;
+			// The gamepad slot of a gamepad button (the binding's own, or this control's for a binding of any gamepad);
+			// AnyGamepad for a key or a mouse button.
+			int32_t Gamepad = AnyGamepad;
 			// Whether the binding, read with this control down and its other controls up, reaches the press threshold.
 			bool CanPress = false;
 			uint32_t Presses = 0;

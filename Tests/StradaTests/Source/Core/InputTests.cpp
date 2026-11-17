@@ -369,6 +369,64 @@ TEST_CASE_FIXTURE(InputFixture, "Input: an injected gamepad holds across polls, 
 	CHECK_FALSE(Input::IsGamepadConnected(1));
 }
 
+TEST_CASE_FIXTURE(InputFixture, "Input: an injection beginning or ending starts the slot's axes as not moved")
+{
+	// A connected device whose mapping lacks the triggers: they read exactly 0 and have not moved.
+	Input::GamepadState device;
+	device.Connected = true;
+	Input::SetGamepadState(2, device);
+	CHECK_FALSE(Input::HasGamepadAxisMoved(2, GamepadAxis::RightTrigger));
+	// An injection at rest has moved them (-1).
+	Input::InjectGamepadState(2, Input::GetRestingGamepadState());
+	CHECK(Input::HasGamepadAxisMoved(2, GamepadAxis::RightTrigger));
+	// Back to the device: its triggers read 0 and have not moved, as before the injection.
+	Input::ReleaseInjectedGamepad(2);
+	CHECK(Input::IsGamepadConnected(2));
+	CHECK(Input::GetGamepadAxis(2, GamepadAxis::RightTrigger) == 0.0f);
+	CHECK_FALSE(Input::HasGamepadAxisMoved(2, GamepadAxis::RightTrigger));
+	// The other way: a device that moved its left stick, then an injection that leaves the stick at exactly 0.
+	device.Axes[static_cast<size_t>(GamepadAxis::LeftX)] = 0.5f;
+	Input::SetGamepadState(2, device);
+	CHECK(Input::HasGamepadAxisMoved(2, GamepadAxis::LeftX));
+	Input::InjectGamepadState(2, Input::GetRestingGamepadState());
+	CHECK_FALSE(Input::HasGamepadAxisMoved(2, GamepadAxis::LeftX));
+	// A later injection of the slot keeps what the injection's axes did.
+	Input::GamepadState injected = Input::GetRestingGamepadState();
+	injected.Axes[static_cast<size_t>(GamepadAxis::LeftX)] = 0.25f;
+	Input::InjectGamepadState(2, injected);
+	injected.Axes[static_cast<size_t>(GamepadAxis::LeftX)] = 0.0f;
+	Input::InjectGamepadState(2, injected);
+	CHECK(Input::HasGamepadAxisMoved(2, GamepadAxis::LeftX));
+}
+
+TEST_CASE_FIXTURE(InputFixture, "Input: dropping the records of released overrides frees their names and keeps the held ones")
+{
+	REQUIRE(Input::SetActionOverride("Held", glm::vec2(1.0f, 0.0f)));
+	REQUIRE(Input::SetActionOverride("Released", glm::vec2(1.0f, 0.0f)));
+	Input::ClearActionOverride("Released");
+	uint64_t const version = Input::GetActionOverridesVersion();
+	Input::DropReleasedActionOverrides();
+	CHECK(Input::GetActionOverridesVersion() > version);
+	CHECK(Input::FindActionOverride("Released") == nullptr);
+	REQUIRE(Input::FindActionOverride("Held") != nullptr);
+	CHECK(Input::FindActionOverride("Held")->Presses == 1);
+	// Nothing to drop moves nothing.
+	uint64_t const unchanged = Input::GetActionOverridesVersion();
+	Input::DropReleasedActionOverrides();
+	CHECK(Input::GetActionOverridesVersion() == unchanged);
+	// Every place freed: a full set of names fits again once released and dropped.
+	for (size_t index = 1; index < Input::MaxActionOverrides; index++)
+	{
+		REQUIRE(Input::SetActionOverride(fmt::format("Action{}", index), glm::vec2(1.0f)));
+	}
+	CHECK_FALSE(Input::SetActionOverride("OneTooMany", glm::vec2(1.0f)));
+	Input::ReleaseInjectedInput();
+	CHECK(Input::HasActionOverrides());
+	Input::DropReleasedActionOverrides();
+	CHECK_FALSE(Input::HasActionOverrides());
+	CHECK(Input::SetActionOverride("OneTooMany", glm::vec2(1.0f)));
+}
+
 TEST_CASE_FIXTURE(InputFixture, "Input: an axis has moved once it read anything but 0 since its pad connected")
 {
 	Input::GamepadState pad;
@@ -403,8 +461,9 @@ TEST_CASE_FIXTURE(InputFixture, "Input: action overrides count presses and relea
 	CHECK(record->Value == glm::vec2(-0.75f, 0.25f));
 	CHECK(record->Presses == 1);
 	CHECK(record->Releases == 0);
-	CHECK(record->PeakX == 0.75f);
-	CHECK(record->PeakLength == doctest::Approx(std::sqrt(0.625f)));
+	CHECK(record->PeaksX.GetSince(0) == 0.75f);
+	CHECK(record->PeaksLength.GetSince(0) == doctest::Approx(std::sqrt(0.625f)));
+	CHECK(record->PeaksX.GetSince(1) == 0.0f);
 
 	Input::ClearActionOverride("Jump");
 	record = Input::FindActionOverride("Jump");

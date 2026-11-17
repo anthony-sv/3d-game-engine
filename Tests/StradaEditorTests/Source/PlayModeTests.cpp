@@ -1526,8 +1526,8 @@ TEST_CASE("PlayCommands: input.set holds the project's action overrides and inje
 	      Json::object({{"Jump", Json::array({1.0f, 0.0f})}}));
 }
 
-TEST_CASE("PlayCommands: input.set refuses an override of a new name once the input keeps the most names it can, and still sets "
-          "the names that had one")
+TEST_CASE("PlayCommands: input.set refuses an override of a new name once the input keeps the most names it can, still sets the "
+          "names that have one, and has room again once the game stops")
 {
 	InputScope input;
 	ProjectPlayFixture fixture;
@@ -1570,13 +1570,21 @@ TEST_CASE("PlayCommands: input.set refuses an override of a new name once the in
 	CommandResult const full = run(Json::object({{"actions", Json::object({{"Jump", 0.5}, {"Steer", 1.0}})}}));
 	REQUIRE(full.IsError());
 	CHECK(full.GetError().Code == AutomationErrorCode::InvalidOperation);
-	CHECK(full.GetError().Message.find("names that had one can still be set") != std::string::npos);
+	CHECK(full.GetError().Message.find("names that have one can still be set") != std::string::npos);
 	CHECK(Input::GetActionOverridesVersion() == version);
 	CHECK(Input::FindActionOverride("Steer") == nullptr);
 	CHECK(Input::FindActionOverride("Jump")->Value == glm::vec2(1.0f, 0.0f));
 	CommandResult const kept = run(Json::object({{"actions", Json::object({{"Jump", 0.5}, {"Steer", Json()}})}}));
 	REQUIRE(kept.IsOk());
 	CHECK(kept.GetValue()["actions"] == Json::object({{"Jump", Json::array({0.5f, 0.0f})}}));
+
+	// The end of a game ends its overrides, and their records with them: a new name has room again.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Stop();
+	CHECK_FALSE(Input::HasActionOverrides());
+	CommandResult const room = run(Json::object({{"actions", Json::object({{"Steer", 1.0}})}}));
+	REQUIRE(room.IsOk());
+	CHECK(room.GetValue()["actions"] == Json::object({{"Steer", Json::array({1.0f, 0.0f})}}));
 }
 
 TEST_CASE("PlayMode: frames refused at a stop keep the game's input for the first frame that runs, and Start and Stop begin a "

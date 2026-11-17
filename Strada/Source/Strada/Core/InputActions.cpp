@@ -92,6 +92,13 @@ namespace Strada
 			return glm::vec2(0.0f);
 		}
 
+		bool IsValidSlot(int32_t gamepad)
+		{
+			return gamepad >= 0 && gamepad < static_cast<int32_t>(MaxGamepads);
+		}
+
+		// The counts of one digital control: a key's, a mouse button's, or a gamepad button's on one slot (DigitalControl's
+		// Gamepad).
 		Input::ButtonCounts ReadCounts(InputControl control, int32_t gamepad)
 		{
 			switch (control.Kind)
@@ -101,21 +108,9 @@ namespace Strada
 				case InputControlKind::Mouse:
 					return Input::GetMouseButtonCounts(static_cast<MouseButton>(control.Code));
 				case InputControlKind::PadButton:
-				{
-					GamepadButton const button = static_cast<GamepadButton>(control.Code);
-					if (gamepad != AnyGamepad)
-					{
-						return gamepad >= 0 ? Input::GetGamepadButtonCounts(static_cast<uint32_t>(gamepad), button) : Input::ButtonCounts{};
-					}
-					Input::ButtonCounts sum;
-					for (uint32_t slot = 0; slot < MaxGamepads; slot++)
-					{
-						Input::ButtonCounts const counts = Input::GetGamepadButtonCounts(slot, button);
-						sum.Presses += counts.Presses;
-						sum.Releases += counts.Releases;
-					}
-					return sum;
-				}
+					return IsValidSlot(gamepad)
+					           ? Input::GetGamepadButtonCounts(static_cast<uint32_t>(gamepad), static_cast<GamepadButton>(control.Code))
+					           : Input::ButtonCounts{};
 				case InputControlKind::PadAxis:
 				case InputControlKind::PadStick:
 					break;
@@ -123,14 +118,62 @@ namespace Strada
 			return {};
 		}
 
-		// The binding's controls read now, one reading per control; `without` (a part index) reads as up.
-		glm::vec2 ReadBinding(InputBindingSpecification const& binding, uint32_t without = MaxInputControlsPerBinding)
+		// Whether one digital control is down now (a gamepad button on one slot).
+		bool IsDigitalDown(InputControl control, int32_t gamepad)
+		{
+			switch (control.Kind)
+			{
+				case InputControlKind::Key:
+					return Input::IsKeyDown(static_cast<KeyCode>(control.Code));
+				case InputControlKind::Mouse:
+					return Input::IsMouseButtonDown(static_cast<MouseButton>(control.Code));
+				case InputControlKind::PadButton:
+					return IsValidSlot(gamepad) &&
+					       Input::IsGamepadButtonDown(static_cast<uint32_t>(gamepad), static_cast<GamepadButton>(control.Code));
+				case InputControlKind::PadAxis:
+				case InputControlKind::PadStick:
+					break;
+			}
+			return false;
+		}
+
+		// A binding's part read as if the digital control of that slot were up: what the binding's other gamepads give it
+		// when it reads any gamepad, otherwise 0.
+		glm::vec2 ReadPartWithout(InputBindingSpecification const& binding, InputControl control, int32_t gamepad)
+		{
+			if (binding.Gamepad != AnyGamepad || control.Kind != InputControlKind::PadButton)
+			{
+				return glm::vec2(0.0f);
+			}
+			glm::vec2 best(0.0f);
+			float bestMagnitude = 0.0f;
+			for (uint32_t slot = 0; slot < MaxGamepads; slot++)
+			{
+				if (static_cast<int32_t>(slot) == gamepad)
+				{
+					continue;
+				}
+				glm::vec2 const reading = ReadPadControl(control, slot);
+				float const magnitude = glm::length(reading);
+				if (magnitude > bestMagnitude)
+				{
+					best = reading;
+					bestMagnitude = magnitude;
+				}
+			}
+			return best;
+		}
+
+		// The binding's controls read now, one reading per control, except the part given (when below the binding's count),
+		// which reads `partReading`.
+		glm::vec2 ReadBinding(InputBindingSpecification const& binding, uint32_t part = MaxInputControlsPerBinding,
+		                      glm::vec2 partReading = glm::vec2(0.0f))
 		{
 			std::array<glm::vec2, MaxInputControlsPerBinding> readings = {};
 			std::span<InputControl const> const controls = binding.Controls.Get();
-			for (size_t part = 0; part < controls.size(); part++)
+			for (size_t index = 0; index < controls.size(); index++)
 			{
-				readings[part] = part == without ? glm::vec2(0.0f) : InputProcessing::ReadControl(controls[part], binding.Gamepad);
+				readings[index] = index == part ? partReading : InputProcessing::ReadControl(controls[index], binding.Gamepad);
 			}
 			return InputProcessing::CombineControls(binding.Controls, std::span<glm::vec2 const>(readings.data(), controls.size()));
 		}
@@ -525,7 +568,18 @@ namespace Strada
 					control.Binding = binding;
 					control.Part = part;
 					control.CanPress = GetMagnitude(action.Type, alone) >= action.PressThreshold;
-					state.Controls.push_back(control);
+					bool const anyPad = controls[part].Kind == InputControlKind::PadButton && specification.Gamepad == AnyGamepad;
+					if (!anyPad)
+					{
+						control.Gamepad = controls[part].Kind == InputControlKind::PadButton ? specification.Gamepad : AnyGamepad;
+						state.Controls.push_back(control);
+						continue;
+					}
+					for (uint32_t slot = 0; slot < MaxGamepads; slot++)
+					{
+						control.Gamepad = static_cast<int32_t>(slot);
+						state.Controls.push_back(control);
+					}
 				}
 			}
 			TakeBaselines(index);
@@ -558,7 +612,8 @@ namespace Strada
 				for (DigitalControl const& oldControl : old.Controls)
 				{
 					InputBindingSpecification const& oldBinding = oldAction.Bindings[oldControl.Binding];
-					if (oldBinding.Controls.Controls[oldControl.Part] == identity && oldBinding.Gamepad == binding.Gamepad)
+					if (oldBinding.Controls.Controls[oldControl.Part] == identity && oldBinding.Gamepad == binding.Gamepad &&
+					    oldControl.Gamepad == control.Gamepad)
 					{
 						control.Presses = oldControl.Presses;
 						control.Releases = oldControl.Releases;
@@ -625,7 +680,7 @@ namespace Strada
 		for (DigitalControl& control : state.Controls)
 		{
 			InputBindingSpecification const& binding = specification.Bindings[control.Binding];
-			Input::ButtonCounts const counts = ReadCounts(binding.Controls.Controls[control.Part], binding.Gamepad);
+			Input::ButtonCounts const counts = ReadCounts(binding.Controls.Controls[control.Part], control.Gamepad);
 			control.Presses = counts.Presses;
 			control.Releases = counts.Releases;
 		}
@@ -732,33 +787,53 @@ namespace Strada
 				for (DigitalControl& control : state.Controls)
 				{
 					InputBindingSpecification const& binding = action.Bindings[control.Binding];
-					Input::ButtonCounts const counts = ReadCounts(binding.Controls.Controls[control.Part], binding.Gamepad);
+					InputControl const identity = binding.Controls.Controls[control.Part];
+					Input::ButtonCounts const counts = ReadCounts(identity, control.Gamepad);
 					bool const pressesMoved = counts.Presses != control.Presses;
 					bool const releasesMoved = counts.Releases != control.Releases;
 					control.Presses = counts.Presses;
 					control.Releases = counts.Releases;
-					if (!control.CanPress || !pressesMoved || !releasesMoved)
+					if (!pressesMoved || !releasesMoved)
 					{
 						continue;
 					}
 					if (!wasDown && !down)
 					{
-						tapped = true;
+						tapped = tapped || control.CanPress;
 					}
 					else if (wasDown && down && !pressedAgain)
 					{
-						float const without =
-							GetMagnitude(action.Type, InputProcessing::ProcessBinding(binding, ReadBinding(binding, control.Part)));
-						pressedAgain = othersBelowRelease(control.Binding, without, false);
+						if (IsDigitalDown(identity, control.Gamepad))
+						{
+							// Released and pressed again: the action went up meanwhile if it is below the release threshold with
+							// this control up (on its pad alone, for a binding of any gamepad).
+							float const without = GetMagnitude(
+								action.Type,
+								InputProcessing::ProcessBinding(
+									binding, ReadBinding(binding, control.Part, ReadPartWithout(binding, identity, control.Gamepad))));
+							pressedAgain = control.CanPress && othersBelowRelease(control.Binding, without, false);
+						}
+						else
+						{
+							// Pressed and released: the action went up meanwhile if this control down takes it below the release
+							// threshold (a composite's part cancelling the part that holds the action).
+							float const with = GetMagnitude(
+								action.Type,
+								InputProcessing::ProcessBinding(binding, ReadBinding(binding, control.Part, glm::vec2(1.0f, 0.0f))));
+							pressedAgain = othersBelowRelease(control.Binding, with, false);
+						}
 					}
 				}
 				if (record != nullptr)
 				{
 					bool const pressesMoved = record->Presses != state.OverridePresses;
 					bool const releasesMoved = record->Releases != state.OverrideReleases;
+					// The largest magnitude of the presses since the last evaluation, so a strong press followed by a weak one
+					// before it is still a press.
+					float const peak = action.Type == InputActionType::Vector2 ? record->PeaksLength.GetSince(state.OverridePresses)
+					                                                           : record->PeaksX.GetSince(state.OverridePresses);
 					state.OverridePresses = record->Presses;
 					state.OverrideReleases = record->Releases;
-					float const peak = action.Type == InputActionType::Vector2 ? record->PeakLength : record->PeakX;
 					if (pressesMoved && releasesMoved && peak >= action.PressThreshold)
 					{
 						if (!wasDown && !down)
