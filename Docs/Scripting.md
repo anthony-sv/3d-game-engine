@@ -70,7 +70,7 @@ scene; drag one from the hierarchy), and assets: `Prefab`, `Material`, `Mesh`, `
 `EnvironmentMap`, `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial` (pick one, or drag it from the
 content browser). An array (`T[]`) or a `List<T>` of any of these types is a list field, at most 4,096 elements, which
 the inspector shows as a row per element: "+" adds one at the end, "-" removes one, and a row dragged by its grip onto
-another row moves its element there. A field of any other type (a `Dictionary<,>`, an array of arrays, a list of a
+another row's grip moves its element there. A field of any other type (a `Dictionary<,>`, an array of arrays, a list of a
 struct of yours) is not saved or shown, and the engine says so once for the class when the scripts load.
 
 ```csharp

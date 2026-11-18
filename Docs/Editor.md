@@ -473,7 +473,7 @@ the border between the columns to give the names more room.
 | Choice (enum) | A drop-down list; lists of more than 12 values get a search field |
 | Flags | A drop-down list of check boxes |
 | Text | A text field; some fields have several lines |
-| List | One row per element with its grip and "-" to remove it, then "+" (or Add Element while empty) to add one at the end; drag a row by its grip onto another row of the list to move its element there. A list with a size limit stops adding there |
+| List | One row per element with its grip and "-" to remove it, then "+" (or Add Element while empty) to add one at the end; drag a row by its grip onto another row's grip to move its element there. A list with a size limit stops adding there |
 | List of groups | A row per element (titled by its name when it has one, or by its first two numbers or choices when it has no name field, as a curve's keys are by their time and value and a mixer's effects by their kind and first setting) that unfolds into the element's fields; its "..." menu (or a right click) moves the element up or down, duplicates it, inserts a new one above it or removes it, and Add Element adds one at the end. A list with a size limit stops adding there |
 | Group | A tree node with the group's fields under it |
 | Asset | A box with the asset, "..." and "x" ([below](#asset-fields)) |
@@ -960,7 +960,8 @@ bodies pass through each other. Layers are numbers: a RigidBody's `Layer` and th
 not its name. Removing a layer therefore keeps every body and pair on its index and only drops the pairs of the last
 index, which no longer exists; removing a layer before the last moves the names after it down onto the lower indices,
 so remove the last layer, or rename the layers, unless that is what you want. "+" adds a layer named `Layer <n>`
-(rename it in its field), up to 16 layers.
+(rename it in its field), up to 16 layers. For the same reason the layer rows have no grip: a layer is never dragged
+to another index (rename layers to change their order).
 
 ## Input Actions panel
 

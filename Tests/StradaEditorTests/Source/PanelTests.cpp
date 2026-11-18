@@ -49,6 +49,8 @@
 #include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Script/ScriptField.h"
+#include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptVariables.h"
 
 #include <doctest/doctest.h>
@@ -3510,6 +3512,108 @@ TEST_CASE("Panels: the inspector edits a graph's public array as a list, and lis
 	REQUIRE(operations.Undo().IsOk());
 	REQUIRE(operations.Undo().IsOk());
 	CHECK(getVariables().empty());
+	CHECK(open);
+}
+
+TEST_CASE("Panels: a C# list and a graph's public array edited in the inspector are saved, loaded and read by the running scripts")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::ScriptEngineScope scripting;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory const directory;
+	// On every update the graph sets its Size to the length of its public array Speeds.
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Speeds", "float[]", Json::array({0.5}), true));
+	document.Variables.push_back(MakeVariable(2, "Size", "int", 0, true));
+	document.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	document.Graph.Nodes.push_back(MakeNode(11, "Variable.Set"));
+	document.Graph.Nodes.back().Settings = Json::object({{"Variable", 2}});
+	document.Graph.Nodes.push_back(MakeNode(12, "Array.Length"));
+	document.Graph.Nodes.push_back(MakeNode(13, "Variable.Get"));
+	document.Graph.Nodes.back().Settings = Json::object({{"Variable", 1}});
+	document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	document.Graph.Links.push_back(MakeLink(13, "Value", 12, "Array"));
+	document.Graph.Links.push_back(MakeLink(12, "Length", 11, "Value"));
+	REQUIRE(VisualScriptSerializer::SaveToFile(document, directory.GetPath() / "Route.sgraph").IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const graph = AssetManager::FindByPath("Route.sgraph");
+	REQUIRE(graph.IsValid());
+
+	EditorContext context;
+	EditorOperations operations(context);
+	EditorScripts scripts(context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll");
+	PlayMode play(context, scripts);
+	UUID const lists = Create(
+		operations, "Lists",
+		Json::object({{"Script", Json::object({{"ClassName", "Strada.Tests.FieldLists"},
+	                                           {"Fields", Json::object({{"Counts", StoredValue("Int32[]", Json::array({7, 8}))}})}})}}));
+	UUID const route = Create(operations, "Route", Json::object({{"VisualScript", {{"Graph", graph.ToString()}}}}));
+
+	InspectorPanel inspector;
+	bool open = true;
+	std::function<void()> const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 1000.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	auto const inspect = [&](UUID entity)
+	{
+		std::array<UUID, 1> const selection = {entity};
+		REQUIRE(operations.Select(selection).IsOk());
+		for (int frame = 0; frame < 3; frame++)
+		{
+			imgui.Frame(draw);
+		}
+		ImGuiWindow const* shown = ImGui::FindWindowByName("Inspector");
+		REQUIRE(shown != nullptr);
+		return shown;
+	};
+
+	// The C# list: "+" adds 0 at the end, then the first element is dragged onto the last's grip: 8, 0, 7.
+	ImGuiWindow const* window = inspect(lists);
+	ImGuiID const scriptTable = ImHashStr("##fields", 0, ImHashStr("Script", 0, window->ID));
+	ListRows const counts{imgui, draw, window, ImHashStr("Counts", 0, scriptTable), scriptTable};
+	imgui.Click(counts.FindAdd(), draw);
+	ImVec2 const from = counts.FindGrip(0);
+	ImVec2 const to = counts.FindGrip(2);
+	imgui.Drag(from, to, draw);
+	// The graph's public array: "+" adds an element to its Value, 0.5.
+	window = inspect(route);
+	ImGuiID const variableTable = ImHashStr("##fields", 0, ImHashStr("##variables", 0, ImHashStr("VisualScript", 0, window->ID)));
+	ListRows const speeds{imgui, draw, window, ImHashStr("Speeds", 0, variableTable), variableTable};
+	imgui.Click(speeds.FindAdd(), draw);
+	ScriptFieldValue const editedCounts = ScriptFieldValue::FromList(
+		ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(8), ScriptFieldValue::FromInt32(0), ScriptFieldValue::FromInt32(7)});
+	ScriptFieldValue const editedSpeeds =
+		ScriptFieldValue::FromList(ScriptFieldType::Float, {ScriptFieldValue::FromFloat(0.5f), ScriptFieldValue::FromFloat(0.0f)});
+	CHECK(context.GetScene().GetEntityByUUID(lists).GetComponent<ScriptComponent>().Fields.at("Counts") == editedCounts);
+	CHECK(context.GetScene().GetEntityByUUID(route).GetComponent<VisualScriptComponent>().Variables.at("Speeds") == editedSpeeds);
+
+	// Saved, at version 2, and loaded again.
+	std::filesystem::path const file = directory.GetPath() / "Lists.sscene";
+	REQUIRE(operations.SaveScene(file).IsOk());
+	Result<std::string> const text = FileSystem::ReadTextFile(file);
+	REQUIRE(text.IsOk());
+	CHECK(text.GetValue().find("\"Int32[]\"") != std::string::npos);
+	REQUIRE(operations.NewScene().IsOk());
+	CHECK_FALSE(context.GetScene().GetEntityByUUID(lists));
+	Result<std::vector<std::string>> const opened = operations.OpenScene(file);
+	REQUIRE_MESSAGE(opened.IsOk(), opened.GetError());
+	CHECK(opened.GetValue().empty());
+	CHECK(context.GetScene().GetEntityByUUID(lists).GetComponent<ScriptComponent>().Fields.at("Counts") == editedCounts);
+	CHECK(context.GetScene().GetEntityByUUID(route).GetComponent<VisualScriptComponent>().Variables.at("Speeds") == editedSpeeds);
+
+	// Played, both running scripts read the lists: FieldLists writes its Counts first into its name, and the graph's Size
+	// is the length of Speeds.
+	REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	play.Advance(1, Timestep(1.0f / 60.0f));
+	CHECK(context.GetScene().GetEntityByUUID(lists).GetName().starts_with("8,0,7|"));
+	Result<ScriptFieldMap> const variables = VisualScriptEngine::GetInstanceVariables(route);
+	REQUIRE_MESSAGE(variables.IsOk(), variables.GetError());
+	CHECK(variables.GetValue().at("Size") == ScriptFieldValue::FromInt32(2));
+	CHECK(variables.GetValue().at("Speeds") == editedSpeeds);
+	play.Stop();
 	CHECK(open);
 }
 

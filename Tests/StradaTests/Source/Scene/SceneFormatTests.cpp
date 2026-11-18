@@ -7,6 +7,7 @@
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
+#include "Strada/Serialization/JsonSerialization.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
@@ -144,6 +145,26 @@ TEST_CASE("SceneSerializer: a version-1 scene loads unchanged and saves as versi
 	Result<Ref<Scene>> const loaded = SceneSerializer::LoadFromFile(file, DeserializationContext{});
 	REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
 	CHECK(SceneSerializer::Serialize(*loaded.GetValue()) == saved);
+}
+
+TEST_CASE("SceneSerializer: a hand-made version-1 scene or prefab that holds lists is read as version 2 reads it")
+{
+	// The writers of version 1 never wrote a list, and the migration to version 2 changes nothing, so lists in a file
+	// labelled version 1 are neither refused nor repaired (Docs/Architecture.md §7.3).
+	Json const scene = Testing::LoadTestDataDocument("Scenes/Version2.sscene");
+	Json const labelledScene = Relabeled(scene, 1);
+	CHECK(SceneSerializer::Serialize(*Load(labelledScene)) == SceneSerializer::Serialize(*Load(scene)));
+
+	Json const prefab = Testing::LoadTestDataDocument("Prefabs/Version2.sprefab");
+	Result<Ref<PrefabAsset>> const labelledPrefab = PrefabAsset::Create(Relabeled(prefab, 1));
+	REQUIRE_MESSAGE(labelledPrefab.IsOk(), labelledPrefab.GetError());
+	CHECK(labelledPrefab.GetValue()->GetDocument() == prefab);
+	Scene instances("Instances");
+	Result<Entity> const instance =
+		PrefabSerializer::Instantiate(instances, Relabeled(prefab, 1), AssetHandle(UUID(5000)), Entity(), DeserializationContext{});
+	REQUIRE_MESSAGE(instance.IsOk(), instance.GetError());
+	CHECK(instance.GetValue().GetComponent<ScriptComponent>().Fields.at("Vector4s") ==
+	      ScriptFieldValue::FromList(ScriptFieldType::Vector4, {}));
 }
 
 TEST_CASE("SceneSerializer: a version-2 scene holds lists of every element type, and saves them as it read them")
@@ -291,6 +312,113 @@ TEST_CASE("Prefab: prefabs of versions 1 and 2 instantiate, with the entity refe
 
 		// The scene that holds the instance saves and loads again.
 		CHECK(SceneSerializer::Deserialize(SceneSerializer::Serialize(scene), DeserializationContext{}).IsOk());
+	}
+}
+
+TEST_CASE("PrefabSerializer: a prefab written from entities with lists of every element type instantiates them, remapped")
+{
+	// The version-2 scene fixture: a holder with a list of every element type in its script fields, and its child.
+	Ref<Scene> const source = Load(Testing::LoadTestDataDocument("Scenes/Version2.sscene"));
+	Entity holder = Find(*source, 1001);
+	Entity child = Find(*source, 1002);
+	Entity const outside = source->CreateEntity("Outside");
+	ScriptFieldMap& fields = holder.GetComponent<ScriptComponent>().Fields;
+	// Entities inside the prefab, one outside it, one no scene has and none.
+	fields["Entities"] = EntityList({child.GetUUID(), outside.GetUUID(), UUID(424242), UUID::Invalid(), holder.GetUUID()});
+	// The child's variables hold the same lists.
+	ScriptFieldMap& variables = child.GetComponent<VisualScriptComponent>().Variables;
+	for (auto const& [name, value] : fields)
+	{
+		variables["Copy" + name] = value;
+	}
+	ScriptFieldMap const writtenFields = fields;
+	ScriptFieldMap const writtenVariables = variables;
+
+	// Written, it is version 2 and holds the lists in the file form.
+	Json const document = PrefabSerializer::Serialize(*source, holder);
+	CHECK(document["Strada"] == MakeFileHeader("Prefab", 2));
+	REQUIRE(document["Entities"].size() == 2);
+	Json const fileFields = JsonTraits<ScriptFieldMap>::ToJson(writtenFields);
+	Json const fileVariables = JsonTraits<ScriptFieldMap>::ToJson(writtenVariables);
+	bool wroteFields = false;
+	bool wroteVariables = false;
+	for (Json const& entity : document["Entities"])
+	{
+		Json const& components = entity["Components"];
+		if (components.contains("Script"))
+		{
+			CHECK(components["Script"]["Fields"] == fileFields);
+			wroteFields = true;
+		}
+		if (components.contains("VisualScript"))
+		{
+			CHECK(components["VisualScript"]["Variables"] == fileVariables);
+			wroteVariables = true;
+		}
+	}
+	CHECK(wroteFields);
+	CHECK(wroteVariables);
+
+	// Instantiated from the document, from the asset made of it, and from the file it saves to: every list arrives as
+	// written, with the references to the prefab's entities following the instance and the others kept.
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const file = directory.GetPath() / "Holder.sprefab";
+	REQUIRE(PrefabSerializer::SaveToFile(*source, holder, file).IsOk());
+	Result<std::string> const text = FileSystem::ReadTextFile(file);
+	REQUIRE(text.IsOk());
+	Result<Json> const saved = ParseJson(text.GetValue());
+	REQUIRE(saved.IsOk());
+	CHECK(saved.GetValue() == document);
+	Result<Ref<PrefabAsset>> const asset = PrefabAsset::Create(saved.GetValue());
+	REQUIRE_MESSAGE(asset.IsOk(), asset.GetError());
+	CHECK(asset.GetValue()->GetDocument() == document);
+
+	for (Json const* instantiated : {&document, &asset.GetValue()->GetDocument()})
+	{
+		Scene scene("Instances");
+		Result<Entity> const instance =
+			PrefabSerializer::Instantiate(scene, *instantiated, AssetHandle(UUID(5001)), Entity(), DeserializationContext{});
+		REQUIRE_MESSAGE(instance.IsOk(), instance.GetError());
+		Entity const holderCopy = instance.GetValue();
+		std::vector<Entity> const children = scene.GetChildren(holderCopy);
+		REQUIRE(children.size() == 1);
+		Entity const childCopy = children[0];
+		CHECK(holderCopy.GetUUID() != holder.GetUUID());
+		CHECK(childCopy.GetUUID() != child.GetUUID());
+		auto const remap = [&](UUID id)
+		{
+			return id == holder.GetUUID() ? holderCopy.GetUUID() : id == child.GetUUID() ? childCopy.GetUUID() : id;
+		};
+		auto const expect = [&](ScriptFieldMap const& written, ScriptFieldMap const& read)
+		{
+			REQUIRE(read.size() == written.size());
+			for (auto const& [name, value] : written)
+			{
+				CAPTURE(name);
+				REQUIRE(read.contains(name));
+				if (value.IsList() && value.GetElementType() == ScriptFieldType::Entity)
+				{
+					std::vector<UUID> expected;
+					for (ScriptFieldValue const& element : value.GetElements())
+					{
+						expected.push_back(remap(element.GetEntity()));
+					}
+					CHECK(read.at(name) == EntityList(expected));
+				}
+				else if (value.GetType() == ScriptFieldType::Entity)
+				{
+					CHECK(read.at(name) == ScriptFieldValue::FromEntity(remap(value.GetEntity())));
+				}
+				else
+				{
+					CHECK(read.at(name) == value);
+				}
+			}
+		};
+		expect(writtenFields, holderCopy.GetComponent<ScriptComponent>().Fields);
+		expect(writtenVariables, childCopy.GetComponent<VisualScriptComponent>().Variables);
+		CHECK(holderCopy.GetComponent<ScriptComponent>().Fields.at("Entities") ==
+		      EntityList({childCopy.GetUUID(), outside.GetUUID(), UUID(424242), UUID::Invalid(), holderCopy.GetUUID()}));
 	}
 }
 

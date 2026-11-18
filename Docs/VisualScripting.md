@@ -1097,7 +1097,7 @@ onto another array's handle moves nothing; x removes it). Make Array's Count add
 links. On the canvas a chip shows an unlinked array input's length. My Script's eye makes an array public when
 components can store its elements ("Strada.Matrix4[] cannot be public: components cannot store it" otherwise), and the
 inspector edits a public array's list on each entity: "+" adds an element, "-" removes one, and a row dragged by its
-grip onto another row moves its element there, each one undo step.
+grip onto another row's grip moves its element there, each one undo step.
 
 **Timelines.** Double-click a Timeline's header, choose Edit Timeline in its menu, or click Edit on a track in Details,
 to open its tracks and curves in the drawer under the canvas. On the left, + Add Track adds a Float, Vector2, Vector3,

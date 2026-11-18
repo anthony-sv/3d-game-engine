@@ -29,7 +29,7 @@ namespace Strada
 			return JsonTraits<std::vector<PhysicsLayerPair>>::ToJson(pairs);
 		}
 
-		// Whether the change edits the list of physics layers as a list (adds or removes a layer).
+		// Whether the change edits the list of physics layers as a list (adds or removes a layer: the panel moves none).
 		bool IsLayerListEdit(FieldChange const& change)
 		{
 			return change.ArrayEdit && change.Path.size() == 2 && change.Path[0] == FieldPathStep{"Physics", std::nullopt} &&
@@ -65,12 +65,14 @@ namespace Strada
 				              {
 								  return nested.Name == "IgnoredCollisions";
 							  });
-				// The panel adds no layer past the most a project takes (ValidateProjectSettings refuses more).
+				// The panel adds no layer past the most a project takes (ValidateProjectSettings refuses more), and moves none:
+				// bodies in every scene and the ignored pairs hold layers by index, so a move would put them on other layers.
 				for (FieldDescriptor& nested : field.Fields)
 				{
 					if (nested.Name == "Layers")
 					{
 						nested.Hints.MaxCount = MaxPhysicsLayers;
+						nested.Hints.FixedOrder = true;
 					}
 				}
 			}

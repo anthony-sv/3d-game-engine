@@ -1032,7 +1032,10 @@ namespace Strada
 				case FieldKind::Float:
 				case FieldKind::Double:
 				{
-					double const zero = std::clamp(0.0, std::max(array.Hints.Min, array.TypeMin), std::min(array.Hints.Max, array.TypeMax));
+					// The hinted range can be user data that holds no value of the type (a script's reversed [Range]), so the
+					// bounds are those the element's widgets clamp to.
+					auto const [lowest, highest] = GetBounds(array);
+					double const zero = std::clamp(0.0, lowest, highest);
 					element.Default =
 						element.Kind == FieldKind::Int || element.Kind == FieldKind::UInt ? Json(static_cast<int64_t>(zero)) : Json(zero);
 					break;
@@ -1505,15 +1508,17 @@ namespace Strada
 			}
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
 			{
-				ImGui::SetTooltip("Move, duplicate, insert above or remove this element");
+				ImGui::SetTooltip("%s", field.Hints.FixedOrder ? "Duplicate, insert above or remove this element"
+				                                               : "Move, duplicate, insert above or remove this element");
 			}
 			if (ImGui::BeginPopup("##elementMenu"))
 			{
-				if (ImGui::MenuItem("Move Up", nullptr, false, i > 0))
+				// An array of a fixed order offers no move.
+				if (!field.Hints.FixedOrder && ImGui::MenuItem("Move Up", nullptr, false, i > 0))
 				{
 					edit = FieldArrayEdit{FieldArrayEditKind::Move, index, index - 1};
 				}
-				if (ImGui::MenuItem("Move Down", nullptr, false, i + 1 < count))
+				if (!field.Hints.FixedOrder && ImGui::MenuItem("Move Down", nullptr, false, i + 1 < count))
 				{
 					edit = FieldArrayEdit{FieldArrayEditKind::Move, index, index + 1};
 				}
@@ -1848,12 +1853,14 @@ namespace Strada
 		bool changed = false;
 		float const buttonWidth = ImGui::GetFrameHeight();
 		float const spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-		// Rows dragged by their grips move within this array only.
+		// Rows dragged by their grips move within this array only; an array of a fixed order has no grips.
 		ImGuiID const array = ImGui::GetID("##elements");
+		bool const movable = !field.Hints.FixedOrder;
+		float const buttonsWidth = (movable ? 2.0f : 1.0f) * (buttonWidth + spacing);
 		for (size_t i = 0; i < count; i++)
 		{
 			ImGui::PushID(static_cast<int>(i));
-			ImGui::PushItemWidth(-(2.0f * (buttonWidth + spacing)));
+			ImGui::PushItemWidth(-buttonsWidth);
 			FieldChange elementChange;
 			if (DrawValue(descriptor, value[i], false, elementChange) && !changed)
 			{
@@ -1863,39 +1870,42 @@ namespace Strada
 			}
 			ImGui::PopItemWidth();
 			ImGui::SameLine(0.0f, spacing);
-			ImGui::InvisibleButton("##move", ImVec2(buttonWidth, buttonWidth));
-			bool const gripHovered = ImGui::IsItemHovered() || ImGui::IsItemActive();
-			DrawGrip(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), gripHovered);
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) && !ImGui::IsItemActive())
+			if (movable)
 			{
-				ImGui::SetTooltip("Drag to move element %zu", i);
-			}
-			if (ImGui::BeginDragDropSource())
-			{
-				ArrayElementPayload const payload{array, static_cast<uint32_t>(i)};
-				ImGui::SetDragDropPayload(DragDropPayload::ArrayElement, &payload, sizeof(payload));
-				ImGui::Text("Element %zu", i);
-				ImGui::EndDragDropSource();
-			}
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (ImGuiPayload const* dropped = ImGui::AcceptDragDropPayload(DragDropPayload::ArrayElement))
+				ImGui::InvisibleButton("##move", ImVec2(buttonWidth, buttonWidth));
+				bool const gripHovered = ImGui::IsItemHovered() || ImGui::IsItemActive();
+				DrawGrip(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), gripHovered);
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) && !ImGui::IsItemActive())
 				{
-					ArrayElementPayload moved;
-					if (dropped->DataSize == static_cast<int>(sizeof(moved)))
+					ImGui::SetTooltip("Drag onto another element's grip to move element %zu there", i);
+				}
+				if (ImGui::BeginDragDropSource())
+				{
+					ArrayElementPayload const payload{array, static_cast<uint32_t>(i)};
+					ImGui::SetDragDropPayload(DragDropPayload::ArrayElement, &payload, sizeof(payload));
+					ImGui::Text("Element %zu", i);
+					ImGui::EndDragDropSource();
+				}
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (ImGuiPayload const* dropped = ImGui::AcceptDragDropPayload(DragDropPayload::ArrayElement))
 					{
-						std::memcpy(&moved, dropped->Data, sizeof(moved));
-						if (moved.Array == array && moved.Index < count && moved.Index != i && !changed)
+						ArrayElementPayload moved;
+						if (dropped->DataSize == static_cast<int>(sizeof(moved)))
 						{
-							change = FieldChange();
-							change.ArrayEdit = FieldArrayEdit{FieldArrayEditKind::Move, moved.Index, static_cast<uint32_t>(i)};
-							changed = true;
+							std::memcpy(&moved, dropped->Data, sizeof(moved));
+							if (moved.Array == array && moved.Index < count && moved.Index != i && !changed)
+							{
+								change = FieldChange();
+								change.ArrayEdit = FieldArrayEdit{FieldArrayEditKind::Move, moved.Index, static_cast<uint32_t>(i)};
+								changed = true;
+							}
 						}
 					}
+					ImGui::EndDragDropTarget();
 				}
-				ImGui::EndDragDropTarget();
+				ImGui::SameLine(0.0f, spacing);
 			}
-			ImGui::SameLine(0.0f, spacing);
 			bool const removed = ImGui::Button("-", ImVec2(buttonWidth, 0.0f));
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
 			{

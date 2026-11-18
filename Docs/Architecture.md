@@ -4048,13 +4048,18 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   function library shows that it runs on no entity instead of variables. **List fields** of scripts and graphs
   (`ScriptFieldInspection::DescribeFields`) are the generic field editor's arrays of values (`FieldKind::Array`, the
   element's kind, range, enum values or accepted asset type, `MaxCount` 4,096): a row per element with "-", "+" below
-  the last, and a grip that drags the row onto another row of the same array (a `FieldArrayEditKind::Move` to that row's
-  index; the payload, `DragDropPayload::ArrayElement`, names the array's ID scope, so a drop on another array's row moves
-  nothing), as components' arrays of values are; each list edit (an element changed, inserted, removed or moved) is one
+  the last, and a grip that drags the row onto another row's grip in the same array (a `FieldArrayEditKind::Move` to
+  that row's index; the payload, `DragDropPayload::ArrayElement`, names the array's ID scope, so a drop on another
+  array's grip moves nothing), as components' arrays of values are, but for an array of a fixed order
+  (`FieldHints::FixedOrder`: the Project Settings' physics layers, which bodies hold by index), which has no grips and
+  no Move items; each list edit (an element changed, inserted, removed or moved) is one
   undo step that writes the field's whole list (`{ "Type": "Float[]", "Value": [...] }`). A selection whose lists differ
   shows the field mixed, as components' arrays do, and an edit is applied to each selected entity's own list by index
   (`FieldChange::MakePatch`), so each keeps its other elements. `component.set` takes and answers the file form, and a
-  list given replaces its field whole. C# scripts and visual
+  list given replaces its field whole. The cost is accepted as linear in the selection's elements: while playing, the
+  inspector reads the selected entities' running values back on every draw (`Scene::ReadScriptFields` and
+  `ReadVisualScriptVariables`, lists whole, across the script boundary as JSON), and it draws one row per element,
+  unclipped, so a list near the 4,096 limit costs time on every frame it is shown. C# scripts and visual
   scripts dropped onto the inspector run on the selected entities. Without selected entities the inspector shows the
   asset selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in

@@ -7,6 +7,7 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
+#include "Editor/ScriptFieldInspection.h"
 #include "Editor/UI/DataAssetEditor.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
@@ -24,8 +25,11 @@
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/ScriptField.h"
 
 #include <doctest/doctest.h>
+#include <glm/glm.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -240,7 +244,8 @@ namespace
 	{
 		HeadlessImGui Gui;
 		FieldEditor Editor;
-		std::vector<FieldDescriptor> const Fields = GetFieldDescriptors<StructTraits<Circuit>, Circuit>();
+		// Not const: a test may change a hint before the first frame.
+		std::vector<FieldDescriptor> Fields = GetFieldDescriptors<StructTraits<Circuit>, Circuit>();
 		Json Values;
 		std::vector<FieldChange> Changes;
 		std::string Text;
@@ -499,6 +504,146 @@ TEST_CASE("FieldEditor: a row of an array of plain values dragged by its grip on
 	gui.Drag(findGrip("Songs", 0), extra, draw);
 	CHECK(changes.size() == 1);
 	CHECK(values == Json::object({{"Songs", Json::array({"b", "c", "a"})}, {"Extras", Json::array({"x"})}}));
+}
+
+TEST_CASE("FieldEditor: an array of a fixed order has no grips and no Move items, and still adds and removes elements")
+{
+	// Arrays of plain values: no grip between an element's widget and its "-".
+	{
+		HeadlessImGui gui;
+		gui.UseEditorStyle();
+		FieldEditor editor;
+		std::vector<FieldDescriptor> fields = GetFieldDescriptors<StructTraits<Playlist>, Playlist>();
+		REQUIRE(fields[0].Name == "Songs");
+		fields[0].Hints.FixedOrder = true;
+		Json values = Json::object({{"Songs", Json::array({"a", "b", "c"})}, {"Extras", Json::array({"x", "y"})}});
+		std::vector<FieldChange> changes;
+		std::function<void()> const draw = [&]
+		{
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(600.0f, 600.0f));
+			ImGui::Begin("Fixed", nullptr, ImGuiWindowFlags_NoSavedSettings);
+			if (std::optional<FieldChange> change = editor.Draw(fields, values))
+			{
+				values.update(change->MakePatch(values));
+				changes.push_back(std::move(*change));
+			}
+			ImGui::End();
+		};
+		FieldTableDriver const driver{gui, draw,
+		                              []
+		                              {
+										  return ImGui::FindWindowByName("Fixed");
+									  },
+		                              []
+		                              {
+										  return ImHashStr("##fields", 0, ImGui::FindWindowByName("Fixed")->ID);
+									  }};
+		gui.Frame(draw);
+		gui.Frame(draw);
+		float const gripX = driver.GetButtonX() - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemInnerSpacing.x;
+		ImGuiID const songs = driver.GetFieldId("Songs");
+		ImGuiID const extras = driver.GetFieldId("Extras");
+		CHECK_FALSE(driver.Find(ImHashStr("##move", 0, driver.GetElementId(songs, 0)), gripX));
+		// The other array keeps its grips.
+		CHECK(driver.Find(ImHashStr("##move", 0, driver.GetElementId(extras, 0)), gripX));
+
+		driver.Click(ImHashStr("-", 0, driver.GetElementId(songs, 1)), driver.GetButtonX());
+		CHECK(values["Songs"] == Json::array({"a", "c"}));
+		driver.Click(ImHashStr("+", 0, songs), driver.GetValueStartX());
+		CHECK(values["Songs"] == Json::array({"a", "c", ""}));
+		REQUIRE(changes.size() == 2);
+		CHECK(changes[0].ArrayEdit == std::optional<FieldArrayEdit>(FieldArrayEdit{FieldArrayEditKind::Remove, 1, 0}));
+		CHECK(changes[1].ArrayEdit == std::optional<FieldArrayEdit>(FieldArrayEdit{FieldArrayEditKind::Insert, FieldArrayEdit::End, 0}));
+	}
+
+	// Arrays of structs: the element menu duplicates, inserts and removes, and moves nothing.
+	CircuitFixture fixture;
+	REQUIRE(fixture.Fields[1].Name == "Tracks");
+	fixture.Fields[1].Hints.FixedOrder = true;
+	FieldTableDriver const& driver = fixture.Driver;
+	fixture.Values["Tracks"] = Json::array({MakeTrack("A", "Road", 0.5), MakeTrack("B", "Oval", 1.5)});
+	for (int frame = 0; frame < 3; frame++)
+	{
+		fixture.Gui.Frame(fixture.Draw);
+	}
+	ImGuiID const tracks = fixture.GetTracksId();
+	driver.Click(ImHashStr("...", 0, driver.GetElementId(tracks, 0)), driver.GetButtonX());
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	ImGuiWindow const* popup = GImGui->OpenPopupStack.back().Window;
+	REQUIRE(popup != nullptr);
+	float const itemX = popup->Pos.x + popup->Size.x * 0.5f;
+	for (char const* item : {"Move Up", "Move Down"})
+	{
+		CAPTURE(item);
+		CHECK_FALSE(FindItemAt(fixture.Gui, ImHashStr(item, 0, popup->ID), popup, itemX, fixture.Draw));
+	}
+	CHECK(FindItemAt(fixture.Gui, ImHashStr("Duplicate", 0, popup->ID), popup, itemX, fixture.Draw));
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Draw);
+	CHECK(fixture.Changes.empty());
+	driver.PickFromMenu(tracks, 0, "Duplicate");
+	CHECK(fixture.TakeChange().ArrayEdit == std::optional<FieldArrayEdit>(FieldArrayEdit{FieldArrayEditKind::Duplicate, 0, 0}));
+}
+
+TEST_CASE("FieldEditor: an element added to a list whose range holds no value of its type starts within the type's range")
+{
+	// Ranges of script fields are user data: a reversed one, and one below what an unsigned type holds.
+	ScriptClassInfo scriptClass;
+	scriptClass.Name = "Ranges";
+	auto const addField = [&scriptClass](char const* name, ScriptFieldType elementType, glm::vec2 range)
+	{
+		ScriptFieldInfo field;
+		field.Name = name;
+		field.Type = MakeScriptFieldListType(elementType);
+		field.DefaultValue = ScriptFieldValue::CreateDefault(field.Type);
+		field.Range = range;
+		scriptClass.Fields.push_back(std::move(field));
+	};
+	addField("Reversed", ScriptFieldType::Float, glm::vec2(10.0f, 0.0f));
+	addField("Negative", ScriptFieldType::UInt32, glm::vec2(-10.0f, -5.0f));
+	addField("Bounded", ScriptFieldType::Int32, glm::vec2(2.0f, 5.0f));
+	std::vector<FieldDescriptor> const fields = ScriptFieldInspection::DescribeFields(scriptClass);
+	REQUIRE(fields.size() == 3);
+	Json values = ScriptFieldInspection::ToEditorValues(scriptClass, Json::object());
+
+	HeadlessImGui gui;
+	gui.UseEditorStyle();
+	FieldEditor editor;
+	std::vector<FieldChange> changes;
+	std::function<void()> const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 600.0f));
+		ImGui::Begin("Ranges", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		if (std::optional<FieldChange> change = editor.Draw(fields, values))
+		{
+			values.update(change->MakePatch(values));
+			changes.push_back(std::move(*change));
+		}
+		ImGui::End();
+	};
+	FieldTableDriver const driver{gui, draw,
+	                              []
+	                              {
+									  return ImGui::FindWindowByName("Ranges");
+								  },
+	                              []
+	                              {
+									  return ImHashStr("##fields", 0, ImGui::FindWindowByName("Ranges")->ID);
+								  }};
+	gui.Frame(draw);
+	gui.Frame(draw);
+	for (char const* name : {"Reversed", "Negative", "Bounded"})
+	{
+		CAPTURE(name);
+		REQUIRE(values[name] == Json::array());
+		driver.Click(ImHashStr("Add Element", 0, driver.GetFieldId(name)), driver.GetValueX());
+		REQUIRE(values[name].size() == 1);
+	}
+	CHECK(values["Reversed"][0] == 0.0);
+	CHECK(values["Negative"][0] == 0);
+	CHECK(values["Bounded"][0] == 2);
+	CHECK(changes.size() == 3);
 }
 
 TEST_CASE("FieldEditor: arrays of structs show a row per element over the element's own fields, and edit them by index")
@@ -1160,7 +1305,8 @@ TEST_CASE("ProjectSettingsPanel: the identity's company and product are fields o
 	CHECK(fixture.Open);
 }
 
-TEST_CASE("ProjectSettingsPanel: removing a layer keeps the ignored pairs on their indices, and a layer added is named and stops at 16")
+TEST_CASE("ProjectSettingsPanel: removing a layer keeps the ignored pairs on their indices, a layer added is named and stops at 16, "
+          "and none moves")
 {
 	ProjectSettingsFixture fixture;
 	FieldTableDriver const& driver = fixture.Driver;
@@ -1177,6 +1323,10 @@ TEST_CASE("ProjectSettingsPanel: removing a layer keeps the ignored pairs on the
 	{
 		return fixture.Context.GetProject()->GetSettings().Physics.Layers;
 	};
+
+	// Layers are never moved, for the same reason: their rows have no grip, only "-".
+	float const gripX = driver.GetButtonX() - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemInnerSpacing.x;
+	CHECK_FALSE(driver.Find(ImHashStr("##move", 0, GetIntId(0, fixture.GetLayersId())), gripX));
 
 	// Removing Player (1): bodies hold layer indices, so the pairs keep theirs, as a body on index 2 keeps its index; only
 	// the pairs naming index 3, which the shorter list lacks, go. Nothing gains an ignored pair it did not have.
