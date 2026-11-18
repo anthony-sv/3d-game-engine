@@ -109,7 +109,11 @@ inline DataAssetTypeSpecification<Curve> const CurveAssetSpecification = {
 - Arrays of structs (`std::vector<Entry>` with `.MaxCount(n)`) need no drawer: the field editor shows a row per element
   (titled by the struct's first string field, or without one by its first two numbers or choices that it shows, a
   choice by its value's name: put the fields that tell elements apart first, a kind before its parameters) that unfolds into the element's fields, with a menu to move, duplicate, insert above and remove it, and Add Element;
-  each is one undo step patching by index (Docs/Architecture.md §11).
+  each is one undo step patching by index (Docs/Architecture.md §11). An array whose elements other data holds by index
+  (a mixer's effects, which snapshot values name by index) must not be moved where nothing moves that data with them:
+  say how each array is addressed, and where it is by index give the inspector a drawer that draws
+  `DataAssetEditor::DrawFields(context, fields)` from a copy of the table with `FieldHints::FixedOrder` on it, as
+  `Mixer`'s does.
 - A struct that appears inside other data (a curve inside a vehicle definition) gets a struct drawer instead of, or as
   well as, a type drawer: one line in `GetFieldStructDrawers()` (`StradaEditor/Source/Editor/UI/FieldStructDrawers.cpp`),
   sorted by name, `drawers.emplace_back("<StructName>", &Draw<StructName>)`. It is drawn wherever the struct appears (a

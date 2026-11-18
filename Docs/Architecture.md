@@ -937,7 +937,7 @@ scripts reach data assets through the Script module's bindings.
   when an edit brings none: a drawer's own keys keep merging while the session's interaction has ended.
 - *A drawer of a type's own.* `DataAssetEditor::SetDrawer(name, drawer)` replaces the default body of one type (the
   engine's drawers are one list in `DataAssetEditor.cpp`, where a type's track adds its line; `Curve`'s is the curve
-  editor, §6.5). A drawer gets a
+  editor, §6.5, and `Mixer`'s the type's field table with each bus's effects in a fixed order, §9.7). A drawer gets a
   `DataAssetDrawContext` (the asset, its type, its fields as JSON, whether it is editable, the field editor) and returns
   a `DataAssetEdit` when the user changed something: a partial patch, the step's name in the undo history (empty for
   `Edit <type name>`) and a merge key (0 for the inspector's interaction). A widget that commits at its own cadence, such
@@ -945,9 +945,10 @@ scripts reach data assets through the Script module's bindings.
   itself (`Set Length on Timeline (moves 2 keys)`), gives its own key and description, which the step keeps. The asset
   editor applies the edit as the step `<domain>.set` makes, so a drawer never writes files or assets itself. It may draw
   the default body for the fields it does not draw itself (`DataAssetEditor::DrawFields`), the others being
-  `HiddenInEditors` in the field table. A struct type that appears inside other data (a curve inside a vehicle
-  definition) gets a struct drawer of the field editor instead, from one editor-wide list, used wherever that struct
-  appears (§11).
+  `HiddenInEditors` in the field table, or draw it from a copy of the table with hints of its own
+  (`DrawFields(context, fields)`, as `Mixer`'s sets `FieldHints::FixedOrder` on an array other data holds by index).
+  A struct type that appears inside other data (a curve inside a vehicle definition) gets a struct drawer of the field
+  editor instead, from one editor-wide list, used wherever that struct appears (§11).
 - *The content browser.* Its New menu has an item per registered type, named by the type's display name (`New Test
   Data`, the description as its tooltip), which writes a file of the default fields named `New <display name>` (made
   unique) into the displayed folder, selects it and starts renaming it, as New Material does
