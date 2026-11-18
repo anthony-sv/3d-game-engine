@@ -492,8 +492,8 @@ namespace Strada
 			}
 			if (AssetType const type = AssetManager::GetAssetType(graph.GetValue()); type != AssetType::VisualScript)
 			{
-				CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset {} is a {}, not a visual script",
-				                                      parameter, graph.GetValue(), AssetTypeToString(type));
+				CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset {} is {}, not a visual script",
+				                                      parameter, graph.GetValue(), AssetTypeWithArticle(type));
 				error.Data = Json::object({{"path", std::string(parameter)}});
 				return error;
 			}
@@ -2563,8 +2563,9 @@ namespace Strada
 				AssetType const actual = AssetManager::GetAssetType(asset.GetValue());
 				if (actual != type.GetAssetType())
 				{
-					CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset '{}' is a {}, not a {}", parameter,
-					                                      value.get_ref<std::string const&>(), AssetTypeToString(actual), type.GetName());
+					CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset '{}' is {}, not {}", parameter,
+					                                      value.get_ref<std::string const&>(), AssetTypeWithArticle(actual),
+					                                      AssetTypeWithArticle(type.GetName()));
 					error.Data = Json::object({{"path", parameter}});
 					return error;
 				}

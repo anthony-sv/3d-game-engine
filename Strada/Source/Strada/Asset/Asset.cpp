@@ -70,6 +70,20 @@ namespace Strada
 		return "None";
 	}
 
+	std::string AssetTypeWithArticle(std::string_view typeName)
+	{
+		constexpr std::string_view Vowels = "AEIOUaeiou";
+		bool const vowel = !typeName.empty() && Vowels.find(typeName.front()) != std::string_view::npos;
+		std::string described(vowel ? "an " : "a ");
+		described += typeName;
+		return described;
+	}
+
+	std::string AssetTypeWithArticle(AssetType type)
+	{
+		return AssetTypeWithArticle(std::string_view(AssetTypeToString(type)));
+	}
+
 	std::optional<AssetType> AssetTypeFromString(std::string_view name)
 	{
 		if (std::optional<AssetType> const builtIn = BuiltInAssetTypeFromString(name))

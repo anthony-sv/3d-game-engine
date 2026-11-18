@@ -28,6 +28,10 @@ namespace Strada
 	// The name of a built-in or registered data asset type (DataAssetRegistry, §6.4 of Docs/Architecture.md); "None" for
 	// values no type has. A data asset type's name stays valid as long as its type (the engine's: the whole process).
 	char const* AssetTypeToString(AssetType type);
+	// A type's name after its indefinite article, for messages: "a Material", "an AudioClip". The article goes by the
+	// name's first letter ("an" before a vowel), which is how the names of the engine's types are read.
+	std::string AssetTypeWithArticle(std::string_view typeName);
+	std::string AssetTypeWithArticle(AssetType type);
 	// Built-in types and registered data asset types, by their exact names.
 	std::optional<AssetType> AssetTypeFromString(std::string_view name);
 	// Maps a file extension (".glb", ".PNG", ...) to the asset type it imports as, built-in or a registered data asset type;
