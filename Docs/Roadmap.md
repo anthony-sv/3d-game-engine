@@ -491,7 +491,7 @@ two slices' rates as the early end.
 | Measure | First Ride's slice 3, "Feel and sound", 2026-11-16 to 2026-11-18 |
 |---|---|
 | Scope on this document's scale | 16.5 engineer-weeks, the spec's sizes of its seven tracks: MX1 (AU1's queue, voices, buses and effects, with E8) 3.5, MX2 (AU1's snapshots, ducking, doppler, zones, meters, the panel and impact sounds) 2.8, MO3 (Moto heard and steered) 1.5, IA1 (I1's actions) 3.6, IA2 (I1's rebinding, profiles, panel and analysis) 2.6, PB (Prism Break on actions with VS2) 1.0, AR (VS1) 1.5; the gate's 0.5 is not in it, nor the fixes CI asked for after three merges (MX1's reverb width on Linux and its allocation hook under the sanitizer, MX2's sort under GCC at `-O2`) and the inspector's mixer fix, which have no size |
-| Calendar | 44.1 hours (1.84 days) from the first tracks' launch (2026-11-16, about 14:55) to the last track's merge (2026-11-18, 10:59), on two lanes and one build slot |
+| Calendar | 44.1 hours (1.84 days) from the first tracks' launch (2026-11-16, about 14:55) to the last track's merge (2026-11-18, 10:58), on two lanes and one build slot |
 | Active hours | 64.5 track-hours: MX1 13.9, MX2 12.9, IA1 11.3, IA2 8.5, AR 7.4, MO3 6.5, PB 4.0 (each from its launch to its report, reviews and fix step included); the merge-ins and fixes beside them are not counted (MO3's merge-in took 1.4 hours, the inspector's mixer fix 0.9) |
 | Pauses | None |
 | Ratio | About 9.0 engineer-weeks per calendar day; about 0.8 track-hours per estimated engineer-day (82.5 engineer-days in 64.5 track-hours) |
@@ -788,11 +788,13 @@ in Effort 3 with the rest of The Rider; and the rest of distribution (§3.10), w
    on generated games, scripting tests, audio tests with manual output, GPU tests with validation.
 3. Every new user-written format has a `Testing::DocumentMutator` test: `.scurve`, `.sphysmat`, `.sinput`, input binding
    profiles, `.smixer`, `.svehicle`, `.ssave`, the player's `Settings.json`, the project's identity settings; so do the
-   profiler capture reader and the scene and prefab format bumps (VS1, and TA's anti-aliasing setting; scenes take the
-   next version if TA's bump lands first).
+   profiler capture reader and the scene and prefab format bumps (VS1's version 2, landed in slice 3 with fixtures and
+   fuzz cases at both versions, and TA's anti-aliasing setting, which would take version 3). `.scurve`, `.sphysmat`,
+   `.sinput`, input binding profiles and `.smixer` have theirs since slices 1 to 3.
 4. Every new automation command is documented in `Automation.md` and fuzzed by `AutomationFuzzTests`.
 5. Every new node analyzes and runs in `VisualScriptNodeCoverageTests.cpp`; the FeatureTest graphs use the two new
-   built-in event kinds (92 built-in kinds become 94, or 95 if the third lane's animation event lands).
+   built-in event kinds (92 built-in kinds became 94 in slice 3, and become 95 if the third lane's animation event
+   lands).
 6. One new golden image, `Instancing.png` (4 become 5; landed in slice 2), plus TA's frame-sequence goldens with a
    deterministic jitter if TA lands, and a skinning golden if the third lane's skinning lands; the existing four are
    unchanged.
@@ -1560,8 +1562,9 @@ from what this section planned:
 - **Exit, as the gate measured it** with every lane idle on the reference machine (§4.3): Prism Break played on an
   injected gamepad through its actions, Launch rebound to F at the title and read back from the profile by the next
   play; Moto's ghost passing each trackside camera with its engine note above the engine speed's pitch before the pass
-  and under it after, within 1 % of c / (c − v) (at the footbridge 1.10 to 1.13 times the pitch of the same pass without
-  doppler before it, 0.88 to 0.90 after), the echo's send under the footbridge decaying after the pass, and the pause
+  and under it after, within 0.9 % of c / (c − v) at the start line, the footbridge and Turn 6 and within 1.6 % at
+  Turn 1, where the cycle is measured less sharply (at the footbridge 1.10 to 1.13 times the pitch of the same pass
+  without doppler before it, 0.88 to 0.90 after), the echo's send under the footbridge decaying after the pass, and the pause
   snapshot taking 10 dB off the engine under 325 Hz and 33 dB over 2.6 kHz; the mix (0.227 to 0.270 ms per 10 ms of
   audio against 1 ms) and the actions (0.018 ms a frame against 0.05) met in band; Moto with the ghost and sound at a
   frame median of 3.57 to 3.60 ms with a median of 170 draws (265 at most) and 398 in the editor's view of the start
