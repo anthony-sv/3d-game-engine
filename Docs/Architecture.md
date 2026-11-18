@@ -1334,7 +1334,9 @@ of the table, not switched itself, that turns the field on; drawn by the inspect
 what replaces the field (`OverriddenBy`: another field of the table that references one asset and is not replaced
 itself; while it holds an asset the inspector shows the field disabled and says what sets it, as a collider's `Material`
 replaces its `Friction` and `Restitution`; files and automation read and write the field as usual) and, for arrays, the most elements they hold (`MaxCount`, enforced whenever JSON is read, like ranges; the inspector's
-add buttons stop there); the conditions, switches and replacements are checked at compile time. Values that skip the JSON checks
+add buttons stop there), and whether editors keep an array's order (`FixedOrder`: no grips and no Move items for an
+array whose indices other data holds, as the Project Settings panel sets on the physics layers; files and automation
+are unaffected); the conditions, switches and replacements are checked at compile time. Values that skip the JSON checks
 (scripts, values made in C++) can be brought into range, and their arrays down to their `MaxCount`, with
 `ClampToFieldRanges` (`FitToFieldRanges` for imported data, which also replaces NaN and says what it changed). Field tables of other structs (renderer settings,
 materials, data assets) use the same hints. Each component
