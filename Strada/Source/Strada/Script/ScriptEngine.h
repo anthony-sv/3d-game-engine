@@ -28,6 +28,9 @@ namespace Strada
 	};
 
 	// A serialized field of a script class: a public field, or one marked [SerializeField], of a supported type.
+	// A field of a script class or a public variable of a graph. A list field (a C# T[] or List<T>, a graph's public array;
+	// Type a list type) holds values its element type describes: Range, AcceptedAssetType and the enumerators are each
+	// element's (Docs/Architecture.md §10.3).
 	struct ScriptFieldInfo
 	{
 		std::string Name;
@@ -42,7 +45,8 @@ namespace Strada
 		std::optional<glm::vec2> Range;
 		// Asset fields of a typed reference (Mesh, Material, ...): the type of asset they accept. None accepts any asset.
 		AssetType AcceptedAssetType = AssetType::None;
-		// Enum fields, stored as their integer values: the enumerators in declaration order. Empty for other fields.
+		// Enum fields, stored as their integer values: the enumerators in declaration order, values of the element type for
+		// a list. Empty for other fields.
 		std::vector<ScriptEnumerator> Enumerators;
 		// A [Flags] enum: values combine enumerators bitwise.
 		bool IsFlags = false;

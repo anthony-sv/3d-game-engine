@@ -17,7 +17,10 @@
 #include <array>
 #include <cfloat>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <initializer_list>
 #include <utility>
 
 namespace Strada
@@ -276,6 +279,33 @@ namespace Strada
 		bool IsFull(FieldDescriptor const& array, size_t count)
 		{
 			return array.Hints.MaxCount != 0 && count >= array.Hints.MaxCount;
+		}
+
+		// What an element row of an array of plain values carries while it is dragged by its grip (DragDropPayload::ArrayElement):
+		// the array's ID scope, so that only rows of the same array take it, and the element's index.
+		struct ArrayElementPayload
+		{
+			ImGuiID Array = 0;
+			uint32_t Index = 0;
+		};
+
+		// The grip an element row of an array of plain values is dragged by: three short lines, brighter while hovered.
+		void DrawGrip(ImVec2 topLeft, ImVec2 bottomRight, bool hovered)
+		{
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			if (hovered)
+			{
+				drawList->AddRectFilled(topLeft, bottomRight, ImGui::GetColorU32(ImGuiCol_FrameBgHovered), ImGui::GetStyle().FrameRounding);
+			}
+			uint32_t const color = ImGui::GetColorU32(hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			float const width = (bottomRight.x - topLeft.x) * 0.5f;
+			float const left = topLeft.x + (bottomRight.x - topLeft.x - width) * 0.5f;
+			float const middle = (topLeft.y + bottomRight.y) * 0.5f;
+			float const gap = (bottomRight.y - topLeft.y) * 0.2f;
+			for (float const y : {middle - gap, middle, middle + gap})
+			{
+				drawList->AddLine(ImVec2(left, y), ImVec2(left + width, y), color, 1.0f);
+			}
 		}
 
 		// Applies a list edit to an array (a missing array is an empty one for an insertion); returns false and leaves it as
@@ -990,6 +1020,7 @@ namespace Strada
 			element.TypeMin = array.TypeMin;
 			element.TypeMax = array.TypeMax;
 			element.EnumValues = array.EnumValues;
+			element.IsFlags = array.IsFlags;
 			element.Fields = array.Fields;
 			switch (element.Kind)
 			{
@@ -1001,7 +1032,10 @@ namespace Strada
 				case FieldKind::Float:
 				case FieldKind::Double:
 				{
-					double const zero = std::clamp(0.0, std::max(array.Hints.Min, array.TypeMin), std::min(array.Hints.Max, array.TypeMax));
+					// The hinted range can be user data that holds no value of the type (a script's reversed [Range]), so the
+					// bounds are those the element's widgets clamp to.
+					auto const [lowest, highest] = GetBounds(array);
+					double const zero = std::clamp(0.0, lowest, highest);
 					element.Default =
 						element.Kind == FieldKind::Int || element.Kind == FieldKind::UInt ? Json(static_cast<int64_t>(zero)) : Json(zero);
 					break;
@@ -1014,7 +1048,14 @@ namespace Strada
 					element.Default = UUID::Invalid().ToString();
 					break;
 				case FieldKind::Enum:
-					element.Default = element.EnumValues.empty() ? Json("") : Json(std::string(element.EnumValues.front()));
+					// A [Flags] enum's element starts with no flag set.
+					element.Default = element.IsFlags              ? Json::array()
+					                  : element.EnumValues.empty() ? Json("")
+					                                               : Json(std::string(element.EnumValues.front()));
+					break;
+				case FieldKind::Quat:
+					// The identity (X, Y, Z, W): a quaternion of length zero is no rotation.
+					element.Default = Json::array({0.0, 0.0, 0.0, 1.0});
 					break;
 				case FieldKind::Struct:
 					// The array's type name is the struct's with "[]" after it.
@@ -1024,9 +1065,14 @@ namespace Strada
 					break;
 				default:
 				{
+					// Colours start opaque white, other vectors at zero.
 					int const size = GetVectorSize(element.Kind);
-					std::array<float, 4> const zeros{};
-					element.Default = size > 0 ? WriteFloats(zeros.data(), size) : Json();
+					std::array<float, 4> values{};
+					if (element.Hints.Display == FieldDisplay::Color)
+					{
+						values.fill(1.0f);
+					}
+					element.Default = size > 0 ? WriteFloats(values.data(), size) : Json();
 					break;
 				}
 			}
@@ -1462,15 +1508,17 @@ namespace Strada
 			}
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
 			{
-				ImGui::SetTooltip("Move, duplicate, insert above or remove this element");
+				ImGui::SetTooltip("%s", field.Hints.FixedOrder ? "Duplicate, insert above or remove this element"
+				                                               : "Move, duplicate, insert above or remove this element");
 			}
 			if (ImGui::BeginPopup("##elementMenu"))
 			{
-				if (ImGui::MenuItem("Move Up", nullptr, false, i > 0))
+				// An array of a fixed order offers no move.
+				if (!field.Hints.FixedOrder && ImGui::MenuItem("Move Up", nullptr, false, i > 0))
 				{
 					edit = FieldArrayEdit{FieldArrayEditKind::Move, index, index - 1};
 				}
-				if (ImGui::MenuItem("Move Down", nullptr, false, i + 1 < count))
+				if (!field.Hints.FixedOrder && ImGui::MenuItem("Move Down", nullptr, false, i + 1 < count))
 				{
 					edit = FieldArrayEdit{FieldArrayEditKind::Move, index, index + 1};
 				}
@@ -1805,10 +1853,14 @@ namespace Strada
 		bool changed = false;
 		float const buttonWidth = ImGui::GetFrameHeight();
 		float const spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+		// Rows dragged by their grips move within this array only; an array of a fixed order has no grips.
+		ImGuiID const array = ImGui::GetID("##elements");
+		bool const movable = !field.Hints.FixedOrder;
+		float const buttonsWidth = (movable ? 2.0f : 1.0f) * (buttonWidth + spacing);
 		for (size_t i = 0; i < count; i++)
 		{
 			ImGui::PushID(static_cast<int>(i));
-			ImGui::PushItemWidth(-(buttonWidth + spacing));
+			ImGui::PushItemWidth(-buttonsWidth);
 			FieldChange elementChange;
 			if (DrawValue(descriptor, value[i], false, elementChange) && !changed)
 			{
@@ -1818,6 +1870,42 @@ namespace Strada
 			}
 			ImGui::PopItemWidth();
 			ImGui::SameLine(0.0f, spacing);
+			if (movable)
+			{
+				ImGui::InvisibleButton("##move", ImVec2(buttonWidth, buttonWidth));
+				bool const gripHovered = ImGui::IsItemHovered() || ImGui::IsItemActive();
+				DrawGrip(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), gripHovered);
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort) && !ImGui::IsItemActive())
+				{
+					ImGui::SetTooltip("Drag onto another element's grip to move element %zu there", i);
+				}
+				if (ImGui::BeginDragDropSource())
+				{
+					ArrayElementPayload const payload{array, static_cast<uint32_t>(i)};
+					ImGui::SetDragDropPayload(DragDropPayload::ArrayElement, &payload, sizeof(payload));
+					ImGui::Text("Element %zu", i);
+					ImGui::EndDragDropSource();
+				}
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (ImGuiPayload const* dropped = ImGui::AcceptDragDropPayload(DragDropPayload::ArrayElement))
+					{
+						ArrayElementPayload moved;
+						if (dropped->DataSize == static_cast<int>(sizeof(moved)))
+						{
+							std::memcpy(&moved, dropped->Data, sizeof(moved));
+							if (moved.Array == array && moved.Index < count && moved.Index != i && !changed)
+							{
+								change = FieldChange();
+								change.ArrayEdit = FieldArrayEdit{FieldArrayEditKind::Move, moved.Index, static_cast<uint32_t>(i)};
+								changed = true;
+							}
+						}
+					}
+					ImGui::EndDragDropTarget();
+				}
+				ImGui::SameLine(0.0f, spacing);
+			}
 			bool const removed = ImGui::Button("-", ImVec2(buttonWidth, 0.0f));
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
 			{

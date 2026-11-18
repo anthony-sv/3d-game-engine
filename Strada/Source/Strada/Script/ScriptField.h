@@ -7,16 +7,23 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace Strada
 {
-	// Types a C# script field can have when it is exposed to the editor and serialized in scenes.
+	// Types a script field (a C# script's field, a visual script's public variable) can have when it is exposed to the editor
+	// and serialized in scenes. The enumerators are the element types; a list of one of them is the element type with
+	// ScriptFieldListFlag set (MakeScriptFieldListType), so that a list type never equals its element type and code that
+	// compares a value's type with a field's type tells lists apart without knowing about them. There are no lists of lists
+	// and no lists of None. Docs/Architecture.md §7.3 (the file form) and §10.3.
 	enum class ScriptFieldType : uint8_t
 	{
 		None = 0,
@@ -38,23 +45,70 @@ namespace Strada
 		Asset
 	};
 
+	// The bit of a list type: the list of an element type is that type with this bit set.
+	inline constexpr uint8_t ScriptFieldListFlag = 0x80;
+	// The most elements a list holds, in files, in the inspector and across the script boundary (the visual scripts' array
+	// literals hold as many, MaxVisualScriptArrayLiteralElements).
+	inline constexpr size_t MaxScriptFieldListElements = 4096;
+
+	// Whether the type is a list type (of any element type, valid or not).
+	[[nodiscard]] constexpr bool IsScriptFieldListType(ScriptFieldType type)
+	{
+		return (static_cast<uint8_t>(type) & ScriptFieldListFlag) != 0;
+	}
+
+	// The element type of a list type; an element type is its own.
+	[[nodiscard]] constexpr ScriptFieldType GetScriptFieldElementType(ScriptFieldType type)
+	{
+		return static_cast<ScriptFieldType>(static_cast<uint8_t>(type) & static_cast<uint8_t>(~ScriptFieldListFlag));
+	}
+
+	// Whether the type is one of the element types other than None (Bool to Asset).
+	[[nodiscard]] constexpr bool IsScriptFieldElementType(ScriptFieldType type)
+	{
+		return type != ScriptFieldType::None && static_cast<uint8_t>(type) <= static_cast<uint8_t>(ScriptFieldType::Asset);
+	}
+
+	// The list type of an element type; None for None and for a list type (there are no lists of lists).
+	[[nodiscard]] constexpr ScriptFieldType MakeScriptFieldListType(ScriptFieldType elementType)
+	{
+		return IsScriptFieldElementType(elementType) ? static_cast<ScriptFieldType>(static_cast<uint8_t>(elementType) | ScriptFieldListFlag)
+		                                             : ScriptFieldType::None;
+	}
+
+	// Whether a field or a value can have the type: an element type other than None, or the list of one.
+	[[nodiscard]] constexpr bool IsValidScriptFieldType(ScriptFieldType type)
+	{
+		return IsScriptFieldElementType(GetScriptFieldElementType(type));
+	}
+
+	// The type's name in files and across the script boundary: the element type's name ("Float"), followed by "[]" for a
+	// list ("Float[]"); "None" for None and for a type that is not valid.
 	char const* ScriptFieldTypeToString(ScriptFieldType type);
+	// The type a name stands for: every name ScriptFieldTypeToString gives a valid type, and "None". Nothing for other text
+	// ("None[]", "Float[][]").
 	std::optional<ScriptFieldType> ScriptFieldTypeFromString(std::string_view name);
 
 	// A typed value stored for a script field. Entity fields hold the referenced entity's UUID; Prefab and Asset fields
-	// hold asset handles; Color holds linear RGBA.
+	// hold asset handles; Color holds linear RGBA. A list holds its elements, each a value of its element type, at most
+	// MaxScriptFieldListElements of them. Values are made by the factories, which keep those rules, so a value's type
+	// always tells what it holds. Any thread (values are plain data).
 	class ScriptFieldValue
 	{
 	public:
 		using Storage = std::variant<std::monostate, bool, int32_t, uint32_t, int64_t, uint64_t, float, double, std::string, glm::vec2,
-		                             glm::vec3, glm::vec4, glm::quat, UUID, AssetHandle>;
+		                             glm::vec3, glm::vec4, glm::quat, UUID, AssetHandle, std::vector<ScriptFieldValue>>;
 
 		ScriptFieldValue() = default;
 
-		// Creates the default value for a type (zero, empty string, identity quaternion, invalid reference).
+		// Creates the default value for a type (zero, empty string, identity quaternion, invalid reference, an empty list);
+		// a value of None for None and for a type that is not valid.
 		static ScriptFieldValue CreateDefault(ScriptFieldType type);
 
 		ScriptFieldType GetType() const { return m_Type; }
+		bool IsList() const { return IsScriptFieldListType(m_Type); }
+		// The element type of a list; a value's own type otherwise.
+		ScriptFieldType GetElementType() const { return GetScriptFieldElementType(m_Type); }
 
 		bool GetBool() const { return std::get<bool>(m_Value); }
 		int32_t GetInt32() const { return std::get<int32_t>(m_Value); }
@@ -72,6 +126,8 @@ namespace Strada
 		UUID GetEntity() const { return std::get<UUID>(m_Value); }
 		// Valid for Prefab and Asset.
 		AssetHandle GetAsset() const { return std::get<AssetHandle>(m_Value); }
+		// Valid for lists: the elements, in order, each of the list's element type.
+		std::span<ScriptFieldValue const> GetElements() const { return std::get<std::vector<ScriptFieldValue>>(m_Value); }
 
 		static ScriptFieldValue FromBool(bool value) { return ScriptFieldValue(ScriptFieldType::Bool, value); }
 		static ScriptFieldValue FromInt32(int32_t value) { return ScriptFieldValue(ScriptFieldType::Int32, value); }
@@ -89,6 +145,9 @@ namespace Strada
 		static ScriptFieldValue FromEntity(UUID value) { return ScriptFieldValue(ScriptFieldType::Entity, value); }
 		static ScriptFieldValue FromPrefab(AssetHandle value) { return ScriptFieldValue(ScriptFieldType::Prefab, value); }
 		static ScriptFieldValue FromAsset(AssetHandle value) { return ScriptFieldValue(ScriptFieldType::Asset, value); }
+		// A list of the element type (an element type other than None) holding the elements, each of that type, at most
+		// MaxScriptFieldListElements: a programmer error otherwise (readers of user data check first).
+		static ScriptFieldValue FromList(ScriptFieldType elementType, std::vector<ScriptFieldValue> elements);
 
 		Storage const& GetStorage() const { return m_Value; }
 

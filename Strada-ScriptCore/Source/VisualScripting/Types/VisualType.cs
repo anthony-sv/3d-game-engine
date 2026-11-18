@@ -85,8 +85,14 @@ internal sealed class VisualType
 	// Strada.Script and the game's script classes (Kind Entity, but not Strada.Entity itself).
 	internal bool IsScriptClass => Kind == TypeKind.Entity && ClrType != typeof(Entity);
 
-	// The script field type of exposable types (spec section 3.3); None otherwise.
+	// The script field type of exposable types (spec section 3.3); None otherwise, arrays included (the library lists
+	// exposable types' field types, and an array is none).
 	internal ScriptFieldType FieldType { get; set; }
+
+	// The script field type a public variable of the type is stored as: FieldType, or for an array of an exposable element
+	// type (an enum among them) the list of the element's (Docs/Architecture.md §10.6); None when components cannot store it.
+	internal ScriptFieldType VariableFieldType =>
+		Kind == TypeKind.Array ? ScriptFieldCodec.MakeListType(Element?.FieldType ?? ScriptFieldType.None) : FieldType;
 
 	// The engine's name of the asset type of concrete asset classes (AssetTypes.GetTypeName); null otherwise.
 	internal string? AssetType { get; set; }

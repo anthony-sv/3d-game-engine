@@ -968,6 +968,14 @@ def build_features(references):
     groups.append(call_check("Update and FixedUpdate run with their time steps", passed,
                              g.format("{Frames} updates, {Steps} fixed steps", Frames=frames_now, Steps=steps_now)))
 
+    # A public array is a list on components: the scene gives this entity's its own, in place of the Value.
+    thresholds = doc.variable("Thresholds", "float[]", [9.0], True, "Set by the scene: 0.25, 0.75 and 1.25")
+    stored = g.get(thresholds)
+    passed = g.all_of(g.equal((g.node("Array.Length", Array=stored), "Length"), 3),
+                      g.equal((g.node("Array.Get", None, {"Index": 2}, Array=stored), "Element"), 1.25))
+    groups.append(call_check("a public array takes the list its entity stores", passed,
+                             (g.node("String.Join", None, {"Separator": ","}, Parts=stored), "Result")))
+
     finished = g.set(done, literal=True)
     g.flow(finished, g.node("Call:Strada.Log.Info(string)", Message=g.format("Features: {Checks} checks passed", Checks=g.get(checks))))
     groups.append(finished)

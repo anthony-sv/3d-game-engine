@@ -1,0 +1,36 @@
+{
+	"Strada": { "Version": 1, "Type": "Prefab" },
+	"Entities": [
+		{
+			"ID": "2001",
+			"Components": {
+				"Tag": { "Tag": "Turret" },
+				"Transform": { "Translation": [0.0, 0.0, 0.0], "Rotation": [0.0, 0.0, 0.0, 1.0], "Scale": [1.0, 1.0, 1.0] },
+				"Relationship": { "Parent": "0", "Children": ["2002"] },
+				"Script": {
+					"ClassName": "Fixture.Turret",
+					"Fields": {
+						"Barrel": { "Type": "Entity", "Value": "2002" },
+						"Elsewhere": { "Type": "Entity", "Value": "999" },
+						"Range": { "Type": "Float", "Value": 12.5 }
+					}
+				}
+			}
+		},
+		{
+			"ID": "2002",
+			"Components": {
+				"Tag": { "Tag": "Barrel" },
+				"Transform": { "Translation": [0.0, 1.0, 0.5], "Rotation": [0.0, 0.0, 0.0, 1.0], "Scale": [1.0, 1.0, 1.0] },
+				"Relationship": { "Parent": "2001", "Children": [] },
+				"VisualScript": {
+					"Graph": "0",
+					"Variables": {
+						"Mount": { "Type": "Entity", "Value": "2001" },
+						"Rounds": { "Type": "UInt32", "Value": 30 }
+					}
+				}
+			}
+		}
+	]
+}

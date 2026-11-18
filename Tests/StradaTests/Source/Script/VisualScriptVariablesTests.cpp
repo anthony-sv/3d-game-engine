@@ -205,6 +205,112 @@ TEST_CASE("VisualScriptVariables: the exposable types map to the script field ty
 	}
 }
 
+TEST_CASE("VisualScriptVariables: a public array of an exposable element type is a list field whose default is its Value")
+{
+	struct Row
+	{
+		std::string_view TypeId;
+		Json Literal;
+		ScriptFieldValue Element;
+		AssetType AcceptedAssetType = AssetType::None;
+	};
+	std::vector<Row> const rows = {
+		{"bool", true, ScriptFieldValue::FromBool(true)},
+		{"int", -3, ScriptFieldValue::FromInt32(-3)},
+		{"uint", 7, ScriptFieldValue::FromUInt32(7)},
+		{"long", "-9000000000", ScriptFieldValue::FromInt64(-9000000000)},
+		{"ulong", "18000000000000000000", ScriptFieldValue::FromUInt64(18000000000000000000ULL)},
+		{"float", 2.5, ScriptFieldValue::FromFloat(2.5f)},
+		{"double", 0.125, ScriptFieldValue::FromDouble(0.125)},
+		{"string", "Hello", ScriptFieldValue::FromString("Hello")},
+		{"Strada.Vector2", Json::array({1.0, 2.0}), ScriptFieldValue::FromVector2({1.0f, 2.0f})},
+		{"Strada.Vector3", Json::array({1.0, 2.0, 3.0}), ScriptFieldValue::FromVector3({1.0f, 2.0f, 3.0f})},
+		{"Strada.Vector4", Json::array({1.0, 2.0, 3.0, 4.0}), ScriptFieldValue::FromVector4({1.0f, 2.0f, 3.0f, 4.0f})},
+		{"Strada.Quaternion", Json::array({0.0, 0.0, 0.0, 1.0}), ScriptFieldValue::FromQuaternion(glm::quat(1.0f, 0.0f, 0.0f, 0.0f))},
+		{"Strada.Color", Json::array({0.5, 0.25, 1.0, 1.0}), ScriptFieldValue::FromColor({0.5f, 0.25f, 1.0f, 1.0f})},
+		{"Strada.Entity", "0", ScriptFieldValue::FromEntity(UUID::Invalid())},
+		{"Strada.Prefab", "17", ScriptFieldValue::FromPrefab(AssetHandle(UUID(17ull)))},
+		{"Strada.AssetHandle", "18", ScriptFieldValue::FromAsset(AssetHandle(UUID(18ull)))},
+		{"Strada.Mesh", "19", ScriptFieldValue::FromAsset(AssetHandle(UUID(19ull))), AssetType::Mesh},
+		{"Strada.VisualScript", "20", ScriptFieldValue::FromAsset(AssetHandle(UUID(20ull))), AssetType::VisualScript},
+	};
+	for (Row const& row : rows)
+	{
+		CAPTURE(row.TypeId);
+		std::string const type = std::string(row.TypeId) + "[]";
+		ScriptFieldType const elementType = row.Element.GetType();
+		VisualScriptVariableDescription const description = DescribeOne(type, Json::array({row.Literal, row.Literal}));
+		CHECK(description.ReadOnly.empty());
+		REQUIRE(description.Editable.Fields.size() == 1);
+		ScriptFieldInfo const& field = description.Editable.Fields[0];
+		CHECK(field.Type == MakeScriptFieldListType(elementType));
+		CHECK(field.AcceptedAssetType == row.AcceptedAssetType);
+		CHECK(field.DefaultValue == ScriptFieldValue::FromList(elementType, {row.Element, row.Element}));
+		// Without a Value, or with one that is no array literal of the element type, the list starts empty.
+		ScriptFieldValue const empty = ScriptFieldValue::FromList(elementType, {});
+		CHECK(GetStartValue(type, nullptr) == empty);
+		CHECK(GetStartValue(type, Json::array()) == empty);
+		CHECK(GetStartValue(type, row.Literal) == empty);
+		CHECK(GetStartValue(type, Json::array({row.Literal, Json::object()})) == empty);
+	}
+
+	// At most as many elements as a list holds.
+	Json const longest(MaxScriptFieldListElements, 1);
+	CHECK(GetStartValue("int[]", longest).GetElements().size() == MaxScriptFieldListElements);
+	Json tooLong = longest;
+	tooLong.push_back(1);
+	CHECK(GetStartValue("int[]", tooLong) == ScriptFieldValue::FromList(ScriptFieldType::Int32, {}));
+
+	// The variable's tooltip and range describe each element.
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Speeds", "float[]", Json::array({0.5, 9.0})));
+	document.Variables[0].Tooltip = "Units per second, each";
+	document.Variables[0].Range = glm::vec2(0.0f, 10.0f);
+	VisualScriptVariableDescription const speeds = DescribeVisualScriptVariables(document);
+	REQUIRE(speeds.Editable.Fields.size() == 1);
+	CHECK(speeds.Editable.Fields[0].Tooltip == "Units per second, each");
+	CHECK(speeds.Editable.Fields[0].Range == std::optional<glm::vec2>(glm::vec2(0.0f, 10.0f)));
+}
+
+TEST_CASE("VisualScriptVariables: a public array of an enum is a list of its values with the runtime, and read-only without it")
+{
+	std::set<std::string, std::less<>> asked;
+	VisualScriptEnumLookup const lookup = [&asked](std::string_view typeId)
+	{
+		asked.emplace(typeId);
+		return LookUpEnum(typeId);
+	};
+	VisualScriptVariableDescription const modes = DescribeOne("Strada.ForceMode[]", Json::array({"Impulse", "Force", 3}), lookup);
+	REQUIRE(modes.Editable.Fields.size() == 1);
+	ScriptFieldInfo const& field = modes.Editable.Fields[0];
+	CHECK(field.Type == MakeScriptFieldListType(ScriptFieldType::Int32));
+	CHECK(field.DefaultValue ==
+	      ScriptFieldValue::FromList(ScriptFieldType::Int32,
+	                                 {ScriptFieldValue::FromInt32(1), ScriptFieldValue::FromInt32(0), ScriptFieldValue::FromInt32(3)}));
+	REQUIRE(field.Enumerators.size() == 4);
+	CHECK(field.Enumerators[1].Name == "Impulse");
+	CHECK_FALSE(field.IsFlags);
+	// The element type is asked about once, whatever the number of elements.
+	CHECK(asked == std::set<std::string, std::less<>>{"Strada.ForceMode"});
+
+	VisualScriptVariableDescription const layers =
+		DescribeOne("Game.Layers[]", Json::array({Json::array({"Water", "Air"}), Json::array()}), lookup);
+	REQUIRE(layers.Editable.Fields.size() == 1);
+	CHECK(layers.Editable.Fields[0].Type == MakeScriptFieldListType(ScriptFieldType::UInt32));
+	CHECK(layers.Editable.Fields[0].IsFlags);
+	CHECK(layers.Editable.Fields[0].DefaultValue ==
+	      ScriptFieldValue::FromList(ScriptFieldType::UInt32, {ScriptFieldValue::FromUInt32(6), ScriptFieldValue::FromUInt32(0)}));
+
+	// A name the enum lacks makes the Value no literal: the list starts empty.
+	CHECK(GetStartValue("Strada.ForceMode[]", Json::array({"Shove"}), lookup) == ScriptFieldValue::FromList(ScriptFieldType::Int32, {}));
+
+	VisualScriptVariableDescription const withoutRuntime = DescribeOne("Strada.ForceMode[]", Json::array({"Impulse"}));
+	CHECK(withoutRuntime.Editable.Fields.empty());
+	REQUIRE(withoutRuntime.ReadOnly.size() == 1);
+	CHECK(withoutRuntime.ReadOnly[0].Type == "Strada.ForceMode[]");
+	CHECK(withoutRuntime.ReadOnly[0].Reason == "needs the scripting runtime");
+}
+
 TEST_CASE("VisualScriptVariables: public variables are described in document order with their values, tooltips and ranges")
 {
 	VisualScriptDocument const document = LoadFixture("Variables.json");
@@ -501,9 +607,9 @@ TEST_CASE("VisualScriptVariables: public variables of types components cannot st
 			CHECK(description.ReadOnly[0].Reason == "not exposable");
 		}
 	}
-	// Arrays are no enums either, and their reason says why they stay read-only (spec-slice3 §3.4.6): with or without the
-	// runtime, of exposable elements, enums and other types alike.
-	for (std::string_view const type : {"Strada.Entity[]", "int[]", "float[]", "Strada.KeyCode[]", "Strada.RaycastHit[]"})
+	// An array follows its element type: of a type the engine knows is no enum it is not exposable, and so is an array of
+	// arrays, which is no type, with or without the runtime.
+	for (std::string_view const type : {"Strada.Matrix4[]", "System.Object[]", "int[][]", "[]"})
 	{
 		CAPTURE(type);
 		for (bool const runtime : {false, true})
@@ -514,9 +620,16 @@ TEST_CASE("VisualScriptVariables: public variables of types components cannot st
 			REQUIRE(description.ReadOnly.size() == 1);
 			CHECK(description.ReadOnly[0].Name == "Value");
 			CHECK(description.ReadOnly[0].Type == type);
-			CHECK(description.ReadOnly[0].Reason == "arrays cannot be set on components");
+			CHECK(description.ReadOnly[0].Reason == "not exposable");
 		}
 	}
+	// An array of a struct waits for the runtime as its element does, which then says it is no enum.
+	VisualScriptVariableDescription const hits = DescribeOne("Strada.RaycastHit[]", nullptr);
+	REQUIRE(hits.ReadOnly.size() == 1);
+	CHECK(hits.ReadOnly[0].Reason == "needs the scripting runtime");
+	VisualScriptVariableDescription const knownHits = DescribeOne("Strada.RaycastHit[]", nullptr, lookup);
+	REQUIRE(knownHits.ReadOnly.size() == 1);
+	CHECK(knownHits.ReadOnly[0].Reason == "not exposable");
 	// Other types may be enums until the runtime tells: then structs, classes, components and unknown types are not.
 	for (std::string_view const type :
 	     {"Strada.RaycastHit", "Strada.RigidBodyComponent", "Game.Player", "Strada.Vectr3", "Game.Fractional", "Game.Mixed"})

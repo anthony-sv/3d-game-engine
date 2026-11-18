@@ -809,7 +809,8 @@ namespace
 			return values[m_Random.Pick(values.size())];
 		}
 
-		static inline std::vector<std::string> const s_ValueTypes = {"int", "float", "bool", "string", "Strada.Vector3"};
+		// An array among them: a public variable of it is a list on components.
+		static inline std::vector<std::string> const s_ValueTypes = {"int", "float", "bool", "string", "Strada.Vector3", "float[]"};
 
 		Testing::FuzzRandom& m_Random;
 		VisualScriptDocument const& m_Document;

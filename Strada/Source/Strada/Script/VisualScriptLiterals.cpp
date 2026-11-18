@@ -22,6 +22,10 @@
 
 namespace Strada
 {
+	// A public array variable is a list field (Docs/Architecture.md §10.6): its literal and its stored list hold as many
+	// elements.
+	static_assert(MaxVisualScriptArrayLiteralElements == MaxScriptFieldListElements, "array literals and lists share one limit");
+
 	namespace
 	{
 		struct ExposableTypeEntry
@@ -445,6 +449,17 @@ namespace Strada
 			return VisualScriptExposableType{ScriptFieldType::Asset, s_PhysicsMaterialType};
 		}
 		return std::nullopt;
+	}
+
+	std::string_view GetVisualScriptArrayElementType(std::string_view typeId)
+	{
+		constexpr std::string_view Suffix = "[]";
+		if (typeId.size() <= Suffix.size() || !typeId.ends_with(Suffix))
+		{
+			return {};
+		}
+		std::string_view const element = typeId.substr(0, typeId.size() - Suffix.size());
+		return element.ends_with(Suffix) ? std::string_view() : element;
 	}
 
 	bool CanBeVisualScriptEnum(std::string_view typeId)

@@ -1,10 +1,15 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json;
+using Strada.VisualScripting;
 
 namespace Strada.Interop;
 
-// The engine's ScriptFieldType; the names are those of scene files (ScriptField.cpp).
+// The engine's ScriptFieldType; the names are those of scene files (ScriptField.cpp). These are the element types: the list
+// of one is the element type with ScriptFieldCodec.ListFlag set (ScriptFieldCodec.MakeListType), named after it with "[]"
+// (ScriptFieldCodec.GetTypeName), as the engine's list types are.
 internal enum ScriptFieldType
 {
 	None,
@@ -27,11 +32,49 @@ internal enum ScriptFieldType
 }
 
 // Field values in the JSON encoding of scene files: 64-bit integers, entity IDs and asset handles as decimal strings (0 for
-// no entity or prefab, which are null in C#), vectors, colors and quaternions (X, Y, Z, W) as number arrays. Enum fields
-// are stored as their integer values and typed asset references (Mesh, Material, ...) as asset handles: ToStored and
-// FromStored convert between the field's C# value and the stored one.
+// no entity or prefab, which are null in C#), vectors, colors and quaternions (X, Y, Z, W) as number arrays, and a list as
+// the array of its elements' values (at most MaxListElements). Enum fields are stored as their integer values and typed
+// asset references (Mesh, Material, ...) as asset handles: ToStored and FromStored convert between the field's C# value
+// and the stored one, a list's stored value being a List<object?> of its elements' (Docs/Architecture.md §7.3, §10.3).
 internal static class ScriptFieldCodec
 {
+	// The bit of a list type, as the engine's ScriptFieldListFlag.
+	internal const int ListFlag = 0x80;
+
+	// The most elements a list holds in files and across the boundary (the engine's MaxScriptFieldListElements).
+	internal const int MaxListElements = 4096;
+
+	internal static bool IsList(ScriptFieldType type) => ((int)type & ListFlag) != 0;
+
+	// The element type of a list type; an element type is its own.
+	internal static ScriptFieldType GetElementType(ScriptFieldType type) => (ScriptFieldType)((int)type & ~ListFlag);
+
+	// The list type of an element type; None for None and for a list type (there are no lists of lists).
+	internal static ScriptFieldType MakeListType(ScriptFieldType elementType) =>
+		elementType == ScriptFieldType.None || IsList(elementType) ? ScriptFieldType.None : (ScriptFieldType)((int)elementType | ListFlag);
+
+	// The type's name in files and across the boundary: "Float", "Float[]" for a list.
+	internal static string GetTypeName(ScriptFieldType type) => IsList(type) ? $"{GetElementType(type)}[]" : type.ToString();
+
+	// The field type of a C# script field: GetFieldType's for a single value, and the list of the element's for a
+	// single-dimensional array T[] or a List<T> whose T has one (no arrays or lists of them); None otherwise.
+	internal static ScriptFieldType GetMemberFieldType(Type type)
+	{
+		Type? elementType = GetListElementType(type);
+		return elementType == null ? GetFieldType(type) : MakeListType(GetFieldType(elementType));
+	}
+
+	// T of a single-dimensional array T[] or a List<T>; null for other types.
+	internal static Type? GetListElementType(Type type)
+	{
+		if (type.IsSZArray)
+		{
+			return type.GetElementType();
+		}
+		return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>) ? type.GetGenericArguments()[0] : null;
+	}
+
+	// The field type of a single value of the C# type: an element type, or None (lists are GetMemberFieldType's).
 	internal static ScriptFieldType GetFieldType(Type type)
 	{
 		if (type.IsEnum)
@@ -79,9 +122,24 @@ internal static class ScriptFieldCodec
 		return assetType == "Prefab" ? null : assetType;
 	}
 
-	// The stored form of a field's value: enums as integers of the field type, typed asset references as handles.
+	// The stored form of a field's value: enums as integers of the field type, typed asset references as handles, a list (an
+	// array or a List<T>; null is the empty list) as a List<object?> of its elements' stored forms.
 	internal static object? ToStored(object? value, ScriptFieldType type)
 	{
+		if (IsList(type))
+		{
+			ScriptFieldType elementType = GetElementType(type);
+			List<object?> elements = [];
+			if (value is IList list)
+			{
+				elements.Capacity = list.Count;
+				foreach (object? element in list)
+				{
+					elements.Add(ToStored(element, elementType));
+				}
+			}
+			return elements;
+		}
 		return value switch
 		{
 			Enum enumerator => type switch
@@ -97,11 +155,62 @@ internal static class ScriptFieldCodec
 		};
 	}
 
+	// A stored value with every quaternion, a list's elements included, as the engine reads it: of length zero the identity
+	// (the engine refuses a quaternion without a direction, and with it the whole map or class list it is in), else of length
+	// one (LiteralCodec.Normalize).
+	internal static object? NormalizeQuaternions(object? stored)
+	{
+		switch (stored)
+		{
+			case Quaternion quaternion:
+				return LiteralCodec.Normalize(quaternion, out _);
+			case List<object?> elements:
+				for (int index = 0; index < elements.Count; index++)
+				{
+					if (elements[index] is Quaternion element)
+					{
+						elements[index] = LiteralCodec.Normalize(element, out _);
+					}
+				}
+				return elements;
+			default:
+				return stored;
+		}
+	}
+
 	// The value a field of the C# type takes for a stored value; null with an error message when it does not fit (an enum
-	// value out of the enum's range).
+	// value out of the enum's range, also as an element of a list). A stored list becomes a new array or List<T> of the
+	// elements' values.
 	internal static object? FromStored(object? stored, Type fieldType, out string? error)
 	{
 		error = null;
+		if (GetListElementType(fieldType) is { } elementType)
+		{
+			if (stored is not List<object?> elements)
+			{
+				error = $"expected a list for {fieldType.Name}";
+				return null;
+			}
+			IList values = fieldType.IsArray ? Array.CreateInstance(elementType, elements.Count) : (IList)Activator.CreateInstance(fieldType)!;
+			for (int index = 0; index < elements.Count; index++)
+			{
+				object? value = FromStored(elements[index], elementType, out error);
+				if (error != null)
+				{
+					error = $"element {index}: {error}";
+					return null;
+				}
+				if (fieldType.IsArray)
+				{
+					values[index] = value;
+				}
+				else
+				{
+					values.Add(value);
+				}
+			}
+			return values;
+		}
 		if (fieldType.IsEnum)
 		{
 			Type underlying = Enum.GetUnderlyingType(fieldType);
@@ -143,8 +252,23 @@ internal static class ScriptFieldCodec
 		};
 	}
 
+	// Writes a stored value (ToStored's) of the type; a list's elements in order.
 	internal static void WriteValue(Utf8JsonWriter writer, ScriptFieldType type, object? value)
 	{
+		if (IsList(type))
+		{
+			ScriptFieldType elementType = GetElementType(type);
+			writer.WriteStartArray();
+			if (value is IList elements)
+			{
+				foreach (object? element in elements)
+				{
+					WriteValue(writer, elementType, element);
+				}
+			}
+			writer.WriteEndArray();
+			return;
+		}
 		switch (type)
 		{
 			case ScriptFieldType.Bool:
@@ -208,10 +332,15 @@ internal static class ScriptFieldCodec
 		}
 	}
 
-	// Null with an error message when the JSON does not hold a value of the type.
+	// The stored value the JSON holds; null with an error message when it holds no value of the type. A list is an array of
+	// at most MaxListElements values of its element type, read into a List<object?>; the error names a bad element's index.
 	internal static object? ReadValue(JsonElement json, ScriptFieldType type, out string? error)
 	{
 		error = null;
+		if (IsList(type))
+		{
+			return ReadList(json, GetElementType(type), out error);
+		}
 		switch (type)
 		{
 			case ScriptFieldType.Bool when json.ValueKind is JsonValueKind.True or JsonValueKind.False:
@@ -250,6 +379,36 @@ internal static class ScriptFieldCodec
 				error = $"expected a {type} value, not {json.GetRawText()}";
 				return null;
 		}
+	}
+
+	private static List<object?>? ReadList(JsonElement json, ScriptFieldType elementType, out string? error)
+	{
+		if (json.ValueKind != JsonValueKind.Array)
+		{
+			error = $"expected an array of {elementType} values, not {json.GetRawText()}";
+			return null;
+		}
+		int count = json.GetArrayLength();
+		if (count > MaxListElements)
+		{
+			error = FormattableString.Invariant($"a list holds at most {MaxListElements} elements, not {count}");
+			return null;
+		}
+		List<object?> elements = new(count);
+		int index = 0;
+		foreach (JsonElement element in json.EnumerateArray())
+		{
+			object? value = ReadValue(element, elementType, out error);
+			if (error != null)
+			{
+				error = FormattableString.Invariant($"element {index}: {error}");
+				return null;
+			}
+			elements.Add(value);
+			index++;
+		}
+		error = null;
+		return elements;
 	}
 
 	private static void WriteFloat(Utf8JsonWriter writer, float value)

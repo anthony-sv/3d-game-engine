@@ -274,7 +274,7 @@ namespace Strada
 	// A type as the panes name it: the library's title for it, else its ID.
 	[[nodiscard]] std::string DescribeVisualScriptType(VisualScriptLibrary const* library, std::string_view type);
 	// Whether a variable of the type can be public: components can store it (an exposable type, FindVisualScriptExposableType,
-	// or an enum, which the library knows).
+	// or an enum, which the library knows, or an array of one, which they store as a list).
 	[[nodiscard]] bool IsVisualScriptPublicType(std::string_view type, VisualScriptLibrary const* library);
 	// Whether text holds part, ASCII letters compared without case; an empty part is in every text.
 	[[nodiscard]] bool ContainsVisualScriptTextIgnoringCase(std::string_view text, std::string_view part);
@@ -362,8 +362,6 @@ namespace Strada
 		// A node the flow does not pass through (no exec input or no exec output): disabled, with VisualScriptNoFlowRefusal.
 		NoFlow
 	};
-	// Why My Script's eye does not make an array variable public (spec-slice3 §3.4.6).
-	inline constexpr char const* VisualScriptArrayPublicRefusal = "Arrays cannot be public: components cannot store them";
 	inline constexpr char const* VisualScriptPureNodesRefusal = "Pure nodes run only when a node reads them: disable that node";
 	inline constexpr char const* VisualScriptNoFlowRefusal = "Only nodes the flow passes through can be disabled";
 	// From the canvas's layout of the node when the shown sub-graph has it, else from the library's template of its type; a node

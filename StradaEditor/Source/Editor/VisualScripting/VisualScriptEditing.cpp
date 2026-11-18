@@ -1487,19 +1487,26 @@ namespace Strada
 		}
 
 		// Whether a public variable of the type can be stored on components: an exposable type, or an enum (which only the
-		// scripting runtime knows: without a lookup, any type that could be one).
+		// scripting runtime knows: without a lookup, any type that could be one), or an array of one, stored as a list. An
+		// array of arrays is no type.
 		bool CanBePublic(std::string_view type, VisualScriptEnumLookup const& enums)
 		{
-			if (FindVisualScriptExposableType(type))
+			std::string_view const element = GetVisualScriptArrayElementType(type);
+			if (element.empty() && type.ends_with("[]"))
+			{
+				return false;
+			}
+			std::string_view const valueType = element.empty() ? type : element;
+			if (FindVisualScriptExposableType(valueType))
 			{
 				return true;
 			}
 			if (enums)
 			{
-				std::optional<VisualScriptEnumInfo> const info = enums(type);
+				std::optional<VisualScriptEnumInfo> const info = enums(valueType);
 				return info && info->IsUsable();
 			}
-			return CanBeVisualScriptEnum(type);
+			return CanBeVisualScriptEnum(valueType);
 		}
 
 		// Whether a value the type changes to keeps it: it decodes as the new type.

@@ -12,12 +12,9 @@ internal static class Declarations
 	// Spec-slice3 section 3.4.1.
 	internal const string NestedArrayMessage = "arrays of arrays are not types of graphs";
 
-	// Spec-slice3 section 3.4.6.
-	internal const string PublicArrayMessage = "arrays cannot be set on components yet: keep the variable private and fill it in the graph " +
-		"(Make Array from public variables, or the Children of a child entity that holds the points)";
-
 	// The type of a declaration; null when it is unknown or not allowed (exec, the wildcard). A public variable of a type
-	// that is not exposable keeps its type (the Error NotExposable is about exposure only).
+	// that is not exposable keeps its type (the Error NotExposable is about exposure only). An array is exposable when its
+	// element type is: components store it as a list (Docs/Architecture.md §10.6).
 	internal static VisualType? ResolveType(AnalysisContext context, string typeId, bool isPublic,
 		Action<DiagnosticCode, string, IReadOnlyList<string>?> report)
 	{
@@ -46,14 +43,10 @@ internal static class Declarations
 			report(DiagnosticCode.UnknownType, $"unknown type {JsonText.Quote(typeId)}", context.Suggest(typeId, candidates));
 			return null;
 		}
-		if (isPublic && type.Kind == TypeKind.Array)
-		{
-			report(DiagnosticCode.NotExposable, PublicArrayMessage, null);
-		}
-		else if (isPublic && type.FieldType == ScriptFieldType.None)
+		if (isPublic && type.VariableFieldType == ScriptFieldType.None)
 		{
 			report(DiagnosticCode.NotExposable,
-				$"{type.Id} cannot be set on components: public variables are numbers, bool, string, vectors, quaternions, colors, entities, assets or enums",
+				$"{type.Id} cannot be set on components: public variables are numbers, bool, string, vectors, quaternions, colors, entities, assets or enums, or arrays of them",
 				null);
 		}
 		return type;

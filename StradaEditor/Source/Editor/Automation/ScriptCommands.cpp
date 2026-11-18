@@ -112,7 +112,9 @@ namespace Strada
 
 		result = result ? Add(registry, "script.classes",
 		                      "The script classes of the loaded game assembly, sorted by name, with their serialized fields: "
-		                      "[{ name, fields: [{ name, type, default, hidden?, tooltip?, range?, assetType?, enumerators?, flags? }] }].",
+		                      "[{ name, fields: [{ name, type, default, hidden?, tooltip?, range?, assetType?, enumerators?, flags? }] }]. "
+		                      "A list field's type is its element type's with [] (Int32[]) and its default the list; its range, "
+		                      "assetType and enumerators describe each element.",
 		                      Json(), true,
 		                      [](Json const&) -> CommandResult
 		                      {

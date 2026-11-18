@@ -219,8 +219,9 @@ text that does not read, overflows or is not finite gives 0 with `Success` false
 
 Every type has an array type (`float[]`, `Strada.Vector3[]`, ...), but there are no arrays of arrays. Arrays can be
 private variables, locals, function inputs and outputs, custom-event parameters, `Literal` values and type arguments.
-Public variables cannot be arrays yet, as components cannot store them: keep the variable private and fill it in the
-graph (Make Array from public variables, or the `Children` of a child entity that holds the points). An array is never
+A public array is set per entity like any public variable when its element type can be (an exposable type or an enum):
+components store it as a list of at most 4,096 elements, its Value is the list each entity starts with, and the
+inspector edits it a row per element. A public array of another type (`Strada.Matrix4[]`) is `NotExposable`. An array is never
 None: an array left unset, or one C# gives as null, is empty, and Is Valid of an array is always true. Arrays compare
 element by element (NaN equals nothing), read as text like `[1, 2, 3]`, and a `Player[]` is not an `Entity[]`.
 
@@ -1097,9 +1098,10 @@ misspelled function in place. A formula Details cannot take (over 4096 bytes) is
 **Arrays.** Details edits an array's elements: a variable's or local's default, a Literal's value and an unlinked array
 input (+ Add Element; drag an element's handle onto another handle of the same array to move it there, while a drop
 onto another array's handle moves nothing; x removes it). Make Array's Count adds and removes element pins, keeping their
-links. On the canvas a chip shows an unlinked array input's length. My Script's eye refuses to make an array public
-("Arrays cannot be public: components cannot store them"), and the inspector lists a public array a graph declares as
-read-only ("arrays cannot be set on components").
+links. On the canvas a chip shows an unlinked array input's length. My Script's eye makes an array public when
+components can store its elements ("Strada.Matrix4[] cannot be public: components cannot store it" otherwise), and the
+inspector edits a public array's list on each entity: "+" adds an element, "-" removes one, and a row dragged by its
+grip onto another row's grip moves its element there, each one undo step.
 
 **Timelines.** Double-click a Timeline's header, choose Edit Timeline in its menu, or click Edit on a track in Details,
 to open its tracks and curves in the drawer under the canvas. On the left, + Add Track adds a Float, Vector2, Vector3,

@@ -3,8 +3,11 @@
 
 #include <optional>
 #include <set>
+#include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
+#include <vector>
 
 namespace Strada
 {
@@ -13,9 +16,60 @@ namespace Strada
 		constexpr std::string_view EditableClassName = "Visual Script";
 		constexpr std::string_view NeedsRuntimeReason = "needs the scripting runtime";
 		constexpr std::string_view NotExposableReason = "not exposable";
-		// Arrays will be exposable once components can store them (a list field type, scene format version 2); until then a
-		// public array is read-only for a reason of its own, which tells the user to keep it private.
-		constexpr std::string_view ArrayReason = "arrays cannot be set on components";
+
+		// What a public variable's values are, when components can set them.
+		struct VariableValues
+		{
+			ScriptFieldType ValueType = ScriptFieldType::None;
+			AssetType AcceptedAssetType = AssetType::None;
+			// The enum, for enums.
+			std::optional<VisualScriptEnumInfo> Enum;
+		};
+
+		// What values of the type are (an exposable type, or an enum the lookup describes as the runtime does), or the reason
+		// components cannot set them.
+		std::variant<VariableValues, std::string_view> DescribeValues(std::string_view type, VisualScriptEnumLookup const& enumLookup)
+		{
+			if (std::optional<VisualScriptExposableType> const exposable = FindVisualScriptExposableType(type))
+			{
+				return VariableValues{exposable->FieldType, exposable->AcceptedAssetType, std::nullopt};
+			}
+			bool const mayBeEnum = CanBeVisualScriptEnum(type);
+			std::optional<VisualScriptEnumInfo> enumInfo = mayBeEnum && enumLookup ? enumLookup(type) : std::nullopt;
+			if (!enumInfo || !enumInfo->IsUsable())
+			{
+				return mayBeEnum && !enumLookup ? NeedsRuntimeReason : NotExposableReason;
+			}
+			ScriptFieldType const underlying = enumInfo->UnderlyingType;
+			return VariableValues{underlying, AssetType::None, std::move(enumInfo)};
+		}
+
+		// A value's literal read as one of the values (the enum found, not looked up again).
+		std::optional<ScriptFieldValue> DecodeValue(Json const& literal, std::string_view type, VariableValues const& values)
+		{
+			return values.Enum ? DecodeVisualScriptEnumLiteral(literal, *values.Enum) : DecodeVisualScriptLiteral(literal, type, {});
+		}
+
+		// An array literal of the values: at most MaxScriptFieldListElements literals (DecodeVisualScriptArrayLiteral's rules).
+		std::optional<ScriptFieldValue> DecodeList(Json const& literal, std::string_view elementType, VariableValues const& values)
+		{
+			if (!literal.is_array() || literal.size() > MaxScriptFieldListElements)
+			{
+				return std::nullopt;
+			}
+			std::vector<ScriptFieldValue> elements;
+			elements.reserve(literal.size());
+			for (Json const& element : literal)
+			{
+				std::optional<ScriptFieldValue> value = DecodeValue(element, elementType, values);
+				if (!value)
+				{
+					return std::nullopt;
+				}
+				elements.push_back(std::move(*value));
+			}
+			return ScriptFieldValue::FromList(values.ValueType, std::move(elements));
+		}
 	}
 
 	VisualScriptVariableDescription DescribeVisualScriptVariables(VisualScriptDocument const& document,
@@ -29,36 +83,31 @@ namespace Strada
 			{
 				continue;
 			}
+			// An array of an editable element type is a list field of the element's values; there are no arrays of arrays.
+			std::string_view const elementType = GetVisualScriptArrayElementType(variable.Type);
+			bool const isList = !elementType.empty();
+			std::string_view const valueType = isList ? elementType : std::string_view(variable.Type);
+			std::variant<VariableValues, std::string_view> described = DescribeValues(valueType, enumLookup);
+			if (std::string_view const* const reason = std::get_if<std::string_view>(&described))
+			{
+				description.ReadOnly.push_back({variable.Name, variable.Type, std::string(*reason)});
+				continue;
+			}
+			VariableValues& values = std::get<VariableValues>(described);
 			ScriptFieldInfo field;
 			field.Name = variable.Name;
 			field.Tooltip = variable.Tooltip;
 			field.Range = variable.Range;
-			if (std::optional<VisualScriptExposableType> const exposable = FindVisualScriptExposableType(variable.Type))
+			field.Type = isList ? MakeScriptFieldListType(values.ValueType) : values.ValueType;
+			field.AcceptedAssetType = values.AcceptedAssetType;
+			std::optional<ScriptFieldValue> value =
+				isList ? DecodeList(variable.Value, valueType, values) : DecodeValue(variable.Value, valueType, values);
+			field.DefaultValue = value ? std::move(*value) : ScriptFieldValue::CreateDefault(field.Type);
+			if (values.Enum)
 			{
-				field.Type = exposable->FieldType;
-				field.AcceptedAssetType = exposable->AcceptedAssetType;
-				field.DefaultValue = DecodeVisualScriptLiteral(variable.Value, variable.Type, enumLookup)
-				                         .value_or(ScriptFieldValue::CreateDefault(field.Type));
-				description.Editable.Fields.push_back(std::move(field));
-				continue;
+				field.Enumerators = std::move(values.Enum->Enumerators);
+				field.IsFlags = values.Enum->IsFlags;
 			}
-
-			bool const mayBeEnum = CanBeVisualScriptEnum(variable.Type);
-			std::optional<VisualScriptEnumInfo> const enumInfo = mayBeEnum && enumLookup ? enumLookup(variable.Type) : std::nullopt;
-			if (!enumInfo || !enumInfo->IsUsable())
-			{
-				std::string_view const reason = variable.Type.ends_with("[]") ? ArrayReason
-				                                : mayBeEnum && !enumLookup    ? NeedsRuntimeReason
-				                                                              : NotExposableReason;
-				description.ReadOnly.push_back({variable.Name, variable.Type, std::string(reason)});
-				continue;
-			}
-			field.Type = enumInfo->UnderlyingType;
-			field.Enumerators = enumInfo->Enumerators;
-			field.IsFlags = enumInfo->IsFlags;
-			// The enum found above, not looked up again.
-			field.DefaultValue =
-				DecodeVisualScriptEnumLiteral(variable.Value, *enumInfo).value_or(ScriptFieldValue::CreateDefault(field.Type));
 			description.Editable.Fields.push_back(std::move(field));
 		}
 		return description;

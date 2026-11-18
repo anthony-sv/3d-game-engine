@@ -33,22 +33,10 @@ namespace Strada
 			{
 				return MakeError("no migration from version {} of {} documents", version, type);
 			}
-			Result<void> result;
-			try
+			if (Result<void> result = RunDocumentMigration(format.Migrations[version - 1], migrated, type, static_cast<int>(version));
+			    !result)
 			{
-				result = format.Migrations[version - 1](migrated);
-			}
-			catch (Json::exception const& exception)
-			{
-				result = MakeError("unexpected content ({})", exception.what());
-			}
-			if (!result)
-			{
-				return MakeError("{} version {} cannot be read: {}", type, version, result.GetError());
-			}
-			if (!migrated.is_object())
-			{
-				return MakeError("{} version {} cannot be read: its migration left no object", type, version);
+				return Error{result.GetError()};
 			}
 		}
 		return migrated;

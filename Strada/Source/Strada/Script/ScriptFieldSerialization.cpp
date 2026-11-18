@@ -2,12 +2,24 @@
 #include "Strada/Script/ScriptFieldSerialization.h"
 
 #include <charconv>
+#include <cstddef>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace Strada
 {
 	Json ScriptFieldValueToJson(ScriptFieldValue const& value)
 	{
+		if (value.IsList())
+		{
+			Json elements = Json::array();
+			for (ScriptFieldValue const& element : value.GetElements())
+			{
+				elements.push_back(ScriptFieldValueToJson(element));
+			}
+			return elements;
+		}
 		switch (value.GetType())
 		{
 			case ScriptFieldType::None:
@@ -88,6 +100,30 @@ namespace Strada
 
 	Result<ScriptFieldValue> ScriptFieldValueFromJson(ScriptFieldType type, Json const& json, DeserializationContext const& context)
 	{
+		if (IsScriptFieldListType(type))
+		{
+			ScriptFieldType const elementType = GetScriptFieldElementType(type);
+			if (!IsScriptFieldElementType(elementType))
+			{
+				return Error{"unknown script field type"};
+			}
+			if (!json.is_array() || json.size() > MaxScriptFieldListElements)
+			{
+				return MakeError("expected an array of at most {} elements", MaxScriptFieldListElements);
+			}
+			std::vector<ScriptFieldValue> elements;
+			elements.reserve(json.size());
+			for (size_t i = 0; i < json.size(); i++)
+			{
+				Result<ScriptFieldValue> element = ScriptFieldValueFromJson(elementType, json[i], context);
+				if (!element)
+				{
+					return MakeError("element {}: {}", i, element.GetError());
+				}
+				elements.push_back(element.TakeValue());
+			}
+			return ScriptFieldValue::FromList(elementType, std::move(elements));
+		}
 		switch (type)
 		{
 			case ScriptFieldType::None:

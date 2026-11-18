@@ -857,7 +857,8 @@ TEST_CASE("VisualScriptQuickFix: a formula's problems are edited in its field, a
 	CHECK(GetVisualScriptQuickFixes(document, analysis, invalid, *library)[0].Argument == "Formula");
 }
 
-TEST_CASE("VisualScriptQuickFix: an invalid type is replaced by an array type for a private variable, never for a public one")
+TEST_CASE("VisualScriptQuickFix: an invalid type is replaced by any array type for a private variable, and for a public one only by "
+          "a type components store")
 {
 	Scope<VisualScriptLibrary> const library = ParseLibrary();
 	VisualScriptDocument document;
@@ -868,7 +869,7 @@ TEST_CASE("VisualScriptQuickFix: an invalid type is replaced by an array type fo
 	VisualScriptVariable targets;
 	targets.ID = 2;
 	targets.Name = "Targets";
-	targets.Type = "Strada.Entity[]";
+	targets.Type = "Strada.Matrix4[]";
 	targets.Public = true;
 	document.Variables = {flow, targets};
 	VisualScriptAnalysis const analysis;
@@ -877,12 +878,13 @@ TEST_CASE("VisualScriptQuickFix: an invalid type is replaced by an array type fo
 		MakeVariableDiagnostic("InvalidType", 0, 1, "Flow: exec is a pin type: variables hold values", {"Strada.Entity[]", "int"});
 	CHECK(GetLabels(GetVisualScriptQuickFixes(document, analysis, pinType, *library)) ==
 	      std::vector<std::string>{"Use Entity Array", "Use Int"});
-	// A public array is what is invalid there, and no array replaces it.
-	VisualScriptDiagnostic const publicArray =
-		MakeVariableDiagnostic("InvalidType", 0, 2, "Targets: Strada.Entity[] cannot be public", {"Strada.Entity[]", "Strada.Entity"});
+	// A public array of a type no component stores is what is invalid there; an array components store as a list replaces it,
+	// and another array of such a type does not.
+	VisualScriptDiagnostic const publicArray = MakeVariableDiagnostic("InvalidType", 0, 2, "Targets: Strada.Matrix4[] cannot be public",
+	                                                                  {"Strada.Matrix4[]", "Strada.Entity[]", "Strada.Entity"});
 	std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(document, analysis, publicArray, *library);
-	REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Use Entity"});
-	CHECK(fixes[0].Replaces == "Strada.Entity[]");
+	REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Use Entity Array", "Use Entity"});
+	CHECK(fixes[0].Replaces == "Strada.Matrix4[]");
 }
 
 namespace

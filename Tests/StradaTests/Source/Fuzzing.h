@@ -196,4 +196,21 @@ namespace Strada::Testing
 		REQUIRE_MESSAGE(document.IsOk(), FileSystem::PathToUtf8(path));
 		return document.TakeValue();
 	}
+
+	// The path of a file of Tests/Data (relativePath uses forward slashes).
+	inline std::filesystem::path GetTestDataPath(std::string_view relativePath)
+	{
+		return FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / FileSystem::PathFromUtf8(relativePath);
+	}
+
+	// Parses a file of Tests/Data: the version fixtures of formats, which seed fuzz tests at each version the readers take.
+	inline Json LoadTestDataDocument(std::string_view relativePath)
+	{
+		std::filesystem::path const path = GetTestDataPath(relativePath);
+		Result<std::string> text = FileSystem::ReadTextFile(path);
+		REQUIRE_MESSAGE(text.IsOk(), FileSystem::PathToUtf8(path));
+		Result<Json> document = ParseJson(text.GetValue());
+		REQUIRE_MESSAGE(document.IsOk(), FileSystem::PathToUtf8(path));
+		return document.TakeValue();
+	}
 }

@@ -296,6 +296,8 @@ set(STRADA_SERIALIZATION_SOURCES
     Source/Strada/Serialization/StructDocument.h
     Source/Strada/Serialization/StructSerialization.cpp
     Source/Strada/Serialization/StructSerialization.h
+    Source/Strada/Serialization/VersionedDocument.cpp
+    Source/Strada/Serialization/VersionedDocument.h
 )
 
 set(STRADA_IMGUI_SOURCES

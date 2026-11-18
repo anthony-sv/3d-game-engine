@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -16,6 +17,7 @@ namespace Strada
 	class EditSession;
 	class EditorOperations;
 	class FieldEditor;
+	struct FieldDescriptor;
 
 	// What the body of a data asset's editor draws from (a drawer's argument).
 	struct DataAssetDrawContext
@@ -76,6 +78,9 @@ namespace Strada
 		// Returns the user's change with the description and merge key of the struct drawer that made it (FieldChange), else
 		// the default description and merge key 0 (the inspector's interaction).
 		static std::optional<DataAssetEdit> DrawFields(DataAssetDrawContext const& context);
+		// The default body drawn from fields in place of the type's table: a copy of it with hints of the inspector's own (a
+		// mixer's effects in a fixed order).
+		static std::optional<DataAssetEdit> DrawFields(DataAssetDrawContext const& context, std::span<FieldDescriptor const> fields);
 		// Whether edits of the asset can be kept: a data asset of a registered type with a file of its own, present and not
 		// read-only. Main thread only (reads the asset manager).
 		[[nodiscard]] static bool IsEditable(AssetHandle asset);

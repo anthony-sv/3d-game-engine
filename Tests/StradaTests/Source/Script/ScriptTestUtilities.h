@@ -9,6 +9,8 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -150,5 +152,16 @@ namespace Strada::Testing
 		                   {
 							   return entry.Message.find(text) != std::string::npos;
 						   });
+	}
+
+	// How many log entries since firstIndex contain the text.
+	inline size_t CountLogged(uint64_t firstIndex, std::string_view text)
+	{
+		std::vector<LogEntry> const entries = Log::GetEntries(firstIndex);
+		return static_cast<size_t>(std::count_if(entries.begin(), entries.end(),
+		                                         [text](LogEntry const& entry)
+		                                         {
+													 return entry.Message.find(text) != std::string::npos;
+												 }));
 	}
 }

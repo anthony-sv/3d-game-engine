@@ -67,7 +67,11 @@ Public fields, and private ones marked `[SerializeField]`, are saved with the sc
 shows them by name. Their values are set before `OnCreate`. Supported types: `bool`, `int`, `uint`, `long`, `ulong`,
 `float`, `double`, `string`, `Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Color`, enums, `Entity` (an entity of the
 scene; drag one from the hierarchy), and assets: `Prefab`, `Material`, `Mesh`, `Texture`, `AudioClip`, `Font`,
-`EnvironmentMap`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial` (pick one, or drag it from the content browser).
+`EnvironmentMap`, `VisualScript`, `Curve`, `InputActions`, `Mixer`, `PhysicsMaterial` (pick one, or drag it from the
+content browser). An array (`T[]`) or a `List<T>` of any of these types is a list field, at most 4,096 elements, which
+the inspector shows as a row per element: "+" adds one at the end, "-" removes one, and a row dragged by its grip onto
+another row's grip moves its element there. A field of any other type (a `Dictionary<,>`, an array of arrays, a list of a
+struct of yours) is not saved or shown, and the engine says so once for the class when the scripts load.
 
 ```csharp
 public class Turret : Script
@@ -103,8 +107,8 @@ public class Turret : Script
 }
 ```
 
-`[Range(min, max)]` limits what the inspector accepts, `[Tooltip(text)]` explains the field, and `[HideInInspector]`
-keeps a field out of the inspector while still saving it. Fields that are neither public nor marked belong to the
+`[Range(min, max)]` limits what the inspector accepts (each element of a list), `[Tooltip(text)]` explains the field,
+and `[HideInInspector]` keeps a field out of the inspector while still saving it. Fields that are neither public nor marked belong to the
 script alone and start with their initial values.
 
 While the game plays in the editor, the inspector shows the values the running script holds, also those it changes

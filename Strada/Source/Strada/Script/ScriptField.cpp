@@ -1,8 +1,11 @@
 #include "stpch.h"
 #include "Strada/Script/ScriptField.h"
 
+#include <algorithm>
 #include <array>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -27,10 +30,23 @@ namespace Strada
 			{ScriptFieldType::Prefab, "Prefab"},
 			{ScriptFieldType::Asset, "Asset"},
 		}};
+
+		// The names of the list types, element type by element type (Bool to Asset).
+		constexpr std::array<char const*, 16> s_ListTypeNames = {
+			"Bool[]",    "Int32[]",   "UInt32[]",  "Int64[]",      "UInt64[]", "Float[]",  "Double[]", "String[]",
+			"Vector2[]", "Vector3[]", "Vector4[]", "Quaternion[]", "Color[]",  "Entity[]", "Prefab[]", "Asset[]",
+		};
+		static_assert(s_ListTypeNames.size() == static_cast<size_t>(ScriptFieldType::Asset), "one list name per element type");
+
+		constexpr std::string_view ListSuffix = "[]";
 	}
 
 	char const* ScriptFieldTypeToString(ScriptFieldType type)
 	{
+		if (IsScriptFieldListType(type))
+		{
+			return IsValidScriptFieldType(type) ? s_ListTypeNames[static_cast<size_t>(GetScriptFieldElementType(type)) - 1] : "None";
+		}
 		for (auto const& [value, name] : s_TypeNames)
 		{
 			if (value == type)
@@ -43,18 +59,42 @@ namespace Strada
 
 	std::optional<ScriptFieldType> ScriptFieldTypeFromString(std::string_view name)
 	{
+		bool const isList = name.ends_with(ListSuffix);
+		std::string_view const elementName = isList ? name.substr(0, name.size() - ListSuffix.size()) : name;
 		for (auto const& [value, typeName] : s_TypeNames)
 		{
-			if (name == typeName)
+			if (elementName == typeName)
 			{
-				return value;
+				if (!isList)
+				{
+					return value;
+				}
+				ScriptFieldType const listType = MakeScriptFieldListType(value);
+				return listType != ScriptFieldType::None ? std::optional<ScriptFieldType>(listType) : std::nullopt;
 			}
 		}
 		return std::nullopt;
 	}
 
+	ScriptFieldValue ScriptFieldValue::FromList(ScriptFieldType elementType, std::vector<ScriptFieldValue> elements)
+	{
+		ST_CORE_ASSERT(IsScriptFieldElementType(elementType), "A list's element type is an element type other than None");
+		ST_CORE_ASSERT(elements.size() <= MaxScriptFieldListElements, "A list holds at most {} elements", MaxScriptFieldListElements);
+		ST_CORE_ASSERT(std::all_of(elements.begin(), elements.end(),
+		                           [elementType](ScriptFieldValue const& element)
+		                           {
+									   return element.GetType() == elementType;
+								   }),
+		               "Every element of a list has its element type");
+		return ScriptFieldValue(MakeScriptFieldListType(elementType), std::move(elements));
+	}
+
 	ScriptFieldValue ScriptFieldValue::CreateDefault(ScriptFieldType type)
 	{
+		if (IsScriptFieldListType(type))
+		{
+			return IsValidScriptFieldType(type) ? FromList(GetScriptFieldElementType(type), {}) : ScriptFieldValue();
+		}
 		switch (type)
 		{
 			case ScriptFieldType::None:
