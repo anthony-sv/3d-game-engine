@@ -195,7 +195,7 @@ namespace Strada
 		static constexpr double RelativeMinSpan = 1e-6;
 
 		// The view's rectangle in screen pixels and the font size its parts scale with.
-		void SetRect(glm::vec2 min, glm::vec2 max, float fontSize);
+		void SetRect(glm::vec2 topLeft, glm::vec2 bottomRight, float fontSize);
 		glm::vec2 GetMin() const { return m_Min; }
 		glm::vec2 GetMax() const { return m_Max; }
 		float GetFontSize() const { return m_FontSize; }
@@ -292,7 +292,7 @@ namespace Strada
 		void BeginPress(CurveViewInput const& input, TDocument const& document, std::string_view title, std::vector<Intent>& intents);
 		void UpdateDrag(CurveViewInput const& input, std::string_view title, std::vector<Intent>& intents);
 		void UpdateMarquee(TDocument const& document);
-		std::vector<CurveKeyRef> FindKeysIn(TDocument const& document, glm::vec2 min, glm::vec2 max) const;
+		std::vector<CurveKeyRef> FindKeysIn(TDocument const& document, glm::vec2 boxMin, glm::vec2 boxMax) const;
 		// The selected keys of curve tracks (those interpolation and tangents apply to).
 		std::vector<CurveKeyRef> GetSelectedCurveKeys(TDocument const& document) const;
 		bool HasKey(TDocument const& document, CurveKeyRef key) const;

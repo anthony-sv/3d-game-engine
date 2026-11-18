@@ -652,9 +652,9 @@ namespace Strada
 		}
 
 		// A rectangle of the editor's screen (ImGui pixels) as [x, y, width, height].
-		Json DescribeScreenRect(glm::vec2 min, glm::vec2 max)
+		Json DescribeScreenRect(glm::vec2 topLeft, glm::vec2 bottomRight)
 		{
-			return Json::array({min.x, min.y, max.x - min.x, max.y - min.y});
+			return Json::array({topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y});
 		}
 
 		char const* GetWindowDebugStateName(VisualScriptWindowDebugState state)

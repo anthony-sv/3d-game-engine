@@ -51,9 +51,9 @@ namespace Strada
 
 		InputActionsPanel::DrawRecord::Point GetItemCenter()
 		{
-			ImVec2 const min = ImGui::GetItemRectMin();
-			ImVec2 const max = ImGui::GetItemRectMax();
-			return {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
+			ImVec2 const itemMin = ImGui::GetItemRectMin();
+			ImVec2 const itemMax = ImGui::GetItemRectMax();
+			return {(itemMin.x + itemMax.x) * 0.5f, (itemMin.y + itemMax.y) * 0.5f};
 		}
 
 		// The asset's name as step descriptions end with it: its file's name without the extension.
@@ -651,13 +651,13 @@ namespace Strada
 		if (listening)
 		{
 			// The prompt: a press of a mouse button over it binds that button (InputBindingCapture::TakeEvent).
-			ImVec2 const min = ImGui::GetCursorScreenPos();
+			ImVec2 const promptMin = ImGui::GetCursorScreenPos();
 			ImVec2 const size(std::max(ImGui::GetContentRegionAvail().x, ImGui::GetFontSize()), ImGui::GetFrameHeight());
-			ImVec2 const max(min.x + size.x, min.y + size.y);
+			ImVec2 const promptMax(promptMin.x + size.x, promptMin.y + size.y);
 			ImGui::Dummy(size);
 			ImDrawList* const drawList = ImGui::GetWindowDrawList();
-			drawList->AddRectFilled(min, max, PromptColor, ImGui::GetStyle().FrameRounding);
-			drawList->AddRect(min, max, PromptBorderColor, ImGui::GetStyle().FrameRounding);
+			drawList->AddRectFilled(promptMin, promptMax, PromptColor, ImGui::GetStyle().FrameRounding);
+			drawList->AddRect(promptMin, promptMax, PromptBorderColor, ImGui::GetStyle().FrameRounding);
 			m_Record.Prompt = target.Kind == InputCaptureTarget::Stick
 			                      ? "Move a stick (Esc cancels)"
 			                      : "Press a key, a gamepad control or a mouse button here (Esc cancels)";
@@ -666,12 +666,12 @@ namespace Strada
 				m_Record.Prompt = m_Capture.GetNote();
 			}
 			ImVec2 const textSize = ImGui::CalcTextSize(m_Record.Prompt.c_str());
-			drawList->PushClipRect(min, max, true);
-			drawList->AddText(ImVec2(min.x + ImGui::GetStyle().FramePadding.x, min.y + (size.y - textSize.y) * 0.5f),
+			drawList->PushClipRect(promptMin, promptMax, true);
+			drawList->AddText(ImVec2(promptMin.x + ImGui::GetStyle().FramePadding.x, promptMin.y + (size.y - textSize.y) * 0.5f),
 			                  ImGui::GetColorU32(ImGuiCol_Text), m_Record.Prompt.c_str());
 			drawList->PopClipRect();
-			m_Capture.SetPrompt(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y), ImGui::GetWindowViewport()->ID);
-			record.ControlsField = {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f};
+			m_Capture.SetPrompt(glm::vec2(promptMin.x, promptMin.y), glm::vec2(promptMax.x, promptMax.y), ImGui::GetWindowViewport()->ID);
+			record.ControlsField = {(promptMin.x + promptMax.x) * 0.5f, (promptMin.y + promptMax.y) * 0.5f};
 		}
 		else
 		{

@@ -41,10 +41,10 @@ namespace Strada
 		}
 	}
 
-	void InputBindingCapture::SetPrompt(glm::vec2 min, glm::vec2 max, uint32_t viewport)
+	void InputBindingCapture::SetPrompt(glm::vec2 topLeft, glm::vec2 bottomRight, uint32_t viewport)
 	{
-		m_PromptMin = min;
-		m_PromptMax = max;
+		m_PromptMin = topLeft;
+		m_PromptMax = bottomRight;
 		m_PromptViewport = viewport;
 		m_HasPrompt = true;
 	}

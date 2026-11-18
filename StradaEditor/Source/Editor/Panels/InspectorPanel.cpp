@@ -1287,12 +1287,12 @@ namespace Strada
 			ImGui::SetTooltip("%sDrop a material here to use it in this slot.", reference.c_str());
 		}
 
-		ImVec2 const min = ImGui::GetItemRectMin();
-		ImVec2 const max = ImGui::GetItemRectMax();
+		ImVec2 const itemMin = ImGui::GetItemRectMin();
+		ImVec2 const itemMax = ImGui::GetItemRectMax();
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		// After the tree node's arrow.
-		ImVec2 const previewMin(min.x + padding.x * 2.0f + fontSize, min.y + padding.y);
-		ImVec2 const previewMax(previewMin.x + textHeight, max.y - padding.y);
+		ImVec2 const previewMin(itemMin.x + padding.x * 2.0f + fontSize, itemMin.y + padding.y);
+		ImVec2 const previewMax(previewMin.x + textHeight, itemMax.y - padding.y);
 		float const rounding = style.FrameRounding;
 		if (nvrhi::ITexture* preview = registered && m_Thumbnails != nullptr ? m_Thumbnails->Get(material) : nullptr)
 		{
@@ -1305,9 +1305,9 @@ namespace Strada
 		}
 
 		float const textX = previewMax.x + spacing * 2.0f;
-		float const textY = min.y + padding.y;
-		float const textMaxX = max.x - padding.x;
-		drawList->PushClipRect(ImVec2(textX, min.y), ImVec2(textMaxX, max.y), true);
+		float const textY = itemMin.y + padding.y;
+		float const textMaxX = itemMax.x - padding.x;
+		drawList->PushClipRect(ImVec2(textX, itemMin.y), ImVec2(textMaxX, itemMax.y), true);
 		// The name, then a badge for materials that cannot be edited here, right-aligned while the name keeps some room.
 		float titleMaxX = textMaxX;
 		if (registered && metadata->Type == AssetType::Material && !AssetManager::IsMissing(material) &&
