@@ -548,8 +548,8 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 		CHECK(largest <= LeastSignificantBit);
 
 		// For 0.4 s after it has left, the zone's capture holds the reverb's tail, which the other lacks: their difference
-		// carries at least a tenth of the dry mix's level (about a third here). And the tail dies away: a second later
-		// it has fallen to under a tenth of that. The reverb is not the same filter on every platform (its delay lines are
+		// is louder than the dry mix (about three times here), so the echo is heard over the engine. And the tail dies away:
+		// a second later it has fallen to under a tenth of that. The reverb is not the same filter on every platform (its delay lines are
 		// sized in long double, Docs/Architecture.md section 9.6), so the bounds are an order of magnitude from what is
 		// measured, not its samples.
 		double const tail = Rms(echoed, &dry, leftSeconds, leftSeconds + 0.4);
@@ -558,15 +558,15 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 		CAPTURE(tail);
 		CAPTURE(level);
 		CAPTURE(later);
-		CHECK(tail > 0.1 * level);
+		CHECK(tail > level);
 		CHECK(later < 0.1 * tail);
 
 		// The pause snapshot muffles the mix: the captures with the director's StartPaused on against those without it. The
-		// snapshot's values come from the copied mixer: each bus it muffles lowered to a volume and its low-pass closed to
-		// a cutoff. A second-order Butterworth low-pass (Q of one over the square root of two) passes a frequency f by
-		// 1 / sqrt(1 + (f / cutoff)^4): under half the cutoff it takes at most 0.26 dB, at four times the cutoff 24 dB, and
-		// more above. So below half the cutoff the level falls by the snapshot's volume, and above four times the cutoff by
-		// that and the low-pass. Measured after the director's blend (half a second, from the scene's start) is over.
+		// snapshot's values come from the copied mixer: each bus it muffles set to a volume in place of its own (Lowered is
+		// the difference) and its low-pass closed to a cutoff. A second-order Butterworth low-pass (Q of one over the square root of two)
+		// passes a frequency f by 1 / sqrt(1 + (f / cutoff)^4): under half the cutoff it takes at most 0.26 dB, at four times the cutoff 24
+		// dB, and more above. So below half the cutoff the level falls by the snapshot's volume, and above four times the cutoff by that
+		// and the low-pass. Measured after the director's blend (half a second, from the scene's start) is over.
 		Result<std::string> mixerText = FileSystem::ReadTextFile(assets / "Audio" / "Moto.smixer");
 		REQUIRE(mixerText.IsOk());
 		Result<Json> mixer = ParseJson(mixerText.GetValue());
@@ -575,10 +575,20 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 		{
 			std::optional<double> Volume;
 			std::optional<double> Cutoff;
+			double Lowered = 0.0;
 		};
 		auto const muffleOf = [&mixer](std::string_view bus)
 		{
 			Muffle muffle;
+			std::optional<double> own;
+			for (Json const& busFields : mixer.GetValue()["Mixer"]["Buses"])
+			{
+				if (busFields.value("Name", std::string()) == bus)
+				{
+					own = busFields.value("VolumeDb", 0.0);
+				}
+			}
+			REQUIRE(own.has_value());
 			for (Json const& snapshot : mixer.GetValue()["Mixer"]["Snapshots"])
 			{
 				if (snapshot.value("Name", std::string()) != "Paused")
@@ -604,11 +614,12 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 			}
 			REQUIRE(muffle.Volume.has_value());
 			REQUIRE(muffle.Cutoff.has_value());
+			muffle.Lowered = *muffle.Volume - *own;
 			return muffle;
 		};
-		// The engine's voices play on Engine, which stands at 0 dB with its low-pass open in the mixer's own values.
+		// The engine's voices play on Engine, whose low-pass stands open in the mixer's own values.
 		Muffle const engineMuffle = muffleOf("Engine");
-		CAPTURE(*engineMuffle.Volume);
+		CAPTURE(engineMuffle.Lowered);
 		CAPTURE(*engineMuffle.Cutoff);
 		double const lowDry = Rms(Band(dry, 0.5 * *engineMuffle.Cutoff, BandPass::Below), nullptr, 1.0, CaptureFrames * FrameSeconds);
 		double const lowMuffled =
@@ -621,9 +632,9 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 		CAPTURE(highDry);
 		CAPTURE(highMuffled);
 		// The fourth-order bands leak a little of their neighbours, where the low-pass takes more: up to 1.5 dB more.
-		CHECK(Decibels(lowMuffled / lowDry) <= *engineMuffle.Volume + 0.3);
-		CHECK(Decibels(lowMuffled / lowDry) >= *engineMuffle.Volume - 1.5);
-		CHECK(Decibels(highMuffled / highDry) <= *engineMuffle.Volume - 15.0);
+		CHECK(Decibels(lowMuffled / lowDry) <= engineMuffle.Lowered + 0.3);
+		CHECK(Decibels(lowMuffled / lowDry) >= engineMuffle.Lowered - 1.5);
+		CHECK(Decibels(highMuffled / highDry) <= engineMuffle.Lowered - 15.0);
 
 		// The echo's tail plays on Reverb (a voice's send to a zone's bus leaves before the voice's own bus, Engine): the
 		// difference the zone makes, muffled against not.
@@ -641,7 +652,7 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 		CAPTURE(tailHighMuffled);
 		// Above four times the cutoff the muffled tail lies near the captures' 16-bit floor (their difference's rounding,
 		// about 1e-5), so its bound is 8 dB past the volume: a low-pass left open would take only the volume.
-		CHECK(Decibels(tailAllMuffled / tailAll) <= *reverbMuffle.Volume + 0.3);
-		CHECK(Decibels(tailHighMuffled / tailHigh) <= *reverbMuffle.Volume - 8.0);
+		CHECK(Decibels(tailAllMuffled / tailAll) <= reverbMuffle.Lowered + 0.3);
+		CHECK(Decibels(tailHighMuffled / tailHigh) <= reverbMuffle.Lowered - 8.0);
 	}
 }

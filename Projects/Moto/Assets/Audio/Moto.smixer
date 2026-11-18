@@ -152,7 +152,7 @@
 			{
 				"Name": "Reverb",
 				"Parent": "Master",
-				"VolumeDb": 0.0,
+				"VolumeDb": 18.0,
 				"Muted": false,
 				"Effects": [
 					{
@@ -246,7 +246,7 @@
 						"Target": "Volume",
 						"Effect": 0,
 						"Parameter": "Frequency",
-						"Value": -10.0
+						"Value": -14.0
 					},
 					{
 						"Bus": "Tyres",
@@ -260,7 +260,7 @@
 						"Target": "Volume",
 						"Effect": 0,
 						"Parameter": "Frequency",
-						"Value": -10.0
+						"Value": -18.0
 					},
 					{
 						"Bus": "Ambience",
@@ -274,7 +274,7 @@
 						"Target": "Volume",
 						"Effect": 0,
 						"Parameter": "Frequency",
-						"Value": -10.0
+						"Value": 8.0
 					},
 					{
 						"Bus": "Reverb",

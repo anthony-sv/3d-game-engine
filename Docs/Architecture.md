@@ -5710,31 +5710,32 @@ that each platform's names are tested on every platform:
   with them, the curves, the graphs and the scenes, the project's files outside `Tools/`, what a copy of it takes, weigh
   12.8 MB). `Tools/Sound.py` is the mixer (`Audio/Moto.smixer`, named by `Moto.sproj`): `Master`, with a limiter at -1
   dBFS, over `Engine`, `Tyres`, `Ambience`, `Interface` and `Reverb`, which carries a reverb's tail alone (dry at -80
-  dB) for the footbridge's zone; every bus but `Interface` runs a low-pass standing open at 20 kHz, which the `Paused`
-  snapshot closes to 650 Hz while it lowers those buses by 10 dB. **The racing line** (`Tools/RacingLine.py`, data of
-  the tools as the layout is) takes each corner from the road's outside edge at its turn-in to its inside edge at its
-  apex and out again (4.6 m from the center line; the turn-in and the exit where the widest arc the road allows would
-  leave the edge; apex to apex where the next corner turns the other way too soon), averages the line's points along the
-  lap with a Gaussian of 6 m so that its curvature is continuous, then sets the speed from it: the cornering limit at
-  1.2 g, a forward pass at what 150 kW at the rear wheel gives against the drag (CdA 0.3 m²) and the rolling resistance,
-  at most 9 m/s² (the front lifting), and a backward pass at 11.5 m/s², both sharing the tyres' grip with cornering,
-  round the lap three times; the lean is atan(v²κ/g); the gear follows a stated six-speed gearbox (up at 15,500 rpm,
-  down under 10,500 while braking), and the engine speed and the load (the share of the power given) follow. Its
-  `check()` asserts that the line stays on the asphalt (within 5.2 m of the center line), leans at most 52°, has no step
-  in its speed (also in the speed its keys give), leans into every corner (its deepest lean between a corner's turn-in
-  and exit at least 10° to the inside the layout gives, not the side of the curvature the lean comes from) and that its
-  keys reproduce it (1 cm, 0.1° of heading, 0.2° of lean, 15 rpm). **The ghost bike** (`Tools/Ghost.py`, the `ghost`
-  part) is a second bike and rider of the grid bike's meshes and materials, so that the renderer draws both in the same
-  batches, at the start and finish line; it has no rigid body and no collider, and its graph (`Scripts/Ghost.sgraph`)
-  plays a looping timeline of the line's keys over one lap: `Position`, `Heading` (unwrapped degrees about +Y), `Lean`,
-  `EngineSpeed` (two keys at one time at each shift) and `Load`, each key carrying the line's own slopes, as few keys as
-  keep each within its tolerance. Every update places the ghost, turns it by `Heading` after `Lean`
-  (`Quaternion.AngleAxis` twice, multiplied), counts a lap when the timeline's time comes round past the line, keeps the
-  read-outs `LapTime`, `EngineSpeed` and `Load`, and sets its engine sound's `EngineSpeed` and `Load` (the child that
-  runs `EngineSound.sgraph`, found when the scene starts); `StartAt` says where on the lap it sets out. **The engine's
-  sound** (`Tools/EngineSound.py`, the `ghost` part) is the `Engine Sound` entity under the ghost, with sixteen
-  children, each an `AudioSource` looping one layer on the `Engine` bus, spatial with doppler (the graph's
-  `DopplerLevel`, given to every voice when the scene starts), playing from the start at volume 0. Its graph
+  dB) for the footbridge's zone and lifts it by 18 dB, since a reverb gives back far less than it takes in; every bus
+  but `Interface` runs a low-pass standing open at 20 kHz, which the `Paused` snapshot closes to 650 Hz while it lowers
+  those buses by 10 dB from their own volumes (a snapshot's value takes the bus's place). **The racing line**
+  (`Tools/RacingLine.py`, data of the tools as the layout is) takes each corner from the road's outside edge at its
+  turn-in to its inside edge at its apex and out again (4.6 m from the center line; the turn-in and the exit where the
+  widest arc the road allows would leave the edge; apex to apex where the next corner turns the other way too soon),
+  averages the line's points along the lap with a Gaussian of 6 m so that its curvature is continuous, then sets the
+  speed from it: the cornering limit at 1.2 g, a forward pass at what 150 kW at the rear wheel gives against the drag
+  (CdA 0.3 m²) and the rolling resistance, at most 9 m/s² (the front lifting), and a backward pass at 11.5 m/s², both
+  sharing the tyres' grip with cornering, round the lap three times; the lean is atan(v²κ/g); the gear follows a stated
+  six-speed gearbox (up at 15,500 rpm, down under 10,500 while braking), and the engine speed and the load (the share of
+  the power given) follow. Its `check()` asserts that the line stays on the asphalt (within 5.2 m of the center line),
+  leans at most 52°, has no step in its speed (also in the speed its keys give), leans into every corner (its deepest
+  lean between a corner's turn-in and exit at least 10° to the inside the layout gives, not the side of the curvature
+  the lean comes from) and that its keys reproduce it (1 cm, 0.1° of heading, 0.2° of lean, 15 rpm). **The ghost bike**
+  (`Tools/Ghost.py`, the `ghost` part) is a second bike and rider of the grid bike's meshes and materials, so that the
+  renderer draws both in the same batches, at the start and finish line; it has no rigid body and no collider, and its
+  graph (`Scripts/Ghost.sgraph`) plays a looping timeline of the line's keys over one lap: `Position`, `Heading`
+  (unwrapped degrees about +Y), `Lean`, `EngineSpeed` (two keys at one time at each shift) and `Load`, each key carrying
+  the line's own slopes, as few keys as keep each within its tolerance. Every update places the ghost, turns it by
+  `Heading` after `Lean` (`Quaternion.AngleAxis` twice, multiplied), counts a lap when the timeline's time comes round
+  past the line, keeps the read-outs `LapTime`, `EngineSpeed` and `Load`, and sets its engine sound's `EngineSpeed` and
+  `Load` (the child that runs `EngineSound.sgraph`, found when the scene starts); `StartAt` says where on the lap it
+  sets out. **The engine's sound** (`Tools/EngineSound.py`, the `ghost` part) is the `Engine Sound` entity under the
+  ghost, with sixteen children, each an `AudioSource` looping one layer on the `Engine` bus, spatial with doppler (the
+  graph's `DopplerLevel`, given to every voice when the scene starts), playing from the start at volume 0. Its graph
   (`Scripts/EngineSound.sgraph`) takes its inputs as public variables, `EngineSpeed` and `Load`, which whoever runs the
   engine sets (the ghost now, a ridden bike later), and every update sets each voice's volume and pitch: the volume is
   the layer's fade by where the engine speed lies from it in layers (`log(speed / layer's speed) / log(1.346)`, read
@@ -5764,21 +5765,23 @@ that each platform's names are tested on every platform:
   children's angles are the world's), and every update turns the trackside camera that shows, and no other: a camera not
   shown costs nothing a frame; `Active` reads the camera that shows. **The echo and the pause** (`Tools/Sound.py`, the
   `sound` part): the `Footbridge Echo` is a `ReverbZone`, a box under the footbridge's deck across the road and its
-  verges (half extents 12.2, 3 and 3 m, up to the deck), turned with the road, sending 0.8 of what sounds inside it to
+  verges (half extents 12.2, 3 and 3 m, up to the deck), turned with the road, sending all of what sounds inside it to
   the `Reverb` bus and fading out over 8 m round it, so the ghost's pass under the deck (about 190 km/h) sends for about
-  0.4 s and leaves its tail ringing; the `Audio Director` runs `Scripts/AudioDirector.sgraph`, to which the `Pause`
-  action sends `TogglePause`: it blends the mix to the `Paused` snapshot over `Seconds` (0.5), or back to the mixer's
-  own values, and keeps the read-out `Paused`; with `StartPaused` on it sends itself `TogglePause` when the scene starts
-  (a game that opens paused; the sound test below starts muffled that way); nothing else pauses yet. **The input
-  actions** (`Tools/Controls.py`, the `input` part; `Input/Moto.sinput`, named by `Moto.sproj`): `Throttle` and `Brake`
-  (axes: W and S, the right and the left trigger), `Lean` (A and D, the left stick's X), `ShiftUp` and `ShiftDown` (E
-  and Q, the bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y) and `ResetCamera` (R, Back), each on the keyboard
-  and any gamepad; the directors use the last three, and the riding actions wait for the ridden bike. **The test scene**
-  (`Scenes/Tests.sscene`, the main scene without its props, which stand clear of all it checks, with a crate over the
-  road, two blocks sent sliding with the scene, the `Waiting Tour`, the ghost set out 30 s into its lap and the `Tests`
-  entity) holds 24 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
-  reporting through the `Checks` library): rays down at points of the layout hit the road, a kerb, a wall's top, the
-  ground and the footbridge's deck at their heights, facing up, and name the physics material of the asphalt (also where
+  0.4 s and leaves its tail ringing, heard over the engine (at the footbridge camera the pass with the zone is 5 to 7
+  dB louder than without it in the half second under the deck and the one after); the `Audio Director` runs its graph,
+  `Scripts/AudioDirector.sgraph`, to which the `Pause` action sends `TogglePause`: it blends the mix to the `Paused`
+  snapshot over `Seconds` (0.5), or back to the mixer's own values, and keeps the read-out `Paused`; with `StartPaused`
+  on it sends itself `TogglePause` when the scene starts (a game that opens paused; the sound test below starts muffled
+  that way); nothing else pauses yet. **The input actions** (`Tools/Controls.py`, the `input` part; `Input/Moto.sinput`,
+  named by `Moto.sproj`): `Throttle` and `Brake` (axes: W and S, the right and the left trigger), `Lean` (A and D, the
+  left stick's X), `ShiftUp` and `ShiftDown` (E and Q, the bumpers), `Pause` (Escape, Start), `NextCamera` (C, Y) and
+  `ResetCamera` (R, Back), each on the keyboard and any gamepad; the directors use the last three, and the riding
+  actions wait for the ridden bike. **The test scene** (`Scenes/Tests.sscene`, the main scene without its props, which
+  stand clear of all it checks, with a crate over the road, two blocks sent sliding with the scene, the `Waiting Tour`,
+  the ghost set out 30 s into its lap and the `Tests` entity) holds 24 checks, all graphs (`Tests.sgraph`, a latent
+  function per check called in order from a Sequence, reporting through the `Checks` library): rays down at points of
+  the layout hit the road, a kerb, a wall's top, the ground and the footbridge's deck at their heights, facing up, and
+  name the physics material of the asphalt (also where
   a timing line is painted), a kerb, a gravel trap, a verge and the ground; the crate comes to rest on the road; of the
   two blocks sent off at 8 m/s, rotation locked, the one on the asphalt slides farther than the one in the gravel, each
   within a tenth of v²/(2gμ); and the camera is at the home view when the scene starts, where the path puts it under the
@@ -5805,13 +5808,13 @@ that each platform's names are tested on every platform:
   c / (c - v) that the ghost's motion towards the camera predicts, within 1 % (it reads within 0.3 % against shifts of 9
   to 13 %): the prediction comes from the copied project itself (the keys of the ghost's timeline, the camera's place,
   the mixer's speed of sound). With the echo, the capture is the same samples as without it until the ghost comes within
-  the zone's reach, carries a tail of at least a tenth of the mix's level over the 0.4 s after it has left (about a
-  third), and a second later under a tenth of that. Two more captures, the first two again with the audio director's
+  the zone's reach, carries a tail louder than the mix over the 0.4 s after it has left (about three times), and a
+  second later under a tenth of that. Two more captures, the first two again with the audio director's
   `StartPaused` on, measure the `Paused` snapshot against the copied mixer's values for each bus (a second-order
   Butterworth low-pass takes at most 0.26 dB under half its cutoff and 24 dB at four times it): the engine's band under
   half the cutoff falls by the snapshot's volume within 1.5 dB (it reads -10.0 dB), and its band over four times the
   cutoff by 15 dB more (-41.8 dB); the echo's tail, the difference the zone makes, falls by at least the volume (-10.3
-  dB) and over four times the cutoff by 8 dB more, a bound left wide of the captures' 16-bit floor (-29.6 dB; with the
+  dB) and over four times the cutoff by 8 dB more, a bound left wide of the captures' 16-bit floor (-37.9 dB; with the
   snapshot's frequency on the `Reverb` bus's high-pass in place of its low-pass, it reads -10.0 dB and fails).
   `PlayModeTests` (StradaEditorTests) plays the main scene in the editor's play mode, where the camera leaves the home
   view, the actions `NextCamera`, `Pause` and `ResetCamera` injected through `input.set` cut to the start line's camera,

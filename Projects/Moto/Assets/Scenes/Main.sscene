@@ -392529,7 +392529,7 @@
 					],
 					"FadeDistance": 8.0,
 					"Bus": "Reverb",
-					"SendLevel": 0.800000011920929
+					"SendLevel": 1.0
 				}
 			}
 		},
