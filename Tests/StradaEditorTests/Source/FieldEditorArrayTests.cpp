@@ -4,6 +4,7 @@
 #include "TestUtilities.h"
 
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/Commands/CommandHistory.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/InspectorPanel.h"
@@ -23,6 +24,7 @@
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Project/Project.h"
 #include "Strada/Project/ProjectSettings.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
@@ -587,100 +589,196 @@ TEST_CASE("FieldEditor: an array of a fixed order has no grips and no Move items
 	CHECK(fixture.TakeChange().ArrayEdit == std::optional<FieldArrayEdit>(FieldArrayEdit{FieldArrayEditKind::Duplicate, 0, 0}));
 }
 
-TEST_CASE("DataAssetEditor: in the inspector a mixer's effects, which snapshot values hold by index, are never moved")
+namespace
 {
-	Testing::AssetManagerScope const assets;
-	HeadlessImGui imgui;
-	imgui.UseEditorStyle();
-	Testing::TemporaryDirectory temporary;
-	EditorContext context;
-	EditorOperations operations(context);
-	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
-	DataAssetType const* const type = DataAssetRegistry::FindByName("Mixer");
-	REQUIRE(type != nullptr);
-	// The snapshot's value sets the reverb's WetDb: the second effect of Music.
-	Result<AssetHandle> const created = operations.CreateDataAsset(type->GetAssetType(), "Audio/Game.smixer", Json::parse(R"({
-		"Buses": [
-			{ "Name": "Master" },
-			{ "Name": "Music", "Parent": "Master", "Effects": [ { "Kind": "LowPass" }, { "Kind": "Reverb" } ] },
-			{ "Name": "Voices", "Parent": "Master" }
-		],
-		"Snapshots": [ { "Name": "Quiet", "Values": [
-			{ "Bus": "Music", "Target": "Effect", "Effect": 1, "Parameter": "WetDb", "Value": -3.0 } ] } ]
-	})"));
-	REQUIRE(created.IsOk());
-	AssetHandle const mixer = created.GetValue();
-	Ref<TypedDataAsset<Mixer>> const asset = AssetManager::GetAsset<TypedDataAsset<Mixer>>(mixer);
-	REQUIRE(asset != nullptr);
-
-	DataAssetEditor editor;
-	CHECK(editor.HasDrawer("Mixer"));
-	FieldEditor fields;
-	EditSession session(0x4D49584500000000ull);
-	auto const draw = [&]
+	// A project's mixer selected in the Inspector, Music's row unfolded: Music holds two reverbs, of one kind and told apart
+	// by their room size (0.2 and 0.8), and the snapshot Quiet sets the wet level of each by its index (-3 dB the first's, -9
+	// dB the second's).
+	struct InspectedMixerFixture
 	{
-		session.Update(ImGui::IsAnyItemActive(), context.GetHistory());
-		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
-		ImGui::SetNextWindowSize(ImVec2(600.0f, 900.0f));
-		ImGui::Begin("Mixer", nullptr, ImGuiWindowFlags_NoSavedSettings);
-		editor.Draw(operations, fields, mixer, session);
-		ImGui::End();
-	};
-	for (int frame = 0; frame < 3; frame++)
-	{
-		imgui.Frame(draw);
-	}
-	FieldTableDriver const driver{imgui, draw,
-	                              []
-	                              {
-									  return ImGui::FindWindowByName("Mixer");
-								  },
-	                              []
-	                              {
-									  return ImHashStr("##fields", 0, ImGui::FindWindowByName("Mixer")->ID);
-								  }};
-	// Which items an element's menu offers (the menu is closed again).
-	auto const offers = [&](ImGuiID array, int index, char const* item)
-	{
-		driver.Click(ImHashStr("...", 0, driver.GetElementId(array, index)), driver.GetButtonX());
-		REQUIRE(GImGui->OpenPopupStack.Size == 1);
-		ImGuiWindow const* popup = GImGui->OpenPopupStack.back().Window;
-		REQUIRE(popup != nullptr);
-		bool const found = FindItemAt(imgui, ImHashStr(item, 0, popup->ID), popup, popup->Pos.x + popup->Size.x * 0.5f, draw).has_value();
-		imgui.Press(ImGuiKey_Escape, draw);
-		return found;
-	};
-	ImGuiID const buses = driver.GetFieldId("Buses");
-	driver.OpenElement(buses, 1);
-	imgui.Frame(draw);
-	ImGuiID const effects = driver.GetFieldId("Effects", driver.GetElementId(buses, 1));
-	size_t const steps = context.GetHistory().GetUndoCount();
-
-	// The effects: no Move items, the others kept.
-	for (char const* item : {"Move Up", "Move Down"})
-	{
-		CAPTURE(item);
-		CHECK_FALSE(offers(effects, 0, item));
-		CHECK_FALSE(offers(effects, 1, item));
-	}
-	CHECK(offers(effects, 1, "Duplicate"));
-	// The buses, which the mixer names by name, still move.
-	CHECK(offers(buses, 1, "Move Down"));
-	CHECK(offers(buses, 2, "Move Up"));
-	CHECK(context.GetHistory().GetUndoCount() == steps);
-	REQUIRE(asset->GetData().Snapshots.at(0).Values.size() == 1);
-	CHECK(asset->GetData().Snapshots[0].Values[0].Effect == 1);
-	CHECK(asset->GetData().Buses.at(1).Effects.at(1).Kind == MixerEffectKind::Reverb);
-
-	// The type's own table keeps its order free: the Mixer panel moves effects with their snapshot values.
-	for (FieldDescriptor const& field : type->GetFields())
-	{
-		for (FieldDescriptor const& nested : field.Fields)
+		Testing::AssetManagerScope Assets;
+		HeadlessImGui Gui;
+		Testing::TemporaryDirectory Temporary;
+		EditorContext Context;
+		EditorOperations Operations{Context};
+		InspectorPanel Inspector;
+		AssetHandle Asset;
+		std::filesystem::path File;
+		bool Open = true;
+		std::function<void()> Draw = [this]
 		{
-			CAPTURE(nested.Name);
-			CHECK_FALSE(nested.Hints.FixedOrder);
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(500.0f, 1000.0f));
+			Inspector.OnImGuiRender(Operations, Open);
+		};
+		FieldTableDriver Driver{Gui, Draw,
+		                        []
+		                        {
+									return ImGui::FindWindowByName("Inspector");
+								},
+		                        []
+		                        {
+									return ImHashStr("##fields", 0, ImHashStr("##asset", 0, ImGui::FindWindowByName("Inspector")->ID));
+								}};
+
+		InspectedMixerFixture()
+		{
+			Gui.UseEditorStyle();
+			REQUIRE(Operations.CreateProject(Temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+			DataAssetType const* const type = DataAssetRegistry::FindByName("Mixer");
+			REQUIRE(type != nullptr);
+			Result<AssetHandle> const created = Operations.CreateDataAsset(type->GetAssetType(), "Audio/Game.smixer", Json::parse(R"({
+				"Buses": [
+					{ "Name": "Master" },
+					{ "Name": "Music", "Parent": "Master",
+					  "Effects": [ { "Kind": "Reverb", "RoomSize": 0.2 }, { "Kind": "Reverb", "RoomSize": 0.8 } ] },
+					{ "Name": "Voices", "Parent": "Master" }
+				],
+				"Snapshots": [ { "Name": "Quiet", "Values": [
+					{ "Bus": "Music", "Target": "Effect", "Effect": 0, "Parameter": "WetDb", "Value": -3.0 },
+					{ "Bus": "Music", "Target": "Effect", "Effect": 1, "Parameter": "WetDb", "Value": -9.0 } ] } ]
+			})"));
+			REQUIRE_MESSAGE(created.IsOk(), (created ? std::string() : created.GetError()));
+			Asset = created.GetValue();
+			File = Context.GetProject()->GetAssetDirectory() / "Audio" / "Game.smixer";
+			Context.SelectAsset(Asset);
+			for (int frame = 0; frame < 3; frame++)
+			{
+				Gui.Frame(Draw);
+			}
+			Driver.OpenElement(GetBusesId(), 1);
+			Gui.Frame(Draw);
 		}
+
+		ImGuiID GetBusesId() const { return Driver.GetFieldId("Buses"); }
+		ImGuiID GetMusicId() const { return Driver.GetElementId(GetBusesId(), 1); }
+		ImGuiID GetEffectsId() const { return Driver.GetFieldId("Effects", GetMusicId()); }
+
+		Mixer ReadMixer() const
+		{
+			Ref<TypedDataAsset<Mixer>> const asset = AssetManager::GetAsset<TypedDataAsset<Mixer>>(Asset);
+			REQUIRE(asset != nullptr);
+			return asset->GetData();
+		}
+
+		std::string ReadFile() const
+		{
+			Result<std::string> const text = FileSystem::ReadTextFile(File);
+			REQUIRE(text.IsOk());
+			return text.GetValue();
+		}
+	};
+
+	// The snapshot value of Quiet that sets the level given, if it has one.
+	MixerSnapshotValue const* FindSnapshotValue(Mixer const& mixer, float level)
+	{
+		REQUIRE(mixer.Snapshots.size() == 1);
+		std::vector<MixerSnapshotValue> const& values = mixer.Snapshots[0].Values;
+		auto const found = std::find_if(values.begin(), values.end(),
+		                                [level](MixerSnapshotValue const& value)
+		                                {
+											return value.Value == level;
+										});
+		return found != values.end() ? &*found : nullptr;
 	}
+}
+
+TEST_CASE("Inspector: each list edit of a mixer's effects keeps the snapshot values on the effects they name by index, one undo step each")
+{
+	InspectedMixerFixture fixture;
+	FieldTableDriver const& driver = fixture.Driver;
+	CommandHistory const& history = fixture.Context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+	ImGuiID const effects = fixture.GetEffectsId();
+
+	struct Edit
+	{
+		std::string Name;
+		std::function<void()> Make;
+		size_t Effects = 0;
+		// The effect each value names after the edit: the first reverb's (-3 dB) and the second's (-9 dB); none when its
+		// effect went.
+		std::optional<uint32_t> First;
+		std::optional<uint32_t> Second;
+	};
+	auto const pick = [&](int index, char const* item)
+	{
+		return [&driver, effects, index, item]
+		{
+			driver.PickFromMenu(effects, index, item);
+		};
+	};
+	std::vector<Edit> const edits = {
+		{"Move Up", pick(1, "Move Up"), 2, 1u, 0u},
+		{"Move Down", pick(0, "Move Down"), 2, 1u, 0u},
+		{"Duplicate", pick(0, "Duplicate"), 3, 0u, 2u},
+		{"Insert Above", pick(0, "Insert Above"), 3, 1u, 2u},
+		{"Add Element",
+	     [&]
+	     {
+			 driver.Click(ImHashStr("Add Element", 0, effects), driver.GetValueX());
+		 },
+	     3, 0u, 1u},
+		{"Remove", pick(0, "Remove"), 1, std::nullopt, 0u},
+	};
+	for (Edit const& edit : edits)
+	{
+		CAPTURE(edit.Name);
+		edit.Make();
+		fixture.Gui.Frame(fixture.Draw);
+		CHECK(history.GetUndoCount() == steps + 1);
+		CHECK(history.GetUndoDescription() == "Edit Mixer");
+		Mixer const mixer = fixture.ReadMixer();
+		std::vector<MixerEffect> const& music = mixer.Buses.at(1).Effects;
+		CHECK(music.size() == edit.Effects);
+		// Each value is on its own reverb, the one of its room size, never on the other of the same kind.
+		struct Expected
+		{
+			float Level = 0.0f;
+			std::optional<uint32_t> Effect;
+			float RoomSize = 0.0f;
+		};
+		for (Expected const& expected : {Expected{-3.0f, edit.First, 0.2f}, Expected{-9.0f, edit.Second, 0.8f}})
+		{
+			CAPTURE(expected.Level);
+			MixerSnapshotValue const* const value = FindSnapshotValue(mixer, expected.Level);
+			REQUIRE((value != nullptr) == expected.Effect.has_value());
+			if (value != nullptr)
+			{
+				CHECK(value->Effect == *expected.Effect);
+				REQUIRE(value->Effect < music.size());
+				CHECK(music[value->Effect].Kind == MixerEffectKind::Reverb);
+				CHECK(music[value->Effect].RoomSize == expected.RoomSize);
+			}
+		}
+
+		// Undone, the file is as it was, byte for byte (an edit that made no step, which the checks above report, leaves
+		// nothing to undo).
+		if (history.GetUndoCount() > steps)
+		{
+			REQUIRE(fixture.Operations.Undo().IsOk());
+		}
+		fixture.Gui.Frame(fixture.Draw);
+		CHECK(history.GetUndoCount() == steps);
+		CHECK(fixture.ReadFile() == bytes);
+	}
+}
+
+TEST_CASE("Inspector: an edit of a mixer that is refused, a bus renamed while a snapshot names it, changes nothing")
+{
+	InspectedMixerFixture fixture;
+	CommandHistory const& history = fixture.Context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+
+	fixture.Driver.TypeInto(ImHashStr("##value", 0, fixture.Driver.GetFieldId("Name", fixture.GetMusicId())), "Songs");
+	CHECK(history.GetUndoCount() == steps);
+	CHECK(fixture.ReadFile() == bytes);
+	Mixer const mixer = fixture.ReadMixer();
+	CHECK(mixer.Buses.at(1).Name == "Music");
+	REQUIRE(FindSnapshotValue(mixer, -9.0f) != nullptr);
+	CHECK(FindSnapshotValue(mixer, -9.0f)->Effect == 1);
 }
 
 TEST_CASE("FieldEditor: an element added to a list whose range holds no value of its type starts within the type's range")

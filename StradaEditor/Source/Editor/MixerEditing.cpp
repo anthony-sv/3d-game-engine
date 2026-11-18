@@ -203,6 +203,12 @@ namespace Strada
 
 	Result<void> ApplyMixerChange(Mixer& mixer, FieldChange const& change)
 	{
+		if (change.Path.size() > 1 && change.Path[0].Field == "Buses" && change.Path[0].Element)
+		{
+			FieldChange busChange = change;
+			busChange.Path.erase(busChange.Path.begin());
+			return ApplyMixerBusChange(mixer, *change.Path[0].Element, busChange);
+		}
 		Json const values = SerializeFields<StructTraits<Mixer>>(mixer);
 		return DeserializeFields<StructTraits<Mixer>>(change.MakePatch(values), mixer, DeserializationContext{}, "mixer");
 	}

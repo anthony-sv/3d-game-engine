@@ -937,7 +937,8 @@ scripts reach data assets through the Script module's bindings.
   when an edit brings none: a drawer's own keys keep merging while the session's interaction has ended.
 - *A drawer of a type's own.* `DataAssetEditor::SetDrawer(name, drawer)` replaces the default body of one type (the
   engine's drawers are one list in `DataAssetEditor.cpp`, where a type's track adds its line; `Curve`'s is the curve
-  editor, §6.5, and `Mixer`'s the type's field table with each bus's effects in a fixed order, §9.7). A drawer gets a
+  editor, §6.5, and `Mixer`'s the type's field table with each edit applied as the Mixer panel applies it, §9.7). A
+  drawer gets a
   `DataAssetDrawContext` (the asset, its type, its fields as JSON, whether it is editable, the field editor) and returns
   a `DataAssetEdit` when the user changed something: a partial patch, the step's name in the undo history (empty for
   `Edit <type name>`) and a merge key (0 for the inspector's interaction). A widget that commits at its own cadence, such
@@ -945,10 +946,9 @@ scripts reach data assets through the Script module's bindings.
   itself (`Set Length on Timeline (moves 2 keys)`), gives its own key and description, which the step keeps. The asset
   editor applies the edit as the step `<domain>.set` makes, so a drawer never writes files or assets itself. It may draw
   the default body for the fields it does not draw itself (`DataAssetEditor::DrawFields`), the others being
-  `HiddenInEditors` in the field table, or draw it from a copy of the table with hints of its own
-  (`DrawFields(context, fields)`, as `Mixer`'s sets `FieldHints::FixedOrder` on an array other data holds by index).
-  A struct type that appears inside other data (a curve inside a vehicle definition) gets a struct drawer of the field
-  editor instead, from one editor-wide list, used wherever that struct appears (§11).
+  `HiddenInEditors` in the field table. A struct type that appears inside other data (a curve inside a vehicle
+  definition) gets a struct drawer of the field editor instead, from one editor-wide list, used wherever that struct
+  appears (§11).
 - *The content browser.* Its New menu has an item per registered type, named by the type's display name (`New Test
   Data`, the description as its tooltip), which writes a file of the default fields named `New <display name>` (made
   unique) into the displayed folder, selects it and starts renaming it, as New Material does
@@ -1339,10 +1339,9 @@ what replaces the field (`OverriddenBy`: another field of the table that referen
 itself; while it holds an asset the inspector shows the field disabled and says what sets it, as a collider's `Material`
 replaces its `Friction` and `Restitution`; files and automation read and write the field as usual) and, for arrays, the most elements they hold (`MaxCount`, enforced whenever JSON is read, like ranges; the inspector's
 add buttons stop there), and whether editors keep an array's order (`FixedOrder`: no grips and no Move items for an
-array whose indices other data holds, as the Project Settings panel sets on the physics layers and the inspector on a
-mixer's effects; files and automation are unaffected); the conditions, switches and replacements are checked at
-compile time. Values that skip the JSON checks (scripts, values made in C++) can be brought into range, and their
-arrays down to their `MaxCount`, with
+array whose indices other data holds, as the Project Settings panel sets on the physics layers; files and automation
+are unaffected); the conditions, switches and replacements are checked at compile time. Values that skip the JSON checks
+(scripts, values made in C++) can be brought into range, and their arrays down to their `MaxCount`, with
 `ClampToFieldRanges` (`FitToFieldRanges` for imported data, which also replaces NaN and says what it changed). Field tables of other structs (renderer settings,
 materials, data assets) use the same hints. Each component
 also names its category (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`). The registry provides
@@ -3162,13 +3161,14 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   sound ended or how loud a bus reads.
 - **The editor and the agents.** The `.smixer` inspector is the generic data asset editor; `mixer.*` are the generated
   commands. The rows of a list of buses are titled by their `Name`; an effect's row, which has no string field, by its
-  kind and the first parameter that kind shows (`0: Reverb, Room Size 0.5`; `FieldEditor::DescribeElement`). The
-  inspector draws a mixer from a copy of its field table in which each bus's `Effects` has `FieldHints::FixedOrder`
-  (`DataAssetEditor`'s drawer of the type): a snapshot value holds an effect by its index, and only the Mixer panel
-  moves those values with their effects, so the inspector moves no effect. Adding, duplicating and removing an effect
-  there still shift the indices after it; the values are left as they are, and validation refuses those that then name
-  an effect the bus lacks or a parameter its kind does not use. Buses, snapshots and their values are named, not
-  indexed, and keep their Move items.
+  kind and the first parameter that kind shows (`0: Reverb, Room Size 0.5`; `FieldEditor::DescribeElement`). A snapshot
+  value holds an effect by its index on its bus, so the inspector applies an edit of a mixer as the Mixer panel does
+  (`DataAssetEditor`'s drawer of the type, through `ApplyMixerChange`, `Editor/MixerEditing.h`): when a bus's effects
+  change as a list (an effect added, inserted, duplicated, removed or moved), the snapshots' values follow their
+  effects, a value whose effect is removed goes, and a duplicate's values stay on the original. Files and `mixer.set`
+  take a document as given: validation refuses a value that names an effect the bus lacks or a parameter its kind does
+  not use, and an index that names another effect of the right kind is taken as written. Buses, snapshots and their
+  values are named, not indexed.
 - **The Mixer panel** (`MixerPanel`, Docs/Editor.md "The Mixer panel"; docked below the scene view beside the Console,
   open by default, `viewport.screenshot`'s window `Mixer`): the shown mixer (the project's, or one chosen in the panel)
   as a strip per bus (name, meter, fader, mute), the selected bus's other fields through the generic field editor, the
@@ -4265,8 +4265,7 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   the last, and a grip that drags the row onto another row's grip in the same array (a `FieldArrayEditKind::Move` to
   that row's index; the payload, `DragDropPayload::ArrayElement`, names the array's ID scope, so a drop on another
   array's grip moves nothing), as components' arrays of values are, but for an array of a fixed order
-  (`FieldHints::FixedOrder`: the Project Settings' physics layers, which bodies hold by index, and in the inspector a
-  mixer's effects, which snapshot values hold by index, §9.7), which has no grips and
+  (`FieldHints::FixedOrder`: the Project Settings' physics layers, which bodies hold by index), which has no grips and
   no Move items; each list edit (an element changed, inserted, removed or moved) is one
   undo step that writes the field's whole list (`{ "Type": "Float[]", "Value": [...] }`). A selection whose lists differ
   shows the field mixed, as components' arrays do, and an edit is applied to each selected entity's own list by index
