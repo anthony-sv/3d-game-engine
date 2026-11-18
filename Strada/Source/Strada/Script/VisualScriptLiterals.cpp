@@ -22,6 +22,10 @@
 
 namespace Strada
 {
+	// A public array variable is a list field (Docs/Architecture.md §10.6): its literal and its stored list hold as many
+	// elements.
+	static_assert(MaxVisualScriptArrayLiteralElements == MaxScriptFieldListElements, "array literals and lists share one limit");
+
 	namespace
 	{
 		struct ExposableTypeEntry

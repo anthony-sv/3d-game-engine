@@ -136,6 +136,27 @@ TEST_CASE("Scene: stored field values reach every field type and mismatches keep
 	scene.OnRuntimeStop();
 }
 
+TEST_CASE("Scene: a list stored for a field of one value is logged and skipped, keeping the default")
+{
+	Testing::ScriptEngineScope scripting;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Lists");
+	Entity const fields = AddScript(scene, "Fields", "Strada.Tests.FieldTypes",
+	                                {
+										{"Speed", ScriptFieldValue::FromList(ScriptFieldType::Float, {ScriptFieldValue::FromFloat(9.0f)})},
+										{"Count", ScriptFieldValue::FromList(ScriptFieldType::Int32, {})},
+									});
+
+	scene.OnRuntimeStart();
+	Result<ScriptFieldMap> const read = scene.ReadScriptFields(fields);
+	REQUIRE_MESSAGE(read.IsOk(), read.GetError());
+	CHECK(read.GetValue().at("Speed") == ScriptFieldValue::FromFloat(2.5f));
+	CHECK(read.GetValue().at("Count") == ScriptFieldValue::FromInt32(-3));
+	CHECK(Testing::WasLogged(logStart, "Strada.Tests.FieldTypes.Speed: stored \"Float[]\" value ignored: the field is a Float now"));
+	CHECK(Testing::WasLogged(logStart, "Strada.Tests.FieldTypes.Count: stored \"Int32[]\" value ignored: the field is a Int32 now"));
+	scene.OnRuntimeStop();
+}
+
 TEST_CASE("Scene: script lifecycle methods run in order and end with the entity or the scene")
 {
 	Testing::ScriptEngineScope scripting;

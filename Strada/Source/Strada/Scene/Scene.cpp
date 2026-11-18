@@ -34,18 +34,32 @@ namespace Strada
 		// Atomic, so that serials stay unique whichever thread makes a scene.
 		std::atomic<uint64_t> s_NextSceneSerial{1};
 
-		// Entity-typed values that refer to remapped entities refer to their copies; the others are kept.
+		// The entity a remapped entity's reference refers to: its copy; other references are kept.
+		UUID RemapEntity(UUID entity, std::unordered_map<UUID, UUID> const& remap)
+		{
+			auto const it = remap.find(entity);
+			return it != remap.end() ? it->second : entity;
+		}
+
+		// Entity-typed values, and the elements of lists of entities, that refer to remapped entities refer to their copies;
+		// the others are kept.
 		void RemapEntityValues(ScriptFieldMap& values, std::unordered_map<UUID, UUID> const& remap)
 		{
 			for (auto& [name, value] : values)
 			{
-				if (value.GetType() != ScriptFieldType::Entity)
+				if (value.GetType() == ScriptFieldType::Entity)
 				{
-					continue;
+					value = ScriptFieldValue::FromEntity(RemapEntity(value.GetEntity(), remap));
 				}
-				if (auto const it = remap.find(value.GetEntity()); it != remap.end())
+				else if (value.GetType() == MakeScriptFieldListType(ScriptFieldType::Entity))
 				{
-					value = ScriptFieldValue::FromEntity(it->second);
+					std::vector<ScriptFieldValue> elements;
+					elements.reserve(value.GetElements().size());
+					for (ScriptFieldValue const& element : value.GetElements())
+					{
+						elements.push_back(ScriptFieldValue::FromEntity(RemapEntity(element.GetEntity(), remap)));
+					}
+					value = ScriptFieldValue::FromList(ScriptFieldType::Entity, std::move(elements));
 				}
 			}
 		}

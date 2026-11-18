@@ -1,0 +1,57 @@
+{
+	"Strada": { "Version": 2, "Type": "Scene" },
+	"Scene": {
+		"Name": "Version 2",
+		"Settings": { "Physics": { "Gravity": [0.0, -9.5, 0.0] } }
+	},
+	"Entities": [
+		{
+			"ID": "1001",
+			"Components": {
+				"Tag": { "Tag": "Holder" },
+				"Transform": { "Translation": [1.0, 2.0, 3.0], "Rotation": [0.0, 0.0, 0.0, 1.0], "Scale": [1.0, 1.0, 1.0] },
+				"Relationship": { "Parent": "0", "Children": ["1002"] },
+				"Script": {
+					"ClassName": "Fixture.Holder",
+					"Fields": {
+						"Assets": { "Type": "Asset[]", "Value": ["66"] },
+						"Bools": { "Type": "Bool[]", "Value": [true, false, true] },
+						"Colors": { "Type": "Color[]", "Value": [[0.5, 0.25, 1.0, 1.0]] },
+						"Doubles": { "Type": "Double[]", "Value": [0.125, -2.0] },
+						"Empty": { "Type": "String[]", "Value": [] },
+						"Entities": { "Type": "Entity[]", "Value": ["1002", "0", "424242", "1001"] },
+						"Floats": { "Type": "Float[]", "Value": [1.25, -0.5, 0.0] },
+						"Int32s": { "Type": "Int32[]", "Value": [-5, 0, 2147483647] },
+						"Int64s": { "Type": "Int64[]", "Value": ["-9007199254740993", "4"] },
+						"Prefabs": { "Type": "Prefab[]", "Value": ["17", "0"] },
+						"Quaternions": { "Type": "Quaternion[]", "Value": [[0.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 0.0]] },
+						"Speed": { "Type": "Float", "Value": 3.5 },
+						"Strings": { "Type": "String[]", "Value": ["", "hello", "two words"] },
+						"UInt32s": { "Type": "UInt32[]", "Value": [0, 4294967295] },
+						"UInt64s": { "Type": "UInt64[]", "Value": ["18446744073709551615"] },
+						"Vector2s": { "Type": "Vector2[]", "Value": [[1.0, 2.0]] },
+						"Vector3s": { "Type": "Vector3[]", "Value": [[1.0, 2.0, 3.0], [0.0, -1.0, 0.5]] },
+						"Vector4s": { "Type": "Vector4[]", "Value": [[1.0, 2.0, 3.0, 4.0]] }
+					}
+				}
+			}
+		},
+		{
+			"ID": "1002",
+			"Components": {
+				"Tag": { "Tag": "Target" },
+				"Transform": { "Translation": [0.0, 0.5, 0.0], "Rotation": [0.0, 0.0, 0.0, 1.0], "Scale": [2.0, 2.0, 2.0] },
+				"Relationship": { "Parent": "1001", "Children": [] },
+				"VisualScript": {
+					"Graph": "0",
+					"Variables": {
+						"Owner": { "Type": "Entity", "Value": "1001" },
+						"Path": { "Type": "Vector3[]", "Value": [[0.0, 1.0, 0.0], [4.0, 1.0, -2.0]] },
+						"Steps": { "Type": "Int64[]", "Value": [] },
+						"Watchers": { "Type": "Entity[]", "Value": ["1001", "1002", "424242"] }
+					}
+				}
+			}
+		}
+	]
+}

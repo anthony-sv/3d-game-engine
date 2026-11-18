@@ -7,14 +7,24 @@
 #include "Strada/Serialization/StructSerialization.h"
 
 #include <algorithm>
+#include <array>
 #include <unordered_set>
 
 namespace Strada
 {
-	static_assert(PrefabSerializer::FormatVersion == PrefabAsset::FormatVersion, "Prefab files are read by PrefabAsset");
-
 	namespace
 	{
+		// Each version after the first. A version that changes what an entity holds changes the prefab format too
+		// (PrefabAsset.cpp), and both migrations call one function that upgrades an entity array.
+		constexpr std::array<DocumentVersion, 1> SceneVersions = {{
+			// Script fields and visual script variables may be lists ({ "Type": "Float[]", "Value": [...] }), which readers of
+			// version 1 refuse as an unknown type. A version-1 scene holds none and is a version-2 scene as it is.
+			{"script fields and visual script variables may hold lists", nullptr},
+		}};
+
+		constexpr VersionedDocumentFormat SceneFormat{"Scene", SceneVersions};
+		static_assert(SceneFormat.GetVersion() == SceneSerializer::FormatVersion, "SceneSerializer::FormatVersion is the newest version");
+
 		constexpr std::string_view IDComponentName = ComponentTraits<IDComponent>::Name;
 
 		// Reads the "ID" of every entity object, validating presence and uniqueness.
@@ -135,6 +145,11 @@ namespace Strada
 				}
 			}
 		}
+	}
+
+	VersionedDocumentFormat const& SceneSerializer::GetFormat()
+	{
+		return SceneFormat;
 	}
 
 	Json SceneSerializer::SerializeSettings(SceneSettings const& settings)
@@ -326,12 +341,14 @@ namespace Strada
 		return document;
 	}
 
-	Result<Ref<Scene>> SceneSerializer::Deserialize(Json const& document, DeserializationContext const& context)
+	Result<Ref<Scene>> SceneSerializer::Deserialize(Json const& fileDocument, DeserializationContext const& context)
 	{
-		if (Result<int> version = ReadFileHeader(document, "Scene", FormatVersion); !version)
+		Result<MigratedDocument> migrated = ReadMigratedDocument(fileDocument, SceneFormat);
+		if (!migrated)
 		{
-			return Error{version.GetError()};
+			return Error{migrated.GetError()};
 		}
+		Json const& document = migrated.GetValue().Get();
 
 		Ref<Scene> scene = CreateRef<Scene>();
 		if (auto const info = document.find("Scene"); info != document.end())
@@ -414,6 +431,11 @@ namespace Strada
 		{
 			return MakeError("'{}': {}", FileSystem::PathToUtf8(path), document.GetError());
 		}
+		// In place, so that a migration never copies a large scene; Deserialize then reads the current version as it is.
+		if (Result<int> migrated = MigrateDocument(document.GetValue(), SceneFormat); !migrated)
+		{
+			return MakeError("'{}': {}", FileSystem::PathToUtf8(path), migrated.GetError());
+		}
 		Result<Ref<Scene>> scene = Deserialize(document.GetValue(), context);
 		if (!scene)
 		{
@@ -444,13 +466,15 @@ namespace Strada
 		return document;
 	}
 
-	Result<Entity> PrefabSerializer::Instantiate(Scene& scene, Json const& document, AssetHandle prefab, Entity parent,
+	Result<Entity> PrefabSerializer::Instantiate(Scene& scene, Json const& fileDocument, AssetHandle prefab, Entity parent,
 	                                             DeserializationContext const& context)
 	{
-		if (Result<int> version = ReadFileHeader(document, "Prefab", FormatVersion); !version)
+		Result<MigratedDocument> migrated = ReadMigratedDocument(fileDocument, PrefabAsset::GetFormat());
+		if (!migrated)
 		{
-			return Error{version.GetError()};
+			return Error{migrated.GetError()};
 		}
+		Json const& document = migrated.GetValue().Get();
 		if (parent && parent.GetScene() != &scene)
 		{
 			return Error{"the parent belongs to another scene"};

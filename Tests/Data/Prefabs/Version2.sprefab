@@ -1,0 +1,53 @@
+{
+	"Strada": { "Version": 2, "Type": "Prefab" },
+	"Entities": [
+		{
+			"ID": "2001",
+			"Components": {
+				"Tag": { "Tag": "Turret" },
+				"Transform": { "Translation": [0.0, 0.0, 0.0], "Rotation": [0.0, 0.0, 0.0, 1.0], "Scale": [1.0, 1.0, 1.0] },
+				"Relationship": { "Parent": "0", "Children": ["2002"] },
+				"Script": {
+					"ClassName": "Fixture.Turret",
+					"Fields": {
+						"Assets": { "Type": "Asset[]", "Value": ["66", "67"] },
+						"Barrel": { "Type": "Entity", "Value": "2002" },
+						"Bools": { "Type": "Bool[]", "Value": [false, true] },
+						"Colors": { "Type": "Color[]", "Value": [[1.0, 0.0, 0.0, 0.5], [0.0, 0.0, 1.0, 1.0]] },
+						"Doubles": { "Type": "Double[]", "Value": [1.5, 0.0625] },
+						"Entities": { "Type": "Entity[]", "Value": ["2002", "2001", "999", "0"] },
+						"Floats": { "Type": "Float[]", "Value": [0.75] },
+						"Int32s": { "Type": "Int32[]", "Value": [-2147483648, 1] },
+						"Int64s": { "Type": "Int64[]", "Value": ["9223372036854775807"] },
+						"Prefabs": { "Type": "Prefab[]", "Value": ["0"] },
+						"Quaternions": { "Type": "Quaternion[]", "Value": [[0.0, 0.0, 1.0, 0.0]] },
+						"Range": { "Type": "Float", "Value": 12.5 },
+						"Strings": { "Type": "String[]", "Value": ["fire"] },
+						"UInt32s": { "Type": "UInt32[]", "Value": [7] },
+						"UInt64s": { "Type": "UInt64[]", "Value": ["0", "12"] },
+						"Vector2s": { "Type": "Vector2[]", "Value": [[-1.0, 0.5], [0.0, 0.0]] },
+						"Vector3s": { "Type": "Vector3[]", "Value": [[0.0, 0.0, 1.0]] },
+						"Vector4s": { "Type": "Vector4[]", "Value": [] }
+					}
+				}
+			}
+		},
+		{
+			"ID": "2002",
+			"Components": {
+				"Tag": { "Tag": "Barrel" },
+				"Transform": { "Translation": [0.0, 1.0, 0.5], "Rotation": [0.0, 0.0, 0.0, 1.0], "Scale": [1.0, 1.0, 1.0] },
+				"Relationship": { "Parent": "2001", "Children": [] },
+				"VisualScript": {
+					"Graph": "0",
+					"Variables": {
+						"Linked": { "Type": "Entity[]", "Value": ["2001", "999"] },
+						"Mount": { "Type": "Entity", "Value": "2001" },
+						"Rounds": { "Type": "UInt32", "Value": 30 },
+						"Spread": { "Type": "Float[]", "Value": [0.25, 0.5] }
+					}
+				}
+			}
+		}
+	]
+}

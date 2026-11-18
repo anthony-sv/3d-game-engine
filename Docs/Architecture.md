@@ -1457,7 +1457,7 @@ Scene (`.sscene`):
 
 ```json
 {
-	"Strada": { "Version": 1, "Type": "Scene" },
+	"Strada": { "Version": 2, "Type": "Scene" },
 	"Scene": { "Name": "Main", "Settings": { "Physics": { "Gravity": [0, -9.81, 0] }, "Renderer": { } } },
 	"Entities": [
 		{ "ID": "1234567890123", "Components": { "Tag": { "Tag": "Player" }, "Transform": { } } }
@@ -1468,8 +1468,65 @@ Scene (`.sscene`):
 Asset references are handle strings. When reading (files, automation), an asset field may also be given as
 `"asset://<path relative to Assets/>"` or `"builtin://<Name>"`; it is resolved and stored as a handle.
 
+Script fields (`Script.Fields`, a C# script's fields) and visual script variables (`VisualScript.Variables`, a graph's
+public variables) are maps by name, `{ "<Name>": { "Type": "<type>", "Value": <value> } }`, written in name order
+(`ScriptFieldMap`, `Strada/Script/ScriptField.h`; the same JSON crosses the script boundary, §10.1). A type is one of
+the sixteen element types, `Bool`, `Int32`, `UInt32`, `Int64`, `UInt64`, `Float`, `Double`, `String`, `Vector2`,
+`Vector3`, `Vector4`, `Quaternion`, `Color`, `Entity`, `Prefab` and `Asset`, or since version 2 of both formats a
+**list** of one of them, named after it with `[]` (`"Float[]"`, `"Entity[]"`). 64-bit integers, entity IDs and asset
+handles are decimal strings, vectors, colors and quaternions (X, Y, Z, W) number arrays, and a list is the array of its
+elements' values, at most 4,096 of them (`MaxScriptFieldListElements`, the visual scripts' literal limit), each a value
+of its element type: `"Waypoints": { "Type": "Vector3[]", "Value": [[0, 1, 0], [4, 1, -2]] }`,
+`"Targets": { "Type": "Entity[]", "Value": ["1234567890123", "0"] }`, `"Empty": { "Type": "String[]", "Value": [] }`.
+There are no lists of lists and no lists of `None`. A value of the wrong kind, a list that is no array or holds more
+than 4,096 elements, and an element its type refuses (the error names it: `field 'Floats': element 1: expected a
+number`) refuse the component, and so the file; applied to an entity (`component.set`, undo), they change nothing.
+In memory a list type is its element type with the bit `ScriptFieldListFlag` set (`MakeScriptFieldListType`), so a
+list never equals its element type: code that compares a stored value's type with a field's type refuses a list for a
+field of one value, and a list for one, without knowing about lists.
+
 Prefab (`.sprefab`): same entity array as a scene (root first). Instantiation assigns fresh UUIDs and remaps all
-intra-prefab references (hierarchy, entity-typed script fields and visual script variables).
+intra-prefab references (hierarchy, entity-typed script fields and visual script variables, and the elements of
+`Entity[]` lists); duplicating entities remaps references into the duplicated subtree the same way.
+
+**Versions and migrations of scenes and prefabs.** Both formats are at **version 2**, their first bump: version 2 lets a
+script field or a visual script variable be a list, which a reader of version 1 refuses as an unknown type, so no
+version-1 file holds one (a hand-made one that does is read as version 2 reads it). Writers write the current version,
+always. Readers take every version from 1
+to the current one: a version-1 file loads unchanged, as a version-2 file of the same content, and its next save writes
+it as version 2 (committed samples become version 2 when they are next saved, never in bulk). A newer version is refused
+by every reader ("file version 3 is newer than the supported version 2"); so an engine from before the bump refuses a
+version-2 scene (it does not open) and a version-2 prefab (the asset does not load), rather than drop the lists. The
+history lives beside the readers, as data: a `VersionedDocumentFormat` (`Strada/Serialization/VersionedDocument.h`)
+names the header's type and lists each version after the first as a `DocumentVersion` (what it changed, and the
+migration that upgrades a document of the version before, in place, header included). Version 2 of both has no
+migration (null): a version that only adds what older readers refuse needs none, and documents of the version before
+are read as they are. `SceneSerializer::GetFormat` and `PrefabAsset::GetFormat` (the prefab format lives in the Asset
+module, below the Scene module that writes prefabs, so the asset's reader and `PrefabSerializer` share one history)
+are read in two ways: `MigrateDocument` migrates a document the reader owns in place (`SceneSerializer::LoadFromFile`,
+`PrefabAsset::Create`, so an asset's document is always current and an instantiation reads it as it is), and
+`ReadMigratedDocument` reads one the caller keeps (`SceneSerializer::Deserialize`, `PrefabSerializer::Instantiate`),
+copying it only when a version after the document's has a migration, so a large scene of a version that needs none is
+never copied. Migrations follow the struct documents' rules (§6.4) and share their runner, `RunDocumentMigration`: a
+migration checks what it reads and refuses what it cannot convert, and one that throws or leaves no object refuses the
+document. Entity JSON without a file header (undo snapshots, the editor's copies of entities, `entity.create` and
+`component.set` input, `DeserializeEntityHierarchy`) is always of the current version and never migrated.
+**Adding a version** (the rule every later bump follows):
+1. A change that a reader of the current version would refuse or misread needs a version: a new kind of value (as the
+   lists were), a renamed or removed component or field, a value whose meaning changes, a range made narrower. A new
+   field with a default does not: it is a compatible field (missing keys keep defaults; an older engine warns about the
+   unknown key and drops it on its next save).
+2. Raise `FormatVersion` (`SceneSerializer`, `PrefabAsset`; a `static_assert` ties it to the list) and append a
+   `DocumentVersion` that says what changed, with a migration that turns a document of the version before into one of
+   the new version, or null when every such document already is one.
+3. A change to what an entity holds changes both formats: both get the version, and both migrations call one function
+   that upgrades an entity array, kept beside the prefab format in the Asset module; a change to the `Scene` object
+   (its settings) is the scene format's alone.
+4. Keep every fixture and add the new version's: `Tests/Data/Scenes/Version<N>.sscene` and
+   `Tests/Data/Prefabs/Version<N>.sprefab`. The format tests (`SceneFormatTests.cpp`) load each version, compare what a
+   migrated file holds with the same content of the current version, and refuse the version after the current one;
+   the scene and prefab fuzz cases seed from each fixture.
+5. Update this paragraph: the versions and what each changed.
 
 Project (`<Name>.sproj`, `ProjectSettings` with field tables, validated on every read): `Name`, `Identity` (`Company`,
 `Product`, both optional: the game's data folder and bundle identifier, §13.1), `AssetDirectory`
@@ -3213,6 +3270,18 @@ serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `doubl
 metadata lists the enumerators in declaration order and marks `[Flags]` enums; stored values out of the enum's range
 are ignored) and typed references as asset handles (the metadata names the accepted asset type).
 
+**Lists.** A field of type `T[]` or `List<T>`, `T` one of the types above (enums and typed references included), is a
+list field: its type is `T`'s field type as a list (`Float[]`, `Int32[]` for an `int` enum, `Asset[]` naming the
+accepted asset type), stored and edited as §7.3 describes, at most 4,096 elements. The class metadata lists it with its
+element's attributes (`[Range]` bounds each element, an enum's enumerators name each element's values) and a default
+read from the default instance (a null array or list is the empty list). An instance receives a stored list as a new
+array or `List<T>` of the elements (a null reference for an entity or asset element of 0, as for single fields); a
+stored list whose element type differs, or an element out of an enum's range, is logged and skipped like a single
+field's mismatch. Reading a running instance back writes its list as it holds it; one that holds more than 4,096
+elements is left out of what is read (logged once per field), so the stored value stays. A field of any other type
+(`Dictionary<,>`, arrays of arrays, lists of structs or of types without a field type) is no field, as before, but is
+now logged once per class, with its name and type, when the game assembly loads, instead of being dropped in silence.
+
 One scene runs scripts at a time (the `ScriptEngine`'s scene context, which the bindings act on). At runtime start
 every instance is created before the first `OnCreate`, so scripts can find each other there. Each update first
 follows `ScriptComponent` changes (new components get instances and `OnCreate`; a changed class or a removed
@@ -3462,8 +3531,11 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   type's empty array in defaults, in values entering slots, in member results, on `SetVariable(null)` and in `SendEvent`
   arguments, so a null array is no aborting error. Equality compares element by element with the element type's equality;
   element reads and writes have a typed path for every kind a slot holds in place and allocate nothing. Arrays may be
-  private variables, locals, parameters, custom-event parameters, `Literal` types and type arguments; a public one is
-  `NotExposable` until components can store arrays. Literals are JSON arrays of element literals, at most 4096. The
+  private variables, locals, parameters, custom-event parameters, `Literal` types and type arguments. A public one is
+  exposable when its element type is (an exposable type or a usable enum): it becomes a list field (§7.3, §10.3) whose
+  default is its literal, edited in the Inspector and stored in `VisualScript.Variables` like a C# list field; a public
+  array of any other element type (`Strada.Matrix4[]`, `Strada.RaycastHit[]`) is `NotExposable` with the message of any
+  type that is not. Literals are JSON arrays of element literals, at most 4096. The
   `Utilities/Array` (Contains, IndexOf, Make, Set, Add, RemoveAt, Insert, Append, beside Length and Get) and
   `Utilities/String` nodes (15, ordinal and culture-invariant) run as intrinsics; arrays they make hold at most 65,536
   elements.
@@ -3880,7 +3952,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   - Stop: removed instances end, then `OnDestroy` runs for every C# instance and `Event.Destroy` for every graph
     instance before both kinds are destroyed; `~Scene` stops them too, and entities created while stopping start
     nothing.
-- **Variables**: a component stores values by variable name in the script field format (`Variables`). A value stored
+- **Variables**: a component stores values by variable name in the script field format (`Variables`; a public array
+  as a list, §7.3, whose elements an instance receives as the array's). A value stored
   under a former name applies to the renamed variable (`NormalizeVisualScriptOverrides`: the value under the current
   name wins, else the one under the most recent former name), and instances get the normalized values. While a scene
   runs, `Scene::ReadVisualScriptVariables` copies the values an instance's public variables hold into its component and
@@ -3964,8 +4037,15 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   of enum types are listed read-only with the reason until the scripting runtime describes its enums
   (`InspectorPanel::SetVisualScriptEnumLookup`, given by `EditorLayer` from `VisualScriptEnumLookupSource`: a lookup
   that reads the runtime's node library when first asked about a type, empty without the runtime), and so are those of
-  types components cannot set (arrays among them: "arrays cannot be set on components"). A component whose graph is a
-  function library shows that it runs on no entity instead of variables. C# scripts and visual
+  types components cannot set (arrays of such types among them). A component whose graph is a
+  function library shows that it runs on no entity instead of variables. **List fields** of scripts and graphs
+  (`ScriptFieldInspection::DescribeFields`) are the generic field editor's arrays of values (`FieldKind::Array`, the
+  element's kind, range, enum values or accepted asset type, `MaxCount` 4,096): a row per element with remove, add below
+  the last, and rows dragged to reorder, as components' arrays are; each list edit (an element changed, inserted,
+  removed or moved) is one undo step that writes the field's whole list (`{ "Type": "Float[]", "Value": [...] }`), and a
+  selection whose lists differ shows the field mixed, as components' arrays do, so an edit writes the edited list to
+  every selected entity. `component.set` takes and answers the file form, and a list given replaces its field whole.
+  C# scripts and visual
   scripts dropped onto the inspector run on the selected entities. Without selected entities the inspector shows the
   asset selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in

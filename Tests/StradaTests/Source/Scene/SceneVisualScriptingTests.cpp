@@ -843,6 +843,13 @@ TEST_CASE("Scene: running visual scripts take edited variables and their own val
 	CHECK(ReadVariable(counter.GetUUID(), "Speed") == ScriptFieldValue::FromInt32(5));
 	CHECK(
 		Testing::WasLogged(logStart, "Counter on Counter (" + counter.GetUUID().ToString() + "): Speed: stored \"String\" value ignored"));
+	// A list stored for a variable of one value too.
+	counter.GetComponent<VisualScriptComponent>().Variables["Speed"] =
+		ScriptFieldValue::FromList(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(9)});
+	scene.ApplyVisualScriptVariableChanges();
+	CHECK(ReadVariable(counter.GetUUID(), "Speed") == ScriptFieldValue::FromInt32(5));
+	CHECK(
+		Testing::WasLogged(logStart, "Counter on Counter (" + counter.GetUUID().ToString() + "): Speed: stored \"Int32[]\" value ignored"));
 
 	// After stopping there is nothing to read.
 	scene.OnRuntimeStop();

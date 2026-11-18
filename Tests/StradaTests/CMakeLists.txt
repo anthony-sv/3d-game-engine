@@ -120,6 +120,7 @@ add_executable(StradaTests
     Source/Scene/PostProcessVolumeTests.cpp
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
+    Source/Scene/SceneFormatTests.cpp
     Source/Scene/SceneFuzzTests.cpp
     Source/Scene/SceneInputActionsTests.cpp
     Source/Scene/SceneInputRebindingTests.cpp
@@ -157,6 +158,7 @@ add_executable(StradaTests
     Source/Serialization/ProfilerCaptureSerializerTests.cpp
     Source/Serialization/StructDocumentTests.cpp
     Source/Serialization/StructSerializationTests.cpp
+    Source/Serialization/VersionedDocumentTests.cpp
     Source/TestUtilities.h
 )
 
