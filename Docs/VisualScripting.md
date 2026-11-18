@@ -312,6 +312,15 @@ graphs.
   **Clear Action Override** put a value on an action as one more device would, from the next frame on: a graph that
   drives the game (an autopilot) or a test scene that presses a button.
 - `Get:Strada.InputActions.ActionNames` lists an asset's action names (a variable of type InputActions, or **Load**).
+- **The editor checks the names against the project's actions** (the asset Project Settings' Input Actions names): the
+  `Action` setting of the two events and the `Action` input, unlinked, of every node above and of the rebinding nodes
+  (Start Rebind, Rebind, Get Binding Controls). A name the project lacks is a warning, `UnknownAction` (the node reads
+  nothing, as it would while playing), with a fix "Use <name>" for each of the nearest actions, one undo step each; an
+  input that holds no name is empty and names none. A project that names no actions, or whose asset does not load, gets
+  one warning per script, `NoInputActions`, and nothing is checked. Details draws the setting and the input as a list of
+  the project's actions (showing a stored name the project lacks as it is); without actions they are text fields. A
+  script is checked again when an action is renamed or removed, or the project names other actions; scripts that name
+  no action are not analyzed again for it. Games never check: an unknown name reads zero there.
 
 **Try it:** with a project whose input actions have `Jump` on Space, give a graph `Event.ActionPressed` with `Action`
 Jump that logs "jump", press Play and press Space.
@@ -879,8 +888,14 @@ its `Push`, then press Play; open `Scripts/Orb.sgraph` while it plays and watch 
 ## A complete game: Prism Break
 
 `Projects/PrismBreak` is a neon brick breaker made of 13 visual scripts and no C#: no `Scripts` folder, no C# project.
-The title shows PRISM BREAK over an arena that plays itself. Space or a click starts a game; the ball rests on the
-paddle until Space or a click launches it; the mouse, A and D or the arrow keys move the paddle, and Escape pauses. The
+The title shows PRISM BREAK over an arena that plays itself. The game reads input actions (`Assets/Input/PrismBreak.sinput`,
+which the project names), so the keyboard and a gamepad play it alike: Launch (Space, or the pad's A) or a click starts a
+game; the ball rests on the paddle until Launch or a click sends it; the mouse or Move (A and D, the arrow keys, the left
+stick or the pad's left and right) moves the paddle, and Pause (Escape, or the pad's Start) pauses. At the title, R
+rebinds Launch: the screen asks for a key and binds the next one pressed (Escape cancels). It takes keys alone, and
+never R: a pad button, a stick, a click or R itself gives Launch its key back, and the screen says why and asks again.
+It names the key on its prompts and any other action whose bindings read it, and the player's choice is kept for the
+next run in the game's data folder. The
 ball breaks prisms of 1 to 4 hits, which glow cyan, magenta, gold and white by the hits they have left: each hit chimes a
 semitone higher for every prism of a combo, the prism flashes, the six lights pulse in its colour and the camera kicks,
 and a broken prism bursts into shards. A capsule sometimes falls from it: W widens the paddle for 8 seconds and S slows
@@ -898,12 +913,12 @@ takes a life; a cleared level runs a rainbow chase and a banner while the next l
 | `Checks.sgraph` | a function library (Tests calls it) | What the test scene's checks share: reporting a check and comparing numbers, vectors and tables |
 | `Drain.sgraph` | Drain | A ball that falls in behind the paddle is lost |
 | `Game.sgraph` | Game | The match: builds the levels, serves and launches the ball, scores the prisms, counts lives and combos, clears levels, ends the game with its top five, pauses, and plays itself on the title |
-| `Hud.sgraph` | Screen | Reads the game's score, level, combo and lives, and shows the title, the prompts, the banner, the pause screen and the top five |
+| `Hud.sgraph` | Screen | Reads the game's score, level, combo and lives, shows the title, the prompts, the banner, the pause screen and the top five, and at the title rebinds Launch to the key the player presses |
 | `Lights.sgraph` | the six lights | Pulses in the colour of every prism the ball hits, runs a rainbow chase when a level is cleared and flashes red when a life is lost |
-| `Paddle.sgraph` | Paddle | The mouse, the keys or the autopilot steer it, a Widen capsule makes it wider for a while, and it squashes when the ball hits it |
+| `Paddle.sgraph` | Paddle | The mouse, the Move action or the autopilot steer it, a Widen capsule makes it wider for a while, and it squashes when the ball hits it |
 | `PowerUp.sgraph` | every capsule | The paddle catches it for its power, or it falls out |
 | `Shard.sgraph` | every shard | Bursts out, then shrinks away |
-| `Tests.sgraph` | Tests (the test scene) | 29 checks of the game's rules, physics, screen and flow, one after another |
+| `Tests.sgraph` | Tests (the test scene) | 33 checks of the game's rules, physics, screen, flow and input actions, one after another |
 
 Every feature of the language has a job there: the levels are `string[]` layouts read with Split, Substring and To Int,
 the live balls an `Strada.Entity[]` and the top five an `int[]`; formulas keep the ball's speed and angle, aim it off the
@@ -913,11 +928,20 @@ state changes and level clears between graphs, and remote Gets, guarded by Runs 
 Game.sgraph's functions are BuildLevel, Serve, LaunchBall, StartAttractMode, LevelClear, ClearBricks, BeginGame, GameOver
 and SpawnCapsule. Every hit juices the arena: the prism sends the Game BrickHit with its colour, and the Juice region
 broadcasts Pulse to the six lights and sends Shake to the camera rig. While the title plays itself (the Game's read-out
-Attract), a cleared level keeps the title on screen. A player who presses Space or clicks at any moment of the demo, even
+Attract), a cleared level keeps the title on screen. A player who presses Launch or clicks at any moment of the demo, even
 while it waits to serve again or to build its next level, gets a game of their own: every wait of the demo checks Attract
-again before it goes on. The demo's points never count towards BEST. The keys steer a target that never passes the
-walls, so the paddle turns round at once. Its development-only nodes are cheat keys (1 and 2 drop a W or an S capsule,
-N clears the level), which run in the editor and are left out of the exported game.
+again before it goes on. The demo's points never count towards BEST. Move steers a target that never passes the
+walls, so the paddle turns round at once. The game handles its actions in `Event.ActionPressed` nodes (Launch, Pause)
+and reads Move's value with `Input.GetAction`; its rebinding flow is the Hud's: `Event.KeyPressed` R at the title keeps
+Launch's controls and calls `Input.StartRebind`, and `ShowBindings` reads `Input.CurrentRebind` when the capture ends,
+gives an answer Launch cannot take back with `Input.Rebind` and listens again, and makes the line from the bindings
+themselves (`Input.GetBindingControls`: a conflict is any other action's binding that reads the key, in this run or the
+next). The Update calls it only while the line can read otherwise (at the start, while a capture listens, and after a
+graph that rebinds broadcasts `BindingsChanged`, as the checks do), so no other frame polls the bindings. While the
+capture listens, the Game takes no press for a start (a press is the player's answer), and the key that answers presses
+no action. Its development-only nodes are cheat keys
+(1 and 2 drop a W or an S capsule, N clears the level), which stay `Event.KeyPressed` beside the actions, run in the
+editor and are left out of the exported game.
 
 **How its graphs read.** One region per behaviour, framed by a comment box titled "<What>: <how>" or a short noun phrase
 (at most 72 characters) in the colour of its role: blue for events and input, orange for rules, purple for effects,
@@ -932,22 +956,28 @@ changes nothing. After a change to arranging, re-run `Projects/PrismBreak/Tools/
 `Projects/Moto/Tools/Author.py --part camera`).
 
 **How it was made.** `Projects/PrismBreak/Tools/Author.py` built the whole project through `strada mcp`, as an agent
-does: the project and its settings, the sounds, meshes and textures `Tools/GenerateAssets.py` makes, the materials, then
-every graph. It declares first: one `graph_edit` batch per graph adds its variables, custom events and functions with
+does: the project and its settings, its input actions, the sounds, meshes and textures `Tools/GenerateAssets.py` makes,
+the materials, then every graph. It declares first: one `graph_edit` batch per graph adds its variables, custom events and functions with
 their inputs and outputs, so the graphs that send to, read from and call each other never meet a missing event. Then one
 `graph_edit` batch per region adds the region's nodes and links, arranges them (`Arrange` with scope `Created`, then
 `Nodes`) and frames them with a titled `AddComment`, and every batch must answer no error and no warning. It writes a
 graph's functions before the regions that call them. Then the prefabs, the scenes, a check of every graph, the test run
 and an export.
 
-**How it is tested.** `Scenes/Tests.sscene` runs `Tests.sgraph`: 29 checks, one after another, from a Sequence in the
+**How it is tested.** `Scenes/Tests.sscene` runs `Tests.sgraph`: 33 checks, one after another, from a Sequence in the
 event graph. Each check is a latent function in its own box. It acts, notes the time, waits with Wait Until until what
 it expects comes true or its time limit passes, and reports through the Checks library, with a detail of what it saw.
 Physical checks never depend on the ball's path: they teleport the ball in front of a prism they find by its row and
-column. Two self-sent events watch the level banner and the camera from the moment the level is cleared. Run it with
-`StradaRuntime --project Projects/PrismBreak/PrismBreak.sproj --scene Scenes/Tests.sscene --test` ("Tests passed: 29
-checks"). The player also runs the title and the exported game. The editor's play mode is driven through `input.set`:
-the title plays itself, Space starts and serves, the mouse steers, Escape pauses, and a lost ball costs a life; play mode
+column. Two self-sent events watch the level banner and the camera from the moment the level is cleared. The last four
+drive the game through action overrides (`Input.SetActionOverride`: Move steers the paddle both ways, Launch sends the
+ball) and rebind Launch with `Input.Rebind`, reading the binding back and the screen's whole line, with the conflict it
+names, then reset it.
+Run it with `StradaRuntime --project Projects/PrismBreak/PrismBreak.sproj --scene Scenes/Tests.sscene --test` ("Tests
+passed: 33 checks"). The player also runs the title and the exported game. The editor's play mode is driven through
+`input.set`: the title plays itself, Space starts and serves, the mouse steers, Escape pauses, and a lost ball costs a
+life; an injected gamepad (`gamepads`) starts, steers past the stick's dead zone, launches and pauses; R at the title
+rebinds Launch to the next key, which the next play reads from the profile in `.strada/PlayData` with its conflict, and
+R, a pad button and a stick are refused while the capture asks again; play mode
 also starts games while the title clears a level and right after it lost its ball, and checks that the player keeps
 their game, that BEST stays 0 and that A turns the paddle at the right wall at once. The fuzz test of damaged graphs
 includes the match graph, Game.sgraph.
@@ -986,7 +1016,11 @@ one you choose. Ctrl+drag a linked pin to move its links, Alt+click a pin or a w
 across wires to cut them, and double-click a wire to add a reroute point. Select with a click or by dragging a rectangle
 (Shift adds; Ctrl toggles a clicked node and removes what a rectangle covers), move the selection by dragging (it snaps to the grid; hold Alt to place it freely), nudge it
 with the arrow keys, and tidy it with the toolbar's Arrange or the align keys (Shift+W, A, S, D) and Q, which
-straightens a flow. Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+D copy, cut, paste and duplicate, also between scripts. Delete
+straightens a flow. Arrange lays the selection (two nodes or more) or the whole graph out in columns that the wires
+cross from left to right: a node that runs stands in the column after the longest chain of wires leading to it, and a
+pure node (a Get, a value, an operator, a pure call) stands in the column right before the node that reads it rather
+than at the far left. One that several nodes read stands before the first of them, and
+a chain of pure nodes ends beside the node it feeds, each one column before the next. Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+D copy, cut, paste and duplicate, also between scripts. Delete
 removes the selection and keeps the flow going through what it removed (a node between two others no longer breaks the
 chain); Shift+Delete removes it without that. F1, or `?` in the toolbar, lists every key and mouse gesture.
 

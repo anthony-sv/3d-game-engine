@@ -156,8 +156,8 @@
 							"ID": 20,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								384.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 9
@@ -167,8 +167,8 @@
 							"ID": 21,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								384.0,
+								192.0
 							],
 							"Settings": {
 								"Variable": 8
@@ -265,7 +265,7 @@
 							],
 							"Size": [
 								952.0,
-								372.0
+								324.0
 							],
 							"Color": [
 								0.6200000047683716,
@@ -298,7 +298,7 @@
 							"ID": 16,
 							"Type": "Function.Return",
 							"Position": [
-								2496.0,
+								2608.0,
 								0.0
 							]
 						},
@@ -341,8 +341,8 @@
 							"ID": 27,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								240.0,
+								224.0
 							],
 							"Settings": {
 								"Variable": 8
@@ -372,7 +372,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								368.0
+								304.0
 							],
 							"Settings": {
 								"Variable": 3
@@ -383,7 +383,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								432.0
+								368.0
 							],
 							"Settings": {
 								"Variable": 4
@@ -394,7 +394,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								240.0,
-								352.0
+								416.0
 							],
 							"Settings": {
 								"Variable": 31,
@@ -406,7 +406,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								240.0,
-								224.0
+								288.0
 							],
 							"Settings": {
 								"Graph": "11260502822282376115",
@@ -418,7 +418,7 @@
 							"Type": "Expression",
 							"Position": [
 								592.0,
-								304.0
+								176.0
 							],
 							"Settings": {
 								"Formula": "min(note + combo, 24)"
@@ -429,7 +429,7 @@
 							"Type": "Function.Call",
 							"Position": [
 								800.0,
-								320.0
+								176.0
 							],
 							"Settings": {
 								"Graph": "11260502822282376115",
@@ -440,7 +440,7 @@
 							"ID": 36,
 							"Type": "Set:Strada.AudioSourceComponent.Pitch",
 							"Position": [
-								1072.0,
+								1040.0,
 								0.0
 							]
 						},
@@ -448,7 +448,7 @@
 							"ID": 37,
 							"Type": "Call:Strada.AudioSourceComponent.Play()",
 							"Position": [
-								1264.0,
+								1248.0,
 								0.0
 							]
 						},
@@ -456,7 +456,7 @@
 							"ID": 38,
 							"Type": "Get:Strada.Entity.Children",
 							"Position": [
-								592.0,
+								1040.0,
 								176.0
 							]
 						},
@@ -464,8 +464,8 @@
 							"ID": 39,
 							"Type": "Array.Get",
 							"Position": [
-								800.0,
-								176.0
+								1248.0,
+								144.0
 							],
 							"Inputs": {
 								"Index": 0
@@ -475,16 +475,16 @@
 							"ID": 40,
 							"Type": "Call:Strada.AudioSourceComponent.Play()",
 							"Position": [
-								1456.0,
-								0.0
+								1520.0,
+								320.0
 							]
 						},
 						{
 							"ID": 41,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								1520.0,
+								464.0
 							],
 							"Settings": {
 								"Variable": 7
@@ -494,8 +494,8 @@
 							"ID": 42,
 							"Type": "Flow.ForLoop",
 							"Position": [
-								1648.0,
-								0.0
+								1760.0,
+								336.0
 							],
 							"Inputs": {
 								"First": 1
@@ -505,8 +505,8 @@
 							"ID": 43,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								560.0
+								1760.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 6
@@ -516,8 +516,8 @@
 							"ID": 44,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								624.0
+								1520.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 4
@@ -527,8 +527,8 @@
 							"ID": 45,
 							"Type": "Variable.Get",
 							"Position": [
-								240.0,
-								480.0
+								1760.0,
+								64.0
 							],
 							"Settings": {
 								"Variable": 8,
@@ -539,24 +539,24 @@
 							"ID": 46,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								0.0,
-								688.0
+								1520.0,
+								64.0
 							]
 						},
 						{
 							"ID": 47,
 							"Type": "Get:Strada.Random.InsideUnitSphere",
 							"Position": [
-								0.0,
-								816.0
+								1520.0,
+								192.0
 							]
 						},
 						{
 							"ID": 48,
 							"Type": "Expression",
 							"Position": [
-								240.0,
-								608.0
+								1760.0,
+								192.0
 							],
 							"Settings": {
 								"Formula": "at + spread * 0.3"
@@ -566,7 +566,7 @@
 							"ID": 49,
 							"Type": "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)",
 							"Position": [
-								1936.0,
+								2048.0,
 								0.0
 							],
 							"Inputs": {
@@ -582,8 +582,8 @@
 							"ID": 50,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								944.0
+								1760.0,
+								512.0
 							],
 							"Settings": {
 								"Variable": 4
@@ -593,8 +593,8 @@
 							"ID": 51,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								1008.0
+								1760.0,
+								576.0
 							],
 							"Settings": {
 								"Variable": 2
@@ -604,16 +604,16 @@
 							"ID": 52,
 							"Type": "Get:Strada.Entity.Translation",
 							"Position": [
-								0.0,
-								1072.0
+								1760.0,
+								640.0
 							]
 						},
 						{
 							"ID": 53,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								1200.0
+								1760.0,
+								768.0
 							],
 							"Settings": {
 								"Variable": 3
@@ -623,7 +623,7 @@
 							"ID": 54,
 							"Type": "Event.Send",
 							"Position": [
-								1936.0,
+								2048.0,
 								224.0
 							],
 							"Settings": {
@@ -649,7 +649,7 @@
 							"ID": 55,
 							"Type": "Call:Strada.Entity.Destroy()",
 							"Position": [
-								2288.0,
+								2400.0,
 								0.0
 							]
 						}
@@ -1045,8 +1045,8 @@
 								-72.0
 							],
 							"Size": [
-								2680.0,
-								1332.0
+								2792.0,
+								900.0
 							],
 							"Color": [
 								0.6200000047683716,
@@ -1103,8 +1103,8 @@
 					"ID": 61,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						448.0
+						480.0,
+						320.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -1137,7 +1137,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						624.0
+						560.0
 					],
 					"Settings": {
 						"Name": "Configure",
@@ -1149,7 +1149,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						192.0,
-						624.0
+						560.0
 					],
 					"Settings": {
 						"Function": 11
@@ -1160,7 +1160,7 @@
 					"Type": "Event.CollisionEnter",
 					"Position": [
 						0.0,
-						832.0
+						768.0
 					]
 				},
 				{
@@ -1168,7 +1168,7 @@
 					"Type": "RunsGraph",
 					"Position": [
 						192.0,
-						832.0
+						768.0
 					],
 					"Settings": {
 						"Graph": "16219410850394416192"
@@ -1178,16 +1178,16 @@
 					"ID": 70,
 					"Type": "Flow.Branch",
 					"Position": [
-						416.0,
-						832.0
+						400.0,
+						768.0
 					]
 				},
 				{
 					"ID": 71,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1056.0
+						192.0,
+						880.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1197,8 +1197,8 @@
 					"ID": 72,
 					"Type": "Expression",
 					"Position": [
-						192.0,
-						944.0
+						400.0,
+						896.0
 					],
 					"Settings": {
 						"Formula": "hits - 1"
@@ -1208,8 +1208,8 @@
 					"ID": 73,
 					"Type": "Variable.Set",
 					"Position": [
-						640.0,
-						832.0
+						624.0,
+						768.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1219,8 +1219,8 @@
 					"ID": 74,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1120.0
+						192.0,
+						944.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -1230,8 +1230,8 @@
 					"ID": 75,
 					"Type": "Variable.Get",
 					"Position": [
-						192.0,
-						1072.0
+						400.0,
+						1024.0
 					],
 					"Settings": {
 						"Variable": 31,
@@ -1242,8 +1242,8 @@
 					"ID": 76,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1184.0
+						192.0,
+						1008.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -1253,8 +1253,8 @@
 					"ID": 77,
 					"Type": "Function.Call",
 					"Position": [
-						192.0,
-						1200.0
+						400.0,
+						1152.0
 					],
 					"Settings": {
 						"Graph": "11260502822282376115",
@@ -1265,8 +1265,8 @@
 					"ID": 78,
 					"Type": "Expression",
 					"Position": [
-						416.0,
-						960.0
+						624.0,
+						896.0
 					],
 					"Settings": {
 						"Formula": "min(note + combo, 24)"
@@ -1276,8 +1276,8 @@
 					"ID": 79,
 					"Type": "Function.Call",
 					"Position": [
-						640.0,
-						960.0
+						832.0,
+						880.0
 					],
 					"Settings": {
 						"Graph": "11260502822282376115",
@@ -1289,7 +1289,7 @@
 					"Type": "Set:Strada.AudioSourceComponent.Pitch",
 					"Position": [
 						1056.0,
-						832.0
+						768.0
 					]
 				},
 				{
@@ -1297,15 +1297,15 @@
 					"Type": "Call:Strada.AudioSourceComponent.Play()",
 					"Position": [
 						1264.0,
-						832.0
+						768.0
 					]
 				},
 				{
 					"ID": 82,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1248.0
+						1264.0,
+						912.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -1315,8 +1315,8 @@
 					"ID": 83,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1312.0
+						832.0,
+						1008.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1326,8 +1326,8 @@
 					"ID": 84,
 					"Type": "Expression",
 					"Position": [
-						192.0,
-						1328.0
+						1056.0,
+						944.0
 					],
 					"Settings": {
 						"Formula": "hits + 1"
@@ -1337,8 +1337,8 @@
 					"ID": 85,
 					"Type": "Function.Call",
 					"Position": [
-						416.0,
-						1104.0
+						1264.0,
+						976.0
 					],
 					"Settings": {
 						"Graph": "11260502822282376115",
@@ -1350,7 +1350,7 @@
 					"Type": "Event.Send",
 					"Position": [
 						1472.0,
-						832.0
+						768.0
 					],
 					"Settings": {
 						"Name": "BrickHit",
@@ -1368,8 +1368,8 @@
 					"ID": 87,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1376.0
+						1264.0,
+						1104.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1379,8 +1379,8 @@
 					"ID": 88,
 					"Type": "Expression",
 					"Position": [
-						192.0,
-						1456.0
+						1472.0,
+						944.0
 					],
 					"Settings": {
 						"Formula": "hits > 0"
@@ -1391,7 +1391,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						1664.0,
-						832.0
+						768.0
 					]
 				},
 				{
@@ -1399,7 +1399,7 @@
 					"Type": "Flow.Timeline",
 					"Position": [
 						1888.0,
-						832.0
+						768.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -1463,8 +1463,8 @@
 					"ID": 91,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1440.0
+						1888.0,
+						1152.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -1475,7 +1475,7 @@
 					"Type": "Set:Strada.Material.EmissiveIntensity",
 					"Position": [
 						2192.0,
-						832.0
+						768.0
 					]
 				},
 				{
@@ -1483,15 +1483,15 @@
 					"Type": "Set:Strada.TransformComponent.Scale",
 					"Position": [
 						2416.0,
-						832.0
+						768.0
 					]
 				},
 				{
 					"ID": 94,
 					"Type": "Function.Call",
 					"Position": [
-						864.0,
-						832.0
+						832.0,
+						768.0
 					],
 					"Settings": {
 						"Function": 11
@@ -1502,7 +1502,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						1888.0,
-						1104.0
+						1040.0
 					],
 					"Settings": {
 						"Function": 14
@@ -1901,7 +1901,7 @@
 					],
 					"Size": [
 						1080.0,
-						388.0
+						322.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -1915,7 +1915,7 @@
 					"Text": "Configure: the Game set the hits; show them",
 					"Position": [
 						-32.0,
-						552.0
+						488.0
 					],
 					"Size": [
 						376.0,
@@ -1933,11 +1933,11 @@
 					"Text": "Hit: lose a hit, recolor, chime, juice, then flash or break",
 					"Position": [
 						-32.0,
-						760.0
+						696.0
 					],
 					"Size": [
 						2611.13623046875,
-						810.0
+						570.0
 					],
 					"Color": [
 						0.949999988079071,

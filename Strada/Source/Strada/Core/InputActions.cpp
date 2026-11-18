@@ -178,6 +178,16 @@ namespace Strada
 			return InputProcessing::CombineControls(binding.Controls, std::span<glm::vec2 const>(readings.data(), controls.size()));
 		}
 
+		// Whether two specifications of an action read the same controls on the same gamepads, binding by binding.
+		bool ReadsSameControls(InputActionSpecification const& first, InputActionSpecification const& second)
+		{
+			return std::ranges::equal(first.Bindings, second.Bindings,
+			                          [](InputBindingSpecification const& one, InputBindingSpecification const& other)
+			                          {
+										  return one.Controls == other.Controls && one.Gamepad == other.Gamepad;
+									  });
+		}
+
 		std::string DescribeBinding(InputActionSpecification const& action, size_t binding)
 		{
 			return fmt::format("action '{}', binding {}", action.Name, binding);
@@ -245,6 +255,20 @@ namespace Strada
 				return fmt::format("{}/{}", GamepadDevice, control.Code < StickNames.size() ? StickNames[control.Code] : "Unknown");
 		}
 		return "Unknown";
+	}
+
+	std::string FormatInputControls(InputControlList const& controls)
+	{
+		std::string text;
+		for (InputControl const& control : controls.Get())
+		{
+			if (!text.empty())
+			{
+				text += ' ';
+			}
+			text += FormatInputControl(control);
+		}
+		return text;
 	}
 
 	Result<InputControlList> ParseInputControls(std::string_view text)
@@ -321,6 +345,25 @@ namespace Strada
 			return {};
 		}
 		return Error{"a Button or Axis action takes one control, or two as an axis (negative, positive)"};
+	}
+
+	bool DoInputControlsMeet(InputControl first, InputControl second)
+	{
+		if (first == second)
+		{
+			return true;
+		}
+		auto const isAxisOfStick = [](InputControl stick, InputControl axis)
+		{
+			if (stick.Kind != InputControlKind::PadStick || axis.Kind != InputControlKind::PadAxis)
+			{
+				return false;
+			}
+			GamepadAxis const value = static_cast<GamepadAxis>(axis.Code);
+			return stick.Code == 0 ? value == GamepadAxis::LeftX || value == GamepadAxis::LeftY
+			                       : value == GamepadAxis::RightX || value == GamepadAxis::RightY;
+		};
+		return isAxisOfStick(first, second) || isAxisOfStick(second, first);
 	}
 
 	namespace InputProcessing
@@ -623,15 +666,25 @@ namespace Strada
 			}
 		}
 
-		// New actions take their current reading and level without an edge.
+		// New actions take their current reading and level without an edge. So does an action kept by name whose bindings
+		// read other controls now (a rebind, an edited asset) when that reading holds it down, without a press: the control
+		// a player just pressed to bind it does not press it. One that was down keeps its level, so its next evaluation
+		// reports the release when nothing holds it any more.
 		for (uint32_t index = 0; index < specifications.size(); index++)
 		{
-			if (previous && previous->Find(specifications[index].Name))
+			std::optional<uint32_t> const kept = previous ? previous->Find(specifications[index].Name) : std::nullopt;
+			bool const changed =
+				kept && *kept < previousStates.size() && !ReadsSameControls(previous->GetActions()[*kept], specifications[index]);
+			if (kept && !changed)
 			{
 				continue;
 			}
 			InputActionSpecification const& action = specifications[index];
 			ActionState& state = m_States[index];
+			if (changed && state.Down)
+			{
+				continue;
+			}
 			glm::vec2 best(0.0f);
 			float bestMagnitude = 0.0f;
 			for (InputBindingSpecification const& binding : action.Bindings)
@@ -654,6 +707,10 @@ namespace Strada
 					bestMagnitude = magnitude;
 				}
 			}
+			if (changed && bestMagnitude < action.PressThreshold)
+			{
+				continue;
+			}
 			state.Magnitude = bestMagnitude;
 			state.Value = action.Type == InputActionType::Button ? glm::vec2(bestMagnitude, 0.0f)
 			              : action.Type == InputActionType::Axis ? glm::vec2(best.x, 0.0f)
@@ -671,6 +728,73 @@ namespace Strada
 		m_LoggedOverrides.clear();
 		m_InFixedStep = false;
 		m_CheckOverrides = true;
+	}
+
+	void InputActionState::Settle(uint32_t action)
+	{
+		if (!m_Actions || action >= m_States.size())
+		{
+			return;
+		}
+		InputActionSpecification const& specification = m_Actions->GetActions()[action];
+		ActionState& state = m_States[action];
+		for (DigitalControl& control : state.Controls)
+		{
+			Input::ButtonCounts const counts =
+				ReadCounts(specification.Bindings[control.Binding].Controls.Controls[control.Part], control.Gamepad);
+			control.Presses = counts.Presses;
+			control.Releases = counts.Releases;
+		}
+		if (state.Down)
+		{
+			return;
+		}
+		glm::vec2 best(0.0f);
+		float bestMagnitude = 0.0f;
+		for (InputBindingSpecification const& binding : specification.Bindings)
+		{
+			glm::vec2 const value = InputProcessing::ProcessBinding(binding, ReadBinding(binding));
+			float const magnitude = GetMagnitude(specification.Type, value);
+			if (magnitude > bestMagnitude)
+			{
+				best = value;
+				bestMagnitude = magnitude;
+			}
+		}
+		if (bestMagnitude < specification.PressThreshold)
+		{
+			return;
+		}
+		state.Magnitude = bestMagnitude;
+		state.Value = specification.Type == InputActionType::Button ? glm::vec2(bestMagnitude, 0.0f)
+		              : specification.Type == InputActionType::Axis ? glm::vec2(best.x, 0.0f)
+		                                                            : best;
+		state.Down = true;
+	}
+
+	void InputActionState::SettleControl(InputControl control)
+	{
+		if (!m_Actions)
+		{
+			return;
+		}
+		std::span<InputActionSpecification const> const specifications = m_Actions->GetActions();
+		for (uint32_t index = 0; index < specifications.size(); index++)
+		{
+			bool const reads = std::ranges::any_of(specifications[index].Bindings,
+			                                       [control](InputBindingSpecification const& binding)
+			                                       {
+													   return std::ranges::any_of(binding.Controls.Get(),
+				                                                                  [control](InputControl const& read)
+				                                                                  {
+																					  return DoInputControlsMeet(read, control);
+																				  });
+												   });
+			if (reads)
+			{
+				Settle(index);
+			}
+		}
 	}
 
 	void InputActionState::TakeBaselines(uint32_t action)

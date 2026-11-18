@@ -1477,6 +1477,85 @@ TEST_CASE("Runtime: an exported game mixes through its project's mixer, which ar
 	CHECK(Contains(control.Output, "The mixer has no bus named 'Music'"));
 }
 
+TEST_CASE("Runtime: a binding an exported game changes is kept in its data folder and read back by its next run")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path player;
+	GameIdentity identity;
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> created = Project::Create(directory.GetPath() / "Project", "Rebind Test", *MakeScene("Main", std::nullopt));
+		REQUIRE(created.IsOk());
+		Ref<Project> const project = created.GetValue();
+		identity = GetGameIdentity(project->GetSettings());
+		InputActionMap map;
+		InputAction jump;
+		jump.Name = "Jump";
+		jump.Bindings.emplace_back().Controls = "Key/Space";
+		map.Actions = {jump};
+		TypedDataAssetType<InputActionMap> const* type = DataAssetRegistry::Find<InputActionMap>();
+		REQUIRE(type != nullptr);
+		Ref<TypedDataAsset<InputActionMap>> const asset = std::static_pointer_cast<TypedDataAsset<InputActionMap>>(type->CreateAsset());
+		REQUIRE(asset->SetData(map).IsOk());
+		std::filesystem::path const file = project->GetAssetDirectory() / "Input" / "Game.sinput";
+		REQUIRE(FileSystem::CreateDirectories(file.parent_path()).IsOk());
+		REQUIRE(DataAssetSerializer::SaveToFile(*asset, file).IsOk());
+		Result<AssetHandle> const imported = AssetManager::ImportFile(file);
+		REQUIRE(imported.IsOk());
+		REQUIRE(AssetManager::SaveRegistry().IsOk());
+		REQUIRE(project->ApplySettings(Json::object({{"InputActions", imported.GetValue().ToString()}})).IsOk());
+		// As it starts, the graph logs what Jump's binding reads, then binds it to J (as a settings screen would).
+		VisualScriptDocument document;
+		document.Graph.Nodes.push_back(MakeNode(1, "Event.Create"));
+		document.Graph.Nodes.push_back(
+			MakeNode(2, "Call:Strada.Input.GetBindingControls(string,int)", Json::object({{"Action", "Jump"}, {"Binding", 0}})));
+		document.Graph.Nodes.push_back(MakeSetNode(3, "FormatString", Json::object({{"Format", "Jump starts on {Controls}"}})));
+		document.Graph.Nodes.push_back(MakeNode(4, "Call:Strada.Log.Info(string)"));
+		document.Graph.Nodes.push_back(MakeNode(5, "Call:Strada.Input.Rebind(string,int,string,int)",
+		                                        Json::object({{"Action", "Jump"}, {"Binding", 0}, {"Controls", "Key/J"}})));
+		document.Graph.Links.push_back({{2, "Result"}, {3, "Controls"}});
+		document.Graph.Links.push_back({{3, "Result"}, {4, "Message"}});
+		document.Graph.Links.push_back({{1, "Then"}, {4, "Execute"}});
+		document.Graph.Links.push_back({{4, "Then"}, {5, "Execute"}});
+		Ref<Scene> const main = MakeScene("Main", std::nullopt);
+		main->CreateEntity("Settings").AddComponent<VisualScriptComponent>().Graph = AddGraphAsset(document, "Settings");
+		REQUIRE(SceneSerializer::SaveToFile(*main, project->GetAssetDirectory() / "Scenes" / "Main.sscene").IsOk());
+
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*project, directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		if (player.extension() == ".app")
+		{
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+	}
+
+	// Both runs share one per-user root, as two runs on a player's machine do; neither is a test run, whose folder is removed.
+	Testing::IsolatedUserRoot const userRoot;
+	std::filesystem::path const profile = userRoot.GetGameDirectory(identity) / "Input" / "Game.sinput.json";
+	ProcessResult const first = RunProgram(player, {"--headless", "--frames", "3"}, userRoot);
+	CAPTURE(first.Output);
+	CHECK(first.ExitCode == 0);
+	CHECK(Contains(first.Output, "Jump starts on Key/Space"));
+	CHECK(Contains(first.Output, "Input bindings: binding 0 of 'Jump' reads 'Key/J' (it read 'Key/Space')"));
+	REQUIRE(FileSystem::IsRegularFile(profile));
+
+	ProcessResult const second = RunProgram(player, {"--headless", "--frames", "3"}, userRoot);
+	CAPTURE(second.Output);
+	CHECK(second.ExitCode == 0);
+	CHECK(Contains(second.Output, "Input bindings: 1 changed binding from"));
+	CHECK(Contains(second.Output, "Jump starts on Key/J"));
+	// Binding J again changes nothing, so nothing is written or logged.
+	CHECK_FALSE(Contains(second.Output, "reads 'Key/J' (it read"));
+	Result<std::string> const text = FileSystem::ReadTextFile(profile);
+	REQUIRE(text.IsOk());
+	CHECK(Contains(text.GetValue(), R"("Controls": "Key/J")"));
+	CHECK(Contains(text.GetValue(), R"("Replaced": "Key/Space")"));
+}
+
 TEST_CASE("Runtime: players tell once at startup what is wrong with the engine marker beside them, and still run")
 {
 	// The build tree's marker names this checkout: nothing to tell.

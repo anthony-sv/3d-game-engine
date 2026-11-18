@@ -1504,6 +1504,21 @@ namespace Strada
 				return GetCanvas(function, CanvasUse::Geometry).GetExtents();
 			}
 
+			// What Arrange reads of the nodes, by the extents mode: uniform sizes with no pure node, or the sizes and purity
+			// of the sub-graph's canvas.
+			std::optional<VisualScriptArrangeMeasures> GetArrangeMeasures(uint32_t function, VisualScriptExtentsMode mode)
+			{
+				if (mode == VisualScriptExtentsMode::Uniform)
+				{
+					return Editing::GetUniformVisualScriptArrangeMeasures();
+				}
+				if (!Require(BatchNeed::Types, true))
+				{
+					return std::nullopt;
+				}
+				return GetCanvas(function, CanvasUse::Geometry).GetArrangeMeasures();
+			}
+
 			// --- Changes ---
 
 			// After an operation that succeeded: the level it changed. Canvases' rows change with pins, and with anything while
@@ -2047,8 +2062,9 @@ namespace Strada
 
 			// Arrange's Created scope (spec §8.2): the nodes this batch created in the sub-graph and gave no position, placed
 			// beside the nodes they continue, group by group, then moved down past what they would overlap.
-			bool ArrangeCreated(uint32_t function, VisualScriptNodeExtents const& extents, size_t& arranged)
+			bool ArrangeCreated(uint32_t function, VisualScriptArrangeMeasures const& measures, size_t& arranged)
 			{
+				VisualScriptNodeExtents const& extents = measures.Extents;
 				VisualScriptGraph const* const graph = FindGraph(m_Working, function);
 				if (graph == nullptr)
 				{
@@ -2139,11 +2155,11 @@ namespace Strada
 					if (!sources.empty())
 					{
 						std::sort(sources.begin(), sources.end());
-						done = Editing::ArrangeNodes(m_Working, function, members, extents, std::nullopt, sources);
+						done = Editing::ArrangeNodes(m_Working, function, members, measures, std::nullopt, sources);
 					}
 					else if (consumer != nullptr)
 					{
-						done = Editing::ArrangeNodes(m_Working, function, members, extents, glm::vec2(0.0f));
+						done = Editing::ArrangeNodes(m_Working, function, members, measures, glm::vec2(0.0f));
 						std::optional<Rect> const bounds = done ? GetBounds(members, extents) : std::nullopt;
 						if (bounds)
 						{
@@ -2152,12 +2168,12 @@ namespace Strada
 							glm::vec2 const corner = glm::clamp(
 								glm::vec2(FloorToGrid(consumer->Bounds.Min.x - ColumnGap - size.x), FloorToGrid(consumer->Bounds.Min.y)),
 								glm::vec2(-maximum), glm::vec2(maximum));
-							done = Editing::ArrangeNodes(m_Working, function, members, extents, corner);
+							done = Editing::ArrangeNodes(m_Working, function, members, measures, corner);
 						}
 					}
 					else
 					{
-						done = Editing::ArrangeNodes(m_Working, function, members, extents, GetCornerBelow(placed));
+						done = Editing::ArrangeNodes(m_Working, function, members, measures, GetCornerBelow(placed));
 					}
 					if (!done)
 					{
@@ -4496,15 +4512,15 @@ namespace Strada
 					function = owner;
 				}
 			}
-			std::optional<VisualScriptNodeExtents> const extents = GetExtents(*function, mode);
-			if (!extents)
+			std::optional<VisualScriptArrangeMeasures> const measures = GetArrangeMeasures(*function, mode);
+			if (!measures)
 			{
 				return false;
 			}
 			size_t arranged = 0;
 			if (scope == "Created")
 			{
-				if (!ArrangeCreated(*function, *extents, arranged))
+				if (!ArrangeCreated(*function, *measures, arranged))
 				{
 					return false;
 				}
@@ -4520,7 +4536,7 @@ namespace Strada
 				}
 				if (!nodes.empty())
 				{
-					if (Result<void> const done = Editing::ArrangeNodes(m_Working, *function, nodes, *extents); !done)
+					if (Result<void> const done = Editing::ArrangeNodes(m_Working, *function, nodes, *measures); !done)
 					{
 						return FailEdit(done.GetError());
 					}
@@ -4702,6 +4718,7 @@ namespace Strada
 				case VisualScriptFixKind::RemoveSplit:
 				case VisualScriptFixKind::EnableNode:
 				case VisualScriptFixKind::ReplaceInFormula:
+				case VisualScriptFixKind::UseAction:
 					return {};
 			}
 			return {};

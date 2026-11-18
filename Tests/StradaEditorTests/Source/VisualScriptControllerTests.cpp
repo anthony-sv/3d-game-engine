@@ -5,6 +5,7 @@
 
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptController.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
@@ -505,6 +506,35 @@ TEST_CASE("VisualScriptEditor: align, distribute, straighten and arrange name wh
 	VisualScriptControllerResult selection = fixture.Act(Action::Arrange, {5, 6});
 	CHECK(Description(selection) == "Arrange 2 Nodes in Player");
 	CHECK(selection.GlideFrom.size() == 2);
+}
+
+TEST_CASE("VisualScriptEditor: the window's Arrange stands a pure input beside the node that reads it, as its canvas knows it")
+{
+	// Create (1) -> Delay (2) -> Log Info (3), whose message Get Speed (5) reads: arranged, the Get stands in the column of
+	// the Delay, right before the log, not in the column of Create.
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes = {
+		MakeNode(1, "Event.Create", glm::vec2(0.0f, 0.0f)),
+		MakeNode(2, "Flow.Delay", glm::vec2(400.0f, 0.0f), Json::object(), Json::object({{"Duration", 1.5}})),
+		MakeNode(3, "Call:Strada.Log.Info(string)", glm::vec2(800.0f, 0.0f)),
+		MakeNode(5, "Variable.Get", glm::vec2(0.0f, 320.0f), Json::object({{"Variable", 10}})),
+	};
+	document.Graph.Links = {MakeLink(1, "Then", 2, "Execute"), MakeLink(2, "Completed", 3, "Execute"), MakeLink(5, "Value", 3, "Message")};
+	document.Graph.Comments.clear();
+	ControllerFixture fixture(document);
+	VisualScriptCanvasModel const& canvas = fixture.Model->GetCanvas();
+	CHECK(canvas.IsPure(5));
+	CHECK_FALSE(canvas.IsPure(1));
+	CHECK_FALSE(canvas.IsPure(2));
+	CHECK_FALSE(canvas.IsPure(3));
+
+	VisualScriptControllerResult arranged = fixture.Act(Action::Arrange, {});
+	CHECK(Description(arranged) == "Arrange 4 Nodes in Player");
+	fixture.Execute(arranged);
+	glm::vec2 const get = *fixture.Node(5)->Position;
+	CHECK(get.x == fixture.Node(2)->Position->x);
+	CHECK(get.x > fixture.Node(1)->Position->x);
+	CHECK(get.x < fixture.Node(3)->Position->x);
 }
 
 TEST_CASE("VisualScriptEditor: the controller marks its layout intents LayoutOnly, and each one's commit keeps the stored program")

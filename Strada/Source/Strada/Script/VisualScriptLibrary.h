@@ -115,6 +115,8 @@ namespace Strada
 		Json Default;
 		// An unconnected input that means the entity running the graph (a Target).
 		bool DefaultsToSelf = false;
+		// A string input that names an input action of the project (Input.GetAction's Action): the library's "InputAction".
+		bool NamesInputAction = false;
 		VisualScriptPinRole Role = VisualScriptPinRole::None;
 		VisualScriptPinConstraint Constraint = VisualScriptPinConstraint::None;
 		// Wildcards of one node with the same group share one type; empty when none.
@@ -148,6 +150,9 @@ namespace Strada
 		std::string Type;
 		// Choice settings: the values they take.
 		std::vector<std::string> Choices;
+		// A String setting that names an input action of the project (Event.ActionPressed's Action): the library's
+		// "InputAction".
+		bool NamesInputAction = false;
 	};
 
 	struct VisualScriptStructField
@@ -400,6 +405,19 @@ namespace Strada
 		uint32_t ParsedDiagnostics = 0;
 	};
 
+	// The input actions of a project as an analysis checks the action names of a document against them (IA2's spec section
+	// 6): their names, or why there are none to check against (Missing). VisualScriptEngine::GetInputActions makes them.
+	struct VisualScriptInputActions
+	{
+		// In the asset's order, with their letter case; empty when Missing says why there are none.
+		std::vector<std::string> Names;
+		// "the project names no input actions", "the project's input actions, <reference>, do not load ..."; empty when Names
+		// are the project's actions.
+		std::string Missing;
+
+		bool operator==(VisualScriptInputActions const& other) const = default;
+	};
+
 	// The scripting runtime's analysis of a document.
 	struct VisualScriptAnalysis
 	{
@@ -423,6 +441,13 @@ namespace Strada
 		// interface. Those beyond VisualScriptEngine::MaxReferencedGraphs, which were never looked up, are not listed. Filled
 		// by VisualScriptEngine::Analyze, not read by Parse.
 		std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> Graphs;
+		// Whether the document may name an input action (it has a node of an action event or of a Strada.Input member that
+		// takes one), so the analysis asked for the project's input actions, and InputActions holds what it was given: null
+		// when no project was open, and then no action name was checked. Whoever keeps an analysis that asked analyzes
+		// again when VisualScriptEngine::GetInputActions gives another object. Filled by VisualScriptEngine::Analyze, not
+		// read by Parse.
+		bool NamesInputActions = false;
+		Ref<VisualScriptInputActions const> InputActions;
 
 		// Node IDs are unique in a document. Null when it has no such node; the first in Nodes when a damaged analysis repeats
 		// an ID. A binary search of NodeIndex when it is as long as Nodes, else a linear search of Nodes, so analyses built by

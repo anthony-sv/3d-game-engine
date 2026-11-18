@@ -60,8 +60,11 @@ namespace Strada
 	public:
 		using AssetReferenceResolver = std::function<Result<AssetHandle>(std::string_view reference)>;
 
-		// Starts with an empty, unsaved scene named "Untitled".
+		// Starts with an empty, unsaved scene named "Untitled". For its life it is where analyses of visual scripts learn the
+		// project's input actions (VisualScriptEngine::SetInputActionsSource): its project's InputActions setting, read at
+		// each analysis, so a project opened or closed and a setting changed reach the next one.
 		EditorContext();
+		~EditorContext();
 
 		EditorContext(EditorContext const&) = delete;
 		EditorContext& operator=(EditorContext const&) = delete;

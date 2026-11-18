@@ -12,6 +12,7 @@
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Platform.h"
 #include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 
@@ -20,6 +21,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -234,7 +236,8 @@ namespace
 				corner = glm::min(corner, *node->Position);
 			}
 			VisualScriptDocument arranged = graph.Document;
-			Result<void> const done = VisualScriptEditing::ArrangeNodes(arranged, function, framed[box], extents, corner);
+			Result<void> const done =
+				VisualScriptEditing::ArrangeNodes(arranged, function, framed[box], canvas.GetArrangeMeasures(), corner);
 			REQUIRE_MESSAGE(done.IsOk(), (done ? std::string() : done.GetError()));
 			VisualScriptGraph const& result = GetSubGraph(arranged, function);
 			REQUIRE(result.Nodes.size() == subGraph.Nodes.size());
@@ -251,90 +254,182 @@ namespace
 			                          moved, set.Author));
 		}
 	}
+
+	// Loads every sample set's graphs strictly from its project's files and hands each set to visit(set, graphs, library,
+	// resolve) while its project is open: the graphs analyze with its registry, its graphs and its game scripts.
+	template<typename TVisit>
+	void ForEachSampleSet(TVisit const& visit)
+	{
+		for (SampleGraphSet const& set : SampleGraphSets)
+		{
+			CAPTURE(set.Project);
+			std::filesystem::path const project = FileSystem::PathFromUtf8(set.Root) / FileSystem::PathFromUtf8(set.Project);
+			std::filesystem::path const assets = project / "Assets";
+			// The graphs are analyzed with a copy of the project's registry and graphs as the asset directory, where the graphs
+			// they name are found, and with the project's game scripts when it has some: its graphs may use their members.
+			Testing::TemporaryDirectory directory;
+			Testing::AssetManagerScope manager;
+			Testing::OpenVisualScriptsCopy(assets, directory.GetPath());
+			std::optional<Testing::ProjectScriptsScope> scripts;
+			if (set.ScriptModule.empty())
+			{
+				scripts.emplace(project);
+			}
+			else
+			{
+				// Its graphs call members of its scripts: the scripts must be there.
+				std::string const scriptModule(set.ScriptModule);
+				REQUIRE(FileSystem::IsRegularFile(project / "Scripts" / FileSystem::PathFromUtf8(scriptModule + ".csproj")));
+				scripts.emplace(project, scriptModule, FileSystem::GetExecutableDirectory() / FileSystem::PathFromUtf8(set.ScriptBinaries));
+			}
+			Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
+			REQUIRE(library != nullptr);
+
+			std::vector<SampleGraph> graphs;
+			for (std::string const& path : FindGraphPaths(assets, set.Folder))
+			{
+				CAPTURE(path);
+				AssetHandle const handle = AssetManager::FindByPath(path);
+				REQUIRE(handle.IsValid());
+				std::vector<VisualScriptIssue> issues;
+				Result<VisualScriptDocument> document =
+					VisualScriptSerializer::LoadFromFile(assets / FileSystem::PathFromUtf8(path), Testing::MakeStrictContext(), &issues);
+				REQUIRE_MESSAGE(document.IsOk(), (document ? std::string() : document.GetError()));
+				CHECK_MESSAGE(issues.empty(), Testing::DescribeIssues(issues));
+				graphs.push_back({path, handle, document.TakeValue()});
+			}
+			REQUIRE_FALSE(graphs.empty());
+			VisualScriptGraphResolver const resolve = [&graphs](AssetHandle other) -> VisualScriptDocument const*
+			{
+				auto const found = std::find_if(graphs.begin(), graphs.end(),
+				                                [other](SampleGraph const& candidate)
+				                                {
+													return candidate.Handle == other;
+												});
+				return found != graphs.end() ? &found->Document : nullptr;
+			};
+
+			visit(set, graphs, *library, resolve);
+		}
+	}
+
+	double GetMedian(std::vector<double> values)
+	{
+		std::sort(values.begin(), values.end());
+		return values[values.size() / 2];
+	}
 }
 
 TEST_CASE("VisualScriptEditor: the sample projects' graphs read well: every node placed in a titled box, none overlapping, each box "
           "arranged")
 {
 	Testing::ScriptRuntimeScope runtime;
-	for (SampleGraphSet const& set : SampleGraphSets)
-	{
-		CAPTURE(set.Project);
-		std::filesystem::path const project = FileSystem::PathFromUtf8(set.Root) / FileSystem::PathFromUtf8(set.Project);
-		std::filesystem::path const assets = project / "Assets";
-		// The graphs are analyzed with a copy of the project's registry and graphs as the asset directory, where the graphs
-		// they name are found, and with the project's game scripts when it has some: its graphs may use their members.
-		Testing::TemporaryDirectory directory;
-		Testing::AssetManagerScope manager;
-		Testing::OpenVisualScriptsCopy(assets, directory.GetPath());
-		std::optional<Testing::ProjectScriptsScope> scripts;
-		if (set.ScriptModule.empty())
+	ForEachSampleSet(
+		[](SampleGraphSet const& set, std::vector<SampleGraph> const& graphs, VisualScriptLibrary const& library,
+	       VisualScriptGraphResolver const& resolve)
 		{
-			scripts.emplace(project);
-		}
-		else
-		{
-			// Its graphs call members of its scripts: the scripts must be there.
-			std::string const scriptModule(set.ScriptModule);
-			REQUIRE(FileSystem::IsRegularFile(project / "Scripts" / FileSystem::PathFromUtf8(scriptModule + ".csproj")));
-			scripts.emplace(project, scriptModule, FileSystem::GetExecutableDirectory() / FileSystem::PathFromUtf8(set.ScriptBinaries));
-		}
-		Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
-		REQUIRE(library != nullptr);
-
-		std::vector<SampleGraph> graphs;
-		for (std::string const& path : FindGraphPaths(assets, set.Folder))
-		{
-			CAPTURE(path);
-			AssetHandle const handle = AssetManager::FindByPath(path);
-			REQUIRE(handle.IsValid());
-			std::vector<VisualScriptIssue> issues;
-			Result<VisualScriptDocument> document =
-				VisualScriptSerializer::LoadFromFile(assets / FileSystem::PathFromUtf8(path), Testing::MakeStrictContext(), &issues);
-			REQUIRE_MESSAGE(document.IsOk(), (document ? std::string() : document.GetError()));
-			CHECK_MESSAGE(issues.empty(), Testing::DescribeIssues(issues));
-			graphs.push_back({path, handle, document.TakeValue()});
-		}
-		REQUIRE_FALSE(graphs.empty());
-		VisualScriptGraphResolver const resolve = [&graphs](AssetHandle other) -> VisualScriptDocument const*
-		{
-			auto const found = std::find_if(graphs.begin(), graphs.end(),
-			                                [other](SampleGraph const& candidate)
-			                                {
-												return candidate.Handle == other;
-											});
-			return found != graphs.end() ? &found->Document : nullptr;
-		};
-
-		for (SampleGraph const& graph : graphs)
-		{
-			CAPTURE(graph.Path);
-			// A description per graph and a tooltip per public variable.
-			CHECK_FALSE(graph.Document.Description.empty());
-			for (VisualScriptVariable const& variable : graph.Document.Variables)
+			for (SampleGraph const& graph : graphs)
 			{
-				CAPTURE(variable.Name);
-				CHECK((!variable.Public || !variable.Tooltip.empty()));
-			}
+				CAPTURE(graph.Path);
+				// A description per graph and a tooltip per public variable.
+				CHECK_FALSE(graph.Document.Description.empty());
+				for (VisualScriptVariable const& variable : graph.Document.Variables)
+				{
+					CAPTURE(variable.Name);
+					CHECK((!variable.Public || !variable.Tooltip.empty()));
+				}
 
-			Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(graph.Document, graph.Handle);
+				Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(graph.Document, graph.Handle);
+				REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
+				// Every node is measured as it resolves: a member of the project's scripts too.
+				for (VisualScriptAnalyzedNode const& node : analysis.GetValue()->Nodes)
+				{
+					CAPTURE(node.Type);
+					CHECK((node.Resolved == VisualScriptResolution::Exact || node.Resolved == VisualScriptResolution::Redirect));
+				}
+				{
+					std::string_view const subGraph = "the event graph";
+					CAPTURE(subGraph);
+					CheckSubGraph(set, graph, 0, graph.Document.Graph, *analysis.GetValue(), library, resolve);
+				}
+				for (VisualScriptFunction const& function : graph.Document.Functions)
+				{
+					CAPTURE(function.Name);
+					CheckSubGraph(set, graph, function.ID, function.Graph, *analysis.GetValue(), library, resolve);
+				}
+			}
+		});
+}
+
+// What the pure-input rule costs: each sample set's largest sub-graph arranged whole with the canvas's measures, with its
+// pure nodes known and with none known (the rule before the pure inputs moved, as Uniform extents still arrange). Run in
+// Release with STRADA_ARRANGE_BENCHMARK=1; it reports the medians and asserts no time.
+TEST_CASE("VisualScriptEditor: benchmark: arranging each sample set's largest sub-graph, with pure inputs beside their readers "
+          "and without" *
+          doctest::skip(!Platform::ReadEnvironmentVariable("STRADA_ARRANGE_BENCHMARK")))
+{
+	Testing::ScriptRuntimeScope runtime;
+	ForEachSampleSet(
+		[](SampleGraphSet const& set, std::vector<SampleGraph> const& graphs, VisualScriptLibrary const& library,
+	       VisualScriptGraphResolver const& resolve)
+		{
+			SampleGraph const* largest = nullptr;
+			uint32_t largestFunction = 0;
+			VisualScriptGraph const* largestGraph = nullptr;
+			for (SampleGraph const& graph : graphs)
+			{
+				if (largestGraph == nullptr || graph.Document.Graph.Nodes.size() > largestGraph->Nodes.size())
+				{
+					largest = &graph;
+					largestFunction = 0;
+					largestGraph = &graph.Document.Graph;
+				}
+				for (VisualScriptFunction const& function : graph.Document.Functions)
+				{
+					if (function.Graph.Nodes.size() > largestGraph->Nodes.size())
+					{
+						largest = &graph;
+						largestFunction = function.ID;
+						largestGraph = &function.Graph;
+					}
+				}
+			}
+			REQUIRE(largest != nullptr);
+			Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(largest->Document, largest->Handle);
 			REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
-			// Every node is measured as it resolves: a member of the project's scripts too.
-			for (VisualScriptAnalyzedNode const& node : analysis.GetValue()->Nodes)
+			VisualScriptHeadlessCanvas canvas;
+			canvas.Sync(largest->Document, largestFunction, analysis.GetValue().get(), &largest->Document, &library, resolve);
+			VisualScriptArrangeMeasures const withPure = canvas.GetArrangeMeasures();
+			VisualScriptArrangeMeasures const withoutPure{withPure.Extents, {}};
+			std::vector<uint32_t> nodes;
+			nodes.reserve(largestGraph->Nodes.size());
+			for (VisualScriptNode const& node : largestGraph->Nodes)
 			{
-				CAPTURE(node.Type);
-				CHECK((node.Resolved == VisualScriptResolution::Exact || node.Resolved == VisualScriptResolution::Redirect));
+				nodes.push_back(node.ID);
 			}
+
+			// The two rules take turns, so that whatever the machine's clock does reaches both alike.
+			constexpr int Rounds = 41;
+			std::vector<double> pureTimes;
+			std::vector<double> plainTimes;
+			for (int turn = 0; turn < Rounds; turn++)
 			{
-				std::string_view const subGraph = "the event graph";
-				CAPTURE(subGraph);
-				CheckSubGraph(set, graph, 0, graph.Document.Graph, *analysis.GetValue(), *library, resolve);
+				for (bool const pureFirst : {true, false})
+				{
+					bool const knowsPure = (turn % 2 == 0) == pureFirst;
+					VisualScriptDocument arranged = largest->Document;
+					auto const begin = std::chrono::steady_clock::now();
+					Result<void> const done =
+						VisualScriptEditing::ArrangeNodes(arranged, largestFunction, nodes, knowsPure ? withPure : withoutPure);
+					double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+					REQUIRE_MESSAGE(done.IsOk(), (done ? std::string() : done.GetError()));
+					(knowsPure ? pureTimes : plainTimes).push_back(milliseconds);
+				}
 			}
-			for (VisualScriptFunction const& function : graph.Document.Functions)
-			{
-				CAPTURE(function.Name);
-				CheckSubGraph(set, graph, function.ID, function.Graph, *analysis.GetValue(), *library, resolve);
-			}
-		}
-	}
+			MESSAGE(fmt::format("{}: {} ({}, {} nodes): arranged in {:.3f} ms with its pure nodes beside their readers, {:.3f} ms "
+		                        "without (medians of {} runs each)",
+		                        set.Project, largest->Path,
+		                        largestFunction == 0 ? std::string("the event graph") : fmt::format("function {}", largestFunction),
+		                        nodes.size(), GetMedian(pureTimes), GetMedian(plainTimes), Rounds));
+		});
 }

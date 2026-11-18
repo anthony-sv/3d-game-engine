@@ -82,8 +82,8 @@
 					"ID": 9,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						176.0
+						672.0,
+						128.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -93,8 +93,8 @@
 					"ID": 10,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						240.0
+						672.0,
+						192.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -116,7 +116,7 @@
 					"Type": "Event.TriggerEnter",
 					"Position": [
 						0.0,
-						416.0
+						368.0
 					]
 				},
 				{
@@ -124,7 +124,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						544.0
+						496.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -135,7 +135,7 @@
 					"Type": "Event.Send",
 					"Position": [
 						192.0,
-						416.0
+						368.0
 					],
 					"Settings": {
 						"Name": "Strike",
@@ -156,7 +156,7 @@
 					"Type": "Flow.Tween",
 					"Position": [
 						432.0,
-						416.0
+						368.0
 					],
 					"Settings": {
 						"Easing": "EaseOut"
@@ -169,8 +169,8 @@
 					"ID": 17,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						608.0
+						736.0,
+						368.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -181,7 +181,7 @@
 					"Type": "Expression",
 					"Position": [
 						736.0,
-						416.0
+						432.0
 					],
 					"Settings": {
 						"Formula": "lerp(9, 1.5, alpha)"
@@ -192,7 +192,7 @@
 					"Type": "Set:Strada.Material.EmissiveIntensity",
 					"Position": [
 						944.0,
-						416.0
+						368.0
 					]
 				}
 			],
@@ -358,7 +358,7 @@
 					],
 					"Size": [
 						1086.72998046875,
-						372.0
+						324.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -372,11 +372,11 @@
 					"Text": "Step: whoever steps on the pad rings its chime, and the plate flashes",
 					"Position": [
 						-32.0,
-						344.0
+						296.0
 					],
 					"Size": [
 						1161.8187255859375,
-						324.0
+						260.0
 					],
 					"Color": [
 						0.20000000298023224,

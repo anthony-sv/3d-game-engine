@@ -384,6 +384,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -407,6 +408,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.0,
 					"Restitution": 1.0
 				}
@@ -467,6 +469,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -490,6 +493,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.0,
 					"Restitution": 1.0
 				}
@@ -550,6 +554,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -573,6 +578,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.0,
 					"Restitution": 1.0
 				}
@@ -633,6 +639,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -656,6 +663,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.0,
 					"Restitution": 1.0
 				}
@@ -822,6 +830,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -845,6 +854,7 @@
 						0.0
 					],
 					"IsTrigger": true,
+					"Material": "0",
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
 				},
@@ -857,7 +867,10 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				},
 				"VisualScript": {
 					"Graph": "12918368549892612073",
@@ -1454,6 +1467,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -1477,6 +1491,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.0,
 					"Restitution": 1.0
 				},
@@ -1489,7 +1504,10 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				},
 				"VisualScript": {
 					"Graph": "6826924986256932464",
@@ -1691,7 +1709,10 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				}
 			}
 		},
@@ -1732,7 +1753,10 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				}
 			}
 		},
@@ -1773,7 +1797,10 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				}
 			}
 		},
@@ -1814,7 +1841,10 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				}
 			}
 		},
@@ -1855,7 +1885,10 @@
 					"PlayOnStart": true,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				}
 			}
 		},
@@ -1910,6 +1943,10 @@
 							"Type": "Entity",
 							"Value": "6183149129750380499"
 						},
+						"BindingText": {
+							"Type": "Entity",
+							"Value": "13745369115461995187"
+						},
 						"ComboBadge": {
 							"Type": "Entity",
 							"Value": "3232959578084078695"
@@ -1953,6 +1990,10 @@
 						"Life5": {
 							"Type": "Entity",
 							"Value": "3744056698483464989"
+						},
+						"OverPrompt": {
+							"Type": "Entity",
+							"Value": "1991421301916246652"
 						},
 						"OverScreen": {
 							"Type": "Entity",
@@ -3121,7 +3162,8 @@
 						"13526301997955596830",
 						"7472450761681266899",
 						"8480921547187472969",
-						"9943141183997974096"
+						"9943141183997974096",
+						"13745369115461995187"
 					]
 				},
 				"UIRect": {
@@ -5421,12 +5463,81 @@
 					"Opacity": 1.0
 				},
 				"UIText": {
-					"Text": "MOUSE, A AND D OR THE ARROWS MOVE THE PADDLE      ESC PAUSES",
+					"Text": "MOUSE, A AND D, THE ARROWS OR A GAMEPAD MOVE THE PADDLE      ESC PAUSES",
 					"Font": "0",
 					"Color": [
 						0.41999998688697815,
 						0.5,
 						0.7799999713897705,
+						1.0
+					],
+					"FontSize": 26.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": false,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "13745369115461995187",
+			"Components": {
+				"Tag": {
+					"Tag": "Binding Text"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "16531175945520861291",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.0
+					],
+					"AnchorMax": [
+						0.5,
+						0.0
+					],
+					"Position": [
+						0.0,
+						820.0
+					],
+					"Size": [
+						1600.0,
+						40.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "LAUNCH: SPACE      R REBINDS IT",
+					"Font": "0",
+					"Color": [
+						0.550000011920929,
+						0.8999999761581421,
+						1.0,
 						1.0
 					],
 					"FontSize": 26.0,
@@ -6374,6 +6485,10 @@
 						"BannerText": {
 							"Type": "Entity",
 							"Value": "10431532663563641798"
+						},
+						"BindingText": {
+							"Type": "Entity",
+							"Value": "13745369115461995187"
 						},
 						"Bricks": {
 							"Type": "Entity",

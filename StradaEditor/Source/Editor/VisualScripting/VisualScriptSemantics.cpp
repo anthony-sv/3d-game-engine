@@ -27,4 +27,9 @@ namespace Strada
 	{
 		return ScriptEngine::IsInitialized() ? VisualScriptEngine::GetLastAnalysisTimings() : VisualScriptAnalysisTimings{};
 	}
+
+	Ref<VisualScriptInputActions const> EngineVisualScriptSemantics::GetInputActions()
+	{
+		return VisualScriptEngine::GetInputActions();
+	}
 }

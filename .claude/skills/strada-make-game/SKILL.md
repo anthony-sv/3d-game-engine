@@ -182,8 +182,9 @@ without C# scripts; they need no C# project, only the scripting runtime (.NET 10
   across the document, `Position` left out. Check it first with `graph_check` (`document`, and `graph` to find renamed
   variables against the stored one and to check nodes that name the graph itself) until `valid` is true and only
   Warnings remain.
-- `graph_arrange` lays out a graph (or `nodes`) as the window's Arrange does, with node sizes as a window draws them;
-  its `bounds` is where a comment box framing them goes. `graph_copy` returns the clipboard text of `elements`, which a
+- `graph_arrange` lays out a graph (or `nodes`) as the window's Arrange does, with node sizes as a window draws them
+  and each pure node (a get, a literal, a pure call) in the column right before the node that reads it; its `bounds` is
+  where a comment box framing them goes. `graph_copy` returns the clipboard text of `elements`, which a
   `Paste` operation (`clipboard`, `at`, `labels`) takes into any graph, binding variables and functions by name.
 - Attach a script, never a library: `component_add` with `component` `VisualScript` and `fields` `{"Graph": "<asset>",
   "Variables": {"Speed": {"Type": "Float", "Value": 180}}}`: the values of public variables, per entity, in the format of
@@ -513,7 +514,11 @@ rules, plays the game through its public methods and clicks its buttons.
 `Projects/PrismBreak` is a game made of 13 visual scripts and no C#, a neon brick breaker, built entirely through
 `graph_edit` by its `Tools/Author.py` (declare first, then one batch per region): its graphs read well by the rules of
 section 6, call two function libraries, send typed events and broadcast to each other, read each other's variables
-guarded by `RunsGraph`, and its test scene's 29 checks are graphs too. Read it for every feature of the language in use.
+guarded by `RunsGraph`, reads input actions (`Event.ActionPressed`, `Input.GetAction`) so that a keyboard and a gamepad
+play it alike, rebinds Launch at its title (`Input.StartRebind`, its answer read from `Input.CurrentRebind` while the
+capture listens, the screen's line made from `Input.GetBindingControls` only when it can change), and its test scene's
+33 checks are graphs too, the last four driving the game through action overrides. Read it for every feature of the
+language in use.
 
 ## Rules
 

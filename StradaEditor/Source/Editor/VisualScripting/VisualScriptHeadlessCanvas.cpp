@@ -59,6 +59,19 @@ namespace Strada
 		};
 	}
 
+	VisualScriptNodePurity VisualScriptHeadlessCanvas::GetPurity() const
+	{
+		return [this](uint32_t node)
+		{
+			return m_Canvas.IsPure(node);
+		};
+	}
+
+	VisualScriptArrangeMeasures VisualScriptHeadlessCanvas::GetArrangeMeasures() const
+	{
+		return {GetExtents(), GetPurity()};
+	}
+
 	VisualScriptNodePins VisualScriptHeadlessCanvas::GetPins(std::optional<VisualScriptNewNodePins> newNode) const
 	{
 		return MakeVisualScriptCanvasNodePins(m_Canvas, m_Analysis, m_Display.get(), m_Library, newNode);

@@ -60,6 +60,10 @@ namespace Strada
 		// only selected.
 		using OpenVisualScriptCallback = std::function<void(AssetHandle)>;
 		void SetOpenVisualScriptCallback(OpenVisualScriptCallback callback) { m_OpenVisualScript = std::move(callback); }
+		// Opens an InputActions asset in the Input Actions panel: a double-click on its tile and its menu's Open. Without it
+		// input actions are only selected.
+		using OpenInputActionsCallback = std::function<void(AssetHandle)>;
+		void SetOpenInputActionsCallback(OpenInputActionsCallback callback) { m_OpenInputActions = std::move(callback); }
 		void SetOpenFileCallback(OpenFileCallback callback) { m_OpenFile = std::move(callback); }
 		// Asks for a new script class in a folder of the scripts (the editor's New Script dialog): the displayed one while the
 		// browser shows the scripts, else their directory itself. Without it the browser offers no "C# Script".
@@ -253,6 +257,7 @@ namespace Strada
 
 		OpenSceneCallback m_OpenScene;
 		OpenVisualScriptCallback m_OpenVisualScript;
+		OpenInputActionsCallback m_OpenInputActions;
 		OpenFileCallback m_OpenFile;
 		NewScriptCallback m_NewScript;
 		EditorScripts* m_Scripts = nullptr;

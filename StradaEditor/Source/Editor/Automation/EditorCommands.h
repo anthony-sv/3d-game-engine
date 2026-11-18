@@ -44,6 +44,7 @@ namespace Strada
 		// A graph window: the one of the screenshot's graph.
 		Graph,
 		Profiler,
+		InputActions,
 		Mixer
 	};
 

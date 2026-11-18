@@ -323,6 +323,12 @@ namespace Strada
 				{
 					return m_GameInput.Route(event, context);
 				});
+			// The Input Actions panel's capture of a binding sees key and mouse presses first, as the window reports them.
+			m_GameInput.SetCaptureFilter(
+				[this](Event const& event, ImGuiLayer::InputContext const& context)
+				{
+					return m_InputActionsPanel.TakeCaptureEvent(event, context);
+				});
 			m_GameInput.SetShortcutsUseSuper(ImGui::GetIO().ConfigMacOSXBehaviors);
 			m_GameInput.SetGameCursorMode(Input::GetCursorMode());
 			Input::SetCursorModeHandler(
@@ -363,6 +369,13 @@ namespace Strada
 				{
 					m_ShowConsole = true;
 					m_FocusConsole = true;
+				});
+			m_ContentBrowserPanel.SetOpenInputActionsCallback(
+				[this](AssetHandle actions)
+				{
+					m_InputActionsPanel.OpenAsset(actions);
+					m_ShowInputActions = true;
+					m_FocusInputActions = true;
 				});
 
 			// The visual script windows, with the views the user left them in (a views file that cannot be read starts empty).
@@ -557,6 +570,7 @@ namespace Strada
 			{
 				imgui->SetInputFilter({});
 			}
+			m_GameInput.SetCaptureFilter({});
 			Input::SetCursorModeHandler({});
 			if (Window* const window = Application::Get().GetWindow())
 			{
@@ -817,6 +831,9 @@ namespace Strada
 			case ScreenshotWindow::Profiler:
 				name = ProfilerPanel::WindowName;
 				break;
+			case ScreenshotWindow::InputActions:
+				name = InputActionsPanel::WindowName;
+				break;
 			case ScreenshotWindow::Mixer:
 				name = MixerPanel::WindowName;
 				break;
@@ -970,6 +987,16 @@ namespace Strada
 		{
 			m_ConsolePanel.OnImGuiRender(m_ShowConsole);
 		}
+		// Drawn before the debugger, in the order the default layout docks them: drawn after it, the panel's tab came to the
+		// front of the bottom node over the content browser's when the layout was first built (seen in a windowed run).
+		if (m_ShowInputActions)
+		{
+			m_InputActionsPanel.OnImGuiRender(m_Operations, m_ShowInputActions);
+		}
+		else
+		{
+			m_InputActionsPanel.OnHidden();
+		}
 		// Drawn in the order the default layout docks the bottom node's windows, so that its tab does not come to the front
 		// when the layout is first built.
 		if (m_ShowMixer)
@@ -1026,6 +1053,10 @@ namespace Strada
 		if (std::exchange(m_FocusProfiler, false) && m_ShowProfiler)
 		{
 			ImGui::SetWindowFocus(ProfilerPanel::WindowName);
+		}
+		if (std::exchange(m_FocusInputActions, false) && m_ShowInputActions)
+		{
+			ImGui::SetWindowFocus(InputActionsPanel::WindowName);
 		}
 
 		DrawDialogs();
@@ -1101,6 +1132,7 @@ namespace Strada
 		ImGui::DockBuilderDockWindow("Project Settings", right);
 		ImGui::DockBuilderDockWindow(ContentBrowserPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
+		ImGui::DockBuilderDockWindow(InputActionsPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow(MixerPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow(VisualScriptDebuggerPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow(ProfilerPanel::WindowName, bottom);
@@ -1263,6 +1295,7 @@ namespace Strada
 			ImGui::MenuItem(ContentBrowserPanel::WindowName, nullptr, &m_ShowContentBrowser);
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
 			ImGui::MenuItem("Renderer Info", nullptr, &m_ShowRendererInfo);
+			ImGui::MenuItem(InputActionsPanel::WindowName, nullptr, &m_ShowInputActions);
 			ImGui::MenuItem(MixerPanel::WindowName, nullptr, &m_ShowMixer);
 			ImGui::MenuItem(ProfilerPanel::WindowName, nullptr, &m_ShowProfiler);
 			if (m_VisualScripts)
@@ -1288,7 +1321,7 @@ namespace Strada
 			{
 				// The Profiler stays as it is: it records while it is open.
 				m_ShowViewport = m_ShowGameView = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowProjectSettings =
-					m_ShowContentBrowser = m_ShowConsole = m_ShowRendererInfo = m_ShowMixer = true;
+					m_ShowContentBrowser = m_ShowConsole = m_ShowRendererInfo = m_ShowInputActions = m_ShowMixer = true;
 				m_DebuggerPanel.SetOpen(true);
 				m_ResetLayout = true;
 			}

@@ -2722,6 +2722,12 @@ namespace Strada
 		return node ? m_Nodes[*node].Size : glm::vec2(0.0f);
 	}
 
+	bool VisualScriptCanvasModel::IsPure(uint32_t id) const
+	{
+		std::optional<uint32_t> const node = FindNode(id);
+		return node && m_Nodes[*node].HasFlag(VisualScriptNodeFlags::Pure);
+	}
+
 	std::optional<VisualScriptRect> VisualScriptCanvasModel::GetBounds(std::span<uint32_t const> elements) const
 	{
 		std::optional<VisualScriptRect> bounds;

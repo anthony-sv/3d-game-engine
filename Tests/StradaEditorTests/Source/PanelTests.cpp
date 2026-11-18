@@ -3457,6 +3457,53 @@ TEST_CASE("Panels: visual scripts open in their graph windows from the content b
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
 }
 
+TEST_CASE("Panels: input actions open in the Input Actions panel from the content browser")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	DataAssetType const* const type = DataAssetRegistry::FindByName("InputActions");
+	REQUIRE(type != nullptr);
+	Result<AssetHandle> const actions = fixture.Operations.CreateDataAsset(type->GetAssetType(), "Input/Game.sinput",
+	                                                                       Json::parse(R"({ "Actions": [ { "Name": "Jump" } ] })"));
+	REQUIRE(actions.IsOk());
+	std::vector<AssetHandle> opened;
+	fixture.Browser.SetOpenInputActionsCallback(
+		[&opened](AssetHandle asset)
+		{
+			opened.push_back(asset);
+		});
+	fixture.Browser.SetFolder("Input");
+	std::function<void()> const draw = fixture.GetDraw();
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	ImVec2 const tile = fixture.GetTile(0);
+	imgui.Click(tile, draw, 2);
+	CHECK(opened == std::vector<AssetHandle>{actions.GetValue()});
+	CHECK(fixture.Context.GetSelectedAsset() == actions.GetValue());
+
+	// Open in its menu.
+	for (int frame = 0; frame < 40; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	ImGui::GetIO().AddMousePosEvent(tile.x, tile.y);
+	imgui.Frame(draw);
+	ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Right, true);
+	imgui.Frame(draw);
+	ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Right, false);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImGuiWindow* menu = GetOpenPopup();
+	REQUIRE(menu != nullptr);
+	std::optional<ImVec2> const open = FindHovered(imgui, draw, GetColumnPoints(menu), menu->GetID("Open"));
+	REQUIRE(open.has_value());
+	imgui.Click(*open, draw);
+	CHECK(opened == std::vector<AssetHandle>{actions.GetValue(), actions.GetValue()});
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+}
+
 TEST_CASE("Panels: the component inspector opens the entities' visual script, and creates one for entities that run none")
 {
 	ContentBrowserFixture fixture;

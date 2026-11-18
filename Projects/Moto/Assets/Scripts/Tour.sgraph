@@ -65,8 +65,8 @@
 					"ID": 8,
 					"Type": "Self",
 					"Position": [
-						0.0,
-						368.0
+						192.0,
+						320.0
 					]
 				},
 				{
@@ -86,7 +86,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						544.0
+						496.0
 					],
 					"Settings": {
 						"Name": "PlayTour",
@@ -98,7 +98,7 @@
 					"Type": "Flow.Timeline",
 					"Position": [
 						192.0,
-						544.0
+						496.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -1775,7 +1775,7 @@
 					"Type": "Set:Strada.TransformComponent.Translation",
 					"Position": [
 						496.0,
-						544.0
+						496.0
 					]
 				},
 				{
@@ -1783,7 +1783,7 @@
 					"Type": "Expression",
 					"Position": [
 						496.0,
-						720.0
+						672.0
 					],
 					"Settings": {
 						"Formula": "vec3(degrees(atan2(target.Y - eye.Y, length(vec2(target.X - eye.X, target.Z - eye.Z)))), degrees(atan2(eye.X - target.X, eye.Z - target.Z)), 0)"
@@ -1794,7 +1794,7 @@
 					"Type": "Set:Strada.TransformComponent.EulerAngles",
 					"Position": [
 						704.0,
-						544.0
+						496.0
 					]
 				},
 				{
@@ -1802,7 +1802,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						656.0
+						608.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -1813,7 +1813,7 @@
 					"Type": "Expression",
 					"Position": [
 						192.0,
-						816.0
+						768.0
 					],
 					"Settings": {
 						"Formula": "tours + 1"
@@ -1824,7 +1824,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						496.0,
-						864.0
+						816.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -1834,8 +1834,8 @@
 					"ID": 19,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						720.0
+						496.0,
+						944.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -1846,7 +1846,7 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						704.0,
-						720.0
+						672.0
 					]
 				}
 			],
@@ -2032,7 +2032,7 @@
 					],
 					"Size": [
 						600.0,
-						308.0
+						260.0
 					],
 					"Color": [
 						0.20000000298023224,
@@ -2046,11 +2046,11 @@
 					"Text": "Tour: a timeline flies the camera round the lap and home",
 					"Position": [
 						-32.0,
-						472.0
+						424.0
 					],
 					"Size": [
 						912.7962646484375,
-						514.0
+						580.0
 					],
 					"Color": [
 						0.6200000047683716,

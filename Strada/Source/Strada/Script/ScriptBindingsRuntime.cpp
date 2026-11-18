@@ -4,12 +4,15 @@
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/InputActions.h"
+#include "Strada/Core/InputCapture.h"
 #include "Strada/Physics/PhysicsScene.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -324,6 +327,150 @@ namespace Strada::ScriptGlue
 			std::optional<std::string_view> const action = ScriptEngine::GetHandledAction();
 			*length = action ? static_cast<int32_t>(action->size()) : 0;
 			return action ? action->data() : nullptr;
+		}
+
+		// --- Rebinding (Docs/Architecture.md §7.4, "Rebinding") ---
+
+		// The layout of Strada.Interop.NativeRebindAnswer (no implicit padding): an InputRebindResult's numbers. Status is an
+		// InputRebindStatus, or NoSceneStatus outside a running scene; its text is read with Input_ReadRebindText.
+		struct RebindAnswer
+		{
+			int32_t Status;
+			int32_t Binding;
+			int32_t Part;
+			int32_t ConflictCount;
+		};
+
+		static_assert(sizeof(RebindAnswer) == 16 && offsetof(RebindAnswer, ConflictCount) == 12);
+		// Strada.RebindStatus names the statuses by these values (InteropTests pins them).
+		static_assert(static_cast<int32_t>(InputRebindStatus::None) == 0 && static_cast<int32_t>(InputRebindStatus::Listening) == 1 &&
+		              static_cast<int32_t>(InputRebindStatus::Done) == 2 && static_cast<int32_t>(InputRebindStatus::Cancelled) == 3 &&
+		              static_cast<int32_t>(InputRebindStatus::Refused) == 4);
+
+		constexpr int32_t NoSceneStatus = -1;
+
+		void WriteAnswer(InputRebindResult const& result, RebindAnswer* answer)
+		{
+			answer->Status = static_cast<int32_t>(result.Status);
+			answer->Binding = result.Binding;
+			answer->Part = result.Part;
+			answer->ConflictCount = static_cast<int32_t>(result.Conflicts.size());
+		}
+
+		void WriteNoScene(RebindAnswer* answer)
+		{
+			*answer = RebindAnswer{NoSceneStatus, -1, -1, 0};
+		}
+
+		void Input_StartRebind(char const* action, int32_t length, int32_t binding, int32_t part, RebindAnswer* answer)
+		{
+			Scene* const scene = ScriptEngine::GetSceneContext();
+			if (scene == nullptr)
+			{
+				WriteNoScene(answer);
+				return;
+			}
+			WriteAnswer(scene->StartInputRebind(ToStringView(action, length), binding, part), answer);
+		}
+
+		void Input_Rebind(char const* action, int32_t length, int32_t binding, char const* controls, int32_t controlsLength, int32_t part,
+		                  RebindAnswer* answer)
+		{
+			Scene* const scene = ScriptEngine::GetSceneContext();
+			if (scene == nullptr)
+			{
+				WriteNoScene(answer);
+				return;
+			}
+			WriteAnswer(scene->RebindInput(ToStringView(action, length), binding, ToStringView(controls, controlsLength), part), answer);
+		}
+
+		void Input_ResetBindings(RebindAnswer* answer)
+		{
+			Scene* const scene = ScriptEngine::GetSceneContext();
+			if (scene == nullptr)
+			{
+				WriteNoScene(answer);
+				return;
+			}
+			WriteAnswer(scene->ResetInputBindings(), answer);
+		}
+
+		void Input_CancelRebind()
+		{
+			if (Scene* const scene = ScriptEngine::GetSceneContext())
+			{
+				scene->CancelInputRebind();
+			}
+		}
+
+		void Input_GetCurrentRebind(RebindAnswer* answer)
+		{
+			Scene const* const scene = ScriptEngine::GetSceneContext();
+			if (scene == nullptr)
+			{
+				WriteNoScene(answer);
+				return;
+			}
+			WriteAnswer(scene->GetInputRebind(), answer);
+		}
+
+		// Text of the running scene's latest answer (source 0: Scene::GetInputRebindAnswer) or of its capture (source 1:
+		// Scene::GetInputRebind): field 0 the action, 1 the controls, 2 the message, 3 the conflict at `index`. The text is the
+		// scene's, valid until its next rebinding call or frame; null and 0 outside a running scene and past the conflicts.
+		char const* Input_ReadRebindText(int32_t source, int32_t field, int32_t index, int32_t* length)
+		{
+			*length = 0;
+			Scene const* const scene = ScriptEngine::GetSceneContext();
+			if (scene == nullptr || source < 0 || source > 1)
+			{
+				return nullptr;
+			}
+			InputRebindResult const& result = source == 0 ? scene->GetInputRebindAnswer() : scene->GetInputRebind();
+			std::string const* text = nullptr;
+			switch (field)
+			{
+				case 0:
+					text = &result.Action;
+					break;
+				case 1:
+					text = &result.Controls;
+					break;
+				case 2:
+					text = &result.Message;
+					break;
+				case 3:
+					text = index >= 0 && static_cast<size_t>(index) < result.Conflicts.size()
+					           ? &result.Conflicts[static_cast<size_t>(index)]
+					           : nullptr;
+					break;
+				default:
+					break;
+			}
+			if (text == nullptr)
+			{
+				return nullptr;
+			}
+			*length = static_cast<int32_t>(text->size());
+			return text->data();
+		}
+
+		// Copies the binding's controls now into the buffer: their length in bytes, or -1 (nothing copied) outside a running
+		// scene, for an action or binding its actions lack, and when the buffer is too small.
+		int32_t Input_GetBindingControls(char const* action, int32_t length, int32_t binding, char* buffer, int32_t capacity)
+		{
+			Scene const* const scene = ScriptEngine::GetSceneContext();
+			if (scene == nullptr || capacity < 0)
+			{
+				return -1;
+			}
+			Result<std::string> const controls = scene->GetInputBindingControls(ToStringView(action, length), binding);
+			if (!controls || controls.GetValue().size() > static_cast<size_t>(capacity))
+			{
+				return -1;
+			}
+			std::memcpy(buffer, controls.GetValue().data(), controls.GetValue().size());
+			return static_cast<int32_t>(controls.GetValue().size());
 		}
 
 		// --- Physics ---
@@ -657,6 +804,13 @@ namespace Strada::ScriptGlue
 		table.Add("Input_SetActionOverride", &Input_SetActionOverride);
 		table.Add("Input_ClearActionOverride", &Input_ClearActionOverride);
 		table.Add("Input_GetHandledAction", &Input_GetHandledAction);
+		table.Add("Input_StartRebind", &Input_StartRebind);
+		table.Add("Input_Rebind", &Input_Rebind);
+		table.Add("Input_ResetBindings", &Input_ResetBindings);
+		table.Add("Input_CancelRebind", &Input_CancelRebind);
+		table.Add("Input_GetCurrentRebind", &Input_GetCurrentRebind);
+		table.Add("Input_ReadRebindText", &Input_ReadRebindText);
+		table.Add("Input_GetBindingControls", &Input_GetBindingControls);
 
 		table.Add("Physics_GetGravity", &Physics_GetGravity);
 		table.Add("Physics_SetGravity", &Physics_SetGravity);

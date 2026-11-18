@@ -13,6 +13,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Asset/InputRebinding.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshImporter.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -212,8 +213,10 @@ namespace Strada
 		m_Context.SetProject(nullptr);
 		m_Context.SelectAsset(AssetHandle());
 		ResetScene("Untitled", false);
-		// Nothing plays, so no scene can still read the counts of the action overrides no longer held.
+		// Nothing plays, so no scene can still read the counts of the action overrides no longer held, nor the bindings a game
+		// of the project changed.
 		Input::DropReleasedActionOverrides();
+		InputRebinding::Clear();
 		return {};
 	}
 
@@ -242,8 +245,10 @@ namespace Strada
 		ST_INFO("Opened project '{}'", FileSystem::PathToUtf8(project->GetFilePath()));
 		AssetHandle const startScene = project->GetSettings().StartScene;
 		m_Context.SetProject(std::move(project));
-		// Nothing plays while a project opens, so no scene can still read the counts of the action overrides no longer held.
+		// Nothing plays while a project opens, so no scene can still read the counts of the action overrides no longer held,
+		// nor the bindings a game of the project before changed.
 		Input::DropReleasedActionOverrides();
+		InputRebinding::Clear();
 
 		// The steps of asset files in the history name the assets of the project before.
 		std::vector<std::string> warnings;

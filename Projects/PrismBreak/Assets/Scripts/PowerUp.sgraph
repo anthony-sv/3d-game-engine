@@ -121,8 +121,8 @@
 							"ID": 13,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								112.0
+								192.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -133,7 +133,7 @@
 							"Type": "Flow.Switch",
 							"Position": [
 								416.0,
-								0.0
+								128.0
 							],
 							"Settings": {
 								"Type": "string",
@@ -147,8 +147,8 @@
 							"ID": 15,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								416.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 4
@@ -158,8 +158,8 @@
 							"ID": 16,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								416.0,
+								64.0
 							],
 							"Settings": {
 								"Variable": 2
@@ -187,8 +187,8 @@
 							"ID": 18,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								416.0,
+								288.0
 							],
 							"Settings": {
 								"Variable": 3
@@ -198,8 +198,8 @@
 							"ID": 19,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								416.0,
+								352.0
 							],
 							"Settings": {
 								"Variable": 2
@@ -456,7 +456,7 @@
 							],
 							"Size": [
 								2168.0,
-								500.0
+								484.0
 							],
 							"Color": [
 								0.949999988079071,
@@ -476,7 +476,7 @@
 					"Type": "Event.Update",
 					"Position": [
 						0.0,
-						320.0
+						0.0
 					]
 				},
 				{
@@ -484,7 +484,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						0.0
+						128.0
 					],
 					"Settings": {
 						"Variable": 7
@@ -494,7 +494,7 @@
 					"ID": 29,
 					"Type": "Operator.Not",
 					"Position": [
-						240.0,
+						192.0,
 						0.0
 					]
 				},
@@ -502,7 +502,7 @@
 					"ID": 30,
 					"Type": "Flow.Branch",
 					"Position": [
-						448.0,
+						432.0,
 						0.0
 					]
 				},
@@ -510,16 +510,16 @@
 					"ID": 31,
 					"Type": "Get:Strada.Entity.Translation",
 					"Position": [
-						0.0,
-						64.0
+						192.0,
+						112.0
 					]
 				},
 				{
 					"ID": 32,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						192.0
+						192.0,
+						240.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -529,8 +529,8 @@
 					"ID": 33,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						112.0
+						432.0,
+						128.0
 					],
 					"Settings": {
 						"Formula": "p + vec3(0, 0, speed * dt)"
@@ -540,7 +540,7 @@
 					"ID": 34,
 					"Type": "Set:Strada.Entity.Translation",
 					"Position": [
-						672.0,
+						656.0,
 						0.0
 					]
 				},
@@ -548,8 +548,8 @@
 					"ID": 35,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						512.0
+						432.0,
+						304.0
 					],
 					"Settings": {
 						"Variable": 8
@@ -559,8 +559,8 @@
 					"ID": 36,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						576.0
+						432.0,
+						368.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -570,8 +570,8 @@
 					"ID": 37,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						544.0
+						656.0,
+						176.0
 					],
 					"Settings": {
 						"Formula": "(angle + spin * dt) % 360"
@@ -581,7 +581,7 @@
 					"ID": 38,
 					"Type": "Variable.Set",
 					"Position": [
-						880.0,
+						864.0,
 						0.0
 					],
 					"Settings": {
@@ -592,8 +592,8 @@
 					"ID": 39,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						640.0
+						656.0,
+						352.0
 					],
 					"Settings": {
 						"Variable": 8
@@ -603,8 +603,8 @@
 					"ID": 40,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						720.0
+						864.0,
+						128.0
 					],
 					"Settings": {
 						"Formula": "vec3(angle, 0, 90)"
@@ -614,7 +614,7 @@
 					"ID": 41,
 					"Type": "Set:Strada.TransformComponent.EulerAngles",
 					"Position": [
-						1072.0,
+						1104.0,
 						0.0
 					]
 				},
@@ -622,8 +622,8 @@
 					"ID": 42,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						256.0
+						656.0,
+						416.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -633,24 +633,24 @@
 					"ID": 43,
 					"Type": "Get:Strada.Entity.Translation",
 					"Position": [
-						0.0,
-						832.0
+						864.0,
+						256.0
 					]
 				},
 				{
 					"ID": 44,
 					"Type": "Get:Strada.Entity.Translation",
 					"Position": [
-						240.0,
-						288.0
+						864.0,
+						384.0
 					]
 				},
 				{
 					"ID": 45,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						448.0
+						656.0,
+						480.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -660,8 +660,8 @@
 					"ID": 46,
 					"Type": "Variable.Get",
 					"Position": [
-						240.0,
-						416.0
+						864.0,
+						512.0
 					],
 					"Settings": {
 						"Variable": 3,
@@ -672,8 +672,8 @@
 					"ID": 47,
 					"Type": "Expression",
 					"Position": [
-						448.0,
-						128.0
+						1104.0,
+						176.0
 					],
 					"Settings": {
 						"Formula": "abs(p.x - q.x) < w * 0.5 + 0.35 && abs(p.z - q.z) < 0.45"
@@ -683,7 +683,7 @@
 					"ID": 48,
 					"Type": "Flow.Branch",
 					"Position": [
-						1280.0,
+						1344.0,
 						0.0
 					]
 				},
@@ -691,16 +691,16 @@
 					"ID": 49,
 					"Type": "Get:Strada.Entity.Translation",
 					"Position": [
-						0.0,
-						704.0
+						1104.0,
+						352.0
 					]
 				},
 				{
 					"ID": 50,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						848.0
+						1344.0,
+						128.0
 					],
 					"Settings": {
 						"Formula": "p.z > 12"
@@ -710,16 +710,16 @@
 					"ID": 51,
 					"Type": "Flow.Branch",
 					"Position": [
-						1504.0,
-						0.0
+						1568.0,
+						112.0
 					]
 				},
 				{
 					"ID": 52,
 					"Type": "Function.Call",
 					"Position": [
-						1504.0,
-						128.0
+						1568.0,
+						0.0
 					],
 					"Settings": {
 						"Function": 9
@@ -729,7 +729,7 @@
 					"ID": 53,
 					"Type": "Call:Strada.Entity.Destroy()",
 					"Position": [
-						1728.0,
+						1792.0,
 						0.0
 					]
 				}
@@ -1025,8 +1025,8 @@
 						-72.0
 					],
 					"Size": [
-						1923.13623046875,
-						1034.0
+						1987.13623046875,
+						698.0
 					],
 					"Color": [
 						0.949999988079071,

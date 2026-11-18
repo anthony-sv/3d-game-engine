@@ -3420,14 +3420,14 @@ namespace Strada
 				};
 				VisualScriptHeadlessCanvas canvas;
 				canvas.Sync(*stored, function.GetValue(), analysis.get(), stored.get(), library.get(), resolve);
+				// Uniform sizes come with no pure node: the layout graph.set gives unplaced nodes.
+				VisualScriptArrangeMeasures const measures = GetString(params, "extents", "Measured") == "Uniform"
+				                                                 ? VisualScriptEditing::GetUniformVisualScriptArrangeMeasures()
+				                                                 : canvas.GetArrangeMeasures();
 				VisualScriptNodeExtents const measured = canvas.GetExtents();
-				VisualScriptNodeExtents const extents =
-					GetString(params, "extents", "Measured") == "Uniform"
-						? VisualScriptNodeExtents(&VisualScriptEditing::GetDefaultVisualScriptNodeExtents)
-						: measured;
 
 				VisualScriptDocument arranged = *stored;
-				if (Result<void> const done = VisualScriptEditing::ArrangeNodes(arranged, function.GetValue(), nodes, extents); !done)
+				if (Result<void> const done = VisualScriptEditing::ArrangeNodes(arranged, function.GetValue(), nodes, measures); !done)
 				{
 					// The nodes are the sub-graph's and the sizes are a canvas's: this is the editor's fault.
 					return MakeCommandError(AutomationErrorCode::InternalError, "{}", done.GetError());
@@ -3865,8 +3865,11 @@ namespace Strada
 				{
 					return nullptr;
 				}
+				// An analysis that checked action names holds the project's input actions it read: others now make it out of date.
+				VisualScriptAnalysis const& analysis = *found->second.Analysis;
 				if (library == nullptr || found->second.Document.lock() != document || found->second.Library.lock() != library ||
-				    document == nullptr || !ReadsCurrentGraphs(*found->second.Analysis, *document))
+				    document == nullptr || !ReadsCurrentGraphs(analysis, *document) ||
+				    (analysis.NamesInputActions && m_Semantics.GetInputActions() != analysis.InputActions))
 				{
 					m_StoredGraphAnalyses.erase(found);
 					return nullptr;
@@ -5849,7 +5852,7 @@ namespace Strada
 					SchemaBuilder::Object()
 						.Property("window", SchemaBuilder::String("The window to capture (default Editor: the whole editor window)")
 				                                .Enum({"Editor", "SceneView", "GameView", "Hierarchy", "Inspector", "ContentBrowser",
-				                                       "Console", "Debugger", "Graph", "Profiler", "Mixer"}))
+				                                       "Console", "Debugger", "Graph", "Profiler", "InputActions", "Mixer"}))
 						.Property("graph", SchemaBuilder::String("With window Graph: the visual script whose window to capture, a handle "
 				                                                 "or \"asset://<path>.sgraph\"")
 				                               .MinLength(1))
@@ -6453,7 +6456,7 @@ namespace Strada
 
 	namespace
 	{
-		constexpr std::array<std::pair<ScreenshotWindow, std::string_view>, 11> ScreenshotWindowNames = {{
+		constexpr std::array<std::pair<ScreenshotWindow, std::string_view>, 12> ScreenshotWindowNames = {{
 			{ScreenshotWindow::Editor, "Editor"},
 			{ScreenshotWindow::SceneView, "SceneView"},
 			{ScreenshotWindow::GameView, "GameView"},
@@ -6464,6 +6467,7 @@ namespace Strada
 			{ScreenshotWindow::Debugger, "Debugger"},
 			{ScreenshotWindow::Graph, "Graph"},
 			{ScreenshotWindow::Profiler, "Profiler"},
+			{ScreenshotWindow::InputActions, "InputActions"},
 			{ScreenshotWindow::Mixer, "Mixer"},
 		}};
 	}

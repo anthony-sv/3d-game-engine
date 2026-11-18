@@ -144,7 +144,7 @@
 							"ID": 17,
 							"Type": "Function.Return",
 							"Position": [
-								992.0,
+								1008.0,
 								0.0
 							]
 						},
@@ -179,8 +179,8 @@
 							"ID": 21,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								192.0
+								192.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 11
@@ -190,8 +190,8 @@
 							"ID": 22,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								128.0
+								400.0,
+								144.0
 							],
 							"Settings": {
 								"Formula": "0.5 + 0.4 * swell"
@@ -219,8 +219,8 @@
 							"ID": 24,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								256.0
+								400.0,
+								272.0
 							],
 							"Settings": {
 								"Variable": 7
@@ -230,8 +230,8 @@
 							"ID": 25,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								256.0
+								608.0,
+								176.0
 							],
 							"Settings": {
 								"Formula": "notes + 1"
@@ -241,7 +241,7 @@
 							"ID": 26,
 							"Type": "Variable.Set",
 							"Position": [
-								800.0,
+								816.0,
 								0.0
 							],
 							"Settings": {
@@ -370,8 +370,8 @@
 								-72.0
 							],
 							"Size": [
-								1176.0,
-								442.0
+								1192.0,
+								404.0
 							],
 							"Color": [
 								0.949999988079071,
@@ -447,7 +447,7 @@
 					"ID": 34,
 					"Type": "Variable.Set",
 					"Position": [
-						400.0,
+						384.0,
 						752.0
 					],
 					"Settings": {
@@ -458,8 +458,8 @@
 					"ID": 35,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						944.0
+						192.0,
+						896.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -469,8 +469,8 @@
 					"ID": 36,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1008.0
+						192.0,
+						960.0
 					],
 					"Settings": {
 						"Variable": 10
@@ -480,8 +480,8 @@
 					"ID": 37,
 					"Type": "Expression",
 					"Position": [
-						192.0,
-						896.0
+						384.0,
+						880.0
 					],
 					"Settings": {
 						"Formula": "home + vec3(0, sin(clock * 1.7) * 0.08, 0)"
@@ -499,8 +499,8 @@
 					"ID": 39,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1072.0
+						192.0,
+						1024.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -510,16 +510,16 @@
 					"ID": 40,
 					"Type": "Get:Showcase.DayNight.Blend",
 					"Position": [
-						192.0,
-						1040.0
+						384.0,
+						1024.0
 					]
 				},
 				{
 					"ID": 41,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1136.0
+						384.0,
+						1152.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -529,8 +529,8 @@
 					"ID": 42,
 					"Type": "Expression",
 					"Position": [
-						400.0,
-						880.0
+						592.0,
+						928.0
 					],
 					"Settings": {
 						"Formula": "lerp(2, 7, night) * (0.6 + 0.4 * swell)"
@@ -549,8 +549,8 @@
 					"ID": 44,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1200.0
+						816.0,
+						928.0
 					],
 					"Settings": {
 						"Variable": 12
@@ -569,7 +569,7 @@
 					"Type": "Event.FixedUpdate",
 					"Position": [
 						0.0,
-						1376.0
+						1328.0
 					]
 				},
 				{
@@ -577,7 +577,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1504.0
+						1456.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -587,24 +587,24 @@
 					"ID": 49,
 					"Type": "Get:Strada.TransformComponent.WorldTranslation",
 					"Position": [
-						240.0,
-						1376.0
+						192.0,
+						1328.0
 					]
 				},
 				{
 					"ID": 50,
 					"Type": "Get:Strada.TransformComponent.WorldTranslation",
 					"Position": [
-						0.0,
-						1568.0
+						192.0,
+						1456.0
 					]
 				},
 				{
 					"ID": 51,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1696.0
+						192.0,
+						1584.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -614,8 +614,8 @@
 					"ID": 52,
 					"Type": "Expression",
 					"Position": [
-						464.0,
-						1376.0
+						432.0,
+						1328.0
 					],
 					"Settings": {
 						"Formula": "distance(listener, here) < reach"
@@ -625,16 +625,16 @@
 					"ID": 53,
 					"Type": "Flow.Branch",
 					"Position": [
-						672.0,
-						1376.0
+						640.0,
+						1328.0
 					]
 				},
 				{
 					"ID": 54,
 					"Type": "Variable.Set",
 					"Position": [
-						896.0,
-						1376.0
+						864.0,
+						1328.0
 					],
 					"Settings": {
 						"Variable": 8
@@ -647,8 +647,8 @@
 					"ID": 55,
 					"Type": "Variable.Set",
 					"Position": [
-						896.0,
-						1504.0
+						864.0,
+						1456.0
 					],
 					"Settings": {
 						"Variable": 8
@@ -661,8 +661,8 @@
 					"ID": 56,
 					"Type": "Flow.Timeline",
 					"Position": [
-						1120.0,
-						1376.0
+						1088.0,
+						1328.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -880,8 +880,8 @@
 					"ID": 57,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1760.0
+						640.0,
+						1456.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -891,8 +891,8 @@
 					"ID": 58,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						1504.0
+						864.0,
+						1584.0
 					],
 					"Settings": {
 						"Formula": "tempo / 120"
@@ -902,8 +902,8 @@
 					"ID": 59,
 					"Type": "Function.Call",
 					"Position": [
-						1424.0,
-						1376.0
+						1392.0,
+						1328.0
 					],
 					"Settings": {
 						"Function": 15
@@ -916,8 +916,8 @@
 					"ID": 60,
 					"Type": "Function.Call",
 					"Position": [
-						1424.0,
-						1504.0
+						1392.0,
+						1456.0
 					],
 					"Settings": {
 						"Function": 15
@@ -930,8 +930,8 @@
 					"ID": 61,
 					"Type": "Function.Call",
 					"Position": [
-						1424.0,
-						1632.0
+						1392.0,
+						1584.0
 					],
 					"Settings": {
 						"Function": 15
@@ -944,8 +944,8 @@
 					"ID": 62,
 					"Type": "Function.Call",
 					"Position": [
-						1424.0,
-						1760.0
+						1392.0,
+						1712.0
 					],
 					"Settings": {
 						"Function": 15
@@ -958,8 +958,8 @@
 					"ID": 63,
 					"Type": "Function.Call",
 					"Position": [
-						1424.0,
-						1888.0
+						1392.0,
+						1840.0
 					],
 					"Settings": {
 						"Function": 15
@@ -972,8 +972,8 @@
 					"ID": 64,
 					"Type": "Function.Call",
 					"Position": [
-						1424.0,
-						2016.0
+						1392.0,
+						1968.0
 					],
 					"Settings": {
 						"Function": 15
@@ -986,8 +986,8 @@
 					"ID": 65,
 					"Type": "Function.Call",
 					"Position": [
-						1424.0,
-						2144.0
+						1392.0,
+						2096.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1000,8 +1000,8 @@
 					"ID": 66,
 					"Type": "Function.Call",
 					"Position": [
-						1424.0,
-						2272.0
+						1392.0,
+						2224.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1014,8 +1014,8 @@
 					"ID": 67,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1824.0
+						1088.0,
+						1792.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -1025,8 +1025,8 @@
 					"ID": 68,
 					"Type": "Event.Broadcast",
 					"Position": [
-						1424.0,
-						2400.0
+						1392.0,
+						2480.0
 					],
 					"Settings": {
 						"Name": "Pulse",
@@ -1044,8 +1044,8 @@
 					"ID": 69,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1888.0
+						1088.0,
+						1856.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -1055,8 +1055,8 @@
 					"ID": 70,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						1632.0
+						1392.0,
+						2624.0
 					],
 					"Settings": {
 						"Formula": "bars + 1"
@@ -1066,8 +1066,8 @@
 					"ID": 71,
 					"Type": "Variable.Set",
 					"Position": [
-						1648.0,
-						1376.0
+						1616.0,
+						1456.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -1077,8 +1077,8 @@
 					"ID": 72,
 					"Type": "Variable.Set",
 					"Position": [
-						1424.0,
-						2544.0
+						1392.0,
+						2352.0
 					],
 					"Settings": {
 						"Variable": 11
@@ -1088,8 +1088,8 @@
 					"ID": 73,
 					"Type": "Variable.Set",
 					"Position": [
-						1648.0,
-						1504.0
+						1616.0,
+						1328.0
 					],
 					"Settings": {
 						"Variable": 12
@@ -1100,7 +1100,7 @@
 					"Type": "Event.KeyPressed",
 					"Position": [
 						0.0,
-						2784.0
+						2848.0
 					],
 					"Settings": {
 						"Key": "G"
@@ -1111,7 +1111,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						2896.0
+						2960.0
 					],
 					"Settings": {
 						"Name": "Perform",
@@ -1123,7 +1123,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						3008.0
+						3072.0
 					],
 					"Settings": {
 						"Name": "TourEnded",
@@ -1135,7 +1135,7 @@
 					"Type": "Flow.Timeline",
 					"Position": [
 						192.0,
-						2784.0
+						2848.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -1244,7 +1244,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						496.0,
-						2784.0
+						2848.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1258,7 +1258,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						496.0,
-						2912.0
+						2976.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1272,7 +1272,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						496.0,
-						3040.0
+						3104.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1286,7 +1286,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						496.0,
-						3168.0
+						3232.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1300,7 +1300,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						496.0,
-						3296.0
+						3360.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1314,7 +1314,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						496.0,
-						3424.0
+						3488.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1328,7 +1328,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						496.0,
-						3552.0
+						3616.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1342,7 +1342,7 @@
 					"Type": "Function.Call",
 					"Position": [
 						496.0,
-						3680.0
+						3744.0
 					],
 					"Settings": {
 						"Function": 15
@@ -1934,7 +1934,7 @@
 					],
 					"Size": [
 						1219.13623046875,
-						900.0
+						852.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -1948,11 +1948,11 @@
 					"Text": "Score: while the camera is near, a looping timeline plays the chimes",
 					"Position": [
 						-32.0,
-						1304.0
+						1256.0
 					],
 					"Size": [
-						1837.572509765625,
-						1362.0
+						1805.572509765625,
+						1482.0
 					],
 					"Color": [
 						0.949999988079071,
@@ -1966,7 +1966,7 @@
 					"Text": "Flourish: G or the tour's cue plays an arpeggio up and down",
 					"Position": [
 						-32.0,
-						2712.0
+						2776.0
 					],
 					"Size": [
 						718.72998046875,

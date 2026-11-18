@@ -9,6 +9,10 @@ namespace Strada.Tests;
 // the frame's edges) and how many actions Actions names (ActionNameCount, -1 without an asset). With SendEvent set, each
 // OnFixedUpdate raises that custom event of the entity's graph. With QueryCalls set, each OnUpdate times that many calls of
 // IsActionDown (NanosecondsPerQuery: what one action query through the engine costs, for the input actions benchmark).
+// With RebindFrame set, OnUpdate of that frame rebinds binding RebindBinding of Action to RebindControls (part RebindPart),
+// or starts a capture of it when RebindControls is "capture", and keeps the answer in Rebound; with ResetFrame set, that
+// frame resets every binding (its answer in Rebound too). Every OnUpdate keeps Input.CurrentRebind in Capture and the
+// binding's controls in Bound. Answers read "<status> <controls> [<conflicts>] <message>".
 public sealed class ActionProbe : Script
 {
 	public string Action = "Jump";
@@ -41,6 +45,15 @@ public sealed class ActionProbe : Script
 	public float OverrideValue;
 	public int OverrideFrame;
 
+	public int RebindFrame;
+	public int RebindBinding;
+	public int RebindPart = -1;
+	public string RebindControls = string.Empty;
+	public int ResetFrame;
+	public string Rebound = string.Empty;
+	public string Capture = string.Empty;
+	public string Bound = string.Empty;
+
 	protected override void OnCreate()
 	{
 		CreatedPressed = Input.IsActionPressed(Action);
@@ -50,6 +63,17 @@ public sealed class ActionProbe : Script
 	protected override void OnUpdate(float deltaTime)
 	{
 		Frames++;
+		if (Frames == RebindFrame)
+		{
+			Rebound = Describe(RebindControls == "capture" ? Input.StartRebind(Action, RebindBinding, RebindPart)
+				: Input.Rebind(Action, RebindBinding, RebindControls, RebindPart));
+		}
+		if (Frames == ResetFrame)
+		{
+			Rebound = Describe(Input.ResetBindings());
+		}
+		Capture = Describe(Input.CurrentRebind);
+		Bound = Input.GetBindingControls(Action, RebindBinding);
 		Value = Input.GetAction(Action);
 		Vector = Input.GetActionVector(Action);
 		Down = Input.IsActionDown(Action);
@@ -80,6 +104,9 @@ public sealed class ActionProbe : Script
 			Input.ClearActionOverride(OverrideAction);
 		}
 	}
+
+	private static string Describe(RebindResult result) =>
+		$"{result.Status} {result.Controls} [{string.Join(",", result.Conflicts)}] {result.Message}";
 
 	protected override void OnFixedUpdate(float fixedDeltaTime)
 	{

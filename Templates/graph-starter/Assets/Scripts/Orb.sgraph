@@ -542,8 +542,8 @@
 					"ID": 37,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						944.0
+						432.0,
+						688.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -554,7 +554,7 @@
 					"Type": "Expression",
 					"Position": [
 						432.0,
-						688.0
+						752.0
 					],
 					"Settings": {
 						"Formula": "0.7 + speed * 0.08"
@@ -572,8 +572,8 @@
 					"ID": 40,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1008.0
+						640.0,
+						864.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -583,8 +583,8 @@
 					"ID": 41,
 					"Type": "Expression",
 					"Position": [
-						432.0,
-						816.0
+						640.0,
+						928.0
 					],
 					"Settings": {
 						"Formula": "min(0.45, speed * 0.06)"
@@ -594,7 +594,7 @@
 					"ID": 42,
 					"Type": "Set:Strada.AudioSourceComponent.Volume",
 					"Position": [
-						832.0,
+						848.0,
 						688.0
 					]
 				},
@@ -603,7 +603,7 @@
 					"Type": "Event.CollisionEnter",
 					"Position": [
 						0.0,
-						1312.0
+						1152.0
 					]
 				},
 				{
@@ -611,7 +611,7 @@
 					"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
 					"Position": [
 						0.0,
-						1184.0
+						1376.0
 					]
 				},
 				{
@@ -619,7 +619,7 @@
 					"Type": "Expression",
 					"Position": [
 						240.0,
-						1184.0
+						1152.0
 					],
 					"Settings": {
 						"Formula": "length(v)"
@@ -629,8 +629,8 @@
 					"ID": 47,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1536.0
+						240.0,
+						1280.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -640,8 +640,8 @@
 					"ID": 48,
 					"Type": "Operator.NotEqual",
 					"Position": [
-						240.0,
-						1312.0
+						432.0,
+						1280.0
 					]
 				},
 				{
@@ -649,7 +649,7 @@
 					"Type": "Expression",
 					"Position": [
 						432.0,
-						1184.0
+						1152.0
 					],
 					"Settings": {
 						"Formula": "speed > 1.5"
@@ -660,7 +660,7 @@
 					"Type": "Operator.And",
 					"Position": [
 						640.0,
-						1184.0
+						1152.0
 					]
 				},
 				{
@@ -668,15 +668,15 @@
 					"Type": "Flow.Branch",
 					"Position": [
 						768.0,
-						1184.0
+						1152.0
 					]
 				},
 				{
 					"ID": 52,
 					"Type": "Expression",
 					"Position": [
-						432.0,
-						1312.0
+						768.0,
+						1280.0
 					],
 					"Settings": {
 						"Formula": "min(1, speed / 8)"
@@ -687,7 +687,7 @@
 					"Type": "Set:Strada.AudioSourceComponent.Volume",
 					"Position": [
 						992.0,
-						1184.0
+						1152.0
 					]
 				},
 				{
@@ -695,7 +695,7 @@
 					"Type": "Call:Strada.AudioSourceComponent.Play()",
 					"Position": [
 						1200.0,
-						1184.0
+						1152.0
 					]
 				},
 				{
@@ -703,7 +703,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						1712.0
+						1600.0
 					],
 					"Settings": {
 						"Name": "StateChanged",
@@ -720,7 +720,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						192.0,
-						1712.0
+						1600.0
 					],
 					"Inputs": {
 						"B": "Play"
@@ -731,7 +731,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						480.0,
-						1712.0
+						1600.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -1067,8 +1067,8 @@
 						616.0
 					],
 					"Size": [
-						1016.0,
-						452.0
+						1032.0,
+						426.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -1082,11 +1082,11 @@
 					"Text": "Bump: a wall hit hard thuds, louder the harder",
 					"Position": [
 						-32.0,
-						1112.0
+						1080.0
 					],
 					"Size": [
 						1395.13623046875,
-						484.0
+						410.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -1100,7 +1100,7 @@
 					"Text": "Control: the orb rolls only while a run is on",
 					"Position": [
 						-32.0,
-						1640.0
+						1528.0
 					],
 					"Size": [
 						669.572509765625,

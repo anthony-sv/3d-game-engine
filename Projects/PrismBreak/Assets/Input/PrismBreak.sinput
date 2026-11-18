@@ -1,0 +1,106 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "InputActions"
+	},
+	"InputActions": {
+		"Actions": [
+			{
+				"Name": "Move",
+				"Type": "Axis",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/A Key/D",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Key/Left Key/Right",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/LeftX",
+						"Gamepad": -1,
+						"DeadZone": 0.20000000298023224,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/DPadLeft Gamepad/DPadRight",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
+			},
+			{
+				"Name": "Launch",
+				"Type": "Button",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/Space",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/A",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
+			},
+			{
+				"Name": "Pause",
+				"Type": "Button",
+				"PressThreshold": 0.5,
+				"ReleaseThreshold": 0.4000000059604645,
+				"Bindings": [
+					{
+						"Controls": "Key/Escape",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					},
+					{
+						"Controls": "Gamepad/Start",
+						"Gamepad": -1,
+						"DeadZone": 0.0,
+						"ResponseCurve": "0",
+						"Invert": false,
+						"InvertY": false,
+						"Scale": 1.0
+					}
+				]
+			}
+		]
+	}
+}

@@ -1230,16 +1230,26 @@ namespace Strada
 			}
 			return;
 		}
+		// An analysis that checked action names is out of date once the project's input actions are others (a renamed action,
+		// an asset removed, another project): one call that compares a pointer, and only for a document that names actions.
+		if (m_Analysis != nullptr && m_Analysis->NamesInputActions && !m_AnalysisStale && !m_InputActionsChanged &&
+		    semantics.GetInputActions() != m_Analysis->InputActions)
+		{
+			m_InputActionsChanged = true;
+			m_AnalysisPending = true;
+		}
 		if (!m_AnalysisPending)
 		{
 			return;
 		}
 		Ref<VisualScriptDocument const> const& drawn = GetDrawnDocumentRef();
 		// Made with the library of now: a library seen first in a frame whose analysis was put off still counts as new later.
-		// Other graphs it read that changed what it read of them make it out of date too (spec-slice3 §10.8).
-		bool const current = m_AnalyzedDocument != nullptr && !m_AnalysisStale && !m_OtherGraphsChanged && m_AnalyzedLibrary == m_Library &&
+		// Other graphs it read that changed what it read of them make it out of date too (spec-slice3 §10.8), and so do the
+		// project's input actions it read.
+		bool const othersChanged = m_OtherGraphsChanged || m_InputActionsChanged;
+		bool const current = m_AnalyzedDocument != nullptr && !m_AnalysisStale && !othersChanged && m_AnalyzedLibrary == m_Library &&
 		                     (drawn == m_AnalyzedDocument || HaveSameVisualScriptProgram(*drawn, *m_AnalyzedDocument));
-		if (current || (m_FailedLibrary == m_Library && drawn == m_FailedDocument && !m_OtherGraphsChanged))
+		if (current || (m_FailedLibrary == m_Library && drawn == m_FailedDocument && !othersChanged))
 		{
 			// The program the analysis describes (only positions, comments or collapsing changed), or the very document the
 			// runtime could not analyze. The analysis describes the drawn document as well as the one it was made from (their
@@ -1264,6 +1274,7 @@ namespace Strada
 		m_LastAnalysisTime = time;
 		m_AnalysisPending = false;
 		m_OtherGraphsChanged = false;
+		m_InputActionsChanged = false;
 		VisualScriptAnalysisTimings const timings = semantics.GetLastAnalysisTimings();
 		m_SyncTimings.AnalysisRuntime += timings.Runtime;
 		m_SyncTimings.AnalysisParse += timings.Parse + timings.Read;

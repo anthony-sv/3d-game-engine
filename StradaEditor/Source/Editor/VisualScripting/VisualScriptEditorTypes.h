@@ -30,6 +30,9 @@ namespace Strada
 		std::function<std::optional<std::string>(uint32_t node, std::string_view pin, VisualScriptPinDirection direction)>;
 	// The size of a node in canvas units (the units of positions in documents) as the canvas measures it.
 	using VisualScriptNodeExtents = std::function<glm::vec2(uint32_t node)>;
+	// Whether a node is pure as the canvas knows it: it has no flow pin (a get, a literal, an operator, a pure call), so it
+	// only works out values for the nodes that read them.
+	using VisualScriptNodePurity = std::function<bool(uint32_t node)>;
 
 	// What one visual script of the project offers other graphs, read from its document without the scripting runtime: an entry of
 	// VisualScriptProjectIndex (L3), which the palette's index (L2a) and the panes read too.

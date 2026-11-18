@@ -35,9 +35,11 @@ namespace Strada
 	// How Arrange, Align, Distribute and comment framing size nodes.
 	enum class VisualScriptExtentsMode : uint8_t
 	{
-		// A headless canvas with the estimating measurer: heights as a window's, widths at least a window's.
+		// A headless canvas with the estimating measurer: heights as a window's, widths at least a window's; Arrange also reads
+		// which nodes are pure from it.
 		Measured = 0,
-		// GetDefaultVisualScriptNodeExtents: the pitches of PlaceUnplacedNodes.
+		// GetDefaultVisualScriptNodeExtents: the pitches of PlaceUnplacedNodes; Arrange takes no node for pure, as that
+		// layout does (GetUniformVisualScriptArrangeMeasures).
 		Uniform
 	};
 

@@ -1128,3 +1128,98 @@ TEST_CASE("VisualScriptQuickFix: a finding about a Timeline setting, of any code
 	stale.Setting = "Timeline";
 	CHECK(GetVisualScriptQuickFixes(document, fixture.Analysis, stale, *fixture.Library).empty());
 }
+
+TEST_CASE("VisualScriptQuickFix: an input action the project lacks takes a suggested action, in the setting or the input that names it")
+{
+	Fixture const fixture;
+	VisualScriptDocument document = fixture.Document;
+	VisualScriptNode pressed;
+	pressed.ID = 910;
+	pressed.Type = "Event.ActionPressed";
+	pressed.Position = glm::vec2(0.0f, 1400.0f);
+	pressed.Settings = Json::object({{"Action", "Jmp"}});
+	document.Graph.Nodes.push_back(pressed);
+	VisualScriptNode read;
+	read.ID = 911;
+	read.Type = "Call:Strada.Input.GetAction(string)";
+	read.Position = glm::vec2(0.0f, 1600.0f);
+	read.Inputs = Json::object({{"Action", "Steeer"}});
+	document.Graph.Nodes.push_back(read);
+	VisualScriptNode unset = read;
+	unset.ID = 912;
+	unset.Position = glm::vec2(0.0f, 1800.0f);
+	unset.Inputs = Json::object();
+	document.Graph.Nodes.push_back(unset);
+
+	SUBCASE("an event's Action setting")
+	{
+		VisualScriptDiagnostic diagnostic =
+			MakeDiagnostic("UnknownAction", 0, 910, "Action: the project has no input action \"Jmp\"", {"Jump", "Steer"});
+		diagnostic.Setting = "Action";
+		std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(document, fixture.Analysis, diagnostic, *fixture.Library);
+		REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Use Jump", "Use Steer", "Edit in Details"});
+		CHECK(fixes[0].Kind == VisualScriptFixKind::UseAction);
+		CHECK(fixes[0].Argument == "Jump");
+		CHECK(fixes[0].Replaces == "Action");
+		CHECK(fixes[0].Target == 910);
+		CHECK_FALSE(fixes[0].Navigates);
+		CHECK(fixes[2].Kind == VisualScriptFixKind::EditSetting);
+		CHECK(fixes[2].Argument == "Action");
+
+		VisualScriptDocument fixed = document;
+		REQUIRE(ApplyVisualScriptQuickFix(fixed, fixture.Analysis, diagnostic, fixes[0]).IsOk());
+		CHECK(GetNode(fixed.Graph, 910).Settings["Action"] == "Jump");
+		Testing::ExpectStrictRoundTrip(fixed);
+		// The fix changes only that setting, and applied again it refuses rather than making an empty step.
+		VisualScriptDocument expected = document;
+		GetNode(expected.Graph, 910).Settings["Action"] = "Jump";
+		CHECK(fixed == expected);
+		VisualScriptDocument again = fixed;
+		Result<void> const twice = ApplyVisualScriptQuickFix(again, fixture.Analysis, diagnostic, fixes[0]);
+		REQUIRE(twice.IsError());
+		CHECK(twice.GetError() == "node 910 names Jump already");
+		CHECK(again == fixed);
+	}
+
+	SUBCASE("an input's literal, stored or not")
+	{
+		VisualScriptDiagnostic const stored = MakePinDiagnostic("UnknownAction", 911, "Action", VisualScriptPinDirection::In, {"Steer"});
+		std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(document, fixture.Analysis, stored, *fixture.Library);
+		REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Use Steer"});
+		CHECK(fixes[0].Replaces == "Action");
+		VisualScriptDocument fixed = document;
+		REQUIRE(ApplyVisualScriptQuickFix(fixed, fixture.Analysis, stored, fixes[0]).IsOk());
+		CHECK(GetNode(fixed.Graph, 911).Inputs == Json::object({{"Action", "Steer"}}));
+		Testing::ExpectStrictRoundTrip(fixed);
+
+		// An input that stores no name takes one.
+		VisualScriptDiagnostic const empty = MakePinDiagnostic("UnknownAction", 912, "Action", VisualScriptPinDirection::In, {"Jump"});
+		std::vector<VisualScriptQuickFix> const emptyFixes = GetVisualScriptQuickFixes(document, fixture.Analysis, empty, *fixture.Library);
+		REQUIRE(GetLabels(emptyFixes) == std::vector<std::string>{"Use Jump"});
+		VisualScriptDocument filled = document;
+		REQUIRE(ApplyVisualScriptQuickFix(filled, fixture.Analysis, empty, emptyFixes[0]).IsOk());
+		CHECK(GetNode(filled.Graph, 912).Inputs == Json::object({{"Action", "Jump"}}));
+	}
+
+	SUBCASE("what the fixes cannot act on")
+	{
+		// A project without actions: its message says what to do.
+		VisualScriptDiagnostic none =
+			MakeDiagnostic("NoInputActions", 0, 910, "the project names no input actions: action names are not checked");
+		none.Setting = "Action";
+		CHECK(GetVisualScriptQuickFixes(document, fixture.Analysis, none, *fixture.Library).empty());
+		// A node that is gone, and a finding that names neither a setting nor an input.
+		CHECK(GetVisualScriptQuickFixes(document, fixture.Analysis, MakeDiagnostic("UnknownAction", 0, 999, {}, {"Jump"}), *fixture.Library)
+		          .empty());
+		CHECK(GetVisualScriptQuickFixes(document, fixture.Analysis, MakeDiagnostic("UnknownAction", 0, 910, {}, {"Jump"}), *fixture.Library)
+		          .empty());
+		// A name that is no name refuses.
+		VisualScriptDiagnostic diagnostic = MakeDiagnostic("UnknownAction", 0, 910, {}, {"Jump"});
+		diagnostic.Setting = "Action";
+		VisualScriptQuickFix fix = GetVisualScriptQuickFixes(document, fixture.Analysis, diagnostic, *fixture.Library).front();
+		fix.Argument = std::string(65, 'a');
+		VisualScriptDocument unchanged = document;
+		CHECK(ApplyVisualScriptQuickFix(unchanged, fixture.Analysis, diagnostic, fix).IsError());
+		CHECK(unchanged == document);
+	}
+}

@@ -236,6 +236,29 @@ reach it as one. An override set in `OnUpdate` is read from the next frame on.
 - `InputActions.ActionNames` lists an asset's actions (`Assets.Load<InputActions>("Input/Game.sinput")`, or a field of
   type `InputActions`), for a settings screen.
 
+**Rebinding while the game runs.** A settings screen lets the player change a binding; the game keeps it for the next
+run, and the actions asset is never written:
+
+- `Input.StartRebind("Jump", 0)` listens for the next key, mouse button, gamepad button or axis the player gives and binds
+  it to binding 0 of Jump (a binding's index in its action; pass a part, `StartRebind("Steer", 0, 1)`, to rebind one
+  control of a composite such as `Key/A Key/D`). Escape, or 10 seconds of frames (also counted while `Time.TimeScale` is
+  0), cancel it, as does `Input.CancelRebind()`. Poll `Input.CurrentRebind.Status` in `OnUpdate`: `Listening`, then
+  `Done`, `Cancelled` or `Refused`. The control that ends a capture presses no action in that frame: the key pressed to
+  bind presses neither the action nor another that reads it, and the Escape that cancels presses no action that reads
+  Escape (a `Pause` action stays unpressed). While the status reads `Listening`, pause the screen's own handling: a
+  control the capture does not take (a key while a Vector2 binding waits for a stick) still presses its actions.
+- `Input.Rebind("Jump", 0, "Key/J")` sets a binding at once (`"Key/A Key/D"` for a composite, `""` to leave it
+  unbound; with a part, the one control of that part).
+- Both answer a `RebindResult`: its `Status`, the binding's `Controls` as text, and its `Conflicts`, the other actions
+  that read one of the same controls. The binding is applied whatever it conflicts with; the game decides what to do
+  (warn, swap, or set one back). `Message` says why a rebind was refused.
+- `Input.GetBindingControls("Jump", 0)` is the binding's text now ("Key/J"), for the screen to show;
+  `Input.ResetBindings()` returns every binding to the asset's.
+- The bindings a player changed are written to `Input/<the actions asset's file name>.json` in the game's data folder
+  when one changes, and read when the actions load (an exported game's own folder; `.strada/PlayData` when the game
+  plays in the editor; a test run's temporary folder, which keeps nothing). A binding the asset no longer has is dropped
+  then, with a line in the log.
+
 ## Physics
 
 Give an entity a `RigidBodyComponent` (dynamic, static or kinematic) and a collider (box, sphere, capsule or mesh) in
@@ -1003,7 +1026,8 @@ the scripting API they run on, also without C# scripts. Players of games with C#
   that the graph `Scripts/Hover.sgraph` calls to float the spark's gem; `Hud` and `CameraRig` follow the run and the
   orb; `OrbRunTests` makes 14 checks through `Strada.Testing`, each waiting in seconds of the game.
 - `Projects/PrismBreak`: a neon brick breaker made of 13 visual scripts and no C#, authored through the agent tools by
-  its `Tools/Author.py`, with a test scene whose 29 checks are graphs too
+  its `Tools/Author.py`, played on input actions (Move, Launch and Pause, a rebinding of Launch at the title), with a
+  test scene whose 33 checks are graphs too
   ([A complete game: Prism Break](VisualScripting.md#a-complete-game-prism-break)).
 - The Showcase's Graph Garden, south of the plaza, is made of six visual scripts in `Scripts/GraphGarden`:
   - `Music.sgraph` is a function library: `PitchOf` turns semitones into an audio pitch (`pow(2, semitone / 12.0)`), and

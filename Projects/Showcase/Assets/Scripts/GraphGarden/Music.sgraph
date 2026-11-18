@@ -138,8 +138,8 @@
 							"ID": 9,
 							"Type": "Literal",
 							"Position": [
-								0.0,
-								112.0
+								192.0,
+								0.0
 							],
 							"Settings": {
 								"Type": "Strada.Color[]",
@@ -224,7 +224,7 @@
 							"Type": "Expression",
 							"Position": [
 								192.0,
-								0.0
+								128.0
 							],
 							"Settings": {
 								"Formula": "(semitone % 12 + 12) % 12"
@@ -291,7 +291,7 @@
 							],
 							"Size": [
 								808.0,
-								298.0
+								314.0
 							],
 							"Color": [
 								0.6200000047683716,
