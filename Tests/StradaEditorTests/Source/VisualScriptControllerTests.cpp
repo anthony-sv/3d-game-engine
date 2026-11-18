@@ -12,6 +12,7 @@
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
+#include "Strada/Asset/Asset.h"
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -1183,6 +1184,10 @@ TEST_CASE("VisualScriptEditor: an asset dropped on a pin of its type sets the pi
 	REQUIRE(prefab.IsOk());
 	Result<AssetHandle> const material = fixture.Operations.CreateMaterial("Materials/Red.smat");
 	REQUIRE(material.IsOk());
+	std::optional<AssetType> const inputActionsType = AssetTypeFromString("InputActions");
+	REQUIRE(inputActionsType.has_value());
+	Result<AssetHandle> const actions = fixture.Operations.CreateDataAsset(*inputActionsType, "Input/Game.sinput");
+	REQUIRE(actions.IsOk());
 	fixture.Frame();
 	std::string const handle = prefab.GetValue().ToString();
 
@@ -1216,7 +1221,11 @@ TEST_CASE("VisualScriptEditor: an asset dropped on a pin of its type sets the pi
 	size_t const steps = fixture.History().GetUndoCount();
 	VisualScriptControllerResult wrongPin = drop(prefab.GetValue(), VisualScriptPinReference{2, "Duration"});
 	CHECK_FALSE(wrongPin.Commit.has_value());
-	CHECK(wrongPin.Notes.size() == 1);
+	CHECK(wrongPin.Notes == std::vector<std::string>{"Duration cannot take a Prefab"});
+	// The note reads a type's name with its article.
+	VisualScriptControllerResult wrongActions = drop(actions.GetValue(), VisualScriptPinReference{40, "Prefab"});
+	CHECK_FALSE(wrongActions.Commit.has_value());
+	CHECK(wrongActions.Notes == std::vector<std::string>{"Prefab cannot take an InputActions"});
 	VisualScriptControllerResult wrongType = drop(material.GetValue(), std::nullopt);
 	CHECK_FALSE(wrongType.Commit.has_value());
 	CHECK(wrongType.Notes.size() == 1);

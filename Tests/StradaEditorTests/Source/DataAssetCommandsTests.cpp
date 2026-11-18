@@ -443,6 +443,13 @@ TEST_CASE("DataAssetCommands: the engine's PhysicsMaterial has physics-material.
 		CAPTURE(mode);
 		CHECK(fieldsSchema.find(mode) != std::string::npos);
 	}
+	// A type's name takes the article it is read with: the impact sound is a reference to an AudioClip, and an InputActions
+	// file is patched by input-actions.set.
+	CHECK(create->Parameters["properties"]["fields"]["properties"]["ImpactSound"]["description"].get<std::string>().find(
+			  ", a reference to an AudioClip asset") != std::string::npos);
+	REQUIRE(fixture.Registry.Find("input-actions.set") != nullptr);
+	CHECK(fixture.Registry.Find("input-actions.set")->Description.starts_with("Applies a partial patch to an InputActions file's fields"));
+	CHECK(fixture.Registry.Find("mixer.set")->Description.starts_with("Applies a partial patch to a Mixer file's fields"));
 	Json const& types = fixture.Registry.Find("asset.list")->Parameters["properties"]["type"]["enum"];
 	CHECK(std::find(types.begin(), types.end(), Json("PhysicsMaterial")) != types.end());
 	Result<std::string> const reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
