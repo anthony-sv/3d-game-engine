@@ -156,12 +156,12 @@ TEST_CASE("ScriptEngine: C# arrays and lists of every element type are list fiel
 	ScriptClassInfo const& lists = RequireClass("Strada.Tests.FieldLists");
 	// T[] and List<T> of every element type, in declaration order; not the fields of types no field type stores.
 	CHECK(GetFieldNames(lists) ==
-	      std::vector<std::string>{"Flags",     "Counts",     "Masks",      "Bigs",       "Huges",     "Speeds",      "Precises",
-	                               "Titles",    "Sizes",      "Offsets",    "Weights",    "Turns",     "Tints",       "Targets",
-	                               "Crates",    "Models",     "Shapes",     "Levels",     "Accesses",  "Smalls",      "FlagList",
-	                               "CountList", "MaskList",   "BigList",    "HugeList",   "SpeedList", "PreciseList", "TitleList",
-	                               "SizeList",  "OffsetList", "WeightList", "TurnList",   "TintList",  "TargetList",  "CrateList",
-	                               "ModelList", "ShapeList",  "LevelList",  "AccessList", "SmallList", "Missing"});
+	      std::vector<std::string>{
+			  "Flags",     "Counts",    "Masks",      "Bigs",       "Huges",    "Speeds",    "Precises",   "Titles",    "Sizes",
+			  "Offsets",   "Weights",   "Turns",      "Tints",      "Targets",  "Crates",    "Models",     "Shapes",    "Levels",
+			  "Accesses",  "Smalls",    "FlagList",   "CountList",  "MaskList", "BigList",   "HugeList",   "SpeedList", "PreciseList",
+			  "TitleList", "SizeList",  "OffsetList", "WeightList", "TurnList", "TintList",  "TargetList", "CrateList", "ModelList",
+			  "ShapeList", "LevelList", "AccessList", "SmallList",  "Missing",  "UnsetTurn", "UnsetTurns"});
 
 	// Each array and its list have the list type of their element's field type.
 	struct Row
@@ -214,6 +214,10 @@ TEST_CASE("ScriptEngine: C# arrays and lists of every element type are list fiel
 	CHECK(RequireField(lists, "OffsetList").DefaultValue ==
 	      list(ScriptFieldType::Vector3, {ScriptFieldValue::FromVector3({1.0f, 2.0f, 3.0f})}));
 	CHECK(RequireField(lists, "Missing").DefaultValue == list(ScriptFieldType::Float, {}));
+	// C#'s zero quaternion, which the engine refuses, is described as the identity, alone and in a list.
+	ScriptFieldValue const identity = ScriptFieldValue::FromQuaternion(glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+	CHECK(RequireField(lists, "UnsetTurn").DefaultValue == identity);
+	CHECK(RequireField(lists, "UnsetTurns").DefaultValue == list(ScriptFieldType::Quaternion, {identity, identity}));
 
 	// The attributes and the enum or asset type describe each element.
 	ScriptFieldInfo const& speeds = RequireField(lists, "Speeds");

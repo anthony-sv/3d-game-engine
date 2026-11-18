@@ -211,6 +211,8 @@ namespace
 			{"AccessList", MakeList(T::UInt32, {V::FromUInt32(7)})},
 			{"SmallList", MakeList(T::Int32, {V::FromInt32(1)})},
 			{"Missing", MakeList(T::Float, {V::FromFloat(1.0f)})},
+			{"UnsetTurn", V::FromQuaternion(glm::quat(0.0f, 0.0f, 1.0f, 0.0f))},
+			{"UnsetTurns", MakeList(T::Quaternion, {})},
 		};
 	}
 }
@@ -241,6 +243,10 @@ TEST_CASE("Scene: stored lists reach C# arrays and lists of every element type, 
 	Result<ScriptFieldMap> const readDefaults = scene.ReadScriptFields(defaults);
 	REQUIRE(readDefaults.IsOk());
 	CHECK(readDefaults.GetValue().at("Missing") == MakeList(ScriptFieldType::Float, {}));
+	// The instance's zero quaternions, which the engine refuses, are read back as the identity.
+	ScriptFieldValue const identity = ScriptFieldValue::FromQuaternion(glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+	CHECK(readDefaults.GetValue().at("UnsetTurn") == identity);
+	CHECK(readDefaults.GetValue().at("UnsetTurns") == MakeList(ScriptFieldType::Quaternion, {identity, identity}));
 	scene.OnRuntimeStop();
 }
 

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.Json;
+using Strada.VisualScripting;
 
 namespace Strada.Interop;
 
@@ -152,6 +153,29 @@ internal static class ScriptFieldCodec
 			null when type == ScriptFieldType.Asset => AssetHandle.Invalid,
 			_ => value,
 		};
+	}
+
+	// A stored value with every quaternion, a list's elements included, as the engine reads it: of length zero the identity
+	// (the engine refuses a quaternion without a direction, and with it the whole map or class list it is in), else of length
+	// one (LiteralCodec.Normalize).
+	internal static object? NormalizeQuaternions(object? stored)
+	{
+		switch (stored)
+		{
+			case Quaternion quaternion:
+				return LiteralCodec.Normalize(quaternion, out _);
+			case List<object?> elements:
+				for (int index = 0; index < elements.Count; index++)
+				{
+					if (elements[index] is Quaternion element)
+					{
+						elements[index] = LiteralCodec.Normalize(element, out _);
+					}
+				}
+				return elements;
+			default:
+				return stored;
+		}
 	}
 
 	// The value a field of the C# type takes for a stored value; null with an error message when it does not fit (an enum

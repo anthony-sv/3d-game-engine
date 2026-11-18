@@ -167,7 +167,7 @@ internal static class ScriptRegistry
 				skipped.Add($"{field.Name} ({DescribeClrType(field.FieldType)})");
 				continue;
 			}
-			object? defaultValue = ScriptFieldCodec.ToStored(field.GetValue(defaults), fieldType);
+			object? defaultValue = ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ToStored(field.GetValue(defaults), fieldType));
 			// The engine refuses a list of more elements, and with it the class list: such a field is no field.
 			if (defaultValue is List<object?> { Count: > ScriptFieldCodec.MaxListElements } elements)
 			{
@@ -414,7 +414,7 @@ internal static class ScriptRegistry
 			writer.WriteStartObject();
 			foreach (ScriptField field in scriptClass.Fields)
 			{
-				object? stored = ScriptFieldCodec.ToStored(field.Field.GetValue(instance), field.Type);
+				object? stored = ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ToStored(field.Field.GetValue(instance), field.Type));
 				if (stored is List<object?> { Count: > ScriptFieldCodec.MaxListElements } elements)
 				{
 					if (s_ReportedLongLists.Add($"{className}.{field.Field.Name}"))

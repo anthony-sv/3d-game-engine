@@ -55,6 +55,9 @@ public sealed class FieldLists : Script
 
 	// A null array is the empty list.
 	public float[]? Missing;
+	// Quaternions of length zero (C#'s default) are stored as the identity, alone and in lists.
+	public Quaternion UnsetTurn;
+	public Quaternion[] UnsetTurns = new Quaternion[2];
 
 	// Not fields: no field type stores them, and the engine says so once for the class.
 	public Dictionary<string, int> Table = [];

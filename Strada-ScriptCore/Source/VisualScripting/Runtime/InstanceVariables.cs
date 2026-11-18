@@ -38,7 +38,7 @@ internal sealed partial class VisualScriptRuntime
 					continue;
 				}
 				// The engine refuses quaternions without a direction: those cross as the identity.
-				object? stored = NormalizeQuaternions(ScriptFieldCodec.ToStored(instance.ReadVariable(index), fieldType));
+				object? stored = ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ToStored(instance.ReadVariable(index), fieldType));
 				if (stored is List<object?> { Count: > ScriptFieldCodec.MaxListElements } elements)
 				{
 					if (m_ReportedLongLists.Add($"{instance.Program.Name}.{variable.Name}"))
@@ -133,7 +133,7 @@ internal sealed partial class VisualScriptRuntime
 					WarnVariables(instance, $"{variable.Name}: stored {JsonText.Excerpt(type)} value ignored: the variable is a {fieldTypeName} now");
 					continue;
 				}
-				object? decoded = NormalizeQuaternions(ScriptFieldCodec.ReadValue(value, fieldType, out string? error));
+				object? decoded = ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ReadValue(value, fieldType, out string? error));
 				if (error == null)
 				{
 					decoded = ScriptFieldCodec.FromStored(decoded, variable.Type.ClrType!, out error);
@@ -145,29 +145,6 @@ internal sealed partial class VisualScriptRuntime
 				}
 				instance.Variables[index] = SlotValues.FromValue(decoded, variable.Type);
 			}
-		}
-	}
-
-	// A stored value (ScriptFieldCodec's) with every quaternion of length zero the identity and the others of length one, a
-	// list's elements included: graphs hold quaternions so (LiteralCodec.Normalize), and the engine refuses one without a
-	// direction.
-	private static object? NormalizeQuaternions(object? stored)
-	{
-		switch (stored)
-		{
-			case Quaternion quaternion:
-				return LiteralCodec.Normalize(quaternion, out _);
-			case List<object?> elements:
-				for (int index = 0; index < elements.Count; index++)
-				{
-					if (elements[index] is Quaternion element)
-					{
-						elements[index] = LiteralCodec.Normalize(element, out _);
-					}
-				}
-				return elements;
-			default:
-				return stored;
 		}
 	}
 
