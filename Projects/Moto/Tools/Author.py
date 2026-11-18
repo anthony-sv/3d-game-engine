@@ -17,20 +17,25 @@ visual scripts alone (no C#). In order:
 6. the bike part: the motorcycle and its rider on the grid (Bike.py makes them; GenerateAssets.py writes their meshes to
    Meshes/Bike and their livery to Textures/Bike), with their four materials (Materials/Bike), the Bike entity with its
    body, fork, wheels and rider;
-7. the sound part: the sounds GenerateAudio.py makes (Audio/*.wav: the engine's layers on and off load, the wind, a tyre
-   squeal, a shift blip and a crowd), and the mixer they play through (Audio/Moto.smixer, Sound.py), which the project
-   file names;
-8. the ghost part: the ghost bike, a second motorcycle and rider of the bike part's meshes and materials, at the start and
-   finish line, and its graph (Scripts/Ghost.sgraph), whose timeline rides it round the racing line (RacingLine.py makes
-   the line and its keys, Ghost.py the graph);
-9. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks and without the props) and its
-   graphs (Checks.py);
-10. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+7. the input part: the game's input actions (Input/Moto.sinput, Controls.py), which the project file names;
+8. the sound part: the sounds GenerateAudio.py makes (Audio/*.wav: the engine's layers on and off load, the wind, a tyre
+   squeal, a shift blip and a crowd), the mixer they play through (Audio/Moto.smixer, Sound.py), which the project file
+   names, the echo under the footbridge (the Footbridge Echo entity, a reverb zone) and the audio director (the Audio
+   Director entity and Scripts/AudioDirector.sgraph: the Pause action blends the mix to the Paused snapshot and back);
+9. the ghost part: the ghost bike, a second motorcycle and rider of the bike part's meshes and materials, at the start and
+   finish line, its graph (Scripts/Ghost.sgraph), whose timeline rides it round the racing line (RacingLine.py makes
+   the line and its keys, Ghost.py the graph), and its engine's sound (EngineSound.py: the Engine Sound entity under it
+   with a voice for each layer, Scripts/EngineSound.sgraph and the curve assets it crossfades the layers through);
+10. the trackside part: the four trackside cameras and the camera director (Trackside.py: the Trackside entity, whose
+    children the cameras are, and Scripts/CameraDirector.sgraph), which cuts between them and the tour on actions;
+11. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks and without the props) and its
+    graphs (Checks.py);
+12. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
     rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
     path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.
 
     python Projects/Moto/Tools/Author.py [strada executable]
-    python Projects/Moto/Tools/Author.py --part <circuit|lighting|camera|props|bike|sound|ghost|tests> [strada executable]
+    python Projects/Moto/Tools/Author.py --part <circuit|lighting|camera|props|bike|input|sound|ghost|trackside|tests> [strada]
     python Projects/Moto/Tools/Author.py --captures <output folder> --player <StradaRuntime executable> [--views ...]
 
 The project is rebuilt from scratch: everything but this Tools folder is replaced. Without an executable, strada runs
@@ -43,7 +48,8 @@ with nothing changed writes the same files. The tests part follows every other, 
 with the checks and they name its entities; its own entities keep their IDs too. The run compares every file of the
 project outside Tools before and after: when a file the part (or the tests part after it) does not own changed, it names
 the files and fails, also when the authoring itself failed. After a change to how graphs are arranged, `--part camera`
-writes every graph again: the tour's, the ghost's (once the ghost part has made it) and the test scene's.
+writes every graph again: the tour's, then those of the parts that have made theirs (the audio director's, the ghost's
+and its engine sound's, the camera director's) and the test scene's.
 
 With --captures, nothing is built: the player takes its screenshots of the main scene from the fixed list of cameras in
 Captures.py, each from a copy of the project outside the repository, at 1920 by 1080 pixels, into the output folder.
@@ -66,6 +72,8 @@ import Circuit  # noqa: E402  (the layout)
 import GenerateAssets  # noqa: E402  (the circuit's meshes, textures and sky)
 import Bike  # noqa: E402  (the motorcycle and its rider)
 import Captures  # noqa: E402  (the player's screenshots from fixed cameras)
+import Controls  # noqa: E402  (the input actions)
+import EngineSound  # noqa: E402  (the engine's sound)
 import GenerateAudio  # noqa: E402  (the sounds)
 import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
@@ -73,6 +81,7 @@ import Props  # noqa: E402  (the props' placement)
 import RacingLine  # noqa: E402  (the line the ghost rides)
 import Sound  # noqa: E402  (the mixer)
 import Tour  # noqa: E402  (the camera tour)
+import Trackside  # noqa: E402  (the trackside cameras and their director)
 
 PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
@@ -120,30 +129,56 @@ class McpClient:
 
 # Each part: the root entities of the main scene it makes, and the files of the project it may write (paths relative to
 # the project folder, forward slashes; "<folder>/*<extension>" takes the folder's own files of that extension). The tests
-# part makes no entity of the main scene: its own scene is made from it; nor does the sound part, whose files are the
-# sounds, the mixer and the project file that names it. The camera part writes every graph again (the ghost's too).
+# part makes no entity of the main scene: its own scene is made from it; nor does the input part, whose files are the
+# actions and the project file that names them. The camera part writes every graph again.
 PARTS = {
     "circuit": (("Circuit",), ("Assets/Meshes/*.gltf", "Assets/Textures/*.png", "Assets/Environments/*.hdr",
                                "Assets/Materials/*.smat", "Assets/Surfaces/*.sphysmat", "Assets/Scenes/Main.sscene",
                                "Assets/AssetRegistry.sreg")),
     "lighting": (("Sun", "Sky"), ("Assets/Scenes/Main.sscene",)),
     "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Tour.sgraph", "Assets/Scripts/Ghost.sgraph",
-                                  "Assets/AssetRegistry.sreg")),
+                                  "Assets/Scripts/EngineSound.sgraph", "Assets/Scripts/AudioDirector.sgraph",
+                                  "Assets/Scripts/CameraDirector.sgraph", "Assets/AssetRegistry.sreg")),
     "props": (("Props",), ("Assets/Meshes/Props/*.gltf", "Assets/Textures/Props/*.png", "Assets/Materials/Props/*.smat",
                            "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
     "bike": (("Bike",), ("Assets/Meshes/Bike/*.gltf", "Assets/Textures/Bike/*.png", "Assets/Materials/Bike/*.smat",
                          "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
-    "sound": ((), ("Assets/Audio/*.wav", "Assets/Audio/Engine/*.wav", "Assets/Audio/*.smixer", "Moto.sproj",
-                   "Assets/AssetRegistry.sreg")),
-    "ghost": ((Ghost.ENTITY,), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Ghost.sgraph", "Assets/AssetRegistry.sreg")),
+    "input": ((), ("Assets/Input/*.sinput", "Moto.sproj", "Assets/AssetRegistry.sreg")),
+    "sound": ((Sound.DIRECTOR, Sound.ECHO), ("Assets/Audio/*.wav", "Assets/Audio/Engine/*.wav", "Assets/Audio/*.smixer",
+                                             "Moto.sproj", "Assets/Scenes/Main.sscene", "Assets/Scripts/AudioDirector.sgraph",
+                                             "Assets/AssetRegistry.sreg")),
+    "ghost": ((Ghost.ENTITY,), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Ghost.sgraph", "Assets/Scripts/EngineSound.sgraph",
+                                "Assets/Curves/*.scurve", "Assets/AssetRegistry.sreg")),
+    "trackside": ((Trackside.ROOT,), ("Assets/Scenes/Main.sscene", "Assets/Scripts/CameraDirector.sgraph",
+                                      "Assets/AssetRegistry.sreg")),
     "tests": ((), ("Assets/Scenes/Tests.sscene", "Assets/Scripts/Checks.sgraph", "Assets/Scripts/Tests.sgraph",
                    "Assets/AssetRegistry.sreg")),
 }
-ORDER = ("circuit", "lighting", "camera", "props", "bike", "sound", "ghost", "tests")
-# The parts that make entities of the main scene.
+ORDER = ("circuit", "lighting", "camera", "props", "bike", "input", "sound", "ghost", "trackside", "tests")
+# The parts that make entities of the main scene, or the files it needs (the input part's actions, which the sound and
+# trackside parts' graphs name).
 SCENE_PARTS = ORDER[:-1]
+
+
+def _ghost_graphs(write):
+    """Declares or writes the ghost's graphs: its engine sound's first, since the ghost's sets the engine sound's
+    variables."""
+    def run(author):
+        getattr(EngineSound, write)(author)
+        getattr(Ghost, write)(author)
+    return run
+
+
+# The graphs of the parts, each group written together (every graph's declarations before any body names them): the part
+# that makes them, the graphs, and how to declare and write them.
+GRAPH_GROUPS = (
+    ("camera", (Tour.TOUR,), Tour.declare, Tour.write),
+    ("sound", (Sound.AUDIO_DIRECTOR,), Sound.declare, Sound.write),
+    ("ghost", (EngineSound.ENGINE_SOUND, Ghost.GHOST), _ghost_graphs("declare"), _ghost_graphs("write")),
+    ("trackside", (Trackside.CAMERA_DIRECTOR,), Trackside.declare, Trackside.write),
+)
 # Every graph of the project, in the order they are written.
-GRAPHS = (Tour.TOUR, Ghost.GHOST) + Checks.GRAPHS
+GRAPHS = tuple(graph for _, graphs, _, _ in GRAPH_GROUPS for graph in graphs) + Checks.GRAPHS
 
 
 def hash_project():
@@ -331,7 +366,8 @@ class Moto:
     def build_part(self, part):
         self.remove_roots(PARTS[part][0])
         {"circuit": self.make_circuit, "lighting": self.make_lighting, "camera": self.make_camera, "props": self.make_props,
-         "bike": self.make_bike, "sound": self.make_sound, "ghost": self.make_ghost}[part]()
+         "bike": self.make_bike, "input": self.make_input, "sound": self.make_sound, "ghost": self.make_ghost,
+         "trackside": self.make_trackside}[part]()
 
     def write_graphs(self, graphs, declare, write):
         """Writes graphs from scratch, keeping the handles of those that exist: declare(author) adds their interfaces and
@@ -342,6 +378,30 @@ class Moto:
         declare(author)
         write(author)
         print(f"wrote {', '.join(graph[len('asset://'):] for graph in graphs)} in {author.batches} batches")
+
+    def write_part_graphs(self, part):
+        """Writes the graphs a part makes (GRAPH_GROUPS)."""
+        for owner, graphs, declare, write in GRAPH_GROUPS:
+            if owner == part:
+                def write_all(author, graphs=graphs, write=write):
+                    write(author)
+                    for graph in graphs:
+                        author.finish(graph)
+
+                self.write_graphs(graphs, declare, write_all)
+
+    def data_asset(self, kind, parameter, path, fields):
+        """The data asset at Assets/<path> with all its fields: created, or set when it exists (its handle stays)."""
+        reference = f"asset://{path}"
+        if os.path.exists(os.path.join(PROJECT, "Assets", *path.split("/"))):
+            self.call(f"{kind}_set", {parameter: reference, "fields": fields})
+        else:
+            self.call(f"{kind}_create", {"path": path, "fields": fields})
+        return reference
+
+    def root_ids(self):
+        """The main scene's root entities' IDs, by their names."""
+        return {entity["name"]: entity["id"] for entity in self.call("scene_hierarchy")["entities"]}
 
     def make_circuit(self):
         GenerateAssets.generate(os.path.join(PROJECT, "Assets"), GenerateAssets.SEED, groups=("circuit",))
@@ -497,33 +557,58 @@ class Moto:
         refreshed = self.call("asset_refresh")
         if refreshed.get("warnings"):
             raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
-        reference = f"asset://{Sound.MIXER}"
-        if os.path.exists(os.path.join(PROJECT, "Assets", *Sound.MIXER.split("/"))):
-            self.call("mixer_set", {"mixer": reference, "fields": Sound.mixer()})
-        else:
-            self.call("mixer_create", {"path": Sound.MIXER, "fields": Sound.mixer()})
-        self.call("project_settings", {"settings": {"Mixer": reference}})
+        self.call("project_settings", {"settings": {"Mixer": self.data_asset("mixer", "mixer", Sound.MIXER, Sound.mixer())}})
+        # The echo under the footbridge, and the audio director, whose graph the Pause action reaches (the input part named
+        # the actions before).
+        self.entity(Sound.ECHO, Sound.echo())
+        self.write_part_graphs("sound")
+        self.entity(Sound.DIRECTOR, {"VisualScript": {"Graph": self.handles[Sound.AUDIO_DIRECTOR]}})
 
-    def write_ghost_graph(self):
-        """The ghost's graph, whose timeline holds the racing line's keys (Ghost.py, RacingLine.py)."""
+    def make_input(self):
+        """The game's input actions (Controls.py), which the project file names."""
+        actions = self.data_asset("input_actions", "inputActions", Controls.INPUT_ACTIONS, Controls.input_actions())
+        self.call("project_settings", {"settings": {"InputActions": actions}})
+
+    def write_ghost_graphs(self):
+        """The ghost's graph, whose timeline holds the racing line's keys (Ghost.py, RacingLine.py), and its engine sound's,
+        with the curves it crossfades the layers through (EngineSound.py)."""
         print("line:", RacingLine.check())
-
-        def write(author):
-            Ghost.write(author)
-            author.finish(Ghost.GHOST)
-
-        self.write_graphs((Ghost.GHOST,), Ghost.declare, write)
+        print("engine sound:", EngineSound.check())
+        for path, fields in EngineSound.curves().items():
+            self.data_asset("curve", "curve", path, fields)
+        self.write_part_graphs("ghost")
 
     def make_ghost(self):
         """The ghost bike: the bike part's meshes and materials under the Ghost entity, at the line's pose where it sets
-        out, with its graph, which rides it round the racing line."""
-        self.write_ghost_graph()
+        out, with its graph, which rides it round the racing line, and its engine's sound: the Engine Sound entity under
+        it, with a voice for each layer."""
+        self.write_ghost_graphs()
         made = {"Bike": self.entity(Ghost.ENTITY, {"Transform": Ghost.transform(),
                                                    "VisualScript": {"Graph": self.handles[Ghost.GHOST]}})}
         for name, mesh_name, parent, offset, angle in Bike.ENTITIES:
             materials = [material_reference(f"Bike/{material}") for material in Bike.mesh_materials(mesh_name)]
             made[name] = self.entity(name, {"Transform": {"Translation": list(offset), "RotationEuler": [angle, 0.0, 0.0]},
                                             "Mesh": {"Mesh": mesh(f"Bike/{mesh_name}"), "Materials": materials}}, made[parent])
+        self.entity_with_children(EngineSound.ENTITY, {"Transform": {"Translation": list(EngineSound.OFFSET)},
+                                                       "VisualScript": {"Graph": self.handles[EngineSound.ENGINE_SOUND]}},
+                                  made["Bike"], [(name, {"AudioSource": EngineSound.voice(clip)}) for name, clip in EngineSound.VOICES])
+
+    def make_trackside(self):
+        """The trackside cameras (Trackside.py), children of the Trackside entity, which runs the camera director: it cuts
+        between them and the main camera's tour, and they follow the ghost."""
+        placed = Trackside.placing()
+        print("trackside:", "; ".join(f"{name} at {position}" for name, position in placed))
+        self.write_part_graphs("trackside")
+        roots = self.root_ids()
+        missing = [name for name in ("Main Camera", Ghost.ENTITY) if name not in roots]
+        if missing:
+            raise SystemExit(f"the trackside part follows the camera and ghost parts: the scene has no {', '.join(missing)}")
+        root = self.entity(Trackside.ROOT, {"Transform": {"Translation": [0.0, 0.0, 0.0]}, "VisualScript": {
+            "Graph": self.handles[Trackside.CAMERA_DIRECTOR], "Variables": {
+                "TourCamera": {"Type": "Entity", "Value": roots["Main Camera"]},
+                "Subject": {"Type": "Entity", "Value": roots[Ghost.ENTITY]}}}})
+        for name, position in placed:
+            self.entity(name, Trackside.camera(position), root)
 
     def make_lighting(self):
         self.call("scene_settings", {"name": "Main", "settings": {"Renderer": {
@@ -548,9 +633,12 @@ class Moto:
         self.entity("Main Camera", {"Transform": look(Tour.HOME_EYE, Tour.HOME_TARGET),
                                     "Camera": {"PerspectiveFOV": 50.0, "PerspectiveNear": 0.1, "PerspectiveFar": 5000.0},
                                     "AudioListener": {}, "VisualScript": {"Graph": self.handles[Tour.TOUR]}})
-        # Every graph is written again: the ghost's keeps its handle, so its entity stays as it is.
-        if os.path.exists(os.path.join(PROJECT, "Assets", *Ghost.GHOST[len("asset://"):].split("/"))):
-            self.write_ghost_graph()
+        # Every graph is written again, those of the parts that have made theirs too (their own files, such as the engine
+        # sound's curves, stay theirs): each keeps its handle, so the entities that run it stay as they are.
+        for part, graphs, _, _ in GRAPH_GROUPS:
+            if part != "camera" and all(os.path.exists(os.path.join(PROJECT, "Assets", *graph[len("asset://"):].split("/")))
+                                        for graph in graphs):
+                self.write_part_graphs(part)
 
     def make_tests(self):
         """The test scene and its graphs, from the main scene as saved; then every graph is checked and the checks run."""

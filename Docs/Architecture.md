@@ -5488,8 +5488,10 @@ that each platform's names are tested on every platform:
   `MeshCollider`; `lighting`: the sun, the sky and the renderer settings, shadows over 220 m in four cascades;
   `camera`: the main camera, near plane 0.1 m and far plane 5 km, and its tour; `props`: the props' meshes, textures and
   materials and the `Props` entity; `bike`: the motorcycle's and the rider's meshes, livery and materials and the `Bike`
-  entity on the grid; `sound`: the generated sounds, the mixer and the project file that names it, and no entity yet;
-  `ghost`: the `Ghost` entity and its graph; `tests`: the test scene and its graphs);
+  entity on the grid; `input`: the input actions and the project file that names them; `sound`: the generated sounds,
+  the mixer and the project file that names it, the `Footbridge Echo` and the `Audio Director` with its graph; `ghost`:
+  the `Ghost` entity with its engine's sound, their graphs and the curves the sound reads; `trackside`: the `Trackside`
+  entity with its four cameras and the camera director's graph; `tests`: the test scene and its graphs);
   `--part <name>` rebuilds one part in place, then the `tests` part (the test scene is the main scene with the checks,
   which name its entities), and fails, naming them, when files neither owns changed. A part made again keeps what it
   does not change: its roots are made where they stood among the roots, and every entity it makes takes the ID it had
@@ -5590,10 +5592,48 @@ that each platform's names are tested on every platform:
   `Heading` (unwrapped degrees about +Y), `Lean`, `EngineSpeed` (two keys at one time at each shift) and `Load`, each
   key carrying the line's own slopes, as few keys as keep each within its tolerance. Every update places the ghost,
   turns it by `Heading` after `Lean` (`Quaternion.AngleAxis` twice, multiplied), counts a lap when the timeline's time
-  comes round past the line, and keeps the read-outs `LapTime`, `EngineSpeed` and `Load`, for the engine's sound to
-  play from; `StartAt` says where on the lap it sets out. **The test scene** (`Scenes/Tests.sscene`, the main scene
+  comes round past the line, keeps the read-outs `LapTime`, `EngineSpeed` and `Load`, and sets its engine sound's
+  `EngineSpeed` and `Load` (the child that runs `EngineSound.sgraph`, found when the scene starts); `StartAt` says where
+  on the lap it sets out. **The engine's sound** (`Tools/EngineSound.py`, the `ghost` part) is the `Engine Sound`
+  entity under the ghost, with sixteen children, each an `AudioSource` looping one layer on the `Engine` bus, spatial
+  with doppler (the graph's `DopplerLevel`, given to every voice when the scene starts), playing from the start at
+  volume 0. Its graph (`Scripts/EngineSound.sgraph`) takes its inputs as public variables, `EngineSpeed` and `Load`,
+  which whoever runs the engine sets (the ghost now, a ridden bike later), and every update sets each voice's volume
+  and pitch: the volume is the layer's fade by where the engine speed lies from it in layers (`log(speed / layer's
+  speed) / log(1.346)`, read through the curve asset `Curves/EngineLayerFade.scurve`, cos(πx/2) from -1 to 1, held at 0
+  below the lowest layer and above the highest) times the load's gain (`EngineOnLoad.scurve`, sin(πL/2), for the
+  on-load voices; `EngineOffLoad.scurve`, cos(πL/2), for the off-load ones) times `Volume`. Both crossfades are of equal
+  power, so the voices' volumes squared sum to `Volume` squared at any speed and load (the curves are cubics through
+  the functions' keys every 0.125 with their slopes: within 0.00023 of 1 from 1,000 to 17,000 rpm, which the tool's
+  `check()` asserts). The pitch plays the layer at the engine's speed over the speed it was recorded at (the generator's
+  exact figure, kept in the graph's `LayerSpeeds`), held within a layer's step either way, where its fade ends. Sixteen
+  voices mix whether they sound or not (§9.3: below the engine's limit of 64 every voice mixes). **The trackside cameras**
+  (`Tools/Trackside.py`, the `trackside` part) are four children of the `Trackside` entity, in the order the cuts go
+  round: at the start line (80 m before it, across the road from the grandstands), on the insides of Turns 1 and 6 at
+  their apexes, and 35 m before the footbridge on the side the racing line passes it, each 5 m up on a mast 1.5 m
+  behind the catch fence, with a field of view of 35°, moved along the lap (a meter at a time, either way) until no
+  prop stands within 1.5 m of it, nor a tall one within 6 m. Each has a camera that is not primary and a listener that
+  is off. `Trackside` runs the camera director (`Scripts/CameraDirector.sgraph`): `TourCamera` (the main camera) and
+  `Subject` (the ghost) are its public variables; when the scene starts it cuts to `StartCamera` (0, the tour, by
+  default); the `NextCamera` action sends it the custom event `NextCamera`, which cuts to the next trackside camera
+  (round to the first), and `ResetCamera` sends it `ResetCamera`, which cuts back to the tour, which flew on meanwhile.
+  A cut (its function `Cut`) makes one camera primary and its listener the one that hears, and every other camera and
+  listener off: the scene renders and hears from that camera (a cut gets no doppler in its update, §9.8, since the
+  listener is another entity). Every update turns each trackside camera towards the subject, 0.9 m above its origin
+  (the director stands at the origin unturned, so its children's angles are the world's); `Active` reads the camera
+  that shows. **The echo and the pause** (`Tools/Sound.py`, the `sound` part): the `Footbridge Echo` is a
+  `ReverbZone`, a box under the footbridge's deck across the road and its verges (half extents 12.2, 3 and 3 m, up
+  to the deck), turned with the road, sending 0.8 of what sounds inside it to the `Reverb` bus and fading out over
+  8 m round it, so the ghost's pass under the deck (about 190 km/h) sends for about 0.4 s and leaves its
+  tail ringing; the `Audio Director` runs `Scripts/AudioDirector.sgraph`, to which the `Pause` action sends
+  `TogglePause`: it blends the mix to the `Paused` snapshot over `Seconds` (0.5), or back to the mixer's own values,
+  and keeps the read-out `Paused`; nothing else pauses yet. **The input actions** (`Tools/Controls.py`, the `input`
+  part; `Input/Moto.sinput`, named by `Moto.sproj`): `Throttle` and `Brake` (axes: W and S, the right and the left
+  trigger), `Lean` (A and D, the left stick's X), `ShiftUp` and `ShiftDown` (E and Q, the bumpers), `Pause` (Escape,
+  Start), `NextCamera` (C, Y) and `ResetCamera` (R, Back), each on the keyboard and any gamepad; the directors use the
+  last three, and the riding actions wait for the ridden bike. **The test scene** (`Scenes/Tests.sscene`, the main scene
   without its props, which stand clear of all it checks, with a crate over the road, two blocks sent
-  sliding with the scene, the `Waiting Tour`, the ghost set out 30 s into its lap and the `Tests` entity) holds 21 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
+  sliding with the scene, the `Waiting Tour`, the ghost set out 30 s into its lap and the `Tests` entity) holds 24 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
   reporting through the `Checks` library): rays down at points of the layout hit the road, a kerb, a wall's top, the
   ground and the footbridge's deck at their heights, facing up, and name the physics material of the asphalt (also
   where a timing line is painted), a kerb, a gravel trap, a verge and the ground; the crate comes to rest on the road;
@@ -5604,11 +5644,18 @@ that each platform's names are tested on every platform:
   `Repeat` off, stays where the scene put it until the `Tests` graph sends it `PlayTour`, then flies, and stays at the
   home view after its one tour; the ghost leans into Turn 6 within 1° of the line, is within 0.1 m of where the line
   puts it at three moments of its lap, facing along it within 2° (each read with its own `LapTime` of the same update,
-  the line's point carried on by its velocity over the frame between), and crosses the start and finish line onto its next lap, on the line again.
+  the line's point carried on by its velocity over the frame between), and crosses the start and finish line onto its next lap, on the line again;
+  the engine's sixteen voices all play on the `Engine` bus at the ghost's engine speed, their volumes squared sum to 1
+  within 0.02 and each that sounds plays within its layer's band; sent the events its actions send, the camera
+  director cuts to the first trackside camera (it alone shows and hears, turned to the ghost within 2°), to the second,
+  and back to the tour's camera; and sent `TogglePause` twice, the audio director blends the mix to the `Paused`
+  snapshot (`Audio.CurrentSnapshot` reads it) and back.
   They wait in seconds of the game, with tolerances for a frame of the slowest test
   run, so they pass at 1/60 and 1/30 s a frame; `StradaRuntimeTests` runs them twice at 1/60 s (the same summary each
   time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script; `PlayModeTests` (StradaEditorTests) plays the
-  main scene in the editor's play mode, where the camera leaves the home view and stopping brings it back. Every build ends by dropping spheres, in
+  main scene in the editor's play mode, where the camera leaves the home view, the actions `NextCamera`, `Pause` and
+  `ResetCamera` injected through `input.set` cut to the start line's camera, blend the mix to the `Paused` snapshot and
+  back and cut back to the tour, and stopping brings the camera back. Every build ends by dropping spheres, in
   play mode's copy of the scene, on the road, a kerb, a gravel trap, a verge, the ground, a wall and the footbridge,
   which must come to rest on those surfaces, by checking every graph (no diagnostic, every node in one box, every box
   arranged), by a test run that must pass every check, by playing the main scene for 10 s in play mode, where the

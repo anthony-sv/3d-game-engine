@@ -1,3 +1,4 @@
+#include "Audio/AudioTestUtilities.h"
 #include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
@@ -17,6 +18,7 @@
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Audio/AudioEngine.h"
 #include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/GameData.h"
@@ -2275,9 +2277,11 @@ TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the playe
 	sample.Stop();
 }
 
-TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph's timeline, from the home view and stopping brings "
-          "the camera back; with PlayOnStart off the camera stays home")
+TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph's timeline, from the home view, its actions cut "
+          "to a trackside camera and back and muffle the mix, and stopping brings the camera back; with PlayOnStart off the "
+          "camera stays home")
 {
+	Testing::AudioEngineScope audio;
 	Testing::AssetManagerScope assets;
 	Testing::PhysicsSystemScope physics;
 	Testing::ScriptRuntimeScope scripting;
@@ -2312,8 +2316,60 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	fixture.Ok("play.advance", Json::object({{"frames", 600}}));
 	CHECK(glm::distance(findCamera().GetComponent<TransformComponent>().Translation, home) > 100.0f);
 	CHECK(readTours() == 0);
+
+	// The project's actions, injected as a player's presses would come, reach the directors' graphs: NextCamera cuts to the
+	// first trackside camera (it alone then shows and hears the scene), Pause blends the mix to the Paused snapshot and
+	// back, and ResetCamera cuts back to the tour, which flew on meanwhile.
+	auto const tap = [&fixture](std::string const& action)
+	{
+		fixture.Ok("input.set", Json::object({{"actions", Json::object({{action, true}})}}));
+		fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+		fixture.Ok("input.set", Json::object({{"actions", Json::object({{action, nullptr}})}}));
+		fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	};
+	auto const shows = [&fixture](std::string_view name)
+	{
+		Entity const found = fixture.Context.GetScene().FindEntityByName(name);
+		REQUIRE(found);
+		bool const primary = found.GetComponent<CameraComponent>().Primary;
+		bool const hears = found.GetComponent<AudioListenerComponent>().Active;
+		CHECK(primary == hears);
+		return primary && hears;
+	};
+	auto const readVariable = [&fixture](std::string_view entity, std::string const& name)
+	{
+		Entity const found = fixture.Context.GetScene().FindEntityByName(entity);
+		REQUIRE(found);
+		Result<ScriptFieldMap> const variables = VisualScriptEngine::GetInstanceVariables(found.GetUUID());
+		REQUIRE_MESSAGE(variables.IsOk(), (variables ? std::string() : variables.GetError()));
+		auto const value = variables.GetValue().find(name);
+		REQUIRE(value != variables.GetValue().end());
+		return value->second;
+	};
+	CHECK(shows("Main Camera"));
+	CHECK_FALSE(shows("Start Line Camera"));
+	tap("NextCamera");
+	CHECK(readVariable("Trackside", "Active").GetInt32() == 1);
+	CHECK(shows("Start Line Camera"));
+	CHECK_FALSE(shows("Main Camera"));
+	CHECK_FALSE(shows("Turn 1 Camera"));
+	tap("Pause");
+	fixture.Ok("play.advance", Json::object({{"frames", 40}}));
+	CHECK(readVariable("Audio Director", "Paused").GetBool());
+	CHECK(AudioEngine::GetCurrentSnapshot() == "Paused");
+	tap("Pause");
+	CHECK_FALSE(readVariable("Audio Director", "Paused").GetBool());
+	CHECK(AudioEngine::GetCurrentSnapshot().empty());
+	glm::vec3 const flying = findCamera().GetComponent<TransformComponent>().Translation;
+	tap("ResetCamera");
+	CHECK(readVariable("Trackside", "Active").GetInt32() == 0);
+	CHECK(shows("Main Camera"));
+	CHECK_FALSE(shows("Start Line Camera"));
+	CHECK(findCamera().GetComponent<TransformComponent>().Translation != flying);
 	CHECK(fixture.Ok("play.stop")["state"] == "edit");
 	CHECK(findCamera().GetComponent<TransformComponent>().Translation == home);
+	CHECK(shows("Main Camera"));
+	CHECK_FALSE(shows("Start Line Camera"));
 
 	// The camera's PlayOnStart off, as a graph that starts the tour itself would set it: the camera waits at the home view.
 	Entity const camera = findCamera();

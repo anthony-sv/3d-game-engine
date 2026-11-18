@@ -1,9 +1,9 @@
 """Moto's test scene (Scenes/Tests.sscene) and its checks, all of them graphs: the main scene as it is without its props
 (they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
 that waits to be sent it (the Waiting Tour) and the Tests entity, whose graph checks the circuit's surfaces, the camera
-tour and the ghost bike one after another, then reports to the test run. Its own entities keep their IDs when it is made
-again. The scene's ghost sets out Ghost.TEST_START_AT seconds into its lap, so that it leans through Turn 6 and crosses
-the start and finish line while the tour flies.
+tour, the ghost bike, its engine's sound, the camera director and the audio director one after another, then reports to
+the test run. Its own entities keep their IDs when it is made again. The scene's ghost sets out Ghost.TEST_START_AT
+seconds into its lap, so that it leans through Turn 6 and crosses the start and finish line while the tour flies.
 
 - Checks.sgraph, a function library: reporting a check, and comparing points and directions.
 - Tests.sgraph (the Tests entity): each check a latent function that acts or waits for its moment, then reports through
@@ -21,7 +21,11 @@ off it stays at the home view after its one tour. The ghost's checks compare it 
 as its timeline plays the line's keys: leaned into Turn 6 as the line leans there, where the line puts it at three
 moments of its lap and facing the way the line runs (each read with the ghost's own LapTime in the same update, the
 line's point carried on by its velocity for the moments between), and across the start and finish line onto its next
-lap.
+lap. Its engine's sound plays every voice, driven by the ghost's engine speed, their volumes squared summing to 1 within
+EngineSound.POWER_BAND (the crossfades are equal-power) and each that sounds pitched within its layer's band, on the
+Engine bus. The camera director, sent the events its actions send, cuts to the first trackside camera, then the second,
+each the one camera that shows and hears the scene and turned to the ghost, then back to the tour's camera. The audio
+director, sent TogglePause twice, blends the mix to the Paused snapshot and back.
 """
 import math
 import os
@@ -29,10 +33,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import Circuit  # noqa: E402  (the layout)
+import EngineSound  # noqa: E402  (the engine's sound)
 import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
 import RacingLine  # noqa: E402  (the line the ghost rides)
+import Sound  # noqa: E402  (the mix and the audio director)
 import Tour  # noqa: E402  (the camera tour)
+import Trackside  # noqa: E402  (the trackside cameras and their director)
 from Graphs import CHECK, ENTITY, private, public  # noqa: E402
 
 CHECKS = Graphs.script("Checks")
@@ -69,6 +76,11 @@ GHOST_TOLERANCE = 0.1
 # How far the ghost's forward may turn from the line's direction of travel at those moments (degrees).
 HEADING_TOLERANCE = 2.0
 LEAN_TOLERANCE = 1.0
+# How far a trackside camera that shows may look from the ghost (degrees): it turns every update, and the ghost moves
+# after it in some frames.
+AIM_TOLERANCE = 2.0
+# How long the pause check lets the mix blend to the Paused snapshot and back (seconds): past Sound.PAUSE_SECONDS.
+PAUSE_WAIT = Sound.PAUSE_SECONDS + 0.1
 
 
 def turn6_lean():
@@ -199,6 +211,12 @@ def checks():
          "the ghost leans into Turn 6 as the racing line does"),
         ("CheckGhostRides", "Ghost line: on the racing line and facing its way at three moments",
          "the ghost rides the racing line"),
+        ("CheckEngineSounds", "Engine sound: every layer plays, faded to one in power, each in its band",
+         "the ghost's engine plays every layer, crossfaded to a steady power, each pitched within its band"),
+        ("CheckCameraCuts", "Cuts: NextCamera cuts to the trackside cameras in turn, ResetCamera back",
+         "the camera director cuts to its cameras and back to the tour on the events its actions send"),
+        ("CheckPauseSnapshot", "Pause: TogglePause blends the mix to the Paused snapshot and back",
+         "the pause event blends the mix to the Paused snapshot and back"),
         ("CheckUnderFootbridge", "Footbridge pass: the camera where the tour puts it, under the deck",
          "the tour flies the camera under the footbridge"),
         ("CheckSentTourFlies", "Sent tour: PlayTour from another graph flies it", "a tour sent PlayTour by another graph flies"),
@@ -224,6 +242,9 @@ TEST_ENTITIES = (
     ("AsphaltSlider", "Asphalt Slider", "The block sent sliding along the asphalt"),
     ("GravelSlider", "Gravel Slider", "The block sent sliding along a gravel trap"),
     ("Ghost", Ghost.ENTITY, "The ghost bike riding the racing line"),
+    ("EngineSound", EngineSound.ENTITY, "The ghost's engine sound, whose children are its voices"),
+    ("CameraDirector", Trackside.ROOT, "The camera director, whose children are the trackside cameras"),
+    ("AudioDirector", Sound.DIRECTOR, "The audio director, which blends the mix to the Paused snapshot"),
 )
 # The test scene's own entities, which it keeps the IDs of when it is made again.
 OWN_ENTITIES = ("Probe Crate", "Asphalt Slider", "Gravel Slider", "Waiting Tour", "Tests")
@@ -243,7 +264,9 @@ def declare(author):
     author.declare(TESTS, f"The test scene's checks: {len(checks())} checks of Moto's circuit, its camera tour and its ghost "
                    "bike, one after another, each a latent function that acts or waits for its moment, then reports it.", variables=(
         tuple(public(name, ENTITY, None, tooltip) for name, _, tooltip in TEST_ENTITIES) +
-        (private("StepStart", "double", 0.0), private("LineError", "float", 0.0), private("HeadingError", "float", 0.0))),
+        (private("StepStart", "double", 0.0), private("LineError", "float", 0.0), private("HeadingError", "float", 0.0),
+         private("Power", "float", 0.0), private("Playing", "int", 0), private("Strays", "int", 0), private("Cuts", "int", 0),
+         private("Aim", "float", 0.0), private("Snapshot", "string", ""))),
         functions=(("Probe", False, (("From", VECTOR), ("Surface", ENTITY), ("Height", "float")),
                     (("Passed", "bool"), ("Detail", "string")), ()),
                    ("ProbeSurface", False, (("From", VECTOR), ("Expected", "string")), (("Passed", "bool"), ("Detail", "string")),
@@ -569,7 +592,98 @@ def check_ghost_laps(b, name):
     run(b, check(b, name, crossed, math.ceil(RacingLine.length()), detail, near))
 
 
+def check_engine_sounds(b, name):
+    # Every voice: playing, its volume squared added to the power, and counted as a stray when it sounds outside its
+    # layer's band or plays off the Engine bus.
+    engine = b.var("EngineSound")
+    each = b.add("Flow.ForEach", Array=b.pure("Get:Strada.Entity.Children", "Value", Target=engine))
+    voice = each["Element"]
+    volume = b.pure("Get:Strada.AudioSourceComponent.Volume", "Value", Target=voice)
+    pitch = b.pure("Get:Strada.AudioSourceComponent.Pitch", "Value", Target=voice)
+    on_bus = b.equal(b.pure("Get:Strada.AudioSourceComponent.Bus", "Value", Target=voice), b.lit("string", "Engine"))
+    playing = b.pure("Get:Strada.AudioSourceComponent.IsPlaying", "Value", Target=voice)
+    low, high = 1.0 / EngineSound.LAYER_RATIO - 1e-4, EngineSound.LAYER_RATIO + 1e-4
+    power = b.set("Power", b.expr("power + volume * volume", power=b.var("Power"), volume=volume))
+    count = b.set("Playing", b.expr("count + (playing ? 1 : 0)", count=b.var("Playing"), playing=playing))
+    stray = b.set("Strays", b.expr(f"strays + ((volume > 0.001 && (pitch < {low:.6f} || pitch > {high:.6f})) || !engine ? 1 : 0)",
+                                   strays=b.var("Strays"), volume=volume, pitch=pitch, engine=on_bus))
+    b.chain(each["Body"], power, count, stray)
+    speed = b.get("EngineSpeed", EngineSound.ENGINE_SOUND, engine)
+    voices = len(EngineSound.VOICES)
+    passed = b.expr(f"count == {voices} && abs(power - 1) <= {EngineSound.POWER_BAND} && strays == 0 && "
+                    f"abs(speed - ghost) < 1 && speed > {RacingLine.IDLE}", count=b.var("Playing"), power=b.var("Power"),
+                    strays=b.var("Strays"), speed=speed, ghost=b.get("EngineSpeed", Ghost.GHOST, b.var("Ghost")))
+    detail = b.fmt(f"{{Playing}} of {voices} voices play, their volumes squared summing to {{Power}}, {{Strays}} out of their band "
+                   "or off the Engine bus, at {Speed} rpm", Playing=b.var("Playing"), Power=b.var("Power"), Strays=b.var("Strays"),
+                   Speed=speed)
+    reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, b.set("Power", 0.0), b.set("Playing", 0), b.set("Strays", 0), (each, each["Completed"]), reported)
+
+
+def check_camera_cuts(b, name):
+    # A cut is seen when the camera it names alone shows and hears the scene; the director is sent each event, and two frames
+    # later (its Follow has turned the cameras since) the cut is counted.
+    director = b.var("CameraDirector")
+    cameras = b.pure("Get:Strada.Entity.Children", "Value", Target=director)
+    first = b.add("Array.Get", None, "Element", Array=cameras, Index=0).out
+    second = b.add("Array.Get", None, "Element", Array=cameras, Index=1).out
+    tour = b.var("Camera")
+    active = b.get("Active", Trackside.CAMERA_DIRECTOR, director)
+
+    def shows(camera):
+        return b.both(b.pure("Get:Strada.CameraComponent.Primary", "Value", Target=camera),
+                      b.pure("Get:Strada.AudioListenerComponent.Active", "Value", Target=camera))
+
+    def silent(camera):
+        return b.expr("!primary && !listener", primary=b.pure("Get:Strada.CameraComponent.Primary", "Value", Target=camera),
+                      listener=b.pure("Get:Strada.AudioListenerComponent.Active", "Value", Target=camera))
+
+    def cut(event, expected, showing, hidden):
+        send = b.send(event, director, graph=Trackside.CAMERA_DIRECTOR)
+        settle = b.add("Flow.WaitFrames", Frames=2)
+        seen = b.set("Cuts", b.expr(f"cuts + (active == {expected} && showing && hidden ? 1 : 0)", cuts=b.var("Cuts"), active=active,
+                                    showing=shows(showing), hidden=silent(hidden)))
+        b.flow(send, settle)
+        b.flow(settle["Completed"], seen)
+        return send, seen
+
+    ghost = b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=b.var("Ghost"))
+    eye = b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=first)
+    forward = b.pure("Get:Strada.TransformComponent.Forward", "Value", Target=first)
+    first_cut = cut("NextCamera", 1, first, tour)
+    aim = b.set("Aim", b.expr(f"degrees(acos(clamp(dot(normalize(forward), normalize(ghost + vec3(0, {Trackside.AIM}, 0) - eye)), "
+                              "-1, 1)))", forward=forward, ghost=ghost, eye=eye))
+    b.flow(first_cut[1], aim)
+    second_cut = cut("NextCamera", 2, second, first)
+    back = cut("ResetCamera", 0, tour, second)
+    passed = b.expr(f"cuts == 3 && aim <= {AIM_TOLERANCE}", cuts=b.var("Cuts"), aim=b.var("Aim"))
+    detail = b.fmt("{Cuts} of 3 cuts seen (to the first trackside camera, the second and back to the tour); the first looked "
+                   "{Aim} degrees from the ghost", Cuts=b.var("Cuts"), Aim=b.var("Aim"))
+    reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, b.set("Cuts", 0), (first_cut[0], aim), second_cut, back, reported)
+
+
+def check_pause_snapshot(b, name):
+    director = b.var("AudioDirector")
+    snapshot = b.pure("Get:Strada.Audio.CurrentSnapshot", "Value")
+    paused = b.get("Paused", Sound.AUDIO_DIRECTOR, director)
+    pause = b.send("TogglePause", director, graph=Sound.AUDIO_DIRECTOR)
+    muffled = wait_until(b, None, PAUSE_WAIT)
+    noted = b.set("Snapshot", snapshot)
+    resume = b.send("TogglePause", director, graph=Sound.AUDIO_DIRECTOR, comment="And back")
+    resumed = wait_until(b, None, PAUSE_WAIT)
+    passed = b.both(b.both(b.equal(b.var("Snapshot"), b.lit("string", Sound.PAUSED)), b.equal(snapshot, b.lit("string", ""))),
+                    b.expr("!paused", paused=paused))
+    detail = b.fmt("the snapshot was '{Paused}' after the first event, and is '{Resumed}' after the second",
+                   Paused=b.var("Snapshot"), Resumed=snapshot)
+    reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, pause, muffled, noted, resume, resumed, reported)
+
+
 WRITERS = {
+    "CheckEngineSounds": check_engine_sounds,
+    "CheckCameraCuts": check_camera_cuts,
+    "CheckPauseSnapshot": check_pause_snapshot,
     "CheckGhostLeans": check_ghost_leans,
     "CheckGhostRides": check_ghost_rides,
     "CheckGhostLaps": check_ghost_laps,

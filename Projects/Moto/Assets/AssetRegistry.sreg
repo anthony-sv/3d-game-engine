@@ -110,9 +110,29 @@
 			"Path": "Audio/Wind.wav"
 		},
 		{
+			"Handle": "5460807757620796474",
+			"Type": "Curve",
+			"Path": "Curves/EngineLayerFade.scurve"
+		},
+		{
+			"Handle": "8267657544641624926",
+			"Type": "Curve",
+			"Path": "Curves/EngineOffLoad.scurve"
+		},
+		{
+			"Handle": "7715777982975796410",
+			"Type": "Curve",
+			"Path": "Curves/EngineOnLoad.scurve"
+		},
+		{
 			"Handle": "2831819387962288542",
 			"Type": "Environment",
 			"Path": "Environments/Sky.hdr"
+		},
+		{
+			"Handle": "11183041192091941499",
+			"Type": "InputActions",
+			"Path": "Input/Moto.sinput"
 		},
 		{
 			"Handle": "7220449069599944592",
@@ -435,9 +455,24 @@
 			"Path": "Scenes/Tests.sscene"
 		},
 		{
+			"Handle": "15368667258106452273",
+			"Type": "VisualScript",
+			"Path": "Scripts/AudioDirector.sgraph"
+		},
+		{
+			"Handle": "6519852673991122007",
+			"Type": "VisualScript",
+			"Path": "Scripts/CameraDirector.sgraph"
+		},
+		{
 			"Handle": "11160837631458717455",
 			"Type": "VisualScript",
 			"Path": "Scripts/Checks.sgraph"
+		},
+		{
+			"Handle": "18355618336197444524",
+			"Type": "VisualScript",
+			"Path": "Scripts/EngineSound.sgraph"
 		},
 		{
 			"Handle": "10119309049923292088",

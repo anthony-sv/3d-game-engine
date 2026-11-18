@@ -4,20 +4,22 @@ Author.py's ghost part makes it: the Ghost entity at the line's pose where it st
 Bike.ENTITIES has them, and its graph (Scripts/Ghost.sgraph). It has no rigid body and no collider: nothing simulates it
 and nothing touches it; its graph places it every update (kinematic, in the plain sense).
 
-The graph (declare() and write()): when the scene starts, the ghost sends itself Ride, which moves its timeline to
-StartAt (seconds after the start and finish line) and plays it. The timeline loops over one lap of the line's keys:
-every update places the ghost at Position and turns it to Heading (about +Y), leaned by Lean (positive to the right:
-a turn about its forward axis), counts a lap when the timeline's time comes round past the line, and keeps the
-read-outs other graphs follow: LapTime, and the engine's EngineSpeed and Load, for the engine's sound to play from.
+The graph (declare() and write()): when the scene starts, the ghost finds its engine's sound (the child that runs
+Scripts/EngineSound.sgraph, EngineSound.py) and sends itself Ride, which moves its timeline to StartAt (seconds after the
+start and finish line) and plays it. The timeline loops over one lap of the line's keys: every update places the ghost at
+Position and turns it to Heading (about +Y), leaned by Lean (positive to the right: a turn about its forward axis),
+counts a lap when the timeline's time comes round past the line, keeps the read-outs other graphs follow (LapTime, and
+the engine's EngineSpeed and Load) and sets the engine sound's EngineSpeed and Load, which it plays from.
 """
 import math
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import EngineSound  # noqa: E402  (the engine's sound)
 import Graphs  # noqa: E402  (writing graphs)
 import RacingLine  # noqa: E402  (the line the ghost rides)
-from Graphs import EFFECTS, EVENTS, public  # noqa: E402
+from Graphs import EFFECTS, ENTITY as ENTITY_TYPE, EVENTS, private, public  # noqa: E402
 
 GHOST = Graphs.script("Ghost")
 # The Ghost entity's name, and where the main scene's ghost sets out (seconds after the start and finish line): at the
@@ -66,12 +68,18 @@ def declare(author):
         public("LapTime", "float", 0.0, "How far into its lap the ghost is, in seconds after the start and finish line (a read-out)"),
         public("EngineSpeed", "float", 0.0, "The ghost's engine speed in revolutions a minute, for its engine's sound (a read-out)"),
         public("Load", "float", 0.0, "How far open the ghost's throttle is, from 0 to 1, for its engine's sound (a read-out)"),
+        private("Engine", ENTITY_TYPE),
     ), events=(("Ride", ()),))
 
 
 def write(author):
-    with author.region(GHOST, "Start: the ghost sets out on its lap with the scene", EVENTS) as b:
-        b.chain(b.event("Event.Create"), b.send("Ride", b.self_()))
+    with author.region(GHOST, "Start: the ghost finds its engine's sound and sets out on its lap", EVENTS) as b:
+        each = b.add("Flow.ForEach", Array=b.pure("Get:Strada.Entity.Children", "Value", Target=b.self_()))
+        sounds = b.branch(b.runs(EngineSound.ENGINE_SOUND, each["Element"]))
+        b.chain(b.event("Event.Create"), each)
+        b.chain(each["Body"], sounds)
+        b.flow(sounds["True"], b.set("Engine", each["Element"]))
+        b.flow(each["Completed"], b.send("Ride", b.self_()))
     with author.region(GHOST, "Ride: the racing line's timeline moves the ghost round and round", EFFECTS) as b:
         ride = b.custom("Ride")
         steps = b.sequence(2)
@@ -92,7 +100,12 @@ def write(author):
         mark = b.set("LapTime", line["Time"])
         engine = b.set("EngineSpeed", line["EngineSpeed"])
         load = b.set("Load", line["Load"])
+        sound = b.var("Engine")
+        heard = b.branch(b.pure("IsValid", Value=sound), comment="A ghost without an engine's sound plays none")
+        sound_speed = b.set("EngineSpeed", line["EngineSpeed"], graph=EngineSound.ENGINE_SOUND, target=sound)
+        sound_load = b.set("Load", line["Load"], graph=EngineSound.ENGINE_SOUND, target=sound)
         b.chain(line["Update"], place, turn, lapped)
         b.flow(lapped["True"], count)
         b.flow(lapped["False"], mark)
-        b.chain(count, mark, engine, load)
+        b.chain(count, mark, engine, load, heard)
+        b.chain(heard["True"], sound_speed, sound_load)

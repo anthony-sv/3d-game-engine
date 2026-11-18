@@ -1,0 +1,769 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "An engine's sound: its children's voices, one an engine layer on or off load, crossfaded by the engine's speed and load through curve assets, each pitched within its layer's band. Whoever runs the engine sets EngineSpeed and Load. Tools/EngineSound.py says how.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "EngineSpeed",
+				"Type": "float",
+				"Value": 0.0,
+				"Public": true,
+				"Tooltip": "The engine's speed in revolutions a minute: whoever runs the engine sets it every update",
+				"Range": [
+					0.0,
+					20000.0
+				]
+			},
+			{
+				"ID": 2,
+				"Name": "Load",
+				"Type": "float",
+				"Value": 0.0,
+				"Public": true,
+				"Tooltip": "How far open the throttle is, from 0 (off load) to 1 (full load): whoever runs the engine sets it every update",
+				"Range": [
+					0.0,
+					1.0
+				]
+			},
+			{
+				"ID": 3,
+				"Name": "Volume",
+				"Type": "float",
+				"Value": 1.0,
+				"Public": true,
+				"Tooltip": "The engine's loudness: every voice's volume is scaled by it",
+				"Range": [
+					0.0,
+					4.0
+				]
+			},
+			{
+				"ID": 4,
+				"Name": "DopplerLevel",
+				"Type": "float",
+				"Value": 1.0,
+				"Public": true,
+				"Tooltip": "The doppler every voice takes when the scene starts: 0 none, 1 physical",
+				"Range": [
+					0.0,
+					5.0
+				]
+			},
+			{
+				"ID": 5,
+				"Name": "LayerFade",
+				"Type": "Strada.Curve",
+				"Value": "5460807757620796474",
+				"Public": true,
+				"Tooltip": "A layer's volume by where the engine speed lies from it, in layers (0 at its own speed, 1 at the next one's)"
+			},
+			{
+				"ID": 6,
+				"Name": "OnLoad",
+				"Type": "Strada.Curve",
+				"Value": "7715777982975796410",
+				"Public": true,
+				"Tooltip": "The on-load voices' volume by the load"
+			},
+			{
+				"ID": 7,
+				"Name": "OffLoad",
+				"Type": "Strada.Curve",
+				"Value": "8267657544641624926",
+				"Public": true,
+				"Tooltip": "The off-load voices' volume by the load"
+			},
+			{
+				"ID": 8,
+				"Name": "Voices",
+				"Type": "Strada.Entity[]"
+			},
+			{
+				"ID": 9,
+				"Name": "LayerSpeeds",
+				"Type": "float[]",
+				"Value": [
+					2000.0,
+					2691.87,
+					3622.83,
+					4876.1,
+					6562.74,
+					8832.52,
+					11887.77,
+					16000.0
+				]
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 10,
+					"Type": "Self",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 11,
+					"Type": "Get:Strada.Entity.Children",
+					"Position": [
+						192.0,
+						0.0
+					]
+				},
+				{
+					"ID": 12,
+					"Type": "Variable.Set",
+					"Position": [
+						400.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 8
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Variable.Get",
+					"Position": [
+						400.0,
+						128.0
+					],
+					"Settings": {
+						"Variable": 8
+					}
+				},
+				{
+					"ID": 14,
+					"Type": "Flow.ForEach",
+					"Position": [
+						592.0,
+						0.0
+					]
+				},
+				{
+					"ID": 15,
+					"Type": "Variable.Get",
+					"Position": [
+						592.0,
+						176.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 16,
+					"Type": "Set:Strada.AudioSourceComponent.DopplerLevel",
+					"Position": [
+						832.0,
+						0.0
+					]
+				},
+				{
+					"ID": 17,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						64.0
+					]
+				},
+				{
+					"ID": 19,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						352.0
+					],
+					"Settings": {
+						"Variable": 8
+					}
+				},
+				{
+					"ID": 20,
+					"Type": "Flow.ForEach",
+					"Position": [
+						192.0,
+						352.0
+					]
+				},
+				{
+					"ID": 21,
+					"Type": "Expression",
+					"Position": [
+						432.0,
+						352.0
+					],
+					"Settings": {
+						"Formula": "index % 8"
+					}
+				},
+				{
+					"ID": 22,
+					"Type": "Variable.Get",
+					"Position": [
+						432.0,
+						480.0
+					],
+					"Settings": {
+						"Variable": 9
+					}
+				},
+				{
+					"ID": 23,
+					"Type": "Array.Get",
+					"Position": [
+						624.0,
+						352.0
+					]
+				},
+				{
+					"ID": 24,
+					"Type": "Variable.Get",
+					"Position": [
+						624.0,
+						496.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 25,
+					"Type": "Expression",
+					"Position": [
+						832.0,
+						352.0
+					],
+					"Settings": {
+						"Formula": "clamp(log(rpm / speed) / 0.297063077, layer == 0 ? 0.0 : -1.0, layer == 7 ? 0.0 : 1.0)"
+					}
+				},
+				{
+					"ID": 26,
+					"Type": "Variable.Get",
+					"Position": [
+						832.0,
+						528.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 27,
+					"Type": "Call:Strada.Curve.Evaluate(float)",
+					"Position": [
+						1040.0,
+						352.0
+					]
+				},
+				{
+					"ID": 28,
+					"Type": "Variable.Get",
+					"Position": [
+						832.0,
+						592.0
+					],
+					"Settings": {
+						"Variable": 6
+					}
+				},
+				{
+					"ID": 29,
+					"Type": "Variable.Get",
+					"Position": [
+						832.0,
+						656.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 30,
+					"Type": "Call:Strada.Curve.Evaluate(float)",
+					"Position": [
+						1040.0,
+						496.0
+					]
+				},
+				{
+					"ID": 31,
+					"Type": "Variable.Get",
+					"Position": [
+						832.0,
+						720.0
+					],
+					"Settings": {
+						"Variable": 7
+					}
+				},
+				{
+					"ID": 32,
+					"Type": "Call:Strada.Curve.Evaluate(float)",
+					"Position": [
+						1040.0,
+						640.0
+					]
+				},
+				{
+					"ID": 33,
+					"Type": "Variable.Get",
+					"Position": [
+						1040.0,
+						784.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 34,
+					"Type": "Expression",
+					"Position": [
+						1248.0,
+						352.0
+					],
+					"Settings": {
+						"Formula": "max(fade * (index < 8 ? on : off) * volume, 0.0)"
+					}
+				},
+				{
+					"ID": 35,
+					"Type": "Set:Strada.AudioSourceComponent.Volume",
+					"Position": [
+						1456.0,
+						352.0
+					],
+					"Comment": "Equal-power crossfades: the voices' powers sum to Volume squared"
+				},
+				{
+					"ID": 36,
+					"Type": "Expression",
+					"Position": [
+						1456.0,
+						528.0
+					],
+					"Settings": {
+						"Formula": "clamp(rpm / speed, 0.742997145, 1.345900193)"
+					}
+				},
+				{
+					"ID": 37,
+					"Type": "Set:Strada.AudioSourceComponent.Pitch",
+					"Position": [
+						1664.0,
+						352.0
+					],
+					"Comment": "The layer played at the engine's speed, within a layer's step of its own"
+				},
+				{
+					"ID": 38,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						416.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						10,
+						"Self"
+					],
+					"To": [
+						11,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Value"
+					],
+					"To": [
+						12,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Value"
+					],
+					"To": [
+						14,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Element"
+					],
+					"To": [
+						16,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Value"
+					],
+					"To": [
+						16,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						17,
+						"Then"
+					],
+					"To": [
+						12,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Then"
+					],
+					"To": [
+						14,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Body"
+					],
+					"To": [
+						16,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Value"
+					],
+					"To": [
+						20,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Index"
+					],
+					"To": [
+						21,
+						"index"
+					]
+				},
+				{
+					"From": [
+						22,
+						"Value"
+					],
+					"To": [
+						23,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						21,
+						"Result"
+					],
+					"To": [
+						23,
+						"Index"
+					]
+				},
+				{
+					"From": [
+						24,
+						"Value"
+					],
+					"To": [
+						25,
+						"rpm"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Element"
+					],
+					"To": [
+						25,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						21,
+						"Result"
+					],
+					"To": [
+						25,
+						"layer"
+					]
+				},
+				{
+					"From": [
+						26,
+						"Value"
+					],
+					"To": [
+						27,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						25,
+						"Result"
+					],
+					"To": [
+						27,
+						"Time"
+					]
+				},
+				{
+					"From": [
+						28,
+						"Value"
+					],
+					"To": [
+						30,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Value"
+					],
+					"To": [
+						30,
+						"Time"
+					]
+				},
+				{
+					"From": [
+						31,
+						"Value"
+					],
+					"To": [
+						32,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Value"
+					],
+					"To": [
+						32,
+						"Time"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Result"
+					],
+					"To": [
+						34,
+						"fade"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Index"
+					],
+					"To": [
+						34,
+						"index"
+					]
+				},
+				{
+					"From": [
+						30,
+						"Result"
+					],
+					"To": [
+						34,
+						"on"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Result"
+					],
+					"To": [
+						34,
+						"off"
+					]
+				},
+				{
+					"From": [
+						33,
+						"Value"
+					],
+					"To": [
+						34,
+						"volume"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Element"
+					],
+					"To": [
+						35,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						34,
+						"Result"
+					],
+					"To": [
+						35,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						24,
+						"Value"
+					],
+					"To": [
+						36,
+						"rpm"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Element"
+					],
+					"To": [
+						36,
+						"speed"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Element"
+					],
+					"To": [
+						37,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Result"
+					],
+					"To": [
+						37,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						38,
+						"Then"
+					],
+					"To": [
+						20,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Body"
+					],
+					"To": [
+						35,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Then"
+					],
+					"To": [
+						37,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 18,
+					"Text": "Start: the voices are the entity's children, each given the doppler",
+					"Position": [
+						-32.0,
+						-72.0
+					],
+					"Size": [
+						1022.2750244140625,
+						308.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 39,
+					"Text": "Mix: each voice faded by speed and load, and pitched within its band",
+					"Position": [
+						-32.0,
+						280.0
+					],
+					"Size": [
+						1848.0,
+						564.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

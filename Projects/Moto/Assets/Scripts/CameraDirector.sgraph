@@ -1,0 +1,1146 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "The camera director: it cuts between the tour's camera and its children, the trackside cameras, on the NextCamera and ResetCamera actions (or the events of those names any graph sends), and turns the trackside cameras to follow the subject.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "TourCamera",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The camera the tour flies: it shows and hears the scene when no trackside camera does"
+			},
+			{
+				"ID": 2,
+				"Name": "Subject",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "What the trackside cameras follow"
+			},
+			{
+				"ID": 3,
+				"Name": "StartCamera",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "The camera that shows when the scene starts: 0 the tour, 1 to 4 a trackside camera",
+				"Range": [
+					0.0,
+					4.0
+				]
+			},
+			{
+				"ID": 4,
+				"Name": "Active",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "The camera that shows: 0 the tour, 1 to 4 a trackside camera (a read-out)"
+			},
+			{
+				"ID": 5,
+				"Name": "Cameras",
+				"Type": "Strada.Entity[]"
+			}
+		],
+		"Functions": [
+			{
+				"ID": 8,
+				"Name": "Cut",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Index",
+						"Type": "int"
+					}
+				],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 9,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 10,
+							"Type": "Function.Return",
+							"Position": [
+								1232.0,
+								0.0
+							]
+						},
+						{
+							"ID": 11,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 5
+							}
+						},
+						{
+							"ID": 12,
+							"Type": "Flow.ForEach",
+							"Position": [
+								192.0,
+								0.0
+							]
+						},
+						{
+							"ID": 13,
+							"Type": "Expression",
+							"Position": [
+								432.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "index + 1 == cut"
+							}
+						},
+						{
+							"ID": 14,
+							"Type": "Set:Strada.CameraComponent.Primary",
+							"Position": [
+								656.0,
+								0.0
+							]
+						},
+						{
+							"ID": 15,
+							"Type": "Set:Strada.AudioListenerComponent.Active",
+							"Position": [
+								848.0,
+								0.0
+							]
+						},
+						{
+							"ID": 16,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								192.0
+							],
+							"Settings": {
+								"Variable": 1
+							}
+						},
+						{
+							"ID": 17,
+							"Type": "IsValid",
+							"Position": [
+								192.0,
+								176.0
+							]
+						},
+						{
+							"ID": 18,
+							"Type": "Flow.Branch",
+							"Position": [
+								432.0,
+								144.0
+							]
+						},
+						{
+							"ID": 19,
+							"Type": "Expression",
+							"Position": [
+								432.0,
+								272.0
+							],
+							"Settings": {
+								"Formula": "cut == 0"
+							}
+						},
+						{
+							"ID": 20,
+							"Type": "Set:Strada.CameraComponent.Primary",
+							"Position": [
+								656.0,
+								176.0
+							]
+						},
+						{
+							"ID": 21,
+							"Type": "Set:Strada.AudioListenerComponent.Active",
+							"Position": [
+								848.0,
+								176.0
+							]
+						},
+						{
+							"ID": 22,
+							"Type": "Variable.Set",
+							"Position": [
+								1040.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 4
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								11,
+								"Value"
+							],
+							"To": [
+								12,
+								"Array"
+							]
+						},
+						{
+							"From": [
+								12,
+								"Index"
+							],
+							"To": [
+								13,
+								"index"
+							]
+						},
+						{
+							"From": [
+								9,
+								"Index"
+							],
+							"To": [
+								13,
+								"cut"
+							]
+						},
+						{
+							"From": [
+								12,
+								"Element"
+							],
+							"To": [
+								14,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								13,
+								"Result"
+							],
+							"To": [
+								14,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								12,
+								"Element"
+							],
+							"To": [
+								15,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								13,
+								"Result"
+							],
+							"To": [
+								15,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								16,
+								"Value"
+							],
+							"To": [
+								17,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								17,
+								"Result"
+							],
+							"To": [
+								18,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								9,
+								"Index"
+							],
+							"To": [
+								19,
+								"cut"
+							]
+						},
+						{
+							"From": [
+								16,
+								"Value"
+							],
+							"To": [
+								20,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Result"
+							],
+							"To": [
+								20,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								16,
+								"Value"
+							],
+							"To": [
+								21,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								19,
+								"Result"
+							],
+							"To": [
+								21,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								9,
+								"Index"
+							],
+							"To": [
+								22,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								9,
+								"Then"
+							],
+							"To": [
+								12,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								12,
+								"Body"
+							],
+							"To": [
+								14,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								14,
+								"Then"
+							],
+							"To": [
+								15,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								12,
+								"Completed"
+							],
+							"To": [
+								18,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								18,
+								"True"
+							],
+							"To": [
+								20,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								20,
+								"Then"
+							],
+							"To": [
+								21,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								21,
+								"Then"
+							],
+							"To": [
+								22,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								18,
+								"False"
+							],
+							"To": [
+								22,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								22,
+								"Then"
+							],
+							"To": [
+								10,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 23,
+							"Text": "Cut: camera Index shows and hears the scene (0: the tour's camera)",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1416.0,
+								458.0
+							],
+							"Color": [
+								0.949999988079071,
+								0.550000011920929,
+								0.15000000596046448,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 24,
+					"Type": "Self",
+					"Position": [
+						0.0,
+						432.0
+					]
+				},
+				{
+					"ID": 25,
+					"Type": "Get:Strada.Entity.Children",
+					"Position": [
+						192.0,
+						432.0
+					]
+				},
+				{
+					"ID": 26,
+					"Type": "Variable.Set",
+					"Position": [
+						400.0,
+						432.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 27,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						496.0
+					]
+				},
+				{
+					"ID": 28,
+					"Type": "Variable.Get",
+					"Position": [
+						400.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 29,
+					"Type": "Function.Call",
+					"Position": [
+						592.0,
+						432.0
+					],
+					"Settings": {
+						"Function": 8
+					}
+				},
+				{
+					"ID": 31,
+					"Type": "Event.ActionPressed",
+					"Position": [
+						0.0,
+						736.0
+					],
+					"Settings": {
+						"Action": "NextCamera"
+					}
+				},
+				{
+					"ID": 32,
+					"Type": "Self",
+					"Position": [
+						0.0,
+						848.0
+					]
+				},
+				{
+					"ID": 33,
+					"Type": "Event.Send",
+					"Position": [
+						208.0,
+						736.0
+					],
+					"Settings": {
+						"Name": "NextCamera",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 34,
+					"Type": "Event.ActionPressed",
+					"Position": [
+						0.0,
+						992.0
+					],
+					"Settings": {
+						"Action": "ResetCamera"
+					}
+				},
+				{
+					"ID": 35,
+					"Type": "Self",
+					"Position": [
+						0.0,
+						1104.0
+					]
+				},
+				{
+					"ID": 36,
+					"Type": "Event.Send",
+					"Position": [
+						208.0,
+						992.0
+					],
+					"Settings": {
+						"Name": "ResetCamera",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 38,
+					"Type": "Variable.Get",
+					"Position": [
+						192.0,
+						1280.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 39,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1280.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 40,
+					"Type": "Array.Length",
+					"Position": [
+						192.0,
+						1344.0
+					]
+				},
+				{
+					"ID": 41,
+					"Type": "Expression",
+					"Position": [
+						400.0,
+						1280.0
+					],
+					"Settings": {
+						"Formula": "active % count + 1"
+					}
+				},
+				{
+					"ID": 42,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						1344.0
+					],
+					"Settings": {
+						"Name": "NextCamera",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 43,
+					"Type": "Function.Call",
+					"Position": [
+						608.0,
+						1280.0
+					],
+					"Settings": {
+						"Function": 8
+					}
+				},
+				{
+					"ID": 45,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						1568.0
+					],
+					"Settings": {
+						"Name": "ResetCamera",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 46,
+					"Type": "Function.Call",
+					"Position": [
+						192.0,
+						1568.0
+					],
+					"Settings": {
+						"Function": 8
+					},
+					"Inputs": {
+						"Index": 0
+					}
+				},
+				{
+					"ID": 48,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1808.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 49,
+					"Type": "IsValid",
+					"Position": [
+						192.0,
+						1808.0
+					]
+				},
+				{
+					"ID": 50,
+					"Type": "Flow.Branch",
+					"Position": [
+						400.0,
+						1808.0
+					]
+				},
+				{
+					"ID": 51,
+					"Type": "Variable.Get",
+					"Position": [
+						400.0,
+						1936.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 52,
+					"Type": "Flow.ForEach",
+					"Position": [
+						624.0,
+						1808.0
+					]
+				},
+				{
+					"ID": 53,
+					"Type": "Get:Strada.TransformComponent.WorldTranslation",
+					"Position": [
+						624.0,
+						1984.0
+					]
+				},
+				{
+					"ID": 54,
+					"Type": "Expression",
+					"Position": [
+						864.0,
+						1936.0
+					],
+					"Settings": {
+						"Formula": "at + vec3(0, 0.9, 0)"
+					}
+				},
+				{
+					"ID": 55,
+					"Type": "Get:Strada.TransformComponent.WorldTranslation",
+					"Position": [
+						864.0,
+						1808.0
+					]
+				},
+				{
+					"ID": 56,
+					"Type": "Expression",
+					"Position": [
+						1088.0,
+						1808.0
+					],
+					"Settings": {
+						"Formula": "vec3(degrees(atan2(target.Y - eye.Y, length(vec2(target.X - eye.X, target.Z - eye.Z)))), degrees(atan2(eye.X - target.X, eye.Z - target.Z)), 0)"
+					}
+				},
+				{
+					"ID": 57,
+					"Type": "Set:Strada.TransformComponent.EulerAngles",
+					"Position": [
+						1296.0,
+						1808.0
+					],
+					"Comment": "Pitch, then yaw: the director stands at the origin unturned, so its children's angles are the world's"
+				},
+				{
+					"ID": 58,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						1872.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						24,
+						"Self"
+					],
+					"To": [
+						25,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						25,
+						"Value"
+					],
+					"To": [
+						26,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						28,
+						"Value"
+					],
+					"To": [
+						29,
+						"Index"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Then"
+					],
+					"To": [
+						26,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						26,
+						"Then"
+					],
+					"To": [
+						29,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Self"
+					],
+					"To": [
+						33,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						31,
+						"Then"
+					],
+					"To": [
+						33,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Self"
+					],
+					"To": [
+						36,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						34,
+						"Then"
+					],
+					"To": [
+						36,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						39,
+						"Value"
+					],
+					"To": [
+						40,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						38,
+						"Value"
+					],
+					"To": [
+						41,
+						"active"
+					]
+				},
+				{
+					"From": [
+						40,
+						"Length"
+					],
+					"To": [
+						41,
+						"count"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Result"
+					],
+					"To": [
+						43,
+						"Index"
+					]
+				},
+				{
+					"From": [
+						42,
+						"Then"
+					],
+					"To": [
+						43,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						45,
+						"Then"
+					],
+					"To": [
+						46,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						48,
+						"Value"
+					],
+					"To": [
+						49,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						49,
+						"Result"
+					],
+					"To": [
+						50,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						51,
+						"Value"
+					],
+					"To": [
+						52,
+						"Array"
+					]
+				},
+				{
+					"From": [
+						48,
+						"Value"
+					],
+					"To": [
+						53,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						53,
+						"Value"
+					],
+					"To": [
+						54,
+						"at"
+					]
+				},
+				{
+					"From": [
+						52,
+						"Element"
+					],
+					"To": [
+						55,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						54,
+						"Result"
+					],
+					"To": [
+						56,
+						"target"
+					]
+				},
+				{
+					"From": [
+						55,
+						"Value"
+					],
+					"To": [
+						56,
+						"eye"
+					]
+				},
+				{
+					"From": [
+						52,
+						"Element"
+					],
+					"To": [
+						57,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						56,
+						"Result"
+					],
+					"To": [
+						57,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						58,
+						"Then"
+					],
+					"To": [
+						50,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						50,
+						"True"
+					],
+					"To": [
+						52,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						52,
+						"Body"
+					],
+					"To": [
+						57,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 30,
+					"Text": "Start: the cameras are the director's children; it cuts to StartCamera",
+					"Position": [
+						-32.0,
+						360.0
+					],
+					"Size": [
+						776.0,
+						260.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 37,
+					"Text": "Actions: NextCamera and ResetCamera send the director its cuts",
+					"Position": [
+						-32.0,
+						664.0
+					],
+					"Size": [
+						408.0249938964844,
+						500.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 44,
+					"Text": "Next camera: a cut to the next trackside camera, round to the first",
+					"Position": [
+						-32.0,
+						1208.0
+					],
+					"Size": [
+						792.0,
+						250.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 47,
+					"Text": "Reset camera: a cut back to the tour, which flies on",
+					"Position": [
+						-32.0,
+						1496.0
+					],
+					"Size": [
+						414.72998046875,
+						194.0
+					],
+					"Color": [
+						0.949999988079071,
+						0.550000011920929,
+						0.15000000596046448,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 59,
+					"Text": "Follow: every trackside camera turns towards the subject",
+					"Position": [
+						-32.0,
+						1736.0
+					],
+					"Size": [
+						1480.0,
+						362.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}
