@@ -12,9 +12,10 @@
 #include <string_view>
 
 // What the Mixer panel does to a mixer beyond setting a field (Docs/Editor.md, "The Mixer panel"): buses added, removed
-// and renamed with everything that names them, and snapshot values that follow an edit of their bus's effect list. Plain
-// functions on the mixer's data, without ImGui, so that they are tested without a panel; the panel applies their result
-// as one undo step of the asset, which validation may still refuse. Any thread.
+// and renamed with everything that names them, and snapshot values that follow an edit of their bus's effect list, which
+// the inspector's mixer drawer (DataAssetEditor) applies too. Plain functions on the mixer's data, without ImGui, so that
+// they are tested without a panel; the panel and the drawer apply their result as one undo step of the asset, which
+// validation may still refuse. Any thread.
 namespace Strada
 {
 	// "Bus", else "Bus2", "Bus3" and so on: the first name no bus of the mixer has in any letter case.
@@ -49,6 +50,8 @@ namespace Strada
 	// its range, a kind that does not exist) or a bus the mixer lacks is an error, and the mixer is left as it was; whether
 	// the result holds as a whole (ValidateMixer) is the caller's to ask, as committing it does.
 	[[nodiscard]] Result<void> ApplyMixerBusChange(Mixer& mixer, uint32_t index, FieldChange const& change);
-	// The same for a change of the mixer's own fields (its snapshots, speed of sound and impacts).
+	// The same for a change the field editor reported for the mixer's fields. A change inside a bus (a path through
+	// Buses[index] into the bus's fields) is the bus's (ApplyMixerBusChange, so that the snapshots' values follow a list
+	// edit of its effects); any other (the buses as a list, the snapshots, speed of sound and impacts) is taken as it is.
 	[[nodiscard]] Result<void> ApplyMixerChange(Mixer& mixer, FieldChange const& change);
 }
