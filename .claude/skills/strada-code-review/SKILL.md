@@ -88,7 +88,10 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
   and parameters are named apart from the locals of the function around it, captured or not (GCC `-Wshadow` warns,
   Clang and MSVC do not: run `build/smoke/shadow_check.py` where no GCC is at hand); a range-for loop variable of class
   type binds by reference (`auto const&`, `auto const& [a, b]`), because libstdc++'s `std::pair` and `std::tuple` are
-  never trivially copyable and GCC's `-Wrange-loop-construct` refuses the copy MSVC accepts.
+  never trivially copyable and GCC's `-Wrange-loop-construct` refuses the copy MSVC accepts; a sorting or partitioning
+  algorithm of the standard library is given a whole container or a range whose length the code bounds in plain sight,
+  never the first `Count` of a fixed-size array with `Count` read from a member (GCC 13 at `-O2` reports libstdc++'s
+  branch for more than 16 elements as out of the array's bounds, `-Warray-bounds`).
 - The debugger costs nothing untraced: debugging code runs only in the traced interpreter (`Run<Traced>`) or behind a
   debugger the editor attaches; the untraced and attached-idle performance cases keep their figures and allocate
   nothing. Breakpoints, traces and the views file never reach the player or an exported game.

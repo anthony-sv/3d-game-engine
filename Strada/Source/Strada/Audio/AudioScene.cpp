@@ -404,7 +404,21 @@ namespace Strada
 					}
 				}
 			}
-			std::sort(result.Sends.begin(), result.Sends.begin() + result.Count, &IsSendBefore);
+			// Ordered by an insertion over the sends in place, not std::sort: GCC 13 at -O2 cannot see that Count stays within
+			// the array, and reports the branch of libstdc++'s sort for more than 16 elements as out of its bounds
+			// (-Warray-bounds). The loops are bounded by the array's size in plain sight.
+			uint32_t const count = std::min(result.Count, MaxAudioVoiceSends);
+			for (uint32_t index = 1; index < count; index++)
+			{
+				VoiceSend const send = result.Sends[index];
+				uint32_t place = index;
+				while (place > 0 && IsSendBefore(send, result.Sends[place - 1]))
+				{
+					result.Sends[place] = result.Sends[place - 1];
+					place--;
+				}
+				result.Sends[place] = send;
+			}
 			return result;
 		}
 
