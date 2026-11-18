@@ -63,8 +63,10 @@ GRAVITY = 9.81
 WHEELIE = 9.0
 BRAKING = 11.5
 GRIP = 1.2
-# The lean the line never passes (degrees): atan(GRIP) is 50.2.
+# The lean the line never passes (degrees): atan(GRIP) is 50.2. Every corner's deepest lean is at least MIN_CORNER_LEAN, to
+# its inside.
 MAX_LEAN = 52.0
+MIN_CORNER_LEAN = 10.0
 # The gearbox: the primary drive, the six gears and the final drive (chain), on the rear tyre's radius.
 PRIMARY = 1.80
 GEARS = (2.714, 2.118, 1.833, 1.600, 1.429, 1.304)
@@ -484,6 +486,13 @@ def check():
     assert abs(widest.lateral) <= EDGE_LIMIT, f"the line leaves the asphalt: {widest.lateral:.2f} m at {widest.s:.0f} m"
     leaned = max(LINE, key=lambda point: abs(point.lean))
     assert abs(leaned.lean) <= MAX_LEAN, f"the line leans {leaned.lean:.1f} degrees at {leaned.s:.0f} m"
+    # Into every corner, not out of it: the deepest lean between a corner's turn-in and exit (on the center line's arc) is to
+    # its inside, which the circuit's layout gives (positive lean is to the right, a corner's side +1 when it turns right),
+    # not the curvature the lean itself comes from.
+    for corner, start, end, side in Circuit.corner_ranges():
+        deepest = max((point for point in LINE if start <= point.s <= end), key=lambda point: abs(point.lean))
+        assert deepest.lean * side >= MIN_CORNER_LEAN, \
+            f"{corner.name}: the line leans {deepest.lean:.1f} degrees at {deepest.s:.0f} m, not into the corner"
     hardest = max(WHEELIE, BRAKING + resistance(max(point.speed for point in LINE)))
     for i, point in enumerate(LINE):
         after = LINE[(i + 1) % len(LINE)]

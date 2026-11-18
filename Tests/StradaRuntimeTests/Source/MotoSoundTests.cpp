@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <numbers>
 #include <optional>
 #include <span>
 #include <string>
@@ -28,10 +29,11 @@ using namespace Strada;
 using namespace Strada::RuntimeTesting;
 
 // The Moto sample heard through the player's --audio-capture at its footbridge camera while its ghost bike passes: the
-// doppler of the ghost's engine and the echo under the footbridge. Each is measured as the difference between two
-// captures of the same frames that differ in one setting, since the ghost's engine speed changes along the straight and a
-// falling pitch alone would prove nothing. The predictions come from the copied project itself: the ghost's racing line
-// (the keys of its timeline in Scripts/Ghost.sgraph), the camera's place, the reverb zone and the mixer's speed of sound.
+// doppler of the ghost's engine, the echo under the footbridge and the pause snapshot. Each is measured as the difference
+// between two captures of the same frames that differ in one setting, since the ghost's engine speed changes along the
+// straight and a falling pitch alone would prove nothing. The predictions come from the copied project itself: the
+// ghost's racing line (the keys of its timeline in Scripts/Ghost.sgraph), the camera's place, the reverb zone and the
+// mixer's speed of sound and snapshot.
 
 namespace
 {
@@ -233,10 +235,69 @@ namespace
 		}
 		return std::sqrt(sum / static_cast<double>(last - first));
 	}
+
+	std::vector<double> Difference(std::vector<double> const& a, std::vector<double> const& b)
+	{
+		REQUIRE(a.size() == b.size());
+		std::vector<double> difference(a.size());
+		for (size_t index = 0; index < a.size(); index++)
+		{
+			difference[index] = a[index] - b[index];
+		}
+		return difference;
+	}
+
+	enum class BandPass : uint8_t
+	{
+		Below,
+		Above
+	};
+
+	// A band of a capture: twice through a Butterworth biquad (Q of one over the square root of two, from Robert
+	// Bristow-Johnson's "Cookbook formulae for audio EQ biquad filter coefficients"), so a fourth-order low-pass or
+	// high-pass at the frequency, run over the whole capture from its start.
+	std::vector<double> Band(std::vector<double> const& samples, double frequency, BandPass pass)
+	{
+		double const omega = 2.0 * std::numbers::pi * frequency / SampleRate;
+		double const alpha = std::sin(omega) * std::numbers::sqrt2 / 2.0;
+		double const cosine = std::cos(omega);
+		double const a0 = 1.0 + alpha;
+		double const edge = pass == BandPass::Below ? (1.0 - cosine) / 2.0 : (1.0 + cosine) / 2.0;
+		double const b0 = edge / a0;
+		double const b1 = (pass == BandPass::Below ? 2.0 * edge : -2.0 * edge) / a0;
+		double const b2 = edge / a0;
+		double const a1 = -2.0 * cosine / a0;
+		double const a2 = (1.0 - alpha) / a0;
+		std::vector<double> band = samples;
+		for (int stage = 0; stage < 2; stage++)
+		{
+			double x1 = 0.0;
+			double x2 = 0.0;
+			double y1 = 0.0;
+			double y2 = 0.0;
+			for (double& value : band)
+			{
+				double const x0 = value;
+				double const y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+				x2 = x1;
+				x1 = x0;
+				y2 = y1;
+				y1 = y0;
+				value = y0;
+			}
+		}
+		return band;
+	}
+
+	double Decibels(double ratio)
+	{
+		return 20.0 * std::log10(ratio);
+	}
 }
 
-TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by its doppler, and its engine echoes under the "
-          "footbridge after it has left, as captures that differ in one setting show")
+TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by its doppler, its engine echoes under the "
+          "footbridge after it has left, and the pause snapshot lowers and muffles both, as captures that differ in one setting "
+          "show")
 {
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
@@ -272,14 +333,17 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 		ReadVector((*director)["Components"]["Transform"]["Translation"]) + ReadVector((*camera)["Components"]["Transform"]["Translation"]);
 	glm::dvec3 const engineOffset = ReadVector((*engine)["Components"]["Transform"]["Translation"]);
 
-	// Three captures of the same frames: with the zone, without it, and without it and without doppler.
+	// Five captures of the same frames: with the zone, without it, and without it and without doppler; and the first two
+	// again with the mix muffled from the start, the audio director's StartPaused on.
 	std::filesystem::path const captures = directory.GetPath() / "Captures";
 	REQUIRE(FileSystem::CreateDirectories(captures).IsOk());
-	auto const capture = [&](std::string const& name, float dopplerLevel, float sendLevel)
+	REQUIRE(FindEntity(scene, "Audio Director") != nullptr);
+	auto const capture = [&](std::string const& name, float dopplerLevel, float sendLevel, bool startPaused)
 	{
 		Json variant = scene;
 		SetVariable(*FindEntity(variant, "Engine Sound"), "DopplerLevel", "Float", dopplerLevel);
 		(*FindEntity(variant, "Footbridge Echo"))["Components"]["ReverbZone"]["SendLevel"] = sendLevel;
+		SetVariable(*FindEntity(variant, "Audio Director"), "StartPaused", "Bool", startPaused);
 		REQUIRE(FileSystem::WriteTextFile(scenePath, DumpJson(variant)).IsOk());
 		std::filesystem::path const file = captures / (name + ".wav");
 		ProcessResult const run = RunPlayer({"--project", Native(project), "--headless", "--frames", std::to_string(CaptureFrames),
@@ -294,9 +358,11 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 	};
 	float const echoLevel = (*echo)["Components"]["ReverbZone"].value("SendLevel", 0.0f);
 	REQUIRE(echoLevel > 0.0f);
-	std::vector<double> const echoed = capture("Echoed", 1.0f, echoLevel);
-	std::vector<double> const dry = capture("Dry", 1.0f, 0.0f);
-	std::vector<double> const still = capture("Still", 0.0f, 0.0f);
+	std::vector<double> const echoed = capture("Echoed", 1.0f, echoLevel, false);
+	std::vector<double> const dry = capture("Dry", 1.0f, 0.0f, false);
+	std::vector<double> const still = capture("Still", 0.0f, 0.0f, false);
+	std::vector<double> const muffledEchoed = capture("MuffledEchoed", 1.0f, echoLevel, true);
+	std::vector<double> const muffled = capture("Muffled", 1.0f, 0.0f, true);
 
 	// The ghost's racing line, as its timeline plays it: its position and its engine speed.
 	Result<std::string> graphText = FileSystem::ReadTextFile(assets / "Scripts" / "Ghost.sgraph");
@@ -494,5 +560,88 @@ TEST_CASE("Runtime: Moto's ghost passing the footbridge camera falls in pitch by
 		CAPTURE(later);
 		CHECK(tail > 0.1 * level);
 		CHECK(later < 0.1 * tail);
+
+		// The pause snapshot muffles the mix: the captures with the director's StartPaused on against those without it. The
+		// snapshot's values come from the copied mixer: each bus it muffles lowered to a volume and its low-pass closed to
+		// a cutoff. A second-order Butterworth low-pass (Q of one over the square root of two) passes a frequency f by
+		// 1 / sqrt(1 + (f / cutoff)^4): under half the cutoff it takes at most 0.26 dB, at four times the cutoff 24 dB, and
+		// more above. So below half the cutoff the level falls by the snapshot's volume, and above four times the cutoff by
+		// that and the low-pass. Measured after the director's blend (half a second, from the scene's start) is over.
+		Result<std::string> mixerText = FileSystem::ReadTextFile(assets / "Audio" / "Moto.smixer");
+		REQUIRE(mixerText.IsOk());
+		Result<Json> mixer = ParseJson(mixerText.GetValue());
+		REQUIRE(mixer.IsOk());
+		struct Muffle
+		{
+			std::optional<double> Volume;
+			std::optional<double> Cutoff;
+		};
+		auto const muffleOf = [&mixer](std::string_view bus)
+		{
+			Muffle muffle;
+			for (Json const& snapshot : mixer.GetValue()["Mixer"]["Snapshots"])
+			{
+				if (snapshot.value("Name", std::string()) != "Paused")
+				{
+					continue;
+				}
+				for (Json const& value : snapshot.at("Values"))
+				{
+					if (value.value("Bus", std::string()) != bus)
+					{
+						continue;
+					}
+					std::string const target = value.value("Target", std::string());
+					if (target == "Volume")
+					{
+						muffle.Volume = value.at("Value").get<double>();
+					}
+					else if (target == "Effect" && value.value("Parameter", std::string()) == "Frequency")
+					{
+						muffle.Cutoff = value.at("Value").get<double>();
+					}
+				}
+			}
+			REQUIRE(muffle.Volume.has_value());
+			REQUIRE(muffle.Cutoff.has_value());
+			return muffle;
+		};
+		// The engine's voices play on Engine, which stands at 0 dB with its low-pass open in the mixer's own values.
+		Muffle const engineMuffle = muffleOf("Engine");
+		CAPTURE(*engineMuffle.Volume);
+		CAPTURE(*engineMuffle.Cutoff);
+		double const lowDry = Rms(Band(dry, 0.5 * *engineMuffle.Cutoff, BandPass::Below), nullptr, 1.0, CaptureFrames * FrameSeconds);
+		double const lowMuffled =
+			Rms(Band(muffled, 0.5 * *engineMuffle.Cutoff, BandPass::Below), nullptr, 1.0, CaptureFrames * FrameSeconds);
+		double const highDry = Rms(Band(dry, 4.0 * *engineMuffle.Cutoff, BandPass::Above), nullptr, 1.0, CaptureFrames * FrameSeconds);
+		double const highMuffled =
+			Rms(Band(muffled, 4.0 * *engineMuffle.Cutoff, BandPass::Above), nullptr, 1.0, CaptureFrames * FrameSeconds);
+		CAPTURE(lowDry);
+		CAPTURE(lowMuffled);
+		CAPTURE(highDry);
+		CAPTURE(highMuffled);
+		// The fourth-order bands leak a little of their neighbours, where the low-pass takes more: up to 1.5 dB more.
+		CHECK(Decibels(lowMuffled / lowDry) <= *engineMuffle.Volume + 0.3);
+		CHECK(Decibels(lowMuffled / lowDry) >= *engineMuffle.Volume - 1.5);
+		CHECK(Decibels(highMuffled / highDry) <= *engineMuffle.Volume - 15.0);
+
+		// The echo's tail plays on Reverb (a voice's send to a zone's bus leaves before the voice's own bus, Engine): the
+		// difference the zone makes, muffled against not.
+		Muffle const reverbMuffle = muffleOf("Reverb");
+		std::vector<double> const tailHeard = Difference(echoed, dry);
+		std::vector<double> const tailMuffled = Difference(muffledEchoed, muffled);
+		double const tailAll = Rms(tailHeard, nullptr, leftSeconds, leftSeconds + 0.4);
+		double const tailAllMuffled = Rms(tailMuffled, nullptr, leftSeconds, leftSeconds + 0.4);
+		double const tailHigh = Rms(Band(tailHeard, 4.0 * *reverbMuffle.Cutoff, BandPass::Above), nullptr, leftSeconds, leftSeconds + 0.4);
+		double const tailHighMuffled =
+			Rms(Band(tailMuffled, 4.0 * *reverbMuffle.Cutoff, BandPass::Above), nullptr, leftSeconds, leftSeconds + 0.4);
+		CAPTURE(tailAll);
+		CAPTURE(tailAllMuffled);
+		CAPTURE(tailHigh);
+		CAPTURE(tailHighMuffled);
+		// Above four times the cutoff the muffled tail lies near the captures' 16-bit floor (their difference's rounding,
+		// about 1e-5), so its bound is 8 dB past the volume: a low-pass left open would take only the volume.
+		CHECK(Decibels(tailAllMuffled / tailAll) <= *reverbMuffle.Volume + 0.3);
+		CHECK(Decibels(tailHighMuffled / tailHigh) <= *reverbMuffle.Volume - 8.0);
 	}
 }

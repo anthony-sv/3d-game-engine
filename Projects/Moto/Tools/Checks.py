@@ -18,12 +18,12 @@ Tour.py made: at the home view when the scene starts, under the footbridge when 
 tour ends, and off on the next tour after it. The Waiting Tour checks the tour's interface for other graphs: with
 PlayOnStart off it stays where the scene put it until the Tests graph sends it PlayTour, then it flies, and with Repeat
 off it stays at the home view after its one tour. The ghost's checks compare it with the racing line RacingLine.py made,
-as its timeline plays the line's keys: leaned into Turn 6 as the line leans there, where the line puts it at three
-moments of its lap and facing the way the line runs (each read with the ghost's own LapTime in the same update, the
-line's point carried on by its velocity for the moments between), and across the start and finish line onto its next
-lap. Its engine's sound plays every voice, driven by the ghost's engine speed, their volumes squared summing to 1 within
-EngineSound.POWER_BAND (the crossfades are equal-power) and each that sounds pitched within its layer's band, on the
-Engine bus. The camera director, sent the events its actions send, cuts to the first trackside camera, then the second,
+as its timeline plays the line's keys: leaned into Turn 6 as the line leans there (to the corner's inside, which the
+layout gives), where the line puts it at three moments of its lap and facing the way the line runs (each read with the
+ghost's own LapTime in the same update, the line's point carried on by its velocity for the moments between), and
+across the start and finish line onto its next lap. Its engine's sound plays every voice, driven by the ghost's engine
+speed, their volumes squared summing to 1 within EngineSound.POWER_BAND (the crossfades are equal-power) and each that
+sounds pitched within its layer's band, on the Engine bus. The camera director, sent the events its actions send, cuts to the first trackside camera, then the second,
 each the one camera that shows and hears the scene and turned to the ghost, then back to the tour's camera. The audio
 director, sent TogglePause twice, blends the mix to the Paused snapshot and back.
 """
@@ -551,12 +551,17 @@ def line_error(b, time):
 
 def check_ghost_leans(b, name):
     moment, lean = turn6_lean()
+    # Into the corner: the layout's side of Turn 6's inside (+1 right of travel), which the line's own lean cannot get wrong
+    # with it.
+    inside = next(side for corner, _, _, side in Circuit.corner_ranges() if corner.name == "Turn 6")
     # The lean to the right is the ghost's right side tilting down: its Right's height is -sin(lean).
     leaned = b.expr("degrees(asin(-right.Y))", right=b.pure("Get:Strada.TransformComponent.Right", "Value", Target=b.var("Ghost")))
     reached = b.expr(f"lap >= {moment}", lap=ghost_lap(b))
-    passed = b.both(reached, b.expr(f"abs(lean - {lean}) <= {LEAN_TOLERANCE}", lean=leaned))
-    detail = b.fmt(f"the ghost leans {{Lean}} degrees at {{Lap}} s of its lap (the line: {lean} at {moment} s)", Lean=leaned,
-                   Lap=ghost_lap(b))
+    passed = b.both(reached, b.expr(f"abs(lean - {lean}) <= {LEAN_TOLERANCE} && lean * {inside} >= {RacingLine.MIN_CORNER_LEAN}",
+                                    lean=leaned))
+    side = "right" if inside > 0 else "left"
+    detail = b.fmt(f"the ghost leans {{Lean}} degrees at {{Lap}} s of its lap (the line: {lean} at {moment} s, into the corner: "
+                   f"to the {side})", Lean=leaned, Lap=ghost_lap(b))
     run(b, check(b, name, reached, 20, detail, passed))
 
 

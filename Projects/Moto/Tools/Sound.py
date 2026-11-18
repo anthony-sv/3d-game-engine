@@ -17,7 +17,8 @@ road, about 0.4 s of its pass, so the tail it leaves rings on after it is gone.
 
 The audio director (the Audio Director entity, Scripts/AudioDirector.sgraph): the Pause action sends it TogglePause,
 which blends the mix to the Paused snapshot over PAUSE_SECONDS, or back to the mixer's own values. A test (or any graph)
-sends it the same event. Nothing else pauses yet: the game's own pause comes with its menus.
+sends it the same event, and with StartPaused on it sends itself one when the scene starts (the player's sound test
+measures the muffled mix that way). Nothing else pauses yet: the game's own pause comes with its menus.
 """
 import os
 import sys
@@ -102,10 +103,16 @@ def declare(author):
         public("Seconds", "float", PAUSE_SECONDS, "How long the mix takes to blend to the Paused snapshot, and back",
                (0.0, 10.0)),
         public("Paused", "bool", False, "Whether the mix is muffled by the Paused snapshot (a read-out)"),
+        public("StartPaused", "bool", False, "Whether the mix starts muffled, blending to the Paused snapshot when the scene "
+               "starts (a game that opens paused)"),
     ), events=(("TogglePause", ()),))
 
 
 def write(author):
+    with author.region(AUDIO_DIRECTOR, "Start: a director that starts paused muffles the mix", EVENTS) as b:
+        starts = b.branch(b.var("StartPaused"))
+        b.chain(b.event("Event.Create"), starts)
+        b.flow(starts["True"], b.send("TogglePause", b.self_()))
     with author.region(AUDIO_DIRECTOR, "Pause: the Pause action sends the director TogglePause", EVENTS) as b:
         b.chain(b.event("Event.ActionPressed", {"Action": "Pause"}), b.send("TogglePause", b.self_()))
     with author.region(AUDIO_DIRECTOR, "Toggle pause: the mix blends to the Paused snapshot, or back", EFFECTS) as b:

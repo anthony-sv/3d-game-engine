@@ -4315,7 +4315,7 @@
 								0.0
 							],
 							"Settings": {
-								"Formula": "abs(lean - 50.15) <= 1.0"
+								"Formula": "abs(lean - 50.15) <= 1.0 && lean * 1 >= 10.0"
 							}
 						},
 						{
@@ -4334,7 +4334,7 @@
 								80.0
 							],
 							"Settings": {
-								"Format": "the ghost leans {Lean} degrees at {Lap} s of its lap (the line: 50.15 at 43.383 s)"
+								"Format": "the ghost leans {Lean} degrees at {Lap} s of its lap (the line: 50.15 at 43.383 s, into the corner: to the right)"
 							}
 						},
 						{

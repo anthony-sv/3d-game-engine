@@ -25,36 +25,91 @@
 				"Value": false,
 				"Public": true,
 				"Tooltip": "Whether the mix is muffled by the Paused snapshot (a read-out)"
+			},
+			{
+				"ID": 3,
+				"Name": "StartPaused",
+				"Type": "bool",
+				"Value": false,
+				"Public": true,
+				"Tooltip": "Whether the mix starts muffled, blending to the Paused snapshot when the scene starts (a game that opens paused)"
 			}
 		],
 		"Functions": [],
 		"Graph": {
 			"Nodes": [
 				{
-					"ID": 4,
-					"Type": "Event.ActionPressed",
+					"ID": 5,
+					"Type": "Variable.Get",
 					"Position": [
 						0.0,
 						192.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 6,
+					"Type": "Flow.Branch",
+					"Position": [
+						192.0,
+						192.0
+					]
+				},
+				{
+					"ID": 7,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						256.0
+					]
+				},
+				{
+					"ID": 8,
+					"Type": "Self",
+					"Position": [
+						192.0,
+						320.0
+					]
+				},
+				{
+					"ID": 9,
+					"Type": "Event.Send",
+					"Position": [
+						416.0,
+						192.0
+					],
+					"Settings": {
+						"Name": "TogglePause",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 11,
+					"Type": "Event.ActionPressed",
+					"Position": [
+						0.0,
+						496.0
 					],
 					"Settings": {
 						"Action": "Pause"
 					}
 				},
 				{
-					"ID": 5,
+					"ID": 12,
 					"Type": "Self",
 					"Position": [
 						0.0,
-						304.0
+						608.0
 					]
 				},
 				{
-					"ID": 6,
+					"ID": 13,
 					"Type": "Event.Send",
 					"Position": [
 						208.0,
-						192.0
+						496.0
 					],
 					"Settings": {
 						"Name": "TogglePause",
@@ -62,11 +117,11 @@
 					}
 				},
 				{
-					"ID": 8,
+					"ID": 15,
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						480.0
+						784.0
 					],
 					"Settings": {
 						"Name": "TogglePause",
@@ -74,41 +129,41 @@
 					}
 				},
 				{
-					"ID": 9,
+					"ID": 16,
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						592.0
+						896.0
 					],
 					"Settings": {
 						"Variable": 2
 					}
 				},
 				{
-					"ID": 10,
+					"ID": 17,
 					"Type": "Flow.Branch",
 					"Position": [
 						192.0,
-						480.0
+						784.0
 					]
 				},
 				{
-					"ID": 11,
+					"ID": 18,
 					"Type": "Variable.Get",
 					"Position": [
 						192.0,
-						608.0
+						912.0
 					],
 					"Settings": {
 						"Variable": 1
 					}
 				},
 				{
-					"ID": 12,
+					"ID": 19,
 					"Type": "Call:Strada.Audio.TransitionTo(string,float)",
 					"Position": [
 						416.0,
-						480.0
+						784.0
 					],
 					"Inputs": {
 						"Snapshot": ""
@@ -116,22 +171,22 @@
 					"Comment": "Empty: back to the mixer's own values"
 				},
 				{
-					"ID": 13,
+					"ID": 20,
 					"Type": "Call:Strada.Audio.TransitionTo(string,float)",
 					"Position": [
 						416.0,
-						656.0
+						960.0
 					],
 					"Inputs": {
 						"Snapshot": "Paused"
 					}
 				},
 				{
-					"ID": 14,
+					"ID": 21,
 					"Type": "Variable.Set",
 					"Position": [
 						736.0,
-						480.0
+						784.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -141,11 +196,11 @@
 					}
 				},
 				{
-					"ID": 15,
+					"ID": 22,
 					"Type": "Variable.Set",
 					"Position": [
 						736.0,
-						608.0
+						912.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -159,111 +214,169 @@
 				{
 					"From": [
 						5,
-						"Self"
-					],
-					"To": [
-						6,
-						"Target"
-					]
-				},
-				{
-					"From": [
-						4,
-						"Then"
-					],
-					"To": [
-						6,
-						"Execute"
-					]
-				},
-				{
-					"From": [
-						9,
 						"Value"
 					],
 					"To": [
-						10,
+						6,
 						"Condition"
 					]
 				},
 				{
 					"From": [
-						11,
-						"Value"
+						7,
+						"Then"
 					],
 					"To": [
-						12,
-						"Seconds"
-					]
-				},
-				{
-					"From": [
-						11,
-						"Value"
-					],
-					"To": [
-						13,
-						"Seconds"
+						6,
+						"Execute"
 					]
 				},
 				{
 					"From": [
 						8,
-						"Then"
+						"Self"
 					],
 					"To": [
-						10,
-						"Execute"
+						9,
+						"Target"
 					]
 				},
 				{
 					"From": [
-						10,
+						6,
 						"True"
 					],
 					"To": [
-						12,
+						9,
 						"Execute"
 					]
 				},
 				{
 					"From": [
 						12,
+						"Self"
+					],
+					"To": [
+						13,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						11,
 						"Then"
 					],
 					"To": [
-						14,
+						13,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						10,
+						16,
+						"Value"
+					],
+					"To": [
+						17,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Value"
+					],
+					"To": [
+						19,
+						"Seconds"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Value"
+					],
+					"To": [
+						20,
+						"Seconds"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Then"
+					],
+					"To": [
+						17,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						17,
+						"True"
+					],
+					"To": [
+						19,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Then"
+					],
+					"To": [
+						21,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						17,
 						"False"
 					],
 					"To": [
-						13,
+						20,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						13,
+						20,
 						"Then"
 					],
 					"To": [
-						15,
+						22,
 						"Execute"
 					]
 				}
 			],
 			"Comments": [
 				{
-					"ID": 7,
-					"Text": "Pause: the Pause action sends the director TogglePause",
+					"ID": 10,
+					"Text": "Start: a director that starts paused muffles the mix",
 					"Position": [
 						-32.0,
 						120.0
+					],
+					"Size": [
+						613.5875244140625,
+						260.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 14,
+					"Text": "Pause: the Pause action sends the director TogglePause",
+					"Position": [
+						-32.0,
+						424.0
 					],
 					"Size": [
 						405.5874938964844,
@@ -277,11 +390,11 @@
 					]
 				},
 				{
-					"ID": 16,
+					"ID": 23,
 					"Text": "Toggle pause: the mix blends to the Paused snapshot, or back",
 					"Position": [
 						-32.0,
-						408.0
+						712.0
 					],
 					"Size": [
 						950.572509765625,

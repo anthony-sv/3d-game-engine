@@ -2279,7 +2279,8 @@ TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the playe
 
 TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph's timeline, from the home view, its actions cut "
           "to a trackside camera and back and muffle the mix, and stopping brings the camera back; with PlayOnStart off the "
-          "camera stays home")
+          "camera stays home; a start on a camera that does not exist is warned of, and one on a trackside camera follows the "
+          "ghost")
 {
 	Testing::AudioEngineScope audio;
 	Testing::AssetManagerScope assets;
@@ -2381,6 +2382,74 @@ TEST_CASE("PlayCommands: play mode flies the Moto sample's camera tour, a graph'
 	fixture.Ok("play.advance", Json::object({{"frames", 120}}));
 	CHECK(findCamera().GetComponent<TransformComponent>().Translation == home);
 	CHECK(readTours() == 0);
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+
+	// The camera director's StartCamera, set in the scene: a number that names no camera (its range says 0 to 4, but a scene
+	// file or an agent may hold any) is warned of once, and the tour's camera shows and hears the scene.
+	auto const startOn = [&fixture](int32_t number)
+	{
+		Entity const director = fixture.Context.GetScene().FindEntityByName("Trackside");
+		REQUIRE(director);
+		VisualScriptComponent cuts = director.GetComponent<VisualScriptComponent>();
+		cuts.Variables["StartCamera"] = ScriptFieldValue::FromInt32(number);
+		REQUIRE(fixture.Operations.SetComponent(director.GetUUID(), cuts).IsOk());
+	};
+	std::array<std::string_view, 4> const trackside = {"Start Line Camera", "Turn 1 Camera", "Footbridge Camera", "Turn 6 Camera"};
+	startOn(9);
+	uint64_t const firstEntry = Log::GetNextEntryIndex();
+	CHECK(fixture.Ok("play.start")["state"] == "play");
+	fixture.Ok("play.pause");
+	fixture.Ok("play.advance", Json::object({{"frames", 2}}));
+	CHECK(readVariable("Trackside", "Active").GetInt32() == 0);
+	CHECK(shows("Main Camera"));
+	for (std::string_view const name : trackside)
+	{
+		CAPTURE(name);
+		CHECK_FALSE(shows(name));
+	}
+	std::vector<LogEntry> const entries = Log::GetEntries(firstEntry);
+	CHECK(std::count_if(entries.begin(), entries.end(),
+	                    [](LogEntry const& entry)
+	                    {
+							return entry.Severity == LogLevel::Warn && entry.Message.find("has no camera 9") != std::string::npos;
+						}) == 1);
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+
+	// Started on the Turn 1 camera, the game opens on it looking at the ghost, and it follows the ghost; the trackside cameras
+	// that do not show are left as the scene placed them.
+	startOn(2);
+	auto const rotationOf = [&fixture](std::string_view name)
+	{
+		Entity const found = fixture.Context.GetScene().FindEntityByName(name);
+		REQUIRE(found);
+		return found.GetComponent<TransformComponent>().Rotation;
+	};
+	glm::quat const startLinePlaced = rotationOf("Start Line Camera");
+	auto const aimError = [&fixture]
+	{
+		Entity const viewer = fixture.Context.GetScene().FindEntityByName("Turn 1 Camera");
+		Entity const ghost = fixture.Context.GetScene().FindEntityByName("Ghost");
+		REQUIRE(viewer);
+		REQUIRE(ghost);
+		// The director stands at the origin unturned and the ghost is a root entity: their transforms are the world's. The
+		// cameras aim 0.9 m above the ghost's origin (Tools/Trackside.py's AIM).
+		TransformComponent const& eye = viewer.GetComponent<TransformComponent>();
+		glm::vec3 const target = ghost.GetComponent<TransformComponent>().Translation + glm::vec3(0.0f, 0.9f, 0.0f);
+		glm::vec3 const forward = eye.Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+		float const cosine = glm::dot(glm::normalize(forward), glm::normalize(target - eye.Translation));
+		return glm::degrees(std::acos(std::clamp(cosine, -1.0f, 1.0f)));
+	};
+	CHECK(fixture.Ok("play.start")["state"] == "play");
+	fixture.Ok("play.pause");
+	CHECK(readVariable("Trackside", "Active").GetInt32() == 2);
+	CHECK(shows("Turn 1 Camera"));
+	CHECK_FALSE(shows("Main Camera"));
+	CHECK(aimError() < 0.5f);
+	fixture.Ok("play.advance", Json::object({{"frames", 120}}));
+	CHECK(shows("Turn 1 Camera"));
+	// The ghost moves on after the director's update in some frames: within the 2 degrees the test scene's check allows.
+	CHECK(aimError() < 2.0f);
+	CHECK(rotationOf("Start Line Camera") == startLinePlaced);
 	CHECK(fixture.Ok("play.stop")["state"] == "edit");
 }
 

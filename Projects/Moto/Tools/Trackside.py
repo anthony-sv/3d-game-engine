@@ -12,12 +12,14 @@ the racing line passes it, so the ghost rides close by it and on under the deck.
 listeners are off: the tour's camera shows and hears the scene until a cut.
 
 The director (the graph): its public TourCamera is the tour's camera and Subject what the trackside cameras follow (the
-ghost). When the scene starts it cuts to StartCamera (0, the tour, by default). The NextCamera action sends it
-NextCamera, which cuts to the next trackside camera (round to the first), and ResetCamera sends it ResetCamera, which cuts
-back to the tour without restarting it; a test, or any graph, sends it the same events. A cut makes one camera primary
-and its listener the one that hears (the others off): the scene renders from it, and the sounds are heard where it
-stands (a cut is no doppler: the listener is another entity). Every update turns each trackside camera towards the
-subject, AIM meters above its origin. Active reads which camera shows: 0 the tour, 1 to 4 a trackside camera.
+ghost). When the scene starts it cuts to StartCamera (0, the tour, by default; a number that names no camera is warned of,
+and the tour shows). The NextCamera action sends it NextCamera, which cuts to the next trackside camera (round to the
+first), and ResetCamera sends it ResetCamera, which cuts back to the tour without restarting it; a test, or any graph,
+sends it the same events. A cut makes one camera primary and its listener the one that hears (the others off): the scene
+renders from it, and the sounds are heard where it stands (a cut is no doppler: the listener is another entity). The
+camera cut to is turned towards the subject, AIM meters above its origin, before it shows, and so is the trackside camera
+that shows on every update (Face); the others stand as they were left. Active reads which camera shows: 0 the tour, 1 to
+4 a trackside camera.
 """
 import math
 import os
@@ -119,34 +121,64 @@ def camera(position):
 def declare(author):
     author.declare(CAMERA_DIRECTOR, "The camera director: it cuts between the tour's camera and its children, the trackside "
                    "cameras, on the NextCamera and ResetCamera actions (or the events of those names any graph sends), "
-                   "and turns the trackside cameras to follow the subject.", variables=(
+                   "and turns the trackside camera that shows to follow the subject.", variables=(
         public("TourCamera", ENTITY, None, "The camera the tour flies: it shows and hears the scene when no trackside camera does"),
         public("Subject", ENTITY, None, "What the trackside cameras follow"),
-        public("StartCamera", "int", 0, "The camera that shows when the scene starts: 0 the tour, 1 to 4 a trackside camera",
-               (0, 4)),
+        public("StartCamera", "int", 0, "The camera that shows when the scene starts: 0 the tour, 1 to 4 a trackside camera "
+               "(any other number is warned of, and the tour shows)", (0, 4)),
         public("Active", "int", 0, "The camera that shows: 0 the tour, 1 to 4 a trackside camera (a read-out)"),
         private("Cameras", "Strada.Entity[]"),
-    ), events=(("NextCamera", ()), ("ResetCamera", ())), functions=(("Cut", False, (("Index", "int"),), (), ()),))
+    ), events=(("NextCamera", ()), ("ResetCamera", ())), functions=(
+        ("Face", False, (("Camera", ENTITY),), (), ()),
+        ("Cut", False, (("Index", "int"),), (), ()),
+    ))
 
 
 def write(author):
+    with author.region(CAMERA_DIRECTOR, "Face: a trackside camera turns towards the subject", EFFECTS, "Face") as b:
+        subject = b.var("Subject")
+        known = b.branch(b.pure("IsValid", Value=subject))
+        target = b.expr(f"at + vec3(0, {AIM}, 0)", at=b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value",
+                                                               Target=subject))
+        eye = b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=b.entry["Camera"])
+        turn = b.call("Set:Strada.TransformComponent.EulerAngles", Target=b.entry["Camera"],
+                      Value=b.expr(LOOK, target=target, eye=eye),
+                      comment="Pitch, then yaw: the director stands at the origin unturned, so its children's angles are the world's")
+        b.chain(b.entry, known)
+        b.chain(known["True"], turn, b.ret)
+        b.flow(known["False"], b.ret)
     with author.region(CAMERA_DIRECTOR, "Cut: camera Index shows and hears the scene (0: the tour's camera)", RULES, "Cut") as b:
+        count = b.add("Array.Length", None, "Length", Array=b.var("Cameras")).out
+        # A number that names no camera (from the scene's StartCamera, or an agent's) is warned of, and the tour shows.
+        known_index = b.branch(b.expr("index >= 0 && index <= count", index=b.entry["Index"], count=count))
+        warn = b.call("Call:Strada.Log.Warn(string)", Message=b.fmt(
+            "The camera director has no camera {Index} (0 is the tour's, 1 to {Count} the trackside cameras): the tour's shows",
+            Index=b.entry["Index"], Count=count))
+        cut = b.expr("index >= 0 && index <= count ? index : 0", index=b.entry["Index"], count=count)
         each = b.add("Flow.ForEach", Array=b.var("Cameras"))
-        chosen = b.expr("index + 1 == cut", index=each["Index"], cut=b.entry["Index"])
+        chosen = b.expr("index + 1 == cut", index=each["Index"], cut=cut)
         shows = b.call("Set:Strada.CameraComponent.Primary", Target=each["Element"], Value=chosen)
         hears = b.call("Set:Strada.AudioListenerComponent.Active", Target=each["Element"], Value=chosen)
         tour = b.var("TourCamera")
         known = b.branch(b.pure("IsValid", Value=tour))
-        home = b.expr("cut == 0", cut=b.entry["Index"])
+        home = b.expr("cut == 0", cut=cut)
         tour_shows = b.call("Set:Strada.CameraComponent.Primary", Target=tour, Value=home)
         tour_hears = b.call("Set:Strada.AudioListenerComponent.Active", Target=tour, Value=home)
-        active = b.set("Active", b.entry["Index"])
-        b.chain(b.entry, each)
+        active = b.set("Active", cut)
+        # The camera cut to is turned to the subject before it shows, so a cut opens on it.
+        trackside = b.branch(b.expr("cut > 0", cut=cut))
+        face = b.own("Face", Camera=b.add("Array.Get", None, "Element", Array=b.var("Cameras"),
+                                          Index=b.expr("cut - 1", cut=cut)).out)
+        b.chain(b.entry, known_index)
+        b.flow(known_index["True"], each)
+        b.chain(known_index["False"], warn, each)
         b.chain(each["Body"], shows, hears)
         b.chain(each["Completed"], known)
         b.chain(known["True"], tour_shows, tour_hears, active)
         b.flow(known["False"], active)
-        b.flow(active, b.ret)
+        b.chain(active, trackside)
+        b.chain(trackside["True"], face, b.ret)
+        b.flow(trackside["False"], b.ret)
     with author.region(CAMERA_DIRECTOR, "Start: the cameras are the director's children; it cuts to StartCamera", EVENTS) as b:
         cameras = b.set("Cameras", b.pure("Get:Strada.Entity.Children", "Value", Target=b.self_()))
         b.chain(b.event("Event.Create"), cameras, b.own("Cut", Index=b.var("StartCamera")))
@@ -159,19 +191,13 @@ def write(author):
         b.chain(b.custom("NextCamera"), b.own("Cut", Index=following))
     with author.region(CAMERA_DIRECTOR, "Reset camera: a cut back to the tour, which flies on", RULES) as b:
         b.chain(b.custom("ResetCamera"), b.own("Cut", Index=0))
-    with author.region(CAMERA_DIRECTOR, "Follow: every trackside camera turns towards the subject", EFFECTS) as b:
-        subject = b.var("Subject")
-        known = b.branch(b.pure("IsValid", Value=subject))
-        each = b.add("Flow.ForEach", Array=b.var("Cameras"))
-        target = b.expr(f"at + vec3(0, {AIM}, 0)", at=b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value",
-                                                               Target=subject))
-        eye = b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=each["Element"])
-        turn = b.call("Set:Strada.TransformComponent.EulerAngles", Target=each["Element"],
-                      Value=b.expr(LOOK, target=target, eye=eye),
-                      comment="Pitch, then yaw: the director stands at the origin unturned, so its children's angles are the world's")
-        b.chain(b.event("Event.Update"), known)
-        b.flow(known["True"], each)
-        b.flow(each["Body"], turn)
+    with author.region(CAMERA_DIRECTOR, "Follow: the trackside camera that shows turns towards the subject", EFFECTS) as b:
+        active = b.var("Active")
+        trackside = b.branch(b.expr("active > 0", active=active), comment="The tour's camera turns itself")
+        face = b.own("Face", Camera=b.add("Array.Get", None, "Element", Array=b.var("Cameras"),
+                                          Index=b.expr("active - 1", active=active)).out)
+        b.chain(b.event("Event.Update"), trackside)
+        b.flow(trackside["True"], face)
 
 
 # The camera's Euler angles (degrees: pitch, then yaw, no roll) that turn its forward (-Z) from the eye towards the target,
