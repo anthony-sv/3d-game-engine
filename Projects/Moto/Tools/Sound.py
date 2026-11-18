@@ -3,17 +3,19 @@ footbridge and the audio director, written by Author.py's sound part with the so
 
 The buses: Master, with a limiter at CEILING, over Engine (the bikes' engines), Tyres (squeal, and later the gravel's
 crunch), Ambience (the wind and the crowd), Interface (the menus' and the HUD's sounds) and Reverb, which carries only the
-reverb's tail: the footbridge's reverb zone sends the sounds under its deck to it. Every bus but Interface (and Master)
-runs a low-pass that stands open at OPEN Hz, so that a snapshot can close it.
+reverb's tail: the footbridge's reverb zone sends the sounds under its deck to it, and the bus lifts the tail by
+REVERB_DB, since a reverb gives back far less than it takes in and the ghost is under the deck for under half a second.
+Every bus but Interface (and Master) runs a low-pass that stands open at OPEN Hz, so that a snapshot can close it.
 
-The Paused snapshot muffles everything but Interface: each of those buses down by PAUSED_DB and its low-pass closed to
-PAUSED_CUTOFF Hz, so the menus of a paused game stay clear over a muffled track. A graph blends to it with
+The Paused snapshot muffles everything but Interface: each of those buses down by PAUSED_DB from its own volume (a
+snapshot's value takes the bus's place) and its low-pass closed to PAUSED_CUTOFF Hz, so the menus of a paused game stay clear over a muffled track. A graph blends to it with
 Audio.TransitionTo("Paused") and back with Audio.TransitionTo("").
 
 The echo (the Footbridge Echo entity): a reverb zone, a box under the footbridge's deck across the road and its verges,
 from the road up to the deck, that sends what sounds inside it to the Reverb bus, fading out over ECHO_FADE meters round
 it. The ghost passes under the deck at about 190 km/h (RacingLine.py): the box and its fade span ECHO_SPAN meters of the
-road, about 0.4 s of its pass, so the tail it leaves rings on after it is gone.
+road, about 0.4 s of its pass, so the tail it leaves rings on after it is gone. At the footbridge camera the pass with the
+echo is about 5 to 7 dB louder than the same pass without it in the half second under the deck and the one after.
 
 The audio director (the Audio Director entity, Scripts/AudioDirector.sgraph): the Pause action sends it TogglePause,
 which blends the mix to the Paused snapshot over PAUSE_SECONDS, or back to the mixer's own values. A test (or any graph)
@@ -35,6 +37,10 @@ CEILING = -1.0
 OPEN = 20000.0
 PAUSED_CUTOFF = 650.0
 PAUSED_DB = -10.0
+# How far the Reverb bus lifts the tail (dB).
+REVERB_DB = 18.0
+# The buses' own volumes (dB).
+VOLUMES = {"Master": 0.0, "Engine": 0.0, "Tyres": -4.0, "Ambience": -8.0, "Interface": 0.0, "Reverb": REVERB_DB}
 # The buses that the Paused snapshot muffles, and the index of the low-pass in each one's effects.
 MUFFLED = {"Engine": 0, "Tyres": 0, "Ambience": 0, "Reverb": 2}
 PAUSED = "Paused"
@@ -44,27 +50,27 @@ def low_pass(frequency=OPEN):
     return {"Kind": "LowPass", "Frequency": frequency, "Q": 0.7071}
 
 
-def bus(name, volume, effects=(), parent="Master"):
-    return {"Name": name, "Parent": parent, "VolumeDb": volume, "Muted": False, "Effects": list(effects), "DuckedBy": ""}
+def bus(name, effects=(), parent="Master"):
+    return {"Name": name, "Parent": parent, "VolumeDb": VOLUMES[name], "Muted": False, "Effects": list(effects), "DuckedBy": ""}
 
 
 def mixer():
     """The mixer's fields, all of them, so that writing them again over the asset gives the same file."""
     buses = [
-        bus("Master", 0.0, [{"Kind": "Limiter", "CeilingDb": CEILING, "ReleaseSeconds": 0.1}], parent=""),
-        bus("Engine", 0.0, [low_pass()]),
-        bus("Tyres", -4.0, [low_pass()]),
-        bus("Ambience", -8.0, [low_pass()]),
-        bus("Interface", 0.0),
+        bus("Master", [{"Kind": "Limiter", "CeilingDb": CEILING, "ReleaseSeconds": 0.1}], parent=""),
+        bus("Engine", [low_pass()]),
+        bus("Tyres", [low_pass()]),
+        bus("Ambience", [low_pass()]),
+        bus("Interface"),
         # A tail alone (no dry signal): what reaches it is already heard on its own bus. Its low end is cut, so the echo
         # under the deck does not boom.
-        bus("Reverb", 0.0, [{"Kind": "HighPass", "Frequency": 150.0, "Q": 0.7071},
-                            {"Kind": "Reverb", "RoomSize": 0.55, "Damping": 0.45, "Width": 1.0, "WetDb": 0.0, "DryDb": -80.0},
-                            low_pass()]),
+        bus("Reverb", [{"Kind": "HighPass", "Frequency": 150.0, "Q": 0.7071},
+                       {"Kind": "Reverb", "RoomSize": 0.55, "Damping": 0.45, "Width": 1.0, "WetDb": 0.0, "DryDb": -80.0},
+                       low_pass()]),
     ]
     paused = []
     for name, index in MUFFLED.items():
-        paused.append({"Bus": name, "Target": "Volume", "Value": PAUSED_DB})
+        paused.append({"Bus": name, "Target": "Volume", "Value": VOLUMES[name] + PAUSED_DB})
         paused.append({"Bus": name, "Target": "Effect", "Effect": index, "Parameter": "Frequency", "Value": PAUSED_CUTOFF})
     return {"Buses": buses, "Snapshots": [{"Name": PAUSED, "Values": paused}], "SpeedOfSound": 343.0,
             "Impacts": {"Bus": "", "MinImpulse": 1.0, "FullImpulse": 20.0, "MaxPerFrame": 8}}
@@ -77,7 +83,7 @@ ECHO = "Footbridge Echo"
 # along the road a little beyond the deck (3.2 m deep); and how far round it the send fades out.
 ECHO_HALF_EXTENTS = (Circuit.HALF_WIDTH + Circuit.KERB_WIDTH + Circuit.VERGE_WIDTH + 2.0, Circuit.BRIDGE_CLEARANCE / 2.0, 3.0)
 ECHO_FADE = 8.0
-ECHO_SEND = 0.8
+ECHO_SEND = 1.0
 ECHO_SPAN = 2.0 * (ECHO_HALF_EXTENTS[2] + ECHO_FADE)
 
 

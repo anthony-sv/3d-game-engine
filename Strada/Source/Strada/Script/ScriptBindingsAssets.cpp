@@ -627,7 +627,8 @@ namespace Strada::ScriptGlue
 		}
 		if (AssetType const actual = AssetManager::GetAssetType(handle); actual != type)
 		{
-			Log::GetScriptLogger().error("{}: '{}' is a {}, not a {}", function, path, AssetTypeToString(actual), AssetTypeToString(type));
+			Log::GetScriptLogger().error("{}: '{}' is {}, not {}", function, path, AssetTypeWithArticle(actual),
+			                             AssetTypeWithArticle(type));
 			return {};
 		}
 		return handle;

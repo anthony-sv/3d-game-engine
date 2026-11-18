@@ -179,6 +179,10 @@ namespace
 		}
 	};
 
+	// A column of fields at the headless font's 15 pixels, and more than a vertical scrollbar takes of it.
+	constexpr float FieldColumnPixels = MixerPanel::FieldColumnWidthEms * 15.0f;
+	constexpr float ScrollbarPixels = 20.0f;
+
 	Mixer ParseMixer(char const* text)
 	{
 		Mixer mixer;
@@ -699,10 +703,35 @@ TEST_CASE("MixerPanel: docked wide and short, the strips, the bus and the snapsh
 	CHECK(record.AddBus[0] > record.Strips.back().Label[0]);
 	CHECK(record.Snapshots[0].Audition[0] > record.AddBus[0]);
 	CHECK(record.AddBus[1] < record.Strips.back().FaderBottom[1]);
+	// Neither column of fields is narrower than the panel keeps them (the headless font is 15 pixels), less a vertical
+	// scrollbar when its fields overflow.
+	CHECK(record.BusColumnWidth >= FieldColumnPixels - ScrollbarPixels);
+	CHECK(record.SnapshotsColumnWidth >= FieldColumnPixels - ScrollbarPixels);
 
 	// Narrow, they stack below the strips, and the window scrolls to them.
 	fixture.Size = ImVec2(500.0f, 1000.0f);
 	fixture.Frames(3);
 	CHECK(record.AddBusVisible);
 	CHECK(record.AddBus[1] > record.Strips.back().FaderBottom[1]);
+}
+
+TEST_CASE("MixerPanel: in the default layout's bottom dock the bus and then the snapshots share a column of full width beside "
+          "the strips")
+{
+	MixerPanelFixture fixture;
+	// The bottom dock of the default layout in a 1600x900 editor (the middle column's 0.82 x 0.70 of the width, 0.28 of the
+	// height under the menu bar), in the editor's 15-pixel font as headless: about 61 by 16 font sizes.
+	fixture.Size = ImVec2(918.0f, 245.0f);
+	fixture.Frames(3);
+	Record const& record = fixture.GetRecord();
+	REQUIRE(record.Strips.size() == 4);
+	REQUIRE(record.Snapshots.size() == 1);
+	// One column right of the strips, the snapshots below the bus in it, as wide as a column of fields keeps itself; the
+	// strips gave up their width first.
+	CHECK(record.AddBus[0] > record.Strips.back().Label[0]);
+	CHECK(record.AddBus[1] < record.Strips.back().FaderBottom[1]);
+	CHECK(record.Snapshots[0].Audition[1] > record.AddBus[1]);
+	CHECK(record.SnapshotsColumnWidth == record.BusColumnWidth);
+	CHECK(record.BusColumnWidth >= FieldColumnPixels - ScrollbarPixels);
+	CHECK(record.AddBusVisible);
 }

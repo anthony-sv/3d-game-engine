@@ -85,7 +85,7 @@ namespace Strada
 			}
 			if (type != AssetType::VisualScript)
 			{
-				return MakeError("asset {} is a {}, not a VisualScript", graph, AssetTypeToString(type));
+				return MakeError("asset {} is {}, not a VisualScript", graph, AssetTypeWithArticle(type));
 			}
 			return AssetManager::TryGetAsset<VisualScriptAsset>(graph);
 		}

@@ -5,6 +5,10 @@
 	},
 	"Project": {
 		"Name": "Orb Run",
+		"Identity": {
+			"Company": "",
+			"Product": ""
+		},
 		"AssetDirectory": "Assets",
 		"ScriptModule": "Scripts/Binaries/Game.dll",
 		"StartScene": "853174202014584004",
@@ -19,10 +23,14 @@
 		},
 		"Physics": {
 			"FixedTimestep": 0.01666666753590107,
+			"MaxStepsPerFrame": 8,
+			"CollisionSteps": 1,
 			"Layers": [
 				"Default"
 			],
 			"IgnoredCollisions": []
-		}
+		},
+		"InputActions": "0",
+		"Mixer": "0"
 	}
 }

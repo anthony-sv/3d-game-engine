@@ -221,6 +221,13 @@ TEST_CASE("AssetManager: assets load on first use with their types")
 	Result<Ref<MaterialAsset>> const wrongType = AssetManager::TryGetAsset<MaterialAsset>(wood);
 	REQUIRE(wrongType.IsError());
 	CHECK(wrongType.GetError().find("is a Texture, not a Material") != std::string::npos);
+	// The article goes by the type's name.
+	Result<Ref<AudioClipAsset>> const notAClip = AssetManager::TryGetAsset<AudioClipAsset>(wood);
+	REQUIRE(notAClip.IsError());
+	CHECK(notAClip.GetError().find("is a Texture, not an AudioClip") != std::string::npos);
+	Result<Ref<TextureAsset>> const notATexture = AssetManager::TryGetAsset<TextureAsset>(Find("Environments/Sky.hdr"));
+	REQUIRE(notATexture.IsError());
+	CHECK(notATexture.GetError().find("is an Environment, not a Texture") != std::string::npos);
 	CHECK(AssetManager::LoadAsset(Find("Scenes/Level.sscene")).IsError());
 	CHECK(AssetManager::LoadAsset(AssetHandle()).IsError());
 	CHECK(AssetManager::LoadAsset(AssetHandle(UUID(123456789))).IsError());

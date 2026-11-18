@@ -538,10 +538,10 @@ TEST_CASE("AudioEngine: at the limit the lowest priority, then the quietest, the
 	REQUIRE(first->AddSource(MakeSource(SourceId(64), quiet, true)).IsOk());
 	first->Play(SourceId(64));
 	CHECK(AudioEngine::GetStolenVoiceCount() == stolen + 4);
-	AudioSourceDesc far = MakeSource(SourceId(65), quiet, true);
-	far.Spatial = true;
-	far.Position = {0.0f, 0.0f, -50.0f};
-	REQUIRE(first->AddSource(far).IsOk());
+	AudioSourceDesc distant = MakeSource(SourceId(65), quiet, true);
+	distant.Spatial = true;
+	distant.Position = {0.0f, 0.0f, -50.0f};
+	REQUIRE(first->AddSource(distant).IsOk());
 	first->Play(SourceId(65));
 	CHECK(AudioEngine::GetStolenVoiceCount() == stolen + 5);
 	Skip(0.02f);

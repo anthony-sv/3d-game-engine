@@ -30,7 +30,7 @@ and the [`strada-make-game`](../.claude/skills/strada-make-game/SKILL.md) skill 
 
 The editor runs an automation server: a JSON-RPC 2.0 endpoint on `127.0.0.1`. Every command runs on the editor's main
 thread through the same operations and undo history as the UI, so an agent and a person see and edit the same state. The
-editor has 117 commands in 22 domains, each with a JSON schema of its parameters (`editor.commands` lists them at run
+editor has 124 commands in 25 domains, each with a JSON schema of its parameters (`editor.commands` lists them at run
 time):
 
 | Group | Commands | What they cover |
@@ -45,13 +45,14 @@ time):
 | `asset` | 12 | Listing, importing (also as a drop from the file manager), moving and deleting assets and folders, and the content browser |
 | `material` | 3 | Creating, reading and setting materials |
 | `curve` | 3 | Creating, reading and setting curve assets (`.scurve`), a data asset type the engine registers: every data asset type gets these three commands from its registration |
+| `input-actions` | 3 | Creating, reading and setting input actions (`.sinput`): the actions a game reads and the controls bound to them |
 | `mixer` | 3 | Creating, reading and setting mixers (`.smixer`): the buses sounds play on, with their volumes, effects and ducking, and the snapshots the mix blends to |
 | `physics-material` | 3 | Creating, reading and setting physics materials (`.sphysmat`): the surfaces colliders reference |
 | `graph` | 16 | Visual scripts: creating, reading, checking and editing them, arranging, copying, the node library and types, finding, and the graph windows |
 | `graph` (debugging) | 11 | Breakpoints, targets, stops, continue, step, break, wait, traces, values, instances and live edits |
 | `prefab` | 2 | Creating prefabs and placing instances |
 | `script` | 4 | The C# scripts' status and classes, creating and building scripts |
-| `play`, `input`, `ui`, `test` | 10 | Play mode with exact frame steps, keys and mouse buttons, where the UI is on screen, and test runs |
+| `play`, `input`, `ui`, `test` | 10 | Play mode with exact frame steps, keys, mouse buttons, gamepads and input actions held for the game, where the UI is on screen, and test runs |
 | `physics` | 1 | What a ray, a shape cast or an overlap meets in the playing scene's physics world |
 | `audio` | 1 | The mix's meters: each bus's peak and RMS, the snapshot the mix is at, and the voice counts |
 | `log`, `viewport` | 6 | The log, screenshots of the editor or one of its windows, the scene view's camera, overlays and statistics |
@@ -62,7 +63,7 @@ time):
 six tools of its own that search and import [Poly Haven](https://polyhaven.com) assets (CC0):
 `polyhaven_search_hdris` and `polyhaven_import_hdri` (skies for image-based lighting), `polyhaven_search_models` and
 `polyhaven_import_model` (glTF models with their textures), and `polyhaven_search_textures` and
-`polyhaven_import_texture` (PBR texture sets, made into a material). That is 123 tools in all.
+`polyhaven_import_texture` (PBR texture sets, made into a material). That is 130 tools in all.
 
 ### The safety model
 
@@ -488,12 +489,13 @@ What they show:
 The full scripts rebuild their project from scratch: everything but the `Tools` folder (and, for Blocks and the
 Showcase, the scripts' sources in `Scripts/Source`; for the Showcase also its `.gitignore`) is replaced. Prism Break's
 then gives every asset the handle its path had and every entity of a scene or a prefab the ID its name path had, with
-the editor closed, and checks the files as they stay in a second editor. A full
-Showcase rebuild imports the Poly Haven assets again with new handles and rewrites the materials made from them, so
-rebuild the Graph Garden with `--exhibit GraphGarden` instead. That run compares every file under `Assets` before and
-after, and fails, naming the files, when anything outside the exhibit's own files changed. Moto's `--part` runs
-compare every file of the project outside `Tools` the same way. After a change to arranging, `SampleGraphsTests` names
-the command to run again: `Projects/PrismBreak/Tools/Author.py`, the Showcase's `--exhibit GraphGarden`, or Moto's
+the editor closed, and checks the files as they stay in a second editor. A full Showcase rebuild imports the Poly Haven
+assets again with new handles and rewrites the materials made from them, so rebuild the Graph Garden with `--exhibit
+GraphGarden` instead. That run compares every file under `Assets` before and after, and fails, naming the files, when
+anything outside the exhibit's own files changed. Moto's `--part` runs compare every file of the project outside `Tools`
+the same way; a part that owns no file of the main scene (`input`, `tests`) leaves that scene unsaved, so a newer scene
+format in the editor does not rewrite a file the part does not own. After a change to arranging, `SampleGraphsTests`
+names the command to run again: `Projects/PrismBreak/Tools/Author.py`, the Showcase's `--exhibit GraphGarden`, or Moto's
 `--part camera` (which writes every graph of Moto again).
 
 ## Troubleshooting

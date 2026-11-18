@@ -774,11 +774,15 @@ class Moto:
         self.call("scene_open", {"path": "Scenes/Main.sscene"})
         if part != "tests":
             self.build_part(part)
-        self.finish(since)
+        # A part that does not own the main scene (input, tests) leaves its file as it is: saving it would write it again
+        # in the editor's scene format, a change of a file the part does not own whenever that format is newer.
+        self.finish(since, save_main=owns(PARTS[part][1], "Assets/Scenes/Main.sscene"))
 
-    def finish(self, since):
-        """Saves the main scene, checks its surfaces, makes the tests part, plays the tour and checks the log."""
-        self.call("scene_save")
+    def finish(self, since, save_main=True):
+        """Saves the main scene (unless told not to), checks its surfaces, makes the tests part, plays the tour and checks
+        the log."""
+        if save_main:
+            self.call("scene_save")
         self.check_surfaces()
         self.make_tests()
         self.check_tour()

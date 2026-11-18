@@ -920,8 +920,10 @@ namespace Strada
 			{
 				m_VisualScripts->DropAfterDraw();
 			}
-			// The panels are not drawn: the Mixer's audition of a snapshot ends.
+			// The panels are not drawn: the Mixer's audition of a snapshot ends, and so does a capture of a binding in the
+			// Input Actions panel (which would otherwise end only at the next event it is offered).
 			m_MixerPanel.OnHidden();
+			m_InputActionsPanel.OnHidden();
 			m_StartScreenPanel.OnImGuiRender(m_StartScreen, m_ExampleCopies, &m_StartScreenThumbnails, m_StartScreenActions);
 			DrawDialogs();
 			return;

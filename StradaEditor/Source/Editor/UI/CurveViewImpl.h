@@ -97,10 +97,10 @@ namespace Strada
 	}
 
 	template<typename TDocument>
-	void CurveView<TDocument>::SetRect(glm::vec2 min, glm::vec2 max, float fontSize)
+	void CurveView<TDocument>::SetRect(glm::vec2 topLeft, glm::vec2 bottomRight, float fontSize)
 	{
-		m_Min = min;
-		m_Max = glm::max(max, min + glm::vec2(1.0f));
+		m_Min = topLeft;
+		m_Max = glm::max(bottomRight, topLeft + glm::vec2(1.0f));
 		m_FontSize = std::max(fontSize, 1.0f);
 	}
 
@@ -1062,7 +1062,7 @@ namespace Strada
 	}
 
 	template<typename TDocument>
-	std::vector<CurveKeyRef> CurveView<TDocument>::FindKeysIn(TDocument const& document, glm::vec2 min, glm::vec2 max) const
+	std::vector<CurveKeyRef> CurveView<TDocument>::FindKeysIn(TDocument const& document, glm::vec2 boxMin, glm::vec2 boxMax) const
 	{
 		std::vector<CurveKeyRef> keys;
 		uint32_t const trackCount = Traits::GetTrackCount(document);
@@ -1078,7 +1078,8 @@ namespace Strada
 						continue;
 					}
 					std::optional<glm::vec2> const position = GetKeyPosition(document, track, key, component);
-					if (position && position->x >= min.x && position->x <= max.x && position->y >= min.y && position->y <= max.y)
+					if (position && position->x >= boxMin.x && position->x <= boxMax.x && position->y >= boxMin.y &&
+					    position->y <= boxMax.y)
 					{
 						keys.emplace_back(track, key);
 						break;

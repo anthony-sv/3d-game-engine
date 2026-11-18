@@ -1,5 +1,6 @@
 #include "TestUtilities.h"
 
+#include "Strada/Asset/Asset.h"
 #include "Strada/Asset/AudioClipAsset.h"
 #include "Strada/Asset/EnvironmentAsset.h"
 #include "Strada/Asset/FontAsset.h"
@@ -18,6 +19,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -542,4 +544,30 @@ TEST_CASE("Asset: every supported extension maps to an asset type, ignoring case
 	CHECK(GetAssetTypeForExtension(".sgraph") == AssetType::VisualScript);
 	CHECK(GetAssetTypeForExtension(".txt") == AssetType::None);
 	CHECK(GetAssetTypeForExtension("") == AssetType::None);
+}
+
+TEST_CASE("Asset: a type's name in a message takes the article it is read with")
+{
+	CHECK(AssetTypeWithArticle(AssetType::Material) == "a Material");
+	CHECK(AssetTypeWithArticle(AssetType::AudioClip) == "an AudioClip");
+	CHECK(AssetTypeWithArticle(AssetType::Environment) == "an Environment");
+	CHECK(AssetTypeWithArticle(AssetType::VisualScript) == "a VisualScript");
+	// The engine's data asset types, by the names they are registered with.
+	std::optional<AssetType> const actions = AssetTypeFromString("InputActions");
+	REQUIRE(actions.has_value());
+	CHECK(AssetTypeWithArticle(*actions) == "an InputActions");
+	std::optional<AssetType> const mixer = AssetTypeFromString("Mixer");
+	REQUIRE(mixer.has_value());
+	CHECK(AssetTypeWithArticle(*mixer) == "a Mixer");
+	CHECK(AssetTypeWithArticle(std::string_view("Atlas")) == "an Atlas");
+	// Every type's description starts with its article and ends with its name.
+	for (std::string_view const extension : GetSupportedAssetExtensions())
+	{
+		AssetType const type = GetAssetTypeForExtension(extension);
+		std::string_view const name = AssetTypeToString(type);
+		std::string const described = AssetTypeWithArticle(type);
+		CAPTURE(described);
+		CHECK((described.starts_with("a ") || described.starts_with("an ")));
+		CHECK(std::string_view(described).ends_with(name));
+	}
 }

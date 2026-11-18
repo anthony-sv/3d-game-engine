@@ -25,7 +25,7 @@ namespace Strada
 			{
 				if (!AssetManager::IsInitialized() || AssetManager::GetAssetType(asset) != type)
 				{
-					return MakeError("asset {} is not a {}", asset, AssetTypeToString(type));
+					return MakeError("asset {} is not {}", asset, AssetTypeWithArticle(type));
 				}
 				return {};
 			}

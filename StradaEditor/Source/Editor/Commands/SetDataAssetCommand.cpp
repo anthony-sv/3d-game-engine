@@ -117,7 +117,7 @@ namespace Strada
 		DataAssetType const* const type = DataAssetRegistry::Find(metadata->Type);
 		if (type == nullptr)
 		{
-			return MakeError("asset '{}' is a {}, not a data asset", metadata->GetDisplayName(), AssetTypeToString(metadata->Type));
+			return MakeError("asset '{}' is {}, not a data asset", metadata->GetDisplayName(), AssetTypeWithArticle(metadata->Type));
 		}
 		// A data asset made in memory has nowhere to keep the change.
 		if (!metadata->IsFileAsset())

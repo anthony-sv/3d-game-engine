@@ -33,6 +33,7 @@
 #include "Editor/VisualScripting/VisualScriptTimeline.h"
 #include "Editor/VisualScripting/VisualScriptView.h"
 
+#include "Strada/Asset/Asset.h"
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/DataAsset.h"
@@ -492,8 +493,8 @@ namespace Strada
 			}
 			if (AssetType const type = AssetManager::GetAssetType(graph.GetValue()); type != AssetType::VisualScript)
 			{
-				CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset {} is a {}, not a visual script",
-				                                      parameter, graph.GetValue(), AssetTypeToString(type));
+				CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset {} is {}, not a visual script",
+				                                      parameter, graph.GetValue(), AssetTypeWithArticle(type));
 				error.Data = Json::object({{"path", std::string(parameter)}});
 				return error;
 			}
@@ -652,9 +653,9 @@ namespace Strada
 		}
 
 		// A rectangle of the editor's screen (ImGui pixels) as [x, y, width, height].
-		Json DescribeScreenRect(glm::vec2 min, glm::vec2 max)
+		Json DescribeScreenRect(glm::vec2 topLeft, glm::vec2 bottomRight)
 		{
-			return Json::array({min.x, min.y, max.x - min.x, max.y - min.y});
+			return Json::array({topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y});
 		}
 
 		char const* GetWindowDebugStateName(VisualScriptWindowDebugState state)
@@ -2563,8 +2564,9 @@ namespace Strada
 				AssetType const actual = AssetManager::GetAssetType(asset.GetValue());
 				if (actual != type.GetAssetType())
 				{
-					CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset '{}' is a {}, not a {}", parameter,
-					                                      value.get_ref<std::string const&>(), AssetTypeToString(actual), type.GetName());
+					CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset '{}' is {}, not {}", parameter,
+					                                      value.get_ref<std::string const&>(), AssetTypeWithArticle(actual),
+					                                      AssetTypeWithArticle(type.GetName()));
 					error.Data = Json::object({{"path", parameter}});
 					return error;
 				}
@@ -2582,7 +2584,8 @@ namespace Strada
 				Ref<DataAsset> const asset = std::dynamic_pointer_cast<DataAsset>(loaded.GetValue());
 				if (asset == nullptr || asset->GetAssetType() != type.GetAssetType())
 				{
-					return MakeCommandError(AutomationErrorCode::FileError, "asset {} did not load as a {}", handle, type.GetName());
+					return MakeCommandError(AutomationErrorCode::FileError, "asset {} did not load as {}", handle,
+					                        AssetTypeWithArticle(type.GetName()));
 				}
 				return Json::object({{type.GetCommandParameter(), DescribeAsset(handle)}, {"fields", asset->SerializeFields()}});
 			}
@@ -2615,7 +2618,7 @@ namespace Strada
 					}
 					if (!field.Hints.AssetTypeName.empty())
 					{
-						text += fmt::format(", a reference to a {} asset", field.Hints.AssetTypeName);
+						text += fmt::format(", a reference to {} asset", AssetTypeWithArticle(field.Hints.AssetTypeName));
 					}
 					if (!field.Hints.Description.empty())
 					{
@@ -2697,10 +2700,10 @@ namespace Strada
 					result
 						? Add(domain + ".set",
 				              fmt::format(
-								  "Applies a partial patch to a {} file's fields and saves it; an unknown field, a value outside its "
+								  "Applies a partial patch to {} file's fields and saves it; an unknown field, a value outside its "
 								  "range or one the type refuses changes nothing. Undoable (editor.undo), but the scene does not "
 								  "count as modified. Data assets without a file of their own and read-only files cannot be edited.",
-								  name),
+								  AssetTypeWithArticle(name)),
 				              SchemaBuilder::Object()
 				                  .Property(parameter, assetParameter, true)
 				                  .Property("fields", MakeDataAssetFieldsSchema(type, fmt::format("Partial {} patch", name)), true)

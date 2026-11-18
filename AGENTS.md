@@ -201,7 +201,10 @@ namespace Strada
   inspector and script interop all go through it.
 - Script bindings are bound by name (`ScriptBindings.cpp` ↔ `InternalCalls.cs`); both sides change together.
 - Every editor modification goes through the command history (undo/redo), including automation commands.
-- File formats are versioned JSON; bump the version and add a migration when changing a format.
+- File formats are versioned JSON. A change an older reader would refuse or misread takes the next version, with its
+  migration (or a stated null one), every older version's fixture kept and the new one's added; a new field with a
+  default is a compatible field and takes none. Scenes and prefabs keep their history as data
+  (`VersionedDocumentFormat`); Docs/Architecture.md §7.3 has the steps of a bump.
 - An asset type that is a file of one reflected struct is a data asset: one registration gives its file, editor,
   commands and fuzz test (the `strada-add-data-asset` skill).
 - Code that does measurable work every frame opens a profiler zone (`ST_PROFILE_SCOPE("<Subsystem>.<What>")`,
@@ -216,6 +219,14 @@ namespace Strada
 - Physics is deterministic per platform (Docs/Architecture.md §8): Jolt is called in body-UUID order, results scripts
   see (queries, contact points, contact events) are ordered by a stated key that ends in a UUID, and Jolt's callbacks
   on its worker threads read data fixed for the step or enqueue, never touching engine state.
+- The mix belongs to the mixing thread (Docs/Architecture.md §9.1, §9.2): the main thread changes what is mixed only by
+  commands on the audio queue (`AudioVoiceManager`, `AudioCommandQueue`), never by calling miniaudio's setters while a
+  device mixes; it creates and destroys every object the mix holds and hands it over by command. The mixing thread never
+  allocates, locks, waits or logs; a new effect parameter that is a gain or a mix is ramped frame by frame.
+- Games read controls through input actions (Docs/Architecture.md §7.4): `OnUpdate` sees a press in the frame it
+  happens, and exactly one `OnFixedUpdate`, the first fixed step at or after that frame, sees it in fixed steps. Code
+  that reacts to a press does it in `Event.ActionPressed` / `OnActionPressed`, or asks `IsActionPressed` in its own
+  Update or FixedUpdate flow, never after a wait (a latent continuation reads no edge).
 
 ## Testing
 
@@ -267,8 +278,16 @@ Rules for the other suites:
   imports its downloaded assets again and rewrites the materials made from them.
 - Scripting tests (`Testing::ScriptEngineScope`) run the game scripts of `Tests/TestScripts`; scripts report what they
   saw through entity names and the log.
-- Audio tests run the `AudioEngine` with manual output (`Testing::AudioEngineScope`) and measure the mix they read,
-  so they need no audio device and never depend on timing.
+- Audio tests run the `AudioEngine` with manual output (`Testing::AudioEngineScope`) and measure the mix they read
+  (levels, frequencies, decays), so they need no audio device and never depend on timing or on the audio thread's
+  scheduling. A sample's sound is tested from the player's `--audio-capture` files, as the difference between two
+  captures that differ in one setting; a bound on an effect's output holds whatever the platform's output is (the
+  reverb is not the same filter on every platform). Nothing a test or an agent starts plays through the speakers: a
+  windowed editor or player runs with `STRADA_AUDIO_OUTPUT=null`.
+- Input is tested by injection: `Input`'s setters in C++ tests, `input.set` (keys, mouse, gamepads, actions) through
+  automation, action overrides (`Input.SetActionOverride`) in a sample's test scene; never a real device. A test that
+  rebinds gives the player or the editor an isolated per-user root, since the bindings profile is written below the
+  game's data folder.
 - GPU tests start with `ST_REQUIRE_GPU()` (skips when no Vulkan device is available). Renderer golden images live in
   `Tests/Data/Golden/`; update them only deliberately and review the diff images.
 - C# tests use xUnit v3 in `Tests/ScriptCoreTests` and `Tests/StradaToolTests` (executables ctest runs; packages are

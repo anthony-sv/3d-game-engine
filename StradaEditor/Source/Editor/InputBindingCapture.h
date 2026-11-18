@@ -73,7 +73,7 @@ namespace Strada
 
 		// Where a mouse press binds a mouse button: a rectangle in ImGui's coordinates, in the ImGui viewport given
 		// (ImGuiLayer::InputContext). The panel gives it every frame it draws the prompt.
-		void SetPrompt(glm::vec2 min, glm::vec2 max, uint32_t viewport);
+		void SetPrompt(glm::vec2 topLeft, glm::vec2 bottomRight, uint32_t viewport);
 
 		// A window's input event before ImGui and the game see it. While listening, takes every key press (repeats included),
 		// typed character and mouse button press over the prompt, and returns true; a mouse press elsewhere cancels and

@@ -320,8 +320,8 @@ namespace Strada
 			}
 			if (AssetType const type = AssetManager::GetAssetType(handle.GetValue()); type != AssetType::VisualScript)
 			{
-				return MakeParameterError(parameter,
-				                          fmt::format("asset {} is a {}, not a visual script", handle.GetValue(), AssetTypeToString(type)));
+				return MakeParameterError(
+					parameter, fmt::format("asset {} is {}, not a visual script", handle.GetValue(), AssetTypeWithArticle(type)));
 			}
 			return handle.GetValue();
 		}

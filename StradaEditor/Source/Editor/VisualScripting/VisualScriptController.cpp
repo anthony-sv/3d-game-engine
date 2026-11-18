@@ -11,6 +11,7 @@
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptTimeline.h"
 
+#include "Strada/Asset/Asset.h"
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/FileSystem.h"
@@ -1105,7 +1106,7 @@ namespace Strada
 					std::string const label = GetPinLabel(intent.Pin->Node, intent.Pin->Pin, Direction::In);
 					if (!literal)
 					{
-						m_Result.Notes.push_back(fmt::format("{} cannot take a {}", label, AssetTypeToString(type)));
+						m_Result.Notes.push_back(fmt::format("{} cannot take {}", label, AssetTypeWithArticle(type)));
 						return {};
 					}
 					std::string const stored = ToStored(intent.Pin->Node, intent.Pin->Pin, Direction::In);

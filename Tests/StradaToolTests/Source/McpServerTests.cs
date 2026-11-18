@@ -56,6 +56,12 @@ public sealed class McpServerTests
 		{
 			Assert.Matches($@"\b{tool}\b", instructions);
 		}
+		// Mixers and input actions, the data asset types of the third slice, and input_set's actions and gamepads.
+		foreach (string word in new[] { "mixer_create", "mixer_get", "mixer_set", "input_actions_create", "input_actions_get",
+			"input_actions_set", "project_settings", "input_set", "actions", "gamepads" })
+		{
+			Assert.Matches($@"\b{word}\b", instructions);
+		}
 		// Visual scripts are written through the graph tools, which the instructions name.
 		Assert.Contains("visual scripts", instructions);
 		Assert.Contains("graph_library", instructions);

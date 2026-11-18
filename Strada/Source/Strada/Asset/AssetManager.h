@@ -126,8 +126,8 @@ namespace Strada
 			AssetType const type = T::GetStaticType();
 			if (type == AssetType::None || asset.GetValue()->GetAssetType() != type)
 			{
-				return MakeError("asset {} is a {}, not a {}", handle, AssetTypeToString(asset.GetValue()->GetAssetType()),
-				                 AssetTypeToString(type));
+				return MakeError("asset {} is {}, not {}", handle, AssetTypeWithArticle(asset.GetValue()->GetAssetType()),
+				                 AssetTypeWithArticle(type));
 			}
 			return std::static_pointer_cast<T>(asset.GetValue());
 		}
