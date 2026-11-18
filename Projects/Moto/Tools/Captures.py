@@ -6,8 +6,9 @@ review and for whoever takes the same views again. Author.py --captures runs it:
 The player draws the scene's primary camera and has no camera option, so each view is a copy of the project, outside the
 repository (the system's temporary folder), whose main scene has the main camera where the view puts it, its tour held
 (PlayOnStart off), and the bike where the view puts it: on the grid where it waits, or on the circuit, leaned into a
-corner. A view of the tour instead plays the main scene as it is and takes the frame of a time of the tour. The player
-runs each with a per-user root of its own (APPDATA, LOCALAPPDATA, HOME and XDG_DATA_HOME in a temporary folder), draws
+corner. A view of the tour instead plays the main scene as it is and takes the frame of a time of the tour. The ghost
+bike is hidden in every view (the views are the grid bike's, and a tour's would catch it riding). The player runs each
+with a per-user root of its own (APPDATA, LOCALAPPDATA, HOME and XDG_DATA_HOME in a temporary folder), draws
 1920 by 1080 pixels (--resolution) and saves <output folder>/<view>.png. A run that exits with an error, saves no
 picture, or saves one of another size is run again, twice at most, and then fails the captures.
 """
@@ -25,6 +26,7 @@ sys.path.insert(0, TOOLS)
 import Bike  # noqa: E402  (the motorcycle and its rider)
 import Circuit  # noqa: E402  (the layout)
 import GenerateAssets  # noqa: E402  (the circuit's center)
+import Ghost  # noqa: E402  (the ghost bike's name)
 
 PROJECT = os.path.dirname(TOOLS)
 WIDTH, HEIGHT = 1920, 1080
@@ -162,8 +164,21 @@ def views():
 
 # --- Copies and runs -----------------------------------------------------------------------------------------------------
 
-def find(entities, name):
-    return next(entity for entity in entities if entity["Components"].get("Tag", {}).get("Tag") == name)
+def find(entities, name, parent="0"):
+    """The entity of a name under a parent (by its ID; "0" for a root)."""
+    return next(entity for entity in entities
+                if entity["Components"].get("Tag", {}).get("Tag") == name and entity["Components"]["Relationship"]["Parent"] == parent)
+
+
+def hide(entities, root):
+    """Hides an entity's meshes and its descendants'."""
+    by_id = {entity["ID"]: entity for entity in entities}
+    pending = [root["ID"]]
+    while pending:
+        components = by_id[pending.pop()]["Components"]
+        if "Mesh" in components:
+            components["Mesh"]["Visible"] = False
+        pending += components["Relationship"]["Children"]
 
 
 def stage(view, scene_path, original):
@@ -175,12 +190,13 @@ def stage(view, scene_path, original):
     camera["Transform"]["Rotation"] = list(look(view.eye, view.target))
     camera["Camera"]["PerspectiveFOV"] = view.fov
     camera["VisualScript"]["Variables"] = {"PlayOnStart": {"Type": "Bool", "Value": False}}
+    bike = find(entities, "Bike")
     if view.bike is not None:
         translation, rotation = view.bike.transform()
-        bike = find(entities, "Bike")["Components"]["Transform"]
-        bike["Translation"], bike["Rotation"] = list(translation), list(rotation)
+        transform = bike["Components"]["Transform"]
+        transform["Translation"], transform["Rotation"] = list(translation), list(rotation)
     if not view.rider:
-        find(entities, "Rider")["Components"]["Mesh"]["Visible"] = False
+        find(entities, "Rider", bike["ID"])["Components"]["Mesh"]["Visible"] = False
     with open(scene_path, "w", encoding="utf-8") as file:
         json.dump(scene, file, indent="\t")
 
@@ -238,6 +254,7 @@ def take(player, output, names=None):
         scene_path = os.path.join(copy, "Assets", "Scenes", "Main.sscene")
         with open(scene_path, encoding="utf-8") as file:
             original = json.load(file)
+        hide(original["Entities"], find(original["Entities"], Ghost.ENTITY))
         for view in chosen:
             out = os.path.join(output, f"{view.name}.png")
             if view.tour_time is not None:

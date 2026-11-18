@@ -17,14 +17,20 @@ visual scripts alone (no C#). In order:
 6. the bike part: the motorcycle and its rider on the grid (Bike.py makes them; GenerateAssets.py writes their meshes to
    Meshes/Bike and their livery to Textures/Bike), with their four materials (Materials/Bike), the Bike entity with its
    body, fork, wheels and rider;
-7. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks and without the props) and its
+7. the sound part: the sounds GenerateAudio.py makes (Audio/*.wav: the engine's layers on and off load, the wind, a tyre
+   squeal, a shift blip and a crowd), and the mixer they play through (Audio/Moto.smixer, Sound.py), which the project
+   file names;
+8. the ghost part: the ghost bike, a second motorcycle and rider of the bike part's meshes and materials, at the start and
+   finish line, and its graph (Scripts/Ghost.sgraph), whose timeline rides it round the racing line (RacingLine.py makes
+   the line and its keys, Ghost.py the graph);
+9. the tests part: the test scene (Scenes/Tests.sscene, the main scene with the checks and without the props) and its
    graphs (Checks.py);
-8. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
-   rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
-   path puts it; and nothing logs a warning.
+10. checks: spheres dropped on the road, a kerb, a gravel trap, a verge, the ground, a barrier and the footbridge come to
+    rest on their surfaces; the test scene's checks pass in a test run; the tour plays in play mode, the camera where its
+    path puts it, and so does the ghost, where its line puts it; and nothing logs a warning.
 
     python Projects/Moto/Tools/Author.py [strada executable]
-    python Projects/Moto/Tools/Author.py --part props [strada executable]
+    python Projects/Moto/Tools/Author.py --part <circuit|lighting|camera|props|bike|sound|ghost|tests> [strada executable]
     python Projects/Moto/Tools/Author.py --captures <output folder> --player <StradaRuntime executable> [--views ...]
 
 The project is rebuilt from scratch: everything but this Tools folder is replaced. Without an executable, strada runs
@@ -37,7 +43,7 @@ with nothing changed writes the same files. The tests part follows every other, 
 with the checks and they name its entities; its own entities keep their IDs too. The run compares every file of the
 project outside Tools before and after: when a file the part (or the tests part after it) does not own changed, it names
 the files and fails, also when the authoring itself failed. After a change to how graphs are arranged, `--part camera`
-writes every graph again.
+writes every graph again: the tour's, the ghost's (once the ghost part has made it) and the test scene's.
 
 With --captures, nothing is built: the player takes its screenshots of the main scene from the fixed list of cameras in
 Captures.py, each from a copy of the project outside the repository, at 1920 by 1080 pixels, into the output folder.
@@ -60,8 +66,12 @@ import Circuit  # noqa: E402  (the layout)
 import GenerateAssets  # noqa: E402  (the circuit's meshes, textures and sky)
 import Bike  # noqa: E402  (the motorcycle and its rider)
 import Captures  # noqa: E402  (the player's screenshots from fixed cameras)
+import GenerateAudio  # noqa: E402  (the sounds)
+import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
 import Props  # noqa: E402  (the props' placement)
+import RacingLine  # noqa: E402  (the line the ghost rides)
+import Sound  # noqa: E402  (the mixer)
 import Tour  # noqa: E402  (the camera tour)
 
 PROJECT = os.path.dirname(TOOLS)
@@ -110,25 +120,30 @@ class McpClient:
 
 # Each part: the root entities of the main scene it makes, and the files of the project it may write (paths relative to
 # the project folder, forward slashes; "<folder>/*<extension>" takes the folder's own files of that extension). The tests
-# part makes no entity of the main scene: its own scene is made from it.
+# part makes no entity of the main scene: its own scene is made from it; nor does the sound part, whose files are the
+# sounds, the mixer and the project file that names it. The camera part writes every graph again (the ghost's too).
 PARTS = {
     "circuit": (("Circuit",), ("Assets/Meshes/*.gltf", "Assets/Textures/*.png", "Assets/Environments/*.hdr",
                                "Assets/Materials/*.smat", "Assets/Surfaces/*.sphysmat", "Assets/Scenes/Main.sscene",
                                "Assets/AssetRegistry.sreg")),
     "lighting": (("Sun", "Sky"), ("Assets/Scenes/Main.sscene",)),
-    "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Tour.sgraph", "Assets/AssetRegistry.sreg")),
+    "camera": (("Main Camera",), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Tour.sgraph", "Assets/Scripts/Ghost.sgraph",
+                                  "Assets/AssetRegistry.sreg")),
     "props": (("Props",), ("Assets/Meshes/Props/*.gltf", "Assets/Textures/Props/*.png", "Assets/Materials/Props/*.smat",
                            "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
     "bike": (("Bike",), ("Assets/Meshes/Bike/*.gltf", "Assets/Textures/Bike/*.png", "Assets/Materials/Bike/*.smat",
                          "Assets/Scenes/Main.sscene", "Assets/AssetRegistry.sreg")),
+    "sound": ((), ("Assets/Audio/*.wav", "Assets/Audio/Engine/*.wav", "Assets/Audio/*.smixer", "Moto.sproj",
+                   "Assets/AssetRegistry.sreg")),
+    "ghost": ((Ghost.ENTITY,), ("Assets/Scenes/Main.sscene", "Assets/Scripts/Ghost.sgraph", "Assets/AssetRegistry.sreg")),
     "tests": ((), ("Assets/Scenes/Tests.sscene", "Assets/Scripts/Checks.sgraph", "Assets/Scripts/Tests.sgraph",
                    "Assets/AssetRegistry.sreg")),
 }
-ORDER = ("circuit", "lighting", "camera", "props", "bike", "tests")
+ORDER = ("circuit", "lighting", "camera", "props", "bike", "sound", "ghost", "tests")
 # The parts that make entities of the main scene.
 SCENE_PARTS = ORDER[:-1]
 # Every graph of the project, in the order they are written.
-GRAPHS = (Tour.TOUR,) + Checks.GRAPHS
+GRAPHS = (Tour.TOUR, Ghost.GHOST) + Checks.GRAPHS
 
 
 def hash_project():
@@ -316,7 +331,7 @@ class Moto:
     def build_part(self, part):
         self.remove_roots(PARTS[part][0])
         {"circuit": self.make_circuit, "lighting": self.make_lighting, "camera": self.make_camera, "props": self.make_props,
-         "bike": self.make_bike}[part]()
+         "bike": self.make_bike, "sound": self.make_sound, "ghost": self.make_ghost}[part]()
 
     def write_graphs(self, graphs, declare, write):
         """Writes graphs from scratch, keeping the handles of those that exist: declare(author) adds their interfaces and
@@ -474,6 +489,42 @@ class Moto:
                 "Mesh": {"Mesh": mesh(f"Bike/{mesh_name}"),
                          "Materials": [materials[material] for material in Bike.mesh_materials(mesh_name)]}}, made[parent])
 
+    def make_sound(self):
+        """The sounds (GenerateAudio.py) and the mixer they play through (Sound.py), which the project file names."""
+        GenerateAudio.generate(os.path.join(PROJECT, "Assets"))
+        # Made twice more in memory: the same bytes each time, and what was just written.
+        GenerateAudio.check()
+        refreshed = self.call("asset_refresh")
+        if refreshed.get("warnings"):
+            raise SystemExit(f"the assets refreshed with warnings: {refreshed['warnings']}")
+        reference = f"asset://{Sound.MIXER}"
+        if os.path.exists(os.path.join(PROJECT, "Assets", *Sound.MIXER.split("/"))):
+            self.call("mixer_set", {"mixer": reference, "fields": Sound.mixer()})
+        else:
+            self.call("mixer_create", {"path": Sound.MIXER, "fields": Sound.mixer()})
+        self.call("project_settings", {"settings": {"Mixer": reference}})
+
+    def write_ghost_graph(self):
+        """The ghost's graph, whose timeline holds the racing line's keys (Ghost.py, RacingLine.py)."""
+        print("line:", RacingLine.check())
+
+        def write(author):
+            Ghost.write(author)
+            author.finish(Ghost.GHOST)
+
+        self.write_graphs((Ghost.GHOST,), Ghost.declare, write)
+
+    def make_ghost(self):
+        """The ghost bike: the bike part's meshes and materials under the Ghost entity, at the line's pose where it sets
+        out, with its graph, which rides it round the racing line."""
+        self.write_ghost_graph()
+        made = {"Bike": self.entity(Ghost.ENTITY, {"Transform": Ghost.transform(),
+                                                   "VisualScript": {"Graph": self.handles[Ghost.GHOST]}})}
+        for name, mesh_name, parent, offset, angle in Bike.ENTITIES:
+            materials = [material_reference(f"Bike/{material}") for material in Bike.mesh_materials(mesh_name)]
+            made[name] = self.entity(name, {"Transform": {"Translation": list(offset), "RotationEuler": [angle, 0.0, 0.0]},
+                                            "Mesh": {"Mesh": mesh(f"Bike/{mesh_name}"), "Materials": materials}}, made[parent])
+
     def make_lighting(self):
         self.call("scene_settings", {"name": "Main", "settings": {"Renderer": {
             "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 220.0, "CascadeCount": 4,
@@ -497,6 +548,9 @@ class Moto:
         self.entity("Main Camera", {"Transform": look(Tour.HOME_EYE, Tour.HOME_TARGET),
                                     "Camera": {"PerspectiveFOV": 50.0, "PerspectiveNear": 0.1, "PerspectiveFar": 5000.0},
                                     "AudioListener": {}, "VisualScript": {"Graph": self.handles[Tour.TOUR]}})
+        # Every graph is written again: the ghost's keeps its handle, so its entity stays as it is.
+        if os.path.exists(os.path.join(PROJECT, "Assets", *Ghost.GHOST[len("asset://"):].split("/"))):
+            self.write_ghost_graph()
 
     def make_tests(self):
         """The test scene and its graphs, from the main scene as saved; then every graph is checked and the checks run."""
@@ -515,21 +569,32 @@ class Moto:
             raise SystemExit(f"the test run passed {run['passed']} of {expected} checks")
 
     def check_tour(self):
-        """Plays the main scene for ten seconds and checks that the tour put the camera where its path is then."""
+        """Plays the main scene for ten seconds and checks that the tour put the camera where its path is then, and the
+        ghost (once the ghost part has made it) where its line is then."""
         frames = 600
         self.call("play_start", {"paused": True})
         try:
-            camera = next(entity["id"] for entity in self.call("scene_hierarchy")["entities"] if entity["name"] == "Main Camera")
+            roots = {entity["name"]: entity["id"] for entity in self.call("scene_hierarchy")["entities"]}
             self.call("play_advance", {"frames": frames})
-            at = self.call("component_get", {"entity": camera, "component": "Transform"})["fields"]["Translation"]
+
+            def translation(name):
+                return self.call("component_get", {"entity": roots[name], "component": "Transform"})["fields"]["Translation"]
+
+            at = translation("Main Camera")
+            ghost = translation(Ghost.ENTITY) if Ghost.ENTITY in roots else None
         finally:
             self.call("play_stop")
-        # The tour's time after the frames is a frame either side of theirs.
+        # The tour's time after the frames is a frame either side of theirs, and so is the ghost's.
         seconds = frames / 60.0
         closest = min(math.dist(at, Tour.camera(seconds + k / 60.0)[0]) for k in (-1, 0, 1))
         print(f"  the tour's camera after {seconds:.0f} s: {closest:.2f} m from its path")
         if closest > 0.05:
             raise SystemExit(f"the tour does not play in play mode: the camera is at {at}, {closest:.2f} m from its path")
+        if ghost is not None:
+            closest = min(math.dist(ghost, RacingLine.pose(Ghost.START_AT + seconds + k / 60.0)[0]) for k in (-1, 0, 1))
+            print(f"  the ghost after {seconds:.0f} s: {closest:.2f} m from its line")
+            if closest > 0.1:
+                raise SystemExit(f"the ghost does not ride in play mode: it is at {ghost}, {closest:.2f} m from its line")
 
     # --- Checks ----------------------------------------------------------------------------------------------------------
 

@@ -5488,7 +5488,8 @@ that each platform's names are tested on every platform:
   `MeshCollider`; `lighting`: the sun, the sky and the renderer settings, shadows over 220 m in four cascades;
   `camera`: the main camera, near plane 0.1 m and far plane 5 km, and its tour; `props`: the props' meshes, textures and
   materials and the `Props` entity; `bike`: the motorcycle's and the rider's meshes, livery and materials and the `Bike`
-  entity on the grid; `tests`: the test scene and its graphs);
+  entity on the grid; `sound`: the generated sounds, the mixer and the project file that names it, and no entity yet;
+  `ghost`: the `Ghost` entity and its graph; `tests`: the test scene and its graphs);
   `--part <name>` rebuilds one part in place, then the `tests` part (the test scene is the main scene with the checks,
   which name its entities), and fails, naming them, when files neither owns changed. A part made again keeps what it
   does not change: its roots are made where they stood among the roots, and every entity it makes takes the ID it had
@@ -5540,8 +5541,11 @@ that each platform's names are tested on every platform:
   scene, since `DrawCalls` counts its entity-ID pass as well: at slice 2's gate (`viewport.statistics`) 392 draws of the
   400 with the camera at the start line beside the bike (388 batches, 190 of the draws in the shadow pass), 261 over the
   whole circuit from above and 212 across the main straight's fences. A bike of other materials would add up to 16
-  draws to each pass that sees it and pass 400 there, so MO3's ghost shares the bike's meshes and materials and joins
-  their batches. **The camera tour** is the first sample tour made of a graph
+  draws to each pass that sees it and pass 400 there, so the ghost bike shares the bike's meshes and materials and joins
+  their batches: with it standing at the line, the same view reads 398 draws (394 batches, the shadow pass's 190
+  unchanged) where it read 392 without it, in one sitting of the editor (MO3: 96 more instances, 6 more batches, which
+  were not traced to their passes), and `MotoSceneTests.cpp` renders that view with entity IDs on and holds it
+  within 400. **The camera tour** is the first sample tour made of a graph
   (`Scripts/Tour.sgraph`, on the main camera): a `Flow.Timeline` with two Vector3 curves, `Eye` and `LookAt`, flies the
   camera from the home view once round the lap and back to it in about 51 s; each update sets the camera's
   translation and the Euler angles that point it at `LookAt` (a formula: pitch, then yaw, no roll, so no keyed angle
@@ -5552,9 +5556,43 @@ that each platform's names are tested on every platform:
   gantry, low down the straights and under the footbridge, beside the sector gates' boards, higher over the corners).
   Its `check()` evaluates the curves as the engine does (Catmull-Rom on the keys' times, flat at the ends) and asserts
   that the camera keeps 2 m from every surface of the layout the whole way, which is a property of the data, not of
-  the engine. **The test scene** (`Scenes/Tests.sscene`, the main scene without its props, which stand clear of all it
-  checks, with a crate over the road, two blocks sent
-  sliding with the scene, the `Waiting Tour` and the `Tests` entity) holds 18 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
+  the engine. **The sounds and the mix.** `Tools/GenerateAudio.py` (standard library only, seeded, `--check` makes
+  everything twice in memory and compares the runs with each other and with `Assets`, writing nothing) synthesizes
+  every sound as mono 16-bit PCM at 24 kHz (half the mixer's rate): the engine of a 90° V4 whose cylinders fire at 0,
+  90, 290 and 380° of the 720° cycle (intervals of 90, 200, 90 and 340°: the twin pulse), as eight layers on load
+  (`Audio/Engine/On1` to `On8`) and eight off load (`Off1` to `Off8`) at 2,000 rpm to 16,000 rpm, each 1.346 times the
+  one before; the wind, a tyre squeal and a crowd bed, loops of 4, 2 and 6 s; and a shift blip, a one-shot of 0.42 s.
+  Each engine layer holds a whole number of engine cycles (about 0.8 s; the tool states its exact speed), each pulse
+  a raised cosine into five fixed exhaust resonances, on load with the burning gas's noise, off load weaker, less even,
+  with pops and the gearbox's whine. Every loop is periodic by construction (its sources lie on a circle of its length
+  and its filters run round it twice), and every run measures each file and fails on a broken promise: a peak of at
+  most -1 dBFS, a seam whose step and bend are no larger than the largest inside the loop and whose level lies among
+  the levels inside it, a one-shot that starts and ends in silence, an engine layer that repeats each engine cycle and
+  not each turn of the crank (the twin pulse), 3 MB in all (the twenty files weigh 1.2 MB). `Tools/Sound.py` is the
+  mixer (`Audio/Moto.smixer`, named by `Moto.sproj`): `Master`, with a limiter at -1 dBFS, over `Engine`, `Tyres`,
+  `Ambience`, `Interface` and `Reverb`, which carries a reverb's tail alone (dry at -80 dB) for the footbridge's zone;
+  every bus but `Interface` runs a low-pass standing open at 20 kHz, which the `Paused` snapshot closes to 650 Hz while
+  it lowers those buses by 10 dB. **The racing line** (`Tools/RacingLine.py`, data of the tools as the layout is) takes
+  each corner from the road's outside edge at its turn-in to its inside edge at its apex and out again (4.6 m from the
+  center line; the turn-in and the exit where the widest arc the road allows would leave the edge; apex to apex where
+  the next corner turns the other way too soon), averages the line's points along the lap with a Gaussian of 6 m so
+  that its curvature is continuous, then sets the speed from it: the cornering limit at 1.2 g, a forward pass at what
+  150 kW at the rear wheel gives against the drag (CdA 0.3 m²) and the rolling resistance, at most 9 m/s² (the front
+  lifting), and a backward pass at 11.5 m/s², both sharing the tyres' grip with cornering, round the lap three times;
+  the lean is atan(v²κ/g); the gear follows a stated six-speed gearbox (up at 15,500 rpm, down under 10,500 while
+  braking), and the engine speed and the load (the share of the power given) follow. Its `check()` asserts that the
+  line stays on the asphalt (within 5.2 m of the center line), leans at most 52°, has no step in its speed (also in the
+  speed its keys give) and that its keys reproduce it (1 cm, 0.1° of heading, 0.2° of lean, 15 rpm). **The ghost
+  bike** (`Tools/Ghost.py`, the `ghost` part) is a second bike and rider of the grid bike's meshes and materials, so
+  that the renderer draws both in the same batches, at the start and finish line; it has no rigid body and no
+  collider, and its graph (`Scripts/Ghost.sgraph`) plays a looping timeline of the line's keys over one lap: `Position`,
+  `Heading` (unwrapped degrees about +Y), `Lean`, `EngineSpeed` (two keys at one time at each shift) and `Load`, each
+  key carrying the line's own slopes, as few keys as keep each within its tolerance. Every update places the ghost,
+  turns it by `Heading` after `Lean` (`Quaternion.AngleAxis` twice, multiplied), counts a lap when the timeline's time
+  comes round past the line, and keeps the read-outs `LapTime`, `EngineSpeed` and `Load` that the engine's sound
+  follows; `StartAt` says where on the lap it sets out. **The test scene** (`Scenes/Tests.sscene`, the main scene
+  without its props, which stand clear of all it checks, with a crate over the road, two blocks sent
+  sliding with the scene, the `Waiting Tour`, the ghost set out 30 s into its lap and the `Tests` entity) holds 21 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
   reporting through the `Checks` library): rays down at points of the layout hit the road, a kerb, a wall's top, the
   ground and the footbridge's deck at their heights, facing up, and name the physics material of the asphalt (also
   where a timing line is painted), a kerb, a gravel trap, a verge and the ground; the crate comes to rest on the road;
@@ -5563,14 +5601,17 @@ that each platform's names are tested on every platform:
   at the home view when the scene starts, where the path puts it under the footbridge, home again when the tour ends,
   and off on the next one after it; the `Waiting Tour`, a second entity running `Tour.sgraph` with `PlayOnStart` and
   `Repeat` off, stays where the scene put it until the `Tests` graph sends it `PlayTour`, then flies, and stays at the
-  home view after its one tour. They wait in seconds of the game, with tolerances for a frame of the slowest test
+  home view after its one tour; the ghost leans into Turn 6 within 1° of the line, is within 0.1 m of where the line
+  puts it at three moments of its lap (each read with its own `LapTime` of the same update, the line's point carried on
+  by its velocity over the frame between), and crosses the start and finish line onto its next lap, on the line again.
+  They wait in seconds of the game, with tolerances for a frame of the slowest test
   run, so they pass at 1/60 and 1/30 s a frame; `StradaRuntimeTests` runs them twice at 1/60 s (the same summary each
   time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script; `PlayModeTests` (StradaEditorTests) plays the
   main scene in the editor's play mode, where the camera leaves the home view and stopping brings it back. Every build ends by dropping spheres, in
   play mode's copy of the scene, on the road, a kerb, a gravel trap, a verge, the ground, a wall and the footbridge,
   which must come to rest on those surfaces, by checking every graph (no diagnostic, every node in one box, every box
   arranged), by a test run that must pass every check, by playing the main scene for 10 s in play mode, where the
-  camera must be on the tour's path, and by refusing any warning in the log.
+  camera must be on the tour's path and the ghost on its line, and by refusing any warning in the log.
 - The Showcase's **Graph Garden**: chimes played by six visual scripts (`Scripts/GraphGarden`; `Tools/GraphGarden.py`
   authors them and `Tools/Author.py --exhibit GraphGarden` rebuilds the exhibit in place, with a hash guard that names
   any file outside the exhibit that changed), whose score is a Timeline; seven of the Showcase's 68 checks look at it.

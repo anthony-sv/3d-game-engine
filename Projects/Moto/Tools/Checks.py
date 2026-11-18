@@ -1,7 +1,9 @@
 """Moto's test scene (Scenes/Tests.sscene) and its checks, all of them graphs: the main scene as it is without its props
 (they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
-that waits to be sent it (the Waiting Tour) and the Tests entity, whose graph checks the circuit's surfaces and the camera
-tour one after another, then reports to the test run. Its own entities keep their IDs when it is made again.
+that waits to be sent it (the Waiting Tour) and the Tests entity, whose graph checks the circuit's surfaces, the camera
+tour and the ghost bike one after another, then reports to the test run. Its own entities keep their IDs when it is made
+again. The scene's ghost sets out Ghost.TEST_START_AT seconds into its lap, so that it leans through Turn 6 and crosses
+the start and finish line while the tour flies.
 
 - Checks.sgraph, a function library: reporting a check, and comparing points and directions.
 - Tests.sgraph (the Tests entity): each check a latent function that acts or waits for its moment, then reports through
@@ -15,7 +17,10 @@ says. The tour's checks compare the camera with the path
 Tour.py made: at the home view when the scene starts, under the footbridge when the path passes it, home again when the
 tour ends, and off on the next tour after it. The Waiting Tour checks the tour's interface for other graphs: with
 PlayOnStart off it stays where the scene put it until the Tests graph sends it PlayTour, then it flies, and with Repeat
-off it stays at the home view after its one tour.
+off it stays at the home view after its one tour. The ghost's checks compare it with the racing line RacingLine.py made,
+as its timeline plays the line's keys: leaned into Turn 6 as the line leans there, where the line puts it at three
+moments of its lap (each read with the ghost's own LapTime in the same update, the line's point carried on by its
+velocity for the moments between), and across the start and finish line onto its next lap.
 """
 import math
 import os
@@ -23,7 +28,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import Circuit  # noqa: E402  (the layout)
+import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
+import RacingLine  # noqa: E402  (the line the ghost rides)
 import Tour  # noqa: E402  (the camera tour)
 from Graphs import CHECK, ENTITY, private, public  # noqa: E402
 
@@ -53,6 +60,28 @@ ASPHALT_FRICTION = 1.0
 GRAVEL_FRICTION = 1.5
 # Where the Waiting Tour stands until it is sent PlayTour: 20 m over the home view, where its tour starts.
 WAITING_SPOT = (Tour.HOME_EYE[0], Tour.HOME_EYE[1] + 20.0, Tour.HOME_EYE[2])
+# The moments of the ghost's lap (seconds after the start and finish line) at which it must be where the line puts it,
+# within GHOST_TOLERANCE meters, and its lean in Turn 6 within LEAN_TOLERANCE degrees of the line's. The test scene's
+# ghost reaches them between the slides and the tour's footbridge pass (Ghost.TEST_START_AT).
+GHOST_MOMENTS = (44.0, 48.0, 52.0)
+GHOST_TOLERANCE = 0.1
+LEAN_TOLERANCE = 1.0
+
+
+def turn6_lean():
+    """The moment of the ghost's lap in the middle of its deepest lean through Turn 6, and that lean (degrees, positive
+    right)."""
+    _, start, end, _ = next(row for row in Circuit.corner_ranges() if row[0].name == "Turn 6")
+    inside = [point for point in RacingLine.LINE if start <= point.s <= end]
+    deepest = max(abs(point.lean) for point in inside)
+    plateau = [point for point in inside if abs(point.lean) >= deepest - 0.05]
+    middle = plateau[len(plateau) // 2]
+    return round(middle.time, 3), round(RacingLine.pose(middle.time)[2][0], 3)
+
+
+def ghost_moment(time):
+    """Where the ghost's timeline puts it at a moment of its lap, and its velocity there (rounded as the graph holds them)."""
+    return rounded(RacingLine.pose(time)[0]), rounded(RacingLine.velocity(time))
 
 
 def crate_start():
@@ -163,9 +192,15 @@ def checks():
         ("CheckCrateRests", "Crate: dropped on the road, it comes to rest on it", "a crate dropped on the road comes to rest on it"),
         ("CheckSlides", "Slides: a block slides farther on the asphalt than in the gravel",
          "a block slides farther on the asphalt than in the gravel"),
+        ("CheckGhostLeans", "Ghost lean: leaned into Turn 6 as the racing line leans there",
+         "the ghost leans into Turn 6 as the racing line does"),
+        ("CheckGhostRides", "Ghost line: where the racing line puts it, at three moments of its lap",
+         "the ghost rides the racing line"),
         ("CheckUnderFootbridge", "Footbridge pass: the camera where the tour puts it, under the deck",
          "the tour flies the camera under the footbridge"),
         ("CheckSentTourFlies", "Sent tour: PlayTour from another graph flies it", "a tour sent PlayTour by another graph flies"),
+        ("CheckGhostLaps", "Ghost lap: across the start and finish line and on round its next lap",
+         "the ghost crosses the line and rides on round its next lap"),
         ("CheckTourEndsHome", "Tour end: the camera back at the home view", "the tour ends at the home view"),
         ("CheckTourRepeats", "Repeat: the next tour takes off", "the tour takes off again"),
         ("CheckSentTourStops", "Repeat off: the sent tour stays at the home view after one tour",
@@ -185,6 +220,7 @@ TEST_ENTITIES = (
     ("WaitingTour", "Waiting Tour", "Runs the tour with PlayOnStart and Repeat off; the checks send it PlayTour"),
     ("AsphaltSlider", "Asphalt Slider", "The block sent sliding along the asphalt"),
     ("GravelSlider", "Gravel Slider", "The block sent sliding along a gravel trap"),
+    ("Ghost", Ghost.ENTITY, "The ghost bike riding the racing line"),
 )
 # The test scene's own entities, which it keeps the IDs of when it is made again.
 OWN_ENTITIES = ("Probe Crate", "Asphalt Slider", "Gravel Slider", "Waiting Tour", "Tests")
@@ -201,9 +237,10 @@ def declare(author):
                        ("NearVector", True, (("A", VECTOR), ("B", VECTOR), ("Tolerance", "float")), (("Result", "bool"),), ()),
                        ("Facing", True, (("Direction", VECTOR), ("Expected", VECTOR), ("Degrees", "float")), (("Result", "bool"),), ()),
                    ))
-    author.declare(TESTS, f"The test scene's checks: {len(checks())} checks of Moto's circuit and its camera tour, one after "
-                   "another, each a latent function that acts or waits for its moment, then reports it.", variables=(
-        tuple(public(name, ENTITY, None, tooltip) for name, _, tooltip in TEST_ENTITIES) + (private("StepStart", "double", 0.0),)),
+    author.declare(TESTS, f"The test scene's checks: {len(checks())} checks of Moto's circuit, its camera tour and its ghost "
+                   "bike, one after another, each a latent function that acts or waits for its moment, then reports it.", variables=(
+        tuple(public(name, ENTITY, None, tooltip) for name, _, tooltip in TEST_ENTITIES) +
+        (private("StepStart", "double", 0.0), private("LineError", "float", 0.0))),
         functions=(("Probe", False, (("From", VECTOR), ("Surface", ENTITY), ("Height", "float")),
                     (("Passed", "bool"), ("Detail", "string")), ()),
                    ("ProbeSurface", False, (("From", VECTOR), ("Expected", "string")), (("Passed", "bool"), ("Detail", "string")),
@@ -464,7 +501,67 @@ def check_sent_tour_stops(b, name):
     run(b, check(b, name, ended, 5, waiting_detail(b), done))
 
 
+def ghost_at(b):
+    return b.once("ghost at", lambda: b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=b.var("Ghost")))
+
+
+def ghost_lap(b):
+    """The ghost's read-out of how far into its lap it is (a remote Get of its graph), set in the update that placed it."""
+    return b.once("ghost lap", lambda: b.get("LapTime", Ghost.GHOST, b.var("Ghost")))
+
+
+def ghost_laps(b):
+    return b.once("ghost laps", lambda: b.get("Laps", Ghost.GHOST, b.var("Ghost")))
+
+
+def line_error(b, time):
+    """How far the ghost is from where the line puts it at a moment of its lap, carried on by the line's velocity to the
+    ghost's own LapTime (a frame at most later)."""
+    point, velocity = ghost_moment(time)
+    return b.once(("line error", time), lambda: b.expr("distance(at, point + velocity * (lap - moment))", at=ghost_at(b),
+                                                       point=b.lit(VECTOR, point), velocity=b.lit(VECTOR, velocity),
+                                                       lap=ghost_lap(b), moment=time))
+
+
+def check_ghost_leans(b, name):
+    moment, lean = turn6_lean()
+    # The lean to the right is the ghost's right side tilting down: its Right's height is -sin(lean).
+    leaned = b.expr("degrees(asin(-right.Y))", right=b.pure("Get:Strada.TransformComponent.Right", "Value", Target=b.var("Ghost")))
+    reached = b.expr(f"lap >= {moment}", lap=ghost_lap(b))
+    passed = b.both(reached, b.expr(f"abs(lean - {lean}) <= {LEAN_TOLERANCE}", lean=leaned))
+    detail = b.fmt(f"the ghost leans {{Lean}} degrees at {{Lap}} s of its lap (the line: {lean} at {moment} s)", Lean=leaned,
+                   Lap=ghost_lap(b))
+    run(b, check(b, name, reached, 20, detail, passed))
+
+
+def check_ghost_rides(b, name):
+    # The worst distance from the line over the moments, each read when the ghost's lap reaches it.
+    steps = [b.set("LineError", 0.0)]
+    for moment in GHOST_MOMENTS:
+        first, waited = wait_until(b, b.expr(f"lap >= {moment}", lap=ghost_lap(b)), 20)
+        worst = b.set("LineError", b.expr("max(worst, error)", worst=b.var("LineError"), error=line_error(b, moment)))
+        b.flow(waited, worst)
+        steps.append((first, worst))
+    passed = b.expr(f"worst <= {GHOST_TOLERANCE}", worst=b.var("LineError"))
+    detail = b.fmt(f"the ghost strays {{Worst}} m at most from the line at {', '.join(f'{moment:g}' for moment in GHOST_MOMENTS)} s "
+                   "of its lap", Worst=b.var("LineError"))
+    reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, *steps, reported)
+
+
+def check_ghost_laps(b, name):
+    crossed = b.expr("laps >= 1", laps=ghost_laps(b))
+    near = b.expr(f"laps == 1 && lap < 0.1 && error <= {GHOST_TOLERANCE}", laps=ghost_laps(b), lap=ghost_lap(b),
+                  error=line_error(b, 0.0))
+    detail = b.fmt("{Laps} laps; {Lap} s into the next, {Error} m from the line", Laps=ghost_laps(b), Lap=ghost_lap(b),
+                   Error=line_error(b, 0.0))
+    run(b, check(b, name, crossed, math.ceil(RacingLine.length()), detail, near))
+
+
 WRITERS = {
+    "CheckGhostLeans": check_ghost_leans,
+    "CheckGhostRides": check_ghost_rides,
+    "CheckGhostLaps": check_ghost_laps,
     "CheckTourStartsHome": check_tour_starts_home,
     "CheckTourWaits": check_tour_waits,
     "CheckSentTourFlies": check_sent_tour_flies,
@@ -543,6 +640,11 @@ def build_scene(session, handles, project):
     missing = [scene_name for _, scene_name, _ in TEST_ENTITIES if scene_name not in found]
     if missing:
         raise SystemExit(f"the test scene has no {', '.join(missing)}")
+    # The ghost sets out into its lap where its checks find it early in the run, from the line's pose there.
+    ghost = found[Ghost.ENTITY]
+    session.call("component_set", {"entity": ghost, "component": "Transform", "fields": Ghost.transform(Ghost.TEST_START_AT)})
+    session.call("component_set", {"entity": ghost, "component": "VisualScript", "fields": {
+        "Variables": {"StartAt": {"Type": "Float", "Value": Ghost.TEST_START_AT}}}})
     create("Tests", {"VisualScript": {"Graph": handles[TESTS], "Variables": {
         name: entity_value(found[scene_name]) for name, scene_name, _ in TEST_ENTITIES}}})
     session.call("scene_save")

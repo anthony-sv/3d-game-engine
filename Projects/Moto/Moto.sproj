@@ -5,6 +5,10 @@
 	},
 	"Project": {
 		"Name": "Strada Moto",
+		"Identity": {
+			"Company": "",
+			"Product": ""
+		},
 		"AssetDirectory": "Assets",
 		"ScriptModule": "Scripts/Binaries/Game.dll",
 		"StartScene": "1594086459268679014",
@@ -19,10 +23,14 @@
 		},
 		"Physics": {
 			"FixedTimestep": 0.01666666753590107,
+			"MaxStepsPerFrame": 8,
+			"CollisionSteps": 1,
 			"Layers": [
 				"Default"
 			],
 			"IgnoredCollisions": []
-		}
+		},
+		"InputActions": "0",
+		"Mixer": "16475335016188520105"
 	}
 }

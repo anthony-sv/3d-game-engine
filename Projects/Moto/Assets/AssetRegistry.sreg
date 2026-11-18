@@ -5,6 +5,111 @@
 	},
 	"Assets": [
 		{
+			"Handle": "14046300926306855744",
+			"Type": "AudioClip",
+			"Path": "Audio/Crowd.wav"
+		},
+		{
+			"Handle": "16775207887944971445",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/Off1.wav"
+		},
+		{
+			"Handle": "5695866175981364344",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/Off2.wav"
+		},
+		{
+			"Handle": "4396963956586787972",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/Off3.wav"
+		},
+		{
+			"Handle": "8149029902755975715",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/Off4.wav"
+		},
+		{
+			"Handle": "2619398586129802378",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/Off5.wav"
+		},
+		{
+			"Handle": "8681143167758392069",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/Off6.wav"
+		},
+		{
+			"Handle": "8064165286108201672",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/Off7.wav"
+		},
+		{
+			"Handle": "8947149122574558393",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/Off8.wav"
+		},
+		{
+			"Handle": "7921413717635758035",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/On1.wav"
+		},
+		{
+			"Handle": "13904905335613237551",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/On2.wav"
+		},
+		{
+			"Handle": "6137069414110706683",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/On3.wav"
+		},
+		{
+			"Handle": "17704194001081059877",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/On4.wav"
+		},
+		{
+			"Handle": "7031801106368864788",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/On5.wav"
+		},
+		{
+			"Handle": "379061891840396889",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/On6.wav"
+		},
+		{
+			"Handle": "17440079429498135798",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/On7.wav"
+		},
+		{
+			"Handle": "6498517839979917322",
+			"Type": "AudioClip",
+			"Path": "Audio/Engine/On8.wav"
+		},
+		{
+			"Handle": "16475335016188520105",
+			"Type": "Mixer",
+			"Path": "Audio/Moto.smixer"
+		},
+		{
+			"Handle": "7696652054141987567",
+			"Type": "AudioClip",
+			"Path": "Audio/ShiftBlip.wav"
+		},
+		{
+			"Handle": "14838743391013920626",
+			"Type": "AudioClip",
+			"Path": "Audio/TyreSqueal.wav"
+		},
+		{
+			"Handle": "6543511114734156246",
+			"Type": "AudioClip",
+			"Path": "Audio/Wind.wav"
+		},
+		{
 			"Handle": "2831819387962288542",
 			"Type": "Environment",
 			"Path": "Environments/Sky.hdr"
@@ -333,6 +438,11 @@
 			"Handle": "11160837631458717455",
 			"Type": "VisualScript",
 			"Path": "Scripts/Checks.sgraph"
+		},
+		{
+			"Handle": "10119309049923292088",
+			"Type": "VisualScript",
+			"Path": "Scripts/Ghost.sgraph"
 		},
 		{
 			"Handle": "7930426497277894226",

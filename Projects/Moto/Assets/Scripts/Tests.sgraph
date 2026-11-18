@@ -4,7 +4,7 @@
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
-		"Description": "The test scene's checks: 18 checks of Moto's circuit and its camera tour, one after another, each a latent function that acts or waits for its moment, then reports it.",
+		"Description": "The test scene's checks: 21 checks of Moto's circuit, its camera tour and its ghost bike, one after another, each a latent function that acts or waits for its moment, then reports it.",
 		"Variables": [
 			{
 				"ID": 1,
@@ -71,14 +71,27 @@
 			},
 			{
 				"ID": 10,
+				"Name": "Ghost",
+				"Type": "Strada.Entity",
+				"Public": true,
+				"Tooltip": "The ghost bike riding the racing line"
+			},
+			{
+				"ID": 11,
 				"Name": "StepStart",
 				"Type": "double",
+				"Value": 0.0
+			},
+			{
+				"ID": 12,
+				"Name": "LineError",
+				"Type": "float",
 				"Value": 0.0
 			}
 		],
 		"Functions": [
 			{
-				"ID": 11,
+				"ID": 13,
 				"Name": "Probe",
 				"Pure": false,
 				"Inputs": [
@@ -109,7 +122,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 12,
+							"ID": 14,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -117,7 +130,7 @@
 							]
 						},
 						{
-							"ID": 13,
+							"ID": 15,
 							"Type": "Function.Return",
 							"Position": [
 								1184.0,
@@ -125,7 +138,7 @@
 							]
 						},
 						{
-							"ID": 72,
+							"ID": 83,
 							"Type": "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
 							"Position": [
 								192.0,
@@ -141,7 +154,7 @@
 							}
 						},
 						{
-							"ID": 73,
+							"ID": 84,
 							"Type": "Get:Strada.RaycastHit.Entity",
 							"Position": [
 								560.0,
@@ -149,7 +162,7 @@
 							]
 						},
 						{
-							"ID": 74,
+							"ID": 85,
 							"Type": "Get:Strada.RaycastHit.Point",
 							"Position": [
 								768.0,
@@ -157,7 +170,7 @@
 							]
 						},
 						{
-							"ID": 75,
+							"ID": 86,
 							"Type": "Get:Strada.RaycastHit.Normal",
 							"Position": [
 								768.0,
@@ -165,7 +178,7 @@
 							]
 						},
 						{
-							"ID": 76,
+							"ID": 87,
 							"Type": "Operator.Equal",
 							"Position": [
 								768.0,
@@ -173,7 +186,7 @@
 							]
 						},
 						{
-							"ID": 77,
+							"ID": 88,
 							"Type": "Expression",
 							"Position": [
 								976.0,
@@ -184,7 +197,7 @@
 							}
 						},
 						{
-							"ID": 78,
+							"ID": 89,
 							"Type": "FormatString",
 							"Position": [
 								976.0,
@@ -198,188 +211,188 @@
 					"Links": [
 						{
 							"From": [
-								12,
+								14,
 								"From"
 							],
 							"To": [
-								72,
+								83,
 								"Origin"
 							]
 						},
 						{
 							"From": [
-								72,
+								83,
 								"Hit"
 							],
 							"To": [
-								73,
+								84,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								72,
+								83,
 								"Hit"
 							],
 							"To": [
-								74,
+								85,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								72,
+								83,
 								"Hit"
 							],
 							"To": [
-								75,
+								86,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								73,
+								84,
 								"Value"
 							],
 							"To": [
-								76,
+								87,
 								"A"
 							]
 						},
 						{
 							"From": [
-								12,
+								14,
 								"Surface"
 							],
 							"To": [
-								76,
+								87,
 								"B"
 							]
 						},
 						{
 							"From": [
-								72,
+								83,
 								"Result"
 							],
 							"To": [
-								77,
+								88,
 								"hit"
 							]
 						},
 						{
 							"From": [
-								76,
+								87,
 								"Result"
 							],
 							"To": [
-								77,
+								88,
 								"same"
 							]
 						},
 						{
 							"From": [
-								74,
+								85,
 								"Value"
 							],
 							"To": [
-								77,
+								88,
 								"point"
 							]
 						},
 						{
 							"From": [
-								12,
+								14,
 								"Height"
 							],
 							"To": [
-								77,
+								88,
 								"height"
 							]
 						},
 						{
 							"From": [
-								75,
+								86,
 								"Value"
 							],
 							"To": [
-								77,
+								88,
 								"normal"
 							]
 						},
 						{
 							"From": [
-								77,
+								88,
 								"Result"
 							],
 							"To": [
-								13,
+								15,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								73,
+								84,
 								"Value"
 							],
 							"To": [
-								78,
+								89,
 								"Surface"
 							]
 						},
 						{
 							"From": [
-								74,
+								85,
 								"Value"
 							],
 							"To": [
-								78,
+								89,
 								"Point"
 							]
 						},
 						{
 							"From": [
-								75,
+								86,
 								"Value"
 							],
 							"To": [
-								78,
+								89,
 								"Normal"
 							]
 						},
 						{
 							"From": [
-								78,
+								89,
 								"Result"
 							],
 							"To": [
-								13,
+								15,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								12,
+								14,
 								"Then"
 							],
 							"To": [
-								72,
+								83,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								72,
+								83,
 								"Then"
 							],
 							"To": [
-								13,
+								15,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 79,
+							"ID": 90,
 							"Text": "Probe: the surface a ray down from a point hits, at its height",
 							"Position": [
 								-32.0,
@@ -400,7 +413,7 @@
 				}
 			},
 			{
-				"ID": 14,
+				"ID": 16,
 				"Name": "ProbeSurface",
 				"Pure": false,
 				"Inputs": [
@@ -425,7 +438,7 @@
 				],
 				"Locals": [
 					{
-						"ID": 17,
+						"ID": 19,
 						"Name": "Found",
 						"Type": "string",
 						"Value": ""
@@ -434,7 +447,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 15,
+							"ID": 17,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -442,7 +455,7 @@
 							]
 						},
 						{
-							"ID": 16,
+							"ID": 18,
 							"Type": "Function.Return",
 							"Position": [
 								1408.0,
@@ -450,7 +463,7 @@
 							]
 						},
 						{
-							"ID": 80,
+							"ID": 91,
 							"Type": "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
 							"Position": [
 								192.0,
@@ -466,7 +479,7 @@
 							}
 						},
 						{
-							"ID": 81,
+							"ID": 92,
 							"Type": "Get:Strada.RaycastHit.Material",
 							"Position": [
 								560.0,
@@ -474,7 +487,7 @@
 							]
 						},
 						{
-							"ID": 82,
+							"ID": 93,
 							"Type": "IsValid",
 							"Position": [
 								768.0,
@@ -482,7 +495,7 @@
 							]
 						},
 						{
-							"ID": 83,
+							"ID": 94,
 							"Type": "Flow.Branch",
 							"Position": [
 								976.0,
@@ -491,7 +504,7 @@
 							"Comment": "A collider without a physics material names none"
 						},
 						{
-							"ID": 84,
+							"ID": 95,
 							"Type": "Get:Strada.PhysicsMaterial.Surface",
 							"Position": [
 								976.0,
@@ -499,29 +512,29 @@
 							]
 						},
 						{
-							"ID": 85,
+							"ID": 96,
 							"Type": "Variable.Set",
 							"Position": [
 								1200.0,
 								0.0
 							],
 							"Settings": {
-								"Variable": 17
+								"Variable": 19
 							}
 						},
 						{
-							"ID": 86,
+							"ID": 97,
 							"Type": "Variable.Get",
 							"Position": [
 								768.0,
 								112.0
 							],
 							"Settings": {
-								"Variable": 17
+								"Variable": 19
 							}
 						},
 						{
-							"ID": 87,
+							"ID": 98,
 							"Type": "Operator.Equal",
 							"Position": [
 								976.0,
@@ -529,7 +542,7 @@
 							]
 						},
 						{
-							"ID": 88,
+							"ID": 99,
 							"Type": "Operator.And",
 							"Position": [
 								1200.0,
@@ -537,7 +550,7 @@
 							]
 						},
 						{
-							"ID": 89,
+							"ID": 100,
 							"Type": "Get:Strada.RaycastHit.Point",
 							"Position": [
 								976.0,
@@ -545,7 +558,7 @@
 							]
 						},
 						{
-							"ID": 90,
+							"ID": 101,
 							"Type": "FormatString",
 							"Position": [
 								1200.0,
@@ -559,208 +572,208 @@
 					"Links": [
 						{
 							"From": [
-								15,
+								17,
 								"From"
 							],
 							"To": [
-								80,
+								91,
 								"Origin"
 							]
 						},
 						{
 							"From": [
-								80,
+								91,
 								"Hit"
 							],
 							"To": [
-								81,
+								92,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								81,
+								92,
 								"Value"
 							],
 							"To": [
-								82,
+								93,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								82,
+								93,
 								"Result"
 							],
 							"To": [
-								83,
+								94,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								81,
+								92,
 								"Value"
 							],
 							"To": [
-								84,
+								95,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								84,
+								95,
 								"Value"
 							],
 							"To": [
-								85,
+								96,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								86,
+								97,
 								"Value"
 							],
 							"To": [
-								87,
+								98,
 								"A"
 							]
 						},
 						{
 							"From": [
-								15,
+								17,
 								"Expected"
 							],
 							"To": [
-								87,
+								98,
 								"B"
 							]
 						},
 						{
 							"From": [
-								80,
+								91,
 								"Result"
 							],
 							"To": [
-								88,
+								99,
 								"A"
 							]
 						},
 						{
 							"From": [
-								87,
+								98,
 								"Result"
 							],
 							"To": [
-								88,
+								99,
 								"B"
 							]
 						},
 						{
 							"From": [
-								88,
+								99,
 								"Result"
 							],
 							"To": [
-								16,
+								18,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								80,
+								91,
 								"Hit"
 							],
 							"To": [
-								89,
+								100,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								86,
+								97,
 								"Value"
 							],
 							"To": [
-								90,
+								101,
 								"Found"
 							]
 						},
 						{
 							"From": [
-								89,
+								100,
 								"Value"
 							],
 							"To": [
-								90,
+								101,
 								"Point"
 							]
 						},
 						{
 							"From": [
-								90,
+								101,
 								"Result"
 							],
 							"To": [
-								16,
+								18,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								15,
+								17,
 								"Then"
 							],
 							"To": [
-								80,
+								91,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								80,
+								91,
 								"Then"
 							],
 							"To": [
-								83,
+								94,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								83,
+								94,
 								"True"
 							],
 							"To": [
-								85,
+								96,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								85,
+								96,
 								"Then"
 							],
 							"To": [
-								16,
+								18,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								83,
+								94,
 								"False"
 							],
 							"To": [
-								16,
+								18,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 91,
+							"ID": 102,
 							"Text": "Probe surface: the physics material a ray down from a point hits",
 							"Position": [
 								-32.0,
@@ -781,7 +794,7 @@
 				}
 			},
 			{
-				"ID": 18,
+				"ID": 20,
 				"Name": "CheckTourStartsHome",
 				"Pure": false,
 				"Inputs": [],
@@ -790,7 +803,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 19,
+							"ID": 21,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -798,7 +811,7 @@
 							]
 						},
 						{
-							"ID": 20,
+							"ID": 22,
 							"Type": "Function.Return",
 							"Position": [
 								1648.0,
@@ -806,7 +819,7 @@
 							]
 						},
 						{
-							"ID": 92,
+							"ID": 103,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -817,7 +830,7 @@
 							}
 						},
 						{
-							"ID": 93,
+							"ID": 104,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								192.0,
@@ -825,7 +838,7 @@
 							]
 						},
 						{
-							"ID": 94,
+							"ID": 105,
 							"Type": "Function.Call",
 							"Position": [
 								416.0,
@@ -845,7 +858,7 @@
 							}
 						},
 						{
-							"ID": 95,
+							"ID": 106,
 							"Type": "Get:Strada.TransformComponent.Forward",
 							"Position": [
 								192.0,
@@ -853,7 +866,7 @@
 							]
 						},
 						{
-							"ID": 96,
+							"ID": 107,
 							"Type": "Function.Call",
 							"Position": [
 								416.0,
@@ -873,7 +886,7 @@
 							}
 						},
 						{
-							"ID": 97,
+							"ID": 108,
 							"Type": "Operator.And",
 							"Position": [
 								784.0,
@@ -881,7 +894,7 @@
 							]
 						},
 						{
-							"ID": 98,
+							"ID": 109,
 							"Type": "FormatString",
 							"Position": [
 								1136.0,
@@ -892,7 +905,7 @@
 							}
 						},
 						{
-							"ID": 99,
+							"ID": 110,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
@@ -900,29 +913,29 @@
 							]
 						},
 						{
-							"ID": 100,
+							"ID": 111,
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
 								256.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 101,
+							"ID": 112,
 							"Type": "Variable.Get",
 							"Position": [
 								784.0,
 								80.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 102,
+							"ID": 113,
 							"Type": "Expression",
 							"Position": [
 								944.0,
@@ -933,7 +946,7 @@
 							}
 						},
 						{
-							"ID": 103,
+							"ID": 114,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1136.0,
@@ -941,7 +954,7 @@
 							]
 						},
 						{
-							"ID": 104,
+							"ID": 115,
 							"Type": "Function.Call",
 							"Position": [
 								1376.0,
@@ -959,198 +972,198 @@
 					"Links": [
 						{
 							"From": [
-								92,
+								103,
 								"Value"
 							],
 							"To": [
-								93,
+								104,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								93,
+								104,
 								"Value"
 							],
 							"To": [
-								94,
+								105,
 								"A"
 							]
 						},
 						{
 							"From": [
-								92,
+								103,
 								"Value"
 							],
 							"To": [
-								95,
+								106,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								95,
+								106,
 								"Value"
 							],
 							"To": [
-								96,
+								107,
 								"Direction"
 							]
 						},
 						{
 							"From": [
-								94,
+								105,
 								"Result"
 							],
 							"To": [
-								97,
+								108,
 								"A"
 							]
 						},
 						{
 							"From": [
-								96,
+								107,
 								"Result"
 							],
 							"To": [
-								97,
+								108,
 								"B"
 							]
 						},
 						{
 							"From": [
-								93,
+								104,
 								"Value"
 							],
 							"To": [
-								98,
+								109,
 								"At"
 							]
 						},
 						{
 							"From": [
-								95,
+								106,
 								"Value"
 							],
 							"To": [
-								98,
+								109,
 								"Forward"
 							]
 						},
 						{
 							"From": [
-								99,
+								110,
 								"Value"
 							],
 							"To": [
-								100,
+								111,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								99,
+								110,
 								"Value"
 							],
 							"To": [
-								102,
+								113,
 								"now"
 							]
 						},
 						{
 							"From": [
-								101,
+								112,
 								"Value"
 							],
 							"To": [
-								102,
+								113,
 								"start"
 							]
 						},
 						{
 							"From": [
-								97,
+								108,
 								"Result"
 							],
 							"To": [
-								102,
+								113,
 								"done"
 							]
 						},
 						{
 							"From": [
-								102,
+								113,
 								"Result"
 							],
 							"To": [
-								103,
+								114,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								100,
+								111,
 								"Then"
 							],
 							"To": [
-								103,
+								114,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								97,
+								108,
 								"Result"
 							],
 							"To": [
-								104,
+								115,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								98,
+								109,
 								"Result"
 							],
 							"To": [
-								104,
+								115,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								103,
+								114,
 								"Completed"
 							],
 							"To": [
-								104,
+								115,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								19,
+								21,
 								"Then"
 							],
 							"To": [
-								100,
+								111,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								104,
+								115,
 								"Then"
 							],
 							"To": [
-								20,
+								22,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 105,
+							"ID": 116,
 							"Text": "Tour start: the camera at the home view, looking down the straight",
 							"Position": [
 								-32.0,
@@ -1171,7 +1184,7 @@
 				}
 			},
 			{
-				"ID": 21,
+				"ID": 23,
 				"Name": "CheckTourWaits",
 				"Pure": false,
 				"Inputs": [],
@@ -1180,7 +1193,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 22,
+							"ID": 24,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -1188,7 +1201,7 @@
 							]
 						},
 						{
-							"ID": 23,
+							"ID": 25,
 							"Type": "Function.Return",
 							"Position": [
 								1824.0,
@@ -1196,7 +1209,7 @@
 							]
 						},
 						{
-							"ID": 106,
+							"ID": 117,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -1207,7 +1220,7 @@
 							}
 						},
 						{
-							"ID": 107,
+							"ID": 118,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								192.0,
@@ -1215,7 +1228,7 @@
 							]
 						},
 						{
-							"ID": 108,
+							"ID": 119,
 							"Type": "Function.Call",
 							"Position": [
 								416.0,
@@ -1235,7 +1248,7 @@
 							}
 						},
 						{
-							"ID": 109,
+							"ID": 120,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -1247,7 +1260,7 @@
 							}
 						},
 						{
-							"ID": 110,
+							"ID": 121,
 							"Type": "Expression",
 							"Position": [
 								416.0,
@@ -1258,7 +1271,7 @@
 							}
 						},
 						{
-							"ID": 111,
+							"ID": 122,
 							"Type": "Operator.And",
 							"Position": [
 								736.0,
@@ -1266,7 +1279,7 @@
 							]
 						},
 						{
-							"ID": 112,
+							"ID": 123,
 							"Type": "Event.Send",
 							"Position": [
 								1632.0,
@@ -1280,7 +1293,7 @@
 							"Comment": "Its tour takes off now, half a second after the camera's"
 						},
 						{
-							"ID": 113,
+							"ID": 124,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
@@ -1288,29 +1301,29 @@
 							]
 						},
 						{
-							"ID": 114,
+							"ID": 125,
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
 								256.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 115,
+							"ID": 126,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
 								304.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 116,
+							"ID": 127,
 							"Type": "Expression",
 							"Position": [
 								192.0,
@@ -1321,7 +1334,7 @@
 							}
 						},
 						{
-							"ID": 117,
+							"ID": 128,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								416.0,
@@ -1329,7 +1342,7 @@
 							]
 						},
 						{
-							"ID": 118,
+							"ID": 129,
 							"Type": "FormatString",
 							"Position": [
 								1120.0,
@@ -1340,18 +1353,18 @@
 							}
 						},
 						{
-							"ID": 119,
+							"ID": 130,
 							"Type": "Variable.Set",
 							"Position": [
 								736.0,
 								80.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 120,
+							"ID": 131,
 							"Type": "Expression",
 							"Position": [
 								928.0,
@@ -1362,7 +1375,7 @@
 							}
 						},
 						{
-							"ID": 121,
+							"ID": 132,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1120.0,
@@ -1370,7 +1383,7 @@
 							]
 						},
 						{
-							"ID": 122,
+							"ID": 133,
 							"Type": "Function.Call",
 							"Position": [
 								1360.0,
@@ -1388,278 +1401,278 @@
 					"Links": [
 						{
 							"From": [
-								106,
+								117,
 								"Value"
 							],
 							"To": [
-								107,
+								118,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								107,
+								118,
 								"Value"
 							],
 							"To": [
-								108,
+								119,
 								"A"
 							]
 						},
 						{
 							"From": [
-								106,
+								117,
 								"Value"
 							],
 							"To": [
-								109,
+								120,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								109,
+								120,
 								"Value"
 							],
 							"To": [
-								110,
+								121,
 								"tours"
 							]
 						},
 						{
 							"From": [
-								108,
+								119,
 								"Result"
 							],
 							"To": [
-								111,
+								122,
 								"A"
 							]
 						},
 						{
 							"From": [
-								110,
+								121,
 								"Result"
 							],
 							"To": [
-								111,
+								122,
 								"B"
 							]
 						},
 						{
 							"From": [
-								106,
+								117,
 								"Value"
 							],
 							"To": [
-								112,
+								123,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								113,
+								124,
 								"Value"
 							],
 							"To": [
-								114,
+								125,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								113,
+								124,
 								"Value"
 							],
 							"To": [
-								116,
+								127,
 								"now"
 							]
 						},
 						{
 							"From": [
-								115,
+								126,
 								"Value"
 							],
 							"To": [
-								116,
+								127,
 								"start"
 							]
 						},
 						{
 							"From": [
-								116,
+								127,
 								"Result"
 							],
 							"To": [
-								117,
+								128,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								114,
+								125,
 								"Then"
 							],
 							"To": [
-								117,
+								128,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								107,
+								118,
 								"Value"
 							],
 							"To": [
-								118,
+								129,
 								"At"
 							]
 						},
 						{
 							"From": [
-								109,
+								120,
 								"Value"
 							],
 							"To": [
-								118,
+								129,
 								"Tours"
 							]
 						},
 						{
 							"From": [
-								113,
+								124,
 								"Value"
 							],
 							"To": [
-								119,
+								130,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								113,
+								124,
 								"Value"
 							],
 							"To": [
-								120,
+								131,
 								"now"
 							]
 						},
 						{
 							"From": [
-								115,
+								126,
 								"Value"
 							],
 							"To": [
-								120,
+								131,
 								"start"
 							]
 						},
 						{
 							"From": [
-								111,
+								122,
 								"Result"
 							],
 							"To": [
-								120,
+								131,
 								"done"
 							]
 						},
 						{
 							"From": [
-								120,
+								131,
 								"Result"
 							],
 							"To": [
-								121,
+								132,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								119,
+								130,
 								"Then"
 							],
 							"To": [
-								121,
+								132,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								111,
+								122,
 								"Result"
 							],
 							"To": [
-								122,
+								133,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								118,
+								129,
 								"Result"
 							],
 							"To": [
-								122,
+								133,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								121,
+								132,
 								"Completed"
 							],
 							"To": [
-								122,
+								133,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								22,
+								24,
 								"Then"
 							],
 							"To": [
-								114,
+								125,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								117,
+								128,
 								"Completed"
 							],
 							"To": [
-								119,
+								130,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								122,
+								133,
 								"Then"
 							],
 							"To": [
-								112,
+								123,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								112,
+								123,
 								"Then"
 							],
 							"To": [
-								23,
+								25,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 123,
+							"ID": 134,
 							"Text": "Waiting tour: with PlayOnStart off it stays put, then is sent PlayTour",
 							"Position": [
 								-32.0,
@@ -1680,7 +1693,7 @@
 				}
 			},
 			{
-				"ID": 24,
+				"ID": 26,
 				"Name": "CheckRoad",
 				"Pure": false,
 				"Inputs": [],
@@ -1689,7 +1702,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 25,
+							"ID": 27,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -1697,7 +1710,7 @@
 							]
 						},
 						{
-							"ID": 26,
+							"ID": 28,
 							"Type": "Function.Return",
 							"Position": [
 								816.0,
@@ -1705,7 +1718,7 @@
 							]
 						},
 						{
-							"ID": 124,
+							"ID": 135,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -1716,14 +1729,14 @@
 							}
 						},
 						{
-							"ID": 125,
+							"ID": 136,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 11
+								"Function": 13
 							},
 							"Inputs": {
 								"From": [
@@ -1735,7 +1748,7 @@
 							}
 						},
 						{
-							"ID": 126,
+							"ID": 137,
 							"Type": "Function.Call",
 							"Position": [
 								544.0,
@@ -1753,68 +1766,68 @@
 					"Links": [
 						{
 							"From": [
-								124,
+								135,
 								"Value"
 							],
 							"To": [
-								125,
+								136,
 								"Surface"
 							]
 						},
 						{
 							"From": [
-								125,
+								136,
 								"Passed"
 							],
 							"To": [
-								126,
+								137,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								125,
+								136,
 								"Detail"
 							],
 							"To": [
-								126,
+								137,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								25,
+								27,
 								"Then"
 							],
 							"To": [
-								125,
+								136,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								125,
+								136,
 								"Then"
 							],
 							"To": [
-								126,
+								137,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								126,
+								137,
 								"Then"
 							],
 							"To": [
-								26,
+								28,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 127,
+							"ID": 138,
 							"Text": "Road: the main straight's crown, 2 m right of the line",
 							"Position": [
 								-32.0,
@@ -1835,7 +1848,7 @@
 				}
 			},
 			{
-				"ID": 27,
+				"ID": 29,
 				"Name": "CheckKerb",
 				"Pure": false,
 				"Inputs": [],
@@ -1844,7 +1857,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 28,
+							"ID": 30,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -1852,7 +1865,7 @@
 							]
 						},
 						{
-							"ID": 29,
+							"ID": 31,
 							"Type": "Function.Return",
 							"Position": [
 								816.0,
@@ -1860,7 +1873,7 @@
 							]
 						},
 						{
-							"ID": 128,
+							"ID": 139,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -1871,14 +1884,14 @@
 							}
 						},
 						{
-							"ID": 129,
+							"ID": 140,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 11
+								"Function": 13
 							},
 							"Inputs": {
 								"From": [
@@ -1890,7 +1903,7 @@
 							}
 						},
 						{
-							"ID": 130,
+							"ID": 141,
 							"Type": "Function.Call",
 							"Position": [
 								544.0,
@@ -1908,68 +1921,68 @@
 					"Links": [
 						{
 							"From": [
-								128,
+								139,
 								"Value"
 							],
 							"To": [
-								129,
+								140,
 								"Surface"
 							]
 						},
 						{
 							"From": [
-								129,
+								140,
 								"Passed"
 							],
 							"To": [
-								130,
+								141,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								129,
+								140,
 								"Detail"
 							],
 							"To": [
-								130,
+								141,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								28,
+								30,
 								"Then"
 							],
 							"To": [
-								129,
+								140,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								129,
+								140,
 								"Then"
 							],
 							"To": [
-								130,
+								141,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								130,
+								141,
 								"Then"
 							],
 							"To": [
-								29,
+								31,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 131,
+							"ID": 142,
 							"Text": "Kerb: raised on the inside of Turn 6",
 							"Position": [
 								-32.0,
@@ -1990,7 +2003,7 @@
 				}
 			},
 			{
-				"ID": 30,
+				"ID": 32,
 				"Name": "CheckBarrier",
 				"Pure": false,
 				"Inputs": [],
@@ -1999,7 +2012,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 31,
+							"ID": 33,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -2007,7 +2020,7 @@
 							]
 						},
 						{
-							"ID": 32,
+							"ID": 34,
 							"Type": "Function.Return",
 							"Position": [
 								816.0,
@@ -2015,7 +2028,7 @@
 							]
 						},
 						{
-							"ID": 132,
+							"ID": 143,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -2026,14 +2039,14 @@
 							}
 						},
 						{
-							"ID": 133,
+							"ID": 144,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 11
+								"Function": 13
 							},
 							"Inputs": {
 								"From": [
@@ -2045,7 +2058,7 @@
 							}
 						},
 						{
-							"ID": 134,
+							"ID": 145,
 							"Type": "Function.Call",
 							"Position": [
 								544.0,
@@ -2063,68 +2076,68 @@
 					"Links": [
 						{
 							"From": [
-								132,
+								143,
 								"Value"
 							],
 							"To": [
-								133,
+								144,
 								"Surface"
 							]
 						},
 						{
 							"From": [
-								133,
+								144,
 								"Passed"
 							],
 							"To": [
-								134,
+								145,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								133,
+								144,
 								"Detail"
 							],
 							"To": [
-								134,
+								145,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								31,
+								33,
 								"Then"
 							],
 							"To": [
-								133,
+								144,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								133,
+								144,
 								"Then"
 							],
 							"To": [
-								134,
+								145,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								134,
+								145,
 								"Then"
 							],
 							"To": [
-								32,
+								34,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 135,
+							"ID": 146,
 							"Text": "Barrier: its top, beside the back straight",
 							"Position": [
 								-32.0,
@@ -2145,7 +2158,7 @@
 				}
 			},
 			{
-				"ID": 33,
+				"ID": 35,
 				"Name": "CheckGround",
 				"Pure": false,
 				"Inputs": [],
@@ -2154,7 +2167,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 34,
+							"ID": 36,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -2162,7 +2175,7 @@
 							]
 						},
 						{
-							"ID": 35,
+							"ID": 37,
 							"Type": "Function.Return",
 							"Position": [
 								816.0,
@@ -2170,7 +2183,7 @@
 							]
 						},
 						{
-							"ID": 136,
+							"ID": 147,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -2181,14 +2194,14 @@
 							}
 						},
 						{
-							"ID": 137,
+							"ID": 148,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 11
+								"Function": 13
 							},
 							"Inputs": {
 								"From": [
@@ -2200,7 +2213,7 @@
 							}
 						},
 						{
-							"ID": 138,
+							"ID": 149,
 							"Type": "Function.Call",
 							"Position": [
 								544.0,
@@ -2218,68 +2231,68 @@
 					"Links": [
 						{
 							"From": [
-								136,
+								147,
 								"Value"
 							],
 							"To": [
-								137,
+								148,
 								"Surface"
 							]
 						},
 						{
 							"From": [
-								137,
+								148,
 								"Passed"
 							],
 							"To": [
-								138,
+								149,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								137,
+								148,
 								"Detail"
 							],
 							"To": [
-								138,
+								149,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								34,
+								36,
 								"Then"
 							],
 							"To": [
-								137,
+								148,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								137,
+								148,
 								"Then"
 							],
 							"To": [
-								138,
+								149,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								138,
+								149,
 								"Then"
 							],
 							"To": [
-								35,
+								37,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 139,
+							"ID": 150,
 							"Text": "Ground: the grass beyond the barrier",
 							"Position": [
 								-32.0,
@@ -2300,7 +2313,7 @@
 				}
 			},
 			{
-				"ID": 36,
+				"ID": 38,
 				"Name": "CheckFootbridge",
 				"Pure": false,
 				"Inputs": [],
@@ -2309,7 +2322,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 37,
+							"ID": 39,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -2317,7 +2330,7 @@
 							]
 						},
 						{
-							"ID": 38,
+							"ID": 40,
 							"Type": "Function.Return",
 							"Position": [
 								816.0,
@@ -2325,7 +2338,7 @@
 							]
 						},
 						{
-							"ID": 140,
+							"ID": 151,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -2336,14 +2349,14 @@
 							}
 						},
 						{
-							"ID": 141,
+							"ID": 152,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 11
+								"Function": 13
 							},
 							"Inputs": {
 								"From": [
@@ -2355,7 +2368,7 @@
 							}
 						},
 						{
-							"ID": 142,
+							"ID": 153,
 							"Type": "Function.Call",
 							"Position": [
 								544.0,
@@ -2373,68 +2386,68 @@
 					"Links": [
 						{
 							"From": [
-								140,
+								151,
 								"Value"
 							],
 							"To": [
-								141,
+								152,
 								"Surface"
 							]
 						},
 						{
 							"From": [
-								141,
+								152,
 								"Passed"
 							],
 							"To": [
-								142,
+								153,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								141,
+								152,
 								"Detail"
 							],
 							"To": [
-								142,
+								153,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								37,
+								39,
 								"Then"
 							],
 							"To": [
-								141,
+								152,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								141,
+								152,
 								"Then"
 							],
 							"To": [
-								142,
+								153,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								142,
+								153,
 								"Then"
 							],
 							"To": [
-								38,
+								40,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 143,
+							"ID": 154,
 							"Text": "Footbridge: its deck over the back straight",
 							"Position": [
 								-32.0,
@@ -2455,7 +2468,7 @@
 				}
 			},
 			{
-				"ID": 39,
+				"ID": 41,
 				"Name": "CheckAsphaltSurface",
 				"Pure": false,
 				"Inputs": [],
@@ -2464,7 +2477,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 40,
+							"ID": 42,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -2472,7 +2485,7 @@
 							]
 						},
 						{
-							"ID": 41,
+							"ID": 43,
 							"Type": "Function.Return",
 							"Position": [
 								1376.0,
@@ -2480,14 +2493,14 @@
 							]
 						},
 						{
-							"ID": 144,
+							"ID": 155,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 14
+								"Function": 16
 							},
 							"Inputs": {
 								"From": [
@@ -2499,14 +2512,14 @@
 							}
 						},
 						{
-							"ID": 145,
+							"ID": 156,
 							"Type": "Function.Call",
 							"Position": [
 								544.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 14
+								"Function": 16
 							},
 							"Inputs": {
 								"From": [
@@ -2518,7 +2531,7 @@
 							}
 						},
 						{
-							"ID": 146,
+							"ID": 157,
 							"Type": "Operator.And",
 							"Position": [
 								896.0,
@@ -2526,7 +2539,7 @@
 							]
 						},
 						{
-							"ID": 147,
+							"ID": 158,
 							"Type": "FormatString",
 							"Position": [
 								896.0,
@@ -2537,7 +2550,7 @@
 							}
 						},
 						{
-							"ID": 148,
+							"ID": 159,
 							"Type": "Function.Call",
 							"Position": [
 								1104.0,
@@ -2555,108 +2568,108 @@
 					"Links": [
 						{
 							"From": [
-								144,
+								155,
 								"Passed"
 							],
 							"To": [
-								146,
+								157,
 								"A"
 							]
 						},
 						{
 							"From": [
-								145,
+								156,
 								"Passed"
 							],
 							"To": [
-								146,
+								157,
 								"B"
 							]
 						},
 						{
 							"From": [
-								144,
+								155,
 								"Detail"
 							],
 							"To": [
-								147,
+								158,
 								"First"
 							]
 						},
 						{
 							"From": [
-								145,
+								156,
 								"Detail"
 							],
 							"To": [
-								147,
+								158,
 								"Second"
 							]
 						},
 						{
 							"From": [
-								146,
+								157,
 								"Result"
 							],
 							"To": [
-								148,
+								159,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								147,
+								158,
 								"Result"
 							],
 							"To": [
-								148,
+								159,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								40,
+								42,
 								"Then"
 							],
 							"To": [
-								144,
+								155,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								144,
+								155,
 								"Then"
 							],
 							"To": [
-								145,
+								156,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								145,
+								156,
 								"Then"
 							],
 							"To": [
-								148,
+								159,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								148,
+								159,
 								"Then"
 							],
 							"To": [
-								41,
+								43,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 149,
+							"ID": 160,
 							"Text": "Asphalt: the road, and where the first sector line is painted",
 							"Position": [
 								-32.0,
@@ -2677,7 +2690,7 @@
 				}
 			},
 			{
-				"ID": 42,
+				"ID": 44,
 				"Name": "CheckKerbSurface",
 				"Pure": false,
 				"Inputs": [],
@@ -2686,7 +2699,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 43,
+							"ID": 45,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -2694,7 +2707,7 @@
 							]
 						},
 						{
-							"ID": 44,
+							"ID": 46,
 							"Type": "Function.Return",
 							"Position": [
 								816.0,
@@ -2702,14 +2715,14 @@
 							]
 						},
 						{
-							"ID": 150,
+							"ID": 161,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 14
+								"Function": 16
 							},
 							"Inputs": {
 								"From": [
@@ -2721,7 +2734,7 @@
 							}
 						},
 						{
-							"ID": 151,
+							"ID": 162,
 							"Type": "Function.Call",
 							"Position": [
 								544.0,
@@ -2739,58 +2752,58 @@
 					"Links": [
 						{
 							"From": [
-								150,
+								161,
 								"Passed"
 							],
 							"To": [
-								151,
+								162,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								150,
+								161,
 								"Detail"
 							],
 							"To": [
-								151,
+								162,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								43,
+								45,
 								"Then"
 							],
 							"To": [
-								150,
+								161,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								150,
+								161,
 								"Then"
 							],
 							"To": [
-								151,
+								162,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								151,
+								162,
 								"Then"
 							],
 							"To": [
-								44,
+								46,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 152,
+							"ID": 163,
 							"Text": "Kerb: the kerb on the inside of Turn 6",
 							"Position": [
 								-32.0,
@@ -2811,7 +2824,7 @@
 				}
 			},
 			{
-				"ID": 45,
+				"ID": 47,
 				"Name": "CheckGravelSurface",
 				"Pure": false,
 				"Inputs": [],
@@ -2820,7 +2833,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 46,
+							"ID": 48,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -2828,7 +2841,7 @@
 							]
 						},
 						{
-							"ID": 47,
+							"ID": 49,
 							"Type": "Function.Return",
 							"Position": [
 								816.0,
@@ -2836,14 +2849,14 @@
 							]
 						},
 						{
-							"ID": 153,
+							"ID": 164,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 14
+								"Function": 16
 							},
 							"Inputs": {
 								"From": [
@@ -2855,7 +2868,7 @@
 							}
 						},
 						{
-							"ID": 154,
+							"ID": 165,
 							"Type": "Function.Call",
 							"Position": [
 								544.0,
@@ -2873,58 +2886,58 @@
 					"Links": [
 						{
 							"From": [
-								153,
+								164,
 								"Passed"
 							],
 							"To": [
-								154,
+								165,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								153,
+								164,
 								"Detail"
 							],
 							"To": [
-								154,
+								165,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								46,
+								48,
 								"Then"
 							],
 							"To": [
-								153,
+								164,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								153,
+								164,
 								"Then"
 							],
 							"To": [
-								154,
+								165,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								154,
+								165,
 								"Then"
 							],
 							"To": [
-								47,
+								49,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 155,
+							"ID": 166,
 							"Text": "Gravel: the trap on the outside of Turn 6",
 							"Position": [
 								-32.0,
@@ -2945,7 +2958,7 @@
 				}
 			},
 			{
-				"ID": 48,
+				"ID": 50,
 				"Name": "CheckGrassSurface",
 				"Pure": false,
 				"Inputs": [],
@@ -2954,7 +2967,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 49,
+							"ID": 51,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -2962,7 +2975,7 @@
 							]
 						},
 						{
-							"ID": 50,
+							"ID": 52,
 							"Type": "Function.Return",
 							"Position": [
 								1376.0,
@@ -2970,14 +2983,14 @@
 							]
 						},
 						{
-							"ID": 156,
+							"ID": 167,
 							"Type": "Function.Call",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 14
+								"Function": 16
 							},
 							"Inputs": {
 								"From": [
@@ -2989,14 +3002,14 @@
 							}
 						},
 						{
-							"ID": 157,
+							"ID": 168,
 							"Type": "Function.Call",
 							"Position": [
 								544.0,
 								0.0
 							],
 							"Settings": {
-								"Function": 14
+								"Function": 16
 							},
 							"Inputs": {
 								"From": [
@@ -3008,7 +3021,7 @@
 							}
 						},
 						{
-							"ID": 158,
+							"ID": 169,
 							"Type": "Operator.And",
 							"Position": [
 								896.0,
@@ -3016,7 +3029,7 @@
 							]
 						},
 						{
-							"ID": 159,
+							"ID": 170,
 							"Type": "FormatString",
 							"Position": [
 								896.0,
@@ -3027,7 +3040,7 @@
 							}
 						},
 						{
-							"ID": 160,
+							"ID": 171,
 							"Type": "Function.Call",
 							"Position": [
 								1104.0,
@@ -3045,108 +3058,108 @@
 					"Links": [
 						{
 							"From": [
-								156,
+								167,
 								"Passed"
 							],
 							"To": [
-								158,
+								169,
 								"A"
 							]
 						},
 						{
 							"From": [
-								157,
+								168,
 								"Passed"
 							],
 							"To": [
-								158,
+								169,
 								"B"
 							]
 						},
 						{
 							"From": [
-								156,
+								167,
 								"Detail"
 							],
 							"To": [
-								159,
+								170,
 								"First"
 							]
 						},
 						{
 							"From": [
-								157,
+								168,
 								"Detail"
 							],
 							"To": [
-								159,
+								170,
 								"Second"
 							]
 						},
 						{
 							"From": [
-								158,
+								169,
 								"Result"
 							],
 							"To": [
-								160,
+								171,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								159,
+								170,
 								"Result"
 							],
 							"To": [
-								160,
+								171,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								49,
+								51,
 								"Then"
 							],
 							"To": [
-								156,
+								167,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								156,
+								167,
 								"Then"
 							],
 							"To": [
-								157,
+								168,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								157,
+								168,
 								"Then"
 							],
 							"To": [
-								160,
+								171,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								160,
+								171,
 								"Then"
 							],
 							"To": [
-								50,
+								52,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 161,
+							"ID": 172,
 							"Text": "Grass: a verge, and the ground beyond the barrier",
 							"Position": [
 								-32.0,
@@ -3167,7 +3180,7 @@
 				}
 			},
 			{
-				"ID": 51,
+				"ID": 53,
 				"Name": "CheckCrateRests",
 				"Pure": false,
 				"Inputs": [],
@@ -3176,7 +3189,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 52,
+							"ID": 54,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -3184,7 +3197,7 @@
 							]
 						},
 						{
-							"ID": 53,
+							"ID": 55,
 							"Type": "Function.Return",
 							"Position": [
 								1648.0,
@@ -3192,7 +3205,7 @@
 							]
 						},
 						{
-							"ID": 162,
+							"ID": 173,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -3203,7 +3216,7 @@
 							}
 						},
 						{
-							"ID": 163,
+							"ID": 174,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								592.0,
@@ -3211,7 +3224,7 @@
 							]
 						},
 						{
-							"ID": 164,
+							"ID": 175,
 							"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
 							"Position": [
 								192.0,
@@ -3219,7 +3232,7 @@
 							]
 						},
 						{
-							"ID": 165,
+							"ID": 176,
 							"Type": "Expression",
 							"Position": [
 								400.0,
@@ -3230,7 +3243,7 @@
 							}
 						},
 						{
-							"ID": 166,
+							"ID": 177,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
@@ -3238,7 +3251,7 @@
 							]
 						},
 						{
-							"ID": 167,
+							"ID": 178,
 							"Type": "Expression",
 							"Position": [
 								592.0,
@@ -3249,7 +3262,7 @@
 							}
 						},
 						{
-							"ID": 168,
+							"ID": 179,
 							"Type": "Function.Call",
 							"Position": [
 								816.0,
@@ -3269,7 +3282,7 @@
 							}
 						},
 						{
-							"ID": 169,
+							"ID": 180,
 							"Type": "Operator.And",
 							"Position": [
 								1136.0,
@@ -3277,7 +3290,7 @@
 							]
 						},
 						{
-							"ID": 170,
+							"ID": 181,
 							"Type": "FormatString",
 							"Position": [
 								1136.0,
@@ -3288,29 +3301,29 @@
 							}
 						},
 						{
-							"ID": 171,
+							"ID": 182,
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
 								128.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 172,
+							"ID": 183,
 							"Type": "Variable.Get",
 							"Position": [
 								592.0,
 								272.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 173,
+							"ID": 184,
 							"Type": "Expression",
 							"Position": [
 								816.0,
@@ -3321,7 +3334,7 @@
 							}
 						},
 						{
-							"ID": 174,
+							"ID": 185,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1136.0,
@@ -3329,7 +3342,7 @@
 							]
 						},
 						{
-							"ID": 175,
+							"ID": 186,
 							"Type": "Function.Call",
 							"Position": [
 								1376.0,
@@ -3347,218 +3360,218 @@
 					"Links": [
 						{
 							"From": [
-								162,
+								173,
 								"Value"
 							],
 							"To": [
-								163,
+								174,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								162,
+								173,
 								"Value"
 							],
 							"To": [
-								164,
+								175,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								164,
+								175,
 								"Value"
 							],
 							"To": [
-								165,
+								176,
 								"v"
 							]
 						},
 						{
 							"From": [
-								166,
+								177,
 								"Value"
 							],
 							"To": [
-								167,
+								178,
 								"now"
 							]
 						},
 						{
 							"From": [
-								165,
+								176,
 								"Result"
 							],
 							"To": [
-								167,
+								178,
 								"speed"
 							]
 						},
 						{
 							"From": [
-								163,
+								174,
 								"Value"
 							],
 							"To": [
-								168,
+								179,
 								"A"
 							]
 						},
 						{
 							"From": [
-								167,
+								178,
 								"Result"
 							],
 							"To": [
-								169,
+								180,
 								"A"
 							]
 						},
 						{
 							"From": [
-								168,
+								179,
 								"Result"
 							],
 							"To": [
-								169,
+								180,
 								"B"
 							]
 						},
 						{
 							"From": [
-								163,
+								174,
 								"Value"
 							],
 							"To": [
-								170,
+								181,
 								"At"
 							]
 						},
 						{
 							"From": [
-								165,
+								176,
 								"Result"
 							],
 							"To": [
-								170,
+								181,
 								"Speed"
 							]
 						},
 						{
 							"From": [
-								166,
+								177,
 								"Value"
 							],
 							"To": [
-								171,
+								182,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								166,
+								177,
 								"Value"
 							],
 							"To": [
-								173,
+								184,
 								"now"
 							]
 						},
 						{
 							"From": [
-								172,
+								183,
 								"Value"
 							],
 							"To": [
-								173,
+								184,
 								"start"
 							]
 						},
 						{
 							"From": [
-								167,
+								178,
 								"Result"
 							],
 							"To": [
-								173,
+								184,
 								"done"
 							]
 						},
 						{
 							"From": [
-								173,
+								184,
 								"Result"
 							],
 							"To": [
-								174,
+								185,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								171,
+								182,
 								"Then"
 							],
 							"To": [
-								174,
+								185,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								169,
+								180,
 								"Result"
 							],
 							"To": [
-								175,
+								186,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								170,
+								181,
 								"Result"
 							],
 							"To": [
-								175,
+								186,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								174,
+								185,
 								"Completed"
 							],
 							"To": [
-								175,
+								186,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								52,
+								54,
 								"Then"
 							],
 							"To": [
-								171,
+								182,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								175,
+								186,
 								"Then"
 							],
 							"To": [
-								53,
+								55,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 176,
+							"ID": 187,
 							"Text": "Crate: dropped on the road, it comes to rest on it",
 							"Position": [
 								-32.0,
@@ -3579,7 +3592,7 @@
 				}
 			},
 			{
-				"ID": 54,
+				"ID": 56,
 				"Name": "CheckSlides",
 				"Pure": false,
 				"Inputs": [],
@@ -3588,7 +3601,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 55,
+							"ID": 57,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -3596,7 +3609,7 @@
 							]
 						},
 						{
-							"ID": 56,
+							"ID": 58,
 							"Type": "Function.Return",
 							"Position": [
 								1520.0,
@@ -3604,7 +3617,7 @@
 							]
 						},
 						{
-							"ID": 177,
+							"ID": 188,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -3615,7 +3628,7 @@
 							}
 						},
 						{
-							"ID": 178,
+							"ID": 189,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -3626,7 +3639,7 @@
 							}
 						},
 						{
-							"ID": 179,
+							"ID": 190,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								400.0,
@@ -3634,7 +3647,7 @@
 							]
 						},
 						{
-							"ID": 180,
+							"ID": 191,
 							"Type": "Literal",
 							"Position": [
 								400.0,
@@ -3650,7 +3663,7 @@
 							}
 						},
 						{
-							"ID": 181,
+							"ID": 192,
 							"Type": "Expression",
 							"Position": [
 								624.0,
@@ -3661,7 +3674,7 @@
 							}
 						},
 						{
-							"ID": 182,
+							"ID": 193,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								400.0,
@@ -3669,7 +3682,7 @@
 							]
 						},
 						{
-							"ID": 183,
+							"ID": 194,
 							"Type": "Literal",
 							"Position": [
 								400.0,
@@ -3685,7 +3698,7 @@
 							}
 						},
 						{
-							"ID": 184,
+							"ID": 195,
 							"Type": "Expression",
 							"Position": [
 								624.0,
@@ -3696,7 +3709,7 @@
 							}
 						},
 						{
-							"ID": 185,
+							"ID": 196,
 							"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
 							"Position": [
 								192.0,
@@ -3704,7 +3717,7 @@
 							]
 						},
 						{
-							"ID": 186,
+							"ID": 197,
 							"Type": "Expression",
 							"Position": [
 								400.0,
@@ -3715,7 +3728,7 @@
 							}
 						},
 						{
-							"ID": 187,
+							"ID": 198,
 							"Type": "Get:Strada.RigidBodyComponent.LinearVelocity",
 							"Position": [
 								192.0,
@@ -3723,7 +3736,7 @@
 							]
 						},
 						{
-							"ID": 188,
+							"ID": 199,
 							"Type": "Expression",
 							"Position": [
 								400.0,
@@ -3734,7 +3747,7 @@
 							}
 						},
 						{
-							"ID": 189,
+							"ID": 200,
 							"Type": "Expression",
 							"Position": [
 								624.0,
@@ -3745,7 +3758,7 @@
 							}
 						},
 						{
-							"ID": 190,
+							"ID": 201,
 							"Type": "Expression",
 							"Position": [
 								816.0,
@@ -3756,7 +3769,7 @@
 							}
 						},
 						{
-							"ID": 191,
+							"ID": 202,
 							"Type": "Operator.And",
 							"Position": [
 								1008.0,
@@ -3764,7 +3777,7 @@
 							]
 						},
 						{
-							"ID": 192,
+							"ID": 203,
 							"Type": "FormatString",
 							"Position": [
 								1008.0,
@@ -3775,7 +3788,7 @@
 							}
 						},
 						{
-							"ID": 193,
+							"ID": 204,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
@@ -3783,29 +3796,29 @@
 							]
 						},
 						{
-							"ID": 194,
+							"ID": 205,
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 195,
+							"ID": 206,
 							"Type": "Variable.Get",
 							"Position": [
 								624.0,
 								432.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 196,
+							"ID": 207,
 							"Type": "Expression",
 							"Position": [
 								816.0,
@@ -3816,7 +3829,7 @@
 							}
 						},
 						{
-							"ID": 197,
+							"ID": 208,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1008.0,
@@ -3824,7 +3837,7 @@
 							]
 						},
 						{
-							"ID": 198,
+							"ID": 209,
 							"Type": "Function.Call",
 							"Position": [
 								1248.0,
@@ -3842,182 +3855,42 @@
 					"Links": [
 						{
 							"From": [
-								177,
+								188,
 								"Value"
 							],
 							"To": [
-								179,
+								190,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								179,
+								190,
 								"Value"
 							],
 							"To": [
-								181,
+								192,
 								"at"
 							]
 						},
 						{
 							"From": [
-								180,
+								191,
 								"Value"
 							],
 							"To": [
-								181,
+								192,
 								"start"
 							]
 						},
 						{
 							"From": [
-								178,
-								"Value"
-							],
-							"To": [
-								182,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								182,
-								"Value"
-							],
-							"To": [
-								184,
-								"at"
-							]
-						},
-						{
-							"From": [
-								183,
-								"Value"
-							],
-							"To": [
-								184,
-								"start"
-							]
-						},
-						{
-							"From": [
-								177,
-								"Value"
-							],
-							"To": [
-								185,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								185,
-								"Value"
-							],
-							"To": [
-								186,
-								"v"
-							]
-						},
-						{
-							"From": [
-								178,
-								"Value"
-							],
-							"To": [
-								187,
-								"Target"
-							]
-						},
-						{
-							"From": [
-								187,
-								"Value"
-							],
-							"To": [
-								188,
-								"v"
-							]
-						},
-						{
-							"From": [
-								186,
-								"Result"
-							],
-							"To": [
 								189,
-								"a"
-							]
-						},
-						{
-							"From": [
-								188,
-								"Result"
+								"Value"
 							],
 							"To": [
-								189,
-								"g"
-							]
-						},
-						{
-							"From": [
-								181,
-								"Result"
-							],
-							"To": [
-								190,
-								"a"
-							]
-						},
-						{
-							"From": [
-								184,
-								"Result"
-							],
-							"To": [
-								190,
-								"g"
-							]
-						},
-						{
-							"From": [
-								189,
-								"Result"
-							],
-							"To": [
-								191,
-								"A"
-							]
-						},
-						{
-							"From": [
-								190,
-								"Result"
-							],
-							"To": [
-								191,
-								"B"
-							]
-						},
-						{
-							"From": [
-								181,
-								"Result"
-							],
-							"To": [
-								192,
-								"Asphalt"
-							]
-						},
-						{
-							"From": [
-								184,
-								"Result"
-							],
-							"To": [
-								192,
-								"Gravel"
+								193,
+								"Target"
 							]
 						},
 						{
@@ -4026,68 +3899,118 @@
 								"Value"
 							],
 							"To": [
+								195,
+								"at"
+							]
+						},
+						{
+							"From": [
 								194,
 								"Value"
+							],
+							"To": [
+								195,
+								"start"
 							]
 						},
 						{
 							"From": [
-								193,
+								188,
 								"Value"
 							],
 							"To": [
 								196,
-								"now"
+								"Target"
+							]
+						},
+						{
+							"From": [
+								196,
+								"Value"
+							],
+							"To": [
+								197,
+								"v"
+							]
+						},
+						{
+							"From": [
+								189,
+								"Value"
+							],
+							"To": [
+								198,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								198,
+								"Value"
+							],
+							"To": [
+								199,
+								"v"
+							]
+						},
+						{
+							"From": [
+								197,
+								"Result"
+							],
+							"To": [
+								200,
+								"a"
+							]
+						},
+						{
+							"From": [
+								199,
+								"Result"
+							],
+							"To": [
+								200,
+								"g"
+							]
+						},
+						{
+							"From": [
+								192,
+								"Result"
+							],
+							"To": [
+								201,
+								"a"
 							]
 						},
 						{
 							"From": [
 								195,
-								"Value"
-							],
-							"To": [
-								196,
-								"start"
-							]
-						},
-						{
-							"From": [
-								189,
 								"Result"
 							],
 							"To": [
-								196,
-								"done"
+								201,
+								"g"
 							]
 						},
 						{
 							"From": [
-								196,
+								200,
 								"Result"
 							],
 							"To": [
-								197,
-								"Condition"
+								202,
+								"A"
 							]
 						},
 						{
 							"From": [
-								194,
-								"Then"
-							],
-							"To": [
-								197,
-								"Execute"
-							]
-						},
-						{
-							"From": [
-								191,
+								201,
 								"Result"
 							],
 							"To": [
-								198,
-								"Passed"
+								202,
+								"B"
 							]
 						},
 						{
@@ -4096,44 +4019,134 @@
 								"Result"
 							],
 							"To": [
-								198,
+								203,
+								"Asphalt"
+							]
+						},
+						{
+							"From": [
+								195,
+								"Result"
+							],
+							"To": [
+								203,
+								"Gravel"
+							]
+						},
+						{
+							"From": [
+								204,
+								"Value"
+							],
+							"To": [
+								205,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								204,
+								"Value"
+							],
+							"To": [
+								207,
+								"now"
+							]
+						},
+						{
+							"From": [
+								206,
+								"Value"
+							],
+							"To": [
+								207,
+								"start"
+							]
+						},
+						{
+							"From": [
+								200,
+								"Result"
+							],
+							"To": [
+								207,
+								"done"
+							]
+						},
+						{
+							"From": [
+								207,
+								"Result"
+							],
+							"To": [
+								208,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								205,
+								"Then"
+							],
+							"To": [
+								208,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								202,
+								"Result"
+							],
+							"To": [
+								209,
+								"Passed"
+							]
+						},
+						{
+							"From": [
+								203,
+								"Result"
+							],
+							"To": [
+								209,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								197,
+								208,
 								"Completed"
 							],
 							"To": [
-								198,
+								209,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								55,
+								57,
 								"Then"
 							],
 							"To": [
-								194,
+								205,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								198,
+								209,
 								"Then"
 							],
 							"To": [
-								56,
+								58,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 199,
+							"ID": 210,
 							"Text": "Slides: a block slides farther on the asphalt than in the gravel",
 							"Position": [
 								-32.0,
@@ -4154,7 +4167,1463 @@
 				}
 			},
 			{
-				"ID": 57,
+				"ID": 59,
+				"Name": "CheckGhostLeans",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 60,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								64.0
+							]
+						},
+						{
+							"ID": 61,
+							"Type": "Function.Return",
+							"Position": [
+								1296.0,
+								0.0
+							]
+						},
+						{
+							"ID": 211,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 212,
+							"Type": "Get:Strada.TransformComponent.Right",
+							"Position": [
+								192.0,
+								0.0
+							]
+						},
+						{
+							"ID": 213,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "degrees(asin(-right.Y))"
+							}
+						},
+						{
+							"ID": 214,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 3,
+								"Graph": "10119309049923292088"
+							}
+						},
+						{
+							"ID": 215,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "lap >= 43.383"
+							}
+						},
+						{
+							"ID": 216,
+							"Type": "Expression",
+							"Position": [
+								592.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "abs(lean - 50.15) <= 1.0"
+							}
+						},
+						{
+							"ID": 217,
+							"Type": "Operator.And",
+							"Position": [
+								784.0,
+								0.0
+							]
+						},
+						{
+							"ID": 218,
+							"Type": "FormatString",
+							"Position": [
+								784.0,
+								80.0
+							],
+							"Settings": {
+								"Format": "the ghost leans {Lean} degrees at {Lap} s of its lap (the line: 50.15 at 43.383 s)"
+							}
+						},
+						{
+							"ID": 219,
+							"Type": "Get:Strada.Time.Elapsed",
+							"Position": [
+								0.0,
+								176.0
+							]
+						},
+						{
+							"ID": 220,
+							"Type": "Variable.Set",
+							"Position": [
+								192.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 221,
+							"Type": "Variable.Get",
+							"Position": [
+								400.0,
+								256.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 222,
+							"Type": "Expression",
+							"Position": [
+								592.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "done || now - start > 20"
+							}
+						},
+						{
+							"ID": 223,
+							"Type": "Flow.WaitUntil",
+							"Position": [
+								784.0,
+								208.0
+							]
+						},
+						{
+							"ID": 224,
+							"Type": "Function.Call",
+							"Position": [
+								1024.0,
+								0.0
+							],
+							"Settings": {
+								"Graph": "11160837631458717455",
+								"Function": 1
+							},
+							"Inputs": {
+								"Name": "Moto: the ghost leans into Turn 6 as the racing line does"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								211,
+								"Value"
+							],
+							"To": [
+								212,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								212,
+								"Value"
+							],
+							"To": [
+								213,
+								"right"
+							]
+						},
+						{
+							"From": [
+								211,
+								"Value"
+							],
+							"To": [
+								214,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								214,
+								"Value"
+							],
+							"To": [
+								215,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								213,
+								"Result"
+							],
+							"To": [
+								216,
+								"lean"
+							]
+						},
+						{
+							"From": [
+								215,
+								"Result"
+							],
+							"To": [
+								217,
+								"A"
+							]
+						},
+						{
+							"From": [
+								216,
+								"Result"
+							],
+							"To": [
+								217,
+								"B"
+							]
+						},
+						{
+							"From": [
+								213,
+								"Result"
+							],
+							"To": [
+								218,
+								"Lean"
+							]
+						},
+						{
+							"From": [
+								214,
+								"Value"
+							],
+							"To": [
+								218,
+								"Lap"
+							]
+						},
+						{
+							"From": [
+								219,
+								"Value"
+							],
+							"To": [
+								220,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								219,
+								"Value"
+							],
+							"To": [
+								222,
+								"now"
+							]
+						},
+						{
+							"From": [
+								221,
+								"Value"
+							],
+							"To": [
+								222,
+								"start"
+							]
+						},
+						{
+							"From": [
+								215,
+								"Result"
+							],
+							"To": [
+								222,
+								"done"
+							]
+						},
+						{
+							"From": [
+								222,
+								"Result"
+							],
+							"To": [
+								223,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								220,
+								"Then"
+							],
+							"To": [
+								223,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								217,
+								"Result"
+							],
+							"To": [
+								224,
+								"Passed"
+							]
+						},
+						{
+							"From": [
+								218,
+								"Result"
+							],
+							"To": [
+								224,
+								"Detail"
+							]
+						},
+						{
+							"From": [
+								223,
+								"Completed"
+							],
+							"To": [
+								224,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								60,
+								"Then"
+							],
+							"To": [
+								220,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								224,
+								"Then"
+							],
+							"To": [
+								61,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 225,
+							"Text": "Ghost lean: leaned into Turn 6 as the racing line leans there",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1480.0,
+								450.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 62,
+				"Name": "CheckGhostRides",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 63,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								64.0
+							]
+						},
+						{
+							"ID": 64,
+							"Type": "Function.Return",
+							"Position": [
+								3136.0,
+								0.0
+							]
+						},
+						{
+							"ID": 226,
+							"Type": "Variable.Set",
+							"Position": [
+								192.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 12
+							},
+							"Inputs": {
+								"Value": 0.0
+							}
+						},
+						{
+							"ID": 227,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 228,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 3,
+								"Graph": "10119309049923292088"
+							}
+						},
+						{
+							"ID": 229,
+							"Type": "Expression",
+							"Position": [
+								464.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "lap >= 44.0"
+							}
+						},
+						{
+							"ID": 230,
+							"Type": "Get:Strada.Time.Elapsed",
+							"Position": [
+								192.0,
+								256.0
+							]
+						},
+						{
+							"ID": 231,
+							"Type": "Variable.Set",
+							"Position": [
+								464.0,
+								192.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 232,
+							"Type": "Variable.Get",
+							"Position": [
+								464.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 233,
+							"Type": "Expression",
+							"Position": [
+								688.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "done || now - start > 20"
+							}
+						},
+						{
+							"ID": 234,
+							"Type": "Flow.WaitUntil",
+							"Position": [
+								976.0,
+								0.0
+							]
+						},
+						{
+							"ID": 235,
+							"Type": "Variable.Get",
+							"Position": [
+								688.0,
+								176.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 236,
+							"Type": "Get:Strada.TransformComponent.WorldTranslation",
+							"Position": [
+								464.0,
+								320.0
+							]
+						},
+						{
+							"ID": 237,
+							"Type": "Literal",
+							"Position": [
+								464.0,
+								448.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									-158.352,
+									0.151,
+									276.803
+								]
+							}
+						},
+						{
+							"ID": 238,
+							"Type": "Literal",
+							"Position": [
+								464.0,
+								576.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									-19.066,
+									-0.042,
+									-34.907
+								]
+							}
+						},
+						{
+							"ID": 239,
+							"Type": "Expression",
+							"Position": [
+								688.0,
+								240.0
+							],
+							"Settings": {
+								"Formula": "distance(at, point + velocity * (lap - moment))"
+							},
+							"Inputs": {
+								"moment": 44.0
+							}
+						},
+						{
+							"ID": 240,
+							"Type": "Expression",
+							"Position": [
+								976.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "max(worst, error)"
+							}
+						},
+						{
+							"ID": 241,
+							"Type": "Variable.Set",
+							"Position": [
+								1216.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 242,
+							"Type": "Expression",
+							"Position": [
+								1216.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "lap >= 48.0"
+							}
+						},
+						{
+							"ID": 243,
+							"Type": "Variable.Set",
+							"Position": [
+								1408.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 244,
+							"Type": "Expression",
+							"Position": [
+								1408.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "done || now - start > 20"
+							}
+						},
+						{
+							"ID": 245,
+							"Type": "Flow.WaitUntil",
+							"Position": [
+								1696.0,
+								0.0
+							]
+						},
+						{
+							"ID": 246,
+							"Type": "Literal",
+							"Position": [
+								1216.0,
+								256.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									-225.447,
+									0.181,
+									117.171
+								]
+							}
+						},
+						{
+							"ID": 247,
+							"Type": "Literal",
+							"Position": [
+								1216.0,
+								384.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									-5.668,
+									0.067,
+									-30.247
+								]
+							}
+						},
+						{
+							"ID": 248,
+							"Type": "Expression",
+							"Position": [
+								1408.0,
+								304.0
+							],
+							"Settings": {
+								"Formula": "distance(at, point + velocity * (lap - moment))"
+							},
+							"Inputs": {
+								"moment": 48.0
+							}
+						},
+						{
+							"ID": 249,
+							"Type": "Expression",
+							"Position": [
+								1696.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "max(worst, error)"
+							}
+						},
+						{
+							"ID": 250,
+							"Type": "Variable.Set",
+							"Position": [
+								1936.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 251,
+							"Type": "Expression",
+							"Position": [
+								1936.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "lap >= 52.0"
+							}
+						},
+						{
+							"ID": 252,
+							"Type": "Variable.Set",
+							"Position": [
+								2128.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 253,
+							"Type": "Expression",
+							"Position": [
+								2128.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "done || now - start > 20"
+							}
+						},
+						{
+							"ID": 254,
+							"Type": "Flow.WaitUntil",
+							"Position": [
+								2416.0,
+								0.0
+							]
+						},
+						{
+							"ID": 255,
+							"Type": "Literal",
+							"Position": [
+								1936.0,
+								256.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									-174.361,
+									0.166,
+									12.634
+								]
+							}
+						},
+						{
+							"ID": 256,
+							"Type": "Literal",
+							"Position": [
+								1936.0,
+								384.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									29.559,
+									0.012,
+									-20.99
+								]
+							}
+						},
+						{
+							"ID": 257,
+							"Type": "Expression",
+							"Position": [
+								2128.0,
+								304.0
+							],
+							"Settings": {
+								"Formula": "distance(at, point + velocity * (lap - moment))"
+							},
+							"Inputs": {
+								"moment": 52.0
+							}
+						},
+						{
+							"ID": 258,
+							"Type": "Expression",
+							"Position": [
+								2416.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "max(worst, error)"
+							}
+						},
+						{
+							"ID": 259,
+							"Type": "Variable.Set",
+							"Position": [
+								2656.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 12
+							}
+						},
+						{
+							"ID": 260,
+							"Type": "Expression",
+							"Position": [
+								2656.0,
+								128.0
+							],
+							"Settings": {
+								"Formula": "worst <= 0.1"
+							}
+						},
+						{
+							"ID": 261,
+							"Type": "FormatString",
+							"Position": [
+								2656.0,
+								256.0
+							],
+							"Settings": {
+								"Format": "the ghost strays {Worst} m at most from the line at 44, 48, 52 s of its lap"
+							}
+						},
+						{
+							"ID": 262,
+							"Type": "Function.Call",
+							"Position": [
+								2864.0,
+								0.0
+							],
+							"Settings": {
+								"Graph": "11160837631458717455",
+								"Function": 1
+							},
+							"Inputs": {
+								"Name": "Moto: the ghost rides the racing line"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								227,
+								"Value"
+							],
+							"To": [
+								228,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								228,
+								"Value"
+							],
+							"To": [
+								229,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								230,
+								"Value"
+							],
+							"To": [
+								231,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								230,
+								"Value"
+							],
+							"To": [
+								233,
+								"now"
+							]
+						},
+						{
+							"From": [
+								232,
+								"Value"
+							],
+							"To": [
+								233,
+								"start"
+							]
+						},
+						{
+							"From": [
+								229,
+								"Result"
+							],
+							"To": [
+								233,
+								"done"
+							]
+						},
+						{
+							"From": [
+								233,
+								"Result"
+							],
+							"To": [
+								234,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								231,
+								"Then"
+							],
+							"To": [
+								234,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								227,
+								"Value"
+							],
+							"To": [
+								236,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								236,
+								"Value"
+							],
+							"To": [
+								239,
+								"at"
+							]
+						},
+						{
+							"From": [
+								237,
+								"Value"
+							],
+							"To": [
+								239,
+								"point"
+							]
+						},
+						{
+							"From": [
+								238,
+								"Value"
+							],
+							"To": [
+								239,
+								"velocity"
+							]
+						},
+						{
+							"From": [
+								228,
+								"Value"
+							],
+							"To": [
+								239,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Value"
+							],
+							"To": [
+								240,
+								"worst"
+							]
+						},
+						{
+							"From": [
+								239,
+								"Result"
+							],
+							"To": [
+								240,
+								"error"
+							]
+						},
+						{
+							"From": [
+								240,
+								"Result"
+							],
+							"To": [
+								241,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								234,
+								"Completed"
+							],
+							"To": [
+								241,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								228,
+								"Value"
+							],
+							"To": [
+								242,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								230,
+								"Value"
+							],
+							"To": [
+								243,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								230,
+								"Value"
+							],
+							"To": [
+								244,
+								"now"
+							]
+						},
+						{
+							"From": [
+								232,
+								"Value"
+							],
+							"To": [
+								244,
+								"start"
+							]
+						},
+						{
+							"From": [
+								242,
+								"Result"
+							],
+							"To": [
+								244,
+								"done"
+							]
+						},
+						{
+							"From": [
+								244,
+								"Result"
+							],
+							"To": [
+								245,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								243,
+								"Then"
+							],
+							"To": [
+								245,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								236,
+								"Value"
+							],
+							"To": [
+								248,
+								"at"
+							]
+						},
+						{
+							"From": [
+								246,
+								"Value"
+							],
+							"To": [
+								248,
+								"point"
+							]
+						},
+						{
+							"From": [
+								247,
+								"Value"
+							],
+							"To": [
+								248,
+								"velocity"
+							]
+						},
+						{
+							"From": [
+								228,
+								"Value"
+							],
+							"To": [
+								248,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Value"
+							],
+							"To": [
+								249,
+								"worst"
+							]
+						},
+						{
+							"From": [
+								248,
+								"Result"
+							],
+							"To": [
+								249,
+								"error"
+							]
+						},
+						{
+							"From": [
+								249,
+								"Result"
+							],
+							"To": [
+								250,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								245,
+								"Completed"
+							],
+							"To": [
+								250,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								228,
+								"Value"
+							],
+							"To": [
+								251,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								230,
+								"Value"
+							],
+							"To": [
+								252,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								230,
+								"Value"
+							],
+							"To": [
+								253,
+								"now"
+							]
+						},
+						{
+							"From": [
+								232,
+								"Value"
+							],
+							"To": [
+								253,
+								"start"
+							]
+						},
+						{
+							"From": [
+								251,
+								"Result"
+							],
+							"To": [
+								253,
+								"done"
+							]
+						},
+						{
+							"From": [
+								253,
+								"Result"
+							],
+							"To": [
+								254,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								252,
+								"Then"
+							],
+							"To": [
+								254,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								236,
+								"Value"
+							],
+							"To": [
+								257,
+								"at"
+							]
+						},
+						{
+							"From": [
+								255,
+								"Value"
+							],
+							"To": [
+								257,
+								"point"
+							]
+						},
+						{
+							"From": [
+								256,
+								"Value"
+							],
+							"To": [
+								257,
+								"velocity"
+							]
+						},
+						{
+							"From": [
+								228,
+								"Value"
+							],
+							"To": [
+								257,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Value"
+							],
+							"To": [
+								258,
+								"worst"
+							]
+						},
+						{
+							"From": [
+								257,
+								"Result"
+							],
+							"To": [
+								258,
+								"error"
+							]
+						},
+						{
+							"From": [
+								258,
+								"Result"
+							],
+							"To": [
+								259,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								254,
+								"Completed"
+							],
+							"To": [
+								259,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Value"
+							],
+							"To": [
+								260,
+								"worst"
+							]
+						},
+						{
+							"From": [
+								235,
+								"Value"
+							],
+							"To": [
+								261,
+								"Worst"
+							]
+						},
+						{
+							"From": [
+								260,
+								"Result"
+							],
+							"To": [
+								262,
+								"Passed"
+							]
+						},
+						{
+							"From": [
+								261,
+								"Result"
+							],
+							"To": [
+								262,
+								"Detail"
+							]
+						},
+						{
+							"From": [
+								63,
+								"Then"
+							],
+							"To": [
+								226,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								226,
+								"Then"
+							],
+							"To": [
+								231,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								241,
+								"Then"
+							],
+							"To": [
+								243,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								250,
+								"Then"
+							],
+							"To": [
+								252,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								259,
+								"Then"
+							],
+							"To": [
+								262,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								262,
+								"Then"
+							],
+							"To": [
+								64,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 263,
+							"Text": "Ghost line: where the racing line puts it, at three moments of its lap",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								3320.0,
+								762.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 65,
 				"Name": "CheckUnderFootbridge",
 				"Pure": false,
 				"Inputs": [],
@@ -4163,7 +5632,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 58,
+							"ID": 66,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -4171,7 +5640,7 @@
 							]
 						},
 						{
-							"ID": 59,
+							"ID": 67,
 							"Type": "Function.Return",
 							"Position": [
 								1840.0,
@@ -4179,7 +5648,7 @@
 							]
 						},
 						{
-							"ID": 200,
+							"ID": 264,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
@@ -4187,7 +5656,7 @@
 							]
 						},
 						{
-							"ID": 201,
+							"ID": 265,
 							"Type": "Expression",
 							"Position": [
 								192.0,
@@ -4198,7 +5667,7 @@
 							}
 						},
 						{
-							"ID": 202,
+							"ID": 266,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								416.0,
@@ -4206,7 +5675,7 @@
 							]
 						},
 						{
-							"ID": 203,
+							"ID": 267,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -4217,7 +5686,7 @@
 							}
 						},
 						{
-							"ID": 204,
+							"ID": 268,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								192.0,
@@ -4225,7 +5694,7 @@
 							]
 						},
 						{
-							"ID": 205,
+							"ID": 269,
 							"Type": "Expression",
 							"Position": [
 								784.0,
@@ -4236,7 +5705,7 @@
 							}
 						},
 						{
-							"ID": 206,
+							"ID": 270,
 							"Type": "Function.Call",
 							"Position": [
 								416.0,
@@ -4256,7 +5725,7 @@
 							}
 						},
 						{
-							"ID": 207,
+							"ID": 271,
 							"Type": "Get:Strada.TransformComponent.Forward",
 							"Position": [
 								192.0,
@@ -4264,7 +5733,7 @@
 							]
 						},
 						{
-							"ID": 208,
+							"ID": 272,
 							"Type": "Function.Call",
 							"Position": [
 								416.0,
@@ -4284,7 +5753,7 @@
 							}
 						},
 						{
-							"ID": 209,
+							"ID": 273,
 							"Type": "Operator.And",
 							"Position": [
 								784.0,
@@ -4292,7 +5761,7 @@
 							]
 						},
 						{
-							"ID": 210,
+							"ID": 274,
 							"Type": "Operator.And",
 							"Position": [
 								976.0,
@@ -4300,7 +5769,7 @@
 							]
 						},
 						{
-							"ID": 211,
+							"ID": 275,
 							"Type": "FormatString",
 							"Position": [
 								1328.0,
@@ -4311,29 +5780,29 @@
 							}
 						},
 						{
-							"ID": 212,
+							"ID": 276,
 							"Type": "Variable.Set",
 							"Position": [
 								784.0,
 								128.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 213,
+							"ID": 277,
 							"Type": "Variable.Get",
 							"Position": [
 								976.0,
 								80.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 214,
+							"ID": 278,
 							"Type": "Expression",
 							"Position": [
 								1136.0,
@@ -4344,7 +5813,7 @@
 							}
 						},
 						{
-							"ID": 215,
+							"ID": 279,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1328.0,
@@ -4352,7 +5821,7 @@
 							]
 						},
 						{
-							"ID": 216,
+							"ID": 280,
 							"Type": "Function.Call",
 							"Position": [
 								1568.0,
@@ -4370,258 +5839,258 @@
 					"Links": [
 						{
 							"From": [
-								200,
+								264,
 								"Value"
 							],
 							"To": [
-								201,
+								265,
 								"now"
 							]
 						},
 						{
 							"From": [
-								201,
+								265,
 								"Result"
 							],
 							"To": [
-								202,
+								266,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								203,
+								267,
 								"Value"
 							],
 							"To": [
-								204,
+								268,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								204,
+								268,
 								"Value"
 							],
 							"To": [
-								205,
+								269,
 								"at"
 							]
 						},
 						{
 							"From": [
-								204,
+								268,
 								"Value"
 							],
 							"To": [
-								206,
+								270,
 								"A"
 							]
 						},
 						{
 							"From": [
-								203,
+								267,
 								"Value"
 							],
 							"To": [
-								207,
+								271,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								207,
+								271,
 								"Value"
 							],
 							"To": [
-								208,
+								272,
 								"Direction"
 							]
 						},
 						{
 							"From": [
-								206,
+								270,
 								"Result"
 							],
 							"To": [
-								209,
+								273,
 								"A"
 							]
 						},
 						{
 							"From": [
-								208,
+								272,
 								"Result"
 							],
 							"To": [
-								209,
+								273,
 								"B"
 							]
 						},
 						{
 							"From": [
-								209,
+								273,
 								"Result"
 							],
 							"To": [
-								210,
+								274,
 								"A"
 							]
 						},
 						{
 							"From": [
-								205,
+								269,
 								"Result"
 							],
 							"To": [
-								210,
+								274,
 								"B"
 							]
 						},
 						{
 							"From": [
-								204,
+								268,
 								"Value"
 							],
 							"To": [
-								211,
+								275,
 								"At"
 							]
 						},
 						{
 							"From": [
-								207,
+								271,
 								"Value"
 							],
 							"To": [
-								211,
+								275,
 								"Forward"
 							]
 						},
 						{
 							"From": [
-								200,
+								264,
 								"Value"
 							],
 							"To": [
-								212,
+								276,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								200,
+								264,
 								"Value"
 							],
 							"To": [
-								214,
+								278,
 								"now"
 							]
 						},
 						{
 							"From": [
-								213,
+								277,
 								"Value"
 							],
 							"To": [
-								214,
+								278,
 								"start"
 							]
 						},
 						{
 							"From": [
-								210,
+								274,
 								"Result"
 							],
 							"To": [
-								214,
+								278,
 								"done"
 							]
 						},
 						{
 							"From": [
-								214,
+								278,
 								"Result"
 							],
 							"To": [
-								215,
+								279,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								212,
+								276,
 								"Then"
 							],
 							"To": [
-								215,
+								279,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								210,
+								274,
 								"Result"
 							],
 							"To": [
-								216,
+								280,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								211,
+								275,
 								"Result"
 							],
 							"To": [
-								216,
+								280,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								215,
+								279,
 								"Completed"
 							],
 							"To": [
-								216,
+								280,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								58,
+								66,
 								"Then"
 							],
 							"To": [
-								202,
+								266,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								202,
+								266,
 								"Completed"
 							],
 							"To": [
-								212,
+								276,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								216,
+								280,
 								"Then"
 							],
 							"To": [
-								59,
+								67,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 217,
+							"ID": 281,
 							"Text": "Footbridge pass: the camera where the tour puts it, under the deck",
 							"Position": [
 								-32.0,
@@ -4642,7 +6111,7 @@
 				}
 			},
 			{
-				"ID": 60,
+				"ID": 68,
 				"Name": "CheckSentTourFlies",
 				"Pure": false,
 				"Inputs": [],
@@ -4651,7 +6120,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 61,
+							"ID": 69,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -4659,7 +6128,7 @@
 							]
 						},
 						{
-							"ID": 62,
+							"ID": 70,
 							"Type": "Function.Return",
 							"Position": [
 								1488.0,
@@ -4667,7 +6136,7 @@
 							]
 						},
 						{
-							"ID": 218,
+							"ID": 282,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -4678,7 +6147,7 @@
 							}
 						},
 						{
-							"ID": 219,
+							"ID": 283,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								192.0,
@@ -4686,7 +6155,7 @@
 							]
 						},
 						{
-							"ID": 220,
+							"ID": 284,
 							"Type": "Literal",
 							"Position": [
 								192.0,
@@ -4702,7 +6171,7 @@
 							}
 						},
 						{
-							"ID": 221,
+							"ID": 285,
 							"Type": "Literal",
 							"Position": [
 								192.0,
@@ -4718,7 +6187,7 @@
 							}
 						},
 						{
-							"ID": 222,
+							"ID": 286,
 							"Type": "Expression",
 							"Position": [
 								416.0,
@@ -4729,7 +6198,7 @@
 							}
 						},
 						{
-							"ID": 223,
+							"ID": 287,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -4741,7 +6210,7 @@
 							}
 						},
 						{
-							"ID": 224,
+							"ID": 288,
 							"Type": "Expression",
 							"Position": [
 								416.0,
@@ -4752,7 +6221,7 @@
 							}
 						},
 						{
-							"ID": 225,
+							"ID": 289,
 							"Type": "Operator.And",
 							"Position": [
 								624.0,
@@ -4760,7 +6229,7 @@
 							]
 						},
 						{
-							"ID": 226,
+							"ID": 290,
 							"Type": "FormatString",
 							"Position": [
 								976.0,
@@ -4771,7 +6240,7 @@
 							}
 						},
 						{
-							"ID": 227,
+							"ID": 291,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
@@ -4779,29 +6248,29 @@
 							]
 						},
 						{
-							"ID": 228,
+							"ID": 292,
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
 								512.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 229,
+							"ID": 293,
 							"Type": "Variable.Get",
 							"Position": [
 								624.0,
 								80.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 230,
+							"ID": 294,
 							"Type": "Expression",
 							"Position": [
 								784.0,
@@ -4812,7 +6281,7 @@
 							}
 						},
 						{
-							"ID": 231,
+							"ID": 295,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								976.0,
@@ -4820,7 +6289,7 @@
 							]
 						},
 						{
-							"ID": 232,
+							"ID": 296,
 							"Type": "Function.Call",
 							"Position": [
 								1216.0,
@@ -4838,218 +6307,218 @@
 					"Links": [
 						{
 							"From": [
-								218,
+								282,
 								"Value"
 							],
 							"To": [
-								219,
+								283,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								219,
+								283,
 								"Value"
 							],
 							"To": [
-								222,
+								286,
 								"at"
 							]
 						},
 						{
 							"From": [
-								220,
+								284,
 								"Value"
 							],
 							"To": [
-								222,
+								286,
 								"home"
 							]
 						},
 						{
 							"From": [
-								221,
+								285,
 								"Value"
 							],
 							"To": [
-								222,
+								286,
 								"spot"
 							]
 						},
 						{
 							"From": [
-								218,
+								282,
 								"Value"
 							],
 							"To": [
-								223,
+								287,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								223,
+								287,
 								"Value"
 							],
 							"To": [
-								224,
+								288,
 								"tours"
 							]
 						},
 						{
 							"From": [
-								222,
+								286,
 								"Result"
 							],
 							"To": [
-								225,
+								289,
 								"A"
 							]
 						},
 						{
 							"From": [
-								224,
+								288,
 								"Result"
 							],
 							"To": [
-								225,
+								289,
 								"B"
 							]
 						},
 						{
 							"From": [
-								219,
+								283,
 								"Value"
 							],
 							"To": [
-								226,
+								290,
 								"At"
 							]
 						},
 						{
 							"From": [
-								223,
+								287,
 								"Value"
 							],
 							"To": [
-								226,
+								290,
 								"Tours"
 							]
 						},
 						{
 							"From": [
-								227,
+								291,
 								"Value"
 							],
 							"To": [
-								228,
+								292,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								227,
+								291,
 								"Value"
 							],
 							"To": [
-								230,
+								294,
 								"now"
 							]
 						},
 						{
 							"From": [
-								229,
+								293,
 								"Value"
 							],
 							"To": [
-								230,
+								294,
 								"start"
 							]
 						},
 						{
 							"From": [
-								225,
+								289,
 								"Result"
 							],
 							"To": [
-								230,
+								294,
 								"done"
 							]
 						},
 						{
 							"From": [
-								230,
+								294,
 								"Result"
 							],
 							"To": [
-								231,
+								295,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								228,
+								292,
 								"Then"
 							],
 							"To": [
-								231,
+								295,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								225,
+								289,
 								"Result"
 							],
 							"To": [
-								232,
+								296,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								226,
+								290,
 								"Result"
 							],
 							"To": [
-								232,
+								296,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								231,
+								295,
 								"Completed"
 							],
 							"To": [
-								232,
+								296,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								61,
+								69,
 								"Then"
 							],
 							"To": [
-								228,
+								292,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								232,
+								296,
 								"Then"
 							],
 							"To": [
-								62,
+								70,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 233,
+							"ID": 297,
 							"Text": "Sent tour: PlayTour from another graph flies it",
 							"Position": [
 								-32.0,
@@ -5070,7 +6539,493 @@
 				}
 			},
 			{
-				"ID": 63,
+				"ID": 71,
+				"Name": "CheckGhostLaps",
+				"Pure": false,
+				"Inputs": [],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 72,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 73,
+							"Type": "Function.Return",
+							"Position": [
+								1424.0,
+								0.0
+							]
+						},
+						{
+							"ID": 298,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								240.0
+							],
+							"Settings": {
+								"Variable": 10
+							}
+						},
+						{
+							"ID": 299,
+							"Type": "Variable.Get",
+							"Position": [
+								192.0,
+								128.0
+							],
+							"Settings": {
+								"Variable": 2,
+								"Graph": "10119309049923292088"
+							}
+						},
+						{
+							"ID": 300,
+							"Type": "Expression",
+							"Position": [
+								400.0,
+								512.0
+							],
+							"Settings": {
+								"Formula": "laps >= 1"
+							}
+						},
+						{
+							"ID": 301,
+							"Type": "Variable.Get",
+							"Position": [
+								400.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 3,
+								"Graph": "10119309049923292088"
+							}
+						},
+						{
+							"ID": 302,
+							"Type": "Get:Strada.TransformComponent.WorldTranslation",
+							"Position": [
+								400.0,
+								128.0
+							]
+						},
+						{
+							"ID": 303,
+							"Type": "Literal",
+							"Position": [
+								400.0,
+								256.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									74.993,
+									0.132,
+									-222.308
+								]
+							}
+						},
+						{
+							"ID": 304,
+							"Type": "Literal",
+							"Position": [
+								400.0,
+								384.0
+							],
+							"Settings": {
+								"Type": "Strada.Vector3",
+								"Value": [
+									55.278,
+									0.0,
+									20.899
+								]
+							}
+						},
+						{
+							"ID": 305,
+							"Type": "Expression",
+							"Position": [
+								624.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "distance(at, point + velocity * (lap - moment))"
+							},
+							"Inputs": {
+								"moment": 0.0
+							}
+						},
+						{
+							"ID": 306,
+							"Type": "Expression",
+							"Position": [
+								912.0,
+								0.0
+							],
+							"Settings": {
+								"Formula": "laps == 1 && lap < 0.1 && error <= 0.1"
+							}
+						},
+						{
+							"ID": 307,
+							"Type": "FormatString",
+							"Position": [
+								912.0,
+								176.0
+							],
+							"Settings": {
+								"Format": "{Laps} laps; {Lap} s into the next, {Error} m from the line"
+							}
+						},
+						{
+							"ID": 308,
+							"Type": "Get:Strada.Time.Elapsed",
+							"Position": [
+								0.0,
+								112.0
+							]
+						},
+						{
+							"ID": 309,
+							"Type": "Variable.Set",
+							"Position": [
+								192.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 310,
+							"Type": "Variable.Get",
+							"Position": [
+								400.0,
+								640.0
+							],
+							"Settings": {
+								"Variable": 11
+							}
+						},
+						{
+							"ID": 311,
+							"Type": "Expression",
+							"Position": [
+								624.0,
+								224.0
+							],
+							"Settings": {
+								"Formula": "done || now - start > 72"
+							}
+						},
+						{
+							"ID": 312,
+							"Type": "Flow.WaitUntil",
+							"Position": [
+								912.0,
+								336.0
+							]
+						},
+						{
+							"ID": 313,
+							"Type": "Function.Call",
+							"Position": [
+								1152.0,
+								0.0
+							],
+							"Settings": {
+								"Graph": "11160837631458717455",
+								"Function": 1
+							},
+							"Inputs": {
+								"Name": "Moto: the ghost crosses the line and rides on round its next lap"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								298,
+								"Value"
+							],
+							"To": [
+								299,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								299,
+								"Value"
+							],
+							"To": [
+								300,
+								"laps"
+							]
+						},
+						{
+							"From": [
+								298,
+								"Value"
+							],
+							"To": [
+								301,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								298,
+								"Value"
+							],
+							"To": [
+								302,
+								"Target"
+							]
+						},
+						{
+							"From": [
+								302,
+								"Value"
+							],
+							"To": [
+								305,
+								"at"
+							]
+						},
+						{
+							"From": [
+								303,
+								"Value"
+							],
+							"To": [
+								305,
+								"point"
+							]
+						},
+						{
+							"From": [
+								304,
+								"Value"
+							],
+							"To": [
+								305,
+								"velocity"
+							]
+						},
+						{
+							"From": [
+								301,
+								"Value"
+							],
+							"To": [
+								305,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								299,
+								"Value"
+							],
+							"To": [
+								306,
+								"laps"
+							]
+						},
+						{
+							"From": [
+								301,
+								"Value"
+							],
+							"To": [
+								306,
+								"lap"
+							]
+						},
+						{
+							"From": [
+								305,
+								"Result"
+							],
+							"To": [
+								306,
+								"error"
+							]
+						},
+						{
+							"From": [
+								299,
+								"Value"
+							],
+							"To": [
+								307,
+								"Laps"
+							]
+						},
+						{
+							"From": [
+								301,
+								"Value"
+							],
+							"To": [
+								307,
+								"Lap"
+							]
+						},
+						{
+							"From": [
+								305,
+								"Result"
+							],
+							"To": [
+								307,
+								"Error"
+							]
+						},
+						{
+							"From": [
+								308,
+								"Value"
+							],
+							"To": [
+								309,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								308,
+								"Value"
+							],
+							"To": [
+								311,
+								"now"
+							]
+						},
+						{
+							"From": [
+								310,
+								"Value"
+							],
+							"To": [
+								311,
+								"start"
+							]
+						},
+						{
+							"From": [
+								300,
+								"Result"
+							],
+							"To": [
+								311,
+								"done"
+							]
+						},
+						{
+							"From": [
+								311,
+								"Result"
+							],
+							"To": [
+								312,
+								"Condition"
+							]
+						},
+						{
+							"From": [
+								309,
+								"Then"
+							],
+							"To": [
+								312,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								306,
+								"Result"
+							],
+							"To": [
+								313,
+								"Passed"
+							]
+						},
+						{
+							"From": [
+								307,
+								"Result"
+							],
+							"To": [
+								313,
+								"Detail"
+							]
+						},
+						{
+							"From": [
+								312,
+								"Completed"
+							],
+							"To": [
+								313,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								72,
+								"Then"
+							],
+							"To": [
+								309,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								313,
+								"Then"
+							],
+							"To": [
+								73,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 314,
+							"Text": "Ghost lap: across the start and finish line and on round its next lap",
+							"Position": [
+								-32.0,
+								-72.0
+							],
+							"Size": [
+								1608.0,
+								772.0
+							],
+							"Color": [
+								0.44999998807907104,
+								0.6000000238418579,
+								0.699999988079071,
+								0.2199999988079071
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 74,
 				"Name": "CheckTourEndsHome",
 				"Pure": false,
 				"Inputs": [],
@@ -5079,7 +7034,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 64,
+							"ID": 75,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -5087,7 +7042,7 @@
 							]
 						},
 						{
-							"ID": 65,
+							"ID": 76,
 							"Type": "Function.Return",
 							"Position": [
 								1456.0,
@@ -5095,7 +7050,7 @@
 							]
 						},
 						{
-							"ID": 234,
+							"ID": 315,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -5106,7 +7061,7 @@
 							}
 						},
 						{
-							"ID": 235,
+							"ID": 316,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -5118,7 +7073,7 @@
 							}
 						},
 						{
-							"ID": 236,
+							"ID": 317,
 							"Type": "Expression",
 							"Position": [
 								400.0,
@@ -5129,7 +7084,7 @@
 							}
 						},
 						{
-							"ID": 237,
+							"ID": 318,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								400.0,
@@ -5137,7 +7092,7 @@
 							]
 						},
 						{
-							"ID": 238,
+							"ID": 319,
 							"Type": "Function.Call",
 							"Position": [
 								624.0,
@@ -5157,7 +7112,7 @@
 							}
 						},
 						{
-							"ID": 239,
+							"ID": 320,
 							"Type": "Operator.And",
 							"Position": [
 								944.0,
@@ -5165,7 +7120,7 @@
 							]
 						},
 						{
-							"ID": 240,
+							"ID": 321,
 							"Type": "Get:Strada.TransformComponent.Forward",
 							"Position": [
 								400.0,
@@ -5173,7 +7128,7 @@
 							]
 						},
 						{
-							"ID": 241,
+							"ID": 322,
 							"Type": "FormatString",
 							"Position": [
 								624.0,
@@ -5184,7 +7139,7 @@
 							}
 						},
 						{
-							"ID": 242,
+							"ID": 323,
 							"Type": "FormatString",
 							"Position": [
 								944.0,
@@ -5195,7 +7150,7 @@
 							}
 						},
 						{
-							"ID": 243,
+							"ID": 324,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
@@ -5203,29 +7158,29 @@
 							]
 						},
 						{
-							"ID": 244,
+							"ID": 325,
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
 								0.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 245,
+							"ID": 326,
 							"Type": "Variable.Get",
 							"Position": [
 								400.0,
 								384.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 246,
+							"ID": 327,
 							"Type": "Expression",
 							"Position": [
 								624.0,
@@ -5236,7 +7191,7 @@
 							}
 						},
 						{
-							"ID": 247,
+							"ID": 328,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								944.0,
@@ -5244,7 +7199,7 @@
 							]
 						},
 						{
-							"ID": 248,
+							"ID": 329,
 							"Type": "Function.Call",
 							"Position": [
 								1184.0,
@@ -5262,228 +7217,228 @@
 					"Links": [
 						{
 							"From": [
-								234,
+								315,
 								"Value"
 							],
 							"To": [
-								235,
+								316,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								235,
+								316,
 								"Value"
 							],
 							"To": [
-								236,
+								317,
 								"tours"
 							]
 						},
 						{
 							"From": [
-								234,
+								315,
 								"Value"
 							],
 							"To": [
-								237,
+								318,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								237,
+								318,
 								"Value"
 							],
 							"To": [
-								238,
+								319,
 								"A"
 							]
 						},
 						{
 							"From": [
-								236,
+								317,
 								"Result"
 							],
 							"To": [
-								239,
+								320,
 								"A"
 							]
 						},
 						{
 							"From": [
-								238,
+								319,
 								"Result"
 							],
 							"To": [
-								239,
+								320,
 								"B"
 							]
 						},
 						{
 							"From": [
-								234,
+								315,
 								"Value"
 							],
 							"To": [
-								240,
+								321,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								237,
+								318,
 								"Value"
 							],
 							"To": [
-								241,
+								322,
 								"At"
 							]
 						},
 						{
 							"From": [
-								240,
+								321,
 								"Value"
 							],
 							"To": [
-								241,
+								322,
 								"Forward"
 							]
 						},
 						{
 							"From": [
-								235,
+								316,
 								"Value"
 							],
 							"To": [
-								242,
+								323,
 								"Tours"
 							]
 						},
 						{
 							"From": [
-								241,
+								322,
 								"Result"
 							],
 							"To": [
-								242,
+								323,
 								"View"
 							]
 						},
 						{
 							"From": [
-								243,
+								324,
 								"Value"
 							],
 							"To": [
-								244,
+								325,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								243,
+								324,
 								"Value"
 							],
 							"To": [
-								246,
+								327,
 								"now"
 							]
 						},
 						{
 							"From": [
-								245,
+								326,
 								"Value"
 							],
 							"To": [
-								246,
+								327,
 								"start"
 							]
 						},
 						{
 							"From": [
-								236,
+								317,
 								"Result"
 							],
 							"To": [
-								246,
+								327,
 								"done"
 							]
 						},
 						{
 							"From": [
-								246,
+								327,
 								"Result"
 							],
 							"To": [
-								247,
+								328,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								244,
+								325,
 								"Then"
 							],
 							"To": [
-								247,
+								328,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								239,
+								320,
 								"Result"
 							],
 							"To": [
-								248,
+								329,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								242,
+								323,
 								"Result"
 							],
 							"To": [
-								248,
+								329,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								247,
+								328,
 								"Completed"
 							],
 							"To": [
-								248,
+								329,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								64,
+								75,
 								"Then"
 							],
 							"To": [
-								244,
+								325,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								248,
+								329,
 								"Then"
 							],
 							"To": [
-								65,
+								76,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 249,
+							"ID": 330,
 							"Text": "Tour end: the camera back at the home view",
 							"Position": [
 								-32.0,
@@ -5504,7 +7459,7 @@
 				}
 			},
 			{
-				"ID": 66,
+				"ID": 77,
 				"Name": "CheckTourRepeats",
 				"Pure": false,
 				"Inputs": [],
@@ -5513,7 +7468,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 67,
+							"ID": 78,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -5521,7 +7476,7 @@
 							]
 						},
 						{
-							"ID": 68,
+							"ID": 79,
 							"Type": "Function.Return",
 							"Position": [
 								1584.0,
@@ -5529,7 +7484,7 @@
 							]
 						},
 						{
-							"ID": 250,
+							"ID": 331,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -5540,7 +7495,7 @@
 							}
 						},
 						{
-							"ID": 251,
+							"ID": 332,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								192.0,
@@ -5548,7 +7503,7 @@
 							]
 						},
 						{
-							"ID": 252,
+							"ID": 333,
 							"Type": "Literal",
 							"Position": [
 								192.0,
@@ -5564,7 +7519,7 @@
 							}
 						},
 						{
-							"ID": 253,
+							"ID": 334,
 							"Type": "Expression",
 							"Position": [
 								416.0,
@@ -5575,7 +7530,7 @@
 							}
 						},
 						{
-							"ID": 254,
+							"ID": 335,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -5587,7 +7542,7 @@
 							}
 						},
 						{
-							"ID": 255,
+							"ID": 336,
 							"Type": "Expression",
 							"Position": [
 								416.0,
@@ -5598,7 +7553,7 @@
 							}
 						},
 						{
-							"ID": 256,
+							"ID": 337,
 							"Type": "Operator.And",
 							"Position": [
 								656.0,
@@ -5606,7 +7561,7 @@
 							]
 						},
 						{
-							"ID": 257,
+							"ID": 338,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
@@ -5614,29 +7569,29 @@
 							]
 						},
 						{
-							"ID": 258,
+							"ID": 339,
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
 								384.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 259,
+							"ID": 340,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
 								304.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 260,
+							"ID": 341,
 							"Type": "Expression",
 							"Position": [
 								192.0,
@@ -5647,7 +7602,7 @@
 							}
 						},
 						{
-							"ID": 261,
+							"ID": 342,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								416.0,
@@ -5655,7 +7610,7 @@
 							]
 						},
 						{
-							"ID": 262,
+							"ID": 343,
 							"Type": "Get:Strada.TransformComponent.Forward",
 							"Position": [
 								656.0,
@@ -5663,7 +7618,7 @@
 							]
 						},
 						{
-							"ID": 263,
+							"ID": 344,
 							"Type": "FormatString",
 							"Position": [
 								864.0,
@@ -5674,7 +7629,7 @@
 							}
 						},
 						{
-							"ID": 264,
+							"ID": 345,
 							"Type": "FormatString",
 							"Position": [
 								1072.0,
@@ -5685,18 +7640,18 @@
 							}
 						},
 						{
-							"ID": 265,
+							"ID": 346,
 							"Type": "Variable.Set",
 							"Position": [
 								656.0,
 								208.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 266,
+							"ID": 347,
 							"Type": "Expression",
 							"Position": [
 								864.0,
@@ -5707,7 +7662,7 @@
 							}
 						},
 						{
-							"ID": 267,
+							"ID": 348,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								1072.0,
@@ -5715,7 +7670,7 @@
 							]
 						},
 						{
-							"ID": 268,
+							"ID": 349,
 							"Type": "Function.Call",
 							"Position": [
 								1312.0,
@@ -5733,298 +7688,298 @@
 					"Links": [
 						{
 							"From": [
-								250,
+								331,
 								"Value"
 							],
 							"To": [
-								251,
+								332,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								251,
+								332,
 								"Value"
 							],
 							"To": [
-								253,
+								334,
 								"at"
 							]
 						},
 						{
 							"From": [
-								252,
+								333,
 								"Value"
 							],
 							"To": [
-								253,
+								334,
 								"home"
 							]
 						},
 						{
 							"From": [
-								250,
+								331,
 								"Value"
 							],
 							"To": [
-								254,
+								335,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								254,
+								335,
 								"Value"
 							],
 							"To": [
-								255,
+								336,
 								"tours"
 							]
 						},
 						{
 							"From": [
-								253,
+								334,
 								"Result"
 							],
 							"To": [
-								256,
+								337,
 								"A"
 							]
 						},
 						{
 							"From": [
-								255,
+								336,
 								"Result"
 							],
 							"To": [
-								256,
+								337,
 								"B"
 							]
 						},
 						{
 							"From": [
-								257,
+								338,
 								"Value"
 							],
 							"To": [
-								258,
+								339,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								257,
+								338,
 								"Value"
 							],
 							"To": [
-								260,
+								341,
 								"now"
 							]
 						},
 						{
 							"From": [
-								259,
+								340,
 								"Value"
 							],
 							"To": [
-								260,
+								341,
 								"start"
 							]
 						},
 						{
 							"From": [
-								260,
+								341,
 								"Result"
 							],
 							"To": [
-								261,
+								342,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								258,
+								339,
 								"Then"
 							],
 							"To": [
-								261,
+								342,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								250,
+								331,
 								"Value"
 							],
 							"To": [
-								262,
+								343,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								251,
+								332,
 								"Value"
 							],
 							"To": [
-								263,
+								344,
 								"At"
 							]
 						},
 						{
 							"From": [
-								262,
+								343,
 								"Value"
 							],
 							"To": [
-								263,
+								344,
 								"Forward"
 							]
 						},
 						{
 							"From": [
-								254,
+								335,
 								"Value"
 							],
 							"To": [
-								264,
+								345,
 								"Tours"
 							]
 						},
 						{
 							"From": [
-								263,
+								344,
 								"Result"
 							],
 							"To": [
-								264,
+								345,
 								"View"
 							]
 						},
 						{
 							"From": [
-								257,
+								338,
 								"Value"
 							],
 							"To": [
-								265,
+								346,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								257,
+								338,
 								"Value"
 							],
 							"To": [
-								266,
+								347,
 								"now"
 							]
 						},
 						{
 							"From": [
-								259,
+								340,
 								"Value"
 							],
 							"To": [
-								266,
+								347,
 								"start"
 							]
 						},
 						{
 							"From": [
-								256,
+								337,
 								"Result"
 							],
 							"To": [
-								266,
+								347,
 								"done"
 							]
 						},
 						{
 							"From": [
-								266,
+								347,
 								"Result"
 							],
 							"To": [
-								267,
+								348,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								265,
+								346,
 								"Then"
 							],
 							"To": [
-								267,
+								348,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								256,
+								337,
 								"Result"
 							],
 							"To": [
-								268,
+								349,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								264,
+								345,
 								"Result"
 							],
 							"To": [
-								268,
+								349,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								267,
+								348,
 								"Completed"
 							],
 							"To": [
-								268,
+								349,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								67,
+								78,
 								"Then"
 							],
 							"To": [
-								258,
+								339,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								261,
+								342,
 								"Completed"
 							],
 							"To": [
-								265,
+								346,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								268,
+								349,
 								"Then"
 							],
 							"To": [
-								68,
+								79,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 269,
+							"ID": 350,
 							"Text": "Repeat: the next tour takes off",
 							"Position": [
 								-32.0,
@@ -6045,7 +8000,7 @@
 				}
 			},
 			{
-				"ID": 69,
+				"ID": 80,
 				"Name": "CheckSentTourStops",
 				"Pure": false,
 				"Inputs": [],
@@ -6054,7 +8009,7 @@
 				"Graph": {
 					"Nodes": [
 						{
-							"ID": 70,
+							"ID": 81,
 							"Type": "Function.Entry",
 							"Position": [
 								0.0,
@@ -6062,7 +8017,7 @@
 							]
 						},
 						{
-							"ID": 71,
+							"ID": 82,
 							"Type": "Function.Return",
 							"Position": [
 								1456.0,
@@ -6070,7 +8025,7 @@
 							]
 						},
 						{
-							"ID": 270,
+							"ID": 351,
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
@@ -6081,7 +8036,7 @@
 							}
 						},
 						{
-							"ID": 271,
+							"ID": 352,
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
@@ -6093,7 +8048,7 @@
 							}
 						},
 						{
-							"ID": 272,
+							"ID": 353,
 							"Type": "Expression",
 							"Position": [
 								400.0,
@@ -6104,7 +8059,7 @@
 							}
 						},
 						{
-							"ID": 273,
+							"ID": 354,
 							"Type": "Expression",
 							"Position": [
 								624.0,
@@ -6115,7 +8070,7 @@
 							}
 						},
 						{
-							"ID": 274,
+							"ID": 355,
 							"Type": "Get:Strada.TransformComponent.WorldTranslation",
 							"Position": [
 								400.0,
@@ -6123,7 +8078,7 @@
 							]
 						},
 						{
-							"ID": 275,
+							"ID": 356,
 							"Type": "Function.Call",
 							"Position": [
 								624.0,
@@ -6143,7 +8098,7 @@
 							}
 						},
 						{
-							"ID": 276,
+							"ID": 357,
 							"Type": "Operator.And",
 							"Position": [
 								944.0,
@@ -6151,7 +8106,7 @@
 							]
 						},
 						{
-							"ID": 277,
+							"ID": 358,
 							"Type": "FormatString",
 							"Position": [
 								944.0,
@@ -6162,7 +8117,7 @@
 							}
 						},
 						{
-							"ID": 278,
+							"ID": 359,
 							"Type": "Get:Strada.Time.Elapsed",
 							"Position": [
 								0.0,
@@ -6170,29 +8125,29 @@
 							]
 						},
 						{
-							"ID": 279,
+							"ID": 360,
 							"Type": "Variable.Set",
 							"Position": [
 								192.0,
 								128.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 280,
+							"ID": 361,
 							"Type": "Variable.Get",
 							"Position": [
 								400.0,
 								256.0
 							],
 							"Settings": {
-								"Variable": 10
+								"Variable": 11
 							}
 						},
 						{
-							"ID": 281,
+							"ID": 362,
 							"Type": "Expression",
 							"Position": [
 								624.0,
@@ -6203,7 +8158,7 @@
 							}
 						},
 						{
-							"ID": 282,
+							"ID": 363,
 							"Type": "Flow.WaitUntil",
 							"Position": [
 								944.0,
@@ -6211,7 +8166,7 @@
 							]
 						},
 						{
-							"ID": 283,
+							"ID": 364,
 							"Type": "Function.Call",
 							"Position": [
 								1184.0,
@@ -6229,208 +8184,208 @@
 					"Links": [
 						{
 							"From": [
-								270,
+								351,
 								"Value"
 							],
 							"To": [
-								271,
+								352,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								271,
+								352,
 								"Value"
 							],
 							"To": [
-								272,
+								353,
 								"tours"
 							]
 						},
 						{
 							"From": [
-								271,
+								352,
 								"Value"
 							],
 							"To": [
-								273,
+								354,
 								"tours"
 							]
 						},
 						{
 							"From": [
-								270,
+								351,
 								"Value"
 							],
 							"To": [
-								274,
+								355,
 								"Target"
 							]
 						},
 						{
 							"From": [
-								274,
+								355,
 								"Value"
 							],
 							"To": [
-								275,
+								356,
 								"A"
 							]
 						},
 						{
 							"From": [
-								273,
+								354,
 								"Result"
 							],
 							"To": [
-								276,
+								357,
 								"A"
 							]
 						},
 						{
 							"From": [
-								275,
+								356,
 								"Result"
 							],
 							"To": [
-								276,
+								357,
 								"B"
 							]
 						},
 						{
 							"From": [
-								274,
+								355,
 								"Value"
 							],
 							"To": [
-								277,
+								358,
 								"At"
 							]
 						},
 						{
 							"From": [
-								271,
+								352,
 								"Value"
 							],
 							"To": [
-								277,
+								358,
 								"Tours"
 							]
 						},
 						{
 							"From": [
-								278,
+								359,
 								"Value"
 							],
 							"To": [
-								279,
+								360,
 								"Value"
 							]
 						},
 						{
 							"From": [
-								278,
+								359,
 								"Value"
 							],
 							"To": [
-								281,
+								362,
 								"now"
 							]
 						},
 						{
 							"From": [
-								280,
+								361,
 								"Value"
 							],
 							"To": [
-								281,
+								362,
 								"start"
 							]
 						},
 						{
 							"From": [
-								272,
+								353,
 								"Result"
 							],
 							"To": [
-								281,
+								362,
 								"done"
 							]
 						},
 						{
 							"From": [
-								281,
+								362,
 								"Result"
 							],
 							"To": [
-								282,
+								363,
 								"Condition"
 							]
 						},
 						{
 							"From": [
-								279,
+								360,
 								"Then"
 							],
 							"To": [
-								282,
+								363,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								276,
+								357,
 								"Result"
 							],
 							"To": [
-								283,
+								364,
 								"Passed"
 							]
 						},
 						{
 							"From": [
-								277,
+								358,
 								"Result"
 							],
 							"To": [
-								283,
+								364,
 								"Detail"
 							]
 						},
 						{
 							"From": [
-								282,
+								363,
 								"Completed"
 							],
 							"To": [
-								283,
+								364,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								70,
+								81,
 								"Then"
 							],
 							"To": [
-								279,
+								360,
 								"Execute"
 							]
 						},
 						{
 							"From": [
-								283,
+								364,
 								"Then"
 							],
 							"To": [
-								71,
+								82,
 								"Execute"
 							]
 						}
 					],
 					"Comments": [
 						{
-							"ID": 284,
+							"ID": 365,
 							"Text": "Repeat off: the sent tour stays at the home view after one tour",
 							"Position": [
 								-32.0,
@@ -6454,7 +8409,7 @@
 		"Graph": {
 			"Nodes": [
 				{
-					"ID": 285,
+					"ID": 366,
 					"Type": "Event.Create",
 					"Position": [
 						0.0,
@@ -6462,7 +8417,7 @@
 					]
 				},
 				{
-					"ID": 286,
+					"ID": 367,
 					"Type": "Flow.WaitFrames",
 					"Position": [
 						192.0,
@@ -6474,438 +8429,501 @@
 					"Comment": "Every entity has run its Create first"
 				},
 				{
-					"ID": 287,
+					"ID": 368,
 					"Type": "Flow.Sequence",
 					"Position": [
 						496.0,
 						0.0
 					],
 					"Settings": {
-						"Count": 19
+						"Count": 22
 					}
 				},
 				{
-					"ID": 288,
+					"ID": 369,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						0.0
 					],
 					"Settings": {
-						"Function": 18
+						"Function": 20
 					}
 				},
 				{
-					"ID": 289,
+					"ID": 370,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						112.0
 					],
 					"Settings": {
-						"Function": 21
+						"Function": 23
 					}
 				},
 				{
-					"ID": 290,
+					"ID": 371,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						224.0
 					],
 					"Settings": {
-						"Function": 24
+						"Function": 26
 					}
 				},
 				{
-					"ID": 291,
+					"ID": 372,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						336.0
 					],
 					"Settings": {
-						"Function": 27
+						"Function": 29
 					}
 				},
 				{
-					"ID": 292,
+					"ID": 373,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						448.0
 					],
 					"Settings": {
-						"Function": 30
+						"Function": 32
 					}
 				},
 				{
-					"ID": 293,
+					"ID": 374,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						560.0
 					],
 					"Settings": {
-						"Function": 33
+						"Function": 35
 					}
 				},
 				{
-					"ID": 294,
+					"ID": 375,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						672.0
 					],
 					"Settings": {
-						"Function": 36
+						"Function": 38
 					}
 				},
 				{
-					"ID": 295,
+					"ID": 376,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						784.0
 					],
 					"Settings": {
-						"Function": 39
+						"Function": 41
 					}
 				},
 				{
-					"ID": 296,
+					"ID": 377,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						896.0
 					],
 					"Settings": {
-						"Function": 42
+						"Function": 44
 					}
 				},
 				{
-					"ID": 297,
+					"ID": 378,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						1008.0
 					],
 					"Settings": {
-						"Function": 45
+						"Function": 47
 					}
 				},
 				{
-					"ID": 298,
+					"ID": 379,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						1120.0
 					],
 					"Settings": {
-						"Function": 48
+						"Function": 50
 					}
 				},
 				{
-					"ID": 299,
+					"ID": 380,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						1232.0
 					],
 					"Settings": {
-						"Function": 51
+						"Function": 53
 					}
 				},
 				{
-					"ID": 300,
+					"ID": 381,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						1344.0
 					],
 					"Settings": {
-						"Function": 54
+						"Function": 56
 					}
 				},
 				{
-					"ID": 301,
+					"ID": 382,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						1456.0
 					],
 					"Settings": {
-						"Function": 57
+						"Function": 59
 					}
 				},
 				{
-					"ID": 302,
+					"ID": 383,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						1568.0
 					],
 					"Settings": {
-						"Function": 60
+						"Function": 62
 					}
 				},
 				{
-					"ID": 303,
+					"ID": 384,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						1680.0
 					],
 					"Settings": {
-						"Function": 63
+						"Function": 65
 					}
 				},
 				{
-					"ID": 304,
+					"ID": 385,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						1792.0
 					],
 					"Settings": {
-						"Function": 66
+						"Function": 68
 					}
 				},
 				{
-					"ID": 305,
+					"ID": 386,
 					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						1904.0
 					],
 					"Settings": {
-						"Function": 69
+						"Function": 71
 					}
 				},
 				{
-					"ID": 306,
-					"Type": "Call:Strada.Testing.TestReporter.Finish()",
+					"ID": 387,
+					"Type": "Function.Call",
 					"Position": [
 						688.0,
 						2016.0
+					],
+					"Settings": {
+						"Function": 74
+					}
+				},
+				{
+					"ID": 388,
+					"Type": "Function.Call",
+					"Position": [
+						688.0,
+						2128.0
+					],
+					"Settings": {
+						"Function": 77
+					}
+				},
+				{
+					"ID": 389,
+					"Type": "Function.Call",
+					"Position": [
+						688.0,
+						2240.0
+					],
+					"Settings": {
+						"Function": 80
+					}
+				},
+				{
+					"ID": 390,
+					"Type": "Call:Strada.Testing.TestReporter.Finish()",
+					"Position": [
+						688.0,
+						2352.0
 					]
 				}
 			],
 			"Links": [
 				{
 					"From": [
-						285,
+						366,
 						"Then"
 					],
 					"To": [
-						286,
+						367,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						286,
+						367,
 						"Completed"
 					],
 					"To": [
-						287,
+						368,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then0"
 					],
 					"To": [
-						288,
+						369,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then1"
 					],
 					"To": [
-						289,
+						370,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then2"
 					],
 					"To": [
-						290,
+						371,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then3"
 					],
 					"To": [
-						291,
+						372,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then4"
 					],
 					"To": [
-						292,
+						373,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then5"
 					],
 					"To": [
-						293,
+						374,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then6"
 					],
 					"To": [
-						294,
+						375,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then7"
 					],
 					"To": [
-						295,
+						376,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then8"
 					],
 					"To": [
-						296,
+						377,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then9"
 					],
 					"To": [
-						297,
+						378,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then10"
 					],
 					"To": [
-						298,
+						379,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then11"
 					],
 					"To": [
-						299,
+						380,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then12"
 					],
 					"To": [
-						300,
+						381,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then13"
 					],
 					"To": [
-						301,
+						382,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then14"
 					],
 					"To": [
-						302,
+						383,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then15"
 					],
 					"To": [
-						303,
+						384,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then16"
 					],
 					"To": [
-						304,
+						385,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then17"
 					],
 					"To": [
-						305,
+						386,
 						"Execute"
 					]
 				},
 				{
 					"From": [
-						287,
+						368,
 						"Then18"
 					],
 					"To": [
-						306,
+						387,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						368,
+						"Then19"
+					],
+					"To": [
+						388,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						368,
+						"Then20"
+					],
+					"To": [
+						389,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						368,
+						"Then21"
+					],
+					"To": [
+						390,
 						"Execute"
 					]
 				}
 			],
 			"Comments": [
 				{
-					"ID": 307,
+					"ID": 391,
 					"Text": "Start: every check in turn, then the report",
 					"Position": [
 						-32.0,
@@ -6913,7 +8931,7 @@
 					],
 					"Size": [
 						943.6687622070313,
-						2202.0
+						2538.0
 					],
 					"Color": [
 						0.44999998807907104,

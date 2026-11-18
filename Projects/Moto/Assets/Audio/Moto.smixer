@@ -1,0 +1,297 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Mixer"
+	},
+	"Mixer": {
+		"Buses": [
+			{
+				"Name": "Master",
+				"Parent": "",
+				"VolumeDb": 0.0,
+				"Muted": false,
+				"Effects": [
+					{
+						"Kind": "Limiter",
+						"Frequency": 1000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					}
+				],
+				"DuckedBy": "",
+				"DuckAmountDb": -12.0,
+				"DuckThresholdDb": -40.0,
+				"DuckAttackSeconds": 0.05000000074505806,
+				"DuckReleaseSeconds": 0.5
+			},
+			{
+				"Name": "Engine",
+				"Parent": "Master",
+				"VolumeDb": 0.0,
+				"Muted": false,
+				"Effects": [
+					{
+						"Kind": "LowPass",
+						"Frequency": 20000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					}
+				],
+				"DuckedBy": "",
+				"DuckAmountDb": -12.0,
+				"DuckThresholdDb": -40.0,
+				"DuckAttackSeconds": 0.05000000074505806,
+				"DuckReleaseSeconds": 0.5
+			},
+			{
+				"Name": "Tyres",
+				"Parent": "Master",
+				"VolumeDb": -4.0,
+				"Muted": false,
+				"Effects": [
+					{
+						"Kind": "LowPass",
+						"Frequency": 20000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					}
+				],
+				"DuckedBy": "",
+				"DuckAmountDb": -12.0,
+				"DuckThresholdDb": -40.0,
+				"DuckAttackSeconds": 0.05000000074505806,
+				"DuckReleaseSeconds": 0.5
+			},
+			{
+				"Name": "Ambience",
+				"Parent": "Master",
+				"VolumeDb": -8.0,
+				"Muted": false,
+				"Effects": [
+					{
+						"Kind": "LowPass",
+						"Frequency": 20000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					}
+				],
+				"DuckedBy": "",
+				"DuckAmountDb": -12.0,
+				"DuckThresholdDb": -40.0,
+				"DuckAttackSeconds": 0.05000000074505806,
+				"DuckReleaseSeconds": 0.5
+			},
+			{
+				"Name": "Interface",
+				"Parent": "Master",
+				"VolumeDb": 0.0,
+				"Muted": false,
+				"Effects": [],
+				"DuckedBy": "",
+				"DuckAmountDb": -12.0,
+				"DuckThresholdDb": -40.0,
+				"DuckAttackSeconds": 0.05000000074505806,
+				"DuckReleaseSeconds": 0.5
+			},
+			{
+				"Name": "Reverb",
+				"Parent": "Master",
+				"VolumeDb": 0.0,
+				"Muted": false,
+				"Effects": [
+					{
+						"Kind": "HighPass",
+						"Frequency": 150.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					},
+					{
+						"Kind": "Reverb",
+						"Frequency": 1000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.550000011920929,
+						"Damping": 0.44999998807907104,
+						"Width": 1.0,
+						"WetDb": 0.0,
+						"DryDb": -80.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					},
+					{
+						"Kind": "LowPass",
+						"Frequency": 20000.0,
+						"Q": 0.707099974155426,
+						"GainDb": 0.0,
+						"DelaySeconds": 0.25,
+						"Feedback": 0.30000001192092896,
+						"RoomSize": 0.5,
+						"Damping": 0.5,
+						"Width": 1.0,
+						"WetDb": -6.0,
+						"DryDb": 0.0,
+						"ThresholdDb": -12.0,
+						"Ratio": 4.0,
+						"KneeDb": 6.0,
+						"AttackSeconds": 0.004999999888241291,
+						"ReleaseSeconds": 0.10000000149011612,
+						"MakeupDb": 0.0,
+						"CeilingDb": -1.0
+					}
+				],
+				"DuckedBy": "",
+				"DuckAmountDb": -12.0,
+				"DuckThresholdDb": -40.0,
+				"DuckAttackSeconds": 0.05000000074505806,
+				"DuckReleaseSeconds": 0.5
+			}
+		],
+		"Snapshots": [
+			{
+				"Name": "Paused",
+				"Values": [
+					{
+						"Bus": "Engine",
+						"Target": "Volume",
+						"Effect": 0,
+						"Parameter": "Frequency",
+						"Value": -10.0
+					},
+					{
+						"Bus": "Engine",
+						"Target": "Effect",
+						"Effect": 0,
+						"Parameter": "Frequency",
+						"Value": 650.0
+					},
+					{
+						"Bus": "Tyres",
+						"Target": "Volume",
+						"Effect": 0,
+						"Parameter": "Frequency",
+						"Value": -10.0
+					},
+					{
+						"Bus": "Tyres",
+						"Target": "Effect",
+						"Effect": 0,
+						"Parameter": "Frequency",
+						"Value": 650.0
+					},
+					{
+						"Bus": "Ambience",
+						"Target": "Volume",
+						"Effect": 0,
+						"Parameter": "Frequency",
+						"Value": -10.0
+					},
+					{
+						"Bus": "Ambience",
+						"Target": "Effect",
+						"Effect": 0,
+						"Parameter": "Frequency",
+						"Value": 650.0
+					},
+					{
+						"Bus": "Reverb",
+						"Target": "Volume",
+						"Effect": 0,
+						"Parameter": "Frequency",
+						"Value": -10.0
+					},
+					{
+						"Bus": "Reverb",
+						"Target": "Effect",
+						"Effect": 2,
+						"Parameter": "Frequency",
+						"Value": 650.0
+					}
+				]
+			}
+		],
+		"SpeedOfSound": 343.0,
+		"Impacts": {
+			"Bus": "",
+			"MinImpulse": 1.0,
+			"FullImpulse": 20.0,
+			"MaxPerFrame": 8
+		}
+	}
+}
