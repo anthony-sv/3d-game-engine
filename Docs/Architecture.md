@@ -5556,9 +5556,11 @@ that each platform's names are tested on every platform:
   with its sound). **With the ghost and its sound** (MO3's sitting: Release, the tour's 600 frames as above, the sound
   to the null device, the project as it is and a copy without the ghost, the trackside cameras, the directors and the
   echo, run alternately, the 10,000-instance gauge in band at 1.22 to 1.36 ms; provisional until the slice's gate
-  measures again): the frame's median is 3.51 to 3.59 ms (99th percentile 6.1 to 6.4 ms) against 3.53 to 3.64 ms
+  measures again): the frame's median is 3.54 to 3.59 ms (99th percentile 6.3 to 6.4 ms) against 3.56 to 3.64 ms
   (5.6 to 6.6 ms) without them, a median of 170 draws (at most 265), 167 batches and 5,341 instances against 149 (256),
-  146 and 5,338.5; the graphs take 0.08 ms a frame against 0.02 (`Scene.UpdateScripts` 0.10 ms against 0.03), and
+  146 and 5,338.5: in 287 of the 600 frames the ghost, which the tour passes, is seen by one to four passes where the
+  grid bike is not, so its 16 primitives are batches of their own there (16 draws a pass), and in the others it adds
+  none; the graphs take 0.08 ms a frame against 0.02 (`Scene.UpdateScripts` 0.10 ms against 0.03), and
   the mix of the sixteen engine voices, the echo's send and its reverb 0.32 ms per 1/60 s of audio (`Audio.Mix` in a
   run without a window at 1/60 s a frame with `--audio-capture`, which mixes on the main thread once a frame) against
   0.12 ms without them: 0.19 ms per 10 ms of audio. **The camera tour** is the first sample tour made of a graph
