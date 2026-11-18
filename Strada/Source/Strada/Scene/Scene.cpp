@@ -684,7 +684,7 @@ namespace Strada
 		}
 		{
 			ST_PROFILE_SCOPE("Scene.UpdateAudio");
-			UpdateAudio();
+			UpdateAudio(deltaTime);
 		}
 		{
 			ST_PROFILE_SCOPE("Scene.UpdateParticles");
@@ -706,6 +706,11 @@ namespace Strada
 
 	void Scene::SetPaused(bool paused)
 	{
+		if (m_IsPaused && !paused)
+		{
+			// What moved while the game stood still (an edit, a debugger's change) did not move in the game's time.
+			ForgetAudioMotion();
+		}
 		m_IsPaused = paused;
 		if (m_Audio)
 		{

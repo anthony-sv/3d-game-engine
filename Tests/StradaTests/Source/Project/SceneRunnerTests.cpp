@@ -282,6 +282,14 @@ TEST_CASE("SceneRunner: a game mixes through its project's mixer, follows its ed
 	music.VolumeDb = -6.0f;
 	Mixer mixer;
 	mixer.Buses.push_back(music);
+	mixer.Snapshots.push_back(MixerSnapshot{
+		.Name = "Paused",
+		.Values = {MixerSnapshotValue{.Bus = "Music",
+	                                  .Target = MixerSnapshotTarget::Volume,
+	                                  .Effect = 0,
+	                                  .Parameter = MixerEffectParameter::Frequency,
+	                                  .Value = -30.0f}},
+	});
 	TypedDataAssetType<Mixer> const* type = DataAssetRegistry::Find<Mixer>();
 	REQUIRE(type != nullptr);
 	auto const asset = std::static_pointer_cast<TypedDataAsset<Mixer>>(type->CreateAsset());
@@ -298,9 +306,11 @@ TEST_CASE("SceneRunner: a game mixes through its project's mixer, follows its ed
 		AudioEngine::SetMixer(mixer);
 		AudioEngine::SetBusVolume("Music", -20.0f);
 		REQUIRE(AudioEngine::GetBusVolume("Music") == -20.0f);
+		REQUIRE(AudioEngine::TransitionTo("Paused", 1.0f));
 		runner.Start(CreateRef<Scene>("Mixed"));
 		CHECK(AudioEngine::GetMixer() == mixer);
 		CHECK(AudioEngine::GetBusVolume("Music") == 0.0f);
+		CHECK(AudioEngine::GetCurrentSnapshot().empty());
 		CHECK(Testing::WasLogged(logStart, "Mixer: 2 buses from"));
 		CHECK(Testing::WasLogged(logStart, "(Master, Music)"));
 
@@ -312,9 +322,17 @@ TEST_CASE("SceneRunner: a game mixes through its project's mixer, follows its ed
 		AudioEngine::SetBusMuted("Music", true);
 		runner.Update(Timestep(1.0f / 60.0f));
 		CHECK(AudioEngine::IsBusMuted("Music"));
+		// A snapshot the game blends to holds through the asset's edits.
+		REQUIRE(AudioEngine::TransitionTo("paused", 0.5f));
+		mixer.Buses[1].VolumeDb = -8.0f;
+		REQUIRE(asset->SetData(mixer).IsOk());
+		runner.Update(Timestep(1.0f / 60.0f));
+		CHECK(AudioEngine::GetCurrentSnapshot() == "Paused");
 	}
-	// The game ended: its values are gone, the mixer stays until the next game applies its own.
+	// The game ended: its values are gone, the mix is back at the mixer's own values, and the mixer stays until the next
+	// game applies its own.
 	CHECK_FALSE(AudioEngine::IsBusMuted("Music"));
+	CHECK(AudioEngine::GetCurrentSnapshot().empty());
 	CHECK(AudioEngine::GetMixer() == mixer);
 
 	// A game without a mixer mixes through Master alone; one whose mixer does not load does too, and says so once.

@@ -270,6 +270,9 @@ namespace Strada
 			.AddOption("screenshot", "path",
 		               "Save a PNG of the window in the first frame drawn at or after the last one with --frames, otherwise frame 60; "
 		               "a run that saves none exits with 1")
+			.AddOption("audio-capture", "path",
+		               "Record the mix into this WAV file (16-bit PCM) instead of playing it, each frame's time of sound after its "
+		               "update; with --timestep and --frames two runs write the same bytes")
 			.AddOption("profile", "path",
 		               "Record the profiler and save its capture (the last 600 frames) here at exit, logging the medians")
 			.AddOption("resolution", "WxH",
@@ -349,6 +352,28 @@ namespace Strada
 				return fail("--resolution needs a window (not --headless or --test)");
 			}
 		}
+		// A file the run writes at its end: absolute, so that it lands where it was checked whatever the working directory is
+		// then, in a folder that exists. Empty when the value does not name one.
+		auto const resolveOutputFile = [](std::string const& text) -> std::filesystem::path
+		{
+			std::error_code resolveError;
+			std::filesystem::path const resolved = std::filesystem::absolute(FileSystem::PathFromUtf8(text), resolveError);
+			if (text.empty() || resolveError || !resolved.has_filename() || FileSystem::IsDirectory(resolved) ||
+			    !FileSystem::IsDirectory(resolved.parent_path()))
+			{
+				return {};
+			}
+			return resolved;
+		};
+		std::filesystem::path audioCapture;
+		if (std::optional<std::string> const value = arguments.GetValue("audio-capture"))
+		{
+			audioCapture = resolveOutputFile(*value);
+			if (audioCapture.empty())
+			{
+				return fail(fmt::format("--audio-capture must name a file in a folder that exists, not '{}'", *value));
+			}
+		}
 		std::filesystem::path profile;
 		if (std::optional<std::string> const value = arguments.GetValue("profile"))
 		{
@@ -356,16 +381,11 @@ namespace Strada
 			{
 				return fail("--profile needs a player with a profiler: Dist builds have none");
 			}
-			profile = FileSystem::PathFromUtf8(*value);
-			std::error_code error;
-			std::filesystem::path const absolute = std::filesystem::absolute(profile, error);
-			if (value->empty() || error || !absolute.has_filename() || FileSystem::IsDirectory(absolute) ||
-			    !FileSystem::IsDirectory(absolute.parent_path()))
+			profile = resolveOutputFile(*value);
+			if (profile.empty())
 			{
 				return fail(fmt::format("--profile must name a file in a folder that exists, not '{}'", *value));
 			}
-			// Saved where it was checked, whatever the working directory is at exit.
-			profile = absolute;
 		}
 
 		RuntimeSpecification runtime;
@@ -410,6 +430,12 @@ namespace Strada
 		runtime.Layer.Resolution = resolution;
 		runtime.Layer.ViewportWidth = resolution ? resolution->x : window.GetValue().Width;
 		runtime.Layer.ViewportHeight = resolution ? resolution->y : window.GetValue().Height;
+		if (!audioCapture.empty())
+		{
+			// The run mixes through manual output, read by the layer frame by frame: nothing reaches a speaker.
+			specification.ManualAudio = true;
+			runtime.Layer.AudioCapturePath = std::move(audioCapture);
+		}
 
 		if (headless)
 		{

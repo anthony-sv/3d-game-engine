@@ -77,10 +77,12 @@ namespace Strada
 
 		// Mixing thread: processes interleaved frames (the channel count it was made for) in place.
 		virtual void Process(std::span<float> frames) = 0;
-		// Mixing thread: a new target for a parameter, reached over AudioParameterSmoothingSeconds on the parameter's scale
-		// (frequencies and Q on a log2 scale, decibels in decibels, the rest linearly). Parameters the kind does not use are
-		// ignored.
-		virtual void SetParameter(MixerEffectParameter parameter, float value) = 0;
+		// Mixing thread: a new target for a parameter, reached over frames (the mixer gives at least
+		// AudioParameterSmoothingSeconds' worth; a snapshot's transition more) on the parameter's scale (frequencies and Q on a
+		// log2 scale, decibels in decibels, the rest linearly), from where the parameter is. A Delay's DelaySeconds is the
+		// exception: it crossfades to the new time over AudioGainSmoothingSeconds at once, whatever frames says. Parameters
+		// the kind does not use are ignored.
+		virtual void SetParameter(MixerEffectParameter parameter, float value, uint32_t frames) = 0;
 
 	protected:
 		explicit AudioEffect(MixerEffectKind kind)

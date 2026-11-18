@@ -14,6 +14,10 @@
 // The Mixer data asset type (.smixer, Docs/Architecture.md §9.5 and §7.3): the engine's Mixer (Strada/Asset/Mixer.h) as
 // field tables, and its registration's specification (DataAssetRegistry::AddEngineTypes). C++ readers of a mixer asset
 // include this header; code that only mixes includes Mixer.h.
+//
+// The format is version 1 with every field below, those slice 3's second mixer track added (ducking, snapshots) included,
+// and has no migration: no .smixer existed outside the slice before them, and a file without them reads their defaults.
+// Changing a field's meaning or removing one from now on bumps the version with a migration.
 namespace Strada
 {
 	template<>
@@ -29,6 +33,41 @@ namespace Strada
 			{MixerEffectKind::Reverb, "Reverb"},
 			{MixerEffectKind::Compressor, "Compressor"},
 			{MixerEffectKind::Limiter, "Limiter"},
+		}};
+	};
+
+	// The parameters' names are their MixerEffect fields' names.
+	template<>
+	struct EnumTraits<MixerEffectParameter>
+	{
+		static constexpr std::array<std::pair<MixerEffectParameter, std::string_view>, MixerEffectParameterCount> Values = {{
+			{MixerEffectParameter::Frequency, "Frequency"},
+			{MixerEffectParameter::Q, "Q"},
+			{MixerEffectParameter::GainDb, "GainDb"},
+			{MixerEffectParameter::DelaySeconds, "DelaySeconds"},
+			{MixerEffectParameter::Feedback, "Feedback"},
+			{MixerEffectParameter::RoomSize, "RoomSize"},
+			{MixerEffectParameter::Damping, "Damping"},
+			{MixerEffectParameter::Width, "Width"},
+			{MixerEffectParameter::WetDb, "WetDb"},
+			{MixerEffectParameter::DryDb, "DryDb"},
+			{MixerEffectParameter::ThresholdDb, "ThresholdDb"},
+			{MixerEffectParameter::Ratio, "Ratio"},
+			{MixerEffectParameter::KneeDb, "KneeDb"},
+			{MixerEffectParameter::AttackSeconds, "AttackSeconds"},
+			{MixerEffectParameter::ReleaseSeconds, "ReleaseSeconds"},
+			{MixerEffectParameter::MakeupDb, "MakeupDb"},
+			{MixerEffectParameter::CeilingDb, "CeilingDb"},
+		}};
+	};
+
+	template<>
+	struct EnumTraits<MixerSnapshotTarget>
+	{
+		static constexpr std::array<std::pair<MixerSnapshotTarget, std::string_view>, 3> Values = {{
+			{MixerSnapshotTarget::Volume, "Volume"},
+			{MixerSnapshotTarget::Muted, "Muted"},
+			{MixerSnapshotTarget::Effect, "Effect"},
 		}};
 	};
 
@@ -120,17 +159,89 @@ namespace Strada
 			Field("Muted", &MixerBus::Muted).Doc("Silences the bus and everything that feeds it."),
 			Field("Effects", &MixerBus::Effects)
 				.MaxCount(MaxBusEffects)
-				.Doc("The effects the bus's signal runs through, in order (at most 8)."));
+				.Doc("The effects the bus's signal runs through, in order (at most 8)."),
+			Field("DuckedBy", &MixerBus::DuckedBy)
+				.Doc("The bus whose level lowers this one while it sounds (a voice bus ducking music); empty for none."),
+			Field("DuckAmountDb", &MixerBus::DuckAmountDb)
+				.Range(MinMixerVolumeDb, 0.0)
+				.Doc("dB: how far the bus is lowered while the bus named by DuckedBy sounds; -80 silences it."),
+			Field("DuckThresholdDb", &MixerBus::DuckThresholdDb)
+				.Range(MinMixerVolumeDb, 0.0)
+				.Doc("dBFS: the level (RMS) of the bus named by DuckedBy at and above which this bus is lowered."),
+			Field("DuckAttackSeconds", &MixerBus::DuckAttackSeconds)
+				.Range(0.001, 5.0)
+				.Doc("Seconds the bus takes to go down by the whole amount, moving evenly in dB."),
+			Field("DuckReleaseSeconds", &MixerBus::DuckReleaseSeconds)
+				.Range(0.001, 10.0)
+				.Doc("Seconds the bus takes to come back up by the whole amount once the other bus falls below the threshold."));
+	};
+
+	template<>
+	struct StructTraits<MixerSnapshotValue>
+	{
+		static constexpr std::string_view Name = "MixerSnapshotValue";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Bus", &MixerSnapshotValue::Bus).Doc("The bus the value is set on (letter case ignored)."),
+			Field("Target", &MixerSnapshotValue::Target)
+				.Doc("What the value sets: the bus's Volume (dB), its Muted (1 mutes, 0 does not) or a parameter of an Effect."),
+			Field("Effect", &MixerSnapshotValue::Effect)
+				.Range(0.0, MaxBusEffects - 1)
+				.VisibleWhen("Target", "Effect")
+				.Doc("The index of the effect in the bus's Effects, from 0."),
+			Field("Parameter", &MixerSnapshotValue::Parameter)
+				.VisibleWhen("Target", "Effect")
+				.Doc("The effect's parameter, one its kind uses (a filter's Frequency, a reverb's WetDb)."),
+			Field("Value", &MixerSnapshotValue::Value)
+				.Doc("The value, within the range of what it sets: dB for Volume, 0 or 1 for Muted, the parameter's own range."));
+	};
+
+	template<>
+	struct StructTraits<MixerSnapshot>
+	{
+		static constexpr std::string_view Name = "MixerSnapshot";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Name", &MixerSnapshot::Name).Doc("The snapshot's name, which scripts blend to; unique, ignoring letter case."),
+			Field("Values", &MixerSnapshot::Values)
+				.MaxCount(MaxMixerSnapshotValues)
+				.Doc("What the snapshot sets in place of the mixer's own values (at most 128); everything else keeps them."));
+	};
+
+	template<>
+	struct StructTraits<MixerImpacts>
+	{
+		static constexpr std::string_view Name = "MixerImpacts";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Bus", &MixerImpacts::Bus).Doc("The bus impact sounds play on (letter case ignored); empty plays none."),
+			Field("MinImpulse", &MixerImpacts::MinImpulse)
+				.Range(0.0, static_cast<double>(MaxImpactImpulse))
+				.Doc("Newton-seconds: a collision whose strongest point's impulse is below it plays nothing."),
+			Field("FullImpulse", &MixerImpacts::FullImpulse)
+				.Range(0.001, static_cast<double>(MaxImpactImpulse))
+				.Doc("Newton-seconds: the impulse at which an impact sound plays at full volume; weaker ones play softer, in "
+		             "proportion."),
+			Field("MaxPerFrame", &MixerImpacts::MaxPerFrame)
+				.Range(1.0, static_cast<double>(MaxImpactSoundsPerFrame))
+				.Doc("Impact sounds a frame plays at most, those of the strongest impulses."));
 	};
 
 	template<>
 	struct StructTraits<Mixer>
 	{
 		static constexpr std::string_view Name = "Mixer";
-		static constexpr auto Fields =
-			std::make_tuple(Field("Buses", &Mixer::Buses)
-		                        .MaxCount(MaxMixerBuses)
-		                        .Doc("The buses (at most 32): Master, the root, and the buses below it, each naming its parent."));
+		static constexpr auto Fields = std::make_tuple(
+			Field("Buses", &Mixer::Buses)
+				.MaxCount(MaxMixerBuses)
+				.Doc("The buses (at most 32): Master, the root, and the buses below it, each naming its parent."),
+			Field("Snapshots", &Mixer::Snapshots)
+				.MaxCount(MaxMixerSnapshots)
+				.Doc("Named sets of bus values the mix blends to while a game plays (a pause that muffles everything; at most 32)."),
+			Field("SpeedOfSound", &Mixer::SpeedOfSound)
+				.Range(static_cast<double>(MinSpeedOfSound), static_cast<double>(MaxSpeedOfSound))
+				.Doc("Meters per second (343 in air): how much moving sounds rise in pitch as they come closer and fall as they "
+		             "go away (doppler)."),
+			Field("Impacts", &Mixer::Impacts)
+				.Doc("How collisions sound: the ImpactSound of each side's physics material, played where a collision begins, "
+		             "on this bus, louder for stronger impacts."));
 	};
 
 	inline constexpr std::array<DocumentMigration, 0> MixerMigrations = {};
@@ -139,7 +250,8 @@ namespace Strada
 		.Name = "Mixer",
 		.Extension = ".smixer",
 		.FormatVersion = 1,
-		.Description = "The buses sounds play on, in a tree under Master, each with a volume in decibels, a mute and a chain of effects.",
+		.Description = "The buses sounds play on, in a tree under Master, each with a volume in decibels, a mute, a chain of effects and "
+					   "ducking by another bus, and the snapshots the mix blends to.",
 		.Migrations = MixerMigrations,
 		.Validate = &ValidateMixer,
 	};

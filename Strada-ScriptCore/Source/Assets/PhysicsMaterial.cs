@@ -66,7 +66,9 @@ public sealed class PhysicsMaterial : Asset
 	/// apart; empty for none.</summary>
 	public string Surface => GetValues().Surface;
 
-	/// <summary>A sound for impacts on the surface, or null; contacts play nothing by themselves.</summary>
+	/// <summary>A sound for impacts on the surface, or null. A collision that begins plays it where it begins when the
+	/// project's mixer names a bus for impact sounds (its Impacts), louder for a stronger impact; scripts can play it
+	/// too.</summary>
 	public AudioClip? ImpactSound => GetValues().ImpactSound;
 
 	/// <summary>A prefab (usually a particle system) for impacts on the surface, or null; contacts spawn nothing by

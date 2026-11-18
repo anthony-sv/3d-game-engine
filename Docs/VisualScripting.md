@@ -352,6 +352,10 @@ is "Ice", lower the player's speed.
 - **Set Bus Volume** and **Set Bus Muted** (`Strada.Audio`) set the game's own values of a bus by name (any letter case;
   empty is Master), after the mixer's, never written to the mixer asset; **Get Bus Volume** and **Is Bus Muted** are
   pure reads of them. `MasterVolume` scales the whole mix, and `ActiveVoiceCount` is a pure getter of the voices mixed now.
+- **Transition To** (`Call:Strada.Audio.TransitionTo(string,float)`) blends the mix to the mixer's `Snapshot` over
+  `Seconds` (empty: back to the mixer's own values); `Result` says whether it does. `CurrentSnapshot` is a pure getter of
+  the snapshot the mix blends to, and **Get Bus Peak** a pure read of a bus's level as its meter shows it (0 silence, 1
+  full scale). A source's `DopplerLevel` is a getter and a setter.
 - A **Mixer** (`.smixer`: [Mixers](Editor.md#mixers)), a variable or Literal of type Mixer or **Load** by path, reads its
   buses with pure nodes: `BusCount`, `GetBusName(Index)`, `HasBus`, `GetBusParent`, and the mixer's own `GetBusVolume`
   and `IsBusMuted`.

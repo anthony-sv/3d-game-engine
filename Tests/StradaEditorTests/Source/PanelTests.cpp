@@ -2101,11 +2101,12 @@ TEST_CASE("FieldEditor: fields with a visibility condition show while their sibl
 		CHECK(countRows(component.Fields, fieldValues, {}) == shown - hidden);
 		CHECK(countRows(component.Fields, fieldValues, {sibling}) == shown);
 	};
-	// A fixed aspect ratio; the distances of spatial sounds; the blur of a drawn sky; the blend distance of local volumes.
+	// A fixed aspect ratio; the distances and the doppler level of spatial sounds; the blur of a drawn sky; the blend distance of local
+	// volumes.
 	checkSwitch(ComponentRegistry::Get<CameraComponent>(), SerializeFields<ComponentTraits<CameraComponent>>(CameraComponent()),
 	            "FixedAspectRatio", true, 1);
 	checkSwitch(ComponentRegistry::Get<AudioSourceComponent>(),
-	            SerializeFields<ComponentTraits<AudioSourceComponent>>(AudioSourceComponent()), "Spatial", true, 2);
+	            SerializeFields<ComponentTraits<AudioSourceComponent>>(AudioSourceComponent()), "Spatial", true, 3);
 	checkSwitch(ComponentRegistry::Get<SkyLightComponent>(), SerializeFields<ComponentTraits<SkyLightComponent>>(SkyLightComponent()),
 	            "DrawSkybox", true, 1);
 	checkSwitch(ComponentRegistry::Get<PostProcessComponent>(),

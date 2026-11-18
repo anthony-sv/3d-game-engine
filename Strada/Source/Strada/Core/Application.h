@@ -51,6 +51,10 @@ namespace Strada
 		uint64_t MaxFrames = 0;
 		// Frame-rate cap applied by sleeping, for loops not paced by vsync such as headless runs (0 = uncapped).
 		uint32_t FrameRateLimit = 0;
+		// The audio engine mixes through manual output (AudioOutput::Manual), whatever Headless and STRADA_AUDIO_OUTPUT say:
+		// nothing is played, and the mix advances only as a layer reads it with AudioEngine::ReadFrames on the main thread
+		// (the player's --audio-capture).
+		bool ManualAudio = false;
 
 		// Start the C# scripting runtime (ScriptEngine, with Strada.ScriptCore.dll next to the executable) with the engine.
 		// Applications that start it themselves, or not at all, turn this off; the engine shuts it down either way.

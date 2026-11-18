@@ -1,6 +1,7 @@
 #include "Audio/AudioTestUtilities.h"
 #include "Core/UserDataTestUtilities.h"
 #include "GpuTestUtilities.h"
+#include "Runtime/AudioCaptureClock.h"
 #include "Runtime/ResolutionRequest.h"
 #include "Runtime/ScreenshotRequest.h"
 #include "RuntimeTestUtilities.h"
@@ -19,6 +20,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/GameData.h"
 #include "Strada/Core/Image.h"
+#include "Strada/Core/Log.h"
 #include "Strada/Core/PlatformDetection.h"
 #include "Strada/Core/Profiler.h"
 #include "Strada/Platform/Process.h"
@@ -34,8 +36,10 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -944,6 +948,179 @@ TEST_CASE("Runtime: the player asks for its screenshot in the first frame drawn 
 	CHECK_FALSE(none.IsWanted());
 	CHECK_FALSE(none.TakeRequest(100, true));
 	CHECK(none.DescribeFailure().empty());
+}
+
+TEST_CASE("Runtime: an audio capture records each frame's time of sound at the mix's rate, the fraction carried")
+{
+	// 1/64 s is 750 frames at 48 kHz exactly.
+	AudioCaptureClock exact(48000);
+	for (int frame = 0; frame < 10; frame++)
+	{
+		CHECK(exact.Advance(1.0 / 64.0) == 750);
+	}
+	// 1/60 s as the player's float step is a little over 800 frames: the excess is carried, never dropped or rounded up.
+	AudioCaptureClock sixty(48000);
+	uint64_t total = 0;
+	for (int frame = 0; frame < 600; frame++)
+	{
+		uint64_t const frames = sixty.Advance(static_cast<double>(1.0f / 60.0f));
+		CHECK((frames == 800 || frames == 801));
+		total += frames;
+	}
+	CHECK(total == static_cast<uint64_t>(600.0 * static_cast<double>(1.0f / 60.0f) * 48000.0));
+	// A time that is not a number, negative or 0 records nothing and keeps the fraction.
+	AudioCaptureClock fraction(48000);
+	CHECK(fraction.Advance(0.5 / 48000.0) == 0);
+	CHECK(fraction.Advance(0.0) == 0);
+	CHECK(fraction.Advance(-1.0) == 0);
+	CHECK(fraction.Advance(std::nan("")) == 0);
+	CHECK(fraction.Advance(0.5 / 48000.0) == 1);
+}
+
+TEST_CASE("Runtime: --audio-capture writes the mix as 16-bit PCM, the same bytes in two runs of the same frames and step")
+{
+	TestGame game(ProjectFileKind::Game);
+	{
+		// A looping tone placed to the listener's left, and music streamed from its file.
+		Testing::AssetManagerScope assets;
+		std::filesystem::path const audio = game.GetDirectory() / "Assets" / "Audio";
+		REQUIRE(FileSystem::CreateDirectories(audio).IsOk());
+		std::vector<float> tone(4800);
+		std::vector<float> music(48000);
+		for (size_t index = 0; index < music.size(); index++)
+		{
+			double const time = static_cast<double>(index) / 48000.0;
+			music[index] = static_cast<float>(0.05 * std::sin(2.0 * 3.141592653589793 * 220.0 * time));
+			if (index < tone.size())
+			{
+				tone[index] = static_cast<float>(0.5 * std::sin(2.0 * 3.141592653589793 * 1000.0 * time));
+			}
+		}
+		REQUIRE(FileSystem::WriteBinaryFile(audio / "Tone.wav", Testing::MakeWav(tone).GetSpan()).IsOk());
+		REQUIRE(FileSystem::WriteBinaryFile(audio / "Music.wav", Testing::MakeWav(music).GetSpan()).IsOk());
+		REQUIRE(AssetManager::OpenAssetDirectory(game.GetDirectory() / "Assets").IsOk());
+		AssetHandle const toneClip = AssetManager::FindByPath("Audio/Tone.wav");
+		AssetHandle const musicClip = AssetManager::FindByPath("Audio/Music.wav");
+		REQUIRE(toneClip.IsValid());
+		REQUIRE(musicClip.IsValid());
+		REQUIRE(AssetManager::SaveRegistry().IsOk());
+
+		Ref<Scene> const main = MakeScene("Main", std::nullopt);
+		Entity left = main->CreateEntity("Tone");
+		left.GetComponent<TransformComponent>().Translation = glm::vec3(-3.0f, 0.0f, -2.0f);
+		AudioSourceComponent& toneSource = left.AddComponent<AudioSourceComponent>();
+		toneSource.Clip = toneClip;
+		toneSource.Loop = true;
+		toneSource.PlayOnStart = true;
+		AudioSourceComponent& musicSource = main->CreateEntity("Music").AddComponent<AudioSourceComponent>();
+		musicSource.Clip = musicClip;
+		musicSource.Stream = true;
+		musicSource.Loop = true;
+		musicSource.PlayOnStart = true;
+		musicSource.Spatial = false;
+		game.AddScene("Main", main);
+	}
+	std::string const file = Native(game.Write("Scenes/Main.sscene"));
+	std::filesystem::path const first = game.GetDirectory() / "First.wav";
+	std::filesystem::path const second = game.GetDirectory() / "Second.wav";
+
+	// 40 frames of 1/64 s: 0.625 s, 30,000 frames of stereo audio.
+	ProcessResult const run =
+		RunPlayer({"--game", file, "--headless", "--frames", "40", "--timestep", "0.015625", "--audio-capture", Native(first)});
+	CAPTURE(run.Output);
+	REQUIRE(run.ExitCode == 0);
+	CHECK(Contains(run.Output, "Saved the audio capture of 30000 frames (0.625 s)"));
+	Result<Buffer> const read = FileSystem::ReadBinaryFile(first);
+	REQUIRE(read.IsOk());
+	std::span<uint8_t const> const bytes = read.GetValue().GetSpan();
+	REQUIRE(bytes.size() == 44 + 30000 * 4);
+	auto const littleEndian = [&bytes](size_t offset, uint32_t byteCount)
+	{
+		uint32_t value = 0;
+		for (uint32_t index = 0; index < byteCount; index++)
+		{
+			value |= static_cast<uint32_t>(bytes[offset + index]) << (8 * index);
+		}
+		return value;
+	};
+	CHECK(std::string_view(reinterpret_cast<char const*>(bytes.data()), 4) == "RIFF");
+	CHECK(littleEndian(4, 4) == 36 + 120000);
+	CHECK(std::string_view(reinterpret_cast<char const*>(bytes.data() + 8), 8) == "WAVEfmt ");
+	CHECK(littleEndian(20, 2) == 1);
+	CHECK(littleEndian(22, 2) == 2);
+	CHECK(littleEndian(24, 4) == 48000);
+	CHECK(littleEndian(34, 2) == 16);
+	CHECK(std::string_view(reinterpret_cast<char const*>(bytes.data() + 36), 4) == "data");
+	CHECK(littleEndian(40, 4) == 120000);
+	// The mix is there: both channels sound, the tone at the left louder on the left.
+	double left = 0.0;
+	double right = 0.0;
+	for (size_t frame = 0; frame < 30000; frame++)
+	{
+		left += std::abs(static_cast<int16_t>(static_cast<uint16_t>(littleEndian(44 + frame * 4, 2))));
+		right += std::abs(static_cast<int16_t>(static_cast<uint16_t>(littleEndian(46 + frame * 4, 2))));
+	}
+	CHECK(left / 30000.0 > 1000.0);
+	CHECK(right / 30000.0 > 500.0);
+	CHECK(left > right * 1.2);
+
+	ProcessResult const again =
+		RunPlayer({"--game", file, "--headless", "--frames", "40", "--timestep", "0.015625", "--audio-capture", Native(second)});
+	REQUIRE(again.ExitCode == 0);
+	Result<Buffer> const reread = FileSystem::ReadBinaryFile(second);
+	REQUIRE(reread.IsOk());
+	CHECK(std::ranges::equal(reread.GetValue().GetSpan(), bytes));
+
+	// A step that leaves a fraction of a frame: the frames add up as the clock carries them.
+	ProcessResult const fraction =
+		RunPlayer({"--game", file, "--headless", "--frames", "10", "--timestep", "0.01", "--audio-capture", Native(second)});
+	REQUIRE(fraction.ExitCode == 0);
+	AudioCaptureClock clock(48000);
+	uint64_t expected = 0;
+	for (int frame = 0; frame < 10; frame++)
+	{
+		expected += clock.Advance(static_cast<double>(0.01f));
+	}
+	CHECK(Contains(fraction.Output, fmt::format("Saved the audio capture of {} frames", expected)));
+	CHECK(FileSystem::GetFileSize(second).value_or(0) == 44 + expected * 4);
+
+	// A test run records too, its last frame included: one that times out after 4 frames of 1/64 s holds 3,000 frames.
+	ProcessResult const test =
+		RunPlayer({"--game", file, "--test", "--timestep", "0.015625", "--timeout", "0.0625", "--audio-capture", Native(second)});
+	CAPTURE(test.Output);
+	CHECK(test.ExitCode == 1);
+	CHECK(Contains(test.Output, "the scripts did not finish testing in 4 frames"));
+	CHECK(Contains(test.Output, "Saved the audio capture of 3000 frames"));
+	CHECK(FileSystem::GetFileSize(second).value_or(0) == 44 + 3000 * 4);
+
+	// A file that cannot be opened for writing (read-only) stops the run at its start with exit code 1.
+	std::filesystem::path const locked = game.GetDirectory() / "Locked.wav";
+	REQUIRE(FileSystem::WriteTextFile(locked, "kept").IsOk());
+	std::error_code permissionError;
+	std::filesystem::permissions(
+		locked, std::filesystem::perms::owner_read | std::filesystem::perms::group_read | std::filesystem::perms::others_read,
+		permissionError);
+	REQUIRE_FALSE(permissionError);
+	if (std::ofstream(locked, std::ios::binary | std::ios::app))
+	{
+		// A user the system lets write anything (root) cannot make the file unwritable.
+		MESSAGE("a read-only file can be written here: the capture's failure is not checked");
+	}
+	else
+	{
+		ProcessResult const refused = RunPlayer({"--game", file, "--headless", "--frames", "5", "--audio-capture", Native(locked)});
+		CAPTURE(refused.Output);
+		CHECK(refused.ExitCode == 1);
+		CHECK(Contains(refused.Output, "The run stops: the audio capture"));
+		CHECK_FALSE(Contains(refused.Output, "Saved the audio capture"));
+		CHECK(ReadText(locked) == "kept");
+	}
+	std::filesystem::permissions(locked, std::filesystem::perms::owner_write, std::filesystem::perm_options::add, permissionError);
+
+	// A capture to a folder that does not exist, or to a folder, is a wrong command line.
+	CHECK(RunPlayer({"--game", file, "--headless", "--frames", "2", "--audio-capture", Native(game.GetDirectory() / "Missing" / "Mix.wav")})
+	          .ExitCode == 2);
+	CHECK(RunPlayer({"--game", file, "--headless", "--frames", "2", "--audio-capture", Native(game.GetDirectory())}).ExitCode == 2);
 }
 
 TEST_CASE("Runtime: a run asked for a resolution judges its drawing area once, in the first frame drawn from the settle frame on")

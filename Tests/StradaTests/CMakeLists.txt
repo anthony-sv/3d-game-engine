@@ -26,15 +26,19 @@ add_executable(StradaTests
     Source/Asset/VisualScriptRoundTrip.h
     Source/Asset/VisualScriptSerializerTests.cpp
     Source/Audio/AudioBenchmarkTests.cpp
+    Source/Audio/AudioDopplerTests.cpp
     Source/Audio/AudioEngineTests.cpp
+    Source/Audio/AudioMixControlTests.cpp
     Source/Audio/AudioMixerTests.cpp
     Source/Audio/AudioQueueTests.cpp
+    Source/Audio/AudioReverbZoneTests.cpp
     Source/Audio/AudioSceneTests.cpp
     Source/Audio/AudioTestUtilities.h
     Source/Audio/AudioVoiceTests.cpp
     Source/Audio/AudioWaveformTests.cpp
     Source/Audio/MixAllocationHook.cpp
     Source/Audio/MixAllocationHook.h
+    Source/Audio/WaveFileWriterTests.cpp
     Source/Core/ApplicationTests.cpp
     Source/Core/Base64Tests.cpp
     Source/Core/BufferTests.cpp
@@ -122,6 +126,7 @@ add_executable(StradaTests
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFormatTests.cpp
     Source/Scene/SceneFuzzTests.cpp
+    Source/Scene/SceneImpactSoundTests.cpp
     Source/Scene/SceneInputActionsTests.cpp
     Source/Scene/SceneInputRebindingTests.cpp
     Source/Scene/SceneInterpolationTests.cpp
@@ -129,6 +134,7 @@ add_executable(StradaTests
     Source/Scene/ScenePhysicsQueryTests.cpp
     Source/Scene/ScenePhysicsStateTests.cpp
     Source/Scene/SceneProfilingTests.cpp
+    Source/Scene/SceneReverbZoneTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneScriptingApiTests.cpp
     Source/Scene/SceneScriptingGuideTests.cpp

@@ -61,7 +61,7 @@ inline DataAssetTypeSpecification<Curve> const CurveAssetSpecification = {
   the editor's command domains: a type whose domain is a built-in domain adds its three commands to that domain, and
   `RegisterEditorCommands` fails only when the domain already has a `create`, `get` or `set` (`Graph` gives
   `graph.create`, which exists; `Viewport` would quietly add `viewport.create`, `get` and `set` beside the built-in
-  commands). Never name a type after a built-in domain (`Docs/Automation.md`'s Commands sections: `asset`,
+  commands). Never name a type after a built-in domain (`Docs/Automation.md`'s Commands sections: `asset`, `audio`,
   `component`, `editor`, `entity`, `graph`, `input`, `inspector`, `log`, `material`, `play`, `prefab`, `project`,
   `scene`, `script`, `start`, `test`, `viewport`). Choose the name for good; files, asset registries and scripts carry
   it.

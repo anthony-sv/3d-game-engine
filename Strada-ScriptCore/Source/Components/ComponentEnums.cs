@@ -74,6 +74,15 @@ public enum ParticleEmitterShape
 	Box = 3,
 }
 
+/// <summary>The shape of a reverb zone.</summary>
+public enum ReverbZoneShape
+{
+	/// <summary>A sphere of <see cref="ReverbZoneComponent.Radius"/> round the entity.</summary>
+	Sphere = 0,
+	/// <summary>A box of <see cref="ReverbZoneComponent.HalfExtents"/>, turned with the entity.</summary>
+	Box = 1,
+}
+
 /// <summary>How particles combine with what is behind them.</summary>
 public enum ParticleBlendMode
 {

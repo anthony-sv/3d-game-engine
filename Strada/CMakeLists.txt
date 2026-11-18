@@ -153,6 +153,8 @@ set(STRADA_AUDIO_SOURCES
     Source/Strada/Audio/AudioWaveform.cpp
     Source/Strada/Audio/AudioWaveform.h
     Source/Strada/Audio/MiniaudioContext.h
+    Source/Strada/Audio/WaveFileWriter.cpp
+    Source/Strada/Audio/WaveFileWriter.h
 )
 
 set(STRADA_PHYSICS_SOURCES

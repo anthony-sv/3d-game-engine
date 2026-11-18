@@ -614,7 +614,8 @@ namespace
 		// command is sent a request that succeeds. graph.find gets a text alone (every script is searched, and one that does not
 		// load is reported, not refused), then the references of the state's script's first variable; graph.set the state's
 		// script's own document; graph.create, every data asset type's create and profiler.capture a file of a name not given
-		// before (the drawn names exist after their first success), a data asset with its type's defaults; project.copy-example
+		// before (the drawn names exist after their first success), a data asset with its type's defaults; audio.meters no
+		// parameters; project.copy-example
 		// the available example into a fresh directory, unopened; graph.palette, whose goals are refusals, the two below;
 		// input.set an override of the project's first action, then a gamepad's button. A request that
 		// still fails (the state can be a few rounds old, the profiler can hold no frames yet) is followed by another at the command's next
@@ -660,6 +661,10 @@ namespace
 			if (m_Reached.contains(command))
 			{
 				return std::nullopt;
+			}
+			if (command == "audio.meters")
+			{
+				return Json::object();
 			}
 			if (command == "graph.set" && !m_State.Graph.empty())
 			{
@@ -2518,6 +2523,13 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 			CAPTURE(GetAutomationErrorCodeName(code));
 			CHECK(debugRefusals.contains(code));
 		}
+	}
+	// The audio meters answer whatever plays, and are refused only for parameters they do not take.
+	CHECK(outcomes["audio.meters"].first > 0);
+	for (AutomationErrorCode const code : debugErrors["audio.meters"])
+	{
+		CAPTURE(GetAutomationErrorCodeName(code));
+		CHECK(code == AutomationErrorCode::InvalidParams);
 	}
 	// physics.query answers, or is refused for its parameters or because nothing plays (its own case below reaches every kind).
 	for (AutomationErrorCode const code : debugErrors["physics.query"])

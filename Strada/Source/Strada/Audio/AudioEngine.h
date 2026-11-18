@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Strada
 {
@@ -50,6 +51,19 @@ namespace Strada
 	inline constexpr float AudioMixerStallSeconds = 5.0f;
 	// While the main thread holds the mixer of a lost device, it tries to start the device again this often.
 	inline constexpr float AudioDeviceRetrySeconds = 1.0f;
+
+	// The longest transition to a snapshot (AudioEngine::TransitionTo); longer ones are cut to it.
+	inline constexpr float MaxSnapshotTransitionSeconds = 300.0f;
+
+	// One bus's meter (AudioEngine::GetBusMeters): the linear peak and RMS of its output over the last block mixed, after
+	// its effects and every gain (the mixer's, the game's, ducking), across all channels.
+	struct AudioBusMeter
+	{
+		// As the mixer names the bus.
+		std::string Name;
+		float Peak = 0.0f;
+		float Rms = 0.0f;
+	};
 
 	// The environment variable that chooses a windowed application's output: "device" (the default) or "null", so that a
 	// capture or a session started by a tool plays nothing through the machine's speakers. Headless applications use the
@@ -111,7 +125,29 @@ namespace Strada
 		// dip of twice AudioGainSmoothingSeconds on the buses they change, never a click. Effects whose bus and kind carry
 		// on keep their state (a reverb's tail).
 		static void SetMixer(Mixer const& mixer);
+		// The mixer's own values, as last set (a snapshot does not change them).
 		static Mixer const& GetMixer();
+
+		// Blends the mix to the mixer's snapshot of that name (§9.8; matched ignoring letter case), or with the empty name
+		// back to the mixer's own values, over seconds of mixed audio (paused scenes do not hold it): bus volumes linearly in
+		// decibels, mutes linearly in amplitude, effect parameters on their own scales (frequencies and Q in log2, decibels in
+		// decibels, the rest linearly); a Delay's time crossfades at once. Every value moves from where it is, so a
+		// transition that starts while another runs carries on from there. Seconds not above the values' own smoothing
+		// (AudioGainSmoothingSeconds, AudioParameterSmoothingSeconds), NaN and negative ones included, are that smoothing;
+		// longer than MaxSnapshotTransitionSeconds is that. A snapshot the mixer lacks is logged once per name and mixer,
+		// changes nothing and returns false. The mixer's edits apply under the current snapshot (its values stay set), and
+		// one that removes it returns the mix to the mixer's own values. ResetGameValues returns to them too.
+		static bool TransitionTo(std::string_view snapshot, float seconds);
+		// The snapshot the mix blends to or holds, as the mixer names it; empty for the mixer's own values.
+		static std::string const& GetCurrentSnapshot();
+
+		// Every bus's meter, in the mixer's order (§9.8); empty while uninitialized. A bus whose node could not be made reads
+		// silence.
+		static std::vector<AudioBusMeter> GetBusMeters();
+		// One bus's meter, named ignoring letter case: the linear peak or RMS of its output over the last block mixed. A name
+		// the mixer lacks reads 0 and is logged once per name and mixer.
+		static float GetBusPeak(std::string_view bus);
+		static float GetBusRms(std::string_view bus);
 
 		// The game's value of a bus (§9.5): a gain stage after the mixer's own (the asset's value, blended by snapshots), so
 		// that a settings menu and the mix design never overwrite each other. Volumes in decibels (MinMixerVolumeDb is
@@ -122,8 +158,8 @@ namespace Strada
 		static void SetBusVolume(std::string_view bus, float decibels);
 		static bool IsBusMuted(std::string_view bus);
 		static void SetBusMuted(std::string_view bus, bool muted);
-		// The master volume back to 1 and every bus's game value back to 0 dB, not muted: what a game starts and ends with
-		// (SceneRunner calls it).
+		// The master volume back to 1, every bus's game value back to 0 dB, not muted, and the mix back to the mixer's own
+		// values (no snapshot), each over an edit's ramp: what a game starts and ends with (SceneRunner calls it).
 		static void ResetGameValues();
 		// Swaps every bus's effects for new ones of the same values, under the dip of a swap, so that no delay or reverb
 		// tail of a game rings on into editing or the next game (SceneRunner calls it when its game stops).

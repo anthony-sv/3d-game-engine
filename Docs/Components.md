@@ -7,7 +7,7 @@ Every component you can add to an entity, with every field: its type, its defaul
 it does. The inspector, scene files, the automation command `component.types` and the scripting API all read the same
 registry, so this page matches the engine: the engine's tests fail when it does not.
 
-28 components in 6 categories, with 210 fields in all. Vectors are written `(x, y, z)`, colors are
+29 components in 6 categories, with 217 fields in all. Vectors are written `(x, y, z)`, colors are
 linear RGB or RGBA from 0 to 1, distances are in meters and angles in degrees. Fields that only matter for some
 settings say when the inspector shows them. Scripts reach the same fields through the component classes of
 [ScriptingAPI.md](ScriptingAPI.md), and agents through `component.get` and `component.set`
@@ -18,7 +18,7 @@ settings say when the inspector shows them. Scripts reach the same fields throug
 | Core | [Tag](#tag), [Transform](#transform) |
 | Rendering | [Camera](#camera), [Mesh](#mesh), [DirectionalLight](#directionallight), [PointLight](#pointlight), [SpotLight](#spotlight), [SkyLight](#skylight), [Text](#text), [SpriteRenderer](#spriterenderer), [ParticleSystem](#particlesystem), [PostProcess](#postprocess) |
 | Physics | [RigidBody](#rigidbody), [BoxCollider](#boxcollider), [SphereCollider](#spherecollider), [CapsuleCollider](#capsulecollider), [MeshCollider](#meshcollider), [Joint](#joint), [CharacterController](#charactercontroller) |
-| Audio | [AudioSource](#audiosource), [AudioListener](#audiolistener) |
+| Audio | [AudioSource](#audiosource), [AudioListener](#audiolistener), [ReverbZone](#reverbzone) |
 | Scripting | [Script](#script), [VisualScript](#visualscript) |
 | UI | [UICanvas](#uicanvas), [UIRect](#uirect), [UIImage](#uiimage), [UIText](#uitext), [UIButton](#uibutton) |
 
@@ -360,6 +360,7 @@ Plays an audio clip, optionally positioned in 3D.
 | `Bus` | string | empty |  | The bus of the project's mixer the sound plays on, by name (any letter case); empty plays on Master, and so does a name the mixer lacks. |
 | `Priority` | uint | `128` | 0 to 255 | When more sounds play than the engine mixes at once, those of lower priority go silent first (higher is kept). |
 | `MaxVoices` | uint | `4` | 1 to 64 | Sounds of this source that play at once: its clip and its one-shots. A one-shot beyond it stops the source's oldest one-shot. |
+| `DopplerLevel` | float | `1` | 0 to 5 | How much the pitch rises as the sound and the listener come closer, and falls as they part (doppler): 0 turns it off, 1 is physical, more exaggerates it. Shown when `Spatial` is on. |
 
 ### AudioListener
 
@@ -368,6 +369,19 @@ The ears of the scene, usually on the camera.
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `Active` | bool | `true` |  | The first active listener hears the scene. |
+
+### ReverbZone
+
+A sphere or a box round the entity inside which spatial sounds send part of themselves to a bus with a reverb (an echo under a bridge, a tunnel, a hall), fading out round it.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `Shape` | enum | `Box` |  | A Sphere of Radius or a Box of HalfExtents, placed and turned by the entity and sized times its scale. One of `Sphere`, `Box`. |
+| `Radius` | float | `5` | 0 to 100000 | Meters: the sphere's radius (times the entity's largest scale). Shown when `Shape` is `Sphere`. |
+| `HalfExtents` | vec3 | `(5, 5, 5)` | 0 to 100000 | Meters from the box's center to each face (times the entity's scale). Shown when `Shape` is `Box`. |
+| `FadeDistance` | float | `2` | 0 to 100000 | Meters outside the shape across which the send falls to nothing; 0 stops it at the surface. |
+| `Bus` | string | empty |  | The mixer's bus the zone sends to, one that carries a reverb (letter case ignored); empty, or a bus the mixer lacks, sends nothing. |
+| `SendLevel` | float | `1` | 0 to 1 | How much of a spatial sound inside the zone reaches the bus (linear); of several zones of one bus the largest send counts. |
 
 ## Scripting
 

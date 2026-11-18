@@ -19,7 +19,7 @@ using namespace Strada;
 TEST_CASE("Components: every component is registered once with a unique name")
 {
 	std::span<ComponentInfo const> const components = ComponentRegistry::GetComponents();
-	REQUIRE(components.size() == 31);
+	REQUIRE(components.size() == 32);
 
 	std::set<std::string_view> names;
 	for (ComponentInfo const& info : components)
@@ -70,6 +70,7 @@ TEST_CASE("Components: every component belongs to one of the known categories")
 		{"CharacterController", ComponentCategory::Physics},
 		{"AudioSource", ComponentCategory::Audio},
 		{"AudioListener", ComponentCategory::Audio},
+		{"ReverbZone", ComponentCategory::Audio},
 		{"Script", ComponentCategory::Scripting},
 		{"VisualScript", ComponentCategory::Scripting},
 		// Text and sprites are renderers in the world or on the screen; UI holds the elements of screen-space canvases.

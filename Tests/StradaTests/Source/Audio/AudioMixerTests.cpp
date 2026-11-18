@@ -444,6 +444,31 @@ TEST_CASE("AudioMixer: a mixer the validation refuses is not applied, and number
 	CHECK(AudioEngine::GetMixer().Buses[0].VolumeDb == MaxMixerVolumeDb);
 	CHECK(AudioEngine::GetMixer().Buses[0].Effects[0].Frequency == 24000.0f);
 	CHECK(AudioEngine::GetMixer().Buses[0].Effects[0].Q == 0.1f);
+
+	// The mixer's own numbers and its impacts' too: a speed of sound of 0 would make every motion a teleport, and an impulse
+	// of full volume of 0 would divide by it.
+	Mixer coded = MakeMixer({MakeBus("Master", "")});
+	coded.SpeedOfSound = 0.0f;
+	coded.Impacts.FullImpulse = 0.0f;
+	coded.Impacts.MinImpulse = -1.0f;
+	coded.Impacts.MaxPerFrame = 0;
+	AudioEngine::SetMixer(coded);
+	CHECK(AudioEngine::GetMixer().SpeedOfSound == MinSpeedOfSound);
+	CHECK(AudioEngine::GetMixer().Impacts.FullImpulse == 0.001f);
+	CHECK(AudioEngine::GetMixer().Impacts.MinImpulse == 0.0f);
+	CHECK(AudioEngine::GetMixer().Impacts.MaxPerFrame == 1u);
+
+	// A list longer than its field allows is refused whole, never cut: a bus past the limit may be one others name.
+	Mixer const fitted = AudioEngine::GetMixer();
+	std::vector<MixerBus> buses = {MakeBus("Master", "")};
+	for (uint32_t index = 0; index < MaxMixerBuses; index++)
+	{
+		buses.push_back(MakeBus("Bus " + std::to_string(index), "Master"));
+	}
+	uint64_t const tooManyStart = Log::GetNextEntryIndex();
+	AudioEngine::SetMixer(MakeMixer(std::move(buses)));
+	CHECK(AudioEngine::GetMixer() == fitted);
+	CHECK(CountLogged(tooManyStart, "a mixer has at most 32 buses, not 33") == 1);
 }
 
 TEST_CASE("AudioMixer: each filter's gain at three frequencies is within 0.1 dB of its closed form")
@@ -841,7 +866,7 @@ TEST_CASE("AudioMixer: every kind of effect takes a new parameter without a clic
 		// Long enough for echoes, tails and envelopes to settle; then the steady output's sharpest turn is the measure.
 		ProcessSine(*effect, frame, 2.0f);
 		std::vector<float> const before = ProcessSine(*effect, frame, 0.1f);
-		effect->SetParameter(move.Parameter, move.Value);
+		effect->SetParameter(move.Parameter, move.Value, AudioFrames(AudioParameterSmoothingSeconds));
 		std::vector<float> const after = ProcessSine(*effect, frame, 0.1f);
 		// The turns after the change are measured from the last two frames before it on: a value that jumps at once turns
 		// the waveform at the change itself.

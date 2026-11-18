@@ -211,14 +211,15 @@ visual-script debugging buttons while the game plays, and Simulate. [Play mode](
 | Content Browser | The project's assets and C# scripts as folders and tiles |
 | Console | The log: info, warnings and errors of the engine, the editor and your scripts |
 | Input Actions | The game's actions and their bindings as a table: bindings captured by pressing them, conflicts, each action's value while the game plays ([Input Actions](#input-actions-panel)) |
+| Mixer | The project's mixer as a desk: a strip per bus with its meter, fader and mute, the selected bus's effects and ducking, the snapshots, auditioned while the game plays ([The Mixer panel](#the-mixer-panel)) |
 | Visual Script Debugger | Where visual scripts are stopped at breakpoints, their call stacks and values |
 | Graph windows | One window per open visual script ([VisualScripting.md](VisualScripting.md#editing-visual-scripts)) |
 
 The default layout puts the Scene Hierarchy on the left, the Inspector, Scene Settings and Project Settings as tabs on
 the right, the Scene View, Game View and Renderer Info as tabs in the middle, and the Content Browser, Console, Input
-Actions and Visual Script Debugger as tabs below the middle. The Scene View, the Inspector and the Content Browser are the tabs in
-front. Graph windows open as tabs beside the Scene View. The Profiler is closed until you open it from the View menu,
-because the profiler records while it is open; it opens as a tab beside the Console.
+Actions, Mixer and Visual Script Debugger as tabs below the middle. The Scene View, the Inspector and the Content
+Browser are the tabs in front. Graph windows open as tabs beside the Scene View. The Profiler is closed until you open
+it from the View menu, because the profiler records while it is open; it opens as a tab beside the Console.
 
 ### Arranging panels
 
@@ -375,7 +376,7 @@ selected, and each creation is one undo step.
 | Rendering | Camera, Directional Light, Point Light, Spot Light, Sky Light (with the default sky), Post Process Volume |
 | Effects | Particle System, Fire, Smoke, Sparks |
 | Physics | Character Controller (an entity named "Character" with a capsule mesh and a character controller) |
-| Audio | Audio Source, Audio Listener |
+| Audio | Audio Source, Audio Listener, Reverb Zone |
 | UI | Canvas, Panel, Image, Text, Button |
 
 Directional and spot lights are tilted toward the ground, particle effects point up, and the Post Process Volume is
@@ -757,6 +758,19 @@ An Audio Source also has `Bus`, the bus of the project's mixer it plays on ([Mix
 `Priority` (0 to 255, 128 by default: when more sounds play than the engine mixes at once, 64, those of lower priority
 go silent first and come back when there is room) and `MaxVoices` (1 to 64, 4 by default: how many of its sounds play at
 once, its clip and the one-shots scripts and graphs play on it; a one-shot past it stops the source's oldest one-shot).
+A spatial source's `DopplerLevel` (0 to 5, 1 by default) says how much its pitch rises as it and the listener come
+closer and falls as they part, at the speed of sound the project's mixer sets (`SpeedOfSound`, 343 m/s): 0 turns it off,
+1 is physical. The engine computes it from where the source and the listener were at the last frame of the game, so a
+jump faster than half the speed of sound (a respawn) and a switch to another listener give none.
+
+A Reverb Zone (Entity > Audio > Reverb Zone, or the ReverbZone component) makes spatial sounds inside it echo: a `Box`
+of `HalfExtents` or a `Sphere` of `Radius` round its entity (moved and turned with it, sized times its scale; a sphere
+by its largest axis), inside which every spatial sound sends `SendLevel` (0 to 1) of itself to `Bus`, a bus of the
+project's mixer that carries a `Reverb` with its `DryDb` at -80 ([Mixers](#mixers)). Across `FadeDistance` meters outside
+the shape the send falls to nothing, so sounds glide in and out of the echo. It follows the sound, not the listener: a
+car in a tunnel echoes for a camera outside it. Of several zones of one bus the largest send counts, and a sound sends to
+the two buses it sends most to; sounds that are not spatial send nothing, and a zone whose bus is empty or not in the
+mixer sends nothing (logged once). The new entity's zone is a 10 m box that sends to a bus named `Reverb`.
 
 ### Fonts
 
@@ -854,8 +868,10 @@ it on the next frame, and actions held stay down without a new press.
 
 A physics material (`.sphysmat`) is a surface: how it slides (`Friction`), bounces (`Restitution`) and rolls
 (`RollingResistance`), the name scripts tell it by (`Surface`: Asphalt, Gravel, Ice) and the sound and particles of an
-impact on it (`ImpactSound`, `ImpactParticles`, which scripts and graphs play and spawn; contacts do neither by
-themselves, and rigid bodies roll without the rolling resistance, which is for scripts and graphs, later the vehicle). Pick one in a
+impact on it (`ImpactSound`, `ImpactParticles`). A collision that begins plays each side's `ImpactSound` where it
+begins when the project's mixer names a bus for impact sounds ([Mixers](#mixers), `Impacts`; a new mixer names none);
+contacts spawn no particles themselves, which scripts and graphs do, and rigid bodies roll without the rolling
+resistance, which is for scripts and graphs, later the vehicle). Pick one in a
 collider's `Material` field: its values then replace the collider's own `Friction` and `Restitution`, and the inspector
 says so, showing "Set by Material" in place of those two fields while `Material` names a physics material of the project.
 A reference to anything else (an asset of another type, a file that is gone) counts as no material: the two fields show
@@ -886,9 +902,25 @@ those two mixed by `WetDb` and `DryDb`, a `Compressor` (`ThresholdDb`, `Ratio`, 
 effect's kind. Every mixer has exactly one bus named `Master`, which every other bus feeds through its parents; at most
 32 buses and 8 effects a bus. A new mixer is Master alone, which mixes as a project without a mixer does.
 
+A bus can be ducked by another: name it in `DuckedBy` (voices ducking music), and while that bus's level is at or above
+`DuckThresholdDb` the bus goes down by `DuckAmountDb` over `DuckAttackSeconds`, and back over `DuckReleaseSeconds` once
+the level falls below, evenly in decibels. A bus cannot be ducked by itself, by a bus it feeds, or through other ducking by
+a bus it ducks. A mixer's `Snapshots` are named sets of values that a game blends the mix to, a pause that lowers and
+muffles everything for example: each value sets one bus's `Volume`, its `Muted` (1 or 0), or a parameter of one of its
+effects (by the effect's index in its list) in place of the mixer's own, and everything a snapshot does not set keeps
+the mixer's values. While a game blends to a snapshot, edits of the mixer apply under it; when the game stops, the mix is
+back at the mixer's own values. `SpeedOfSound` (1 to 10,000 m/s, 343 by default) is the speed the doppler of moving
+sounds is computed with: lower it to hear more of it.
+
+`Impacts` makes collisions sound: with a bus named in its `Bus`, a collision that begins plays the `ImpactSound` of each
+side's physics material ([Physics materials](#physics-materials); the same sound on both sides plays once) where it
+begins, on that bus, at a volume of the impact's impulse over `FullImpulse` (at most full); impacts weaker than
+`MinImpulse` play nothing, and a frame plays at most `MaxPerFrame` impact sounds, those of the strongest impacts. Its
+`Bus` is empty in a new mixer, which plays no impact sound.
+
 Name the game's mixer in Project Settings (`Mixer`), and a bus in an Audio Source's `Bus` (any letter case; empty is
-Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer in the Inspector, or agents with
-`mixer.set` ([Automation](Automation.md)); while the game plays, the mix takes the edit before its next sound: volumes
+Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer in the Mixer panel ([The Mixer
+panel](#the-mixer-panel)) or the Inspector, or agents with `mixer.set` ([Automation](Automation.md)); while the game plays, the mix takes the edit before its next sound: volumes
 glide over 5 ms, and a bus added, removed or moved, or whose effects change in kind or order, fades out and back in over
 10 ms, so nothing clicks. An effect that keeps its kind and its place among that kind's effects keeps its sound, so a
 reverb's tail rings on when a filter is inserted before it. When the game stops, the effects' tails stop with it.
@@ -897,6 +929,35 @@ A game sets its own volume and mute of each bus on top of the mixer's (`Audio.Se
 [scripts](Scripting.md#sound-text-and-materials) and graphs), as a settings menu does: they are never written to the
 mixer, and each game starts with them at 0 dB and not muted, so editing the mixer while a game plays and the game's own
 values never overwrite each other.
+
+### The Mixer panel
+
+The Mixer panel (View > Mixer, a tab beside the Console) shows a mixer as a mixing desk: the project's (Project
+Settings, `Mixer`), or another one chosen in its `Mixer` field (`x` goes back to the project's).
+
+- **The strips.** One per bus, in the mixer's order: its name (click it to select the bus), its meter, its fader
+  (-80 dB, silence, at the bottom to +24 dB at the top; Ctrl+click it to type a value) and Mute. The meter shows the
+  bus's level over the last 5 ms the engine mixed, after its effects and every gain: the bar is its RMS, the line above
+  it its peak, red at full scale, from -60 dBFS at the bottom to 0 dBFS at the top. Meters move only while the game
+  plays through this mixer.
+- **Bus.** The selected bus's `Name`, the bus it feeds, its effects in the order its sound runs through them (each shows
+  the parameters of its kind) and its ducking. Renaming a bus renames every reference to it in the mixer: the buses it
+  feeds, the buses it ducks, the snapshots' values and the impact sounds' bus. Add Bus adds a bus that feeds the selected
+  one; Remove Bus removes it, the buses it fed then feed its parent, a bus it ducked is ducked no more, and the snapshots'
+  values that set it and impact sounds on it go. When effects are added, removed or reordered, the snapshots' values
+  that set them follow them. Master keeps its name and cannot be removed.
+- **Snapshots.** Each snapshot with its number of values and Audition, then the snapshots' names and values to edit, and
+  Add Snapshot. While the game plays through this mixer, Audition blends the running mix to the snapshot over a quarter
+  of a second, so that its values can be tuned by ear while it holds: edits of them are heard as they are made. Press it
+  again (Stop) to blend back to what the mix had before, as hiding or closing the panel, choosing another mixer or
+  closing the project does. The game blending the mix itself, or play stopping, ends an audition. Auditions are never
+  undo steps and never change the mixer.
+- **Doppler and Impacts.** The mixer's `SpeedOfSound` and `Impacts`.
+
+Every edit in the panel is one undo step of the mixer (a fader's drag, a field's edit, a rename when its field is left or
+on Enter, each button); an edit the mixer's rules refuse (two buses of one name, a snapshot value naming an effect a bus
+does not have) changes nothing, and the panel says why above the strips. A read-only mixer is shown disabled. While the
+game plays through the mixer, it takes every edit before its next sound, as edits made anywhere else.
 
 ## Scene Settings
 
@@ -953,7 +1014,7 @@ apply at once and are saved to the project file when an edit ends. They are not 
 | `Physics.CollisionSteps` | Collision steps each physics step is divided into (1 to 4, default 1); more resolve fast or stiff bodies better, at their cost |
 | `Physics.Layers` | Names of the physics layers (1 to 16); a RigidBody's `Layer` indexes them |
 | `InputActions` | The game's input actions, an asset of that type ([Input actions](#input-actions)); none means scripts and graphs read every action as 0. Play mode, the player and exported games evaluate them each frame |
-| `Mixer` | The mixer (`.smixer`) the game's sounds play through: its buses, their volumes and effects. None plays every sound on Master alone |
+| `Mixer` | The mixer (`.smixer`) the game's sounds play through: its buses, their volumes, effects and ducking, and its snapshots. None plays every sound on Master alone |
 
 Under Layer Collisions, a matrix of check boxes says which layers collide: clear the box of two layers so that their
 bodies pass through each other. Layers are numbers: a RigidBody's `Layer` and the matrix's pairs hold the layer's index,

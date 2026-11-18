@@ -54,7 +54,8 @@ namespace Strada
 		             "none."),
 			Field("ImpactSound", &PhysicsMaterial::ImpactSound)
 				.References("AudioClip")
-				.Doc("A sound for impacts on the surface, which scripts and graphs play; contacts play nothing by themselves."),
+				.Doc("A sound for impacts on the surface: a collision that begins plays it where it begins when the project's mixer "
+		             "names a bus for impact sounds (its Impacts), louder for a stronger impact; scripts and graphs can play it too."),
 			Field("ImpactParticles", &PhysicsMaterial::ImpactParticles)
 				.References("Prefab")
 				.Doc("A prefab (usually a particle system) for impacts on the surface, which scripts and graphs spawn; contacts spawn "

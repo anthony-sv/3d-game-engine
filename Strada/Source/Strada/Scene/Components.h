@@ -287,11 +287,37 @@ namespace Strada
 		uint32_t Priority = DefaultAudioPriority;
 		// Voices of the source that play at once, its main voice and its one-shots together: 1 to MaxAudioSourceVoices.
 		uint32_t MaxVoices = DefaultAudioSourceVoices;
+		// How much of the doppler effect a spatial source's voices take (Docs/Architecture.md §9.8): their pitch is multiplied
+		// by c / (c - v * DopplerLevel), v being how fast source and listener close in. 0 turns it off, 1 is physical, up to
+		// MaxAudioDopplerLevel exaggerates it. Sources that are not spatial take none.
+		float DopplerLevel = DefaultAudioDopplerLevel;
 	};
 
 	struct AudioListenerComponent
 	{
 		bool Active = true;
+	};
+
+	// A reverb zone (Docs/Architecture.md §9.8): a sphere or a box round its entity inside which spatial sounds send part of
+	// themselves to a bus of the mixer that carries a reverb (an echo under a bridge, a tunnel, a hall). It follows the
+	// sound, not the listener: a sound inside the zone echoes for a listener outside it. The shape is placed and turned by
+	// the entity and sized in meters times the entity's scale (a sphere by its largest axis). A sound sends SendLevel of
+	// itself inside the shape, less and less across FadeDistance meters outside it, nothing beyond; of several zones of one bus the
+	// largest send counts, and a sound sends to the two buses it sends most to. Sounds that are not spatial send nothing.
+	struct ReverbZoneComponent
+	{
+		ReverbZoneShape Shape = ReverbZoneShape::Box;
+		// Meters, for a sphere.
+		float Radius = 5.0f;
+		// Meters from the center to each face, for a box.
+		glm::vec3 HalfExtents = {5.0f, 5.0f, 5.0f};
+		// Meters outside the shape across which the send falls to nothing; 0 stops it at the shape's surface.
+		float FadeDistance = 2.0f;
+		// The mixer's bus the zone sends to (any letter case): empty, or a name the project's mixer lacks (logged once),
+		// sends nothing.
+		std::string Bus;
+		// Linear, 0 to 1: how much of a sound inside the zone reaches the bus.
+		float SendLevel = 1.0f;
 	};
 
 	struct ScriptComponent

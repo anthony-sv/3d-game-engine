@@ -741,14 +741,36 @@ namespace
 		{
 			mixer.Buses.push_back(bus("Voices", "Effects", {effect(MixerEffectKind::Peaking), effect(MixerEffectKind::HighShelf)}));
 		}
+		// The effects duck the music; a snapshot lowers and muffles it and mutes the effects.
+		mixer.Buses[1].DuckedBy = "Effects";
+		mixer.Buses[1].DuckAttackSeconds = 0.02f;
+		mixer.Buses[1].DuckReleaseSeconds = 0.05f;
+		mixer.Snapshots = {MixerSnapshot{
+			.Name = "Muffled",
+			.Values = {MixerSnapshotValue{.Bus = "Music",
+		                                  .Target = MixerSnapshotTarget::Volume,
+		                                  .Effect = 0,
+		                                  .Parameter = MixerEffectParameter::Frequency,
+		                                  .Value = -12.0f},
+		               MixerSnapshotValue{.Bus = "Music",
+		                                  .Target = MixerSnapshotTarget::Effect,
+		                                  .Effect = 0,
+		                                  .Parameter = MixerEffectParameter::Frequency,
+		                                  .Value = 300.0f},
+		               MixerSnapshotValue{.Bus = "Effects",
+		                                  .Target = MixerSnapshotTarget::Muted,
+		                                  .Effect = 0,
+		                                  .Parameter = MixerEffectParameter::Frequency,
+		                                  .Value = 1.0f}},
+		}};
 		return mixer;
 	}
 }
 
-TEST_CASE("AudioEngine: mixing starts, steals, one-shots and changes allocates nothing on the mixing thread")
+TEST_CASE("AudioEngine: mixing starts, steals, one-shots, changes and reverb zones' sends allocates nothing on the mixing thread")
 {
 	Testing::AudioEngineScope engine;
-	// Buses with every effect, whose values, chains and tree change below.
+	// Buses with every effect and ducking, whose values, chains and tree change below, and transitions to a snapshot.
 	AudioEngine::SetMixer(MakeBusyMixer(0.0f, false, true));
 	Scope<AudioScene> audio = CreateAudioScene();
 	Scope<AudioScene> other = CreateAudioScene();
@@ -797,6 +819,25 @@ TEST_CASE("AudioEngine: mixing starts, steals, one-shots and changes allocates n
 				scene->PlayOneShot(entity, clips[1 + index % 2], 1.0f);
 			}
 		}
+		// Reverb zones that grow, shrink, change level and change bus: sends start, ramp, move between buses (a heard one
+		// fades out first) and go quiet; one names a bus the mixer lacks, and Voices comes and goes with the mixer.
+		std::vector<AudioReverbZoneDesc> zones(3);
+		zones[0].Position = {0.0f, 0.0f, -2.0f};
+		zones[0].Radius = 1.0f + static_cast<float>(frame % 5);
+		zones[0].Bus = frame % 30 < 15 ? "Effects" : "Voices";
+		zones[0].Level = 0.2f + 0.1f * static_cast<float>(frame % 7);
+		zones[1].Shape = ReverbZoneShape::Box;
+		zones[1].Position = {3.0f, 0.0f, -2.0f};
+		zones[1].HalfExtents = {2.0f, 1.0f, 1.0f + static_cast<float>(frame % 3)};
+		zones[1].Bus = "Music";
+		zones[1].Level = frame % 40 < 20 ? 0.5f : 0.0f;
+		zones[2].Position = {-3.0f, 0.0f, -2.0f};
+		zones[2].Bus = "Missing";
+		audio->UpdateReverbZones(zones);
+		if (other)
+		{
+			other->UpdateReverbZones(zones);
+		}
 		if (frame % 10 == 0)
 		{
 			audio->PlayClipAtPoint(clips[2], {1.0f, 0.0f, -3.0f}, 0.5f, "");
@@ -817,6 +858,11 @@ TEST_CASE("AudioEngine: mixing starts, steals, one-shots and changes allocates n
 			AudioEngine::SetBusVolume("Effects", -static_cast<float>(frame % 5));
 			AudioEngine::SetBusMuted("Music", frame % 40 == 10);
 			audio->SetBus(SourceId(frame % 40), frame % 3 == 0 ? "Voices" : "Music");
+		}
+		if (frame % 25 == 5)
+		{
+			// Transitions to a snapshot and back, interrupted by the next before they end.
+			REQUIRE(AudioEngine::TransitionTo(frame % 50 == 5 ? "Muffled" : "", 0.3f));
 		}
 		if (frame == 150)
 		{

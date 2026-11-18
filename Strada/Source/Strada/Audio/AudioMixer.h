@@ -109,6 +109,33 @@ namespace Strada
 		bool IsSteady() const { return FramesLeft == 0; }
 	};
 
+	// The mixer's gain of a bus (its volume and mute, the asset's or a snapshot's), on the mixing thread (§9.8). An edit
+	// ramps both linearly in amplitude over AudioGainSmoothingSeconds, as every gain does; a snapshot's transition moves the
+	// volume linearly in decibels (the amplitude multiplied by one factor each frame, so no power is computed per frame) and
+	// the mute linearly in amplitude, over the transition's frames, from wherever they are.
+	struct AudioBusMixGain
+	{
+		// The quietest amplitude a move in decibels starts from or heads for: MinMixerVolumeDb, which is silence once
+		// reached.
+		static constexpr double DecibelFloor = 1.0e-4;
+
+		double Volume = 1.0;
+		double VolumeTarget = 1.0;
+		// Per frame: added (in amplitude) or multiplied (in decibels).
+		double VolumeStep = 0.0;
+		bool InDecibels = false;
+		uint32_t FramesLeft = 0;
+		AudioSmoothedGain Mute;
+
+		// The targets: volumeDb (MinMixerVolumeDb and below are silence) and muted, reached over frames (at once with 0),
+		// the volume in decibels when inDecibels is set. A value whose target is the one it has keeps its ramp.
+		void SetTarget(float volumeDb, bool muted, uint32_t frames, bool inDecibels);
+		// The gain of the next frame.
+		float Next();
+		float GetCurrent() const { return static_cast<float>(Volume) * Mute.Current; }
+		bool IsSteady() const { return FramesLeft == 0 && Mute.IsSteady(); }
+	};
+
 	// One scene's group of one bus: every voice of that scene on that bus plays through it, and stopping it holds them
 	// (a paused scene). An ma_sound_group made with MA_SOUND_FLAG_NO_PITCH and MA_SOUND_FLAG_NO_SPATIALIZATION (it only
 	// sums) and MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT (the mixing thread attaches it). Made by its AudioScene on the main
@@ -122,15 +149,17 @@ namespace Strada
 		};
 
 	public:
-		// Main thread: the group, unattached, holding its voices when paused, for the bus of that name (matched by its key,
-		// MakeMixerBusKey; Master when the mixer lacks it, which is logged once with the name as given). Its node is
-		// allocated through the engine's allocation callbacks.
-		[[nodiscard]] static Result<Scope<AudioSceneGroup>> Create(std::string busName, bool paused);
+		// Main thread: the group of the scene numbered scene (AudioVoiceManager::NextSceneSerial), unattached, holding its
+		// voices when paused, for the bus of that name (matched by its key, MakeMixerBusKey; Master when the mixer lacks it,
+		// which is logged once with the name as given). Its node is allocated through the engine's allocation callbacks.
+		[[nodiscard]] static Result<Scope<AudioSceneGroup>> Create(std::string busName, bool paused, uint64_t scene);
 
-		AudioSceneGroup(PrivateTag, std::string busName);
+		AudioSceneGroup(PrivateTag, std::string busName, uint64_t scene);
 		// Main thread, only while the mixing thread does not hold the group.
 		~AudioSceneGroup() override;
 
+		// Any thread: the scene the group belongs to (fixed when it is made).
+		uint64_t GetScene() const { return m_Scene; }
 		// Main thread.
 		std::string const& GetBusKey() const { return m_BusKey; }
 		// The bus's name as the source that made the group gave it (another spelling of the key may share the group).
@@ -139,9 +168,13 @@ namespace Strada
 		bool IsHeldByMixer() const { return m_HeldByMixer; }
 		// The bus it plays into, as the main thread last pointed it (null: the engine's endpoint).
 		AudioBusNode* GetBusNode() const { return m_BusNode; }
-		// Hands the group to the mixing thread (before the first start of a voice in it); nothing when it already holds it.
+		// Hands the group to the mixing thread (before the first start of a voice in it, or the first send into it); nothing
+		// when it already holds it.
 		void Attach();
-		void SetPaused(bool paused);
+		// The group holds its voices (a paused scene) or lets them continue: at once while the main thread still holds it.
+		// Once the mixing thread does, its scene sends one SetScenePaused for all its groups, so that they stop and start in
+		// the same block. Returns whether the mixing thread holds the group (and so needs that command).
+		bool SetPaused(bool paused);
 		// The group plays into bus from now on: moved with a dip (MoveGroup) once the mixing thread holds it.
 		void PointAt(AudioBusNode* bus);
 		// The last command that names the group: it comes back once its voices have. The engine forgets it.
@@ -154,16 +187,19 @@ namespace Strada
 		bool m_HasGroup = false;
 		std::string m_BusKey;
 		std::string m_BusName;
+		uint64_t m_Scene = 0;
 		// Main thread.
 		bool m_Paused = false;
 		bool m_HeldByMixer = false;
 		bool m_Registered = false;
 		AudioBusNode* m_BusNode = nullptr;
-		// Mixing thread only: whether it is attached, held, retiring, and how many voices it holds attached.
+		// Mixing thread only: whether it is attached, held, retiring, how many voices it holds attached and how many sends
+		// of voices play into it (it comes back once neither is left).
 		bool m_MixAttached = false;
 		bool m_MixPaused = false;
 		bool m_MixRetiring = false;
 		uint32_t m_MixVoiceCount = 0;
+		uint32_t m_MixSendCount = 0;
 		// The bus it is attached to (null: the endpoint), and a move under way: faded out until m_MixMoveEnd on the mixer's
 		// clock, then attached to m_MixMoveTarget and faded back in.
 		AudioBusNode* m_Bus = nullptr;
@@ -220,15 +256,17 @@ namespace Strada
 
 		std::string const& GetName() const { return m_Name; }
 
-		// Main thread, before AddBus hands the node over: its first gains (linear) and effects, taken at once.
-		void SetInitialValues(float mixGain, float gameGain, AudioEffectChain* chain);
+		// Main thread, before AddBus hands the node over: its first values (the mixer's volume in dB and mute, the game's
+		// gain, linear) and effects, taken at once.
+		void SetInitialValues(float volumeDb, bool muted, float gameGain, AudioEffectChain* chain);
 		// Main thread: the product of the mixer's and the game's gains of this bus and every bus above it, in amplitude, as
 		// the main thread last set them (AudioVoiceManager's estimate of a voice's loudness, §9.3).
 		float GetChainGain() const { return m_ChainGain; }
 		void SetChainGain(float gain) { m_ChainGain = gain; }
 
-		// Any thread: the linear peak and RMS of the bus's output over the last block the mixing thread finished (MX2's
-		// meters; MX2's ducking reads them a block late, since miniaudio's graph pulls buses in an order of its own).
+		// Any thread: the linear peak and RMS of the bus's output (after its effects and every gain) over the last block the
+		// mixing thread finished: the meters (§9.8). Ducking reads the RMS of the block before the one it mixes, whatever
+		// order miniaudio's graph pulls the buses in.
 		float GetPeak() const { return m_Peak.load(std::memory_order_relaxed); }
 		float GetRms() const { return m_Rms.load(std::memory_order_relaxed); }
 
@@ -246,6 +284,12 @@ namespace Strada
 		// bus), the effects in order, the gains, then the meters.
 		static void OnProcess(ma_node* node, float const** framesIn, ma_uint32* frameCountIn, float** framesOut, ma_uint32* frameCountOut);
 		void Process(float const* input, uint32_t inputFrames, float* output, uint32_t frameCount);
+		// Mixing thread: moves the duck's gain one frame towards target, linearly in decibels.
+		void StepDuck(double target);
+		// Mixing thread (SetBusDucking): ducked by trigger (null: not ducked) by amountDb while its level is at or above
+		// thresholdDb, going down over attackSeconds and back up over releaseSeconds.
+		void SetDucking(AudioBusNode* trigger, float amountDb, float thresholdDb, float attackSeconds, float releaseSeconds,
+		                uint32_t sampleRate);
 
 		Node m_Node{};
 		bool m_HasNode = false;
@@ -263,8 +307,24 @@ namespace Strada
 		bool m_HasPendingParent = false;
 		// The bus it feeds (null: the engine's endpoint, Master's place).
 		AudioBusNode* m_Parent = nullptr;
-		AudioSmoothedGain m_MixGain;
+		AudioBusMixGain m_MixGain;
 		AudioSmoothedGain m_GameGain;
+		// Ducking (§9.8): the bus whose level of the block before lowers this one (null: not ducked), the amplitude of its
+		// threshold, the gain the duck heads for while that level is at or above it, the factors the duck's gain is
+		// multiplied by each frame going down and coming back up (the amount over the attack and over the release), the
+		// factor that brings a duck deeper than its amount (an edit while it was down) back up to the amount within the
+		// release, and the duck's gain.
+		AudioBusNode* m_DuckTrigger = nullptr;
+		float m_DuckThreshold = 0.0f;
+		float m_DuckTarget = 1.0f;
+		double m_DuckAttackFactor = 1.0;
+		double m_DuckReleaseFactor = 1.0;
+		double m_DuckRecoveryFactor = 1.0;
+		double m_DuckGain = 1.0;
+		// The RMS of the bus's output over the block it last processed, and over the block before it (what ducking reads,
+		// moved on by the mixer once every bus has processed a block).
+		float m_BlockRms = 0.0f;
+		float m_PreviousRms = 0.0f;
 		// The dip of a move or a swap: down to 0 until m_DipEnd on the mixer's clock, the change, back to 1.
 		AudioSmoothedGain m_Dip;
 		bool m_Dipping = false;
@@ -277,6 +337,72 @@ namespace Strada
 		// Written by the mixing thread at the end of each block.
 		std::atomic<float> m_Peak{0.0f};
 		std::atomic<float> m_Rms{0.0f};
+	};
+
+	// The sends of one voice to the buses of reverb zones (§9.8): a custom node of miniaudio's graph between the voice's sound
+	// and its group, with one input and an output for the dry signal and one for each send. The dry output passes the voice
+	// on unchanged to its group; each send gives the voice times a gain, ramped per frame, to a group of the voice's scene
+	// (the scene's group of the zone's bus). Made by the main thread the first time the voice sends (AudioVoice::EnableSends)
+	// and owned by its voice: handed to the mixing thread with AddVoiceSends, it comes back with the voice.
+	//
+	// Every output is attached to a group of the voice's scene at all times (a send that has no zone plays silence into the
+	// scene's Master group). miniaudio processes a node of several outputs once a period, when an output that has been read
+	// since the last processing is read again, and serves the period's other outputs from its cache (miniaudio.h:75245-75260,
+	// :75417): an output left unread for a period would be served a period late from then on. Each group of a scene is
+	// read once a period, and a scene's groups stop and start together (SetScenePaused), so the node's outputs are read in
+	// every period or in none. It processes continuously (MA_NODE_FLAG_CONTINUOUS_PROCESSING), with silence while its voice
+	// gives nothing, so each output has the whole length of the period (a shorter read would make the group read it again
+	// within the period).
+	class AudioSendNode final : public AudioMixerObject
+	{
+		struct PrivateTag
+		{
+		};
+
+	public:
+		// The dry output, then one per send.
+		static constexpr uint32_t OutputCount = 1 + MaxAudioVoiceSends;
+
+		// Main thread: the node, unattached, for a mix of channelCount channels, every send at level 0 into idle (the
+		// group sends play into while they have no zone). Its node is allocated through the engine's allocation callbacks.
+		[[nodiscard]] static Result<Scope<AudioSendNode>> Create(uint32_t channelCount, AudioSceneGroup& idle);
+
+		AudioSendNode(PrivateTag, uint32_t channelCount);
+		// Main thread, only while the mixing thread does not hold the node (with its voice).
+		~AudioSendNode() override;
+
+	private:
+		friend class AudioMixer;
+		friend class AudioVoice;
+
+		struct Node
+		{
+			ma_node_base Base;
+			AudioSendNode* Owner = nullptr;
+		};
+
+		// One send. The main thread sets it up until the hand-over; the mixing thread alone touches it after.
+		struct Send
+		{
+			// The group it plays into (attached once Connected).
+			AudioSceneGroup* Group = nullptr;
+			AudioSmoothedGain Gain;
+			bool Connected = false;
+			// A change of group while the voice is heard: the send fades out, then plays into PendingGroup and fades in to
+			// PendingLevel.
+			bool Moving = false;
+			AudioSceneGroup* PendingGroup = nullptr;
+			float PendingLevel = 0.0f;
+		};
+
+		// ma_node_vtable::onProcess (miniaudio.h:10680), on the mixing thread.
+		static void OnProcess(ma_node* node, float const** framesIn, ma_uint32* frameCountIn, float** framesOut, ma_uint32* frameCountOut);
+		void Process(float const* input, uint32_t inputFrames, float** outputs, uint32_t frameCount);
+
+		Node m_Node{};
+		bool m_HasNode = false;
+		uint32_t m_ChannelCount = 0;
+		std::array<Send, MaxAudioVoiceSends> m_Sends;
 	};
 
 	// An intrusive list of voices through one of their links (AudioVoice::m_PlayingLink, m_FadingLink, m_VirtualLink), so
@@ -394,6 +520,21 @@ namespace Strada
 
 		void AttachVoice(AudioVoice& voice, AudioSceneGroup& group);
 		void DetachVoice(AudioVoice& voice);
+		// What feeds the voice's group: its send node once it has one, its sound before.
+		static ma_node* GetVoiceOutput(AudioVoice& voice);
+
+		// Reverb zones' sends (§9.8): the send node goes between the voice's sound and its group, every output attached.
+		void InsertSends(AudioVoice& voice, AudioSendNode& sends);
+		// A new group and level for one send (SetVoiceSend).
+		void SetVoiceSend(AudioVoice& voice, uint32_t slot, AudioSceneGroup& group, float level);
+		// Attaches the send's output to group (detaching it from the one it fed).
+		void ConnectSend(AudioSendNode& sends, uint32_t slot, AudioSceneGroup& group);
+		// Detaches every send of a voice that comes back.
+		void DisconnectSends(AudioSendNode& sends);
+		// Sends that faded out to change group move and fade in (at once with immediate: the mixer was taken over).
+		void FinishSends(bool immediate);
+		// A retiring group comes back once no voice and no send plays into it.
+		void ReturnGroupIfDone(AudioSceneGroup& group);
 		// The last touch of a voice or a group: the main thread may destroy it as soon as it is on the return list.
 		void ReturnVoice(AudioVoice& voice);
 		void ReturnGroup(AudioSceneGroup& group);

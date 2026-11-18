@@ -3,8 +3,8 @@ using Strada.Testing;
 
 namespace FeatureTest;
 
-/// <summary>Cameras, lights, meshes, text, sprites, particle systems, joints, post-process volumes, audio listeners and script
-/// components: every property is written and read back, and the scene's values come first.</summary>
+/// <summary>Cameras, lights, meshes, text, sprites, particle systems, joints, post-process volumes, audio listeners, reverb
+/// zones and script components: every property is written and read back, and the scene's values come first.</summary>
 public sealed class ComponentTests : FeatureTestScript
 {
 	protected override void Start()
@@ -26,6 +26,7 @@ public sealed class ComponentTests : FeatureTestScript
 			Assert.IsFalse(listener.Active);
 			listener.Active = true;
 		});
+		Check("reverb zones", ReverbZoneChecks);
 		Check("script components", () =>
 		{
 			ScriptComponent script = GetComponent<ScriptComponent>()!;
@@ -251,6 +252,38 @@ public sealed class ComponentTests : FeatureTestScript
 		joint.Type = JointType.Hinge;
 		joint.Anchor = new Vector3(0.0f, 1.5f, 0.0f);
 		joint.Axis = new Vector3(0.0f, 0.0f, 1.0f);
+	}
+
+	private static void ReverbZoneChecks()
+	{
+		// The scene's zone: a sphere round the Speaker that sends to the reverb of the Music bus.
+		ReverbZoneComponent zone = Find<ReverbZoneComponent>("Reverb Zone");
+		Assert.AreEqual(ReverbZoneShape.Sphere, zone.Shape);
+		Assert.AreEqual(3.0f, zone.Radius);
+		Assert.AreEqual(new Vector3(5.0f, 5.0f, 5.0f), zone.HalfExtents);
+		Assert.AreEqual(1.5f, zone.FadeDistance);
+		Assert.AreEqual("Music", zone.Bus);
+		Assert.AreEqual(0.6f, zone.SendLevel);
+
+		zone.Shape = ReverbZoneShape.Box;
+		zone.HalfExtents = new Vector3(4.0f, 2.0f, 6.0f);
+		zone.Radius = 2.0f;
+		zone.FadeDistance = 0.0f;
+		zone.Bus = "Effects";
+		zone.SendLevel = 0.25f;
+		Assert.AreEqual(ReverbZoneShape.Box, zone.Shape);
+		Assert.AreEqual(new Vector3(4.0f, 2.0f, 6.0f), zone.HalfExtents);
+		Assert.AreEqual(2.0f, zone.Radius);
+		Assert.AreEqual(0.0f, zone.FadeDistance);
+		Assert.AreEqual("Effects", zone.Bus);
+		Assert.AreEqual(0.25f, zone.SendLevel);
+
+		zone.Shape = ReverbZoneShape.Sphere;
+		zone.Radius = 3.0f;
+		zone.HalfExtents = new Vector3(5.0f, 5.0f, 5.0f);
+		zone.FadeDistance = 1.5f;
+		zone.Bus = "Music";
+		zone.SendLevel = 0.6f;
 	}
 
 	private static void PostProcessChecks()
