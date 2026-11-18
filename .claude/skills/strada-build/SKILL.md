@@ -34,9 +34,9 @@ python Tools/build.py --keep-going             # build past failed compiles, rep
   test suite is built whatever it names, and so are the script projects the suites share (the test scripts and the
   scripts of FeatureTest, Blocks, Showcase and the csharp-starter template, defined in the root `CMakeLists.txt`). A
   target that more than one suite uses belongs in the root file too: in one suite's directory it would be missing from
-  a build without that suite. CI's Windows MSVC Release build is two jobs with it, `StradaTests;ScriptCoreTests` and
-  `StradaEditorTests;StradaRuntimeTests;StradaToolTests`, so that each stays far from the job's time limit; together
-  they build every target and run every ctest entry once. The value stays in the build tree's cache until
+  a build without that suite. CI's Windows MSVC Release and Linux GCC Release builds are two jobs each with it,
+  `StradaTests;ScriptCoreTests` and `StradaEditorTests;StradaRuntimeTests;StradaToolTests`, so that each stays far from
+  the job's time limit; each pair together builds every target and runs every ctest entry once. The value stays in the build tree's cache until
   `--cmake-arg=-USTRADA_TEST_SUITES`.
 - A build stops at the first failed command. `--keep-going` (Ninja's `-k 0`) builds everything that does not depend on
   a failed command, so one build reports every compile error, and still exits with a failure. CI's Build step passes
