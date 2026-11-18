@@ -2141,6 +2141,16 @@ namespace
 				state.Components.push_back(type["Name"].get<std::string>());
 				state.ComponentFields[type["Name"].get<std::string>()] = std::move(fields);
 			}
+			// Script fields and graph variables of one value and lists, which component.set, component.add and entity.create
+			// are sent damaged now and then: their maps' defaults are empty.
+			Json const scriptValues = Json::object(
+				{{"Speed", Json::object({{"Type", "Float"}, {"Value", 2.5}})},
+			     {"Speeds", Json::object({{"Type", "Float[]"}, {"Value", Json::array({1.5, 2.5})}})},
+			     {"Targets", Json::object({{"Type", "Entity[]"}, {"Value", Json::array({"0"})}})},
+			     {"Titles", Json::object({{"Type", "String[]"}, {"Value", Json::array()}})},
+			     {"Turns", Json::object({{"Type", "Quaternion[]"}, {"Value", Json::array({Json::array({0.0, 0.0, 0.0, 1.0})})}})}});
+			state.ComponentFields["Script"]["Fields"] = scriptValues;
+			state.ComponentFields["VisualScript"]["Variables"] = scriptValues;
 			std::set<std::string> folders;
 			bool seedRead = false;
 			Json const assets = Ok("asset.list", Json::object({{"builtIn", true}}));

@@ -55,6 +55,8 @@ internal static class ScriptRegistry
 	internal const int MaxKeptEntities = 4096;
 	// The public types of the game assembly (nested public types included), by full name: what [VisualNode] can mark.
 	private static readonly List<Type> s_GameTypes = [];
+	// The fields ("<class>.<field>") whose too long lists DescribeInstanceFields has reported since the assembly loaded.
+	private static readonly HashSet<string> s_ReportedLongLists = new(StringComparer.Ordinal);
 
 	internal static void LoadGameAssembly(string path)
 	{
@@ -105,6 +107,7 @@ internal static class ScriptRegistry
 		s_Entities.Clear();
 		s_Classes.Clear();
 		s_GameTypes.Clear();
+		s_ReportedLongLists.Clear();
 		if (s_LoadContext == null)
 		{
 			return;
@@ -154,17 +157,51 @@ internal static class ScriptRegistry
 		}
 
 		List<ScriptField> fields = [];
+		// Serialized fields that cannot be fields, with why: reported once for the class instead of dropped in silence.
+		List<string> skipped = [];
 		foreach (FieldInfo field in GetSerializedFields(type))
 		{
-			ScriptFieldType fieldType = ScriptFieldCodec.GetFieldType(field.FieldType);
-			if (fieldType != ScriptFieldType.None)
+			ScriptFieldType fieldType = ScriptFieldCodec.GetMemberFieldType(field.FieldType);
+			if (fieldType == ScriptFieldType.None)
 			{
-				object? defaultValue = ScriptFieldCodec.ToStored(field.GetValue(defaults), fieldType);
-				fields.Add(new ScriptField { Field = field, Type = fieldType, DefaultValue = defaultValue });
+				skipped.Add($"{field.Name} ({DescribeClrType(field.FieldType)})");
+				continue;
 			}
+			object? defaultValue = ScriptFieldCodec.ToStored(field.GetValue(defaults), fieldType);
+			// The engine refuses a list of more elements, and with it the class list: such a field is no field.
+			if (defaultValue is List<object?> { Count: > ScriptFieldCodec.MaxListElements } elements)
+			{
+				skipped.Add(FormattableString.Invariant(
+					$"{field.Name} (its default holds {elements.Count} elements, more than a list's {ScriptFieldCodec.MaxListElements})"));
+				continue;
+			}
+			fields.Add(new ScriptField { Field = field, Type = fieldType, DefaultValue = defaultValue });
+		}
+		if (skipped.Count > 0)
+		{
+			Log.Warn($"Script class {name}: not serialized or shown in the inspector, as no field type stores them: {string.Join(", ", skipped)}");
 		}
 		s_Classes[name] = new ScriptClass { Type = type, Fields = fields };
 	}
+
+	// A C# type as a reader names it: "Dictionary<String, Int32>", "Int32[][]", "Vector3".
+	private static string DescribeClrType(Type type)
+	{
+		if (type.IsArray)
+		{
+			return $"{DescribeClrType(type.GetElementType()!)}[{new string(',', type.GetArrayRank() - 1)}]";
+		}
+		if (!type.IsGenericType)
+		{
+			return type.Name;
+		}
+		string name = type.Name;
+		int tick = name.IndexOf('`', StringComparison.Ordinal);
+		return $"{(tick < 0 ? name : name[..tick])}<{string.Join(", ", type.GetGenericArguments().Select(DescribeClrType))}>";
+	}
+
+	// The element type of a list field, the field's own type otherwise: what its attributes describe.
+	private static Type GetValueType(ScriptField field) => ScriptFieldCodec.GetListElementType(field.Field.FieldType) ?? field.Field.FieldType;
 
 	// Public instance fields and those marked [SerializeField], base classes first.
 	private static List<FieldInfo> GetSerializedFields(Type type)
@@ -190,7 +227,9 @@ internal static class ScriptRegistry
 	}
 
 	// The classes as JSON: [{ "Name", "Fields": [{ "Name", "Type", "Default", "Hidden"?, "Tooltip"?, "Min"?, "Max"?,
-	// "AssetType"?, "Enum"?: [{ "Name", "Value" }], "Flags"? }] }]. Enumerators are listed in declaration order.
+	// "AssetType"?, "Enum"?: [{ "Name", "Value" }], "Flags"? }] }]. Enumerators are listed in declaration order. A list
+	// field's type is its element's with "[]" ("Int32[]"), and the asset type, the range and the enumerators describe each
+	// element.
 	internal static byte[] DescribeClasses()
 	{
 		ArrayBufferWriter<byte> buffer = new();
@@ -206,7 +245,7 @@ internal static class ScriptRegistry
 				{
 					writer.WriteStartObject();
 					writer.WriteString("Name", field.Field.Name);
-					writer.WriteString("Type", field.Type.ToString());
+					writer.WriteString("Type", ScriptFieldCodec.GetTypeName(field.Type));
 					writer.WritePropertyName("Default");
 					ScriptFieldCodec.WriteValue(writer, field.Type, field.DefaultValue);
 					if (field.Field.IsDefined(typeof(HideInInspectorAttribute)))
@@ -222,11 +261,11 @@ internal static class ScriptRegistry
 						writer.WriteNumber("Min", range.Min);
 						writer.WriteNumber("Max", range.Max);
 					}
-					if (ScriptFieldCodec.GetAssetType(field.Field.FieldType) is { } assetType)
+					if (ScriptFieldCodec.GetAssetType(GetValueType(field)) is { } assetType)
 					{
 						writer.WriteString("AssetType", assetType);
 					}
-					if (field.Field.FieldType.IsEnum)
+					if (GetValueType(field).IsEnum)
 					{
 						WriteEnumerators(writer, field);
 					}
@@ -242,14 +281,16 @@ internal static class ScriptRegistry
 
 	private static void WriteEnumerators(Utf8JsonWriter writer, ScriptField field)
 	{
-		Type enumType = field.Field.FieldType;
+		Type enumType = GetValueType(field);
+		// A list's enumerators are values of its elements.
+		ScriptFieldType valueType = ScriptFieldCodec.GetElementType(field.Type);
 		writer.WriteStartArray("Enum");
 		foreach (FieldInfo enumerator in enumType.GetFields(BindingFlags.Public | BindingFlags.Static))
 		{
 			writer.WriteStartObject();
 			writer.WriteString("Name", enumerator.Name);
 			writer.WritePropertyName("Value");
-			ScriptFieldCodec.WriteValue(writer, field.Type, ScriptFieldCodec.ToStored(enumerator.GetValue(null), field.Type));
+			ScriptFieldCodec.WriteValue(writer, valueType, ScriptFieldCodec.ToStored(enumerator.GetValue(null), valueType));
 			writer.WriteEndObject();
 		}
 		writer.WriteEndArray();
@@ -325,9 +366,10 @@ internal static class ScriptRegistry
 				Log.Warn($"{className}.{stored.Name}: stored value ignored: expected {{ \"Type\", \"Value\" }}");
 				continue;
 			}
-			if (type.ValueKind != JsonValueKind.String || type.GetString() != field.Type.ToString())
+			string typeName = ScriptFieldCodec.GetTypeName(field.Type);
+			if (type.ValueKind != JsonValueKind.String || type.GetString() != typeName)
 			{
-				Log.Warn($"{className}.{stored.Name}: stored {type.GetRawText()} value ignored: the field is a {field.Type} now");
+				Log.Warn($"{className}.{stored.Name}: stored {type.GetRawText()} value ignored: the field is a {typeName} now");
 				continue;
 			}
 			object? storedValue = ScriptFieldCodec.ReadValue(value, field.Type, out string? error);
@@ -357,10 +399,12 @@ internal static class ScriptRegistry
 	}
 
 	// The values the serialized fields of the entity's instance hold, in the stored form: { "Name": { "Type", "Value" } }.
-	// Null when the entity has no instance.
+	// A list holding more elements than a list can is left out (the engine would refuse every value with it), so what the
+	// component stores for it stays; reported once per field while the assembly is loaded. Null when the entity has no
+	// instance.
 	internal static byte[]? DescribeInstanceFields(ulong entity)
 	{
-		if (!s_Instances.TryGetValue(entity, out Script? instance) || !TryGetClass(instance, out _, out ScriptClass? scriptClass))
+		if (!s_Instances.TryGetValue(entity, out Script? instance) || !TryGetClass(instance, out string className, out ScriptClass? scriptClass))
 		{
 			return null;
 		}
@@ -370,10 +414,20 @@ internal static class ScriptRegistry
 			writer.WriteStartObject();
 			foreach (ScriptField field in scriptClass.Fields)
 			{
+				object? stored = ScriptFieldCodec.ToStored(field.Field.GetValue(instance), field.Type);
+				if (stored is List<object?> { Count: > ScriptFieldCodec.MaxListElements } elements)
+				{
+					if (s_ReportedLongLists.Add($"{className}.{field.Field.Name}"))
+					{
+						Log.Warn(FormattableString.Invariant(
+							$"{className}.{field.Field.Name}: holds {elements.Count} elements, more than a list's {ScriptFieldCodec.MaxListElements}: its value is not read back"));
+					}
+					continue;
+				}
 				writer.WriteStartObject(field.Field.Name);
-				writer.WriteString("Type", field.Type.ToString());
+				writer.WriteString("Type", ScriptFieldCodec.GetTypeName(field.Type));
 				writer.WritePropertyName("Value");
-				ScriptFieldCodec.WriteValue(writer, field.Type, ScriptFieldCodec.ToStored(field.Field.GetValue(instance), field.Type));
+				ScriptFieldCodec.WriteValue(writer, field.Type, stored);
 				writer.WriteEndObject();
 			}
 			writer.WriteEndObject();

@@ -1,14 +1,21 @@
 #include "Editor/ScriptFieldInspection.h"
 
 #include "Strada/Asset/Asset.h"
+#include "Strada/Script/ScriptField.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
+
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace Strada::ScriptFieldInspection
 {
@@ -88,8 +95,18 @@ namespace Strada::ScriptFieldInspection
 			return FromBits(type, static_cast<uint64_t>(number));
 		}
 
+		// A value as the field editor edits it; a list as the array of its elements' (an enum's element by its name).
 		Json ToEditorValue(ScriptFieldInfo const& field, ScriptFieldValue const& value)
 		{
+			if (value.IsList())
+			{
+				Json elements = Json::array();
+				for (ScriptFieldValue const& element : value.GetElements())
+				{
+					elements.push_back(ToEditorValue(field, element));
+				}
+				return elements;
+			}
 			if (!field.Enumerators.empty())
 			{
 				if (field.IsFlags)
@@ -128,7 +145,9 @@ namespace Strada::ScriptFieldInspection
 			}
 		}
 
-		Result<ScriptFieldValue> FromEditorValue(ScriptFieldInfo const& field, Json const& value)
+		// An edited value of the type (the field's own, or its element type for an element of a list), named in errors.
+		Result<ScriptFieldValue> FromEditorValue(ScriptFieldInfo const& field, ScriptFieldType type, std::string_view name,
+		                                         Json const& value)
 		{
 			if (!field.Enumerators.empty())
 			{
@@ -136,44 +155,44 @@ namespace Strada::ScriptFieldInspection
 				{
 					if (!value.is_array())
 					{
-						return MakeError("{}: expected the names of the set flags", field.Name);
+						return MakeError("{}: expected the names of the set flags", name);
 					}
 					uint64_t bits = 0;
-					for (Json const& name : value)
+					for (Json const& flag : value)
 					{
 						auto const enumerator =
 							std::find_if(field.Enumerators.begin(), field.Enumerators.end(),
-						                 [&name](ScriptEnumerator const& candidate)
+						                 [&flag](ScriptEnumerator const& candidate)
 						                 {
-											 return name.is_string() && name.get_ref<std::string const&>() == candidate.Name;
+											 return flag.is_string() && flag.get_ref<std::string const&>() == candidate.Name;
 										 });
 						if (enumerator == field.Enumerators.end())
 						{
-							return MakeError("{}: {} is not one of its flags", field.Name,
-							                 name.dump(-1, ' ', false, Json::error_handler_t::replace));
+							return MakeError("{}: {} is not one of its flags", name,
+							                 flag.dump(-1, ' ', false, Json::error_handler_t::replace));
 						}
 						bits |= ToBits(enumerator->Value);
 					}
-					return FromBits(field.Type, bits);
+					return FromBits(type, bits);
 				}
 				if (value.is_string())
 				{
-					std::string const& name = value.get_ref<std::string const&>();
+					std::string const& enumeratorName = value.get_ref<std::string const&>();
 					for (ScriptEnumerator const& enumerator : field.Enumerators)
 					{
-						if (enumerator.Name == name)
+						if (enumerator.Name == enumeratorName)
 						{
 							return enumerator.Value;
 						}
 					}
-					if (std::optional<ScriptFieldValue> number = ParseNumber(field.Type, name))
+					if (std::optional<ScriptFieldValue> number = ParseNumber(type, enumeratorName))
 					{
 						return *number;
 					}
 				}
-				return MakeError("{}: {} is not one of its values", field.Name, value.dump(-1, ' ', false, Json::error_handler_t::replace));
+				return MakeError("{}: {} is not one of its values", name, value.dump(-1, ' ', false, Json::error_handler_t::replace));
 			}
-			switch (field.Type)
+			switch (type)
 			{
 				case ScriptFieldType::Int64:
 					if (value.is_number_integer() &&
@@ -181,30 +200,63 @@ namespace Strada::ScriptFieldInspection
 					{
 						return ScriptFieldValue::FromInt64(value.get<int64_t>());
 					}
-					return MakeError("{}: expected a 64-bit integer, not {}", field.Name,
+					return MakeError("{}: expected a 64-bit integer, not {}", name,
 					                 value.dump(-1, ' ', false, Json::error_handler_t::replace));
 				case ScriptFieldType::UInt64:
 					if (value.is_number_unsigned() || (value.is_number_integer() && value.get<int64_t>() >= 0))
 					{
 						return ScriptFieldValue::FromUInt64(value.get<uint64_t>());
 					}
-					return MakeError("{}: expected an unsigned 64-bit integer, not {}", field.Name,
+					return MakeError("{}: expected an unsigned 64-bit integer, not {}", name,
 					                 value.dump(-1, ' ', false, Json::error_handler_t::replace));
 				default:
 				{
-					Result<ScriptFieldValue> parsed = ScriptFieldValueFromJson(field.Type, value, DeserializationContext{});
+					Result<ScriptFieldValue> parsed = ScriptFieldValueFromJson(type, value, DeserializationContext{});
 					if (!parsed)
 					{
-						return MakeError("{}: {}", field.Name, parsed.GetError());
+						return MakeError("{}: {}", name, parsed.GetError());
 					}
 					return parsed;
 				}
 			}
 		}
 
-		void SetKind(ScriptFieldInfo const& field, FieldDescriptor& descriptor)
+		// An edited value of the field: a list from the array of its elements' edited values, at most
+		// MaxScriptFieldListElements of them.
+		Result<ScriptFieldValue> FromEditorValue(ScriptFieldInfo const& field, Json const& value)
 		{
-			switch (field.Type)
+			if (!IsScriptFieldListType(field.Type))
+			{
+				return FromEditorValue(field, field.Type, field.Name, value);
+			}
+			if (!value.is_array())
+			{
+				return MakeError("{}: expected an array of its elements", field.Name);
+			}
+			if (value.size() > MaxScriptFieldListElements)
+			{
+				return MakeError("{}: holds at most {} elements, not {}", field.Name, MaxScriptFieldListElements, value.size());
+			}
+			ScriptFieldType const elementType = GetScriptFieldElementType(field.Type);
+			std::vector<ScriptFieldValue> elements;
+			elements.reserve(value.size());
+			for (size_t index = 0; index < value.size(); index++)
+			{
+				Result<ScriptFieldValue> element =
+					FromEditorValue(field, elementType, fmt::format("{} element {}", field.Name, index), value[index]);
+				if (!element)
+				{
+					return element;
+				}
+				elements.push_back(element.TakeValue());
+			}
+			return ScriptFieldValue::FromList(elementType, std::move(elements));
+		}
+
+		// The kind and hints of values of an element type (the field's, or a list's elements').
+		void SetKind(ScriptFieldType type, AssetType acceptedAssetType, FieldDescriptor& descriptor)
+		{
+			switch (type)
 			{
 				case ScriptFieldType::Bool:
 					descriptor.Kind = FieldKind::Bool;
@@ -265,12 +317,13 @@ namespace Strada::ScriptFieldInspection
 					break;
 				case ScriptFieldType::Asset:
 					descriptor.Kind = FieldKind::Asset;
-					if (field.AcceptedAssetType != AssetType::None)
+					if (acceptedAssetType != AssetType::None)
 					{
-						descriptor.Hints.AssetTypeName = AssetTypeToString(field.AcceptedAssetType);
+						descriptor.Hints.AssetTypeName = AssetTypeToString(acceptedAssetType);
 					}
 					break;
 				case ScriptFieldType::None:
+				default:
 					descriptor.Kind = FieldKind::Custom;
 					break;
 			}
@@ -305,7 +358,7 @@ namespace Strada::ScriptFieldInspection
 			descriptor.Default = ToEditorValue(field, field.DefaultValue);
 			if (field.Enumerators.empty())
 			{
-				SetKind(field, descriptor);
+				SetKind(GetScriptFieldElementType(field.Type), field.AcceptedAssetType, descriptor);
 			}
 			else
 			{
@@ -318,6 +371,13 @@ namespace Strada::ScriptFieldInspection
 						descriptor.EnumValues.push_back(enumerator.Name);
 					}
 				}
+			}
+			// A list is the field editor's array of its elements' values, with the kind and hints set above.
+			if (IsScriptFieldListType(field.Type))
+			{
+				descriptor.ElementKind = descriptor.Kind;
+				descriptor.Kind = FieldKind::Array;
+				descriptor.Hints.MaxCount = MaxScriptFieldListElements;
 			}
 			descriptors.push_back(std::move(descriptor));
 		}

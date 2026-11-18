@@ -3279,8 +3279,12 @@ array or `List<T>` of the elements (a null reference for an entity or asset elem
 stored list whose element type differs, or an element out of an enum's range, is logged and skipped like a single
 field's mismatch. Reading a running instance back writes its list as it holds it; one that holds more than 4,096
 elements is left out of what is read (logged once per field), so the stored value stays. A field of any other type
-(`Dictionary<,>`, arrays of arrays, lists of structs or of types without a field type) is no field, as before, but is
-now logged once per class, with its name and type, when the game assembly loads, instead of being dropped in silence.
+(`Dictionary<,>`, arrays of arrays, lists of structs or of types without a field type) is no field, as before, and
+neither is a list whose default holds more than 4,096 elements (the engine would refuse the class list with it); both
+are logged once per class, each field with its name and type or why, when the game assembly loads, instead of being
+dropped in silence. In managed code a list type is its element type with `ScriptFieldCodec.ListFlag` set, as in the
+engine, and named by `ScriptFieldCodec.GetTypeName`; `ScriptFieldCodec.GetFieldType` stays the type of one value (the
+node library's types), and `GetMemberFieldType` is a C# field's.
 
 One scene runs scripts at a time (the `ScriptEngine`'s scene context, which the bindings act on). At runtime start
 every instance is created before the first `OnCreate`, so scripts can find each other there. Each update first
@@ -3535,7 +3539,10 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   exposable when its element type is (an exposable type or a usable enum): it becomes a list field (§7.3, §10.3) whose
   default is its literal, edited in the Inspector and stored in `VisualScript.Variables` like a C# list field; a public
   array of any other element type (`Strada.Matrix4[]`, `Strada.RaycastHit[]`) is `NotExposable` with the message of any
-  type that is not. Literals are JSON arrays of element literals, at most 4096. The
+  type that is not. The library lists no `FieldType` for an array; `VisualType.VariableFieldType` (managed) and
+  `DescribeVisualScriptVariables` (native) derive the list type from the element's. An instance's array that has grown
+  past 4,096 elements is left out of what is read back (logged once per graph and variable), so the component's stored
+  list stays. Literals are JSON arrays of element literals, at most 4096. The
   `Utilities/Array` (Contains, IndexOf, Make, Set, Add, RemoveAt, Insert, Append, beside Length and Get) and
   `Utilities/String` nodes (15, ordinal and culture-invariant) run as intrinsics; arrays they make hold at most 65,536
   elements.
@@ -4040,12 +4047,14 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   types components cannot set (arrays of such types among them). A component whose graph is a
   function library shows that it runs on no entity instead of variables. **List fields** of scripts and graphs
   (`ScriptFieldInspection::DescribeFields`) are the generic field editor's arrays of values (`FieldKind::Array`, the
-  element's kind, range, enum values or accepted asset type, `MaxCount` 4,096): a row per element with remove, add below
-  the last, and rows dragged to reorder, as components' arrays are; each list edit (an element changed, inserted,
-  removed or moved) is one undo step that writes the field's whole list (`{ "Type": "Float[]", "Value": [...] }`), and a
-  selection whose lists differ shows the field mixed, as components' arrays do, so an edit writes the edited list to
-  every selected entity. `component.set` takes and answers the file form, and a list given replaces its field whole.
-  C# scripts and visual
+  element's kind, range, enum values or accepted asset type, `MaxCount` 4,096): a row per element with "-", "+" below
+  the last, and a grip that drags the row onto another row of the same array (a `FieldArrayEditKind::Move` to that row's
+  index; the payload, `DragDropPayload::ArrayElement`, names the array's ID scope, so a drop on another array's row moves
+  nothing), as components' arrays of values are; each list edit (an element changed, inserted, removed or moved) is one
+  undo step that writes the field's whole list (`{ "Type": "Float[]", "Value": [...] }`). A selection whose lists differ
+  shows the field mixed, as components' arrays do, and an edit is applied to each selected entity's own list by index
+  (`FieldChange::MakePatch`), so each keeps its other elements. `component.set` takes and answers the file form, and a
+  list given replaces its field whole. C# scripts and visual
   scripts dropped onto the inspector run on the selected entities. Without selected entities the inspector shows the
   asset selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in
@@ -4566,8 +4575,8 @@ inspector's primary entity as the context entity; without an asset directory the
   loader's rule, `VisualScriptSerializer::IsValidName`, and uniqueness in their scope) and commit when left by any
   means. Enum lists of more than 12 enumerators have a filter. Promoting an input to a variable or a function input
   keeps the program's value (its literal, else the library default, else the type's); an unlinked input that means the
-  graph's own entity cannot be promoted, and an array promotes to a private array variable (public ones are refused:
-  "Arrays cannot be public: components cannot store them"). Details edits an Expression's formula in a monospace field
+  graph's own entity cannot be promoted, and an array promotes to a private array variable (made public later, it is a
+  list on components when they can store its elements). Details edits an Expression's formula in a monospace field
   that commits like a name field, renaming inputs in order (`SetFormula`), and lists its inputs with their types and its
   problems as caret blocks whose click selects the span (through `CallbackAlways`); a double-click on the node's header
   edits the formula in place (one line, `VisualScriptTextEditKind::Formula`). Array values (variables' and locals'

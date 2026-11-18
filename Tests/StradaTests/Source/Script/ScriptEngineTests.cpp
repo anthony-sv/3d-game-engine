@@ -5,9 +5,15 @@
 #include "Strada/Script/ScriptEngine.h"
 
 #include <doctest/doctest.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
+#include <array>
+#include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -52,44 +58,20 @@ TEST_CASE("ScriptEngine: loads game scripts and describes their classes")
 	{
 		names.push_back(scriptClass.Name);
 	}
-	CHECK(names == std::vector<std::string>{"Strada.Tests.ActionProbe",
-	                                        "Strada.Tests.AssetProbe",
-	                                        "Strada.Tests.AudioProbe",
-	                                        "Strada.Tests.BaseBehaviour",
-	                                        "Strada.Tests.CameraProbe",
-	                                        "Strada.Tests.CharacterProbe",
-	                                        "Strada.Tests.ClickRecorder",
-	                                        "Strada.Tests.ComponentWriter",
-	                                        "Strada.Tests.ContactReader",
-	                                        "Strada.Tests.CurveProbe",
-	                                        "Strada.Tests.DerivedBehaviour",
-	                                        "Strada.Tests.FieldReporter",
-	                                        "Strada.Tests.FieldTypes",
-	                                        "Strada.Tests.FirstPersonController",
-	                                        "Strada.Tests.FixedStepMover",
-	                                        "Strada.Tests.HierarchyProbe",
-	                                        "Strada.Tests.HostProbe",
-	                                        "Strada.Tests.InputFrameProbe",
-	                                        "Strada.Tests.InputProbe",
-	                                        "Strada.Tests.Lifecycle",
-	                                        "Strada.Tests.Mover",
-	                                        "Strada.Tests.ParentMover",
-	                                        "Strada.Tests.PhysicsMaterialProbe",
-	                                        "Strada.Tests.PhysicsProbe",
-	                                        "Strada.Tests.PrefabMember",
-	                                        "Strada.Tests.PrefabProbe",
-	                                        "Strada.Tests.QueryProbe",
-	                                        "Strada.Tests.QueryReader",
-	                                        "Strada.Tests.SceneSwitcher",
-	                                        "Strada.Tests.SelfTest",
-	                                        "Strada.Tests.Spawner",
-	                                        "Strada.Tests.Spinner",
-	                                        "Strada.Tests.StepProbe",
-	                                        "Strada.Tests.Thrower",
-	                                        "Strada.Tests.TransformProbe",
-	                                        "Strada.Tests.UIWriter",
-	                                        "Strada.Tests.ValueGuard",
-	                                        "Strada.Tests.VisualScriptProbe"});
+	CHECK(names ==
+	      std::vector<std::string>{"Strada.Tests.ActionProbe",     "Strada.Tests.AssetProbe",       "Strada.Tests.AudioProbe",
+	                               "Strada.Tests.BaseBehaviour",   "Strada.Tests.CameraProbe",      "Strada.Tests.CharacterProbe",
+	                               "Strada.Tests.ClickRecorder",   "Strada.Tests.ComponentWriter",  "Strada.Tests.ContactReader",
+	                               "Strada.Tests.CurveProbe",      "Strada.Tests.DerivedBehaviour", "Strada.Tests.FieldLists",
+	                               "Strada.Tests.FieldReporter",   "Strada.Tests.FieldTypes",       "Strada.Tests.FirstPersonController",
+	                               "Strada.Tests.FixedStepMover",  "Strada.Tests.HierarchyProbe",   "Strada.Tests.HostProbe",
+	                               "Strada.Tests.InputFrameProbe", "Strada.Tests.InputProbe",       "Strada.Tests.Lifecycle",
+	                               "Strada.Tests.Mover",           "Strada.Tests.ParentMover",      "Strada.Tests.PhysicsMaterialProbe",
+	                               "Strada.Tests.PhysicsProbe",    "Strada.Tests.PrefabMember",     "Strada.Tests.PrefabProbe",
+	                               "Strada.Tests.QueryProbe",      "Strada.Tests.QueryReader",      "Strada.Tests.SceneSwitcher",
+	                               "Strada.Tests.SelfTest",        "Strada.Tests.Spawner",          "Strada.Tests.Spinner",
+	                               "Strada.Tests.StepProbe",       "Strada.Tests.Thrower",          "Strada.Tests.TransformProbe",
+	                               "Strada.Tests.UIWriter",        "Strada.Tests.ValueGuard",       "Strada.Tests.VisualScriptProbe"});
 	CHECK(ScriptEngine::FindClass("Strada.Tests.NotAScript") == nullptr);
 	CHECK(ScriptEngine::FindClass("Strada.Tests.Missing") == nullptr);
 	CHECK(Testing::WasLogged(logStart, "Strada.Tests.NoDefaultConstructor is ignored"));
@@ -167,6 +149,103 @@ TEST_CASE("ScriptEngine: serialized fields have the types, defaults and attribut
 	CHECK(RequireField(fields, "Count").Enumerators.empty());
 }
 
+TEST_CASE("ScriptEngine: C# arrays and lists of every element type are list fields, and fields of other types are reported once")
+{
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Testing::ScriptEngineScope scripting;
+	ScriptClassInfo const& lists = RequireClass("Strada.Tests.FieldLists");
+	// T[] and List<T> of every element type, in declaration order; not the fields of types no field type stores.
+	CHECK(GetFieldNames(lists) ==
+	      std::vector<std::string>{"Flags",     "Counts",     "Masks",      "Bigs",       "Huges",     "Speeds",      "Precises",
+	                               "Titles",    "Sizes",      "Offsets",    "Weights",    "Turns",     "Tints",       "Targets",
+	                               "Crates",    "Models",     "Shapes",     "Levels",     "Accesses",  "Smalls",      "FlagList",
+	                               "CountList", "MaskList",   "BigList",    "HugeList",   "SpeedList", "PreciseList", "TitleList",
+	                               "SizeList",  "OffsetList", "WeightList", "TurnList",   "TintList",  "TargetList",  "CrateList",
+	                               "ModelList", "ShapeList",  "LevelList",  "AccessList", "SmallList", "Missing"});
+
+	// Each array and its list have the list type of their element's field type.
+	struct Row
+	{
+		std::string_view Array;
+		std::string_view List;
+		ScriptFieldType ElementType;
+	};
+	constexpr std::array<Row, 20> Rows = {{
+		{"Flags", "FlagList", ScriptFieldType::Bool},         {"Counts", "CountList", ScriptFieldType::Int32},
+		{"Masks", "MaskList", ScriptFieldType::UInt32},       {"Bigs", "BigList", ScriptFieldType::Int64},
+		{"Huges", "HugeList", ScriptFieldType::UInt64},       {"Speeds", "SpeedList", ScriptFieldType::Float},
+		{"Precises", "PreciseList", ScriptFieldType::Double}, {"Titles", "TitleList", ScriptFieldType::String},
+		{"Sizes", "SizeList", ScriptFieldType::Vector2},      {"Offsets", "OffsetList", ScriptFieldType::Vector3},
+		{"Weights", "WeightList", ScriptFieldType::Vector4},  {"Turns", "TurnList", ScriptFieldType::Quaternion},
+		{"Tints", "TintList", ScriptFieldType::Color},        {"Targets", "TargetList", ScriptFieldType::Entity},
+		{"Crates", "CrateList", ScriptFieldType::Prefab},     {"Models", "ModelList", ScriptFieldType::Asset},
+		{"Shapes", "ShapeList", ScriptFieldType::Asset},      {"Levels", "LevelList", ScriptFieldType::Int32},
+		{"Accesses", "AccessList", ScriptFieldType::UInt32},  {"Smalls", "SmallList", ScriptFieldType::Int32},
+	}};
+	for (Row const& row : Rows)
+	{
+		CAPTURE(row.Array);
+		ScriptFieldType const listType = MakeScriptFieldListType(row.ElementType);
+		CHECK(RequireField(lists, row.Array).Type == listType);
+		CHECK(RequireField(lists, row.List).Type == listType);
+		CHECK(RequireField(lists, row.Array).DefaultValue.GetType() == listType);
+	}
+
+	// Defaults read from a default instance, each element of its type; a null array is the empty list.
+	auto const list = [](ScriptFieldType elementType, std::vector<ScriptFieldValue> elements)
+	{
+		return ScriptFieldValue::FromList(elementType, std::move(elements));
+	};
+	CHECK(RequireField(lists, "Flags").DefaultValue ==
+	      list(ScriptFieldType::Bool, {ScriptFieldValue::FromBool(true), ScriptFieldValue::FromBool(false)}));
+	CHECK(RequireField(lists, "Counts").DefaultValue ==
+	      list(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(1), ScriptFieldValue::FromInt32(-2), ScriptFieldValue::FromInt32(3)}));
+	CHECK(RequireField(lists, "Bigs").DefaultValue == list(ScriptFieldType::Int64, {ScriptFieldValue::FromInt64(-9000000000)}));
+	CHECK(RequireField(lists, "Huges").DefaultValue ==
+	      list(ScriptFieldType::UInt64, {ScriptFieldValue::FromUInt64(18000000000000000000ULL)}));
+	CHECK(RequireField(lists, "Titles").DefaultValue ==
+	      list(ScriptFieldType::String, {ScriptFieldValue::FromString("Hello"), ScriptFieldValue::FromString("")}));
+	CHECK(RequireField(lists, "Turns").DefaultValue ==
+	      list(ScriptFieldType::Quaternion, {ScriptFieldValue::FromQuaternion(glm::quat(1.0f, 0.0f, 0.0f, 0.0f))}));
+	CHECK(RequireField(lists, "Tints").DefaultValue ==
+	      list(ScriptFieldType::Color, {ScriptFieldValue::FromColor({0.5f, 0.25f, 1.0f, 1.0f})}));
+	CHECK(RequireField(lists, "Targets").DefaultValue == list(ScriptFieldType::Entity, {ScriptFieldValue::FromEntity(UUID::Invalid())}));
+	CHECK(RequireField(lists, "Offsets").DefaultValue == list(ScriptFieldType::Vector3, {}));
+	CHECK(RequireField(lists, "OffsetList").DefaultValue ==
+	      list(ScriptFieldType::Vector3, {ScriptFieldValue::FromVector3({1.0f, 2.0f, 3.0f})}));
+	CHECK(RequireField(lists, "Missing").DefaultValue == list(ScriptFieldType::Float, {}));
+
+	// The attributes and the enum or asset type describe each element.
+	ScriptFieldInfo const& speeds = RequireField(lists, "Speeds");
+	CHECK(speeds.Tooltip == "Units per second, each");
+	CHECK(speeds.Range == std::optional<glm::vec2>(glm::vec2(0.0f, 10.0f)));
+	CHECK(RequireField(lists, "Shapes").AcceptedAssetType == AssetType::Mesh);
+	CHECK(RequireField(lists, "ShapeList").AcceptedAssetType == AssetType::Mesh);
+	CHECK(RequireField(lists, "Models").AcceptedAssetType == AssetType::None);
+	ScriptFieldInfo const& levels = RequireField(lists, "Levels");
+	REQUIRE(levels.Enumerators.size() == 3);
+	CHECK(levels.Enumerators[2].Name == "Hard");
+	CHECK(levels.Enumerators[2].Value == ScriptFieldValue::FromInt32(5));
+	CHECK(levels.DefaultValue == list(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(5), ScriptFieldValue::FromInt32(0)}));
+	CHECK(RequireField(lists, "LevelList").DefaultValue == list(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(1)}));
+	ScriptFieldInfo const& accesses = RequireField(lists, "Accesses");
+	CHECK(accesses.IsFlags);
+	CHECK(accesses.Enumerators.size() == 4);
+	CHECK(accesses.DefaultValue == list(ScriptFieldType::UInt32, {ScriptFieldValue::FromUInt32(3)}));
+	CHECK(RequireField(lists, "Smalls").Enumerators.size() == 2);
+
+	// Fields no field type stores, and a list longer than lists are, are reported once each class, with their types.
+	std::string const reported = "Script class Strada.Tests.FieldLists: not serialized or shown in the inspector, as no field type "
+								 "stores them: Table (Dictionary<String, Int32>), Jagged (Int32[][]), Grid (Int32[,]), Nested "
+								 "(List<List<Int32>>), Transforms (List<Matrix4>), Oversized (its default holds 5000 elements, more "
+								 "than a list's 4096)";
+	CHECK(Testing::CountLogged(logStart, reported) == 1);
+	CHECK(Testing::CountLogged(logStart, "Script class Strada.Tests.FieldTypes: not serialized or shown in the inspector, as no field "
+	                                     "type stores them: Unsupported (Dictionary<String, Int32>)") == 1);
+	// Classes whose serialized fields all have field types are not reported.
+	CHECK_FALSE(Testing::WasLogged(logStart, "Script class Strada.Tests.Mover:"));
+}
+
 TEST_CASE("ScriptEngine: shuts down, starts again and replaces game assemblies")
 {
 	{
@@ -178,7 +257,7 @@ TEST_CASE("ScriptEngine: shuts down, starts again and replaces game assemblies")
 		CHECK(ScriptEngine::FindClass("Strada.Tests.Mover") != nullptr);
 		// Loading again replaces the assembly.
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
-		CHECK(ScriptEngine::GetClasses().size() == 38);
+		CHECK(ScriptEngine::GetClasses().size() == 39);
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath().parent_path() / "Missing.dll").IsError());
 	}
 	CHECK_FALSE(ScriptEngine::IsInitialized());

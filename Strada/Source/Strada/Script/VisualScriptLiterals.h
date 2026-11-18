@@ -32,6 +32,10 @@ namespace Strada
 	// scripting runtime knows them) and for the types public variables cannot have.
 	[[nodiscard]] std::optional<VisualScriptExposableType> FindVisualScriptExposableType(std::string_view typeId);
 
+	// The element type of an array type ID ("float" of "float[]", "Strada.Entity" of "Strada.Entity[]"); empty for a type that
+	// is no array, for "[]" alone and for arrays of arrays, which graphs do not have.
+	[[nodiscard]] std::string_view GetVisualScriptArrayElementType(std::string_view typeId);
+
 	// Whether a type that is not exposable could be an enum, which only the scripting runtime can tell: every type except
 	// exec, the wildcard, Strada.Matrix4, System.Object and arrays.
 	[[nodiscard]] bool CanBeVisualScriptEnum(std::string_view typeId);

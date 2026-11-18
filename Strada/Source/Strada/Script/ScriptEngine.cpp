@@ -90,9 +90,11 @@ namespace Strada
 			       type == ScriptFieldType::UInt64;
 		}
 
+		// A list field's enumerators are values of its elements.
 		Result<void> ParseEnumerators(ScriptFieldInfo& field, Json const& json)
 		{
-			if (!json.is_array() || !IsIntegerType(field.Type))
+			ScriptFieldType const valueType = GetScriptFieldElementType(field.Type);
+			if (!json.is_array() || !IsIntegerType(valueType))
 			{
 				return MakeError("field {}: enumerators need an integer field and an array", field.Name);
 			}
@@ -104,7 +106,7 @@ namespace Strada
 				{
 					return MakeError("field {}: expected enumerators {{ \"Name\", \"Value\" }}", field.Name);
 				}
-				Result<ScriptFieldValue> parsed = ScriptFieldValueFromJson(field.Type, *value, DeserializationContext{});
+				Result<ScriptFieldValue> parsed = ScriptFieldValueFromJson(valueType, *value, DeserializationContext{});
 				if (!parsed)
 				{
 					return MakeError("field {}: enumerator {}: {}", field.Name, name->get_ref<std::string const&>(), parsed.GetError());
@@ -155,7 +157,7 @@ namespace Strada
 			{
 				std::optional<AssetType> const accepted =
 					assetType->is_string() ? AssetTypeFromString(assetType->get_ref<std::string const&>()) : std::nullopt;
-				if (!accepted || field.Type != ScriptFieldType::Asset)
+				if (!accepted || GetScriptFieldElementType(field.Type) != ScriptFieldType::Asset)
 				{
 					return MakeError("field {}: invalid asset type {}", field.Name, assetType->dump());
 				}

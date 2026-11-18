@@ -473,7 +473,7 @@ the border between the columns to give the names more room.
 | Choice (enum) | A drop-down list; lists of more than 12 values get a search field |
 | Flags | A drop-down list of check boxes |
 | Text | A text field; some fields have several lines |
-| List | One row per element with "-" to remove it, "+" (or Add Element while empty) to add one |
+| List | One row per element with its grip and "-" to remove it, then "+" (or Add Element while empty) to add one at the end; drag a row by its grip onto another row of the list to move its element there. A list with a size limit stops adding there |
 | List of groups | A row per element (titled by its name when it has one, or by its first two numbers or choices when it has no name field, as a curve's keys are by their time and value and a mixer's effects by their kind and first setting) that unfolds into the element's fields; its "..." menu (or a right click) moves the element up or down, duplicates it, inserts a new one above it or removes it, and Add Element adds one at the end. A list with a size limit stops adding there |
 | Group | A tree node with the group's fields under it |
 | Asset | A box with the asset, "..." and "x" ([below](#asset-fields)) |
@@ -507,7 +507,8 @@ an entity from the Scene Hierarchy onto the button to set it, and right-click it
 With several entities selected, the Inspector shows the components they all have, with the values of the primary
 selection (the entity selected last). Fields whose values differ are marked: their names are highlighted, check boxes
 show a mixed state and choices show `--`. Editing a field sets that value, or that axis of a vector, on every selected
-entity and leaves their other values alone.
+entity and leaves their other values alone. A list edit (an element changed, added, removed or moved) changes each
+selected entity's own list at the same index, so each keeps its other elements.
 
 ### Materials of a mesh
 
@@ -1150,7 +1151,9 @@ Inspector or onto the entity in the Scene View, or add a Script component in the
 needs a successful build first; otherwise the console says the scripts are not built yet.
 
 Below the Class field the Inspector shows the script's fields, edited like component fields: typed asset pickers,
-choices, flags, colors and Euler angles, one undo step per interaction. The Inspector says when a script cannot show
+choices, flags, colors and Euler angles, one undo step per interaction. An array or `List<T>` field, and a graph's public
+array, is a list: each edit of it (an element changed, added, removed or moved) is one undo step that stores the
+field's whole list. The Inspector says when a script cannot show
 its fields: "The game's scripts are not built yet.", "There is no script class ...: its stored field values are kept."
 (the component keeps the values it stores), "Scripting is unavailable: the .NET 10 runtime was not found.", or "The
 script has no fields to edit." Exceptions that scripts throw while playing are logged with their stack traces and do

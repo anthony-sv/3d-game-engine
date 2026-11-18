@@ -248,7 +248,10 @@ namespace Strada
 
 	bool IsVisualScriptPublicType(std::string_view type, VisualScriptLibrary const* library)
 	{
-		return FindVisualScriptExposableType(type).has_value() || (library != nullptr && library->FindEnum(type).has_value());
+		// An array as its element type (components store it as a list); an array of arrays is no type.
+		std::string_view const element = GetVisualScriptArrayElementType(type);
+		std::string_view const valueType = element.empty() ? type : element;
+		return FindVisualScriptExposableType(valueType).has_value() || (library != nullptr && library->FindEnum(valueType).has_value());
 	}
 
 	bool ContainsVisualScriptTextIgnoringCase(std::string_view text, std::string_view part)

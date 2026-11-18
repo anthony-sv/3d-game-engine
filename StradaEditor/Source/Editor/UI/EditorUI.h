@@ -45,6 +45,9 @@ namespace Strada
 		// A row of a graph window's My Script pane (a variable, a local, a function or a custom event): one
 		// VisualScriptElementPayload.
 		inline constexpr char const* VisualScriptElement = "STRADA_VISUAL_SCRIPT_ELEMENT";
+		// An element row of an array of plain values in a field table, dragged by its grip to another row of that array: a
+		// structure of FieldEditor.cpp's (the array's ID scope and the element's index).
+		inline constexpr char const* ArrayElement = "STRADA_ARRAY_ELEMENT";
 	}
 
 	// The data of a DragDropPayload::VisualScriptElement payload.

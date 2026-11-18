@@ -1,6 +1,6 @@
 {
 	"Strada": {
-		"Version": 1,
+		"Version": 2,
 		"Type": "Scene"
 	},
 	"Scene": {
@@ -1018,7 +1018,10 @@
 					"PlayOnStart": false,
 					"Spatial": true,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				}
 			}
 		},
@@ -2138,9 +2141,24 @@
 							"Type": "String",
 							"Value": "stored"
 						},
+						"Labels": {
+							"Type": "String[]",
+							"Value": [
+								"first",
+								"second"
+							]
+						},
 						"Strength": {
 							"Type": "Float",
 							"Value": 7.0
+						},
+						"Weights": {
+							"Type": "Float[]",
+							"Value": [
+								0.5,
+								1.5,
+								2.5
+							]
 						},
 						"m_Count": {
 							"Type": "Int32",
@@ -2227,7 +2245,16 @@
 				},
 				"VisualScript": {
 					"Graph": "8146390251172604461",
-					"Variables": {}
+					"Variables": {
+						"Thresholds": {
+							"Type": "Float[]",
+							"Value": [
+								0.25,
+								0.75,
+								1.25
+							]
+						}
+					}
 				}
 			}
 		},

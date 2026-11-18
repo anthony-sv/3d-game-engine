@@ -1569,7 +1569,8 @@ TEST_CASE("VisualScriptEditor: the type picker of a public variable lists only t
 	CHECK(lists(publicTypes, "Strada.KeyCode"));
 	CHECK_FALSE(lists(publicTypes, "Strada.Matrix4"));
 	CHECK_FALSE(lists(publicTypes, "Strada.RaycastHit"));
-	CHECK_FALSE(lists(publicTypes, "Strada.Entity[]"));
+	// Arrays of such types too: components store them as lists.
+	CHECK(lists(publicTypes, "Strada.Entity[]"));
 	CHECK_FALSE(lists(publicTypes, "exec"));
 	// Alive is private: any type with values, arrays included (spec-slice3 §3.4.3).
 	std::vector<std::string> const privateTypes = pickerTypes(101);
@@ -3868,23 +3869,31 @@ TEST_CASE("VisualScriptEditor: a Timeline's length dragged down and back up in D
 	CHECK(fixture.GetUndoCount() <= undo + 1);
 }
 
-TEST_CASE("VisualScriptEditor: an array variable cannot be made public from My Script, which says why")
+TEST_CASE("VisualScriptEditor: My Script makes an array variable public, and says why one of a type components cannot store "
+          "stays private")
 {
 	VisualScriptDocument document = MakeDocument();
 	document.Variables.push_back(MakeVariable(102, "Targets", "Strada.Entity[]"));
+	document.Variables.push_back(MakeVariable(103, "Frames", "Strada.Matrix4[]"));
 	PaneFixture fixture(document, {FixturePane::Sidebar});
 	fixture.CheckDrawingChangesNothing();
 	size_t const undo = fixture.GetUndoCount();
+	// Components store an array of entities as a list.
 	fixture.ImGui.Click(GetCenter(fixture.Sidebar.FindEye(102)), fixture.Drawer());
 	fixture.Frames(2);
-	CHECK(fixture.GetUndoCount() == undo);
-	CHECK_FALSE(FindVariable(fixture.GetDocument(), 102)->Public);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(FindVariable(fixture.GetDocument(), 102)->Public);
+	// No component stores a matrix, nor an array of them.
+	std::string const refusal = "Strada.Matrix4[] cannot be public: components cannot store it";
+	fixture.ImGui.Click(GetCenter(fixture.Sidebar.FindEye(103)), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK_FALSE(FindVariable(fixture.GetDocument(), 103)->Public);
 	CHECK(std::any_of(fixture.Results.begin(), fixture.Results.end(),
-	                  [](VisualScriptPaneResult const& result)
+	                  [&refusal](VisualScriptPaneResult const& result)
 	                  {
-						  return std::find(result.Notes.begin(), result.Notes.end(), VisualScriptArrayPublicRefusal) != result.Notes.end();
+						  return std::find(result.Notes.begin(), result.Notes.end(), refusal) != result.Notes.end();
 					  }));
-	CHECK(std::string_view(VisualScriptArrayPublicRefusal) == "Arrays cannot be public: components cannot store them");
 }
 
 TEST_CASE("VisualScriptEditor: a formula Details refuses says why, and Ctrl+Enter keeps it in the field to be fixed")

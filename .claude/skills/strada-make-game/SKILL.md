@@ -156,7 +156,8 @@ without C# scripts; they need no C# project, only the scripting runtime (.NET 10
   ("rotation", "delay"), `category` (`Flow`, `Math`, `Components/Rigid Body`, `Game`, ...) or `pinType` with `direction`:
   each kind's `Type` (what a node stores), its pins (name, direction, type, default; `exec` for flow) and its settings.
   `graph_types` lists the types (`float`, `Strada.Vector3`, `Strada.RigidBodyComponent`, `float[]`, ...); those with a
-  `FieldType` can be public variables.
+  `FieldType` can be public variables, and so can arrays of them and of enums (`float[]`, `Strada.Entity[]`), which
+  entities store as lists.
 - `graph_edit` with `graph`, `description` (the undo step's text) and `operations` applies a batch as one undo step. Name
   what you add with `"as": "$label"` and use the labels in later operations; name variables, locals and functions by
   their names (also in `Variable` and `Function` settings); integers are IDs of the document as the call found it (node 2
@@ -185,7 +186,8 @@ without C# scripts; they need no C# project, only the scripting runtime (.NET 10
   `Paste` operation (`clipboard`, `at`, `labels`) takes into any graph, binding variables and functions by name.
 - Attach a script, never a library: `component_add` with `component` `VisualScript` and `fields` `{"Graph": "<asset>",
   "Variables": {"Speed": {"Type": "Float", "Value": 180}}}`: the values of public variables, per entity, in the format of
-  Script `Fields` (an entity is `{"Type": "Entity", "Value": "<id>"}`). A `Variables` patch replaces the whole map.
+  Script `Fields` (an entity is `{"Type": "Entity", "Value": "<id>"}`, a public array a list such as `{"Type": "Float[]",
+  "Value": [0.5, 1.5]}`, at most 4096 elements). A `Variables` patch replaces the whole map.
 - Show the result: `graph_open` with `graph` opens its window, then `viewport_screenshot` (below).
 
 This batch, the one `VisualScripting.md` and `Automation.md` show, turns its entity at `Speed` degrees per second in a

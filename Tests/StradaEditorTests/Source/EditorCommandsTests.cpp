@@ -314,6 +314,61 @@ TEST_CASE("EditorCommands: entities can be created, inspected, edited and undone
 	CHECK(fixture.Context.GetScene().GetEntityCount() == 1);
 }
 
+TEST_CASE("EditorCommands: component.set takes and answers lists of script fields in the file form, each replacing its field whole")
+{
+	CommandFixture fixture;
+	auto const stored = [](char const* type, Json value)
+	{
+		return Json::object({{"Type", type}, {"Value", std::move(value)}});
+	};
+	std::string const target = fixture.Create("Target");
+	// In name order, as components store and answer them.
+	Json const fields = Json::object({{"Empty", stored("String[]", Json::array())},
+	                                  {"Speeds", stored("Float[]", Json::array({1.5, 2.5}))},
+	                                  {"Targets", stored("Entity[]", Json::array({target, "0"}))}});
+	std::string const route =
+		fixture.Create("Route", Json::object({{"components", {{"Script", {{"ClassName", "Game.Route"}, {"Fields", fields}}}}}}));
+	// Read back as written: the file form (a class the editor does not have keeps its values).
+	CHECK(fixture.Ok("component.get", Json::object({{"entity", route}, {"component", "Script"}}))["fields"]["Fields"] == fields);
+
+	// The map given replaces the stored one, each list with all its elements.
+	Json const shorter =
+		Json::object({{"Levels", stored("Int32[]", Json::array({0, 5}))}, {"Speeds", stored("Float[]", Json::array({9.0}))}});
+	Json const set =
+		fixture.Ok("component.set", Json::object({{"entity", route}, {"component", "Script"}, {"fields", {{"Fields", shorter}}}}));
+	CHECK(set["fields"]["Fields"] == shorter);
+	CHECK(set["fields"]["ClassName"] == "Game.Route");
+	Entity const entity = fixture.Context.GetScene().GetEntityByUUID(UUID(std::stoull(route)));
+	CHECK(entity.GetComponent<ScriptComponent>().Fields.at("Speeds") ==
+	      ScriptFieldValue::FromList(ScriptFieldType::Float, {ScriptFieldValue::FromFloat(9.0f)}));
+	fixture.Ok("editor.undo");
+	CHECK(fixture.Ok("component.get", Json::object({{"entity", route}, {"component", "Script"}}))["fields"]["Fields"] == fields);
+
+	// A damaged list changes nothing: an element of the wrong kind, too many elements, no array, a list of lists.
+	Json const tooMany = Json(MaxScriptFieldListElements + 1, 1.0);
+	std::vector<std::pair<char const*, Json>> const damagedLists = {
+		{"an element of another kind", stored("Float[]", Json::array({1.0, "x"}))},
+		{"too many elements", stored("Float[]", tooMany)},
+		{"no array", stored("Float[]", 1.0)},
+		{"a list of lists", stored("Float[][]", Json::array({Json::array()}))},
+		{"a list of None", stored("None[]", Json::array())}};
+	for (auto const& [what, damaged] : damagedLists)
+	{
+		CAPTURE(what);
+		CHECK(fixture.Fails("component.set", Json::object({{"entity", route},
+		                                                   {"component", "Script"},
+		                                                   {"fields", {{"Fields", Json::object({{"Speeds", damaged}})}}}})) ==
+		      AutomationErrorCode::InvalidParams);
+		CHECK(fixture.Ok("component.get", Json::object({{"entity", route}, {"component", "Script"}}))["fields"]["Fields"] == fields);
+	}
+
+	// A graph's variables take lists the same way.
+	Json const variables = Json::object({{"Weights", stored("Float[]", Json::array({0.25}))}});
+	Json const setVariables = fixture.Ok(
+		"component.add", Json::object({{"entity", route}, {"component", "VisualScript"}, {"fields", {{"Variables", variables}}}}));
+	CHECK(setVariables["fields"]["Variables"] == variables);
+}
+
 TEST_CASE("EditorCommands: entity.create keeps an ID it is given, refuses one in use, and undo and redo keep it")
 {
 	// A tool that makes a scene again deletes its entities and creates them with the IDs they had, so the file stays the same.

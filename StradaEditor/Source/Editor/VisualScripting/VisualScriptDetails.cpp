@@ -483,7 +483,8 @@ namespace Strada
 		return std::nullopt;
 	}
 
-	bool IsVisualScriptTypeOffered(VisualScriptTypeInfo const& type, VisualScriptTypeUse use, std::string_view constraint)
+	bool IsVisualScriptTypeOffered(VisualScriptTypeInfo const& type, VisualScriptTypeUse use, std::string_view constraint,
+	                               VisualScriptLibrary const* library)
 	{
 		if (type.Kind == VisualScriptTypeKind::Exec || type.ID == VisualScriptExecType || type.ID == VisualScriptWildcardType)
 		{
@@ -494,6 +495,13 @@ namespace Strada
 			case VisualScriptTypeUse::Value:
 				return true;
 			case VisualScriptTypeUse::PublicVariable:
+				// An array whose elements a public variable can have (components store it as a list).
+				if (type.Kind == VisualScriptTypeKind::Array && library != nullptr)
+				{
+					VisualScriptTypeInfo const* const element = library->FindType(type.Element);
+					return element != nullptr && element->Kind != VisualScriptTypeKind::Array &&
+					       IsVisualScriptTypeOffered(*element, use, constraint, library);
+				}
 				return type.Kind == VisualScriptTypeKind::Enum || IsVisualScriptPublicType(type.ID, nullptr);
 			case VisualScriptTypeUse::Setting:
 				break;
@@ -504,7 +512,9 @@ namespace Strada
 		}
 		if (constraint == "Exposable")
 		{
-			return type.Kind == VisualScriptTypeKind::Enum || IsVisualScriptPublicType(type.ID, nullptr);
+			// The types of single values: a setting of this constraint takes no array.
+			return type.Kind == VisualScriptTypeKind::Enum ||
+			       (type.Kind != VisualScriptTypeKind::Array && IsVisualScriptPublicType(type.ID, nullptr));
 		}
 		if (constraint == "Struct")
 		{
@@ -3904,8 +3914,9 @@ namespace Strada
 		};
 		auto const matches = [&](VisualScriptTypeInfo const& type)
 		{
-			return IsVisualScriptTypeOffered(type, use, constraint) && (ContainsVisualScriptTextIgnoringCase(type.Title, m_PickerSearch) ||
-			                                                            ContainsVisualScriptTextIgnoringCase(type.ID, m_PickerSearch));
+			return IsVisualScriptTypeOffered(type, use, constraint, library) &&
+			       (ContainsVisualScriptTextIgnoringCase(type.Title, m_PickerSearch) ||
+			        ContainsVisualScriptTextIgnoringCase(type.ID, m_PickerSearch));
 		};
 		std::vector<Row> rows;
 		bool recentHeader = false;

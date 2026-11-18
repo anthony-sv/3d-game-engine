@@ -127,6 +127,113 @@ public sealed class InteropTests
 	}
 
 	[Fact]
+	public void ListTypesAreTheirElementTypesWithTheListBit()
+	{
+		ScriptFieldType floats = ScriptFieldCodec.MakeListType(ScriptFieldType.Float);
+		Assert.True(ScriptFieldCodec.IsList(floats));
+		Assert.False(ScriptFieldCodec.IsList(ScriptFieldType.Float));
+		Assert.NotEqual(ScriptFieldType.Float, floats);
+		Assert.Equal(ScriptFieldType.Float, ScriptFieldCodec.GetElementType(floats));
+		Assert.Equal(ScriptFieldType.Float, ScriptFieldCodec.GetElementType(ScriptFieldType.Float));
+		Assert.Equal("Float[]", ScriptFieldCodec.GetTypeName(floats));
+		Assert.Equal("Entity[]", ScriptFieldCodec.GetTypeName(ScriptFieldCodec.MakeListType(ScriptFieldType.Entity)));
+		Assert.Equal("Float", ScriptFieldCodec.GetTypeName(ScriptFieldType.Float));
+		// No lists of None and no lists of lists.
+		Assert.Equal(ScriptFieldType.None, ScriptFieldCodec.MakeListType(ScriptFieldType.None));
+		Assert.Equal(ScriptFieldType.None, ScriptFieldCodec.MakeListType(floats));
+	}
+
+	[Fact]
+	public void ArraysAndListsOfTypesWithFieldTypesAreListFields()
+	{
+		Dictionary<System.Type, ScriptFieldType> expected = new()
+		{
+			[typeof(int[])] = ScriptFieldCodec.MakeListType(ScriptFieldType.Int32),
+			[typeof(List<int>)] = ScriptFieldCodec.MakeListType(ScriptFieldType.Int32),
+			[typeof(string[])] = ScriptFieldCodec.MakeListType(ScriptFieldType.String),
+			[typeof(List<Entity>)] = ScriptFieldCodec.MakeListType(ScriptFieldType.Entity),
+			[typeof(Prefab[])] = ScriptFieldCodec.MakeListType(ScriptFieldType.Prefab),
+			[typeof(List<Mesh>)] = ScriptFieldCodec.MakeListType(ScriptFieldType.Asset),
+			[typeof(AssetHandle[])] = ScriptFieldCodec.MakeListType(ScriptFieldType.Asset),
+			[typeof(ByteEnum[])] = ScriptFieldCodec.MakeListType(ScriptFieldType.Int32),
+			[typeof(List<UnsignedLongEnum>)] = ScriptFieldCodec.MakeListType(ScriptFieldType.UInt64),
+			[typeof(float)] = ScriptFieldType.Float,
+			// No arrays of arrays, of lists or of types without a field type, no arrays of more dimensions, no other collections.
+			[typeof(int[][])] = ScriptFieldType.None,
+			[typeof(List<int[]>)] = ScriptFieldType.None,
+			[typeof(List<List<int>>)] = ScriptFieldType.None,
+			[typeof(int[,])] = ScriptFieldType.None,
+			[typeof(byte[])] = ScriptFieldType.None,
+			[typeof(List<Script>)] = ScriptFieldType.None,
+			[typeof(Matrix4[])] = ScriptFieldType.None,
+			[typeof(Dictionary<string, int>)] = ScriptFieldType.None,
+			[typeof(HashSet<int>)] = ScriptFieldType.None,
+		};
+		foreach ((System.Type type, ScriptFieldType fieldType) in expected)
+		{
+			Assert.Equal(fieldType, ScriptFieldCodec.GetMemberFieldType(type));
+		}
+		// A type of single values has no list field type: what graphs' library types are.
+		Assert.Equal(ScriptFieldType.None, ScriptFieldCodec.GetFieldType(typeof(int[])));
+	}
+
+	[Theory]
+	[MemberData(nameof(Values))]
+	public void ListValuesRoundTripInTheSceneFormat(string typeName, object? value, string json)
+	{
+		ScriptFieldType type = ScriptFieldCodec.MakeListType(System.Enum.Parse<ScriptFieldType>(typeName));
+		List<object?> list = [value, value];
+		Assert.Equal($"[{json},{json}]", Write(type, list));
+		Assert.Equal(list, Assert.IsType<List<object?>>(Read(type, $"[{json},{json}]", out string? error)));
+		Assert.Null(error);
+		Assert.Equal("[]", Write(type, new List<object?>()));
+		Assert.Empty(Assert.IsType<List<object?>>(Read(type, "[]", out error)));
+		Assert.Null(error);
+	}
+
+	[Fact]
+	public void ListsRefuseValuesThatAreNoListsOfTheirElements()
+	{
+		ScriptFieldType counts = ScriptFieldCodec.MakeListType(ScriptFieldType.Int32);
+		Assert.Null(Read(counts, "5", out string? error));
+		Assert.Equal("expected an array of Int32 values, not 5", error);
+		Assert.Null(Read(counts, "[1,\"x\"]", out error));
+		Assert.Equal("element 1: expected a Int32 value, not \"x\"", error);
+		string longest = $"[{string.Join(",", Enumerable.Repeat("1", ScriptFieldCodec.MaxListElements))}]";
+		Assert.Equal(ScriptFieldCodec.MaxListElements, Assert.IsType<List<object?>>(Read(counts, longest, out error)).Count);
+		Assert.Null(error);
+		Assert.Null(Read(counts, $"[{string.Join(",", Enumerable.Repeat("1", ScriptFieldCodec.MaxListElements + 1))}]", out error));
+		Assert.Equal("a list holds at most 4096 elements, not 4097", error);
+	}
+
+	[Fact]
+	public void ListsAreStoredAsTheirElementsAndBecomeArraysAndListsOfTheFieldsType()
+	{
+		ScriptFieldType levels = ScriptFieldCodec.MakeListType(ScriptFieldType.Int32);
+		// Arrays and List<T> are stored alike; a null one is the empty list.
+		Assert.Equal(new List<object?> { 1, 200 }, ScriptFieldCodec.ToStored(new[] { ByteEnum.Low, ByteEnum.High }, levels));
+		Assert.Equal(new List<object?> { 1, 200 }, ScriptFieldCodec.ToStored(new List<ByteEnum> { ByteEnum.Low, ByteEnum.High }, levels));
+		Assert.Empty(Assert.IsType<List<object?>>(ScriptFieldCodec.ToStored(null, levels)));
+		ScriptFieldType shapes = ScriptFieldCodec.MakeListType(ScriptFieldType.Asset);
+		Assert.Equal(new List<object?> { new AssetHandle(4), AssetHandle.Invalid },
+			ScriptFieldCodec.ToStored(new Mesh?[] { new Mesh(new AssetHandle(4)), null }, shapes));
+
+		// A stored list becomes a new array or List<T> of the field's element type.
+		ByteEnum[] array = Assert.IsType<ByteEnum[]>(ScriptFieldCodec.FromStored(new List<object?> { 200, 1 }, typeof(ByteEnum[]), out string? error));
+		Assert.Null(error);
+		Assert.Equal([ByteEnum.High, ByteEnum.Low], array);
+		List<Mesh?> meshes = Assert.IsType<List<Mesh?>>(
+			ScriptFieldCodec.FromStored(new List<object?> { new AssetHandle(4), AssetHandle.Invalid }, typeof(List<Mesh?>), out error));
+		Assert.Null(error);
+		Assert.Equal(2, meshes.Count);
+		Assert.Equal(new AssetHandle(4), meshes[0]!.Handle);
+		Assert.Null(meshes[1]);
+		// An element that does not fit is named.
+		Assert.Null(ScriptFieldCodec.FromStored(new List<object?> { 1, 300 }, typeof(ByteEnum[]), out error));
+		Assert.Equal("element 1: 300 is out of the range of ByteEnum (Byte)", error);
+	}
+
+	[Fact]
 	public void NativeStructuresMatchTheEngineLayouts()
 	{
 		// ScriptBindingsAssets.cpp and ScriptBindingsRuntime.cpp declare the same layouts.

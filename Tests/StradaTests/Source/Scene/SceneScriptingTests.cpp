@@ -157,6 +157,146 @@ TEST_CASE("Scene: a list stored for a field of one value is logged and skipped, 
 	scene.OnRuntimeStop();
 }
 
+namespace
+{
+	ScriptFieldValue MakeList(ScriptFieldType elementType, std::vector<ScriptFieldValue> elements)
+	{
+		return ScriptFieldValue::FromList(elementType, std::move(elements));
+	}
+
+	// A list of every element type for each array and list field of Strada.Tests.FieldLists, none of them its default.
+	ScriptFieldMap MakeStoredLists(UUID target)
+	{
+		using V = ScriptFieldValue;
+		using T = ScriptFieldType;
+		return {
+			{"Flags", MakeList(T::Bool, {V::FromBool(false), V::FromBool(true), V::FromBool(true)})},
+			{"Counts", MakeList(T::Int32, {V::FromInt32(7), V::FromInt32(8)})},
+			{"Masks", MakeList(T::UInt32, {V::FromUInt32(1), V::FromUInt32(4000000000u)})},
+			{"Bigs", MakeList(T::Int64, {V::FromInt64(-5)})},
+			{"Huges", MakeList(T::UInt64, {V::FromUInt64(18000000000000000001ULL)})},
+			{"Speeds", MakeList(T::Float, {V::FromFloat(0.25f), V::FromFloat(9.0f)})},
+			{"Precises", MakeList(T::Double, {V::FromDouble(1.5)})},
+			{"Titles", MakeList(T::String, {V::FromString("a"), V::FromString("")})},
+			{"Sizes", MakeList(T::Vector2, {V::FromVector2({3.0f, 4.0f})})},
+			{"Offsets", MakeList(T::Vector3, {V::FromVector3({1.0f, 1.0f, 1.0f}), V::FromVector3({2.0f, 2.0f, 2.0f})})},
+			{"Weights", MakeList(T::Vector4, {})},
+			{"Turns", MakeList(T::Quaternion, {V::FromQuaternion(glm::quat(0.0f, 1.0f, 0.0f, 0.0f))})},
+			{"Tints", MakeList(T::Color, {V::FromColor({1.0f, 0.0f, 0.0f, 1.0f})})},
+			{"Targets", MakeList(T::Entity, {V::FromEntity(target), V::FromEntity(UUID::Invalid())})},
+			{"Crates", MakeList(T::Prefab, {V::FromPrefab(AssetHandle(UUID(41)))})},
+			{"Models", MakeList(T::Asset, {V::FromAsset(AssetHandle(UUID(42)))})},
+			{"Shapes", MakeList(T::Asset, {V::FromAsset(AssetHandle(UUID(43))), V::FromAsset(AssetHandle())})},
+			{"Levels", MakeList(T::Int32, {V::FromInt32(0), V::FromInt32(5), V::FromInt32(1)})},
+			{"Accesses", MakeList(T::UInt32, {V::FromUInt32(5)})},
+			{"Smalls", MakeList(T::Int32, {V::FromInt32(1), V::FromInt32(200)})},
+			{"FlagList", MakeList(T::Bool, {V::FromBool(false)})},
+			{"CountList", MakeList(T::Int32, {})},
+			{"MaskList", MakeList(T::UInt32, {V::FromUInt32(3)})},
+			{"BigList", MakeList(T::Int64, {V::FromInt64(1), V::FromInt64(2)})},
+			{"HugeList", MakeList(T::UInt64, {V::FromUInt64(3)})},
+			{"SpeedList", MakeList(T::Float, {V::FromFloat(1.5f)})},
+			{"PreciseList", MakeList(T::Double, {V::FromDouble(0.5), V::FromDouble(0.25)})},
+			{"TitleList", MakeList(T::String, {V::FromString("x")})},
+			{"SizeList", MakeList(T::Vector2, {V::FromVector2({1.0f, 1.0f})})},
+			{"OffsetList", MakeList(T::Vector3, {})},
+			{"WeightList", MakeList(T::Vector4, {V::FromVector4({1.0f, 2.0f, 3.0f, 4.0f})})},
+			{"TurnList", MakeList(T::Quaternion, {V::FromQuaternion(glm::quat(1.0f, 0.0f, 0.0f, 0.0f))})},
+			{"TintList", MakeList(T::Color, {V::FromColor({0.0f, 1.0f, 0.0f, 1.0f})})},
+			{"TargetList", MakeList(T::Entity, {V::FromEntity(target)})},
+			{"CrateList", MakeList(T::Prefab, {V::FromPrefab(AssetHandle())})},
+			{"ModelList", MakeList(T::Asset, {V::FromAsset(AssetHandle(UUID(44)))})},
+			{"ShapeList", MakeList(T::Asset, {V::FromAsset(AssetHandle(UUID(45)))})},
+			{"LevelList", MakeList(T::Int32, {V::FromInt32(5)})},
+			{"AccessList", MakeList(T::UInt32, {V::FromUInt32(7)})},
+			{"SmallList", MakeList(T::Int32, {V::FromInt32(1)})},
+			{"Missing", MakeList(T::Float, {V::FromFloat(1.0f)})},
+		};
+	}
+}
+
+TEST_CASE("Scene: stored lists reach C# arrays and lists of every element type, and are read back as stored")
+{
+	Testing::ScriptEngineScope scripting;
+	Scene scene("Lists");
+	Entity const target = scene.CreateEntity("Target");
+	ScriptFieldMap const stored = MakeStoredLists(target.GetUUID());
+	Entity const lists = AddScript(scene, "Lists", "Strada.Tests.FieldLists", stored);
+	Entity const defaults = AddScript(scene, "Defaults", "Strada.Tests.FieldLists");
+
+	scene.OnRuntimeStart();
+	// The instance holds them as arrays and lists of the fields' C# types: enums by their names, entities and meshes as
+	// references (0 for none).
+	CHECK(lists.GetName() == "7,8||0.25,9|x|Easy,Hard,Normal|Hard|" + target.GetUUID().ToString() + ",0|43,0|1|5000");
+	CHECK(defaults.GetName() == "1,-2,3|4,5|2.5|first|Hard,Easy|Normal|0||-1|5000");
+	Result<ScriptFieldMap> const read = scene.ReadScriptFields(lists);
+	REQUIRE_MESSAGE(read.IsOk(), read.GetError());
+	CHECK(read.GetValue().size() == stored.size());
+	for (auto const& [name, value] : stored)
+	{
+		CAPTURE(name);
+		CHECK(read.GetValue().at(name) == value);
+	}
+	// Read from a null array: the empty list.
+	Result<ScriptFieldMap> const readDefaults = scene.ReadScriptFields(defaults);
+	REQUIRE(readDefaults.IsOk());
+	CHECK(readDefaults.GetValue().at("Missing") == MakeList(ScriptFieldType::Float, {}));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: a list of another element type or with an element out of its enum's range is logged and keeps the default")
+{
+	Testing::ScriptEngineScope scripting;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Lists");
+	Entity const lists =
+		AddScript(scene, "Lists", "Strada.Tests.FieldLists",
+	              {
+					  {"Counts", MakeList(ScriptFieldType::Float, {ScriptFieldValue::FromFloat(1.0f)})},
+					  {"Smalls", MakeList(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(1), ScriptFieldValue::FromInt32(300)})},
+					  {"Speeds", ScriptFieldValue::FromFloat(1.0f)},
+				  });
+
+	scene.OnRuntimeStart();
+	Result<ScriptFieldMap> const read = scene.ReadScriptFields(lists);
+	REQUIRE_MESSAGE(read.IsOk(), read.GetError());
+	CHECK(read.GetValue().at("Counts") == MakeList(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(1), ScriptFieldValue::FromInt32(-2),
+	                                                                        ScriptFieldValue::FromInt32(3)}));
+	CHECK(read.GetValue().at("Smalls") == MakeList(ScriptFieldType::Int32, {}));
+	CHECK(read.GetValue().at("Speeds") == MakeList(ScriptFieldType::Float, {ScriptFieldValue::FromFloat(2.5f)}));
+	CHECK(Testing::WasLogged(logStart, "Strada.Tests.FieldLists.Counts: stored \"Float[]\" value ignored: the field is a Int32[] now"));
+	CHECK(Testing::WasLogged(logStart,
+	                         "Strada.Tests.FieldLists.Smalls: stored value ignored: element 1: 300 is out of the range of Tiny (Byte)"));
+	CHECK(Testing::WasLogged(logStart, "Strada.Tests.FieldLists.Speeds: stored \"Float\" value ignored: the field is a Float[] now"));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: a list an instance holds beyond the most elements a list holds is not read back, and the stored list stays")
+{
+	Testing::ScriptEngineScope scripting;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Lists");
+	// Counts of [-1] makes the script fill CountList with 5000 elements on its updates.
+	ScriptFieldValue const storedList = MakeList(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(4)});
+	Entity const lists =
+		AddScript(scene, "Lists", "Strada.Tests.FieldLists",
+	              {{"Counts", MakeList(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(-1)})}, {"CountList", storedList}});
+
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	for (int read = 0; read < 2; read++)
+	{
+		Result<ScriptFieldMap> const fields = scene.ReadScriptFields(lists);
+		REQUIRE_MESSAGE(fields.IsOk(), fields.GetError());
+		CHECK_FALSE(fields.GetValue().contains("CountList"));
+		CHECK(fields.GetValue().contains("Counts"));
+	}
+	CHECK(lists.GetComponent<ScriptComponent>().Fields.at("CountList") == storedList);
+	CHECK(Testing::CountLogged(logStart, "Strada.Tests.FieldLists.CountList: holds 5000 elements, more than a list's 4096: its value is "
+	                                     "not read back") == 1);
+	scene.OnRuntimeStop();
+}
+
 TEST_CASE("Scene: script lifecycle methods run in order and end with the entity or the scene")
 {
 	Testing::ScriptEngineScope scripting;

@@ -290,14 +290,23 @@ public sealed class ArrayValueTests
 	}
 
 	[Fact]
-	public void PublicArraysAreNotExposable()
+	public void PublicArraysOfExposableElementTypesAreExposable()
 	{
+		// Components store them as lists: arrays of exposable types and of enums.
+		VisualScriptTesting.AssertNoErrors(VisualScriptTesting.Analyze(VisualScriptTesting.Document("",
+			variables: """
+				{ "ID": 1, "Name": "Points", "Type": "Strada.Vector3[]", "Public": true, "Value": [[1, 2, 3]] },
+				{ "ID": 2, "Name": "Modes", "Type": "Strada.ForceMode[]", "Public": true, "Value": ["Impulse"] },
+				{ "ID": 3, "Name": "Shapes", "Type": "Strada.Mesh[]", "Public": true },
+				{ "ID": 4, "Name": "Targets", "Type": "Strada.Entity[]", "Public": true }
+				""")));
+		// An array of a type no component stores is not.
 		AnalyzedDocument document = VisualScriptTesting.Analyze(VisualScriptTesting.Document("",
-			variables: """{ "ID": 1, "Name": "Points", "Type": "Strada.Vector3[]", "Public": true }"""));
+			variables: """{ "ID": 1, "Name": "Frames", "Type": "Strada.Matrix4[]", "Public": true }"""));
 		Diagnostic diagnostic = VisualScriptTesting.Single(document, DiagnosticCode.NotExposable);
 		Assert.Equal(1u, diagnostic.Variable);
-		Assert.Equal("Points: arrays cannot be set on components yet: keep the variable private and fill it in the graph " +
-			"(Make Array from public variables, or the Children of a child entity that holds the points)", diagnostic.Message);
+		Assert.Equal("Frames: Strada.Matrix4[] cannot be set on components: public variables are numbers, bool, string, vectors, " +
+			"quaternions, colors, entities, assets or enums, or arrays of them", diagnostic.Message);
 		// Private arrays, locals and parameters are fine.
 		DocumentBuilder fine = new();
 		fine.Variable("Points", "Strada.Vector3[]");

@@ -451,6 +451,17 @@ namespace Strada
 		return std::nullopt;
 	}
 
+	std::string_view GetVisualScriptArrayElementType(std::string_view typeId)
+	{
+		constexpr std::string_view Suffix = "[]";
+		if (typeId.size() <= Suffix.size() || !typeId.ends_with(Suffix))
+		{
+			return {};
+		}
+		std::string_view const element = typeId.substr(0, typeId.size() - Suffix.size());
+		return element.ends_with(Suffix) ? std::string_view() : element;
+	}
+
 	bool CanBeVisualScriptEnum(std::string_view typeId)
 	{
 		// The types the type system names itself are no enums (exec, the wildcard and Strada.Matrix4; the others are

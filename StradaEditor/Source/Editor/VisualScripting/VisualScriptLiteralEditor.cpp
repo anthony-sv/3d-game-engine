@@ -229,17 +229,6 @@ namespace Strada
 		return EncodeVisualScriptLiteralChange(*field, change, library);
 	}
 
-	std::string_view GetVisualScriptArrayElementType(std::string_view type)
-	{
-		constexpr std::string_view Suffix = "[]";
-		if (type.size() <= Suffix.size() || !type.ends_with(Suffix))
-		{
-			return {};
-		}
-		std::string_view const element = type.substr(0, type.size() - Suffix.size());
-		return element.ends_with(Suffix) ? std::string_view() : element;
-	}
-
 	std::optional<Json> MakeVisualScriptDefaultLiteral(std::string_view type, VisualScriptLibrary const* library)
 	{
 		if (type == MatrixType)

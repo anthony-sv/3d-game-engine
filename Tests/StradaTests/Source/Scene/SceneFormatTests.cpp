@@ -9,8 +9,10 @@
 #include "Strada/Script/ScriptFieldSerialization.h"
 
 #include <doctest/doctest.h>
+#include <glm/glm.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>

@@ -4,6 +4,7 @@
 
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLiterals.h"
 #include "Strada/Serialization/JsonSerialization.h"
 #include "Strada/Serialization/StructSerialization.h"
 
@@ -86,10 +87,6 @@ namespace Strada
 
 		FieldEditor m_FieldEditor;
 	};
-
-	// The element type of an array type ("float" of "float[]"); empty for a type that is no array, and for arrays of arrays,
-	// which graphs do not have.
-	[[nodiscard]] std::string_view GetVisualScriptArrayElementType(std::string_view type);
 
 	// The literal a new element of an array of the type starts with: the type's default as the scripting runtime has it (0,
 	// "", the identity rotation and matrix, white, none for entities and assets, an enum's 0), canonical; nothing for types

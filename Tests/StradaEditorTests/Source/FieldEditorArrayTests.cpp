@@ -66,6 +66,13 @@ namespace
 		std::string Title;
 		std::vector<Track> Tracks;
 	};
+
+	// Two arrays of plain values.
+	struct Playlist
+	{
+		std::vector<std::string> Songs;
+		std::vector<std::string> Extras;
+	};
 }
 
 template<>
@@ -84,6 +91,13 @@ struct Strada::StructTraits<Track>
 	static constexpr auto Fields =
 		std::make_tuple(Field("Name", &Track::Name), Field("Kind", &Track::Kind), Field("Grip", &Track::Grip).Range(0.0, 2.0),
 	                    Field("Banking", &Track::Banking).VisibleWhen("Kind", "Oval"), Field("Tags", &Track::Tags).MaxCount(2));
+};
+
+template<>
+struct Strada::StructTraits<Playlist>
+{
+	static constexpr std::string_view Name = "Playlist";
+	static constexpr auto Fields = std::make_tuple(Field("Songs", &Playlist::Songs), Field("Extras", &Playlist::Extras));
 };
 
 template<>
@@ -427,6 +441,64 @@ TEST_CASE("FieldChange: element edits and list edits patch each object's own arr
 		CHECK(names(edit(FieldArrayEditKind::Duplicate, 0).MakePatch(shorter)) == std::vector<std::string>{"X", "X"});
 		CHECK(edit(FieldArrayEditKind::Duplicate, 3).MakePatch(longer) == longer);
 	}
+}
+
+TEST_CASE("FieldEditor: a row of an array of plain values dragged by its grip onto another row of the array moves its element there")
+{
+	HeadlessImGui gui;
+	gui.UseEditorStyle();
+	FieldEditor editor;
+	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Playlist>, Playlist>();
+	Json values = Json::object({{"Songs", Json::array({"a", "b", "c"})}, {"Extras", Json::array({"x"})}});
+	std::vector<FieldChange> changes;
+	std::function<void()> const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 600.0f));
+		ImGui::Begin("Playlist", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		if (std::optional<FieldChange> change = editor.Draw(fields, values))
+		{
+			values.update(change->MakePatch(values));
+			changes.push_back(std::move(*change));
+		}
+		ImGui::End();
+	};
+	FieldTableDriver const driver{gui, draw,
+	                              []
+	                              {
+									  return ImGui::FindWindowByName("Playlist");
+								  },
+	                              []
+	                              {
+									  return ImHashStr("##fields", 0, ImGui::FindWindowByName("Playlist")->ID);
+								  }};
+	gui.Frame(draw);
+	gui.Frame(draw);
+	// The grips stand between each element's widget and its "-".
+	float const gripX = driver.GetButtonX() - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemInnerSpacing.x;
+	auto const findGrip = [&driver, gripX](std::string_view array, int index)
+	{
+		std::optional<ImVec2> const point =
+			driver.Find(ImHashStr("##move", 0, driver.GetElementId(driver.GetFieldId(array), index)), gripX);
+		REQUIRE(point);
+		return *point;
+	};
+
+	ImVec2 const first = findGrip("Songs", 0);
+	ImVec2 const last = findGrip("Songs", 2);
+	gui.Drag(first, last, draw);
+	REQUIRE(changes.size() == 1);
+	CHECK(changes[0].Path == std::vector<FieldPathStep>{{"Songs"}});
+	CHECK(changes[0].ArrayEdit == std::optional<FieldArrayEdit>(FieldArrayEdit{FieldArrayEditKind::Move, 0, 2}));
+	CHECK(values["Songs"] == Json::array({"b", "c", "a"}));
+
+	// Dropped on its own row, or on a row of another array, it stays where it is.
+	ImVec2 const middle = findGrip("Songs", 1);
+	gui.Drag(middle, middle, draw);
+	ImVec2 const extra = findGrip("Extras", 0);
+	gui.Drag(findGrip("Songs", 0), extra, draw);
+	CHECK(changes.size() == 1);
+	CHECK(values == Json::object({{"Songs", Json::array({"b", "c", "a"})}, {"Extras", Json::array({"x"})}}));
 }
 
 TEST_CASE("FieldEditor: arrays of structs show a row per element over the element's own fields, and edit them by index")
@@ -904,8 +976,8 @@ TEST_CASE("Panels: the inspector edits a triangle mesh collider's materials, one
 		                                               ImHashStr("MeshCollider", 0, ImGui::FindWindowByName("Inspector")->ID));
 								  }};
 	ImGuiID const list = driver.GetFieldId("Materials");
-	// An element's asset reference: [path][...][x], then the element's "-".
-	float const pickerX = driver.GetButtonX() - 2.0f * (ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x);
+	// An element's asset reference: [path][...][x], then the element's grip and "-".
+	float const pickerX = driver.GetButtonX() - 3.0f * (ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x);
 
 	// Add Element: one step, an empty entry (the collider's Material for the first submesh).
 	driver.Click(ImHashStr("Add Element", 0, list), driver.GetValueX());

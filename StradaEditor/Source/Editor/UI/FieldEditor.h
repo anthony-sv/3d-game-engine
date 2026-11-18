@@ -153,8 +153,9 @@ namespace Strada
 
 	// Draws editing widgets for reflected fields as the rows of a two-column property table (labels with descriptions as
 	// tooltips, widgets chosen by the field kind and hints) and reports the user's change; callers turn it into an
-	// undoable operation (Docs/Architecture.md §11). Arrays of plain values are a row of widgets per element with "-",
-	// then "+"; arrays of reflected structs fold open into a row per element (DescribeElement's title, with a menu to move,
+	// undoable operation (Docs/Architecture.md §11). Arrays of plain values are a row of widgets per element with a grip
+	// that drags the row onto another row of the array (moving the element there) and "-", then "+"; arrays of reflected
+	// structs fold open into a row per element (DescribeElement's title, with a menu to move,
 	// duplicate, insert above and remove it) over the element's own field rows, then Add Element; buttons that add are
 	// disabled at the field's MaxCount. Every array change reports the element's index or the list edit
 	// (FieldChange::ArrayEdit), never the whole array, so each edited object keeps its own elements. A reflected struct
@@ -264,9 +265,9 @@ namespace Strada
 		bool DrawEnumList(FieldDescriptor const& field, std::string const& current, float width, FieldChange& change);
 		static int OnEnumFilterKey(ImGuiInputTextCallbackData* data);
 		bool DrawQuaternion(Json const& value, FieldChange& change, FieldInlineMode mode);
-		// An array of plain values: a row of widgets per element with "-", then "+" (disabled at the field's MaxCount). Returns
-		// true and fills change when the user changed it: an element's value with its index in *element, or the list edit in
-		// change.ArrayEdit.
+		// An array of plain values: a row of widgets per element with its grip (dragged onto another row, a Move to that row's
+		// index) and "-", then "+" (disabled at the field's MaxCount). Returns true and fills change when the user changed it:
+		// an element's value with its index in *element, or the list edit in change.ArrayEdit.
 		bool DrawArrayElements(FieldDescriptor const& field, Json const& value, FieldChange& change, std::optional<uint32_t>& element);
 		// DrawArrayElements for widgets drawn without a path (DrawInlineValue, DrawValuePopup): the whole new array.
 		bool DrawArray(FieldDescriptor const& field, Json const& value, FieldChange& change);

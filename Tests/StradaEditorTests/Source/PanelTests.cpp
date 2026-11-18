@@ -3333,6 +3333,186 @@ TEST_CASE("Panels: the inspector edits the values entities give the public varia
 	CHECK(open);
 }
 
+namespace
+{
+	// Finds the parts of a list field's rows in a field table drawn in a window: "+" at the start of the value column, an
+	// element's grip and "-" at its end (FieldEditor::DrawArrayElements).
+	struct ListRows
+	{
+		HeadlessImGui& Gui;
+		std::function<void()> Draw;
+		ImGuiWindow const* Window = nullptr;
+		ImGuiID Field = 0;
+		ImGuiID Table = 0;
+
+		ImGuiID GetElementId(int index) const { return ImHashData(&index, sizeof(index), Field); }
+
+		ImVec2 Find(ImGuiID item, float x) const
+		{
+			std::optional<ImVec2> const point =
+				FindItem(Gui, item, ImVec2(x, Window->Pos.y + 2.0f), ImVec2(x, Window->Pos.y + Window->Size.y - 2.0f), Draw);
+			REQUIRE(point);
+			return *point;
+		}
+
+		ImGuiTableColumn const& GetValueColumn() const
+		{
+			ImGuiTable const* table = ImGui::TableFindByID(Table);
+			REQUIRE(table != nullptr);
+			return table->Columns[1];
+		}
+
+		ImVec2 FindAdd() const { return Find(ImHashStr("+", 0, Field), GetValueColumn().WorkMinX + ImGui::GetFrameHeight() * 0.5f); }
+		ImVec2 FindRemove(int index) const
+		{
+			return Find(ImHashStr("-", 0, GetElementId(index)), GetValueColumn().WorkMaxX - ImGui::GetFrameHeight() * 0.5f);
+		}
+		ImVec2 FindGrip(int index) const
+		{
+			float const x = GetValueColumn().WorkMaxX - ImGui::GetFrameHeight() * 1.5f - ImGui::GetStyle().ItemInnerSpacing.x;
+			return Find(ImHashStr("##move", 0, GetElementId(index)), x);
+		}
+	};
+}
+
+TEST_CASE("Panels: the inspector edits a C# list field by its rows: add, drag to move and remove, one undo step each")
+{
+	Testing::ScriptEngineScope scripting;
+	HeadlessImGui imgui;
+	EditorContext context;
+	EditorOperations operations(context);
+	UUID const route = Create(
+		operations, "Route",
+		Json::object({{"Script", Json::object({{"ClassName", "Strada.Tests.FieldLists"},
+	                                           {"Fields", Json::object({{"Counts", StoredValue("Int32[]", Json::array({7, 8}))},
+	                                                                    {"Titles", StoredValue("String[]", Json::array({"kept"}))}})}})}}));
+	size_t const steps = context.GetHistory().GetUndoCount();
+	auto const getFields = [&context, route]
+	{
+		return context.GetScene().GetEntityByUUID(route).GetComponent<ScriptComponent>().Fields;
+	};
+	auto const counts = [](std::vector<int32_t> const& values)
+	{
+		std::vector<ScriptFieldValue> elements;
+		for (int32_t const value : values)
+		{
+			elements.push_back(ScriptFieldValue::FromInt32(value));
+		}
+		return ScriptFieldValue::FromList(ScriptFieldType::Int32, std::move(elements));
+	};
+
+	InspectorPanel inspector;
+	bool open = true;
+	std::function<void()> const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 1000.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	std::array<UUID, 1> const selection = {route};
+	REQUIRE(operations.Select(selection).IsOk());
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	ImGuiWindow const* window = ImGui::FindWindowByName("Inspector");
+	REQUIRE(window != nullptr);
+	ImGuiID const table = ImHashStr("##fields", 0, ImHashStr("Script", 0, window->ID));
+	ListRows const rows{imgui, draw, window, ImHashStr("Counts", 0, table), table};
+	// Drawing changes nothing.
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+
+	// "+" adds an element of the element type's default at the end.
+	imgui.Click(rows.FindAdd(), draw);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(getFields().at("Counts") == counts({7, 8, 0}));
+	// Dragging the first row's grip onto the last row's moves the element there.
+	ImVec2 const from = rows.FindGrip(0);
+	ImVec2 const to = rows.FindGrip(2);
+	imgui.Drag(from, to, draw);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
+	CHECK(getFields().at("Counts") == counts({8, 0, 7}));
+	// "-" removes its element.
+	imgui.Click(rows.FindRemove(1), draw);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 3);
+	CHECK(getFields().at("Counts") == counts({8, 7}));
+	// The other stored values stay.
+	CHECK(getFields().at("Titles") == ScriptFieldValue::FromList(ScriptFieldType::String, {ScriptFieldValue::FromString("kept")}));
+
+	// Each edit is one step.
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(getFields().at("Counts") == counts({8, 0, 7}));
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(getFields().at("Counts") == counts({7, 8, 0}));
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(getFields().at("Counts") == counts({7, 8}));
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	REQUIRE(operations.Redo().IsOk());
+	CHECK(getFields().at("Counts") == counts({7, 8, 0}));
+	CHECK(open);
+}
+
+TEST_CASE("Panels: the inspector edits a graph's public array as a list, and lists a public array no component stores read-only")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Speeds", "float[]", Json::array({0.5}), true));
+	document.Variables.push_back(MakeVariable(2, "Frames", "Strada.Matrix4[]", Json(), true));
+	REQUIRE(VisualScriptSerializer::SaveToFile(document, context.GetProject()->GetAssetDirectory() / "Route.sgraph").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const graph = AssetManager::FindByPath("Route.sgraph");
+	REQUIRE(graph.IsValid());
+	UUID const route = Create(operations, "Route", Json::object({{"VisualScript", {{"Graph", graph.ToString()}}}}));
+	size_t const steps = context.GetHistory().GetUndoCount();
+	auto const getVariables = [&context, route]
+	{
+		return context.GetScene().GetEntityByUUID(route).GetComponent<VisualScriptComponent>().Variables;
+	};
+
+	InspectorPanel inspector;
+	bool open = true;
+	std::function<void()> const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 1000.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	std::array<UUID, 1> const selection = {route};
+	REQUIRE(operations.Select(selection).IsOk());
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	std::string const text = CaptureText(imgui, draw);
+	CAPTURE(text);
+	CHECK(text.find("Frames (Strada.Matrix4[]): not exposable") != std::string::npos);
+	CHECK(text.find("Speeds (") == std::string::npos);
+
+	ImGuiWindow const* window = ImGui::FindWindowByName("Inspector");
+	REQUIRE(window != nullptr);
+	ImGuiID const table = ImHashStr("##fields", 0, ImHashStr("##variables", 0, ImHashStr("VisualScript", 0, window->ID)));
+	ListRows const rows{imgui, draw, window, ImHashStr("Speeds", 0, table), table};
+	// The list starts as the variable's Value; "+" stores it with an element more, one step, undone whole.
+	imgui.Click(rows.FindAdd(), draw);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	ScriptFieldMap const added = getVariables();
+	REQUIRE(added.contains("Speeds"));
+	CHECK(added.at("Speeds") ==
+	      ScriptFieldValue::FromList(ScriptFieldType::Float, {ScriptFieldValue::FromFloat(0.5f), ScriptFieldValue::FromFloat(0.0f)}));
+	imgui.Click(rows.FindRemove(0), draw);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
+	CHECK(getVariables().at("Speeds") == ScriptFieldValue::FromList(ScriptFieldType::Float, {ScriptFieldValue::FromFloat(0.0f)}));
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(getVariables().empty());
+	CHECK(open);
+}
+
 TEST_CASE("Panels: visual scripts dragged from the content browser onto a hierarchy row or the inspector run on the entities")
 {
 	ContentBrowserFixture fixture;
