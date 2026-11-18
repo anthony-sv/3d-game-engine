@@ -14,5 +14,6 @@ set(STRADA_TEST_SHARDS Samples Templates Core)
 
 set(STRADA_TEST_SHARD_Samples "--source-file=${STRADA_RUNTIME_TEST_SAMPLE_FILES}")
 set(STRADA_TEST_SHARD_Templates "--source-file=${STRADA_RUNTIME_TEST_TEMPLATE_FILES}")
-# Everything else: the player's command line, test runs, exported games, windows and screenshots, profiles and logs.
+# Everything else: the player's command line, test runs, exported games, windows and screenshots, profiles and logs, and
+# Moto's sound captures (MotoSoundTests.cpp: five runs of the sample's game, kept out of Samples for its time).
 set(STRADA_TEST_SHARD_Core "--source-file-exclude=${STRADA_RUNTIME_TEST_SAMPLE_FILES},${STRADA_RUNTIME_TEST_TEMPLATE_FILES}")

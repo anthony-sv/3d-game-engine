@@ -1,7 +1,9 @@
 """Moto's test scene (Scenes/Tests.sscene) and its checks, all of them graphs: the main scene as it is without its props
 (they stand clear of all it checks and have no colliders), with a crate to drop on the road, two blocks that slide off along the asphalt and along a gravel trap, a second entity running the tour
-that waits to be sent it (the Waiting Tour) and the Tests entity, whose graph checks the circuit's surfaces and the camera
-tour one after another, then reports to the test run. Its own entities keep their IDs when it is made again.
+that waits to be sent it (the Waiting Tour) and the Tests entity, whose graph checks the circuit's surfaces, the camera
+tour, the ghost bike, its engine's sound, the camera director and the audio director one after another, then reports to
+the test run. Its own entities keep their IDs when it is made again. The scene's ghost sets out Ghost.TEST_START_AT
+seconds into its lap, so that it leans through Turn 6 and crosses the start and finish line while the tour flies.
 
 - Checks.sgraph, a function library: reporting a check, and comparing points and directions.
 - Tests.sgraph (the Tests entity): each check a latent function that acts or waits for its moment, then reports through
@@ -15,7 +17,15 @@ says. The tour's checks compare the camera with the path
 Tour.py made: at the home view when the scene starts, under the footbridge when the path passes it, home again when the
 tour ends, and off on the next tour after it. The Waiting Tour checks the tour's interface for other graphs: with
 PlayOnStart off it stays where the scene put it until the Tests graph sends it PlayTour, then it flies, and with Repeat
-off it stays at the home view after its one tour.
+off it stays at the home view after its one tour. The ghost's checks compare it with the racing line RacingLine.py made,
+as its timeline plays the line's keys: leaned into Turn 6 as the line leans there (to the corner's inside, which the
+layout gives), where the line puts it at three moments of its lap and facing the way the line runs (each read with the
+ghost's own LapTime in the same update, the line's point carried on by its velocity for the moments between), and
+across the start and finish line onto its next lap. Its engine's sound plays every voice, driven by the ghost's engine
+speed, their volumes squared summing to 1 within EngineSound.POWER_BAND (the crossfades are equal-power) and each that
+sounds pitched within its layer's band, on the Engine bus. The camera director, sent the events its actions send, cuts to the first trackside camera, then the second,
+each the one camera that shows and hears the scene and turned to the ghost, then back to the tour's camera. The audio
+director, sent TogglePause twice, blends the mix to the Paused snapshot and back.
 """
 import math
 import os
@@ -23,8 +33,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import Circuit  # noqa: E402  (the layout)
+import EngineSound  # noqa: E402  (the engine's sound)
+import Ghost  # noqa: E402  (the ghost bike)
 import Graphs  # noqa: E402  (writing graphs)
+import RacingLine  # noqa: E402  (the line the ghost rides)
+import Sound  # noqa: E402  (the mix and the audio director)
 import Tour  # noqa: E402  (the camera tour)
+import Trackside  # noqa: E402  (the trackside cameras and their director)
 from Graphs import CHECK, ENTITY, private, public  # noqa: E402
 
 CHECKS = Graphs.script("Checks")
@@ -53,6 +68,35 @@ ASPHALT_FRICTION = 1.0
 GRAVEL_FRICTION = 1.5
 # Where the Waiting Tour stands until it is sent PlayTour: 20 m over the home view, where its tour starts.
 WAITING_SPOT = (Tour.HOME_EYE[0], Tour.HOME_EYE[1] + 20.0, Tour.HOME_EYE[2])
+# The moments of the ghost's lap (seconds after the start and finish line) at which it must be where the line puts it,
+# within GHOST_TOLERANCE meters, and its lean in Turn 6 within LEAN_TOLERANCE degrees of the line's. The test scene's
+# ghost reaches them between the slides and the tour's footbridge pass (Ghost.TEST_START_AT).
+GHOST_MOMENTS = (44.0, 48.0, 52.0)
+GHOST_TOLERANCE = 0.1
+# How far the ghost's forward may turn from the line's direction of travel at those moments (degrees).
+HEADING_TOLERANCE = 2.0
+LEAN_TOLERANCE = 1.0
+# How far a trackside camera that shows may look from the ghost (degrees): it turns every update, and the ghost moves
+# after it in some frames.
+AIM_TOLERANCE = 2.0
+# How long the pause check lets the mix blend to the Paused snapshot and back (seconds): past Sound.PAUSE_SECONDS.
+PAUSE_WAIT = Sound.PAUSE_SECONDS + 0.1
+
+
+def turn6_lean():
+    """The moment of the ghost's lap in the middle of its deepest lean through Turn 6, and that lean (degrees, positive
+    right)."""
+    _, start, end, _ = next(row for row in Circuit.corner_ranges() if row[0].name == "Turn 6")
+    inside = [point for point in RacingLine.LINE if start <= point.s <= end]
+    deepest = max(abs(point.lean) for point in inside)
+    plateau = [point for point in inside if abs(point.lean) >= deepest - 0.05]
+    middle = plateau[len(plateau) // 2]
+    return round(middle.time, 3), round(RacingLine.pose(middle.time)[2][0], 3)
+
+
+def ghost_moment(time):
+    """Where the ghost's timeline puts it at a moment of its lap, and its velocity there (rounded as the graph holds them)."""
+    return rounded(RacingLine.pose(time)[0]), rounded(RacingLine.velocity(time))
 
 
 def crate_start():
@@ -163,9 +207,21 @@ def checks():
         ("CheckCrateRests", "Crate: dropped on the road, it comes to rest on it", "a crate dropped on the road comes to rest on it"),
         ("CheckSlides", "Slides: a block slides farther on the asphalt than in the gravel",
          "a block slides farther on the asphalt than in the gravel"),
+        ("CheckGhostLeans", "Ghost lean: leaned into Turn 6 as the racing line leans there",
+         "the ghost leans into Turn 6 as the racing line does"),
+        ("CheckGhostRides", "Ghost line: on the racing line and facing its way at three moments",
+         "the ghost rides the racing line"),
+        ("CheckEngineSounds", "Engine sound: every layer plays, faded to one in power, each in its band",
+         "the ghost's engine plays every layer, crossfaded to a steady power, each pitched within its band"),
+        ("CheckCameraCuts", "Cuts: NextCamera cuts to the trackside cameras in turn, ResetCamera back",
+         "the camera director cuts to its cameras and back to the tour on the events its actions send"),
+        ("CheckPauseSnapshot", "Pause: TogglePause blends the mix to the Paused snapshot and back",
+         "the pause event blends the mix to the Paused snapshot and back"),
         ("CheckUnderFootbridge", "Footbridge pass: the camera where the tour puts it, under the deck",
          "the tour flies the camera under the footbridge"),
         ("CheckSentTourFlies", "Sent tour: PlayTour from another graph flies it", "a tour sent PlayTour by another graph flies"),
+        ("CheckGhostLaps", "Ghost lap: across the start and finish line and on round its next lap",
+         "the ghost crosses the line and rides on round its next lap"),
         ("CheckTourEndsHome", "Tour end: the camera back at the home view", "the tour ends at the home view"),
         ("CheckTourRepeats", "Repeat: the next tour takes off", "the tour takes off again"),
         ("CheckSentTourStops", "Repeat off: the sent tour stays at the home view after one tour",
@@ -185,6 +241,10 @@ TEST_ENTITIES = (
     ("WaitingTour", "Waiting Tour", "Runs the tour with PlayOnStart and Repeat off; the checks send it PlayTour"),
     ("AsphaltSlider", "Asphalt Slider", "The block sent sliding along the asphalt"),
     ("GravelSlider", "Gravel Slider", "The block sent sliding along a gravel trap"),
+    ("Ghost", Ghost.ENTITY, "The ghost bike riding the racing line"),
+    ("EngineSound", EngineSound.ENTITY, "The ghost's engine sound, whose children are its voices"),
+    ("CameraDirector", Trackside.ROOT, "The camera director, whose children are the trackside cameras"),
+    ("AudioDirector", Sound.DIRECTOR, "The audio director, which blends the mix to the Paused snapshot"),
 )
 # The test scene's own entities, which it keeps the IDs of when it is made again.
 OWN_ENTITIES = ("Probe Crate", "Asphalt Slider", "Gravel Slider", "Waiting Tour", "Tests")
@@ -201,9 +261,12 @@ def declare(author):
                        ("NearVector", True, (("A", VECTOR), ("B", VECTOR), ("Tolerance", "float")), (("Result", "bool"),), ()),
                        ("Facing", True, (("Direction", VECTOR), ("Expected", VECTOR), ("Degrees", "float")), (("Result", "bool"),), ()),
                    ))
-    author.declare(TESTS, f"The test scene's checks: {len(checks())} checks of Moto's circuit and its camera tour, one after "
-                   "another, each a latent function that acts or waits for its moment, then reports it.", variables=(
-        tuple(public(name, ENTITY, None, tooltip) for name, _, tooltip in TEST_ENTITIES) + (private("StepStart", "double", 0.0),)),
+    author.declare(TESTS, f"The test scene's checks: {len(checks())} checks of Moto's circuit, its camera tour and its ghost "
+                   "bike, one after another, each a latent function that acts or waits for its moment, then reports it.", variables=(
+        tuple(public(name, ENTITY, None, tooltip) for name, _, tooltip in TEST_ENTITIES) +
+        (private("StepStart", "double", 0.0), private("LineError", "float", 0.0), private("HeadingError", "float", 0.0),
+         private("Power", "float", 0.0), private("Playing", "int", 0), private("Strays", "int", 0), private("Cuts", "int", 0),
+         private("Aim", "float", 0.0), private("Snapshot", "string", ""))),
         functions=(("Probe", False, (("From", VECTOR), ("Surface", ENTITY), ("Height", "float")),
                     (("Passed", "bool"), ("Detail", "string")), ()),
                    ("ProbeSurface", False, (("From", VECTOR), ("Expected", "string")), (("Passed", "bool"), ("Detail", "string")),
@@ -464,7 +527,171 @@ def check_sent_tour_stops(b, name):
     run(b, check(b, name, ended, 5, waiting_detail(b), done))
 
 
+def ghost_at(b):
+    return b.once("ghost at", lambda: b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=b.var("Ghost")))
+
+
+def ghost_lap(b):
+    """The ghost's read-out of how far into its lap it is (a remote Get of its graph), set in the update that placed it."""
+    return b.once("ghost lap", lambda: b.get("LapTime", Ghost.GHOST, b.var("Ghost")))
+
+
+def ghost_laps(b):
+    return b.once("ghost laps", lambda: b.get("Laps", Ghost.GHOST, b.var("Ghost")))
+
+
+def line_error(b, time):
+    """How far the ghost is from where the line puts it at a moment of its lap, carried on by the line's velocity to the
+    ghost's own LapTime (a frame at most later)."""
+    point, velocity = ghost_moment(time)
+    return b.once(("line error", time), lambda: b.expr("distance(at, point + velocity * (lap - moment))", at=ghost_at(b),
+                                                       point=b.lit(VECTOR, point), velocity=b.lit(VECTOR, velocity),
+                                                       lap=ghost_lap(b), moment=time))
+
+
+def check_ghost_leans(b, name):
+    moment, lean = turn6_lean()
+    # Into the corner: the layout's side of Turn 6's inside (+1 right of travel), which the line's own lean cannot get wrong
+    # with it.
+    inside = next(side for corner, _, _, side in Circuit.corner_ranges() if corner.name == "Turn 6")
+    # The lean to the right is the ghost's right side tilting down: its Right's height is -sin(lean).
+    leaned = b.expr("degrees(asin(-right.Y))", right=b.pure("Get:Strada.TransformComponent.Right", "Value", Target=b.var("Ghost")))
+    reached = b.expr(f"lap >= {moment}", lap=ghost_lap(b))
+    passed = b.both(reached, b.expr(f"abs(lean - {lean}) <= {LEAN_TOLERANCE} && lean * {inside} >= {RacingLine.MIN_CORNER_LEAN}",
+                                    lean=leaned))
+    side = "right" if inside > 0 else "left"
+    detail = b.fmt(f"the ghost leans {{Lean}} degrees at {{Lap}} s of its lap (the line: {lean} at {moment} s, into the corner: "
+                   f"to the {side})", Lean=leaned, Lap=ghost_lap(b))
+    run(b, check(b, name, reached, 20, detail, passed))
+
+
+def check_ghost_rides(b, name):
+    # The worst distance from the line and the worst turn from its direction over the moments, each read when the ghost's
+    # lap reaches it.
+    steps = [b.set("LineError", 0.0), b.set("HeadingError", 0.0)]
+    forward = b.pure("Get:Strada.TransformComponent.Forward", "Value", Target=b.var("Ghost"))
+    for moment in GHOST_MOMENTS:
+        first, waited = wait_until(b, b.expr(f"lap >= {moment}", lap=ghost_lap(b)), 20)
+        worst = b.set("LineError", b.expr("max(worst, error)", worst=b.var("LineError"), error=line_error(b, moment)))
+        _, velocity = ghost_moment(moment)
+        turned = b.set("HeadingError", b.expr("max(worst, degrees(acos(clamp(dot(normalize(forward), normalize(along)), -1, 1))))",
+                                              worst=b.var("HeadingError"), forward=forward, along=b.lit(VECTOR, velocity)))
+        b.flow(waited, worst)
+        b.flow(worst, turned)
+        steps.append((first, turned))
+    passed = b.expr(f"worst <= {GHOST_TOLERANCE} && turned <= {HEADING_TOLERANCE}", worst=b.var("LineError"),
+                    turned=b.var("HeadingError"))
+    moments = ", ".join(f"{moment:g}" for moment in GHOST_MOMENTS)
+    detail = b.fmt(f"the ghost strays {{Worst}} m at most from the line and turns {{Turned}} degrees at most from its way at "
+                   f"{moments} s of its lap", Worst=b.var("LineError"), Turned=b.var("HeadingError"))
+    reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, *steps, reported)
+
+
+def check_ghost_laps(b, name):
+    crossed = b.expr("laps >= 1", laps=ghost_laps(b))
+    near = b.expr(f"laps == 1 && lap < 0.1 && error <= {GHOST_TOLERANCE}", laps=ghost_laps(b), lap=ghost_lap(b),
+                  error=line_error(b, 0.0))
+    detail = b.fmt("{Laps} laps; {Lap} s into the next, {Error} m from the line", Laps=ghost_laps(b), Lap=ghost_lap(b),
+                   Error=line_error(b, 0.0))
+    run(b, check(b, name, crossed, math.ceil(RacingLine.length()), detail, near))
+
+
+def check_engine_sounds(b, name):
+    # Every voice: playing, its volume squared added to the power, and counted as a stray when it sounds outside its
+    # layer's band or plays off the Engine bus.
+    engine = b.var("EngineSound")
+    each = b.add("Flow.ForEach", Array=b.pure("Get:Strada.Entity.Children", "Value", Target=engine))
+    voice = each["Element"]
+    volume = b.pure("Get:Strada.AudioSourceComponent.Volume", "Value", Target=voice)
+    pitch = b.pure("Get:Strada.AudioSourceComponent.Pitch", "Value", Target=voice)
+    on_bus = b.equal(b.pure("Get:Strada.AudioSourceComponent.Bus", "Value", Target=voice), b.lit("string", "Engine"))
+    playing = b.pure("Get:Strada.AudioSourceComponent.IsPlaying", "Value", Target=voice)
+    low, high = 1.0 / EngineSound.LAYER_RATIO - 1e-4, EngineSound.LAYER_RATIO + 1e-4
+    power = b.set("Power", b.expr("power + volume * volume", power=b.var("Power"), volume=volume))
+    count = b.set("Playing", b.expr("count + (playing ? 1 : 0)", count=b.var("Playing"), playing=playing))
+    stray = b.set("Strays", b.expr(f"strays + ((volume > 0.001 && (pitch < {low:.6f} || pitch > {high:.6f})) || !engine ? 1 : 0)",
+                                   strays=b.var("Strays"), volume=volume, pitch=pitch, engine=on_bus))
+    b.chain(each["Body"], power, count, stray)
+    speed = b.get("EngineSpeed", EngineSound.ENGINE_SOUND, engine)
+    voices = len(EngineSound.VOICES)
+    passed = b.expr(f"count == {voices} && abs(power - 1) <= {EngineSound.POWER_BAND} && strays == 0 && "
+                    f"abs(speed - ghost) < 1 && speed > {RacingLine.IDLE}", count=b.var("Playing"), power=b.var("Power"),
+                    strays=b.var("Strays"), speed=speed, ghost=b.get("EngineSpeed", Ghost.GHOST, b.var("Ghost")))
+    detail = b.fmt(f"{{Playing}} of {voices} voices play, their volumes squared summing to {{Power}}, {{Strays}} out of their band "
+                   "or off the Engine bus, at {Speed} rpm", Playing=b.var("Playing"), Power=b.var("Power"), Strays=b.var("Strays"),
+                   Speed=speed)
+    reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, b.set("Power", 0.0), b.set("Playing", 0), b.set("Strays", 0), (each, each["Completed"]), reported)
+
+
+def check_camera_cuts(b, name):
+    # A cut is seen when the camera it names alone shows and hears the scene; the director is sent each event, and two frames
+    # later (its Follow has turned the cameras since) the cut is counted.
+    director = b.var("CameraDirector")
+    cameras = b.pure("Get:Strada.Entity.Children", "Value", Target=director)
+    first = b.add("Array.Get", None, "Element", Array=cameras, Index=0).out
+    second = b.add("Array.Get", None, "Element", Array=cameras, Index=1).out
+    tour = b.var("Camera")
+    active = b.get("Active", Trackside.CAMERA_DIRECTOR, director)
+
+    def shows(camera):
+        return b.both(b.pure("Get:Strada.CameraComponent.Primary", "Value", Target=camera),
+                      b.pure("Get:Strada.AudioListenerComponent.Active", "Value", Target=camera))
+
+    def silent(camera):
+        return b.expr("!primary && !listener", primary=b.pure("Get:Strada.CameraComponent.Primary", "Value", Target=camera),
+                      listener=b.pure("Get:Strada.AudioListenerComponent.Active", "Value", Target=camera))
+
+    def cut(event, expected, showing, hidden):
+        send = b.send(event, director, graph=Trackside.CAMERA_DIRECTOR)
+        settle = b.add("Flow.WaitFrames", Frames=2)
+        seen = b.set("Cuts", b.expr(f"cuts + (active == {expected} && showing && hidden ? 1 : 0)", cuts=b.var("Cuts"), active=active,
+                                    showing=shows(showing), hidden=silent(hidden)))
+        b.flow(send, settle)
+        b.flow(settle["Completed"], seen)
+        return send, seen
+
+    ghost = b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=b.var("Ghost"))
+    eye = b.pure("Get:Strada.TransformComponent.WorldTranslation", "Value", Target=first)
+    forward = b.pure("Get:Strada.TransformComponent.Forward", "Value", Target=first)
+    first_cut = cut("NextCamera", 1, first, tour)
+    aim = b.set("Aim", b.expr(f"degrees(acos(clamp(dot(normalize(forward), normalize(ghost + vec3(0, {Trackside.AIM}, 0) - eye)), "
+                              "-1, 1)))", forward=forward, ghost=ghost, eye=eye))
+    b.flow(first_cut[1], aim)
+    second_cut = cut("NextCamera", 2, second, first)
+    back = cut("ResetCamera", 0, tour, second)
+    passed = b.expr(f"cuts == 3 && aim <= {AIM_TOLERANCE}", cuts=b.var("Cuts"), aim=b.var("Aim"))
+    detail = b.fmt("{Cuts} of 3 cuts seen (to the first trackside camera, the second and back to the tour); the first looked "
+                   "{Aim} degrees from the ghost", Cuts=b.var("Cuts"), Aim=b.var("Aim"))
+    reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, b.set("Cuts", 0), (first_cut[0], aim), second_cut, back, reported)
+
+
+def check_pause_snapshot(b, name):
+    director = b.var("AudioDirector")
+    snapshot = b.pure("Get:Strada.Audio.CurrentSnapshot", "Value")
+    paused = b.get("Paused", Sound.AUDIO_DIRECTOR, director)
+    pause = b.send("TogglePause", director, graph=Sound.AUDIO_DIRECTOR)
+    muffled = wait_until(b, None, PAUSE_WAIT)
+    noted = b.set("Snapshot", snapshot)
+    resume = b.send("TogglePause", director, graph=Sound.AUDIO_DIRECTOR, comment="And back")
+    resumed = wait_until(b, None, PAUSE_WAIT)
+    passed = b.both(b.both(b.equal(b.var("Snapshot"), b.lit("string", Sound.PAUSED)), b.equal(snapshot, b.lit("string", ""))),
+                    b.expr("!paused", paused=paused))
+    detail = b.fmt("the snapshot was '{Paused}' after the first event, and is '{Resumed}' after the second",
+                   Paused=b.var("Snapshot"), Resumed=snapshot)
+    reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
+    run(b, pause, muffled, noted, resume, resumed, reported)
+
+
 WRITERS = {
+    "CheckEngineSounds": check_engine_sounds,
+    "CheckCameraCuts": check_camera_cuts,
+    "CheckPauseSnapshot": check_pause_snapshot,
+    "CheckGhostLeans": check_ghost_leans,
+    "CheckGhostRides": check_ghost_rides,
+    "CheckGhostLaps": check_ghost_laps,
     "CheckTourStartsHome": check_tour_starts_home,
     "CheckTourWaits": check_tour_waits,
     "CheckSentTourFlies": check_sent_tour_flies,
@@ -543,6 +770,11 @@ def build_scene(session, handles, project):
     missing = [scene_name for _, scene_name, _ in TEST_ENTITIES if scene_name not in found]
     if missing:
         raise SystemExit(f"the test scene has no {', '.join(missing)}")
+    # The ghost sets out into its lap where its checks find it early in the run, from the line's pose there.
+    ghost = found[Ghost.ENTITY]
+    session.call("component_set", {"entity": ghost, "component": "Transform", "fields": Ghost.transform(Ghost.TEST_START_AT)})
+    session.call("component_set", {"entity": ghost, "component": "VisualScript", "fields": {
+        "Variables": {"StartAt": {"Type": "Float", "Value": Ghost.TEST_START_AT}}}})
     create("Tests", {"VisualScript": {"Graph": handles[TESTS], "Variables": {
         name: entity_value(found[scene_name]) for name, scene_name, _ in TEST_ENTITIES}}})
     session.call("scene_save")

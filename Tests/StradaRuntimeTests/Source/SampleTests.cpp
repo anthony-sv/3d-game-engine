@@ -165,9 +165,11 @@ TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays 
 
 TEST_CASE("Runtime: the Moto sample, made of graphs alone, flies its camera tour and passes its tests")
 {
-	// Three graphs and no C#: the main camera's tour is a timeline (Scripts/Tour.sgraph), and the test scene's 18 checks of
-	// the circuit (its surfaces and their physics materials, a crate at rest, two blocks sliding on asphalt and on gravel)
-	// and of the tour are graphs too.
+	// Seven graphs and no C#: the main camera's tour is a timeline (Scripts/Tour.sgraph), so is the ghost bike's ride round
+	// the racing line (Scripts/Ghost.sgraph); its engine's sound, the camera director and the audio director are graphs, and
+	// the test scene's 24 checks of the circuit (its surfaces and their physics materials, a crate at rest, two blocks
+	// sliding on asphalt and on gravel), of the tour, of the ghost and its engine's sound, of the cuts and of the pause are
+	// graphs too.
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path const project = CopyRepositoryProject("Moto", directory.GetPath());
 	std::vector<std::string> const testRun = {"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timeout", "90"};
@@ -175,7 +177,7 @@ TEST_CASE("Runtime: the Moto sample, made of graphs alone, flies its camera tour
 	ProcessResult const tests = RunPlayer(testRun);
 	CAPTURE(tests.Output);
 	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 18 checks"));
+	CHECK(Contains(tests.Output, "Tests passed: 24 checks"));
 	CHECK_FALSE(Contains(tests.Output, "The game has no scripts"));
 
 	// Nothing in the scene is random, so every run plays the same frames.
@@ -191,7 +193,7 @@ TEST_CASE("Runtime: the Moto sample, made of graphs alone, flies its camera tour
 	ProcessResult const slow = RunPlayer(slower);
 	CAPTURE(slow.Output);
 	CHECK(slow.ExitCode == 0);
-	CHECK(Contains(slow.Output, "Tests passed: 18 checks"));
+	CHECK(Contains(slow.Output, "Tests passed: 24 checks"));
 
 	// The game's own scene, whose tour takes off at once, runs five seconds without a window and without a word from its
 	// graphs.

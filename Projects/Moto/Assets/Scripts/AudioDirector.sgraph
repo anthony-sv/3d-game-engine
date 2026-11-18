@@ -1,0 +1,413 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "The audio director: the Pause action (or a TogglePause event any graph sends) blends the mix to the Paused snapshot and back.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Seconds",
+				"Type": "float",
+				"Value": 0.5,
+				"Public": true,
+				"Tooltip": "How long the mix takes to blend to the Paused snapshot, and back",
+				"Range": [
+					0.0,
+					10.0
+				]
+			},
+			{
+				"ID": 2,
+				"Name": "Paused",
+				"Type": "bool",
+				"Value": false,
+				"Public": true,
+				"Tooltip": "Whether the mix is muffled by the Paused snapshot (a read-out)"
+			},
+			{
+				"ID": 3,
+				"Name": "StartPaused",
+				"Type": "bool",
+				"Value": false,
+				"Public": true,
+				"Tooltip": "Whether the mix starts muffled, blending to the Paused snapshot when the scene starts (a game that opens paused)"
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 5,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						192.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 6,
+					"Type": "Flow.Branch",
+					"Position": [
+						192.0,
+						192.0
+					]
+				},
+				{
+					"ID": 7,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						256.0
+					]
+				},
+				{
+					"ID": 8,
+					"Type": "Self",
+					"Position": [
+						192.0,
+						320.0
+					]
+				},
+				{
+					"ID": 9,
+					"Type": "Event.Send",
+					"Position": [
+						416.0,
+						192.0
+					],
+					"Settings": {
+						"Name": "TogglePause",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 11,
+					"Type": "Event.ActionPressed",
+					"Position": [
+						0.0,
+						496.0
+					],
+					"Settings": {
+						"Action": "Pause"
+					}
+				},
+				{
+					"ID": 12,
+					"Type": "Self",
+					"Position": [
+						0.0,
+						608.0
+					]
+				},
+				{
+					"ID": 13,
+					"Type": "Event.Send",
+					"Position": [
+						208.0,
+						496.0
+					],
+					"Settings": {
+						"Name": "TogglePause",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 15,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						784.0
+					],
+					"Settings": {
+						"Name": "TogglePause",
+						"Parameters": []
+					}
+				},
+				{
+					"ID": 16,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						896.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 17,
+					"Type": "Flow.Branch",
+					"Position": [
+						192.0,
+						784.0
+					]
+				},
+				{
+					"ID": 18,
+					"Type": "Variable.Get",
+					"Position": [
+						192.0,
+						912.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 19,
+					"Type": "Call:Strada.Audio.TransitionTo(string,float)",
+					"Position": [
+						416.0,
+						784.0
+					],
+					"Inputs": {
+						"Snapshot": ""
+					},
+					"Comment": "Empty: back to the mixer's own values"
+				},
+				{
+					"ID": 20,
+					"Type": "Call:Strada.Audio.TransitionTo(string,float)",
+					"Position": [
+						416.0,
+						960.0
+					],
+					"Inputs": {
+						"Snapshot": "Paused"
+					}
+				},
+				{
+					"ID": 21,
+					"Type": "Variable.Set",
+					"Position": [
+						736.0,
+						784.0
+					],
+					"Settings": {
+						"Variable": 2
+					},
+					"Inputs": {
+						"Value": false
+					}
+				},
+				{
+					"ID": 22,
+					"Type": "Variable.Set",
+					"Position": [
+						736.0,
+						912.0
+					],
+					"Settings": {
+						"Variable": 2
+					},
+					"Inputs": {
+						"Value": true
+					}
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						5,
+						"Value"
+					],
+					"To": [
+						6,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						7,
+						"Then"
+					],
+					"To": [
+						6,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Self"
+					],
+					"To": [
+						9,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						6,
+						"True"
+					],
+					"To": [
+						9,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Self"
+					],
+					"To": [
+						13,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Then"
+					],
+					"To": [
+						13,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						16,
+						"Value"
+					],
+					"To": [
+						17,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Value"
+					],
+					"To": [
+						19,
+						"Seconds"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Value"
+					],
+					"To": [
+						20,
+						"Seconds"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Then"
+					],
+					"To": [
+						17,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						17,
+						"True"
+					],
+					"To": [
+						19,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Then"
+					],
+					"To": [
+						21,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						17,
+						"False"
+					],
+					"To": [
+						20,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Then"
+					],
+					"To": [
+						22,
+						"Execute"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 10,
+					"Text": "Start: a director that starts paused muffles the mix",
+					"Position": [
+						-32.0,
+						120.0
+					],
+					"Size": [
+						613.5875244140625,
+						260.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 14,
+					"Text": "Pause: the Pause action sends the director TogglePause",
+					"Position": [
+						-32.0,
+						424.0
+					],
+					"Size": [
+						405.5874938964844,
+						244.0
+					],
+					"Color": [
+						0.20000000298023224,
+						0.41999998688697815,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				},
+				{
+					"ID": 23,
+					"Text": "Toggle pause: the mix blends to the Paused snapshot, or back",
+					"Position": [
+						-32.0,
+						712.0
+					],
+					"Size": [
+						950.572509765625,
+						410.0
+					],
+					"Color": [
+						0.6200000047683716,
+						0.30000001192092896,
+						0.949999988079071,
+						0.2199999988079071
+					]
+				}
+			]
+		}
+	}
+}

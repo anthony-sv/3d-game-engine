@@ -146,8 +146,12 @@ class Region:
         """One of the graph's own variables, read by one node per region."""
         return self.once(("var", variable), lambda: self.get(variable))
 
-    def set(self, variable, value=None, comment=None):
-        return self.add("Variable.Set", {"Variable": variable}, "Value", comment=comment, Value=value)
+    def set(self, variable, value=None, comment=None, graph=None, target=None):
+        """Sets one of the graph's own variables, or (graph given) a public variable of the graph the target runs."""
+        settings = {"Variable": variable}
+        if graph is not None:
+            settings["Graph"] = graph
+        return self.add("Variable.Set", settings, "Value", comment=comment, Value=value, Target=target)
 
     def lit(self, type_id, value):
         return self.add("Literal", {"Type": type_id, "Value": value}, "Value").out

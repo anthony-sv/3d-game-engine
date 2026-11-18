@@ -1,15 +1,25 @@
-"""Moto's captures: the player's own screenshots of the main scene from a fixed list of cameras (CAMERAS), for the look
-review and for whoever takes the same views again. Author.py --captures runs it:
+"""Moto's captures: the player's own screenshots of the main scene from a fixed list of cameras (views()), for the look
+review and for whoever takes the same views again, and the sound of the ghost bike passing each trackside camera.
+Author.py --captures runs it:
 
     python Projects/Moto/Tools/Author.py --captures <output folder> --player <StradaRuntime executable> [--views name ...]
+        [--sounds]
 
 The player draws the scene's primary camera and has no camera option, so each view is a copy of the project, outside the
 repository (the system's temporary folder), whose main scene has the main camera where the view puts it, its tour held
 (PlayOnStart off), and the bike where the view puts it: on the grid where it waits, or on the circuit, leaned into a
-corner. A view of the tour instead plays the main scene as it is and takes the frame of a time of the tour. The player
-runs each with a per-user root of its own (APPDATA, LOCALAPPDATA, HOME and XDG_DATA_HOME in a temporary folder), draws
-1920 by 1080 pixels (--resolution) and saves <output folder>/<view>.png. A run that exits with an error, saves no
-picture, or saves one of another size is run again, twice at most, and then fails the captures.
+corner. A view of the tour instead plays the main scene as it is and takes the frame of a time of the tour. The ghost
+bike is hidden in those views (they are the grid bike's, and a tour's would catch it riding). A trackside view is one of
+the four trackside cameras (Trackside.py), on which the camera director starts the game (its StartCamera) and which its
+graph turns to the ghost, with the ghost set out on its lap (its StartAt) so that the picture's frame catches it riding
+towards the camera, PASS_LEAD seconds before it passes closest. The player runs each with a per-user root of its own
+(APPDATA, LOCALAPPDATA, HOME and XDG_DATA_HOME in a temporary folder), draws 1920 by 1080 pixels (--resolution) and
+saves <output folder>/<view>.png. A run that exits with an error, saves no picture, or saves one of another size is run
+again, twice at most, and then fails the captures.
+
+With --sounds, each trackside view also records the ghost passing its camera: the player runs the view's copy without a
+window for PASS_SECONDS of the game at 1/60 s a frame, the ghost passing closest halfway, and writes what the camera's
+listener hears (--audio-capture: 48 kHz, 16-bit stereo) to <output folder>/<view>.wav.
 """
 import json
 import math
@@ -25,12 +35,21 @@ sys.path.insert(0, TOOLS)
 import Bike  # noqa: E402  (the motorcycle and its rider)
 import Circuit  # noqa: E402  (the layout)
 import GenerateAssets  # noqa: E402  (the circuit's center)
+import Ghost  # noqa: E402  (the ghost bike's name)
+import RacingLine  # noqa: E402  (where the ghost rides)
+import Trackside  # noqa: E402  (the trackside cameras and their director)
 
 PROJECT = os.path.dirname(TOOLS)
 WIDTH, HEIGHT = 1920, 1080
 # Frames a still view runs before its picture: the shadows and the exposure settle in the first few.
 STILL_FRAMES = 30
 ATTEMPTS = 3
+# A trackside view's picture shows the ghost this long before it passes its camera closest (seconds): riding towards it,
+# about a seventh of the frame's height. A pass's sound lasts PASS_SECONDS, the ghost closest halfway.
+PASS_LEAD = 0.2
+PASS_SECONDS = 6.0
+# The ghost in a trackside view fills at least this share of the frame's height (the camera's field of view is fixed).
+MIN_GHOST_SIZE = 0.1
 
 
 # --- Where things are ----------------------------------------------------------------------------------------------------
@@ -113,11 +132,11 @@ def apex_pose(name, lean, fraction=0.5, inside=3.5):
 class View:
     """A camera: its eye and target (world points), its vertical field of view, where the bike is (None leaves it on
     the grid), whether the rider shows, and what the view is for. A tour view plays the tour instead and takes its
-    frame at the tour's time."""
+    frame at the tour's time; a trackside view is the trackside camera of that name, with the ghost riding by."""
 
-    def __init__(self, name, purpose, eye=None, target=None, fov=50.0, bike=None, rider=True, tour_time=None):
+    def __init__(self, name, purpose, eye=None, target=None, fov=50.0, bike=None, rider=True, tour_time=None, trackside=None):
         self.name, self.purpose, self.eye, self.target, self.fov = name, purpose, eye, target, fov
-        self.bike, self.rider, self.tour_time = bike, rider, tour_time
+        self.bike, self.rider, self.tour_time, self.trackside = bike, rider, tour_time, trackside
 
 
 def views():
@@ -157,30 +176,93 @@ def views():
         View("tour-fences-a", "a frame of the tour along the catch fences of the main straight (FXAA)", tour_time=8.0),
         View("tour-fences-b", "the frame after tour-fences-a: what changes between them shimmers in motion",
              tour_time=8.0 + 1.0 / 60.0),
+        View("camera-start-line", "the start line's trackside camera, across the road from the grandstands, the ghost riding "
+             "towards it down the main straight", trackside="Start Line Camera"),
+        View("camera-turn1", "Turn 1's trackside camera on its inside, the ghost leaned into the corner",
+             trackside="Turn 1 Camera"),
+        View("camera-footbridge", "the footbridge's trackside camera, the ghost riding towards it on its way under the deck",
+             trackside="Footbridge Camera"),
+        View("camera-turn6", "Turn 6's trackside camera on its inside, the ghost leaned into the corner",
+             trackside="Turn 6 Camera"),
     )
 
 
 # --- Copies and runs -----------------------------------------------------------------------------------------------------
 
-def find(entities, name):
-    return next(entity for entity in entities if entity["Components"].get("Tag", {}).get("Tag") == name)
+def find(entities, name, parent="0"):
+    """The entity of a name under a parent (by its ID; "0" for a root)."""
+    return next(entity for entity in entities
+                if entity["Components"].get("Tag", {}).get("Tag") == name and entity["Components"]["Relationship"]["Parent"] == parent)
+
+
+def hide(entities, root):
+    """Hides an entity's meshes and its descendants'."""
+    by_id = {entity["ID"]: entity for entity in entities}
+    pending = [root["ID"]]
+    while pending:
+        components = by_id[pending.pop()]["Components"]
+        if "Mesh" in components:
+            components["Mesh"]["Visible"] = False
+        pending += components["Relationship"]["Children"]
+
+
+def ghost_hidden(original):
+    """The main scene with the ghost bike hidden."""
+    scene = json.loads(json.dumps(original))
+    hide(scene["Entities"], find(scene["Entities"], Ghost.ENTITY))
+    return scene
+
+
+def set_variable(entity, name, type_name, value):
+    entity["Components"]["VisualScript"].setdefault("Variables", {})[name] = {"Type": type_name, "Value": value}
+
+
+def closest_pass(position):
+    """When on its lap the ghost passes a point closest (seconds after the start and finish line, to 10 ms)."""
+    lap = RacingLine.length()
+    return min(range(int(lap * 100.0)), key=lambda step: math.dist(RacingLine.pose(step / 100.0)[0], position)) / 100.0
+
+
+def trackside_camera(entities, name):
+    """A trackside camera: its number for the director's StartCamera (1 to 4, its place among the director's children)
+    and where it stands (the director stands at the origin unturned)."""
+    director = find(entities, Trackside.ROOT)
+    camera = find(entities, name, director["ID"])
+    return director["Components"]["Relationship"]["Children"].index(camera["ID"]) + 1, camera["Components"]["Transform"]["Translation"]
+
+
+def stage_trackside(view, scene_path, original, at, frames):
+    """Writes the copy's main scene for a trackside view: the game starts on the view's camera, and the ghost sets out so
+    that at the last of the frames (1/60 s each) it is `at` seconds past its closest pass (before it when negative);
+    returns how far from the camera the ghost is then, and the share of the frame's height it fills."""
+    scene = json.loads(json.dumps(original))
+    entities = scene["Entities"]
+    number, position = trackside_camera(entities, view.trackside)
+    pictured = closest_pass(position) + at
+    set_variable(find(entities, Trackside.ROOT), "StartCamera", "Int32", number)
+    set_variable(find(entities, Ghost.ENTITY), "StartAt", "Float", round((pictured - (frames - 1) / 60.0) % RacingLine.length(), 4))
+    with open(scene_path, "w", encoding="utf-8") as file:
+        json.dump(scene, file, indent="\t")
+    distance = math.dist(RacingLine.pose(pictured)[0], position)
+    return distance, RIDDEN_HEIGHT / (2.0 * distance * math.tan(math.radians(Trackside.FOV) / 2.0))
 
 
 def stage(view, scene_path, original):
     """Writes the copy's main scene for a still view: the camera, its tour held, the bike and its rider."""
-    scene = json.loads(json.dumps(original))
+    scene = ghost_hidden(original)
     entities = scene["Entities"]
     camera = find(entities, "Main Camera")["Components"]
     camera["Transform"]["Translation"] = list(view.eye)
     camera["Transform"]["Rotation"] = list(look(view.eye, view.target))
     camera["Camera"]["PerspectiveFOV"] = view.fov
     camera["VisualScript"]["Variables"] = {"PlayOnStart": {"Type": "Bool", "Value": False}}
+    bike = find(entities, "Bike")
     if view.bike is not None:
         translation, rotation = view.bike.transform()
-        bike = find(entities, "Bike")["Components"]["Transform"]
-        bike["Translation"], bike["Rotation"] = list(translation), list(rotation)
+        transform = bike["Components"]["Transform"]
+        transform["Translation"], transform["Rotation"] = list(translation), list(rotation)
     if not view.rider:
-        find(entities, "Rider")["Components"]["Mesh"]["Visible"] = False
+        find(entities, "Rider", bike["ID"])["Components"]["Mesh"]["Visible"] = False
     with open(scene_path, "w", encoding="utf-8") as file:
         json.dump(scene, file, indent="\t")
 
@@ -193,16 +275,22 @@ def png_size(path):
     return struct.unpack(">II", header[16:24])
 
 
+def user_environment(root):
+    """The environment of a player run with the per-user root given; its sound goes to no device (a tool's capture plays
+    nothing through the speakers)."""
+    environment = dict(os.environ, STRADA_AUDIO_OUTPUT="null")
+    for variable, folder in (("APPDATA", "Roaming"), ("LOCALAPPDATA", "Local"), ("HOME", "Home"), ("XDG_DATA_HOME", "Data")):
+        environment[variable] = os.path.join(root, folder)
+        os.makedirs(environment[variable])
+    return environment
+
+
 def run_player(player, project, out, frames, timestep=None):
     """Runs the player on the copy with a per-user root of its own until it saves a picture of the right size."""
     for attempt in range(1, ATTEMPTS + 1):
         root = tempfile.mkdtemp(prefix="moto-user-")
         try:
-            # The window's sound goes to no device: a tool's capture plays nothing through the speakers.
-            environment = dict(os.environ, STRADA_AUDIO_OUTPUT="null")
-            for variable, folder in (("APPDATA", "Roaming"), ("LOCALAPPDATA", "Local"), ("HOME", "Home"), ("XDG_DATA_HOME", "Data")):
-                environment[variable] = os.path.join(root, folder)
-                os.makedirs(environment[variable])
+            environment = user_environment(root)
             command = [player, "--project", project, "--resolution", f"{WIDTH}x{HEIGHT}", "--frames", str(frames),
                        "--screenshot", out]
             if timestep is not None:
@@ -223,8 +311,29 @@ def run_player(player, project, out, frames, timestep=None):
     raise SystemExit(f"{os.path.basename(out)} was not captured")
 
 
-def take(player, output, names=None):
-    """Takes the views named (all of them by default) into the output folder."""
+def record(player, project, out, frames):
+    """Runs the player on the copy without a window, with a per-user root of its own, recording what its listener hears
+    over the frames (1/60 s each) into out; fails when it does not end well or writes no capture of those frames."""
+    root = tempfile.mkdtemp(prefix="moto-user-")
+    try:
+        if os.path.exists(out):
+            os.remove(out)
+        command = [player, "--project", project, "--headless", "--frames", str(frames), "--timestep", repr(1.0 / 60.0),
+                   "--audio-capture", out]
+        result = subprocess.run(command, env=user_environment(root), capture_output=True, text=True, errors="replace")
+        expected = 44 + frames * 800 * 4
+        if result.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) != expected:
+            for line in (result.stdout + result.stderr).splitlines():
+                if "rror" in line or "capture" in line:
+                    print("    " + line[-300:])
+            raise SystemExit(f"{os.path.basename(out)} was not recorded (exit {result.returncode})")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def take(player, output, names=None, sounds=False):
+    """Takes the views named (all of them by default) into the output folder; with sounds, also each trackside view's
+    pass of the ghost."""
     chosen = [view for view in views() if names is None or view.name in names]
     unknown = set(names or ()) - {view.name for view in chosen}
     if unknown:
@@ -240,15 +349,28 @@ def take(player, output, names=None):
             original = json.load(file)
         for view in chosen:
             out = os.path.join(output, f"{view.name}.png")
-            if view.tour_time is not None:
+            detail = "" if view.eye is None else \
+                f"; {math.dist(view.eye, view.target):.1f} m from what it looks at, field of view {view.fov:.1f} degrees"
+            if view.trackside is not None:
+                distance, size = stage_trackside(view, scene_path, original, -PASS_LEAD, STILL_FRAMES)
+                if size < MIN_GHOST_SIZE:
+                    raise SystemExit(f"{view.name}: the ghost would fill {size:.2f} of the frame's height, under {MIN_GHOST_SIZE}")
+                # Each frame of 1/60 s, so that the ghost is where its StartAt was chosen for.
+                run_player(player, project, out, STILL_FRAMES, 1.0 / 60.0)
+                detail = f"; the ghost {distance:.1f} m away, {size:.2f} of the frame's height"
+                if sounds:
+                    frames = round(PASS_SECONDS * 60.0)
+                    stage_trackside(view, scene_path, original, PASS_SECONDS / 2.0, frames)
+                    record(player, project, os.path.join(output, f"{view.name}.wav"), frames)
+                    detail += f"; its pass heard over {PASS_SECONDS:.0f} s in {view.name}.wav"
+            elif view.tour_time is not None:
                 with open(scene_path, "w", encoding="utf-8") as file:
-                    json.dump(original, file, indent="\t")
+                    json.dump(ghost_hidden(original), file, indent="\t")
                 # The tour starts with the first frame: at a step of 1/60 s, the frame of a time is its 60ths.
                 run_player(player, project, out, round(view.tour_time * 60.0) + 1, 1.0 / 60.0)
             else:
                 stage(view, scene_path, original)
                 run_player(player, project, out, STILL_FRAMES)
-            print(f"{view.name}: {view.purpose}" + ("" if view.eye is None else
-                  f"; {math.dist(view.eye, view.target):.1f} m from what it looks at, field of view {view.fov:.1f} degrees"))
+            print(f"{view.name}: {view.purpose}{detail}")
     finally:
         shutil.rmtree(copy, ignore_errors=True)
