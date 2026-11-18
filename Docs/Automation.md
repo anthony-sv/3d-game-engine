@@ -232,7 +232,7 @@ already waiting for a draw answers Cancelled). `editor.entity-menu` and `editor.
 | `component.add` | `entity`*, `component`*, `fields` | `component`, `fields` |
 | `component.remove` | `entity`*, `component`* (core components cannot be removed) | `removed` |
 | `component.get` | `entity`*, `component`* | `component`, `fields` |
-| `component.set` | `entity`*, `component`*, `fields`* (partial patch: the fields given replace theirs whole, an array with all its elements; invalid values change nothing) | `component`, `fields` |
+| `component.set` | `entity`*, `component`*, `fields`* (partial patch: the fields given replace theirs whole, an array with all its elements; invalid values change nothing; a `Script`'s `Fields` and a `VisualScript`'s `Variables` in the file form, a list field as `{ "Type": "<Element>[]", "Value": [...] }` replacing its whole list) | `component`, `fields` |
 
 While playing, a `Script` component's `Fields` are the values its running script holds (`entity.get` and
 `component.get` read them from the script), and `component.set` sets the given ones in the script at once, also while
@@ -838,7 +838,7 @@ The codes:
 | ReservedName | A function parameter, custom event parameter or placeholder is named `Execute`, `Then`, `Target`, `Self` or `Default` |
 | UnknownType | A type ID names no type (`graph.types` lists them) |
 | InvalidType | `exec` or `*` for a variable, local or parameter |
-| NotExposable | A public variable of a type components cannot store (the types with a `FieldType`), arrays among them: `arrays cannot be set on components yet: keep the variable private and fill it in the graph (Make Array from public variables, or the Children of a child entity that holds the points)` |
+| NotExposable | A public variable of a type components cannot store (the types with a `FieldType`, enums, and arrays of them, which components store as lists): `Strada.Matrix4[] cannot be set on components: public variables are numbers, bool, string, vectors, quaternions, colors, entities, assets or enums, or arrays of them` |
 | UnknownVariable | A `Variable` setting names no variable (or local) of the graph; with `Graph`, no variable of that graph (`Scripts/Door.sgraph has no variable 5`, the `Suggestions` its variables' IDs), or a library (`... is a function library: it has no variables`) |
 | UnknownFunction | A `Function` setting names no function; with `Graph`, no function of that library (`Scripts/Motion.sgraph has no function 9`, the `Suggestions` its functions' IDs) |
 | MissingEntry, DuplicateEntry | A function's graph needs exactly one `Function.Entry` |
@@ -984,7 +984,7 @@ itself when their sources change and loads the built assembly (hot reload); `scr
 | Command | Parameters | Result |
 |---------|-----------|--------|
 | `script.status` | — | `available` (.NET found), `scriptProject`, `building`, `outOfDate`, `loaded`, `classCount`, `lastBuild` (build report or null) |
-| `script.classes` | — | `classes`: `[{ name, fields: [{ name, type, default, hidden?, tooltip?, range?, assetType?, enumerators?, flags? }] }]`; Unavailable without .NET |
+| `script.classes` | — | `classes`: `[{ name, fields: [{ name, type, default, hidden?, tooltip?, range?, assetType?, enumerators?, flags? }] }]`: a list field (a C# `T[]` or `List<T>`) has its element type with `[]` (`Int32[]`, `Asset[]`) and its list as default, and its `range`, `assetType` and `enumerators` describe each element; Unavailable without .NET |
 | `script.create` | `className`* (C# identifier), `folder` (of `Scripts/Source`, relative with forward slashes; created when missing) | `path` (relative to the project directory), `class` (full name); creates the C# project when needed; InvalidParams for folders outside `Scripts/Source`, FileError when another file of the C# project has the name or a source declares the class already |
 | `script.build` | — | Build report `{ succeeded, error, loaded, seconds, errors, warnings, diagnostics: [{ severity, file, line, column, code, message }] }`; asynchronous; compile errors give `succeeded: false`; InvalidOperation without a project, scripts or .NET SDK |
 

@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Unicode;
 using Strada.Interop;
@@ -10,8 +11,13 @@ namespace Strada.VisualScripting;
 // { "<Name>": { "Type": "<ScriptFieldType>", "Value": ... } }, values as the script-field codec stores them.
 internal sealed partial class VisualScriptRuntime
 {
+	// The public arrays ("<graph>.<variable>") whose too long values DescribeInstanceVariables has reported.
+	private readonly HashSet<string> m_ReportedLongLists = new(StringComparer.Ordinal);
+
 	// The public variables of the entity's instance with their current values, keyed by their current names, in document
-	// order; null without an instance.
+	// order; null without an instance. A public array is a list (Docs/Architecture.md §10.6); one holding more elements than
+	// a list can is left out (the engine would refuse every value with it), so what the component stores for it stays,
+	// reported once per graph and variable.
 	internal byte[]? DescribeInstanceVariables(ulong entity)
 	{
 		if (!m_Instances.TryGetValue(entity, out GraphInstance? instance))
@@ -26,21 +32,26 @@ internal sealed partial class VisualScriptRuntime
 			for (int index = 0; index < variables.Length; index++)
 			{
 				CompiledVariable variable = variables[index];
-				if (!variable.Public)
+				ScriptFieldType fieldType = variable.Type.VariableFieldType;
+				if (!variable.Public || fieldType == ScriptFieldType.None)
 				{
 					continue;
 				}
-				ScriptFieldType fieldType = variable.Type.FieldType;
-				object? value = instance.ReadVariable(index);
 				// The engine refuses quaternions without a direction: those cross as the identity.
-				if (value is Quaternion quaternion)
+				object? stored = ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ToStored(instance.ReadVariable(index), fieldType));
+				if (stored is List<object?> { Count: > ScriptFieldCodec.MaxListElements } elements)
 				{
-					value = LiteralCodec.Normalize(quaternion, out _);
+					if (m_ReportedLongLists.Add($"{instance.Program.Name}.{variable.Name}"))
+					{
+						WarnVariables(instance, FormattableString.Invariant(
+							$"{variable.Name}: holds {elements.Count} elements, more than a list's {ScriptFieldCodec.MaxListElements}: its value is not read back"));
+					}
+					continue;
 				}
 				writer.WriteStartObject(variable.Name);
-				writer.WriteString("Type", fieldType.ToString());
+				writer.WriteString("Type", ScriptFieldCodec.GetTypeName(fieldType));
 				writer.WritePropertyName("Value");
-				ScriptFieldCodec.WriteValue(writer, fieldType, ScriptFieldCodec.ToStored(value, fieldType));
+				ScriptFieldCodec.WriteValue(writer, fieldType, stored);
 				writer.WriteEndObject();
 			}
 			writer.WriteEndObject();
@@ -109,19 +120,20 @@ internal sealed partial class VisualScriptRuntime
 					continue;
 				}
 				CompiledVariable variable = instance.Program.Variables[index];
-				ScriptFieldType fieldType = variable.Type.FieldType;
+				ScriptFieldType fieldType = variable.Type.VariableFieldType;
+				string fieldTypeName = ScriptFieldCodec.GetTypeName(fieldType);
 				if (stored.Value.ValueKind != JsonValueKind.Object || !stored.Value.TryGetProperty("Type", out JsonElement type) ||
 					!stored.Value.TryGetProperty("Value", out JsonElement value))
 				{
 					WarnVariables(instance, $"{variable.Name}: stored value ignored: expected {{ \"Type\", \"Value\" }}");
 					continue;
 				}
-				if (!JsonText.TryGetString(type, out string? typeName) || typeName != fieldType.ToString())
+				if (fieldType == ScriptFieldType.None || !JsonText.TryGetString(type, out string? typeName) || typeName != fieldTypeName)
 				{
-					WarnVariables(instance, $"{variable.Name}: stored {JsonText.Excerpt(type)} value ignored: the variable is a {fieldType} now");
+					WarnVariables(instance, $"{variable.Name}: stored {JsonText.Excerpt(type)} value ignored: the variable is a {fieldTypeName} now");
 					continue;
 				}
-				object? decoded = ScriptFieldCodec.ReadValue(value, fieldType, out string? error);
+				object? decoded = ScriptFieldCodec.NormalizeQuaternions(ScriptFieldCodec.ReadValue(value, fieldType, out string? error));
 				if (error == null)
 				{
 					decoded = ScriptFieldCodec.FromStored(decoded, variable.Type.ClrType!, out error);
@@ -130,10 +142,6 @@ internal sealed partial class VisualScriptRuntime
 				{
 					WarnVariables(instance, $"{variable.Name}: stored value ignored: {error}");
 					continue;
-				}
-				if (decoded is Quaternion quaternion)
-				{
-					decoded = LiteralCodec.Normalize(quaternion, out _);
 				}
 				instance.Variables[index] = SlotValues.FromValue(decoded, variable.Type);
 			}

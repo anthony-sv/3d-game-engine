@@ -76,6 +76,10 @@ namespace Strada
 		// Arrays: the most elements they hold, enforced whenever JSON is read (like ranges; editors stop adding there). 0 for
 		// arrays of any length.
 		size_t MaxCount = 0;
+		// Arrays whose elements other data names by index (the physics layers, which bodies in every scene hold by index):
+		// editors offer no way to move an element, so that an element's index changes only as adding and removing change
+		// it. Files and automation read and write the array as usual.
+		bool FixedOrder = false;
 
 		constexpr bool HasMin() const { return Min != -std::numeric_limits<double>::infinity(); }
 		constexpr bool HasMax() const { return Max != std::numeric_limits<double>::infinity(); }

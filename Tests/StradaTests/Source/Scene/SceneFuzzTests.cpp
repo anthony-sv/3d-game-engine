@@ -16,7 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
-#include <utility>
+#include <string_view>
 #include <vector>
 
 using namespace Strada;
@@ -32,6 +32,25 @@ namespace
 
 		InputScope(InputScope const&) = delete;
 		InputScope& operator=(InputScope const&) = delete;
+	};
+
+	// Where a fuzz case's seed document comes from: the FeatureTest project, or Tests/Data.
+	enum class SeedSource : uint8_t
+	{
+		FeatureTestProject,
+		TestDataFixture
+	};
+
+	struct SeedDocument
+	{
+		SeedSource Source = SeedSource::FeatureTestProject;
+		std::string_view File;
+		int Rounds = 0;
+
+		Json Load() const
+		{
+			return Source == SeedSource::FeatureTestProject ? Testing::LoadFeatureTestDocument(File) : Testing::LoadTestDataDocument(File);
+		}
 	};
 
 	bool IsFinite(glm::vec2 const& value)
@@ -77,10 +96,17 @@ TEST_CASE("SceneSerializer: damaged scene files are rejected or repaired, never 
 	std::vector<std::string> warnings;
 	DeserializationContext const context = Testing::MakeTolerantContext(warnings);
 
+	// The feature test's scenes, then the format's version fixtures (Tests/Data/Scenes): a scene of each version the reader
+	// takes, the second with lists of every element type.
 	uint64_t seed = 1;
-	for (auto const& [file, rounds] : {std::pair{"Assets/Scenes/Main.sscene", 400}, std::pair{"Assets/Scenes/Second.sscene", 150}})
+	for (SeedDocument const& seedDocument : {SeedDocument{SeedSource::FeatureTestProject, "Assets/Scenes/Main.sscene", 400},
+	                                         SeedDocument{SeedSource::FeatureTestProject, "Assets/Scenes/Second.sscene", 150},
+	                                         SeedDocument{SeedSource::TestDataFixture, "Scenes/Version1.sscene", 150},
+	                                         SeedDocument{SeedSource::TestDataFixture, "Scenes/Version2.sscene", 300}})
 	{
-		Json const original = Testing::LoadFeatureTestDocument(file);
+		std::string const file(seedDocument.File);
+		int const rounds = seedDocument.Rounds;
+		Json const original = seedDocument.Load();
 		REQUIRE(SceneSerializer::Deserialize(original, context).IsOk());
 
 		Testing::DocumentMutator mutator(seed++);
@@ -150,33 +176,43 @@ TEST_CASE("PrefabSerializer: damaged prefabs are refused or instantiate and run"
 	Testing::AssetManagerScope assets;
 	std::vector<std::string> warnings;
 	DeserializationContext const context = Testing::MakeTolerantContext(warnings);
-	Json const original = Testing::LoadFeatureTestDocument("Assets/Prefabs/Crate.sprefab");
 	AssetHandle const prefab(UUID(1234));
 
-	Testing::DocumentMutator mutator(2000);
-	int instantiated = 0;
-	int refused = 0;
-	for (int round = 0, rounds = Testing::GetFuzzRounds(300); round < rounds; round++)
+	// The feature test's crate, then the format's version fixtures (Tests/Data/Prefabs): a prefab of each version the
+	// reader takes, the second with lists of every element type.
+	uint64_t seed = 2000;
+	for (SeedDocument const& seedDocument : {SeedDocument{SeedSource::FeatureTestProject, "Assets/Prefabs/Crate.sprefab", 300},
+	                                         SeedDocument{SeedSource::TestDataFixture, "Prefabs/Version1.sprefab", 150},
+	                                         SeedDocument{SeedSource::TestDataFixture, "Prefabs/Version2.sprefab", 300}})
 	{
-		CAPTURE(round);
-		Scene scene("Prefabs");
-		Entity const parent = scene.CreateEntity("Parent");
-		size_t const entityCount = scene.GetEntityCount();
-		Result<Entity> instance =
-			PrefabSerializer::Instantiate(scene, mutator.Damage(original, round), prefab, round % 2 == 0 ? parent : Entity(), context);
-		if (!instance)
+		std::string const file(seedDocument.File);
+		CAPTURE(file);
+		Json const original = seedDocument.Load();
+		Testing::DocumentMutator mutator(seed++);
+		int instantiated = 0;
+		int refused = 0;
+		for (int round = 0, rounds = Testing::GetFuzzRounds(seedDocument.Rounds); round < rounds; round++)
 		{
-			// Nothing is created on failure.
-			CHECK(scene.GetEntityCount() == entityCount);
-			refused++;
-			continue;
+			CAPTURE(round);
+			Scene scene("Prefabs");
+			Entity const parent = scene.CreateEntity("Parent");
+			size_t const entityCount = scene.GetEntityCount();
+			Result<Entity> instance =
+				PrefabSerializer::Instantiate(scene, mutator.Damage(original, round), prefab, round % 2 == 0 ? parent : Entity(), context);
+			if (!instance)
+			{
+				// Nothing is created on failure.
+				CHECK(scene.GetEntityCount() == entityCount);
+				refused++;
+				continue;
+			}
+			instantiated++;
+			Json const saved = SceneSerializer::Serialize(scene);
+			Result<Ref<Scene>> reloaded = SceneSerializer::Deserialize(saved, context);
+			CHECK_MESSAGE(reloaded.IsOk(), (reloaded ? std::string() : reloaded.GetError()));
+			Run(scene);
 		}
-		instantiated++;
-		Json const saved = SceneSerializer::Serialize(scene);
-		Result<Ref<Scene>> reloaded = SceneSerializer::Deserialize(saved, context);
-		CHECK_MESSAGE(reloaded.IsOk(), (reloaded ? std::string() : reloaded.GetError()));
-		Run(scene);
+		CHECK(instantiated > 0);
+		CHECK(refused > 0);
 	}
-	CHECK(instantiated > 0);
-	CHECK(refused > 0);
 }

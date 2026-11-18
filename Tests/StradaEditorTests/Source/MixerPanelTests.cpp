@@ -620,6 +620,19 @@ TEST_CASE("MixerEditing: a field editor's change of a bus's effect list moves th
 	CHECK_FALSE(ApplyMixerBusChange(mixer, 9, kind).IsOk());
 	CHECK(mixer == original);
 
+	// A change of the mixer's fields whose path goes through a bus (the inspector's) is the bus's: the snapshot's value
+	// follows its effect. Through a bus the mixer lacks, nothing changes.
+	FieldChange throughBus = MakeEffectListEdit(FieldArrayEditKind::Move, 1, 0);
+	throughBus.Path.insert(throughBus.Path.begin(), FieldPathStep{"Buses", 1u});
+	REQUIRE(ApplyMixerChange(mixer, throughBus).IsOk());
+	CHECK(mixer.Buses[1].Effects[0].Kind == MixerEffectKind::Reverb);
+	CHECK(mixer.Snapshots[0].Values[1].Effect == 0);
+	CHECK(ValidateMixer(mixer).IsOk());
+	mixer = original;
+	throughBus.Path.front().Element = 9u;
+	CHECK_FALSE(ApplyMixerChange(mixer, throughBus).IsOk());
+	CHECK(mixer == original);
+
 	// The mixer's own fields.
 	FieldChange speed;
 	speed.Path = {FieldPathStep{"SpeedOfSound"}};

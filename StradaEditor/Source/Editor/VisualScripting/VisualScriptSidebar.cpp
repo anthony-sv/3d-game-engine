@@ -509,10 +509,8 @@ namespace Strada
 		ImVec2 const max = ImGui::GetItemRectMax();
 		m_Eyes.emplace_back(variable.ID, std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
 		bool const exposable = IsVisualScriptPublicType(variable.Type, frame.Library);
-		// Why the variable cannot be made public: arrays have a reason of their own (spec-slice3 §3.4.6).
-		std::string const refusal = variable.Type.ends_with("[]")
-		                                ? std::string(VisualScriptArrayPublicRefusal)
-		                                : fmt::format("{} cannot be public: components cannot store it", variable.Type);
+		// Why the variable cannot be made public.
+		std::string const refusal = fmt::format("{} cannot be public: components cannot store it", variable.Type);
 		// An eye: shown in the text colour when public, faint on hover otherwise (a click makes it public).
 		if (variable.Public || hovered)
 		{

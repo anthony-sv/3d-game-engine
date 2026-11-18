@@ -1,0 +1,43 @@
+{
+	"Strada": { "Version": 1, "Type": "Scene" },
+	"Scene": {
+		"Name": "Version 1",
+		"Settings": { "Physics": { "Gravity": [0.0, -9.5, 0.0] } }
+	},
+	"Entities": [
+		{
+			"ID": "1001",
+			"Components": {
+				"Tag": { "Tag": "Holder" },
+				"Transform": { "Translation": [1.0, 2.0, 3.0], "Rotation": [0.0, 0.0, 0.0, 1.0], "Scale": [1.0, 1.0, 1.0] },
+				"Relationship": { "Parent": "0", "Children": ["1002"] },
+				"Script": {
+					"ClassName": "Fixture.Holder",
+					"Fields": {
+						"Count": { "Type": "Int32", "Value": -7 },
+						"Crate": { "Type": "Prefab", "Value": "17" },
+						"Elsewhere": { "Type": "Entity", "Value": "424242" },
+						"Label": { "Type": "String", "Value": "first" },
+						"Speed": { "Type": "Float", "Value": 3.5 },
+						"Target": { "Type": "Entity", "Value": "1002" }
+					}
+				}
+			}
+		},
+		{
+			"ID": "1002",
+			"Components": {
+				"Tag": { "Tag": "Target" },
+				"Transform": { "Translation": [0.0, 0.5, 0.0], "Rotation": [0.0, 0.0, 0.0, 1.0], "Scale": [2.0, 2.0, 2.0] },
+				"Relationship": { "Parent": "1001", "Children": [] },
+				"VisualScript": {
+					"Graph": "0",
+					"Variables": {
+						"Height": { "Type": "Double", "Value": 0.125 },
+						"Owner": { "Type": "Entity", "Value": "1001" }
+					}
+				}
+			}
+		}
+	]
+}

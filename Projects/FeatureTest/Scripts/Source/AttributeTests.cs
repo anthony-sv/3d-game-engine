@@ -1,12 +1,13 @@
+using System.Collections.Generic;
 using System.Reflection;
 using Strada;
 using Strada.Testing;
 
 namespace FeatureTest;
 
-/// <summary>The attributes: serialized private fields, hidden fields, ranges and tooltips (the scene stores this script's field
-/// values, so they arrive changed from their defaults), and [VisualNode], which makes game members nodes of visual
-/// scripts.</summary>
+/// <summary>The attributes: serialized private fields, hidden fields, ranges and tooltips, list fields (an array and a
+/// List&lt;T&gt;; the scene stores this script's field values, so they arrive changed from their defaults), and [VisualNode],
+/// which makes game members nodes of visual scripts.</summary>
 public sealed class AttributeTests : FeatureTestScript
 {
 	[Tooltip("A public field with a range, stored by the scene as 7")]
@@ -19,6 +20,12 @@ public sealed class AttributeTests : FeatureTestScript
 	[HideInInspector]
 	public string Hidden = "default";
 
+	[Tooltip("A list field of an array, stored by the scene as 0.5, 1.5 and 2.5")]
+	[Range(0.0f, 5.0f)]
+	public float[] Weights = [1.0f];
+
+	public List<string> Labels = ["default"];
+
 	protected override void Start()
 	{
 		Check("the scene's values arrive in the fields", () =>
@@ -26,6 +33,15 @@ public sealed class AttributeTests : FeatureTestScript
 			Assert.AreEqual(7.0f, Strength);
 			Assert.AreEqual(3, m_Count);
 			Assert.AreEqual("stored", Hidden);
+		});
+		Check("the scene's lists arrive in an array and a List<T>", () =>
+		{
+			Assert.AreEqual(3, Weights.Length);
+			Assert.AreEqual(0.5f, Weights[0]);
+			Assert.AreEqual(2.5f, Weights[2]);
+			Assert.AreEqual(2, Labels.Count);
+			Assert.AreEqual("first", Labels[0]);
+			Assert.AreEqual("second", Labels[1]);
 		});
 		Check("the attributes describe the fields", () =>
 		{

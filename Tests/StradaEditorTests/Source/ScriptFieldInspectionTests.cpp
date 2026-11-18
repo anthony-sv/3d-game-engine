@@ -1,11 +1,20 @@
 #include "Editor/ScriptFieldInspection.h"
+#include "Editor/UI/FieldEditor.h"
 
 #include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/ScriptField.h"
 
 #include <doctest/doctest.h>
+#include <glm/glm.hpp>
 
 #include <array>
+#include <cstdint>
+#include <limits>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 using namespace Strada;
 
@@ -223,4 +232,184 @@ TEST_CASE("ScriptFieldInspection: edits of another component's map of script fie
 	REQUIRE(scripts.IsOk());
 	CHECK(scripts.GetValue()[0].Component == "Script");
 	CHECK(scripts.GetValue()[0].Patch == Json::object({{"Fields", Json::object({{"Speed", Stored("Float", 6.0)}})}}));
+}
+
+namespace
+{
+	ScriptFieldValue MakeList(ScriptFieldType elementType, std::vector<ScriptFieldValue> elements)
+	{
+		return ScriptFieldValue::FromList(elementType, std::move(elements));
+	}
+
+	// A script class with list fields: of numbers with a range, of 64-bit integers, of an enum, of a [Flags] enum, of meshes,
+	// of colours and of quaternions.
+	ScriptClassInfo MakeListClass()
+	{
+		ScriptClassInfo info;
+		info.Name = "Game.Route";
+		ScriptFieldInfo speeds = MakeField("Speeds", MakeScriptFieldListType(ScriptFieldType::Float),
+		                                   MakeList(ScriptFieldType::Float, {ScriptFieldValue::FromFloat(2.5f)}));
+		speeds.Range = glm::vec2(0.0f, 10.0f);
+		speeds.Tooltip = "Units per second, each";
+		info.Fields.push_back(speeds);
+		info.Fields.push_back(MakeField("Seeds", MakeScriptFieldListType(ScriptFieldType::Int64),
+		                                MakeList(ScriptFieldType::Int64, {ScriptFieldValue::FromInt64(-9000000000)})));
+		ScriptFieldInfo levels =
+			MakeField("Levels", MakeScriptFieldListType(ScriptFieldType::Int32),
+		              MakeList(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(5), ScriptFieldValue::FromInt32(0)}));
+		levels.Enumerators = {
+			{"Easy", ScriptFieldValue::FromInt32(0)}, {"Normal", ScriptFieldValue::FromInt32(1)}, {"Hard", ScriptFieldValue::FromInt32(5)}};
+		info.Fields.push_back(levels);
+		ScriptFieldInfo accesses = MakeField("Accesses", MakeScriptFieldListType(ScriptFieldType::UInt32),
+		                                     MakeList(ScriptFieldType::UInt32, {ScriptFieldValue::FromUInt32(3)}));
+		accesses.Enumerators = {{"None", ScriptFieldValue::FromUInt32(0)},
+		                        {"Read", ScriptFieldValue::FromUInt32(1)},
+		                        {"Write", ScriptFieldValue::FromUInt32(2)}};
+		accesses.IsFlags = true;
+		info.Fields.push_back(accesses);
+		ScriptFieldInfo shapes = MakeField("Shapes", MakeScriptFieldListType(ScriptFieldType::Asset), MakeList(ScriptFieldType::Asset, {}));
+		shapes.AcceptedAssetType = AssetType::Mesh;
+		info.Fields.push_back(shapes);
+		info.Fields.push_back(MakeField("Tints", MakeScriptFieldListType(ScriptFieldType::Color), MakeList(ScriptFieldType::Color, {})));
+		info.Fields.push_back(
+			MakeField("Turns", MakeScriptFieldListType(ScriptFieldType::Quaternion), MakeList(ScriptFieldType::Quaternion, {})));
+		return info;
+	}
+
+	FieldChange MakeListChange(std::string_view field, std::optional<uint32_t> element, Json value,
+	                           std::optional<FieldArrayEdit> edit = std::nullopt)
+	{
+		FieldChange change;
+		change.Path = {FieldPathStep{field, element}};
+		change.Value = std::move(value);
+		change.ArrayEdit = edit;
+		return change;
+	}
+}
+
+TEST_CASE("ScriptFieldInspection: list fields are the field editor's arrays of their elements, at most 4096")
+{
+	// The descriptors refer to the class's strings.
+	ScriptClassInfo const info = MakeListClass();
+	std::vector<FieldDescriptor> const fields = ScriptFieldInspection::DescribeFields(info);
+	REQUIRE(fields.size() == 7);
+	for (FieldDescriptor const& field : fields)
+	{
+		CAPTURE(field.Name);
+		CHECK(field.Kind == FieldKind::Array);
+		CHECK(field.Hints.MaxCount == MaxScriptFieldListElements);
+	}
+	// The element's kind and hints: each element's range and the list's tooltip, numbers for 64-bit integers, enumerators by
+	// name, the accepted asset type, colours.
+	CHECK(fields[0].TypeName == "Float[]");
+	CHECK(fields[0].ElementKind == FieldKind::Float);
+	CHECK(fields[0].Hints.Min == 0.0);
+	CHECK(fields[0].Hints.Max == 10.0);
+	CHECK(fields[0].Hints.Description == "Units per second, each");
+	CHECK(fields[0].Default == Json::array({2.5}));
+	CHECK(fields[1].ElementKind == FieldKind::Int);
+	CHECK(fields[1].TypeMax == static_cast<double>(std::numeric_limits<int64_t>::max()));
+	CHECK(fields[1].Default == Json::array({int64_t{-9000000000}}));
+	CHECK(fields[2].ElementKind == FieldKind::Enum);
+	CHECK(fields[2].EnumValues == std::vector<std::string_view>{"Easy", "Normal", "Hard"});
+	CHECK(fields[2].Default == Json::array({"Hard", "Easy"}));
+	CHECK(fields[3].ElementKind == FieldKind::Enum);
+	CHECK(fields[3].IsFlags);
+	CHECK(fields[3].EnumValues == std::vector<std::string_view>{"Read", "Write"});
+	CHECK(fields[3].Default == Json::array({Json::array({"Read", "Write"})}));
+	CHECK(fields[4].ElementKind == FieldKind::Asset);
+	CHECK(fields[4].Hints.AssetTypeName == "Mesh");
+	CHECK(fields[4].Default == Json::array());
+	CHECK(fields[5].ElementKind == FieldKind::Vec4);
+	CHECK(fields[5].Hints.Display == FieldDisplay::Color);
+	CHECK(fields[6].ElementKind == FieldKind::Quat);
+}
+
+TEST_CASE("ScriptFieldInspection: a list is shown element by element and an edit stores it whole in the scene format")
+{
+	ScriptClassInfo const info = MakeListClass();
+	Json const stored = Json::object({{"Seeds", Stored("Int64[]", Json::array({"-5", "6"}))},
+	                                  {"Levels", Stored("Int32[]", Json::array({1, 3}))},
+	                                  // A single value stored for the list: its default is shown.
+	                                  {"Speeds", Stored("Float", 9.0)}});
+	Json const values = ScriptFieldInspection::ToEditorValues(info, stored);
+	CHECK(values["Seeds"] == Json::array({-5, 6}));
+	// An element without an enumerator shows as its number.
+	CHECK(values["Levels"] == Json::array({"Normal", "3"}));
+	CHECK(values["Speeds"] == Json::array({2.5}));
+
+	auto const set = [&](std::string_view field, Json const& value)
+	{
+		Result<Json> fields = ScriptFieldInspection::SetEditorValue(info, stored, field, value);
+		REQUIRE_MESSAGE(fields.IsOk(), (fields ? std::string() : fields.GetError()));
+		return fields.GetValue()[std::string(field)];
+	};
+	CHECK(set("Speeds", Json::array({1.0, 2.0})) == Stored("Float[]", Json::array({1.0, 2.0})));
+	CHECK(set("Seeds", Json::array({int64_t{-7}})) == Stored("Int64[]", Json::array({"-7"})));
+	CHECK(set("Levels", Json::array({"Easy", "Hard", "3"})) == Stored("Int32[]", Json::array({0, 5, 3})));
+	CHECK(set("Accesses", Json::array({Json::array({"Write"}), Json::array()})) == Stored("UInt32[]", Json::array({2, 0})));
+	CHECK(set("Shapes", Json::array({"77", "0"})) == Stored("Asset[]", Json::array({"77", "0"})));
+	CHECK(set("Speeds", Json::array()) == Stored("Float[]", Json::array()));
+
+	// An edit that is no list of the elements is refused, naming the element.
+	Result<Json> const notList = ScriptFieldInspection::SetEditorValue(info, stored, "Speeds", 1.0);
+	REQUIRE(notList.IsError());
+	CHECK(notList.GetError() == "Speeds: expected an array of its elements");
+	Result<Json> const badElement = ScriptFieldInspection::SetEditorValue(info, stored, "Levels", Json::array({"Easy", "Impossible"}));
+	REQUIRE(badElement.IsError());
+	CHECK(badElement.GetError() == "Levels element 1: \"Impossible\" is not one of its values");
+	CHECK(ScriptFieldInspection::SetEditorValue(info, stored, "Seeds", Json::array({"x"})).IsError());
+	Json const longest(MaxScriptFieldListElements, 1.0);
+	CHECK(ScriptFieldInspection::SetEditorValue(info, stored, "Speeds", longest).IsOk());
+	Json tooLong = longest;
+	tooLong.push_back(1.0);
+	Result<Json> const refused = ScriptFieldInspection::SetEditorValue(info, stored, "Speeds", tooLong);
+	REQUIRE(refused.IsError());
+	CHECK(refused.GetError() == "Speeds: holds at most 4096 elements, not 4097");
+}
+
+TEST_CASE("ScriptFieldInspection: each list edit writes the field's whole list, each selected entity's own")
+{
+	ScriptClassInfo const info = MakeListClass();
+	std::array<UUID, 2> const entities = {UUID(1), UUID(2)};
+	std::array<Json, 2> const components = {
+		Json::object(
+			{{"ClassName", "Game.Route"}, {"Fields", Json::object({{"Speeds", Stored("Float[]", Json::array({1.0, 2.0, 3.0}))}})}}),
+		Json::object({{"ClassName", "Game.Route"}, {"Fields", Json::object({{"Speeds", Stored("Float[]", Json::array({7.0}))}})}})};
+	std::array<Json, 2> const editorValues = {ScriptFieldInspection::ToEditorValues(info, components[0]["Fields"]),
+	                                          ScriptFieldInspection::ToEditorValues(info, components[1]["Fields"])};
+	auto const edit = [&](FieldChange const& change)
+	{
+		Result<std::vector<ComponentEdit>> edits = ScriptFieldInspection::MakeEdits(info, entities, components, editorValues, change);
+		REQUIRE_MESSAGE(edits.IsOk(), (edits ? std::string() : edits.GetError()));
+		REQUIRE(edits.GetValue().size() == 2);
+		return std::pair(edits.GetValue()[0].Patch["Fields"]["Speeds"], edits.GetValue()[1].Patch["Fields"]["Speeds"]);
+	};
+
+	// An element changed: each entity's element at that index, where it has one.
+	auto const [changedFirst, changedSecond] = edit(MakeListChange("Speeds", 1, 9.0));
+	CHECK(changedFirst == Stored("Float[]", Json::array({1.0, 9.0, 3.0})));
+	CHECK(changedSecond == Stored("Float[]", Json::array({7.0})));
+	// Added at the end, removed, moved: each list as a list.
+	auto const [addedFirst, addedSecond] =
+		edit(MakeListChange("Speeds", std::nullopt, 0.0, FieldArrayEdit{FieldArrayEditKind::Insert, FieldArrayEdit::End, 0}));
+	CHECK(addedFirst == Stored("Float[]", Json::array({1.0, 2.0, 3.0, 0.0})));
+	CHECK(addedSecond == Stored("Float[]", Json::array({7.0, 0.0})));
+	auto const [removedFirst, removedSecond] =
+		edit(MakeListChange("Speeds", std::nullopt, nullptr, FieldArrayEdit{FieldArrayEditKind::Remove, 0, 0}));
+	CHECK(removedFirst == Stored("Float[]", Json::array({2.0, 3.0})));
+	CHECK(removedSecond == Stored("Float[]", Json::array()));
+	auto const [movedFirst, movedSecond] =
+		edit(MakeListChange("Speeds", std::nullopt, nullptr, FieldArrayEdit{FieldArrayEditKind::Move, 0, 2}));
+	CHECK(movedFirst == Stored("Float[]", Json::array({2.0, 3.0, 1.0})));
+	CHECK(movedSecond == Stored("Float[]", Json::array({7.0})));
+	// Past the most elements a list holds, nothing is written.
+	Json full = Json::object({{"Speeds", Stored("Float[]", Json(MaxScriptFieldListElements, 1.0))}});
+	std::array<Json, 1> const fullComponents = {Json::object({{"ClassName", "Game.Route"}, {"Fields", full}})};
+	std::array<Json, 1> const fullValues = {ScriptFieldInspection::ToEditorValues(info, full)};
+	std::array<UUID, 1> const one = {UUID(1)};
+	CHECK(ScriptFieldInspection::MakeEdits(
+			  info, one, fullComponents, fullValues,
+			  MakeListChange("Speeds", std::nullopt, 0.0, FieldArrayEdit{FieldArrayEditKind::Insert, FieldArrayEdit::End, 0}))
+	          .IsError());
 }

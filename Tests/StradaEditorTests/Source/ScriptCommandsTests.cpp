@@ -1,3 +1,4 @@
+#include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
 #include "Editor/Automation/ScriptCommands.h"
@@ -13,6 +14,8 @@
 #include <chrono>
 #include <functional>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <thread>
 
 using namespace Strada;
@@ -116,6 +119,53 @@ TEST_CASE("ScriptCommands: every script command is documented in Docs/Automation
 		CAPTURE(command->Name);
 		CHECK(reference.GetValue().find("`" + command->Name + "`") != std::string::npos);
 	}
+}
+
+TEST_CASE("ScriptCommands: script.classes describes list fields by their element type, each element's enumerators and asset type")
+{
+	Testing::ScriptEngineScope scripting;
+	ScriptFixture fixture;
+	Json const classes = fixture.Ok("script.classes")["classes"];
+	auto const lists = std::find_if(classes.begin(), classes.end(),
+	                                [](Json const& scriptClass)
+	                                {
+										return scriptClass["name"] == "Strada.Tests.FieldLists";
+									});
+	REQUIRE(lists != classes.end());
+	auto const field = [&lists](std::string_view name)
+	{
+		Json const& fields = (*lists)["fields"];
+		auto const found = std::find_if(fields.begin(), fields.end(),
+		                                [name](Json const& candidate)
+		                                {
+											return candidate["name"] == std::string(name);
+										});
+		REQUIRE_MESSAGE(found != fields.end(), std::string(name));
+		return *found;
+	};
+	CHECK(field("Counts")["type"] == "Int32[]");
+	CHECK(field("Counts")["default"] == Json::array({1, -2, 3}));
+	CHECK(field("CountList")["type"] == "Int32[]");
+	CHECK(field("Bigs")["default"] == Json::array({"-9000000000"}));
+	CHECK(field("Speeds")["range"] == Json::array({0.0, 10.0}));
+	CHECK(field("Speeds")["tooltip"] == "Units per second, each");
+	CHECK(field("Shapes")["type"] == "Asset[]");
+	CHECK(field("Shapes")["assetType"] == "Mesh");
+	CHECK(field("Shapes")["default"] == Json::array());
+	Json const levels = field("Levels");
+	CHECK(levels["type"] == "Int32[]");
+	CHECK(levels["default"] == Json::array({5, 0}));
+	REQUIRE(levels["enumerators"].size() == 3);
+	CHECK(levels["enumerators"][2] == Json::object({{"name", "Hard"}, {"value", 5}}));
+	CHECK(field("Accesses")["flags"] == true);
+	CHECK(field("Missing")["default"] == Json::array());
+	// Fields no field type stores are not described.
+	Json const& fields = (*lists)["fields"];
+	CHECK(std::none_of(fields.begin(), fields.end(),
+	                   [](Json const& candidate)
+	                   {
+						   return candidate["name"] == "Table" || candidate["name"] == "Oversized";
+					   }));
 }
 
 TEST_CASE("ScriptCommands: scripts are created, built, hot reloaded and reported through automation")

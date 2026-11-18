@@ -96,9 +96,12 @@ Expose the component to C# following `strada-add-script-api` (managed class, bin
 
 ## 8. Changing an existing component
 
-Renaming or removing a serialized name/field breaks saved scenes: bump `SceneSerializer::FormatVersion` and add a
-migration in the serializer. Adding fields is backward compatible (missing fields keep defaults). Narrowing a field's
-range rejects files that use values outside it, so it is a format change too (migrate by clamping).
+Renaming or removing a serialized name/field breaks saved scenes and prefabs: give both formats a version, as
+`Docs/Architecture.md` §7.3 "Versions and migrations of scenes and prefabs" says (raise `SceneSerializer::FormatVersion`
+and `PrefabAsset::FormatVersion`, append a `DocumentVersion` with its migration to each format's list, both migrations
+calling one function that upgrades an entity array beside the prefab format, and add the version's fixtures under
+`Tests/Data/Scenes` and `Tests/Data/Prefabs`). Adding fields is backward compatible (missing fields keep defaults).
+Narrowing a field's range rejects files that use values outside it, so it is a format change too (migrate by clamping).
 
 ## 9. Docs
 

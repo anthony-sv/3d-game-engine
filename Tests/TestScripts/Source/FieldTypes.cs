@@ -28,7 +28,7 @@ public enum Tiny : byte
 	B = 200,
 }
 
-// A field of every supported type, plus fields the engine must not serialize. OnCreate writes the values the instance
+// A field of every supported type of one value, plus fields the engine must not serialize. OnCreate writes the values the instance
 // received into its name.
 public sealed class FieldTypes : Script
 {
@@ -58,11 +58,12 @@ public sealed class FieldTypes : Script
 	[SerializeField]
 	private int m_Secret = 42;
 
-	// Not serialized: private without [SerializeField], static, readonly and of an unsupported type.
+	// Not serialized: private without [SerializeField], static, readonly and of a type no field type stores (lists are
+	// FieldLists').
 	private int m_Private = 1;
 	public static int Shared = 3;
 	public readonly int Fixed = 4;
-	public List<int> Unsupported = [];
+	public Dictionary<string, int> Unsupported = [];
 
 	protected override void OnCreate()
 	{

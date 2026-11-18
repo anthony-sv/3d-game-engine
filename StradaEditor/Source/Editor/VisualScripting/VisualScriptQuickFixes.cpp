@@ -9,6 +9,7 @@
 
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/InputActions.h"
+#include "Strada/Script/VisualScriptLiterals.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <algorithm>
@@ -1691,22 +1692,24 @@ namespace Strada
 		else if (code == "UnknownType" || code == "InvalidType")
 		{
 			bool const unknown = code == "UnknownType";
-			// Arrays are types of private variables, locals and parameters, but not of public variables, which components set.
+			// A public variable takes only the types components store: exposable types and enums, and arrays of them.
 			bool const publicVariable =
 				diagnostic.Variable.has_value() && std::any_of(document.Variables.begin(), document.Variables.end(),
 			                                                   [&diagnostic](VisualScriptVariable const& variable)
 			                                                   {
 																   return variable.ID == *diagnostic.Variable && variable.Public;
 															   });
-			auto const isArray = [&library](std::string const& type)
+			auto const cannotBePublic = [&library](std::string const& type)
 			{
-				VisualScriptTypeInfo const* info = library.FindType(type);
-				return info != nullptr && info->Kind == VisualScriptTypeKind::Array;
+				std::string_view const element = GetVisualScriptArrayElementType(type);
+				std::string_view const valueType = element.empty() ? std::string_view(type) : element;
+				return !FindVisualScriptExposableType(valueType).has_value() && !library.FindEnum(valueType).has_value();
 			};
 			auto const rejects = [&](std::string const& type)
 			{
-				return unknown ? library.FindType(type) == nullptr
-				               : type == VisualScriptExecType || type == VisualScriptWildcardType || (publicVariable && isArray(type));
+				return unknown
+				           ? library.FindType(type) == nullptr
+				           : type == VisualScriptExecType || type == VisualScriptWildcardType || (publicVariable && cannotBePublic(type));
 			};
 			std::vector<std::string> rejected;
 			uint32_t target = 0;
@@ -1761,7 +1764,7 @@ namespace Strada
 			}
 			for (std::string const& suggestion : diagnostic.Suggestions)
 			{
-				if (publicVariable && isArray(suggestion))
+				if (publicVariable && cannotBePublic(suggestion))
 				{
 					continue;
 				}

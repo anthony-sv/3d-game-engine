@@ -621,6 +621,51 @@ TEST_CASE("PlayMode: script fields edited while playing reach the running script
 	CHECK(edited.GetComponent<ScriptComponent>().Fields == ScriptFieldMap{{"Visible", ScriptFieldValue::FromBool(false)}});
 }
 
+TEST_CASE("PlayMode: a list field edited while playing reaches the running script, which reads the new array")
+{
+	Testing::ScriptEngineScope scripting;
+	PlayFixture fixture;
+	auto const counts = [](std::vector<int32_t> const& values)
+	{
+		Json elements = Json::array();
+		for (int32_t const value : values)
+		{
+			elements.push_back(value);
+		}
+		return Json::object({{"Fields", Json::object({{"Counts", Json::object({{"Type", "Int32[]"}, {"Value", std::move(elements)}})}})}});
+	};
+	// FieldLists writes its Counts first into its name on every update.
+	Json script = counts({1});
+	script["ClassName"] = "Strada.Tests.FieldLists";
+	UUID const lists = fixture.Create("Lists", Json::object({{"Script", std::move(script)}}));
+
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+	Entity const entity = fixture.Context.GetScene().GetEntityByUUID(lists);
+	CHECK(entity.GetName().starts_with("1|"));
+
+	// The edit reaches the instance at once; its next update reads the new array.
+	REQUIRE(fixture.Operations.SetComponentFields(lists, "Script", counts({4, 5, 6})).IsOk());
+	Result<ScriptFieldMap> const fields = ScriptEngine::GetInstanceFields(lists);
+	REQUIRE(fields.IsOk());
+	CHECK(fields.GetValue().at("Counts") ==
+	      ScriptFieldValue::FromList(ScriptFieldType::Int32,
+	                                 {ScriptFieldValue::FromInt32(4), ScriptFieldValue::FromInt32(5), ScriptFieldValue::FromInt32(6)}));
+	fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+	CHECK(entity.GetName().starts_with("4,5,6|"));
+	// Undone, the script holds the list it had.
+	REQUIRE(fixture.Context.Undo().IsOk());
+	fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+	CHECK(entity.GetName().starts_with("1|"));
+
+	// Stopping discards the edit.
+	REQUIRE(fixture.Context.Redo().IsOk());
+	fixture.Play.Stop();
+	Entity const edited = fixture.Context.GetScene().GetEntityByUUID(lists);
+	CHECK(edited.GetComponent<ScriptComponent>().Fields.at("Counts") ==
+	      ScriptFieldValue::FromList(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(1)}));
+}
+
 TEST_CASE("PlayMode: entities deleted while playing go at once, also while paused")
 {
 	PlayFixture fixture;

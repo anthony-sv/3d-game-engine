@@ -31,16 +31,18 @@ namespace Strada
 		// A private variable, a local, a function's or a custom event's parameter: any type with values, arrays included
 		// (spec-slice3 §3.4.3).
 		Value = 0,
-		// A public variable: a type components can store (v2 §3.3): one with a script field type, or an enum.
+		// A public variable: a type components can store (v2 §3.3): one with a script field type, or an enum, or an array of
+		// one (stored as a list).
 		PublicVariable,
 		// A setting of the kind Type or TypeList: the types its Constraint names.
 		Setting
 	};
 
 	// Whether the type picker offers a type for a use; constraint is the setting's Constraint for VisualScriptTypeUse::Setting
-	// ("Literal", "Makeable", "Switch", ...; empty or unknown: any type with values).
+	// ("Literal", "Makeable", "Switch", ...; empty or unknown: any type with values). The library describes an array's element
+	// type for a public variable; without one, an array of an enum is not offered for it.
 	[[nodiscard]] bool IsVisualScriptTypeOffered(VisualScriptTypeInfo const& type, VisualScriptTypeUse use,
-	                                             std::string_view constraint = {});
+	                                             std::string_view constraint = {}, VisualScriptLibrary const* library = nullptr);
 
 	// What Details shows.
 	enum class VisualScriptDetailsSubject : uint8_t

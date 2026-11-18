@@ -14,8 +14,7 @@
 // The exposable types, enum descriptions and lookups are those of the literal codec (VisualScriptLiterals.h).
 namespace Strada
 {
-	// A public variable components cannot set here, and why ("needs the scripting runtime", "not exposable", "arrays cannot be
-	// set on components").
+	// A public variable components cannot set here, and why ("needs the scripting runtime", "not exposable").
 	struct VisualScriptReadOnlyVariable
 	{
 		std::string Name;
@@ -37,8 +36,11 @@ namespace Strada
 	// (DecodeVisualScriptLiteral), or the type's default when the variable has no Value or its Value is no literal of the
 	// type. The others are read-only: without a lookup any type that is not exposable may be an enum, so it "needs the
 	// scripting runtime", except the types that cannot be enums (CanBeVisualScriptEnum); with a lookup, the types it does not
-	// know, or describes otherwise than the runtime describes enums, are "not exposable", like those. Arrays (a type ID ending
-	// in "[]"), with or without a lookup, are read-only because "arrays cannot be set on components".
+	// know, or describes otherwise than the runtime describes enums, are "not exposable", like those. An array (a type ID ending
+	// in "[]") follows its element type: of an editable element type it is a list field of the element's field type (its
+	// tooltip and range, its element's accepted asset type and enumerators), whose default is the variable's Value read as an
+	// array literal (DecodeVisualScriptArrayLiteral), or the empty list; otherwise it is read-only for its element's reason
+	// (Docs/Architecture.md §10.6).
 	[[nodiscard]] VisualScriptVariableDescription DescribeVisualScriptVariables(VisualScriptDocument const& document,
 	                                                                            VisualScriptEnumLookup const& enumLookup = {});
 

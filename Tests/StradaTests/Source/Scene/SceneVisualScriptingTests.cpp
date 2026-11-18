@@ -843,10 +843,157 @@ TEST_CASE("Scene: running visual scripts take edited variables and their own val
 	CHECK(ReadVariable(counter.GetUUID(), "Speed") == ScriptFieldValue::FromInt32(5));
 	CHECK(
 		Testing::WasLogged(logStart, "Counter on Counter (" + counter.GetUUID().ToString() + "): Speed: stored \"String\" value ignored"));
+	// A list stored for a variable of one value too.
+	counter.GetComponent<VisualScriptComponent>().Variables["Speed"] =
+		ScriptFieldValue::FromList(ScriptFieldType::Int32, {ScriptFieldValue::FromInt32(9)});
+	scene.ApplyVisualScriptVariableChanges();
+	CHECK(ReadVariable(counter.GetUUID(), "Speed") == ScriptFieldValue::FromInt32(5));
+	CHECK(
+		Testing::WasLogged(logStart, "Counter on Counter (" + counter.GetUUID().ToString() + "): Speed: stored \"Int32[]\" value ignored"));
 
 	// After stopping there is nothing to read.
 	scene.OnRuntimeStop();
 	CHECK(scene.ReadVisualScriptVariables(counter).IsError());
+}
+
+namespace
+{
+	ScriptFieldValue MakeList(ScriptFieldType elementType, std::vector<ScriptFieldValue> elements)
+	{
+		return ScriptFieldValue::FromList(elementType, std::move(elements));
+	}
+
+	// Public arrays of every exposable element type and of an enum; on every update Size takes the length of Counts, and
+	// Many doubles (Array.Append of itself), outgrowing what a list holds after a dozen updates.
+	VisualScriptDocument MakeArraysDocument()
+	{
+		VisualScriptDocument document;
+		uint32_t id = 1;
+		for (auto const& [name, type] : std::vector<std::pair<std::string, std::string>>{
+				 {"Flags", "bool[]"},
+				 {"Counts", "int[]"},
+				 {"Masks", "uint[]"},
+				 {"Bigs", "long[]"},
+				 {"Huges", "ulong[]"},
+				 {"Speeds", "float[]"},
+				 {"Precises", "double[]"},
+				 {"Titles", "string[]"},
+				 {"Sizes", "Strada.Vector2[]"},
+				 {"Offsets", "Strada.Vector3[]"},
+				 {"Weights", "Strada.Vector4[]"},
+				 {"Turns", "Strada.Quaternion[]"},
+				 {"Tints", "Strada.Color[]"},
+				 {"Targets", "Strada.Entity[]"},
+				 {"Crates", "Strada.Prefab[]"},
+				 {"Models", "Strada.AssetHandle[]"},
+				 {"Shapes", "Strada.Mesh[]"},
+				 {"Modes", "Strada.ForceMode[]"},
+			 })
+		{
+			document.Variables.push_back(MakeVariable(id++, name, type));
+		}
+		// Counts starts as [1, 2].
+		document.Variables[1].Value = Json::array({1, 2});
+		document.Variables.push_back(MakeVariable(30, "Size", "int", 0));
+		document.Variables.push_back(MakeVariable(31, "Many", "int[]", Json::array({1})));
+		document.Graph.Nodes.push_back(MakeNode(40, "Event.Update"));
+		document.Graph.Nodes.push_back(MakeNode(41, "Variable.Set", Json::object({{"Variable", 30}})));
+		document.Graph.Nodes.push_back(MakeNode(42, "Array.Length"));
+		document.Graph.Nodes.push_back(MakeNode(43, "Variable.Get", Json::object({{"Variable", 2}})));
+		document.Graph.Nodes.push_back(MakeNode(44, "Variable.Set", Json::object({{"Variable", 31}})));
+		document.Graph.Nodes.push_back(MakeNode(45, "Array.Append"));
+		document.Graph.Nodes.push_back(MakeNode(46, "Variable.Get", Json::object({{"Variable", 31}})));
+		document.Graph.Links.push_back(MakeLink(40, "Then", 41, "Execute"));
+		document.Graph.Links.push_back(MakeLink(43, "Value", 42, "Array"));
+		document.Graph.Links.push_back(MakeLink(42, "Length", 41, "Value"));
+		document.Graph.Links.push_back(MakeLink(41, "Then", 44, "Execute"));
+		document.Graph.Links.push_back(MakeLink(46, "Value", 45, "A"));
+		document.Graph.Links.push_back(MakeLink(46, "Value", 45, "B"));
+		document.Graph.Links.push_back(MakeLink(45, "Result", 44, "Value"));
+		return document;
+	}
+}
+
+TEST_CASE("Scene: public arrays of graphs take stored lists of every element type, read back as stored, and edits while running")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	AssetHandle const graph = AddGraph(MakeArraysDocument(), "Arrays");
+	Scene scene("Arrays");
+	Entity const target = scene.CreateEntity("Target");
+	using V = ScriptFieldValue;
+	using T = ScriptFieldType;
+	ScriptFieldMap const stored = {
+		{"Flags", MakeList(T::Bool, {V::FromBool(true), V::FromBool(false)})},
+		{"Counts", MakeList(T::Int32, {V::FromInt32(7), V::FromInt32(8), V::FromInt32(9)})},
+		{"Masks", MakeList(T::UInt32, {V::FromUInt32(4000000000u)})},
+		{"Bigs", MakeList(T::Int64, {V::FromInt64(-9000000000)})},
+		{"Huges", MakeList(T::UInt64, {V::FromUInt64(18000000000000000000ULL)})},
+		{"Speeds", MakeList(T::Float, {V::FromFloat(0.5f), V::FromFloat(2.5f)})},
+		{"Precises", MakeList(T::Double, {V::FromDouble(0.125)})},
+		{"Titles", MakeList(T::String, {V::FromString("one"), V::FromString("")})},
+		{"Sizes", MakeList(T::Vector2, {V::FromVector2({1.0f, 2.0f})})},
+		{"Offsets", MakeList(T::Vector3, {V::FromVector3({1.0f, 2.0f, 3.0f})})},
+		{"Weights", MakeList(T::Vector4, {V::FromVector4({1.0f, 2.0f, 3.0f, 4.0f})})},
+		{"Turns", MakeList(T::Quaternion, {V::FromQuaternion(glm::quat(0.0f, 1.0f, 0.0f, 0.0f))})},
+		{"Tints", MakeList(T::Color, {V::FromColor({0.5f, 0.25f, 1.0f, 1.0f})})},
+		{"Targets", MakeList(T::Entity, {V::FromEntity(target.GetUUID()), V::FromEntity(UUID::Invalid())})},
+		{"Crates", MakeList(T::Prefab, {V::FromPrefab(AssetHandle(UUID(51)))})},
+		{"Models", MakeList(T::Asset, {V::FromAsset(AssetHandle(UUID(52)))})},
+		{"Shapes", MakeList(T::Asset, {V::FromAsset(AssetHandle(UUID(53))), V::FromAsset(AssetHandle())})},
+		{"Modes", MakeList(T::Int32, {V::FromInt32(1), V::FromInt32(3)})},
+	};
+	Entity arrays = AddVisualScript(scene.CreateEntity("Arrays"), graph, stored);
+	Entity const defaults = AddVisualScript(scene.CreateEntity("Defaults"), graph);
+
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	// The graph reads the stored list: Size is the length of Counts.
+	CHECK(ReadVariable(arrays.GetUUID(), "Size") == V::FromInt32(3));
+	CHECK(ReadVariable(defaults.GetUUID(), "Size") == V::FromInt32(2));
+	Result<ScriptFieldMap> const read = scene.ReadVisualScriptVariables(arrays);
+	REQUIRE_MESSAGE(read.IsOk(), read.GetError());
+	for (auto const& [name, value] : stored)
+	{
+		CAPTURE(name);
+		CHECK(read.GetValue().at(name) == value);
+	}
+	// Without stored values the arrays hold their Values, or nothing.
+	CHECK(ReadVariable(defaults.GetUUID(), "Counts") == MakeList(T::Int32, {V::FromInt32(1), V::FromInt32(2)}));
+	CHECK(ReadVariable(defaults.GetUUID(), "Shapes") == MakeList(T::Asset, {}));
+	CHECK(ReadVariable(defaults.GetUUID(), "Modes") == MakeList(T::Int32, {}));
+
+	// A list edited while the scene runs reaches the graph at once.
+	arrays.GetComponent<VisualScriptComponent>().Variables["Counts"] = MakeList(T::Int32, {V::FromInt32(5)});
+	scene.ApplyVisualScriptVariableChanges();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(arrays.GetUUID(), "Size") == V::FromInt32(1));
+
+	// A list of another element type, and a single value, are reported and skipped.
+	arrays.GetComponent<VisualScriptComponent>().Variables["Counts"] = MakeList(T::Float, {V::FromFloat(1.0f)});
+	arrays.GetComponent<VisualScriptComponent>().Variables["Speeds"] = V::FromFloat(1.0f);
+	scene.ApplyVisualScriptVariableChanges();
+	CHECK(ReadVariable(arrays.GetUUID(), "Counts") == MakeList(T::Int32, {V::FromInt32(5)}));
+	std::string const prefix = "Arrays on Arrays (" + arrays.GetUUID().ToString() + "): ";
+	CHECK(Testing::WasLogged(logStart, prefix + "Counts: stored \"Float[]\" value ignored: the variable is a Int32[] now"));
+	CHECK(Testing::WasLogged(logStart, prefix + "Speeds: stored \"Float\" value ignored: the variable is a Float[] now"));
+
+	// Many has doubled past what a list holds: it is not read back, and what the component stores for it stays.
+	for (int update = 0; update < 12; update++)
+	{
+		scene.OnUpdateRuntime(Timestep(FrameTime));
+	}
+	for (int attempt = 0; attempt < 2; attempt++)
+	{
+		Result<ScriptFieldMap> const grown = scene.ReadVisualScriptVariables(defaults);
+		REQUIRE_MESSAGE(grown.IsOk(), grown.GetError());
+		CHECK_FALSE(grown.GetValue().contains("Many"));
+		CHECK(grown.GetValue().contains("Counts"));
+	}
+	CHECK_FALSE(defaults.GetComponent<VisualScriptComponent>().Variables.contains("Many"));
+	CHECK(CountLogged(logStart, "Many: holds 16384 elements, more than a list's 4096: its value is not read back") == 1);
+	scene.OnRuntimeStop();
 }
 
 TEST_CASE("Scene: stored variable values reach renamed variables, and entity values follow copies of their entities")
