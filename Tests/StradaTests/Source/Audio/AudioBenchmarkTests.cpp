@@ -6,6 +6,7 @@
 #include "Strada/Asset/Mixer.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Audio/AudioTypes.h"
 #include "Strada/Audio/AudioWaveform.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Platform.h"
@@ -22,6 +23,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -31,10 +33,10 @@
 using namespace Strada;
 
 // The mixer's budget (Docs/Architecture.md §9.9): 32 voices on 6 buses with a filter each, one reverb and one compressor in at
-// most 1 ms of mixing per 10 ms of audio, and the same at the engine's limit of 64 voices with one voice stolen and fading
-// every frame; and what decoding a loaded clip costs per second of audio, for each format (§9.4). Measurements, never
-// asserted on timings: run them with STRADA_AUDIO_BENCHMARK=1 in a Release build. They mix through manual output at 48 kHz in
-// stereo, on the calling thread, which runs the same code a device's thread runs.
+// most 1 ms of mixing per 10 ms of audio, the same with a snapshot blend, a ducked bus, a reverb zone and doppler in play,
+// and the same at the engine's limit of 64 voices with one voice stolen and fading every frame; and what decoding a loaded clip costs per
+// second of audio, for each format (§9.4). Measurements, never asserted on timings: run them with STRADA_AUDIO_BENCHMARK=1 in a Release
+// build. They mix through manual output at 48 kHz in stereo, on the calling thread, which runs the same code a device's thread runs.
 namespace
 {
 	constexpr uint32_t ReadFrames = 480;
@@ -88,6 +90,51 @@ namespace
 		               MakeBus("Ambience", "Master", {MakeEffect(MixerEffectKind::HighShelf, 6000.0f)}),
 		               MakeBus("Reverb", "Master", {MakeEffect(MixerEffectKind::LowPass, 5000.0f), reverb})};
 		return mixer;
+	}
+
+	// The benchmark's mixer with MX2's features in play (Docs/Architecture.md §9.8): Music ducked by Effects below a
+	// threshold the effects pass, and a snapshot that sets a bus volume and two effect parameters, which the run keeps
+	// blending to and back from.
+	Mixer MakeFeatureMixer()
+	{
+		Mixer mixer = MakeBenchmarkMixer();
+		MixerBus& music = mixer.Buses[1];
+		REQUIRE(music.Name == "Music");
+		music.DuckedBy = "Effects";
+		music.DuckAmountDb = -9.0f;
+		music.DuckThresholdDb = -70.0f;
+		MixerSnapshot blend;
+		blend.Name = "Blend";
+		blend.Values = {MixerSnapshotValue{.Bus = "Music",
+		                                   .Target = MixerSnapshotTarget::Volume,
+		                                   .Effect = 0,
+		                                   .Parameter = MixerEffectParameter::Frequency,
+		                                   .Value = -12.0f},
+		                MixerSnapshotValue{.Bus = "Reverb",
+		                                   .Target = MixerSnapshotTarget::Effect,
+		                                   .Effect = 0,
+		                                   .Parameter = MixerEffectParameter::Frequency,
+		                                   .Value = 1500.0f},
+		                MixerSnapshotValue{.Bus = "Master",
+		                                   .Target = MixerSnapshotTarget::Effect,
+		                                   .Effect = 1,
+		                                   .Parameter = MixerEffectParameter::ThresholdDb,
+		                                   .Value = -20.0f}};
+		mixer.Snapshots.push_back(std::move(blend));
+		return mixer;
+	}
+
+	// A sphere that sends the spatial voices round it to the Reverb bus, most of them inside it and some across its fade.
+	AudioReverbZoneDesc MakeBenchmarkZone()
+	{
+		AudioReverbZoneDesc zone;
+		zone.Shape = ReverbZoneShape::Sphere;
+		zone.Position = glm::vec3(0.0f, 1.0f, -7.0f);
+		zone.Radius = 5.0f;
+		zone.FadeDistance = 3.0f;
+		zone.Bus = "Reverb";
+		zone.Level = 0.7f;
+		return zone;
 	}
 
 	// One kind of voice of the benchmark: how many, on which bus, whether spatial and at which clip rate, and whether its pitch
@@ -172,12 +219,12 @@ namespace
 		double ProfiledMedian = 0.0;
 	};
 
-	// Mixes AudioSeconds of audio in reads of ReadFrames, sending a frame's commands every FramesPerUpdate frames (and, when
-	// steal is set, a one-shot that steals the oldest of its source's pool), and times each read: milliseconds of mixing per
-	// 10 ms of audio. The profiler's median of Audio.Mix over the last reads (its history) is the same figure as the
-	// profiler measures it.
+	// Mixes AudioSeconds of audio in reads of ReadFrames, sending a frame's commands every FramesPerUpdate frames (with what
+	// onFrame adds, and, when steal is set, a one-shot that steals the oldest of its source's pool), and times each read: milliseconds of
+	// mixing per 10 ms of audio. The profiler's median of Audio.Mix over the last reads (its history) is the same figure as the profiler
+	// measures it.
 	MixFigures MixAndTime(AudioScene& scene, std::span<BenchmarkSource const> sources, uint64_t& frame, UUID const* steal,
-	                      Ref<AudioClipAsset> const& oneShot)
+	                      Ref<AudioClipAsset> const& oneShot, std::function<void(uint64_t)> const& onFrame = {})
 	{
 		uint32_t const reads = static_cast<uint32_t>(std::lround(AudioSeconds * static_cast<float>(Testing::AudioSampleRate))) / ReadFrames;
 		std::vector<float> samples(ReadFrames * 2);
@@ -191,7 +238,12 @@ namespace
 			Profiler::BeginFrame();
 			while (mixed >= nextUpdate)
 			{
-				SimulateFrame(scene, sources, frame++);
+				SimulateFrame(scene, sources, frame);
+				if (onFrame)
+				{
+					onFrame(frame);
+				}
+				frame++;
 				if (steal != nullptr)
 				{
 					scene.PlayOneShot(*steal, oneShot, 0.5f);
@@ -312,6 +364,72 @@ TEST_CASE("AudioBenchmark: 32 voices on 6 filtered buses with a reverb and a com
 		CheckNoGlobalAllocations(allocations);
 		CHECK(AudioEngine::GetMixAllocationCount() == miniaudioAllocations);
 	}
+}
+
+TEST_CASE("AudioBenchmark: the 32 voices with a snapshot blend, a ducked bus, a reverb zone and doppler in play" *
+          doctest::skip(!Platform::ReadEnvironmentVariable("STRADA_AUDIO_BENCHMARK")))
+{
+	Testing::AudioEngineScope engine;
+	Testing::ProfilerScope const profiler;
+	AudioEngine::SetMixer(MakeFeatureMixer());
+	REQUIRE(AudioEngine::GetMixer().Snapshots.size() == 1);
+	Result<Scope<AudioScene>> created = AudioScene::Create();
+	REQUIRE(created.IsOk());
+	Scope<AudioScene> scene = created.TakeValue();
+	Ref<AudioClipAsset> const oneShot = MakeSineClip(880.0f, 0.05f, Testing::AudioSampleRate);
+	std::vector<BenchmarkSource> const sources = AddSources(*scene, 1, DefaultAudioSourceVoices);
+	REQUIRE(sources.size() == 32);
+	std::array<AudioReverbZoneDesc, 1> const zones = {MakeBenchmarkZone()};
+	uint64_t frame = 0;
+
+	// What a frame of a game adds with MX2: every source's velocity (the derivative of SimulateFrame's motion) and the
+	// listener's, doppler, the zone's sends; and every half second a new blend of a second, to the snapshot and back, so
+	// that one is always under way.
+	auto const onFrame = [&scene, &sources, &zones](uint64_t simulated)
+	{
+		float const time = static_cast<float>(simulated) / 60.0f;
+		for (size_t index = 0; index < sources.size(); index++)
+		{
+			scene->SetVelocity(sources[index].Entity, glm::vec3(std::cos(time + static_cast<float>(index)) * 3.0f, 0.0f, 0.0f));
+		}
+		scene->SetListenerVelocity(glm::vec3(0.0f));
+		scene->UpdateDoppler();
+		scene->UpdateReverbZones(zones);
+		if (simulated % 30 == 0)
+		{
+			REQUIRE(AudioEngine::TransitionTo((simulated / 30) % 2 == 0 ? "Blend" : "", 1.0f));
+		}
+	};
+	SimulateFrame(*scene, sources, frame);
+	onFrame(frame++);
+	CheckAudible();
+	uint64_t const allocations = Testing::GetMixingThreadAllocationCount();
+	uint64_t const miniaudioAllocations = AudioEngine::GetMixAllocationCount();
+	for (int round = 1; round <= Rounds; round++)
+	{
+		MixFigures const figures = MixAndTime(*scene, sources, frame, nullptr, oneShot, onFrame);
+		MESSAGE("Round " << round << ", 32 voices with a blend, a ducked bus, a zone and doppler: median " << figures.Median
+		                 << " ms, 99th percentile " << figures.Percentile99
+		                 << " ms of mixing per 10 ms of audio (target 1 ms); Audio.Mix median " << figures.ProfiledMedian << " ms");
+	}
+
+	// Each feature was in play: the ducking bus above its threshold, voices sending to the zone's bus, voices pitched by
+	// doppler, and a blend under way.
+	CHECK(AudioEngine::GetBusRms("Effects") > std::pow(10.0f, -70.0f / 20.0f));
+	size_t sending = 0;
+	size_t shifted = 0;
+	for (BenchmarkSource const& source : sources)
+	{
+		sending += scene->GetReverbSend(source.Entity, "Reverb") > 0.0f ? 1 : 0;
+		shifted += std::abs(scene->GetDoppler(source.Entity) - 1.0f) > 1e-4f ? 1 : 0;
+	}
+	MESSAGE(sending << " of 32 voices send to the zone's bus; " << shifted << " are pitched by doppler; the mix blends to '"
+	                << AudioEngine::GetCurrentSnapshot() << "'");
+	CHECK(sending > 0);
+	CHECK(shifted > 0);
+	CHECK(AudioEngine::GetMixedVoiceCount() == 32);
+	CheckNoGlobalAllocations(allocations);
+	CHECK(AudioEngine::GetMixAllocationCount() == miniaudioAllocations);
 }
 
 TEST_CASE("AudioBenchmark: decoding a loaded clip costs this much per second of audio, by format" *

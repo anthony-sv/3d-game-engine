@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Runtime/AudioCaptureClock.h"
 #include "Runtime/ResolutionRequest.h"
 #include "Runtime/ScreenshotRequest.h"
+#include "Strada/Audio/WaveFileWriter.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Layer.h"
 #include "Strada/Core/Result.h"
@@ -16,6 +18,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Strada
 {
@@ -37,6 +40,10 @@ namespace Strada
 		// The drawing area's size in pixels the window was given (--resolution); a run whose window cannot have it exits
 		// with an error (ResolutionRequest). None for a window of the game's own size.
 		std::optional<glm::uvec2> Resolution;
+		// Records the mix into this WAV file of 16-bit PCM (empty: none). The application mixes through manual output
+		// (ApplicationSpecification::ManualAudio): after each frame's update the layer reads the frames of audio that frame's
+		// time covers (AudioCaptureClock). A run whose capture cannot be made or written exits with an error.
+		std::filesystem::path AudioCapturePath;
 		// The scenes' view size when nothing is rendered (headless runs): the game's window size.
 		uint32_t ViewportWidth = 1280;
 		uint32_t ViewportHeight = 720;
@@ -71,6 +78,14 @@ namespace Strada
 		void ReportMissingScreenshot();
 		// A run whose drawing area is not the size it was asked for says so and fails.
 		void ReportWrongResolution(std::string const& failure);
+		// Opens the audio capture's file; false (logged, exit code 1) when it cannot record.
+		bool StartAudioCapture();
+		// Reads the frames of audio the frame's seconds cover into the capture's file.
+		void CaptureAudio(float seconds);
+		// Writes the capture's header and closes its file.
+		void FinishAudioCapture();
+		// A capture that could not be made or written stops the run with exit code 1.
+		void FailAudioCapture(std::string const& failure);
 		// Reports the test run, sets the exit code and closes the player.
 		void FinishTestRun();
 		// The end of the test summary: the running scene's physics state hash and the fixed step it was taken after.
@@ -89,5 +104,10 @@ namespace Strada
 		ScreenshotRequest m_Screenshot;
 		ResolutionRequest m_Resolution;
 		bool m_MissingCameraReported = false;
+		// The audio capture (--audio-capture): its file while it records, its clock and the frames each read fills.
+		Scope<WaveFileWriter> m_AudioCapture;
+		std::optional<AudioCaptureClock> m_AudioClock;
+		std::vector<float> m_AudioSamples;
+		bool m_AudioCaptureFailed = false;
 	};
 }

@@ -194,6 +194,7 @@ namespace Strada
 		// The volume reaches miniaudio with the voice's first start, so that its first value is taken at once however often
 		// it changed before (miniaudio's gainer smooths every value after the first, miniaudio.h:51010-51016).
 		voice->m_Volume = desc.Volume > 0.0f ? desc.Volume : 0.0f;
+		voice->SetDoppler(desc.Doppler);
 		voice->SetPitch(desc.Pitch);
 		voice->SetLooping(desc.Loop && !desc.OneShot);
 		voice->SetDistances(desc.MinDistance, desc.MaxDistance);
@@ -215,11 +216,12 @@ namespace Strada
 			Miniaudio::GetVoiceManager().RemoveVoice(*this);
 		}
 		// The sound reads the samples or the stream until it is uninitialized; then the stream can leave the streaming
-		// thread.
+		// thread. Its send node goes with it (the mixing thread detached both when it gave the voice back).
 		if (m_HasSound)
 		{
 			ma_sound_uninit(&m_Sound);
 		}
+		m_SendNode.reset();
 		if (m_HasReader)
 		{
 			ma_data_source_uninit(&m_Reader.Base);
@@ -297,7 +299,8 @@ namespace Strada
 
 	void AudioVoice::SendStart(uint8_t flags)
 	{
-		if (!m_HeldByMixer)
+		bool const handOver = !m_HeldByMixer;
+		if (handOver)
 		{
 			m_Group->Attach();
 			m_HeldByMixer = true;
@@ -307,9 +310,94 @@ namespace Strada
 		command.Flags = flags;
 		command.Object = this;
 		command.Other = m_Group;
-		command.Values = {m_Volume, m_Pitch, 0.0f, 0.0f};
+		command.Values = {m_Volume, GetPlaybackPitch(), 0.0f, 0.0f};
 		command.Serial = m_PlaySerial;
 		Miniaudio::GetVoiceManager().Submit(command);
+		// Sends set before the hand-over go in right behind the start. With manual output nothing mixes between the two
+		// pushes, so the voice sends from its first block; a device's thread may take the ring between them, and the sends
+		// then start a block later (Docs/Architecture.md §9.8), which cannot be heard.
+		if (handOver && m_SendNode)
+		{
+			HandOverSends();
+		}
+	}
+
+	void AudioVoice::HandOverSends()
+	{
+		for (AudioSceneGroup* const group : m_SendGroups)
+		{
+			group->Attach();
+		}
+		m_SendsHeld = true;
+		AudioCommand command;
+		command.Type = AudioCommandType::AddVoiceSends;
+		command.Object = this;
+		command.Other = m_SendNode.get();
+		Miniaudio::GetVoiceManager().Submit(command);
+	}
+
+	Result<void> AudioVoice::EnableSends(AudioSceneGroup& idle)
+	{
+		if (m_SendNode)
+		{
+			return {};
+		}
+		Result<Scope<AudioSendNode>> created = AudioSendNode::Create(ma_engine_get_channels(&Miniaudio::GetEngine()), idle);
+		if (!created)
+		{
+			return Error{created.GetError()};
+		}
+		m_SendNode = created.TakeValue();
+		m_SendGroups.fill(&idle);
+		m_SendLevels.fill(0.0f);
+		if (m_HeldByMixer)
+		{
+			HandOverSends();
+		}
+		return {};
+	}
+
+	void AudioVoice::SetSend(uint32_t slot, AudioSceneGroup& group, float level)
+	{
+		ST_CORE_ASSERT(m_SendNode != nullptr, "A voice sends only once it has its send node");
+		if (!m_SendNode || slot >= MaxAudioVoiceSends)
+		{
+			return;
+		}
+		// Also replaces NaN.
+		level = level > 0.0f ? level : 0.0f;
+		if (&group == m_SendGroups[slot] && level == m_SendLevels[slot])
+		{
+			return;
+		}
+		m_SendGroups[slot] = &group;
+		m_SendLevels[slot] = level;
+		if (!m_SendsHeld)
+		{
+			// Still the main thread's: the node starts out with it.
+			AudioSendNode::Send& send = m_SendNode->m_Sends[slot];
+			send.Group = &group;
+			send.Gain.SetTarget(level, 0);
+			return;
+		}
+		group.Attach();
+		AudioCommand command;
+		command.Type = AudioCommandType::SetVoiceSend;
+		command.Slot = static_cast<uint8_t>(slot);
+		command.Object = this;
+		command.Other = &group;
+		command.Values[0] = level;
+		Miniaudio::GetVoiceManager().Submit(command);
+	}
+
+	AudioSceneGroup* AudioVoice::GetSendGroup(uint32_t slot) const
+	{
+		return m_SendNode && slot < MaxAudioVoiceSends ? m_SendGroups[slot] : nullptr;
+	}
+
+	float AudioVoice::GetSendLevel(uint32_t slot) const
+	{
+		return m_SendNode && slot < MaxAudioVoiceSends ? m_SendLevels[slot] : 0.0f;
 	}
 
 	void AudioVoice::Play()
@@ -380,6 +468,12 @@ namespace Strada
 		}
 	}
 
+	float AudioVoice::GetPlaybackPitch() const
+	{
+		float const pitch = m_Pitch * m_Doppler;
+		return pitch >= MinAudioPitch ? pitch : MinAudioPitch;
+	}
+
 	void AudioVoice::SetPitch(float pitch)
 	{
 		// Also replaces NaN.
@@ -389,6 +483,24 @@ namespace Strada
 			return;
 		}
 		m_Pitch = pitch;
+		SendPlaybackPitch();
+	}
+
+	void AudioVoice::SetDoppler(float factor)
+	{
+		// Also replaces NaN, with no doppler.
+		factor = std::isnan(factor) ? 1.0f : std::clamp(factor, MinAudioDopplerFactor, MaxAudioDopplerFactor);
+		if (factor == m_Doppler && m_HeldByMixer)
+		{
+			return;
+		}
+		m_Doppler = factor;
+		SendPlaybackPitch();
+	}
+
+	void AudioVoice::SendPlaybackPitch()
+	{
+		float const pitch = GetPlaybackPitch();
 		if (m_HeldByMixer)
 		{
 			Send(AudioCommandType::SetVoicePitch, {pitch, 0.0f, 0.0f, 0.0f});

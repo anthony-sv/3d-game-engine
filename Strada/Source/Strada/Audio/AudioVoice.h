@@ -11,6 +11,7 @@
 
 #include <miniaudio.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -25,6 +26,7 @@ namespace Strada
 {
 	class AudioClipAsset;
 	class AudioSceneGroup;
+	class AudioSendNode;
 	class AudioStream;
 	class AudioVoice;
 
@@ -109,6 +111,8 @@ namespace Strada
 		Ref<AudioStream> Stream;
 		float Volume = 1.0f;
 		float Pitch = 1.0f;
+		// The doppler factor the pitch is multiplied by (MinAudioDopplerFactor to MaxAudioDopplerFactor; 1 for none).
+		float Doppler = 1.0f;
 		bool Loop = false;
 		bool Spatial = true;
 		float MinDistance = 1.0f;
@@ -183,6 +187,9 @@ namespace Strada
 		// Main thread: the shadow. These are the values last set, whether or not a block has applied them yet.
 		float GetVolume() const { return m_Volume; }
 		float GetPitch() const { return m_Pitch; }
+		float GetDoppler() const { return m_Doppler; }
+		// What the voice plays at: its pitch times its doppler factor, at least MinAudioPitch.
+		float GetPlaybackPitch() const;
 		bool IsLooping() const { return m_Loop; }
 		bool IsSpatial() const { return m_Spatial; }
 		float GetMinDistance() const { return m_MinDistance; }
@@ -223,6 +230,9 @@ namespace Strada
 		void Hold();
 		void SetVolume(float volume);
 		void SetPitch(float pitch);
+		// The doppler factor (§9.8), kept within MinAudioDopplerFactor and MaxAudioDopplerFactor (NaN is 1): it multiplies
+		// the pitch the mixing thread plays (a SetVoicePitch, ramped as a pitch is) and leaves GetPitch as it was set.
+		void SetDoppler(float factor);
 		void SetLooping(bool loop);
 		void SetSpatial(bool spatial);
 		void SetDistances(float minDistance, float maxDistance);
@@ -230,6 +240,20 @@ namespace Strada
 		void SetPriority(uint32_t priority) { m_Priority = priority; }
 		// The voice plays in group from now on (moved with a dip while it is heard).
 		void MoveTo(AudioSceneGroup& group);
+
+		// Reverb zones' sends (Docs/Architecture.md §9.8). Main thread.
+		// Whether the voice has its send node (EnableSends).
+		bool HasSends() const { return m_SendNode != nullptr; }
+		// Gives the voice its send node, every send at level 0 into idle (a group of the voice's scene that is attached
+		// while the scene lives: its Master group). Nothing when it has one. Fails when miniaudio cannot make the node.
+		[[nodiscard]] Result<void> EnableSends(AudioSceneGroup& idle);
+		// After EnableSends: send slot (below MaxAudioVoiceSends) plays the voice into group, a group of the voice's scene,
+		// at level (linear; NaN and negative levels are 0), ramped over AudioGainSmoothingSeconds while the voice is heard.
+		// A send that changes group while heard fades out, moves and fades in.
+		void SetSend(uint32_t slot, AudioSceneGroup& group, float level);
+		// The group and the level the send was last set to (null and 0 without sends).
+		AudioSceneGroup* GetSendGroup(uint32_t slot) const;
+		float GetSendLevel(uint32_t slot) const;
 
 	private:
 		friend class AudioMixer;
@@ -257,6 +281,10 @@ namespace Strada
 		// Main thread (AudioVoiceManager): hands the voice to the mixing thread or starts it again, as flags
 		// (AudioStartFlags) says, with the serial of the current play.
 		void SendStart(uint8_t flags);
+		// Main thread: the playback pitch (GetPlaybackPitch) to miniaudio before the hand-over, as a command after it.
+		void SendPlaybackPitch();
+		// Main thread: hands the send node to the mixing thread (AddVoiceSends), each send's group attached first.
+		void HandOverSends();
 
 		// What it plays. Held here, on the main thread's side, so that the last reference is never dropped on the mixing
 		// thread.
@@ -266,10 +294,14 @@ namespace Strada
 		bool m_HasReader = false;
 		ma_sound m_Sound{};
 		bool m_HasSound = false;
+		// The sends to reverb zones' buses, made the first time the voice sends; owned here, held by the mixing thread with
+		// the voice from AddVoiceSends on.
+		Scope<AudioSendNode> m_SendNode;
 
 		// The shadow (main thread).
 		float m_Volume = 1.0f;
 		float m_Pitch = 1.0f;
+		float m_Doppler = 1.0f;
 		bool m_Loop = false;
 		bool m_Spatial = true;
 		float m_MinDistance = 1.0f;
@@ -277,6 +309,10 @@ namespace Strada
 		glm::vec3 m_RelativePosition = glm::vec3(0.0f);
 		uint32_t m_Priority = DefaultAudioPriority;
 		bool m_OneShot = false;
+		std::array<AudioSceneGroup*, MaxAudioVoiceSends> m_SendGroups = {};
+		std::array<float, MaxAudioVoiceSends> m_SendLevels = {};
+		// Whether AddVoiceSends handed the send node over.
+		bool m_SendsHeld = false;
 		State m_State = State::Stopped;
 		bool m_Mixing = false;
 		bool m_Virtual = false;
@@ -309,6 +345,8 @@ namespace Strada
 		};
 		uint64_t m_MixSerial = 0;
 		AudioSceneGroup* m_MixGroup = nullptr;
+		// The send node, once AddVoiceSends inserted it (its dry output then feeds the group).
+		AudioSendNode* m_MixSends = nullptr;
 		AudioSceneGroup* m_MixMoveTarget = nullptr;
 		bool m_MixAttached = false;
 		// The play reached its end (or a virtual voice's time passed it): the next start begins at the clip's start.
@@ -318,7 +356,7 @@ namespace Strada
 		uint64_t m_MixFadeEnd = 0;
 		// The engine's time when the voice became virtual.
 		uint64_t m_MixVirtualSince = 0;
-		// Pitch on its way to its target, stepped once a block on a log2 scale.
+		// The playback pitch (doppler included) on its way to its target, stepped once a block on a log2 scale.
 		float m_MixPitch = 1.0f;
 		float m_MixPitchTarget = 1.0f;
 		float m_MixPitchStep = 0.0f;
@@ -379,6 +417,10 @@ namespace Strada
 		void RemoveGroup(AudioSceneGroup& group);
 		std::vector<AudioSceneGroup*> const& GetGroups() const { return m_Groups; }
 
+		// A new number for an AudioScene, which its groups carry (AudioSceneGroup::GetScene), so that SetScenePaused names
+		// them all.
+		uint64_t NextSceneSerial() { return ++m_SceneSerials; }
+
 		// Reads what the mixing thread reported: owners retire their ended one-shots, and every voice records whether it
 		// ended (AudioVoice::WasEndedAtRefresh).
 		void Refresh();
@@ -417,6 +459,7 @@ namespace Strada
 		std::unordered_map<AudioMixerObject*, Scope<AudioMixerObject>> m_Returning;
 		uint64_t m_Serials = 0;
 		uint64_t m_StartSequences = 0;
+		uint64_t m_SceneSerials = 0;
 		std::atomic<uint64_t> m_Stolen{0};
 
 		struct Candidate

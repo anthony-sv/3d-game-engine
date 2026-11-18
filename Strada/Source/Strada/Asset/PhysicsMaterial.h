@@ -43,8 +43,10 @@ namespace Strada
 		float RollingResistance = 0.0f;
 		// The surface's name ("Asphalt", "Gravel"), which scripts and graphs compare; empty for none.
 		std::string Surface;
-		// An AudioClip for impacts on the surface, and a Prefab (usually a ParticleSystem) spawned where they happen. Read
-		// by scripts and graphs (and, later, the audio director); rigid-body contacts play and spawn nothing themselves.
+		// An AudioClip for impacts on the surface, and a Prefab (usually a ParticleSystem) spawned where they happen. A
+		// collision that begins plays each side's ImpactSound at its strongest point when the project's mixer names a bus for
+		// impact sounds (Mixer::Impacts, Docs/Architecture.md §9.8; none by default); scripts and graphs read both, and
+		// spawn the particles: contacts spawn nothing themselves.
 		AssetHandle ImpactSound;
 		AssetHandle ImpactParticles;
 

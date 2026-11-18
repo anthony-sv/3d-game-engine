@@ -65,6 +65,8 @@ internal sealed class McpServer
 		"and graph_debug_panel picks what the Debugger panel shows. " +
 		"While the game plays, physics_query asks its physics world what a ray (raycast, raycastAll), a swept sphere, box or " +
 		"capsule (shapeCast) or a shape in place (overlap) meets, with a layer mask, as scripts' queries see it. " +
+		"audio_meters reads the mix as it plays: each bus's peak and RMS (linear and in dBFS), the mixer snapshot the mix is " +
+		"at, and the active, mixed and stolen voice counts. " +
 		"To measure a game: profiler_start records where each editor frame's time goes (a play_advance call is one frame), " +
 		"profiler_status with medians true reports the frame's median and 99th percentile, subsystems, threads, GPU passes " +
 		"and the costliest zones (Graph.<asset path> per graph, Script.<class> per C# script), profiler_capture writes a " +

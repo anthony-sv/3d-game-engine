@@ -10,7 +10,7 @@ summary C# editors show as you type. The [scripting guide](Scripting.md) shows t
 the few whose summary says graphs have none.
 The engine's tests generate this page from the API, so it lists exactly what the API has.
 
-96 types in 2 namespaces, with 824 members and enum values in all.
+98 types in 2 namespaces, with 836 members and enum values in all.
 
 ## Strada
 
@@ -20,7 +20,7 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [Asset](#asset) | abstract class | Base class of references to the project's assets. References compare equal when their handles do. |
 | [AssetHandle](#assethandle) | struct | Identifies an asset of the project; the default value refers to no asset. |
 | [Assets](#assets) | static class | Access to the project's assets. |
-| [Audio](#audio) | static class | The game's side of the mix: the master volume, the game's volume and mute of each bus of the project's mixer, sounds played at a point, and how many voices play. The values set here are the game's, a gain stage after the mixer's own (the `Mixer` asset's), so that a settings menu and the mix never overwrite each other; they are never written to the asset, and every game starts with them at their defaults (a master volume of 1, every bus at 0 dB and not muted). Bus names match ignoring letter case; the empty name is Master's. Without sound (no audio engine) reads give the defaults and writes do nothing. |
+| [Audio](#audio) | static class | The game's side of the mix: the master volume, the game's volume and mute of each bus of the project's mixer, blends to the mixer's snapshots, each bus's level as a meter reads it, sounds played at a point, and how many voices play. The values set here are the game's, a gain stage after the mixer's own (the `Mixer` asset's), so that a settings menu and the mix never overwrite each other; they are never written to the asset, and every game starts with them at their defaults (a master volume of 1, every bus at 0 dB and not muted, the mixer's own values without a snapshot). Bus and snapshot names match ignoring letter case; the empty bus name is Master's. Without sound (no audio engine) reads give the defaults and writes do nothing. |
 | [AudioClip](#audioclip) | class | An audio clip asset (WAV, FLAC, MP3 or Ogg Vorbis). |
 | [AudioListenerComponent](#audiolistenercomponent) | class | The ears of the scene: the first active listener hears it. |
 | [AudioSourceComponent](#audiosourcecomponent) | class | Plays an audio clip, optionally positioned in 3D. |
@@ -75,6 +75,8 @@ The engine's tests generate this page from the API, so it lists exactly what the
 | [RaycastHit](#raycasthit) | struct | What a raycast hit. |
 | [RebindResult](#rebindresult) | class | The answer of a rebind of an input action's binding: how it ended, the binding's controls and the other actions that now read one of them. The engine applies a binding whatever it conflicts with and reports the conflicts; the game decides what to do about them (warn, swap, or undo with another `Input.Rebind`). |
 | [RebindStatus](#rebindstatus) | enum | How a rebind of an input action's binding ended (`Input.Rebind`, `Input.ResetBindings`), or that a capture listens for a control (`Input.StartRebind`). |
+| [ReverbZoneComponent](#reverbzonecomponent) | class | A reverb zone: a sphere or a box round the entity inside which spatial sounds send part of themselves to a bus of the project's mixer that carries a reverb (an echo under a bridge, a tunnel, a hall). It follows the sound, not the listener: a sound inside the zone echoes for a listener outside it. The shape is placed and turned by the entity and sized in meters times its scale (a sphere by its largest axis). A sound sends `ReverbZoneComponent.SendLevel` of itself inside the shape, less and less across `ReverbZoneComponent.FadeDistance` outside it; of several zones of one bus the largest send counts, and a sound sends to the two buses it sends most to. Sounds that are not spatial send nothing. A change applies from the next frame. |
+| [ReverbZoneShape](#reverbzoneshape) | enum | The shape of a reverb zone. |
 | [RigidBodyComponent](#rigidbodycomponent) | class | Makes the entity a physics body; its colliders give it shape. While the scene runs, velocities, forces and sleep act on the simulated body. |
 | [RigidBodyInterpolation](#rigidbodyinterpolation) | enum | How `RigidBodyComponent.Interpolation` draws a moving body between physics steps. |
 | [RigidBodyType](#rigidbodytype) | enum | How a rigid body moves. |
@@ -176,17 +178,20 @@ Access to the project's assets.
 public static class Audio
 ```
 
-The game's side of the mix: the master volume, the game's volume and mute of each bus of the project's mixer, sounds played at a point, and how many voices play. The values set here are the game's, a gain stage after the mixer's own (the `Mixer` asset's), so that a settings menu and the mix never overwrite each other; they are never written to the asset, and every game starts with them at their defaults (a master volume of 1, every bus at 0 dB and not muted). Bus names match ignoring letter case; the empty name is Master's. Without sound (no audio engine) reads give the defaults and writes do nothing.
+The game's side of the mix: the master volume, the game's volume and mute of each bus of the project's mixer, blends to the mixer's snapshots, each bus's level as a meter reads it, sounds played at a point, and how many voices play. The values set here are the game's, a gain stage after the mixer's own (the `Mixer` asset's), so that a settings menu and the mix never overwrite each other; they are never written to the asset, and every game starts with them at their defaults (a master volume of 1, every bus at 0 dB and not muted, the mixer's own values without a snapshot). Bus and snapshot names match ignoring letter case; the empty bus name is Master's. Without sound (no audio engine) reads give the defaults and writes do nothing.
 
 | Member | Summary |
 |---|---|
 | `static float MasterVolume { get; set; }` | The gain applied to the whole mix, after Master's effects and volume: 1 leaves it unchanged, 0 is silence (values below 0 are 0), above 1 louder. It moves without a click. |
 | `static int ActiveVoiceCount { get; }` | The voices mixed now across every running scene: those playing, in scenes that are not paused, within the engine's limit of voices mixed at once (beyond it, the lowest priority, then the quietest, then the oldest go silent). It counts a voice from the call that starts it, and a voice that ended from the next frame. |
+| `static string CurrentSnapshot { get; }` | The snapshot of the project's mixer the mix blends to or holds, as the mixer names it; empty for the mixer's own values, which every game starts and ends with (and without sound). |
 | `static float GetBusVolume(string bus)` | The game's volume of a bus, in decibels (0 leaves the bus as the mixer sets it); 0 for a bus the project's mixer lacks (logged once). |
 | `static void SetBusVolume(string bus, float decibels)` | Sets the game's volume of a bus, in decibels: added to the mixer's own volume of the bus, from -80 (silence) to +24 (values beyond are brought within). It moves without a click. A bus the project's mixer lacks is logged once, and nothing changes. |
 | `static bool IsBusMuted(string bus)` | Whether the game has muted a bus (the mixer's own mute is the `Mixer` asset's); false for a bus the project's mixer lacks (logged once). |
 | `static void SetBusMuted(string bus, bool muted)` | Mutes or unmutes a bus for the game: a muted bus, and every bus below it, is silent whatever the mixer sets. It moves without a click. A bus the project's mixer lacks is logged once, and nothing changes. |
 | `static bool PlayClipAtPoint(AudioClip clip, Vector3 position, float volume = 1, string bus = "")` | Plays a clip once at a point of the world, on a voice of the running scene rather than of an entity: it outlives whatever played it (a break, a pickup taken), is held while the scene is paused and ends with the scene. It is spatial, full within 1 m and falling with distance to 100 m, never loops, and at the engine's limit of voices it may be the one refused. Returns whether it started; false without a running scene with sound, or for a clip that does not load (logged). |
+| `static bool TransitionTo(string snapshot, float seconds = 0.5f)` | Blends the mix to a snapshot of the project's mixer: every value the snapshot sets (bus volumes and mutes, effect parameters) moves from where it is to the snapshot's over the time given, in steps that sound even (volumes in decibels, frequencies by octave); the values it does not set keep the mixer's own. A transition that starts while another runs carries on from where that one is. The blend runs on mixed audio, so a scene paused does not hold it. Returns whether the mix blends to it; false for a snapshot the mixer lacks (logged once per name), which changes nothing, and without sound. |
+| `static float GetBusPeak(string bus)` | The peak of a bus's output over the last block the engine mixed (about 5 ms), after its effects and every gain: a linear level, 0 for silence and 1 for full scale (it can pass 1 before a limiter). It shows how loud a bus plays now, as a meter does; 0 for a bus the project's mixer lacks (logged once) and without sound. |
 
 ### AudioClip
 
@@ -231,6 +236,7 @@ Plays an audio clip, optionally positioned in 3D.
 | `string Bus { get; set; }` | The bus of the project's mixer the source's sounds play on, by name in any letter case: empty for Master, and a name the mixer lacks plays on Master (logged once). Changing it moves the sounds playing, without a click. |
 | `uint Priority { get; set; }` | From 0 to 255 (higher values play as 255), 128 by default: when more sounds play than the engine mixes at once, those of lower priority go silent first. A one-shot playing takes a new priority too. |
 | `uint MaxVoices { get; set; }` | How many sounds of the source play at once, its clip and its one-shots together: from 1 to 64 (values beyond play as the nearest), 4 by default. A one-shot past it stops the source's oldest one-shot. |
+| `float DopplerLevel { get; set; }` | How much of the doppler effect the source's sounds take when it is spatial: their pitch rises as source and listener close in and falls as they part, by the factor c / (c - v * DopplerLevel), c being the mixer's speed of sound and v how fast they close in. 0 turns it off, 1 (the default) is physical, up to 5 exaggerates it (values beyond play as the nearest). Sources that are not spatial take none. |
 | `bool IsPlaying { get; }` | Whether the sound is playing (held sounds of a paused scene count as playing). |
 | `void Play()` | Plays the clip from the start, or from where `AudioSourceComponent.Pause` left it. |
 | `void Pause()` | Pauses the sound, keeping its position. |
@@ -925,7 +931,7 @@ A physics material asset (`.sphysmat`): how a surface slides, bounces and rolls,
 | `PhysicsMaterialCombine RestitutionCombine { get; }` | How a contact combines the restitutions of its two sides (a collider without a material says `PhysicsMaterialCombine.Maximum`); when the sides differ, the mode later in `PhysicsMaterialCombine` wins. |
 | `float RollingResistance { get; }` | The force opposing a wheel that rolls on the surface, per newton of load (about 0.01 for a tyre on asphalt), for scripts and graphs to apply; rigid bodies roll without it. |
 | `string Surface { get; }` | The surface's name (such as Asphalt, Gravel or Ice), which scripts and graphs compare to tell surfaces apart; empty for none. |
-| `AudioClip? ImpactSound { get; }` | A sound for impacts on the surface, or null; contacts play nothing by themselves. |
+| `AudioClip? ImpactSound { get; }` | A sound for impacts on the surface, or null. A collision that begins plays it where it begins when the project's mixer names a bus for impact sounds (its Impacts), louder for a stronger impact; scripts can play it too. |
 | `Prefab? ImpactParticles { get; }` | A prefab (usually a particle system) for impacts on the surface, or null; contacts spawn nothing by themselves. |
 
 ### PhysicsMaterialCombine
@@ -1135,6 +1141,33 @@ public enum RebindStatus
 How a rebind of an input action's binding ended (`Input.Rebind`, `Input.ResetBindings`), or that a capture listens for a control (`Input.StartRebind`).
 
 Values: `None`, `Listening`, `Done`, `Cancelled`, `Refused`.
+
+### ReverbZoneComponent
+
+```csharp
+public sealed class ReverbZoneComponent : Component
+```
+
+A reverb zone: a sphere or a box round the entity inside which spatial sounds send part of themselves to a bus of the project's mixer that carries a reverb (an echo under a bridge, a tunnel, a hall). It follows the sound, not the listener: a sound inside the zone echoes for a listener outside it. The shape is placed and turned by the entity and sized in meters times its scale (a sphere by its largest axis). A sound sends `ReverbZoneComponent.SendLevel` of itself inside the shape, less and less across `ReverbZoneComponent.FadeDistance` outside it; of several zones of one bus the largest send counts, and a sound sends to the two buses it sends most to. Sounds that are not spatial send nothing. A change applies from the next frame.
+
+| Member | Summary |
+|---|---|
+| `ReverbZoneShape Shape { get; set; }` | A sphere of `ReverbZoneComponent.Radius` or a box of `ReverbZoneComponent.HalfExtents`. |
+| `float Radius { get; set; }` | The sphere's radius in meters (times the entity's largest scale), from 0 to 100,000. |
+| `Vector3 HalfExtents { get; set; }` | Meters from the box's center to each face (times the entity's scale), each from 0 to 100,000. |
+| `float FadeDistance { get; set; }` | Meters outside the shape across which the send falls to nothing, from 0 (it stops at the surface) to 100,000. |
+| `string Bus { get; set; }` | The bus of the project's mixer the zone sends to, by name in any letter case: one that carries a reverb. Empty, or a name the mixer lacks (logged once), sends nothing. |
+| `float SendLevel { get; set; }` | How much of a spatial sound inside the zone reaches the bus, from 0 to 1 (linear). |
+
+### ReverbZoneShape
+
+```csharp
+public enum ReverbZoneShape
+```
+
+The shape of a reverb zone.
+
+Values: `Sphere`, `Box`.
 
 ### RigidBodyComponent
 

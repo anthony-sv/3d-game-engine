@@ -1,6 +1,7 @@
 #include "Editor/Automation/EditorCommands.h"
 
 #include "Editor/Automation/AgentCommands.h"
+#include "Editor/Automation/AudioCommands.h"
 #include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/JsonSchema.h"
 #include "Editor/Commands/SetDataAssetCommand.h"
@@ -5851,7 +5852,7 @@ namespace Strada
 					SchemaBuilder::Object()
 						.Property("window", SchemaBuilder::String("The window to capture (default Editor: the whole editor window)")
 				                                .Enum({"Editor", "SceneView", "GameView", "Hierarchy", "Inspector", "ContentBrowser",
-				                                       "Console", "Debugger", "Graph", "Profiler", "InputActions"}))
+				                                       "Console", "Debugger", "Graph", "Profiler", "InputActions", "Mixer"}))
 						.Property("graph", SchemaBuilder::String("With window Graph: the visual script whose window to capture, a handle "
 				                                                 "or \"asset://<path>.sgraph\"")
 				                               .MinLength(1))
@@ -6455,7 +6456,7 @@ namespace Strada
 
 	namespace
 	{
-		constexpr std::array<std::pair<ScreenshotWindow, std::string_view>, 11> ScreenshotWindowNames = {{
+		constexpr std::array<std::pair<ScreenshotWindow, std::string_view>, 12> ScreenshotWindowNames = {{
 			{ScreenshotWindow::Editor, "Editor"},
 			{ScreenshotWindow::SceneView, "SceneView"},
 			{ScreenshotWindow::GameView, "GameView"},
@@ -6467,6 +6468,7 @@ namespace Strada
 			{ScreenshotWindow::Graph, "Graph"},
 			{ScreenshotWindow::Profiler, "Profiler"},
 			{ScreenshotWindow::InputActions, "InputActions"},
+			{ScreenshotWindow::Mixer, "Mixer"},
 		}};
 	}
 
@@ -6500,7 +6502,9 @@ namespace Strada
 		EngineLayout layout = environment.Locations.Layout;
 		AgentToolLookup findTool = environment.FindToolOnPath;
 		Result<void> registered = CreateRef<CommandSet>(registry, operations, std::move(environment))->RegisterAll();
-		return registered ? RegisterAgentCommands(registry, operations.GetContext(), std::move(layout), std::move(findTool)) : registered;
+		registered =
+			registered ? RegisterAgentCommands(registry, operations.GetContext(), std::move(layout), std::move(findTool)) : registered;
+		return registered ? RegisterAudioCommands(registry) : registered;
 	}
 
 	Json DescribeEditorProject(EditorContext const& context)

@@ -35,9 +35,16 @@ namespace Strada
 			Scope<AudioBusNode> Node;
 			// The chain last sent (null for a bus without effects).
 			Scope<AudioEffectChain> Chain;
+			// The values last sent: the mixer's own, or the current snapshot's in their place (§9.8).
 			MixerBus Values;
 			// The parent's key; empty for Master.
 			std::string ParentKey;
+			// The ducking last sent (SetBusDucking): the node that ducks the bus and the amount, threshold, attack and release.
+			// A new bus is not ducked, so the values matter only once a SetBusDucking is sent: they start as MixerBus's own, so
+			// that a bus that never names a ducking bus sends none.
+			AudioBusNode* DuckTrigger = nullptr;
+			std::array<float, 4> DuckValues = {MixerBus{}.DuckAmountDb, MixerBus{}.DuckThresholdDb, MixerBus{}.DuckAttackSeconds,
+			                                   MixerBus{}.DuckReleaseSeconds};
 		};
 
 		// The game's value of a bus (§9.5), kept by key.
@@ -67,13 +74,18 @@ namespace Strada
 			AudioSampleCache Samples;
 			float MasterVolume = 1.0f;
 
-			// The mixer (§9.5): what was last applied, its buses by key, the game's values by key, and the names logged as
-			// missing since the mixer's buses last changed.
+			// The mixer (§9.5): what was last applied (the asset's own values), its buses by key, the game's values by key, and
+			// the names logged as missing since the mixer's buses last changed.
 			Strada::Mixer CurrentMixer;
 			std::unordered_map<std::string, AudioBusState> Buses;
 			std::unordered_map<std::string, AudioGameBusValues> GameValues;
 			std::unordered_set<std::string> MissingBuses;
 			std::unordered_set<std::string> UnknownGameBuses;
+			std::unordered_set<std::string> UnknownMeterBuses;
+			// The snapshot the mix blends to or holds (§9.8), as the mixer names it; empty for the mixer's own values. The
+			// snapshot names logged as unknown since the mixer last changed.
+			std::string CurrentSnapshot;
+			std::unordered_set<std::string> UnknownSnapshots;
 			// Whether a Reverb that passes its bus through, at a rate its library refuses, has been logged (once per Init:
 			// effects are made again at every chain change and at every game's end).
 			bool ReverbRateLogged = false;
@@ -230,8 +242,10 @@ namespace Strada
 			return found != data.Buses.end() ? found->second.Node.get() : nullptr;
 		}
 
-		// The SetEffectParameter commands that take effect slot of the bus from one effect's values to another's.
-		void SendEffectChanges(AudioEngineData& data, AudioBusNode& bus, uint8_t slot, MixerEffect const& from, MixerEffect const& to)
+		// The SetEffectParameter commands that take effect slot of the bus from one effect's values to another's, over seconds
+		// when that is longer than the parameters' own smoothing (a snapshot's transition).
+		void SendEffectChanges(AudioEngineData& data, AudioBusNode& bus, uint8_t slot, MixerEffect const& from, MixerEffect const& to,
+		                       float seconds)
 		{
 			for (uint32_t index = 0; index < MixerEffectParameterCount; index++)
 			{
@@ -247,6 +261,7 @@ namespace Strada
 				command.Slot = slot;
 				command.Parameter = parameter;
 				command.Values[0] = value;
+				command.Values[1] = seconds;
 				data.Queue->Push(command);
 			}
 		}
@@ -284,7 +299,8 @@ namespace Strada
 		// same order; otherwise a new chain, swapped in under a dip, that carries on each effect whose kind keeps its rank
 		// among that kind's effects (the bus's first Reverb stays its first Reverb). With fresh, every effect is new (their
 		// state cleared).
-		void UpdateBusEffects(AudioEngineData& data, AudioBusState& state, std::vector<MixerEffect> const& effects, bool fresh)
+		void UpdateBusEffects(AudioEngineData& data, AudioBusState& state, std::vector<MixerEffect> const& effects, bool fresh,
+		                      float seconds)
 		{
 			std::vector<MixerEffect> const& previous = state.Values.Effects;
 			bool const sameKinds = !fresh && previous.size() == effects.size() &&
@@ -297,7 +313,7 @@ namespace Strada
 			{
 				for (size_t slot = 0; slot < effects.size(); slot++)
 				{
-					SendEffectChanges(data, *state.Node, static_cast<uint8_t>(slot), previous[slot], effects[slot]);
+					SendEffectChanges(data, *state.Node, static_cast<uint8_t>(slot), previous[slot], effects[slot], seconds);
 				}
 				return;
 			}
@@ -340,7 +356,7 @@ namespace Strada
 			state.Chain = std::move(chain);
 			for (auto const& [slot, index] : carried)
 			{
-				SendEffectChanges(data, *state.Node, static_cast<uint8_t>(slot), previous[index], effects[slot]);
+				SendEffectChanges(data, *state.Node, static_cast<uint8_t>(slot), previous[index], effects[slot], seconds);
 			}
 		}
 
@@ -405,14 +421,50 @@ namespace Strada
 			return order;
 		}
 
-		// Sends the mixing thread what takes the mix from data.CurrentMixer to mixer (§9.5), which ValidateMixer passed.
-		void ApplyMixer(AudioEngineData& data, Mixer const& mixer)
+		// The ducking of each bus, sent after every bus exists (the bus that ducks one may come later in the order buses are
+		// made in) and before any bus is removed (whose RemoveBus is the last command that names it).
+		void SendDucking(AudioEngineData& data, Mixer const& mixer)
 		{
+			for (MixerBus const& bus : mixer.Buses)
+			{
+				auto const found = data.Buses.find(MakeMixerBusKey(bus.Name));
+				if (found == data.Buses.end())
+				{
+					continue;
+				}
+				AudioBusState& state = found->second;
+				AudioBusNode* const trigger = bus.DuckedBy.empty() ? nullptr : FindBusNode(data, MakeMixerBusKey(bus.DuckedBy));
+				// The bus's own values travel with a null trigger too: a duck that ends comes back up over the bus's release.
+				std::array<float, 4> const values = {bus.DuckAmountDb, bus.DuckThresholdDb, bus.DuckAttackSeconds, bus.DuckReleaseSeconds};
+				if (trigger == state.DuckTrigger && values == state.DuckValues)
+				{
+					continue;
+				}
+				state.DuckTrigger = trigger;
+				state.DuckValues = values;
+				SendBusCommand(data, AudioCommandType::SetBusDucking, state.Node.get(), trigger, values);
+			}
+		}
+
+		// Sends the mixing thread what takes the mix from what it was last sent to mixer (§9.5), which ValidateMixer passed,
+		// with the current snapshot's values in place of the mixer's own (§9.8): value changes over seconds when that is
+		// longer than their own smoothing (a snapshot's transition), the rest as an edit. A current snapshot the mixer no
+		// longer has is dropped, and the mix returns to the mixer's own values.
+		void ApplyMixer(AudioEngineData& data, Mixer const& mixer, float seconds)
+		{
+			MixerSnapshot const* const snapshot = FindMixerSnapshot(mixer, data.CurrentSnapshot);
+			if (snapshot == nullptr && !data.CurrentSnapshot.empty())
+			{
+				ST_CORE_WARN("The mixer has no snapshot '{}' any more: the mix returns to the mixer's own values", data.CurrentSnapshot);
+			}
+			data.CurrentSnapshot = snapshot != nullptr ? snapshot->Name : std::string();
+			Mixer const effective = ApplyMixerSnapshot(mixer, snapshot);
+
 			std::unordered_set<std::string> keys;
 			bool structureChanged = false;
-			for (size_t const index : OrderParentsFirst(mixer))
+			for (size_t const index : OrderParentsFirst(effective))
 			{
-				MixerBus const& bus = mixer.Buses[index];
+				MixerBus const& bus = effective.Buses[index];
 				std::string key = MakeMixerBusKey(bus.Name);
 				keys.insert(key);
 				std::string parentKey = bus.Name == MasterBusName ? std::string() : MakeMixerBusKey(bus.Parent);
@@ -434,9 +486,9 @@ namespace Strada
 					if (state.Values.VolumeDb != bus.VolumeDb || state.Values.Muted != bus.Muted)
 					{
 						SendBusCommand(data, AudioCommandType::SetBusMixValues, state.Node.get(), nullptr,
-						               {bus.VolumeDb, bus.Muted ? 1.0f : 0.0f, 0.0f, 0.0f});
+						               {bus.VolumeDb, bus.Muted ? 1.0f : 0.0f, seconds, 0.0f});
 					}
-					UpdateBusEffects(data, state, bus.Effects, false);
+					UpdateBusEffects(data, state, bus.Effects, false, seconds);
 					state.Values = bus;
 					continue;
 				}
@@ -452,13 +504,14 @@ namespace Strada
 				state.Values = bus;
 				state.ParentKey = std::move(parentKey);
 				auto const game = data.GameValues.find(key);
-				state.Node->SetInitialValues(ToBusGain(bus.VolumeDb, bus.Muted),
+				state.Node->SetInitialValues(bus.VolumeDb, bus.Muted,
 				                             game != data.GameValues.end() ? ToBusGain(game->second.VolumeDb, game->second.Muted) : 1.0f,
 				                             state.Chain.get());
 				SendBusCommand(data, AudioCommandType::AddBus, state.Node.get(), parent);
 				data.Buses.emplace(std::move(key), std::move(state));
 				structureChanged = true;
 			}
+			SendDucking(data, effective);
 
 			// Removed buses leave the table first, so that the groups are pointed at the buses that remain.
 			std::vector<AudioBusState> removed;
@@ -478,6 +531,11 @@ namespace Strada
 				// Each name a source asks for and the mixer lacks is logged once per mixer.
 				data.MissingBuses.clear();
 				data.UnknownGameBuses.clear();
+				data.UnknownMeterBuses.clear();
+			}
+			if (mixer.Snapshots != data.CurrentMixer.Snapshots)
+			{
+				data.UnknownSnapshots.clear();
 			}
 			data.CurrentMixer = mixer;
 			for (AudioSceneGroup* const group : data.Voices->GetGroups())
@@ -656,7 +714,7 @@ namespace Strada
 		s_Data = std::move(data);
 		// Master alone, whose node every scene's groups play into: at 0 dB without effects it is the identity, so the
 		// engine mixes as it did before buses until a mixer is set. Queued before the device starts.
-		ApplyMixer(*s_Data, Mixer{});
+		ApplyMixer(*s_Data, Mixer{}, 0.0f);
 		if (device != nullptr)
 		{
 			s_Mixer.store(s_Data->Mixer.get(), std::memory_order_release);
@@ -779,8 +837,19 @@ namespace Strada
 		{
 			return;
 		}
-		// Numbers outside their fields' ranges, which no file holds, are brought within them (a mixer made in code).
+		// Numbers outside their fields' ranges, which no file holds, are brought within them (a mixer made in code): the
+		// mixer's own numbers, its impacts', its buses' and their effects'. The mixer's lists are left to ValidateMixer,
+		// which refuses one too long rather than cutting buses others may name, and so are snapshot values: a value's
+		// range depends on what it sets, and an effect index brought within range would name another effect.
 		Mixer fitted = mixer;
+		{
+			std::vector<MixerBus> buses = std::move(fitted.Buses);
+			std::vector<MixerSnapshot> snapshots = std::move(fitted.Snapshots);
+			FitToFieldRanges<StructTraits<Mixer>>(fitted);
+			fitted.Buses = std::move(buses);
+			fitted.Snapshots = std::move(snapshots);
+		}
+		FitToFieldRanges<StructTraits<MixerImpacts>>(fitted.Impacts);
 		for (MixerBus& bus : fitted.Buses)
 		{
 			FitToFieldRanges<StructTraits<MixerBus>>(bus);
@@ -798,13 +867,96 @@ namespace Strada
 		{
 			return;
 		}
-		ApplyMixer(*s_Data, fitted);
+		ApplyMixer(*s_Data, fitted, 0.0f);
 	}
 
 	Mixer const& AudioEngine::GetMixer()
 	{
 		static Mixer const s_Default;
 		return s_Data != nullptr ? s_Data->CurrentMixer : s_Default;
+	}
+
+	bool AudioEngine::TransitionTo(std::string_view snapshot, float seconds)
+	{
+		if (s_Data == nullptr)
+		{
+			return false;
+		}
+		AudioEngineData& data = *s_Data;
+		MixerSnapshot const* const target = FindMixerSnapshot(data.CurrentMixer, snapshot);
+		if (target == nullptr && !snapshot.empty())
+		{
+			if (data.UnknownSnapshots.insert(MakeMixerBusKey(snapshot)).second)
+			{
+				ST_CORE_WARN("The mixer has no snapshot named '{}': the mix stays as it is", snapshot);
+			}
+			return false;
+		}
+		// NaN and what is not positive are an edit's ramp; at most MaxSnapshotTransitionSeconds.
+		float const clamped = seconds > 0.0f ? std::min(seconds, MaxSnapshotTransitionSeconds) : 0.0f;
+		data.CurrentSnapshot = target != nullptr ? target->Name : std::string();
+		// The buses and effects stay: only the values that differ from what was last sent move.
+		Mixer const own = data.CurrentMixer;
+		ApplyMixer(data, own, clamped);
+		return true;
+	}
+
+	std::string const& AudioEngine::GetCurrentSnapshot()
+	{
+		static std::string const s_None;
+		return s_Data != nullptr ? s_Data->CurrentSnapshot : s_None;
+	}
+
+	std::vector<AudioBusMeter> AudioEngine::GetBusMeters()
+	{
+		std::vector<AudioBusMeter> meters;
+		if (s_Data == nullptr)
+		{
+			return meters;
+		}
+		meters.reserve(s_Data->CurrentMixer.Buses.size());
+		for (MixerBus const& bus : s_Data->CurrentMixer.Buses)
+		{
+			AudioBusMeter meter;
+			meter.Name = bus.Name;
+			if (AudioBusNode const* const node = FindBusNode(*s_Data, MakeMixerBusKey(bus.Name)))
+			{
+				meter.Peak = node->GetPeak();
+				meter.Rms = node->GetRms();
+			}
+			meters.push_back(std::move(meter));
+		}
+		return meters;
+	}
+
+	namespace
+	{
+		// The node of a bus a meter is read from, or null when the mixer lacks it (logged once per name and mixer).
+		AudioBusNode const* FindMeterBus(AudioEngineData& data, std::string_view bus)
+		{
+			std::string key = MakeMixerBusKey(bus);
+			if (AudioBusNode const* const node = FindBusNode(data, key))
+			{
+				return node;
+			}
+			if (data.UnknownMeterBuses.insert(std::move(key)).second)
+			{
+				ST_CORE_WARN("The mixer has no bus named '{}': its meter reads silence", bus);
+			}
+			return nullptr;
+		}
+	}
+
+	float AudioEngine::GetBusPeak(std::string_view bus)
+	{
+		AudioBusNode const* const node = s_Data != nullptr ? FindMeterBus(*s_Data, bus) : nullptr;
+		return node != nullptr ? node->GetPeak() : 0.0f;
+	}
+
+	float AudioEngine::GetBusRms(std::string_view bus)
+	{
+		AudioBusNode const* const node = s_Data != nullptr ? FindMeterBus(*s_Data, bus) : nullptr;
+		return node != nullptr ? node->GetRms() : 0.0f;
 	}
 
 	namespace
@@ -903,6 +1055,13 @@ namespace Strada
 			SetGameValues(*s_Data, entry.second, AudioGameBusValues{});
 		}
 		s_Data->GameValues.clear();
+		// No snapshot: the mix is back at the mixer's own values, over an edit's ramp.
+		if (!s_Data->CurrentSnapshot.empty())
+		{
+			s_Data->CurrentSnapshot.clear();
+			Mixer const own = s_Data->CurrentMixer;
+			ApplyMixer(*s_Data, own, 0.0f);
+		}
 		UpdateChainGains(*s_Data);
 	}
 
@@ -916,7 +1075,7 @@ namespace Strada
 		{
 			if (!entry.second.Values.Effects.empty())
 			{
-				UpdateBusEffects(*s_Data, entry.second, entry.second.Values.Effects, true);
+				UpdateBusEffects(*s_Data, entry.second, entry.second.Values.Effects, true, 0.0f);
 			}
 		}
 	}

@@ -1018,7 +1018,11 @@
 					"PlayOnStart": false,
 					"Spatial": true,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4,
+					"DopplerLevel": 1.0
 				}
 			}
 		},
@@ -2601,6 +2605,48 @@
 					],
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "3625043996047589300",
+			"Components": {
+				"Tag": {
+					"Tag": "Reverb Zone"
+				},
+				"Transform": {
+					"Translation": [
+						2.0,
+						1.0,
+						2.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"ReverbZone": {
+					"Shape": "Sphere",
+					"Radius": 3.0,
+					"HalfExtents": [
+						5.0,
+						5.0,
+						5.0
+					],
+					"FadeDistance": 1.5,
+					"Bus": "Music",
+					"SendLevel": 0.6000000238418579
 				}
 			}
 		}

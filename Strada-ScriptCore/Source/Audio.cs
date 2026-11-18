@@ -6,12 +6,13 @@ using Strada.VisualScripting;
 namespace Strada;
 
 /// <summary>
-/// The game's side of the mix: the master volume, the game's volume and mute of each bus of the project's mixer, sounds
-/// played at a point, and how many voices play. The values set here are the game's, a gain stage after the mixer's own
-/// (the <see cref="Mixer"/> asset's), so that a settings menu and the mix never overwrite each other; they are never
-/// written to the asset, and every game starts with them at their defaults (a master volume of 1, every bus at 0 dB and not
-/// muted). Bus names match ignoring letter case; the empty name is Master's. Without sound (no audio engine) reads give the
-/// defaults and writes do nothing.
+/// The game's side of the mix: the master volume, the game's volume and mute of each bus of the project's mixer, blends to
+/// the mixer's snapshots, each bus's level as a meter reads it, sounds played at a point, and how many voices play. The
+/// values set here are the game's, a gain stage after the mixer's own (the <see cref="Mixer"/> asset's), so that a settings
+/// menu and the mix never overwrite each other; they are never written to the asset, and every game starts with them at
+/// their defaults (a master volume of 1, every bus at 0 dB and not muted, the mixer's own values without a snapshot). Bus
+/// and snapshot names match ignoring letter case; the empty bus name is Master's. Without sound (no audio engine) reads
+/// give the defaults and writes do nothing.
 /// </summary>
 public static unsafe class Audio
 {
@@ -111,6 +112,54 @@ public static unsafe class Audio
 		fixed (byte* bytes = name)
 		{
 			return InternalCalls.Audio_PlayClipAtPoint(clip.Handle.ID, &position, volume, bytes, name.Length) != 0;
+		}
+	}
+
+	/// <summary>The snapshot of the project's mixer the mix blends to or holds, as the mixer names it; empty for the mixer's
+	/// own values, which every game starts and ends with (and without sound).</summary>
+	public static string CurrentSnapshot
+	{
+		get
+		{
+			int length;
+			byte* text = InternalCalls.Audio_GetCurrentSnapshot(&length);
+			return NativeString.FromUtf8(text, length);
+		}
+	}
+
+	/// <summary>Blends the mix to a snapshot of the project's mixer: every value the snapshot sets (bus volumes and mutes,
+	/// effect parameters) moves from where it is to the snapshot's over the time given, in steps that sound even (volumes in
+	/// decibels, frequencies by octave); the values it does not set keep the mixer's own. A transition that starts while
+	/// another runs carries on from where that one is. The blend runs on mixed audio, so a scene paused does not hold it.
+	/// Returns whether the mix blends to it; false for a snapshot the mixer lacks (logged once per name), which changes
+	/// nothing, and without sound.</summary>
+	/// <param name="snapshot">The snapshot's name, in any letter case; empty for the mixer's own values.</param>
+	/// <param name="seconds">How long the blend takes, at most 300 s; 0 (and below) is as quick as a click-free change
+	/// allows.</param>
+	public static bool TransitionTo(string snapshot, float seconds = 0.5f)
+	{
+		ArgumentNullException.ThrowIfNull(snapshot);
+		Span<byte> buffer = stackalloc byte[StackNameBytes];
+		ReadOnlySpan<byte> name = Encode(snapshot, buffer);
+		fixed (byte* bytes = name)
+		{
+			return InternalCalls.Audio_TransitionTo(bytes, name.Length, seconds) != 0;
+		}
+	}
+
+	/// <summary>The peak of a bus's output over the last block the engine mixed (about 5 ms), after its effects and every
+	/// gain: a linear level, 0 for silence and 1 for full scale (it can pass 1 before a limiter). It shows how loud a bus
+	/// plays now, as a meter does; 0 for a bus the project's mixer lacks (logged once) and without sound.</summary>
+	/// <param name="bus">The bus's name, in any letter case; empty for Master.</param>
+	[PureNode]
+	public static float GetBusPeak(string bus)
+	{
+		ArgumentNullException.ThrowIfNull(bus);
+		Span<byte> buffer = stackalloc byte[StackNameBytes];
+		ReadOnlySpan<byte> name = Encode(bus, buffer);
+		fixed (byte* bytes = name)
+		{
+			return InternalCalls.Audio_GetBusPeak(bytes, name.Length);
 		}
 	}
 

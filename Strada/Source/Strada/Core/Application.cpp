@@ -129,8 +129,10 @@ namespace Strada
 		PhysicsSystem::Init();
 		AudioEngineSettings audio;
 		// Headless runs (tests, CI, servers) make no sound and need no audio device; STRADA_AUDIO_OUTPUT=null silences a
-		// windowed one (a capture, a session a tool starts).
-		audio.Output = AudioEngine::ResolveOutput(m_Specification.Headless, Platform::ReadEnvironmentVariable(AudioOutputVariable));
+		// windowed one (a capture, a session a tool starts). A run that records its mix reads it itself.
+		audio.Output = m_Specification.ManualAudio
+		                   ? AudioOutput::Manual
+		                   : AudioEngine::ResolveOutput(m_Specification.Headless, Platform::ReadEnvironmentVariable(AudioOutputVariable));
 		AudioEngine::Init(audio);
 		// Without .NET (or Strada.ScriptCore) the application still runs; scenes run without scripts.
 		if (m_Specification.EnableScripting)

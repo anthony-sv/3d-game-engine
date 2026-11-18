@@ -23,6 +23,7 @@
 #include "Editor/Panels/GameViewPanel.h"
 #include "Editor/Panels/InputActionsPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
+#include "Editor/Panels/MixerPanel.h"
 #include "Editor/Panels/ProfilerPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/RendererInfoPanel.h"
@@ -262,6 +263,7 @@ namespace Strada
 		SceneSettingsPanel m_SceneSettingsPanel;
 		ProjectSettingsPanel m_ProjectSettingsPanel;
 		ContentBrowserPanel m_ContentBrowserPanel;
+		MixerPanel m_MixerPanel;
 		// Its capture of a binding takes key and mouse presses before the game input router passes them on.
 		InputActionsPanel m_InputActionsPanel;
 		// Declared before the game view and the debug controls, which use it.
@@ -286,6 +288,7 @@ namespace Strada
 		bool m_ShowConsole = true;
 		bool m_ShowRendererInfo = true;
 		bool m_ShowInputActions = true;
+		bool m_ShowMixer = true;
 		// Closed until asked for: the profiler records while the panel is open.
 		bool m_ShowProfiler = false;
 		bool m_ShowImGuiDemo = false;

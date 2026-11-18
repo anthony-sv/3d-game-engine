@@ -575,7 +575,14 @@ outlives the entity that asked for it (a break, a pickup taken). `Audio.SetBusVo
 `Audio.SetBusMuted(bus, muted)` set the game's own values of a bus (`GetBusVolume` and `IsBusMuted` read them), a stage
 after the mixer's own: what a settings menu sets, never written to the mixer asset, and back at 0 dB and not muted when
 the next game starts. `Audio.MasterVolume` scales the whole mix (1 leaves it unchanged), and `Audio.ActiveVoiceCount`
-counts the voices mixed now. Bus names match in any letter case. A `Mixer` (the `.smixer` asset the project names:
+counts the voices mixed now. `Audio.TransitionTo(snapshot, seconds)` blends the mix to one of the mixer's snapshots (a
+pause that lowers and muffles everything, an underwater mix) over the time given, from wherever the mix is, and
+answers whether it does (false for a name the mixer lacks); the empty name blends back to the mixer's own values, which
+every game starts and ends with. `Audio.CurrentSnapshot` names the snapshot the mix blends to or holds.
+`Audio.GetBusPeak(bus)` reads a bus's level over the last few milliseconds mixed, as its meter shows it (a linear peak:
+0 is silence, 1 full scale), for a level meter of your own or a light that pulses with the music. A spatial source's
+`DopplerLevel` (0 to 5, 1 by default) says how much its pitch moves as it passes the listener: 0 turns the doppler
+effect off, above 1 exaggerates it. Bus names match in any letter case. A `Mixer` (the `.smixer` asset the project names:
 [Mixers](Editor.md#mixers)) reads its buses: `BusCount`, `GetBusName(index)`, `HasBus`, `GetBusParent`, and the mixer's
 own `GetBusVolume` and `IsBusMuted`, for a settings menu that lists them.
 `TextComponent` draws text in the world or, with `ScreenSpace`, over the image: set `Text` for scores and messages.
@@ -632,8 +639,10 @@ surface that colliders name in their `Material`. `PhysicsMaterial` reads its fie
 how a contact combines them with the other side's (`FrictionCombine`, `RestitutionCombine`: a `PhysicsMaterialCombine`),
 `RollingResistance`, `Surface` (a name to compare, such as `"Gravel"`; empty for none), `ImpactSound` (an `AudioClip`)
 and `ImpactParticles` (a `Prefab`), the last two null when unset. The engine applies the friction, the restitution and
-their combine modes where colliders touch; the rolling resistance, the sound and the particles are for scripts to use,
-since contacts neither slow rolling bodies by it nor play or spawn anything. A `PhysicsMaterial` field picks one in the
+their combine modes where colliders touch, and plays the `ImpactSound` of each side where a collision begins when the
+project's mixer names a bus for impact sounds (its `Impacts`, [Mixers](Editor.md#mixers); louder for a stronger impact,
+none below its least impulse; a new mixer plays none); the rolling resistance and the particles are for scripts to use,
+since contacts neither slow rolling bodies by it nor spawn anything. A `PhysicsMaterial` field picks one in the
 inspector, `Assets.Load<PhysicsMaterial>("Surfaces/Gravel.sphysmat")` loads one by path, and a raycast names the one it
 hit in `RaycastHit.Material`: the collider's `Material`, or for a triangle of a mesh collider its submesh's entry of
 `Materials`; null when the surface has none and the collider's own `Friction` and `Restitution` apply. Reading a member

@@ -54,7 +54,7 @@ namespace Strada
 	{
 		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set or default
 		// layout.
-		constexpr char const* DockspaceName = "Strada.Dockspace.v10";
+		constexpr char const* DockspaceName = "Strada.Dockspace.v11";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
 		constexpr char const* NewScriptPopup = "New Script";
 		constexpr char const* SceneExtension = ".sscene";
@@ -834,6 +834,9 @@ namespace Strada
 			case ScreenshotWindow::InputActions:
 				name = InputActionsPanel::WindowName;
 				break;
+			case ScreenshotWindow::Mixer:
+				name = MixerPanel::WindowName;
+				break;
 			case ScreenshotWindow::Graph:
 			{
 				// Named by its file, as its window's title names it ("Player"); the ID after the title finds the window.
@@ -917,6 +920,8 @@ namespace Strada
 			{
 				m_VisualScripts->DropAfterDraw();
 			}
+			// The panels are not drawn: the Mixer's audition of a snapshot ends.
+			m_MixerPanel.OnHidden();
 			m_StartScreenPanel.OnImGuiRender(m_StartScreen, m_ExampleCopies, &m_StartScreenThumbnails, m_StartScreenActions);
 			DrawDialogs();
 			return;
@@ -991,6 +996,16 @@ namespace Strada
 		else
 		{
 			m_InputActionsPanel.OnHidden();
+		}
+		// Drawn in the order the default layout docks the bottom node's windows, so that its tab does not come to the front
+		// when the layout is first built.
+		if (m_ShowMixer)
+		{
+			m_MixerPanel.OnImGuiRender(m_Operations, m_ShowMixer);
+		}
+		else
+		{
+			m_MixerPanel.OnHidden();
 		}
 		if (m_VisualScripts)
 		{
@@ -1118,6 +1133,7 @@ namespace Strada
 		ImGui::DockBuilderDockWindow(ContentBrowserPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
 		ImGui::DockBuilderDockWindow(InputActionsPanel::WindowName, bottom);
+		ImGui::DockBuilderDockWindow(MixerPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow(VisualScriptDebuggerPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow(ProfilerPanel::WindowName, bottom);
 		// The graph windows that are open join the scene view.
@@ -1280,6 +1296,7 @@ namespace Strada
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
 			ImGui::MenuItem("Renderer Info", nullptr, &m_ShowRendererInfo);
 			ImGui::MenuItem(InputActionsPanel::WindowName, nullptr, &m_ShowInputActions);
+			ImGui::MenuItem(MixerPanel::WindowName, nullptr, &m_ShowMixer);
 			ImGui::MenuItem(ProfilerPanel::WindowName, nullptr, &m_ShowProfiler);
 			if (m_VisualScripts)
 			{
@@ -1304,7 +1321,7 @@ namespace Strada
 			{
 				// The Profiler stays as it is: it records while it is open.
 				m_ShowViewport = m_ShowGameView = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowProjectSettings =
-					m_ShowContentBrowser = m_ShowConsole = m_ShowRendererInfo = m_ShowInputActions = true;
+					m_ShowContentBrowser = m_ShowConsole = m_ShowRendererInfo = m_ShowInputActions = m_ShowMixer = true;
 				m_DebuggerPanel.SetOpen(true);
 				m_ResetLayout = true;
 			}

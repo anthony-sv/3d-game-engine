@@ -672,7 +672,7 @@ TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, 2D Object, Ren
 	CHECK(labels(menu[3]) == Labels{"Camera", "Directional Light", "Point Light", "Spot Light", "Sky Light", "Post Process Volume"});
 	CHECK(labels(menu[4]) == Labels{"Particle System", "Fire", "Smoke", "Sparks"});
 	CHECK(labels(menu[5]) == Labels{"Character Controller"});
-	CHECK(labels(menu[6]) == Labels{"Audio Source", "Audio Listener"});
+	CHECK(labels(menu[6]) == Labels{"Audio Source", "Audio Listener", "Reverb Zone"});
 	CHECK(labels(menu[7]) == Labels{"Canvas", "Panel", "Image", "Text", "Button"});
 	// Every preset is in the menus once, in the section of its category.
 	size_t count = 0;
@@ -703,6 +703,13 @@ TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, 2D Object, Ren
 	CHECK(listenerEntity.GetName() == "Audio Listener");
 	CHECK(listenerEntity.HasComponent<AudioListenerComponent>());
 	CHECK(listenerEntity.GetComponent<AudioListenerComponent>().Active);
+	Result<UUID> const zone = EntityPresets::Create(operations, *menu[6].Presets[2], UUID::Invalid(), glm::vec3(0.0f));
+	REQUIRE(zone.IsOk());
+	Entity const zoneEntity = context.GetScene().GetEntityByUUID(zone.GetValue());
+	CHECK(zoneEntity.GetName() == "Reverb Zone");
+	REQUIRE(zoneEntity.HasComponent<ReverbZoneComponent>());
+	CHECK(zoneEntity.GetComponent<ReverbZoneComponent>().Bus == "Reverb");
+	CHECK(zoneEntity.GetComponent<ReverbZoneComponent>().Shape == ReverbZoneShape::Box);
 }
 
 TEST_CASE("HierarchyEditing: drops resolve to a parent and an anchor, never into an own subtree")

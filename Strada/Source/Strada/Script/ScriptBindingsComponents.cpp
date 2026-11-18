@@ -800,6 +800,7 @@ namespace Strada::ScriptGlue
 		table.Add("AudioSourceComponent_SetBus", &SetText<AudioSourceComponent, &AudioSourceComponent::Bus>);
 		AddFieldBindings<&AudioSourceComponent::Priority, "AudioSourceComponent", "Priority">(table);
 		AddFieldBindings<&AudioSourceComponent::MaxVoices, "AudioSourceComponent", "MaxVoices">(table);
+		AddFieldBindings<&AudioSourceComponent::DopplerLevel, "AudioSourceComponent", "DopplerLevel">(table);
 		table.Add("AudioSourceComponent_Play", &AudioSourceComponent_Play);
 		table.Add("AudioSourceComponent_Pause", &AudioSourceComponent_Pause);
 		table.Add("AudioSourceComponent_Stop", &AudioSourceComponent_Stop);
@@ -807,6 +808,14 @@ namespace Strada::ScriptGlue
 		table.Add("AudioSourceComponent_PlayOneShot", &AudioSourceComponent_PlayOneShot);
 
 		AddFieldBindings<&AudioListenerComponent::Active, "AudioListenerComponent", "Active">(table);
+
+		AddFieldBindings<&ReverbZoneComponent::Shape, "ReverbZoneComponent", "Shape">(table);
+		AddFieldBindings<&ReverbZoneComponent::Radius, "ReverbZoneComponent", "Radius">(table);
+		AddFieldBindings<&ReverbZoneComponent::HalfExtents, "ReverbZoneComponent", "HalfExtents">(table);
+		AddFieldBindings<&ReverbZoneComponent::FadeDistance, "ReverbZoneComponent", "FadeDistance">(table);
+		table.Add("ReverbZoneComponent_GetBus", &GetText<ReverbZoneComponent, &ReverbZoneComponent::Bus>);
+		table.Add("ReverbZoneComponent_SetBus", &SetText<ReverbZoneComponent, &ReverbZoneComponent::Bus>);
+		AddFieldBindings<&ReverbZoneComponent::SendLevel, "ReverbZoneComponent", "SendLevel">(table);
 
 		table.Add("TextComponent_GetText", &GetText<TextComponent, &TextComponent::Text>);
 		table.Add("TextComponent_SetText", &SetText<TextComponent, &TextComponent::Text>);

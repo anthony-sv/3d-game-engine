@@ -270,9 +270,24 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_SetPriority;
 	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_GetMaxVoices;
 	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_SetMaxVoices;
+	internal static delegate* unmanaged<ulong, float*, void> AudioSourceComponent_GetDopplerLevel;
+	internal static delegate* unmanaged<ulong, float*, void> AudioSourceComponent_SetDopplerLevel;
 
 	internal static delegate* unmanaged<ulong, byte*, void> AudioListenerComponent_GetActive;
 	internal static delegate* unmanaged<ulong, byte*, void> AudioListenerComponent_SetActive;
+
+	internal static delegate* unmanaged<ulong, int*, void> ReverbZoneComponent_GetShape;
+	internal static delegate* unmanaged<ulong, int*, void> ReverbZoneComponent_SetShape;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_GetRadius;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_SetRadius;
+	internal static delegate* unmanaged<ulong, Vector3*, void> ReverbZoneComponent_GetHalfExtents;
+	internal static delegate* unmanaged<ulong, Vector3*, void> ReverbZoneComponent_SetHalfExtents;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_GetFadeDistance;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_SetFadeDistance;
+	internal static delegate* unmanaged<ulong, int*, byte*> ReverbZoneComponent_GetBus;
+	internal static delegate* unmanaged<ulong, byte*, int, void> ReverbZoneComponent_SetBus;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_GetSendLevel;
+	internal static delegate* unmanaged<ulong, float*, void> ReverbZoneComponent_SetSendLevel;
 
 	internal static delegate* unmanaged<ulong, int*, byte*> TextComponent_GetText;
 	internal static delegate* unmanaged<ulong, byte*, int, void> TextComponent_SetText;
@@ -550,6 +565,9 @@ internal static unsafe class InternalCalls
 	// 1 when a voice started.
 	internal static delegate* unmanaged<ulong, Vector3*, float, byte*, int, byte> Audio_PlayClipAtPoint;
 	internal static delegate* unmanaged<int> Audio_GetActiveVoiceCount;
+	internal static delegate* unmanaged<byte*, int, float, byte> Audio_TransitionTo;
+	internal static delegate* unmanaged<int*, byte*> Audio_GetCurrentSnapshot;
+	internal static delegate* unmanaged<byte*, int, float> Audio_GetBusPeak;
 
 	internal static delegate* unmanaged<byte*, int, int> Assets_FindType;
 	internal static delegate* unmanaged<int, int*, byte*> Assets_GetTypeName;

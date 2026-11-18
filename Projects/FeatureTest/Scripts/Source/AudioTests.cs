@@ -4,9 +4,10 @@ using Strada.Testing;
 namespace FeatureTest;
 
 /// <summary>Audio sources, loaded and streamed, their one-shots and voice fields, clips played at points, the project's mixer
-/// (Audio/FeatureTest.smixer: Master over Music and Effects, Voices under Effects) and the game's values of its buses. The
-/// scene's Speaker has Audio/Beep.wav and does not play on start; test runs play into the null output, which still keeps
-/// time, so the checks assert what the main thread knows at a call, never that a sound has ended.</summary>
+/// (Audio/FeatureTest.smixer: Master over Music and Effects, Voices under Effects), the game's values of its buses, its
+/// snapshots and its meters. The scene's Speaker has Audio/Beep.wav and does not play on start; test runs play into the null
+/// output, which still keeps time, so the checks assert what the main thread knows at a call, never that a sound has
+/// ended.</summary>
 public sealed class AudioTests : FeatureTestScript
 {
 	public Entity? Speaker;
@@ -36,6 +37,10 @@ public sealed class AudioTests : FeatureTestScript
 			Assert.AreEqual(2.0f, source.MinDistance);
 			source.MaxDistance = 40.0f;
 			Assert.AreEqual(40.0f, source.MaxDistance);
+			Assert.AreEqual(1.0f, source.DopplerLevel);
+			source.DopplerLevel = 0.5f;
+			Assert.AreEqual(0.5f, source.DopplerLevel);
+			source.DopplerLevel = 1.0f;
 		});
 		Check("a source plays one-shots on voices of its own, and the scene plays a clip at a point", () =>
 		{
@@ -87,6 +92,18 @@ public sealed class AudioTests : FeatureTestScript
 			Assert.IsFalse(mixer.IsBusMuted("Music"));
 			Audio.SetBusMuted("Music", false);
 			Audio.SetBusVolume("Music", 0.0f);
+		});
+		Check("the mix blends to the mixer's snapshots, and a bus's peak reads as its meter does", () =>
+		{
+			// The game starts with the mixer's own values; a snapshot is named back as the mixer names it. Test runs mix into the
+			// null output in real time, so the peak is only known to be a level, not which.
+			Assert.AreEqual(string.Empty, Audio.CurrentSnapshot);
+			Assert.IsTrue(Audio.TransitionTo("paused", 0.25f));
+			Assert.AreEqual("Paused", Audio.CurrentSnapshot);
+			float peak = Audio.GetBusPeak("Master");
+			Assert.IsTrue(float.IsFinite(peak) && peak >= 0.0f, $"peak {peak}");
+			Assert.IsTrue(Audio.TransitionTo(string.Empty, 0.0f));
+			Assert.AreEqual(string.Empty, Audio.CurrentSnapshot);
 		});
 	}
 
