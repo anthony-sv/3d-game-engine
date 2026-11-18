@@ -110,7 +110,13 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
 **Architecture**
 - Module layering from `Docs/Architecture.md` §4 is respected; public headers avoid third-party includes where
   practical; `ComponentRegistry` stays the single source of truth for components.
-- File formats changed? Version bumped and migration added.
+- File formats changed? A change an older reader would refuse or misread takes the next version with its migration
+  (or a stated null one) and a fixture of the new version beside the old ones' (scenes and prefabs: Architecture.md
+  §7.3, "Adding a version"); a new field with a default is a compatible field and needs none.
+- Mixing-thread code (`AudioMixer::Render` and what it calls) allocates, locks, waits and logs nothing; the main thread
+  reaches the mix only by commands on the audio queue; a new effect parameter that is a gain or a mix ramps per frame.
+- Input read in fixed steps goes through actions (one fixed step sees each press); nothing reacts to a press after a
+  latent wait, which reads no edge.
 - `ThirdPartyNotices.md`, `Docs/` and skills updated when behavior, dependencies or workflows change.
 
 ## 4. Fix, then re-run the gates

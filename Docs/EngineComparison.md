@@ -3,22 +3,23 @@
 Research snapshot of October 2026, revised November 2026: what the four best-known engines offer, where Strada stands
 against them, what it lacks to be a professional engine, how the engines reach their users, and what a realistic
 motorcycle game asks of it. [Roadmap.md](Roadmap.md) turns this into a plan. Strada is described as the tree stands
-after the second slice of First Ride, "Scale, contact and sight", on 2026-11-16: visual scripting (landed on 2026-11-04,
-at `d130bc1`), the documentation set, Front Door's start screen, project templates, examples and agent-ready projects
+after the third slice of First Ride, "Feel and sound", on 2026-11-18: visual scripting (landed on 2026-11-04, at
+`d130bc1`), the documentation set, Front Door's start screen, project templates, examples and agent-ready projects
 (2026-11-13), the first slice's profiler, physics step control, data assets, curves, per-game data folders and the first
 part of the Moto sample (2026-11-15), and the second slice's instancing, physics materials, contact data and physics
-queries, with Moto's circuit dressed (§2.1); the October snapshot described `fc3d877` (2026-10-13). The other engines
-are described as of the versions in §3, and §3.1 lists what was re-checked on 2026-11-07 and what was not.
+queries, with Moto's circuit dressed (2026-11-16), and the third slice's audio mixer, input actions with rebinding and
+script field arrays, with Moto heard and steered (§2.1); the October snapshot described `fc3d877` (2026-10-13). The
+other engines are described as of the versions in §3, and §3.1 lists what was re-checked on 2026-11-07 and what was not.
 
 ## 1. Summary
 
-- **Strada is a sound foundation with the breadth of an early engine.** About 69,000 lines of engine code (C++ and
-  HLSL), 8,200 of C# scripting API plus 29,000 of the visual-script VM, about 128,000 of editor (75,000 of it the
-  visual-script editor) and about 182,000 of tests cover rendering, physics, sound, UI, scripting in C# and in visual
+- **Strada is a sound foundation with the breadth of an early engine.** About 83,000 lines of engine code (C++ and
+  HLSL), 9,600 of C# scripting API plus 29,000 of the visual-script VM, about 132,000 of editor (75,000 of it the
+  visual-script editor) and about 202,000 of tests cover rendering, physics, sound, UI, scripting in C# and in visual
   scripts, an editor, a profiler and export cleanly. But every 3D game ships with systems Strada does not have yet:
-  skeletal animation, compressed and streamed textures, LODs, temporal anti-aliasing, input actions, an audio mixer and
-  a UI widget set. Of the gaps the earlier snapshots listed, First Ride's first slice closed one, the profiler, and its
-  second slice closed instancing and physics queries with contact data.
+  skeletal animation, compressed and streamed textures, LODs, temporal anti-aliasing and a UI widget set. Of the gaps
+  the earlier snapshots listed, First Ride's first slice closed one, the profiler, its second slice closed instancing
+  and physics queries with contact data, and its third closed input actions with rebinding and an audio mixer.
 - **It is ahead where others are weak.** Every editor operation, graph authoring and debugging included, is an
   authenticated, fuzz-tested automation command behind an MCP server, and every edit of a scene, material or graph is
   one undo step. Unreal (Unreal MCP, experimental in 5.8, without authentication) and Unity (the Unity CLI with an MCP
@@ -51,10 +52,11 @@ are described as of the versions in §3, and §3.1 lists what was re-checked on 
 ### 2.1 What it has
 
 Line counts are physical lines per directory and file type (C++ and HLSL under `Strada/`, C# under `Strada-ScriptCore/`,
-C++ under `StradaEditor/`, C++ and C# under `Tests/`), measured the same way at every commit. On 2026-11-16, at the end
-of First Ride's second slice, the engine library has 69,000 lines, the C# scripting API and the visual-script VM 8,200
-and 29,000, the editor 128,200 (74,800 of them visual scripting) and the tests 181,700; the figures in the text are
-rounded. At the end of the first slice (2026-11-15) they were 64,400, 7,500 and 29,000, 126,800 (74,800: the curve
+C++ under `StradaEditor/`, C++ and C# under `Tests/`), measured the same way at every commit. At the end of First
+Ride's third slice (2026-11-18), the engine library has 83,100 lines, the C# scripting API and the visual-script
+VM 9,600 and 29,300, the editor 131,700 (75,100 of them visual scripting) and the tests 201,700; the figures in the text
+are rounded. At the end of the second slice (2026-11-16) they were 69,000, 8,200 and 29,000, 128,200 (74,800) and
+181,700; at the end of the first slice (2026-11-15) they were 64,400, 7,500 and 29,000, 126,800 (74,800: the curve
 editor had moved out of visual scripting into a widget the editor shares) and 169,600; at the end of Front Door
 (2026-11-13) they were 57,700, 6,800 and 29,000, 122,100 (76,600) and 157,000, and at `d130bc1` 55,600, 6,800 and
 29,000, 115,800 (76,600) and 148,200.
@@ -63,26 +65,28 @@ editor had moved out of visual scripting into a widget the editor shares) and 16
 |---|---|
 | Platforms | Windows, macOS (MoltenVK), Linux; games export for the host platform |
 | Rendering | Vulkan 1.3 through NVRHI; forward PBR (metallic-roughness, multiple-scattering compensation), image-based lighting from HDRIs, cascaded shadows with PCSS, point and spot shadows, GTAO, bloom, ACES/AgX/PBR Neutral/Reinhard tonemapping, color grading and lens effects in blended post-process volumes, FXAA, frustum and light culling, instancing (the instances of one mesh, submesh and material are one draw in each of the opaque, shadow and entity-ID passes, from per-instance data over a world-transform cache), GPU timers, picking, signed-distance text, sprites, CPU particles |
-| Assets | Static meshes from glTF, FBX and OBJ with materials; PNG/JPG/TGA/BMP textures; HDR environments; fonts; WAV/FLAC/MP3/Ogg clips; prefabs; visual scripts (`.sgraph` version 3: scripts and function libraries; versions 1 and 2 load); data assets, files of one reflected struct whose format, editor, commands and fuzz test come from one registration: curves (`.scurve`) and physics materials (`.sphysmat`); persistent handles; refresh when files change |
-| Scene | EnTT ECS with 28 components and 207 fields (31 are registered; the other three are the entity's ID, its hierarchy links and its prefab link, which no inspector lists) described once by field tables (serialization, inspector, automation, scripting all derive from them), hierarchies, JSON scenes, prefabs |
+| Assets | Static meshes from glTF, FBX and OBJ with materials; PNG/JPG/TGA/BMP textures; HDR environments; fonts; WAV/FLAC/MP3/Ogg clips; prefabs; visual scripts (`.sgraph` version 3: scripts and function libraries; versions 1 and 2 load); data assets, files of one reflected struct whose format, editor, commands and fuzz test come from one registration: curves (`.scurve`) and physics materials (`.sphysmat`), mixers (`.smixer`) and input actions (`.sinput`); persistent handles; refresh when files change |
+| Scene | EnTT ECS with 29 components and 217 fields (32 are registered; the other three are the entity's ID, its hierarchy links and its prefab link, which no inspector lists) described once by field tables (serialization, inspector, automation, scripting all derive from them), hierarchies, JSON scenes and prefabs (format 2 since the third slice, whose first migration mechanism keeps version 1 loading) |
 | Physics | Jolt 5.6: dynamic, kinematic and static bodies, box/sphere/capsule/mesh colliders, physics materials (`.sphysmat`: friction and restitution with combine modes, rolling resistance and a surface name; per collider and per submesh of a triangle mesh; edited while a scene plays), triggers, fixed/hinge/ball/distance/slider joints with limits and motors, character controllers, layers; raycasts, every hit along a ray, sphere, box and capsule casts and overlaps with layer masks in a stable order; contact points (point, normal, impulse, both materials) on collision events for C# and graphs. Fixed steps of 0.5 ms to 0.1 s, up to 64 a frame, with 1 to 4 collision steps each; dynamic and kinematic bodies drawn between their last two steps; Jolt called in body-ID order, so one binary on one machine simulates the same at any frame rate when scripts act in fixed steps; a physics state hash in every test summary and in-memory snapshots |
-| Audio | miniaudio: 2D and 3D sources with inverse-distance attenuation, streamed music, a listener |
+| Audio | miniaudio under a mixer of Strada's: 2D and 3D sources with inverse-distance attenuation and doppler, streamed music, a listener; a pool of voices per source with one-shots, priorities and stealing (64 mixed at once); the `.smixer` data asset: buses in a tree under `Master` with volumes, mutes and up to 8 effects each (low-pass, high-pass, peaking and shelf filters, a delay, a reverb, a compressor, a limiter), ducking, snapshots the mix blends to, reverb zones that send a source's sound to a bus, meters, impact sounds from physics materials; every change reaches the mixing thread as a command of the audio queue; the player records the mix to a file (`--audio-capture`) |
+| Input | GLFW's keys, mouse and up to 16 gamepads, read directly or through input actions (`.sinput`): buttons, axes and 2D vectors with bindings, composites, dead zones, response curves, inversion and scale, evaluated once a frame, each press seen by exactly one fixed step; events and queries for C# and graphs, overrides that scripts and agents set, rebinding while the game runs with conflicts reported and profiles kept in the game's data folder, an Input Actions panel |
 | UI | Entity-based screen-space UI: canvases with scale modes, anchored rectangles, images with rounded corners, wrapped text, buttons |
-| Scripting | C# on .NET 10 (CoreCLR) with hot reload, typed component views, inspector fields, an in-game test framework. Visual scripts in the same runtime: statically typed graphs whose node library holds 92 built-in kinds plus a node for every usable member of the scripting API and every `[VisualNode]` game member; formulas compiled to one VM step; latent flow; typed events across graphs; function libraries; timelines; a debugger; edits that apply to the running game |
+| Scripting | C# on .NET 10 (CoreCLR) with hot reload, typed component views, inspector fields (arrays and lists of every field type included), an in-game test framework. Visual scripts in the same runtime: statically typed graphs whose node library holds 94 built-in kinds plus a node for every usable member of the scripting API and every `[VisualNode]` game member; formulas compiled to one VM step; latent flow; typed events across graphs; function libraries; timelines; a debugger; edits that apply to the running game |
 | Editor | Docking ImGui editor: hierarchy, generated inspector (lists of structs edited element by element), content browser with thumbnails, scene and game views, gizmos and overlays, undo/redo of every edit of a scene, material or graph, play/simulate/pause/step, game export with a smoke test. A start screen when no project is open (recent projects, a New Project form with a card per template, examples that open as copies, the guides, and the .NET and GPU the machine has) and File > Set Up for Coding Agents.... Graph windows (palette, comments, find, quick fixes, minimap, bookmarks, arranging, a curve editor for timelines, which curve assets share), the Visual Script Debugger panel, a game preview in the graph canvas and Game View Beside, window captures, and the `--maximized` and `--window-size` options |
 | Profiling | The engine's own recorder: CPU zones from every thread (the main loop's phases, the scene's, physics steps, C# scripts per class, graphs per graph with the VM's steps, audio mixing and streaming, uploads, the renderer's phases, the editor's graph work), GPU time per render pass with NVRHI markers for RenderDoc, the renderer's draws, batches and instances in each frame, a Profiler panel, captures in the Chrome trace event format that the editor opens again (not yet tried in a trace viewer), `profiler.*` commands and `StradaRuntime --profile`, which logs each subsystem's median; compiled out of Dist builds |
-| Automation | 117 JSON-RPC commands in 22 domains over an authenticated local socket (90 plus 27 `graph.*`: 16 for authoring and windows, 11 for debugging and live edits), the `strada` CLI and MCP server (123 tools: the commands plus 6 Poly Haven tools), Poly Haven imports |
-| Quality | 2,278 C++ test cases and 759 C# test methods (counted on 2026-11-16); fuzzing of every file format and automation command (templates, the example catalog, the build-tree marker and the agent kit's files included, profiler captures and every data asset type), graph documents, the views file, `graph.edit` batches, debug sessions and the debug protocol included; a coverage test that builds and runs a graph for every node of the library; enforced feature-test coverage of every component and scripting API member; readability tests of sample graphs; doc tests that hold documented agent sessions verbatim; 5 golden images; the engine's tests in four ctest shards, the editor's in five and the player's in three, whose partitions a test checks; tests that start a game give it an isolated per-user folder; CI on three platforms (seven build jobs and a format check, each build job a Build and a Test step), and a ThreadSanitizer workflow for the threading cases on Linux |
+| Automation | 124 JSON-RPC commands in 25 domains over an authenticated local socket (97 plus 27 `graph.*`: 16 for authoring and windows, 11 for debugging and live edits), the `strada` CLI and MCP server (130 tools: the commands plus 6 Poly Haven tools), Poly Haven imports |
+| Quality | 2,534 C++ test cases and 794 C# test methods (counted on 2026-11-18); fuzzing of every file format and automation command (templates, the example catalog, the build-tree marker and the agent kit's files included, profiler captures and every data asset type), graph documents, the views file, `graph.edit` batches, debug sessions and the debug protocol included; a coverage test that builds and runs a graph for every node of the library; enforced feature-test coverage of every component and scripting API member; readability tests of sample graphs; doc tests that hold documented agent sessions verbatim; 5 golden images; the engine's tests in four ctest shards, the editor's in five and the player's in three, whose partitions a test checks; tests that start a game give it an isolated per-user folder; CI on three platforms (seven build jobs and a format check, each build job a Build and a Test step), and a ThreadSanitizer workflow for the threading cases on Linux |
 | Samples | FeatureTest (every component, the whole scripting API, graphs that use every built-in node kind); Blocks (falling blocks in C#); the Showcase (every engine feature in exhibits, among them a garden of chimes played by six graphs); Prism Break (a brick breaker made of 13 graphs and no C#, authored through MCP, played on input actions with a keyboard or a gamepad, whose 33 test checks are graphs too and pass in the exported game); Moto (a motorcycle time trial in the making, of graphs alone: so far a generated 2.6 km circuit whose surfaces have physics materials, lined with 10,000 instanced props, a generated superbike and rider on the grid, a camera tour on a graph's timeline, a ghost bike riding a racing line with a synthesized engine heard through a mixer, trackside cameras cut to on input actions, an echo under the footbridge and a pause snapshot, with 24 test checks that are graphs) |
 | Templates and examples | Three templates that new projects start from: Empty 3D (the editor's default scene), Graph Starter (Orb Run, a game made of visual scripts that needs no .NET SDK) and C# Starter (Orb Run in C#, with one graph that calls a node of its code); the test scenes of the two games pass in the player. Three examples that open as copies and never in place: Prism Break, Blocks and the Showcase, which says which command restores its downloaded assets when they are missing. `template.json` and `catalog.json` are versioned and fuzzed |
 | Agent kit | A new project is set up for coding agents by default: a managed block in `AGENTS.md`, `CLAUDE.md`, a `.mcp.json` entry for the engine's `strada` MCP server, the game-making skill and the guides under `.strada/docs/`. Text outside the managed parts is never touched, and an existing project is changed only through a plan the user confirms (error 1010; File > Set Up for Coding Agents...) |
-| Documentation | Guides to getting started, the editor, C# scripting, visual scripting and working with agents; the automation reference and the architecture contract; generated references of the components (28, 207 fields) and the scripting API (91 types, 777 members), which the engine's tests fail on when they disagree with it; guide examples that are code the tests run. The README shows the engine in screenshots the engine took of itself (the player's `--screenshot`, the editor's `viewport.screenshot`) |
+| Documentation | Guides to getting started, the editor, C# scripting, visual scripting and working with agents; the automation reference and the architecture contract; generated references of the components (29, 217 fields) and the scripting API (98 types, 836 members), which the engine's tests fail on when they disagree with it; guide examples that are code the tests run. The README shows the engine in screenshots the engine took of itself (the player's `--screenshot`, the editor's `viewport.screenshot`) |
 
 ### 2.2 Limits found in the code
 
-These are the concrete limits behind the gaps of §5, re-checked on 2026-11-16. The lines cited are those of `d130bc1`:
-First Ride's first two slices moved lines in some of these files, but lifted only what the third and fifth items say
-(the second slice's instancing, the first slice's physics step and the second's queries and contacts); neither visual
+These are the concrete limits behind the gaps of §5, re-checked on 2026-11-18. The lines cited are those of `d130bc1`:
+First Ride's first three slices moved lines in some of these files, but lifted only what the third, fifth, seventh,
+eighth and tenth items say (the second slice's instancing, the first slice's physics step and the second's queries and
+contacts, the third's mixer, input actions and public arrays); neither visual
 scripting nor Front Door lifted any of the first eight.
 
 - **No skinning or animation.** `MeshImporter.cpp:551-556` imports skinned meshes in their bind pose with a warning;
@@ -91,9 +95,9 @@ scripting nor Front Door lifted any of the first eight.
   load time, decoded on the main thread and uploaded lazily inside `EndScene`: a 4K texture takes about 85 MB of video
   memory instead of about 21 MB as BC7.
 - **No LODs and no GPU culling.** Since First Ride's second slice the instances of one mesh, submesh and material are
-  one draw in each pass (per-instance data in a structured buffer, push constants of 16 bytes, Architecture.md §6.2),
-  so Moto's 10,000 props cost a median of 149 draws a frame; but every instance is drawn at full detail, and culling is
-  per instance on the CPU against the frustum (no occlusion culling).
+  one draw in each pass (per-instance data in a structured buffer, push constants of 16 bytes, Architecture.md §6.2), so
+  Moto's 10,000 props cost a median of 149 draws a frame (170 with the ghost bike since the third slice); but every
+  instance is drawn at full detail, and culling is per instance on the CPU against the frustum (no occlusion culling).
 - **Every light for every pixel.** `ForwardPBR.hlsl:288` loops over all lights that reach the view (up to 256,
   `RendererInterop.h:14`): no clustered or tiled light lists.
 - **Physics for gameplay, not simulation.** Since First Ride's second slice `PhysicsScene` answers raycasts, every hit
@@ -105,14 +109,19 @@ scripting nor Front Door lifted any of the first eight.
   (`ProjectPhysicsSettings`: steps from 0.5 ms, at most 1 to 64 a frame, default 8, and 1 to 4 collision steps each), so
   a 1 kHz loop at 60 fps fits; determinism holds per platform only (Jolt is built without
   `CROSS_PLATFORM_DETERMINISTIC`).
-- **Plain sound.** `AudioScene.cpp:172-175` turns miniaudio's doppler off; each entity has one sound and there is no
-  one-shot API (`AudioScene.cpp:64`); there are no buses, effects, snapshots or procedural sources, though miniaudio's
-  node graph supports all of them.
-- **Raw input.** GLFW keys, mouse and gamepad polling (`Input.h:16-91`, `Window.cpp:86-106`): no action maps, rebinding,
-  rumble, haptics or wheels.
+- **Sound without events or space.** Since First Ride's third slice a mixer of Strada's runs on miniaudio (voices and
+  one-shots, buses with effects, snapshots, ducking, doppler computed by the engine, reverb zones), but there are no
+  sound events or containers (AU3), no procedural sources (AU2), no HRTF, occlusion or convolution reverb (AU4), no
+  per-voice effects or distance curves, and one mixer at a time; its reverb is not the same filter on every platform
+  (verblib sizes its delay lines in `long double`).
+- **Input on GLFW's devices.** Since the third slice games read input actions (bindings with composites, dead zones,
+  curves, rebinding while the game runs with profiles in the game's data folder, an editor panel), one action map at a
+  time, on GLFW's keys, mouse and up to 16 gamepads (`Input.h`, `Window.cpp`): no rumble, haptics, gyro, touch, wheels
+  or more devices (I2).
 - **One scene at a time, loaded synchronously** (`SceneRunner.cpp:114-136`), and no asset packages: exports copy the
   asset directory.
-- **Visual scripts' limits.** No public array variables (a public array is `NotExposable`), no maps or sets, no state
+- **Visual scripts' limits.** Public arrays are inspector fields since the third slice, but there are no maps or sets,
+  no arrays of arrays, no state
   graphs, no macros, interfaces or inheritance, and no latent `[VisualNode]` members. The debugger attaches only in the
   editor. Three performance targets are still missed (Architecture.md §15; measured again with the profiler at First
   Ride's first slice gate): watching a 2,000-node graph adds 2.0-2.3 ms to its frame against a target of 1 ms for the
@@ -181,9 +190,9 @@ were re-checked.
 
 ### 3.1 What was re-checked in November 2026
 
-| Part | Re-checked on 2026-11-07 (Strada's cells again on 2026-11-13, 2026-11-15 and 2026-11-16) | From October, not re-checked |
+| Part | Re-checked on 2026-11-07 (Strada's cells again on 2026-11-13, 2026-11-15, 2026-11-16 and 2026-11-18) | From October, not re-checked |
 |---|---|---|
-| §2 and every Strada cell | All of it, from the repository as First Ride's second slice leaves it (first at `d130bc1`, then after Front Door): counts, limits with their evidence lines. The build folder's sizes (§2.2, §4.10) are the `d130bc1` measurement | – |
+| §2 and every Strada cell | All of it, from the repository as First Ride's third slice leaves it (first at `d130bc1`, then after Front Door): counts, limits with their evidence lines. The build folder's sizes (§2.2, §4.10) are the `d130bc1` measurement | – |
 | §3 | The last column of the table | The rest of the table |
 | §4.1-§4.6, §4.9 | – | Every competitor cell |
 | §4.7 and §4.7.1, scripting | The vendors' debugger and live-edit documentation | Cells marked *(unverified)* and the other §4.7 rows |
@@ -258,16 +267,16 @@ Competitor cells come from the October 2026 research except where §3.1 lists th
 
 | Feature | Unreal | Unity | Godot | O3DE | Strada |
 |---|---|---|---|---|---|
-| Mixing, effects | ✅ Submixes, modulation | ✅ AudioMixer, snapshots | ✅ Buses with effects | ✅ Through Wwise | ❌ |
+| Mixing, effects | ✅ Submixes, modulation | ✅ AudioMixer, snapshots | ✅ Buses with effects | ✅ Through Wwise | ✅ Buses with filters, delay, reverb, compressor and limiter, ducking, snapshots (one mixer at a time) |
 | Procedural audio, DSP graphs | ✅ MetaSounds, Quartz | 🟡 Scriptable processors (6.3) | 🟡 Generator streams | ❌ | ❌ |
-| Spatial audio | ✅ | ✅ | ✅ | ✅ | 🟡 Distance and panning, doppler off |
+| Spatial audio | ✅ | ✅ | ✅ | ✅ | 🟡 Distance and panning, doppler, reverb zones; no HRTF or occlusion |
 | Middleware | ✅ Wwise, FMOD | ✅ Wwise, FMOD | 🟡 Community | ✅ Wwise | ❌ |
 
 ### 4.6 Input, UI and gameplay systems
 
 | Feature | Unreal | Unity | Godot | O3DE | Strada |
 |---|---|---|---|---|---|
-| Input actions and rebinding | ✅ Enhanced Input | ✅ Input System | ✅ InputMap | ✅ Input bindings | ❌ Raw keys, mouse and gamepads |
+| Input actions and rebinding | ✅ Enhanced Input | ✅ Input System | ✅ InputMap | ✅ Input bindings | ✅ Actions with composites, dead zones and curves, rebinding with saved profiles; one map at a time |
 | Rumble, haptics | ✅ Force feedback assets | ✅ | ✅ (SDL3 since 4.5) | *(unverified)* | ❌ |
 | Racing wheels with force feedback | ❌ Third-party plugins | ❌ Logitech SDK | ❌ | ❌ | ❌ |
 | UI framework | ✅ UMG, CommonUI | ✅ UI Toolkit (world space too), uGUI | ✅ Controls, containers, themes | ✅ LyShine | 🟡 Five element kinds, no layouts, scrolling or text input |
@@ -289,10 +298,12 @@ Competitor cells come from the October 2026 research except where §3.1 lists th
 #### 4.7.1 Visual scripting in detail
 
 Re-checked in November 2026 against the vendors' documentation (§8); what could not be confirmed is marked
-*(unverified)*. Godot has had no visual scripting since 4.0. Strada's column describes the tree of 2026-11-16; visual
+*(unverified)*. Godot has had no visual scripting since 4.0. Strada's column describes the tree of 2026-11-18; visual
 scripting itself has changed since `d130bc1` only in its curves (a timeline evaluates through the engine's curve, and a
 curve asset's `Evaluate` is a pure node), in `Event.CollisionEnter`'s contact outputs (point, normal, impulse, surface)
-and in the nodes new API members brought (physics materials, shape casts).
+in the nodes new API members brought (physics materials, shape casts, the mixer, input actions and rebinding), in the
+two input action event kinds (`Event.ActionPressed`, `Event.ActionReleased`), in the arranger, which places a region's
+pure inputs beside the nodes that read them, and in public array variables, which the inspector edits.
 
 | Feature | Strada | Blueprints (UE 5.8) | Unity Visual Scripting (1.9) | O3DE Script Canvas (26.05) |
 |---|---|---|---|---|
@@ -400,11 +411,13 @@ all):
 10. Physics queries beyond raycasts, contact data, more constraint types.
 11. Cooked packages for shipping.
 
-On 2026-11-16 the profiler (8) is present, from First Ride's first slice, without a memory profiler or a frame debugger.
+On 2026-11-18 the profiler (8) is present, from First Ride's first slice, without a memory profiler or a frame debugger.
 The second slice brought instancing (3) without LODs or better culling, and physics queries with contact data (10)
-without new constraint types, so both are partly there; the other eight are still missing, temporal anti-aliasing (4)
-among them: its three tracks were cut from the slice (Roadmap.md §4.3). For saves (9) an exported game now has a data
-folder of its own, which no script API reaches yet.
+without new constraint types, so both are partly there. The third brought input actions with rebinding (5) without
+rumble or more devices, and the audio mixer (6) whole, so 5 is partly there and 6 is present; the other six are still
+missing, temporal anti-aliasing (4) among them: its three tracks were cut from slice 2 and not scheduled in slice 3
+(Roadmap.md §4.3). For saves (9) an exported game has a data folder of its own, which holds the player's bindings
+profiles since the third slice; no script API for saves reaches it yet.
 
 **Tier 2, expected of a professional engine:** terrain; foliage; a physical sky with fog and time of day; reflection
 probes and SSR; decals; custom shaders and a material graph; GPU particles; a timeline and a camera system; navigation

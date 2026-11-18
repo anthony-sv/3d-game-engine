@@ -31,7 +31,7 @@ took of itself, with its own screenshot commands.</sub>
 Strada is a cross-platform engine for 3D games, built to a production bar: every change ships with tests, every file
 format users write is versioned and fuzzed, and CI builds and tests it on Windows, macOS and Linux.
 
-- **An editor that agents can drive.** Every editor operation is one of 117 documented automation commands, served to AI
+- **An editor that agents can drive.** Every editor operation is one of 124 documented automation commands, served to AI
   agents as MCP tools. Agents build scenes, materials, prefabs and scripts, then play, test, debug and export the game,
   through the same undo history as a person at the keyboard, and every new project is set up for coding agents.
 - **A first run that works.** A start screen with your recent projects, three templates to start from (two of them
@@ -155,8 +155,8 @@ graph), values sit on the wires, and the inspector shows the graph's variables.<
 
 ## Built for AI agents
 
-The editor runs an automation server, and `strada mcp` serves its 117 commands as Model Context Protocol tools (plus
-Poly Haven search and import, 123 tools in all). Claude Code and any other MCP client can then drive the editor you are
+The editor runs an automation server, and `strada mcp` serves its 124 commands as Model Context Protocol tools (plus
+Poly Haven search and import, 130 tools in all). Claude Code and any other MCP client can then drive the editor you are
 looking at, or a headless one. Every command has a JSON schema and an entry in [Docs/Automation.md](Docs/Automation.md);
 the edits they make to scenes and graphs are undo steps like any other; and the editor's tests fuzz every command except
 five that replace the open project or need a .NET build, which have tests of their own. [Docs/Agents.md](Docs/Agents.md)
@@ -220,10 +220,11 @@ per entity, and every frame counts its draws, batches and instances. Particles, 
 frustum and light culling, GPU time per pass. Shaders are HLSL, compiled at build time.
 </td></tr>
 <tr><td><b>Scene and assets</b></td><td>
-EnTT entities with 28 components (the <a href="Docs/Components.md">component reference</a> lists every field),
+EnTT entities with 29 components (the <a href="Docs/Components.md">component reference</a> lists every field),
 hierarchies, prefabs, JSON scenes. glTF/GLB, FBX and OBJ import with materials and
 textures; HDR environments; WAV, FLAC, Ogg and MP3; TrueType fonts; built-in primitives. Data assets of one registration
-each: curves (<code>.scurve</code>) that scripts and graphs evaluate, and physics materials (<code>.sphysmat</code>).
+each: curves (<code>.scurve</code>) that scripts and graphs evaluate, physics materials (<code>.sphysmat</code>),
+mixers (<code>.smixer</code>) and input actions (<code>.sinput</code>).
 </td></tr>
 <tr><td><b>Physics</b></td><td>
 Jolt Physics, authored through components and controlled from scripts: rigid bodies, box, sphere, capsule and mesh
@@ -235,7 +236,15 @@ sub-steps, bodies drawn between steps, and a state hash that test runs print: on
 frame rate when scripts act on physics in their fixed steps.
 </td></tr>
 <tr><td><b>Audio</b></td><td>
-miniaudio with 3D spatialization and listeners; music and long ambience stream from their files.
+miniaudio with 3D spatialization, doppler and listeners; music and long ambience stream from their files. A mixer
+(<code>.smixer</code>): buses with volumes, effects (filters, delay, reverb, compressor, limiter) and ducking, snapshots
+the mix blends to, reverb zones, meters, one-shots on a pool of voices per source, and impact sounds from physics
+materials. Every change reaches the mixing thread through a queue; the player records the mix to a WAV file.
+</td></tr>
+<tr><td><b>Input</b></td><td>
+Keyboard, mouse and gamepads read directly or through input actions (<code>.sinput</code>): bindings with composites,
+dead zones, response curves and inversion, each press seen by exactly one fixed step, and rebinding while the game runs,
+kept in the game's own data folder.
 </td></tr>
 <tr><td><b>UI</b></td><td>
 Screen-space HUDs and menus built from entities: canvases that fit any screen, anchored rectangles, images with rounded
@@ -245,14 +254,16 @@ corners, wrapped text, and buttons that scripts hear.
 C# on .NET 10, hosted in-process, with hot reload in the editor (<a href="Docs/Scripting.md">scripting guide</a>,
 <a href="Docs/ScriptingAPI.md">API reference</a>), and visual scripts with a debugger and live editing
 (<a href="Docs/VisualScripting.md">visual scripting guide</a>). The
-two mix freely: graphs call C#, and C# sends events to graphs.
+two mix freely: graphs call C#, and C# sends events to graphs. C# array and list fields and a graph's public arrays are
+inspector fields.
 </td></tr>
 <tr><td><b>Editor</b></td><td>
 Docking and multi-viewport ImGui; a start screen with recent projects, templates, examples and the guides; scene and
 game views with gizmos, overlays and picking; hierarchy with create menus of
 ready-made entities; generated inspector, lists of structs included; content browser with previews; project and scene
 settings; undo and redo; play, pause, step and simulate; a node editor for visual scripts with a debugger; a curve
-editor; a Profiler of every thread and GPU pass, with captures.
+editor; a Profiler of every thread and GPU pass, with captures; a Mixer with meters, and an Input Actions panel that
+binds a control by pressing it.
 </td></tr>
 <tr><td><b>Projects</b></td><td>
 Three templates new projects start from: Empty 3D, and Orb Run, a small game, made of visual scripts (Graph Starter, no
@@ -263,7 +274,7 @@ guides; File &gt; Set Up for Coding Agents... does the same for an existing proj
 (<a href="Docs/Agents.md#projects-set-up-for-coding-agents">agent setup</a>).
 </td></tr>
 <tr><td><b>Automation</b></td><td>
-An automation server with 117 commands, the <code>strada</code> command-line tool and its MCP server
+An automation server with 124 commands, the <code>strada</code> command-line tool and its MCP server
 (<a href="Docs/Automation.md">automation reference</a>); Poly Haven HDRIs, models and texture sets searched and imported
 by name.
 </td></tr>
@@ -323,8 +334,8 @@ workflow.
 
 ## Quality
 
-- **More than 3,000 tests** in five suites: 2,278 C++ test cases (doctest) for the engine, the editor and the player,
-  and 759 C# test methods (xUnit) for the scripting API and the `strada` tool.
+- **More than 3,000 tests** in five suites: 2,534 C++ test cases (doctest) for the engine, the editor and the player,
+  and 794 C# test methods (xUnit) for the scripting API and the `strada` tool.
 - **Fuzzing.** Every file format users write is fuzzed (damaged documents are refused or repaired; what loads saves and
   loads again), and so are the automation commands, with parameters built from their schemas: each must answer once,
   never with an internal error, and undoing everything must restore the scene.

@@ -9,14 +9,18 @@ references that tests check, and a home page, `Docs/README.md`; EngineComparison
 of First Ride, "Measured" (2026-11-13 to 2026-11-15): the engine's profiler, physics step control with determinism per
 platform, data assets and curves, a per-game data folder, and the first part of the Moto sample; and its second slice,
 "Scale, contact and sight" (2026-11-15 to 2026-11-16): instancing over a world-transform cache, physics materials,
-contact data, physics queries, and Moto's circuit dressed with 10,000 props, surfaces and a generated bike. "The user"
-means anyone who uses Strada. This revision re-bases the plan on the tree as that second slice leaves it and on the
+contact data, physics queries, and Moto's circuit dressed with 10,000 props, surfaces and a generated bike; and its
+third slice, "Feel and sound" (2026-11-16 to 2026-11-18): an audio mixer with voices, buses, effects, snapshots,
+ducking, doppler and reverb zones, input actions with rebinding and saved profiles, script field arrays with the scene
+and prefab formats' first migration, Prism Break on a gamepad, and Moto heard and steered (a ghost bike with a
+synthesized engine, trackside cameras, an echo, a pause snapshot). "The user" means anyone who uses Strada. This
+revision re-bases the plan on the tree as that third slice leaves it and on the
 maintainer's decisions of 2026-11-10 and 2026-11-12 (§9). It records what visual scripting built and what it now costs
 every later item, scales the plan by the velocity visual scripting and the slices measured (§4.1), and plans the next
 four efforts. The distribution of the engine itself (an installer, signing, side-by-side versions) was designed in full
 and then cut, except for the four pieces Front Door built; what is left is in the backlog, not scheduled (§3.10). Code
 citations (`file:line`) point into `d130bc1`, where the audits read the code: the few files that Front Door edited are
-cited by symbol, and where First Ride's first two slices lifted a limit a citation shows, the row says it is resolved.
+cited by symbol, and where First Ride's first three slices lifted a limit a citation shows, the row says it is resolved.
 The plan builds on the research in [EngineComparison.md](EngineComparison.md), which compares Strada with Unreal Engine,
 Unity, Godot and O3DE and studies what a realistic motorcycle game needs. Nothing here changes the architectural
 contract: each item lands the usual way ([AGENTS.md](../AGENTS.md)), with its design added to
@@ -83,7 +87,7 @@ new share: every public scripting-API member becomes a graph node by reflection,
 | Change | What the rules require |
 |---|---|
 | A public scripting-API member | Bound by name on both sides (`ScriptBindings*.cpp` and `InternalCalls.cs`); XML docs; value checks; used by the FeatureTest scripts. As a node it must analyze and run in `VisualScriptNodeCoverageTests.cpp`, or get a `Recipe`, a `MemberTypeRecipes` entry or a checked exclusion (about 5% of nodes need one). A query gets `[PureNode]` and joins `NodeLibraryTests.ExactlyTheListedQueriesAreMarkedPure`. A rename gets a `NodeRedirect`. A member in `Tests/Data/VisualScripting/Editor/Library.json` needs the fixture regenerated |
-| A callback scripts override | A new built-in event node kind: `NodeDefinition.cs` and `BuiltinNodes.cs` (inside the right enum range), `ProgramCompiler`'s table and `VisualScriptRuntime.Invoke`'s range, `VisualScriptEngine::InvokeOn<Name>` and the scene call after the C# callback, the `Documents/Events.json` fixture, `build_features` in `Projects/FeatureTest/Tools/AuthorGraphs.py` and the pinned `FeaturesChecks`, the titles mirror test, the doc tables |
+| A callback scripts override | A new built-in event node kind: `NodeDefinition.cs` and `BuiltinNodes.cs` (inside the right enum range), `ProgramCompiler`'s table and `VisualScriptRuntime.Invoke`'s range, `VisualScriptEngine::InvokeOn<Name>` and the scene call after the C# callback, the `Documents/Events.json` fixture, `build_features` in `Projects/FeatureTest/Tools/AuthorGraphs.py` and the pinned `FeaturesChecks`, the titles mirror test, the editor clipboard's `InputEvents` table for an input event (one node per setting value, `VisualScriptClipboard.cpp`), the doc tables |
 | A component | A field table with hints, the registry list and tests, entity-reference remapping, add and remove while running, a managed class, an entity in FeatureTest's `Main.sscene` |
 | An asset type | A field-table asset is a data asset since First Ride's slice 1 (E3, §3.13): one registration gives its file, migrations, inspector, commands and fuzz test, plus a managed class with its obligations (the `strada-add-data-asset` skill); any other asset type still costs about 20 files (content browser, inspector, thumbnails, drops, automation, bindings, a typed managed class) |
 | A file format users write | A versioned header, a migration on every change, and a `Testing::DocumentMutator` fuzz test |
@@ -106,12 +110,12 @@ effort estimates in §4.3 include the obligations.
 ## 3. Backlog
 
 Item IDs are referenced by the phases and efforts (§4) and the dependency graphs (§6). The **Status** column gives each
-item's state on the tree First Ride's second slice leaves (Not started, Partly done or Done): T1, P3a, R1 and P2 are
-done, T2, T7 and P1 are partly done by the first two slices, A6, S1 and S4 are partly done by visual scripting, and DI2
-and DI3 by Front Door; nothing else in the backlog has started. Visual scripting itself, which the October backlog did
-not contain, is done (EngineComparison.md §2.1, §4.7.1), and so is Front Door (§3.10, §4.3). The **Effort** column names
-the effort that carries an item (§4.3); "–" means not yet scheduled. Slice gates update both columns (§4.5). Values that
-changed in November 2026 are explained in §3.12.
+item's state on the tree First Ride's third slice leaves (Not started, Partly done or Done): T1, P3a, R1, P2, I1, VS1
+and VS2 are done, AU1 is done but its distance curves, T2, T7 and P1 are partly done by the first two slices, A6, S1 and
+S4 are partly done by visual scripting, and DI2 and DI3 by Front Door; nothing else in the backlog has started. Visual
+scripting itself, which the October backlog did not contain, is done (EngineComparison.md §2.1, §4.7.1), and so is Front
+Door (§3.10, §4.3). The **Effort** column names the effort that carries an item (§4.3); "–" means not yet scheduled.
+Slice gates update both columns (§4.5). Values that changed in November 2026 are explained in §3.12.
 
 ### 3.1 Tooling and pipeline
 
@@ -183,7 +187,7 @@ changed in November 2026 are explained in §3.12.
 | ID | Item | E | M | Size | D | Score | Phase | Effort | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | P1 | Queries and contacts: shape casts, overlaps, contact points, normals and impulses for scripts (Effort 2). Jolt's six-DOF, cone and swing-twist constraints, constraint springs and breakable joints (Effort 3). Gear, rack-and-pinion and path constraints later (path needs W2) | 5 | 4 | M | 2-3 | 18 | 0 | 2, 3 | Partly done (slice 2: sphere, box and capsule casts, overlaps, every hit along a ray, layer masks, a stable order, `physics.query`; contact points with impulses and materials on collision events, once per frame. Casts are limited to box half extents and capsule half heights of 20 m and radii of 100 m, where Jolt's casts stay exact; graphs have no many-hit query. The constraints are Effort 3's) |
-| P2 | Physics materials: surface types as assets (friction, rolling resistance, sounds, particles), per-triangle materials on mesh and height-field colliders | 4 | 5 | S | 2 | 30 | 0 | 2 | Done for meshes (slice 2: `.sphysmat` with combine modes, a material on every collider and per submesh of a triangle mesh, live edits, `RaycastHit.Material`; rolling resistance, sounds and particles are read by scripts, not yet applied by contacts; height fields wait for W1) |
+| P2 | Physics materials: surface types as assets (friction, rolling resistance, sounds, particles), per-triangle materials on mesh and height-field colliders | 4 | 5 | S | 2 | 30 | 0 | 2 | Done for meshes (slice 2: `.sphysmat` with combine modes, a material on every collider and per submesh of a triangle mesh, live edits, `RaycastHit.Material`; since slice 3 a contact plays each side's impact sound on the mixer's impacts bus; rolling resistance and particles are read by scripts, not applied; height fields wait for W1) |
 | P3a | Step control and same-platform determinism: step rates without the 8-step cap (down to 0.0005 s), collision sub-steps, interpolated bodies, Jolt called in a fixed order, a state hash and in-memory snapshots | 3 | 5 | S | 2 | 27 | 0 | 2 | Done (slice 1; the hash leaves out the step accumulator, which snapshots carry) |
 | P3b | Cross-platform determinism: Jolt's deterministic build (about 8% slower), precise floating point without contraction in the engine code that feeds physics, identical states on x64 and arm64 | 3 | 5 | M | 3-4 | 13 | 1 | 4 | Not started |
 | P4 | Soft bodies and cloth (Jolt soft bodies) | 3 | 2 | M | 3 | 10 | Later | – | Not started |
@@ -192,7 +196,7 @@ changed in November 2026 are explained in §3.12.
 
 | ID | Item | E | M | Size | D | Score | Phase | Effort | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| AU1 | Mixer: buses (music, effects, vehicles, UI, voice), snapshots, ducking; filters, EQ, reverb zones, compressor and limiter; doppler computed by the engine; distance curves; a voice model (several voices per source, one-shots) | 5 | 5 | M | 3 | 20 | 0 | 2 | Not started |
+| AU1 | Mixer: buses (music, effects, vehicles, UI, voice), snapshots, ducking; filters, EQ, reverb zones, compressor and limiter; doppler computed by the engine; distance curves; a voice model (several voices per source, one-shots) | 5 | 5 | M | 3 | 20 | 0 | 2 | Done but distance curves (slice 3's MX1 and MX2: the audio queue, voices with priorities and stealing, one-shots and `PlayClipAtPoint`, the `.smixer` mixer of global buses over per-scene groups, biquad filters, delay, reverb, compressor and limiter, snapshots and ducking, doppler, `ReverbZone`, meters, the Mixer panel, impact sounds from physics materials, the player's `--audio-capture`) |
 | AU2 | Procedural audio: native generator and effect nodes on the audio thread, parameter streams from simulation threads, sample-accurate scheduling | 3 | 5 | S | 3 | 20 | 1 | – | Not started |
 | AU3 | Sound events: random, sequence and blend containers; parameters driving pitch, volume and crossfades through curves (RPM and load layers) | 4 | 5 | M | 2-3 | 18 | 1 | 3 | Not started |
 | AU4 | Spatial audio: HRTF, occlusion and reflections (Steam Audio) | 3 | 3 | M | 3 | 12 | Later | – | Not started |
@@ -201,7 +205,7 @@ changed in November 2026 are explained in §3.12.
 
 | ID | Item | E | M | Size | D | Score | Phase | Effort | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| I1 | Input actions: action maps, bindings and composites, dead zones and response curves, rebinding at runtime with saved profiles; an asset, its editor and script API; action event and query nodes for graphs. Existing `Event.KeyPressed` graphs keep working; Prism Break moves to actions in First Ride's PB track | 5 | 5 | M | 2-3 | 20 | 0 | 2 | Not started |
+| I1 | Input actions: action maps, bindings and composites, dead zones and response curves, rebinding at runtime with saved profiles; an asset, its editor and script API; action event and query nodes for graphs. Existing `Event.KeyPressed` graphs keep working; Prism Break moves to actions in First Ride's PB track | 5 | 5 | M | 2-3 | 20 | 0 | 2 | Done (slice 3's IA1, IA2 and PB: the `.sinput` asset, the fixed-step rule, queries, events and overrides, `input.set`'s actions and gamepads, rebinding with profiles in the game's data folder, the Input Actions panel, graph analysis of action names; Prism Break plays on actions); one action map at a time |
 | I2 | Devices through SDL3 beside GLFW: more gamepads, rumble and trigger rumble, gyro, joysticks, wheels and handlebar controllers, force feedback | 4 | 5 | M | 3 | 18 | 1 | 3 | Not started |
 | U1 | UI widgets and layout: layout groups, scroll views, sliders, toggles, dropdowns, text input, nine-slice images, masks, tweens, gamepad and keyboard navigation | 5 | 4 | L | 2 | 15 | 2 | – | Not started |
 | U2 | Localization: string tables, fallback fonts, text shaping (HarfBuzz), right-to-left text, plurals and number formats | 4 | 2 | M | 3 | 12 | 3 | – | Not started |
@@ -290,12 +294,13 @@ What visual scripting deferred or left at a known limit, as items. What it chose
 
 | ID | Item | E | M | Size | D | Score | Phase | Effort | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| VS1 | Script field arrays: public array variables in graphs (`NotExposable` today) and C# array fields become inspector fields through E4; the next scene and prefab format versions (prefab 2; scene 3 if TA lands first) | 3 | 2 | S | 2 | 17 | 0 | 2 (second in the cut order) | Not started |
-| VS2 | Arranger layout: a region's pure inputs (gets, literals) placed beside their consumers instead of in its leftmost columns with long wires; re-authors Prism Break and the Graph Garden once | 2 | 1 | S | 2 | 10 | 0 | 2 (with Prism Break on actions) | Not started |
+| VS1 | Script field arrays: public array variables in graphs (`NotExposable` until slice 3) and C# array fields become inspector fields through E4; the next scene and prefab format versions (prefab 2; scene 3 if TA lands first) | 3 | 2 | S | 2 | 17 | 0 | 2 (second in the cut order) | Done (slice 3's AR: `T[]` and `List<T>` fields and public array variables, scenes and prefabs at format 2 with the formats' migration mechanism); no prefab overrides of script fields, no arrays of arrays |
+| VS2 | Arranger layout: a region's pure inputs (gets, literals) placed beside their consumers instead of in its leftmost columns with long wires; re-authors Prism Break and the Graph Garden once | 2 | 1 | S | 2 | 10 | 0 | 2 (with Prism Break on actions) | Done (slice 3's PB: every sample graph arranged again) |
 | VS3 | The node canvas generalized: the visual-script canvas (about 9,000 lines in the 8 `VisualScriptCanvas*` files, tied to `VisualScriptDocument`) extracted into a graph-editor layer that A4, R14 and a DSP graph share, with its palette, undo merge keys, headless tests and automation patterns | 3 | 2 | M | 3 | 10 | 3 | – | Not started |
 | VS4 | Graph performance follow-ups: the managed analysis memo, a cheaper Record mode, a binary value block, reading only changed sources; aimed at the three missed targets (§8), measured first with T1 | 3 | 1 | M | 3 | 8 | 2 | – | Not started |
 | VS5 | Debugging graphs in the player and exported games (the debugger attaches only in the editor) | 3 | 2 | M | 3 | 10 | 3 | – | Not started |
 | VS6 | State graphs or macros, if parity with Unity's State Graphs or Blueprint macros becomes a goal | 3 | 1 | L | 3 | 6 | Later | – | Not started |
+| VS7 | Cheaper callbacks: a per-step flag that the engine sets in managed code instead of an environment call at every graph execution's start (`Input_GetActionStep`, slice 3's IA1), and callbacks (input events, then Update and FixedUpdate) dispatched only to the C# classes and graph programs that handle them, where every instance is offered each one today (about 85 ns an instance and edge) | 2 | 2 | S | 2 | 13 | 2 | – | Not started |
 
 ### 3.12 Re-estimates at d130bc1
 
@@ -336,7 +341,7 @@ queries and contacts, sized at 3.0, 2.7 and 3.8 (§10.5); §4.1 sets the time th
 
 The audit found prerequisites the October plan missed, and enablers that make several items cheaper at once. E1-E14
 number the enablers below; they are unrelated to the E rating column. The evidence is `file:line` into `d130bc1`, where
-the audit read it; the rows marked done were resolved in First Ride's first two slices, and the other files are
+the audit read it; the rows marked done were resolved in First Ride's first three slices, and the other files are
 unchanged.
 
 | Hidden prerequisite | Evidence | Resolved by |
@@ -347,7 +352,7 @@ unchanged.
 | Dynamic bodies are not interpolated between steps; only characters are | `ScenePhysics.cpp:760`, `:826`, `:861-893` | E7, in P3a: done in slice 1 (`RigidBodyComponent::Interpolation`) |
 | Per-draw push constants are full at 128 bytes | `RendererInterop.h:117-122` | E6, in R1: done in slice 2 (`InstanceData` in a structured buffer; push constants of 16 bytes per draw, 80 for a shadow view) |
 | World transforms are not cached: every call walks the parent chain through hash lookups | `Scene.cpp:484-504` | E5, in R1: done in slice 2 (`Scene::GetWorldTransform` reads the cache and is never stale) |
-| Each entity has one sound, and there is no one-shot API | `AudioScene.cpp:64`; `AudioSourceComponent.cs:85-104` | E8, in AU1 |
+| Each entity has one sound, and there is no one-shot API | `AudioScene.cpp:64`; `AudioSourceComponent.cs:85-104` | E8, in AU1: done in slice 3 (a pool of voices per source, `PlayOneShot`, `Audio.PlayClipAtPoint`) |
 | The inspector cannot edit arrays of structs, and visibility hints take at most 4 values | `FieldEditor.cpp:1239-1251`; `StructSerialization.h:48` | E4: done in slice 1 (16 values) |
 | The device has a graphics queue only, and AssetManager is main-thread only | `GraphicsDevice.cpp:611`, `:633`, `:721`; `AssetManager.h:34` | T5, with T3 |
 | Every Strada game shares one user-data directory | `FileSystem.cpp:524-550` | E11's core: done in slice 1 for exported games (their log and crash reports); its scripting API comes with S2 |
@@ -362,7 +367,7 @@ unchanged.
 | E5 A world-transform cache with dirty tracking | R1 at 10,000 props, R5 previous transforms, A1 sockets, S3 | R1, Effort 2 slice 2: landed (the cache keeps each entity's previous matrix too) |
 | E6 Per-instance GPU data (R1's instance buffer) | R5 velocities, A1 skinned instances, R2, W3, R16 | R1, Effort 2 slice 2: landed (`InstanceData` with the previous model matrix) |
 | E7 Rigid-body render interpolation, generalized from the characters' | P3a high rates, R5 smooth velocities, V0 bodies and wheels, S3 follow cameras | P3a, Effort 2 slice 1: landed |
-| E8 An audio voice model: several voices per source, one-shots, groups per scene and bus | AU1, AU3, P2 impact sounds, V0 and V8 engine layers | AU1, Effort 2 slice 3 |
+| E8 An audio voice model: several voices per source, one-shots, groups per scene and bus | AU1, AU3, P2 impact sounds, V0 and V8 engine layers | AU1, Effort 2 slice 3: landed |
 | E9 The job system, with Jolt on it | T5, A1 at scale, culling at scale, V1 | T3, Effort 3 |
 | E10 An asset import pipeline and cache | A1 cooked clips, R2 LODs, T6 cooking | T4, Effort 3 |
 | E11 A per-game identity and user-data directory | I1 saved bindings, S2, T10 per-game crash reports, exported games | E11's core, Effort 2 slice 1: landed (`Core/GameData.h`; no scripting API until I1 and S2 need it) |
@@ -481,6 +486,23 @@ tuning (cut, §4.3), research-grade work and the feel pass, and CI's waits apart
 before the CI run of the merge they branched from had ended). §4.4 keeps the factors for its later dates and gives the
 two slices' rates as the early end.
 
+**The fourth point: First Ride's third slice.** Its tracks' reports record active hours, as the second slice's did.
+
+| Measure | First Ride's slice 3, "Feel and sound", 2026-11-16 to 2026-11-18 |
+|---|---|
+| Scope on this document's scale | 16.5 engineer-weeks, the spec's sizes of its seven tracks: MX1 (AU1's queue, voices, buses and effects, with E8) 3.5, MX2 (AU1's snapshots, ducking, doppler, zones, meters, the panel and impact sounds) 2.8, MO3 (Moto heard and steered) 1.5, IA1 (I1's actions) 3.6, IA2 (I1's rebinding, profiles, panel and analysis) 2.6, PB (Prism Break on actions with VS2) 1.0, AR (VS1) 1.5; the gate's 0.5 is not in it, nor the fixes CI asked for after three merges (MX1's reverb width on Linux and its allocation hook under the sanitizer, MX2's sort under GCC at `-O2`) and the inspector's mixer fix, which have no size |
+| Calendar | 44.1 hours (1.84 days) from the first tracks' launch (2026-11-16, about 14:55) to the last track's merge (2026-11-18, 10:59), on two lanes and one build slot |
+| Active hours | 64.5 track-hours: MX1 13.9, MX2 12.9, IA1 11.3, IA2 8.5, AR 7.4, MO3 6.5, PB 4.0 (each from its launch to its report, reviews and fix step included); the merge-ins and fixes beside them are not counted (MO3's merge-in took 1.4 hours, the inspector's mixer fix 0.9) |
+| Pauses | None |
+| Ratio | About 9.0 engineer-weeks per calendar day; about 0.8 track-hours per estimated engineer-day (82.5 engineer-days in 64.5 track-hours) |
+| Against the plan | §4.4 put the slice at 7.8 days at the pause-inclusive factors and at about 2 days at the first two slices' rates; it took 1.84 |
+
+The third slice held the first two's rate (8.5 to 10.6 engineer-weeks per calendar day) with work the first two did not
+have: the audio thread (a lock-free queue, effects written from published methods, a third-party reverb), a format
+bump with its migration mechanism, and three failures only CI's other compilers could show, each fixed in a lane before
+the next merge. It still measured no research-grade work, no feel pass and no human playtest, and it had no GPU work
+beyond Moto's draws. §4.4 keeps the factors for its later dates and gives the three slices' rates as the early end.
+
 ### 4.2 Phases
 
 Each phase ends with a milestone: a build of Strada Moto that shows the phase's work, and tests that keep it working.
@@ -499,9 +521,9 @@ joins from Phase 1 on (§8).
 
 The whole backlog sums to about 640 engineer-weeks (§2's sums): about 540 in October, plus about 20 from the
 re-estimates, 50 for distribution (about 6 of them built in Front Door and about 2 moved to First Ride) and 30 for the
-visual-scripting follow-ups. First Ride started on 2026-11-13; its first slice took 1.26 days and its second 1.04;
-counting from the second slice's gate (§4.4), M1 is about 4 days away at the two slices' rates and about 17 at the
-pause-inclusive factors, without a third lane and without TA's tracks; M2 roughly 11-20 weeks after M1 (A1's first three
+visual-scripting follow-ups. First Ride started on 2026-11-13; its first slice took 1.26 days, its second 1.04 and its
+third 1.84; counting from the third slice's gate (§4.4), M1 is about 2 days away at the three slices' rates and about
+9.5 at the pause-inclusive factors, without a third lane and without TA's tracks; M2 roughly 11-20 weeks after M1 (A1's first three
 slices come first in Effort 3, since the third lane has not delivered them), and M4 about 38-65 calendar weeks from
 First Ride's start at the factors (late summer 2027 to early 2028). Those figures exclude content, which runs at the
 speed of the people who make it, and the obligations' +5-10%. If the allowance binds harder than during visual
@@ -693,7 +715,7 @@ depend on the third lane (see the cut order below). Each slice gate ends with ma
 job; nothing is installed or published. M1 is a game among the start screen's examples, not a release. Track sizes are
 engineer-weeks and include the visual-scripting obligations.
 
-The third lane did not start in slices 1 and 2, and is not scheduled in slice 3. The machine the efforts run on carries
+The third lane did not start in slices 1 to 3, and is not scheduled. The machine the efforts run on carries
 two working lanes and one build slot (with two builds at once, free memory fell to 0.4 GB; with a build beside a test
 run, free commit fell to 1.3 GB), so a third lane would take its time from lanes A and B. Whether it does, and when, is
 the maintainer's open decision (§9); it is not a cut, and until it is decided no spline or animation work is planned
@@ -703,8 +725,8 @@ into a slice.
 |---|---|---|---|---|---|---|
 | 1, Measured (done, 2026-11-13 to 2026-11-15) | PR: T1 with T2's markers (2) · ST: P3a with E7 and E13 (2) · ID: E11's core, a per-game identity and data folder (1.5) | DA: E3 and E4 (2) · CV: T7 but its plots (2.2) · MO1: the circuit and its tour (1) | W2's component (2.25): not started | 10.7 delivered | 1.3 days, no pause | The Profiler on every sample; physics smooth at a 144 Hz frame rate with 60 Hz steps; the circuit's opening tour; a game exported with a data folder of its own |
 | 2, Scale, contact and sight (done, 2026-11-15 to 2026-11-16) | IN: R1 with E5 and E6 (3) · below the cut line, R5 as three tracks, each cut by not starting it: TA1 TAA with the scene format's first migration (3), TA2 camera motion blur (1), TA3 per-object motion blur (1.5): all three cut by the slice's rule, since none had started when the tracks above the cut line were done, and a gate waits for no track that has not started | PM: P2, `.sphysmat` (2.7) · PC: contact data on collision events (1.5) · PQ: P1's casts and overlaps, `physics.query` (2.3) · MO2 (in lane A): 10,000 instanced props, surface materials, the generated bike and rider, and the look review (1.5) | Not scheduled (§9) | 11.0 delivered (16.5 planned with TA) | 1.04 days, no pause | A dressed circuit at about 290 frames per second with a median of 149 draws (256 at most), and slice 2's look review (passed with two marginals: the bike up close, and fences at mid range under FXAA) |
-| 3, Feel and sound | MX: AU1 with E8, the `.smixer` data asset, an undoable `mixer.set` (6.3) · MO3: sound, controls, the ghost bike (1.5) | IA: I1, `Event.ActionPressed` and `Event.ActionReleased`, `input.set {action, value}` (6.2) · PB: Prism Break on actions with VS2 (1) · AR: VS1 script field arrays (1.5) | A1: compute skinning on slice 2's instance path (3), if the lane starts | 16.5 | The two slices' rates give about 2 days; the factors 7.8 | Prism Break on a gamepad; doppler past a TV camera; the echo under the footbridge |
-| 4, First Ride | VH: V0 (4.6) · GR: the ride in graphs (rider assist and pose, camera director and TV cameras, audio director, the best-lap ghost and attract mode, the test autopilot, the feel pass) (2) · SH: Moto as a runtime-only example in the catalog and a standalone export with its own identity and saves (1.5) | TL: V7's recorder, panel, CSV and `telemetry.*` (2.1) · SV: S2's core (2.9) · GF: the flow in graphs (race director, gates, HUD, menus and settings, the three-lap time trial) (2) · SX: the Showcase's "Surfaces and sensors" exhibit, last in the slice so that the first cut frees its time (0.5) · N, on both lanes: the M1 gate (1) | A1: clip playback, crossfades, script API, nodes and an animation event kind (3), if the lane starts | 16.6 | The two slices' rates give about 2 days; the factors 9.5 | M1 |
+| 3, Feel and sound (done, 2026-11-16 to 2026-11-18) | MX1: AU1's queue, voices, buses and effects, with E8 (3.5) · MX2: snapshots, ducking, doppler, reverb zones, meters, the Mixer panel, impact sounds, `--audio-capture` (2.8) · MO3: Moto's sound, controls, the ghost bike and trackside cameras (1.5) | IA1: I1's actions, `Event.ActionPressed` and `Event.ActionReleased`, `input.set`'s actions and gamepads (3.6) · IA2: rebinding, profiles, the Input Actions panel, graph analysis of actions (2.6) · PB: Prism Break on actions with VS2 (1) · AR: VS1 script field arrays and the scene and prefab formats 2 (1.5) | Not scheduled (§9) | 16.5 delivered | 1.84 days, no pause | Prism Break on a gamepad with a binding changed while it runs and kept for the next run; Moto's ghost bike dopplering past trackside cameras and echoing under the footbridge; the pause snapshot muffling the mix |
+| 4, First Ride | VH: V0 (4.6) · GR: the ride in graphs (rider assist and pose, camera director and TV cameras, audio director, the best-lap ghost and attract mode, the test autopilot, the feel pass) (2) · SH: Moto as a runtime-only example in the catalog and a standalone export with its own identity and saves (1.5) | TL: V7's recorder, panel, CSV and `telemetry.*` (2.1) · SV: S2's core (2.9) · GF: the flow in graphs (race director, gates, HUD, menus and settings, the three-lap time trial) (2) · SX: the Showcase's "Surfaces and sensors" exhibit, last in the slice so that the first cut frees its time (0.5) · N, on both lanes: the M1 gate (1) | A1: clip playback, crossfades, script API, nodes and an animation event kind (3), if the lane starts | 16.6 | The three slices' rates give about 2 days; the factors 9.5 | M1 |
 
 Track IDs are per effort: none of Front Door's CR, TS, TE, AK, SS and DOC is reused, N is the gate track of every
 effort, and the profiler track is PR. Dependencies: IN and PQ need slice 1. Inside the effort, ST follows PR (soft), CV
@@ -821,8 +843,21 @@ refresh with every root moved 0.42 to 0.44 ms in the frame (0.32 ms alone) again
 batched tree, which read 2.72 to 2.95 ms at the machine's fastest) read 3.67 to 3.87 ms, above the band of 3.3 ms in
 which a sitting can judge. In the two later sittings the gauge read 2.65 to 2.83 ms, in band, and the merged tree 1.15
 to 1.28 ms and 0.31 to 0.36 ms in the frame (0.29 to 0.30 ms alone): both targets are met in band. Moto's frame
-median read 3.47 to 3.56 ms there (99th percentile at most 6.43 ms), with the same draws. The rows of features not built yet wait for their
-tracks.
+median read 3.47 to 3.56 ms there (99th percentile at most 6.43 ms), with the same draws.
+
+Measured at slice 3's gate (Release, every lane idle, two sittings 12 minutes apart after a first that is not counted,
+since a browser ran through it; the tree's 10,000-instance benchmark as the gauge, in band at most 1.4 ms: 1.15 to 1.29
+ms beside the benchmarks in both sittings and 1.16 to 1.22 ms round Moto's runs in the second, while the first's
+closing reading was 1.26 to 1.60 ms): the audio mix of 32 voices on 6 filtered buses with a reverb and a compressor at a
+median of 0.227 to 0.231 ms per 10 ms of audio, 0.266 to 0.270 ms with a snapshot blend, a ducked bus, a reverb zone and
+doppler in play, against 1 ms; 64 input actions of three bindings each evaluated in 0.018 ms a frame against 0.05 ms,
+with no added frame of latency; all three met in band. Moto over its tour with the ghost bike, its sixteen engine
+voices, the trackside cameras and the echo: a frame median of 3.57 to 3.60 ms (99th percentile at most 6.3 ms), a median
+of 170 draws (265 at most), 167 batches and 5,341 instances, graphs 0.074 to 0.078 ms a frame, the mix 0.32 to 0.33 ms
+per 1/60 s of audio; without the ghost and its sound 3.52 to 3.59 ms and 149 draws (256 at most); the editor's scene
+view reads 398 of the 400 draws at the start line. The input events' dispatch, which the 0.05 ms target does not cover,
+cost 0.64 ms a frame over 100 graph instances and 20 C# scripts with every input changing each frame (VS7). The rows of
+features not built yet wait for their tracks.
 
 #### Distribution after Front Door
 
@@ -856,33 +891,34 @@ terrain, and W2 splines if the third lane has not delivered them) can come first
 
 Front Door's dates are its own (§4.3): it began on 2026-11-12 and ended at its gate on 2026-11-13. First Ride started
 the same day, ten days earlier than the earlier revision of this document assumed (2026-11-23); its first slice's gate
-opened on 2026-11-15 and its second's on 2026-11-16. The remaining dates count from the second gate, two ways: at the
-rates of the first two slices, which had no allowance pause (§4.1: 8.5 and 10.6 engineer-weeks per calendar day), and at
+opened on 2026-11-15, its second's on 2026-11-16 and its third's on 2026-11-18. The remaining dates count from the third
+gate, two ways: at the rates of the first three slices, which had no allowance pause (§4.1: 8.5, 10.6 and 9.0
+engineer-weeks per calendar day), and at
 the factors of §4.1, which include visual scripting's pauses. The allowance, not engineers, decides which end holds.
 Neither includes a third lane, which is not scheduled (§4.3, §9), or TA's three tracks, cut from slice 2 (5.5
 engineer-weeks; at their factor of 8.75 they would add about 4.4 days, and about half a day at the slices' rates).
 
-| Point | At the first two slices' rates (no pause) | At the factors (pauses included) |
+| Point | At the first three slices' rates (no pause) | At the factors (pauses included) |
 |---|---|---|
 | First Ride's start | 2026-11-13 | |
 | Slice 1, Measured | Done: tracks merged 2026-11-14, gate from 2026-11-15 | |
 | Slice 2, Scale, contact and sight | Done: tracks merged 2026-11-16, gate the same day | |
-| Slice 3 | About 11-18 | About 11-24 |
-| M1, First Ride | About 11-20 | About 12-03 |
-| Effort 3, The Rider | Not measured: its about 55 engineer-weeks hold A1 at difficulty 4 (its first three slices first, since the third lane has not delivered them), R5 and the render graph: GPU work at a difficulty the first two slices did not reach | 4.5-7.5 weeks after M1 |
+| Slice 3, Feel and sound | Done: tracks merged 2026-11-18, gate the same day | |
+| M1, First Ride | About 11-20 | About 11-28 |
+| Effort 3, The Rider | Not measured: its about 55 engineer-weeks hold A1 at difficulty 4 (its first three slices first, since the third lane has not delivered them), R5 and the render graph: GPU work at a difficulty the first three slices did not reach | 4.5-7.5 weeks after M1 |
 | Effort 4, The simulated superbike, to M2 | Research-grade work and the maintainer's playtests set it: no faster rate is measured for them | About 9 weeks after Effort 3 (6.5-13) |
 
 The factor dates divide each step's engineer-weeks by the factors of §4.1 (central values), as the earlier revisions
 did:
 
-| Step | Engineer-weeks | Mix (engineer-weeks at factor) | Allowance time | After slice 2's gate |
+| Step | Engineer-weeks | Mix (engineer-weeks at factor) | Allowance time | After slice 3's gate |
 |---|---|---|---|---|
 | Slice 1 (measured) | 10.7 | Planned at 6.0 days (9.2 at 12.5; E11's core 2.0 at 17.5); took 1.26 | 1.26 days | – |
 | Slice 2 (measured) | 11.0 of 16.5 | Planned at 9.5 days (6.5 at 17.5; 4.5 at 12.5; TA's 5.5 at 8.75); TA was cut, and the rest took 1.04 | 1.04 days | – |
-| Slice 3 | 16.5 | 8.7 at 17.5; 7.8 at 12.5 | 7.8 days | Day 7.8 |
-| Slice 4 | 16.6 | 8.0 at 17.5; 4.6 at 12.5; 4.0 at 7.5 | 9.5 days | Day 17.3 |
+| Slice 3 (measured) | 16.5 | Planned at 7.8 days (8.7 at 17.5; 7.8 at 12.5); took 1.84 | 1.84 days | – |
+| Slice 4 | 16.6 | 8.0 at 17.5; 4.6 at 12.5; 4.0 at 7.5 | 9.5 days | Day 9.5 |
 
-At the two slices' rates the remaining two slices take about 3 to 4 days of tracks, plus their gates; those rates
+At the three slices' rates the remaining slice takes about 2 days of tracks, plus its gate; those rates
 cover in-domain software, GPU batching and generated content with an early look review, and slice 4's feel pass and
 playtests may not reach them. The ranges also carry the ±35 % size mapping. Each gate recomputes the factors and the
 remaining dates from what its slice measured. If the factor dates hold, slice 4 falls before the holidays; M1's
@@ -1298,10 +1334,10 @@ until distribution returns.
 | Distribution | Decided (2026-11-10): cut, except Front Door | Not scheduled (§3.10): no installer, signing, registry or updates; Strada runs from its build tree | Every row marked Waits |
 | What Front Door and First Ride contain | Decided under the maintainer's delegation (2026-11-12) | Front Door as §4.3 lists it; E11's core (a per-game identity and data folder, no engine line, no registry) in First Ride's slice 1; a third lane below the cut line for W2 splines and then A1's first three slices; no previews and no lane C | Effort 2's spec; the third lane's worktree |
 | Agent files in new projects | Decided, built in Front Door | On by default, visible, one click to turn off; never automatic for existing projects (a plan the user confirms) | Nothing now |
-| R5 in First Ride | Open | Its three tracks (TA1 TAA with the scene format's first migration, TA2 camera motion blur, TA3 per-object motion blur; 5.5 engineer-weeks) were cut from slice 2 by the slice's rule and keep their specs. Either they take lane A's time in slice 3 or 4 (M1 then moves by about half a day at the slices' rates, about 4.4 days at their factor), or they go to Effort 3 with the rest of R5. M1's criteria hold with FXAA either way; the fences' moiré at mid range, one of the look review's two marginals, waits for TA | Moto's fences under TAA; R5's place |
-| Moto's art direction | Default | A stylized procedural bike, a rigid rider, a CC0 environment and a synthesized engine sound. Slice 2's look review passed with two marginals (the bike up close, the fences under FXAA): the generated look stands, and the fallback, a sourced bike model that keeps the generated bike's proportions, parts and budgets, can be called until MO3 starts | MO3 |
+| R5 in First Ride | Open | Its three tracks (TA1 TAA with a scene format version, now the third since slice 3's AR made scenes version 2, TA2 camera motion blur, TA3 per-object motion blur; 5.5 engineer-weeks) were cut from slice 2 by the slice's rule and keep their specs, and slice 3 did not schedule them. Either they take lane A's time in slice 4 (M1 then moves by about half a day at the slices' rates, about 4.4 days at their factor), or they go to Effort 3 with the rest of R5. M1's criteria hold with FXAA either way; the fences' moiré at mid range, one of the look review's two marginals, waits for TA | Moto's fences under TAA; R5's place |
+| Moto's art direction | Default | A stylized procedural bike, a rigid rider, a CC0 environment and a synthesized engine sound. Slice 2's look review passed with two marginals (the bike up close, the fences under FXAA): the generated look stands. The fallback, a sourced bike model, closed when MO3 started: the ghost bike shares the generated bike's meshes and materials | Nothing now |
 | Worktrees | Default | Reuse `vs-a` and `vs-b` for lanes A and B, as Front Door did, and give a third lane its own if one starts; remove the `build\windows-release` folder only on the maintainer's word | A third lane's start |
-| The third lane (W2 splines, then A1's first three slices) | Open | The machine carries two working lanes, so the lane did not start in slices 1 and 2 and is not scheduled in slice 3. Either it takes a lane's time from lanes A and B in a later slice (M1 then moves by its weeks at their factors), or it waits until after M1, where W2 and A1 return to Phases 2 and 1. Not a cut: M1's criteria never depended on it | Splines in Moto's circuit; A1 before Effort 3 |
+| The third lane (W2 splines, then A1's first three slices) | Open | The machine carries two working lanes, so the lane did not start in slices 1 to 3 and is not scheduled. Either it takes a lane's time from lanes A and B in a later slice (M1 then moves by its weeks at their factors), or it waits until after M1, where W2 and A1 return to Phases 2 and 1. Not a cut: M1's criteria never depended on it | Splines in Moto's circuit; A1 before Effort 3 |
 | Publisher name, identifiers, repository name and description | Waits | `io.github.anthony-sv.strada` (macOS bundle), `io.github.anthony-sv.strada.project` (document type), `io.github.anthony_sv.Strada` (Linux), `Strada.Project.1` (ProgID), `io.github.anthony-sv.strada.Editor` and `io.github.anthony-sv.strada.Editor.Dev` (AppUserModelIDs, derived from the bundle identifier), `AnthonySV.Strada` (winget). Rename the repository and replace its description ("Testing claude capabilities...") before the first public release, since the update URL is compiled in | The identifiers DI2 and DI3 would compile in as CMake defaults; the update URL; a first public release |
 | Windows signing | Waits | Azure Artifact Signing if the maintainer is an individual in the USA or Canada (about USD 9.99 a month); otherwise an OV certificate on a cloud key at USD 150-300 a year. Unsigned until then | Signed releases; winget; machines with Smart App Control |
 | Apple Developer Program | Waits | Join (USD 99 a year) before announcing macOS; until then macOS is built and tested in CI only | Public macOS releases; notarization; the Homebrew tap |
@@ -1311,8 +1347,8 @@ until distribution returns.
 
 ## 10. First steps
 
-The plan's first steps, in order: Front Door's three rounds, then First Ride's first two slices (all done), then its
-third.
+The plan's first steps, in order: Front Door's three rounds, then First Ride's first three slices (all done), then its
+fourth.
 Each lands the usual way:
 its Architecture.md section first (for Front Door: §3 repository layout, §4 modules, §7.3 file formats, §11 editor, §12
 automation and strada, §15 tests), then code, tests, docs, review and CI on three platforms.
@@ -1431,7 +1467,8 @@ had merged, then the gate. What each delivered, and where it differs from what t
   a `Material` on every collider and one per submesh of a triangle mesh (at most 31), combine modes with a stated
   order, live edits that reach the bodies before the next step and wake sleeping ones, `RaycastHit.Material`, and
   `Strada.PhysicsMaterial` for scripts and graphs. Differences: a character's inner body meets the collider it
-  touches, not its body's first; rolling resistance, impact sounds and particles are read by scripts, not applied.
+  touches, not its body's first; rolling resistance, impact sounds and particles are read by scripts, not applied
+  (slice 3's MX2 made contacts play the impact sounds).
 - **PC, P1's contact data (lane B, 1.5).** `ContactPoint` (point, normal, impulse, relative velocity, both materials),
   up to four a contact event, sorted, with the step it happened in; `Collision.Points` in C# handlers;
   `Event.CollisionEnter` gains `Point`, `Normal`, `Impulse` and `Surface`; the `contacts` overlay. Differences: Jolt
@@ -1461,13 +1498,88 @@ had merged, then the gate. What each delivered, and where it differs from what t
   against 2.0) and the cache's refresh (0.31 to 0.36 ms in the frame against 0.5) met in band (§4.3); the look review
   passed with two marginals; without TA the exit holds with FXAA.
 
-### 10.6 First Ride, slice 3 "Feel and sound"
+### 10.6 First Ride, slice 3 "Feel and sound" (done: 2026-11-16 to 2026-11-18)
 
-MX (AU1 with E8: the mixer, its `.smixer` data asset and `mixer.set`) and MO3 (Moto's sound, controls and the ghost
-bike) on lane A; IA (I1: input actions, `Event.ActionPressed` and `Event.ActionReleased`, `input.set {action, value}`),
-PB (Prism Break on actions, with VS2) and AR (VS1: script field arrays) on lane B. Exit: Prism Break on a gamepad with
-rebinding; Moto's ghost dopplers past a TV camera and echoes under the footbridge; the pause snapshot muffles the mix.
-The ghost shares the bike's meshes and materials, so it joins their batches: the editor's scene view, which counts its
-entity-ID pass, reads 392 of the 400 draws at the start line (slice 2's gate), and a bike of other materials would add
-up to 16 draws to each pass that sees it. Its spec decides whether TA's tracks or the third lane take any time in it
-(§9).
+Seven tracks on two lanes: MX1, MX2 and MO3 in lane A; IA1, IA2, PB and AR in lane B; then the gate. Each of MX and IA
+was cut in two tracks, each designed, reviewed, gated and merged on its own. What each delivered, and where it differs
+from what this section planned:
+
+- **MX1, AU1 with E8 (lane A, 3.5).** The audio queue: every change the main thread makes to the mix is a 48-byte
+  command on a ring of 4,096 that the mixing thread applies at the start of each 256-frame block (a full ring defers,
+  never drops), with gains ramped over 5 ms and pitches and effect parameters over 20 ms; the mixing thread never
+  allocates, locks, waits or logs, and manual output runs the same path. Voices: a pool per source (`MaxVoices`, 4 by
+  default, up to 64), `Priority`, `PlayOneShot`, `Audio.PlayClipAtPoint`, at most 64 mixed at once (the lowest priority,
+  then the quietest, then the oldest is stolen with a 10 ms fade). Loaded clips are decoded once into buffers their
+  voices share (up to 32 MiB a clip). The `.smixer` mixer (`mixer.*`): global buses in a tree under `Master` with
+  volumes, mutes and up to 8 effects (low-pass, high-pass, peaking and shelf biquads, a delay, a reverb, a compressor, a
+  limiter), a group per bus in each running scene; `Strada.Audio` for scripts; `STRADA_AUDIO_OUTPUT`. Differences: the
+  reverb is verblib inside the bus's node, and it is not the same filter on every platform (its delay lines are sized
+  in `long double`); a main voice beyond the limit goes virtual; `Pause`, `Stop` and a paused scene stop at a block's
+  edge without a ramp. Its CI fix, before MX2: the reverb's width ramped per frame (it clicked on every platform, and
+  past its test's bound on Linux), and the mixing thread's allocation hook left out of sanitizer builds.
+- **MX2, AU1's second half (lane A, 2.8).** Snapshots in the `.smixer` and `Audio.TransitionTo`; ducking (`DuckedBy`,
+  `DuckAmount`, attack, release and a threshold); doppler computed by the engine from the scene's last update
+  (`DopplerLevel`); the `ReverbZone` component; meters and `audio.meters`; the docked Mixer panel; impact sounds from
+  physics materials through the mixer's `Impacts`; the player's `--audio-capture`. Differences: the capture advances by
+  each frame's step rather than by game time, so a paused game's sound can be recorded; there is no doppler at a camera
+  cut or a voice's first update; the panel's Audition works only while the game plays in the editor. Its CI fix: a
+  voice's sends sorted in plain sight (GCC at `-O2` refused the standard sort over part of a fixed array).
+- **MO3, Moto heard and steered (lane A, 1.5).** Twenty generated sounds (sixteen engine layers of a 90° V4, wind, a
+  tyre squeal, a crowd bed, a shift blip; 1.2 MB), `Moto.smixer` with the `Paused` snapshot, `Moto.sinput` with eight
+  actions, a racing line with speed, lean, gear and engine speed, a ghost bike on it that shares the grid bike's
+  meshes and materials, `EngineSound.sgraph` (sixteen voices crossfaded by engine speed and load), four trackside
+  cameras cut by an action, the footbridge's echo and the pause; 24 checks (18 before), a play-mode case and a sound
+  test of capture pairs (doppler within 0.28 % of c / (c − v), the echo's tail, the pause per band). Differences: the
+  wind, squeal, crowd and blip are committed but placed nowhere (slice 4's VH, GR and GF place them); each trackside
+  camera has its own listener; no engine code changed.
+- **IA1, I1's first half (lane B, 3.6).** The `.sinput` asset (`input-actions.*`): actions of three types with
+  bindings nested in them (keys, mouse buttons, gamepad buttons and axes, composites), dead zones, response curves,
+  inversion, scale and press and release thresholds; evaluation once a frame before the scripts; the fixed-step rule;
+  queries, `Event.ActionPressed` and `Event.ActionReleased` (92 built-in node kinds became 94), `OnActionPressed` and
+  `OnActionReleased`, overrides, and `input.set`'s `actions` and `gamepads` (injected pads coexist with polled ones).
+  Differences: an action reads a stick's Y up as +1 and a trigger from 0 to 1; every action type has edges by
+  magnitude; a latent continuation of fixed-step code reads no edge; every graph execution makes one environment call
+  and every instance is offered every edge (VS7 takes both).
+- **IA2, I1's second half (lane B, 2.6).** Rebinding while the game runs (`Input.StartRebind`, `Rebind`,
+  `CancelRebind`, `ResetBindings`, `CurrentRebind`, `GetBindingControls`) with conflicts reported; the bindings profile
+  in the game's data folder (`Input/<asset>.json`, versioned and fuzzed); the docked Input Actions panel with a live
+  value column; graph analysis of action names with a quick fix and a combo. Differences: a capture's answer is
+  polled, not an event; a profile of a newer version is logged once and replaced by the next rebind.
+- **PB, Prism Break on actions with VS2 (lane B, 1.0).** `PrismBreak.sinput` (`Move`, `Launch`, `Pause`), the game
+  played on a keyboard or a gamepad, the development keys kept as keys, a rebinding flow at the title (R, then a key
+  for Launch, kept in the profile); 33 checks (29 before). The arranger places a region's pure inputs beside the nodes
+  that read them, and every sample graph was arranged again. Difference: Launch's rebinding takes a key only, never R.
+- **AR, VS1 (lane B, 1.5).** A list field type (`T[]` and `List<T>` in C#, a graph's public arrays) up to 4,096
+  elements, edited in the inspector as rows with grips, `component.set` taking the file form; scenes and prefabs at
+  format 2 with their first migration mechanism (`VersionedDocumentFormat`; version 1 loads); entity references in
+  lists remapped. Differences: a C# quaternion left at zero is stored as the identity; every array of plain values in
+  the field editor has a grip, components' arrays included (`FieldHints::FixedOrder` takes it away where indices are
+  held); committed samples become format 2 when they are next saved. A follow-up made the inspector move a mixer's
+  snapshot values with their effects, as the Mixer panel does.
+- **TA1 to TA3 and the third lane: not scheduled** (§4.3, §9).
+- **Exit, as the gate measured it** with every lane idle on the reference machine (§4.3): Prism Break played on an
+  injected gamepad through its actions, Launch rebound to F at the title and read back from the profile by the next
+  play; Moto's ghost passing each trackside camera with its engine note above the engine speed's pitch before the pass
+  and under it after, within 1 % of c / (c − v) (at the footbridge 1.10 to 1.13 times the pitch of the same pass without
+  doppler before it, 0.88 to 0.90 after), the echo's send under the footbridge decaying after the pass, and the pause
+  snapshot taking 10 dB off the engine under 325 Hz and 33 dB over 2.6 kHz; the mix (0.227 to 0.270 ms per 10 ms of
+  audio against 1 ms) and the actions (0.018 ms a frame against 0.05) met in band; Moto with the ghost and sound at a
+  frame median of 3.57 to 3.60 ms with a median of 170 draws (265 at most) and 398 in the editor's view of the start
+  line.
+
+### 10.7 First Ride, slice 4 "First Ride" (as it stands at slice 3's gate)
+
+Lane A: VH (V0: Jolt's motorcycle controller and wheeled vehicles as components, the first bike, 4.6), GR (the ride in
+graphs: rider assist and pose, the camera director grown from slice 3's, the audio director, the best-lap ghost and
+attract mode, the test autopilot, the feel pass, 2.0), SH (Moto's catalog row and a standalone export with its own
+identity and saves, 1.5). Lane B: TL (V7's recorder, panel, CSV and `telemetry.*`, 2.1), SV (S2's core: saves and the
+player's settings, 2.9), GF (the flow in graphs: race director, gates, HUD, menus and settings, the three-lap time trial,
+2.0), SX (the Showcase's "Surfaces and sensors" exhibit, last so that the first cut frees its time, 0.5). The gate N
+(1.0) then holds M1. What slice 3 hands them: `Moto.sinput`'s `Throttle`, `Brake`, `Lean`, `ShiftUp` and `ShiftDown`
+(bound, unused until VH and GR); `EngineSound.sgraph`, driven through its public `EngineSpeed` and `Load`, which GR
+feeds from the simulated engine, with `EngineOffLoad.scurve` to retune; the camera director's `Cut` and `Face` and the
+audio director's `TogglePause`; the `Tyres`, `Ambience` and `Interface` buses and the four placed-nowhere sounds;
+script lists for VH's wheels; the profile's folder beside which SV writes saves and settings, and IA2's rule that a
+newer profile is replaced, which saves do not inherit (a newer save is not replaced without a decision of its own).
+Whether Moto is listed among the start screen's examples (SH's catalog row) is the maintainer's open decision, as are
+TA's tracks and the third lane (§9). Its spec is written after slice 3's gate.
