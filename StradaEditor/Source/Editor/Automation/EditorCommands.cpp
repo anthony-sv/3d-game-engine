@@ -5849,7 +5849,7 @@ namespace Strada
 					SchemaBuilder::Object()
 						.Property("window", SchemaBuilder::String("The window to capture (default Editor: the whole editor window)")
 				                                .Enum({"Editor", "SceneView", "GameView", "Hierarchy", "Inspector", "ContentBrowser",
-				                                       "Console", "Debugger", "Graph", "Profiler"}))
+				                                       "Console", "Debugger", "Graph", "Profiler", "Mixer"}))
 						.Property("graph", SchemaBuilder::String("With window Graph: the visual script whose window to capture, a handle "
 				                                                 "or \"asset://<path>.sgraph\"")
 				                               .MinLength(1))
@@ -6453,7 +6453,7 @@ namespace Strada
 
 	namespace
 	{
-		constexpr std::array<std::pair<ScreenshotWindow, std::string_view>, 10> ScreenshotWindowNames = {{
+		constexpr std::array<std::pair<ScreenshotWindow, std::string_view>, 11> ScreenshotWindowNames = {{
 			{ScreenshotWindow::Editor, "Editor"},
 			{ScreenshotWindow::SceneView, "SceneView"},
 			{ScreenshotWindow::GameView, "GameView"},
@@ -6464,6 +6464,7 @@ namespace Strada
 			{ScreenshotWindow::Debugger, "Debugger"},
 			{ScreenshotWindow::Graph, "Graph"},
 			{ScreenshotWindow::Profiler, "Profiler"},
+			{ScreenshotWindow::Mixer, "Mixer"},
 		}};
 	}
 

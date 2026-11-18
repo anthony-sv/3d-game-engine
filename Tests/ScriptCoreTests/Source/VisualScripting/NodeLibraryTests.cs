@@ -269,7 +269,7 @@ public sealed class NodeLibraryTests
 			.Order(StringComparer.Ordinal)];
 		Assert.Equal(
 		[
-			"Assets.Load", "Audio.GetBusVolume", "Audio.IsBusMuted", "CameraComponent.ScreenToWorldRay",
+			"Assets.Load", "Audio.GetBusPeak", "Audio.GetBusVolume", "Audio.IsBusMuted", "CameraComponent.ScreenToWorldRay",
 			"CameraComponent.WorldToScreenPoint", "Curve.Evaluate", "Entity.As", "Entity.FindByID", "Entity.FindByName",
 			"Entity.GetComponent", "Entity.HasComponent", "Input.GetAction", "Input.GetActionVector", "Input.GetGamepadAxis",
 			"Input.IsActionDown", "Input.IsActionPressed", "Input.IsActionReleased", "Input.IsGamepadButtonDown",

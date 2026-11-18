@@ -106,6 +106,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/HierarchyEditing.h
     Source/Editor/MaterialSlots.cpp
     Source/Editor/MaterialSlots.h
+    Source/Editor/MixerEditing.cpp
+    Source/Editor/MixerEditing.h
     Source/Editor/Panels/AgentSetupDialog.cpp
     Source/Editor/Panels/AgentSetupDialog.h
     Source/Editor/Panels/BuildGameDialog.cpp
@@ -118,6 +120,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/GameViewPanel.h
     Source/Editor/Panels/InspectorPanel.cpp
     Source/Editor/Panels/InspectorPanel.h
+    Source/Editor/Panels/MixerPanel.cpp
+    Source/Editor/Panels/MixerPanel.h
     Source/Editor/Panels/ProfilerPanel.cpp
     Source/Editor/Panels/ProfilerPanel.h
     Source/Editor/Panels/ProjectSettingsPanel.cpp

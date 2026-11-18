@@ -270,6 +270,8 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_SetPriority;
 	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_GetMaxVoices;
 	internal static delegate* unmanaged<ulong, uint*, void> AudioSourceComponent_SetMaxVoices;
+	internal static delegate* unmanaged<ulong, float*, void> AudioSourceComponent_GetDopplerLevel;
+	internal static delegate* unmanaged<ulong, float*, void> AudioSourceComponent_SetDopplerLevel;
 
 	internal static delegate* unmanaged<ulong, byte*, void> AudioListenerComponent_GetActive;
 	internal static delegate* unmanaged<ulong, byte*, void> AudioListenerComponent_SetActive;
@@ -553,6 +555,9 @@ internal static unsafe class InternalCalls
 	// 1 when a voice started.
 	internal static delegate* unmanaged<ulong, Vector3*, float, byte*, int, byte> Audio_PlayClipAtPoint;
 	internal static delegate* unmanaged<int> Audio_GetActiveVoiceCount;
+	internal static delegate* unmanaged<byte*, int, float, byte> Audio_TransitionTo;
+	internal static delegate* unmanaged<int*, byte*> Audio_GetCurrentSnapshot;
+	internal static delegate* unmanaged<byte*, int, float> Audio_GetBusPeak;
 
 	internal static delegate* unmanaged<byte*, int, int> Assets_FindType;
 	internal static delegate* unmanaged<int, int*, byte*> Assets_GetTypeName;

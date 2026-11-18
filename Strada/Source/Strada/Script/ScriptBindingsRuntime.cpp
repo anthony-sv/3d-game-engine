@@ -574,6 +574,25 @@ namespace Strada::ScriptGlue
 			return static_cast<int32_t>(AudioEngine::GetActiveVoiceCount());
 		}
 
+		uint8_t Audio_TransitionTo(char const* snapshot, int32_t length, float seconds)
+		{
+			// NaN and negative times are the engine's to read (a value's own smoothing), as AudioEngine::TransitionTo says.
+			return AudioEngine::TransitionTo(ToStringView(snapshot, length), seconds) ? 1 : 0;
+		}
+
+		// The engine's own name of the snapshot, valid until the next transition; empty (and null) without an audio engine.
+		char const* Audio_GetCurrentSnapshot(int32_t* length)
+		{
+			std::string const& snapshot = AudioEngine::GetCurrentSnapshot();
+			*length = static_cast<int32_t>(snapshot.size());
+			return snapshot.empty() ? nullptr : snapshot.data();
+		}
+
+		float Audio_GetBusPeak(char const* bus, int32_t length)
+		{
+			return AudioEngine::GetBusPeak(ToStringView(bus, length));
+		}
+
 		// --- Collision ---
 
 		// The contact event whose handlers run (ScriptEngine::GetHandledContactEvent), seen from the handling entity; 0 and
@@ -656,5 +675,8 @@ namespace Strada::ScriptGlue
 		table.Add("Audio_SetBusMuted", &Audio_SetBusMuted);
 		table.Add("Audio_PlayClipAtPoint", &Audio_PlayClipAtPoint);
 		table.Add("Audio_GetActiveVoiceCount", &Audio_GetActiveVoiceCount);
+		table.Add("Audio_TransitionTo", &Audio_TransitionTo);
+		table.Add("Audio_GetCurrentSnapshot", &Audio_GetCurrentSnapshot);
+		table.Add("Audio_GetBusPeak", &Audio_GetBusPeak);
 	}
 }

@@ -68,7 +68,7 @@ TEST_CASE("Scene: scripts read and write every component field")
 
 	scene.OnRuntimeStart();
 	CHECK_FALSE(Testing::WasLogged(logStart, "Mismatch"));
-	CHECK(writer.GetName() == "Checked 134");
+	CHECK(writer.GetName() == "Checked 135");
 
 	CameraComponent const& camera = writer.GetComponent<CameraComponent>();
 	CHECK(camera.Projection == ProjectionType::Orthographic);
@@ -176,6 +176,7 @@ TEST_CASE("Scene: scripts read and write every component field")
 	CHECK_FALSE(audio.Spatial);
 	CHECK(audio.MinDistance == 2.0f);
 	CHECK(audio.MaxDistance == 50.0f);
+	CHECK(audio.DopplerLevel == 2.5f);
 
 	CHECK_FALSE(writer.GetComponent<AudioListenerComponent>().Active);
 
@@ -582,5 +583,55 @@ TEST_CASE("Scene: scripts play one-shots and clips at points, and set the voices
 	CHECK(AudioEngine::IsBusMuted("Music"));
 	CHECK_FALSE(AudioEngine::IsBusMuted("Master"));
 	CHECK(Testing::WasLogged(logStart, "Audio.SetBusVolume: the value is not a finite number"));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: scripts blend the mix to the mixer's snapshots, and read a bus's peak as its meter does")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	Testing::ScriptEngineScope scripting;
+	InputScope input;
+	Mixer mixer;
+	MixerBus music;
+	music.Name = "Music";
+	music.Parent = "Master";
+	mixer.Buses.push_back(music);
+	MixerSnapshot quiet;
+	quiet.Name = "Quiet";
+	quiet.Values.push_back(MixerSnapshotValue{
+		.Bus = "Music", .Target = MixerSnapshotTarget::Volume, .Effect = 0, .Parameter = MixerEffectParameter::Frequency, .Value = -20.0f});
+	mixer.Snapshots.push_back(quiet);
+	AudioEngine::SetMixer(mixer);
+	AssetHandle const clip = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
+	Scene scene("Audio");
+	Entity probe = AddScript(scene, "Probe", "Strada.Tests.AudioProbe");
+	AudioSourceComponent& source = probe.AddComponent<AudioSourceComponent>();
+	source.Clip = clip;
+	source.Spatial = false;
+	source.Bus = "Music";
+	scene.OnRuntimeStart();
+	REQUIRE(scene.GetAudioScene() != nullptr);
+	// A few blocks of the tone on Music, so that its meter has a level.
+	std::vector<float> samples(AudioBlockFrames * 4 * AudioEngine::GetChannelCount());
+	REQUIRE(AudioEngine::ReadFrames(samples) == AudioBlockFrames * 4);
+
+	// The snapshot by any letter case, named back as the mixer names it; one the mixer lacks changes nothing and is logged;
+	// a bus's peak, and one it lacks reads 0 and is logged.
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Input::SetKeyState(KeyCode::T, true);
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	Input::SetKeyState(KeyCode::T, false);
+	Input::EndFrame();
+	CHECK(probe.GetName() == "Quiet=True,Quiet;Unknown=False,Quiet;Peak=True,0");
+	CHECK(AudioEngine::GetCurrentSnapshot() == "Quiet");
+	CHECK(Testing::WasLogged(logStart, "The mixer has no snapshot named 'Nowhere'"));
+	CHECK(Testing::WasLogged(logStart, "The mixer has no bus named 'Nowhere'"));
+
+	// The empty name is the mixer's own values.
+	Input::SetKeyState(KeyCode::U, true);
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(probe.GetName() == "Own=True,''");
+	CHECK(AudioEngine::GetCurrentSnapshot().empty());
 	scene.OnRuntimeStop();
 }

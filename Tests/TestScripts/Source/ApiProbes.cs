@@ -131,6 +131,7 @@ public sealed class ComponentWriter : Script
 		Check(() => audio.Spatial, value => audio.Spatial = value, false, "AudioSource.Spatial");
 		Check(() => audio.MinDistance, value => audio.MinDistance = value, 2.0f, "AudioSource.MinDistance");
 		Check(() => audio.MaxDistance, value => audio.MaxDistance = value, 50.0f, "AudioSource.MaxDistance");
+		Check(() => audio.DopplerLevel, value => audio.DopplerLevel = value, 2.5f, "AudioSource.DopplerLevel");
 
 		AudioListenerComponent listener = AddComponent<AudioListenerComponent>();
 		Check(() => listener.Active, value => listener.Active = value, false, "AudioListener.Active");
@@ -491,6 +492,25 @@ public sealed class AudioProbe : Script
 			Audio.SetBusMuted("MUSIC", true);
 			Name = $"Bus={source.Bus};Priority={source.Priority};MaxVoices={source.MaxVoices};" +
 				$"Music={(int)Audio.GetBusVolume("Music")},{Audio.IsBusMuted("Music")};Master={Audio.IsBusMuted("")}";
+			return;
+		}
+		if (Input.IsKeyPressed(KeyCode.T))
+		{
+			// Blends to the mixer's snapshots (names in any letter case, the mixer's own name read back), one it lacks, and the
+			// meter of a bus it has and of one it lacks.
+			bool quiet = Audio.TransitionTo("QUIET", 0.5f);
+			string current = Audio.CurrentSnapshot;
+			bool unknown = Audio.TransitionTo("Nowhere", 0.5f);
+			string kept = Audio.CurrentSnapshot;
+			float peak = Audio.GetBusPeak("music");
+			float missing = Audio.GetBusPeak("Nowhere");
+			Name = $"Quiet={quiet},{current};Unknown={unknown},{kept};Peak={peak > 0.0f},{missing}";
+			return;
+		}
+		if (Input.IsKeyPressed(KeyCode.U))
+		{
+			bool own = Audio.TransitionTo("", 0.0f);
+			Name = $"Own={own},'{Audio.CurrentSnapshot}'";
 			return;
 		}
 		if (Input.IsKeyPressed(KeyCode.P))

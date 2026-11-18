@@ -110,6 +110,16 @@ public sealed unsafe class AudioSourceComponent : Component
 		set => NativeField.Set<uint>(InternalCalls.AudioSourceComponent_SetMaxVoices, Entity.ID, value);
 	}
 
+	/// <summary>How much of the doppler effect the source's sounds take when it is spatial: their pitch rises as source and
+	/// listener close in and falls as they part, by the factor c / (c - v * DopplerLevel), c being the mixer's speed of sound
+	/// and v how fast they close in. 0 turns it off, 1 (the default) is physical, up to 5 exaggerates it (values beyond play
+	/// as the nearest). Sources that are not spatial take none.</summary>
+	public float DopplerLevel
+	{
+		get => NativeField.Get<float>(InternalCalls.AudioSourceComponent_GetDopplerLevel, Entity.ID);
+		set => NativeField.Set<float>(InternalCalls.AudioSourceComponent_SetDopplerLevel, Entity.ID, value);
+	}
+
 	/// <summary>Whether the sound is playing (held sounds of a paused scene count as playing).</summary>
 	public bool IsPlaying => InternalCalls.AudioSourceComponent_IsPlaying(Entity.ID) != 0;
 

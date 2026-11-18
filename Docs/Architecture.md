@@ -2984,21 +2984,40 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   spatial source takes (§9.8).
 - **Scripting.** A static `Strada.Audio`: `MasterVolume` (linear; its getter is a pure node), `GetBusVolume(bus)` (dB)
   and `IsBusMuted(bus)` (`[PureNode]`), `SetBusVolume(bus, decibels)`, `SetBusMuted(bus, muted)`,
-  `PlayClipAtPoint(clip, position, volume, bus)` and `ActiveVoiceCount` (a pure getter); and on `AudioSourceComponent`,
-  `PlayOneShot(volume)` (the source's clip), `PlayOneShot(clip, volume)`, `Bus`, `Priority` and `MaxVoices`. Each is a
-  node, with a recipe where its defaults do not run it (a one-shot needs a source with a clip; `PlayClipAtPoint` a
-  clip). What scripts set is run-time state of the mix (the game's values, §9.5), never written to the asset. The calls
+  `PlayClipAtPoint(clip, position, volume, bus)`, `ActiveVoiceCount` (a pure getter), and MX2's `TransitionTo(snapshot,
+  seconds)` (an impure node answering whether the mix blends to it; §9.8), `CurrentSnapshot` (a pure getter, the
+  mixer's own name of the snapshot) and `GetBusPeak(bus)` (`[PureNode]`: the bus's meter, §9.8); and on
+  `AudioSourceComponent`, `PlayOneShot(volume)` (the source's clip), `PlayOneShot(clip, volume)`, `Bus`, `Priority`,
+  `MaxVoices` and `DopplerLevel`; `ReverbZoneComponent` has every field (§9.8). Each is a node, with a recipe where its
+  defaults do not run it (a one-shot needs a source with a clip; `PlayClipAtPoint` a clip; MX2's run on their defaults,
+  a blend to the empty name, the mixer's own values). What scripts set is run-time state of the mix (the game's values, §9.5), never written to the asset. The calls
   reach the scene through `Scene::PlayAudioOneShot` and `Scene::PlayAudioClipAtPoint`, which bring the source up to date
   with its component first (a clip, bus or pool size set this frame applies) and load the clip asset (a streamed
   source's own clip included); a source whose component names a clip needs it to play, one that names none plays the
   clips it is given (§9.3), and numbers that are not finite are script errors naming the
   member. The managed `Mixer` reads the asset's own buses (names, parents, volumes, mutes) for a settings menu; the game's
   values are `Audio`'s. A test run mixes into the null device in real time, so FeatureTest's checks assert what the main
-  thread knows at a call (a voice started, a count right after a start), never that a sound ended.
+  thread knows at a call (a voice started, a count right after a start, the snapshot just blended to), never that a
+  sound ended or how loud a bus reads.
 - **The editor and the agents.** The `.smixer` inspector is the generic data asset editor; `mixer.*` are the generated
   commands. The rows of a list of buses are titled by their `Name`; an effect's row, which has no string field, by its
-  kind and the first parameter that kind shows (`0: Reverb, Room Size 0.5`; `FieldEditor::DescribeElement`). MX2 adds
-  the Mixer panel.
+  kind and the first parameter that kind shows (`0: Reverb, Room Size 0.5`; `FieldEditor::DescribeElement`).
+- **The Mixer panel** (`MixerPanel`, Docs/Editor.md "The Mixer panel"; docked below the scene view beside the Console,
+  open by default, `viewport.screenshot`'s window `Mixer`): the shown mixer (the project's, or one chosen in the panel)
+  as a strip per bus (name, meter, fader, mute), the selected bus's other fields through the generic field editor, the
+  snapshots with Audition, and the mixer's other fields. Every edit is one `SetDataAssetCommand` of the whole mixer's
+  fields (merge keys "MIXR" plus a count for a fader's drag and a field editor interaction, "MIXS" plus a count for every
+  other edit), so validation judges the whole result and an edit it refuses changes nothing. What a rename, a removal and
+  a change of an effect list do to the rest of the mixer is plain code without ImGui (`Editor/MixerEditing.h`: a rename
+  reaches parents, `DuckedBy`, snapshot values and `Impacts.Bus`; a removal re-parents the bus's children to its parent
+  and drops what named it; snapshot values that set effects follow their effects, by applying the list's edit to the
+  effects' indices with `FieldChange::MakePatch`). The panel is **live** only while the editor plays the game and the
+  shown mixer is the project's (the one `SceneRunner` applies): only then do its meters read `AudioEngine::GetBusMeters`
+  and Audition blend the running mix (`AudioEngine::TransitionTo` over 0.25 s), because the audio engine holds the
+  mixer the last game applied and mixes nothing while the editor edits. An audition remembers the snapshot the mix had
+  and blends back to it when pressed again, when the panel is hidden or closed, when another mixer is shown or the
+  project changes; it ends without a blend of its own when the game moves the mix to another snapshot or play stops
+  (`ResetGameValues`). It is run-time state of the mix: never an undo step, never written to the asset.
 
 ### 9.8 What MX2 adds, on this design
 
@@ -3218,12 +3237,22 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   `Audio.Mix` median is printed beside them. It asserts structure only (32 voices mixed, no allocation on the mixing
   thread, sound reaching the output). The same case reports 64 voices, the engine's limit, with one stolen and fading
   every frame (a pool of 2 whose each new one-shot steals the one before), the figure later tracks plan with (two bikes
-  of 16 engine layers each reach 32 alone). MX1's sitting (2026-11-17, Release, the reference machine, another lane's
+  of 16 engine layers each reach 32 alone). A third case runs the 32 voices with MX2's features in play: Music ducked by
+  Effects (a threshold of -70 dB, which the effects pass), a snapshot setting a bus volume and two effect parameters
+  that the run blends to and back from every half second over a second, so a blend is always under way, a sphere zone
+  sending the spatial voices round it to the Reverb bus (each voice that sends gets its send node), and every source's
+  velocity given each frame with doppler computed, so the engine layers' and the moving sources' pitch commands carry
+  the factor; it checks that each was in play (the ducking bus above its threshold, voices sending, voices pitched by
+  doppler) and that nothing allocated on the mixing thread. MX1's sitting (2026-11-17, Release, the reference machine, another lane's
   editor tests running; the gauge, the 10,000-instance benchmark's Submit + Prepare over its 12 medians, read 1.21 to
   2.15 ms, out of the 1.4 ms band): 32 voices a median of 0.24 ms and a 99th percentile of 0.34 to 0.36 ms per 10 ms of
   audio, met out of band; 64 voices with a steal every frame a median of 0.44 to 0.70 ms and a 99th percentile of 0.52 to
-  0.75 ms. A track's figures are provisional; the slice's gate measures again
-  with every lane idle.
+  0.75 ms. MX2's sitting (2026-11-17, Release, the reference machine, the cases run back to back, the gauge read 1.16 to
+  1.39 ms, in band; the other lane started a build as the gauge ended): 32 voices a median of 0.227 to 0.231 ms and a
+  99th percentile of 0.27 to 0.31 ms; the same with MX2's features in play a median of 0.269 to 0.272 ms and a 99th
+  percentile of 0.42 to 0.43 ms (28 of the 32 voices sending to the zone's bus and pitched by doppler), met in band; 64
+  voices a median of 0.42 to 0.43 ms. A track's figures are provisional; the slice's gate measures again with every lane
+  idle.
 
 ## 10. Scripting (C# / .NET 10)
 
@@ -3324,7 +3353,7 @@ editor's Simulate mode runs neither kind.
   `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
   `GroundNormal`, `Teleport(Vector3)`),
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`, `Stream`,
-  `PlayOneShot(volume)`, `PlayOneShot(clip, volume)`, `Bus`, `Priority`, `MaxVoices`; §9.3),
+  `PlayOneShot(volume)`, `PlayOneShot(clip, volume)`, `Bus`, `Priority`, `MaxVoices`; §9.3; `DopplerLevel`, §9.8),
   `AudioListenerComponent`, `ReverbZoneComponent` (every field; `Shape` is a `ReverbZoneShape`, §9.8), `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
   `Emit(count)`, `Clear()`, `ParticleCount`), `PostProcessComponent` (every field; `Tonemapper` is a `TonemapOperator`),
   `UICanvasComponent`, `UIRectComponent`, `UIImageComponent`, `UITextComponent` (every field), `UIButtonComponent`
@@ -3371,8 +3400,9 @@ editor's Simulate mode runs neither kind.
   read, from the runtime's copy of the names, read again when the asset's version changes).
 - `Audio` (§9.5, §9.7): `MasterVolume`, `GetBusVolume(bus)`, `SetBusVolume(bus, decibels)`, `IsBusMuted(bus)`,
   `SetBusMuted(bus, muted)` (the game's values of the mix, by bus name in any letter case), `PlayClipAtPoint(clip,
-  position, volume, bus)`, `ActiveVoiceCount`. Bindings `Audio_*` in `ScriptBindingsRuntime.cpp`; without an audio engine
-  reads are the defaults and writes do nothing.
+  position, volume, bus)`, `ActiveVoiceCount`, `TransitionTo(snapshot, seconds = 0.5)`, `CurrentSnapshot` and
+  `GetBusPeak(bus)` (§9.8). Bindings `Audio_*` in `ScriptBindingsRuntime.cpp`; without an audio engine reads are the
+  defaults (no snapshot, a peak of 0) and writes do nothing (`TransitionTo` answers false).
 - `Mixer` (a `.smixer` asset, §9.5): `BusCount`, `GetBusName(index)`, `HasBus(bus)`, `GetBusParent(bus)`,
   `GetBusVolume(bus)`, `IsBusMuted(bus)`: the asset's own values, read from the runtime's copy of its buses (`Mixer_Read`,
   `MixerCache`; effects are not copied); every member a pure node.

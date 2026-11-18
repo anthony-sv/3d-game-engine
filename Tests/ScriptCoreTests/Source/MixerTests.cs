@@ -284,11 +284,22 @@ public sealed unsafe class MixerTests : IDisposable
 		AssertPins(["In:Execute", "Out:Then", "In:Target", "In:Volume", "Out:Result"], own);
 		NodeDefinition given = VisualScriptTesting.LibraryNode("Call:Strada.AudioSourceComponent.PlayOneShot(Strada.AudioClip,float)");
 		AssertPins(["In:Execute", "Out:Then", "In:Target", "In:Clip", "In:Volume", "Out:Result"], given);
-		foreach (string field in new[] { "Bus", "Priority", "MaxVoices" })
+		foreach (string field in new[] { "Bus", "Priority", "MaxVoices", "DopplerLevel" })
 		{
 			Assert.True(VisualScriptTesting.LibraryNode($"Get:Strada.AudioSourceComponent.{field}").Pure, field);
 			Assert.False(VisualScriptTesting.LibraryNode($"Set:Strada.AudioSourceComponent.{field}").Pure, field);
 		}
+
+		// Snapshots and meters: a blend is an action with flow pins and an answer, what the mix blends to and a bus's peak are
+		// reads.
+		NodeDefinition transition = VisualScriptTesting.LibraryNode("Call:Strada.Audio.TransitionTo(string,float)");
+		Assert.False(transition.Pure);
+		AssertPins(["In:Execute", "Out:Then", "In:Snapshot", "In:Seconds", "Out:Result"], transition);
+		Assert.True(VisualScriptTesting.LibraryNode("Get:Strada.Audio.CurrentSnapshot").Pure);
+		Assert.Null(VisualScriptTesting.Library.FindNode("Set:Strada.Audio.CurrentSnapshot"));
+		NodeDefinition peak = VisualScriptTesting.LibraryNode("Call:Strada.Audio.GetBusPeak(string)");
+		Assert.True(peak.Pure);
+		AssertPins(["In:Bus", "Out:Result"], peak);
 	}
 
 	// The node's pins, by direction and name, in any order: these names are what graphs link to.
@@ -306,5 +317,7 @@ public sealed unsafe class MixerTests : IDisposable
 		Assert.Throws<ArgumentNullException>(() => Audio.SetBusMuted(null!, true));
 		Assert.Throws<ArgumentNullException>(() => Audio.PlayClipAtPoint(null!, Vector3.Zero));
 		Assert.Throws<ArgumentNullException>(() => Audio.PlayClipAtPoint(new AudioClip(new AssetHandle(3)), Vector3.Zero, 1.0f, null!));
+		Assert.Throws<ArgumentNullException>(() => Audio.TransitionTo(null!));
+		Assert.Throws<ArgumentNullException>(() => Audio.GetBusPeak(null!));
 	}
 }

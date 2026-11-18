@@ -210,11 +210,12 @@ visual-script debugging buttons while the game plays, and Simulate. [Play mode](
 | Project Settings | The project's name, start scene, game window, physics settings and input actions |
 | Content Browser | The project's assets and C# scripts as folders and tiles |
 | Console | The log: info, warnings and errors of the engine, the editor and your scripts |
+| Mixer | The project's mixer as a desk: a strip per bus with its meter, fader and mute, the selected bus's effects and ducking, the snapshots, auditioned while the game plays ([The Mixer panel](#the-mixer-panel)) |
 | Visual Script Debugger | Where visual scripts are stopped at breakpoints, their call stacks and values |
 | Graph windows | One window per open visual script ([VisualScripting.md](VisualScripting.md#editing-visual-scripts)) |
 
 The default layout puts the Scene Hierarchy on the left, the Inspector, Scene Settings and Project Settings as tabs on
-the right, the Scene View, Game View and Renderer Info as tabs in the middle, and the Content Browser, Console and
+the right, the Scene View, Game View and Renderer Info as tabs in the middle, and the Content Browser, Console, Mixer and
 Visual Script Debugger as tabs below the middle. The Scene View, the Inspector and the Content Browser are the tabs in
 front. Graph windows open as tabs beside the Scene View. The Profiler is closed until you open it from the View menu,
 because the profiler records while it is open; it opens as a tab beside the Console.
@@ -914,8 +915,8 @@ begins, on that bus, at a volume of the impact's impulse over `FullImpulse` (at 
 `Bus` is empty in a new mixer, which plays no impact sound.
 
 Name the game's mixer in Project Settings (`Mixer`), and a bus in an Audio Source's `Bus` (any letter case; empty is
-Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer in the Inspector, or agents with
-`mixer.set` ([Automation](Automation.md)); while the game plays, the mix takes the edit before its next sound: volumes
+Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer in the Mixer panel ([The Mixer
+panel](#the-mixer-panel)) or the Inspector, or agents with `mixer.set` ([Automation](Automation.md)); while the game plays, the mix takes the edit before its next sound: volumes
 glide over 5 ms, and a bus added, removed or moved, or whose effects change in kind or order, fades out and back in over
 10 ms, so nothing clicks. An effect that keeps its kind and its place among that kind's effects keeps its sound, so a
 reverb's tail rings on when a filter is inserted before it. When the game stops, the effects' tails stop with it.
@@ -924,6 +925,35 @@ A game sets its own volume and mute of each bus on top of the mixer's (`Audio.Se
 [scripts](Scripting.md#sound-text-and-materials) and graphs), as a settings menu does: they are never written to the
 mixer, and each game starts with them at 0 dB and not muted, so editing the mixer while a game plays and the game's own
 values never overwrite each other.
+
+### The Mixer panel
+
+The Mixer panel (View > Mixer, a tab beside the Console) shows a mixer as a mixing desk: the project's (Project
+Settings, `Mixer`), or another one chosen in its `Mixer` field (`x` goes back to the project's).
+
+- **The strips.** One per bus, in the mixer's order: its name (click it to select the bus), its meter, its fader
+  (-80 dB, silence, at the bottom to +24 dB at the top; Ctrl+click it to type a value) and Mute. The meter shows the
+  bus's level over the last 5 ms the engine mixed, after its effects and every gain: the bar is its RMS, the line above
+  it its peak, red at full scale, from -60 dBFS at the bottom to 0 dBFS at the top. Meters move only while the game
+  plays through this mixer.
+- **Bus.** The selected bus's `Name`, the bus it feeds, its effects in the order its sound runs through them (each shows
+  the parameters of its kind) and its ducking. Renaming a bus renames every reference to it in the mixer: the buses it
+  feeds, the buses it ducks, the snapshots' values and the impact sounds' bus. Add Bus adds a bus that feeds the selected
+  one; Remove Bus removes it, the buses it fed then feed its parent, a bus it ducked is ducked no more, and the snapshots'
+  values that set it and impact sounds on it go. When effects are added, removed or reordered, the snapshots' values
+  that set them follow them. Master keeps its name and cannot be removed.
+- **Snapshots.** Each snapshot with its number of values and Audition, then the snapshots' names and values to edit, and
+  Add Snapshot. While the game plays through this mixer, Audition blends the running mix to the snapshot over a quarter
+  of a second, so that its values can be tuned by ear while it holds: edits of them are heard as they are made. Press it
+  again (Stop) to blend back to what the mix had before, as hiding or closing the panel, choosing another mixer or
+  closing the project does. The game blending the mix itself, or play stopping, ends an audition. Auditions are never
+  undo steps and never change the mixer.
+- **Doppler and Impacts.** The mixer's `SpeedOfSound` and `Impacts`.
+
+Every edit in the panel is one undo step of the mixer (a fader's drag, a field's edit, a rename when its field is left or
+on Enter, each button); an edit the mixer's rules refuse (two buses of one name, a snapshot value naming an effect a bus
+does not have) changes nothing, and the panel says why above the strips. A read-only mixer is shown disabled. While the
+game plays through the mixer, it takes every edit before its next sound, as edits made anywhere else.
 
 ## Scene Settings
 

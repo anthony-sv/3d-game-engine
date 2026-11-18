@@ -800,6 +800,7 @@ namespace Strada::ScriptGlue
 		table.Add("AudioSourceComponent_SetBus", &SetText<AudioSourceComponent, &AudioSourceComponent::Bus>);
 		AddFieldBindings<&AudioSourceComponent::Priority, "AudioSourceComponent", "Priority">(table);
 		AddFieldBindings<&AudioSourceComponent::MaxVoices, "AudioSourceComponent", "MaxVoices">(table);
+		AddFieldBindings<&AudioSourceComponent::DopplerLevel, "AudioSourceComponent", "DopplerLevel">(table);
 		table.Add("AudioSourceComponent_Play", &AudioSourceComponent_Play);
 		table.Add("AudioSourceComponent_Pause", &AudioSourceComponent_Pause);
 		table.Add("AudioSourceComponent_Stop", &AudioSourceComponent_Stop);

@@ -22,6 +22,7 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/GameViewPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
+#include "Editor/Panels/MixerPanel.h"
 #include "Editor/Panels/ProfilerPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/RendererInfoPanel.h"
@@ -261,6 +262,7 @@ namespace Strada
 		SceneSettingsPanel m_SceneSettingsPanel;
 		ProjectSettingsPanel m_ProjectSettingsPanel;
 		ContentBrowserPanel m_ContentBrowserPanel;
+		MixerPanel m_MixerPanel;
 		// Declared before the game view and the debug controls, which use it.
 		GameInputRouter m_GameInput;
 		// The toolbar's debugger buttons, Pause and Step while an execution is stopped, the debug keys and the game's input at
@@ -282,6 +284,7 @@ namespace Strada
 		bool m_ShowContentBrowser = true;
 		bool m_ShowConsole = true;
 		bool m_ShowRendererInfo = true;
+		bool m_ShowMixer = true;
 		// Closed until asked for: the profiler records while the panel is open.
 		bool m_ShowProfiler = false;
 		bool m_ShowImGuiDemo = false;
