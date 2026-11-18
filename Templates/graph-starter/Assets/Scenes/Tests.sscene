@@ -1,6 +1,6 @@
 {
 	"Strada": {
-		"Version": 1,
+		"Version": 2,
 		"Type": "Scene"
 	},
 	"Scene": {
@@ -392,6 +392,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -415,6 +416,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.4000000059604645
 				}
@@ -475,6 +477,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -498,6 +501,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.4000000059604645
 				}
@@ -558,6 +562,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -581,6 +586,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.4000000059604645
 				}
@@ -641,6 +647,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -664,6 +671,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.4000000059604645
 				}
@@ -724,6 +732,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -747,6 +756,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.6000000238418579,
 					"Restitution": 0.4000000059604645
 				}
@@ -1131,6 +1141,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": false,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -1150,6 +1161,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.8999999761581421,
 					"Restitution": 0.3499999940395355
 				},
@@ -1162,7 +1174,11 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4,
+					"DopplerLevel": 1.0
 				},
 				"VisualScript": {
 					"Graph": "15309082661618086975",
@@ -1255,7 +1271,11 @@
 					"PlayOnStart": true,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4,
+					"DopplerLevel": 1.0
 				}
 			}
 		},
@@ -1422,7 +1442,11 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4,
+					"DopplerLevel": 1.0
 				}
 			}
 		},
@@ -1463,7 +1487,11 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4,
+					"DopplerLevel": 1.0
 				}
 			}
 		},
@@ -1504,7 +1532,11 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4,
+					"DopplerLevel": 1.0
 				}
 			}
 		},
@@ -1545,7 +1577,11 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4,
+					"DopplerLevel": 1.0
 				}
 			}
 		},
