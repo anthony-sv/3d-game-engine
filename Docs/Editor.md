@@ -923,7 +923,9 @@ Master, and a name the mixer lacks plays on Master, logged once). Edit a mixer i
 panel](#the-mixer-panel)) or the Inspector, or agents with `mixer.set` ([Automation](Automation.md)); while the game plays, the mix takes the edit before its next sound: volumes
 glide over 5 ms, and a bus added, removed or moved, or whose effects change in kind or order, fades out and back in over
 10 ms, so nothing clicks. An effect that keeps its kind and its place among that kind's effects keeps its sound, so a
-reverb's tail rings on when a filter is inserted before it. When the game stops, the effects' tails stop with it.
+reverb's tail rings on when a filter is inserted before it. When the game stops, the effects' tails stop with it. In
+the Inspector a mixer's effects have no Move Up and Move Down: snapshots name an effect by its place in its bus's list,
+and the Mixer panel is where effects are reordered with the snapshots' values following them.
 
 A game sets its own volume and mute of each bus on top of the mixer's (`Audio.SetBusVolume` and `Audio.SetBusMuted` in
 [scripts](Scripting.md#sound-text-and-materials) and graphs), as a settings menu does: they are never written to the

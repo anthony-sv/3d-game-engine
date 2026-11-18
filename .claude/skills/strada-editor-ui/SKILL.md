@@ -28,7 +28,8 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   into a row per element with a menu (Move Up, Move Down, Duplicate, Insert Above, Remove) over the element's own rows;
   arrays of plain values are a row per element whose grip drags it onto another row's grip in the same array (a Move;
   `DragDropPayload::ArrayElement` carries the array's ID scope), then "-"; `FieldHints::FixedOrder` takes the grips and
-  the Move items away from an array whose indices other data holds; buttons that add stop at the field's
+  the Move items away from an array whose indices other data holds (set on an editor's copy of the field table: the
+  Project Settings' layers, a mixer's effects in the inspector); buttons that add stop at the field's
   `MaxCount`. Script fields and graph variables that are lists are such arrays (`ScriptFieldInspection`). A panel that fixes up other data after a list edit never
   renumbers what other files also hold by index: the Project Settings layers are indices that rigid bodies in every
   scene keep, so removing one only drops the ignored pairs naming an index the shorter list lacks. Values drawn without

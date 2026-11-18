@@ -4,6 +4,7 @@
 #include "TestUtilities.h"
 
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
@@ -17,6 +18,7 @@
 #include "Strada/Asset/DataAsset.h"
 #include "Strada/Asset/InputActionMap.h"
 #include "Strada/Asset/InputActionsAsset.h"
+#include "Strada/Asset/Mixer.h"
 #include "Strada/Asset/MixerAsset.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
@@ -583,6 +585,102 @@ TEST_CASE("FieldEditor: an array of a fixed order has no grips and no Move items
 	CHECK(fixture.Changes.empty());
 	driver.PickFromMenu(tracks, 0, "Duplicate");
 	CHECK(fixture.TakeChange().ArrayEdit == std::optional<FieldArrayEdit>(FieldArrayEdit{FieldArrayEditKind::Duplicate, 0, 0}));
+}
+
+TEST_CASE("DataAssetEditor: in the inspector a mixer's effects, which snapshot values hold by index, are never moved")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	imgui.UseEditorStyle();
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	DataAssetType const* const type = DataAssetRegistry::FindByName("Mixer");
+	REQUIRE(type != nullptr);
+	// The snapshot's value sets the reverb's WetDb: the second effect of Music.
+	Result<AssetHandle> const created = operations.CreateDataAsset(type->GetAssetType(), "Audio/Game.smixer", Json::parse(R"({
+		"Buses": [
+			{ "Name": "Master" },
+			{ "Name": "Music", "Parent": "Master", "Effects": [ { "Kind": "LowPass" }, { "Kind": "Reverb" } ] },
+			{ "Name": "Voices", "Parent": "Master" }
+		],
+		"Snapshots": [ { "Name": "Quiet", "Values": [
+			{ "Bus": "Music", "Target": "Effect", "Effect": 1, "Parameter": "WetDb", "Value": -3.0 } ] } ]
+	})"));
+	REQUIRE(created.IsOk());
+	AssetHandle const mixer = created.GetValue();
+	Ref<TypedDataAsset<Mixer>> const asset = AssetManager::GetAsset<TypedDataAsset<Mixer>>(mixer);
+	REQUIRE(asset != nullptr);
+
+	DataAssetEditor editor;
+	CHECK(editor.HasDrawer("Mixer"));
+	FieldEditor fields;
+	EditSession session(0x4D49584500000000ull);
+	auto const draw = [&]
+	{
+		session.Update(ImGui::IsAnyItemActive(), context.GetHistory());
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 900.0f));
+		ImGui::Begin("Mixer", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		editor.Draw(operations, fields, mixer, session);
+		ImGui::End();
+	};
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	FieldTableDriver const driver{imgui, draw,
+	                              []
+	                              {
+									  return ImGui::FindWindowByName("Mixer");
+								  },
+	                              []
+	                              {
+									  return ImHashStr("##fields", 0, ImGui::FindWindowByName("Mixer")->ID);
+								  }};
+	// Which items an element's menu offers (the menu is closed again).
+	auto const offers = [&](ImGuiID array, int index, char const* item)
+	{
+		driver.Click(ImHashStr("...", 0, driver.GetElementId(array, index)), driver.GetButtonX());
+		REQUIRE(GImGui->OpenPopupStack.Size == 1);
+		ImGuiWindow const* popup = GImGui->OpenPopupStack.back().Window;
+		REQUIRE(popup != nullptr);
+		bool const found = FindItemAt(imgui, ImHashStr(item, 0, popup->ID), popup, popup->Pos.x + popup->Size.x * 0.5f, draw).has_value();
+		imgui.Press(ImGuiKey_Escape, draw);
+		return found;
+	};
+	ImGuiID const buses = driver.GetFieldId("Buses");
+	driver.OpenElement(buses, 1);
+	imgui.Frame(draw);
+	ImGuiID const effects = driver.GetFieldId("Effects", driver.GetElementId(buses, 1));
+	size_t const steps = context.GetHistory().GetUndoCount();
+
+	// The effects: no Move items, the others kept.
+	for (char const* item : {"Move Up", "Move Down"})
+	{
+		CAPTURE(item);
+		CHECK_FALSE(offers(effects, 0, item));
+		CHECK_FALSE(offers(effects, 1, item));
+	}
+	CHECK(offers(effects, 1, "Duplicate"));
+	// The buses, which the mixer names by name, still move.
+	CHECK(offers(buses, 1, "Move Down"));
+	CHECK(offers(buses, 2, "Move Up"));
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	REQUIRE(asset->GetData().Snapshots.at(0).Values.size() == 1);
+	CHECK(asset->GetData().Snapshots[0].Values[0].Effect == 1);
+	CHECK(asset->GetData().Buses.at(1).Effects.at(1).Kind == MixerEffectKind::Reverb);
+
+	// The type's own table keeps its order free: the Mixer panel moves effects with their snapshot values.
+	for (FieldDescriptor const& field : type->GetFields())
+	{
+		for (FieldDescriptor const& nested : field.Fields)
+		{
+			CAPTURE(nested.Name);
+			CHECK_FALSE(nested.Hints.FixedOrder);
+		}
+	}
 }
 
 TEST_CASE("FieldEditor: an element added to a list whose range holds no value of its type starts within the type's range")

@@ -1338,9 +1338,10 @@ what replaces the field (`OverriddenBy`: another field of the table that referen
 itself; while it holds an asset the inspector shows the field disabled and says what sets it, as a collider's `Material`
 replaces its `Friction` and `Restitution`; files and automation read and write the field as usual) and, for arrays, the most elements they hold (`MaxCount`, enforced whenever JSON is read, like ranges; the inspector's
 add buttons stop there), and whether editors keep an array's order (`FixedOrder`: no grips and no Move items for an
-array whose indices other data holds, as the Project Settings panel sets on the physics layers; files and automation
-are unaffected); the conditions, switches and replacements are checked at compile time. Values that skip the JSON checks
-(scripts, values made in C++) can be brought into range, and their arrays down to their `MaxCount`, with
+array whose indices other data holds, as the Project Settings panel sets on the physics layers and the inspector on a
+mixer's effects; files and automation are unaffected); the conditions, switches and replacements are checked at
+compile time. Values that skip the JSON checks (scripts, values made in C++) can be brought into range, and their
+arrays down to their `MaxCount`, with
 `ClampToFieldRanges` (`FitToFieldRanges` for imported data, which also replaces NaN and says what it changed). Field tables of other structs (renderer settings,
 materials, data assets) use the same hints. Each component
 also names its category (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`). The registry provides
@@ -3160,7 +3161,13 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   sound ended or how loud a bus reads.
 - **The editor and the agents.** The `.smixer` inspector is the generic data asset editor; `mixer.*` are the generated
   commands. The rows of a list of buses are titled by their `Name`; an effect's row, which has no string field, by its
-  kind and the first parameter that kind shows (`0: Reverb, Room Size 0.5`; `FieldEditor::DescribeElement`).
+  kind and the first parameter that kind shows (`0: Reverb, Room Size 0.5`; `FieldEditor::DescribeElement`). The
+  inspector draws a mixer from a copy of its field table in which each bus's `Effects` has `FieldHints::FixedOrder`
+  (`DataAssetEditor`'s drawer of the type): a snapshot value holds an effect by its index, and only the Mixer panel
+  moves those values with their effects, so the inspector moves no effect. Adding, duplicating and removing an effect
+  there still shift the indices after it; the values are left as they are, and validation refuses those that then name
+  an effect the bus lacks or a parameter its kind does not use. Buses, snapshots and their values are named, not
+  indexed, and keep their Move items.
 - **The Mixer panel** (`MixerPanel`, Docs/Editor.md "The Mixer panel"; docked below the scene view beside the Console,
   open by default, `viewport.screenshot`'s window `Mixer`): the shown mixer (the project's, or one chosen in the panel)
   as a strip per bus (name, meter, fader, mute), the selected bus's other fields through the generic field editor, the
@@ -4257,7 +4264,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   the last, and a grip that drags the row onto another row's grip in the same array (a `FieldArrayEditKind::Move` to
   that row's index; the payload, `DragDropPayload::ArrayElement`, names the array's ID scope, so a drop on another
   array's grip moves nothing), as components' arrays of values are, but for an array of a fixed order
-  (`FieldHints::FixedOrder`: the Project Settings' physics layers, which bodies hold by index), which has no grips and
+  (`FieldHints::FixedOrder`: the Project Settings' physics layers, which bodies hold by index, and in the inspector a
+  mixer's effects, which snapshot values hold by index, §9.7), which has no grips and
   no Move items; each list edit (an element changed, inserted, removed or moved) is one
   undo step that writes the field's whole list (`{ "Type": "Float[]", "Value": [...] }`). A selection whose lists differ
   shows the field mixed, as components' arrays do, and an edit is applied to each selected entity's own list by index

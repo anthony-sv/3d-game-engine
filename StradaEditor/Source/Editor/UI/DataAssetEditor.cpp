@@ -8,10 +8,14 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/DataAsset.h"
+#include "Strada/Core/Base.h"
+#include "Strada/Serialization/StructSerialization.h"
 
 #include <imgui.h>
 
+#include <span>
 #include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -25,6 +29,37 @@ namespace Strada
 			ImGui::TextWrapped("%s", message.c_str());
 			ImGui::PopStyleColor();
 		}
+
+		// A mixer's body: the type's fields with every bus's effects in a fixed order. A snapshot value names an effect by
+		// its index on its bus, and only the Mixer panel moves those values with their effects (ApplyMixerBusChange), so a
+		// move here would leave each value on the effect that took its effect's place.
+		DataAssetDrawer MakeMixerDrawer()
+		{
+			Ref<std::vector<FieldDescriptor>> const shown = CreateRef<std::vector<FieldDescriptor>>();
+			return [shown](DataAssetDrawContext const& context) -> std::optional<DataAssetEdit>
+			{
+				if (shown->empty())
+				{
+					std::span<FieldDescriptor const> const table = context.Type.GetFields();
+					shown->assign(table.begin(), table.end());
+					for (FieldDescriptor& mixerField : *shown)
+					{
+						if (mixerField.Name != "Buses")
+						{
+							continue;
+						}
+						for (FieldDescriptor& busField : mixerField.Fields)
+						{
+							if (busField.Name == "Effects")
+							{
+								busField.Hints.FixedOrder = true;
+							}
+						}
+					}
+				}
+				return DataAssetEditor::DrawFields(context, *shown);
+			};
+		}
 	}
 
 	DataAssetEditor::DataAssetEditor()
@@ -32,6 +67,7 @@ namespace Strada
 		// The drawers of the engine's types that have one, one line per type, sorted by name:
 		//   SetDrawer("<Name>", <drawer>);
 		SetDrawer("Curve", CurveAssetEditor::MakeDrawer(CreateRef<CurveAssetEditor>()));
+		SetDrawer("Mixer", MakeMixerDrawer());
 	}
 
 	void DataAssetEditor::SetDrawer(std::string typeName, DataAssetDrawer drawer)
@@ -84,8 +120,13 @@ namespace Strada
 
 	std::optional<DataAssetEdit> DataAssetEditor::DrawFields(DataAssetDrawContext const& context)
 	{
+		return DrawFields(context, context.Type.GetFields());
+	}
+
+	std::optional<DataAssetEdit> DataAssetEditor::DrawFields(DataAssetDrawContext const& context, std::span<FieldDescriptor const> fields)
+	{
 		ImGui::BeginDisabled(!context.Editable);
-		std::optional<FieldChange> const change = context.Editor.Draw(context.Type.GetFields(), context.Fields);
+		std::optional<FieldChange> const change = context.Editor.Draw(fields, context.Fields);
 		ImGui::EndDisabled();
 		if (!change || !context.Editable)
 		{
