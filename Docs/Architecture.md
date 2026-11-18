@@ -5602,8 +5602,9 @@ that each platform's names are tested on every platform:
   and pitch: the volume is the layer's fade by where the engine speed lies from it in layers (`log(speed / layer's
   speed) / log(1.346)`, read through the curve asset `Curves/EngineLayerFade.scurve`, cos(πx/2) from -1 to 1, held at 0
   below the lowest layer and above the highest) times the load's gain (`EngineOnLoad.scurve`, sin(πL/2), for the
-  on-load voices; `EngineOffLoad.scurve`, cos(πL/2), for the off-load ones) times `Volume`. Both crossfades are of equal
-  power, so the voices' volumes squared sum to `Volume` squared at any speed and load (the curves are cubics through
+  on-load voices; `EngineOffLoad.scurve`, cos(πL/2), for the off-load ones) times `Volume`, and 0 while `EngineSpeed`
+  is 0 (an engine that does not turn, or one not set yet: the ghost and its child update in no stated order). Both
+  crossfades are of equal power, so the voices' volumes squared sum to `Volume` squared at any speed and load (the curves are cubics through
   the functions' keys every 0.125 with their slopes: within 0.00023 of 1 from 1,000 to 17,000 rpm, which the tool's
   `check()` asserts). The pitch plays the layer at the engine's speed over the speed it was recorded at (the generator's
   exact figure, kept in the graph's `LayerSpeeds`), held within a layer's step either way, where its fade ends. Sixteen

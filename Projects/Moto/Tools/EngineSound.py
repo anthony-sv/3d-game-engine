@@ -18,7 +18,9 @@ How the layers are mixed, every update, for each voice:
   it at), held within a layer's step either way (1 / LAYER_RATIO to LAYER_RATIO), the speeds at which it fades out.
 
 The voices are spatial and take doppler (the graph's DopplerLevel, given to every voice when the scene starts), so the
-note rises as the bike comes and falls as it goes; they play from the start at volume 0 until the first update.
+note rises as the bike comes and falls as it goes; they play from the start at volume 0, and stay silent while the
+engine speed is 0 (an engine that does not turn, or one whose speed has not been set yet: the graphs of an entity and
+of its child update in no stated order).
 check() evaluates the curves as the engine does and asserts the powers' sum over the engine's range and every load.
 """
 import bisect
@@ -185,9 +187,9 @@ def write(author):
         on = b.pure("Call:Strada.Curve.Evaluate(float)", Target=b.var("OnLoad"), Time=b.var("Load"))
         off = b.pure("Call:Strada.Curve.Evaluate(float)", Target=b.var("OffLoad"), Time=b.var("Load"))
         volume = b.call("Set:Strada.AudioSourceComponent.Volume", Target=each["Element"],
-                        Value=b.expr(f"max(fade * (index < {LAYERS} ? on : off) * volume, 0.0)", fade=fade, index=each["Index"],
-                                     on=on, off=off, volume=b.var("Volume")),
-                        comment="Equal-power crossfades: the voices' powers sum to Volume squared")
+                        Value=b.expr(f"rpm > 0 ? max(fade * (index < {LAYERS} ? on : off) * volume, 0.0) : 0.0", rpm=b.var("EngineSpeed"),
+                                     fade=fade, index=each["Index"], on=on, off=off, volume=b.var("Volume")),
+                        comment="Equal-power crossfades: the voices' powers sum to Volume squared; a stopped engine is silent")
         pitch = b.call("Set:Strada.AudioSourceComponent.Pitch", Target=each["Element"],
                        Value=b.expr(f"clamp(rpm / speed, {1.0 / LAYER_RATIO:.9f}, {LAYER_RATIO:.9f})",
                                     rpm=b.var("EngineSpeed"), speed=speed),
