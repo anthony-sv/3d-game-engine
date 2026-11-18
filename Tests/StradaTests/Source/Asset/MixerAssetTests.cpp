@@ -482,6 +482,13 @@ TEST_CASE("MixerAsset: an effect's parameters are read by name, and bus names ar
 	CHECK(MixerEffectParameterCount == 17);
 	CHECK(MakeMixerBusKey("") == "master");
 	CHECK(MakeMixerBusKey("Engine-2 ÜBER") == "engine-2 Über");
+	// Names compared as their keys are, without making them.
+	CHECK(IsSameMixerBus("Engine-2 ÜBER", "engine-2 Über"));
+	CHECK(IsSameMixerBus("", "MASTER"));
+	CHECK(IsSameMixerBus("master", ""));
+	CHECK_FALSE(IsSameMixerBus("Engine-2 ÜBER", "engine-2 über"));
+	CHECK_FALSE(IsSameMixerBus("Music", "Musics"));
+	CHECK_FALSE(IsSameMixerBus("Music", ""));
 }
 
 TEST_CASE("MixerAsset: damaged mixers are refused, and what loads mixes")

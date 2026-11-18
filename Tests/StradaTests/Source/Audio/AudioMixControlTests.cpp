@@ -216,6 +216,11 @@ TEST_CASE("AudioMixer: a snapshot's transition moves a bus's volume linearly in 
 	CHECK(ReadLevels(0.02f).Left == 0.0f);
 }
 
+// Why these bounds hold on every platform (rulings FR-R29.5): the filters are the engine's own biquads in direct form I,
+// run in float from coefficients computed in double by ComputeBiquadCoefficients, with no library code (verblib's
+// long-double delay lines, which differ by platform, are in no effect here). The measured gains are compared with the
+// closed forms in double over 20 ms windows of whole cycles, and the margins (0.2 and 0.3 dB) are above both float
+// rounding and the parameter's glide across a window, whatever the platform's floating-point contraction.
 TEST_CASE("AudioMixer: a snapshot's transition moves effect parameters on their scales")
 {
 	Testing::AudioEngineScope engine;
@@ -458,6 +463,37 @@ TEST_CASE("AudioMixer: a ducked bus goes down by its amount over its attack whil
 		CHECK(std::abs(duckDb(releasing, 9600, voiceLevel) - -6.0) < 0.05);
 		Skip(0.1f);
 		CHECK(ReadLevels(0.02f).Left == doctest::Approx(musicLevel + voiceLevel).epsilon(1e-5));
+	}
+	// An amount made smaller while the bus is down deeper: back up to it at the edit's own rate (its 24 dB per release), and
+	// every later duck back at the new amount's 6 dB per release, never at the deeper one's.
+	SUBCASE("an amount edited while the bus is down deeper leaves the release at the new amount's rate")
+	{
+		mixer.Buses[1].DuckAmountDb = -24.0f;
+		AudioEngine::SetMixer(mixer);
+		audio->Play(SourceId(1));
+		Skip(0.4f);
+		CHECK(std::abs(duckDb(ReadSamples(0.02f), 0, voiceLevel) - -24.0) < 0.02);
+		mixer.Buses[1].DuckAmountDb = -6.0f;
+		AudioEngine::SetMixer(mixer);
+		std::vector<float> const recovering = ReadSamples(0.4f);
+		CHECK(std::abs(duckDb(recovering, 3600, voiceLevel) - (-24.0 + 24.0 * 3600.0 / 19200.0)) < 0.05);
+		CHECK(std::abs(duckDb(recovering, AudioFrames(0.4f) - 1, voiceLevel) - -6.0) < 0.02);
+
+		// A whole duck and release at the new amount: halfway up after half the release.
+		audio->Stop(SourceId(1));
+		Skip(0.5f);
+		CHECK(ReadLevels(0.02f).Left == doctest::Approx(musicLevel).epsilon(1e-6));
+		audio->Play(SourceId(1));
+		Skip(0.3f);
+		CHECK(std::abs(duckDb(ReadSamples(0.02f), 0, voiceLevel) - -6.0) < 0.02);
+		audio->Stop(SourceId(1));
+		std::vector<float> const releasing = ReadSamples(0.5f);
+		for (size_t const frame : {5055u, 9855u, 14655u})
+		{
+			CAPTURE(frame);
+			double const expected = -6.0 + 6.0 * static_cast<double>(frame - 255) / 19200.0;
+			CHECK(std::abs(duckDb(releasing, frame, 0.0f) - expected) < 0.05);
+		}
 	}
 	SUBCASE("a bus ducked by one that goes is not ducked any more")
 	{

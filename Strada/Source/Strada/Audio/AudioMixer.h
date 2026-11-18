@@ -311,12 +311,15 @@ namespace Strada
 		AudioSmoothedGain m_GameGain;
 		// Ducking (§9.8): the bus whose level of the block before lowers this one (null: not ducked), the amplitude of its
 		// threshold, the gain the duck heads for while that level is at or above it, the factors the duck's gain is
-		// multiplied by each frame going down and coming back up, and the duck's gain.
+		// multiplied by each frame going down and coming back up (the amount over the attack and over the release), the
+		// factor that brings a duck deeper than its amount (an edit while it was down) back up to the amount within the
+		// release, and the duck's gain.
 		AudioBusNode* m_DuckTrigger = nullptr;
 		float m_DuckThreshold = 0.0f;
 		float m_DuckTarget = 1.0f;
 		double m_DuckAttackFactor = 1.0;
 		double m_DuckReleaseFactor = 1.0;
+		double m_DuckRecoveryFactor = 1.0;
 		double m_DuckGain = 1.0;
 		// The RMS of the bus's output over the block it last processed, and over the block before it (what ducking reads,
 		// moved on by the mixer once every bus has processed a block).

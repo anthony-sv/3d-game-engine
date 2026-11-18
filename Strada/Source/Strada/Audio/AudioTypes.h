@@ -24,7 +24,8 @@ namespace Strada
 	inline constexpr float DefaultAudioDopplerLevel = 1.0f;
 	inline constexpr float MaxAudioDopplerLevel = 5.0f;
 	// The doppler factor a voice's pitch is multiplied by stays within these (Docs/Architecture.md §9.8): an octave down
-	// and up, which a closing speed of half the speed of sound reaches at level 1.
+	// and up. At level 1 the octave up is reached approaching at half the speed of sound, the octave down receding at the
+	// speed of sound (each body at the teleport threshold of half of it) or at a higher level.
 	inline constexpr float MinAudioDopplerFactor = 0.5f;
 	inline constexpr float MaxAudioDopplerFactor = 2.0f;
 

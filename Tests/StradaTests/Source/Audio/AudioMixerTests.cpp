@@ -444,6 +444,31 @@ TEST_CASE("AudioMixer: a mixer the validation refuses is not applied, and number
 	CHECK(AudioEngine::GetMixer().Buses[0].VolumeDb == MaxMixerVolumeDb);
 	CHECK(AudioEngine::GetMixer().Buses[0].Effects[0].Frequency == 24000.0f);
 	CHECK(AudioEngine::GetMixer().Buses[0].Effects[0].Q == 0.1f);
+
+	// The mixer's own numbers and its impacts' too: a speed of sound of 0 would make every motion a teleport, and an impulse
+	// of full volume of 0 would divide by it.
+	Mixer coded = MakeMixer({MakeBus("Master", "")});
+	coded.SpeedOfSound = 0.0f;
+	coded.Impacts.FullImpulse = 0.0f;
+	coded.Impacts.MinImpulse = -1.0f;
+	coded.Impacts.MaxPerFrame = 0;
+	AudioEngine::SetMixer(coded);
+	CHECK(AudioEngine::GetMixer().SpeedOfSound == MinSpeedOfSound);
+	CHECK(AudioEngine::GetMixer().Impacts.FullImpulse == 0.001f);
+	CHECK(AudioEngine::GetMixer().Impacts.MinImpulse == 0.0f);
+	CHECK(AudioEngine::GetMixer().Impacts.MaxPerFrame == 1u);
+
+	// A list longer than its field allows is refused whole, never cut: a bus past the limit may be one others name.
+	Mixer const fitted = AudioEngine::GetMixer();
+	std::vector<MixerBus> buses = {MakeBus("Master", "")};
+	for (uint32_t index = 0; index < MaxMixerBuses; index++)
+	{
+		buses.push_back(MakeBus("Bus " + std::to_string(index), "Master"));
+	}
+	uint64_t const tooManyStart = Log::GetNextEntryIndex();
+	AudioEngine::SetMixer(MakeMixer(std::move(buses)));
+	CHECK(AudioEngine::GetMixer() == fitted);
+	CHECK(CountLogged(tooManyStart, "a mixer has at most 32 buses, not 33") == 1);
 }
 
 TEST_CASE("AudioMixer: each filter's gain at three frequencies is within 0.1 dB of its closed form")

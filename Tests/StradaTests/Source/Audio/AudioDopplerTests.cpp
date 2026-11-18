@@ -40,6 +40,13 @@ namespace
 		return static_cast<double>(DefaultSpeedOfSound) / (static_cast<double>(DefaultSpeedOfSound) - closingSpeed);
 	}
 
+	// |measured / expected - 1|: what "within 1 %" bounds. doctest::Approx's epsilon is relative to 1 plus the larger value
+	// (doctest.h:6556), about twice the bound for factors near 1.
+	double RelativeError(double measured, double expected)
+	{
+		return std::abs(measured / expected - 1.0);
+	}
+
 	// One second of a 1 kHz sine at the test rate: a whole number of cycles, so that it loops without a seam.
 	AssetHandle AddToneClip()
 	{
@@ -200,8 +207,8 @@ TEST_CASE("AudioDoppler: a source passing at 30 m/s is heard within 1 % of c / (
 	std::vector<float> const samples = scene.Run(180, MoveAlongZ(scene.Source, start));
 	double const approaching = MeasureFrequency(Frames(samples, 15, 45)) / ToneFrequency;
 	double const receding = MeasureFrequency(Frames(samples, 150, 30)) / ToneFrequency;
-	CHECK(approaching == doctest::Approx(ExpectedFactor(Speed)).epsilon(0.01));
-	CHECK(receding == doctest::Approx(ExpectedFactor(-Speed)).epsilon(0.01));
+	CHECK(RelativeError(approaching, ExpectedFactor(Speed)) < 0.01);
+	CHECK(RelativeError(receding, ExpectedFactor(-Speed)) < 0.01);
 	// And not within 1 % of the tone itself: the difference is what is measured.
 	CHECK(std::abs(approaching - 1.0) > 0.05);
 	CHECK(std::abs(receding - 1.0) > 0.05);
@@ -218,7 +225,7 @@ TEST_CASE("AudioDoppler: a listener moving at 30 m/s hears c / (c - v), and so d
 		// The listener walks along +Z, away from the source in front of it.
 		std::vector<float> const away = scene.Run(60, MoveAlongZ(scene.Listener, glm::vec3(0.0f, 0.0f, 60.0f)));
 		CHECK(scene.GetDoppler() == doctest::Approx(ExpectedFactor(-Speed)).epsilon(1e-4));
-		CHECK(MeasureFrequency(Frames(away, 15, 45)) / ToneFrequency == doctest::Approx(ExpectedFactor(-Speed)).epsilon(0.01));
+		CHECK(RelativeError(MeasureFrequency(Frames(away, 15, 45)) / ToneFrequency, ExpectedFactor(-Speed)) < 0.01);
 	}
 	SUBCASE("a sound played at a point stands still and takes the listener's motion")
 	{
@@ -241,7 +248,7 @@ TEST_CASE("AudioDoppler: a listener moving at 30 m/s hears c / (c - v), and so d
 													   walk(frame + 2);
 												   });
 		// The point's 1 s clip at the default 1 m: quiet, but its frequency is what is read.
-		CHECK(MeasureFrequency(Frames(heard, 10, 30)) / ToneFrequency == doctest::Approx(ExpectedFactor(Speed)).epsilon(0.01));
+		CHECK(RelativeError(MeasureFrequency(Frames(heard, 10, 30)) / ToneFrequency, ExpectedFactor(Speed)) < 0.01);
 	}
 }
 
@@ -299,7 +306,7 @@ TEST_CASE("AudioDoppler: a source's first update, a teleport, a listener that ch
 		                                             {
 														 transform.Translation += closer;
 													 });
-		CHECK(MeasureFrequency(Frames(samples, 6, 24)) / ToneFrequency == doctest::Approx(1.0).epsilon(0.002));
+		CHECK(RelativeError(MeasureFrequency(Frames(samples, 6, 24)) / ToneFrequency, 1.0) < 0.002);
 	}
 	SUBCASE("twice the level, twice the closing speed")
 	{
@@ -356,6 +363,6 @@ TEST_CASE("AudioDoppler: a source's one-shots play at its factor, and its pitch 
 													 MoveAlongZ(scene.Source, start)(frame + 2);
 												 });
 	CHECK(scene.GetAudio().GetPitch(scene.Source.GetUUID()) == 1.25f);
-	CHECK(MeasureFrequency(Frames(samples, 10, 30)) / ToneFrequency == doctest::Approx(1.25 * ExpectedFactor(Speed)).epsilon(0.01));
+	CHECK(RelativeError(MeasureFrequency(Frames(samples, 10, 30)) / ToneFrequency, 1.25 * ExpectedFactor(Speed)) < 0.01);
 	scene.World.OnRuntimeStop();
 }

@@ -228,6 +228,21 @@ namespace Strada
 		return key;
 	}
 
+	bool IsSameMixerBus(std::string_view first, std::string_view second)
+	{
+		std::string_view const left = first.empty() ? MasterBusName : first;
+		std::string_view const right = second.empty() ? MasterBusName : second;
+		auto const lower = [](char character)
+		{
+			return character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character;
+		};
+		return std::equal(left.begin(), left.end(), right.begin(), right.end(),
+		                  [&lower](char leftCharacter, char rightCharacter)
+		                  {
+							  return lower(leftCharacter) == lower(rightCharacter);
+						  });
+	}
+
 	float GetMixerEffectParameter(MixerEffect const& effect, MixerEffectParameter parameter)
 	{
 		switch (parameter)

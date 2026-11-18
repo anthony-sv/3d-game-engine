@@ -1068,8 +1068,9 @@ namespace Strada
 	void AudioScene::UpdateReverbZones(std::span<AudioReverbZoneDesc const> zones)
 	{
 		ST_PROFILE_SCOPE("Audio.ReverbZones");
-		// The zones that send, each with the scene's group of its bus.
-		m_Data->Zones.clear();
+		// The zones that send, each with the scene's group of its bus. Assigned in place, so that the vector and each
+		// element's bus name keep their memory from one update to the next.
+		size_t count = 0;
 		Mixer const& mixer = AudioEngine::GetMixer();
 		for (AudioReverbZoneDesc const& zone : zones)
 		{
@@ -1077,16 +1078,16 @@ namespace Strada
 			{
 				continue;
 			}
-			std::string key = MakeBusKey(zone.Bus);
+			// Names compared without making keys, which this runs for every zone each frame.
 			bool const hasBus = std::any_of(mixer.Buses.begin(), mixer.Buses.end(),
-			                                [&key](MixerBus const& bus)
+			                                [&zone](MixerBus const& bus)
 			                                {
-												return MakeBusKey(bus.Name) == key;
+												return IsSameMixerBus(bus.Name, zone.Bus);
 											});
 			if (!hasBus)
 			{
 				// A group of a bus the mixer lacks plays on Master, where a send would only double the sound.
-				if (m_Data->MissingZoneBuses.insert(std::move(key)).second)
+				if (m_Data->MissingZoneBuses.insert(MakeBusKey(zone.Bus)).second)
 				{
 					ST_CORE_WARN("A reverb zone sends to bus '{}', which the project's mixer lacks: it sends nothing", zone.Bus);
 				}
@@ -1095,14 +1096,21 @@ namespace Strada
 			Result<AudioSceneGroup*> group = m_Data->GetGroup(zone.Bus);
 			if (!group)
 			{
-				if (m_Data->MissingZoneBuses.insert(std::move(key)).second)
+				if (m_Data->MissingZoneBuses.insert(MakeBusKey(zone.Bus)).second)
 				{
 					ST_CORE_WARN("A reverb zone cannot send to bus '{}': {}", zone.Bus, group.GetError());
 				}
 				continue;
 			}
-			m_Data->Zones.push_back({zone, group.GetValue()});
+			if (count == m_Data->Zones.size())
+			{
+				m_Data->Zones.emplace_back();
+			}
+			Data::ResolvedZone& resolved = m_Data->Zones[count++];
+			resolved.Desc = zone;
+			resolved.Group = group.GetValue();
 		}
+		m_Data->Zones.resize(count);
 
 		for (auto const& [entity, source] : m_Data->Sources)
 		{

@@ -837,8 +837,19 @@ namespace Strada
 		{
 			return;
 		}
-		// Numbers outside their fields' ranges, which no file holds, are brought within them (a mixer made in code).
+		// Numbers outside their fields' ranges, which no file holds, are brought within them (a mixer made in code): the
+		// mixer's own numbers, its impacts', its buses' and their effects'. The mixer's lists are left to ValidateMixer,
+		// which refuses one too long rather than cutting buses others may name, and so are snapshot values: a value's
+		// range depends on what it sets, and an effect index brought within range would name another effect.
 		Mixer fitted = mixer;
+		{
+			std::vector<MixerBus> buses = std::move(fitted.Buses);
+			std::vector<MixerSnapshot> snapshots = std::move(fitted.Snapshots);
+			FitToFieldRanges<StructTraits<Mixer>>(fitted);
+			fitted.Buses = std::move(buses);
+			fitted.Snapshots = std::move(snapshots);
+		}
+		FitToFieldRanges<StructTraits<MixerImpacts>>(fitted.Impacts);
 		for (MixerBus& bus : fitted.Buses)
 		{
 			FitToFieldRanges<StructTraits<MixerBus>>(bus);

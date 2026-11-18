@@ -354,7 +354,10 @@ namespace Strada
 			}
 			return;
 		}
-		m_DuckGain = std::max(m_DuckGain, AudioBusMixGain::DecibelFloor) * m_DuckReleaseFactor;
+		// Below the amount only after an edit made while the duck was down: back to the amount at that edit's own rate, and
+		// from the amount on at the amount's, so a later duck comes back at |amount| per release.
+		double const factor = m_DuckGain < static_cast<double>(m_DuckTarget) ? m_DuckRecoveryFactor : m_DuckReleaseFactor;
+		m_DuckGain = std::max(m_DuckGain, AudioBusMixGain::DecibelFloor) * factor;
 		if (m_DuckGain >= target)
 		{
 			m_DuckGain = target;
@@ -368,13 +371,16 @@ namespace Strada
 		m_DuckTarget = static_cast<float>(ToVolumeGain(amountDb));
 		m_DuckThreshold = static_cast<float>(std::pow(10.0, static_cast<double>(thresholdDb) / 20.0));
 		// The whole amount (to the floor for silence) in the attack's and the release's frames. A duck already deeper than
-		// the new amount (an edit while it is down) comes back up from where it is within the release.
+		// the new amount (an edit while it is down) comes back up to the amount at a rate of its own, its depth per release;
+		// the release's rate stays the amount's, for every later duck.
 		double const depthDb = -std::max(amountDb, MinMixerVolumeDb);
 		double const currentDepthDb = -20.0 * std::log10(std::max(m_DuckGain, AudioBusMixGain::DecibelFloor));
-		double const releaseDepthDb = std::max(depthDb, currentDepthDb);
+		double const recoveryDepthDb = std::max(depthDb, currentDepthDb);
 		double const rate = static_cast<double>(sampleRate);
+		double const releaseFrames = std::max(static_cast<double>(releaseSeconds), 1.0e-6) * rate;
 		m_DuckAttackFactor = std::pow(10.0, -depthDb / (std::max(static_cast<double>(attackSeconds), 1.0e-6) * rate) / 20.0);
-		m_DuckReleaseFactor = std::pow(10.0, releaseDepthDb / (std::max(static_cast<double>(releaseSeconds), 1.0e-6) * rate) / 20.0);
+		m_DuckReleaseFactor = std::pow(10.0, depthDb / releaseFrames / 20.0);
+		m_DuckRecoveryFactor = std::pow(10.0, recoveryDepthDb / releaseFrames / 20.0);
 	}
 
 	Result<Scope<AudioSendNode>> AudioSendNode::Create(uint32_t channelCount, AudioSceneGroup& idle)

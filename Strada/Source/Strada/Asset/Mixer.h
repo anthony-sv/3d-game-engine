@@ -260,4 +260,7 @@ namespace Strada
 	// The key a bus name is matched by: its ASCII letters in lower case, the empty name being Master's ("master"). Any
 	// thread.
 	[[nodiscard]] std::string MakeMixerBusKey(std::string_view name);
+	// Whether two bus names have the same key (MakeMixerBusKey), without making either: for what compares names each frame.
+	// Any thread.
+	[[nodiscard]] bool IsSameMixerBus(std::string_view first, std::string_view second);
 }

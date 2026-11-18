@@ -3071,9 +3071,11 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   over the block before (its level after every gain of its own, so a muted bus ducks nothing) is at or above the
   threshold, the duck's gain heads for `DuckAmountDb`; below it, for 0 dB; it moves linearly in decibels at
   `|DuckAmountDb|` per `DuckAttackSeconds` going down and per `DuckReleaseSeconds` coming back (one factor a frame, so
-  the times do not depend on how long blocks are; a duck deeper than a new amount comes back from where it is within
-  the release). It is a gate with a ramp, not a compressor: a voice bus lowers music by the amount whatever its loudness
-  above the threshold. The level read is that of the previous block, which the mixer copies for every bus at the end of
+  the times do not depend on how long blocks are). A duck that an edit leaves deeper than its new amount comes back up
+  to the amount at its own depth per `DuckReleaseSeconds` (and from the amount on to 0 dB at the amount's rate, so it
+  then takes longer than one release in all), and the release's rate stays the amount's, so every later duck comes
+  back at `|DuckAmountDb|` per release. It is a gate with a ramp, not a compressor: a voice bus lowers music by the
+  amount whatever its loudness above the threshold. The level read is that of the previous block, which the mixer copies for every bus at the end of
   each block (`AudioBusNode::m_PreviousRms`), because miniaudio's graph pulls buses in an order of its own; so ducking
   reacts a block after the other bus starts or stops (5.3 ms at 48 kHz) whatever that order is. The duck's gain comes
   after the game's and before the dip of a move or a swap. `ValidateMixer` refuses a bus ducked by one the mixer lacks,
@@ -3122,7 +3124,9 @@ decibels, the rest linearly. Filter frequencies are lowered to 0.45 times the sa
   outside. A voice that is not spatial sends nothing. A zone whose `Bus` is empty sends nothing, and so does one whose
   bus the mixer lacks (logged once per name and scene): the scene's group of a missing bus plays on Master, where a
   send would only double the sound. Voices started later (one-shots, `PlayClipAtPoint`, impact sounds) take the sends
-  of the last update before they are handed over, so they send from their first block.
+  of the last update before they are handed over: with manual output they send from their first block; on a device
+  the voice's start and its sends are two pushes the device's thread may take the ring between, so the sends may start
+  a block later (5.3 ms at 48 kHz, which cannot be heard).
   - **The send node** (`AudioSendNode`, `AudioMixer.h`). A voice that sends for the first time gets one, made on the main
     thread (`AudioVoice::EnableSends`; its three output buses are allocated there, past miniaudio's two inline ones) and
     owned by the voice: a custom node with one input and three outputs, the dry signal unchanged and two sends, each

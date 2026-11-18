@@ -313,7 +313,9 @@ namespace Strada
 		command.Values = {m_Volume, GetPlaybackPitch(), 0.0f, 0.0f};
 		command.Serial = m_PlaySerial;
 		Miniaudio::GetVoiceManager().Submit(command);
-		// Sends set before the hand-over go in right behind the start, before any block can mix the voice without them.
+		// Sends set before the hand-over go in right behind the start. With manual output nothing mixes between the two
+		// pushes, so the voice sends from its first block; a device's thread may take the ring between them, and the sends
+		// then start a block later (Docs/Architecture.md §9.8), which cannot be heard.
 		if (handOver && m_SendNode)
 		{
 			HandOverSends();

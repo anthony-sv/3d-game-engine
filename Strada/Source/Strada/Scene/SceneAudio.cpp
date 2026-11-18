@@ -17,7 +17,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <utility>
 #include <vector>
 
 namespace Strada
@@ -190,15 +189,22 @@ namespace Strada
 				unit[axis] = 1.0f;
 				desc.Rotation[axis] = length > 1e-6f ? column / length : unit;
 			}
-			// Scripts set fields without their ranges: the zone takes them within.
-			ReverbZoneComponent fitted = zone;
+			// Scripts set fields without their ranges: the zone takes them within. The bus name is assigned below rather than
+			// copied with the rest, so that the element's string keeps its memory (every field is named, so a new one cannot
+			// be left out: -Wmissing-designated-field-initializers).
+			ReverbZoneComponent fitted{.Shape = zone.Shape,
+			                           .Radius = zone.Radius,
+			                           .HalfExtents = zone.HalfExtents,
+			                           .FadeDistance = zone.FadeDistance,
+			                           .Bus = {},
+			                           .SendLevel = zone.SendLevel};
 			ClampToFieldRanges<ComponentTraits<ReverbZoneComponent>>(fitted);
 			desc.Shape = fitted.Shape;
 			desc.Position = GetTranslation(transform);
 			desc.Radius = fitted.Radius * std::max({scale.x, scale.y, scale.z});
 			desc.HalfExtents = fitted.HalfExtents * scale;
 			desc.FadeDistance = fitted.FadeDistance;
-			desc.Bus = std::move(fitted.Bus);
+			desc.Bus = zone.Bus;
 			desc.Level = fitted.SendLevel;
 		}
 		m_AudioZones.resize(count);
