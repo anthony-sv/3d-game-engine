@@ -8,7 +8,6 @@
 #include "Strada/Asset/PhysicsMaterial.h"
 #include "Strada/Asset/PhysicsMaterialAsset.h"
 #include "Strada/Audio/AudioEngine.h"
-#include "Strada/Core/Log.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Scene/Components.h"
@@ -20,11 +19,8 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <optional>
+#include <memory>
 #include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
 
 using namespace Strada;
 
@@ -65,6 +61,9 @@ namespace
 		uint32_t CollisionCount = 0;
 		uint32_t Voices = 0;
 		float Peak = 0.0f;
+		// Voices started in the frames after it, which run at 144 per second (some with no physics step), while the
+		// balls rest on the ground and the first sounds still play.
+		uint32_t LaterVoices = 0;
 	};
 
 	ImpactResult DropBalls(ImpactSetup const& setup)
@@ -126,6 +125,13 @@ namespace
 			Testing::Skip(FrameTime);
 		}
 		result.Peak = AudioEngine::GetBusPeak("Impacts");
+		for (uint32_t frame = 0; frame < 30; frame++)
+		{
+			uint32_t const before = AudioEngine::GetActiveVoiceCount();
+			scene.OnUpdateRuntime(Timestep(1.0f / 144.0f));
+			uint32_t const after = AudioEngine::GetActiveVoiceCount();
+			result.LaterVoices += after > before ? after - before : 0;
+		}
 		scene.OnRuntimeStop();
 		return result;
 	}
@@ -139,6 +145,8 @@ TEST_CASE("Scene: a collision that begins plays its sides' impact sounds once, a
 	CHECK(first.Impulse > 2.0f);
 	CHECK(first.Voices == 1);
 	CHECK(first.Peak > 0.0f);
+	// The contact goes on, and sounds no more.
+	CHECK(first.LaterVoices == 0);
 
 	// The same drop at two full impulses: the sound is in proportion, so the peaks are as the volumes.
 	setup.Impacts.FullImpulse = first.Impulse * 2.0f;
@@ -170,6 +178,7 @@ TEST_CASE("Scene: impact sounds play above the least impulse, at most a frame's 
 	ImpactResult const all = DropBalls(setup);
 	REQUIRE(all.CollisionCount == 4);
 	CHECK(all.Voices == 4);
+	CHECK(all.LaterVoices == 0);
 
 	setup.Impacts.MaxPerFrame = 3;
 	ImpactResult const limited = DropBalls(setup);

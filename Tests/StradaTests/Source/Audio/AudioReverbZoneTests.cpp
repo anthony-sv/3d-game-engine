@@ -115,7 +115,8 @@ namespace
 	}
 
 	// Blocks a gain takes to reach its target, and then one more (AudioGainSmoothingSeconds at the test rate).
-	uint32_t const RampBlocks = Testing::AudioFrames(AudioGainSmoothingSeconds) / BlockFrames + 2;
+	constexpr uint32_t RampBlocks =
+		static_cast<uint32_t>(AudioGainSmoothingSeconds * static_cast<float>(Testing::AudioSampleRate)) / BlockFrames + 2;
 }
 
 TEST_CASE("AudioScene: a reverb zone sends its level inside its shape, less across its fade and nothing beyond")
