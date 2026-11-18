@@ -117,6 +117,32 @@ namespace
 	// Blocks a gain takes to reach its target, and then one more (AudioGainSmoothingSeconds at the test rate).
 	constexpr uint32_t RampBlocks =
 		static_cast<uint32_t>(AudioGainSmoothingSeconds * static_cast<float>(Testing::AudioSampleRate)) / BlockFrames + 2;
+
+	// A voice that sends to Tunnel alone (one slot heard, the other silent) moves to the two buses of zones, both new to it:
+	// the send ranked first takes the silent slot and is heard from the next block, the other waits for Tunnel's to fade
+	// out. Which bus is heard first depends only on the slot each send takes, so it holds on every platform.
+	void CheckFirstSendHeard(std::vector<AudioReverbZoneDesc> const& zones, std::string_view first, float firstLevel,
+	                         std::string_view second, float secondLevel)
+	{
+		Testing::AudioEngineScope engine;
+		SetZoneMixer({"Tunnel", "Alpha", "Bravo", "Zeta"});
+		Scope<AudioScene> audio = CreateAudioScene();
+		AddSpatialSource(*audio, 0, Testing::MakeWavClip({{0.25f, 1.0f}}));
+		std::vector<AudioReverbZoneDesc> const tunnel = {MakeSphere({0.0f, 0.0f, -0.5f}, 1.0f, 0.0f, "Tunnel", 0.4f)};
+		audio->UpdateReverbZones(tunnel);
+		ReadBlocks(RampBlocks);
+		REQUIRE(MeasureSend("Tunnel") == doctest::Approx(0.4).epsilon(1e-5));
+
+		audio->UpdateReverbZones(zones);
+		ReadBlocks(1);
+		CHECK(MeasureSend(first) > 0.0);
+		CHECK(AudioEngine::GetBusPeak(second) == 0.0f);
+		CHECK(MeasureSend("Tunnel") > 0.0);
+		ReadBlocks(2 * RampBlocks);
+		CHECK(MeasureSend(first) == doctest::Approx(firstLevel).epsilon(1e-5));
+		CHECK(MeasureSend(second) == doctest::Approx(secondLevel).epsilon(1e-5));
+		CHECK(AudioEngine::GetBusPeak("Tunnel") == 0.0f);
+	}
 }
 
 TEST_CASE("AudioScene: a reverb zone sends its level inside its shape, less across its fade and nothing beyond")
@@ -248,6 +274,52 @@ TEST_CASE("AudioScene: of a bus's zones the largest send counts, and a voice sen
 	ReadBlocks(RampBlocks);
 	CHECK(MeasureSend("Hall") == doctest::Approx(0.6).epsilon(1e-5));
 	CHECK(MeasureSend("Cave") == doctest::Approx(0.7).epsilon(1e-5));
+}
+
+TEST_CASE("AudioScene: a voice's sends rank the larger first and, of equal ones, the bus whose key sorts first, in any zone order")
+{
+	glm::vec3 const here = {0.0f, 0.0f, -0.5f};
+	AudioReverbZoneDesc const alpha = MakeSphere(here, 1.0f, 0.0f, "Alpha", 0.5f);
+	AudioReverbZoneDesc const bravo = MakeSphere(here, 1.0f, 0.0f, "Bravo", 0.5f);
+	AudioReverbZoneDesc const zeta = MakeSphere(here, 1.0f, 0.0f, "Zeta", 0.9f);
+
+	// The larger send ranks first, although its bus's key sorts last.
+	SUBCASE("the larger first, its zone last")
+	{
+		CheckFirstSendHeard({alpha, zeta}, "Zeta", 0.9f, "Alpha", 0.5f);
+	}
+	SUBCASE("the larger first, its zone first")
+	{
+		CheckFirstSendHeard({zeta, alpha}, "Zeta", 0.9f, "Alpha", 0.5f);
+	}
+	SUBCASE("of equal sends, the bus whose key sorts first, its zone last")
+	{
+		CheckFirstSendHeard({bravo, alpha}, "Alpha", 0.5f, "Bravo", 0.5f);
+	}
+	SUBCASE("of equal sends, the bus whose key sorts first, its zone first")
+	{
+		CheckFirstSendHeard({alpha, bravo}, "Alpha", 0.5f, "Bravo", 0.5f);
+	}
+	// Three buses for two slots, the two smaller sends equal: the last slot goes to the bus whose key sorts first.
+	SUBCASE("the last slot to the bus whose key sorts first")
+	{
+		std::vector<std::vector<AudioReverbZoneDesc>> const orders = {{zeta, bravo, alpha}, {alpha, bravo, zeta}, {bravo, alpha, zeta}};
+		for (std::vector<AudioReverbZoneDesc> const& zones : orders)
+		{
+			Testing::AudioEngineScope engine;
+			SetZoneMixer({"Alpha", "Bravo", "Zeta"});
+			Scope<AudioScene> audio = CreateAudioScene();
+			AddSpatialSource(*audio, 0, Testing::MakeWavClip({{0.25f, 1.0f}}));
+			audio->UpdateReverbZones(zones);
+			CHECK(audio->GetReverbSend(SourceId(0), "Zeta") == 0.9f);
+			CHECK(audio->GetReverbSend(SourceId(0), "Alpha") == 0.5f);
+			CHECK(audio->GetReverbSend(SourceId(0), "Bravo") == 0.0f);
+			ReadBlocks(RampBlocks);
+			CHECK(MeasureSend("Zeta") == doctest::Approx(0.9).epsilon(1e-5));
+			CHECK(MeasureSend("Alpha") == doctest::Approx(0.5).epsilon(1e-5));
+			CHECK(AudioEngine::GetBusPeak("Bravo") == 0.0f);
+		}
+	}
 }
 
 TEST_CASE("AudioScene: a voice that is not spatial, and a zone without a bus or with one the mixer lacks, send nothing")
