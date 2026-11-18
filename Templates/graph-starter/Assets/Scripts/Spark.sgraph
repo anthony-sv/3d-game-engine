@@ -109,7 +109,7 @@
 					"ID": 12,
 					"Type": "Expression",
 					"Position": [
-						240.0,
+						192.0,
 						336.0
 					],
 					"Settings": {
@@ -120,7 +120,7 @@
 					"ID": 13,
 					"Type": "Variable.Set",
 					"Position": [
-						512.0,
+						432.0,
 						336.0
 					],
 					"Settings": {
@@ -131,16 +131,16 @@
 					"ID": 14,
 					"Type": "Get:Strada.Entity.Children",
 					"Position": [
-						0.0,
-						528.0
+						192.0,
+						480.0
 					]
 				},
 				{
 					"ID": 15,
 					"Type": "Array.Get",
 					"Position": [
-						240.0,
-						480.0
+						432.0,
+						464.0
 					],
 					"Inputs": {
 						"Index": 0
@@ -150,8 +150,8 @@
 					"ID": 16,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						656.0
+						192.0,
+						608.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -161,8 +161,8 @@
 					"ID": 17,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						720.0
+						192.0,
+						672.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -172,8 +172,8 @@
 					"ID": 18,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						624.0
+						432.0,
+						608.0
 					],
 					"Settings": {
 						"Formula": "vec3(0, sin(clock * 2.4) * bob, 0)"
@@ -191,16 +191,16 @@
 					"ID": 20,
 					"Type": "Get:Strada.Entity.Children",
 					"Position": [
-						0.0,
-						784.0
+						432.0,
+						752.0
 					]
 				},
 				{
 					"ID": 21,
 					"Type": "Array.Get",
 					"Position": [
-						240.0,
-						768.0
+						704.0,
+						512.0
 					],
 					"Inputs": {
 						"Index": 0
@@ -210,8 +210,8 @@
 					"ID": 22,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						912.0
+						432.0,
+						880.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -221,8 +221,8 @@
 					"ID": 23,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						976.0
+						432.0,
+						944.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -232,8 +232,8 @@
 					"ID": 24,
 					"Type": "Expression",
 					"Position": [
-						240.0,
-						912.0
+						704.0,
+						656.0
 					],
 					"Settings": {
 						"Formula": "vec3(0, (clock * spin) % 360, 0)"
@@ -243,7 +243,7 @@
 					"ID": 25,
 					"Type": "Set:Strada.TransformComponent.EulerAngles",
 					"Position": [
-						896.0,
+						976.0,
 						336.0
 					]
 				},
@@ -252,15 +252,15 @@
 					"Type": "Event.TriggerEnter",
 					"Position": [
 						0.0,
-						1168.0
+						1120.0
 					]
 				},
 				{
 					"ID": 28,
 					"Type": "RunsGraph",
 					"Position": [
-						240.0,
-						1168.0
+						192.0,
+						1120.0
 					],
 					"Settings": {
 						"Graph": "15309082661618086975"
@@ -270,8 +270,8 @@
 					"ID": 29,
 					"Type": "Variable.Get",
 					"Position": [
-						240.0,
-						1280.0
+						192.0,
+						1232.0
 					],
 					"Settings": {
 						"Variable": 5,
@@ -282,8 +282,8 @@
 					"ID": 30,
 					"Type": "Expression",
 					"Position": [
-						448.0,
-						1168.0
+						400.0,
+						1120.0
 					],
 					"Settings": {
 						"Formula": "orb && rolling"
@@ -293,8 +293,8 @@
 					"ID": 31,
 					"Type": "Flow.Branch",
 					"Position": [
-						656.0,
-						1168.0
+						608.0,
+						1120.0
 					],
 					"Comment": "Only the orb collects, and only during a run"
 				},
@@ -302,8 +302,8 @@
 					"ID": 32,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1296.0
+						608.0,
+						1248.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -313,16 +313,16 @@
 					"ID": 33,
 					"Type": "Get:Strada.Entity.Translation",
 					"Position": [
-						0.0,
-						1360.0
+						608.0,
+						1312.0
 					]
 				},
 				{
 					"ID": 34,
 					"Type": "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)",
 					"Position": [
-						880.0,
-						1168.0
+						848.0,
+						1120.0
 					],
 					"Inputs": {
 						"Rotation": [
@@ -337,8 +337,8 @@
 					"ID": 35,
 					"Type": "Event.Broadcast",
 					"Position": [
-						1232.0,
-						1168.0
+						1200.0,
+						1120.0
 					],
 					"Settings": {
 						"Name": "SparkCollected",
@@ -351,8 +351,8 @@
 					"ID": 36,
 					"Type": "Call:Strada.Entity.Destroy()",
 					"Position": [
-						1488.0,
-						1168.0
+						1456.0,
+						1120.0
 					]
 				}
 			],
@@ -685,8 +685,8 @@
 						264.0
 					],
 					"Size": [
-						1080.0,
-						786.0
+						1160.0,
+						740.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -700,10 +700,10 @@
 					"Text": "Collect: the rolling orb takes the spark, which flashes and goes",
 					"Position": [
 						-32.0,
-						1096.0
+						1048.0
 					],
 					"Size": [
-						1683.13623046875,
+						1651.13623046875,
 						378.0
 					],
 					"Color": [

@@ -38,6 +38,7 @@ namespace Strada
 			// Into the graph's nodes.
 			size_t Index = 0;
 			glm::dvec2 Size{0.0};
+			bool Pure = false;
 			// Where the layout puts it, relative to the corner of the arranged block.
 			glm::dvec2 Offset{0.0};
 		};
@@ -47,6 +48,8 @@ namespace Strada
 		{
 			uint32_t ID = 0;
 			glm::dvec2 Size{0.0};
+			// A pure node, which stands beside what reads it; a region of comment boxes never is.
+			bool Pure = false;
 			uint32_t Component = 0;
 			uint32_t Layer = 0;
 			// Where the layout puts it, relative to the corner of the laid out items.
@@ -340,9 +343,62 @@ namespace Strada
 			return {position, size};
 		}
 
+		// Moves each pure item that a later column reads into the column right before the leftmost item reading it. The items'
+		// layers are the longest chains of links leading to them; only links that run to a later layer count, so links closing
+		// a cycle move nothing. Pure items are taken from the deepest layer up: the items reading one already stand where they
+		// end, and a chain of pure items closes up behind the item it feeds. Layers only grow, so every counted link still runs
+		// left to right, and the item at the end of a longest chain into each kept item keeps its layer, so no layer empties.
+		void MovePureItemsBesideReaders(VisualScriptGraph const& graph, std::vector<LayoutItem>& items,
+		                                std::unordered_map<uint32_t, size_t> const& numbers)
+		{
+			std::vector<size_t> pure;
+			for (size_t number = 0; number < items.size(); number++)
+			{
+				if (items[number].Pure)
+				{
+					pure.push_back(number);
+				}
+			}
+			if (pure.empty())
+			{
+				return;
+			}
+			std::vector<std::vector<size_t>> readers(items.size());
+			for (VisualScriptLink const& link : graph.Links)
+			{
+				auto const from = numbers.find(link.From.Node);
+				auto const to = numbers.find(link.To.Node);
+				if (from != numbers.end() && to != numbers.end() && items[from->second].Pure &&
+				    items[to->second].Layer > items[from->second].Layer)
+				{
+					readers[from->second].push_back(to->second);
+				}
+			}
+			// Deepest first; items of one layer never read each other, so their order among themselves does not matter.
+			std::stable_sort(pure.begin(), pure.end(),
+			                 [&items](size_t first, size_t second)
+			                 {
+								 return items[first].Layer > items[second].Layer;
+							 });
+			for (size_t const number : pure)
+			{
+				if (readers[number].empty())
+				{
+					continue;
+				}
+				uint32_t leftmost = std::numeric_limits<uint32_t>::max();
+				for (size_t const reader : readers[number])
+				{
+					leftmost = std::min(leftmost, items[reader].Layer);
+				}
+				items[number].Layer = std::max(items[number].Layer, leftmost - 1);
+			}
+		}
+
 		// The layered layout: sets each item's Offset from the corner of their bounds. The items are nodes of graph with their
 		// IDs, each once, in ID order; only the links of graph between them count, and those from the anchors (sorted top to
-		// bottom, then left to right, then by ID) into a group's first column, for the order of its rows.
+		// bottom, then left to right, then by ID) into a group's first column, for the order of its rows. Pure items stand
+		// beside what reads them (MovePureItemsBesideReaders).
 		void LayOutItems(VisualScriptGraph const& graph, std::vector<LayoutItem>& items, std::vector<Anchor> const& anchors)
 		{
 			std::unordered_map<uint32_t, size_t> numbers;
@@ -364,16 +420,18 @@ namespace Strada
 				item.Layer = assignment.Layer;
 				componentCount = std::max(componentCount, assignment.Component + 1);
 			}
+			MovePureItemsBesideReaders(graph, items, numbers);
 			std::vector<Columns> groups(componentCount);
-			// The assignments are in ID order, so each column fills in its ID order: the order of Row.
+			// The assignments are in ID order, so each column fills in its ID order.
 			for (VisualScriptLayerAssignment const& assignment : assignments)
 			{
+				size_t const number = numbers.at(assignment.Node);
 				Columns& columns = groups[assignment.Component];
-				if (columns.size() <= assignment.Layer)
+				if (columns.size() <= items[number].Layer)
 				{
-					columns.resize(assignment.Layer + 1);
+					columns.resize(items[number].Layer + 1);
 				}
-				columns[assignment.Layer].push_back(numbers.at(assignment.Node));
+				columns[items[number].Layer].push_back(number);
 			}
 			// The anchors' column, numbered after the items.
 			std::vector<size_t> anchorColumn;
@@ -487,9 +545,10 @@ namespace Strada
 	namespace VisualScriptEditing
 	{
 		Result<void> ArrangeNodes(VisualScriptDocument& document, uint32_t function, std::span<uint32_t const> nodes,
-		                          VisualScriptNodeExtents const& extents, std::optional<glm::vec2> corner,
+		                          VisualScriptArrangeMeasures const& measures, std::optional<glm::vec2> corner,
 		                          std::span<uint32_t const> anchors)
 		{
+			VisualScriptNodeExtents const& extents = measures.Extents;
 			if (corner && !anchors.empty())
 			{
 				return Error{"Arrange takes a corner or anchors, not both"};
@@ -595,7 +654,7 @@ namespace Strada
 					placedCorner = placedCorner ? glm::min(*placedCorner, glm::dvec2(*position)) : glm::dvec2(*position);
 				}
 				numbers.emplace(id, arranged.size());
-				arranged.push_back({id, index, size.GetValue()});
+				arranged.push_back({id, index, size.GetValue(), measures.IsPure && measures.IsPure(id)});
 			}
 
 			// The comment boxes that move with the arranged nodes, read before anything moves: those that hold no node that is not
@@ -860,7 +919,7 @@ namespace Strada
 					items.reserve(levelNodes.size());
 					for (size_t const number : levelNodes)
 					{
-						items.push_back({arranged[number].ID, arranged[number].Size});
+						items.push_back({arranged[number].ID, arranged[number].Size, arranged[number].Pure});
 					}
 					LayOutItems(graph, items, levelAnchors);
 					for (size_t place = 0; place < levelNodes.size(); place++)
@@ -892,6 +951,7 @@ namespace Strada
 					size_t const index = std::get<3>(keys[place]);
 					items[place].ID = static_cast<uint32_t>(place + 1);
 					items[place].Size = isBlock ? blocks[index].Size : arranged[index].Size;
+					items[place].Pure = !isBlock && arranged[index].Pure;
 					itemGraph.Nodes[place].ID = items[place].ID;
 					(isBlock ? blockPlaces : nodePlaces)[index] = place;
 				}
@@ -1124,6 +1184,11 @@ namespace Strada
 		glm::vec2 GetDefaultVisualScriptNodeExtents(uint32_t)
 		{
 			return DefaultNodeSize;
+		}
+
+		VisualScriptArrangeMeasures GetUniformVisualScriptArrangeMeasures()
+		{
+			return {&GetDefaultVisualScriptNodeExtents, {}};
 		}
 	}
 }

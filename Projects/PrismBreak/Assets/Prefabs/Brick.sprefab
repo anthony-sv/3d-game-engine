@@ -59,6 +59,7 @@
 					],
 					"ContinuousCollision": false,
 					"AllowSleep": true,
+					"Interpolation": "Interpolate",
 					"InitialLinearVelocity": [
 						0.0,
 						0.0,
@@ -82,6 +83,7 @@
 						0.0
 					],
 					"IsTrigger": false,
+					"Material": "0",
 					"Friction": 0.0,
 					"Restitution": 1.0
 				},
@@ -94,7 +96,10 @@
 					"PlayOnStart": false,
 					"Spatial": false,
 					"MinDistance": 1.0,
-					"MaxDistance": 100.0
+					"MaxDistance": 100.0,
+					"Bus": "",
+					"Priority": 128,
+					"MaxVoices": 4
 				},
 				"VisualScript": {
 					"Graph": "406140568513313708",

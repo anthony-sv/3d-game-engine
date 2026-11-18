@@ -193,7 +193,7 @@ drive the editor through the same tools.
 
 | | Project | What it is |
 |:-:|---|---|
-| <img src="Docs/Images/PrismBreak.jpg" alt="Prism Break's title screen: a neon arena of glowing prisms" width="280"> | **[Prism Break](Projects/PrismBreak)** | A neon brick breaker made of visual scripts alone: thirteen graphs, no C#. Its 29 test checks are graphs too. Open `Scripts/Game.sgraph` while it plays and watch it run. |
+| <img src="Docs/Images/PrismBreak.jpg" alt="Prism Break's title screen: a neon arena of glowing prisms" width="280"> | **[Prism Break](Projects/PrismBreak)** | A neon brick breaker made of visual scripts alone: thirteen graphs, no C#. It plays on input actions, with a keyboard or a gamepad. Its 33 test checks are graphs too. Open `Scripts/Game.sgraph` while it plays and watch it run. |
 | <img src="Docs/Images/Blocks.jpg" alt="Blocks: a falling-blocks game on a neon arcade stage" width="280"> | **[Blocks](Projects/Blocks)** | A falling-blocks game in C#, with an attract mode, a HUD, hold and preview queues, music, debris and camera shake; 57 test checks. |
 | <img src="Docs/Images/ShowcaseThumbnail.jpg" alt="The Showcase clearing at golden hour" width="280"> | **[Showcase](Projects/Showcase)** | Every feature of the engine in a forest clearing (above), with a camera tour, a HUD, day and night, and 68 test checks. |
 

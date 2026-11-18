@@ -364,6 +364,40 @@ namespace
 		// The mouse at a point of the 640-pixel-wide game view, its height's middle.
 		void PointAt(float x) { m_Fixture.Ok("input.set", Json::object({{"mousePosition", Json::array({x, 240.0})}})); }
 
+		// An injected gamepad in slot 0: a button held or let go, an axis (-1 to 1) set.
+		void HoldPad(std::string const& button, bool down)
+		{
+			Json const pad = Json::object({{"buttons", Json::object({{button, down}})}});
+			m_Fixture.Ok("input.set", Json::object({{"gamepads", Json::object({{"0", pad}})}}));
+		}
+
+		void TiltPad(std::string const& axis, float value)
+		{
+			Json const pad = Json::object({{"axes", Json::object({{axis, value}})}});
+			m_Fixture.Ok("input.set", Json::object({{"gamepads", Json::object({{"0", pad}})}}));
+		}
+
+		// The left mouse button goes down for a frame, then up.
+		void Click()
+		{
+			m_Fixture.Ok("input.set", Json::object({{"mouseButtons", Json::object({{"Left", true}})}}));
+			Advance(1);
+			m_Fixture.Ok("input.set", Json::object({{"mouseButtons", Json::object({{"Left", false}})}}));
+			Advance(1);
+		}
+
+		// A pad button goes down for a frame, then up.
+		void PressPad(std::string const& button)
+		{
+			HoldPad(button, true);
+			Advance(1);
+			HoldPad(button, false);
+			Advance(1);
+		}
+
+		// The copy's folder: play mode keeps the player's data below its .strada/PlayData.
+		std::filesystem::path const& GetDirectory() const { return m_Directory.GetPath(); }
+
 		Entity Find(std::string_view name)
 		{
 			Entity const entity = m_Fixture.Context.GetScene().FindEntityByName(name);
@@ -2063,6 +2097,181 @@ TEST_CASE("PlayCommands: input.set starts a Prism Break game while its title pla
 	CHECK_FALSE(sample.IsShown("Title Screen"));
 	CHECK(sample.ReadOut("Lives").GetInt32() == 3);
 	CHECK(sample.GetChildren("Balls").size() == 1);
+	sample.Stop();
+}
+
+TEST_CASE("PlayCommands: input.set's gamepads play the Prism Break sample through its input actions: A starts and launches, the "
+          "left stick steers the paddle past its dead zone, Start pauses")
+{
+	PrismBreakPlay sample;
+	sample.Start();
+	sample.PointAt(320.0f);
+	sample.Advance(60);
+	REQUIRE(sample.GetState() == "Title");
+
+	// The pad's A presses Launch: a game starts, and its level builds while the ball waits on the paddle.
+	sample.PressPad("A");
+	CHECK(sample.GetState() == "Serve");
+	sample.Advance(60);
+	REQUIRE(sample.ReadOut("BricksLeft").GetInt32() == 33);
+
+	// The left stick is the Move action: the paddle runs to the right wall, then to the left one (13.8 m at 16 m/s), and the
+	// ball rides it.
+	sample.TiltPad("LeftX", 1.0f);
+	sample.Advance(40);
+	CHECK(sample.GetPlace("Paddle").x == doctest::Approx(8.5f - 3.2f * 0.5f).epsilon(0.01));
+	sample.TiltPad("LeftX", -1.0f);
+	sample.Advance(70);
+	CHECK(sample.GetPlace("Paddle").x == doctest::Approx(-8.5f + 3.2f * 0.5f).epsilon(0.01));
+	CHECK(sample.GetBallPlace().x == doctest::Approx(sample.GetPlace("Paddle").x).epsilon(0.02));
+
+	// A push inside the binding's dead zone (0.2) moves nothing; half way moves the paddle at about half the speed.
+	sample.TiltPad("LeftX", 0.15f);
+	sample.Advance(20);
+	float const rested = sample.GetPlace("Paddle").x;
+	sample.Advance(20);
+	CHECK(sample.GetPlace("Paddle").x == doctest::Approx(rested));
+	sample.TiltPad("LeftX", 0.6f);
+	sample.Advance(30);
+	float const moved = sample.GetPlace("Paddle").x - rested;
+	// (0.6 - 0.2) / (1 - 0.2) of 16 m/s for half a second, give or take the paddle's easing.
+	CHECK(moved > 2.5f);
+	CHECK(moved < 5.0f);
+	sample.TiltPad("LeftX", 0.0f);
+	sample.Advance(10);
+
+	// A launches the waiting ball.
+	float const served = sample.GetBallPlace().z;
+	sample.PressPad("A");
+	CHECK(sample.GetState() == "Play");
+	sample.Advance(10);
+	CHECK(sample.GetBallPlace().z < served - 1.0f);
+
+	// Start is the Pause action: the pause screen shows and the ball holds still; Start again plays on.
+	sample.PressPad("Start");
+	CHECK(sample.IsShown("Pause Screen"));
+	glm::vec3 const held = sample.GetBallPlace();
+	sample.Advance(30);
+	CHECK(sample.GetBallPlace() == held);
+	sample.PressPad("Start");
+	CHECK_FALSE(sample.IsShown("Pause Screen"));
+	sample.Advance(5);
+	CHECK(sample.GetBallPlace() != held);
+	sample.Stop();
+}
+
+TEST_CASE("PlayCommands: Prism Break's title rebinds Launch to the key the player presses next, names it and its conflict on "
+          "the screen, refuses R and a gamepad's controls, and the next play keeps it")
+{
+	PrismBreakPlay sample;
+	sample.Start();
+	sample.PointAt(320.0f);
+	sample.Advance(60);
+	REQUIRE(sample.GetState() == "Title");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: SPACE      R REBINDS IT");
+	CHECK(sample.GetText("Title Prompt") == "PRESS SPACE OR CLICK TO PLAY");
+
+	// R listens, and a click meanwhile starts no game; Escape cancels.
+	sample.Press("R");
+	CHECK(sample.GetText("Binding Text") == "PRESS A KEY FOR LAUNCH      ESC CANCELS");
+	sample.Click();
+	CHECK(sample.GetState() == "Title");
+	CHECK(sample.GetText("Binding Text") == "PRESS A KEY FOR LAUNCH      ESC CANCELS");
+	sample.Press("Escape");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: SPACE      R REBINDS IT");
+	CHECK(sample.GetState() == "Title");
+
+	// R, then F: Launch reads F, and the prompts name it. The F that answered starts nothing.
+	sample.Press("R");
+	sample.Press("F");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: F      R REBINDS IT");
+	CHECK(sample.GetText("Title Prompt") == "PRESS F OR CLICK TO PLAY");
+	CHECK(sample.GetState() == "Title");
+
+	// Space launches nothing any more; F starts a game.
+	sample.Press("Space");
+	CHECK(sample.GetState() == "Title");
+	sample.Press("F");
+	CHECK(sample.GetState() == "Serve");
+	CHECK(sample.GetText("Serve Prompt") == "F OR CLICK TO LAUNCH");
+	sample.Stop();
+
+	// The player's binding is kept in play mode's game data folder, beside the copy.
+	Result<std::string> const profile =
+		FileSystem::ReadTextFile(sample.GetDirectory() / ".strada" / "PlayData" / "Input" / "PrismBreak.sinput.json");
+	REQUIRE(profile.IsOk());
+	CHECK(profile.GetValue().find("\"Key/F\"") != std::string::npos);
+
+	// Played again, the game reads F from the start.
+	sample.Start();
+	sample.PointAt(320.0f);
+	sample.Advance(60);
+	REQUIRE(sample.GetState() == "Title");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: F      R REBINDS IT");
+	sample.Press("F");
+	CHECK(sample.GetState() == "Serve");
+	sample.Stop();
+
+	// A key another action reads is bound all the same, and the title names the conflict.
+	sample.Start();
+	sample.PointAt(320.0f);
+	sample.Advance(60);
+	sample.Press("R");
+	sample.Press("A");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: A   ALSO BOUND TO MOVE      R REBINDS IT");
+	CHECK(sample.GetState() == "Title");
+	sample.Stop();
+
+	// The conflict comes from the bindings, not from the capture's answer: the next play names it too.
+	sample.Start();
+	sample.PointAt(320.0f);
+	sample.Advance(60);
+	REQUIRE(sample.GetState() == "Title");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: A   ALSO BOUND TO MOVE      R REBINDS IT");
+
+	// R answered with R is refused: bound to R, Launch would start a game before R could open a capture. Launch keeps A,
+	// the screen says why and listens again, and the R that answered opens no other capture.
+	std::string const asksAgain = "PRESS A KEY FOR LAUNCH      ESC CANCELS";
+	sample.Press("R");
+	sample.Press("R");
+	CHECK(sample.GetText("Binding Text") == "R IS THE REBIND KEY      " + asksAgain);
+	sample.Advance(5);
+	CHECK(sample.GetText("Binding Text") == "R IS THE REBIND KEY      " + asksAgain);
+	CHECK(sample.GetState() == "Title");
+
+	// The keyboard's binding takes keys alone: a pad button and a stick are refused as well, and start nothing.
+	sample.PressPad("B");
+	CHECK(sample.GetText("Binding Text") == "PAD B IS NOT A KEY      " + asksAgain);
+	sample.TiltPad("LeftX", 0.9f);
+	sample.Advance(1);
+	CHECK(sample.GetText("Binding Text") == "PAD LEFTX IS NOT A KEY      " + asksAgain);
+	sample.TiltPad("LeftX", 0.0f);
+	sample.Advance(5);
+	CHECK(sample.GetText("Binding Text") == "PAD LEFTX IS NOT A KEY      " + asksAgain);
+	CHECK(sample.GetState() == "Title");
+
+	// Escape ends the capture with Launch on A, as it was before it.
+	sample.Press("Escape");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: A   ALSO BOUND TO MOVE      R REBINDS IT");
+	CHECK(sample.GetText("Title Prompt") == "PRESS A OR CLICK TO PLAY");
+	CHECK(sample.GetState() == "Title");
+
+	// R still opens a capture at the title, and starts no game.
+	sample.Press("R");
+	CHECK(sample.GetText("Binding Text") == asksAgain);
+	CHECK(sample.GetState() == "Title");
+	sample.Press("Escape");
+	sample.Stop();
+
+	// What the refusals gave back is what the next play reads: A, never R or a pad's control.
+	sample.Start();
+	sample.PointAt(320.0f);
+	sample.Advance(60);
+	REQUIRE(sample.GetState() == "Title");
+	CHECK(sample.GetText("Binding Text") == "LAUNCH: A   ALSO BOUND TO MOVE      R REBINDS IT");
+	sample.Press("R");
+	CHECK(sample.GetText("Binding Text") == asksAgain);
+	CHECK(sample.GetState() == "Title");
 	sample.Stop();
 }
 

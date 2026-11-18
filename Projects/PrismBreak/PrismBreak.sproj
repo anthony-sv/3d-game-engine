@@ -5,6 +5,10 @@
 	},
 	"Project": {
 		"Name": "Prism Break",
+		"Identity": {
+			"Company": "",
+			"Product": ""
+		},
 		"AssetDirectory": "Assets",
 		"ScriptModule": "Scripts/Binaries/Game.dll",
 		"StartScene": "15957082611627960033",
@@ -19,6 +23,8 @@
 		},
 		"Physics": {
 			"FixedTimestep": 0.01666666753590107,
+			"MaxStepsPerFrame": 8,
+			"CollisionSteps": 1,
 			"Layers": [
 				"Default",
 				"Ball",
@@ -30,6 +36,8 @@
 					"Second": 2
 				}
 			]
-		}
+		},
+		"InputActions": "125485640058170917",
+		"Mixer": "0"
 	}
 }

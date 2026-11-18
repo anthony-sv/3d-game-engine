@@ -96,7 +96,9 @@ TEST_CASE("Runtime: the Blocks sample plays and passes its tests")
 
 TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays and passes its tests, and so does its exported game")
 {
-	// Thirteen graphs and no C#: the player starts .NET for them, and its 29 checks are graphs too (spec-slice4 section 18.10).
+	// Thirteen graphs and no C#: the player starts .NET for them, and its 33 checks are graphs too (spec-slice4 section 18.10).
+	// Four of them drive the game through its input actions' overrides and rebind Launch, which a test run keeps in a
+	// temporary game data folder.
 	Testing::TemporaryDirectory directory;
 	std::filesystem::path const project = CopyRepositoryProject("PrismBreak", directory.GetPath());
 	std::vector<std::string> const testRun = {"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timeout", "90"};
@@ -104,7 +106,7 @@ TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays 
 	ProcessResult const tests = RunPlayer(testRun);
 	CAPTURE(tests.Output);
 	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 29 checks"));
+	CHECK(Contains(tests.Output, "Tests passed: 33 checks"));
 	CHECK_FALSE(Contains(tests.Output, "The game has no scripts"));
 
 	// The test scene seeds the game's random numbers, so every run plays the same frames.
@@ -120,7 +122,7 @@ TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays 
 	ProcessResult const slow = RunPlayer(slower);
 	CAPTURE(slow.Output);
 	CHECK(slow.ExitCode == 0);
-	CHECK(Contains(slow.Output, "Tests passed: 29 checks"));
+	CHECK(Contains(slow.Output, "Tests passed: 33 checks"));
 
 	// The game's own scene, whose title plays itself, runs five seconds without a window and without a word from its graphs.
 	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "300"});
@@ -158,7 +160,7 @@ TEST_CASE("Runtime: the Prism Break sample, made of visual scripts alone, plays 
 	ProcessResult const exportedTests = RunProgram(player, {"--test", "--scene", "Scenes/Tests.sscene", "--timeout", "90"});
 	CAPTURE(exportedTests.Output);
 	CHECK(exportedTests.ExitCode == 0);
-	CHECK(Contains(exportedTests.Output, "Tests passed: 29 checks"));
+	CHECK(Contains(exportedTests.Output, "Tests passed: 33 checks"));
 }
 
 TEST_CASE("Runtime: the Moto sample, made of graphs alone, flies its camera tour and passes its tests")

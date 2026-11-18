@@ -137,7 +137,7 @@
 							"ID": 19,
 							"Type": "Function.Return",
 							"Position": [
-								1264.0,
+								1184.0,
 								0.0
 							]
 						},
@@ -156,7 +156,7 @@
 							"ID": 30,
 							"Type": "Variable.Get",
 							"Position": [
-								208.0,
+								192.0,
 								0.0
 							],
 							"Settings": {
@@ -168,8 +168,8 @@
 							"ID": 31,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								192.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 13
@@ -179,7 +179,7 @@
 							"ID": 32,
 							"Type": "Operator.NotEqual",
 							"Position": [
-								416.0,
+								400.0,
 								0.0
 							]
 						},
@@ -187,7 +187,7 @@
 							"ID": 33,
 							"Type": "Flow.Branch",
 							"Position": [
-								640.0,
+								544.0,
 								0.0
 							]
 						},
@@ -195,8 +195,8 @@
 							"ID": 34,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								400.0,
+								80.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -206,7 +206,7 @@
 							"ID": 35,
 							"Type": "Variable.Get",
 							"Position": [
-								208.0,
+								544.0,
 								128.0
 							],
 							"Settings": {
@@ -218,7 +218,7 @@
 							"ID": 36,
 							"Type": "Variable.Set",
 							"Position": [
-								864.0,
+								768.0,
 								0.0
 							],
 							"Settings": {
@@ -229,8 +229,8 @@
 							"ID": 37,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								544.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 13
@@ -240,8 +240,8 @@
 							"ID": 38,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								400.0,
+								144.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -251,8 +251,8 @@
 							"ID": 39,
 							"Type": "Variable.Get",
 							"Position": [
-								208.0,
-								256.0
+								544.0,
+								320.0
 							],
 							"Settings": {
 								"Variable": 11,
@@ -263,8 +263,8 @@
 							"ID": 40,
 							"Type": "FormatString",
 							"Position": [
-								416.0,
-								80.0
+								768.0,
+								128.0
 							],
 							"Settings": {
 								"Format": "{Collected} / {Total}"
@@ -274,8 +274,8 @@
 							"ID": 41,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								768.0,
+								256.0
 							],
 							"Settings": {
 								"Variable": 2
@@ -285,7 +285,7 @@
 							"ID": 42,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
-								1072.0,
+								992.0,
 								0.0
 							]
 						}
@@ -461,8 +461,8 @@
 								-72.0
 							],
 							"Size": [
-								1448.0,
-								564.0
+								1368.0,
+								506.0
 							],
 							"Color": [
 								0.949999988079071,
@@ -495,7 +495,7 @@
 							"ID": 22,
 							"Type": "Function.Return",
 							"Position": [
-								2144.0,
+								2080.0,
 								0.0
 							]
 						},
@@ -503,8 +503,8 @@
 							"ID": 44,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								112.0
+								400.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 14
@@ -515,7 +515,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								176.0
+								112.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -526,7 +526,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								192.0,
-								240.0
+								0.0
 							],
 							"Settings": {
 								"Variable": 12,
@@ -537,8 +537,8 @@
 							"ID": 47,
 							"Type": "Expression",
 							"Position": [
-								416.0,
-								160.0
+								400.0,
+								64.0
 							],
 							"Settings": {
 								"Formula": "int(ceil(left))"
@@ -548,7 +548,7 @@
 							"ID": 48,
 							"Type": "Operator.NotEqual",
 							"Position": [
-								704.0,
+								592.0,
 								0.0
 							]
 						},
@@ -556,7 +556,7 @@
 							"ID": 49,
 							"Type": "Flow.Branch",
 							"Position": [
-								912.0,
+								720.0,
 								0.0
 							]
 						},
@@ -564,7 +564,7 @@
 							"ID": 50,
 							"Type": "Variable.Set",
 							"Position": [
-								1136.0,
+								944.0,
 								0.0
 							],
 							"Settings": {
@@ -575,8 +575,8 @@
 							"ID": 51,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								240.0
+								944.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 3
@@ -586,8 +586,8 @@
 							"ID": 52,
 							"Type": "FormatString",
 							"Position": [
-								192.0,
-								0.0
+								944.0,
+								192.0
 							],
 							"Settings": {
 								"Format": "{Seconds}"
@@ -597,7 +597,7 @@
 							"ID": 53,
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
-								1344.0,
+								1168.0,
 								0.0
 							]
 						},
@@ -605,8 +605,8 @@
 							"ID": 54,
 							"Type": "Expression",
 							"Position": [
-								192.0,
-								112.0
+								944.0,
+								304.0
 							],
 							"Settings": {
 								"Formula": "shown <= 10"
@@ -616,8 +616,8 @@
 							"ID": 55,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								304.0
+								944.0,
+								432.0
 							],
 							"Settings": {
 								"Variable": 12
@@ -627,8 +627,8 @@
 							"ID": 56,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								368.0
+								944.0,
+								496.0
 							],
 							"Settings": {
 								"Variable": 11
@@ -638,15 +638,15 @@
 							"ID": 57,
 							"Type": "Select",
 							"Position": [
-								416.0,
-								0.0
+								1168.0,
+								176.0
 							]
 						},
 						{
 							"ID": 58,
 							"Type": "Set:Strada.UITextComponent.Color",
 							"Position": [
-								1536.0,
+								1456.0,
 								0.0
 							]
 						},
@@ -654,8 +654,8 @@
 							"ID": 59,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								432.0
+								720.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -665,8 +665,8 @@
 							"ID": 60,
 							"Type": "Variable.Get",
 							"Position": [
-								192.0,
-								368.0
+								944.0,
+								560.0
 							],
 							"Settings": {
 								"Variable": 9,
@@ -677,8 +677,8 @@
 							"ID": 61,
 							"Type": "Operator.Equal",
 							"Position": [
-								416.0,
-								288.0
+								1168.0,
+								336.0
 							],
 							"Inputs": {
 								"B": "Play"
@@ -688,8 +688,8 @@
 							"ID": 62,
 							"Type": "Expression",
 							"Position": [
-								704.0,
-								80.0
+								1456.0,
+								176.0
 							],
 							"Settings": {
 								"Formula": "shown <= 10 && shown > 0 && playing"
@@ -699,7 +699,7 @@
 							"ID": 63,
 							"Type": "Flow.Branch",
 							"Position": [
-								1728.0,
+								1664.0,
 								0.0
 							]
 						},
@@ -707,8 +707,8 @@
 							"ID": 64,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								496.0
+								1664.0,
+								128.0
 							],
 							"Settings": {
 								"Variable": 10
@@ -718,7 +718,7 @@
 							"ID": 65,
 							"Type": "Call:Strada.AudioSourceComponent.Play()",
 							"Position": [
-								1952.0,
+								1888.0,
 								0.0
 							]
 						}
@@ -1034,8 +1034,8 @@
 								-72.0
 							],
 							"Size": [
-								2328.0,
-								628.0
+								2264.0,
+								746.0
 							],
 							"Color": [
 								0.949999988079071,
@@ -1099,8 +1099,8 @@
 							"ID": 69,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								176.0
+								400.0,
+								0.0
 							],
 							"Settings": {
 								"Variable": 3
@@ -1111,7 +1111,7 @@
 							"Type": "Expression",
 							"Position": [
 								400.0,
-								0.0
+								64.0
 							],
 							"Settings": {
 								"Formula": "72 * (1 + (left <= 10 ? 0.35 * pow(frac(left), 3) : 0))"
@@ -1198,7 +1198,7 @@
 							],
 							"Size": [
 								968.0,
-								308.0
+								250.0
 							],
 							"Color": [
 								0.6200000047683716,
@@ -1308,8 +1308,8 @@
 							"ID": 79,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
-								192.0
+								704.0,
+								112.0
 							],
 							"Settings": {
 								"Variable": 6
@@ -1328,7 +1328,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								256.0
+								192.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -1351,7 +1351,7 @@
 							"Type": "Variable.Get",
 							"Position": [
 								0.0,
-								320.0
+								256.0
 							],
 							"Settings": {
 								"Variable": 1
@@ -1384,7 +1384,7 @@
 							"ID": 86,
 							"Type": "Variable.Get",
 							"Position": [
-								0.0,
+								480.0,
 								384.0
 							],
 							"Settings": {
@@ -1396,7 +1396,7 @@
 							"Type": "Set:Strada.UITextComponent.Text",
 							"Position": [
 								704.0,
-								112.0
+								176.0
 							]
 						}
 					],
@@ -1711,7 +1711,7 @@
 					"ID": 99,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
+						192.0,
 						864.0
 					],
 					"Settings": {
@@ -1730,8 +1730,8 @@
 					"ID": 101,
 					"Type": "Operator.Equal",
 					"Position": [
-						192.0,
-						864.0
+						480.0,
+						912.0
 					],
 					"Inputs": {
 						"B": "Lost"
@@ -1741,8 +1741,8 @@
 					"ID": 102,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						928.0
+						480.0,
+						1040.0
 					],
 					"Settings": {
 						"Variable": 7
@@ -1752,7 +1752,7 @@
 					"ID": 103,
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
-						672.0,
+						768.0,
 						736.0
 					]
 				},
@@ -1760,8 +1760,8 @@
 					"ID": 104,
 					"Type": "Operator.NotEqual",
 					"Position": [
-						192.0,
-						992.0
+						768.0,
+						912.0
 					],
 					"Inputs": {
 						"B": "Play"
@@ -1771,8 +1771,8 @@
 					"ID": 105,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						992.0
+						768.0,
+						1040.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -1782,7 +1782,7 @@
 					"ID": 106,
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
-						864.0,
+						1056.0,
 						736.0
 					]
 				},
@@ -1790,8 +1790,8 @@
 					"ID": 107,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1056.0
+						1056.0,
+						912.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -1801,7 +1801,7 @@
 					"ID": 108,
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
-						1056.0,
+						1248.0,
 						736.0
 					],
 					"Inputs": {
@@ -1812,8 +1812,8 @@
 					"ID": 109,
 					"Type": "Operator.Equal",
 					"Position": [
-						192.0,
-						1120.0
+						1248.0,
+						912.0
 					],
 					"Inputs": {
 						"B": "Play"
@@ -1823,23 +1823,23 @@
 					"ID": 110,
 					"Type": "Flow.Branch",
 					"Position": [
-						1248.0,
-						736.0
+						1536.0,
+						800.0
 					]
 				},
 				{
 					"ID": 111,
 					"Type": "Self",
 					"Position": [
-						0.0,
-						1120.0
+						1536.0,
+						736.0
 					]
 				},
 				{
 					"ID": 112,
 					"Type": "Event.Send",
 					"Position": [
-						1472.0,
+						1760.0,
 						736.0
 					],
 					"Settings": {
@@ -1851,8 +1851,8 @@
 					"ID": 113,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1184.0
+						1248.0,
+						1040.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -1862,8 +1862,8 @@
 					"ID": 114,
 					"Type": "RunsGraph",
 					"Position": [
-						192.0,
-						1248.0
+						1536.0,
+						928.0
 					],
 					"Settings": {
 						"Graph": "11942996875119097908"
@@ -1873,7 +1873,7 @@
 					"ID": 115,
 					"Type": "Flow.Branch",
 					"Position": [
-						1472.0,
+						1760.0,
 						864.0
 					]
 				},
@@ -1881,7 +1881,7 @@
 					"ID": 116,
 					"Type": "Function.Call",
 					"Position": [
-						1696.0,
+						1984.0,
 						736.0
 					],
 					"Settings": {
@@ -1893,7 +1893,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						1456.0
+						1216.0
 					],
 					"Settings": {
 						"Name": "ShowHint",
@@ -1905,7 +1905,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1568.0
+						1328.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -1916,7 +1916,7 @@
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
 						192.0,
-						1456.0
+						1216.0
 					],
 					"Inputs": {
 						"Value": true
@@ -1927,7 +1927,7 @@
 					"Type": "Flow.Timeline",
 					"Position": [
 						384.0,
-						1456.0
+						1280.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -1968,8 +1968,8 @@
 					"ID": 122,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1632.0
+						384.0,
+						1216.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -1980,15 +1980,15 @@
 					"Type": "Set:Strada.UIRectComponent.Opacity",
 					"Position": [
 						688.0,
-						1456.0
+						1216.0
 					]
 				},
 				{
 					"ID": 124,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1696.0
+						384.0,
+						1552.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -1999,7 +1999,7 @@
 					"Type": "Set:Strada.UIRectComponent.Visible",
 					"Position": [
 						688.0,
-						1632.0
+						1392.0
 					],
 					"Inputs": {
 						"Value": false
@@ -2010,7 +2010,7 @@
 					"Type": "Event.Create",
 					"Position": [
 						0.0,
-						1904.0
+						1728.0
 					]
 				},
 				{
@@ -2018,7 +2018,7 @@
 					"Type": "Flow.Timeline",
 					"Position": [
 						192.0,
-						1904.0
+						1728.0
 					],
 					"Settings": {
 						"Timeline": {
@@ -2054,8 +2054,8 @@
 					"ID": 129,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						2016.0
+						192.0,
+						2000.0
 					],
 					"Settings": {
 						"Variable": 9
@@ -2066,7 +2066,7 @@
 					"Type": "Set:Strada.UIRectComponent.Opacity",
 					"Position": [
 						496.0,
-						1904.0
+						1728.0
 					]
 				}
 			],
@@ -2519,8 +2519,8 @@
 						664.0
 					],
 					"Size": [
-						1880.0,
-						682.0
+						2168.0,
+						436.0
 					],
 					"Color": [
 						0.20000000298023224,
@@ -2534,11 +2534,11 @@
 					"Text": "Hint: the goal and the controls fade in, then out",
 					"Position": [
 						-32.0,
-						1384.0
+						1144.0
 					],
 					"Size": [
 						872.0,
-						410.0
+						468.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -2552,11 +2552,11 @@
 					"Text": "Prompt: the line to play again breathes",
 					"Position": [
 						-32.0,
-						1832.0
+						1656.0
 					],
 					"Size": [
 						680.0,
-						338.0
+						404.0
 					],
 					"Color": [
 						0.6200000047683716,

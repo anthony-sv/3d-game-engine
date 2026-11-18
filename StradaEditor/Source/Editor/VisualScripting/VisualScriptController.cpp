@@ -969,6 +969,15 @@ namespace Strada
 				};
 			}
 
+			// What Arrange reads of the nodes: their sizes and which are pure, as the canvas draws them.
+			VisualScriptArrangeMeasures MakeArrangeMeasures() const
+			{
+				return {MakeExtents(), [this](uint32_t node)
+				        {
+							return m_Canvas.IsPure(node);
+						}};
+			}
+
 			// The selection's nodes and comments of the shown graph, in selection order.
 			void SplitSelection(std::span<uint32_t const> selection, std::vector<uint32_t>& nodes, std::vector<uint32_t>& comments) const
 			{
@@ -1736,7 +1745,7 @@ namespace Strada
 				}
 				size_t const count = nodes.empty() ? graph->Nodes.size() : nodes.size();
 				VisualScriptDocument document = GetDisplay();
-				if (Result<void> arranged = Editing::ArrangeNodes(document, m_Function, nodes, MakeExtents()); !arranged)
+				if (Result<void> arranged = Editing::ArrangeNodes(document, m_Function, nodes, MakeArrangeMeasures()); !arranged)
 				{
 					return arranged;
 				}

@@ -105,8 +105,8 @@
 					"ID": 10,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						240.0
+						192.0,
+						416.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -116,8 +116,8 @@
 					"ID": 11,
 					"Type": "Variable.Get",
 					"Position": [
-						192.0,
-						416.0
+						496.0,
+						256.0
 					],
 					"Settings": {
 						"Variable": 6,
@@ -128,8 +128,8 @@
 					"ID": 12,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						304.0
+						192.0,
+						480.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -139,8 +139,8 @@
 					"ID": 13,
 					"Type": "Variable.Get",
 					"Position": [
-						192.0,
-						544.0
+						496.0,
+						384.0
 					],
 					"Settings": {
 						"Variable": 7,
@@ -309,7 +309,7 @@
 					],
 					"Size": [
 						1123.13623046875,
-						730.0
+						612.0
 					],
 					"Color": [
 						0.6200000047683716,

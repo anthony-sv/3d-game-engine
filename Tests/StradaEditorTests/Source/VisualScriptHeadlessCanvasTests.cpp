@@ -235,7 +235,7 @@ TEST_CASE("VisualScriptEditor: without a library a headless canvas measures the 
 
 	// Arranging with these sizes works without the runtime, as graph.arrange's Measured extents do in the automation fuzz.
 	VisualScriptDocument arranged = document;
-	CHECK(VisualScriptEditing::ArrangeNodes(arranged, 0, {}, extents).IsOk());
+	CHECK(VisualScriptEditing::ArrangeNodes(arranged, 0, {}, canvas.GetArrangeMeasures()).IsOk());
 }
 
 TEST_CASE("VisualScriptEditor: Measured extents arrange tall nodes apart where Uniform extents overlap them")
@@ -260,12 +260,8 @@ TEST_CASE("VisualScriptEditor: Measured extents arrange tall nodes apart where U
 	VisualScriptNodeExtents const measured = canvas.GetExtents();
 	CHECK(measured(3).y == doctest::Approx(178.0f));
 
-	VisualScriptNodeExtents const uniform = [](uint32_t node)
-	{
-		return VisualScriptEditing::GetDefaultVisualScriptNodeExtents(node);
-	};
 	VisualScriptDocument byUniform = document;
-	REQUIRE(VisualScriptEditing::ArrangeNodes(byUniform, 0, {}, uniform).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(byUniform, 0, {}, VisualScriptEditing::GetUniformVisualScriptArrangeMeasures()).IsOk());
 	// The counter-example: as drawn, the uniformly arranged raycasts overlap by 18 cu.
 	VisualScriptRect const first = GetRect(byUniform, 3, measured);
 	VisualScriptRect const second = GetRect(byUniform, 4, measured);
@@ -273,7 +269,7 @@ TEST_CASE("VisualScriptEditor: Measured extents arrange tall nodes apart where U
 	CHECK(std::min(first.Max.y, second.Max.y) - std::max(first.Min.y, second.Min.y) == doctest::Approx(18.0f));
 
 	VisualScriptDocument byMeasure = document;
-	REQUIRE(VisualScriptEditing::ArrangeNodes(byMeasure, 0, {}, measured).IsOk());
+	REQUIRE(VisualScriptEditing::ArrangeNodes(byMeasure, 0, {}, canvas.GetArrangeMeasures()).IsOk());
 	std::vector<uint32_t> const ids = {1, 2, 3, 4};
 	for (uint32_t const a : ids)
 	{

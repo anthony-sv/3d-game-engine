@@ -4575,7 +4575,17 @@ inspector's primary entity as the context entity; without an asset directory the
   position beside the placed nodes they continue: the anchors stand as a fixed column, each arranged group's first
   column is ordered against the anchors' rows by the links from the anchors into that group, and the block starts 64
   right of the anchors' right edge, at their top, on the 16 grid. The Arrange button and `graph.arrange` lay out alike
-  (`ArrangeNodes` with the window's or the headless canvas's extents). A sub-graph's headless canvas is laid out again
+  (`ArrangeNodes` with the window's or the headless canvas's `VisualScriptArrangeMeasures`: each node's size, and
+  whether it is pure, from the node's `Pure` flag as the canvas draws it). A node that is not pure stands in the column
+  of the longest chain of links leading to it; a pure node (a get, a literal, an operator, a pure call) that a later
+  column reads moves right, into the column just before the leftmost node reading it, so a region's inputs stand beside
+  their consumers instead of in its first columns with long wires. A pure input several nodes read stands before the
+  first of them, a chain of pure nodes closes up behind the node it feeds (pure nodes move deepest column first, so
+  the nodes a pure node feeds already stand where they end), and only links that run to a later column count, so links closing a cycle move
+  nothing. Moves go right only, so every wire still runs left to right, and the node ending each longest chain keeps
+  its column, so no column empties. Rows still fill each column in the order the crossing sweeps choose. A canvas
+  without the node library knows no pure node, and `Uniform` extents take none for pure: both give the columns of
+  `PlaceUnplacedNodes`. A sub-graph's headless canvas is laid out again
   only when what an operation reads may have changed: operations that read pin rows (Connect, Relink, Splice, deletions
   that bridge, splits) reuse a canvas across link, value and layout changes, and those that read node sizes or anchors
   (Arrange, Align, Distribute, Straighten, Promote to Variable, comment framing, Paste's corner) reuse it across moves;
@@ -5232,10 +5242,14 @@ that each platform's names are tested on every platform:
 - `Projects/PrismBreak`: a game made of visual scripts alone (13 graphs, no C#), a neon brick breaker, built by
   `Tools/Author.py` through `strada mcp`: one batch per graph declares its variables, events and functions first, then
   one batch per region adds its nodes, arranges them and frames them in a titled comment box, each answering no error
-  and no warning. Its test scene's 29 checks are graphs too (`Tests.sgraph`, a latent function per check called in
-  order from a Sequence, reporting through the `Checks` library); `StradaRuntimeTests` runs them through the player
-  ("Tests passed: 29 checks"), plays the title and runs the exported game, refusing any line from a visual script;
-  `PlayModeTests` plays it through `input.set`, and the fuzz test of damaged graphs includes its `Game.sgraph`.
+  and no warning. It reads input actions (`Input/PrismBreak.sinput`: Move, Launch, Pause, each on the keyboard and a
+  gamepad; the cheat keys stay `Event.KeyPressed`), and at its title R rebinds Launch to the next key but R (§7.4,
+  "Rebinding"). Its test scene's 33 checks are graphs too (`Tests.sgraph`, a latent function per check called in
+  order from a Sequence, reporting through the `Checks` library; the last four drive it through action overrides and
+  `Input.Rebind`); `StradaRuntimeTests` runs them through the player ("Tests passed: 33 checks"), plays the title and
+  runs the exported game, refusing any line from a visual script; `PlayModeTests` plays it through `input.set` (keys,
+  the mouse and an injected gamepad, and a rebinding kept for the next play), and the fuzz test of damaged graphs
+  includes its `Game.sgraph`.
 - `Projects/Moto`: the circuit of a motorcycle time trial that is to be made of visual scripts alone (no C#, no
   `Scripts` folder). `Tools/Circuit.py` is the layout and its one source: a closed polygon of ten corners, each rounded
   by an arc of its radius, raced clockwise from the start and finish line (lap distance 0) for 2,638.6 m; the lap

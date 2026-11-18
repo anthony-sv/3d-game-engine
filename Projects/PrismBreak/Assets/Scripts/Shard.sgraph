@@ -109,16 +109,16 @@
 					"ID": 11,
 					"Type": "Get:Strada.Random.OnUnitSphere",
 					"Position": [
-						0.0,
-						496.0
+						208.0,
+						336.0
 					]
 				},
 				{
 					"ID": 12,
 					"Type": "Expression",
 					"Position": [
-						208.0,
-						336.0
+						432.0,
+						384.0
 					],
 					"Settings": {
 						"Formula": "axis * 0.05"
@@ -139,8 +139,8 @@
 					"ID": 14,
 					"Type": "Self",
 					"Position": [
-						0.0,
-						624.0
+						688.0,
+						384.0
 					]
 				},
 				{
@@ -161,7 +161,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						800.0
+						608.0
 					],
 					"Settings": {
 						"Name": "FadeAway",
@@ -173,7 +173,7 @@
 					"Type": "Get:Strada.Entity.Scale",
 					"Position": [
 						0.0,
-						912.0
+						720.0
 					]
 				},
 				{
@@ -181,7 +181,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						240.0,
-						800.0
+						608.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -191,8 +191,8 @@
 					"ID": 20,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1040.0
+						240.0,
+						736.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -203,15 +203,15 @@
 					"Type": "Flow.Delay",
 					"Position": [
 						432.0,
-						800.0
+						608.0
 					]
 				},
 				{
 					"ID": 22,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1104.0
+						432.0,
+						736.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -222,7 +222,7 @@
 					"Type": "Flow.Tween",
 					"Position": [
 						672.0,
-						800.0
+						608.0
 					],
 					"Settings": {
 						"Easing": "EaseIn"
@@ -232,8 +232,8 @@
 					"ID": 24,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1168.0
+						672.0,
+						768.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -244,7 +244,7 @@
 					"Type": "Expression",
 					"Position": [
 						912.0,
-						800.0
+						752.0
 					],
 					"Settings": {
 						"Formula": "size * (1 - alpha)"
@@ -255,7 +255,7 @@
 					"Type": "Set:Strada.Entity.Scale",
 					"Position": [
 						1120.0,
-						800.0
+						608.0
 					]
 				},
 				{
@@ -263,7 +263,7 @@
 					"Type": "Call:Strada.Entity.Destroy()",
 					"Position": [
 						912.0,
-						944.0
+						608.0
 					]
 				}
 			],
@@ -479,7 +479,7 @@
 					],
 					"Size": [
 						1128.0,
-						564.0
+						378.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -493,11 +493,11 @@
 					"Text": "Fade and go: wait, shrink, destroy",
 					"Position": [
 						-32.0,
-						728.0
+						536.0
 					],
 					"Size": [
 						1315.13623046875,
-						500.0
+						354.0
 					],
 					"Color": [
 						0.6200000047683716,

@@ -419,6 +419,9 @@ namespace Strada
 
 		// The size of a node as drawn (VisualScriptNodeExtents); (0, 0) for an ID that is no node of the shown graph.
 		glm::vec2 GetExtents(uint32_t id) const;
+		// Whether a node is pure as drawn (VisualScriptNodeFlags::Pure; VisualScriptNodePurity): false for an ID that is no node
+		// of the shown graph, and for a node whose pins are inferred from the document alone.
+		bool IsPure(uint32_t id) const;
 		// The bounds of the given nodes and comments (IDs of the shown graph; others are ignored), by their rectangles;
 		// nothing when none of them is there.
 		std::optional<VisualScriptRect> GetBounds(std::span<uint32_t const> elements) const;

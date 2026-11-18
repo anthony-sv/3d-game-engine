@@ -3419,14 +3419,14 @@ namespace Strada
 				};
 				VisualScriptHeadlessCanvas canvas;
 				canvas.Sync(*stored, function.GetValue(), analysis.get(), stored.get(), library.get(), resolve);
+				// Uniform sizes come with no pure node: the layout graph.set gives unplaced nodes.
+				VisualScriptArrangeMeasures const measures = GetString(params, "extents", "Measured") == "Uniform"
+				                                                 ? VisualScriptEditing::GetUniformVisualScriptArrangeMeasures()
+				                                                 : canvas.GetArrangeMeasures();
 				VisualScriptNodeExtents const measured = canvas.GetExtents();
-				VisualScriptNodeExtents const extents =
-					GetString(params, "extents", "Measured") == "Uniform"
-						? VisualScriptNodeExtents(&VisualScriptEditing::GetDefaultVisualScriptNodeExtents)
-						: measured;
 
 				VisualScriptDocument arranged = *stored;
-				if (Result<void> const done = VisualScriptEditing::ArrangeNodes(arranged, function.GetValue(), nodes, extents); !done)
+				if (Result<void> const done = VisualScriptEditing::ArrangeNodes(arranged, function.GetValue(), nodes, measures); !done)
 				{
 					// The nodes are the sub-graph's and the sizes are a canvas's: this is the editor's fault.
 					return MakeCommandError(AutomationErrorCode::InternalError, "{}", done.GetError());

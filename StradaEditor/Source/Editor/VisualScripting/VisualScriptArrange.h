@@ -13,16 +13,37 @@
 
 // The Arrange operation of the visual script editor: a layered layout of nodes that keeps links running left to right with
 // few crossings. Pure, like the other edits (VisualScriptEditing.h); no ImGui, any thread.
+namespace Strada
+{
+	// What arranging reads of the nodes besides the document, from the canvas that draws them, so that a window's Arrange,
+	// graph.edit's and graph.arrange lay a graph out alike.
+	struct VisualScriptArrangeMeasures
+	{
+		// The size of every node.
+		VisualScriptNodeExtents Extents;
+		// Which nodes are pure inputs. Empty: none is known to be (a canvas without the node library, the uniform sizes of
+		// PlaceUnplacedNodes), and every node stands in the column of its longest chain of links.
+		VisualScriptNodePurity IsPure;
+	};
+}
+
 namespace Strada::VisualScriptEditing
 {
 	// Lays the given nodes of a graph (0 for the event graph, else a function's ID) out on their own; no nodes means every
-	// node of the graph. Only the links between the given nodes count: they run left to right through columns (a node's
-	// column is the longest chain of links leading to it, ignoring links that close a cycle, as PlaceUnplacedNodes assigns
-	// them), and the order of the nodes in each column is chosen for few crossings between neighbouring columns. Groups of
-	// nodes connected by links stand one below the other. Columns are as wide as their widest node plus 64, nodes stand 32
-	// apart in a column and groups 112 apart, with every column and row starting on the 16 grid; with
-	// GetDefaultVisualScriptNodeExtents this gives PlaceUnplacedNodes' 320, 160 and 240. Nodes without a position take part
-	// and get one.
+	// node of the graph. Only the links between the given nodes count: they run left to right through columns, and the
+	// order of the nodes in each column is chosen for few crossings between neighbouring columns.
+	//  - A node that is not pure stands in the column of the longest chain of links leading to it, ignoring links that close
+	//    a cycle, as PlaceUnplacedNodes assigns them.
+	//  - A pure node (measures.IsPure) that a later column reads stands in the column right before the leftmost node reading
+	//    it, not in the leftmost columns: a pure input shared by several nodes stands before the first of them, so every
+	//    wire from it runs left to right; a chain of pure nodes ends in the column before the node it feeds, each of its
+	//    nodes one column before the node it feeds. These moves go right only, from the deepest column first, and only
+	//    links that run left to right in the columns of the first rule count, so a link closing a cycle moves nothing. A
+	//    pure node no arranged node reads keeps its column. No column is left empty.
+	// Groups of nodes connected by links stand one below the other. Columns are as wide as their widest node plus 64, nodes
+	// stand 32 apart in a column and groups 112 apart, with every column and row starting on the 16 grid; with
+	// GetDefaultVisualScriptNodeExtents and no pure node this gives PlaceUnplacedNodes' 320, 160 and 240. Nodes without a
+	// position take part and get one.
 	//
 	// A comment box that holds no node but arranged ones moves with them when it holds one, stands in such a box, or when every
 	// node of the graph is arranged. What it holds (the nodes and boxes entirely inside it) moves as one block: it is laid out
@@ -45,16 +66,19 @@ namespace Strada::VisualScriptEditing
 	//    top, both rounded up to the 16 grid.
 	// corner and anchors are alternatives.
 	//
-	// Deterministic: where the nodes go depends on their IDs, links and sizes, on the comment boxes they stand in and on the
-	// corner or the anchors, not on where else they stood or the order of anything. Fails, changing nothing, for an ID that
-	// names no node of the graph, for an anchor that is arranged too or has no position, for a corner that is not finite or
-	// given with anchors, and for a size that is not one (extents measures the arranged nodes, the anchors and the other
-	// nodes that stand in comment boxes).
+	// Deterministic: where the nodes go depends on their IDs, links, sizes and purity, on the comment boxes they stand in and
+	// on the corner or the anchors, not on where else they stood or the order of anything. Fails, changing nothing, for an ID
+	// that names no node of the graph, for an anchor that is arranged too or has no position, for a corner that is not
+	// finite or given with anchors, and for a size that is not one (measures.Extents measures the arranged nodes, the
+	// anchors and the other nodes that stand in comment boxes; measures.IsPure is asked of the arranged nodes only).
 	[[nodiscard]] Result<void> ArrangeNodes(VisualScriptDocument& document, uint32_t function, std::span<uint32_t const> nodes,
-	                                        VisualScriptNodeExtents const& extents, std::optional<glm::vec2> corner = std::nullopt,
+	                                        VisualScriptArrangeMeasures const& measures, std::optional<glm::vec2> corner = std::nullopt,
 	                                        std::span<uint32_t const> anchors = {});
 
 	// The size of every node for callers without a canvas to measure it (automation, tests): 256 × 128, which makes
 	// ArrangeNodes reproduce the pitches of PlaceUnplacedNodes.
 	[[nodiscard]] glm::vec2 GetDefaultVisualScriptNodeExtents(uint32_t node);
+	// GetDefaultVisualScriptNodeExtents and no pure node: the layout of PlaceUnplacedNodes (graph.arrange's and graph.edit's
+	// Uniform extents).
+	[[nodiscard]] VisualScriptArrangeMeasures GetUniformVisualScriptArrangeMeasures();
 }

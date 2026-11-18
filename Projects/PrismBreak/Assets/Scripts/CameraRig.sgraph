@@ -119,7 +119,7 @@
 					"Type": "Event.Update",
 					"Position": [
 						0.0,
-						1248.0
+						992.0
 					]
 				},
 				{
@@ -127,7 +127,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						992.0
+						1120.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -148,7 +148,7 @@
 					"ID": 18,
 					"Type": "Variable.Set",
 					"Position": [
-						400.0,
+						384.0,
 						992.0
 					],
 					"Settings": {
@@ -159,8 +159,8 @@
 					"ID": 19,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1056.0
+						192.0,
+						1136.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -170,8 +170,8 @@
 					"ID": 20,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1120.0
+						192.0,
+						1200.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -181,8 +181,8 @@
 					"ID": 21,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1184.0
+						192.0,
+						1264.0
 					],
 					"Settings": {
 						"Variable": 2
@@ -192,8 +192,8 @@
 					"ID": 22,
 					"Type": "Expression",
 					"Position": [
-						192.0,
-						1136.0
+						384.0,
+						1120.0
 					],
 					"Settings": {
 						"Formula": "vec3(sin(t * 31.7), sin(t * 27.3 + 1.3), 0) * trauma * trauma * size"
@@ -203,8 +203,8 @@
 					"ID": 23,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1568.0
+						192.0,
+						1328.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -215,7 +215,7 @@
 					"Type": "Variable.Get",
 					"Position": [
 						0.0,
-						1376.0
+						1184.0
 					],
 					"Settings": {
 						"Variable": 5
@@ -226,7 +226,7 @@
 					"Type": "Expression",
 					"Position": [
 						192.0,
-						1312.0
+						1392.0
 					],
 					"Settings": {
 						"Formula": "vec3(sin(t * 0.37) * 0.9, sin(t * 0.23) * 0.35, 0)"
@@ -236,8 +236,8 @@
 					"ID": 26,
 					"Type": "Literal",
 					"Position": [
-						0.0,
-						1632.0
+						192.0,
+						1520.0
 					],
 					"Settings": {
 						"Type": "Strada.Vector3",
@@ -252,16 +252,16 @@
 					"ID": 27,
 					"Type": "Select",
 					"Position": [
-						400.0,
-						1120.0
+						384.0,
+						1296.0
 					]
 				},
 				{
 					"ID": 28,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1760.0
+						384.0,
+						1456.0
 					],
 					"Settings": {
 						"Variable": 1
@@ -271,7 +271,7 @@
 					"ID": 29,
 					"Type": "Expression",
 					"Position": [
-						624.0,
+						608.0,
 						992.0
 					],
 					"Settings": {
@@ -282,7 +282,7 @@
 					"ID": 30,
 					"Type": "Set:Strada.Entity.Translation",
 					"Position": [
-						832.0,
+						816.0,
 						992.0
 					]
 				},
@@ -290,8 +290,8 @@
 					"ID": 31,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1440.0
+						608.0,
+						1168.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -301,8 +301,8 @@
 					"ID": 32,
 					"Type": "Variable.Get",
 					"Position": [
-						0.0,
-						1504.0
+						608.0,
+						1232.0
 					],
 					"Settings": {
 						"Variable": 3
@@ -312,8 +312,8 @@
 					"ID": 33,
 					"Type": "Expression",
 					"Position": [
-						192.0,
-						1440.0
+						816.0,
+						1168.0
 					],
 					"Settings": {
 						"Formula": "max(0, trauma - dt * settle)"
@@ -323,7 +323,7 @@
 					"ID": 34,
 					"Type": "Variable.Set",
 					"Position": [
-						1040.0,
+						1024.0,
 						992.0
 					],
 					"Settings": {
@@ -335,7 +335,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						1936.0
+						1744.0
 					],
 					"Settings": {
 						"Name": "LevelCleared",
@@ -352,7 +352,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						192.0,
-						1936.0
+						1744.0
 					],
 					"Settings": {
 						"Variable": 4
@@ -366,7 +366,7 @@
 					"Type": "Event.Custom",
 					"Position": [
 						0.0,
-						2176.0
+						1984.0
 					],
 					"Settings": {
 						"Name": "StateChanged",
@@ -383,7 +383,7 @@
 					"Type": "Operator.Equal",
 					"Position": [
 						192.0,
-						2176.0
+						1984.0
 					],
 					"Inputs": {
 						"B": "Title"
@@ -394,7 +394,7 @@
 					"Type": "Variable.Set",
 					"Position": [
 						480.0,
-						2176.0
+						1984.0
 					],
 					"Settings": {
 						"Variable": 6
@@ -720,8 +720,8 @@
 						920.0
 					],
 					"Size": [
-						1229.572509765625,
-						900.0
+						1213.572509765625,
+						714.0
 					],
 					"Color": [
 						0.6200000047683716,
@@ -735,7 +735,7 @@
 					"Text": "Clear: a cleared level shakes the camera hard",
 					"Position": [
 						-32.0,
-						1864.0
+						1672.0
 					],
 					"Size": [
 						451.572509765625,
@@ -753,7 +753,7 @@
 					"Text": "Title sway: the camera drifts while the title plays",
 					"Position": [
 						-32.0,
-						2104.0
+						1912.0
 					],
 					"Size": [
 						669.572509765625,

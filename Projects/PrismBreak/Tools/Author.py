@@ -1,8 +1,8 @@
 """Builds the Prism Break project through `strada mcp`, the way an agent does: a neon brick breaker made of visual scripts
 alone (no C#). In order:
 
-1. the project and its settings (window, physics layers), the generated sounds, prism mesh and textures
-   (GenerateAssets.py), and the materials;
+1. the project and its settings (window, physics layers), its input actions (Move, Launch and Pause, on the keyboard and a
+   gamepad), the generated sounds, prism mesh and textures (GenerateAssets.py), and the materials;
 2. the thirteen graphs (Arcade and Checks, function libraries, first);
 3. a declare pass: one graph_edit batch per graph adding its variables, its custom events with their parameters and its
    functions with their inputs and outputs, the interface the other graphs' typed sends, remote variables and calls
@@ -11,19 +11,23 @@ alone (no C#). In order:
    Nodes) and framed by a comment box titled for what it does, in its role's colour. Every batch must answer no error and
    no warning, or the tool stops;
 5. the prefabs, the main scene and the test scene;
-6. checks: each graph's document has no diagnostic and every node resolves exactly, each box stays arranged, and the
-   Arcade library is used by the graphs that call it;
-7. the tests (test_run of Scenes/Tests.sscene), the title's attract mode played for 600 frames without a warning from a
+6. with that editor closed, the identities kept: every asset takes the handle its path had in the project before the
+   run, and every entity of a scene or a prefab the ID its name path had there;
+7. in a second editor, on the files as they stay, checks: each graph's document has no diagnostic and every node
+   resolves exactly, each box stays arranged, and the Arcade library is used by the graphs that call it;
+8. the tests (test_run of Scenes/Tests.sscene), the title's attract mode played for 600 frames without a warning from a
    visual script, and an exported game's smoke test.
 
     python Projects/PrismBreak/Tools/Author.py [strada executable]
 
-The project is rebuilt from scratch: everything but this Tools folder is replaced, and two runs give the same graphs.
-Without an executable, strada runs from the repository (dotnet run).
+The project is rebuilt from scratch: everything but this Tools folder is replaced. Since the rebuild keeps the handles
+and IDs the project had (step 6), two runs write the same files, and a run after a change to the tool or to the editor
+changes only what that change changes. Without an executable, strada runs from the repository (dotnet run).
 """
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -133,6 +137,28 @@ LEVELS = [
     "4.4.4.4.4.4/44444444444/4.3333333.4/4.3.222.3.4/4.3.212.3.4/4.3.....3.4",
 ]
 LEVEL_BRICKS = [sum(ch.isdigit() for ch in layout) for layout in LEVELS]
+
+# The input actions the game reads instead of keys (Assets/Input/PrismBreak.sinput, which the project names): the keyboard
+# and a gamepad alike. The rebinding flow at the title gives Launch's first binding (LAUNCH_BINDING) a key of the player's.
+ACTIONS_PATH = "Input/PrismBreak.sinput"
+LAUNCH_BINDING = 0
+REBIND_KEY = "R"
+
+
+def binding(controls, dead_zone=0.0):
+    return {"Controls": controls, "Gamepad": -1, "DeadZone": dead_zone, "ResponseCurve": "0", "Invert": False, "InvertY": False,
+            "Scale": 1.0}
+
+
+ACTIONS = [
+    {"Name": "Move", "Type": "Axis", "PressThreshold": 0.5, "ReleaseThreshold": 0.4, "Bindings": [
+        binding("Key/A Key/D"), binding("Key/Left Key/Right"), binding("Gamepad/LeftX", 0.2),
+        binding("Gamepad/DPadLeft Gamepad/DPadRight")]},
+    {"Name": "Launch", "Type": "Button", "PressThreshold": 0.5, "ReleaseThreshold": 0.4, "Bindings": [
+        binding("Key/Space"), binding("Gamepad/A")]},
+    {"Name": "Pause", "Type": "Button", "PressThreshold": 0.5, "ReleaseThreshold": 0.4, "Bindings": [
+        binding("Key/Escape"), binding("Gamepad/Start")]},
+]
 
 
 # --- Writing graphs: one graph_edit batch per region ---------------------------------------------------------------------
@@ -480,12 +506,15 @@ HUD_ELEMENTS = (
     ("ServePrompt", "The prompt to launch the ball while it waits on the paddle"),
     ("TitleScreen", "The title screen, shown while the game plays itself"),
     ("TitlePrompt", "The title's prompt to start, which blinks"),
+    ("BindingText", "The title's line that names Launch's key, asks for a new one while a rebinding listens, and names its "
+                    "conflicts"),
     ("Banner", "The banner that shows a cleared level and the next one"),
     ("BannerText", "The text of the level banner"),
     ("PauseScreen", "The pause screen"),
     ("OverScreen", "The game-over screen with the top five"),
     ("FinalScore", "The game-over screen's score"),
     ("TableText", "The game-over screen's table of the top five"),
+    ("OverPrompt", "The game-over screen's prompt to play again"),
 )
 LIVES_SHOWN = 5
 ENTITY = "Strada.Entity"
@@ -546,14 +575,14 @@ def declare_all(author):
         private("Caught", "bool", False),
         private("Angle", "float", 0.0),
     ), functions=(("Catch", False, (), (), ()),))
-    author.declare(PADDLE, "The paddle: the mouse, the keys or the autopilot steer it, a Widen capsule makes it wider for a "
-                   "while, and it squashes when the ball hits it.", variables=(
+    author.declare(PADDLE, "The paddle: the mouse, the Move action (keys, a stick or a pad) or the autopilot steer it, a Widen "
+                   "capsule makes it wider for a while, and it squashes when the ball hits it.", variables=(
         public("Game", ENTITY, None, "The entity whose Game.sgraph runs the match"),
         public("Balls", ENTITY, None, "The container of the live balls, which the autopilot follows"),
         public("Width", "float", PADDLE_WIDTH, "The paddle's width in metres", (1.0, 8.0)),
         public("Limit", "float", WALL_X, "The inner side walls' distance from the middle", (1.0, 20.0)),
         public("Z", "float", PADDLE_Z, "The paddle's line along the arena", (-20.0, 20.0)),
-        public("KeySpeed", "float", 16.0, "Metres per second the keys move the paddle", (0.0, 60.0)),
+        public("KeySpeed", "float", 16.0, "Metres per second the Move action moves the paddle when fully pressed", (0.0, 60.0)),
         public("ScreenSpan", "float", 19.0, "Metres of the arena the screen's width spans for the mouse", (1.0, 60.0)),
         public("Autopilot", "bool", False, "Steers the paddle under the ball: the title plays itself"),
         private("X", "float", 0.0),
@@ -582,7 +611,8 @@ def declare_all(author):
         private("Sway", "bool", False),
     ), events=(("Shake", (("Strength", "float"),)), ("LevelCleared", (("Level", "int"),)), ("StateChanged", (("State", "string"),))))
     author.declare(HUD, "The screen: it reads the game's score, level, combo and lives, shows the title, the prompts, the "
-                   "banner, the pause screen and the top five.", variables=(
+                   "banner, the pause screen and the top five, and at the title rebinds Launch to a key the player presses.",
+                   variables=(
         public("Game", ENTITY, None, "The entity whose Game.sgraph the screen reads"),
     ) + tuple(public(name, ENTITY, None, tooltip) for name, tooltip in HUD_ELEMENTS) + (
         private("ShownScore", "int", -1),
@@ -591,11 +621,20 @@ def declare_all(author):
         private("Best", "int", 0),
         private("NextLevel", "int", 2),
         private("Lines", "string[]", []),
+        private("ShownBinding", "string", ""),
+        private("WasListening", "bool", False),
+        private("BindingsStale", "bool", True),
+        private("LaunchBefore", "string", ""),
+        private("RefusedNote", "string", ""),
     ), events=(("StateChanged", (("State", "string"),)), ("LevelCleared", (("Level", "int"),)), ("LifeLost", (("Lives", "int"),)),
                ("GameEnded", (("Score", "int"), ("Scores", "int[]"))), ("Paused", (("On", "bool"),)),
-               ("ComboChanged", (("Combo", "int"),))), functions=(
+               ("ComboChanged", (("Combo", "int"),)), ("BindingsChanged", ())), functions=(
         ("ShowScore", False, (), (), ()),
         ("ShowLives", False, (), (), ()),
+        ("ControlName", True, (("Controls", "string"),), (("Name", "string"),), ()),
+        ("Reads", True, (("Action", "string"), ("Binding", "int"), ("Control", "string")), (("Result", "bool"),), ()),
+        ("BoundTo", True, (("Control", "string"),), (("Names", "string"),), ()),
+        ("ShowBindings", False, (), (), ()),
     ))
     author.declare(GAME, "The match: it builds the levels, serves and launches the ball, scores the prisms, counts lives and "
                    "combos, clears levels, ends the game with its top five, pauses, and plays itself on the title.", variables=(
@@ -908,13 +947,10 @@ def paddle_scale(b, squash=None):
 
 
 def write_paddle(author):
-    with author.region(PADDLE, "Steer: the mouse or the keys set a target the paddle eases to", EVENTS) as b:
+    with author.region(PADDLE, "Steer: the mouse or the Move action set a target the paddle eases to", EVENTS) as b:
         tick = b.event("Event.Update")
         dt = tick["DeltaTime"]
-        keys = {}
-        for name, key in (("a", "A"), ("left", "Left"), ("d", "D"), ("right", "Right")):
-            keys[name] = b.pure("Call:Strada.Input.IsKeyDown(Strada.KeyCode)", Key=key)
-        direction = b.expr("(d || right ? 1 : 0) - (a || left ? 1 : 0)", **keys)
+        direction = b.expr("clamp(move, -1, 1)", move=b.pure("Call:Strada.Input.GetAction(string)", Action="Move"))
         manual = b.expr("clamp(length(delta) > 0 ? (mouse.x / screen - 0.5) * span : target + direction * speed * dt, "
                         "-limit + width * 0.5, limit - width * 0.5)",
                         delta=b.pure("Get:Strada.Input.MouseDelta", "Value"), mouse=b.pure("Get:Strada.Input.MousePosition", "Value"),
@@ -922,7 +958,7 @@ def write_paddle(author):
                         target=b.get("Target"), direction=direction, speed=b.get("KeySpeed"), dt=dt, limit=b.get("Limit"),
                         width=b.get("Width"))
         pilot = b.branch(b.get("Autopilot"))
-        steer = b.set("Target", manual, comment="The target stays within the paddle's reach, so the keys turn it round at once at a wall")
+        steer = b.set("Target", manual, comment="The target stays within the paddle's reach, so Move turns it round at once at a wall")
         ease = b.set("X", b.expr("clamp(lerp(x, target, 1 - exp(-25 * dt)), -limit + width * 0.5, limit - width * 0.5)",
                                  x=b.get("X"), target=b.get("Target"), dt=dt, limit=b.get("Limit"), width=b.get("Width")))
         b.chain(tick, pilot)
@@ -1060,9 +1096,20 @@ def text(b, element, value):
     return b.call("Set:Strada.UITextComponent.Text", Target=b.get(element), Value=value)
 
 
+def rebind_is(b, status, rebind=None):
+    """Whether the scene's latest capture of a binding (Input.CurrentRebind, or the result given) reads a RebindStatus. A
+    status is no edge, so any flow may poll it."""
+    if rebind is None:
+        rebind = b.pure("Get:Strada.Input.CurrentRebind", "Value")
+    return b.equal(b.pure("Get:Strada.RebindResult.Status", "Value", Target=rebind), b.lit("Strada.RebindStatus", status))
+
+
 def write_hud(author):
     with author.region(HUD, "Read the game: a text changes only when its value did", EVENTS) as b:
         tick = b.event("Event.Update")
+        stale = b.branch(b.get("BindingsStale"),
+                         comment="The binding line can read otherwise only at the start, while a capture listens and when a "
+                                 "graph that rebinds says so: no frame polls the bindings in between")
         game = b.branch(b.runs(GAME, b.get("Game")))
         score = b.branch(b.not_equal(b.get("Score", GAME, b.get("Game")), b.get("ShownScore")))
         level = b.branch(b.not_equal(b.get("Level", GAME, b.get("Game")), b.get("ShownLevel")))
@@ -1072,7 +1119,9 @@ def write_hud(author):
         shown_combo = b.set("ShownCombo", b.get("Combo", GAME, b.get("Game")))
         tell = b.send("ComboChanged", b.self_(), Combo=("int", b.get("ShownCombo")),
                       comment="The screen's own event: the badge pops in a region of its own")
-        b.chain(tick, game)
+        b.chain(tick, stale)
+        b.chain(stale["True"], b.own("ShowBindings"), game)
+        b.flow(stale["False"], game)
         b.flow(game["True"], score)
         b.chain(score["True"], b.own("ShowScore"), level)
         b.flow(score["False"], level)
@@ -1171,6 +1220,87 @@ def write_hud(author):
         serve = b.call("Set:Strada.UIRectComponent.Opacity", Target=b.get("ServePrompt"), Value=blink["Alpha"])
         b.flow(start, blink["PlayFromStart"])
         b.chain(blink["Update"], title, serve)
+    with author.region(HUD, f"Rebind: {REBIND_KEY} at the title listens for a new key for Launch", EVENTS) as b:
+        press = b.event("Event.KeyPressed", {"Key": REBIND_KEY})
+        game = b.get("Game")
+        at_title = b.both(b.runs(GAME, game), b.equal(b.get("State", GAME, b.get("Game")), "Title"))
+        idle = b.both(b.negate(b.get("WasListening")), b.negate(rebind_is(b, "Listening")))
+        ready = b.branch(b.both(at_title, idle),
+                         comment="Key events run before the Update that notes the capture: a capture that ended this frame "
+                                 "listened at the last Update, so the key that answered it opens no other")
+        before = b.set("LaunchBefore", launch_controls(b), comment="Kept to give back an answer Launch cannot take")
+        fresh = b.set("RefusedNote", "")
+        listen = b.call("Call:Strada.Input.StartRebind(string,int,int)", Action="Launch", Binding=LAUNCH_BINDING, Part=-1)
+        watch = b.set("BindingsStale", True)
+        b.chain(press, ready)
+        b.chain(ready["True"], before, fresh, listen, watch)
+    with author.region(HUD, "Bindings changed: a graph that rebinds has the line made again", EVENTS) as b:
+        b.chain(b.custom("BindingsChanged"), b.set("BindingsStale", True))
+    with author.region(HUD, "Bindings: the prompts name Launch's key; a refused answer asks again", TITLE,
+                       "ShowBindings") as b:
+        rebind = b.pure("Get:Strada.Input.CurrentRebind", "Value")
+        answer = b.pure("Get:Strada.RebindResult.Controls", "Value", Target=rebind)
+        a_key = b.pure("String.StartsWith", Text=answer, Prefix="Key/")
+        ended = b.both(b.get("WasListening"), rebind_is(b, "Done", rebind))
+        unfit = b.either(b.negate(a_key), b.equal(answer, f"Key/{REBIND_KEY}"))
+        refused = b.branch(b.both(ended, unfit),
+                           comment=f"Launch's keyboard binding takes a key, never {REBIND_KEY}: bound to {REBIND_KEY}, a "
+                                   "press at the title would start a game before it could open a capture")
+        name = b.own("ControlName", output="Name", Controls=answer).out
+        note = b.set("RefusedNote", b.select(a_key, b.fmt("{Name} IS THE REBIND KEY", Name=name),
+                                             b.fmt("{Name} IS NOT A KEY", Name=name)))
+        back = b.call("Call:Strada.Input.Rebind(string,int,string,int)", Action="Launch", Binding=LAUNCH_BINDING,
+                      Controls=b.get("LaunchBefore"), Part=-1, comment="The answer's binding is given back")
+        listen = b.call("Call:Strada.Input.StartRebind(string,int,int)", Action="Launch", Binding=LAUNCH_BINDING, Part=-1)
+        still = b.set("WasListening", True)
+        noted = b.set("WasListening", rebind_is(b, "Listening", rebind))
+        stale = b.set("BindingsStale", b.get("WasListening"))
+        controls = launch_controls(b)
+        key = b.own("ControlName", output="Name", Controls=controls).out
+        names = b.own("BoundTo", output="Names", Control=controls).out
+        conflict = b.select(b.pure("String.IsEmpty", Text=names), b.lit("string", ""),
+                            b.fmt("   ALSO BOUND TO {Names}", Names=names))
+        ask = b.lit("string", "PRESS A KEY FOR LAUNCH      ESC CANCELS")
+        note_text = b.get("RefusedNote")
+        prompt = b.select(b.pure("String.IsEmpty", Text=note_text), ask,
+                          b.fmt("{Note}      {Ask}", Note=note_text, Ask=ask))
+        line = b.select(b.get("WasListening"), prompt,
+                        b.fmt(f"LAUNCH: {{Key}}{{Conflict}}      {REBIND_KEY} REBINDS IT", Key=key, Conflict=conflict))
+        changed = b.branch(b.not_equal(line, b.get("ShownBinding")),
+                           comment="A text changes only when it reads otherwise: a rebind, a capture, its end")
+        shown = b.set("ShownBinding", line)
+        binding_line = text(b, "BindingText", shown.out)
+        title = text(b, "TitlePrompt", b.fmt("PRESS {Key} OR CLICK TO PLAY", Key=key))
+        serve = text(b, "ServePrompt", b.fmt("{Key} OR CLICK TO LAUNCH", Key=key))
+        over = text(b, "OverPrompt", b.fmt("{Key} OR CLICK TO PLAY AGAIN", Key=key))
+        b.chain(b.entry, refused)
+        b.chain(refused["True"], note, back, listen, still, stale)
+        b.chain(refused["False"], noted, stale)
+        b.chain(stale, changed)
+        b.chain(changed["True"], shown, binding_line, title, serve, over, b.ret)
+        b.flow(changed["False"], b.ret)
+    with author.region(HUD, "Conflicts: the other actions with a binding that reads Launch's key", RULES, "BoundTo") as b:
+        control = b.entry["Control"]
+
+        def reads(action):
+            found = [b.own("Reads", output="Result", Action=action, Binding=index, Control=control).out for index in range(4)]
+            return b.expr("r0 || r1 || r2 || r3", r0=found[0], r1=found[1], r2=found[2], r3=found[3])
+
+        move = reads("Move")
+        pause = reads("Pause")
+        b.link(b.select(move, b.select(pause, b.lit("string", "MOVE, PAUSE"), b.lit("string", "MOVE")),
+                        b.select(pause, b.lit("string", "PAUSE"), b.lit("string", ""))), b.ret["Names"])
+    with author.region(HUD, "Reads: whether an action's binding reads a control, by whole names", RULES, "Reads") as b:
+        control = b.entry["Control"]
+        bound = b.pure("Call:Strada.Input.GetBindingControls(string,int)", Action=b.entry["Action"], Binding=b.entry["Binding"])
+        found = b.pure("String.Contains", Text=b.fmt(" {Controls} ", Controls=bound), Substring=b.fmt(" {Control} ", Control=control))
+        b.link(b.both(b.negate(b.pure("String.IsEmpty", Text=control)), found), b.ret["Result"])
+    with author.region(HUD, "Control names: Key/Space reads SPACE, Gamepad/A reads PAD A", RULES, "ControlName") as b:
+        controls = b.entry["Controls"]
+        plain = b.pure("String.Replace", Text=b.pure("String.Replace", Text=b.pure("String.Replace", Text=controls, Old="Key/", New=""),
+                                                     Old="Mouse/", New="MOUSE "), Old="Gamepad/", New="PAD ")
+        b.link(b.select(b.pure("String.IsEmpty", Text=controls), b.lit("string", "NO KEY"), b.pure("String.ToUpper", Text=plain)),
+               b.ret["Name"])
 
 
 # --- Game.sgraph ----------------------------------------------------------------------------------------------------------
@@ -1270,13 +1400,14 @@ def write_game(author):
         b.chain(tick, launched)
         b.flow(launched["False"], any_ball)
         b.chain(any_ball["True"], ride, still)
-    with author.region(GAME, "Input: Space and a click start, or launch, by state", EVENTS) as b:
-        space = b.event("Event.KeyPressed", {"Key": "Space"})
+    with author.region(GAME, "Input: Launch and a click start, or launch, by state", EVENTS) as b:
+        launch = b.event("Event.ActionPressed", {"Action": "Launch"})
         click = b.event("Event.MouseButtonPressed", {"Button": "Left"})
-        busy = b.branch(b.either(b.get("Building"), b.get("Paused")))
+        busy = b.branch(b.either(b.either(b.get("Building"), b.get("Paused")), rebind_is(b, "Listening")),
+                        comment="While the title's rebinding listens, a press is the player's answer, not a start")
         by_state = b.add("Flow.Switch", {"Type": "string", "Cases": ["Title", "Over", "Serve"]}, Selection=b.get("State"))
         begin = b.own("BeginGame")
-        b.flow(space, busy)
+        b.flow(launch, busy)
         b.flow(click, busy)
         b.flow(busy["False"], by_state)
         b.flow(by_state["Case:Title"], begin)
@@ -1434,13 +1565,13 @@ def write_game(author):
         b.flow(capsules["Body"], remove)
         b.flow(capsules["Completed"], state)
         b.chain(told, build, b.own("Serve"), b.ret)
-    with author.region(GAME, "Pause: Escape freezes the game and shows the pause screen", EVENTS) as b:
-        escape = b.event("Event.KeyPressed", {"Key": "Escape"})
+    with author.region(GAME, "Pause: the Pause action freezes the game, shows the pause screen", EVENTS) as b:
+        pause = b.event("Event.ActionPressed", {"Action": "Pause"})
         playing = b.branch(b.either(b.equal(b.get("State"), "Serve"), b.equal(b.get("State"), "Play")))
         toggle = b.set("Paused", b.negate(b.get("Paused")))
         time = b.call("Set:Strada.Time.TimeScale", Value=b.select(b.get("Paused"), b.lit("float", 0.0), b.lit("float", 1.0)))
         tell = b.broadcast("Paused", parameters=(("On", "bool"),), On=b.get("Paused"))
-        b.chain(escape, playing)
+        b.chain(pause, playing)
         b.chain(playing["True"], toggle, time, tell)
     with author.region(GAME, "Title: the game plays itself until a player starts", TITLE, "StartAttractMode") as b:
         attract = b.set("Attract", True)
@@ -1629,6 +1760,11 @@ TEST_CHECKS = (
     ("CheckGameOver", "Game over: the last life ends it, the table shows the score",
      "losing the last life ends the game and records the score"),
     ("CheckNewGame", "New game: fresh read-outs, and remote reads guarded", "a new game starts fresh, and remote reads are guarded"),
+    ("CheckMoveAction", "Move action: it steers the paddle to the left wall, then the right", "the Move action steers the paddle both ways"),
+    ("CheckLaunchAction", "Launch action: it sends the waiting ball at the level's speed", "the Launch action launches the ball"),
+    ("CheckRebind", "Rebind: Launch takes L, reads it back, and the screen names it", "a rebound Launch reads its new key back"),
+    ("CheckRebindConflict", "Rebind conflict: Launch on A names Move, and a reset undoes it",
+     "a rebind names its conflicts, and a reset undoes it"),
 )
 TEST_ENTITIES = (
     ("Game", "The entity whose Game.sgraph the checks play"),
@@ -1641,12 +1777,14 @@ TEST_ENTITIES = (
     ("TableText", "The game-over screen's table of the top five"),
     ("Banner", "The level banner"),
     ("BannerText", "The level banner's text"),
+    ("BindingText", "The title's line that names Launch's key"),
 ) + tuple((f"Life{index + 1}", f"Life icon {index + 1} of the HUD") for index in range(LIVES_SHOWN))
 
 
 def declare_tests(author):
-    author.declare(TESTS, "The test scene's checks: 29 checks of Prism Break's rules, physics, screen and flow, one after "
-                   "another, each a latent function that acts, waits for what it expects and reports it.", variables=(
+    author.declare(TESTS, f"The test scene's checks: {len(TEST_CHECKS)} checks of Prism Break's rules, physics, screen, flow and "
+                   "input actions, one after another, each a latent function that acts, waits for what it expects and reports "
+                   "it.", variables=(
         tuple(public(name, ENTITY, None, tooltip) for name, tooltip in TEST_ENTITIES) + (
             private("StepStart", "double", 0.0),
             private("Strong", ENTITY),
@@ -1664,6 +1802,9 @@ def declare_tests(author):
             private("SawLevel", "bool", False),
             private("BannerDone", "bool", False),
             private("ShakeSeen", "bool", False),
+            private("LeftAt", "float", 0.0),
+            private("Named", "string", ""),
+            private("SawConflict", "bool", False),
         )), events=(("WatchTheBanner", ()), ("WatchTheCamera", ())), functions=(
         ("Place", False, (("At", "Strada.Vector3"), ("Velocity", "Strada.Vector3")), (), ()),
         ("Strike", False, (("At", "Strada.Vector3"),), (), ()),
@@ -1983,6 +2124,78 @@ def check_new_game(b, name):
                                       Level=level, Left=left), b.both(done, guarded)))
 
 
+def check_move_action(b, name):
+    x = b.expr("p.x", p=position_of(b, "Paddle"))
+    left_at = var(b, "LeftAt")
+    left = b.call("Call:Strada.Input.SetActionOverride(string,float)", Action="Move", Value=-1.0,
+                  comment="An override is one more device of the action, as a stick held all the way would be")
+    right = b.call("Call:Strada.Input.SetActionOverride(string,float)", Action="Move", Value=1.0)
+    release = b.call("Call:Strada.Input.ClearActionOverride(string)", Action="Move")
+    run(b, left, wait_until(b, b.expr("x < -5", x=x), 2), b.set("LeftAt", x), right,
+        check(b, name, b.expr("x > 5", x=x), 2, b.fmt("from {Left} m to {Right} m", Left=left_at, Right=x),
+              b.expr("left < -5 && x > 5", left=left_at, x=x)), release)
+
+
+def check_launch_action(b, name):
+    speed = b.expr("length(v)", v=b.pure("Get:Strada.RigidBodyComponent.LinearVelocity", "Value", Target=the_ball(b)))
+    expected = of_game(b, "BallSpeed")
+    press = b.call("Call:Strada.Input.SetActionOverride(string,float)", Action="Launch", Value=1.0)
+    frames = b.add("Flow.WaitFrames", Frames=2)
+    release = b.call("Call:Strada.Input.ClearActionOverride(string)", Action="Launch")
+    done = b.both(is_state(b, "Play"), near(b, speed, expected, 0.05))
+    run(b, wait_until(b, is_state(b, "Serve"), 1), press, (frames, frames["Completed"]), release,
+        check(b, name, done, 1, b.fmt("state {State}, {Speed} m/s of {Expected}", State=of_game(b, "State"), Speed=speed,
+                                      Expected=expected)))
+
+
+def launch_controls(b):
+    return shared(b, "launch controls", lambda: b.pure("Call:Strada.Input.GetBindingControls(string,int)", Action="Launch",
+                                                       Binding=LAUNCH_BINDING))
+
+
+def rebind_launch(b, controls):
+    return b.call("Call:Strada.Input.Rebind(string,int,string,int)", "Result", Action="Launch", Binding=LAUNCH_BINDING,
+                  Controls=controls, Part=-1)
+
+
+def tell_the_screen(b):
+    """Input.Rebind and Input.ResetBindings outside the screen's own capture: the screen reads the bindings again when told."""
+    return b.broadcast("BindingsChanged", HUD)
+
+
+def binding_line(b):
+    return shared(b, "binding line", lambda: b.pure("Get:Strada.UITextComponent.Text", "Value", Target=var(b, "BindingText")))
+
+
+def check_rebind(b, name):
+    rebound = rebind_launch(b, "Key/L")
+    controls = launch_controls(b)
+    shown = binding_line(b)
+    done = b.both(b.both(rebind_is(b, "Done", rebound.out), b.equal(controls, "Key/L")),
+                  b.equal(shown, f"LAUNCH: L      {REBIND_KEY} REBINDS IT"))
+    run(b, rebound, tell_the_screen(b),
+        check(b, name, done, 1, b.fmt("Launch reads {Controls}; the screen reads '{Shown}'", Controls=controls, Shown=shown)))
+
+
+def check_rebind_conflict(b, name):
+    onto_a = rebind_launch(b, "Key/A")
+    named = var(b, "Named")
+    shown = binding_line(b)
+    conflict_line = f"LAUNCH: A   ALSO BOUND TO MOVE      {REBIND_KEY} REBINDS IT"
+    reset = b.call("Call:Strada.Input.ResetBindings()", "Result")
+    controls = launch_controls(b)
+    back = b.both(b.both(rebind_is(b, "Done", reset.out), b.equal(controls, "Key/Space")),
+                  b.expr("named && seen && plain", named=b.equal(named, "Move"), seen=var(b, "SawConflict"),
+                         plain=b.equal(shown, f"LAUNCH: SPACE      {REBIND_KEY} REBINDS IT")))
+    keep = b.set("Named", b.pure("String.Join", Parts=b.pure("Get:Strada.RebindResult.Conflicts", "Value", Target=onto_a.out),
+                                 Separator=", "), comment="The conflicts of the rebind to A, before the reset answers anew")
+    seen = b.set("SawConflict", b.equal(shown, conflict_line),
+                 comment="The screen names the conflict from the bindings themselves, not from a capture's answer")
+    run(b, onto_a, keep, tell_the_screen(b), wait_until(b, b.equal(shown, conflict_line), 1), seen, reset, tell_the_screen(b),
+        check(b, name, back, 1, b.fmt("conflicts '{Named}', named on the screen: {Seen}; then Launch reads {Controls}, the screen "
+                                      "'{Shown}'", Named=named, Seen=var(b, "SawConflict"), Controls=controls, Shown=shown)))
+
+
 TEST_WRITERS = {
     "CheckLevelIsBuilt": check_level_is_built, "CheckBricksAreEntities": check_bricks_are_entities,
     "CheckBrickGlow": check_brick_glow, "CheckScoreFormula": check_score_formula, "CheckPitches": check_pitches,
@@ -1993,7 +2206,8 @@ TEST_WRITERS = {
     "CheckWidenSettles": check_widen_settles, "CheckSlowDown": check_slow_down, "CheckDrain": check_drain,
     "CheckHudLives": check_hud_lives, "CheckClearBroadcast": check_clear_broadcast, "CheckNextLevel": check_next_level,
     "CheckBanner": check_banner, "CheckCameraShake": check_camera_shake, "CheckLightsPulse": check_lights_pulse,
-    "CheckGameOver": check_game_over, "CheckNewGame": check_new_game,
+    "CheckGameOver": check_game_over, "CheckNewGame": check_new_game, "CheckMoveAction": check_move_action,
+    "CheckLaunchAction": check_launch_action, "CheckRebind": check_rebind, "CheckRebindConflict": check_rebind_conflict,
 }
 
 
@@ -2204,7 +2418,10 @@ def build_screen(client):
     elements["TitlePrompt"] = element("Title Prompt", title, at((0.5, 0.0), (0.5, 0.5), (0.0, 690.0), (1200.0, 64.0)),
                                       text_fields=label("PRESS SPACE OR CLICK TO PLAY", 48.0, GOLD_TEXT))
     element("Title Controls", title, at((0.5, 0.0), (0.5, 0.5), (0.0, 770.0), (1600.0, 40.0)),
-            text_fields=label("MOUSE, A AND D OR THE ARROWS MOVE THE PADDLE      ESC PAUSES", 26.0, CAPTION))
+            text_fields=label("MOUSE, A AND D, THE ARROWS OR A GAMEPAD MOVE THE PADDLE      ESC PAUSES", 26.0, CAPTION))
+    # Hud.sgraph writes it: Launch's key, a rebinding as it listens, and the actions the new key also presses.
+    elements["BindingText"] = element("Binding Text", title, at((0.5, 0.0), (0.5, 0.5), (0.0, 820.0), (1600.0, 40.0)),
+                                      text_fields=label(f"LAUNCH: SPACE      {REBIND_KEY} REBINDS IT", 26.0, [0.55, 0.9, 1.0, 1.0]))
 
     # The level banner.
     banner = element("Banner", screen, at((0.5, 0.5), (0.5, 0.5), (0.0, -40.0), (1500.0, 260.0), visible=False, opacity=0.0),
@@ -2230,8 +2447,8 @@ def build_screen(client):
     element("Table Caption", panel, at((0.5, 0.0), (0.5, 0.0), (0.0, 300.0), (700.0, 30.0)), text_fields=label("TOP FIVE", 24.0, CAPTION))
     elements["TableText"] = element("Table Text", panel, at((0.5, 0.0), (0.5, 0.0), (0.0, 340.0), (520.0, 290.0)),
                                     text_fields=label("", 42.0, GOLD_TEXT, "Center", "Top", 1.25))
-    element("Over Prompt", panel, at((0.5, 1.0), (0.5, 1.0), (0.0, -40.0), (700.0, 50.0)),
-            text_fields=label("SPACE OR CLICK TO PLAY AGAIN", 32.0, VALUE))
+    elements["OverPrompt"] = element("Over Prompt", panel, at((0.5, 1.0), (0.5, 1.0), (0.0, -40.0), (700.0, 50.0)),
+                                     text_fields=label("SPACE OR CLICK TO PLAY AGAIN", 32.0, VALUE))
     return screen, elements
 
 
@@ -2458,6 +2675,9 @@ def build(client):
     client.call("project_settings", {"settings": {
         "Name": "Prism Break", "Window": {"Title": "Prism Break", "Width": 1600, "Height": 900},
         "Physics": {"FixedTimestep": 1.0 / 60.0, "Layers": ["Default", "Ball", "Debris"], "IgnoredCollisions": [{"First": 1, "Second": 2}]}}})
+    # The actions come before the graphs: their analysis checks the names a graph reads against the project's.
+    client.call("input_actions_create", {"path": ACTIONS_PATH, "fields": {"Actions": ACTIONS}})
+    client.call("project_settings", {"settings": {"InputActions": f"asset://{ACTIONS_PATH}"}})
     subprocess.run([sys.executable, os.path.join(TOOLS, "GenerateAssets.py")], check=True)
     client.call("asset_refresh")
     make_materials(client)
@@ -2480,7 +2700,12 @@ def build(client):
     client.call("scene_save")
     build_test_scene(client, author.handles, scene)
 
-    verify(client, author.handles)
+    return author.handles
+
+
+def check_project(client, handles):
+    """The checks, on the files as they stay: every graph, the test run, the attract mode and an exported game."""
+    verify(client, handles)
     run = client.call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": 90})
     print("test run:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})
     for result in run["results"]:
@@ -2491,10 +2716,99 @@ def build(client):
     export(client)
 
 
+# --- Keeping the identities a rebuild would draw anew ---------------------------------------------------------------------
+
+# The files that name assets by handle or entities by ID.
+IDENTIFIED = (".sgraph", ".sscene", ".sprefab", ".sproj", ".sreg", ".sinput", ".smat")
+REGISTRY = os.path.join(PROJECT, "Assets", "AssetRegistry.sreg")
+
+
+def project_files(extensions):
+    """The project's files with these extensions, outside this Tools folder and the ignored .strada, by path from the
+    project, sorted."""
+    found = []
+    for directory, folders, files in os.walk(PROJECT):
+        folders[:] = sorted(folder for folder in folders if os.path.join(directory, folder) != TOOLS and folder != ".strada")
+        found += [os.path.relpath(os.path.join(directory, name), PROJECT).replace(os.sep, "/") for name in sorted(files)
+                  if name.endswith(extensions)]
+    return found
+
+
+def entity_paths(file, entities):
+    """The IDs of a scene's or a prefab's entities by their name path (the tags from the root down). A name path two
+    entities share would make the IDs ambiguous, so it stops the tool."""
+    by_id = {entity["ID"]: entity for entity in entities}
+    paths = {}
+    for entity in entities:
+        names, at = [], entity
+        while at is not None:
+            names.append(at["Components"].get("Tag", {}).get("Tag", ""))
+            at = by_id.get(at["Components"].get("Relationship", {}).get("Parent", "0"))
+        key = "/".join(reversed(names))
+        if key in paths:
+            raise SystemExit(f"{file}: two entities are named {key}, so a rebuild could not keep their IDs")
+        paths[key] = entity["ID"]
+    return paths
+
+
+def read_identities():
+    """What the project names its assets and entities by: the registry's handles by asset path, and each scene's and
+    prefab's entity IDs by name path. Empty without a project."""
+    if not os.path.isfile(REGISTRY):
+        return {}, {}
+    with open(REGISTRY, encoding="utf-8") as handle:
+        handles = {asset["Path"]: asset["Handle"] for asset in json.load(handle)["Assets"]}
+    entities = {}
+    for file in project_files((".sscene", ".sprefab")):
+        with open(os.path.join(PROJECT, file), encoding="utf-8") as handle:
+            entities[file] = entity_paths(file, json.load(handle)["Entities"])
+    return handles, entities
+
+
+def keep_identities(previous):
+    """Gives the rebuilt project's assets the handles their paths had, and its entities the IDs their name paths had in the
+    same file, in every file that names them; an asset or an entity new to the project keeps what the rebuild drew. A
+    rebuild by an unchanged tool therefore writes the same files. Returns the rebuild's handles and IDs mapped to the kept
+    ones."""
+    handles, entities = read_identities()
+    kept_handles, kept_entities = previous
+    mapping = {}
+
+    def keep(new, old, what):
+        if mapping.setdefault(new, old) != old:
+            raise SystemExit(f"{what}: the rebuild's {new} stands for both {mapping[new]} and {old}")
+
+    for path, handle in handles.items():
+        if path in kept_handles:
+            keep(handle, kept_handles[path], path)
+    for file, paths in entities.items():
+        for key, entity in paths.items():
+            if key in kept_entities.get(file, {}):
+                keep(entity, kept_entities[file][key], f"{file}: {key}")
+    # A kept value must name one thing: no two of the rebuild's values map to it, and none it keeps unmapped is it.
+    drawn = set(handles.values()) | {entity for paths in entities.values() for entity in paths.values()}
+    targets = list(mapping.values())
+    clashes = {old for old in targets if targets.count(old) > 1} | (set(targets) & (drawn - set(mapping)))
+    if clashes:
+        raise SystemExit(f"keeping the handles and IDs would give two assets or entities one of {sorted(clashes)}")
+    rewritten = 0
+    for file in project_files(IDENTIFIED):
+        with open(os.path.join(PROJECT, file), "rb") as handle:
+            text = handle.read().decode("utf-8")
+        mapped = re.sub(r'"(\d+)"', lambda match: f'"{mapping.get(match.group(1), match.group(1))}"', text)
+        if mapped != text:
+            rewritten += 1
+            with open(os.path.join(PROJECT, file), "wb") as handle:
+                handle.write(mapped.encode("utf-8"))
+    print(f"kept {len(mapping)} handles and IDs in {rewritten} files")
+    return mapping
+
+
 def main():
     command = [os.path.abspath(sys.argv[1])] if len(sys.argv) > 1 else \
         ["dotnet", "run", "--project", os.path.join(ROOT, "StradaTool"), "-c", "Release", "--no-launch-profile", "--"]
 
+    previous = read_identities()
     # The editor starts before anything is touched: a tool that cannot run leaves the project as it is.
     client = McpClient(command + ["mcp", "--headless", "--new"])
     # The editor creates projects in empty directories only: this folder waits outside meanwhile.
@@ -2508,7 +2822,16 @@ def main():
         shutil.move(os.path.join(aside, "Tools"), TOOLS)
         os.rmdir(aside)
     try:
-        build(client)
+        handles = build(client)
+    finally:
+        client.close()
+    # With the editor closed, the files take the identities the project had; a second editor checks them as they stay.
+    mapping = keep_identities(previous)
+    handles = {graph: mapping.get(handle, handle) for graph, handle in handles.items()}
+    client = McpClient(command + ["mcp", "--headless", "--new"])
+    try:
+        client.call("project_open", {"path": os.path.join(PROJECT, "PrismBreak.sproj")})
+        check_project(client, handles)
     finally:
         client.close()
 
