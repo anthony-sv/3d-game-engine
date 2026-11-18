@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <initializer_list>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -249,8 +250,10 @@ namespace Strada
 			                    m_Record.CurrentSnapshot.empty() ? "(the mixer's own values)" : m_Record.CurrentSnapshot.c_str());
 		}
 
-		// A dock below the scene view is wide and short: the strips, the bus and the snapshots then stand side by side, each
-		// as tall as the panel. A narrow panel stacks them and scrolls as one.
+		// A dock below the scene view is wide and short: the strips stand beside the bus and the snapshots, each pane as tall
+		// as the panel. A wide one gives the bus and the snapshots a column each; a narrower one, one column that holds the
+		// bus and then the snapshots and scrolls. A narrow panel stacks everything and scrolls as one. A column of fields
+		// keeps FieldColumnWidthEms: the strips give up their width first, and scroll.
 		float const fontSize = ImGui::GetFontSize();
 		ImGuiStyle const& style = ImGui::GetStyle();
 		ImVec2 const available = ImGui::GetContentRegionAvail();
@@ -258,27 +261,56 @@ namespace Strada
 			static_cast<float>(m_Mixer.Buses.size()) * (fontSize * StripWidthEms + style.ItemSpacing.x) + style.WindowPadding.x * 2.0f;
 		if (available.x >= fontSize * ColumnsWidthEms)
 		{
+			bool const threeColumns = available.x >= fontSize * ThreeColumnsWidthEms;
+			float const fieldColumn = fontSize * FieldColumnWidthEms;
+			float const columnsWidth = threeColumns ? 2.0f * (fieldColumn + style.ItemSpacing.x) : fieldColumn;
 			float const height = std::max(available.y, fontSize * 10.0f);
-			float const strips = std::min(stripsWidth, available.x * 0.4f);
-			// The bus's field table is the wider of the two.
-			float const column = (available.x - strips - style.ItemSpacing.x * 2.0f) * 0.55f;
+			float const strips =
+				std::min({stripsWidth, available.x * StripsShare, std::max(available.x - columnsWidth - style.ItemSpacing.x, 0.0f)});
 			DrawStrips(operations, m_Record.Editable, ImVec2(strips, height));
 			ImGui::SameLine();
-			ImGui::BeginChild("##bus", ImVec2(column, height), ImGuiChildFlags_None);
-			DrawSelectedBus(operations, m_Record.Editable);
-			ImGui::EndChild();
-			ImGui::SameLine();
-			ImGui::BeginChild("##snapshots", ImVec2(0.0f, height), ImGuiChildFlags_None);
-			DrawSnapshots(operations, m_Record.Editable);
-			if (ImGui::CollapsingHeader("Doppler and Impacts"))
+			if (threeColumns)
 			{
-				DrawMixerFields(operations, m_Record.Editable);
+				// The bus's field table is the wider of the two, and neither is narrower than a column of fields: the strips
+				// left both at least that and a spacing between them.
+				float const rest = available.x - strips - style.ItemSpacing.x * 2.0f;
+				float const column = std::clamp(rest * 0.55f, fieldColumn, std::max(rest - fieldColumn - style.ItemSpacing.x, fieldColumn));
+				ImGui::BeginChild("##bus", ImVec2(column, height), ImGuiChildFlags_None);
+				m_Record.BusColumnWidth = ImGui::GetContentRegionAvail().x;
+				DrawSelectedBus(operations, m_Record.Editable);
+				ImGui::EndChild();
+				ImGui::SameLine();
+				ImGui::BeginChild("##snapshots", ImVec2(0.0f, height), ImGuiChildFlags_None);
+				m_Record.SnapshotsColumnWidth = ImGui::GetContentRegionAvail().x;
+				DrawSnapshots(operations, m_Record.Editable);
+				if (ImGui::CollapsingHeader("Doppler and Impacts"))
+				{
+					DrawMixerFields(operations, m_Record.Editable);
+				}
+				ImGui::EndChild();
 			}
-			ImGui::EndChild();
+			else
+			{
+				ImGui::BeginChild("##fields", ImVec2(0.0f, height), ImGuiChildFlags_None);
+				m_Record.BusColumnWidth = ImGui::GetContentRegionAvail().x;
+				m_Record.SnapshotsColumnWidth = m_Record.BusColumnWidth;
+				DrawSelectedBus(operations, m_Record.Editable);
+				if (ImGui::CollapsingHeader("Snapshots", ImGuiTreeNodeFlags_DefaultOpen))
+				{
+					DrawSnapshots(operations, m_Record.Editable);
+				}
+				if (ImGui::CollapsingHeader("Doppler and Impacts"))
+				{
+					DrawMixerFields(operations, m_Record.Editable);
+				}
+				ImGui::EndChild();
+			}
 		}
 		else
 		{
 			DrawStrips(operations, m_Record.Editable, ImVec2(0.0f, fontSize * 13.0f));
+			m_Record.BusColumnWidth = ImGui::GetContentRegionAvail().x;
+			m_Record.SnapshotsColumnWidth = m_Record.BusColumnWidth;
 			if (ImGui::CollapsingHeader("Bus", ImGuiTreeNodeFlags_DefaultOpen))
 			{
 				DrawSelectedBus(operations, m_Record.Editable);
@@ -600,7 +632,7 @@ namespace Strada
 		{
 			float const fontSize = ImGui::GetFontSize();
 			ImGui::TableSetupColumn("Snapshot", ImGuiTableColumnFlags_WidthStretch);
-			ImGui::TableSetupColumn("Values", ImGuiTableColumnFlags_WidthFixed, fontSize * 4.0f);
+			ImGui::TableSetupColumn("Values", ImGuiTableColumnFlags_WidthFixed, fontSize * 5.0f);
 			ImGui::TableSetupColumn("Audition", ImGuiTableColumnFlags_WidthFixed, fontSize * 6.0f);
 			for (uint32_t index = 0; index < m_Mixer.Snapshots.size(); index++)
 			{
@@ -617,7 +649,8 @@ namespace Strada
 				ImGui::AlignTextToFramePadding();
 				ImGui::TextUnformatted(snapshot.Name.empty() ? "(no name)" : snapshot.Name.c_str());
 				ImGui::TableNextColumn();
-				ImGui::Text("%u", row.ValueCount);
+				std::string const valueCount = row.ValueCount == 1 ? std::string("1 value") : fmt::format("{} values", row.ValueCount);
+				ImGui::TextUnformatted(valueCount.c_str());
 				ImGui::TableNextColumn();
 				ImGui::BeginDisabled(!row.CanAudition);
 				ImGui::PushStyleColor(ImGuiCol_Button, row.Auditioning ? AuditionColor : ImGui::GetStyle().Colors[ImGuiCol_Button]);

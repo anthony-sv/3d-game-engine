@@ -958,6 +958,11 @@ Settings, `Mixer`), or another one chosen in its `Mixer` field (`x` goes back to
   undo steps and never change the mixer.
 - **Doppler and Impacts.** The mixer's `SpeedOfSound` and `Impacts`.
 
+Docked below the scene view, as the default layout places it, the strips stand on the left and the bus, then the
+snapshots, in one column on the right that scrolls; a panel wide enough gives the bus and the snapshots a column each,
+and a narrow one stacks everything. The columns of fields keep a width at which their names and counters fit, and the
+strips give up theirs first (they scroll sideways).
+
 Every edit in the panel is one undo step of the mixer (a fader's drag, a field's edit, a rename when its field is left or
 on Enter, each button); an edit the mixer's rules refuse (two buses of one name, a snapshot value naming an effect a bus
 does not have) changes nothing, and the panel says why above the strips. A read-only mixer is shown disabled. While the

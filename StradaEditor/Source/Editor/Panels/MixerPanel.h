@@ -53,10 +53,15 @@ namespace Strada
 		static constexpr uint64_t StepMergeKeyBase = 0x4D49585300000000ull;
 		// How long an audition's blend takes, to the snapshot and back.
 		static constexpr float AuditionSeconds = 0.25f;
-		// A strip's width, and the panel's width from which the strips, the bus and the snapshots stand side by side (both in
-		// font sizes); a narrower panel stacks them.
+		// A strip's width, and the panel's widths from which the strips stand beside one column holding the bus and then the
+		// snapshots, and beside two columns, the bus's and the snapshots' (all in font sizes); a narrower panel stacks them
+		// all. A column of fields is never narrower than FieldColumnWidthEms, so that its names, its elements' titles and its
+		// counters fit: the strips take what the columns leave (they scroll), but at most StripsShare of the panel.
 		static constexpr float StripWidthEms = 5.5f;
+		static constexpr float FieldColumnWidthEms = 30.0f;
+		static constexpr float StripsShare = 0.4f;
 		static constexpr float ColumnsWidthEms = 50.0f;
+		static constexpr float ThreeColumnsWidthEms = 2.0f * FieldColumnWidthEms / (1.0f - StripsShare);
 
 		// What the last draw showed, read by tests. Positions are screen coordinates of the middle of a widget.
 		struct DrawRecord
@@ -114,6 +119,10 @@ namespace Strada
 			Point RemoveBus = {0.0f, 0.0f};
 			std::vector<SnapshotRow> Snapshots;
 			Point AddSnapshot = {0.0f, 0.0f};
+			// The widths of the column the bus's fields are drawn in and of the one the snapshots are drawn in (the same
+			// column when they stack), in pixels.
+			float BusColumnWidth = 0.0f;
+			float SnapshotsColumnWidth = 0.0f;
 		};
 
 		MixerPanel();
