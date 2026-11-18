@@ -203,7 +203,8 @@ player:
 [FeatureTest](Projects/FeatureTest), uses every component, the entire scripting API and every built-in node kind; CI
 plays it and fails on any failed check. [Moto](Projects/Moto), a motorcycle time trial in the making, is so far its
 circuit, lined with 10,000 props and whose surfaces have physics materials, a generated superbike and its rider on the
-grid, and a camera tour made of a graph, with 18 test checks that are graphs too.
+grid, a camera tour made of a graph, and a ghost bike riding the racing line with a synthesized engine that dopplers
+past four trackside cameras and echoes under the footbridge, with 24 test checks that are graphs too.
 
 ## Features
 
@@ -343,7 +344,7 @@ workflow.
 | `StradaRuntime/` | Game player (`StradaRuntime --help` lists its options) |
 | `Strada-ScriptCore/` | C# scripting API |
 | `StradaTool/` | `strada`: command-line tool and MCP server for the editor (`strada --help`) |
-| `Projects/` | `Showcase`, every feature in a forest clearing; `PrismBreak`, a game made of visual scripts alone; `Moto`, the circuit of a motorcycle time trial in the making, with a camera tour made of a graph; `Blocks`, a falling-blocks game in C#; and `FeatureTest`, which tests every feature; `catalog.json` lists the examples the editor copies, with their pictures in `Thumbnails` |
+| `Projects/` | `Showcase`, every feature in a forest clearing; `PrismBreak`, a game made of visual scripts alone; `Moto`, the circuit of a motorcycle time trial in the making, with a camera tour and a ghost bike made of graphs; `Blocks`, a falling-blocks game in C#; and `FeatureTest`, which tests every feature; `catalog.json` lists the examples the editor copies, with their pictures in `Thumbnails` |
 | `Templates/` | The templates new projects start from |
 | `Agents/` | The agent kit: the `AGENTS.md` block projects set up for coding agents get |
 | `Tests/` | Test suites |

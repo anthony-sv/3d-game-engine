@@ -5526,9 +5526,13 @@ that each platform's names are tested on every platform:
   `Author.py --captures <folder> --player <StradaRuntime>` builds nothing; it takes the player's own screenshots at 1920
   by 1080 pixels (`--resolution`) from a fixed list of cameras (`Tools/Captures.py`: the bike on the grid close up and
   in profile, Turn 1 and Turn 6 with the bike leaned at mid and far range, Sector Gate 1, the footbridge, an aerial, the
-  rider's view, and two adjacent frames of the tour along the fences), each from a copy of the project outside the
-  repository whose main scene puts the camera and the bike there, with a per-user root of its own, and fails a view
-  whose picture is missing or of another size after three runs. On the reference machine (Release, 1920 by 1080,
+  rider's view, and two adjacent frames of the tour along the fences, with the ghost hidden; and the four trackside
+  cameras, where the camera director starts the game and turns them to the ghost, set out so that the picture catches
+  it 0.2 s before it passes closest, about a seventh of the frame's height, which the tool asserts), each from a copy of
+  the project outside the repository whose main scene puts the camera and the bike there, with a per-user root of its
+  own, and fails a view whose picture is missing or of another size after three runs. With `--sounds` it also records,
+  for each trackside view, 6 s of the ghost's pass (closest halfway) as the camera's listener hears it, through the
+  player's `--audio-capture` without a window, into `<view>.wav`. On the reference machine (Release, 1920 by 1080,
   `StradaRuntime --profile` over the 600 frames of the whole tour, `--no-vsync`, slice 2's MO2 sitting) the frame's
   median is 3.5 to 3.9 ms (99th percentile 5.7 to 9.2 ms), with a median of 149 draws (at most 256), 146 batches and
   5,291 instances a frame; `Renderer.Submit` 0.72 to 0.74 ms and `Renderer.Prepare` 0.43 to 0.46 ms; the GPU's ambient
@@ -5548,7 +5552,16 @@ that each platform's names are tested on every platform:
   unchanged) where it read 392 without it, in one sitting of the editor (MO3): the camera stands close behind the grid
   bike, three of whose parts lie outside the view, and the ghost at the line brings their batches (302 draws with
   neither bike, 392 with the grid bike alone, 398 with the ghost alone or both), and `MotoSceneTests.cpp` renders that view with entity IDs on and holds it
-  within 400. **The camera tour** is the first sample tour made of a graph
+  within 400; the Release editor reads the same (398 with everything, 392 without the ghost and the entities that came
+  with its sound). **With the ghost and its sound** (MO3's sitting: Release, the tour's 600 frames as above, the sound
+  to the null device, the project as it is and a copy without the ghost, the trackside cameras, the directors and the
+  echo, run alternately, the 10,000-instance gauge in band at 1.22 to 1.36 ms; provisional until the slice's gate
+  measures again): the frame's median is 3.51 to 3.59 ms (99th percentile 6.1 to 6.4 ms) against 3.53 to 3.64 ms
+  (5.6 to 6.6 ms) without them, a median of 170 draws (at most 265), 167 batches and 5,341 instances against 149 (256),
+  146 and 5,338.5; the graphs take 0.08 ms a frame against 0.02 (`Scene.UpdateScripts` 0.10 ms against 0.03), and
+  the mix of the sixteen engine voices, the echo's send and its reverb 0.32 ms per 1/60 s of audio (`Audio.Mix` in a
+  run without a window at 1/60 s a frame with `--audio-capture`, which mixes on the main thread once a frame) against
+  0.12 ms without them: 0.19 ms per 10 ms of audio. **The camera tour** is the first sample tour made of a graph
   (`Scripts/Tour.sgraph`, on the main camera): a `Flow.Timeline` with two Vector3 curves, `Eye` and `LookAt`, flies the
   camera from the home view once round the lap and back to it in about 51 s; each update sets the camera's
   translation and the Euler angles that point it at `LookAt` (a formula: pitch, then yaw, no roll, so no keyed angle
@@ -5653,7 +5666,19 @@ that each platform's names are tested on every platform:
   snapshot (`Audio.CurrentSnapshot` reads it) and back.
   They wait in seconds of the game, with tolerances for a frame of the slowest test
   run, so they pass at 1/60 and 1/30 s a frame; `StradaRuntimeTests` runs them twice at 1/60 s (the same summary each
-  time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script; `PlayModeTests` (StradaEditorTests) plays the
+  time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script. `MotoSoundTests.cpp`
+  (StradaRuntimeTests) hears the ghost pass the footbridge camera through the player's `--audio-capture`, as the
+  differences between captures of the same 320 frames at 1/60 s that differ in one setting (the ghost's engine speed
+  changes along the straight, so a falling pitch alone would prove nothing): the ghost set out 25 s into its lap and the
+  game started on that camera, a capture with the echo, one without it (`SendLevel` 0) and one without it and without
+  doppler (`DopplerLevel` 0 on the engine's voices), each a copy of the project's main scene. The engine's cycle (120 /
+  rpm s, read by autocorrelation in windows of 0.1 s with no gear change in them, refined between two lags) is the
+  engine speed's without doppler, and with it shorter before the pass and longer after it by the factor c / (c - v)
+  that the ghost's motion towards the camera predicts, within 1 % (it reads within 0.3 % against shifts of 9 to 13 %):
+  the prediction comes from the copied project itself (the keys of the ghost's timeline, the camera's place, the
+  mixer's speed of sound). With the echo, the capture is the same samples as without it until the ghost comes within
+  the zone's reach, carries a tail of at least a tenth of the mix's level over the 0.4 s after it has left (about a
+  third), and a second later under a tenth of that. `PlayModeTests` (StradaEditorTests) plays the
   main scene in the editor's play mode, where the camera leaves the home view, the actions `NextCamera`, `Pause` and
   `ResetCamera` injected through `input.set` cut to the start line's camera, blend the mix to the `Paused` snapshot and
   back and cut back to the tour, and stopping brings the camera back. Every build ends by dropping spheres, in

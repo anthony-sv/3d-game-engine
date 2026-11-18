@@ -37,6 +37,7 @@ visual scripts alone (no C#). In order:
     python Projects/Moto/Tools/Author.py [strada executable]
     python Projects/Moto/Tools/Author.py --part <circuit|lighting|camera|props|bike|input|sound|ghost|trackside|tests> [strada]
     python Projects/Moto/Tools/Author.py --captures <output folder> --player <StradaRuntime executable> [--views ...]
+        [--sounds]
 
 The project is rebuilt from scratch: everything but this Tools folder is replaced. Without an executable, strada runs
 from the repository (dotnet run).
@@ -52,7 +53,9 @@ writes every graph again: the tour's, then those of the parts that have made the
 and its engine sound's, the camera director's) and the test scene's.
 
 With --captures, nothing is built: the player takes its screenshots of the main scene from the fixed list of cameras in
-Captures.py, each from a copy of the project outside the repository, at 1920 by 1080 pixels, into the output folder.
+Captures.py, each from a copy of the project outside the repository, at 1920 by 1080 pixels, into the output folder;
+the four trackside cameras' views catch the ghost riding by. With --sounds as well, the player also records the ghost
+passing each trackside camera, as its listener hears it, into <view>.wav.
 """
 import argparse
 import hashlib
@@ -791,14 +794,16 @@ def main():
                         "cameras (Captures.py) into this folder")
     parser.add_argument("--player", help="the StradaRuntime executable that takes the captures")
     parser.add_argument("--views", nargs="+", help="with --captures, only these views")
+    parser.add_argument("--sounds", action="store_true", help="with --captures, also record the ghost passing each trackside "
+                        "camera of the views taken")
     arguments = parser.parse_args()
     if arguments.captures:
         if not arguments.player or arguments.part:
             parser.error("--captures takes --player, and no --part")
-        Captures.take(os.path.abspath(arguments.player), os.path.abspath(arguments.captures), arguments.views)
+        Captures.take(os.path.abspath(arguments.player), os.path.abspath(arguments.captures), arguments.views, arguments.sounds)
         return
-    if arguments.player or arguments.views:
-        parser.error("--player and --views go with --captures")
+    if arguments.player or arguments.views or arguments.sounds:
+        parser.error("--player, --views and --sounds go with --captures")
     command = [os.path.abspath(arguments.strada)] if arguments.strada else \
         ["dotnet", "run", "--project", os.path.join(ROOT, "StradaTool"), "-c", "Release", "--no-launch-profile", "--"]
     if arguments.part:

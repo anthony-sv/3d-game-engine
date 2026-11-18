@@ -3,6 +3,7 @@
 
 add_executable(StradaRuntimeTests
     Source/Main.cpp
+    Source/MotoSoundTests.cpp
     Source/RuntimeTestUtilities.h
     Source/RuntimeTests.cpp
     Source/SampleTests.cpp
