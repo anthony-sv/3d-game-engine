@@ -76,6 +76,13 @@ internal sealed class McpServer
 		"Physics materials (.sphysmat data assets: friction, restitution and how they combine, rolling resistance and a " +
 		"surface name, which a collider's Material names and raycasts and contacts report) are made, read and changed the " +
 		"same way with physics_material_create, physics_material_get and physics_material_set, also while the game plays. " +
+		"Mixers (.smixer data assets: buses with their volumes, mutes and effects, ducking, snapshots that scripts and graphs " +
+		"blend to, the speed of sound for doppler, and impact sounds; the game's sounds play through the one that " +
+		"project_settings' Mixer names) are made, read and changed with mixer_create, mixer_get and mixer_set, and input actions (.sinput data " +
+		"assets: named actions with their bindings, dead zones and response curves, which scripts and graphs read by name; " +
+		"project_settings' InputActions names the game's) with input_actions_create, input_actions_get and input_actions_set. " +
+		"input_set presses and steers the game's input actions by name (actions) and plays it on injected gamepads (gamepads) " +
+		"as well as with keys and the mouse. " +
 		"viewport_statistics says what the scene view drew in its last frame (draw calls, mesh batches, instances). " +
 		"polyhaven_search_hdris and polyhaven_import_hdri bring CC0 skies from Poly Haven into the project for a SkyLight.";
 
