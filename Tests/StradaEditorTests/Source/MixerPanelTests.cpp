@@ -9,6 +9,7 @@
 #include "Editor/MixerEditing.h"
 #include "Editor/Panels/MixerPanel.h"
 #include "Editor/PlayMode.h"
+#include "Editor/UI/FieldEditor.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/DataAsset.h"
@@ -22,6 +23,7 @@
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Serialization/JsonSerialization.h"
+#include "Strada/Serialization/StructSerialization.h"
 
 #include <doctest/doctest.h>
 #include <imgui.h>
@@ -33,6 +35,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -81,6 +84,7 @@ namespace
 		std::filesystem::path File;
 		bool Open = true;
 		bool Draw = true;
+		ImVec2 Size = ImVec2(1500.0f, 1000.0f);
 
 		explicit MixerPanelFixture(bool nameMixer = true)
 		{
@@ -112,7 +116,7 @@ namespace
 					return;
 				}
 				ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
-				ImGui::SetNextWindowSize(ImVec2(1500.0f, 1000.0f));
+				ImGui::SetNextWindowSize(Size);
 				Panel.OnImGuiRender(Operations, Open);
 			};
 		}
@@ -174,6 +178,27 @@ namespace
 			Frames(2);
 		}
 	};
+
+	Mixer ParseMixer(char const* text)
+	{
+		Mixer mixer;
+		Result<void> const read = DeserializeFields<StructTraits<Mixer>>(Json::parse(text), mixer, DeserializationContext{}, "mixer");
+		REQUIRE_MESSAGE(read.IsOk(), (read ? std::string() : read.GetError()));
+		return mixer;
+	}
+
+	// A change of Music's effect list as the field editor reports one.
+	FieldChange MakeEffectListEdit(FieldArrayEditKind kind, uint32_t index, uint32_t target = 0)
+	{
+		FieldChange change;
+		change.Path = {FieldPathStep{"Effects"}};
+		change.ArrayEdit = FieldArrayEdit{kind, index, target};
+		if (kind == FieldArrayEditKind::Insert)
+		{
+			change.Value = SerializeFields<StructTraits<MixerEffect>>(MixerEffect{});
+		}
+		return change;
+	}
 
 	MixerBus const* FindBus(Mixer const& mixer, std::string_view name)
 	{
@@ -528,4 +553,143 @@ TEST_CASE("MixerPanel: while the game plays through the mixer, the strips meter 
 	CHECK_FALSE(record.Snapshots[0].CanAudition);
 	CHECK_FALSE(record.Snapshots[0].Auditioning);
 	CHECK(fixture.GetStrip("Music").Peak == 0.0f);
+}
+
+TEST_CASE("MixerEditing: a field editor's change of a bus's effect list moves the snapshot values that set its effects")
+{
+	Mixer const original = ParseMixer(GameMixer);
+	REQUIRE(original.Snapshots[0].Values[1].Effect == 1);
+	struct Case
+	{
+		FieldChange Change;
+		size_t Effects = 0;
+		// Where the value that sets the reverb's WetDb goes; none when it went.
+		std::optional<uint32_t> Value;
+	};
+	std::vector<Case> const cases = {
+		{MakeEffectListEdit(FieldArrayEditKind::Remove, 0), 1, 0u},
+		{MakeEffectListEdit(FieldArrayEditKind::Remove, 1), 1, std::nullopt},
+		{MakeEffectListEdit(FieldArrayEditKind::Move, 1, 0), 2, 0u},
+		{MakeEffectListEdit(FieldArrayEditKind::Insert, 0), 3, 2u},
+		{MakeEffectListEdit(FieldArrayEditKind::Insert, FieldArrayEdit::End), 3, 1u},
+		{MakeEffectListEdit(FieldArrayEditKind::Duplicate, 0), 3, 2u},
+		{MakeEffectListEdit(FieldArrayEditKind::Duplicate, 1), 3, 1u},
+	};
+	for (Case const& test : cases)
+	{
+		CAPTURE(static_cast<int>(test.Change.ArrayEdit->Kind));
+		CAPTURE(test.Change.ArrayEdit->Index);
+		Mixer mixer = original;
+		REQUIRE(ApplyMixerBusChange(mixer, 1, test.Change).IsOk());
+		CHECK(mixer.Buses[1].Effects.size() == test.Effects);
+		std::vector<MixerSnapshotValue> const& values = mixer.Snapshots[0].Values;
+		if (test.Value)
+		{
+			REQUIRE(values.size() == 3);
+			CHECK(values[1].Effect == *test.Value);
+			CHECK(mixer.Buses[1].Effects[*test.Value].Kind == MixerEffectKind::Reverb);
+			CHECK(ValidateMixer(mixer).IsOk());
+		}
+		else
+		{
+			REQUIRE(values.size() == 2);
+			CHECK(values[1].Bus == "Effects");
+		}
+		// The other values and buses are as they were.
+		CHECK(values[0] == original.Snapshots[0].Values[0]);
+		CHECK(mixer.Buses[2] == original.Buses[2]);
+	}
+
+	// An element's own field: the list keeps its order. A reverb made a low-pass leaves a value for a parameter its kind
+	// does not use, which validation refuses.
+	FieldChange kind;
+	kind.Path = {FieldPathStep{"Effects", 1u}, FieldPathStep{"Kind"}};
+	kind.Value = "LowPass";
+	Mixer mixer = original;
+	REQUIRE(ApplyMixerBusChange(mixer, 1, kind).IsOk());
+	CHECK(mixer.Buses[1].Effects[1].Kind == MixerEffectKind::LowPass);
+	CHECK(mixer.Snapshots[0].Values[1].Effect == 1);
+	CHECK_FALSE(ValidateMixer(mixer).IsOk());
+
+	// A value out of its field's range, and a bus the mixer lacks, change nothing.
+	FieldChange amount;
+	amount.Path = {FieldPathStep{"DuckAmountDb"}};
+	amount.Value = 12.0f;
+	mixer = original;
+	CHECK_FALSE(ApplyMixerBusChange(mixer, 1, amount).IsOk());
+	CHECK_FALSE(ApplyMixerBusChange(mixer, 9, kind).IsOk());
+	CHECK(mixer == original);
+
+	// The mixer's own fields.
+	FieldChange speed;
+	speed.Path = {FieldPathStep{"SpeedOfSound"}};
+	speed.Value = 300.0f;
+	REQUIRE(ApplyMixerChange(mixer, speed).IsOk());
+	CHECK(mixer.SpeedOfSound == 300.0f);
+	speed.Value = -1.0f;
+	CHECK_FALSE(ApplyMixerChange(mixer, speed).IsOk());
+	CHECK(mixer.SpeedOfSound == 300.0f);
+}
+
+TEST_CASE("MixerPanel: the field editor's changes of a bus and of the mixer are steps of the asset, refused ones none")
+{
+	MixerPanelFixture fixture;
+	size_t const undo = fixture.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+
+	// The first of Music's effects removed: the snapshot's value of the reverb follows it, in one step.
+	fixture.Panel.ApplyBusChange(fixture.Operations, 1, MakeEffectListEdit(FieldArrayEditKind::Remove, 0));
+	fixture.Frames(1);
+	Mixer const removed = fixture.ReadMixer();
+	REQUIRE(removed.Buses[1].Effects.size() == 1);
+	CHECK(removed.Snapshots[0].Values[1].Effect == 0);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Edit Bus Music in Game");
+
+	// The reverb made a low-pass: its snapshot value would set a parameter it lacks, so nothing changes and the panel says why.
+	FieldChange kind;
+	kind.Path = {FieldPathStep{"Effects", 0u}, FieldPathStep{"Kind"}};
+	kind.Value = "LowPass";
+	fixture.Panel.ApplyBusChange(fixture.Operations, 1, kind);
+	fixture.Frames(1);
+	CHECK(fixture.ReadMixer() == removed);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.GetRecord().Status.find("Snapshots") != std::string::npos);
+
+	// The mixer's own fields: a step of their own.
+	FieldChange speed;
+	speed.Path = {FieldPathStep{"SpeedOfSound"}};
+	speed.Value = 300.0f;
+	fixture.Panel.ApplyMixerFieldChange(fixture.Operations, speed);
+	fixture.Frames(1);
+	CHECK(fixture.ReadMixer().SpeedOfSound == 300.0f);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.GetRecord().Status == "Play the game to see the meters and audition snapshots.");
+
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile() == bytes);
+}
+
+TEST_CASE("MixerPanel: docked wide and short, the strips, the bus and the snapshots stand side by side and in view")
+{
+	MixerPanelFixture fixture;
+	// The bottom dock's proportions.
+	fixture.Size = ImVec2(1600.0f, 300.0f);
+	fixture.Frames(3);
+	Record const& record = fixture.GetRecord();
+	REQUIRE(record.Strips.size() == 4);
+	CHECK(record.AddBusVisible);
+	REQUIRE(record.Snapshots.size() == 1);
+	CHECK(record.Snapshots[0].AuditionVisible);
+	// Side by side: the bus's buttons and the snapshots are right of the last strip, at the strips' height.
+	CHECK(record.AddBus[0] > record.Strips.back().Label[0]);
+	CHECK(record.Snapshots[0].Audition[0] > record.AddBus[0]);
+	CHECK(record.AddBus[1] < record.Strips.back().FaderBottom[1]);
+
+	// Narrow, they stack below the strips, and the window scrolls to them.
+	fixture.Size = ImVec2(500.0f, 1000.0f);
+	fixture.Frames(3);
+	CHECK(record.AddBusVisible);
+	CHECK(record.AddBus[1] > record.Strips.back().FaderBottom[1]);
 }

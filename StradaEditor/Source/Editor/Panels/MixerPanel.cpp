@@ -21,6 +21,7 @@
 #include <cmath>
 #include <filesystem>
 #include <initializer_list>
+#include <memory>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -248,21 +249,49 @@ namespace Strada
 			                    m_Record.CurrentSnapshot.empty() ? "(the mixer's own values)" : m_Record.CurrentSnapshot.c_str());
 		}
 
-		DrawStrips(operations, m_Record.Editable);
-		ImGui::BeginChild("##details", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None);
-		if (ImGui::CollapsingHeader("Bus", ImGuiTreeNodeFlags_DefaultOpen))
+		// A dock below the scene view is wide and short: the strips, the bus and the snapshots then stand side by side, each
+		// as tall as the panel. A narrow panel stacks them and scrolls as one.
+		float const fontSize = ImGui::GetFontSize();
+		ImGuiStyle const& style = ImGui::GetStyle();
+		ImVec2 const available = ImGui::GetContentRegionAvail();
+		float const stripsWidth =
+			static_cast<float>(m_Mixer.Buses.size()) * (fontSize * StripWidthEms + style.ItemSpacing.x) + style.WindowPadding.x * 2.0f;
+		if (available.x >= fontSize * ColumnsWidthEms)
 		{
+			float const height = std::max(available.y, fontSize * 10.0f);
+			float const strips = std::min(stripsWidth, available.x * 0.4f);
+			// The bus's field table is the wider of the two.
+			float const column = (available.x - strips - style.ItemSpacing.x * 2.0f) * 0.55f;
+			DrawStrips(operations, m_Record.Editable, ImVec2(strips, height));
+			ImGui::SameLine();
+			ImGui::BeginChild("##bus", ImVec2(column, height), ImGuiChildFlags_None);
 			DrawSelectedBus(operations, m_Record.Editable);
-		}
-		if (ImGui::CollapsingHeader("Snapshots", ImGuiTreeNodeFlags_DefaultOpen))
-		{
+			ImGui::EndChild();
+			ImGui::SameLine();
+			ImGui::BeginChild("##snapshots", ImVec2(0.0f, height), ImGuiChildFlags_None);
 			DrawSnapshots(operations, m_Record.Editable);
+			if (ImGui::CollapsingHeader("Doppler and Impacts"))
+			{
+				DrawMixerFields(operations, m_Record.Editable);
+			}
+			ImGui::EndChild();
 		}
-		if (ImGui::CollapsingHeader("Doppler and Impacts"))
+		else
 		{
-			DrawMixerFields(operations, m_Record.Editable);
+			DrawStrips(operations, m_Record.Editable, ImVec2(0.0f, fontSize * 13.0f));
+			if (ImGui::CollapsingHeader("Bus", ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				DrawSelectedBus(operations, m_Record.Editable);
+			}
+			if (ImGui::CollapsingHeader("Snapshots", ImGuiTreeNodeFlags_DefaultOpen))
+			{
+				DrawSnapshots(operations, m_Record.Editable);
+			}
+			if (ImGui::CollapsingHeader("Doppler and Impacts"))
+			{
+				DrawMixerFields(operations, m_Record.Editable);
+			}
 		}
-		ImGui::EndChild();
 		ImGui::End();
 	}
 
@@ -286,11 +315,10 @@ namespace Strada
 		m_Error = applied ? std::string() : UI::FormatSentence(applied.GetError());
 	}
 
-	void MixerPanel::DrawStrips(EditorOperations& operations, bool editable)
+	void MixerPanel::DrawStrips(EditorOperations& operations, bool editable, ImVec2 size)
 	{
-		float const fontSize = ImGui::GetFontSize();
-		float const height = fontSize * 13.0f;
-		ImGui::BeginChild("##strips", ImVec2(0.0f, height), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+		float const height = size.y;
+		ImGui::BeginChild("##strips", size, ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
 		// Every strip starts at the top: SameLine alone would line a strip up with the text baseline of the one before.
 		float const top = ImGui::GetCursorPosY();
 		for (uint32_t index = 0; index < m_Mixer.Buses.size(); index++)
@@ -324,7 +352,7 @@ namespace Strada
 		}
 
 		float const fontSize = ImGui::GetFontSize();
-		float const width = fontSize * 5.5f;
+		float const width = fontSize * StripWidthEms;
 		ImGuiStyle const& style = ImGui::GetStyle();
 		ImGui::PushID(static_cast<int>(index));
 		ImGui::BeginGroup();
@@ -432,17 +460,17 @@ namespace Strada
 
 		ImGui::BeginDisabled(!editable);
 		ImGui::AlignTextToFramePadding();
-		ImGui::TextUnformatted("Name");
+		ImGui::TextUnformatted("Bus");
 		ImGui::SameLine();
-		ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+		ImGui::SetNextItemWidth(-FLT_MIN);
 		// Master keeps its name: the mixer has its root by it.
 		ImGui::BeginDisabled(master);
 		std::optional<std::string> const renamed = DrawCommittedText("##name", bus.Name);
 		ImGui::EndDisabled();
 		m_Record.NameField = GetItemCenter();
-		ImGui::SameLine();
 		bool const add = ImGui::Button("Add Bus") && m_Mixer.Buses.size() < MaxMixerBuses;
 		m_Record.AddBus = GetItemCenter();
+		m_Record.AddBusVisible = ImGui::IsItemVisible();
 		ImGui::SetItemTooltip("A new bus that feeds %s", bus.Name.c_str());
 		ImGui::SameLine();
 		ImGui::BeginDisabled(master);
@@ -491,42 +519,40 @@ namespace Strada
 		std::optional<FieldChange> const change = m_FieldEditor.Draw(m_BusFields, values);
 		ImGui::EndDisabled();
 		ImGui::PopID();
-		if (!change || !editable)
+		if (change && editable)
 		{
-			return;
+			ApplyBusChange(operations, index, *change);
 		}
-		Json const patch = change->MakePatch(values);
-		MixerBus edited = bus;
-		if (Result<void> const read = DeserializeFields<StructTraits<MixerBus>>(patch, edited, DeserializationContext{}, "bus"); !read)
+	}
+
+	void MixerPanel::ApplyBusChange(EditorOperations& operations, uint32_t bus, FieldChange const& change)
+	{
+		if (bus >= m_Mixer.Buses.size())
 		{
-			m_Error = UI::FormatSentence(read.GetError());
 			return;
 		}
 		Mixer changed = m_Mixer;
-		changed.Buses[index] = std::move(edited);
-		// Effects added, removed, moved or duplicated: the snapshots' values that set them follow them. The edit applied to the
-		// list of the effects' indices tells where each went.
-		if (change->ArrayEdit && change->Path.size() == 1 && change->Path[0].Field == "Effects")
+		if (Result<void> const applied = ApplyMixerBusChange(changed, bus, change); !applied)
 		{
-			Json indices = Json::array();
-			for (uint32_t effect = 0; effect < bus.Effects.size(); effect++)
-			{
-				indices.push_back(effect);
-			}
-			Json const moved = change->MakePatch(Json::object({{"Effects", std::move(indices)}}));
-			std::vector<std::optional<uint32_t>> previous;
-			if (moved.contains("Effects"))
-			{
-				for (Json const& place : moved["Effects"])
-				{
-					previous.push_back(place.is_number_unsigned() ? std::optional<uint32_t>(place.get<uint32_t>()) : std::nullopt);
-				}
-			}
-			RemapMixerSnapshotEffects(changed, bus.Name, previous);
+			m_Error = UI::FormatSentence(applied.GetError());
+			return;
 		}
 		std::string description =
-			change->Description.empty() ? fmt::format("Edit Bus {} in {}", bus.Name, GetTitle()) : change->Description;
-		uint64_t const mergeKey = change->MergeKey != 0 ? change->MergeKey : m_EditSession.GetMergeKey();
+			change.Description.empty() ? fmt::format("Edit Bus {} in {}", m_Mixer.Buses[bus].Name, GetTitle()) : change.Description;
+		uint64_t const mergeKey = change.MergeKey != 0 ? change.MergeKey : m_EditSession.GetMergeKey();
+		Commit(operations, changed, std::move(description), mergeKey);
+	}
+
+	void MixerPanel::ApplyMixerFieldChange(EditorOperations& operations, FieldChange const& change)
+	{
+		Mixer changed = m_Mixer;
+		if (Result<void> const applied = ApplyMixerChange(changed, change); !applied)
+		{
+			m_Error = UI::FormatSentence(applied.GetError());
+			return;
+		}
+		std::string description = change.Description.empty() ? fmt::format("Edit {}", GetTitle()) : change.Description;
+		uint64_t const mergeKey = change.MergeKey != 0 ? change.MergeKey : m_EditSession.GetMergeKey();
 		Commit(operations, changed, std::move(description), mergeKey);
 	}
 
@@ -599,6 +625,7 @@ namespace Strada
 				ImGui::PopStyleColor();
 				ImGui::EndDisabled();
 				row.Audition = GetItemCenter();
+				row.AuditionVisible = ImGui::IsItemVisible();
 				ImGui::SetItemTooltip("%s", row.Auditioning ? "Blend back to the mix as it was"
 				                                            : "Blend the running mix to this snapshot while you edit it");
 				ImGui::PopID();
@@ -634,21 +661,10 @@ namespace Strada
 		std::optional<FieldChange> const change = m_FieldEditor.Draw(m_SnapshotFields, values);
 		ImGui::EndDisabled();
 		ImGui::PopID();
-		if (!change || !editable)
+		if (change && editable)
 		{
-			return;
+			ApplyMixerFieldChange(operations, *change);
 		}
-		Mixer changed = m_Mixer;
-		if (Result<void> const read =
-		        DeserializeFields<StructTraits<Mixer>>(change->MakePatch(values), changed, DeserializationContext{}, "mixer");
-		    !read)
-		{
-			m_Error = UI::FormatSentence(read.GetError());
-			return;
-		}
-		std::string description = change->Description.empty() ? fmt::format("Edit the Snapshots of {}", GetTitle()) : change->Description;
-		uint64_t const mergeKey = change->MergeKey != 0 ? change->MergeKey : m_EditSession.GetMergeKey();
-		Commit(operations, changed, std::move(description), mergeKey);
 	}
 
 	void MixerPanel::DrawMixerFields(EditorOperations& operations, bool editable)
@@ -659,20 +675,9 @@ namespace Strada
 		std::optional<FieldChange> const change = m_FieldEditor.Draw(m_OtherFields, values);
 		ImGui::EndDisabled();
 		ImGui::PopID();
-		if (!change || !editable)
+		if (change && editable)
 		{
-			return;
+			ApplyMixerFieldChange(operations, *change);
 		}
-		Mixer changed = m_Mixer;
-		if (Result<void> const read =
-		        DeserializeFields<StructTraits<Mixer>>(change->MakePatch(values), changed, DeserializationContext{}, "mixer");
-		    !read)
-		{
-			m_Error = UI::FormatSentence(read.GetError());
-			return;
-		}
-		std::string description = change->Description.empty() ? fmt::format("Edit {}", GetTitle()) : change->Description;
-		uint64_t const mergeKey = change->MergeKey != 0 ? change->MergeKey : m_EditSession.GetMergeKey();
-		Commit(operations, changed, std::move(description), mergeKey);
 	}
 }

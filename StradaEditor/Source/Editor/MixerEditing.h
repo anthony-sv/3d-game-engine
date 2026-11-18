@@ -1,6 +1,9 @@
 #pragma once
 
+#include "Editor/UI/FieldEditor.h"
+
 #include "Strada/Asset/Mixer.h"
+#include "Strada/Core/Result.h"
 
 #include <cstdint>
 #include <optional>
@@ -39,4 +42,13 @@ namespace Strada
 	// effect now at k (none for an effect added). A value whose effect is gone goes; a duplicated effect keeps its values on
 	// the original.
 	void RemapMixerSnapshotEffects(Mixer& mixer, std::string_view bus, std::span<std::optional<uint32_t> const> previous);
+
+	// Applies a change the field editor reported for the fields of the bus at index: the bus takes it, and when its effect
+	// list changed as a list, the snapshots' values that set its effects follow them (RemapMixerSnapshotEffects, with the
+	// change applied to the list of the effects' indices to tell where each went). A value the field table refuses (out of
+	// its range, a kind that does not exist) or a bus the mixer lacks is an error, and the mixer is left as it was; whether
+	// the result holds as a whole (ValidateMixer) is the caller's to ask, as committing it does.
+	[[nodiscard]] Result<void> ApplyMixerBusChange(Mixer& mixer, uint32_t index, FieldChange const& change);
+	// The same for a change of the mixer's own fields (its snapshots, speed of sound and impacts).
+	[[nodiscard]] Result<void> ApplyMixerChange(Mixer& mixer, FieldChange const& change);
 }

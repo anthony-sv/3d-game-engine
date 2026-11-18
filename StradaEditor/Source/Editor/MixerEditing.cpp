@@ -1,5 +1,9 @@
 #include "Editor/MixerEditing.h"
 
+#include "Strada/Asset/MixerAsset.h"
+#include "Strada/Serialization/JsonSerialization.h"
+#include "Strada/Serialization/StructSerialization.h"
+
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
@@ -153,5 +157,53 @@ namespace Strada
 			}
 			snapshot.Values = std::move(kept);
 		}
+	}
+
+	Result<void> ApplyMixerBusChange(Mixer& mixer, uint32_t index, FieldChange const& change)
+	{
+		if (index >= mixer.Buses.size())
+		{
+			return MakeError("the mixer has no bus {}", index);
+		}
+		MixerBus const& bus = mixer.Buses[index];
+		Json const values = SerializeFields<StructTraits<MixerBus>>(bus);
+		MixerBus edited = bus;
+		if (Result<void> read =
+		        DeserializeFields<StructTraits<MixerBus>>(change.MakePatch(values), edited, DeserializationContext{}, "bus");
+		    !read)
+		{
+			return read;
+		}
+		std::vector<std::optional<uint32_t>> previous;
+		bool const listEdit = change.ArrayEdit && change.Path.size() == 1 && change.Path[0].Field == "Effects";
+		if (listEdit)
+		{
+			Json indices = Json::array();
+			for (uint32_t effect = 0; effect < bus.Effects.size(); effect++)
+			{
+				indices.push_back(effect);
+			}
+			Json const moved = change.MakePatch(Json::object({{"Effects", std::move(indices)}}));
+			if (auto const places = moved.find("Effects"); places != moved.end())
+			{
+				for (Json const& place : *places)
+				{
+					previous.push_back(place.is_number_unsigned() ? std::optional<uint32_t>(place.get<uint32_t>()) : std::nullopt);
+				}
+			}
+		}
+		std::string const name = bus.Name;
+		mixer.Buses[index] = std::move(edited);
+		if (listEdit)
+		{
+			RemapMixerSnapshotEffects(mixer, name, previous);
+		}
+		return {};
+	}
+
+	Result<void> ApplyMixerChange(Mixer& mixer, FieldChange const& change)
+	{
+		Json const values = SerializeFields<StructTraits<Mixer>>(mixer);
+		return DeserializeFields<StructTraits<Mixer>>(change.MakePatch(values), mixer, DeserializationContext{}, "mixer");
 	}
 }

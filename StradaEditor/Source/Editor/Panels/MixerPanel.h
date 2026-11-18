@@ -7,6 +7,8 @@
 #include "Strada/Asset/Mixer.h"
 #include "Strada/Serialization/StructSerialization.h"
 
+#include <imgui.h>
+
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -21,10 +23,11 @@ namespace Strada
 
 	// The Mixer panel (Docs/Editor.md, "The Mixer panel"): a Mixer asset as a mixing desk. It shows the asset it has open
 	// (the one chosen in its asset field), else the project's (ProjectSettings::Mixer). A strip per bus, in the mixer's order, holds
-	// its name (a click selects the bus), its meter, its volume fader and its mute; below them the selected bus's name (a
-	// text field that renames every reference to it), its other fields in the generic field editor (its parent, its effects
-	// in list order, its ducking), Add Bus (below the selected one) and Remove Bus; then the snapshots, each with Audition,
-	// and their values in the field editor; then the mixer's speed of sound and impact sounds.
+	// its name (a click selects the bus), its meter, its volume fader and its mute; beside them (below them in a narrow
+	// panel) the selected bus's name (a text field that renames every reference to it), Add Bus (below the selected one),
+	// Remove Bus and its other fields in the generic field editor (its parent, its effects in list order, its ducking);
+	// then the snapshots, each with Audition, their values in the field editor, and the mixer's speed of sound and impact
+	// sounds.
 	//
 	// Every edit is one undo step of the asset (EditorOperations::SetDataAssetFields): a fader's drag and a field editor
 	// interaction are one step each (EditSession), a name commits once when it is left or on Enter (Escape keeps it), a
@@ -50,6 +53,10 @@ namespace Strada
 		static constexpr uint64_t StepMergeKeyBase = 0x4D49585300000000ull;
 		// How long an audition's blend takes, to the snapshot and back.
 		static constexpr float AuditionSeconds = 0.25f;
+		// A strip's width, and the panel's width from which the strips, the bus and the snapshots stand side by side (both in
+		// font sizes); a narrower panel stacks them.
+		static constexpr float StripWidthEms = 5.5f;
+		static constexpr float ColumnsWidthEms = 50.0f;
 
 		// What the last draw showed, read by tests. Positions are screen coordinates of the middle of a widget.
 		struct DrawRecord
@@ -81,6 +88,8 @@ namespace Strada
 				// The running mix is auditioning it from the panel.
 				bool Auditioning = false;
 				Point Audition = {0.0f, 0.0f};
+				// Audition is in view, not scrolled or clipped away.
+				bool AuditionVisible = false;
 			};
 
 			// The window's contents were drawn (not collapsed or behind another tab).
@@ -101,6 +110,7 @@ namespace Strada
 			std::optional<uint32_t> Selected;
 			Point NameField = {0.0f, 0.0f};
 			Point AddBus = {0.0f, 0.0f};
+			bool AddBusVisible = false;
 			Point RemoveBus = {0.0f, 0.0f};
 			std::vector<SnapshotRow> Snapshots;
 			Point AddSnapshot = {0.0f, 0.0f};
@@ -117,6 +127,13 @@ namespace Strada
 		AssetHandle GetOpenedAsset() const { return m_Opened; }
 		// Selects a bus by index (the strips' clicks do the same).
 		void SelectBus(uint32_t bus) { m_Selected = bus; }
+
+		// What the field editor's change of a bus's fields, or of the mixer's own (its snapshots, speed of sound and impacts),
+		// does: applied to the mixer drawn last (ApplyMixerBusChange, ApplyMixerChange) and committed as one step under the
+		// change's merge key, else the panel's interaction's. A change the field table or validation refuses changes nothing
+		// and shows why. The panel's own draws call them; tests call them with changes they make.
+		void ApplyBusChange(EditorOperations& operations, uint32_t bus, FieldChange const& change);
+		void ApplyMixerFieldChange(EditorOperations& operations, FieldChange const& change);
 
 		DrawRecord const& GetLastDraw() const { return m_Record; }
 
@@ -135,7 +152,7 @@ namespace Strada
 		// Applies a new mixer (its buses, snapshots, speed of sound and impacts) as one step named description, under the
 		// merge key given (0: a step of its own).
 		void Commit(EditorOperations& operations, Mixer const& mixer, std::string description, uint64_t mergeKey);
-		void DrawStrips(EditorOperations& operations, bool editable);
+		void DrawStrips(EditorOperations& operations, bool editable, ImVec2 size);
 		void DrawStrip(EditorOperations& operations, uint32_t index, bool editable, float height);
 		void DrawSelectedBus(EditorOperations& operations, bool editable);
 		void DrawSnapshots(EditorOperations& operations, bool editable);
