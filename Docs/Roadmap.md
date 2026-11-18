@@ -229,7 +229,7 @@ Slice gates update both columns (§4.5). Values that changed in November 2026 ar
 
 | ID | Item | E | M | Size | D | Score | Phase | Effort | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| V0 | Jolt vehicles as components: wheeled vehicles and Jolt's motorcycle controller (a lean spring: arcade bikes and traffic, not a simulation) with script API; the first bike of the test circuit | 4 | 3 | M | 2-3 | 14 | 0 | 2 | Not started |
+| V0 | Jolt's motorcycle controller as a component (a lean spring: arcade bikes, not a simulation) with its asset, script API, commands, overlay and tests; front and rear brake inputs, each with its own largest torque per wheel, and a linked-brakes assist on by default; the first bike of the test circuit. Cars are V15, deferred by the maintainer's decision (2026-11-18) | 4 | 3 | M | 2-3 | 14 | 0 | 2 | Not started |
 | V1 | Vehicle simulation core: a 1-2 kHz fixed-step loop on worker threads, a reduced-coordinate multibody solver, tire contact against Jolt geometry, coupling with Jolt, determinism, state for scripts, audio and telemetry | 3 | 5 | L | 4 | 10 | 1 | 4 | Not started |
 | V2 | Motorcycle tire model: Magic Formula with large camber, toroidal contact, relaxation lengths, combined slip, load and pressure; later temperature and wear; MF-Tyre `.tir` import | 2 | 5 | L | 5 | 8 | 1 | 4 | Not started |
 | V3 | Chassis model: steering geometry (rake, trail, offset), fork, swingarm and shock linkage, chain pull (anti-squat), steering damper, gyroscopic effects, aerodynamics, brakes | 2 | 5 | M | 4 | 12 | 1 | 4 | Not started |
@@ -244,6 +244,7 @@ Slice gates update both columns (§4.5). Values that changed in November 2026 ar
 | V12 | AI riders: racing lines, the same physics and rider controller as the player, overtaking, difficulty levels | 2 | 5 | L | 4 | 9 | 3 | – | Not started |
 | V13 | Breakable parts: fairings, levers, mirrors and footpegs that bend or come off in crashes | 2 | 3 | M | 3 | 10 | 3 | – | Not started |
 | V14 | Race weekend: sessions, grids, flags, penalties, results, a career | 1 | 4 | L | 2 | 8 | 3 | – | Not started |
+| V15 | Cars: Jolt's wheeled vehicles as components (anti-roll bars, differentials between driven wheels, a handbrake) with their asset fields, script API, commands and tests, beside V0's bike. Taken out of V0 by the maintainer's decision (2026-11-18): First Ride builds the motorcycle alone | 4 | 1 | S | 2 | 17 | Later | – | Not started |
 
 Every public vehicle API member becomes graph nodes automatically, so the vehicle APIs are designed for nodes (purity,
 breakable structs, coverage recipes). Graphs, like C#, stay out of the high-rate loops (§5.1).
@@ -294,7 +295,7 @@ What visual scripting deferred or left at a known limit, as items. What it chose
 
 | ID | Item | E | M | Size | D | Score | Phase | Effort | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| VS1 | Script field arrays: public array variables in graphs (`NotExposable` until slice 3) and C# array fields become inspector fields through E4; the next scene and prefab format versions (prefab 2; scene 3 if TA lands first) | 3 | 2 | S | 2 | 17 | 0 | 2 (second in the cut order) | Done (slice 3's AR: `T[]` and `List<T>` fields and public array variables, scenes and prefabs at format 2 with the formats' migration mechanism); no prefab overrides of script fields, no arrays of arrays |
+| VS1 | Script field arrays: public array variables in graphs (`NotExposable` until slice 3) and C# array fields become inspector fields through E4; the next scene and prefab format versions (both version 2) | 3 | 2 | S | 2 | 17 | 0 | 2 (second in the cut order) | Done (slice 3's AR: `T[]` and `List<T>` fields and public array variables, scenes and prefabs at format 2 with the formats' migration mechanism); no prefab overrides of script fields, no arrays of arrays |
 | VS2 | Arranger layout: a region's pure inputs (gets, literals) placed beside their consumers instead of in its leftmost columns with long wires; re-authors Prism Break and the Graph Garden once | 2 | 1 | S | 2 | 10 | 0 | 2 (with Prism Break on actions) | Done (slice 3's PB: every sample graph arranged again) |
 | VS3 | The node canvas generalized: the visual-script canvas (about 9,000 lines in the 8 `VisualScriptCanvas*` files, tied to `VisualScriptDocument`) extracted into a graph-editor layer that A4, R14 and a DSP graph share, with its palette, undo merge keys, headless tests and automation patterns | 3 | 2 | M | 3 | 10 | 3 | – | Not started |
 | VS4 | Graph performance follow-ups: the managed analysis memo, a cheaper Record mode, a binary value block, reading only changed sources; aimed at the three missed targets (§8), measured first with T1 | 3 | 1 | M | 3 | 8 | 2 | – | Not started |
@@ -517,7 +518,7 @@ joins from Phase 1 on (§8).
 | 1 | The simulated superbike | ≈ 120 | About 11-20 weeks (10-19 if the third lane delivered A1's first three slices) | 3, 4 | M1.5, The Rider; M2, Handles like a superbike |
 | 2 | A real circuit | ≈ 152 | About 10-16 weeks | – | M3, A real circuit |
 | 3 | Race weekend | ≈ 174 | About 13-22 weeks | – | M4, Race weekend |
-| Later | High-end options | ≈ 111 | As needed | – | |
+| Later | High-end options | ≈ 113 | As needed | – | |
 
 The whole backlog sums to about 640 engineer-weeks (§2's sums): about 540 in October, plus about 20 from the
 re-estimates, 50 for distribution (about 6 of them built in Front Door and about 2 moved to First Ride) and 30 for the
@@ -555,7 +556,7 @@ What everything else is built and measured with. Effort 2, First Ride, runs it (
 - Physics: P1's queries and contact data and P2 physics materials (slice 2), P3a step control and same-platform
   determinism (slice 1).
 - Audio, input and gameplay: AU1 mixer with the voice model, effects and doppler; I1 input actions; S2's core.
-- Vehicles: V0 Jolt vehicles, V7 telemetry without UDP.
+- Vehicles: V0 Jolt's motorcycle controller (the bike alone: cars wait, V15), V7 telemetry without UDP.
 - Visual scripting: VS1 script field arrays; VS2 the arranger fix, with Prism Break moved to input actions.
 - Enablers E1-E8, E11's core (a per-game identity and data folder, which input bindings and saves need) and E13; slice 1
   delivered E1-E4, E7, E11's core and E13, and slice 2 E5 and E6.
@@ -650,8 +651,8 @@ and Steam integration; online races or VR, whichever playtests favor.
 ### Later
 
 R14 material graph (on VS3, after R13), R20 weather, R21 dynamic GI, R22 ray tracing, AU4 spatial audio, P4 soft bodies,
-S5 navigation, W5 world streaming and VS6 state graphs or macros: valuable, and each the subject of its own decision
-when a game needs it.
+S5 navigation, W5 world streaming, VS6 state graphs or macros and V15 cars: valuable, and each the subject of its own
+decision when a game needs it.
 
 ### 4.3 Efforts
 
@@ -726,7 +727,7 @@ into a slice.
 | 1, Measured (done, 2026-11-13 to 2026-11-15) | PR: T1 with T2's markers (2) · ST: P3a with E7 and E13 (2) · ID: E11's core, a per-game identity and data folder (1.5) | DA: E3 and E4 (2) · CV: T7 but its plots (2.2) · MO1: the circuit and its tour (1) | W2's component (2.25): not started | 10.7 delivered | 1.3 days, no pause | The Profiler on every sample; physics smooth at a 144 Hz frame rate with 60 Hz steps; the circuit's opening tour; a game exported with a data folder of its own |
 | 2, Scale, contact and sight (done, 2026-11-15 to 2026-11-16) | IN: R1 with E5 and E6 (3) · below the cut line, R5 as three tracks, each cut by not starting it: TA1 TAA with the scene format's first migration (3), TA2 camera motion blur (1), TA3 per-object motion blur (1.5): all three cut by the slice's rule, since none had started when the tracks above the cut line were done, and a gate waits for no track that has not started | PM: P2, `.sphysmat` (2.7) · PC: contact data on collision events (1.5) · PQ: P1's casts and overlaps, `physics.query` (2.3) · MO2 (in lane A): 10,000 instanced props, surface materials, the generated bike and rider, and the look review (1.5) | Not scheduled (§9) | 11.0 delivered (16.5 planned with TA) | 1.04 days, no pause | A dressed circuit at about 290 frames per second with a median of 149 draws (256 at most), and slice 2's look review (passed with two marginals: the bike up close, and fences at mid range under FXAA) |
 | 3, Feel and sound (done, 2026-11-16 to 2026-11-18) | MX1: AU1's queue, voices, buses and effects, with E8 (3.5) · MX2: snapshots, ducking, doppler, reverb zones, meters, the Mixer panel, impact sounds, `--audio-capture` (2.8) · MO3: Moto's sound, controls, the ghost bike and trackside cameras (1.5) | IA1: I1's actions, `Event.ActionPressed` and `Event.ActionReleased`, `input.set`'s actions and gamepads (3.6) · IA2: rebinding, profiles, the Input Actions panel, graph analysis of actions (2.6) · PB: Prism Break on actions with VS2 (1) · AR: VS1 script field arrays and the scene and prefab formats 2 (1.5) | Not scheduled (§9) | 16.5 delivered | 1.84 days, no pause | Prism Break on a gamepad with a binding changed while it runs and kept for the next run; Moto's ghost bike dopplering past trackside cameras and echoing under the footbridge; the pause snapshot muffling the mix |
-| 4, First Ride | VH: V0 (4.6) · GR: the ride in graphs (rider assist and pose, camera director and TV cameras, audio director, the best-lap ghost and attract mode, the test autopilot, the feel pass) (2) · SH: Moto as a runtime-only example in the catalog and a standalone export with its own identity and saves (1.5) | TL: V7's recorder, panel, CSV and `telemetry.*` (2.1) · SV: S2's core (2.9) · GF: the flow in graphs (race director, gates, HUD, menus and settings, the three-lap time trial) (2) · SX: the Showcase's "Surfaces and sensors" exhibit, last in the slice so that the first cut frees its time (0.5) · N, on both lanes: the M1 gate (1) | A1: clip playback, crossfades, script API, nodes and an animation event kind (3), if the lane starts | 16.6 | The three slices' rates give about 2 days; the factors 9.5 | M1 |
+| 4, First Ride | VH: V0, the motorcycle alone with front and rear brakes (cars wait, V15) (4.6) · GR: the ride in graphs (rider assist and pose, camera director and TV cameras, audio director, the best-lap ghost and attract mode, the test autopilot, the feel pass) (2) · SH: Moto as a runtime-only example in the catalog and a standalone export with its own identity and saves (1.5) | TL: V7's recorder, panel, CSV and `telemetry.*` (2.1) · SV: S2's core (2.9) · GF: the flow in graphs (race director, gates, HUD, menus and settings, the three-lap time trial) (2) · SX: the Showcase's "Surfaces and sensors" exhibit, last in the slice so that the first cut frees its time (0.5) · N, on both lanes: the M1 gate (1) | A1: clip playback, crossfades, script API, nodes and an animation event kind (3), if the lane starts | 16.6 | The three slices' rates give about 2 days; the factors 9.5 | M1 |
 
 Track IDs are per effort: none of Front Door's CR, TS, TE, AK, SS and DOC is reused, N is the gate track of every
 effort, and the profiler track is PR. Dependencies: IN and PQ need slice 1. Inside the effort, ST follows PR (soft), CV
@@ -1168,7 +1169,7 @@ flowchart LR
     E34 --> P2[P2 Surfaces]
     E34 --> I1[I1 Input actions]
     E34 --> AU1[AU1 Mixer]
-    E34 --> V0[V0 Jolt vehicles]
+    E34 --> V0[V0 Jolt motorcycle]
     E34 --> VS1[VS1 Field arrays]
     E11((E11 core)) --> I1
     E11 --> S2[S2 Saves and settings]
@@ -1267,7 +1268,7 @@ its permanent cost is now a risk (§8) and a set of obligations (§2.1). Visual 
 | Debugging graphs in the player or exported games | Left out: only the editor attaches the debugger (Architecture.md §10.6 and §13); VS5 if a game needs it |
 | Tracing inside pure evaluation and per sub-expression | Left out |
 | Recording the exact exits each stopped execution took | Left out |
-| Public array variables | Deferred; VS1 in First Ride |
+| Public array variables | Done in First Ride's slice 3 (VS1): public arrays are inspector fields |
 | Latent `[VisualNode]` members | Deferred |
 | `^` and `//` operators in formulas | Not provided, by default choice |
 | Macros, interfaces, inheritance, maps, sets and state graphs | Not built; composition goes through entities and typed events; VS6 if parity becomes a goal |
@@ -1562,27 +1563,44 @@ from what this section planned:
 - **Exit, as the gate measured it** with every lane idle on the reference machine (§4.3): Prism Break played on an
   injected gamepad through its actions, Launch rebound to F at the title and read back from the profile by the next
   play; Moto's ghost passing each trackside camera with its engine note above the engine speed's pitch before the pass
-  and under it after, within 0.9 % of c / (c − v) at the start line, the footbridge and Turn 6 and within 1.6 % at
-  Turn 1, where the cycle is measured less sharply (at the footbridge 1.10 to 1.13 times the pitch of the same pass
-  without doppler before it, 0.88 to 0.90 after), the echo's send under the footbridge decaying after the pass, and the pause
-  snapshot taking 10 dB off the engine under 325 Hz and 33 dB over 2.6 kHz; the mix (0.227 to 0.270 ms per 10 ms of
-  audio against 1 ms) and the actions (0.018 ms a frame against 0.05) met in band; Moto with the ghost and sound at a
-  frame median of 3.57 to 3.60 ms with a median of 170 draws (265 at most) and 398 in the editor's view of the start
-  line.
+  and under it after, within 0.9 % of c / (c − v) at the start line, the footbridge (in the pass without the echo,
+  whose tail carries the earlier pitch into the half second after the deck) and Turn 6, and within 1.6 % at Turn 1,
+  where the cycle is measured less sharply (at the footbridge 1.10 to 1.13 times the pitch of the same pass without
+  doppler before it, 0.87 to 0.90 after); the echo under the footbridge heard over the engine, the pass 6.6 dB louder
+  than without it in the half second under the deck and 5.4 dB in the next (the gate's fix step raised the echo, which
+  had read 14 dB under the engine), and dying away after; the pause snapshot taking 10 dB off the engine under 325 Hz
+  and 32 dB over 2.6 kHz; the mix (0.227 to 0.270 ms per 10 ms of audio against 1 ms) and the actions (0.018 ms a frame
+  against 0.05) met in band; Moto with the ghost and sound at a frame median of 3.57 to 3.60 ms with a median of 170
+  draws (265 at most) and 398 in the editor's view of the start line.
 
 ### 10.7 First Ride, slice 4 "First Ride" (as it stands at slice 3's gate)
 
-Lane A: VH (V0: Jolt's motorcycle controller and wheeled vehicles as components, the first bike, 4.6), GR (the ride in
-graphs: rider assist and pose, the camera director grown from slice 3's, the audio director, the best-lap ghost and
-attract mode, the test autopilot, the feel pass, 2.0), SH (Moto's catalog row and a standalone export with its own
-identity and saves, 1.5). Lane B: TL (V7's recorder, panel, CSV and `telemetry.*`, 2.1), SV (S2's core: saves and the
-player's settings, 2.9), GF (the flow in graphs: race director, gates, HUD, menus and settings, the three-lap time trial,
-2.0), SX (the Showcase's "Surfaces and sensors" exhibit, last so that the first cut frees its time, 0.5). The gate N
-(1.0) then holds M1. What slice 3 hands them: `Moto.sinput`'s `Throttle`, `Brake`, `Lean`, `ShiftUp` and `ShiftDown`
-(bound, unused until VH and GR); `EngineSound.sgraph`, driven through its public `EngineSpeed` and `Load`, which GR
-feeds from the simulated engine, with `EngineOffLoad.scurve` to retune; the camera director's `Cut` and `Face` and the
-audio director's `TogglePause`; the `Tyres`, `Ambience` and `Interface` buses and the four placed-nowhere sounds;
-script lists for VH's wheels; the profile's folder beside which SV writes saves and settings, and IA2's rule that a
-newer profile is replaced, which saves do not inherit (a newer save is not replaced without a decision of its own).
-Whether Moto is listed among the start screen's examples (SH's catalog row) is the maintainer's open decision, as are
-TA's tracks and the third lane (§9). Its spec is written after slice 3's gate.
+Lane A: VH (V0, the motorcycle alone: Jolt's motorcycle controller as a component with its asset, script members,
+commands, overlay and tests, and the first bike, 4.6), GR (the ride in graphs: rider assist and pose, the linked brakes,
+the camera director grown from slice 3's, the audio director, the best-lap ghost and attract mode, the test autopilot,
+the feel pass, 2.0), SH (Moto's catalog row and a standalone export with its own identity and saves, 1.5). Lane B: TL
+(V7's recorder, panel, CSV and `telemetry.*`, 2.1), SV (S2's core: saves and the player's settings, 2.9), GF (the flow
+in graphs: race director, gates, HUD, menus and settings, the three-lap time trial, 2.0), SX (the Showcase's "Surfaces
+and sensors" exhibit, last so that the first cut frees its time, 0.5). The gate N (1.0) then holds M1.
+
+No car is built, tested, documented or shown in slice 4: the maintainer deferred cars, and they return to the backlog as
+V15 (§3.9). VH's asset has no field that only a car uses, and the time cars would have taken goes to the bike. The bike
+has two brakes, a decision of the plan that the maintainer may change: the vehicle takes a front and a rear brake input,
+each 0 to 1, and its asset gives each wheel its own largest brake torque (Jolt's wheeled controller, on which its
+motorcycle controller is built, has two brake inputs with a torque per wheel for each). A rider assist in GR, on by
+default, links them: the front lever also applies the rear by a set share, so one trigger stops the bike well, and with
+the assist off the two are independent; GF's settings screen turns it off. What it will and will not do: each wheel
+brakes by its own input, and weight moves to the front under braking as the rigid body allows, but Jolt's stock tyre
+friction limits forward and sideways grip separately, so a locked rear wheel does not by itself give up sideways grip.
+Trail braking and rear-brake slides as a simulation has them are not promised for M1; VH's design step says whether a
+friction callback that combines the two fits its size, and if not it waits for the later efforts (V2, V3).
+
+What slice 3 hands them: `Moto.sinput`'s `Throttle`, `Brake`, `Lean`, `ShiftUp` and `ShiftDown` (bound, unused until VH
+and GR; `Brake`, on the left trigger, stays until slice 4 replaces it with `FrontBrake` on the left trigger and
+`RearBrake` on a gamepad button and a key, both rebindable); `EngineSound.sgraph`, driven through its public
+`EngineSpeed` and `Load`, which GR feeds from the simulated engine, with `EngineOffLoad.scurve` to retune; the camera
+director's `Cut` and `Face` and the audio director's `TogglePause`; the `Tyres`, `Ambience` and `Interface` buses and
+the four placed-nowhere sounds; script lists for VH's wheels; the profile's folder beside which SV writes saves and
+settings, and IA2's rule that a newer profile is replaced, which saves do not inherit (a newer save is not replaced
+without a decision of its own). Whether Moto is listed among the start screen's examples (SH's catalog row) is the
+maintainer's open decision, as are TA's tracks and the third lane (§9). Its spec is written after slice 3's gate.
