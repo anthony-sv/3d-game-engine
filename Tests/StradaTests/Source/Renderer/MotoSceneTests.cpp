@@ -78,8 +78,9 @@ TEST_CASE("SceneRenderer: Moto's dressed main scene draws its 10,000 props as in
 	SUBCASE("at the start line, the bike on the grid and the ghost bike beside the gantry")
 	{
 		// The editor's scene view where slice 2's gate read 392 draws (viewport.camera: the focal point on the line, 14 m
-		// away, yaw 200, pitch -12), with the entity-ID pass the scene view draws: the ghost bike's meshes and materials are
-		// the grid bike's, so it joins their batches and adds no draw.
+		// away, yaw 200, pitch -12), with the entity-ID pass the scene view draws. The ghost bike's meshes and materials are
+		// the grid bike's, so it joins their batches; but the camera stands close behind the grid bike, which has three
+		// parts outside the view, and the ghost at the line brings those parts' batches (6 draws more in the editor).
 		glm::vec3 const focalPoint(73.366f, 0.0f, -218.005f);
 		SceneRendererCamera const camera = Testing::MakeTestCamera(glm::vec3(68.682f, 2.911f, -230.873f), focalPoint, Width, Height);
 		SceneRenderer renderer("Moto");

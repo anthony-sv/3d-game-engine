@@ -8,7 +8,7 @@ The graph (declare() and write()): when the scene starts, the ghost sends itself
 StartAt (seconds after the start and finish line) and plays it. The timeline loops over one lap of the line's keys:
 every update places the ghost at Position and turns it to Heading (about +Y), leaned by Lean (positive to the right:
 a turn about its forward axis), counts a lap when the timeline's time comes round past the line, and keeps the
-read-outs other graphs follow: LapTime, and the engine's EngineSpeed and Load, which the engine's sound plays from.
+read-outs other graphs follow: LapTime, and the engine's EngineSpeed and Load, for the engine's sound to play from.
 """
 import math
 import os
@@ -64,9 +64,8 @@ def declare(author):
                (0.0, lap)),
         public("Laps", "int", 0, "How many times the ghost has crossed the start and finish line (a read-out)"),
         public("LapTime", "float", 0.0, "How far into its lap the ghost is, in seconds after the start and finish line (a read-out)"),
-        public("EngineSpeed", "float", 0.0, "The ghost's engine speed in revolutions a minute, which its engine's sound follows "
-               "(a read-out)"),
-        public("Load", "float", 0.0, "How far open the ghost's throttle is, from 0 to 1, which its engine's sound follows (a read-out)"),
+        public("EngineSpeed", "float", 0.0, "The ghost's engine speed in revolutions a minute, for its engine's sound (a read-out)"),
+        public("Load", "float", 0.0, "How far open the ghost's throttle is, from 0 to 1, for its engine's sound (a read-out)"),
     ), events=(("Ride", ()),))
 
 

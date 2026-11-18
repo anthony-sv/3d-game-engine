@@ -5543,8 +5543,9 @@ that each platform's names are tested on every platform:
   whole circuit from above and 212 across the main straight's fences. A bike of other materials would add up to 16
   draws to each pass that sees it and pass 400 there, so the ghost bike shares the bike's meshes and materials and joins
   their batches: with it standing at the line, the same view reads 398 draws (394 batches, the shadow pass's 190
-  unchanged) where it read 392 without it, in one sitting of the editor (MO3: 96 more instances, 6 more batches, which
-  were not traced to their passes), and `MotoSceneTests.cpp` renders that view with entity IDs on and holds it
+  unchanged) where it read 392 without it, in one sitting of the editor (MO3): the camera stands close behind the grid
+  bike, three of whose parts lie outside the view, and the ghost at the line brings their batches (302 draws with
+  neither bike, 392 with the grid bike alone, 398 with the ghost alone or both), and `MotoSceneTests.cpp` renders that view with entity IDs on and holds it
   within 400. **The camera tour** is the first sample tour made of a graph
   (`Scripts/Tour.sgraph`, on the main camera): a `Flow.Timeline` with two Vector3 curves, `Eye` and `LookAt`, flies the
   camera from the home view once round the lap and back to it in about 51 s; each update sets the camera's
@@ -5589,8 +5590,8 @@ that each platform's names are tested on every platform:
   `Heading` (unwrapped degrees about +Y), `Lean`, `EngineSpeed` (two keys at one time at each shift) and `Load`, each
   key carrying the line's own slopes, as few keys as keep each within its tolerance. Every update places the ghost,
   turns it by `Heading` after `Lean` (`Quaternion.AngleAxis` twice, multiplied), counts a lap when the timeline's time
-  comes round past the line, and keeps the read-outs `LapTime`, `EngineSpeed` and `Load` that the engine's sound
-  follows; `StartAt` says where on the lap it sets out. **The test scene** (`Scenes/Tests.sscene`, the main scene
+  comes round past the line, and keeps the read-outs `LapTime`, `EngineSpeed` and `Load`, for the engine's sound to
+  play from; `StartAt` says where on the lap it sets out. **The test scene** (`Scenes/Tests.sscene`, the main scene
   without its props, which stand clear of all it checks, with a crate over the road, two blocks sent
   sliding with the scene, the `Waiting Tour`, the ghost set out 30 s into its lap and the `Tests` entity) holds 21 checks, all graphs (`Tests.sgraph`, a latent function per check called in order from a Sequence,
   reporting through the `Checks` library): rays down at points of the layout hit the road, a kerb, a wall's top, the
@@ -5602,8 +5603,8 @@ that each platform's names are tested on every platform:
   and off on the next one after it; the `Waiting Tour`, a second entity running `Tour.sgraph` with `PlayOnStart` and
   `Repeat` off, stays where the scene put it until the `Tests` graph sends it `PlayTour`, then flies, and stays at the
   home view after its one tour; the ghost leans into Turn 6 within 1° of the line, is within 0.1 m of where the line
-  puts it at three moments of its lap (each read with its own `LapTime` of the same update, the line's point carried on
-  by its velocity over the frame between), and crosses the start and finish line onto its next lap, on the line again.
+  puts it at three moments of its lap, facing along it within 2° (each read with its own `LapTime` of the same update,
+  the line's point carried on by its velocity over the frame between), and crosses the start and finish line onto its next lap, on the line again.
   They wait in seconds of the game, with tolerances for a frame of the slowest test
   run, so they pass at 1/60 and 1/30 s a frame; `StradaRuntimeTests` runs them twice at 1/60 s (the same summary each
   time) and once at 1/30 s, and plays the main scene, refusing any line from a visual script; `PlayModeTests` (StradaEditorTests) plays the

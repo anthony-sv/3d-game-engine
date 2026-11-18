@@ -19,8 +19,9 @@ tour ends, and off on the next tour after it. The Waiting Tour checks the tour's
 PlayOnStart off it stays where the scene put it until the Tests graph sends it PlayTour, then it flies, and with Repeat
 off it stays at the home view after its one tour. The ghost's checks compare it with the racing line RacingLine.py made,
 as its timeline plays the line's keys: leaned into Turn 6 as the line leans there, where the line puts it at three
-moments of its lap (each read with the ghost's own LapTime in the same update, the line's point carried on by its
-velocity for the moments between), and across the start and finish line onto its next lap.
+moments of its lap and facing the way the line runs (each read with the ghost's own LapTime in the same update, the
+line's point carried on by its velocity for the moments between), and across the start and finish line onto its next
+lap.
 """
 import math
 import os
@@ -65,6 +66,8 @@ WAITING_SPOT = (Tour.HOME_EYE[0], Tour.HOME_EYE[1] + 20.0, Tour.HOME_EYE[2])
 # ghost reaches them between the slides and the tour's footbridge pass (Ghost.TEST_START_AT).
 GHOST_MOMENTS = (44.0, 48.0, 52.0)
 GHOST_TOLERANCE = 0.1
+# How far the ghost's forward may turn from the line's direction of travel at those moments (degrees).
+HEADING_TOLERANCE = 2.0
 LEAN_TOLERANCE = 1.0
 
 
@@ -194,7 +197,7 @@ def checks():
          "a block slides farther on the asphalt than in the gravel"),
         ("CheckGhostLeans", "Ghost lean: leaned into Turn 6 as the racing line leans there",
          "the ghost leans into Turn 6 as the racing line does"),
-        ("CheckGhostRides", "Ghost line: where the racing line puts it, at three moments of its lap",
+        ("CheckGhostRides", "Ghost line: on the racing line and facing its way at three moments",
          "the ghost rides the racing line"),
         ("CheckUnderFootbridge", "Footbridge pass: the camera where the tour puts it, under the deck",
          "the tour flies the camera under the footbridge"),
@@ -240,7 +243,7 @@ def declare(author):
     author.declare(TESTS, f"The test scene's checks: {len(checks())} checks of Moto's circuit, its camera tour and its ghost "
                    "bike, one after another, each a latent function that acts or waits for its moment, then reports it.", variables=(
         tuple(public(name, ENTITY, None, tooltip) for name, _, tooltip in TEST_ENTITIES) +
-        (private("StepStart", "double", 0.0), private("LineError", "float", 0.0))),
+        (private("StepStart", "double", 0.0), private("LineError", "float", 0.0), private("HeadingError", "float", 0.0))),
         functions=(("Probe", False, (("From", VECTOR), ("Surface", ENTITY), ("Height", "float")),
                     (("Passed", "bool"), ("Detail", "string")), ()),
                    ("ProbeSurface", False, (("From", VECTOR), ("Expected", "string")), (("Passed", "bool"), ("Detail", "string")),
@@ -535,16 +538,24 @@ def check_ghost_leans(b, name):
 
 
 def check_ghost_rides(b, name):
-    # The worst distance from the line over the moments, each read when the ghost's lap reaches it.
-    steps = [b.set("LineError", 0.0)]
+    # The worst distance from the line and the worst turn from its direction over the moments, each read when the ghost's
+    # lap reaches it.
+    steps = [b.set("LineError", 0.0), b.set("HeadingError", 0.0)]
+    forward = b.pure("Get:Strada.TransformComponent.Forward", "Value", Target=b.var("Ghost"))
     for moment in GHOST_MOMENTS:
         first, waited = wait_until(b, b.expr(f"lap >= {moment}", lap=ghost_lap(b)), 20)
         worst = b.set("LineError", b.expr("max(worst, error)", worst=b.var("LineError"), error=line_error(b, moment)))
+        _, velocity = ghost_moment(moment)
+        turned = b.set("HeadingError", b.expr("max(worst, degrees(acos(clamp(dot(normalize(forward), normalize(along)), -1, 1))))",
+                                              worst=b.var("HeadingError"), forward=forward, along=b.lit(VECTOR, velocity)))
         b.flow(waited, worst)
-        steps.append((first, worst))
-    passed = b.expr(f"worst <= {GHOST_TOLERANCE}", worst=b.var("LineError"))
-    detail = b.fmt(f"the ghost strays {{Worst}} m at most from the line at {', '.join(f'{moment:g}' for moment in GHOST_MOMENTS)} s "
-                   "of its lap", Worst=b.var("LineError"))
+        b.flow(worst, turned)
+        steps.append((first, turned))
+    passed = b.expr(f"worst <= {GHOST_TOLERANCE} && turned <= {HEADING_TOLERANCE}", worst=b.var("LineError"),
+                    turned=b.var("HeadingError"))
+    moments = ", ".join(f"{moment:g}" for moment in GHOST_MOMENTS)
+    detail = b.fmt(f"the ghost strays {{Worst}} m at most from the line and turns {{Turned}} degrees at most from its way at "
+                   f"{moments} s of its lap", Worst=b.var("LineError"), Turned=b.var("HeadingError"))
     reported = b.library(CHECKS, "Check", Name=f"Moto: {name}", Passed=passed, Detail=detail)
     run(b, *steps, reported)
 

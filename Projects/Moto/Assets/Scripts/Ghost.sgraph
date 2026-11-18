@@ -40,7 +40,7 @@
 				"Type": "float",
 				"Value": 0.0,
 				"Public": true,
-				"Tooltip": "The ghost's engine speed in revolutions a minute, which its engine's sound follows (a read-out)"
+				"Tooltip": "The ghost's engine speed in revolutions a minute, for its engine's sound (a read-out)"
 			},
 			{
 				"ID": 5,
@@ -48,7 +48,7 @@
 				"Type": "float",
 				"Value": 0.0,
 				"Public": true,
-				"Tooltip": "How far open the ghost's throttle is, from 0 to 1, which its engine's sound follows (a read-out)"
+				"Tooltip": "How far open the ghost's throttle is, from 0 to 1, for its engine's sound (a read-out)"
 			}
 		],
 		"Functions": [],
