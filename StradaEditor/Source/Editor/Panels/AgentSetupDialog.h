@@ -46,8 +46,8 @@ namespace Strada
 	private:
 		void MakePlan(AgentProject const& project, EngineLayout const& layout, AgentToolLookup const& findTool);
 		void DrawFiles(AgentPlan const& plan, bool applied, float height);
-		void DrawSelection(AgentPlan const& plan, bool applied, float diffHeight);
-		void DrawResult(AgentApplyResult const& result);
+		// The selected file's heading and its diff in a pane that ends at diffBottom at most (a window-local y).
+		void DrawSelection(AgentPlan const& plan, bool applied, float diffBottom);
 
 		bool m_OpenRequested = false;
 		bool m_CloseRequested = false;
