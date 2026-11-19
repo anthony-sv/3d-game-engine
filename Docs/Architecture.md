@@ -550,7 +550,7 @@ every configuration, Dist included (it has no macros); only the editor starts it
     (`FindTelemetryLapInProgress`) is the last `Lap <n>` that no boundary follows, up to the session's last row. A
     lap's time is its rows' steps times the step's length: a whole number of steps, since a mark sits on a row. The
     **best lap** is the shortest, the first of equal ones (`FindBestTelemetryLap`).
-  - **What Moto's race director marks** (GF, adding to the contract of slice 4's spec, §12): every crossing of the line
+  - **What Moto's race director marks**, so that its laps read the same at every frame rate: every crossing of the line
     through `MarkStep`, never `Mark`, at the crossing's step: `Collision.Step` of the gate's trigger event, or, for the
     interpolated crossing, the first step whose result lies past the line. It marks `Lap <n>`, n being the lap that
     begins there, from 1, and the crossing that finishes the race as `Lap <laps + 1>`, which closes the last lap, then
