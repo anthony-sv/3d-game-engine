@@ -235,7 +235,9 @@ TEST_CASE("PhysicsScene: a vehicle needs a dynamic body, refuses values Jolt can
 	kinematic.Type = RigidBodyType::Kinematic;
 	RequireOk(world->AddBody(kinematic));
 
-	// Only a dynamic body carries a vehicle.
+	// Only a dynamic body carries a vehicle. A refusal that leaves the world's vehicles as they were keeps its structure
+	// version, so the snapshots taken before it.
+	uint64_t const unrefused = world->GetStructureVersion();
 	CHECK(ErrorOf(world->AddVehicle(MakeBike(GroundId, VehicleTransmissionMode::Automatic))).find("no dynamic body") != std::string::npos);
 	CHECK(ErrorOf(world->AddVehicle(MakeBike(KinematicId, VehicleTransmissionMode::Automatic))).find("no dynamic body") !=
 	      std::string::npos);
@@ -303,6 +305,7 @@ TEST_CASE("PhysicsScene: a vehicle needs a dynamic body, refuses values Jolt can
 		CHECK_MESSAGE(error.find(refusal.Field) != std::string::npos, error);
 		CHECK_FALSE(world->HasVehicle(BikeId));
 	}
+	CHECK(world->GetStructureVersion() == unrefused);
 
 	// Made, changed in place, made again and removed.
 	uint64_t const before = world->GetStructureVersion();
@@ -333,12 +336,18 @@ TEST_CASE("PhysicsScene: a vehicle needs a dynamic body, refuses values Jolt can
 	CHECK_FALSE(world->GetVehicleState(BikeId));
 	CHECK_FALSE(world->GetVehicleWheelTransform(BikeId, 0));
 
-	// A refused value leaves the entity without the vehicle it had.
+	// A refused value leaves the entity without the vehicle it had, which moves the structure version; refused again, with
+	// no vehicle left to remove, it does not.
 	RequireOk(world->AddVehicle(edited));
+	uint64_t const riding = world->GetStructureVersion();
 	VehicleDesc broken = edited;
 	broken.Wheels[0].Inertia = 0.0f;
 	CHECK(ErrorOf(world->AddVehicle(broken)).find("Wheels[0].Inertia") != std::string::npos);
 	CHECK_FALSE(world->HasVehicle(BikeId));
+	uint64_t const refused = world->GetStructureVersion();
+	CHECK(refused != riding);
+	CHECK(ErrorOf(world->AddVehicle(broken)).find("Wheels[0].Inertia") != std::string::npos);
+	CHECK(world->GetStructureVersion() == refused);
 
 	// Removing the body removes its vehicle.
 	RequireOk(world->AddVehicle(edited));

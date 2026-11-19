@@ -2295,14 +2295,17 @@ namespace Strada
 	Result<void> PhysicsScene::AddVehicle(VehicleDesc const& desc)
 	{
 		Data& data = *m_Data;
-		data.Structure++;
+		// The structure version moves when the world's vehicles change: a refusal that made and removed nothing keeps the
+		// snapshots taken before it.
+		bool const had = data.Vehicles->HasVehicle(desc.Entity);
 		Result<VehicleDesc> prepared = VehicleWorld::PrepareDesc(desc);
 		BodyRecord const* const body = data.Find(desc.Entity);
 		if (!prepared || body == nullptr || body->Type != RigidBodyType::Dynamic)
 		{
 			// Like every refusal, it leaves the entity without a vehicle.
-			if (data.Vehicles->HasVehicle(desc.Entity))
+			if (had)
 			{
+				data.Structure++;
 				data.Vehicles->RemoveVehicle(desc.Entity);
 				ReaddVehicleConstraints();
 			}
@@ -2318,6 +2321,10 @@ namespace Strada
 			objectLayer = lock.Succeeded() ? lock.GetBody().GetObjectLayer() : objectLayer;
 		}
 		Result<void> made = data.Vehicles->AddVehicle(prepared.GetValue(), body->Id, objectLayer);
+		if (made || had)
+		{
+			data.Structure++;
+		}
 		ReaddVehicleConstraints();
 		return made;
 	}
