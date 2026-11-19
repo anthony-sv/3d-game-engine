@@ -471,7 +471,14 @@ namespace Strada
 			out = std::move(values);
 			return {};
 		}
-		static std::string TypeName() { return JsonTraits<T>::TypeName() + "[]"; }
+		static std::string TypeName()
+		{
+			// Appended in place: GCC 13 reports the string move inside operator+(std::string&&, char const*) as out of
+			// bounds (-Warray-bounds) at some inlining depths of its Release builds.
+			std::string name = JsonTraits<T>::TypeName();
+			name += "[]";
+			return name;
+		}
 	};
 
 	// Versioned file header: "Strada": { "Version": <int>, "Type": "<type>" }.
