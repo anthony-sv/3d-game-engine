@@ -140,6 +140,24 @@ namespace Strada
 			                                                 id, sessions.front().Id, sessions.back().Id));
 		}
 
+		// A step a request names (from, to): an integer of at least 1 without a maximum, which the schema also accepts as a
+		// number without a fraction (1e30) beyond uint64_t, so it saturates rather than being cast out of range.
+		uint64_t ReadStep(Json const& value)
+		{
+			if (value.is_number_unsigned())
+			{
+				return value.get<uint64_t>();
+			}
+			if (value.is_number_integer())
+			{
+				return static_cast<uint64_t>(std::max<int64_t>(value.get<int64_t>(), 0));
+			}
+			// 2^64, exactly representable: every double below it converts.
+			constexpr double Limit = 18446744073709551616.0;
+			double const number = value.get<double>();
+			return number >= Limit ? std::numeric_limits<uint64_t>::max() : static_cast<uint64_t>(std::max(number, 0.0));
+		}
+
 		// The rows a request covers, both included: a lap's (lap: its label, the latest of equal ones, or "best"), a range of
 		// steps (from, to: either may be left out, and is then the session's first or last step), or the whole session.
 		struct RowRange
@@ -200,8 +218,8 @@ namespace Strada
 			}
 			uint64_t const firstStep = GetStep(session, 0);
 			uint64_t const lastStep = GetStep(session, session.Rows - 1);
-			uint64_t const from = fromParameter != params.end() ? fromParameter->get<uint64_t>() : firstStep;
-			uint64_t const to = toParameter != params.end() ? toParameter->get<uint64_t>() : lastStep;
+			uint64_t const from = fromParameter != params.end() ? ReadStep(*fromParameter) : firstStep;
+			uint64_t const to = toParameter != params.end() ? ReadStep(*toParameter) : lastStep;
 			if (from > to)
 			{
 				return MakeParameterError("from", fmt::format("step {} comes after to's step {}", from, to));

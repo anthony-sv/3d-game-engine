@@ -528,7 +528,7 @@ public sealed class AudioProbe : Script
 // Records into telemetry. Every fixed update: Probe.Steps (its count of fixed updates, from 1), Probe.Height (its entity's
 // height) and, on even updates, Probe.Even; a mark "Lap <n>" every LapSteps updates from the first (none when 0); and
 // Channels more channels, Benchmark.Channel00 to 63 (the benchmark's shape); and ExtraChannel, when set, at 1. Every update: Probe.Frame (its count of updates),
-// which lands on the next step's row. Its first fixed update also records Probe.Task from a thread pool's task, waited for
+// which lands on the next step's row. Its first fixed update also records Probe.Task from a thread of its own, joined
 // within the step. A collision that begins marks its step ("Contact", Collision.Step). OnCreate names the entity after what
 // the API said: "Recording=<IsRecording>;NullThrows=<whether all three refused null>".
 public sealed class TelemetryProbe : Script
@@ -598,7 +598,10 @@ public sealed class TelemetryProbe : Script
 		}
 		if (m_FixedUpdates == 1)
 		{
-			System.Threading.Tasks.Task.Run(static () => Telemetry.Record("Probe.Task", 7.0f)).Wait();
+			// A thread of its own, so the record surely comes from another thread than the main one.
+			System.Threading.Thread thread = new(static () => Telemetry.Record("Probe.Task", 7.0f));
+			thread.Start();
+			thread.Join();
 		}
 	}
 

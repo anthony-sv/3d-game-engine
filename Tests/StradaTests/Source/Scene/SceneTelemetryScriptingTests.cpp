@@ -113,7 +113,7 @@ namespace
 }
 
 TEST_CASE("SceneTelemetry: C# scripts' fixed updates record the same rows at 30, 60 and 144 frames a second, their updates the "
-          "next step's row, a task its step's row, and a contact handler the contact's step")
+          "next step's row, another thread its step's row, and a contact handler the contact's step")
 {
 	Testing::PhysicsSystemScope physics;
 	Testing::ScriptEngineScope scripting;

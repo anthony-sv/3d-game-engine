@@ -468,6 +468,12 @@ namespace
 			{
 				return *id;
 			}
+			// telemetry.read's and telemetry.export's steps have no maximum, and the schema takes a number without a fraction
+			// beyond uint64_t: now and then one such.
+			if (m_Command.starts_with("telemetry.") && (property == "from" || property == "to") && m_Random.Pick(8) == 0)
+			{
+				return 1.0e30;
+			}
 			double const minimum = schema.value("minimum", -1000.0);
 			double maximum = schema.value("maximum", 1000.0);
 			if (property == "frames")

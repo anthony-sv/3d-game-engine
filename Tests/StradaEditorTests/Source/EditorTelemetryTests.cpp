@@ -21,6 +21,7 @@
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -277,6 +278,12 @@ TEST_CASE("TelemetryCommands: a recording is started, listed, read by steps, lap
 	CHECK(started["settings"]["historySessions"] == 4);
 	CHECK(started["settings"]["maxSteps"] == TelemetrySettings().MaxSteps);
 	CHECK(started["liveSession"].is_null());
+	// Settings out of bounds are refused, and the recording goes on as it was.
+	CHECK(fixture.Fails("telemetry.start", Json::object({{"maxChannels", 1}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("telemetry.start", Json::object({{"historyBytes", Telemetry::MaxHistoryBytes + 1}})) ==
+	      AutomationErrorCode::InvalidParams);
+	CHECK(Telemetry::IsRecording());
+	CHECK(Telemetry::GetStatus().Settings.MaxChannels == 64);
 	RecordLaps(bike.GetValue());
 
 	// The sessions, and the newest one's channels, marks and laps.
@@ -319,6 +326,7 @@ TEST_CASE("TelemetryCommands: a recording is started, listed, read by steps, lap
 	CHECK(session["lapInProgress"]["label"] == "Lap 4");
 	CHECK(session["lapInProgress"]["inProgress"] == true);
 	CHECK(session["dropped"] == Json::object({{"values", 0}, {"marks", 0}, {"steps", 0}}));
+	CHECK(fixture.Fails("telemetry.channels", Json::object({{"session", id + 1}})) == AutomationErrorCode::InvalidParams);
 
 	// A range of steps, in samples of the smallest stride that fits, with nulls where a step has no value.
 	Json const range = fixture.Ok("telemetry.read", Json::object({{"channels", Json::array({"Gear", "Speed"})}, {"from", 12}, {"to", 16}}));
@@ -349,6 +357,10 @@ TEST_CASE("TelemetryCommands: a recording is started, listed, read by steps, lap
 	CHECK(strided["channels"][0]["summary"]["mean"] == 15.5);
 	// A range clipped to the session's steps; one without any of them is refused.
 	CHECK(fixture.Ok("telemetry.read", Json::object({{"channels", Json::array({"Speed"})}, {"from", 1}, {"to", 12}}))["rows"] == 2);
+	// A step beyond any a session holds, as a number without a fraction (which the schema takes), is clipped too.
+	CHECK(fixture.Ok("telemetry.read", Json::object({{"channels", Json::array({"Speed"})}, {"from", 19}, {"to", 1.0e30}}))["rows"] == 2);
+	CHECK(fixture.Fails("telemetry.read", Json::object({{"channels", Json::array({"Speed"})}, {"from", 1.0e30}})) ==
+	      AutomationErrorCode::InvalidParams);
 	// A channel with no value in its range has a summary of nothing.
 	Json const none = fixture.Ok("telemetry.read", Json::object({{"channels", Json::array({rpm["name"]})}, {"from", 15}}));
 	CHECK(none["channels"][0]["summary"]["values"] == 0);
@@ -435,6 +447,9 @@ TEST_CASE("TelemetryCommands: a recording is started, listed, read by steps, lap
 	      AutomationErrorCode::InvalidParams);
 	CHECK(fixture.Fails("telemetry.export", Json::object({{"path", "Bad.csv"}, {"lap", "Lap 9"}})) == AutomationErrorCode::InvalidParams);
 	CHECK_FALSE(FileSystem::Exists(project / "Bad.csv"));
+	// A file in place of a folder the path goes through cannot be written.
+	CHECK(fixture.Fails("telemetry.export", Json::object({{"path", "Table.csv/Run.csv"}})) == AutomationErrorCode::FileError);
+	CHECK(FileSystem::ReadTextFile(project / "Table.csv").GetValue() == "Name,Score\r\n");
 
 	// A second start restarts the recording and keeps the session; stop ends it and keeps it too.
 	Json const restarted = fixture.Ok("telemetry.start");
@@ -580,7 +595,18 @@ TEST_CASE("TelemetryCommands: a playing FeatureTest scene is recorded, read back
 	Result<std::string> const text = FileSystem::ReadTextFile(project / ".strada" / "Captures" / "FeatureTest.csv");
 	REQUIRE(text.IsOk());
 	CHECK(SplitLines(text.GetValue()).size() == rows + 1);
-	CHECK(text.GetValue().find("\"Lap 4\nLap end\"") != std::string::npos);
+	// The finish's row holds its two marks, in one field joined by a line feed.
+	std::vector<std::string> finish;
+	for (Json const& mark : session["marks"])
+	{
+		if (mark["step"] == 73)
+		{
+			finish.push_back(mark["label"].get<std::string>());
+		}
+	}
+	CHECK(std::find(finish.begin(), finish.end(), "Lap 4") != finish.end());
+	CHECK(std::find(finish.begin(), finish.end(), "Lap end") != finish.end());
+	CHECK(text.GetValue().find("Lap 4\nLap end") != std::string::npos);
 	if (fixture.Play.IsPlaying())
 	{
 		fixture.Ok("play.stop");
