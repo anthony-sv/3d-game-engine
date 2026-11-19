@@ -371,3 +371,40 @@ TEST_CASE("ScenePhysics: a vehicle's definition or curve edited while the scene 
 	CHECK(CountLogged(logStart, {"'Bike 200' makes no vehicle: its Definition", "is no Vehicle that loads"}) == 1);
 	scene.OnRuntimeStop();
 }
+
+TEST_CASE("Scene: a bike duplicated keeps its definition and its wheels' names, and runs as a vehicle of its own")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::PhysicsSystemScope const physics;
+	AssetHandle const definition = AddDataAsset(Vehicle{}, "Bike.svehicle");
+	Scene scene("Copies");
+	MakeGround(scene);
+	Entity bike = MakeBike(scene, 200, 0.0f, definition);
+	for (std::string const wheel : {"Front", "Rear"})
+	{
+		Entity entity = scene.CreateEntity(wheel + " Wheel", bike);
+		entity.AddComponent<VehicleWheelComponent>().Wheel = wheel;
+	}
+
+	// Neither component names another entity (a wheel finds its vehicle above it), so a copy needs no remapping.
+	Entity copy = scene.DuplicateEntity(bike);
+	REQUIRE(copy);
+	CHECK(copy.GetUUID() != bike.GetUUID());
+	REQUIRE(copy.HasComponent<VehicleComponent>());
+	CHECK(copy.GetComponent<VehicleComponent>().Definition == definition);
+	std::vector<std::string> wheels;
+	for (UUID const child : copy.GetComponent<RelationshipComponent>().Children)
+	{
+		Entity const entity = scene.GetEntityByUUID(child);
+		REQUIRE(entity.HasComponent<VehicleWheelComponent>());
+		wheels.push_back(entity.GetComponent<VehicleWheelComponent>().Wheel);
+	}
+	CHECK(wheels == std::vector<std::string>{"Front", "Rear"});
+
+	// Moved aside, the copy is a second vehicle.
+	copy.GetComponent<TransformComponent>().Translation.x = 5.0f;
+	scene.OnRuntimeStart(PhysicsOnly());
+	CHECK(scene.GetPhysicsScene()->GetVehicleCount() == 2);
+	CHECK(scene.GetPhysicsScene()->HasVehicle(copy.GetUUID()));
+	scene.OnRuntimeStop();
+}

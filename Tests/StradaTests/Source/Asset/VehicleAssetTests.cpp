@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -204,7 +205,8 @@ TEST_CASE("VehicleAsset: the engine registers Vehicle, its .svehicle files and i
 	CHECK(names == std::vector<std::string_view>{"Wheels", "Up", "Forward", "MaxPitchRoll", "Engine", "Transmission", "Lean"});
 	// The wheel list holds at most two, in an order editors keep (the first is the front), each titled by its name, which
 	// comes first.
-	FieldDescriptor const& wheels = type.GetFields()[0];
+	std::span<FieldDescriptor const> const fields = type.GetFields();
+	FieldDescriptor const& wheels = fields[0];
 	CHECK(wheels.Hints.MaxCount == VehicleWheelCount);
 	CHECK(wheels.Hints.FixedOrder);
 	REQUIRE_FALSE(wheels.Fields.empty());
@@ -426,7 +428,8 @@ TEST_CASE("VehicleAsset: damaged definitions that load make a vehicle that rides
 				refused++;
 				continue;
 			}
-			Vehicle const& definition = std::static_pointer_cast<TypedDataAsset<Vehicle>>(asset.GetValue())->GetData();
+			Ref<TypedDataAsset<Vehicle>> const loaded = std::static_pointer_cast<TypedDataAsset<Vehicle>>(asset.GetValue());
+			Vehicle const& definition = loaded->GetData();
 			Result<Scope<PhysicsScene>> created = PhysicsScene::Create({});
 			REQUIRE(created.IsOk());
 			PhysicsScene& world = *created.GetValue();
