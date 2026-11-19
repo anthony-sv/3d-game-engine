@@ -593,8 +593,9 @@ namespace Strada
 		glm::vec3 ContactNormal = glm::vec3(0.0f);
 		// Meters from the attachment to the wheel's center along the suspension.
 		float SuspensionLength = 0.0f;
-		// Radians per second around the axle (positive rolls forward), the angle it has turned (0 to 2 pi), and its steering
-		// angle (radians, positive to the vehicle's left, as Jolt turns it).
+		// Radians per second around the axle (positive rolls forward), the angle it has turned (radians within (-2 pi, 2 pi):
+		// Jolt keeps it as the remainder of a division by 2 pi, so its sign is the sign of the turning that brought it there,
+		// WheeledVehicleController.cpp:105), and its steering angle (radians, positive to the vehicle's left, as Jolt turns it).
 		float AngularVelocity = 0.0f;
 		float RotationAngle = 0.0f;
 		float SteerAngle = 0.0f;

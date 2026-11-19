@@ -13,7 +13,8 @@
 
 // The Vehicle data asset type (.svehicle, Docs/Architecture.md §8, "Vehicles", and §7.3): the engine's Vehicle
 // (Strada/Asset/Vehicle.h) as field tables, and its registration's specification (DataAssetRegistry::AddEngineTypes). C++
-// readers of a vehicle asset include this header; the physics world includes neither (it takes a VehicleDesc).
+// readers of a vehicle asset include this header. The physics world never includes it: its types include Vehicle.h for the
+// definition's struct alone (MakeVehicleDesc), and PhysicsScene takes a VehicleDesc.
 namespace Strada
 {
 	template<>
