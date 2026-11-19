@@ -42,58 +42,58 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: "Diag Debug player tests (1)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (2)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (3)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (4)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (5)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (6)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (7)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (8)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (9)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (10)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (11)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Debug player tests (12)", os: windows-2025, config: debug, allowNoGpu: "0",
-              testSuites: "StradaRuntimeTests" }
-          - { name: "Diag Release engine tests (1)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (1)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (2)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (2)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (3)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (3)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (4)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (4)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (5)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (5)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (6)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (6)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (7)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (7)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (8)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (8)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (9)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (9)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (10)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (10)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (11)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (11)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
-          - { name: "Diag Release engine tests (12)", os: windows-2025, config: release, allowNoGpu: "0",
+          - { name: "Probe: which part's optimized code (12)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (13)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (14)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (15)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (16)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (17)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (18)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (19)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (20)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (21)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (22)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (23)", os: windows-2025, config: release, allowNoGpu: "0",
+              testSuites: "StradaTests" }
+          - { name: "Probe: which part's optimized code (24)", os: windows-2025, config: release, allowNoGpu: "0",
               testSuites: "StradaTests" }
     env:
       STRADA_TESTS_ALLOW_NO_GPU: ${{ matrix.allowNoGpu }}
@@ -158,61 +158,25 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then g++ --version; clang++ --version; fi
           dotnet --version
 
-      # Building and testing are separate steps: a job killed by its time limit keeps its steps' times but no log, so the
-      # step it was in tells which phase ran out of time. The test step runs the same command with --test in place of
-      # --keep-going: its configure and build find everything up to date.
-      # The build keeps going past a failed compile (--keep-going) and still fails the step: most contributors cannot
-      # build two of the three platforms locally, and a run that stopped at the first error would cost one run per error.
-      - name: Build
+      # Diagnostic only: the nine cases that fail in Release under the new compiler, with optimization as it is and then
+      # switched off for one part at a time.
+      - name: Probe arms
         shell: bash
         run: |
-          compiler_args=()
-          if [ -n "${{ matrix.compiler }}" ]; then compiler_args=(--compiler "${{ matrix.compiler }}"); fi
-          precompile_args=()
-          if [ -n "${{ matrix.precompileThirdPartyHeaders }}" ]; then
-            precompile_args=("--cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=${{ matrix.precompileThirdPartyHeaders }}")
-          fi
-          suite_args=()
-          if [ -n "${{ matrix.testSuites }}" ]; then
-            suite_args=("--cmake-arg=-DSTRADA_TEST_SUITES=${{ matrix.testSuites }}")
-          fi
-          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" "${precompile_args[@]}" "${suite_args[@]}" \
-            --keep-going \
-            "--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=${STRADA_DEPENDENCY_CACHE_DIR}"
-
-      - name: Test
-        shell: bash
-        run: |
-          compiler_args=()
-          if [ -n "${{ matrix.compiler }}" ]; then compiler_args=(--compiler "${{ matrix.compiler }}"); fi
-          precompile_args=()
-          if [ -n "${{ matrix.precompileThirdPartyHeaders }}" ]; then
-            precompile_args=("--cmake-arg=-DSTRADA_PRECOMPILE_THIRD_PARTY_HEADERS=${{ matrix.precompileThirdPartyHeaders }}")
-          fi
-          suite_args=()
-          if [ -n "${{ matrix.testSuites }}" ]; then
-            suite_args=("--cmake-arg=-DSTRADA_TEST_SUITES=${{ matrix.testSuites }}")
-          fi
-          python Tools/build.py --config "${{ matrix.config }}" "${compiler_args[@]}" "${precompile_args[@]}" "${suite_args[@]}" \
-            --test \
-            "--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=${STRADA_DEPENDENCY_CACHE_DIR}"
-
-      # Diagnostic only: the samples' summaries with their physics state, printed whether the tests passed or not.
-      - name: Diagnostic sample hashes
-        if: always() && steps.image.outcome == 'success'
-        shell: bash
-        run: |
-          bin=build/windows-${{ matrix.config }}/bin
-          mkdir -p diag/Moto diag/Showcase/Scripts diag/user/Roaming diag/user/Local
-          cp -r Projects/Moto/Assets diag/Moto/Assets
-          cp Projects/Moto/Moto.sproj diag/Moto/
-          cp -r Projects/Showcase/Assets diag/Showcase/Assets
-          cp Projects/Showcase/Showcase.sproj diag/Showcase/
-          cp -r "$bin/Showcase" diag/Showcase/Scripts/Binaries || echo "no Showcase scripts in this job"
-          export APPDATA="$PWD/diag/user/Roaming" LOCALAPPDATA="$PWD/diag/user/Local"
-          echo "== Moto"
-          "$bin/StradaRuntime.exe" --project "$PWD/diag/Moto/Moto.sproj" --scene Scenes/Tests.sscene --test --timeout 90 2>&1 | grep -E "Tests (passed|failed)|Test failed" || true
-          echo "== Showcase"
-          "$bin/StradaRuntime.exe" --project "$PWD/diag/Showcase/Showcase.sproj" --scene Scenes/Tests.sscene --test 2>&1 | grep -E "Tests (passed|failed)|Test failed" || true
-          echo "== C# compiler"
-          dotnet --version
+          set +e
+          powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).Name"
+          filter='-tc=PhysicsScene: a saved state*,PhysicsScene: ball*,PhysicsScene: characters climb*,PhysicsScene: each collider*,Scene: contact handlers read*,Scene: editing a character*,ScenePhysics: a body at rest*,ScenePhysics: a body whose rotation*,ScenePhysics: a moving body*'
+          for arm in none jolt strada tests all; do
+            echo "::group::build, arm $arm"
+            python Tools/build.py --config release --target StradaTests \
+              "--cmake-arg=-DSTRADA_TEST_SUITES=StradaTests" "--cmake-arg=-DSTRADA_DIAG_NOOPT=$arm" \
+              "--cmake-arg=-DSTRADA_DEPENDENCY_CACHE_DIR=${STRADA_DEPENDENCY_CACHE_DIR}" > build-$arm.log 2>&1
+            code=$?
+            tail -n 5 build-$arm.log
+            echo "::endgroup::"
+            echo "== arm $arm: build exit $code"
+            build/windows-release/bin/StradaTests.exe "$filter" > run-$arm.log 2>&1
+            echo "== arm $arm: run exit $?"
+            grep -E "^TEST CASE:|ERROR: |values: |test cases:|assertions:" run-$arm.log | cut -c1-220
+          done
+          echo "== done"
