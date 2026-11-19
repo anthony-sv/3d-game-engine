@@ -243,7 +243,7 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     graph window's frame, `GraphEditor.Sync` with `GraphEditor.Adopt`, `GraphEditor.Analysis`, `GraphEditor.Canvas`
     and `GraphEditor.Index`, `GraphEditor.DrawCanvas`, and `GraphEditor.PrepareCommit`; the debugger's `GraphDebug.Frame` (its part of a game frame, which takes the
     runtime's trace), `GraphDebug.EndFrame` (the session's end of an editor frame), `GraphDebug.TakeFlow` (a window's
-    flow) and `GraphDebug.ReadValues` (the live wire values);
+    flow) and `GraphDebug.ReadValues` (the live wire values); the Telemetry panel's `TelemetryPanel.Draw` (§4.5);
   - zones are placed per phase, never per item, except per script instance and graph invoke: a recorded zone costs
     about 70 ns, and a thread's buffer holds `ZonesPerThread` (4,096) zones a frame.
 - **Who writes.** Any thread may record: the main thread, Jolt's workers (named by the job system's thread init
@@ -605,10 +605,13 @@ every configuration, Dist included (it has no macros); only the editor starts it
     channel; at most `MaxLanes`, eight) are plotted each in a lane of its own with its own value range, drawn with
     ImGui's draw lists as the Profiler panel draws its strip (no plotting library);
   - each lane's series is reduced to at most two points per pixel column (`ReduceTelemetrySeries`: the smallest and
-    largest value of the rows the column covers, in the order they came), so that drawing a long session costs the
-    lane's width; it is reduced again only when what it is reduced from changes (the session, the channel, the rows
-    placed, the axis's range or the lane's width), and a live session's growing rows are such a change. The line runs
-    from value to value over rows that have none, so a channel recorded on some steps only reads as a line;
+    largest value of the rows the column covers, in the order they came), so that what is drawn of a long session is
+    bounded by the lane's width; it is reduced again only when what it is reduced from changes (the session, the
+    channel, the rows placed, the axis's range or the lane's width), and a live session's growing rows are such a
+    change. Each frame the panel still finds the laps (a pass over the marks) and places the two spans' rows by
+    distance (a pass over their rows), which a lap of minutes at 60 steps a second keeps to thousands of cells; the
+    zone `TelemetryPanel.Draw` measures the panel's frame. The line runs from value to value over rows that have none,
+    so a channel recorded on some steps only reads as a line;
   - the rows plotted against time from the span's first row, or against a distance channel: by default
     `Ride.Distance` when the session has it (metres along the lap, recorded each step by Moto's ride graph), otherwise
     time; any channel of the session can be chosen. By distance each row is placed at its distance

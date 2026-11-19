@@ -6,6 +6,7 @@
 #include "Editor/UI/CurveView.h"
 #include "Editor/UI/EditorUI.h"
 
+#include "Strada/Core/Profiler.h"
 #include "Strada/Core/Telemetry.h"
 #include "Strada/Serialization/TelemetryCsv.h"
 
@@ -140,7 +141,10 @@ namespace Strada
 			return;
 		}
 		m_Record.Drawn = true;
-		DrawContents(telemetry, scene, dialogDirectory);
+		{
+			ST_PROFILE_SCOPE("TelemetryPanel.Draw");
+			DrawContents(telemetry, scene, dialogDirectory);
+		}
 		ImGui::End();
 		// Pause and Record stop and start the recording, which changes the sessions the draw read: done once it is over.
 		ApplyToolbarAction(telemetry);
