@@ -114,7 +114,8 @@ component and the whole scripting API.
   undo step). A C# script reads one with `Curve.Evaluate(time)` on a `Curve` field (or `Assets.Load<Curve>`); a graph
   with the pure node `Call:Strada.Curve.Evaluate(float)` on a public variable of type Curve.
 - Physics materials (`.sphysmat`) are surfaces: `physics_material_create` with `path` (`Surfaces/Gravel.sphysmat`) and
-  `fields` (`Friction`, `Restitution`, how contacts combine them, `RollingResistance`, a `Surface` name, an
+  `fields` (`Friction`, `Restitution`, how contacts combine them, `RollingResistance`, the `TyreGrip` a vehicle's tyres
+  multiply their friction by, a `Surface` name, an
   `ImpactSound` and `ImpactParticles`), `physics_material_get` and `physics_material_set` (an undo step, felt by the
   bodies at the next physics step while the game plays). Set a collider's `Material` with `component_set` (a triangle
   mesh collider also takes one per submesh in `Materials`). Scripts and graphs read its fields (`Strada.PhysicsMaterial`)

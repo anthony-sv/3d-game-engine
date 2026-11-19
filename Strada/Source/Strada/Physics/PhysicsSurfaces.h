@@ -8,14 +8,12 @@
 
 #include <Jolt/Jolt.h>
 
+#include <Jolt/Physics/Collision/Shape/Shape.h>
 #include <Jolt/Physics/Collision/Shape/SubShapeID.h>
+#include <Jolt/Physics/Collision/ShapeFilter.h>
 
+#include <cstdint>
 #include <vector>
-
-namespace JPH
-{
-	class Shape;
-}
 
 namespace Strada
 {
@@ -44,4 +42,31 @@ namespace Strada
 	// shape's remaining ID its triangle.
 	SubShapeMaterial FindSubShapeMaterial(std::vector<ColliderMaterial> const& materials, JPH::Shape const& shape,
 	                                      JPH::SubShapeID const& subShape);
+
+	// Lets queries, characters and vehicles' wheels pass through trigger colliders (the user data of a collider's shapes
+	// indexes its entry). Any thread, while the table does not change.
+	class SolidShapeFilter final : public JPH::ShapeFilter
+	{
+	public:
+		explicit SolidShapeFilter(std::vector<ColliderMaterial> const& materials)
+			: m_Materials(materials)
+		{
+		}
+
+		bool ShouldCollide(JPH::Shape const* shape, JPH::SubShapeID const&) const override { return !IsTrigger(*shape); }
+
+		bool ShouldCollide(JPH::Shape const*, JPH::SubShapeID const&, JPH::Shape const* shape, JPH::SubShapeID const&) const override
+		{
+			return !IsTrigger(*shape);
+		}
+
+	private:
+		bool IsTrigger(JPH::Shape const& shape) const
+		{
+			uint64_t const index = shape.GetUserData();
+			return index > 0 && index <= m_Materials.size() && m_Materials[index - 1].IsTrigger;
+		}
+
+		std::vector<ColliderMaterial> const& m_Materials;
+	};
 }

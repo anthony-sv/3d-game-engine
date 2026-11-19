@@ -221,6 +221,8 @@ namespace Strada
 				surface.Restitution = values.Restitution;
 				surface.FrictionCombine = values.FrictionCombine;
 				surface.RestitutionCombine = values.RestitutionCombine;
+				surface.RollingResistance = values.RollingResistance;
+				surface.TyreGrip = values.TyreGrip;
 			}
 			else if (AssetManager::IsInitialized() &&
 			         AssetManager::GetAssetType(material) == TypedDataAsset<PhysicsMaterial>::GetStaticType())

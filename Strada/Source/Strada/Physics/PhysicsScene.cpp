@@ -8,6 +8,7 @@
 #include "Strada/Physics/JoltContext.h"
 #include "Strada/Physics/PhysicsSurfaces.h"
 #include "Strada/Physics/PhysicsSystem.h"
+#include "Strada/Physics/VehicleWorld.h"
 
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Geometry/AABox.h>
@@ -227,11 +228,14 @@ namespace Strada
 			uint32_t m_Mask;
 		};
 
-		// The values a contact may use: friction at least 0, restitution within [0, 1].
+		// The values a contact may use: friction at least 0, restitution within [0, 1]; and the values a tyre may use, at least
+		// 0 (and finite: a value that is not keeps its default).
 		ColliderSurface ClampSurface(ColliderSurface surface)
 		{
 			surface.Friction = std::max(surface.Friction, 0.0f);
 			surface.Restitution = std::clamp(surface.Restitution, 0.0f, 1.0f);
+			surface.RollingResistance = std::isfinite(surface.RollingResistance) ? std::max(surface.RollingResistance, 0.0f) : 0.0f;
+			surface.TyreGrip = std::isfinite(surface.TyreGrip) ? std::max(surface.TyreGrip, 0.0f) : 1.0f;
 			return surface;
 		}
 
@@ -996,32 +1000,6 @@ namespace Strada
 			return JPH::RefConst<JPH::Shape>(result.Get());
 		}
 
-		// Lets character queries pass through trigger colliders (the user data of a collider's shapes indexes its material).
-		class SolidShapeFilter final : public JPH::ShapeFilter
-		{
-		public:
-			explicit SolidShapeFilter(std::vector<ColliderMaterial> const& materials)
-				: m_Materials(materials)
-			{
-			}
-
-			bool ShouldCollide(JPH::Shape const* shape, JPH::SubShapeID const&) const override { return !IsTrigger(*shape); }
-
-			bool ShouldCollide(JPH::Shape const*, JPH::SubShapeID const&, JPH::Shape const* shape, JPH::SubShapeID const&) const override
-			{
-				return !IsTrigger(*shape);
-			}
-
-		private:
-			bool IsTrigger(JPH::Shape const& shape) const
-			{
-				uint64_t const index = shape.GetUserData();
-				return index > 0 && index <= m_Materials.size() && m_Materials[index - 1].IsTrigger;
-			}
-
-			std::vector<ColliderMaterial> const& m_Materials;
-		};
-
 		// Lets character queries pass through the bodies of the entities the character ignores (the user data of bodies are
 		// their entities' IDs).
 		class ExcludedBodyFilter final : public JPH::BodyFilter
@@ -1429,7 +1407,8 @@ namespace Strada
 			: LayerCount(std::clamp<uint32_t>(settings.LayerCount, 1, static_cast<uint32_t>(MaxPhysicsLayers))),
 			  CollisionSteps(std::clamp<uint32_t>(settings.CollisionSteps, 1, MaxPhysicsCollisionSteps)),
 			  LayerPairs(settings),
-			  Contacts(Materials, Exclusions)
+			  Contacts(Materials, Exclusions),
+			  Vehicles(CreateScope<VehicleWorld>(System, Materials))
 		{
 		}
 
@@ -1459,6 +1438,9 @@ namespace Strada
 		// Ordered by entity: characters move one after the other, in the same order on every run. After the system, whose
 		// bodies their destructors remove.
 		std::map<UUID, CharacterRecord> Characters;
+		// After the system, whose constraints and step listener the vehicles remove when they go (PhysicsScene's destructor
+		// removes them first, before the bodies they are on).
+		Scope<VehicleWorld> Vehicles;
 		bool OptimizeBroadPhase = false;
 
 		BodyRecord const* Find(UUID entity) const
@@ -1663,7 +1645,8 @@ namespace Strada
 
 	PhysicsScene::~PhysicsScene()
 	{
-		// Constraints go before the bodies they join.
+		// Constraints go before the bodies they join: the vehicles' (with the step listener), then the joints.
+		m_Data->Vehicles.reset();
 		for (auto const& [entity, joint] : m_Data->Joints)
 		{
 			m_Data->System.RemoveConstraint(joint.Constraint);
@@ -1680,6 +1663,41 @@ namespace Strada
 	}
 
 	Result<void> PhysicsScene::AddBody(BodyDesc const& desc)
+	{
+		Data& data = *m_Data;
+		if (desc.Colliders.empty())
+		{
+			// Refused before anything changes.
+			return MakeBody(desc);
+		}
+		// A chassis's vehicle is made again on its new body when that body is dynamic, keeping what a replaced vehicle keeps.
+		VehicleDesc vehicle;
+		std::optional<VehicleCarriedState> const carried = data.Vehicles->TakeVehicle(desc.Entity, vehicle);
+		Result<void> made = MakeBody(desc);
+		if (!carried)
+		{
+			return made;
+		}
+		BodyRecord const* const body = data.Find(desc.Entity);
+		if (made && body != nullptr && body->Type == RigidBodyType::Dynamic)
+		{
+			JPH::ObjectLayer objectLayer = JPH::cObjectLayerInvalid;
+			{
+				JPH::BodyLockRead const lock(data.System.GetBodyLockInterface(), body->Id);
+				objectLayer = lock.Succeeded() ? lock.GetBody().GetObjectLayer() : objectLayer;
+			}
+			Result<void> const restored = data.Vehicles->RestoreVehicle(vehicle, *carried, body->Id, objectLayer);
+			if (!restored)
+			{
+				ST_CORE_WARN("Physics: the vehicle of entity {} could not be made again on its new body: {}", desc.Entity,
+				             restored.GetError());
+			}
+		}
+		ReaddVehicleConstraints();
+		return made;
+	}
+
+	Result<void> PhysicsScene::MakeBody(BodyDesc const& desc)
 	{
 		if (desc.Colliders.empty())
 		{
@@ -1838,6 +1856,9 @@ namespace Strada
 			return;
 		}
 		data.Structure++;
+		// Its vehicle goes first, before the body its constraint holds.
+		bool const hadVehicle = data.Vehicles->HasVehicle(entity);
+		data.Vehicles->RemoveVehicle(entity);
 		// The body's joints go first, whichever side of them it is on.
 		for (auto joint = data.Joints.begin(); joint != data.Joints.end();)
 		{
@@ -1860,6 +1881,10 @@ namespace Strada
 		data.ReleaseMaterials(it->second.Materials);
 		data.Bodies.erase(it);
 		data.RefreshCharacters(standing);
+		if (hadVehicle)
+		{
+			ReaddVehicleConstraints();
+		}
 	}
 
 	bool PhysicsScene::HasBody(UUID entity) const
@@ -2267,6 +2292,104 @@ namespace Strada
 		return state;
 	}
 
+	Result<void> PhysicsScene::AddVehicle(VehicleDesc const& desc)
+	{
+		Data& data = *m_Data;
+		data.Structure++;
+		Result<VehicleDesc> prepared = VehicleWorld::PrepareDesc(desc);
+		BodyRecord const* const body = data.Find(desc.Entity);
+		if (!prepared || body == nullptr || body->Type != RigidBodyType::Dynamic)
+		{
+			// Like every refusal, it leaves the entity without a vehicle.
+			if (data.Vehicles->HasVehicle(desc.Entity))
+			{
+				data.Vehicles->RemoveVehicle(desc.Entity);
+				ReaddVehicleConstraints();
+			}
+			if (!prepared)
+			{
+				return MakeError("the vehicle of entity {}: {}", desc.Entity, prepared.GetError());
+			}
+			return MakeError("entity {} has no dynamic body for its vehicle", desc.Entity);
+		}
+		JPH::ObjectLayer objectLayer = JPH::cObjectLayerInvalid;
+		{
+			JPH::BodyLockRead const lock(data.System.GetBodyLockInterface(), body->Id);
+			objectLayer = lock.Succeeded() ? lock.GetBody().GetObjectLayer() : objectLayer;
+		}
+		Result<void> made = data.Vehicles->AddVehicle(prepared.GetValue(), body->Id, objectLayer);
+		ReaddVehicleConstraints();
+		return made;
+	}
+
+	void PhysicsScene::RemoveVehicle(UUID entity)
+	{
+		Data& data = *m_Data;
+		if (!data.Vehicles->HasVehicle(entity))
+		{
+			return;
+		}
+		data.Structure++;
+		data.Vehicles->RemoveVehicle(entity);
+		ReaddVehicleConstraints();
+	}
+
+	bool PhysicsScene::HasVehicle(UUID entity) const
+	{
+		return m_Data->Vehicles->HasVehicle(entity);
+	}
+
+	size_t PhysicsScene::GetVehicleCount() const
+	{
+		return m_Data->Vehicles->GetVehicleCount();
+	}
+
+	Result<void> PhysicsScene::SetVehicleSettings(UUID entity, VehicleDesc const& desc)
+	{
+		if (desc.Entity != entity)
+		{
+			return MakeError("the values are of entity {}, not of entity {}", desc.Entity, entity);
+		}
+		Result<VehicleDesc> prepared = VehicleWorld::PrepareDesc(desc);
+		if (!prepared)
+		{
+			return MakeError("the vehicle of entity {}: {}", entity, prepared.GetError());
+		}
+		return m_Data->Vehicles->SetVehicleSettings(entity, prepared.GetValue());
+	}
+
+	void PhysicsScene::SetVehicleInputs(UUID entity, VehicleInputs const& inputs)
+	{
+		m_Data->Vehicles->SetVehicleInputs(entity, inputs);
+	}
+
+	void PhysicsScene::RequestVehicleShift(UUID entity, int32_t gears)
+	{
+		m_Data->Vehicles->RequestVehicleShift(entity, gears);
+	}
+
+	std::optional<VehicleState> PhysicsScene::GetVehicleState(UUID entity) const
+	{
+		return m_Data->Vehicles->GetVehicleState(entity);
+	}
+
+	std::optional<glm::mat4> PhysicsScene::GetVehicleWheelTransform(UUID entity, size_t wheel) const
+	{
+		return m_Data->Vehicles->GetVehicleWheelTransform(entity, wheel);
+	}
+
+	void PhysicsScene::ReaddVehicleConstraints()
+	{
+		Data& data = *m_Data;
+		std::vector<JPH::Constraint*> joints;
+		joints.reserve(data.Joints.size());
+		for (auto const& [entity, joint] : data.Joints)
+		{
+			joints.push_back(joint.Constraint.GetPtr());
+		}
+		data.Vehicles->ReaddConstraints(joints);
+	}
+
 	void PhysicsScene::Step(float deltaTime)
 	{
 		Data& data = *m_Data;
@@ -2286,6 +2409,8 @@ namespace Strada
 		{
 			data.StepCharacter(entity, record, deltaTime);
 		}
+		// The vehicles' latest inputs reach their controllers once per step, in the order of their entities.
+		data.Vehicles->BeginStep();
 		JPH::EPhysicsUpdateError const error =
 			data.System.Update(deltaTime, static_cast<int>(data.CollisionSteps), &data.TempAllocator, &Jolt::GetJobSystem());
 		if (error != JPH::EPhysicsUpdateError::None)
@@ -2370,7 +2495,7 @@ namespace Strada
 		}
 		if (snapshot.m_Structure != data.Structure)
 		{
-			return Error{"bodies, joints or characters were added, removed or replaced since the snapshot"};
+			return Error{"bodies, joints, characters or vehicles were added, removed or replaced since the snapshot"};
 		}
 		JPH::StateRecorderImpl recorder;
 		recorder.WriteBytes(snapshot.m_State.data(), snapshot.m_State.size());
@@ -2396,6 +2521,8 @@ namespace Strada
 		{
 			return Error{"the physics snapshot could not be restored"};
 		}
+		// A vehicle's gears may have been changed in place since the snapshot: the restored gear is one it has.
+		data.Vehicles->KeepWithinDefinitions();
 		return {};
 	}
 
@@ -2649,6 +2776,8 @@ namespace Strada
 		surface.Restitution = values.Restitution;
 		surface.FrictionCombine = values.FrictionCombine;
 		surface.RestitutionCombine = values.RestitutionCombine;
+		surface.RollingResistance = values.RollingResistance;
+		surface.TyreGrip = values.TyreGrip;
 		ColliderSurface const clamped = ClampSurface(surface);
 		Data& data = *m_Data;
 		size_t named = 0;

@@ -115,6 +115,10 @@ namespace Strada
 		float Restitution = 0.0f;
 		PhysicsMaterialCombine FrictionCombine = PhysicsMaterialCombine::GeometricMean;
 		PhysicsMaterialCombine RestitutionCombine = PhysicsMaterialCombine::Maximum;
+		// The material's values that vehicles alone read (PhysicsMaterial::RollingResistance, TyreGrip; at least 0, clamped
+		// when the body is made): a collider's own values roll without resistance and keep the tyres' grip.
+		float RollingResistance = 0.0f;
+		float TyreGrip = 1.0f;
 
 		bool operator==(ColliderSurface const& other) const = default;
 	};
@@ -498,8 +502,11 @@ namespace Strada
 	};
 
 	// A piecewise linear curve's points (x, y), x not decreasing, as Jolt's LinearCurve holds them: before the first point
-	// and past the last it keeps their values. Empty is Jolt's default for what the curve sets.
+	// and past the last it keeps their values. Empty is Jolt's default for what the curve sets. At most MaxVehicleCurvePoints,
+	// each finite.
 	using VehicleCurve = std::vector<glm::vec2>;
+	// The most points a VehicleCurve holds (a curve asset sampled at its keys and 15 points between each two).
+	inline constexpr size_t MaxVehicleCurvePoints = 16384;
 
 	// A wheel of a vehicle, in the chassis's local space without its scale (meters), angles in radians.
 	struct VehicleWheelDesc
@@ -604,6 +611,10 @@ namespace Strada
 		VehicleInputs AppliedInputs;
 		// Revolutions per minute.
 		float EngineSpeed = 0.0f;
+		// Newton meters: the torque the engine gives at EngineSpeed with the applied throttle (in Automatic mode times the
+		// clutch's friction, as Jolt cuts the throttle while it shifts), from the definition's torque curve. Jolt keeps no
+		// torque of its own; this is its VehicleEngine::GetTorque at the state the last step left.
+		float EngineTorque = 0.0f;
 		// 0 is neutral, 1 the first gear.
 		int32_t Gear = 0;
 		// 0 open to 1 closed, and whether a gear change is under way (the clutch open, or closing after one).
@@ -617,11 +628,23 @@ namespace Strada
 		std::array<VehicleWheelState, VehicleWheelCount> Wheels{};
 	};
 
+	// The chassis's up and front as a vehicle uses them (PhysicsScene::AddVehicle): up normalized, and the front made square
+	// to it and normalized. False, changing neither, when either is zero or not finite or they are parallel. Pure; any
+	// thread: the scene's wheel drawing and the editor's overlay take the axes from it as the world does.
+	[[nodiscard]] bool NormalizeVehicleAxes(glm::vec3& up, glm::vec3& forward);
+
 	// The transform of a wheel in its chassis's local space without the chassis's scale, at a suspension length, a steering
 	// angle and a rotation angle (radians), for a wheel model whose axle is its local X and whose up is its local Y: what
-	// Jolt's VehicleConstraint::GetWheelLocalTransform composes (VehicleConstraint.cpp:116-145 of the pinned Jolt) from the
-	// vehicle's up and forward (VehicleDesc, normalized and square), so that the scene draws a wheel between two steps from
-	// the values each step left (VehicleWheelState). Any thread.
+	// Jolt's VehicleConstraint::GetWheelLocalTransform composes (VehicleConstraint.cpp:127-145 of the pinned Jolt) from the
+	// vehicle's up and forward (normalized and square, NormalizeVehicleAxes) and the wheel's normalized suspension direction
+	// and steering axis, so that the scene draws a wheel between two steps from the values each step left
+	// (VehicleWheelState). PhysicsScene::GetVehicleWheelTransform gives Jolt's own at the last step. Pure; any thread.
 	glm::mat4 ComposeVehicleWheelTransform(VehicleWheelDesc const& wheel, glm::vec3 up, glm::vec3 forward, float suspensionLength,
 	                                       float steerAngle, float rotationAngle);
+
+	// A vehicle's values from its definition (Strada/Asset/Vehicle.h): the angles in radians, Wheels[0] the definition's
+	// first wheel (the front) and Wheels[1] its second (the rear; a wheel the definition lacks keeps VehicleWheelDesc's
+	// defaults), and every curve empty, which is Jolt's default: the caller samples the definition's curve assets into
+	// LongitudinalFriction, LateralFriction and NormalizedTorque. Pure; any thread.
+	VehicleDesc MakeVehicleDesc(UUID entity, Vehicle const& definition);
 }

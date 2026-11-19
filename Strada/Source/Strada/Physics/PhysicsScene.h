@@ -114,8 +114,11 @@ namespace Strada
 		bool HasVehicle(UUID entity) const;
 		size_t GetVehicleCount() const;
 		// Gives the entity's vehicle new values from its next step on, keeping its state: the wheels, the engine, the gearbox,
-		// the final drive and the lean (an edit of its definition while the world runs). Up and Forward are taken by Jolt when
-		// the vehicle is made, so values that change them are refused, as are values AddVehicle refuses; the caller then makes
+		// the final drive and the lean (an edit of its definition while the world runs). The state stays within the new
+		// values: the gear (Jolt's, and a Manual gearbox's own) within the new gears, the engine's speed within the new range.
+		// A change of mode hands the gear over: a gearbox made Manual takes the gear it is in (its timers at 0, pending shift
+		// requests dropped), one made Automatic goes on from the gear it is in. Up and Forward are taken by Jolt when the
+		// vehicle is made, so values that change them are refused, as are values AddVehicle refuses; the caller then makes
 		// the vehicle again with AddVehicle. A refusal changes nothing. Between steps.
 		[[nodiscard]] Result<void> SetVehicleSettings(UUID entity, VehicleDesc const& desc);
 		// The inputs the vehicle's next steps apply (clamped, VehicleInputs), replacing the latest; ignored for an entity
@@ -126,6 +129,12 @@ namespace Strada
 		void RequestVehicleShift(UUID entity, int32_t gears);
 		// The vehicle as the last step left it, with the inputs given since; empty for an entity without a vehicle.
 		std::optional<VehicleState> GetVehicleState(UUID entity) const;
+		// The transform of one of the vehicle's wheels (0 the front, 1 the rear) in its chassis's local space without the
+		// chassis's scale, as Jolt's VehicleConstraint::GetWheelLocalTransform composes it from the last step's suspension
+		// length, steering angle and rotation angle, for a wheel model whose axle is its local X and whose up is its local Y
+		// (what ComposeVehicleWheelTransform composes from VehicleWheelState); empty for an entity without a vehicle or an
+		// index past the wheels.
+		std::optional<glm::mat4> GetVehicleWheelTransform(UUID entity, size_t wheel) const;
 
 		// --- Simulation ---
 
@@ -157,7 +166,8 @@ namespace Strada
 		// Goes back to a snapshot of this world, so that the steps that follow run as they did from there. Fails, changing
 		// nothing, for a snapshot of another world or once a body, joint, character or vehicle was added, removed or replaced
 		// since (Jolt restores state, not structure). Settings the simulation does not change stay as they are now (gravity
-		// factors, damping, layers, what characters ignore).
+		// factors, damping, layers, what characters ignore, a vehicle's values): a vehicle whose gears were changed in place
+		// since (SetVehicleSettings) is brought back within the gears it has now, as SetVehicleSettings does.
 		[[nodiscard]] Result<void> RestoreState(PhysicsSnapshot const& snapshot);
 		// Changes whenever a body, joint, character or vehicle is added, removed or replaced (a vehicle's values changed in
 		// place do not count): snapshots of other versions are refused.
@@ -178,14 +188,15 @@ namespace Strada
 		// submesh (ColliderDesc::SubmeshSurfaces). What touches or is hit is a sub-shape of a body (a Jolt SubShapeID): its
 		// leaf shape names its collider, and on such a mesh its triangle's material index names its submesh (0 for the
 		// collider's surface, i for SubmeshSurfaces[i - 1]). Contacts combine the two sub-shapes' surfaces, and queries report
-		// the surface's Material (RaycastHit::Material). The lookup from a sub-shape to its surface is internal to
-		// PhysicsScene.cpp (FindSubShapeMaterial, any thread while the surfaces do not change); code of the Physics module
-		// outside that file that needs it (a vehicle's tyre friction) declares it in an internal header first. Only a
+		// the surface's Material (RaycastHit::Material), and a vehicle's wheels its TyreGrip and RollingResistance. The lookup
+		// from a sub-shape to its surface is internal to the Physics module (FindSubShapeMaterial in Physics/PhysicsSurfaces.h,
+		// any thread while the surfaces do not change), which the contact listener, the queries and the vehicles share. Only a
 		// character's inner body has no surface: its contacts bring Jolt's default friction (0.2) and restitution (0) with
 		// the default modes.
 
 		// Gives every collider and submesh surface whose ColliderSurface::Material is this material the material's friction,
-		// restitution and modes (an edit of the material while the world runs): their contacts use them from the next step,
+		// restitution and modes, rolling resistance and tyre grip (an edit of the material while the world runs): their
+		// contacts and the wheels on them use them from the next step,
 		// contacts that persist included, and the bodies keep everything else. When the values differ from what a body had,
 		// it wakes (a sleeping body has no contacts to take them), and so does every non-static body whose bounds meet a
 		// static one's; in entity order. Returns how many surfaces name the material. Between steps: Jolt's worker threads
@@ -255,6 +266,13 @@ namespace Strada
 		struct PrivateTag
 		{
 		};
+
+		// AddBody without what it does for a vehicle on the replaced body (it takes the vehicle before and makes it again
+		// after).
+		[[nodiscard]] Result<void> MakeBody(BodyDesc const& desc);
+		// After a vehicle was made, made again or removed: Jolt's constraints in the order of their entities, the vehicles'
+		// first, then the joints' (Architecture.md section 8, "Vehicles").
+		void ReaddVehicleConstraints();
 
 	public:
 		PhysicsScene(PrivateTag, Scope<Data> data);

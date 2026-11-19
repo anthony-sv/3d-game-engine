@@ -867,11 +867,13 @@ it on the next frame, and actions held stay down without a new press.
 ### Physics materials
 
 A physics material (`.sphysmat`) is a surface: how it slides (`Friction`), bounces (`Restitution`) and rolls
-(`RollingResistance`), the name scripts tell it by (`Surface`: Asphalt, Gravel, Ice) and the sound and particles of an
-impact on it (`ImpactSound`, `ImpactParticles`). A collision that begins plays each side's `ImpactSound` where it
-begins when the project's mixer names a bus for impact sounds ([Mixers](#mixers), `Impacts`; a new mixer names none);
-contacts spawn no particles themselves, which scripts and graphs do, and rigid bodies roll without the rolling
-resistance, which is for scripts and graphs, later the vehicle). Pick one in a
+(`RollingResistance`), how well tyres grip it (`TyreGrip`), the name scripts tell it by (`Surface`: Asphalt, Gravel, Ice)
+and the sound and particles of an impact on it (`ImpactSound`, `ImpactParticles`). A collision that begins plays each
+side's `ImpactSound` where it begins when the project's mixer names a bus for impact sounds ([Mixers](#mixers),
+`Impacts`; a new mixer names none); contacts spawn no particles themselves, which scripts and graphs do. Rigid bodies
+roll without the rolling resistance and slide without the tyre grip: a vehicle's wheels slow by the rolling resistance
+under their load and multiply their tyres' friction by the tyre grip (1 keeps the tyres as they are), so a gravel trap
+can hold boxes well (a high `Friction`) and tyres badly (a low `TyreGrip`). Pick one in a
 collider's `Material` field: its values then replace the collider's own `Friction` and `Restitution`, and the inspector
 says so, showing "Set by Material" in place of those two fields while `Material` names a physics material of the project.
 A reference to anything else (an asset of another type, a file that is gone) counts as no material: the two fields show
