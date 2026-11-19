@@ -438,9 +438,10 @@ every configuration, Dist included (it has no macros); only the editor starts it
 
   A longer name is refused, never cut, so that two names never become one channel. Equal names are one channel, so a
   game names its own (`Ride.Distance`, metres along the lap) and the engine names its channels
-  `<Subsystem>.<entity ID>.<Quantity>`: the entity's UUID in its decimal form (at most 20 digits, as files and the
-  automation API write it) and a quantity of at most 32 bytes, so that every such name fits in 61 bytes, two entities
-  of one name stay apart, and a renamed entity keeps its channels. The panel shows such a channel under its entity's
+  `<Subsystem>.<entity ID>.<Quantity>`: a subsystem's name of at most 10 bytes (`Vehicle`), the entity's UUID in its
+  decimal form (at most 20 digits, as files and the automation API write it) and a quantity of at most 32 bytes, so
+  that every such name fits in 64 bytes, two entities of one name stay apart, and a renamed entity keeps its
+  channels. The panel shows such a channel under its entity's
   name when the edited scene has that entity. A channel is meant to have one writer: values of one channel recorded by
   two threads for the same step keep one of them, which is unspecified.
 - **Rows.** A session has one row per fixed step, whether or not anything was recorded in it. A row's step is the
@@ -453,15 +454,15 @@ every configuration, Dist included (it has no macros); only the editor starts it
   `Scene::SampleTelemetry(step)` (`SceneTelemetry.cpp`): after the step is counted and its hash recorded, outside the
   physics block, since fixed steps run without physics too. By then the step's bodies and characters are written back
   and their step poses recorded (`RecordBodySteps`), so a channel sampled there reads what the step produced. Work the
-  step gains later goes before this call, which stays the step's last statement: the vehicles' inputs apply before the
-  physics step and their wheels' step poses are recorded after it (§8), so the vehicles' channels read the step's
-  result. While the recorder is idle the call returns after one branch; while it records, it opens the zone
+  step gains later goes before this call, which stays the step's last statement: when vehicles join the physics world,
+  their inputs apply before the physics step and their wheels' step poses are recorded after it, so that their
+  channels read the step's result. While the recorder is idle the call returns after one branch; while it records, it opens the zone
   `Scene.Telemetry`, records the engine's own channels of the step and ends the step's row (`Telemetry::EndStep` with
   the scene's serial, its step count and the step's length). The call reads the simulation and never changes it:
   nothing it touches is in the state hash or a snapshot (§8), so recording leaves every hash as it is.
 - **The engine's channels.** The scene records its own channels inside the named call, before `EndStep`, and only while
   recording: each subsystem that has channels adds one call there, in a fixed order, and records its entities in UUID
-  order with names it builds when the entity starts running, never per step. The first are the vehicles' (§8): each
+  order with names it builds when the entity starts running, never per step. The first are to be the vehicles': each
   vehicle's inputs as applied, engine speed, gear, forward speed and lean, and each wheel's slips, suspension and grip
   factor, about 16 channels for a bike. Channels are numbers: a surface's name is read through the vehicle's scripting
   API, not recorded.
@@ -488,6 +489,11 @@ every configuration, Dist included (it has no macros); only the editor starts it
   (`DroppedValues`, `DroppedMarks`, `DroppedSteps`, and over the recording in `TelemetryStatus`), and the first drop of
   each kind in a session is logged once as a warning that names the channel and the limit. A full ring drops its
   thread's newest records and counts them in the row that collects the ring next.
+- **While no step runs.** A running scene steps nothing while its time scale is 0 (a game's pause), yet `OnUpdate`
+  and events still run. What they record waits in the rings for the next step's row; a ring that fills meanwhile keeps
+  its oldest records and drops the newer ones, counted, so a channel recorded every frame of a long pause gives the
+  next row the last value its ring kept, not the frame's latest. A game records the simulation from `OnFixedUpdate`
+  (Moto's ride does), where every value lands in its own step's row.
 - **What idle costs.** `Telemetry::Record` and `Mark` are defined inline in the header: a relaxed load of the recording
   flag and a branch, nothing else, so an idle recorder costs its callers one predictable branch, the scene one call and
   one branch a step, and scripts one native call (`Strada.Telemetry.Record` asks `IsRecording` before it encodes the
