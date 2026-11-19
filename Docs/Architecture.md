@@ -2828,9 +2828,11 @@ wheel all of its torque).
   every velocity iteration of the solver against what it applied before (`MotorcycleController.cpp:218-226`), so its
   damping term changes the roll rate by `LeanSpringDamping` times the collision step over the roll inertia about the
   front at each iteration, and the iterations settle only while that ratio is below 1 (for the default damping of 1,000
-  at 60 steps a second, a roll inertia above 16.7 kg m²; more collision steps a step lower the bound). Seen in the
-  engine's tests: a 250 kg chassis box 0.5 m wide and 1 m high (26 kg m²) stands and rides, and one 0.3 m wide and 0.5
-  m high (5.7 kg m²) is thrown over at its first contact. A chassis whose roll inertia is too low takes less damping.
+  at 60 steps a second, a roll inertia above 16.7 kg m²; more collision steps a step lower the bound). A case of the
+  engine's tests stands on each side of it: a 250 kg chassis box 0.5 m wide and 1 m high (26 kg m²) stands and rides,
+  and a 200 kg one 0.3 m wide and 0.5 m high (5.7 kg m²) is thrown over at its first contact, spinning at Jolt's largest
+  angular velocity, yet stands with a damping of 200. A chassis whose roll inertia is too low takes less damping; nothing
+  checks or warns of it when a vehicle is made.
   **Order.** Jolt removes a constraint by moving the last one into its slot
   (`ConstraintManager.cpp:49-59`) and solves the constraints of an island in the order of their priority and then their
   index (`:103-115`), so after any change to the vehicles the world takes every vehicle's constraint and every joint out

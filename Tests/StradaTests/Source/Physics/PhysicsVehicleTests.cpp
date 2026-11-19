@@ -539,6 +539,60 @@ TEST_CASE("PhysicsScene: a positive lean input leans and turns the bike to its r
 	CHECK(sideways[1] < sideways[0]);
 }
 
+TEST_CASE("PhysicsScene: the lean spring stands a chassis whose roll inertia is above its damping times the step, and throws over "
+          "one whose roll inertia is below it")
+{
+	Testing::PhysicsSystemScope physics;
+	// Docs/Architecture.md §8, "Vehicles": the lean spring's iterations settle only while LeanSpringDamping x the collision
+	// step stays below the chassis's roll inertia about its front. At 60 steps a second the default damping of 1,000 needs
+	// 16.7 kg m². The wide chassis (250 kg, 0.5 m wide, 1 m high: 26 kg m²) stands with it; the thin one (200 kg, 0.3 m wide,
+	// 0.5 m high: 200 x (0.3² + 0.5²) / 12 = 5.7 kg m²) is thrown over at its first contact, spinning at Jolt's largest
+	// angular velocity (0.25 pi x 60 = 47 rad/s, BodyCreationSettings.h:112), and stands with a damping of 200 (3.3).
+	struct Ride
+	{
+		float Tilt = 0.0f;
+		float Spin = 0.0f;
+	};
+	auto const ride = [](bool thin, float damping)
+	{
+		Scope<PhysicsScene> world = CreateWorld();
+		RequireOk(world->AddBody(MakeGround(GroundId)));
+		BodyDesc chassis = MakeChassis(BikeId, {0.0f, 0.1f, 0.0f});
+		if (thin)
+		{
+			chassis.Mass = 200.0f;
+			chassis.Colliders[0].HalfExtents = glm::vec3(0.15f, 0.25f, 0.6f);
+			chassis.Colliders[0].Offset = glm::vec3(0.0f, 0.5f, 0.0f);
+		}
+		RequireOk(world->AddBody(chassis));
+		VehicleDesc bike = MakeBike(BikeId, VehicleTransmissionMode::Automatic);
+		bike.LeanSpringDamping = damping;
+		RequireOk(world->AddVehicle(bike));
+		Ride result;
+		for (int step = 0; step < 120; step++)
+		{
+			world->Step(Step);
+			result.Spin = std::max(result.Spin, glm::length(world->GetAngularVelocity(BikeId)));
+		}
+		std::optional<BodyTransform> const transform = world->GetBodyTransform(BikeId);
+		REQUIRE(transform);
+		glm::vec3 const up = transform->Rotation * glm::vec3(0.0f, 1.0f, 0.0f);
+		result.Tilt = glm::degrees(std::acos(std::clamp(up.y, -1.0f, 1.0f)));
+		return result;
+	};
+	Ride const wide = ride(false, 1000.0f);
+	Ride const thrown = ride(true, 1000.0f);
+	Ride const damped = ride(true, 200.0f);
+	MESSAGE("after 2 s: the wide chassis tilts " << wide.Tilt << " degrees (largest spin " << wide.Spin << " rad/s), the thin one "
+	                                             << thrown.Tilt << " (" << thrown.Spin << "), the thin one at a damping of 200 "
+	                                             << damped.Tilt << " (" << damped.Spin << ")");
+	CHECK(wide.Tilt < 10.0f);
+	CHECK(wide.Spin < 5.0f);
+	CHECK(thrown.Spin > 20.0f);
+	CHECK(damped.Tilt < 10.0f);
+	CHECK(damped.Spin < 5.0f);
+}
+
 TEST_CASE("PhysicsScene: each wheel reads the surface under it: a triangle mesh's submeshes, a body's colliders, never a trigger, "
           "and a material edited mid-ride")
 {
