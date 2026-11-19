@@ -2791,7 +2791,12 @@ namespace Strada
 		{
 			if (target.Material == material)
 			{
-				differs = differs || target != clamped;
+				// Only the values contacts read wake bodies: a vehicle's wheels read RollingResistance and TyreGrip at every step
+				// it moves in, and one asleep is at rest, so an edit of those alone wakes nothing.
+				bool const contactsDiffer = target.Friction != clamped.Friction || target.Restitution != clamped.Restitution ||
+				                            target.FrictionCombine != clamped.FrictionCombine ||
+				                            target.RestitutionCombine != clamped.RestitutionCombine;
+				differs = differs || contactsDiffer;
 				target = clamped;
 				named++;
 			}

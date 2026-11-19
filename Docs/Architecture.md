@@ -2884,7 +2884,9 @@ wheel all of its torque).
   body, not its sub-shape), and the wheel's surface is found from that sub-shape.
 - **Grip and rolling drag from the surface under each wheel.** A physics material gains `TyreGrip` (at least 0, default
   1), read by vehicles alone; `ColliderSurface` carries it with the material's `RollingResistance`, given by
-  `SetMaterialValues` like the other values (so an edit of either wakes what it touches, as a friction edit does). A
+  `SetMaterialValues` like the other values. An edit of these two alone wakes nothing (only the values contacts read
+  wake what a surface touches): a vehicle's wheels read them at every step the vehicle moves in, and a vehicle asleep is
+  at rest, where neither acts. A
   collider without a material, and a sub-shape without a collider entry (a character's inner body), has a grip of 1 and no
   rolling resistance. A tyre's grip cannot be the surface's `Friction`: a sample's gravel has the higher friction, combined
   by `Maximum`, so that blocks slow on it (`Projects/Moto/Assets/Surfaces/Gravel.sphysmat`). In the post-collide callback
