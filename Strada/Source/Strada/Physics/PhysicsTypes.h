@@ -365,9 +365,9 @@ namespace Strada
 	// contact found by a continuous collision sweep, after the step's velocity solve (with the velocities it left).
 	struct ContactPoint
 	{
-		// World space: halfway between the two surfaces' points, where Jolt's solver applies its impulse. A contact found
-		// before the bodies touch (Jolt's speculative contacts, closer than 2 cm) has it in the gap, one found inside
-		// (a fast body that went in during its last step) inside both.
+		// World space: halfway between the two surfaces' points (Jolt's solver applies its impulse to each body at that
+		// body's own point). A contact found before the bodies touch (Jolt's speculative contacts, closer than 2 cm) has it
+		// in the gap, one found inside (a fast body that went in during its last step) inside both.
 		glm::vec3 Point = glm::vec3(0.0f);
 		// Unit length, from the other body towards this one: the way this one is pushed.
 		glm::vec3 Normal = glm::vec3(0.0f);

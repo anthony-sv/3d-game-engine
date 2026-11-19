@@ -67,7 +67,7 @@ editor had moved out of visual scripting into a widget the editor shares) and 16
 | Rendering | Vulkan 1.3 through NVRHI; forward PBR (metallic-roughness, multiple-scattering compensation), image-based lighting from HDRIs, cascaded shadows with PCSS, point and spot shadows, GTAO, bloom, ACES/AgX/PBR Neutral/Reinhard tonemapping, color grading and lens effects in blended post-process volumes, FXAA, frustum and light culling, instancing (the instances of one mesh, submesh and material are one draw in each of the opaque, shadow and entity-ID passes, from per-instance data over a world-transform cache), GPU timers, picking, signed-distance text, sprites, CPU particles |
 | Assets | Static meshes from glTF, FBX and OBJ with materials; PNG/JPG/TGA/BMP textures; HDR environments; fonts; WAV/FLAC/MP3/Ogg clips; prefabs; visual scripts (`.sgraph` version 3: scripts and function libraries; versions 1 and 2 load); data assets, files of one reflected struct whose format, editor, commands and fuzz test come from one registration: curves (`.scurve`) and physics materials (`.sphysmat`), mixers (`.smixer`) and input actions (`.sinput`); persistent handles; refresh when files change |
 | Scene | EnTT ECS with 29 components and 217 fields (32 are registered; the other three are the entity's ID, its hierarchy links and its prefab link, which no inspector lists) described once by field tables (serialization, inspector, automation, scripting all derive from them), hierarchies, JSON scenes and prefabs (format 2 since the third slice, whose first migration mechanism keeps version 1 loading) |
-| Physics | Jolt 5.6: dynamic, kinematic and static bodies, box/sphere/capsule/mesh colliders, physics materials (`.sphysmat`: friction and restitution with combine modes, rolling resistance and a surface name; per collider and per submesh of a triangle mesh; edited while a scene plays), triggers, fixed/hinge/ball/distance/slider joints with limits and motors, character controllers, layers; raycasts, every hit along a ray, sphere, box and capsule casts and overlaps with layer masks in a stable order; contact points (point, normal, impulse, both materials) on collision events for C# and graphs. Fixed steps of 0.5 ms to 0.1 s, up to 64 a frame, with 1 to 4 collision steps each; dynamic and kinematic bodies drawn between their last two steps; Jolt called in body-ID order, so one binary on one machine simulates the same at any frame rate when scripts act in fixed steps; a physics state hash in every test summary and in-memory snapshots |
+| Physics | Jolt 5.7: dynamic, kinematic and static bodies, box/sphere/capsule/mesh colliders, physics materials (`.sphysmat`: friction and restitution with combine modes, rolling resistance and a surface name; per collider and per submesh of a triangle mesh; edited while a scene plays), triggers, fixed/hinge/ball/distance/slider joints with limits and motors, character controllers, layers; raycasts, every hit along a ray, sphere, box and capsule casts and overlaps with layer masks in a stable order; contact points (point, normal, impulse, both materials) on collision events for C# and graphs. Fixed steps of 0.5 ms to 0.1 s, up to 64 a frame, with 1 to 4 collision steps each; dynamic and kinematic bodies drawn between their last two steps; Jolt called in body-ID order, so one binary on one machine simulates the same at any frame rate when scripts act in fixed steps; a physics state hash in every test summary and in-memory snapshots |
 | Audio | miniaudio under a mixer of Strada's: 2D and 3D sources with inverse-distance attenuation and doppler, streamed music, a listener; a pool of voices per source with one-shots, priorities and stealing (64 mixed at once); the `.smixer` data asset: buses in a tree under `Master` with volumes, mutes and up to 8 effects each (low-pass, high-pass, peaking and shelf filters, a delay, a reverb, a compressor, a limiter), ducking, snapshots the mix blends to, reverb zones that send a source's sound to a bus, meters, impact sounds from physics materials; every change reaches the mixing thread as a command of the audio queue; the player records the mix to a file (`--audio-capture`) |
 | Input | GLFW's keys, mouse and up to 16 gamepads, read directly or through input actions (`.sinput`): buttons, axes and 2D vectors with bindings, composites, dead zones, response curves, inversion and scale, evaluated once a frame, each press seen by exactly one fixed step; events and queries for C# and graphs, overrides that scripts and agents set, rebinding while the game runs with conflicts reported and profiles kept in the game's data folder, an Input Actions panel |
 | UI | Entity-based screen-space UI: canvases with scale modes, anchored rectangles, images with rounded corners, wrapped text, buttons |
@@ -255,7 +255,7 @@ Competitor cells come from the October 2026 research except where §3.1 lists th
 
 | Feature | Unreal | Unity | Godot | O3DE | Strada |
 |---|---|---|---|---|---|
-| Engine | Chaos | PhysX (GameObjects), Unity Physics (DOTS) | Jolt (default since 4.6) | PhysX 5 (default since 26.05) | Jolt 5.6 |
+| Engine | Chaos | PhysX (GameObjects), Unity Physics (DOTS) | Jolt (default since 4.6) | PhysX 5 (default since 26.05) | Jolt 5.7 |
 | Rigid bodies, joints, characters | ✅ | ✅ | ✅ | ✅ | ✅ Five joint types, character controller |
 | Queries | ✅ | ✅ | ✅ | ✅ | ✅ Raycasts (first and every hit), sphere, box and capsule casts and overlaps, layer masks, a stable order; contact points with impulses and materials; physics materials per collider and per submesh |
 | Sub-stepping, async physics | ✅ | 🟡 Manual stepping | 🟡 Physics interpolation | ✅ | 🟡 Fixed steps from 0.5 ms, up to 64 a frame, 1 to 4 collision steps each, bodies interpolated between steps; on the main thread |
@@ -630,7 +630,8 @@ instead of Michelin as the control tire.
 
 ### 6.8 Jolt's vehicles
 
-Jolt 5.6 (July 2026; Strada pins it, and it was still Jolt's latest release on 2026-11-07) has a `VehicleConstraint`
+Jolt 5.6 (July 2026; it was still Jolt's latest release on 2026-11-07, and Strada pinned it until Jolt 5.7.0 of
+2026-11-14) has a `VehicleConstraint`
 with wheeled, tracked and motorcycle controllers.
 
 - **Wheeled vehicles.** Each step a ray, sphere or cylinder cast finds each wheel's contact; suspension, longitudinal
@@ -666,10 +667,11 @@ with wheeled, tracked and motorcycle controllers.
 
 Strada's dependencies are pinned, permissively licensed and built from source by CMake on all three platforms. The pins
 are unchanged since `d130bc1`, because neither visual scripting, Front Door nor First Ride's first two slices added a
-dependency: Jolt 5.6.0, miniaudio
-0.11.25, NVRHI's main branch, Vulkan headers 1.4.363. Jolt 5.6.0 was still Jolt's latest release on 2026-11-07; whether
-the other pins are still the latest was not re-checked. Candidates for the roadmap's items were checked in October 2026
-(release feeds and repositories; *(unverified)* where only secondary sources were available). The Jolt, Tracy, ImPlot,
+dependency, but for Jolt, which moved from 5.6.0 to 5.7.0 (released 2026-11-14) for a fault of a newer MSVC toolset:
+Jolt 5.7.0, miniaudio 0.11.25, NVRHI's main branch, Vulkan headers 1.4.363. Jolt 5.6.0 was still Jolt's latest release
+on 2026-11-07; whether the other pins are still the latest was not re-checked. Candidates for the roadmap's items were
+checked in October 2026 (release feeds and repositories; *(unverified)* where only secondary sources were available).
+The Jolt, Tracy, ImPlot,
 ozz-animation, enkiTS, SDL3 and KTX-Software rows were re-checked on 2026-11-07; where a release page shows day and
 month only, the year is inferred. The distribution rows (the Windows installer, .NET, Linux packages and file dialogs,
 release provenance) are new and were researched on 2026-11-07; their sources are in §8. They back the distribution items

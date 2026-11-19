@@ -377,7 +377,7 @@ unchanged.
 | E14 The render graph | R5's remainder, R8, R9, R11, R17, R18, R12's extra views | R4, Effort 3 (R5's first part would carry a per-view history registry, R4's first layer; it was cut from First Ride's slice 2) |
 
 Existing work also lowers costs: the visual-script curve model and editor (T7); NVRHI's debug markers and its transfer
-and compute queues (T2, T5); the pinned Jolt 5.6.0's `MotorcycleController`, `EstimateCollisionResponse`,
+and compute queues (T2, T5); the pinned Jolt 5.7.0's `MotorcycleController`, `EstimateCollisionResponse`,
 `StateRecorder`, `JobSystemWithBarrier`, `CROSS_PLATFORM_DETERMINISTIC` and `JPH_USE_EXTERNAL_PROFILE` (V0, P1, P3, T3,
 T1); miniaudio's filter, EQ and delay nodes, velocity and doppler setters, and the reverb node in its extras (AU1);
 world-placed UI canvases (`SceneRendering.h:15-23`, R12); the player's `--timestep` option (determinism tests); the
@@ -1475,7 +1475,7 @@ had merged, then the gate. What each delivered, and where it differs from what t
 - **PC, P1's contact data (lane B, 1.5).** `ContactPoint` (point, normal, impulse, relative velocity, both materials),
   up to four a contact event, sorted, with the step it happened in; `Collision.Points` in C# handlers;
   `Event.CollisionEnter` gains `Point`, `Normal`, `Impulse` and `Surface`; the `contacts` overlay. Differences: Jolt
-  5.6 reports no impulse, so each manifold's impulse is estimated as if it alone stopped the pair; events stay
+  5.7 reports no impulse, so each manifold's impulse is estimated as if it alone stopped the pair; events stay
   dispatched once per frame, after the steps.
 - **PQ, P1's queries (lane B, 2.3).** Sphere, box and capsule casts, overlaps and a raycast for every hit, with a
   32-bit layer mask, triggers counted or not, results ordered by distance then entity UUID; the C# forms without
