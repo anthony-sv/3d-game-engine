@@ -211,7 +211,7 @@ Profiler panel, the `profiler.*` commands and `StradaRuntime --profile` read its
     §9.8), `Scene.UpdateParticles`, `Scene.Destroy`; in
     `Scene.UpdatePhysics`, `Scene.ReturnToSteps` before the frame's steps and `Scene.Interpolate` after them (§8); in
     each fixed step `Scene.FixedUpdateScripts`, `Scene.SyncToPhysics`, `Physics.Step` and `Scene.SyncFromPhysics`,
-    and `Scene.Telemetry` while telemetry records (§4.5);
+    and `Scene.Telemetry` while telemetry records, with `Telemetry.Collect` inside it (§4.5);
     `Scene.SyncPhysicsMaterials` only in the frames after a data asset changed, where the bodies take the new values of
     their physics materials (§8);
   - each C# script's update and fixed update under `Script.<class>`, and each graph invoke (every event) under
@@ -467,65 +467,97 @@ every configuration, Dist included (it has no macros); only the editor starts it
   factor, about 16 channels for a bike. Channels are numbers: a surface's name is read through the vehicle's scripting
   API, not recorded.
 - **The recorder and its threads.** Any thread may record: the main thread (the scene, scripts and graphs), a C#
-  script's own tasks, and any other thread the engine or a game runs. Each thread writes into a buffer of its own: a
-  single-producer, single-consumer ring of `TelemetrySettings::RecordsPerThread` records (4,096 by default), one record
-  per `Record` or `Mark` (72 bytes: the name or label, up to 64 bytes, its length, its kind and the value). The buffers
-  are the profiler's design (§4.4, "Who writes" and "Threads that start and end"): a fixed table of
-  `Telemetry::MaxThreads` (64) slot headers with static storage, each slot's owner word packing the recording's number
-  with the slot's state, a constant-initialized and trivially destructible `thread_local` remembering the slot a thread
-  took, and the writer count with the recording number as the pair that lets `Stop` and `Shutdown` wait for writers
-  before they free a ring. `Start` gives four slots their rings and each `EndStep` tops the free ones up to four on the
-  main thread, so no recording thread allocates a ring. A thread keeps its slot until the recording stops or it calls
-  `Telemetry::EndThread`, after which the next collection frees the slot; the .NET thread pool reuses its threads, so
-  scripts' tasks hold a bounded set. A thread that finds no free slot drops its records, counted. Telemetry never
-  records on the audio device's callback, so it needs no caller-held thread state.
-- **Collection.** At the end of each fixed step, on the main thread, `EndStep` empties every ring into the step's row of
-  the live session: the values it finds by channel name (a map of the session's names to its channels, which allocates
-  only when a channel is new), the marks in their order. A ring is emptied in the order it was written, so within a
-  thread the last value of a channel wins; rings are emptied in slot order. A record another thread writes while a step
-  runs lands in that step's row or the next one's, whichever collection finds it. Names and values are checked there,
-  not on the recording thread: a name that is not `IsTelemetryName`, a value that is not finite, a channel past
-  `MaxChannels`, a step past `MaxSteps` and a value past `HistorySamples` are dropped and counted in the session
-  (`DroppedValues`, `DroppedMarks`, `DroppedSteps`, and over the recording in `TelemetryStatus`), and the first drop of
-  each kind in a session is logged once as a warning that names the channel and the limit. A full ring drops its
-  thread's newest records and counts them in the row that collects the ring next.
-- **While no step runs.** A running scene steps nothing while its time scale is 0 (a game's pause), yet `OnUpdate`
-  and events still run. What they record waits in the rings for the next step's row; a ring that fills meanwhile keeps
-  its oldest records and drops the newer ones, counted, so a channel recorded every frame of a long pause gives the
-  next row the last value its ring kept, not the frame's latest. A game records the simulation from `OnFixedUpdate`
-  (Moto's ride does), where every value lands in its own step's row.
-- **What idle costs.** `Telemetry::Record` and `Mark` are defined inline in the header: a relaxed load of the recording
-  flag and a branch, nothing else, so an idle recorder costs its callers one predictable branch, the scene one call and
-  one branch a step, and scripts one native call (`Strada.Telemetry.Record` asks `IsRecording` before it encodes the
-  name). Rings exist only while recording: `Start` allocates them and `Stop` frees them.
+  script's own tasks, and any other thread the engine or a game runs. The main thread (the one that called
+  `Telemetry::Init`, known as the profiler knows its own) writes straight into the **pending row**, the row the next
+  step collects: one cell per channel, found by name in a table that allocates only for a name new to the session, and
+  its marks in order. Every other thread writes into a buffer of its own: a single-producer, single-consumer ring of
+  `TelemetrySettings::RecordsPerThread` records (4,096 by default), one record per `Record`, `Mark` or `MarkStep` (80
+  bytes: the name or label, up to 64 bytes, its length, its kind, the value and a mark's step). The buffers are the
+  profiler's design (§4.4, "Who writes"): a fixed table of `Telemetry::MaxThreads` (64) slot headers with static
+  storage, a constant-initialized and trivially destructible `thread_local` remembering the slot a thread took, and the
+  writer count as one half of a Dekker pair. **A slot belongs to a session, not to a recording**: its owner word packs
+  a generation with the slot's state, and `Start`, `Stop` and every session's beginning and end advance the generation,
+  wait for the writers of the old one, collect or discard what they wrote, and free every buffer for the next session's
+  threads. So a thread that ended without `Telemetry::EndThread` (a retired pool thread, a game's own thread) holds its
+  buffer only until its session ends, and the open panel's recording, which spans every play of an editor session,
+  never runs out of buffers. `EndThread` gives a buffer back sooner: the next collection frees it. `Start` gives four
+  slots their rings and each `EndStep` tops the free ones up to four on the main thread, so no recording thread
+  allocates a ring. A thread that finds no free slot drops its records, counted. Telemetry never records on the audio
+  device's callback, so it needs no caller-held thread state.
+- **Collection.** At the end of each fixed step, on the main thread, `EndStep` folds every ring into the pending row, in
+  each ring's order and the slots' order, then commits the row: each channel's value (the last one for it: per thread
+  the last written; between threads, or between a thread and the main thread, one of them, which is unspecified) and
+  every mark. A record another thread writes while a step runs lands in that step's row or the next one's, whichever
+  collection finds it. Names and values are checked on the main thread: a name when it first enters the pending row's
+  table, a value when it is written. A name that is not `IsTelemetryName`, a value that is not finite, a channel past
+  `MaxChannels`, a step past `MaxSteps`, a mark past `MaxMarks` and anything past `HistoryBytes` are dropped and
+  counted in the session (`DroppedValues`, `DroppedMarks`, `DroppedSteps`, and over the recording in
+  `TelemetryStatus`), and the first drop of each kind in a session is logged once as a warning that names the channel
+  or mark and the limit. A full ring drops its thread's newest records and counts them in the row that collects the
+  ring next.
+- **While no step runs.** A running scene steps nothing while its time scale is 0 (a game's pause), yet `OnUpdate`,
+  events and the HUD's graphs still run. What the main thread records then stays in the pending row: each channel keeps
+  its last value and every mark is kept (up to `MaxMarks`), so the row after the pause holds the pause's last values
+  and all its marks beside the resuming step's own, exactly as the step rule says. Another thread's ring that fills
+  during a long pause keeps its oldest records and drops the newer ones, counted; such threads rarely record while no
+  step runs. A game records the simulation from `OnFixedUpdate` (Moto's ride does), where every value lands in its own
+  step's row.
+- **What idle costs.** `Telemetry::Record`, `Mark` and `MarkStep` are defined inline in the header: a relaxed load of the
+  recording flag and a branch, nothing else, so an idle recorder costs its callers one predictable branch, the scene one
+  call and one branch a step, and scripts one native call (`Strada.Telemetry.Record` asks `IsRecording` before it
+  encodes the name). Rings exist only while recording: `Start` allocates them and `Stop` frees them
+  (`TelemetryStatus::Buffers`).
 - **Sessions.** A session holds the rows of one scene's consecutive fixed steps. Each recording begins one at its first
   step, and `EndStep` begins another within the recording when the step comes from another scene (its serial: play
   mode runs a copy of the edited scene, so each play is a scene of its own), when it is not the next step of the live
   session (the scene started again, or a snapshot restored, §8: the new session begins at the step it went back to),
   or when its length differs. So one recording of the open panel holds one session per play, and play, stop, play
   keeps both runs to compare. A session ends with the recording (`Stop`), with `Telemetry::EndSession` (the editor's
-  play mode calls it when the game stops) and when a step begins another. The engine runs one scene at a time (the
-  editor's play mode, the player); a host that stepped two scenes in turn would begin a session at every step, each
-  bounded as below.
+  play mode calls it when the game stops) and when a step begins another; what was recorded and not yet collected is
+  then discarded, and marks waiting for a step the session never reached are dropped and counted. The engine runs one
+  scene at a time (the editor's play mode, the player); a host that stepped two scenes in turn would begin a session at
+  every step, each bounded as below.
   - Each session holds at most `MaxChannels` channels (256 by default, at least 64), `MaxSteps` rows (216,000, an hour
     at 60 steps a second) and `Telemetry::MaxMarks` marks (65,536).
-  - The recorder keeps `HistorySessions` sessions (8 by default) and `HistorySamples` samples over all of them (16 Mi
-    cells of 4 bytes, gaps included), across recordings: `Start` keeps the sessions held, which the next recording's
-    can be compared with, and drops the oldest first, never the live one, which past the bound drops its new values
-    instead. Sessions are numbered from 1 from `Init` on, so a number names one session until `Shutdown`.
-  - A channel's column begins at the row of its first value and ends at its last, with an empty (NaN) cell where a row
-    has none, so its cells are the samples it holds.
+  - **Columns are blocks.** A channel's column begins at the row of its first value and ends at its last, with an empty
+    (NaN) cell where a row has none. It is stored in blocks of `TelemetryChannel::BlockCells` (4,096) cells that never
+    move once made, so that a growing column never copies what it holds; readers go through `GetTelemetryValue` and
+    `GetTelemetryCells` (a span to the end of a block), never the blocks themselves. A live column makes its next block
+    ahead of need, once its last block is half full, at a row that differs between channels: 64 channels recorded every
+    step then make their blocks in different steps instead of all in one.
+  - The recorder keeps `HistorySessions` sessions (8 by default) and `HistoryBytes` bytes over all of them (64 MiB by
+    default, 1 MiB to 1 GiB): every block a column made counts whole (16 KiB), a block made ahead of need included
+    while its session is live, and every mark its label's bytes and `sizeof(TelemetryMark)` (`TelemetrySession::Bytes`).
+    `Start` keeps the sessions held, which the next recording's can be compared with, and drops the oldest first, never
+    the live one, which past the bound drops its new values and marks instead. Sessions are numbered from 1 from `Init`
+    on, so a number names one session until `Shutdown`.
 - **Marks and laps.** `Telemetry::Mark(label)` marks the current fixed step as `Record` places a value: during a step
-  that step, between steps the next one; a row keeps every mark it collects, in order. A label follows the rule of
-  channel names. A **lap** is the span from a mark whose label begins with `Lap` to the next such mark, which ends it
-  and begins the next lap (`FindTelemetryLaps`); it takes the label of the mark that begins it. Two such marks on one
-  row make no lap, and the last one begins the lap in progress, which is not a lap until a mark closes it. A lap's time
-  is its rows' steps times the step's length: a whole number of steps, since a mark sits on a row. Moto's race director
-  marks every crossing of the line at the step of its interpolated crossing as `Lap <n>`, n being the lap that begins
-  there, from 1, and the crossing that finishes the race as `Lap <laps + 1>`, which begins no lap the race runs but
-  closes the last one; it marks the sectors as `Sector <lap>.<n>`, which are not laps. The lap times the race shows
-  are its own interpolated ones, which differ from the recorded spans by less than a step. The **best lap** is the
-  shortest, the first of equal ones (`FindBestTelemetryLap`).
+  that step, between steps the next one; a row keeps every mark it collects, in order. `Telemetry::MarkStep(label,
+  step)` marks the row of a given step, counted as `Scene::GetFixedStepCount` and `ContactEvent::Step` count them: what
+  a handler learns of only after the frame's steps (a trigger crossed: contact events are dispatched after every step
+  of the frame, `Strada.Collision.Step` naming the step) is marked where it happened, whatever the frame rate. A held
+  row gets the mark at once from the main thread (in row order, after that row's marks) and at the next collection from
+  another thread; a step still to come gets it when its row is collected, before the marks collected then; step 0, a
+  step before the session began and one the session never reaches drop the mark, counted. A label follows the rule of
+  channel names.
+  - A **lap boundary** is a mark labelled exactly `Lap <n>` (n a decimal number from 1, without sign or leading zeros,
+    within 32 bits: `ParseTelemetryLapNumber`) or `Lap end` (`TelemetryLapEndLabel`); other labels (`Sector 1.2`,
+    `Lapse`, `Lap 01`) are not boundaries. A **lap** (`FindTelemetryLaps`) runs from a mark `Lap <n>` to the next
+    boundary when that boundary is `Lap <n + 1>` on a later row; it takes the label and number of the mark that begins
+    it. Any other next boundary ends the lap in progress without making a lap: `Lap end`, a number that is not the next
+    one, or `Lap <n + 1>` on the same row. So a race abandoned or started again within one session, or a finished race
+    followed by another, never makes a lap of the span between them. The **lap in progress**
+    (`FindTelemetryLapInProgress`) is the last `Lap <n>` that no boundary follows, up to the session's last row. A
+    lap's time is its rows' steps times the step's length: a whole number of steps, since a mark sits on a row. The
+    **best lap** is the shortest, the first of equal ones (`FindBestTelemetryLap`).
+  - **What Moto's race director marks** (GF, adding to the contract of slice 4's spec, §12): every crossing of the line
+    through `MarkStep`, never `Mark`, at the crossing's step: `Collision.Step` of the gate's trigger event, or, for the
+    interpolated crossing, the first step whose result lies past the line. It marks `Lap <n>`, n being the lap that
+    begins there, from 1, and the crossing that finishes the race as `Lap <laps + 1>`, which closes the last lap, then
+    `Lap end` on the same row; it marks `Lap end` too when a race is abandoned or started again, so that nothing stays
+    in progress. Sectors are `Sector <lap>.<n>` through `MarkStep` as well, and are not laps. The lap times the race
+    shows are its own interpolated ones, which differ from the recorded spans by less than a step. A lap's rows then
+    begin at the first row past the line, where `Ride.Distance` has wrapped.
 - **When it records.** Only while a recording runs. In the editor, `EditorTelemetry`
   (`StradaEditor/Source/Editor/EditorTelemetry.h`, no ImGui, so the commands and tests use it headless) is the one
   place that starts and stops the recorder, as `EditorProfiler` is for the profiler: it records while the Telemetry
@@ -540,14 +572,17 @@ every configuration, Dist included (it has no macros); only the editor starts it
   `telemetry.channels` and `telemetry.read` read without changing anything). Like the profiler's, they answer summaries
   and put bulk data in files:
   - `telemetry.start`: starts a recording with the settings given (`maxChannels`, `maxSteps`, `historySessions`,
-    `historySamples`, `recordsPerThread`, each within the bounds above), restarting one in progress; the first row is
-    the playing scene's next fixed step. Answers the status (recording, by whom, the sessions held, the samples, the
+    `historyBytes`, `recordsPerThread`, each within the bounds above), restarting one in progress; the first row is
+    the playing scene's next fixed step. Answers the status (recording, by whom, the sessions held, the bytes, the
     drops) and `restarted`.
   - `telemetry.stop`: ends the recording; the sessions stay. Answers the status and `stopped`.
   - `telemetry.channels`: the sessions held (each one's number, whether it is live, its first step, rows, step length,
     channels, marks and laps), and for one session (`session`, by default the newest) its channels (name, values
-    recorded, first and last step, smallest, largest and last value), its marks (the first 256, then a count of the
-    rest), its laps (label, first and last step, seconds) with the best one, and what it dropped.
+    recorded, first and last step, smallest, largest and last value, and `entity`, the id and name of the entity of an
+    engine channel `<Subsystem>.<entity ID>.<Quantity>` when the playing or edited scene has that entity, so that an
+    agent needs no other command to tell whose channel it reads), its marks (the first 256, then a count of the
+    rest), its laps (label, first and last step, seconds) with the best one and the lap in progress, and what it
+    dropped.
   - `telemetry.read`: channels named in `channels` (1 to 16) of a session over a range of steps (`from`, `to`) or a lap
     (`lap`: a lap's label, the latest of equal ones, or `best`), in at most `maxSamples` samples per channel (1 to
     4,096, 512 by default): every `stride`-th row from the range's first, the stride the smallest that fits, with
@@ -569,29 +604,36 @@ every configuration, Dist included (it has no macros); only the editor starts it
     shown rows or the lane's width change;
   - the rows plotted against time or against a distance channel: by default against `Ride.Distance` when the session
     has it (metres along the lap, recorded each step by Moto's ride graph), otherwise against time;
-  - a lap (by default the lap in progress while live, else the last) overlaid on another, by default the best lap of the
-    shown session, or, while that one has finished none, the best of the newest kept session that has; any lap of any
-    kept session can be chosen. By time, both start at their lap's first row; by distance, each row is drawn at its
-    distance, and a lap's first rows that still carry the previous lap's distance (larger than at the lap's last row)
-    are left out. Without laps the panel plots the session (live: its last 30 seconds);
+  - a lap (by default the lap in progress while live, `FindTelemetryLapInProgress`, else the last lap) overlaid on
+    another, by default the best lap of the shown session, or, while that one has finished none, the best of the
+    newest kept session that has; any lap of any kept session can be chosen. By time, both start at their lap's first
+    row; by distance, each row is drawn at its distance, and rows whose distance lies outside the lap's own run (a
+    first row that still carries the previous lap's distance, a last one that already wrapped) are left out at either
+    end alike. Without laps the panel plots the session (live: its last 30 seconds);
   - live while a scene plays: it reads the live session's rows each frame (main thread), and drawing changes nothing;
   - its draw record (`TelemetryPanel::DrawRecord`: the lanes with their channels, points and value ranges, the axis,
     the laps shown) is what the headless tests read;
   - for a capture, `viewport.screenshot` refuses a window behind another tab, and no command brings a docked tab to the
     front: the panel's tab is selected in the saved layout between editor sessions (the dock node's `Selected` in
     `imgui.ini`), as the Mixer's and the Input Actions panel's were.
-- **Scripting.** `Strada.Telemetry` (static): `Record(string channel, float value)` and `Mark(string label)`, impure
-  nodes, and `IsRecording`, a pure node (§10.4). Any thread may call them. A null argument throws; while nothing records
-  they return after one native call. Bindings `Telemetry_Record(char const*, int32_t, float)`,
-  `Telemetry_Mark(char const*, int32_t)` and `Telemetry_IsRecording()` in `ScriptBindingsRuntime.cpp`.
+- **Scripting.** `Strada.Telemetry` (static): `Record(string channel, float value)`, `Mark(string label)` and
+  `MarkStep(string label, ulong step)`, impure nodes, and `IsRecording`, a pure node (§10.4). Any thread may call them.
+  A null argument throws; while nothing records they return after one native call. Bindings
+  `Telemetry_Record(char const*, int32_t, float)`, `Telemetry_Mark(char const*, int32_t)`,
+  `Telemetry_MarkStep(char const*, int32_t, uint64_t)` and `Telemetry_IsRecording()` in `ScriptBindingsRuntime.cpp`.
+  FeatureTest's telemetry script records a distance channel and marks `Lap 1` to `Lap 3` with `MarkStep` at fixed
+  step counts from `OnFixedUpdate`, so that the panel's and the commands' cases read laps of a real FeatureTest
+  recording.
 - **Measuring.** The target is 64 channels recorded and collected within 0.05 ms a fixed step (Release, on the
   reference machine): `Record` 64 times on the main thread and `EndStep`, measured by a StradaTests benchmark behind
   `STRADA_TELEMETRY_BENCHMARK=1` (skipped without it), with the same 64 channels recorded by a C# script's
-  `OnFixedUpdate` reported beside it. Zones: `Scene.Telemetry` around the named call's work while recording, and
-  `Telemetry.Collect` around `EndStep`'s.
-- **ThreadSanitizer.** The recorder's cases that record from several threads are named `Telemetry: ...` and run in a
-  step of `tsan.yml` that selects that prefix; no case of that prefix hosts the .NET runtime (the scene's and the
-  scripts' cases are named `SceneTelemetry: ...`), as the profiler's step leaves out its scene with the runtime.
+  `OnFixedUpdate` reported beside it, and a session of 300,000 steps that reports its worst step and checks that no
+  step makes more than one block per channel. Zones: `Scene.Telemetry` around the named call's work while
+  recording, and `Telemetry.Collect` around `EndStep`'s.
+- **ThreadSanitizer.** The recorder's cases are named `Telemetry: ...` and run in a step of `tsan.yml` that selects
+  that prefix; no case of that prefix hosts the .NET runtime (the scene's and the scripts' cases are named
+  `SceneTelemetry: ...`, the CSV writer's `TelemetryCsv: ...` and the benchmarks `TelemetryBenchmark: ...`), as the
+  profiler's step leaves out its scene with the runtime.
 
 ## 5. Core conventions
 
@@ -1988,13 +2030,13 @@ Telemetry CSV (`TelemetryCsvWriter`, §4.5). `telemetry.export` writes it for an
 it back, so it carries no Strada header and no version. It is RFC 4180 text in UTF-8 without a byte order mark, every
 line ended by CR LF:
 
-- the header line: `"Step","Time"`, each exported channel's name in the session's order, then `"Marks"`; every name is
-  quoted, a `"` inside one doubled (RFC 4180, rule 7), so a name may hold commas and quotes;
+- the header line: `"Step","Time"`, each exported channel's name (in the session's order, or in the order an export
+  names them), then `"Marks"`; every name is quoted, a `"` inside one doubled (RFC 4180, rule 7), so a name may hold commas and quotes;
 - one line per row, in row order: the step's number (an unsigned integer), its time in seconds (`GetTelemetryTime`),
   each channel's value, or an empty field where the row has none, and the row's marks: an empty field when it has
   none, else their labels joined by a line feed in one quoted field (labels hold no control characters, so the join
   reads back unambiguously);
-- numbers as `JsonTextWriter` writes them, so a value reads the same in a CSV and in a JSON document: a channel's float
+- numbers as `JsonTextWriter` writes them (`JsonTextWriter::AppendDouble`), so a value reads the same in a CSV and in a JSON document: a channel's float
   as the double it converts to (`Double(static_cast<double>(value))`, as documents store floats), the time as the double
   it is. Recorded values are finite, so no `null` is written.
 

@@ -64,6 +64,9 @@ add_executable(StradaTests
     Source/Core/ProfilerTestUtilities.h
     Source/Core/ProfilerTests.cpp
     Source/Core/ResultTests.cpp
+    Source/Core/TelemetryBenchmarkTests.cpp
+    Source/Core/TelemetryTestUtilities.h
+    Source/Core/TelemetryTests.cpp
     Source/Core/UUIDTests.cpp
     Source/Core/UserDataTestUtilities.h
     Source/Core/Utf8Tests.cpp
@@ -142,6 +145,7 @@ add_executable(StradaTests
     Source/Scene/SceneScriptingInputActionsTests.cpp
     Source/Scene/SceneScriptingTests.cpp
     Source/Scene/SceneSerializerTests.cpp
+    Source/Scene/SceneTelemetryTests.cpp
     Source/Scene/SceneTests.cpp
     Source/Scene/SceneUITests.cpp
     Source/Scene/SceneVisualScriptingTests.cpp
@@ -164,6 +168,7 @@ add_executable(StradaTests
     Source/Serialization/ProfilerCaptureSerializerTests.cpp
     Source/Serialization/StructDocumentTests.cpp
     Source/Serialization/StructSerializationTests.cpp
+    Source/Serialization/TelemetryCsvTests.cpp
     Source/Serialization/VersionedDocumentTests.cpp
     Source/TestUtilities.h
 )
