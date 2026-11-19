@@ -49,6 +49,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Profiler.cpp
     Source/Strada/Core/Profiler.h
     Source/Strada/Core/Result.h
+    Source/Strada/Core/Telemetry.cpp
+    Source/Strada/Core/Telemetry.h
     Source/Strada/Core/Timer.h
     Source/Strada/Core/Timestep.h
     Source/Strada/Core/UUID.cpp

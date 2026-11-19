@@ -583,6 +583,12 @@ namespace Strada
 		// One fixed step: OnFixedUpdate, the physics changes it made, the syncs to physics, the physics step and the syncs back;
 		// then it is counted (and the hash recorded after SceneRuntimeSettings::PhysicsHashStep).
 		void RunFixedStep(float step);
+		// Telemetry's part of a fixed step (SceneTelemetry.cpp, Architecture.md section 4.5): RunFixedStep's last call, after
+		// the step is counted and its hash recorded. While Telemetry records, it records the engine's own channels of the
+		// step (each subsystem's entities in UUID order) and ends the step's row (Telemetry::EndStep with GetSerial,
+		// GetFixedStepCount and step); idle, it returns after one branch. It reads the simulation and changes nothing the
+		// state hash or a snapshot holds.
+		void SampleTelemetry(float step);
 		// Syncs the physics materials (SyncPhysicsMaterials), then rebuilds the bodies, characters and joints that changed.
 		void RebuildChangedBodies();
 		// When the data asset registry's epoch moved: gives the bodies the values of every physics material their colliders
